@@ -1,0 +1,11 @@
+// PAIR of bc_uninitborrow_shared_refuse, one token apart: the declaration
+// carries its initialiser, so the borrow is of an assigned binding and RUNS.
+package bc_uninitborrow_shared_admit;
+struct S { v: i64 }
+fn main() -> i32 {
+    let mut x: S = S { v: 7i64 };
+    let p: &S = &x;
+    let n: i64 = p.v;
+    x = S { v: 0i64 };
+    return n as i32;
+}

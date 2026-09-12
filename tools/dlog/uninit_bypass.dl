@@ -79,3 +79,48 @@ site_bypass(W, FN, F, L) :- mint(N, W), in_block(FN, B, N), unasked(FN, B), loc(
 .decl site_guarded(which: symbol, fn: symbol, file: symbol, line: number)
 site_guarded(W, FN, F, L) :- mint(N, W), in_block(FN, B, N), !unasked(FN, B), loc(N, F, L, _).
 .output site_guarded
+
+// ── 2026-09-12k: A GUARD BY DELEGATION IS INVISIBLE TO THE RULE ABOVE ───────
+// MEASURED on the probe build: with `borrow_of_uninit_binding()` installed at
+// the head of BOTH user borrow arms, sema_expr.cpp 1506/1507 (`&mut`) and
+// 3152/3155/3161/3190 (`&`) STILL come back in `site_bypass`, because
+// `uninit_read` names only a DIRECT `ref` to the field and the guard is a CALL
+// to a helper that holds the read. That is this tree's recorded failure shape —
+// a gate keyed on the callee cannot see a repair by delegation — and it means
+// the rule above can never certify a repair, only a hole.
+//
+// `asks` closes the read over calls: a call to a function whose body asks
+// (transitively) IS an ask. It is reported SEPARATELY so the direct numbers
+// stay comparable across rounds, and because the closure COARSENS in the
+// permissive-for-the-repair direction (a callee that reads the fact on some
+// other path still counts).
+// KNOWN-ANSWER CONTROL, run both ways on one build:
+//   lower_var_ref's own mints (912/932)  must stay GUARDED in both forms;
+//   the six user-borrow-arm mints        must be BYPASS in the direct form and
+//                                        GUARDED in the `asks` form;
+//   a mint in a context that neither reads the fact nor calls anything holding
+//   it (e.g. sema_expr.cpp:12421)        must stay BYPASS in both.
+.decl fn_asks(d: symbol)
+.decl delegating_call(n: symbol)
+fn_asks(D)         :- uninit_read(N), ctx_of(N, C), decl_node(C, D).
+fn_asks(D)         :- delegating_call(N), ctx_of(N, C), decl_node(C, D).
+delegating_call(N) :- call(N, P), fn_asks(P).
+
+.decl asks(n: symbol)
+asks(N) :- uninit_read(N).
+asks(N) :- delegating_call(N).
+
+.decl block_asks(fn: symbol, b: symbol)
+block_asks(F, B) :- in_block(F, B, N), asks(N).
+
+.decl unasked2(fn: symbol, b: symbol)
+unasked2(F, B) :- cfg_entry(F, B), !block_asks(F, B).
+unasked2(F, C) :- unasked2(F, B), cfg_edge(F, B, C), !block_asks(F, C).
+
+.decl site_bypass2(which: symbol, fn: symbol, file: symbol, line: number)
+site_bypass2(W, FN, F, L) :- mint(N, W), in_block(FN, B, N), unasked2(FN, B), loc(N, F, L, _).
+.output site_bypass2
+
+.decl site_guarded2(which: symbol, fn: symbol, file: symbol, line: number)
+site_guarded2(W, FN, F, L) :- mint(N, W), in_block(FN, B, N), !unasked2(FN, B), loc(N, F, L, _).
+.output site_guarded2

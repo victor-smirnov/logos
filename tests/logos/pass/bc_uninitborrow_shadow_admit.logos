@@ -1,0 +1,26 @@
+// The name-keyed tracking hazard, pinned in BOTH directions in one program: an
+// INNER uninitialised `x` must not leak its name to the outer borrow, and an
+// outer uninitialised `x` must not condemn an inner initialised shadow.
+package bc_uninitborrow_shadow_admit;
+fn inner_uninit_then_outer() -> i64 {
+    let x: i64 = 5i64;
+    {
+        let mut x: i64;
+        x = 1i64;
+        let q: &i64 = &x;
+        if *q != 1i64 { return 0i64; }
+    }
+    let p: &i64 = &x;
+    return *p;
+}
+fn outer_uninit_inner_shadow() -> i64 {
+    let mut x: i64;
+    {
+        let x: i64 = 6i64;
+        let p: &i64 = &x;
+        if *p != 6i64 { return 0i64; }
+    }
+    x = 2i64;
+    return x;
+}
+fn main() -> i32 { return (inner_uninit_then_outer() + outer_uninit_inner_shadow()) as i32; }

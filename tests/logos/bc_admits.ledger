@@ -1770,8 +1770,48 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # arm printed at line 557 of a 40-line file and blamed a stdlib function. The
 # landing sets both around the refusal. The GENERAL defect is unchanged and is
 # the standing soundness_queue row `e0184_blame_header_names_unrelated_impl`.
-# TOTAL 81
+# TOTAL 80
 
+
+# ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
+#    THE CLASS IT BELONGS TO IS **TWICE** WHAT THE ROW IS
+#
+# THE ROW. `&mut x` on a binding that is not yet definitely assigned compiled
+# clean and read uninitialised memory (valgrind 99 on the shared-borrow twin).
+# The refusal is the SAME predicate `lower_var_ref` (sema_expr.cpp) already
+# applied to every other use of the same binding — `currently_uninit_vars_`,
+# spec `borrow.var-ref.definite-assignment`, Rust E0381. The port MOVES
+# admit/moves/ -> fail/moves/ and pins
+#     use of possibly uninitialised binding 'x'
+# against upstream's `used binding \`x\` isn't initialized`
+# (tests/ui/moves/move-of-addr-of-mut.stderr @ da5114692c9).
+#
+# THE CLASS, BY PROPERTY — and the row is HALF of it. `tools/dlog/selftest.sh`
+# rc 0 first (28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5).
+# `tools/dlog/uninit_bypass.dl` names 138 minting sites never dominated by a
+# read of the fact; a per-site read of all 38 bypassing `addr_of` mints, one
+# hand program each, says FOUR families are live on a USER binding name:
+#     sema_expr.cpp 1506/1507       `&mut x`        <- the row
+#     sema_expr.cpp 3152/3155/3161/3190  `&x`       <- its twin, same arm pair
+#     sema_stmt.cpp 8302/8329       `f[i] = v`  through a user IndexMut
+#     sema_stmt.cpp 3132/3140/3149  `f[i] += v` through a user IndexMut
+# The last two have NO ledger row and were found only by enumerating the class:
+# both compiled clean on the base binary AND under the priced probe, which
+# covered the two unary arms alone. All four are closed by one helper.
+# NOT live, measured not assumed: sema_expr.cpp:12421 (`lower_index_place`
+# lowers the receiver as a VALUE first, so `&f[i]` already refused);
+# 13135/13238/13375/13524/13637 and the 19543..20530 / 6458..6580 / 2465 /
+# 17504 families (compiler-SYNTHESISED names); sema_impl.hpp:1535 (re-mints a
+# name from an AddrOf the user already wrote, refused one arm earlier).
+#
+# ⚠ AND THE TOOL WAS WRONG IN THE OTHER DIRECTION TOO, ON ITS OWN CONTROL.
+# `site_bypass` could not see the probe's guard at all, because the guard is a
+# CALL and the rule named only DIRECT reads of the field — a gate keyed on the
+# callee cannot see a repair by delegation. The `asks` closure added this round
+# fixes that (the six arm mints move bypass -> guarded, 912/932 stay guarded)
+# and OVERSHOOTS: it also clears sema_expr.cpp:12421, whose enclosing block
+# merely calls something that asks about a DIFFERENT name. 138 -> 68 bypass is
+# not 70 repairs. Both numbers are reported; the per-site read is the authority.
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
 # ── 2026-09-07, STAGE 3 OF THE RE-PORT: 97 -> 105, AND THE GROWTH IS THE RESULT ──
@@ -1846,7 +1886,6 @@ trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/
 
 # ── tests/ui/moves ─────────────────────────────────────────
 
-move-of-addr-of-mut nllmoves.R5 tests/imported/admit/moves/move-of-addr-of-mut
 
 # ── tests/ui/nll ─────────────────────────────────────────
 

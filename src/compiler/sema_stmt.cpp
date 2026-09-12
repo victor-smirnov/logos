@@ -3105,6 +3105,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                 if (has_im) {
                     if (!lookup_is_mut(arr_name))
                         error(std::format("index compound assign to immutable struct '{}'", arr_name));
+                    borrow_of_uninit_binding(arr_name);
                     const SemaFuncInfo* fit_im = nullptr;
                     for (auto* c : find_func_candidates(type_name + "__index_mut"))
                         if (c->param_types.size() == 2) { fit_im = c; break; }
@@ -8291,6 +8292,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     if (!has_im) return std::nullopt;
     if (!lookup_is_mut(arr_name))
         error(std::format("index write to immutable struct '{}'", arr_name));
+    borrow_of_uninit_binding(arr_name);
     auto mangled = type_name + "__index_mut";
     lir::LExprPtr idx_e = lower_expr(idx_node);
     lir::LExprPtr val_e = lower_expr(val_node);

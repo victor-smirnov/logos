@@ -41585,3 +41585,210 @@ the same file already applies to every other use of the same binding — the
 change makes the checker MORE uniform, not more aggressive, and the one shape
 where a merge could have been wrong (shadowing, one-branch init) was tested in
 both directions.
+
+# ═══ ROUND 2026-09-12k — THE PRICED ARM WAS HALF THE CLASS: `&x` / `&mut x`
+# ═══ ARE TWO OF **FOUR** LIVE FAMILIES THAT MINT A BARE BINDING'S ADDRESS
+# ═══ WITHOUT ASKING DEFINITE ASSIGNMENT, AND THE TWO NOBODY PREDICTED —
+# ═══ `f[i] = v` AND `f[i] += v` THROUGH A USER `IndexMut` — COMPILED CLEAN
+# ═══ UNDER THE PROBE THAT WAS RECOMMENDED FOR LANDING ════════════════════════
+
+## uninitborrow — LANDED, NO LONGER ENV-GATED, AND WIDENED TO THE WHOLE CLASS
+site: src/compiler/sema_impl.hpp::borrow_of_uninit_binding — asked at four call
+      sites: sema_expr.cpp `lower_expr_inner` (`&mut` VAR_REF arm) and
+      `lower_unary` (`&` VAR_REF arm), sema_stmt.cpp `try_index_mut_assign` and
+      `lower_place_compound_assign`.
+fires: 15464 at the two unary arms, measured by the pricing round on build
+      c4594d5f9256736c (the same two call sites, unchanged here) — a measurement
+      with a timestamp, not re-taken, because the probe gate it was counted
+      through is gone. The TWO NEW call sites are proven live by ARRIVAL, which
+      is the thing a fire count exists to establish: `f[i] = v` and `f[i] += v`
+      on an uninitialised binding compiled clean on the base binary AND under
+      the priced probe, and are refused here — landed as
+      tests/logos/fail/bc_uninitborrow_index{write,compound}_refuse.
+build: 930ba7b870356185 43
+  (the binary the gates below ran on. ⚠ TWO HASHES IN ONE ROUND FROM ONE SOURCE
+  STATE: the same sources read 1b90537ed04d68cd after `cmake --build`, and
+  930ba7b870356185 after a `cmake -S . -B build` reconfigure that registered the
+  new fixtures. No compiler source changed between them. `build_hash.py` has
+  disagreed with itself before; both numbers are recorded rather than one.)
+  base, read before any edit: c4594d5f9256736c 43  (= HEAD f04eb6aae, the priced
+  probe installed but env-gated); pre-probe base 4f617ed79acc85af 43 (7ae819087).
+
+## WHAT THE PRICING ROUND GOT RIGHT, AND THE ONE THING IT DID NOT ASK
+
+Its mechanism is confirmed in every column, and its recommendation to fund is
+carried. What it did not do is finish the class. It enumerated the BYPASS SITES
+(dlog `site_bypass`, 133) and then narrowed to "the two USER unary-borrow arms",
+by reading. THE NARROWING WAS THE CLAIM, and it was wrong by a factor of two.
+
+## THE CLASS, BY PROPERTY — TWO INDEPENDENT ENUMERATIONS THAT AGREE
+
+(a) FROM THE COMPILER. `tools/dlog/selftest.sh` rc 0 FIRST (28fc7c75 still reads
+19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty still 1 -> 0 across
+756aed65). `uninit_bypass.dl` at fixpoint: 138 minting sites never dominated by
+a read of `currently_uninit_vars_`. A PER-SITE READ of all 38 bypassing
+`addr_of` mints, one hand program per candidate:
+
+    LIVE on a user binding name, 4 families / 12 sites
+      sema_expr.cpp 1506 1507              `&mut x`
+      sema_expr.cpp 3152 3155 3161 3190    `&x`
+      sema_stmt.cpp 8302 8329              `f[i] = v`  (try_index_mut_assign)
+      sema_stmt.cpp 3132 3140 3149         `f[i] += v` (lower_place_compound_assign)
+    NOT LIVE, measured not assumed
+      sema_expr.cpp 12421   `lower_index_place` lowers the receiver as a VALUE
+                            first, so `&f[i]` already refused on the base binary
+      13135 13238 13375 13524 13637, 19543..20530, 6458..6580, 2465, 17504
+                            SYNTHESISED names (`__hlc_c`, `vec_var`, `hm_var`, …)
+      sema_impl.hpp 1535    re-mints a name taken from an `AddrOf` the user
+                            already wrote — refused one arm earlier
+
+(b) FROM THE LANGUAGE, on the base binary, before anything was edited: fourteen
+one-shape-each USES of an uninitialised binding.
+    REFUSED  x.v · take(x) by value · x.get() · match x · &x.v · let y = x ·
+             a[0] (native) · a[0] = 1 (native) · a[0] += 1 (native)       (9)
+    ADMITTED &x · &mut x · takeref(&x) · &*&x · &p where p = &x ·
+             (&x, 0) tuple element · { &x } block value                  (7)
+    plus, found by (a) and confirmed here:  f[i] = v · f[i] += v         (2)
+The partition is exactly "the place is the BARE BINDING and no VALUE of it is
+ever lowered". Both enumerations name the same four families.
+
+## ⚠ THE TOOL WAS WRONG IN BOTH DIRECTIONS IN ONE ROUND, AND BOTH ARE RECORDED
+
+DIRECTION 1 — BLIND TO A REPAIR BY DELEGATION. With the probe installed and
+guarding both unary arms, `site_bypass` STILL listed all six of their mints,
+because `uninit_read` named only a DIRECT `ref` to the field and the guard is a
+CALL to a helper. A rule in that form can only ever find a hole, never certify a
+repair. Rule extended this round (authorised development) with `asks`, a closure
+of the read over calls, reported SEPARATELY so the direct numbers stay
+comparable: site_bypass/site_guarded 138/21 direct, 68/91 under `asks`.
+
+DIRECTION 2 — AND THE CLOSURE OVERSHOOTS, CAUGHT BY ITS OWN CONTROL. Three
+known answers were declared before running it: 912/932 stay guarded (PASS), the
+six arm mints move bypass -> guarded (PASS), and sema_expr.cpp:12421 stays
+bypass in BOTH forms (**FAIL** — `asks` calls it guarded, because its enclosing
+block calls something that asks about a DIFFERENT name). So 138 -> 68 is not 70
+repairs; it is the `ctx_of` coarsening arriving at the callee level. The
+per-site read is the authority, and it is what found the two live index
+families that dlog's own permissive form would have cleared.
+
+## THE FIX, AND ITS SIZE
+
+`borrow_of_uninit_binding` now ASKS and DIAGNOSES in one place and returns
+whether it refused — four call sites spelling the same sentence is how copies
+drift apart, which is the argument `static_access_needs_unsafe` already made at
+two of these four sites for a different question.
+
+  DIFF BUDGET DECLARED BEFORE IMPLEMENTING (tools/dlog/TARGET_ROWS_2026-09-12k.txt,
+  written before the compiler was touched): <= 35 added lines against the
+  pre-probe base. Two candidates scored; (b) "one funnel at resolve-a-bare-
+  binding-as-a-place" rejected because no such function exists and manufacturing
+  one is a refactor, not a fix.
+  ACTUAL, `git diff 7ae819087 --numstat`: **17 added, 0 removed** — TWO FEWER
+  lines than the probe that covered half the class.
+
+## COUNTER-EXAMPLES WRITTEN FOR THIS ROUND, IN SHAPES THE PRICING PHASE DID NOT
+## USE (rule 5: vary the SHAPE, not the count)
+
+15 legal programs, 15 shapes, none of them one of the pricing round's 15:
+loop-init-then-break · early-return guard · diverging `else` · borrow of a
+while-body binding · tuple-destructuring `let` · two fns with the same binding
+name · init from a `match` EXPRESSION · nested if, every leaf assigns · two
+borrows inside an array literal · borrow as a struct-literal field · `&mut`
+written through then read · borrow inside a while body after init · INNER
+uninit shadow then outer borrow · OUTER uninit with an inner initialised shadow
+· a parameter named like another fn's uninitialised local.
+  14 of 15 compile rc 0 AND RUN with the asserted exit code under the landed
+  binary. THE FIFTEENTH IS A REAL OVER-REFUSAL AND IT IS PRE-EXISTING — see
+  below.
+7 illegal programs, 7 shapes: nested block · `&mut x` as a call argument ·
+one-branch init · TUPLE-typed binding · inside a match ARM · `&mut` inside a
+while body · ARRAY-typed binding. All rc 1, and the ARRAY one was ALREADY rc 1
+on the base binary for a DIFFERENT reason ("cannot assign to 'a' because it is
+borrowed"), so it discriminates nothing and is reported as such rather than
+counted as a seventh win.
+
+## ⚠ THE ONE LEGAL PROGRAM REFUSED, AND THE CONTROL THAT SAYS THIS ROUND DID
+## NOT CAUSE IT
+
+    let mut x: i64;  loop { x = 7i64; break; }  let p: &i64 = &x;   REFUSED
+
+CONTROL, on the UNARMED BASE binary, one variable changed — the borrow replaced
+by a plain READ of the same binding at the same point:
+
+    let mut x: i64;  loop { x = 7i64; break; }  return x as i32;    REFUSED
+    /home/logos/sandbox/uib/C1_loop_break_read.logos:9:
+    error [fn main]: use of possibly uninitialised binding 'x'
+
+Identical sentence, no borrow in the program, and it predates everything in this
+arc. ROOT, read per-site: `lower_loop` (sema_stmt.cpp, the `loop_pre_uninit`
+snapshot/restore) says "loops are CONSERVATIVE — the body may run zero times",
+which is TRUE of `while`/`for` and FALSE of `loop`. So the set of programs the
+four new call sites refuse is a SUBSET of what a read at the same point already
+refused: this change inherits the over-refusal, it does not create or widen it.
+FILED as its own soundness-queue row `loop_init_before_break_refuses` (tier 3,
+`refuses`), with its own fix sketched on the program. ⚠ The legality claim rests
+on a READING of Rust — there is no rustc binary here — and the upstream evidence
+that the reading is right is `tests/ui/borrowck/borrowck-break-uninit.rs @
+da5114692c9`, which had to put `break;` BEFORE `x = 0;` to obtain E0381.
+
+## THE COST TABLE, RE-MEASURED ON THE LANDED BINARY (rule 8: a ceiling decays)
+
+    CEILING (bc_admits)   1 row   logos_00_bc_admit_moves_move-of-addr-of-mut
+    PREDICTED BY NAME     1 row   {move-of-addr-of-mut}, written to
+                                  tools/dlog/TARGET_ROWS_2026-09-12k.txt before
+                                  the edit. predicted∖closed = ∅, closed∖predicted = ∅
+    COST stdlib           0       all four layers compile
+    COST fail(text)       0       1515 fail fixtures, PAIRED base vs landed on
+                                  one population and diffed BOTH WAYS: exactly
+                                  SIX rows differ, and they are the six this
+                                  change exists to refuse (the five new fail
+                                  halves and the moved ledger row), each
+                                  rc 0 -> 1 and `.expected` 0 -> 1. Zero other
+                                  rows moved, so the cost over the 1509
+                                  pre-existing rows is 0, text-only included.
+    COST runtime          0       6694 pass fixtures compiled, LINKED and RUN,
+                                  base and landed, diffed BOTH WAYS: EXACTLY ONE
+                                  differing row, `cast-region-to-uint`, the
+                                  fixture that prints a stack address
+                                  (subtracted by name). Both columns carry the
+                                  same 4 `cc=90` rows — the backend
+                                  self-diagnoses recorded BY NAME by earlier
+                                  rounds (issue-41888-b170,
+                                  nested-tuple-in-variant-payload-b170,
+                                  res-and-or-comb-or, intrinsic_2) — so the
+                                  change adds none.
+    gates                 L1 807/807 + 12 684 generated, tier_commit 138/138,
+                          L4 bc, soundness_queue_gate rc 0 (92 rows),
+                          probe-log-lint rc 0
+
+## ⚠ AND A FOURTH SCRATCHPAD / MARKER LIE, THIS ONE IN THE EXPENSIVE DIRECTION
+
+A base binary was built in a second worktree to pair the runtime column on one
+source state. `cmake --build` there ended with `gmake: *** Error 2` and NO
+`bin/logosc`, and the RC marker beside it read **0**. `run_oracle.py` against
+that dir then finished in 51 s reporting **6688 pass fixtures compiled, linked
+and RUN, rc 0** — every single row of which was `ERR:FileNotFoundError`. A
+column of 6688 uniform failures is indistinguishable at the summary line from a
+column of 6688 successes; only `grep -c ERR:` separates them (6688 vs 0). THE
+RUNTIME PAIRING WAS THEREFORE TAKEN BY CONTROL REVERT IN THE MAIN TREE, not by
+a second build dir, and every marker was `rm`'d and every file `ls -la`'d.
+
+## THE CONTROL REVERT, AND WHAT IT PROVES ABOUT EACH OF THE SIX
+
+The three compiler sources were checked out at 7ae819087 IN THE MAIN TREE and
+rebuilt (rc 0, hash b6b96bfd9e6dc6ed 43). On that binary:
+
+    tests/imported/fail/moves/move-of-addr-of-mut       rc 0  ADMITS
+    tests/logos/fail/bc_uninitborrow_shared_refuse      rc 0  ADMITS
+    tests/logos/fail/bc_uninitborrow_mut_refuse         rc 0  ADMITS
+    tests/logos/fail/bc_uninitborrow_indexwrite_refuse  rc 0  ADMITS
+    tests/logos/fail/bc_uninitborrow_indexcompound_refuse rc 0 ADMITS
+    tests/logos/fail/bc_uninitborrow_onebranch_refuse   rc 0  ADMITS
+    all six pass halves                                 rc 0  unchanged
+
+So every one of the five new fail fixtures is a genuine un-refusal this change
+closes, not a reworded red (rule 14), and the two index ones are the members the
+priced probe left open. Restored and rebuilt: hash back to 930ba7b870356185 43,
+digit for digit, and `git status --short` empty — the revert is PROVEN restored
+before the paired columns above were taken (the 09-12 rule about an un-restored
+control).

@@ -1,0 +1,37 @@
+// OVER-REFUSAL, tier 3 — legal Rust, refused. `loop { x = 7; break; }` assigns
+// `x` on every path that leaves the loop, so after it `x` IS definitely
+// initialised and the read (or borrow) is legal. logosc refuses with
+//     error [fn main]: use of possibly uninitialised binding 'x'
+// ROOT, read per-site: `lower_loop` (src/compiler/sema_stmt.cpp, the
+// `loop_pre_uninit` snapshot/restore pair) says in its own comment "loops are
+// CONSERVATIVE — the body may run zero times". That is TRUE of `while` and
+// `for` and FALSE of `loop`, whose body always executes at least once; the
+// same restore is used for all three, so every initialisation performed in a
+// `loop` body is discarded at the join even when the only exit is a `break`
+// below it.
+// PRE-EXISTING, and this is the CONTROL that says so: the plain READ shown
+// below is refused on the BASE binary (`c4594d5f9256736c`, HEAD f04eb6aae)
+// with the identical sentence, i.e. by `lower_var_ref`'s own check at
+// sema_expr.cpp:874, with no borrow anywhere in the program. The 2026-09-12k
+// definite-assignment class fix asks that SAME predicate at the address-mint
+// sites, so it inherits this over-refusal for `&x` — it does not create it and
+// does not widen it: the set of programs the new sites refuse is a subset of
+// what a read at the same point already refused.
+// ⚠ THE LEGALITY CLAIM RESTS ON A READING OF RUST, NOT ON RUSTC: there is no
+// rustc binary on this box. The upstream evidence that the reading is right is
+// tests/ui/borrowck/borrowck-break-uninit.rs @ da5114692c9, which had to put
+// `break;` BEFORE `x = 0;` to obtain E0381 — the assign-then-break order is
+// exactly the one upstream does not diagnose.
+// FIX: `loop` must not restore the pre-body uninit set wholesale; a `loop`
+// whose body assigns before every reachable `break` leaves the binding
+// initialised. Its own row, its own round — `while`/`for` keep the
+// conservative restore.
+package loop_init_before_break_refuses;
+fn main() -> i32 {
+    let mut x: i64;
+    loop {
+        x = 7i64;
+        break;
+    }
+    return x as i32;
+}

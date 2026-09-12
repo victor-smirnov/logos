@@ -1,0 +1,10 @@
+// PAIR of bc_uninitborrow_mut_refuse, one token apart: `x` carries its
+// initialiser, the `&mut` borrow writes through it, and the program RUNS.
+package bc_uninitborrow_mut_admit;
+struct S { v: i64 }
+fn main() -> i32 {
+    let mut x: S = S { v: 0i64 };
+    let p: &mut S = &mut x;
+    p.v = 3i64;
+    return x.v as i32;
+}

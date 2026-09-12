@@ -14,6 +14,15 @@
 //   program; the upstream one is filed as `raw_ref_expression` in
 //   tests/logos/unrowed_backlog.ledger and re-ported when the syntax lands.
 // 2026-09-08 re-port: STILL ADMITTED (bucket 4 — the upstream construct is blocked).
+// 2026-09-12k CLOSED and MOVED admit/ -> fail/. `&mut x` on an uninitialised
+// binding is now refused, by the SAME predicate `lower_var_ref` already applied
+// to every other use of the same binding (`currently_uninit_vars_`, spec
+// `borrow.var-ref.definite-assignment`). logosc prints
+//     error [fn main]: use of possibly uninitialised binding 'x'
+// against upstream's E0381 "used binding `x` isn't initialized"
+// (tests/ui/moves/move-of-addr-of-mut.stderr @ da5114692c9). The RAW-reference
+// construct the upstream test exists to pin is still unportable and still filed
+// as `raw_ref_expression` in tests/logos/unrowed_backlog.ledger.
 package move_of_addr_of_mut;
 struct S { v: i64 }
 fn main() -> i32 {

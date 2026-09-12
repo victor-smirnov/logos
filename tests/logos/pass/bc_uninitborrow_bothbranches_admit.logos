@@ -1,0 +1,10 @@
+// PAIR of bc_uninitborrow_onebranch_refuse: the `else` arm assigns too, so the
+// merge is initialised on every incoming path and the borrow is legal. RUNS.
+package bc_uninitborrow_bothbranches_admit;
+fn f(c: i64) -> i32 {
+    let mut x: i64;
+    if c == 0i64 { x = 1i64; } else { x = 2i64; }
+    let p: &i64 = &x;
+    return *p as i32;
+}
+fn main() -> i32 { return f(1i64); }

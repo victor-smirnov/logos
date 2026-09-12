@@ -1,0 +1,54 @@
+ROUND 2026-09-12k — PREDICTION, WRITTEN BEFORE THE COMPILER WAS EDITED
+base build hash read first: c4594d5f9256736c 43  (= HEAD f04eb6aae, probe
+`uninitborrow` installed but ENV-GATED and therefore inert unarmed)
+
+WHAT IS BEING LANDED
+  The definite-assignment question (`currently_uninit_vars_`,
+  `borrow.var-ref.definite-assignment`, Rust E0381) asked at EVERY site that
+  mints the address of a BARE USER BINDING without routing through
+  `lower_var_ref` — not only at the two the pricing round measured.
+
+THE CLASS, ENUMERATED BY PROPERTY (dlog site_bypass + a per-site read of all
+38 bypassing `addr_of` mints, then a program for each candidate):
+  live, closed by the PRICED arm        sema_expr.cpp 1506/1507  (`&mut x`)
+                                        sema_expr.cpp 3152/3155/3161/3190 (`&x`)
+  live, NOT closed by the priced arm    sema_stmt.cpp 8302/8329
+                                          (`try_index_mut_assign` — `f[i] = v`)
+                                        sema_stmt.cpp 3132/3140/3149
+                                          (`lower_place_compound_assign` — `f[i] += v`)
+  NOT live (measured, not assumed)      sema_expr.cpp 12421 (`lower_index_place`
+                                          lowers the receiver as a VALUE first,
+                                          so `&f[i]` already refuses)
+                                        13135/13238/13375/13524/13637 and the
+                                          19543..20530 / 6458..6580 / 2465 /
+                                          17504 families — SYNTHESISED names
+                                          (`__hlc_c`, `vec_var`, `hm_var`, …)
+                                        sema_impl.hpp 1535 — re-mints a name
+                                          taken from an AddrOf the user already
+                                          wrote, which the `&` arm refuses first
+
+PREDICTED CEILING ON bc_admits.ledger:  1 row, BY NAME
+    move-of-addr-of-mut   nllmoves.R5   tests/imported/admit/moves/move-of-addr-of-mut
+  The two index members have NO ledger row — they are holes found by this
+  round's class enumeration, and they land as fail fixtures, not as closures.
+
+PREDICTED COST: 0 in every column (pass ledger+legal, fail text, stdlib x4,
+runtime over the ~6.7k run fixtures). The check is the SAME predicate the same
+file already applies to every other use of the same binding.
+
+DIFF BUDGET, DECLARED BEFORE IMPLEMENTING: <= 35 added lines against the base
+(the 19 already in the tree included). TWO candidates scored: (a) one helper
+that both asks and diagnoses, called at four entry points; (b) a single funnel
+at "resolve a bare binding as a place" — REJECTED, no such function exists and
+manufacturing one is a refactor, not a fix.
+
+KNOWN LEGAL-PROGRAM EXPOSURE, MEASURED BEFORE THE EDIT AND NOT CAUSED BY IT:
+  `let mut x: i64; loop { x = 7i64; break; } let p: &i64 = &x;` is LEGAL Rust
+  and is refused. The CONTROL is that the plain READ of the same binding at the
+  same point is ALREADY refused on the unarmed base binary, with the identical
+  sentence: `lower_loop` (sema_stmt.cpp:8032) treats `loop` as "may run zero
+  times", which is true of `while`/`for` and false of `loop`. That is a
+  PRE-EXISTING over-refusal in `lower_var_ref`'s own predicate, it is filed as
+  its own soundness-queue row (`refuses`), and this round does not widen it: the
+  set of programs the new call sites refuse is a SUBSET of what a read at the
+  same point already refuses.

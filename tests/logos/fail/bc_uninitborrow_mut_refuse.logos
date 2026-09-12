@@ -1,0 +1,12 @@
+// `&mut x` on a binding that is not yet definitely assigned — the `&mut` half
+// of the same hole, at the other arm (sema_expr.cpp lower_expr_inner). Rust E0381.
+// PAIR: bc_uninitborrow_mut_admit.
+package bc_uninitborrow_mut_refuse;
+struct S { v: i64 }
+fn main() -> i32 {
+    let mut x: S;
+    let p: &mut S = &mut x;
+    p.v = 3i64;
+    x = S { v: 7i64 };
+    return x.v as i32;
+}

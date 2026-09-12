@@ -5531,13 +5531,17 @@ private:
         return true;
     }
 
-    // PROBE `uninitborrow` (2026-09-12, pricing only). The THIRD question the
-    // two BORROW arms route around `lower_var_ref` without asking. The first
-    // two were the static-unsafe pair, repaired above; this is definite
-    // assignment (`borrow.var-ref.definite-assignment`, Rust E0381).
-    bool borrow_of_uninit_binding(std::string_view name) const {
-        if (!logos::probe::on("uninitborrow")) return false;
-        return currently_uninit_vars_.count(std::string(name)) != 0;
+    // Definite assignment at a BARE-BINDING address mint
+    // (`borrow.var-ref.definite-assignment`, Rust E0381). `lower_var_ref` asks
+    // this question of every VALUE use; the arms that build a binding's ADDRESS
+    // from its NAME route around that function and so ask nowhere — the same
+    // hole the static-unsafe pair was repaired in, one question later. Asked
+    // ONCE here, and DIAGNOSED here, because four call sites spelling the same
+    // sentence is how copies drift apart. Returns true when it refused.
+    bool borrow_of_uninit_binding(std::string_view name) {
+        if (currently_uninit_vars_.count(std::string(name)) == 0) return false;
+        error(std::format("use of possibly uninitialised binding '{}'", name));
+        return true;
     }
 
     bool is_module_static_unshadowed(std::string_view name) const {

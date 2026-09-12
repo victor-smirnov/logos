@@ -1,0 +1,15 @@
+// THE CLASS MEMBER THE PRICED ARM DID NOT CLOSE. `f[i] = v` through a user
+// IndexMut mints the RECEIVER's address from the bare name in
+// `try_index_mut_assign` — the receiver is never lowered as a value, so the
+// definite-assignment question was asked nowhere. Rust: E0381.
+// PAIR: bc_uninitborrow_indexwrite_admit.
+package bc_uninitborrow_indexwrite_refuse;
+struct I { v: i64 }
+impl Index<i64, i64> for I { fn index(self: &I, i: i64) -> &i64 { return &self.v; } }
+impl IndexMut<i64, i64> for I { fn index_mut(self: &mut I, i: i64) -> &mut i64 { return &mut self.v; } }
+fn main() -> i32 {
+    let mut f: I;
+    f[0i64] = 3i64;
+    f = I { v: 0i64 };
+    return f.v as i32;
+}

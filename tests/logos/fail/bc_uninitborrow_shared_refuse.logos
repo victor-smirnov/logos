@@ -1,0 +1,13 @@
+// `&x` on a binding that is not yet definitely assigned. Rust: E0381
+// "used binding `x` isn't initialized" (tests/ui/moves/move-of-addr-of-mut.stderr
+// @ da5114692c9 is the same refusal on the same shape).
+// PAIR: bc_uninitborrow_shared_admit — ONE TOKEN apart, the `= S { v: 7i64 }`.
+package bc_uninitborrow_shared_refuse;
+struct S { v: i64 }
+fn main() -> i32 {
+    let mut x: S;
+    let p: &S = &x;
+    let n: i64 = p.v;
+    x = S { v: 7i64 };
+    return n as i32;
+}

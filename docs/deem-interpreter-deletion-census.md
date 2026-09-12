@@ -5878,9 +5878,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                soundness_queue 89 -> 91 (two rows OPENED by this round's own
 #                counter-example battery — both PRE-EXISTING over-refusals that
 #                reproduce on the base binary — and no row closed).
-REGISTRY-ALL         9635
-REGISTRY-NOIMPORTED  5154
-REGISTRY-TIERCOMMIT  139
+# 2026-09-12k (uninitborrow — the definite-assignment class landing). Re-derived
+#                by direct listing, not by adding: ls tests/logos/pass/*.logos
+#                -> 3069 (+6), ls tests/logos/fail/*.logos +5, plus the closed
+#                row's program moved tests/imported/admit/moves ->
+#                tests/imported/fail/moves (registry-neutral in ALL, +1 in the
+#                fail shelf). bc_admits `# TOTAL` 81 -> 80; soundness_queue
+#                91 -> 92 (ONE row OPENED, loop_init_before_break_refuses, a
+#                PRE-EXISTING over-refusal that reproduces on the base binary).
+#                tier_commit 139 -> 138 was already the measured value before
+#                this round; it is re-pinned here by direct measurement.
+REGISTRY-ALL         9646
+REGISTRY-NOIMPORTED  5164
+REGISTRY-TIERCOMMIT  138
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
