@@ -1,0 +1,20 @@
+// UPSTREAM'S OWN LEGAL CONTROL — tests/ui/borrowck/two-phase-nonrecv-autoref.rs:54-56
+//     fn twice_ten_si<F: Fn(i32) -> i32>(f: &mut F) { f(f(10)); }
+// carries NO `//~ ERROR`, four lines below `twice_ten_sm` which carries E0499.
+// PASS half of the pair closing ledger row
+// `two-phase-nonrecv-autoref--a-fnmut-twice` (root bck.D), 2026-09-12g. ONE
+// TOKEN from its fail twin: `FnMut` -> `Fn`. This is the pin that a kind-BLIND
+// callee-borrow rule cannot hold — every mode-blind spelling priced 2026-09-12f
+// refuses this program. Note the receiver is `&mut F` in BOTH halves, so the
+// reference is not what separates them; the Fn KIND is.
+// RUNS: asserts the nested call composes.
+package uc_fn_nested_call_si_b167;
+fn twice_ten_si<F: Fn(i64) -> i64>(f: &mut F) -> i64 {
+    return f(f(10i64));
+}
+fn main() -> i32 {
+    let mut c = |x: i64| { return x + 1i64; };
+    let r: i64 = twice_ten_si(&mut c);
+    if r != 12i64 { return 1i32; }
+    return 0i32;
+}

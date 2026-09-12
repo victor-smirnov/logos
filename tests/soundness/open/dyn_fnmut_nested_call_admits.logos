@@ -1,0 +1,36 @@
+// SOUNDNESS QUEUE — `dyn FnMut` CALLED TWICE IN ONE CALL'S OWN EVALUATION.
+// upstream: tests/ui/borrowck/two-phase-nonrecv-autoref.rs:62-65 @ da5114692c9
+//     fn twice_ten_om(f: &mut dyn FnMut(i32) -> i32) {
+//         f(f(10));
+//         //~^ ERROR cannot borrow `*f` as mutable more than once at a time
+//     }
+// Upstream's own comment on the enclosing fn says why no two-phase borrow can
+// rescue it: both invocations resolve to `call_mut`, "in which case the inner
+// call requires a mutable borrow which will conflict with the outer reservation".
+//
+// THE `dyn` CARRIER of the Fn-family kind. The type-param carrier of the SAME
+// fact was closed 2026-09-12g (bck.A-FNMUT + bck.D); this one was declined in
+// that round WITH ITS NUMBER, not overlooked. The kind is reachable — sema
+// canonicalises `dyn Fn*` to `Kind::Closure` and keeps the family in that type's
+// `trait_name()` — but arming borrow_check's `fn_call_mode` on it REFUSES A
+// LEGAL PROGRAM: `fn drive(f: &mut dyn FnMut(i64)->i64) -> i64 { return
+// f(1i64); }`, a single call through a reference parameter, is refused "cannot
+// borrow 'f' as mutable: not declared as mut". The parameter's root type IS the
+// fat borrow (a `Kind::Closure`), which `is_ref_kind` does not admit, so
+// check_recv_conflict asks the not-declared-mut question about a reference —
+// the exact question its `is_ref_kind` guard exists to suppress.
+//
+// WHAT IT NEEDS: `Kind::Closure` must be answerable for borrow-vs-owned, the way
+// `trait_owning_kind()` answers it for `Kind::TraitObject`. Then the mut-decl
+// question is skipped for `&mut dyn` and the reservation alone gives upstream's
+// verdict. Measured 2026-09-12g on build after 449fc3887.
+package dyn_fnmut_nested_call_admits;
+fn twice_ten_om(f: &mut dyn FnMut(i64) -> i64) -> i64 {
+    return f(f(10i64));
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut c = |x: i64| { n = n + x; return n; };
+    let r: i64 = twice_ten_om(&mut c);
+    return 0i32;
+}

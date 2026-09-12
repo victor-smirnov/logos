@@ -1,0 +1,27 @@
+// rustc borrowck/two-phase-nonrecv-autoref.rs `twice_ten_sm` — upstream E0499
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// upstream: tests/ui/borrowck/two-phase-nonrecv-autoref.rs:50-53 —
+//     fn twice_ten_sm<F: FnMut(i32) -> i32>(f: &mut F) {
+//         f(f(10));
+//         //~^ ERROR cannot borrow `*f` as mutable more than once at a time
+//     }
+// and upstream's own comment above it says why this can never be "fixed" by
+// two-phase borrows: both invocations resolve to `call_mut`, "in which case the
+// inner call requires a mutable borrow which will conflict with the outer
+// reservation". That is exactly the mechanism Logos now implements.
+// WAS ledger row `two-phase-nonrecv-autoref--a-fnmut-twice` / root bck.D (admit
+// shelf); CLOSED 2026-09-12g, moved here. Modifications: i32 -> i64; the body is
+// a `return` (Logos has no tail expression in this position); the caller passes
+// a named `let mut c`; assert -> exit code.
+// ⚠ THE SENTENCE IS LOGOS'S, NOT RUSTC'S, AND THAT IS DELIBERATE: the tree has
+// ONE spelling for "a use while a mutable borrow is live" and
+// check_recv_conflict defers to it precisely so a second spelling cannot drift
+// (see its comment on the deleted duplicate report). Verdict class is upstream's.
+// PAIR: tests/imported/pass/unboxed-closures/uc-fn-nested-call-si-b167 (pass),
+// ONE TOKEN apart (`FnMut` -> `Fn`) — and that twin is upstream's OWN legal
+// control `twice_ten_si`, four lines below this one in the same file.
+package two_phase_nonrecv_autoref_a_fnmut_twice;
+fn twice_ten_sm<F: FnMut(i64) -> i64>(f: &mut F) -> i64 {
+    return f(f(10i64));
+}
+fn main() -> i32 { let mut c = |x: i64| { return x + 1i64; }; let _ = twice_ten_sm(&mut c); return 0i32; }

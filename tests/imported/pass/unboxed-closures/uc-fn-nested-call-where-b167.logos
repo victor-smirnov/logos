@@ -1,0 +1,17 @@
+// PASS half of the `where`-carrier pair landed 2026-09-12g. ONE TOKEN from its
+// fail twin tests/imported/fail/borrowck/two-phase-nonrecv-autoref--where-fnmut-twice:
+// `FnMut` -> `Fn` inside the `where` clause. Holds the kind-blindness pin on the
+// `where` carrier exactly as uc-fn-nested-call-si-b167 holds it on the
+// angle-bracket carrier — the bound's SPELLING is constant across the pair and
+// only the KIND moves.
+// RUNS: asserts the nested call composes.
+package uc_fn_nested_call_where_b167;
+fn twice<F>(f: &mut F) -> i64 where F: Fn(i64) -> i64 {
+    return f(f(10i64));
+}
+fn main() -> i32 {
+    let mut c = |x: i64| { return x + 1i64; };
+    let r: i64 = twice(&mut c);
+    if r != 12i64 { return 1i32; }
+    return 0i32;
+}

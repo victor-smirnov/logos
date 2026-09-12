@@ -1,0 +1,15 @@
+// PASS half of the by-value pair landed 2026-09-12g. ONE TOKEN from its fail
+// twin tests/imported/fail/borrowck/two-phase-nonrecv-autoref--byvalue-fnmut-twice:
+// `FnMut` -> `Fn`. An `Fn` callable is invoked through `&self`, so two
+// overlapping invocations are two shared borrows and the nesting is legal —
+// the same reason upstream's `twice_ten_si` carries no `//~ ERROR`.
+// RUNS: asserts the nested call composes.
+package uc_fn_nested_call_byvalue_b167;
+fn twice_ten_oi<F: Fn(i64) -> i64>(f: F) -> i64 {
+    return f(f(10i64));
+}
+fn main() -> i32 {
+    let r: i64 = twice_ten_oi(|x: i64| { return x + 1i64; });
+    if r != 12i64 { return 1i32; }
+    return 0i32;
+}

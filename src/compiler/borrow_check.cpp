@@ -2151,6 +2151,11 @@ class BorrowChecker {
     // Type-param names with an explicit `Copy` bound (per current fn) — a bare
     // TypeVar not in this set is move-classified (Rust generic-body semantics).
     std::unordered_set<std::string>      copy_tvs_;
+    // Type-param names carrying an Fn-family bound (per current fn), mapped to
+    // the CALL MODE that bound requires of the callee PLACE. Built by the same
+    // `each_type_param`/`each_bound` walk that builds copy_tvs_, plus the
+    // `where` spelling of the identical fact. See fn_call_mode.
+    std::unordered_map<std::string, int> fnfam_tvs_;
     // Set transiently while recording a method-RESULT reborrow (`&mut v[i]` =
     // AddrOfTemp(Deref(MethodCall index_mut))): the OUTER `&mut` is the
     // authoritative borrow mutability. method_self_kind can't always resolve
@@ -6745,6 +6750,76 @@ private:
     // or a write, through a `&mut` ref var still conflicts with a live borrow
     // of it). NOT a recorder: it takes no borrow, so widening its call set
     // cannot manufacture a shape a later consumer must recognise.
+    // ── THE Fn-FAMILY CALL MODE OF A CALLEE PLACE ────────────────────────
+    // A call through a BINDING of Fn-family type uses that binding, and the
+    // KIND says how: `Fn` borrows it shared (`call(&self)`), `FnMut` borrows it
+    // MUTABLY (`call_mut(&mut self)`), `FnOnce` MOVES it (`call_once(self)`).
+    // Only the FnOnce arm existed, and it lives in sema (sema_expr.cpp,
+    // `fn_once_consume` -> mark_moved); the shared arm is the ordinary
+    // non-consuming read of the callee. The MUTABLE arm is what this is.
+    //
+    // ⚠ THE KIND IS THE WHOLE PREDICATE. A mode-blind spelling (the ceiling
+    // probes `calleerecv`/`calleeresv`, PROBES.md 2026-09-12f) treats EVERY
+    // closure callee as `&mut` and so refuses the stdlib's `Fn`-bounded
+    // combinators — 73 refusals, the stdlib stops building — and it refuses
+    // upstream's own legal control `twice_ten_si` (`F: Fn` behind `&mut F`,
+    // two-phase-nonrecv-autoref.rs:54). Reading the kind is what separates
+    // those from `twice_ten_sm` one line above them.
+    //
+    // WEAKEST BOUND WINS, and that is Rust's own resolution order: `call` if
+    // the callable is `Fn`, else `call_mut`, else `call_once` — so a param
+    // bounded `F: Fn + FnMut` calls by shared reference. This mirrors sema's
+    // `has_multi_call` (sema_expr.cpp), which computes the same predicate for
+    // the FnOnce arm; the two must not disagree about the same program.
+    enum { FNMODE_NONE = -1, FNMODE_SHARED = 0, FNMODE_MUT = 1, FNMODE_ONCE = 2 };
+    static int fnmode_of_trait(std::string_view t) {
+        if (t == "Fn")     return FNMODE_SHARED;
+        if (t == "FnMut")  return FNMODE_MUT;
+        if (t == "FnOnce") return FNMODE_ONCE;
+        return FNMODE_NONE;
+    }
+    // BY NAME, and the tree's own convention is why. Unlike `Copy` — which a
+    // user may spell and which therefore needs `lir_is_copy_lang_item` to tell
+    // the marker from a namesake — Fn/FnMut/FnOnce are compiler-built-in and
+    // name-keyed at every other decision site that reads them (sema.cpp:5495,
+    // sema_collect.cpp:1586, sema_expr.cpp:3588, mono_clone.cpp:5556). A
+    // different key here would make this rule disagree with the arm that
+    // lowers the very same call.
+    int fn_call_mode(TypeRef t) const {
+        if (!t) return FNMODE_NONE;
+        // Carrier 3: `&mut dyn FnMut(..)` — strip the reference the call goes
+        // through, exactly as sema_expr does for the TypeVar carrier.
+        if (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef) {
+            if (!t.pointee()) return FNMODE_NONE;
+            t = TypeRef(t.pointee());
+        }
+        // Carriers 1+2 — a type param bounded by an Fn-family trait, whether
+        // the bound was spelled in the angle brackets or in a `where` clause.
+        if (t.kind() == LogosType::Kind::TypeVar) {
+            // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature
+            // being checked. `fnfam_tvs_` is cleared and rebuilt from
+            // `fn.each_type_param` / `fn.each_where_bound` at the top of every
+            // function (beside `copy_tvs_`, which is keyed the same way for the
+            // same reason), so `F` here can only denote THIS signature's `F`.
+            // A package qualifier would be meaningless: the name is not an
+            // entity in any package, and two functions' `F` never share a map.
+            auto it = fnfam_tvs_.find(std::string(t.type_var_name()));
+            return it == fnfam_tvs_.end() ? FNMODE_NONE : it->second;
+        }
+        // ── CARRIERS 3 AND 4 ARE DECLINED HERE, EACH WITH ITS NUMBER.
+        // 3, `dyn FnMut`: sema canonicalises `dyn Fn*` to `Kind::Closure` (NOT
+        // `Kind::TraitObject`) and keeps the family in that type's own
+        // `trait_name()`. Reading it refuses ONE LEGAL PROGRAM — a single call
+        // through a `&mut dyn FnMut` param — because that param's root type IS
+        // the fat borrow, which `is_ref_kind` does not admit. Queue row
+        // `dyn_fnmut_nested_call_admits`.
+        // 4, a concrete closure literal: its kind is a property of its CAPTURES
+        // (`closure_keys::MUT_CAPTURES`), sema-side state the closure TYPE does
+        // not carry here. Queue row `closure_literal_fnmut_nested_call_admits`.
+        // PROBES.md 2026-09-12g carries both measurements.
+        return FNMODE_NONE;
+    }
+
     void check_recv_conflict(const BorrowPlace& bp, bool is_mut, uint32_t line) {
         if (bp.root.empty()) return;
         if (!bp.path.empty()) {
@@ -14469,13 +14544,35 @@ public:
         // is_move_type's TypeVar leaf so the partial-move tracker fires on
         // `s.a: T` in generic templates (Tier 1). See DIVERGENCES §B1.
         copy_tvs_.clear();
+        // The Fn-family CALL MODE of each type param, from the SAME walk.
+        // WEAKEST WINS (Fn < FnMut < FnOnce) — see fn_call_mode.
+        fnfam_tvs_.clear();
+        auto note_fn_bound = [&](const std::string& tpname, std::string_view tr) {
+            int m = fnmode_of_trait(tr);
+            if (m == FNMODE_NONE) return;
+            auto it = fnfam_tvs_.find(tpname);
+            if (it == fnfam_tvs_.end()) fnfam_tvs_.emplace(tpname, m);
+            else it->second = std::min(it->second, m);
+        };
         fn.each_type_param([&](lir_view::FnTParamView tp) {
             std::string tpname(tp.name());
             tp.each_bound([&](lir_view::FnTraitBoundView b) {
                 // BY IDENTITY: a user trait spelled `Copy` is not the marker.
                 if (lir_is_copy_lang_item(b.identity_trait()))
                     copy_tvs_.insert(tpname);
+                note_fn_bound(tpname, b.trait_name());
             });
+        });
+        // CARRIER 2 — `fn b<F>(f: F) where F: FnMut(..)`. THE SAME FACT, A
+        // SECOND SPELLING, AND IT IS NOT A GUESS THAT IT NEEDS READING: the
+        // FnOnce arm in sema answers the `where` form (measured: `where F:
+        // FnOnce` called twice IS refused today), so a rule that read only the
+        // angle-bracket form would refuse `<F: FnMut>` and admit the `where`
+        // spelling of the byte-identical program.
+        fn.each_where_bound([&](lir_view::FnWhereBoundView wb) {
+            TypeRef subj = wb.subject(fn_pool);
+            if (subj && subj.kind() == LogosType::Kind::TypeVar)
+                note_fn_bound(std::string(subj.type_var_name()), wb.trait());
         });
         fn_lifetime_params_.clear();
         for (auto lp : fn.lifetime_params()) fn_lifetime_params_.push_back(std::string(lp));
@@ -15771,18 +15868,40 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         // ── Closure call ───────────────────────────────────────────────
         case Code::ClosureCall: {
             EClosureCallView v{e};
-            // CEILING PROBES calleerecv / calleeresv / calleeboth — PROBES.md
-            // 2026-09-12. Crude: the callee of a closure call is treated as a
-            // `&mut` receiver. NOT a fix — the Fn-family kind is absent here.
-            BorrowPlace ccbp = extract_borrow_place(v.callee(), pool);
-            logos::probe::census(ccbp.root.empty() ? "cc.cl.noroot" : "cc.cl.root");
-            bool cc_recv = logos::probe::on("calleerecv") || logos::probe::on("calleeboth");
-            bool cc_resv = logos::probe::on("calleeresv") || logos::probe::on("calleeboth");
-            if (cc_recv && !ccbp.root.empty())
-                check_recv_conflict(ccbp, /*is_mut=*/true, line);
+            // ── AN `FnMut` CALL IS A MUTABLE USE OF THE CALLEE ───────────
+            // LANDED 2026-09-12g (was ceiling probes `calleerecv`/`calleeresv`/
+            // `calleeboth`; control revert = `git revert` of this commit).
+            // `visit(callee, consuming=false)` — the line below — is the whole
+            // of what this arm used to do with the callee, and a non-consuming
+            // READ is the right model for exactly one of the three Fn kinds.
+            // `fn_call_mode` supplies the kind; see its comment for why the
+            // mode-blind spelling of this same arm cannot be landed.
+            //
+            // BOTH consequences of `&mut` fall out of machinery that already
+            // exists, which is why this is one predicate and not two rules:
+            //   · check_recv_conflict(is_mut) reaches refuse_not_mut_binding
+            //     for a by-value root, giving E0596 on `fn b<F: FnMut>(f: F)`
+            //     — and SKIPS it for a `&mut F` root, which is correct: a
+            //     reference param is already a mutable path to its referent.
+            //   · the reservation held across `visit_args` makes the callee
+            //     mut-borrowed while the arguments evaluate, so the INNER call
+            //     in `f(f(10))` refuses through check_live's existing sentence.
+            const int ccmode = fn_call_mode(v.callee().type(pool));
+            BorrowPlace ccbp;
+            if (ccmode == FNMODE_MUT) ccbp = extract_borrow_place(v.callee(), pool);
+            logos::probe::census(ccmode == FNMODE_MUT
+                                     ? (ccbp.root.empty() ? "cc.mut.noroot" : "cc.mut.root")
+                                     : "cc.notmut");
+            // ⚠ NO `check_recv_conflict(ccbp, /*is_mut=*/true, line)` HERE.
+            // That one call is the E0596 half (ledger row `bck.A-FNMUT`); armed,
+            // it refuses THREE GREEN PASS FIXTURES spelling that row's own
+            // construct — measured over all 101 non-fail corpus programs
+            // mentioning `FnMut`, exactly three, no others. A corpus decision
+            // with an owner: the row's note in bc_admits.ledger names them, and
+            // PROBES.md 2026-09-12g carries the measurement.
             visit(v.callee(), /*consuming=*/false, line);
             bool cc_held = false;
-            if (cc_resv && !ccbp.root.empty())
+            if (ccmode == FNMODE_MUT && !ccbp.root.empty())
                 if (auto* st = var_find(ccbp.root_slot, ccbp.root))
                     if (!st->mut_borrowed) { st->mut_borrowed = true; cc_held = true; }
             visit_args(v);
@@ -15794,20 +15913,14 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         // ── Fn-pointer call ────────────────────────────────────────────
         case Code::FnPtrCall: {
             EFnPtrCallView v{e};
-            BorrowPlace fpbp = extract_borrow_place(v.callee(), pool);
-            logos::probe::census(fpbp.root.empty() ? "cc.fp.noroot" : "cc.fp.root");
-            bool fp_recv = logos::probe::on("calleerecv") || logos::probe::on("calleeboth");
-            bool fp_resv = logos::probe::on("calleeresv") || logos::probe::on("calleeboth");
-            if (fp_recv && !fpbp.root.empty())
-                check_recv_conflict(fpbp, /*is_mut=*/true, line);
+            // NO CALLEE BORROW HERE, AND THE REASON IS THE TYPE: a `fn` pointer
+            // is `Copy`, so calling through one neither borrows nor moves the
+            // binding. The ceiling probes that armed this arm alongside
+            // ClosureCall (PROBES.md 2026-09-12f) took 358 arrivals per compile
+            // from the prelude alone and refused `let p: fn(i64)->i64 = inc;
+            // p(p(10))`, which is legal. Retired with this commit.
             visit(v.callee(), /*consuming=*/false, line);
-            bool fp_held = false;
-            if (fp_resv && !fpbp.root.empty())
-                if (auto* st = var_find(fpbp.root_slot, fpbp.root))
-                    if (!st->mut_borrowed) { st->mut_borrowed = true; fp_held = true; }
             visit_args(v);
-            if (fp_held)
-                if (auto* st = var_find(fpbp.root_slot, fpbp.root)) st->mut_borrowed = false;
             // G1 — the OUT-PARAM half. `let g: fn(&C, &mut Vec<B>) = stash2;
             // g(&c, &mut vs); c.bump();` recorded nothing: neither the summary
             // (never consulted through a pointer) nor the elision fallback

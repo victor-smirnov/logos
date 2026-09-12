@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE — A CONCRETE FnMut CLOSURE CALLED TWICE IN ONE CALL'S OWN
+// EVALUATION. `c` mutates its capture `n`, so it is `FnMut`, and `c(c(1))`
+// needs `&mut c` twice over: E0499 in Rust, by the same argument upstream
+// writes out for `twice_ten_sm`/`twice_ten_om`
+// (tests/ui/borrowck/two-phase-nonrecv-autoref.rs:39-70 @ da5114692c9) — both
+// invocations resolve to `call_mut` and the inner borrow conflicts with the
+// outer reservation. Admitted here.
+//
+// THE CONCRETE-CLOSURE CARRIER of the Fn-family kind, and the LAST cell of the
+// class enumerated in round 2026-09-12g: (carrier of the kind) x (Fn/FnMut/
+// FnOnce). The type-param and `where` carriers were closed that round
+// (bck.A-FNMUT + bck.D); the `dyn` carrier is queued beside this one.
+//
+// WHY IT WAS NOT CLOSED WITH THEM: for a closure LITERAL the Fn kind is not on
+// the type at all — it is a property of the CAPTURES
+// (`lir_schema::closure_keys::MUT_CAPTURES`, written by lir_mirror.cpp:1705)
+// and of sema's `closure_kind_by_id_` map, which is sema-side state that the
+// LIR closure TYPE does not carry into borrow_check. `fn_call_mode` returns
+// FNMODE_NONE for `Kind::Closure` for exactly this reason, and the FnOnce arm
+// reaches the same fact only because it runs IN sema (`callable_is_fn_once`,
+// sema_impl.hpp, route (b) "a local bound to a closure LITERAL").
+//
+// WHAT IT NEEDS: the closure's mut-captures bit carried to borrow_check, or the
+// rule asked in sema where `closure_kind_by_id_` already lives.
+// ⚠ NOT A DOUBLE FREE — both calls are reads of a live binding; this is an
+// admitted aliasing violation, oracle `admits`. Measured 2026-09-12g.
+package closure_literal_fnmut_nested_call_admits;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut c = |x: i64| { n = n + x; return n; };
+    let r: i64 = c(c(1i64));
+    if r != 2i64 { return 1i32; }
+    return 0i32;
+}

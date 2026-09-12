@@ -28,7 +28,11 @@
 # deliberate ledger edit in the same commit, so the count can only move on
 # purpose. A number that drifts down on its own is a measurement nobody reads.
 #
-# 41 rows / 45 sites. Cells: O 21, B#98 8, D 6, B#88 3, B#90 2, Q 2.
+# 42 rows / 46 sites. Cells: O 21, B#98 8, D 7, B#88 3, B#90 2, Q 2.
+# (+1 D row 2026-09-12g: borrow_check.cpp `fnfam_tvs_`, the Fn-family CALL
+#  MODE of each type param — keyed by TYPE-PARAMETER name exactly as
+#  `copy_tvs_` beside it and sema's `current_type_bounds_` are, and cleared
+#  per function, so the name cannot denote another signature's param.)
 # (+1 O site 2026-08-22, #110: compute_auto_copy_types' is_copy_field enum arm
 #  gained the qualified-then-bare `enums_` probe it never had — it used to ask
 #  `struct_name()` (empty on an Enum) against the bare key, missed always, and
@@ -330,6 +334,7 @@
 # carried decision; the sibling test in `mint_dbm_ref` was removed rather than
 # spelt twice.
 #SCAN sema_stmt.cpp 21 9e2b7684
+borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())

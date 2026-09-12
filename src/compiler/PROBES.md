@@ -40655,3 +40655,139 @@ this round's files. It was not blocked on only because every marker this round
 used was `rm`-ed first and named uniquely (`RO_BASE_DONE` / `RO_ARM_DONE`), and
 every `.tsv` was `ls -la`-ed with its timestamp quoted beside the number. The
 correction is carried in the prompt and it is still earning its place.
+
+# ═══ ROUND 2026-09-12g — THE Fn-FAMILY KIND IS A **4 × 3 TABLE**, NOT A FLAG, AND
+# ═══ THE FnMut COLUMN WAS EMPTY IN EVERY CARRIER. ONE ROW CLOSED; THE OTHER HALF
+# ═══ OF THE SAME MECHANISM IS BLOCKED ON **THREE GREEN PASS FIXTURES** THAT SPELL
+# ═══ ITS OWN CONSTRUCT — MEASURED OVER THE WHOLE `FnMut` POPULATION, NOT SAMPLED
+
+## WHAT THE PRICING ROUND GOT WRONG, AND IT IS THE USEFUL PART
+
+2026-09-12f recorded "the mutability must be the Fn-FAMILY KIND … and that fact
+is ABSENT from borrow_check.cpp". **It is not absent.** `borrow_check.cpp:14473`
+already walks `fn.each_type_param` / `tp.each_bound` to build `copy_tvs_`, and
+`FnTraitBoundView` has carried `is_fn_family()` and `trait_name()` the whole
+time. The fact was not absent, it was UNREAD, and the loop that reads it was
+already installed three lines from where the new rule needed it. `fnfam_tvs_` is
+built in that same loop — the diff for the kind fact is nine lines.
+
+That is the second time this arc a "missing fact" turned out to be a fact nobody
+asked for, and the tell is the same both times: the record said ABSENT after a
+GREP (`grep trait_name borrow_check.cpp` → 0) rather than after asking what the
+neighbouring code already reads.
+
+## THE CLASS, ENUMERATED BY PROPERTY — `(carrier of the kind) × (kind)`
+
+A call whose CALLEE IS A PLACE uses that place, and the Fn kind says HOW: `Fn`
+borrows it shared, `FnMut` borrows it MUTABLY, `FnOnce` MOVES it. Four carriers
+of the kind fact × three kinds = 12 cells, every one checked on the base binary:
+
+| carrier                       | Fn         | FnMut            | FnOnce                |
+|-------------------------------|------------|------------------|-----------------------|
+| 1 `<F: Fn*>` type-param bound | OK (read)  | **OPEN**         | OK `fn_once_consume`  |
+| 2 `where F: Fn*`              | OK         | **OPEN**         | OK (measured refused) |
+| 3 `dyn Fn*` trait object      | OK (`oi`)  | **OPEN** (`om`)  | OK (measured refused) |
+| 4 concrete closure captures   | OK         | **OPEN**         | OK `callable_is_fn_once` |
+
+**The class is the FnMut column, and it was empty in all four carriers.** The
+FnOnce column is complete and lives in SEMA (`sema_expr.cpp` `fn_once_consume` →
+`mark_moved`, and `callable_is_fn_once` in `sema_impl.hpp`, whose own comment
+names three of these four carriers as "three routes, one per naming form"). The
+Fn column is complete by accident: a shared read is exactly what the old arm's
+`visit(callee, consuming=false)` already did.
+
+⚠ **A grep for `"Drop"`-style spellings could not have produced this table.** The
+four carriers share no token: two are bound lists reached by two DIFFERENT LIR
+accessors, one is a type's `trait_name()`, one is a captures bitmap.
+
+## WHAT LANDED — carriers 1 + 2, the E0499 half only
+
+`fn_call_mode(TypeRef)` (borrow_check.cpp) returns the call mode of a callee
+place; `fnfam_tvs_` maps each type param to it, WEAKEST BOUND WINS (`Fn` <
+`FnMut` < `FnOnce`), which mirrors sema's `has_multi_call` so the two cannot
+disagree about one program. Carrier 2 is read via `fn.each_where_bound` — **not
+optional**: sema's FnOnce arm answers the `where` spelling (measured), so a
+borrow rule reading only the angle-bracket form would refuse the closed row's
+program and admit its `where` twin. Pinned as a fixture pair for that reason.
+
+At `Code::ClosureCall`, when the mode is `FNMODE_MUT` the callee's root is held
+`mut_borrowed` across `visit_args` and released after. The inner call of
+`f(f(10))` then refuses through check_live's existing sentence. **No new
+diagnostic string**: `check_recv_conflict`'s own comment records that a second
+spelling here was deleted as a measured duplicate, so this arm does not add one.
+
+`Code::FnPtrCall` is **retired to its unprobed form** — a `fn` pointer is `Copy`,
+so a call through one neither borrows nor moves. The probes had armed it (358
+arrivals per compile from the prelude alone) and it refuses `let p:
+fn(i64)->i64 = inc; p(p(10))`, which is legal.
+
+CLOSED: `two-phase-nonrecv-autoref--a-fnmut-twice` (`bck.D`). bc_admits 83 → 82.
+
+## THE DECLINES, EACH WITH THE NUMBER THAT CONDEMNS IT
+
+**(a) The E0596 half — `bck.A-FNMUT` — BLOCKED ON THREE GREEN PASS FIXTURES.**
+The arm is ONE extra call, `check_recv_conflict(callee_place, is_mut=true)`, on
+top of the kind fact already landed. It prints exactly upstream's verdict. It
+also refuses three pass fixtures that spell this row's own construct:
+`tests/logos/pass/closure_call_moves_string`, `tests/logos/pass/closure_mut_param`
+(whose SAME FILE spells `fn run<F>(mut f: F)` correctly one line below its
+`fn apply<F>(f: F, …)`), and `tests/imported/pass/closures/hrtb-fnmut-via-Fn-family`.
+**POPULATION MEASURED, NOT SAMPLED**: all 101 non-fail corpus programs mentioning
+`FnMut` compiled under the armed binary — exactly those three, no others. All
+three are pass fixtures asserting a program rustc refuses (upstream's `.stderr`
+for the byte-equivalent `fn b` says E0596), so the row cannot be bought without
+editing them. Same wall, same rule, as `--c-mut-and-shared-args`. OWNER'S.
+
+⚠ **ONLY THE FULL SUITE FOUND THIS.** Fourteen hand shapes, the whole stdlib,
+and both ledger gates were green with that arm installed. `closure_call_moves_string`
+is an L1 fixture and it is what turned the round.
+
+**(b) Carrier 3, `dyn FnMut` — REFUSES ONE LEGAL PROGRAM.** The fact IS
+reachable, and NOT where the first hypothesis put it: sema canonicalises
+`dyn Fn*` to **`Kind::Closure`**, not `Kind::TraitObject`, and keeps the family
+in that type's own `trait_name()`. Asking `Kind::TraitObject` read ZERO while
+the site was demonstrably live (census `cc.notmut` = 2 on the `dyn FnMut`
+program) — **a root is a hypothesis about a program**. Armed on the corrected
+key it refuses upstream's `twice_ten_om` AND
+`fn drive(f: &mut dyn FnMut(i64)->i64) -> i64 { return f(1i64); }` — a SINGLE
+call through a reference param — because for this carrier the param's root type
+IS the fat borrow (a `Kind::Closure`), which `is_ref_kind` does not admit, so
+`check_recv_conflict` asks the not-declared-mut question about a reference.
+`trait_owning_kind()` answers borrow-vs-owned only for `Kind::TraitObject`.
+→ queue row `dyn_fnmut_nested_call_admits`.
+
+**(c) Carrier 4, a concrete closure literal** — its kind is a property of its
+CAPTURES (`closure_keys::MUT_CAPTURES`, `lir_mirror.cpp:1705`; sema's
+`closure_kind_by_id_`), sema-side state the LIR closure TYPE does not carry into
+borrow_check. → queue row `closure_literal_fnmut_nested_call_admits`.
+
+soundness_queue 87 → 89.
+
+## THE HAND BATTERY — 14 legal shapes, COMPILED, LINKED AND **RUN**
+
+⚠ And it was NOT enough on its own: the shape that caught decline (b) —
+a single call through `&mut dyn FnMut` — was the 14th, added only after the
+wrong sentence on `twice_ten_om` gave the arm away. **A correct verdict with the
+wrong SENTENCE is evidence about the mechanism, not a cosmetic complaint.**
+
+Legal, all exit 0 through `run_test.sh pass`: `Fn` called twice · `FnMut` declared
+`mut`, sequential · `FnMut` through `&mut F`, sequential · upstream's own
+`twice_ten_si` (`F: Fn` behind `&mut F`) · fn-pointer nested · closure local
+nested · `FnMut` in a while loop · `FnMut` param forwarded but never called ·
+`FnOnce` called once · two distinct `FnMut` params nested · `&mut F` with the
+nested value in an ARG not the callee · `F: Fn` nested by value · `&mut dyn Fn`
+nested · `&mut dyn FnMut` called once.
+
+## KNOWN-ANSWER CONTROLS USED
+
+* **One-token pairs** — every landed fixture pair differs only by `FnMut`→`Fn`,
+  with the receiver spelling held constant across the pair, so the pin is on the
+  KIND and cannot be satisfied by the reference.
+* **`where` vs angle brackets** — the same program at two carriers, both refused;
+  the `Fn` rewrite of each, both admitted.
+* **Base binary** (11:07, HEAD `449fc3887`): every illegal shape ADMITTED, which
+  is the before-half of the control revert for an `admits` row.
+* **`tools/dlog`** was NOT re-run this round: `calleeborrow.dl` answered "which
+  contexts mint on a plain call but not a closure call" last round and this round's
+  question was "what does the callee's TYPE carry", which is a question about the
+  LIR schema, not about the C++ TU's call graph. Said plainly rather than claimed.

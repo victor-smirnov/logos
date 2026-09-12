@@ -1,0 +1,21 @@
+// THE BY-VALUE TWIN of upstream's `twice_ten_sm`
+// (tests/ui/borrowck/two-phase-nonrecv-autoref.rs:50-53 @ da5114692c9, which
+// carries `//~ ERROR cannot borrow `*f` as mutable more than once at a time`).
+// Upstream writes the door through `&mut F`; this is the same construct with
+// the callable held BY VALUE in a `mut` binding, so both `call_mut` borrows are
+// taken of the binding itself rather than through a reference. Upstream's own
+// comment covers both: the two invocations "will resolve both to `call_mut`,
+// in which case the inner call requires a mutable borrow which will conflict
+// with the outer reservation".
+// ⚠ NO UPSTREAM DOOR SPELLS THIS EXACT PROGRAM — the E0499 verdict is this
+// round's READING of the rule upstream annotates one indirection away, and
+// there is no rustc binary on this box to check it against.
+// LANDED 2026-09-12g beside the closure of ledger row
+// `two-phase-nonrecv-autoref--a-fnmut-twice` (bck.D): it is the same mechanism
+// at a second spelling, and nothing in the corpus pinned it.
+// PAIR: uc-fn-nested-call-byvalue-b167 (pass), ONE TOKEN apart (`FnMut`->`Fn`).
+package two_phase_nonrecv_autoref_byvalue_fnmut_twice;
+fn twice_ten_om<F: FnMut(i64) -> i64>(mut f: F) -> i64 {
+    return f(f(10i64));
+}
+fn main() -> i32 { return 0i32; }

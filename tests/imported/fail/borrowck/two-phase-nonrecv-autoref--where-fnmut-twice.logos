@@ -1,0 +1,19 @@
+// THE `where` SPELLING of upstream's `twice_ten_sm`
+// (tests/ui/borrowck/two-phase-nonrecv-autoref.rs:50-53 @ da5114692c9,
+// `//~ ERROR cannot borrow `*f` as mutable more than once at a time`).
+// Byte-for-byte the closed ledger row `two-phase-nonrecv-autoref--a-fnmut-twice`
+// except that the Fn-family bound is written in a `where` clause instead of the
+// angle brackets. THE SAME FACT, A SECOND CARRIER, and it is pinned because the
+// two carriers are read by DIFFERENT LIR accessors — `fn.each_type_param` /
+// `tp.each_bound` for the angle-bracket form and `fn.each_where_bound` for this
+// one — so a rule that read only the first would refuse the closed row's
+// program and admit this one. That asymmetry is not hypothetical: sema's FnOnce
+// arm answers both, and a borrow rule that answered only one would disagree
+// with the arm that lowers the very same call.
+// LANDED 2026-09-12g with the closure of that row.
+// PAIR: uc-fn-nested-call-where-b167 (pass), ONE TOKEN apart (`FnMut`->`Fn`).
+package two_phase_nonrecv_autoref_where_fnmut_twice;
+fn twice<F>(f: &mut F) -> i64 where F: FnMut(i64) -> i64 {
+    return f(f(10i64));
+}
+fn main() -> i32 { return 0i32; }
