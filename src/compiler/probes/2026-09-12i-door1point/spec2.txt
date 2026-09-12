@@ -1,0 +1,45 @@
+name: loanpt1t
+file: src/compiler/borrow_check.cpp
+---
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+---
+            // DOOR 1 at the WHOLE-borrow site. `loanpt1t` is the CONTROL TWIN
+            // (rule 18) of batch 1's `loanpt1`, re-spelled through the shared
+            // helper and measured in a DIFFERENT build.
+            if (it->is_mut && lu_reordered_by_back_edge(it->raise_point, lu) &&
+                (logos::probe::on("loanpt1t") || logos::probe::on("loanptA"))) {
+                ++it; continue;
+            }
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+===
+name: loanptF
+file: src/compiler/borrow_check.cpp
+---
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++fit2; continue; }
+---
+            // DOOR 1 at the FIELD-borrow site — THE SECOND MEMBER OF THE CLASS.
+            // Byte-identical predicate; the only difference is which of the two
+            // copies of the retirement comparison it guards.
+            if (fit2->is_mut && lu_reordered_by_back_edge(fit2->raise_point, lu) &&
+                (logos::probe::on("loanptF") || logos::probe::on("loanptA"))) {
+                ++fit2; continue;
+            }
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++fit2; continue; }
+===
+name: loanptD2
+file: src/compiler/borrow_check.cpp
+---
+            if (scopes_.size() >= 2 && !suppress_reports_) {
+---
+            bool ptA_ = logos::probe::on("loanptA");   // probe: the whole class
+            bool ptD_ = logos::probe::on("loanptD2");  // probe: door 2 alone — twin of batch 1's loanpt2
+            if (scopes_.size() >= 2 && (!suppress_reports_ || ptA_ || ptD_)) {
+===
+name: loanptA
+file: src/compiler/borrow_check.cpp
+---
+                    if (logos::probe::on("rehome_all")) return true;
+---
+                    if (suppress_reports_ && (ptA_ || ptD_) && !rec.is_mut) return false;
+                    if (logos::probe::on("rehome_all")) return true;
+===

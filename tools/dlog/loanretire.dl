@@ -1,0 +1,62 @@
+#include "cxx_schema.dl"
+// ── ROUND 2026-09-12i — THE LOAN-RETIREMENT CLASS, BY PROPERTY ───────────────
+//
+// Door 1's defect is not "release_dead_borrows is wrong". It is: A LOAN IS
+// RETIRED BY COMPARING A PER-FUNCTION LAST-USE MAXIMUM AGAINST A CURSOR, AND
+// THAT COMPARISON CANNOT SEE A BACK EDGE. Fixing the site that happens to carry
+// the ledger row leaves any sibling site failing the same way — so the class has
+// to be enumerated before anything is landed, and it cannot be enumerated by
+// spelling: `holders_last_use`, `one_holder_last_use` and a bare
+// `last_use_line_`/`last_use_slot_` lookup are three different tokens for one
+// fact, and a context that reads the fact for a DEBUG DUMP is not a member.
+//
+// CLAIM-FREE BY CONSTRUCTION. Nothing below names a function. The domain is
+// derived twice from the declarations themselves:
+//   lastuse_read  — every reference to a declaration whose qualified name
+//                   carries `last_use` (the function OR the map, either
+//                   spelling), anywhere in the TU.
+//   loanvec_read  — every reference to the loan CONTAINERS, `ScopeFrame::borrows`
+//                   and `ScopeFrame::field_borrows`.
+// A retirement DECISION needs both: the fact and the container it removes from.
+// The answer is the intersection by enclosing context, and the per-site read
+// then says which of those contexts decides and which only prints.
+//
+// KNOWN-ANSWER CONTROL: `release_dead_borrows` must appear in all three
+// relations (it is the site the ledger row is filed against), and
+// `holders_last_use`/`one_holder_last_use` must appear in q_lastuse and NOT in
+// q_both — they read the fact and touch no container.
+
+.decl lastuse_read(File: symbol, Line: number, Ctx: symbol)
+.output lastuse_read
+lastuse_read(F, L, N) :- ref(U, D), decl(D, _, Q), contains("last_use", Q),
+                         loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+
+.decl loanvec_read(File: symbol, Line: number, Ctx: symbol)
+.output loanvec_read
+loanvec_read(F, L, N) :- ref(U, D), decl(D, "Field", Q),
+                         // ⚠ THE QNAME IS FULLY QUALIFIED — `logos::compiler::
+                         // ScopeFrame::borrows`. The first spelling of this
+                         // rule compared it against the bare `ScopeFrame::…`
+                         // and read ZERO, and only the known-answer control
+                         // (release_dead_borrows must be in all three
+                         // relations) caught it. A suffix match, not equality.
+                         (contains("ScopeFrame::borrows", Q) ;
+                          contains("ScopeFrame::field_borrows", Q)),
+                         loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+
+// The class: a context that reads the last-use fact AND touches a loan container.
+.decl q_both(Ctx: symbol)
+.output q_both
+q_both(N) :- lastuse_read(_, _, N), loanvec_read(_, _, N).
+
+.decl n_lastuse(C: number)
+.output n_lastuse
+n_lastuse(C) :- C = count : { lastuse_read(_, _, _) }.
+.decl lastuse_ctx(Ctx: symbol)
+lastuse_ctx(N) :- lastuse_read(_, _, N).
+.decl n_ctx_lastuse(C: number)
+.output n_ctx_lastuse
+n_ctx_lastuse(C) :- C = count : { lastuse_ctx(_) }.
+.decl n_both(C: number)
+.output n_both
+n_both(C) :- C = count : { q_both(_) }.

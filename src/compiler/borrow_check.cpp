@@ -1007,6 +1007,7 @@ struct FieldBorrow {
     std::vector<std::string> co_holders;    // D1 — see BorrowRecord::co_holders
     uint32_t              holder_slot = 0xFFFFFFFFu;  // F5 — see BorrowRecord
     std::vector<uint32_t> co_holder_slots;            // parallel to co_holders
+    uint64_t              raise_point = 0;  // see BorrowRecord::raise_point
 };
 
 // ── §B6 SOURCE IDENTITY — F5, FOURTH INSTANCE ("a lookup KEY is not an
@@ -4496,7 +4497,7 @@ private:
         if (!scopes_.empty())
             scopes_.back().field_borrows.push_back(
                 {target, std::move(path), is_mut, holder, target_slot,
-                 {}, slot_of_binding(holder), {}});
+                 {}, slot_of_binding(holder), {}, max_line_seen_});
     }
 
     // ── Borrow operations ─────────────────────────────────────────────────
@@ -11520,6 +11521,27 @@ private:
                 } else { ++fit; }
             }
         }
+    }
+
+    // ── DOOR 1 (round 2026-09-12i) — IS THIS LOAN'S HOLDER LAST-USE REORDERED
+    //    BY A BACK EDGE? ──────────────────────────────────────────────────────
+    // `holders_last_use` is a per-function MAXIMUM over program points, and
+    // `release_dead_borrows` retires a loan as soon as that maximum is at or
+    // before the cursor. Inside a loop body that is wrong in one exact window:
+    // a holder use that sits textually ABOVE the raise is what makes the loan
+    // live again on iteration 2, so it is LATER in time, not earlier. The
+    // window is `body_first <= lu < raise_point`; outside it nothing changes —
+    // `lu > raise_point` is the ordinary intra-body NLL the D1 fixtures bought,
+    // and `lu < body_first` is a holder whose last use is before the loop.
+    // THE CLASS IS TWO SITES, not one: the whole-borrow loop and the
+    // field-borrow loop below it are two copies of the same comparison (dlog
+    // `loanretire.dl`: one context, five last-use reads, of which two decide).
+    // Both call this, so neither can be repaired without the other.
+    bool lu_reordered_by_back_edge(uint64_t raise_point, uint64_t lu) const {
+        if (raise_point == 0 || lu == 0 || loop_stack_.empty()) return false;
+        uint64_t bf = loop_stack_.back().body_first_point;
+        if (bf == 0) return false;
+        return raise_point >= bf && lu >= bf && lu < raise_point;
     }
 
     void release_dead_borrows(uint64_t cur_line) {
