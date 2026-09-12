@@ -1,0 +1,8 @@
+package g2;
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 { let s: &i64 = &v; acc = acc + *s; i = i + 1i64; }
+    return (acc - 21i64) as i32;
+}

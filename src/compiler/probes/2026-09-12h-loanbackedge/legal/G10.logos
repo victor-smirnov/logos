@@ -1,0 +1,7 @@
+package g10;
+fn main() -> i32 {
+    let mut ss: Vec<String> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < 3i64 { ss.push(String::new()); i = i + 1i64; }
+    return (ss.len() - 3i64) as i32;
+}

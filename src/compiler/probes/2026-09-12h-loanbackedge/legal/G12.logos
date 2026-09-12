@@ -1,0 +1,10 @@
+package g12;
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    let mut x: &i64 = &a;
+    let mut i: i64 = 0i64;
+    let mut acc: i64 = 0i64;
+    while i < 2i64 { acc = acc + *x; x = &b; i = i + 1i64; }
+    return (acc - 3i64) as i32;
+}

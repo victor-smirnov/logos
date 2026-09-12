@@ -1,0 +1,16 @@
+package l5;
+fn borrow(v: &i64) -> i64 { return *v; }
+fn main() -> i32 {
+    let mut v: i64 = 3i64;
+    let mut w: i64 = 4i64;
+    let mut x: &mut i64 = &mut w;
+    let mut i: i64 = 0i64;
+    loop {
+        let _z: i64 = borrow(&v);
+        x = &mut v;
+        i = i + 1i64;
+        if i > 3i64 { break; }
+    }
+    *x = *x + 1i64;
+    return 0i32;
+}

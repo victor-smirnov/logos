@@ -1,0 +1,17 @@
+name: loanbk1
+file: src/compiler/borrow_check.cpp
+---
+            if (scopes_.size() >= 2 && !suppress_reports_) {
+---
+            bool bk1_ = logos::probe::on("loanbk1");   // probe: pass-1 re-home
+            bool bk2_ = logos::probe::on("loanbk2");   // probe: pass-1 re-home, MUT only
+            if (scopes_.size() >= 2 && (!suppress_reports_ || bk1_ || bk2_)) {
+===
+name: loanbk2
+file: src/compiler/borrow_check.cpp
+---
+                    if (logos::probe::on("rehome_all")) return true;
+---
+                    if (suppress_reports_ && bk2_ && !rec.is_mut) return false;
+                    if (logos::probe::on("rehome_all")) return true;
+===

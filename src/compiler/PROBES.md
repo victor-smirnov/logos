@@ -40791,3 +40791,291 @@ nested · `&mut dyn FnMut` called once.
   contexts mint on a plain call but not a closure call" last round and this round's
   question was "what does the callee's TYPE carry", which is a question about the
   LIR schema, not about the C++ TU's call graph. Said plainly rather than claimed.
+
+# ═══ ROUND 2026-09-12h — THE LOOP BACK-EDGE LOAN CLASS IS **TWO DOORS IN SERIES**,
+# ═══ AND THE ONE THIS FILE ALREADY NAMED IS THE **SECOND**. THE FIRST HAS NO NAME
+# ═══ HERE AT ALL: NLL RETIRES A LOAN BY A **PER-FUNCTION SOURCE-LINE MAXIMUM**, AND
+# ═══ A LOOP MAKES A TEXTUALLY-EARLIER USE THE LATER ONE IN TIME. 0 + 1 = **3**.
+# ═══ AND THE CEILING COLUMN COUNTED A **BLESSED DIVERGENCE** AS A ROW. ══════════
+
+PRICING ROUND. NO ROW BOUGHT, NO FIX LANDED. Five probe names at three sites,
+two builds, five full cost lines, one new dlog rule, one control twin.
+
+    BUILD HASHES, READ (rule 8) with `scripts/build_hash.py`:
+      4e8255bd5a2f8397 43   the opening tree (832195eac), binary 13:22
+      dd621cba2c9a14e2 43   + the two door-2 arms            (batch 1)
+      8ce468f419a1af97 43   + the three door-1 / series arms (batch 2)
+      4e8255bd5a2f8397 43   AFTER the revert and rebuild — the opening hash
+                            back digit for digit, so the control revert is
+                            PROVEN and not asserted.
+
+## 0. CENSUS FIRST, AND THE CORRECTIONS TO THE PROMPT
+
+soundness_queue gate rc **0** — 89 open rows (tier1=18 tier2=18 tier3=45
+tier4=8); `# TOTAL` says 89 and the direct listing says 89. bc_admits **82** ·
+bc_admits_blocked **8** · probe-log-lint **275 records, every site symbol
+resolves**.
+
+  * ⚠ THE PROMPT'S STEP-1 GATE COMMAND CARRIES `LOGOS_LIB_DIR` AND IS CORRECT.
+    Re-verified against the text actually given, not copied from the journal —
+    which is the correction two earlier rounds got wrong in that direction.
+  * ⚠ THE PROMPT'S STEP 2 SAYS "RE-VERIFY THE THREE ROWS' RECORDED CONTROLS"
+    AND NAMES NO THREE ROWS. Read as "whichever rows you choose": EIGHT
+    candidate rows were compiled on 4e8255bd5a2f8397 before anything was
+    chosen and ALL EIGHT still reproduce ADMITTED (`borrowck-lend-flow-loop`,
+    `two-phase-across-loop`, `issue-62007-assign-differing-fields--c`,
+    `buffer-reuse-pattern-issue-147694`, `issue-53773`,
+    `borrowed-referent-issue-38899`, `issue-98170`,
+    `type-check-pointer-coercions`, `type-check-pointer-comparisons`).
+
+## 1. WHY THIS BLOCK — THE CLASS CROSSES THREE ROOT IDS, SO NO ROOT GREP FINDS IT
+
+The never-surveyed list was re-derived (rule 17) by grepping every root id in
+`bc_admits.ledger` against this file BY SUFFIX. It is again wrong in both
+directions, and the last round's own hand-down is the better datum: it named
+`bck.NEW-2` and `bck.NEW-BLOCKREF` as "surveyed and not priced, dropped for the
+FnMut pair, not refuted". `bck.NEW-2` was taken. `bck.NEW-BLOCKREF` was NOT: it
+is a `&mut &mut` reborrow with no loop and no named arm, and it does not group
+with anything measured here.
+
+The class was found by PROPERTY instead: every `bc_admits` program containing a
+`while`/`loop`/`for` (5 of 82) was read. Three of the five are one property —
+*a loan raised inside a loop body whose HOLDER is an outer binding must be live
+at the back edge* — across THREE root ids in three different blocks
+(`bck.NEW-2`, `bck.NEW-L`, `nllmoves.R3`). A root-id grep cannot see that.
+
+TARGET ROWS, WRITTEN BY NAME BEFORE THE COMPILER WAS TOUCHED and committed in
+`ebb315cc8`: `src/compiler/probes/2026-09-12h-loanbackedge/TARGETS.md`.
+
+## 2. THE ARM EXISTS AND FIRES — AND THE MECHANISM IS NOT WHAT THE FILE SAID
+
+Eight hand programs on the opening binary, one property apart each
+(`probes/2026-09-12h-loanbackedge/L*.logos`):
+
+    L1  straight line: `&mut v` then `borrow(&v)`          REFUSED, right sentence
+    L3  loan minted BEFORE the loop, conflicting use in it REFUSED
+    L4  loan minted IN the loop, conflicting use AFTER it  REFUSED
+    L2  loan minted at the body BOTTOM, use at the TOP     ADMITTED   <= the row
+    L5  the same under `loop { … }`                        ADMITTED
+    L6  the same over a struct field, no deref             ADMITTED
+    L7  L2 with the holder's last use BELOW the raise      ADMITTED
+    L8  L2 with the holder's last use AFTER THE LOOP       ADMITTED
+
+So loans are recorded, flow forward, and cross the loop EXIT. What they do not
+do is reach the BACK EDGE.
+
+`visit_loop_body`'s own comment (~11815) names a cause: `pop_scope`'s Door-B
+RE-HOME is gated on `!suppress_reports_`, so in pass 1 — the dry run whose whole
+job is to compute the back-edge state — a loan whose holder outlives the body is
+RELEASED at the body's `}` and `post1_s` comes back with the counters down. The
+comment records the measurement that condemned ungating it: "stdlib `mem` stops
+compiling". **THAT NOTE IS HALF RIGHT, AND THE HALF IT DOES NOT STATE IS THE
+EXPENSIVE HALF: ungating it CLOSES NOTHING.**
+
+    probe        site                                   fires   ceil  cost cfail std
+    loanbk1  pop_scope re-home, pass 1, ALL loans    22781336      0     0     1  ⛔
+    loanbk2  …same, MUT loans only                   22915432      0     0     1  ok
+
+22.8 M arrivals: rule 1 satisfied, the site is as live as a site gets, and the
+ceiling is still 0. The stdlib refusal is `walk_program_params` / `src_bufs`,
+verbatim the function the comment names — **the wall reproduces today**. But
+`loanbk2` is the inner predicate (rule 9) and it **CLEARS THE STDLIB**: the
+blocker is a SHARED `str` into `src_bufs[i]`, so restricting the pass-1 re-home
+to MUT loans dodges it entirely. That is new, and it is a correction to the
+note, which does not distinguish the two halves.
+
+**THE REAL FIRST DOOR, AND IT IS NOWHERE IN THIS FILE.** L8 is L2 with one line
+moved — `*x = *x + 1i64` from the top of the body to after the loop — and it is
+ADMITTED on the base binary and **REFUSED under `loanbk1`**, with upstream's
+verdict. That one-variable control names door 1: `release_dead_borrows` retires
+a loan when `holders_last_use(rec) <= cur_line`, and `last_use_line_` is a
+PER-FUNCTION MAXIMUM OVER SOURCE LINES. In a loop the use that makes the loan
+live again on iteration 2 sits at a SMALLER line than the raise, so the loan is
+retired inside the body, in BOTH passes, before pop_scope can ever see it.
+
+## 3. THE TWO DOORS ARE IN SERIES, AND THE INCREMENT IS SUPER-ADDITIVE
+
+    probe        door(s)                          fires   ceil  cost cfail std
+    loanlu   1: a MUT loan does not expire by       1093      1*    6     0  ok
+             last use while inside a loop body
+    loanser  1 + 2(mut)                         22782252      3*    6     1  ⛔
+    loanser2 2(mut) alone — CONTROL TWIN        22915432      0     0     1  ok
+
+    RULE 13, MEASURED AND NOT ASSUMED: 0 + 1 = **3**. Neither door alone buys
+    what the pair buys; half a mechanism is not one (rule 2).
+
+    RULE 18, THE CONTROL TWIN HELD: `loanser2` is `loanbk2` re-spelled at the
+    same site in a DIFFERENT build (8ce468f419a1af97 vs dd621cba2c9a14e2) and it
+    comes back 22915432 / 0 / 0 / 1 / ok — digit for digit. The door-2
+    measurement reproduces.
+
+    COST IS NOT ADDITIVE DOWNWARD, AGAIN: door 1 alone leaves the stdlib GREEN
+    and door 2(mut) alone leaves it GREEN, and the PAIR breaks it — in two
+    layers and at functions neither half touched (`lang`: `Splitter__last`;
+    `mem`: `register_native_rels`, 12 refusals; `loanbk1`'s break was
+    `walk_program_params`, a different function in the same layer).
+
+## 4. ⚠ THE CEILING COLUMN COUNTED A BLESSED DIVERGENCE AS A ROW
+
+THE SETS, DIFFED BOTH WAYS AGAINST THE NAMES WRITTEN BEFORE THE RUN:
+
+    predicted & closed      borrowck-lend-flow-loop          bck.NEW-2
+    predicted & closed      two-phase-across-loop            bck.NEW-L
+    predicted & NOT closed  issue-62007-assign-…--c          nllmoves.R3
+    predicted not to move   buffer-reuse-pattern-147694      bck.NEW-L   ✓ did not
+    predicted not to move   issue-53773                      nllmoves.E  ✓ did not
+    NOT predicted, "closed" issue-75904-move-closure-loop    nllmoves.C
+
+**THE UNPREDICTED ONE IS NOT A ROW.** `issue-75904-move-closure-loop` lives in
+`bc_admits_blocked.ledger`, BUCKET 3, blessed divergence **A16** (structural
+auto-Copy): its `struct NotCopy;` is field-less with no `impl Drop`, so
+`let m = a;` is a COPY and **the program is LEGAL Logos as written**. Refusing
+it is a legal-program refusal, not a row purchase.
+
+The cause is mechanical and it will bite every future probe: the 2026-09-04
+split (124 -> 99 + 25) moved rows between two FILES but left every admit-shelf
+program its `logos_00_bc_admit_*` test, and `ceiling-probe.sh` counts those
+tests. **So the ceiling column measures the ADMIT SHELF, not the actionable
+ledger, and it converts a COST into a CEILING — wrong in the expensive
+direction.** Corrected numbers: `loanlu` ceiling **0**, cost **7**;
+`loanser` ceiling **2**, cost **7** plus a broken stdlib. (Reported, not fixed:
+the tooling freeze stands and `ceiling-probe.sh` is not the named exception.)
+
+THE DIAGNOSTICS, READ, for the two rows actually closed:
+
+    borrowck-lend-flow-loop  "cannot borrow 'v' as shared: already mutably borrowed"
+      rustc borrowck/borrowck-lend-flow-loop.stderr @ da5114692c9: E0502
+      "cannot borrow `*v` as immutable because it is also borrowed as mutable" — same verdict.
+    two-phase-across-loop    "cannot borrow 'foo' as mutable: already mutably borrowed"
+      rustc borrowck/two-phase-across-loop.stderr: E0499 "cannot borrow `foo` as
+      mutable more than once at a time … in the previous iteration of the loop" —
+      same verdict; upstream's clause naming the ITERATION is a diag-quality gap,
+      not a verdict gap, and would be its own `diag` row.
+
+`issue-62007-assign-differing-fields--c` is the predicted member that did NOT
+move, so **the grouping claim is refuted for the third row** and the class as
+measured is TWO rows, not three. Its loan is on a FIELD PATH (`(list.0).value`)
+and the field-borrow loop in `release_dead_borrows` is a second copy of the same
+rule with its own already-declined arm (`fldnlldrop`, ceiling 0 / cost 13).
+
+## 5. THE HAND BATTERY FOUND NOTHING, AND THAT IS THE RULE-5 DATUM
+
+Twelve legal shapes, varied by SHAPE and not by count, each compiled, LINKED and
+**RUN** through `run_test.sh pass` with `exit: 0`
+(`probes/2026-09-12h-loanbackedge/legal/`): `&mut` local per iteration ·
+shared borrow per iteration · outer `&mut` never re-pointed · `Vec<&i64>` push
+of an OUTER local (legal Rust, the over-refusal shape) · `&mut` to a struct ·
+nested loops with two referents · `loop`+`break` · `for` over `vs.iter()` ·
+`if`/`else` arms borrowing DIFFERENT fields · `Vec<String>` push · a `&mut`
+passed to a function per iteration · a SHARED twin of the ledger row itself
+(`x = &b` at the bottom, `*x` at the top — legal, two shared borrows).
+
+**ALL TWELVE PASS UNDER ALL THREE ARMS.** Meanwhile the corpus refuses SIX
+(`bc_d3_loop_bare_block_release_admit`, `bc_nll_d1_for_ref_admit`,
+`bc_nll_d1_loop_closure_admit`, `bc_nll_d1_loop_ref_admit`,
+`bc_patmut_for_arr_recv`, `bc_patmut_for_vec_recv` — the D1 fixtures that BOUGHT
+intra-body NLL in the first place, which the crude arm reverts wholesale) and
+the stdlib refuses FOURTEEN. Third round running that only the full suite finds
+the cost; a hand battery licenses nothing.
+
+## 6. THE RUNTIME COLUMN, AND HOW IT WAS TAKEN
+
+Not by `run_oracle.py`: both arms live in `release_dead_borrows` and
+`pop_scope`, which are analysis-only and feed no LIR. That reasoning was not
+trusted — it was MEASURED. Each of the twelve legal programs was compiled twice
+on 8ce468f419a1af97, unarmed and under `LOGOS_PROBE=loanser`, and the objects
+compared byte for byte: **12 identical, 0 differing**. So the runtime column is
+structurally 0 for this mechanism, and a 50-minute oracle pass over a condemned
+arm was not spent.
+
+## 7. dlog — THE QUESTION ASKED, AND THE ANSWER THAT REFUTED THE HYPOTHESIS
+
+`tools/dlog/selftest.sh` rc **0** before use; known-answer control on
+`28fc7c75` unchanged (19 walkers / 24 findings / try_path 1-5 / domain 42-5;
+duty discriminates 1 -> 0 across `756aed65`).
+
+NEW RULE `tools/dlog/loopstate.dl` (committed), over `borrow_check.cpp`. The
+question, by property: *which of the BorrowChecker's own mutable state channels
+does the two-pass loop hand-off carry, and which does it not?* An uncarried
+channel has no spelling — there is no token for a member simply absent from a
+save/restore list — so it is dlog's case. CLAIM-FREE BY CONSTRUCTION: the domain
+is every `FieldDecl` whose qualified name is under `BorrowChecker::`, the
+subject is every such field referenced inside `visit_loop_body`, and the answer
+is the set difference. KNOWN-ANSWER CONTROL: the five channels the SOURCE
+COMMENT says it saves and restores — `states_`, `prov_`, `ref_borrow_sources_`,
+`ref_borrow_line_`, `dangling_` — must all appear in `loop_carried`, and all
+five do.
+
+    field_count 71 · carried 12 · uncarried 59
+
+⚠ **THE CROSS-CHECK, BOTH NUMBERS SIDE BY SIDE.** dlog says **59** uncarried;
+the per-site read says **7**. The 52 difference is domain, not verdict: 6 are
+const references or pointers fixed for the whole compile (`prog_`, `ts_`,
+`fn_index_`, `diags_`, `ri_`, `flows_`); ~25 are per-FUNCTION tables built
+before the walk and never written by it (`param_*`, `last_use_*`, `closure_*`,
+`fnptr_*`, `stmt_pt_`, `line_ord_`, `copy_tvs_`, `fnfam_tvs_`, …); ~10 are
+transient balanced flags restored by their own save/restore
+(`in_call_args_`, `in_addr_source_`, `slice_view_base_`, `pending_esc_holder_`,
+…); 2 are debug fire counters; and 5 are fields of NESTED structs
+(`BorrowRecord::borrow_line`, `LoopFrame::label`, `RefSrc::source`, …) that are
+not BorrowChecker state at all but whose qname contains the class. The seven
+real ones are `reborrow_of_`, `reborrow_mut_`, `dropck_borrow_sources_`,
+`dropck_field_srcs_`, `dropck_binding_line_`, `max_line_seen_`,
+`scrut_tmp_seq_`. **This is the OVER-COUNT direction, the same one the RPIT
+round measured (9 vs 1), not the `ctx_of` coarsening that once read 37 vs 0.**
+
+AND THE ANSWER IS A NEGATIVE RESULT WORTH MORE THAN THE LIST: the channel this
+defect needs — `states_`, carrying the loan counters — **IS** in the carried set,
+via `merge_loans(back_edge, post1_s)`. So "a state channel is missing from the
+hand-off" is REFUTED as the root. The defect is not an uncarried channel; it is
+the CONTENT of a carried one, emptied upstream by two different releases. Asking
+dlog cost one rule and saved a round from chasing the wrong shape.
+
+## 8. WHAT DESERVES FUNDING, AND WHAT DOES NOT
+
+**NOT FUNDED AS SPELLED, ALL THREE ARMS, AND EACH BY ITS OWN NUMBER.**
+`loanbk1` — stdlib ⛔ and ceiling 0. `loanbk2`/`loanser2` — stdlib ok but
+ceiling 0: it is the SECOND door of a series and cannot fire alone. `loanlu` —
+corrected ceiling 0 against cost 7; it reverts the six D1 fixtures that bought
+intra-body NLL.
+
+**WHAT THE NEXT ROUND SHOULD PRICE, WITH THE REASON, NOT THE CONCLUSION.** Door
+1, NOT as "a loan never expires inside a loop" but as *the holder's last use is
+a PROGRAM POINT and a back edge reorders it*: a loan raised at point P inside a
+loop body must not be retired by a holder use at a point Q < P in the SAME body,
+because the back edge makes Q later than P. That is one predicate over two
+numbers `release_dead_borrows` already has (`cur_line`, `holders_last_use`)
+plus one it can get from `loop_stack_` (the body's first point). The six refused
+fixtures are exactly the programs whose holder's last use is BELOW the raise —
+Q > P — which this predicate leaves alone and the crude arm does not. That is
+rule 7 in its usual form: a crude probe and a correct fix do not close the same
+programs, and here the difference is a single comparison.
+
+Door 2 then comes for free at its already-measured cost (mut-only: stdlib ok),
+and the pair is worth **two** ledger rows — `bck.NEW-2` and `bck.NEW-L`'s
+`two-phase-across-loop`. `nllmoves.R3` is NOT in that pair: its loan is
+field-path-keyed and the field loop's own arm is separately declined
+(`fldnlldrop`, ceiling 0 / cost 13).
+
+⚠ AND THE STDLIB PAIR-BREAK MUST BE RE-MEASURED FOR THE CORRECT DOOR 1, NOT
+INHERITED FROM THIS ONE. The crude arm broke `lang`/`Splitter__last` and
+`mem`/`register_native_rels`; whether the point-correct predicate does is
+unknown and a decline carried from a crude arm is exactly the shape this file
+keeps recording as stale.
+
+⚠ ROWS SURVEYED AND NOT TAKEN, so the reasoning is inherited and not the
+conclusion: `borrowed-referent-issue-38899` (`bck.NEW-BLOCKREF`, `&mut &mut`
+reborrow, no loop, no named arm — carried unpriced for a second round);
+`type-check-pointer-coercions`/`-comparisons` (`nllmoves.R14`/`R2`, ZERO
+qualified hits in this file each, both re-verified admitted) and
+`issue-98170`/`issue-55394--b` (`nllmoves.R13`/`NEW-3`, likewise zero) — all
+four want region VARIANCE or an `impl T<'_>` anonymous impl region, i.e. a
+missing SUBSYSTEM rather than an absent fact, which is the shape that has never
+paid here.
+
+fires: loanbk1 22781336 · loanbk2 22915432 · loanser2 22915432 (pop_scope, the Door-B
+re-home gate) · loanser 22782252 · loanlu 1093 (release_dead_borrows, the whole-borrow
+loop). Sites: `pop_scope` and `release_dead_borrows` in src/compiler/borrow_check.cpp.
+Builds dd621cba2c9a14e2 (batch 1) and 8ce468f419a1af97 (batch 2); reverted and rebuilt
+to 4e8255bd5a2f8397, the opening hash, digit for digit. All arms REVERTED — nothing of
+this round is in the binary or the sources.

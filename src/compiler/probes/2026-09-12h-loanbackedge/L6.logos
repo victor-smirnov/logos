@@ -1,0 +1,15 @@
+package l6;
+struct S { a: i64 }
+fn main() -> i32 {
+    let mut v: S = S { a: 1i64 };
+    let mut w: S = S { a: 2i64 };
+    let mut x: &mut S = &mut w;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        x.a = x.a + 1i64;
+        let _z: i64 = v.a;
+        x = &mut v;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

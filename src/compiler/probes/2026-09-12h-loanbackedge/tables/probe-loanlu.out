@@ -1,0 +1,24 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=loanlu
+ceiling-probe: fail-text baseline for build 8ce468f419a1af97 not yet measured
+fail-oracle: 1507 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-8ce468f419a1af97.tsv
+fail-oracle: 1507 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-8ce468f419a1af97-loanlu.tsv
+ceiling-probe: 'loanlu'  builds 1075 (unarmed) -> 1076 (armed)
+probe: fired 1093 times
+probe: CEILING = 1 rows
+probe:   logos_00_bc_admit_moves_issue-75904-move-closure-loop
+probe: COST    = 6 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe:   logos_02_semantic_core_pass_bc_d3_loop_bare_block_release_admit
+probe:   logos_02_semantic_core_pass_bc_nll_d1_for_ref_admit
+probe:   logos_02_semantic_core_pass_bc_nll_d1_loop_closure_admit
+probe:   logos_02_semantic_core_pass_bc_nll_d1_loop_ref_admit
+probe:   logos_02_semantic_core_pass_bc_patmut_for_arr_recv
+probe:   logos_02_semantic_core_pass_bc_patmut_for_vec_recv
+probe: COST-fail = 0 of 1507 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 0)
+probe: stdlib: all four layers compile under 'loanlu'
+probe: ⛔ COST >= CEILING — it refuses at least as many legal programs as it
+probe:    closes rows. Exemptions might rescue it; the burden is showing WHICH.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.

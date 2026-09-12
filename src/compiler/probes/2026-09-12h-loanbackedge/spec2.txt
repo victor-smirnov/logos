@@ -1,0 +1,32 @@
+name: loanlu
+file: src/compiler/borrow_check.cpp
+---
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+---
+            // probes loanlu / loanser — DOOR 1. A MUT loan raised inside a loop
+            // body is retired here by a holder last-use that lies INSIDE the
+            // same body: `last_use_line_` is a per-function MAX over SOURCE
+            // LINES, and the use that makes the loan live again on iteration 2
+            // sits at a SMALLER line than the raise. Crude arm: inside a loop
+            // body, a mut loan does not expire by last use at all.
+            if (it->is_mut && !loop_stack_.empty() &&
+                (logos::probe::on("loanlu") || logos::probe::on("loanser"))) { ++it; continue; }
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+===
+name: loanser
+file: src/compiler/borrow_check.cpp
+---
+            if (scopes_.size() >= 2 && !suppress_reports_) {
+---
+            bool ser_  = logos::probe::on("loanser");    // probe: door 1 + door 2
+            bool ser2_ = logos::probe::on("loanser2");   // probe: door 2 alone (control twin of loanbk2)
+            if (scopes_.size() >= 2 && (!suppress_reports_ || ser_ || ser2_)) {
+===
+name: loanser2
+file: src/compiler/borrow_check.cpp
+---
+                    if (logos::probe::on("rehome_all")) return true;
+---
+                    if (suppress_reports_ && (ser_ || ser2_) && !rec.is_mut) return false;
+                    if (logos::probe::on("rehome_all")) return true;
+===

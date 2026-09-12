@@ -1,0 +1,8 @@
+package g4;
+fn main() -> i32 {
+    let a: i64 = 5i64;
+    let mut vs: Vec<&i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < 3i64 { vs.push(&a); i = i + 1i64; }
+    return (vs.len() - 3i64) as i32;
+}

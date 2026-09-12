@@ -1,0 +1,7 @@
+package g8;
+fn main() -> i32 {
+    let vs: Vec<i64> = Vec::new();
+    let mut acc: i64 = 0i64;
+    for e in vs.iter() { acc = acc + *e; }
+    return acc as i32;
+}

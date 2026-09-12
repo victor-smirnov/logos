@@ -1,0 +1,7 @@
+package g1;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 { let r: &mut i64 = &mut n; *r = *r + 1i64; i = i + 1i64; }
+    return (n - 3i64) as i32;
+}

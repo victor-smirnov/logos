@@ -1,0 +1,9 @@
+package g11;
+fn take(r: &mut i64) -> i64 { *r = *r + 1i64; return *r; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    let mut last: i64 = 0i64;
+    while i < 3i64 { last = take(&mut n); i = i + 1i64; }
+    return (last - 3i64) as i32;
+}

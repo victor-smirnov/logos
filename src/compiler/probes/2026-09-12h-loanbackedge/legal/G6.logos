@@ -1,0 +1,16 @@
+package g6;
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut b: i64 = 2i64;
+    let mut i: i64 = 0i64;
+    let mut t: i64 = 0i64;
+    while i < 2i64 {
+        let mut j: i64 = 0i64;
+        while j < 2i64 { let r: &mut i64 = &mut b; *r = *r + 1i64; j = j + 1i64; }
+        let q: &mut i64 = &mut a;
+        *q = *q + 1i64;
+        i = i + 1i64;
+    }
+    t = a + b;
+    return (t - 9i64) as i32;
+}

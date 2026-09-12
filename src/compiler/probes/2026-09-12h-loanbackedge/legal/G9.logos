@@ -1,0 +1,12 @@
+package g9;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut p: P = P { a: 1i64, b: 2i64 };
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        if i > 0i64 { let r: &mut i64 = &mut p.a; *r = *r + 1i64; }
+        else { let r: &mut i64 = &mut p.b; *r = *r + 1i64; }
+        i = i + 1i64;
+    }
+    return (p.a + p.b - 6i64) as i32;
+}

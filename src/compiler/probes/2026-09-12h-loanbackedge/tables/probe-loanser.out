@@ -1,0 +1,37 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=loanser
+fail-oracle: 1507 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-8ce468f419a1af97-loanser.tsv
+ceiling-probe: 'loanser'  builds 1075 (unarmed) -> 1077 (armed)
+probe: fired 22782252 times
+probe: CEILING = 3 rows
+probe:   logos_00_bc_admit_borrowck_borrowck-lend-flow-loop
+probe:   logos_00_bc_admit_borrowck_two-phase-across-loop
+probe:   logos_00_bc_admit_moves_issue-75904-move-closure-loop
+probe: COST    = 6 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe:   logos_02_semantic_core_pass_bc_d3_loop_bare_block_release_admit
+probe:   logos_02_semantic_core_pass_bc_nll_d1_for_ref_admit
+probe:   logos_02_semantic_core_pass_bc_nll_d1_loop_closure_admit
+probe:   logos_02_semantic_core_pass_bc_nll_d1_loop_ref_admit
+probe:   logos_02_semantic_core_pass_bc_patmut_for_arr_recv
+probe:   logos_02_semantic_core_pass_bc_patmut_for_vec_recv
+probe: COST-fail = 1 of 1507 `-L bc -L fail` fixtures changed (rc 0, .expected-match 0, text-only 1)
+probe:   TEXT logos_06_diagnostics_fail_issue-62007-assign-differing-fields--t22  stderr changed, .expected still matches
+probe:   ⚠ the text-only rows are INVISIBLE TO ctest: run_test.sh matches
+probe:     .expected as a grep -F SUBSTRING, so those fixtures stay GREEN.
+probe: stdlib: ⛔ REFUSED: lang mem — the hardest COST there is. The stdlib asserts
+probe: stdlib:   legality by being built; nothing downstream of it is meaningful.
+probe: stdlib:   lang: 2 refusals; first four:
+probe: stdlib:     error [fn Splitter__last]: cannot borrow 'it': 'it' is already mutably borrowed
+probe: stdlib:     error [fn Splitter__last]: cannot borrow 'it' as mutable: already mutably borrowed
+probe: stdlib:   mem: 12 refusals; first four:
+probe: stdlib:     error [fn register_native_rels]: cannot use 'srcb' while it is mutably borrowed
+probe: stdlib:     error [fn register_native_rels]: cannot borrow 'srcb' as shared: already mutably borrowed
+probe: stdlib:     error [fn register_native_rels]: cannot borrow 'srcb' as mutable: already mutably borrowed
+probe: stdlib:     error [fn register_native_rels]: cannot use 'dsrcb' while it is mutably borrowed
+probe: COST-stdlib = REFUSED — this outranks every number above.
+probe: ⛔ THE STDLIB DID NOT COMPILE — whatever ceiling 3 says, nothing
+probe:    downstream of a stdlib that does not build is meaningful.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.

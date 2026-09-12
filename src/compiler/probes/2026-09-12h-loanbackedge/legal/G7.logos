@@ -1,0 +1,14 @@
+package g7;
+fn main() -> i32 {
+    let mut v: i64 = 3i64;
+    let mut i: i64 = 0i64;
+    let mut s: i64 = 0i64;
+    loop {
+        if i > 2i64 { break; }
+        let r: &mut i64 = &mut v;
+        *r = *r + 1i64;
+        i = i + 1i64;
+    }
+    s = v;
+    return (s - 6i64) as i32;
+}

@@ -1,0 +1,12 @@
+package g5;
+struct H { n: i64 }
+fn main() -> i32 {
+    let mut h: H = H { n: 1i64 };
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let r: &mut H = &mut h;
+        r.n = r.n + 1i64;
+        i = i + 1i64;
+    }
+    return (h.n - 4i64) as i32;
+}
