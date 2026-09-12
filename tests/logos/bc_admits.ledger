@@ -1812,7 +1812,7 @@ borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-
 borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed  #  ⚠ LEGAL AS PORTED, measured 2026-09-11: the "minimal reduction" dropped the only LATER use of its loan, so under NLL the loan is dead at the move and our arm is correct. 2x2 measured (restore the later use / remove it, x admit / refuse). RETIRE CANDIDATE or re-port with the later use restored — owner's.
-borrowck-unboxed-closures bck.A-FNMUT tests/imported/admit/borrowck/borrowck-unboxed-closures
+borrowck-unboxed-closures bck.A-FNMUT tests/imported/admit/borrowck/borrowck-unboxed-closures  # PRICED 2026-09-12f (build a4a93273e575d5f2), PROBES.md: the class is ONE mechanism at ONE site and TWO rows — a call through a binding of Fn-family type mints no borrow of the CALLEE (`visit`, borrow_check.cpp Code::ClosureCall: a non-consuming `visit(callee)`; `take_ref_borrows` mints on the CAPTURES only). dlog `calleeborrow.dl`: 30 ClosureCall/FnPtrCall sites in 13 contexts, and ZERO minting contexts blind BY OMISSION — the hole is INSIDE the arm, cross-checked per-site. Probe `calleeresv` CEILING 1 (a-fnmut-twice, predicted by name, ∅/∅) COST 2 legal + 0/1504 fail + stdlib all four layers build; `calleerecv` CEILING undefined (⛔ stdlib REFUSED, 73 refusals) COST 1512. NOT FUNDED AS SPELLED: the mutability must be the Fn-FAMILY KIND (`Fn` shared, `FnMut` mut, `FnOnce` move) and that fact is ABSENT from borrow_check.cpp though LIR carries it (`FnTraitBoundView::trait_name`); the loan must be PATH-keyed; and `Code::FnPtrCall` must be EXCLUDED (a fn pointer is Copy; 358 arrivals per compile).
 borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 buffer-reuse-pattern-issue-147694 bck.NEW-L tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694
 issue-36082 bck.NEW-BCS tests/imported/admit/borrowck/issue-36082
@@ -1823,7 +1823,7 @@ ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/owne
 reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow  #  ⚠ LOOKS LEGAL AS PORTED, 2026-09-11: `let moved: &mut State = state;` is a REBORROW at a coercion site, not a move, so there is nothing to refuse. ⚠ THIS RESTS ON A READING — there is no rustc binary on this box and no upstream `.stderr` covers the reduced shape. Owner's call; do not price it as a defect without an upstream answer.
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop
-two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice
+two-phase-nonrecv-autoref--a-fnmut-twice bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--a-fnmut-twice  # PRICED 2026-09-12f (build a4a93273e575d5f2), PROBES.md: the class is ONE mechanism at ONE site and TWO rows — a call through a binding of Fn-family type mints no borrow of the CALLEE (`visit`, borrow_check.cpp Code::ClosureCall: a non-consuming `visit(callee)`; `take_ref_borrows` mints on the CAPTURES only). dlog `calleeborrow.dl`: 30 ClosureCall/FnPtrCall sites in 13 contexts, and ZERO minting contexts blind BY OMISSION — the hole is INSIDE the arm, cross-checked per-site. Probe `calleeresv` CEILING 1 (a-fnmut-twice, predicted by name, ∅/∅) COST 2 legal + 0/1504 fail + stdlib all four layers build; `calleerecv` CEILING undefined (⛔ stdlib REFUSED, 73 refusals) COST 1512. NOT FUNDED AS SPELLED: the mutability must be the Fn-FAMILY KIND (`Fn` shared, `FnMut` mut, `FnOnce` move) and that fact is ABSENT from borrow_check.cpp though LIR carries it (`FnTraitBoundView::trait_name`); the loan must be PATH-keyed; and `Code::FnPtrCall` must be EXCLUDED (a fn pointer is Copy; 358 arrivals per compile).
 two-phase-nonrecv-autoref--c-mut-and-shared-args bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args  #  ⚠ BLOCKED ON A PIN, 2026-09-09: the arm that closes this row (`argresvact` + the receiver reservation, ceiling 3, cost 0 elsewhere) refuses `tests/imported/pass/nll/tpb-mut-with-shared-ref-arg` — a GREEN pass fixture whose program is THIS ROW'S CONSTRUCT one shelf over, and which upstream marks `//~ ERROR [E0502]` (read on the box at `tests/ui/borrowck/two-phase-nonrecv-autoref.rs:104-112`). A second, `tests/imported/pass/cmp/test_harness_coretest_cmp:125`, replaced upstream's temporaries with a named local and so made the program illegal. A LEDGER ROW MAY NOT BE BOUGHT BY EDITING A PIN: both are corpus decisions with an owner.
 two-phase-nonrecv-autoref--d-index-two-phase bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase
 
@@ -1928,6 +1928,22 @@ regions-static-bound lifereg.L2 tests/imported/admit/regions/regions-static-boun
 #   --a  a call through a `FnMut` VALUE mints no borrow of the callee. Cheapest carrier
 #        is not the ledger program: `let mut c = |x: i64| { return x + 1i64; };
 #        let r = c(c(10i64));` — E0499 upstream, silent here, ZERO borrow records.
+#        ⚠ CORRECTED 2026-09-12f — THAT CARRIER IS **LEGAL RUST**, NOT E0499, AND A
+#        ROUND THAT TOOK IT AT ITS WORD WOULD HAVE BOUGHT THIS ROW WITH A
+#        LEGAL-PROGRAM REFUSAL. A closure with NO CAPTURES resolves to `call`, not
+#        `call_mut`, and upstream's own comment at tests/ui/borrowck/
+#        two-phase-nonrecv-autoref.rs:39-49 says so in as many words: "or we will
+#        resolve both to `call` (which will just work, regardless of two-phase
+#        borrow support)". The same file's `twice_ten_si<F: Fn>(f: &mut F) { f(f(10)) }`
+#        carries NO `//~ ERROR` (line 54), and the identical program is already a
+#        GREEN pass fixture in this tree: tests/imported/pass/closures/
+#        closure-fn-bound-twice-cl2. It was measured as one of the TWO costs of
+#        ceiling probe `calleeresv` (PROBES.md 2026-09-12f). ⚠ No rustc BINARY is on
+#        this box; the verdict rests on upstream's `//~ ERROR` annotations and that
+#        comment, both read at da5114692c9. THE ROW IS UNTOUCHED — only this note.
+#        THE REAL CARRIER IS THE LEDGER PROGRAM, and what the arm needs is the
+#        Fn-FAMILY KIND, which `borrow_check.cpp` does not carry at all (zero
+#        occurrences of FnMut / FnOnce / closure_kind / is_fn_family).
 #
 # THE TWO ARMS, BOTH ALREADY IN THE TREE AND UNARMED (ceiling-probe.sh, full cost line):
 #   argresvsibshared  fires 26  CEILING 3 (--c, --c26, --t26; predicted BY NAME,

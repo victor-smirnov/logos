@@ -15771,16 +15771,43 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         // ── Closure call ───────────────────────────────────────────────
         case Code::ClosureCall: {
             EClosureCallView v{e};
+            // CEILING PROBES calleerecv / calleeresv / calleeboth — PROBES.md
+            // 2026-09-12. Crude: the callee of a closure call is treated as a
+            // `&mut` receiver. NOT a fix — the Fn-family kind is absent here.
+            BorrowPlace ccbp = extract_borrow_place(v.callee(), pool);
+            logos::probe::census(ccbp.root.empty() ? "cc.cl.noroot" : "cc.cl.root");
+            bool cc_recv = logos::probe::on("calleerecv") || logos::probe::on("calleeboth");
+            bool cc_resv = logos::probe::on("calleeresv") || logos::probe::on("calleeboth");
+            if (cc_recv && !ccbp.root.empty())
+                check_recv_conflict(ccbp, /*is_mut=*/true, line);
             visit(v.callee(), /*consuming=*/false, line);
+            bool cc_held = false;
+            if (cc_resv && !ccbp.root.empty())
+                if (auto* st = var_find(ccbp.root_slot, ccbp.root))
+                    if (!st->mut_borrowed) { st->mut_borrowed = true; cc_held = true; }
             visit_args(v);
+            if (cc_held)
+                if (auto* st = var_find(ccbp.root_slot, ccbp.root)) st->mut_borrowed = false;
             break;
         }
 
         // ── Fn-pointer call ────────────────────────────────────────────
         case Code::FnPtrCall: {
             EFnPtrCallView v{e};
+            BorrowPlace fpbp = extract_borrow_place(v.callee(), pool);
+            logos::probe::census(fpbp.root.empty() ? "cc.fp.noroot" : "cc.fp.root");
+            bool fp_recv = logos::probe::on("calleerecv") || logos::probe::on("calleeboth");
+            bool fp_resv = logos::probe::on("calleeresv") || logos::probe::on("calleeboth");
+            if (fp_recv && !fpbp.root.empty())
+                check_recv_conflict(fpbp, /*is_mut=*/true, line);
             visit(v.callee(), /*consuming=*/false, line);
+            bool fp_held = false;
+            if (fp_resv && !fpbp.root.empty())
+                if (auto* st = var_find(fpbp.root_slot, fpbp.root))
+                    if (!st->mut_borrowed) { st->mut_borrowed = true; fp_held = true; }
             visit_args(v);
+            if (fp_held)
+                if (auto* st = var_find(fpbp.root_slot, fpbp.root)) st->mut_borrowed = false;
             // G1 — the OUT-PARAM half. `let g: fn(&C, &mut Vec<B>) = stash2;
             // g(&c, &mut vs); c.bump();` recorded nothing: neither the summary
             // (never consulted through a pointer) nor the elision fallback

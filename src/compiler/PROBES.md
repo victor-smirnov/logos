@@ -40388,3 +40388,270 @@ position (`item.fn.impl-trait-return-infer`) and NONE for the binding position �
 while `tests/logos/pass/impl_trait_let_ann` is a green pass fixture asserting the
 construct works. That is a corpus decision with an owner; the queue row above is
 about the bound being unchecked INSIDE whatever the construct is decided to mean.
+
+# ═══ ROUND 2026-09-12f — THE FnMut-THROUGH-A-BINDING WALL, PRICED AT LAST: THE
+# ARM IS NOT MISSING AND THE CLASS IS NOT "CLOSURES" — IT IS ONE ABSENT FACT,
+# AND UPSTREAM'S OWN FILE ALREADY CONTAINS THE CONTROL THAT CONDEMNS EVERY
+# KIND-BLIND SPELLING ═════════════════════════════════════════════════════════
+
+PRICING ROUND. NO ROW BOUGHT, NO FIX LANDED. Three probe names installed at one
+site, one build, three full cost lines, one new dlog rule.
+
+    BUILD HASHES, READ (rule 8):
+      ed16f7fedbadab74 43   the opening tree (797898654), binary 10:11
+      a4a93273e575d5f2 43   the same tree + the three probe arms (this record)
+
+    CENSUS FIRST. soundness queue gate rc **0**, 87 rows (tier1=18 tier2=16
+    tier3=45 tier4=8), `# TOTAL` 87 and the direct listing 87 agree.
+    bc_admits 83 · bc_admits_blocked 8 · probe-log-lint 275 records, every site
+    symbol resolves.
+
+## 0. WHY THIS BLOCK — AND THE HANDED-DOWN LIST WAS WRONG IN BOTH DIRECTIONS
+
+The prompt's never-surveyed list was re-derived rather than inherited (rule 17),
+by grepping every root id in `bc_admits.ledger` against this file BY SUFFIX (the
+recorded false negative: the records write `*.NEW-CAPLOAN`, never
+`bck.NEW-CAPLOAN`). It is wrong twice:
+
+  * `nllmoves.R11-ASSIGN` is GONE — closed by `b6e916800`, as the prompt itself
+    predicted one member would be;
+  * **`bck.NEW-N4` DOES NOT EXIST.** There is no such root in the ledger; the
+    root is `lifereg.NEW-N4`, a different block;
+  * and it MISSES two roots with ZERO qualified hits in this file —
+    `bck.NEW-2` (`borrowck-lend-flow-loop`) and `nllmoves.R13`/`R3`/`NEW-3`.
+
+⚠ **AND `bck.A-FNMUT` IS NOT UNSURVEYED AT ALL — IT IS TWICE-SURVEYED AND NEVER
+PRICED.** Two round records name it under `§11 OPEN, WITH ITS EVIDENCE` in the
+same words ("calling an `FnMut` through a binding takes no borrow at all, so the
+gate has nothing to refuse"), and `bck.D`'s own survey names a SECOND row on the
+same mechanism — `two-phase-nonrecv-autoref--a-fnmut-twice`, "the known
+FnMut-through-a-binding wall". A root-id grep cannot see a class that two
+records describe in prose under two different root labels.
+
+TARGET ROWS, WRITTEN BY NAME BEFORE THE COMPILER WAS TOUCHED
+(scratchpad `TARGETS.md`):
+
+    borrowck-unboxed-closures                   bck.A-FNMUT   E0596
+    two-phase-nonrecv-autoref--a-fnmut-twice    bck.D         E0499
+
+THE GROUPING CLAIM, AND IT SURVIVED — for once. Does ONE candidate change move
+BOTH? **YES, and by construction**: `calleeboth` closes both, `calleerecv` closes
+only the E0596 row and `calleeresv` only the E0499 row. The two halves are
+SEPARABLE and NOT in series (rule 13): 1 + 1 = 2 at the ledger, and the costs do
+NOT add — `calleeboth`'s cost is `calleerecv`'s, digit for digit.
+
+⚠ THE CLASS IS EXACTLY TWO ROWS, and that was measured, not assumed: every one
+of the 91 admit programs was grepped for an `Fn`-family bound or a closure
+literal (21 hits) and each read; only these two CALL a closure through a binding.
+
+## 1. THE CENSUS OF THE ARRIVAL, AND THE dlog ENUMERATION
+
+`tools/dlog/selftest.sh` rc **0** before use (19 walkers / 24 findings /
+try_path 1-5 / domain 42-5; duty discriminates 1 -> 0 across `756aed65`).
+
+NEW RULE `tools/dlog/calleeborrow.dl`, over `borrow_check.cpp` alone. The
+question the last round said it should have asked, in this round's shape:
+*which contexts observe a call through a binding, and which of them mint
+anything on the callee?* The subject is the enum member identity
+(`Code::ClosureCall` / `Code::FnPtrCall`), not the string.
+
+    callkind_site                            74 rows
+    ClosureCall/FnPtrCall sites              30, in 13 contexts
+    contexts that see them AND mint          2   (take_ref_borrows, visit)
+    contexts that see them and mint nothing  11
+    mints_on_plaincall_blind_to_closurecall  **0**
+
+⚠ **THE CROSS-CHECK, BOTH NUMBERS SIDE BY SIDE** (the `ctx_of` coarsening that
+once reported 37 where clang read 0). dlog says **0** contexts are blind BY
+OMISSION — every minter that handles `Code::Call` also has a ClosureCall arm.
+The per-site read of both minting arms says the same **0**, and says WHY the
+hole is inside the arm rather than a missing arm:
+
+  * `take_ref_borrows` (borrow_check.cpp:9778) mints on `closure_caps_of(callee)`
+    — the CAPTURES — and never on the callee place itself;
+  * `visit` (borrow_check.cpp:15772) is `visit(v.callee(), consuming=false)`: a
+    non-consuming READ. No borrow, no mutability, nothing recorded.
+
+So the sentence two records carried in prose is exact, and it is an ARM-EXISTS
+shape: `check_recv_conflict` (borrow_check.cpp:6748) already asks
+`refuse_not_mut_binding` for a bare-place `&mut self` receiver, and a closure
+callee is the same question one node over.
+
+SITE PROVEN LIVE (rule 1), census buckets `cc.cl.root` / `cc.fp.root` /
+`cc.*.noroot` added at both arms:
+
+    borrowck-unboxed-closures        cc.cl.root 1     cc.fp.root 358
+    a-fnmut-twice                    cc.cl.root 4     cc.fp.root 358
+    a bare hand closure program      cc.cl.root 2     cc.fp.root 358
+    `cc.cl.noroot` / `cc.fp.noroot`  NEVER — every callee has a root place
+
+⚠ `cc.fp.root` **358 on every compile, from the prelude alone**, which is the
+first measured reason the FnPtrCall half of any such arm is wrong: see §3.
+
+## 2. THE PROBE TABLE — ALL COLUMNS
+
+    probe        fires      CEILING  COST(pass)  COST-fail          stdlib      COST(runtime)
+    calleerecv     833 069   91*       1512      785/1504 (14 .exp) ⛔ REFUSED   not run (stdlib)
+    calleeresv     875 357    1            2        0/1504          all 4 build  **8**
+    calleeboth   1 664 700   91*       1512      785/1504 (14 .exp) ⛔ REFUSED   not run (stdlib)
+
+⚠ **THE RUNTIME COLUMN SAW 8 WHERE THE PASS COLUMN SAW 2 — FOUR TIMES THE
+DAMAGE, AND IT CHANGED THE DESIGN.** `scripts/run_oracle.py`, 6682 rows, base
+and armed from the SAME configure (`ro-base.tsv` 11:36, `ro-arm.tsv` 11:46,
+timestamps quoted because the scratchpad has lied about exactly this). Diffed
+BOTH ways: no row appears or disappears, 9 rows move, and `cast-region-to-uint`
+is the known stack-address false mover subtracted BY NAME. The other EIGHT all
+move `cc 0 -> 1` (a refusal, not a wrong run):
+
+    closure-fn-bound-twice-cl2      `F: Fn`, `f(f(x))`     <- also in COST(pass)
+    closure-struct-field-call-cl2   `(c.check)(c.value)`   <- also in COST(pass)
+    cl-no-recursion-ok              `f(f(f(2i32)))`, no captures
+    fn-ptr-higher-order-b163        ⎫
+    generic-fn-ptr-field-g2         ⎪
+    higher-order-apply-fn2          ⎬ FN POINTERS — five of the six extras
+    higher-order-fn-ptr-b164        ⎪
+    newtype-fnptr-field-st2         ⎭
+
+The six the three older columns could not see are the SHAPE finding of §3
+arriving by a second, independent road: five of them are `fn`-pointer programs,
+which is precisely the half §3 says must be excluded, and the sixth is a third
+witness for the kind predicate. **COST(runtime) 8 vs CEILING 1**, and the pass
+column's 2 would have understated it by 4x.
+
+⚠ **CEILING 91 IS AN ARTEFACT, NOT A RESULT, AND IT IS A SIXTEENTH WAY A GATE
+CAN LIE.** 91 = every admit program there is (83 + the 8 blocked). The stdlib
+does not build under `calleerecv`, so every downstream program fails for a
+reason that has nothing to do with its row, and the ceiling reader — which
+counts admit tests that PASSED unarmed and FAILED armed — reads that as a clean
+sweep. A ceiling taken over a broken stdlib is a count of the corpus, not of the
+hypothesis. The harness prints `COST-stdlib = REFUSED — this outranks every
+number above`; the number above it should be read as UNDEFINED, not as 91.
+
+    calleeresv PREDICTED BY NAME before the run: {a-fnmut-twice}.
+    predicted ∖ closed = ∅   closed ∖ predicted = ∅.
+
+## 3. THE TWO COSTS OF `calleeresv` ARE THE TWO MISSING PREDICATES, BY NAME
+
+Not noise. Each names a design constraint, and the corpus found both:
+
+  * `tests/imported/pass/closures/closure-fn-bound-twice-cl2` —
+    `fn twice<F: Fn(i64)->i64>(x: i64, f: F) -> i64 { return f(f(x)); }`.
+    **This is upstream's own `twice_ten_si`**, the LEGAL control that sits four
+    lines below the ledger row's construct in the same upstream function. The
+    borrow's MUTABILITY must be the Fn-family kind.
+  * `tests/imported/pass/closures/closure-struct-field-call-cl2` —
+    `return (c.check)(c.value);`. The crude arm keys the loan on the ROOT `c`,
+    so reading the sibling field `c.value` conflicts. The borrow must be
+    PATH-keyed (`c.check`), not root-keyed.
+
+HAND ORACLE, 13 programs in 10 shapes (rule 5 — deliberately not all of one
+syntax): closure literal called twice · closure literal called NESTED · `F: Fn`
+bound param called twice · `F: FnMut` param declared `mut` · a **fn pointer**
+called and nested-called · a mut-capture closure declared `mut` · `&mut F`
+param · `Box<dyn Fn>` called · an argument that reads the callee's own capture ·
+two DIFFERENT closures nested. Ten legal, three illegal (the two ledger rows and
+a mut-capture closure bound without `mut`).
+
+    UNARMED    all 13 rc 0 (the inertness control: the three arms are `probe::on`
+               gates and the unarmed binary reproduces every recorded verdict)
+    calleerecv 13/13 refused — **all ten legal programs**, five of them because
+               the STDLIB itself is refused (`Option__Alignment__unwrap_or_else`)
+    calleeresv  2/10 legal refused: the nested-`Fn`-closure and the FN POINTER
+    calleeboth  as calleerecv
+
+⚠ **THE FN-POINTER SHAPE IS A FOURTH FINDING AND ONLY ONE HAND PROGRAM HAD IT.**
+`let p: fn(i64)->i64 = h; p(p(2i64));` is refused by BOTH arms. A `fn` pointer is
+`Copy` and calling one takes no borrow of anything — so `Code::FnPtrCall` must be
+excluded from this rule outright, and the 358-per-compile census says the blast
+radius is the whole prelude. Nine of the ten legal programs are closures; had
+the battery been all of one shape (rule 5) this would have been invisible.
+
+## 4. THE UPSTREAM ORACLE, READ ON THE BOX — AND A LEDGER NOTE THAT IS FALSE
+##    ABOUT RUST
+
+`/home/logos/cxx/rust/tests/ui/borrowck/two-phase-nonrecv-autoref.rs:39-70` is
+ONE function with SIX doors, and upstream's own comment states the rule this
+round measured from the other side: *"either we will resolve both invocations to
+`call_mut` (in which case the inner call requires a mutable borrow which will
+conflict with the outer reservation), or we will resolve both to `call` (which
+will just work), or … `call_once` (in which case the inner call requires moving
+the receiver)"*.
+
+    twice_ten_sm<F: FnMut>(f: &mut F)   f(f(10))   ERROR E0499     <- the row
+    twice_ten_si<F: Fn>(f: &mut F)      f(f(10))   NO ERROR
+    twice_ten_so<F: FnOnce>(f: Box<F>)  f(f(10))   ERROR E0382
+    twice_ten_om(f: &mut dyn FnMut)     f(f(10))   ERROR E0499
+    twice_ten_oi(f: &mut dyn Fn)        f(f(10))   NO ERROR
+    twice_ten_oo(f: Box<dyn FnOnce>)    f(f(10))   ERROR E0382
+
+**ONLY `sm` WAS PORTED.** The three legal doors and the two FnOnce doors are in
+no shelf. The one legal door that matters is nonetheless in the tree by another
+route — `closure-fn-bound-twice-cl2` — which is why `calleeresv` cost 2 instead
+of 0. A corpus can be blind by omission and be rescued by an unrelated fixture;
+that is luck, not coverage.
+
+⚠ **A NOTE IN `bc_admits.ledger` IS WRONG ABOUT RUST, AND IT NOMINATES A LEGAL
+PROGRAM AS A CARRIER.** The `bck.D` survey writes: *"--a  a call through a
+`FnMut` VALUE mints no borrow of the callee. Cheapest carrier is not the ledger
+program: `let mut c = |x: i64| { return x + 1i64; }; let r = c(c(10i64));` —
+E0499 upstream"*. It is not E0499 upstream. A closure with no captures resolves
+to `call`, which upstream's own comment says "will just work", and the identical
+program is a GREEN pass fixture in this tree (`closure-fn-bound-twice-cl2`, one
+bound spelling over). A round that took that carrier at its word would have
+bought a ledger row with a legal-program refusal. The note is corrected in the
+file with this evidence; the ROW is untouched.
+
+## 5. WHAT DESERVES FUNDING
+
+**`calleeresv`, REDESIGNED, NOT AS SPELLED.** As spelled `COST >= CEILING` and
+the harness says so. But unlike every condemned arm this arc, its whole cost is
+two programs that each name a MISSING PREDICATE rather than a wrong site, and
+the site is proven live, single, and already the home of the analogous receiver
+rule. The redesign is stated, not guessed:
+
+  1. **`Code::ClosureCall` ONLY.** `Code::FnPtrCall` is excluded — a `fn`
+     pointer is `Copy`. Measured: L5, and 358 arrivals per compile.
+  2. **The borrow's mutability is the callee's Fn-FAMILY KIND**: `Fn` -> shared
+     (costs nothing), `FnMut` -> `&mut` (both rows), `FnOnce` -> a MOVE.
+  3. **PATH-keyed, not root-keyed** — `(c.check)(c.value)`.
+
+⚠ **AND THE FACT FOR (2) IS NOT IN THE TRANSLATION UNIT.** `borrow_check.cpp`
+has ZERO occurrences of `FnMut`, `FnOnce`, `closure_kind` or `is_fn_family`, and
+`borrow_check()` takes only an `LProgram`. The fact EXISTS one layer down —
+`lir_view::FnTraitBoundView::is_fn_family()` / `trait_name()` on a function's
+type-param bounds, and `closure_keys::MUT_CAPTURES` for a literal — so this is
+the shape the prompt says has paid every time: **an arm that exists, reached
+through a fact the code does not carry.** The work is carrying the bound's trait
+name to the callee place, not writing a new rule.
+
+⚠ NOT FUNDED, AND SAY SO: the E0596 half (`calleerecv`) is not merely expensive,
+it is refuted at its own site. `refuse_not_mut_binding` fires for EVERY closure
+callee because it cannot ask the kind either — 73 stdlib refusals across all four
+layers, every one of them a `Fn`-bounded combinator (`Result::map`,
+`Option::filter`, `ReadDir::min_by`). It becomes cheap only AFTER (2) lands; it
+is the same one fact, read at a second site, and pricing it again before then
+would re-measure the same absence.
+
+⚠ THE OTHER TWO ROWS SURVEYED AND NOT PRICED, so the next round inherits the
+reasoning rather than the conclusion: `borrowck-lend-flow-loop` (`bck.NEW-2`,
+zero prior hits in this file) and `borrowed-referent-issue-38899`
+(`bck.NEW-BLOCKREF`). Both re-verified ADMITTED on ed16f7fedbadab74 today. They
+print the same upstream diagnostic (E0502) and were carried into this round as a
+grouping candidate; they were DROPPED for the FnMut pair, not refuted, because
+the FnMut class had a named arm and a named absent fact and they do not yet.
+
+## 6. TWO TOOL FACTS THIS ROUND PAID FOR
+
+⚠ **`LOGOS_CENSUS=1` WRITES A FILE NAMED `1` IN THE REPO ROOT.** The variable is
+an OUTPUT PATH, not a boolean, and the obvious spelling silently produces no
+census on stdout and an untracked `./1` instead. This has happened before —
+`355031f5a` is a commit whose entire message is removing a file named `1` from
+the repo root for the same reason. Spell it `LOGOS_CENSUS=<path>`, and check
+`git status` afterwards.
+
+⚠ **THE SCRATCHPAD'S STALE MARKER IS STILL THERE, THIRD ROUND RUNNING.** A
+zero-byte `RO_DONE` dated **Sep 12 05:27** — a previous round's — sits beside
+this round's files. It was not blocked on only because every marker this round
+used was `rm`-ed first and named uniquely (`RO_BASE_DONE` / `RO_ARM_DONE`), and
+every `.tsv` was `ls -la`-ed with its timestamp quoted beside the number. The
+correction is carried in the prompt and it is still earning its place.

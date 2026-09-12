@@ -1,0 +1,72 @@
+// calleeborrow — WHICH CONTEXTS SEE A CALL-THROUGH-A-BINDING, AND WHICH OF THEM
+// MINT ANYTHING ON THE CALLEE?
+//
+// The ledger rows `borrowck-unboxed-closures` (bck.A-FNMUT, E0596) and
+// `two-phase-nonrecv-autoref--a-fnmut-twice` (bck.D, E0499) are both recorded as
+// "calling an FnMut through a binding takes no borrow of that binding". That
+// sentence is a claim about an ENUMERATION: every context in the compiler that
+// tests `Code::ClosureCall` / `Code::FnPtrCall`, versus the contexts that mint a
+// loan. A grep for "ClosureCall" cannot separate a context that DECIDES from one
+// that merely forwards, and cannot see the ABSENCE at all.
+//
+// ⚠ THIS RULE ANSWERS AN ENUMERATION, NOT A VERDICT. `ctx_of` coarsens to the
+// nearest NAMED context, which is how a previous rule reported 37 defects where
+// a per-site read reported 0. Every row below is cross-checked by reading the
+// site before anything is funded.
+#include "cxx_schema.dl"
+
+// ── the two call kinds, by enum member identity (not by name text) ──────────
+.decl callkind_const(cd: symbol, name: symbol)
+callkind_const(C, N) :- enum_member(_, C, N), N = "ClosureCall".
+callkind_const(C, N) :- enum_member(_, C, N), N = "FnPtrCall".
+callkind_const(C, N) :- enum_member(_, C, N), N = "Call".
+callkind_const(C, N) :- enum_member(_, C, N), N = "MethodCall".
+
+.decl callkind_site(ctx: symbol, name: symbol, file: symbol, line: number)
+callkind_site(X, N, F, L) :- callkind_const(C, N), ref(U, C), ctx_of(U, K),
+                             ctx_name(K, X), loc(U, F, L, _).
+.output callkind_site
+
+// ── the borrow-minting / refusal surface, by declaration ────────────────────
+.decl minter_decl(did: symbol, name: symbol)
+minter_decl(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N), N = "record_borrow".
+minter_decl(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N), N = "take_borrow".
+minter_decl(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N), N = "take_ref_borrows".
+minter_decl(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N), N = "refuse_not_mut_binding".
+minter_decl(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N), N = "take_borrow_whole_".
+
+.decl minter_call(ctx: symbol, name: symbol, file: symbol, line: number)
+minter_call(X, N, F, L) :- minter_decl(D, N), call(U, D), ctx_of(U, K),
+                           ctx_name(K, X), loc(U, F, L, _).
+.output minter_call
+
+// ── THE ABSENCE. A context that tests ClosureCall/FnPtrCall and mints nothing.
+.decl ctx_mints(ctx: symbol)
+ctx_mints(X) :- minter_call(X, _, _, _).
+
+.decl closure_ctx(ctx: symbol)
+closure_ctx(X) :- callkind_site(X, "ClosureCall", _, _).
+closure_ctx(X) :- callkind_site(X, "FnPtrCall", _, _).
+
+.decl closurecall_without_minting(ctx: symbol, name: symbol, file: symbol, line: number)
+closurecall_without_minting(X, N, F, L) :- callkind_site(X, N, F, L),
+                                           closure_ctx(X), !ctx_mints(X).
+.output closurecall_without_minting
+
+.decl closurecall_with_minting(ctx: symbol, name: symbol, file: symbol, line: number)
+closurecall_with_minting(X, N, F, L) :- callkind_site(X, N, F, L),
+                                        closure_ctx(X), ctx_mints(X).
+.output closurecall_with_minting
+
+// ── THE ASYMMETRY, which is the actual subject: a context that handles
+// Code::Call or Code::MethodCall AND mints, but has NO ClosureCall arm at all.
+// Those are the sites where an ordinary call is observed and a call through a
+// binding is invisible BY OMISSION — and an omission has no spelling.
+.decl plaincall_ctx(ctx: symbol)
+plaincall_ctx(X) :- callkind_site(X, "Call", _, _).
+plaincall_ctx(X) :- callkind_site(X, "MethodCall", _, _).
+
+.decl mints_on_plaincall_blind_to_closurecall(ctx: symbol, file: symbol, line: number)
+mints_on_plaincall_blind_to_closurecall(X, F, L) :-
+    callkind_site(X, "Call", F, L), ctx_mints(X), !closure_ctx(X).
+.output mints_on_plaincall_blind_to_closurecall
