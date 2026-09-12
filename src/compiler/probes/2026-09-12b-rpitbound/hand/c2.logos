@@ -1,0 +1,16 @@
+package c2;
+struct Own { v: i64 }
+impl Drop for Own {
+    fn drop(&mut self) { }
+}
+fn eat(o: Own) -> i64 { return o.v; }
+// ILLEGAL: `impl Fn` whose body MOVES OUT a capture (kind 2) — Drop present so
+// A16 auto-Copy cannot hide the move.
+fn mk() -> impl Fn() -> i64 {
+    let o: Own = Own { v: 5i64 };
+    return move || -> i64 { return eat(o); };
+}
+fn main() -> i32 {
+    let f = mk();
+    return f() as i32;
+}

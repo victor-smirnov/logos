@@ -1,0 +1,11 @@
+package L2;
+fn mk() -> impl FnMut() -> i64 {
+    let mut n: i64 = 0i64;
+    return move || -> i64 { n += 3i64; return n; };
+}
+fn main() -> i32 {
+    let mut f = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    return (a + b) as i32;
+}

@@ -6719,6 +6719,8 @@ private:
     void check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args);
+    void check_impl_trait_ret_bound(writ::TinyMapView ret_node, TypeRef hidden,
+                                    std::string_view fn_name);
     // ── ADR 0021 Phase 4a: factory-backed marker deferral ────────
     // `CtrClass<WStaticLit>` from logos.lcm.canon.metaclass is the
     // (wave-0, only) factory-backed metaclass marker: its CtrFamily impl is

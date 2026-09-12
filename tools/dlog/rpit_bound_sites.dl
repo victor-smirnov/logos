@@ -1,0 +1,44 @@
+// rpit_bound_sites — WHICH CONTEXTS DECIDE SOMETHING ABOUT A `-> impl Trait`
+// RETURN TYPE, AND WHICH OF THEM EVER CHECKS ITS BOUND?
+//
+// The class fixed in round 2026-09-12b is not "the Fn-family kind is
+// unchecked". It is: A DECLARED `impl Trait` BOUND IS ADOPTED WITHOUT BEING
+// CHECKED AGAINST THE HIDDEN CONCRETE TYPE. The subject is therefore every
+// context that holds an `ImplTrait`-kinded type in its hands — the enum
+// constant `LogosType::Kind::ImplTrait` is the property, and it is a property
+// no grep can key on, because the same spelling appears in a `case` label that
+// merely SKIPS the kind (mlir_gen_types, emit_module) and in a decision site
+// that adopts it (sema_decl). The separator is whether the context reaches the
+// bound checker, which is a call-graph fact.
+//
+// KNOWN-ANSWER CONTROL for this rule, stated before it was run: on the ARMED
+// tree exactly ONE context must appear in `impltrait_ctx_checks` — the new
+// `check_impl_trait_ret_bound` — and `lower_fn` must appear in
+// `impltrait_ctx_blind` no longer than it takes to route through it. Revert the
+// two hunks and `impltrait_ctx_checks` must be EMPTY. Both directions were run.
+#include "cxx_schema.dl"
+
+.decl impltrait_const(constd: symbol)
+impltrait_const(C) :- enum_member(_, C, "ImplTrait").
+
+.decl bounds_checker(did: symbol)
+bounds_checker(D) :- decl(D, "CXXMethod", _), decl_name(D, "check_type_bounds").
+bounds_checker(D) :- decl(D, "CXXMethod", _), decl_name(D, "check_impl_trait_ret_bound").
+
+// every context that mentions the ImplTrait kind at all
+.decl impltrait_ctx(ctx: symbol, file: symbol, line: number)
+impltrait_ctx(C, F, L) :- impltrait_const(D), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output impltrait_ctx
+
+// ...and which of them calls a bound checker at all
+.decl ctx_calls_bounds(ctx: symbol)
+ctx_calls_bounds(C) :- bounds_checker(D), call(N, D), ctx_of(N, X), ctx_name(X, C).
+.output ctx_calls_bounds
+
+.decl impltrait_ctx_checks(ctx: symbol)
+impltrait_ctx_checks(C) :- impltrait_ctx(C, _, _), ctx_calls_bounds(C).
+.output impltrait_ctx_checks
+
+.decl impltrait_ctx_blind(ctx: symbol)
+impltrait_ctx_blind(C) :- impltrait_ctx(C, _, _), !ctx_calls_bounds(C).
+.output impltrait_ctx_blind

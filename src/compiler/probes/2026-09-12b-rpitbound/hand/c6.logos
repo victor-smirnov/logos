@@ -1,0 +1,8 @@
+package c6;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+// ILLEGAL: A does not implement Speak.
+fn mk() -> impl Speak {
+    return A { v: 3i64 };
+}
+fn main() -> i32 { return 0i32; }

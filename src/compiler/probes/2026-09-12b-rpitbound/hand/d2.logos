@@ -1,0 +1,11 @@
+package d2;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+struct B { v: i64 }
+impl Speak for B {
+    fn speak(&self) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let s: impl Speak = A { v: 1i64 };
+    return 0i32;
+}

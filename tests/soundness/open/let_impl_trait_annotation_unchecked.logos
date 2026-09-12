@@ -1,0 +1,44 @@
+// SOUNDNESS QUEUE — tier 2, observed `admits`.
+// FOUND 2026-09-12b by the dlog rule tools/dlog/rpit_bound_sites.dl, which
+// enumerated every context holding a `LogosType::Kind::ImplTrait` value: 14
+// sites in 10 contexts, of which 9 reach no bound checker. A per-site read says
+// EIGHT of those nine are legitimately blind (interning, type_str, move
+// marking, the mint in resolve_type, the two return-position sites that infer
+// the hidden type and are covered downstream by lower_fn). The ninth is this
+// one, and grep could not have separated it from the eight: they all spell
+// `ImplTrait` identically.
+//
+// `lower_let` (sema_stmt.cpp, `ann_is_impl`) treats an `impl Trait` LET
+// ANNOTATION as "any concrete type the rhs happens to have" and skips
+// `expect_type` WHOLESALE. Not the kind, not the signature, not the trait:
+// nothing about the annotation is checked against the initialiser. Both halves
+// below compile clean and write an object file.
+//
+// ⚠ AND THE CONSTRUCT ITSELF IS AN UNCANONISED DIVERGENCE, WHICH IS THE OWNER'S
+// AND NOT THIS ROW'S. `impl Trait` in BINDING position is not stable Rust at
+// all (`impl_trait_in_bindings`), so "rustc refuses this program" is true for a
+// reason that is not this defect. Neither registry carries it: no row in
+// docs/DIVERGENCES.md, and docs/spec/ has clauses for the PARAMETER position
+// (`type.impl-trait.param-position-forbidden`) and the RETURN position
+// (`item.fn.impl-trait-return-infer`) and NONE for the binding position — while
+// tests/logos/pass/impl_trait_let_ann is a green pass fixture asserting it
+// works. Reported, not edited. This row is about the bound being unchecked
+// INSIDE whatever the owner decides the construct means.
+//
+// The one-token legal contrast for the trait half is `impl Speak for A` in
+// place of `impl Speak for B`; for the kind half it is `FnMut` in place of
+// `Fn`, which is pinned at the RETURN spelling as
+// tests/logos/pass/bc_rpitbound_kind_mut_admit.
+package let_impl_trait_annotation_unchecked;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+struct B { v: i64 }
+impl Speak for B {
+    fn speak(&self) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let s: impl Speak = A { v: 1i64 };
+    let mut x: i64 = 0i64;
+    let f: impl Fn() -> i64 = move || -> i64 { x += 1i64; return x; };
+    return f() as i32;
+}

@@ -1,0 +1,16 @@
+// RPIT-BOUND pair 3/4, PASS half. One token from
+// fail/bc_rpitbound_trait_unimpl_refuse: the impl is `for A`. Legal, and RUNS.
+package bc_rpitbound_trait_admit;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+struct B { v: i64 }
+impl Speak for A {
+    fn speak(&self) -> i64 { return self.v; }
+}
+fn mk() -> impl Speak {
+    return A { v: 7i64 };
+}
+fn main() -> i32 {
+    let s = mk();
+    return s.speak() as i32;
+}

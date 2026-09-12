@@ -1,0 +1,15 @@
+package L6;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+impl Speak for A {
+    fn speak(&self) -> i64 { return self.v; }
+}
+// The hidden type is a TYPE PARAM, not a concrete type: the check must defer.
+fn pass_through<T: Speak>(t: T) -> impl Speak {
+    return t;
+}
+fn main() -> i32 {
+    let a: A = A { v: 6i64 };
+    let s = pass_through::<A>(a);
+    return s.speak() as i32;
+}

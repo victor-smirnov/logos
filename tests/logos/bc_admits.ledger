@@ -303,8 +303,14 @@
 #   NEW-CESC     an escaping closure's region is constrained ONLY by a `dyn`
 #                coercion. Boxed REFUSED vs a plain generic `keep<F>(f:F)->F`
 #                ADMITTED. This is also why the two bucket-1 rows refuse.
-#   NEW-CMUT     Fn/FnMut/FnOnce constrains CONSUMPTION (an FnOnce called twice
-#                is REFUSED) but not MUTATION of a capture.
+#   NEW-CMUT     ⛔ CLOSED 2026-09-12b, its ONE row. It was never a closure-
+#                boundary root: the Fn-family kind arm in `check_type_bounds`
+#                already fired at a generic `F: Fn` bound. What was missing is
+#                the ARRIVAL — a `-> impl Trait` RETURN bound was adopted
+#                unchecked at sema_decl.cpp, and the return-position branch of
+#                `resolve_type` never read the bound's args at all. Both ends
+#                repaired; the declared bound is now checked against the hidden
+#                type by the same reader a type-param bound uses.
 # ⚠ A closure body is NOT opaque: a loan minted and used inside one is tracked
 #   ("cannot assign to 'g' because it is borrowed"). bck.C as written was wrong
 #   about the mechanism, not only about the grouping.
@@ -1764,7 +1770,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # arm printed at line 557 of a 40-line file and blamed a stdlib function. The
 # landing sets both around the refusal. The GENERAL defect is unchanged and is
 # the standing soundness_queue row `e0184_blame_header_names_unrelated_impl`.
-# TOTAL 84
+# TOTAL 83
 
 
 # ── tests/ui/borrowck ─────────────────────────────────────────
@@ -1798,7 +1804,6 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 #
 anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): upstream's `struct Int(i32)` is a MOVE type and the error is E0505 "cannot move out of `x` because it is borrowed"; the port's `struct Int { v: i32 }` is auto-Copy under DIVERGENCES A16, so the RHS `x` is a COPY — and a READ of a place held by a two-phase RESERVATION is exactly what the reservation permits (`v.push(v.len())`). The illegality upstream rests on the operand being a MOVE. Same second blocker as bck.NEW-A16's two rows. NOT closable at the checker; A16 is what must move. Owner's. See PROBES.md 2026-09-12e
-borrow-immutable-upvar-mutation-impl-trait bck.NEW-CMUT tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-lend-flow-loop bck.NEW-2 tests/imported/admit/borrowck/borrowck-lend-flow-loop
 borrowck-loan-blocks-move-cc--r10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --t10 (upstream box_imm/box_imm_explicit are textually identical); merging is an owner decision

@@ -1,0 +1,14 @@
+package c5;
+struct S { base: i64 }
+impl S {
+    // ILLEGAL: RPIT in a METHOD position, mutating capture.
+    fn maker(&self) -> impl Fn() -> i64 {
+        let mut n: i64 = self.base;
+        return move || -> i64 { n += 1i64; return n; };
+    }
+}
+fn main() -> i32 {
+    let s: S = S { base: 3i64 };
+    let f = s.maker();
+    return f() as i32;
+}

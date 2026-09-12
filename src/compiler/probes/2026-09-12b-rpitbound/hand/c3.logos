@@ -1,0 +1,15 @@
+package c3;
+struct Own { v: i64 }
+impl Drop for Own {
+    fn drop(&mut self) { }
+}
+fn eat(o: Own) -> i64 { return o.v; }
+// ILLEGAL: `impl FnMut` (req 1) given a consuming closure (kind 2).
+fn mk() -> impl FnMut() -> i64 {
+    let o: Own = Own { v: 5i64 };
+    return move || -> i64 { return eat(o); };
+}
+fn main() -> i32 {
+    let mut f = mk();
+    return f() as i32;
+}

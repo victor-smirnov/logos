@@ -40272,3 +40272,119 @@ soundness-queue material (`admits`), not ledger material, and it is the larger
 defect. `bck.A-FNMUT` is declined here: it needs an arm that exists nowhere —
 `refuse_not_mut_binding` is reached only from `take_borrow_whole_` and
 `check_recv_conflict`, and a closure call takes no borrow of its callee at all.
+
+## RPIT bound — 2026-09-12b: THE DECLARED `impl Trait` RETURN BOUND WAS ADOPTED UNCHECKED, AT BOTH ENDS
+
+`bck.NEW-CMUT` CLOSED, its one row. The pricing round above split the root into
+R-a and R-b and recommended R-a "worth exactly one row". That is what landed, but
+its own framing was too narrow in one direction and too wide in another, and both
+corrections are measurements.
+
+**THE CLASS, BY PROPERTY AND NOT BY SPELLING.** Not "the Fn-family kind is
+unchecked". The property is: *a declared `impl Trait` RETURN bound is never
+checked against the hidden concrete type*. Two sites drop it, and it took both to
+make the defect:
+
+  * `sema.cpp` `resolve_type`, the `IMPL_TYPE` branch — at PARAMETER position it
+    desugars to a synthetic type-param and calls `read_trait_bound_args`, which
+    captures the trait identity, the `is_fn_family` flag and the parenthesised
+    signature. At RETURN position it stores `struct_name = <trait name>` and
+    NOTHING ELSE. The bound's args were never read.
+  * `sema_decl.cpp` `lower_fn` — `ret_type` is REPLACED by
+    `impl_ret_type_inferred_` with no check of any kind.
+
+So three separately-reported defects are one site: the Fn-family KIND (the ledger
+row), the ordinary "does the hidden type implement the trait" obligation, and the
+declared SIGNATURE. The fix is one call: `check_impl_trait_ret_bound` reads the
+bound from the return-type AST node **with `read_trait_bound_args`, the same
+reader a type-param bound uses**, and hands it to `check_type_bounds` as a
+one-element `TypeParam`. Every arm in that function — kind, signature, impl
+lookup, auto-trait, blanket — arrives for free, and no fact is re-derived.
+
+⚠ **THE FIRST VERSION OF THIS FIX WAS RED ON `key_identity_lint`, AND THE LINT
+WAS RIGHT.** It synthesised the bound at the check site and set
+`is_fn_family` by comparing the trait name against `"Fn"`/`"FnMut"`/`"FnOnce"` —
+three new bare-name intercepts (sema_collect.cpp 40 -> 43), i.e. a lookup key
+standing in for an identity, with `canonical_trait` and `identity_trait` left
+empty. Reading the bound at the site where it was WRITTEN removes all three
+comparisons, carries the identity, and is what made the signature half work at
+all. The lint caught a design defect, not a bookkeeping one.
+
+**MEASURED, and the two numbers the pricing round could not have had.** Its cost
+table priced `-> impl Fn` — 11 arrivals. The CLASS fix touches every `-> impl X`
+in the tree: **20 files**, carrying `Fn`, `Iterator<Item=()>`, `Foo<'a>`,
+`Animal`, `Trait`, `Greeter`, `Doubler`, `Display`, `Valueable`, `Compute`,
+`Shape`, `Tag`, `Tr`, `T`. Compiled one by one on the armed binary: **exactly one
+changed** — the ledger row. Both `fail` fixtures in that set keep their original
+sentence (`item_diag_2__impl-trait-return-infer` still "could not infer concrete
+return type"; `do-not-suggest-adding-bound-to-opaque-type` still "cannot return
+reference to local variable 'x'"), and the two other `dyn`/RPIT admit rows
+(`impl-trait-captures` `-> impl Foo<'a>`, `issue-95079` `-> impl Iterator<Item =
+()>`) still admit — their hidden types do satisfy their bounds, so they are
+lifetime roots and this arm correctly leaves them alone.
+
+**THE DEFERRAL IS THE OVER-REFUSAL RISK, AND IT HAS ITS OWN FIXTURE.** A hidden
+type that still mentions a TypeVar / AssocType / `_` / ConstVar / cfg-slot is the
+CALLER's obligation, exactly as the `mentions_tv` deferral in the bound arms. Its
+counter-example is `fn pass_through<T: Speak>(t: T) -> impl Speak { return t; }`,
+which the first-written arm would have refused; it is pinned as
+`pass/bc_rpitbound_hidden_typaram_admit` and it RUNS.
+
+Hand battery, varied by SHAPE rather than by count, all four illegal programs rc
+0 before and refused after, all legal ones byte-identical exit codes before and
+after: `impl Fn(i64)->i64` with a non-empty signature · a capture MOVED OUT under
+`impl Drop` (without the `Drop` there is no move — A16) · `impl FnMut` given a
+kind-2 closure · RPIT in a `impl S { fn maker(&self) }` METHOD position · a
+wrong-ARITY closure · a plain `i64` returned for `impl Fn` · `impl Speak` with no
+impl. Legal and unchanged: read-only capture (14), `FnMut` called twice (9),
+`FnOnce` consuming under `Drop` (9), a capture-free closure (4), a GENERIC impl
+`impl<T> Speak for W<T>` (11), RPIT inside a trait's own `impl Mk for F` (12),
+`impl Speak` with the impl present (8), the exact declared signature (9).
+
+⚠ **WHAT THIS DID NOT CLOSE, stated so nobody reads the arm as total.** R-b is
+untouched: `Box<dyn Fn>`, `&dyn Fn` and a `let f: Box<dyn Fn>` annotation still
+admit a mutating closure. The reason is structural and is worth a row of its own —
+`dyn Fn*` in a type position resolves to a bare `Kind::Closure` built by
+`make_closure_type(params, ret)`, which has **no slot for the family at all**, so
+at those spellings there is no kind fact to check, not a check that was skipped.
+Filed as a soundness-queue row (`rpit_dyn_fn_kind_unchecked`, `admits`).
+
+### dlog: the class enumerated BY PROPERTY, and the number that came back
+
+`tools/dlog/selftest.sh` rc **0** before relying on the tool (19 walkers / 24
+findings / try_path 1-5 / domain 42-5; duty still discriminates 1 -> 0 across
+`756aed65`). New rule `tools/dlog/rpit_bound_sites.dl`, 4 sema TUs. The subject
+is the enum constant `LogosType::Kind::ImplTrait`, not the string — the same
+spelling appears in a `case` label that merely SKIPS the kind and in a decision
+site that ADOPTS it, and only the call graph separates them.
+
+**14 sites in 10 contexts.** On the armed tree exactly ONE context reaches a
+bound checker — `lower_fn`. Known-answer control, run in BOTH directions: with
+the two hunks reverted `impltrait_ctx_checks` is EMPTY, so the rule discriminates
+across this round's own change.
+
+⚠ **THE CROSS-CHECK, BOTH NUMBERS SIDE BY SIDE.** dlog derives **9** blind
+contexts. The per-site read says **8 of the 9 are legitimately blind**:
+`compute_type_uid` / `builder_equals_typeref` (interning), `type_str`
+(printing), `mark_moved_expr` (move marking), `mentions_impl_trait` and my own
+`unresolved` (predicates), `resolve_type` (the MINT), and `lower_return` x2 (they
+infer the hidden type; `lower_fn` checks what they inferred). The ninth is real:
+
+**`lower_let`, sema_stmt.cpp `ann_is_impl` — a `let x: impl Trait = …`
+annotation is not checked against its initialiser AT ALL.** Not the trait, not
+the kind, not the signature: the branch skips `expect_type` wholesale. Measured:
+`let s: impl Speak = A{…}` with `impl Speak for B` compiles clean, and so does
+`let f: impl Fn()->i64 = <closure that mutates a capture>`. Filed as
+`let_impl_trait_annotation_unchecked` (`admits`). So dlog's LABEL over-counted by
+eight this time — the opposite direction from the `ctx_of` coarsening that
+reported 37 where clang read 0 — and the one it found is one grep could not have
+separated from the eight, because all nine spell `ImplTrait` identically.
+
+⚠ **AND AN OWNER DECISION FOUND UNDER IT, REPORTED NOT EDITED.** `impl Trait` in
+BINDING position is not stable Rust (`impl_trait_in_bindings`). Neither registry
+carries it: no row in `docs/DIVERGENCES.md`, and `docs/spec/` has clauses for the
+parameter position (`type.impl-trait.param-position-forbidden`) and the return
+position (`item.fn.impl-trait-return-infer`) and NONE for the binding position —
+while `tests/logos/pass/impl_trait_let_ann` is a green pass fixture asserting the
+construct works. That is a corpus decision with an owner; the queue row above is
+about the bound being unchecked INSIDE whatever the construct is decided to mean.

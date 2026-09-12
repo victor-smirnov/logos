@@ -1,0 +1,20 @@
+// RPIT-BOUND. The half of the trait obligation that was COMPLETELY INVISIBLE
+// before this arm: the same unsatisfied `-> impl Speak` bound, but nothing ever
+// calls a method on the returned value, so no later site trips over it. The
+// control binary (sources reverted, rebuilt, build hash 0e2b64ecc2cb7064)
+// compiled this program silently and wrote the object file.
+// One token from pass/bc_rpitbound_trait_admit's declaration: the impl is
+// `for B`, not `for A`.
+package bc_rpitbound_trait_uncalled_refuse;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+struct B { v: i64 }
+impl Speak for B {
+    fn speak(&self) -> i64 { return self.v; }
+}
+fn mk() -> impl Speak {
+    return A { v: 7i64 };
+}
+fn main() -> i32 {
+    return 0i32;
+}

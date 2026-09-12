@@ -1,0 +1,12 @@
+// RPIT-BOUND pair 1/4, FAIL half. One token from pass/bc_rpitbound_kind_mut_admit:
+// the declared trait is `Fn`, not `FnMut`. A closure that mutates a capture is
+// `FnMut`, so the declared return bound is unsatisfied (upstream E0594).
+package bc_rpitbound_kind_mut_refuse;
+fn mk() -> impl Fn() -> i64 {
+    let mut x: i64 = 0i64;
+    return move || -> i64 { x += 1i64; return x; };
+}
+fn main() -> i32 {
+    let f = mk();
+    return f() as i32;
+}

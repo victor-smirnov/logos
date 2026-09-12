@@ -1,0 +1,13 @@
+package L7;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+impl Speak for A {
+    fn speak(&self) -> i64 { return self.v; }
+}
+fn mk() -> impl Speak {
+    return A { v: 8i64 };
+}
+fn main() -> i32 {
+    let s = mk();
+    return s.speak() as i32;
+}

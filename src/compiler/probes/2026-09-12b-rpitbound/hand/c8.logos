@@ -1,0 +1,6 @@
+package c8;
+// ILLEGAL: `impl Fn() -> i64` given a plain integer.
+fn mk() -> impl Fn() -> i64 {
+    return 7i64;
+}
+fn main() -> i32 { return 0i32; }

@@ -229,7 +229,7 @@ Evidence: `src/compiler/sema_decl.cpp#L954-L968`
 
 ### `item.fn.impl-trait-return-infer` — impl Trait return inferred from body
 
-A function declared `-> impl Trait` has its return type resolved, after body lowering, to the concrete type inferred from the body's return expressions; failure to infer a concrete type is a compile error.
+A function declared `-> impl Trait` has its return type resolved, after body lowering, to the concrete type inferred from the body's return expressions; failure to infer a concrete type is a compile error. The declared bound is then checked against that hidden concrete type by the same reader a type-param bound uses, so an unsatisfied trait, an Fn-family kind the closure exceeds (`-> impl Fn` given a closure that mutates or consumes a capture), and a parenthesised signature the hidden type does not match are each a compile error at the declaration. A hidden type that still mentions a type parameter is deferred to the caller, unchecked here.
 
 ```logos
 fn f() -> impl Iterator { 0..3 }

@@ -1,0 +1,20 @@
+// RPIT-BOUND, the DEFERRAL guard and not half of a pair: the hidden type of the
+// `impl Speak` return is the type PARAMETER `T`, not a concrete type. The
+// obligation is the CALLER's — `check_impl_trait_ret_bound` returns without
+// checking when the hidden type still mentions a TypeVar, the same deferral the
+// bound arms apply through `mentions_tv`. Refusing here is the over-refusal this
+// fixture exists to catch; it RUNS to prove the program is whole.
+package bc_rpitbound_hidden_typaram_admit;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+impl Speak for A {
+    fn speak(&self) -> i64 { return self.v; }
+}
+fn pass_through<T: Speak>(t: T) -> impl Speak {
+    return t;
+}
+fn main() -> i32 {
+    let a: A = A { v: 6i64 };
+    let s = pass_through::<A>(a);
+    return s.speak() as i32;
+}

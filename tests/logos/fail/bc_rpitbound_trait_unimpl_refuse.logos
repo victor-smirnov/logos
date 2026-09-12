@@ -1,0 +1,23 @@
+// RPIT-BOUND pair 3/4, FAIL half. One token from
+// pass/bc_rpitbound_trait_admit: the impl is `for B`, not `for A`, so the
+// hidden type `A` does not implement the declared return bound.
+// ⚠ THIS HALF WAS ALREADY RED ON THE CONTROL BINARY, and the pair says so: it
+// died at the CALL on line 18 with "method call: 'A' has no method 'speak'" —
+// the wrong sentence, four lines from the declaration that is wrong. What the
+// arm buys here is the verdict and its place, not the refusal. The half that
+// was INVISIBLE before is fail/bc_rpitbound_trait_uncalled_refuse, which the
+// control compiled silently.
+package bc_rpitbound_trait_unimpl_refuse;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+struct B { v: i64 }
+impl Speak for B {
+    fn speak(&self) -> i64 { return self.v; }
+}
+fn mk() -> impl Speak {
+    return A { v: 7i64 };
+}
+fn main() -> i32 {
+    let s = mk();
+    return s.speak() as i32;
+}

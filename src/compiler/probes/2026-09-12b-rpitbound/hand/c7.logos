@@ -1,0 +1,6 @@
+package c7;
+// ILLEGAL: the declared RPIT signature says one arg, the closure takes none.
+fn mk() -> impl Fn(i64) -> i64 {
+    return move || -> i64 { return 1i64; };
+}
+fn main() -> i32 { return 0i32; }

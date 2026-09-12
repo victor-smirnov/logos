@@ -1,0 +1,12 @@
+package L10;
+// LEGAL: the hidden type is a plain primitive and the bound is a trait the
+// stdlib implements for it.
+fn mk() -> impl Fn() -> i64 {
+    let a: i64 = 2i64;
+    let b: i64 = 3i64;
+    return move || -> i64 { return a + b; };
+}
+fn thrice(f: impl Fn() -> i64) -> i64 { return f() + f() + f(); }
+fn main() -> i32 {
+    return thrice(mk()) as i32;
+}

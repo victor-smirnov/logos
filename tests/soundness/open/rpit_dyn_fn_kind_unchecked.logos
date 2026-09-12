@@ -1,0 +1,39 @@
+// SOUNDNESS QUEUE — tier 2, observed `admits`.
+// FOUND 2026-09-12b while closing `bck.NEW-CMUT`, and recorded rather than
+// rounded off — it is the LARGER half of that row's root and the bc ledger
+// cannot see it (its ceiling on bc_admits is 0 over a 30-program `dyn Fn`
+// arrival set, 14 of which are pass fixtures).
+//
+// The Fn-family KIND is asked at exactly two kinds of position: a generic
+// type-param bound (`F: Fn`) and — since 2026-09-12b — a `-> impl Fn` RETURN
+// bound. Both go through `check_type_bounds`, which reads `closure_kind_`.
+// The `dyn` spellings never reach it, and the reason is structural rather than
+// a skipped call: `dyn Fn*` in a type position resolves to a BARE
+// `Kind::Closure`, built by `make_closure_type(params, ret)` — a type with a
+// slot for the signature and NO SLOT FOR THE FAMILY. So `Box<dyn Fn()->i64>`,
+// `&dyn Fn()->i64` and a `let f: Box<dyn Fn()->i64>` annotation carry the
+// signature (a wrong-arity closure IS refused there, "return type mismatch")
+// and cannot carry the kind. A repair has to mint the family onto the type, or
+// check it where the annotation is read; it is not a missing call.
+//
+// rustc refuses this program: E0594, "cannot assign to `x`, as it is a captured
+// variable in a `Fn` closure" (tests/ui/borrowck/borrow-immutable-upvar-
+// mutation.rs @ da5114692c9). The one-token legal contrast is `FnMut` in place
+// of `Fn` at the annotation, which is pinned as
+// tests/logos/pass/bc_rpitbound_kind_mut_admit at the RPIT spelling.
+package rpit_dyn_fn_kind_unchecked;
+fn mk_boxed() -> Box<dyn Fn() -> i64> {
+    let mut x: i64 = 0i64;
+    return Box::new(move || -> i64 { x += 1i64; return x; });
+}
+fn call_ref(f: &dyn Fn() -> i64) -> i64 {
+    return f();
+}
+fn main() -> i32 {
+    let b = mk_boxed();
+    let mut y: i64 = 0i64;
+    let annotated: Box<dyn Fn() -> i64> = Box::new(move || -> i64 { y += 2i64; return y; });
+    let mut z: i64 = 0i64;
+    let c = move || -> i64 { z += 4i64; return z; };
+    return (b() + annotated() + call_ref(&c)) as i32;
+}

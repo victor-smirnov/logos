@@ -1,0 +1,8 @@
+package L1;
+fn mk(n: i64) -> impl Fn() -> i64 {
+    return move || -> i64 { return n * 2i64; };
+}
+fn main() -> i32 {
+    let f = mk(7i64);
+    return f() as i32;
+}

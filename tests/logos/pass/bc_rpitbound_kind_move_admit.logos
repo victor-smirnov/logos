@@ -1,0 +1,17 @@
+// RPIT-BOUND pair 2/4, PASS half. One token from
+// fail/bc_rpitbound_kind_move_refuse: `FnOnce` instead of `Fn`. Same `impl
+// Drop` capture, consumed exactly once — legal, and it must still RUN.
+package bc_rpitbound_kind_move_admit;
+struct Own { v: i64 }
+impl Drop for Own {
+    fn drop(&mut self) { }
+}
+fn eat(o: Own) -> i64 { return o.v; }
+fn mk() -> impl FnOnce() -> i64 {
+    let o: Own = Own { v: 5i64 };
+    return move || -> i64 { return eat(o); };
+}
+fn main() -> i32 {
+    let f = mk();
+    return f() as i32;
+}

@@ -1,0 +1,19 @@
+// RPIT-BOUND pair 2/4, FAIL half. One token from
+// pass/bc_rpitbound_kind_move_admit: `Fn` instead of `FnOnce`. `Own` carries an
+// `impl Drop` deliberately — without it the capture is auto-Copy (blessed
+// divergence A16) and there is no move for the kind arm to see, so the pair
+// would separate on nothing.
+package bc_rpitbound_kind_move_refuse;
+struct Own { v: i64 }
+impl Drop for Own {
+    fn drop(&mut self) { }
+}
+fn eat(o: Own) -> i64 { return o.v; }
+fn mk() -> impl Fn() -> i64 {
+    let o: Own = Own { v: 5i64 };
+    return move || -> i64 { return eat(o); };
+}
+fn main() -> i32 {
+    let f = mk();
+    return f() as i32;
+}

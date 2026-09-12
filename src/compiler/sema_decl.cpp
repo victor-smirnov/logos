@@ -1736,6 +1736,13 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         // Resolve impl Trait return type to the concrete type inferred from returns.
         if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {
             if (impl_ret_type_inferred_) {
+                // RPIT-BOUND (2026-09-12b). Prose in PROBES.md, "RPIT bound".
+                if (node.has_key(la::RET_TYPE)) {
+                    auto rtn = map_of(node.get(la::RET_TYPE.code));
+                    if (code_of(rtn) == la::IMPL_TYPE)
+                        check_impl_trait_ret_bound(rtn, impl_ret_type_inferred_,
+                                                   fn_name);
+                }
                 ret_type       = impl_ret_type_inferred_;
                 fi_ptr->ret_type  = impl_ret_type_inferred_;
                 ret_type_         = impl_ret_type_inferred_;

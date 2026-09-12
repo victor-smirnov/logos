@@ -1,0 +1,13 @@
+// RPIT-BOUND pair 4/4, FAIL half. One token from
+// pass/bc_rpitbound_sig_arity_admit: the closure takes no parameter while the
+// declared bound says `Fn(i64)`. The declared signature is read by
+// `read_trait_bound_args` at the return position, exactly as at a type-param
+// bound; before this arm the return position read no bound args at all.
+package bc_rpitbound_sig_arity_refuse;
+fn mk() -> impl Fn(i64) -> i64 {
+    let base: i64 = 1i64;
+    return move || -> i64 { return base; };
+}
+fn main() -> i32 {
+    return 0i32;
+}

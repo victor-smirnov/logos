@@ -927,6 +927,43 @@ bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
     return false;
 }
 
+// RPIT-BOUND (2026-09-12b). Prose in PROBES.md, "RPIT bound".
+void SemaChecker::check_impl_trait_ret_bound(writ::TinyMapView ret_node,
+                                             TypeRef hidden,
+                                             std::string_view fn_name) {
+    if (!hidden) return;
+    auto hk = TypeRef(hidden).kind();
+    if (hk == LogosType::Kind::Error || hk == LogosType::Kind::Never) return;
+    // Unsubstituted hidden type ⇒ the CALLER's obligation (`mentions_tv`).
+    std::function<bool(TypeRef)> unresolved = [&](TypeRef t) -> bool {
+        if (!t) return false;
+        auto k = TypeRef(t).kind();
+        if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::AssocType ||
+            k == LogosType::Kind::InferredType || k == LogosType::Kind::ConstVar ||
+            k == LogosType::Kind::CfgSlotType || k == LogosType::Kind::ImplTrait)
+            return true;
+        if (TypeRef(t).pointee() && unresolved(TypeRef(t).pointee())) return true;
+        if (TypeRef(t).elem()    && unresolved(TypeRef(t).elem()))    return true;
+        for (auto a : TypeRef(t).type_args())      if (unresolved(a)) return true;
+        for (auto e : TypeRef(t).tuple_elems())    if (unresolved(e)) return true;
+        for (auto c : TypeRef(t).closure_params()) if (unresolved(c)) return true;
+        if (TypeRef(t).closure_ret() && unresolved(TypeRef(t).closure_ret())) return true;
+        return false;
+    };
+    if (unresolved(hidden)) return;
+    // Identity/is_fn_family/signature come from read_trait_bound_args, never
+    // re-derived here (key_identity_lint).
+    TraitBound tb;
+    tb.trait_name = std::string(str_of(ret_node.get(la::NAME.code)));
+    if (tb.trait_name.empty()) return;
+    read_trait_bound_args(ret_node, tb);
+    logos::probe::census("rpitbound.checked");
+    TypeParam tp;
+    tp.name = "impl " + tb.trait_name;
+    tp.bounds.push_back(std::move(tb));
+    check_type_bounds(std::string(fn_name), {tp}, {hidden});
+}
+
 void SemaChecker::check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args) {

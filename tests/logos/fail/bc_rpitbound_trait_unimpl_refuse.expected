@@ -1,0 +1,1 @@
+type 'A' does not implement trait 'Speak' required by parameter 'impl Speak'

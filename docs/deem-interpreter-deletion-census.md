@@ -5832,9 +5832,28 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                Re-derived by direct listing, not by adding: ls
 #                tests/logos/pass/*.logos -> 3055 (+5), ls tests/logos/fail/*.logos
 #                +3. bc_admits `# TOTAL` 85 -> 84; soundness_queue unchanged at 85.
-REGISTRY-ALL         9616
-REGISTRY-NOIMPORTED  5143
-REGISTRY-TIERCOMMIT  142
+# 2026-09-12b (RPIT BOUND — the declared `-> impl Trait` return bound is now
+#                checked against the hidden concrete type; bc_admits row
+#                borrow-immutable-upvar-mutation-impl-trait CLOSED).
+#                TEN new native fixtures: FIVE pass halves
+#                bc_rpitbound_{kind_mut,kind_move,trait,sig_arity}_admit and
+#                bc_rpitbound_hidden_typaram_admit (the DEFERRAL guard), and FIVE
+#                fail halves bc_rpitbound_{kind_mut,kind_move,trait_unimpl,
+#                trait_uncalled,sig_arity}_refuse. The closed row's own program
+#                MOVED to tests/imported/fail/borrowck/ (the old admit-shelf path
+#                is declared RENAMED-FIXTURE below): -1 `logos_00_bc_admit_*`,
+#                +1 `logos_06_diagnostics_fail_*` — net 0 on ALL and -1 on both
+#                NOIMPORTED and TIERCOMMIT, by the same label asymmetry the
+#                2026-09-12f note one block down derives. So ALL +10,
+#                NOIMPORTED +9, TIERCOMMIT -1, and that is what the gate
+#                measured before the pin was touched.
+#                Re-derived by direct listing, not by adding: ls
+#                tests/logos/pass/*.logos -> 3060 (+5), ls
+#                tests/logos/fail/*.logos +5. bc_admits `# TOTAL` 84 -> 83;
+#                soundness_queue 85 -> 87 (two rows OPENED, no row closed).
+REGISTRY-ALL         9626
+REGISTRY-NOIMPORTED  5152
+REGISTRY-TIERCOMMIT  141
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
@@ -9000,6 +9019,7 @@ GONE-FIXTURE  tests/logos/pass/wql_domain_u64_order_seams.logos  died with its s
 GONE-FIXTURE  tests/logos/pass/wql_u64_sum_accumulator.logos  died with its subject at P5 (see its §3 row)
 GONE-FIXTURE  tests/logos/pass/wql_u64_sum_scalar_arith.logos  died with its subject at P5 (see its §3 row)
 GONE-FIXTURE  tests/logos/pass/wql_engine_source_e2e.logos  died with its subject at P5 (see its §3 row)
+RENAMED-FIXTURE  tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait.logos  tests/imported/fail/borrowck/borrow-immutable-upvar-mutation-impl-trait.logos  2026-09-12b: the bc_admits row it carried was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the Fn-family kind verdict at the `-> impl Fn` return position
 RENAMED-FIXTURE  tests/imported/admit/nll/issue-27868.logos  tests/imported/fail/nll/issue-27868.logos  2026-09-12f: the bc_admits row it carried was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning upstream's own E0506 sentence
 RENAMED-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  tests/logos/pass/wql_agg_avg_bool_value_rule.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  tests/logos/pass/query_f64_agg_hand_derived.logos  P5: the old name stated a COUNT of engines the cut falsified

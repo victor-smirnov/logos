@@ -1,0 +1,12 @@
+// RPIT-BOUND pair 4/4, PASS half. One token from
+// fail/bc_rpitbound_sig_arity_refuse: the closure declares the `i64` parameter
+// the bound requires. Legal, and RUNS.
+package bc_rpitbound_sig_arity_admit;
+fn mk() -> impl Fn(i64) -> i64 {
+    let base: i64 = 1i64;
+    return move |d: i64| -> i64 { return base + d; };
+}
+fn main() -> i32 {
+    let f = mk();
+    return f(8i64) as i32;
+}

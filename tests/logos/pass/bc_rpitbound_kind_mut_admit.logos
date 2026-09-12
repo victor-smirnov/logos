@@ -1,0 +1,14 @@
+// RPIT-BOUND pair 1/4, PASS half. One token from
+// fail/bc_rpitbound_kind_mut_refuse: `FnMut` instead of `Fn`. The same closure
+// is legal under the weaker bound and must still RUN.
+package bc_rpitbound_kind_mut_admit;
+fn mk() -> impl FnMut() -> i64 {
+    let mut x: i64 = 0i64;
+    return move || -> i64 { x += 1i64; return x; };
+}
+fn main() -> i32 {
+    let mut f = mk();
+    let a: i64 = f();
+    let b: i64 = f();
+    return (a + b) as i32;
+}

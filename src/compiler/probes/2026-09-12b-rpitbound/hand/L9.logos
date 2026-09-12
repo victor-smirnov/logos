@@ -1,0 +1,18 @@
+package L9;
+trait Speak { fn speak(&self) -> i64; }
+struct A { v: i64 }
+impl Speak for A {
+    fn speak(&self) -> i64 { return self.v; }
+}
+trait Mk {
+    fn make(&self) -> impl Speak;
+}
+struct F { }
+impl Mk for F {
+    fn make(&self) -> impl Speak { return A { v: 12i64 }; }
+}
+fn main() -> i32 {
+    let f: F = F { };
+    let s = f.make();
+    return s.speak() as i32;
+}

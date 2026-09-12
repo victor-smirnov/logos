@@ -1,0 +1,10 @@
+package L11;
+// LEGAL: the declared signature matches exactly.
+fn mk() -> impl Fn(i64, i64) -> i64 {
+    let base: i64 = 1i64;
+    return move |a: i64, b: i64| -> i64 { return a + b + base; };
+}
+fn main() -> i32 {
+    let f = mk();
+    return f(2i64, 3i64) as i32;
+}

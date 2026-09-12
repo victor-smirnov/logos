@@ -1,0 +1,14 @@
+package L3;
+struct Own { v: i64 }
+impl Drop for Own {
+    fn drop(&mut self) { }
+}
+fn eat(o: Own) -> i64 { return o.v; }
+fn mk() -> impl FnOnce() -> i64 {
+    let o: Own = Own { v: 9i64 };
+    return move || -> i64 { return eat(o); };
+}
+fn main() -> i32 {
+    let f = mk();
+    return f() as i32;
+}

@@ -1,0 +1,6 @@
+package d1;
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let f: impl Fn() -> i64 = move || -> i64 { x += 1i64; return x; };
+    return f() as i32;
+}
