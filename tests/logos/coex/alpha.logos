@@ -63,3 +63,26 @@ pub fn alpha_dyn_mark(n: i64) -> i64 {
 pub enum Kolej : u8 { Lo = 1, Mid = 2, Hi = 3 }
 pub fn alpha_kolej_size() -> i64 { return sizeof::<Kolej>() as i64; }
 pub fn alpha_kolej_arr() -> i64 { return sizeof::<[Kolej; 4]>() as i64; }
+
+// ── tagged_enum_bare_key carrier (2026-09-12) ───────────────────────────────
+// One registry over from `Kolej` above, and the half that miscompiles at RUN
+// TIME rather than only in `sizeof`. `alpha::Sack` and `beta::Sack` are
+// same-named PAYLOAD enums in two packages of ONE module. `tagged_enums_` was
+// keyed on the BARE name, and `register_tagged_enum` named the identified LLVM
+// struct `"enum." + <bare name>` — and LLVM uniques identified structs BY NAME,
+// whose body is SET-ONCE. So the second `Sack` received the FIRST one's slot
+// AND the first one's body: measured on the pre-fix compiler, `beta::Sack`'s
+// round-trip returned 0 instead of its i64 payload out of a program that
+// compiled clean. alpha's payload is ONE BYTE so the two layouts differ.
+pub enum Sack { Nul, One(u8) }
+pub struct SackHolder { pub s: Sack, pub tail: i64 }
+pub fn alpha_sack_size()   -> i64 { return sizeof::<Sack>() as i64; }
+pub fn alpha_sack_arr()    -> i64 { return sizeof::<[Sack; 3]>() as i64; }
+pub fn alpha_sack_holder() -> i64 { return sizeof::<SackHolder>() as i64; }
+pub fn alpha_sack_trip(v: u8) -> i64 {
+    let s: Sack = Sack::One(v);
+    match s {
+        Sack::One(x) => { return x as i64; }
+        Sack::Nul    => { return -1i64; }
+    }
+}

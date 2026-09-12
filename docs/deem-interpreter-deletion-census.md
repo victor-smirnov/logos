@@ -5787,8 +5787,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                bc_admits unchanged at 85 — this landing closed NO ledger row; its
 #                subject was the `unrowed_backlog.ledger` vg_leak_records group,
 #                whose count goes 50 -> 39 records (9 buffered + 2 BTreeMap).
-REGISTRY-ALL         9602
-REGISTRY-NOIMPORTED  5130
+# 2026-09-12a-taggedidentity (the `tagged_enums_` identity landing): ALL +2,
+#                NOIMPORTED +2, TIERCOMMIT unmoved. ONE of the two is this
+#                round's own: tests/logos/pass/coex_tagged_enum_bare_key.logos . ⚠ THE
+#                OTHER IS A DRIFT LEFT BY THE PRECEDING COMMIT 7b3ee3277, which
+#                added tests/logos/pass/coex_enum_bare_key.logos and did not move this
+#                pin — so this gate has been RED at HEAD since, and the round
+#                record that reported "L1 807/807, rc 0" was reporting the
+#                CORPUS half of L1 while its gates tier was failing. A gate's rc
+#                is a measurement with a timestamp. Re-derived by direct listing:
+#                ls tests/logos/pass/*.logos -> 3048 (was 3046 pinned, 3047 at
+#                7b3ee3277). soundness_queue `# TOTAL` unchanged at 82,
+#                bc_admits unchanged at 85 — this landing closed NO ledger row.
+REGISTRY-ALL         9604
+REGISTRY-NOIMPORTED  5132
 REGISTRY-TIERCOMMIT  143
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

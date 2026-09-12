@@ -748,6 +748,27 @@ private:
         return out_.type_pool.alloc(std::move(sb));
     }
 
+    // ⚠ A LOOKUP KEY IS NOT AN IDENTITY, AND A LINEAR SCAN BY BARE NAME IS A
+    // LOOKUP KEY. `logos.lang.ops` and `logos.lang.control_flow` both declare
+    // `ControlFlow<B, C>`; two packages of one module declaring `Sack` is the
+    // reduced case. The first scan that matched the name won, so mono sized the
+    // WRONG enum — MEASURED on tests/logos/pass/coex_tagged_enum_bare_key:
+    // `mono_abi_layout` answered 8/4 for `beta.Sack` whose bytes are 16/8, and
+    // the field offsets of every struct holding one followed it (SackHolder
+    // 16 against 24). Ask for the PACKAGE the TypeRef carries first; fall back
+    // to the bare scan only for a TypeRef that has no package to offer.
+    std::optional<lir_view::EnumView> find_enum_view(TypeRef t) {
+        std::string ename(TypeRef(t).enum_name());
+        std::string_view pkg = TypeRef(t).pkg_name();
+        if (!pkg.empty()) {
+            for (auto& e : out_.enums) if (e.name() == ename && e.pkg() == pkg) return e;
+            for (auto& e : in_.enums)  if (e.name() == ename && e.pkg() == pkg) return e;
+        }
+        for (auto& e : out_.enums) if (e.name() == ename) return e;
+        for (auto& e : in_.enums)  if (e.name() == ename) return e;
+        return std::nullopt;
+    }
+
     TypeRef build_concrete_typeref(const std::string& name) {
         // Struct (incl. ZonedStruct).
         for (auto& sd : out_.structs)

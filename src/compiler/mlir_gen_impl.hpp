@@ -651,7 +651,15 @@ private:
     std::unordered_map<std::string, StructInfo>        struct_types_;
     std::unordered_map<std::string, lir_view::StructView> all_struct_defs_; // name→def for recursive registration
     std::unordered_map<std::string, lir_view::EnumView> enum_types_;
+    // ⚠ KEYED ON THE PACKAGE-QUALIFIED IDENTITY, NOT ON THE BARE NAME.
+    // `tagged_enum_alias_` maps a bare name to the identity key, for the
+    // callers that hold a name and nothing else. A SECOND MAP rather than a
+    // second entry in this one, because the value is a TaggedEnumInfo BY VALUE
+    // and the fixpoint/body-setting loops in mlir_gen.cpp iterate the map: two
+    // entries for one enum would be two copies, and `llvm_type`'s body is
+    // set-once, so the second pass would set a body that is already set.
     std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
+    std::unordered_map<std::string, std::string>       tagged_enum_alias_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
     // G156-1: package-scoped consts. module_consts_ is keyed by the
     // package-qualified `pkg::name` (matches sema). const_pkg_of_ maps a bare
@@ -1198,6 +1206,15 @@ private:
         if (!t) return {};
         auto base = concrete_struct_name(t);
         return qualify_pkg(t.pkg_name(), base);
+    }
+    // A TAGGED ENUM'S IDENTITY — the enum-side twin of `mlir_struct_key`, one
+    // registry over. `logos.lang.ops` and `logos.lang.control_flow` both declare
+    // `ControlFlow<B, C>`; `ga::Sack` and `gb::Sack` in one module are the
+    // reduced case. THE ONE composer for the base is `Mono::enum_instance_name`
+    // (what mono's `record_needed_enum` mints), qualified by the package the
+    // declaration or the TypeRef carries.
+    static std::string tagged_enum_key(std::string_view pkg, std::string_view name) {
+        return qualify_pkg(pkg, name);
     }
     // Resolve `struct_types_` for a struct/ZonedStruct TypeRef, PKG-QUALIFIED
     // first (mlir_struct_key), bare name only as a fallback. The bare-name slot

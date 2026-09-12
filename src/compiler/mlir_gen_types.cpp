@@ -1061,11 +1061,15 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
     // (pre-registered by mlir_gen.cpp's two-pass loop) have empty variants
     // and need their bodies filled here.
     std::string ed_name(ed.name());
-    auto eit = tagged_enums_.find(ed_name);
+    std::string tkey = tagged_enum_key(ed.pkg(), ed_name);
+    auto eit = tagged_enums_.find(tkey);
     if (eit != tagged_enums_.end() && !eit->second.variants.empty()) return;
     TaggedEnumInfo info;
     info.zoned = ed.zoned2();   // F3: niche enum's Ref arm self-relative at-rest
-    info.name = ed_name;
+    // ⚠ THE IDENTITY, NOT THE BARE NAME. `info.name` is what names the
+    // identified LLVM struct below and what the layout verifier files its truth
+    // row under; both are per-TYPE and the bare name is shared.
+    info.name = tkey;
     uint64_t max_bytes = 0, max_align = 1;
     ed.each_variant([&](lir_view::EnumVariantView v) {
         TaggedEnumInfo::VariantPayload vp;
@@ -1121,8 +1125,13 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
             break;
         }
     }
+    // ⚠ NAMED ON THE IDENTITY. `getIdentified` uniques BY NAME, so two packages'
+    // same-named payload enums used to receive THE SAME identified struct — and
+    // an identified struct's body is set-once, so the second enum's layout was
+    // silently the first's. This is the half of the defect that produced a wrong
+    // VALUE at run time rather than only a wrong `sizeof`.
     auto enum_type = mlir::LLVM::LLVMStructType::getIdentified(
-        builder_.getContext(), "enum." + ed_name);
+        builder_.getContext(), "enum." + tkey);
     // NOTE: the body (payload byte-array size) is NOT set here — a nested enum
     // payload may still be a 0-byte stub at this point, so max_bytes can be
     // under-sized. The body is set ONCE, after the fixpoint in mlir_gen.cpp
@@ -1130,7 +1139,8 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
     // An identified LLVM struct's body is set-once, so setting it prematurely
     // here would lock in the wrong size.
     info.llvm_type = enum_type;
-    tagged_enums_[ed_name] = std::move(info);
+    tagged_enums_[tkey] = std::move(info);
+    tagged_enum_alias_.emplace(ed_name, tkey);
 }
 
 
@@ -1140,16 +1150,48 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
 
 const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
                                                         TypeRef type) {
-    auto tit = tagged_enums_.find(name);
-    if (tit != tagged_enums_.end()) return &tit->second;
+    // QUALIFIED FIRST — a lookup key is not an identity, exactly as in
+    // `find_enum_decl` one registry over. The TypeRef carries the package the
+    // name was written in; that pair IS the identity. The bare map below is a
+    // fallback for the callers that hold a name and nothing else, and it names
+    // whichever same-named enum registered first — which is the defect, kept
+    // only where there is no better answer available.
+    bool is_enum = type && TypeRef(type).kind() == LogosType::Kind::Enum;
+    std::string_view pkg = is_enum ? TypeRef(type).pkg_name() : std::string_view{};
+    if (!pkg.empty()) {
+        auto qit = tagged_enums_.find(tagged_enum_key(pkg, name));
+        if (qit != tagged_enums_.end()) return &qit->second;
+        // For generic enums: the concrete instance name, THE ONE composer —
+        // the same call mono's record_needed_enum makes.
+        if (!TypeRef(type).type_args().empty()) {
+            auto qit2 = tagged_enums_.find(
+                tagged_enum_key(pkg, Mono::enum_instance_name(type)));
+            if (qit2 != tagged_enums_.end()) return &qit2->second;
+        }
+    }
+    // …and the name may ALREADY BE an identity key: `verify_layout_engines`
+    // asks `enum_def_layout(en, TypeRef(nullptr))` with the registry's own
+    // qualified key and no TypeRef to carry a package. Before this line those
+    // calls resolved to nothing and every payload enum was sized down the
+    // C-LIKE branch — `layout_of` answered 4 for `b_match_tag.color`, whose
+    // bytes are 40. That was invisible while the verifier SKIPPED the row; the
+    // identity keying makes it ask, and 12 imported fixtures aborted the
+    // compile on a hole that predates this round.
+    if (auto dit = tagged_enums_.find(name); dit != tagged_enums_.end())
+        return &dit->second;
+    if (auto ait = tagged_enum_alias_.find(name); ait != tagged_enum_alias_.end()) {
+        auto tit = tagged_enums_.find(ait->second);
+        if (tit != tagged_enums_.end()) return &tit->second;
+    }
     // For generic enums: compute concrete name from type_args.
     // Must match the mangling used by mono's record_needed_enum:
     // struct/datatype args use concrete_struct_name(), others use type_str().
-    if (type && TypeRef(type).kind() == LogosType::Kind::Enum && !TypeRef(type).type_args().empty()) {
-        // THE ONE composer — the same call mono's record_needed_enum makes.
+    if (is_enum && !TypeRef(type).type_args().empty()) {
         std::string cname = Mono::enum_instance_name(type);
-        tit = tagged_enums_.find(cname);
-        if (tit != tagged_enums_.end()) return &tit->second;
+        if (auto ait = tagged_enum_alias_.find(cname); ait != tagged_enum_alias_.end()) {
+            auto tit = tagged_enums_.find(ait->second);
+            if (tit != tagged_enums_.end()) return &tit->second;
+        }
     }
     return nullptr;
 }
@@ -1506,19 +1548,21 @@ void MLIRGenImpl::verify_layout_engines() {
             std::string key = layout::type_key(pkg, base);
             if (!seen_enum_keys.insert(key).second) continue;
             mlir::Type mt;
-            // ⚠ `tagged_enums_` IS STILL BARE-KEYED, AND A BARE FALLBACK HERE IS
-            // THE DEFECT BEING REMOVED, NOT A CONVENIENCE. Measured: with one,
-            // the qualified entry for `logos.lang.writ.anyval.WAny` fell through
-            // to the C-LIKE branch — `enum_disc_mlir` on a PAYLOAD enum answers
-            // i32 — and the verifier reported `layout_of says 4, DataLayout says
-            // 8`: a disagreement this loop MINTED about a type it had not
-            // resolved (tests/logos/pass/wany_niche_enum, which declares its own
-            // `WAny`). A payload enum is verified only under the key its tagged
-            // info is actually filed under; the identity entry of one whose
-            // tagged info is bare-keyed is SKIPPED, exactly as it was skipped
-            // before this key existed. Moving `tagged_enums_` onto the identity
-            // is the next registry over and is NOT done here.
-            auto tit = tagged_enums_.find(en);
+            // ⚠ NEVER FALL THROUGH TO THE C-LIKE BRANCH FOR A PAYLOAD ENUM:
+            // `enum_disc_mlir` answers i32 and the loop then MINTS a
+            // disagreement about a type it never resolved (4 vs 8 on
+            // `wany_niche_enum`).
+            // ⚠ RESOLVE BY `key`, NOT BY `en`, AND NEVER THROUGH THE ALIAS.
+            // `en` may be the BARE legacy entry, whose two maps disagree BY
+            // CONSTRUCTION: `enum_types_[bare]` is last-registered-wins while
+            // `tagged_enum_alias_[bare]` is first-wins. Resolving the bare `en`
+            // through the alias filed `alpha.Sack`'s 8 bytes as the truth for
+            // `beta.Sack` and the verifier aborted the compile over a
+            // disagreement IT had minted — the same shape the previous round
+            // measured with a bare fallback here, in a new spelling. MEASURED
+            // both ways on tests/logos/pass/coex_tagged_enum_bare_key.
+            // `tagged_enums_` is keyed on exactly this `key`, so ask for it.
+            auto tit = tagged_enums_.find(key);
             if (tit == tagged_enums_.end() && evit->second.has_payload()) continue;
             if (tit != tagged_enums_.end()) {
                 auto st = tit->second.llvm_type;

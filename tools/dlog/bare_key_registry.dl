@@ -1,0 +1,112 @@
+// bare_key_registry — WHICH mlir-gen REGISTRY ACCESSES COMPOSE A BARE KEY?
+//
+// THE CLASS, STATED AS A PROPERTY: "a registry access whose key expression
+// carries no package". Not "the string `tagged_enums_` appears" — grep returns
+// the declaration, every comment, and 36 KB of PROBES.md, and it cannot tell a
+// WRITE that mints a key from a READ that consumes one, nor a key built from
+// `qualify_pkg(pkg, n)` from one built from `n`.
+//
+// ⚠ SITE-LEVEL, NOT CONTEXT-LEVEL, AND DELIBERATELY SO. The recorded failure of
+// this tool (37 defects against clang's 0) was `ctx_of` coarsening: a guard
+// anywhere in a 200-line function answered for every site inside it.
+// `enum_registry_readers.dl` asks "does the CONTEXT have a package in hand",
+// which is the right question for "could this reader ask for an identity" and
+// the WRONG one for "does THIS access carry one" — `find_enum_decl` is
+// PKG-IN-HAND at context level while still holding a bare fallback line. So the
+// key-expression neighbourhood here is bounded: at most 4 levels up from the
+// access and at most 4 back down, which is the expression the key is built in
+// and nothing else.
+//
+// ⚠ THE CLAIM IS OUT OF THE EXTRACTOR. The registry names and the package
+// composers are `registry_field` / `pkg_composer` below; the extractor knows
+// about neither.
+#include "cxx_schema.dl"
+
+.decl registry_field(name: symbol)
+registry_field("enum_types_").
+registry_field("tagged_enums_").
+registry_field("struct_types_").
+registry_field("all_struct_defs_").
+registry_field("type_aliases_").
+registry_field("module_consts_").
+registry_field("dyn_vtable_methods_").
+registry_field("trait_method_names_").
+registry_field("dyn_drop_glue_").
+registry_field("closure_drop_glue_").
+registry_field("fn_param_types_").
+
+// A package composer: a call whose value IS or CARRIES a package qualification.
+.decl pkg_composer(n: symbol)
+pkg_composer("qualify_pkg").
+pkg_composer("type_key").
+pkg_composer("mlir_struct_key").
+pkg_composer("pkg_name").
+pkg_composer("pkg").
+pkg_composer("concrete_struct_name").
+
+// ── the ACCESS: a reference to the field's declaration ──────────────────────
+.decl access(use: symbol, field: symbol, f: symbol, l: number)
+access(U, F, File, Line) :-
+    decl(D, "Field", _), decl_name(D, F), registry_field(F),
+    ref(U, D), loc(U, File, Line, _).
+
+// ── the key NEIGHBOURHOOD: <=4 up, then <=4 down ───────────────────────────
+.decl up(use: symbol, a: symbol, d: number)
+up(U, U, 0) :- access(U, _, _, _).
+up(U, P, D+1) :- up(U, X, D), D < 4, node(X, _, P, _), P != "-".
+
+.decl near(use: symbol, n: symbol, d: number)
+near(U, A, 0) :- up(U, A, _).
+near(U, C, D+1) :- near(U, X, D), D < 4, node(C, _, X, _).
+
+.decl qualified_here(use: symbol)
+qualified_here(U) :- near(U, N, _), call(N, D), decl_name(D, P), pkg_composer(P).
+qualified_here(U) :- near(U, N, _), ref(N, D), decl_name(D, P), pkg_composer(P).
+
+// ── the answer, per SITE ───────────────────────────────────────────────────
+.decl site(field: symbol, verdict: symbol, ctxname: symbol, f: symbol, l: number)
+site(F, "QUALIFIED", CN, File, Line) :-
+    access(U, F, File, Line), qualified_here(U), ctx_of(U, C), ctx_name(C, CN).
+site(F, "BARE", CN, File, Line) :-
+    access(U, F, File, Line), !qualified_here(U), ctx_of(U, C), ctx_name(C, CN).
+.output site
+
+// A registry is CLASS-OPEN when some access to it composes a bare key.
+.decl registry_verdict(field: symbol, verdict: symbol)
+registry_verdict(F, V) :- site(F, V, _, _, _).
+.output registry_verdict
+
+// ── THE MINTING SITES, WHICH IS THE SMALLER AND HONEST QUESTION ─────────────
+// ⚠ THE `site` RELATION ABOVE OVER-REPORTS IN THE PERMISSIVE DIRECTION AND IS
+// KEPT AS THE POPULATION, NOT AS THE VERDICT. A read written `find_struct_it(t)`
+// has no composer in its own neighbourhood because the composing happened
+// inside the callee, so `struct_types_` shows 100+ "BARE" reads while its key
+// scheme is the one this whole class is being fixed TOWARDS. A ceiling bounds
+// the count, not the set.
+//
+// What decides an identity is the WRITE: `reg_[k] = v` is where the key is
+// minted, and every read afterwards can only ask for a key that exists. So the
+// class member is a registry SOME OF WHOSE MINTING SITES compose a bare key.
+// `operator[]` on a std::unordered_map is a CXXOperatorCallExpr whose callee is
+// named `operator[]`; the map is argument 0 and the key argument 1.
+.decl subscript(callid: symbol, field: symbol, key: symbol, f: symbol, l: number)
+subscript(Call, F, Key, File, Line) :-
+    node(Call, "CXXOperatorCallExpr", _, _), call(Call, Callee),
+    decl_name(Callee, "operator[]"),
+    node(M, _, Call, 1), through(M, MI), access(MI, F, _, _),
+    node(Key, _, Call, 2), loc(Call, File, Line, _).
+
+.decl key_qualified(callid: symbol)
+key_qualified(C) :- subscript(C, _, K, _, _), sub_key(K, N), call(N, D), decl_name(D, P), pkg_composer(P).
+key_qualified(C) :- subscript(C, _, K, _, _), sub_key(K, N), ref(N, D), decl_name(D, P), pkg_composer(P).
+
+.decl sub_key(top: symbol, n: symbol)
+sub_key(K, K) :- subscript(_, _, K, _, _).
+sub_key(K, C) :- sub_key(K, X), node(C, _, X, _).
+
+.decl mint(field: symbol, verdict: symbol, ctxname: symbol, f: symbol, l: number)
+mint(F, "QUALIFIED-KEY", CN, File, Line) :-
+    subscript(C, F, _, File, Line), key_qualified(C), ctx_of(C, Cx), ctx_name(Cx, CN).
+mint(F, "BARE-KEY", CN, File, Line) :-
+    subscript(C, F, _, File, Line), !key_qualified(C), ctx_of(C, Cx), ctx_name(Cx, CN).
+.output mint

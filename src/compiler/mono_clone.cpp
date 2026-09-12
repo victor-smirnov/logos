@@ -310,9 +310,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
         }
         std::string ename{tv.enum_name()};
         if (has_explicit(ename) || has_explicit(type_str(tv))) return true;
-        std::optional<lir_view::EnumView> ed;
-        for (auto& e : out_.enums) if (e.name() == ename) { ed = e; break; }
-        if (!ed) for (auto& e : in_.enums) if (e.name() == ename) { ed = e; break; }
+        auto ed = find_enum_view(tv);   // PKG-QUALIFIED FIRST — see find_enum_view
         if (!ed) return true;
         bool ok = true;
         ed->each_variant([&](lir_view::EnumVariantView v) {
@@ -478,9 +476,7 @@ Mono::AbiLayout Mono::struct_view_layout(lir_view::StructView sv, const SubstMap
 Mono::AbiLayout Mono::mono_enum_layout(TypeRef t) {
     using K = LogosType::Kind;
     std::string ename(t.enum_name());
-    std::optional<lir_view::EnumView> edo;
-    for (auto& e : out_.enums) if (e.name() == ename) { edo = e; break; }
-    if (!edo) for (auto& e : in_.enums) if (e.name() == ename) { edo = e; break; }
+    auto edo = find_enum_view(t);   // PKG-QUALIFIED FIRST — see find_enum_view
     if (!edo) return {8, 8};
     lir_view::EnumView ed = *edo;
     const TypePoolImpl* p = out_.type_pool.impl();

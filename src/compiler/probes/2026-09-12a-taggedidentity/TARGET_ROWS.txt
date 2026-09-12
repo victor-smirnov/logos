@@ -1,0 +1,55 @@
+TARGET_ROWS — 2026-09-12a — `tagged_enums_` KEYED ON IDENTITY
+Written BEFORE any compiler edit. Base = HEAD 7b3ee3277, build hash dda1a12b027da023 43.
+
+SUBJECT (named by the previous round's dlog property column, not by guess):
+  `tagged_enums_` is keyed on the BARE enum name, and its identified LLVM type
+  is `"enum." + <bare name>`, which LLVM uniques by NAME. Two packages of one
+  module each declaring a PAYLOAD enum of the same bare name therefore share one
+  registry slot AND one identified struct body (set-once).
+
+THE QUEUE: no row targeted. The subject is not a queue row. Prediction: the
+queue stays at 82 and NOTHING in it is touched — every row here is a borrow-check
+or drop-glue row and this repair is in mlir-gen's type registry.
+
+PREDICTION, AS A NUMBER AND A LIST, BEFORE THE EDIT:
+
+ P1  Base MISCOMPILES the pair, and the control is the NAME ALONE.
+     Measured already, both directions, on the base binary at HEAD:
+       colliding (`ga::Sack` vs `gb::Sack`)  size 16/16  arr 48/48  hold 24/24  trip 200/0
+       control   (`ga::Sack` vs `gb::Zack`)  size  8/16  arr 24/48  hold 16/24  trip 200/7000000000
+     SIX of the eight numbers are wrong, and `gb_trip` is a WRONG VALUE AT RUN
+     TIME (0 instead of 7000000000) out of a program that compiles clean.
+     After the fix the colliding numbers must equal the control numbers exactly.
+
+ P2  A second shape REFUSES rather than miscompiling: with DIFFERENT ARITIES
+     (`ga::Sack{Nul,One(u8)}` vs `gb::Sack{Nul,One(i64),Two(i64,i64)}`) the base
+     compiler self-diagnoses — "undefined 'x' in fn gb$gb_trip", "`return` value
+     lowered to no value", "1 self-diagnosed malfunction(s) — COMPILE FAILED".
+     After the fix this must COMPILE and run.
+
+ P3  Predicted UNTOUCHED — the other bare-keyed registries the dlog census
+     names. Each is a DIFFERENT subject and none is repaired here:
+       type_aliases_        (mlir_gen.cpp:252)
+       trait_method_names_  (mlir_gen_dyn.cpp:845, mlir_gen_expr.cpp:3823)
+       dyn_vtable_methods_  (mlir_gen_dyn.cpp:992/1005/1026) — ALREADY has an
+                            additive qualified twin + the `coex_dyn_bare_key`
+                            fixture, which passes today.
+       closure_drop_glue_ / dyn_drop_glue_ / fn_param_types_ / module_consts_
+     Prediction: `coex_dyn_bare_key` and `coex_enum_bare_key` stay green.
+
+ P4  Predicted UNTOUCHED — the three tier-4 `diag` rows the previous round
+     already predicted and held (`typestr_minted_alike`,
+     `generic_enum_type_printed_without_args`,
+     `localvec_for_ref_names_stdlib_as_slice`). Different composer, sema side.
+
+ P5  NOT emission-neutral. The identified LLVM type name changes from
+     `enum.<bare>` to `enum.<pkg>.<bare>` for every payload enum, so the stdlib
+     archives' IR type names change. Predicted: run_oracle cost 0 apart from
+     `cast-region-to-uint`, verifier unmatched stays 0, disagreements stay 0.
+
+ACCEPTANCE COLUMNS (the full set, because this touches codegen's type registry):
+  L1 · `L4 bc` · stdlib-cost four layers · run_oracle.py · the layout verifier's
+  own line (`unmatched` 0, `disagreements` 0).
+
+DIFF BUDGET declared before implementing: <= 80 lines of compiler change across
+<= 4 files. Overrun > 2x is a design smell and gets re-scored.

@@ -1,0 +1,6 @@
+exit: 56
+stdout:
+size   alpha=8 beta=16
+arr    alpha=24 beta=48
+holder alpha=16 beta=24
+trip   alpha=200 beta=7000000000

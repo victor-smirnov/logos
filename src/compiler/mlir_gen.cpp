@@ -157,10 +157,22 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         // readers that have only a name. Readers ask QUALIFIED-FIRST.
         enum_types_[qualify_pkg(ed.pkg(), ed_name)] = ed;
         enum_types_[ed_name] = ed;
-        if (ed.has_payload() && !tagged_enums_.count(ed_name)) {
-            TaggedEnumInfo stub;
-            stub.name = ed_name;
-            tagged_enums_[ed_name] = std::move(stub);
+        if (ed.has_payload()) {
+            // SAME DEFECT, ONE REGISTRY OVER. The bare name is not an identity
+            // here either: two packages each declaring a PAYLOAD enum of one
+            // name shared this slot AND — because `register_tagged_enum` names
+            // the identified LLVM struct `"enum." + name` and LLVM uniques
+            // identified structs BY NAME — shared one set-once body. Measured on
+            // the base binary with `ga::Sack{Nul,One(u8)}` against
+            // `gb::Sack{Nul,One(i64)}`: sizeof read 16/16 where the truth is
+            // 8/16, and `gb`'s round-trip returned 0 instead of its payload.
+            std::string tkey = tagged_enum_key(ed.pkg(), ed_name);
+            if (!tagged_enums_.count(tkey)) {
+                TaggedEnumInfo stub;
+                stub.name = tkey;
+                tagged_enums_[tkey] = std::move(stub);
+            }
+            tagged_enum_alias_.emplace(ed_name, tkey);
         }
     }
     for (auto& ed : prog.enums) {
@@ -180,7 +192,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             changed = false;
             for (auto& ed : prog.enums) {
                 if (!ed.has_payload()) continue;
-                auto it = tagged_enums_.find(std::string(ed.name()));
+                auto it = tagged_enums_.find(tagged_enum_key(ed.pkg(), ed.name()));
                 if (it == tagged_enums_.end()) continue;
                 uint64_t max_bytes = 0, max_align = 1;
                 ed.each_variant([&](lir_view::EnumVariantView v) {

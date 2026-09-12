@@ -39300,3 +39300,229 @@ each declaring a same-named PAYLOAD enum with different payload layouts is the
 shape that has no pin today; `logos.lang.ops::ControlFlow<B,C>` against
 `logos.lang.control_flow::ControlFlow<B,C>` is that shape, in the stdlib, with
 identical variants and therefore currently invisible.
+
+## 2026-09-12a — `tagged_enums_` KEYED ON IDENTITY, AND THE THIRD ENGINE THE FIX MADE VISIBLE
+
+base 7b3ee3277, build hash `dda1a12b027da023 43` (the STEP-1 hash `1b954a89ffc5ed97`
+was a STALE BUILD: the previous round's commit landed at 00:05 and `build/bin/logosc`
+was from 20:45 the evening before — the hash was of the tree BEFORE the fix it was
+supposed to describe. Rebuilt before any baseline was read.)
+
+SUBJECT NAMED BY THE PREVIOUS ROUND'S dlog PROPERTY COLUMN, NOT BY GUESS.
+`tagged_enums_` was keyed on the BARE enum name, and `register_tagged_enum` named
+its identified LLVM struct `"enum." + <bare name>` — LLVM uniques identified
+structs BY NAME and their body is SET-ONCE. Two packages of one module each
+declaring a payload enum of one name therefore shared a registry slot AND a body.
+
+### THE COUNTER-EXAMPLES CAME FIRST, AND THE CONTROL IS THE NAME ALONE
+
+Five shapes over one pair, `ga::Sack` against `gb::Sack`, in a two-package module
+compiled and RUN — not a compile-rc column:
+
+| shape | base, colliding | base, control (`gb::Zack`) | armed, colliding |
+|---|---|---|---|
+| `sizeof::<Sack>()`        | **16 / 16** | 8 / 16  | **8 / 16** |
+| `sizeof::<[Sack;3]>()`    | **48 / 48** | 24 / 48 | **24 / 48** |
+| enum as a struct FIELD    | **24 / 24** | 16 / 24 | **16 / 24** |
+| construct + match + read  | 200 / **0** | 200 / 7000000000 | **200 / 7000000000** |
+| DIFFERENT ARITIES         | `mlir_gen: internal:` **COMPILE FAILED** | compiles | compiles, runs 7009 |
+
+SIX of the eight numbers were wrong on the base binary and one of them is a WRONG
+VALUE AT RUN TIME out of a program that compiles clean. ONE VARIABLE: renaming
+`gb`'s enum and changing nothing else makes every number right on that same
+binary. Armed equals the control digit for digit.
+
+### THE CLASS, ENUMERATED WITH `tools/dlog` AND CROSS-CHECKED PER SITE
+
+`selftest.sh` was run first and PASSES (19 walkers / 24 findings / try_path 1-5 /
+domain 42-5; duty discriminates across `756aed65`). New rule
+`bare_key_registry.dl`, claim kept out of the extractor (the registry names and
+the package composers are `registry_field` / `pkg_composer` IN THE RULE).
+
+⚠ IT IS DELIBERATELY SITE-LEVEL, NOT CONTEXT-LEVEL. The recorded failure of this
+tool — 37 defects against clang's 0 — was `ctx_of` coarsening. The sibling rule
+`enum_registry_readers.dl` asks "does the CONTEXT hold a package", which is right
+for "could this reader ask for an identity" and WRONG for "does THIS access carry
+one": `find_enum_decl` is PKG-IN-HAND at context level while still holding a bare
+fallback line. So the neighbourhood here is bounded at 4 levels up and 4 down.
+
+FIRST FORM (`site`): every access, 27 registries-worth of rows, **over-reports**.
+`struct_types_` shows 100+ "BARE" reads while its key scheme is the one the class
+is being fixed TOWARDS — a read written `find_struct_it(t)` composes nothing in
+its own neighbourhood. Kept as the POPULATION, not the verdict.
+
+SECOND FORM (`mint`): only `operator[]` WRITES, where an identity is decided.
+**27 minting sites, 25 of them BARE-KEY, across 11 registries.**
+
+CROSS-CHECKED AGAINST A PER-SITE READ, as the standing instruction requires, and
+the two numbers are reported side by side:
+
+  * dlog **25 BARE-KEY** vs per-site read **~15 genuinely bare**.
+  * **5 outright false positives**: `struct_types_[key]`, `all_struct_defs_[key]`,
+    `[qname]`, `[qkey]`, `[qbare]` — the key IS package-qualified, held in a
+    variable one statement above the subscript, outside the bounded neighbourhood.
+  * **5 more are reads through `operator[]`**, not identity decisions
+    (`struct_types_[sname]` / `[type_name]`).
+  * `fn_param_types_` keys are mangled fn symbols and `module_consts_` has
+    `const_pkg_of_` beside it — neither is a type identity.
+
+Populations agree term for term; only the VERDICT differs, in the permissive
+direction, exactly as in the recorded 37-vs-0. A ceiling bounds the count, not
+the set.
+
+### WHAT LANDED — THREE REGISTRIES, ONE STRUCTURAL CHANGE
+
+  1. `tagged_enums_` keyed on `tagged_enum_key(pkg, name)` = `layout::type_key`,
+     the ledger's own composer. A SECOND map `tagged_enum_alias_` (bare → identity
+     key) rather than a second entry in the first: the value is a `TaggedEnumInfo`
+     BY VALUE and `mlir_gen.cpp`'s fixpoint and body-setting loops ITERATE the
+     map, so two entries for one enum would be two copies and the second pass
+     would set a body that is already set.
+  2. The identified LLVM struct is named `"enum." + <identity>`. This is the half
+     that produced a wrong VALUE rather than only a wrong `sizeof`.
+  3. `resolve_tagged_enum` asks QUALIFIED-FIRST off the TypeRef's own
+     `pkg_name()`, generic instance included (`Mono::enum_instance_name`, THE ONE
+     composer), and only then the bare alias.
+
+### AND THE FIX MADE A FOURTH ENGINE VISIBLE — `mono_abi_layout`
+
+With mlir-gen's side repaired, the layout verifier could finally HOLD both types,
+and it immediately aborted the new fixture's compile:
+
+    [tagged]  beta.Sack:     size  — mono_abi_layout says 8,  llvm::DataLayout says 16
+    [product] beta.SackHolder: size — mono_abi_layout says 16, llvm::DataLayout says 24
+
+`Mono::mono_enum_layout` found its `EnumView` by a LINEAR SCAN ON THE BARE NAME,
+first match wins — the same class in a different spelling, and the field offsets
+of every struct holding one followed it. One helper `Mono::find_enum_view(TypeRef)`
+asks the TypeRef's package first; two scan sites now route through it
+(`mono_enum_layout`, `is_auto_satisfied`'s Enum arm). `build_concrete_typeref`
+holds only a NAME and no identity to ask with, and is deliberately left.
+
+⚠ AND MY OWN FIRST ARM MINTED A DISAGREEMENT ABOUT A TYPE IT HAD NOT RESOLVED —
+THE PREVIOUS ROUND'S FAILURE, IN A NEW SPELLING. The verifier loop resolved the
+tagged info by `en`, which may be the BARE legacy entry, through
+`tagged_enum_alias_`. The two maps disagree BY CONSTRUCTION: `enum_types_[bare]`
+is LAST-registered-wins and `tagged_enum_alias_[bare]` is FIRST-wins. So
+`alpha.Sack`'s 8 bytes were filed as the truth for `beta.Sack` and the verifier
+aborted over a disagreement IT had minted. Fixed by resolving on the computed
+identity `key`, never through the alias. MEASURED both ways on the new fixture.
+
+### DECLINED BY NAME, WITH THE NUMBER
+
+  * **`type_aliases_` (mlir_gen.cpp:252) — COST 0, DECLINED.** Two packages, same
+    alias name, `u8` against `i64`: colliding `ta=1 tb=8`, control (rename)
+    `ta=1 tb=8`; struct sizes 16/16 both ways. ⚠ A ZERO IS NOT AN ANSWER UNTIL THE
+    SITE IS PROVEN LIVE and I did NOT prove it live — the honest statement is
+    "sema resolves the alias before this registry decides anything, on this shape".
+  * **`dyn_vtable_methods_` — ALREADY REPAIRED.** An additive package-qualified
+    twin is in the tree with the `coex_dyn_bare_key` fixture, which passes today.
+  * **`closure_drop_glue_` / `dyn_drop_glue_` / `fn_param_types_` /
+    `module_consts_` — NOT PROBED.** Their keys are symbols or have a package map
+    beside them. Named, not measured.
+
+### ⚠ A NEW DEFECT THAT REPRODUCES — `trait_method_names_`, TIER 1, NO ROW YET
+
+`mlir_gen_dyn.cpp:845` does `auto& mn = trait_method_names_[tname]; mn.clear();` —
+the BARE trait name, last writer wins. Two packages of one module each declaring
+`trait Sig`, dyn-dispatched from each:
+
+    ra::Sig 1 method  vs rb::Sig 3 methods   -> the linked binary SEGFAULTS, rc 139
+    control: rename rb's trait to `Tig`      -> rc 0, ra=11 rb=302102
+
+THE DISCRIMINATING VARIABLE IS THE METHOD COUNT, isolated with a three-point
+control rather than asserted:
+
+    1 vs 3 methods   -> rc 139 (segfault)
+    1 vs 1 methods   -> rc 0, correct
+    3 vs 3 methods, DIFFERENT NAMES -> rc 0, correct
+
+which is exactly the vtable slot VECTOR's length, i.e. what `trait_method_names_`
+holds and what a bare key shares.
+
+⚠ IT CANNOT BE A SOUNDNESS-QUEUE ROW TODAY, AND THAT IS A PROPERTY OF THE READER,
+NOT AN EXCUSE. `soundness_queue_gate.sh` compiles ONE file; this defect needs two
+packages in ONE compile, which needs a module manifest. The single-file
+approximation — a user `trait Ord` with three methods against the prelude's
+one-method `logos.lang.cmp::Ord` — does NOT reproduce (rc 89 colliding, rc 89
+renamed), so it is not a substitute. The carrier that WOULD pin it is the `coex`
+module, the same shape `coex_dyn_bare_key` and `coex_tagged_enum_bare_key` use.
+NEXT ROUND'S NAMED SUBJECT.
+
+### THE RATCHET
+
+`tests/logos/pass/coex_tagged_enum_bare_key`, built on the `coex` module carrier
+already in the tree (`alpha::Sack { Nul, One(u8) }` against
+`beta::Sack { Nul, One(i64) }`). It asserts BOTH exit code and the full stdout —
+the two sizes, the two array strides, the two struct-field sizes and the two
+round-trip payloads — read BY THE PROGRAM, so it holds whether or not the layout
+verifier is on.
+
+### ⚠ AND THE PREVIOUS ROUND LEFT TWO GATES RED AT HEAD
+
+`logos_00_population_pin_lint` and `logos_00_census_pin` are RED at 7b3ee3277:
+that commit added `tests/logos/pass/coex_enum_bare_key` and did not re-derive the
+pins (`corpus` 3046 pinned, 3047 in that tree). Its record says "L1 807/807, rc 0"
+— 807/807 is the CORPUS half; `test-levels.sh` L1 exits **1** and prints "PLUS:
+the gates tier FAILED (143 tests declaring tier_commit)" underneath. A gate's rc
+is a measurement with a timestamp, and the 807 was read instead of the rc.
+Re-derived here BY DIRECT LISTING for both rounds' fixtures: corpus 3048, glob
+191, nonglob 2857; REGISTRY-ALL 9604, NOIMPORTED 5132, TIERCOMMIT 143.
+
+### ORACLES — every column, base `7b3ee3277` vs this tree
+
+Base is a SEPARATE WORKTREE at 7b3ee3277 configured `-G Ninja` with the same
+compiler as `build/` (`clang++-20`, RelWithDebInfo) — the previous round's
+`build-enumid` could not be asked by `logos_09_layout_engine_agreement` because
+it was a Makefile tree, and its `gate-run.sh` read the wrong build's verdict
+store. `LOGOS_BUILD` absolute on every runner, `build_hash.py` given the dir as
+**argv[1]**: base `50a30b285c181f10 43`, armed `c100d1b0614e4269 43`.
+
+| column | base | armed |
+|---|---|---|
+| L1 | (rc 1 — see the pin note) | **rc 0, 807/807, gates tier 143 PASSED** |
+| `L4 bc` | — | **1574/1574, 0 failed**, gate-db build 1051 |
+| L4 native half | — | **5132/5132, 0 failed** (the previous round saw 3 timeouts here) |
+| `stdlib-cost` | — | all four layers compile |
+| `run_oracle.py` | 6669 run | 6670 run, **1 row differs** |
+| `fail_text_oracle.py` | 1492 | 1492, **rc 0 diffs, `.expected`-match 0 diffs** |
+| soundness-queue gate | rc 0, 82 rows | **rc 0, 82 rows** |
+| layout verifier | 0 unmatched / 0 disagreements | **0 / 0**, and `layout_of` c-like 8 -> 7, tagged 49 -> 50 |
+
+`run_oracle` DIFFED BOTH WAYS over the full population: no row lost, one row
+added (this round's fixture), and the ONLY differing row is `cast-region-to-uint`,
+subtracted by name because it prints a stack address. **RUNTIME COST 0.**
+
+⚠ `fail_text_oracle`'s SHA COLUMN IS STRUCTURALLY UNUSABLE ACROSS TWO BUILDS AND
+I SAY SO RATHER THAN REPORTING ITS NUMBER. Cross-WORKTREE it differs on 633 of
+1492 because the diagnostic embeds the SOURCE PATH; same-tree with the base
+BINARY swapped in it differs on **all 1492**, and a per-site read of one fixture
+shows the entire difference is the four `offer no ABI guarantee` lines naming the
+build timestamp — the recorded self-invalidation, confirmed rather than assumed.
+The text column was therefore taken by hand: 200 fail fixtures compiled by each
+binary against ONE tree with those four lines filtered, **0 of 200 differ**.
+
+### ⚠ THE FIX MADE THE VERIFIER ASK A QUESTION IT HAD NEVER ASKED, AND 12 FIXTURES ABORTED
+
+First armed `run_oracle` pass: **12 rows went cc 0 -> cc -6** (the compiler
+killed), all imported payload-enum programs. Per-site read of `match-tag`:
+
+    [c-like] b_match_tag.color: size — layout_of says 4, llvm::DataLayout says 40
+
+`color` is a PAYLOAD enum. The verifier used to SKIP it, because
+`tagged_enums_.find(<qualified key>)` missed a bare-keyed map; now it resolves,
+compares — and `layout_of` had been answering **4 for a 40-byte enum all along**,
+through `enum_def_layout(en, TypeRef(nullptr))`, whose `en` is the registry's own
+qualified key and whose TypeRef carries no package. THE HOLE PREDATES THIS ROUND;
+the identity keying made it visible. Closed by letting `resolve_tagged_enum`
+accept a name that IS already an identity key. After: 12 rows back to cc 0,
+`layout_of` matrix c-like 8 -> 7 / tagged 49 -> 50 — one more enum per program
+sized down the RIGHT branch. This is why an emission-affecting change gets the
+full column set and not a ceiling.
+
+### DIFF BUDGET, DECLARED BEFORE IMPLEMENTING AND SCORED AFTER
+
+Declared: <= 80 lines of compiler change across <= 4 files. Landed: **55 lines of
+code added, 21 removed, across 5 files** (the fifth, `mono_*`, was not predicted —
+it was produced BY the fix, not chosen). Under budget on lines, one file over on
+the count, and the overrun is a discovery rather than a design smell.

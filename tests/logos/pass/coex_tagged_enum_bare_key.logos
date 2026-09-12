@@ -1,0 +1,44 @@
+// A lookup KEY is not an IDENTITY — the PAYLOAD-enum registry, one over from
+// `coex_enum_bare_key`, and the half that is wrong AT RUN TIME.
+//
+// `alpha::Sack` (`{ Nul, One(u8) }`) and `beta::Sack` (`{ Nul, One(i64) }`) are
+// same-named payload enums in two packages of ONE module. mlir-gen's
+// `tagged_enums_` was keyed by the BARE enum name, and `register_tagged_enum`
+// named the identified LLVM struct `"enum." + <bare name>` — LLVM uniques
+// identified structs BY NAME and an identified struct's body is SET-ONCE — so
+// the second `Sack` got the first's registry slot AND the first's body.
+//
+// MEASURED on the pre-fix compiler (base 7b3ee3277), same program:
+//   size   alpha=16 beta=16   (truth 8 / 16)
+//   arr    alpha=48 beta=48   (truth 24 / 48)
+//   holder alpha=24 beta=24   (truth 16 / 24)
+//   trip   alpha=200 beta=0   (truth 200 / 7000000000)  <- A WRONG VALUE, clean compile
+// The one-variable control is the NAME ALONE: renaming beta's enum to `Zack`
+// and changing nothing else makes every number above correct on that same
+// binary.
+//
+// The sizes AND the round-trip are read BY THE PROGRAM, so this pins the
+// behaviour whether or not the layout verifier is on. ⚠ DO NOT "fix" a failure
+// here by comparing bare names anywhere: both enums would then match each other
+// and the test would go green about a type it never looked at.
+//
+//   alpha 8 + 24 + 16 = 48 ; +7 for beta's payload round-trip ; +1 for alpha's
+
+package main;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use alpha;
+use beta;
+
+fn main() -> i32 {
+    println!("size   alpha={} beta={}", alpha_sack_size(), beta_sack_size());
+    println!("arr    alpha={} beta={}", alpha_sack_arr(), beta_sack_arr());
+    println!("holder alpha={} beta={}", alpha_sack_holder(), beta_sack_holder());
+    println!("trip   alpha={} beta={}", alpha_sack_trip(200u8), beta_sack_trip(7000000000i64));
+    let mut acc: i64 = alpha_sack_size() + alpha_sack_arr() + alpha_sack_holder();
+    if beta_sack_trip(7000000000i64) == 7000000000i64 { acc = acc + 7i64; }
+    if alpha_sack_trip(200u8) == 200i64 { acc = acc + 1i64; }
+    return acc as i32;                                    // 8 + 24 + 16 + 7 + 1 = 56
+}
