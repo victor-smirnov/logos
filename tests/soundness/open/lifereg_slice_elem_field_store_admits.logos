@@ -1,0 +1,32 @@
+// SOUNDNESS QUEUE — `admits`. Illegal Rust (upstream E0621: explicit lifetime
+// required in the type of `y`), compiled clean by logosc.
+//
+// THE FIELD-OF-A-SLICE-ELEMENT SPELLING, and it is the class member that
+// survives the repair its siblings die to. The §B6 holder-deposit walk in
+// `Code::DerefWrite` reaches a root local through FieldRead and TupleIndex
+// only; the projection domain is FIVE (Deref, FieldRead, IndexRead,
+// TupleIndex, SliceIndex — enumerated by `tools/dlog` place_walkers.dl, not by
+// grep). `s[0u64].v = y` lowers to
+// SDerefWrite(AddrOfTemp(FieldRead(SliceIndex(VarRef s)))), so it needs the
+// SliceIndex hop — and MEASURED 2026-09-12d it is NOT closed even with that
+// hop armed, while its two siblings are:
+//   `s[0u64]   = y`  (bc_admits --t17)                    hop armed -> rc 1
+//   `(*r).v    = y`  (lifereg_derefwrite_descent_stops…)  hop armed -> rc 1
+//   `s[0u64].v = y`  THIS ROW                             hop armed -> rc 0
+// So a repair priced on the two sibling rows leaves this one open: the row is
+// here so that the repair's closed set is diffed against a member it misses.
+//
+// ⚠ NOT A DUPLICATE OF --t17. That row stores INTO the element; this one stores
+// into a FIELD OF the element, one projection deeper, and the two separate
+// under the same armed binary — which is the only reason it is a row.
+//
+// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// Opened 2026-09-12d.
+package lifereg_slice_elem_field_store_admits;
+struct H { v: &i64 }
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut out: [H; 1] = [H { v: x }];
+  { let s: &mut [H] = &mut out; s[0u64].v = y; }   // THE DEFECT: admitted, upstream E0621
+  return out[0u64].v;
+}
+fn main() -> i32 { return 0i32; }

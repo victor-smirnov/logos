@@ -39816,3 +39816,92 @@ a previous round's (02:39 / 02:50, against a build from 04:28). Last round threw
 away a diff against a file still being WRITTEN; this is the same defect where the
 marker is not merely early but from a DIFFERENT ROUND. `rm` the marker before
 blocking on it, and `ls -la` every artefact you are about to diff.
+
+## 2026-09-12d — `liferegslicehop` / `dwderefhop` / `liferegdwhops` DECLINED: THE DEPOSIT THAT BUYS THE TWO ROWS IS THE DEPOSIT THAT REFUSES TWO LEGAL PROGRAMS, AND IT IS NOT SEPARABLE
+
+The 2026-09-12c pricing recommended `liferegdwhops` on five zero columns and 14
+legal hand programs. **Its 14 shapes all vary the DESTINATION and never the
+SOURCE.** Varying the RHS instead — making it a place READ through the same
+pointer or slice the write goes through — refuses legal programs, one per hop:
+
+| program | spelling | base | `liferegslicehop` | `dwderefhop` | union |
+|---|---|---|---|---|---|
+| L04 | `s[0u64] = s[1u64]` | 0 | **1** | 0 | **1** |
+| L15 | `(*r).a = (*r).b`   | 0 | 0 | **1** | **1** |
+
+Both are legal (every element/field is `&'a i64`; Rust evaluates the RHS, then
+the place). Both are refused as
+`cannot return reference to local variable '?': dangling reference` — an
+UNNAMEABLE source, a different sentence from the one the rows close with. So
+**each hop has its own over-refusal and each needs its own control twin**
+(rule 18): a round that landed only `dwderefhop`, the "cheaper half", would ship
+L15.
+
+### THREE HYPOTHESES FOR THE CAUSE, TWO REFUTED BY MEASUREMENT, AND THE THIRD IS WHY THIS IS DECLINED
+
+1. **"`add_ref_sources` erases the root's record before collecting the value's
+   sources, so a self-referential RHS collects from a wiped record."** REFUTED.
+   An additive arm (`store_ref_sources`, the idiom this file's own #78 out-param
+   door already uses) built and measured: **identical in all 27 columns.**
+2. **"the deposit is unnameable because `pairs` is empty."** REFUTED by the fire
+   log — `[b6mw] root=s pairs=1` and `root=r pairs=1`. Non-empty both times.
+3. **The §B6 walk feeds TWO consumers in series, and the second is the cause.**
+   A probe that opens both hops and SKIPS `add_ref_sources` entirely
+   (`skip=1` in the fire log) still refuses L04 and L15 — and still CLOSES both
+   target rows. The live consumer is `note_holder_escape_prov` further down the
+   same block. **The escape deposit that buys `--t17` and
+   `lifereg_derefwrite_descent_stops_at_deref_admits` is the same escape deposit
+   that refuses L04 and L15.** There is no gate between them to flip: they are
+   one deposit reached by one hop.
+
+A correct repair therefore lives in the DANGLING channel — teaching it not to
+refuse on a source it cannot name when that source is a read of the
+destination's own place — whose population is every `'?'` refusal in the tree,
+including the pinned `imported/fail/borrowck/borrowck-return-variable-on-stack-via-clone`
+(the only fixture that pins that sentence today). That is its own round with its
+own ceiling; it is not a conjunct on this arm.
+
+### THE CLASS, ENUMERATED BY PROPERTY WITH `tools/dlog` — AND THE CROSS-CHECK GOES AGAINST THE TOOL
+
+`selftest.sh` run first: `ok 28fc7c75: 19 walkers / 24 findings / try_path 1-5 /
+domain 42-5; duty discriminates across 756aed65 (1 -> 0)` — the recorded
+known-answer control. Then `ask.sh place_walkers.dl src/compiler/borrow_check.cpp`
+(no new rule written; `place_walkers.dl` already asks exactly this question).
+
+Projection domain, derived at fixpoint, **5**: `Deref · FieldRead · IndexRead ·
+TupleIndex · SliceIndex`. 18 walkers; `spelling_keyed` (handles some, not all):
+
+    is_reborrow_shape              1/5   missing FieldRead IndexRead SliceIndex TupleIndex
+    take_ref_borrows               1/5   missing FieldRead IndexRead SliceIndex TupleIndex
+    is_cond_move_field_drop_place  2/5   missing Deref IndexRead SliceIndex
+    path_params_of                 3/5   missing Deref SliceIndex
+    collect_borrowed_local_roots   4/5   missing Deref
+
+`path_params_of` is the READ walk that the two DECLINED queue rows
+(`lifereg_field_reborrow_deposit_unread_admits`,
+`lifereg_container_elem_read_admits`) each blame in prose — and dlog names it
+independently and says WHICH two steps it lacks. That is the tool earning its
+keep: the rows were written from a per-site read and agree with a fixpoint.
+
+⚠ **AND THE TOOL IS COARSE EXACTLY WHERE THE PROMPT SAYS IT IS.** dlog reports
+`visit_stmt 5/5` — complete. The per-site read says the §B6 walk INSIDE
+`visit_stmt` is **2/5** (FieldRead, TupleIndex; Deref and SliceIndex
+probe-gated, IndexRead gated behind `Kind::Array`). `visit_stmt` contains
+several walks and the rule keys on the FUNCTION, so it scores the union of all
+of them — the `ctx_of` coarsening that once reported 37 defects against clang's
+0, recurring on a second rule. **5/5 (dlog, function-level) vs 2/5 (per-site
+read), reported side by side.** dlog was right about `path_params_of`, which is
+one walk in one function, and wrong about `visit_stmt`, which is not.
+
+### THE CLASS MEMBER THE REPAIR MISSES — NOW A QUEUE ROW
+
+`s[0u64].v = y` (FieldRead over SliceIndex) is illegal and admits **even with
+the SliceIndex hop armed**, while both sibling spellings close. Landed as
+`tests/soundness/open/lifereg_slice_elem_field_store_admits.logos`. A repair
+priced on the two sibling rows is the instance, not the class.
+
+### WHAT THE BLOCK NEEDS
+
+`--t17` and `lifereg_derefwrite_descent_stops_at_deref_admits` are reachable —
+the hop exists and the escape door fires. What is missing is a discriminator in
+the dangling channel, not another hop. Price THAT, on the `'?'` population.
