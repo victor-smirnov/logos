@@ -1156,17 +1156,33 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
 
 const lir_view::EnumView* MLIRGenImpl::find_enum_decl(std::string_view name,
                                                       TypeRef type) {
-    if (auto it = enum_types_.find(std::string(name)); it != enum_types_.end())
-        return &it->second;
-    if (type && TypeRef(type).kind() == LogosType::Kind::Enum &&
-        !TypeRef(type).type_args().empty()) {
+    // QUALIFIED FIRST — a lookup key is not an identity. `logos.lang.cmp` and
+    // `logos.lang.atomic` both declare `Ordering`, so the BARE entry names
+    // whichever of the two pass 0.5 registered last and answering from it is a
+    // wrong answer about a type this call never asked for. The TypeRef carries
+    // the package the name was written in; when it does, that pair IS the
+    // identity and the bare map is only a fallback for callers that have a name
+    // and nothing else.
+    bool is_enum = type && TypeRef(type).kind() == LogosType::Kind::Enum;
+    std::string_view pkg = is_enum ? TypeRef(type).pkg_name() : std::string_view{};
+    std::string inst;
+    if (is_enum && !TypeRef(type).type_args().empty())
         // `name` is the BASE the caller carried in (it may or may not equal
         // the type's own enum_name — e.g. an alias spelling), so compose from
         // it rather than from the TypeRef. THE ONE composer either way.
-        std::string cname = Mono::enum_instance_name(name, TypeRef(type).type_args());
-        if (auto it = enum_types_.find(cname); it != enum_types_.end())
+        inst = Mono::enum_instance_name(name, TypeRef(type).type_args());
+    if (!pkg.empty()) {
+        if (auto it = enum_types_.find(qualify_pkg(pkg, name)); it != enum_types_.end())
             return &it->second;
+        if (!inst.empty())
+            if (auto it = enum_types_.find(qualify_pkg(pkg, inst)); it != enum_types_.end())
+                return &it->second;
     }
+    if (auto it = enum_types_.find(std::string(name)); it != enum_types_.end())
+        return &it->second;
+    if (!inst.empty())
+        if (auto it = enum_types_.find(inst); it != enum_types_.end())
+            return &it->second;
     return nullptr;
 }
 
@@ -1474,11 +1490,37 @@ void MLIRGenImpl::verify_layout_engines() {
         enames.reserve(enum_types_.size());
         for (auto& kv : enum_types_) enames.push_back(kv.first);
         std::sort(enames.begin(), enames.end());
+        std::unordered_set<std::string> seen_enum_keys;
         for (auto& en : enames) {
             auto evit = enum_types_.find(en);
-            std::string key = layout::type_key(evit->second.pkg(), en);
+            // `enum_types_` now carries BOTH the package-qualified identity and
+            // a bare legacy alias for each enum, so the two entries of the same
+            // enum land on ONE truth key — and the two `Ordering`s land on TWO,
+            // which is the point. `en` is already qualified for the identity
+            // entry; qualifying it again would mint a key naming nothing.
+            std::string base(en);
+            std::string pkg(evit->second.pkg());
+            if (!pkg.empty() && base.size() > pkg.size() + 1 &&
+                base.compare(0, pkg.size(), pkg) == 0 && base[pkg.size()] == '.')
+                base = base.substr(pkg.size() + 1);
+            std::string key = layout::type_key(pkg, base);
+            if (!seen_enum_keys.insert(key).second) continue;
             mlir::Type mt;
-            if (auto tit = tagged_enums_.find(en); tit != tagged_enums_.end()) {
+            // ⚠ `tagged_enums_` IS STILL BARE-KEYED, AND A BARE FALLBACK HERE IS
+            // THE DEFECT BEING REMOVED, NOT A CONVENIENCE. Measured: with one,
+            // the qualified entry for `logos.lang.writ.anyval.WAny` fell through
+            // to the C-LIKE branch — `enum_disc_mlir` on a PAYLOAD enum answers
+            // i32 — and the verifier reported `layout_of says 4, DataLayout says
+            // 8`: a disagreement this loop MINTED about a type it had not
+            // resolved (tests/logos/pass/wany_niche_enum, which declares its own
+            // `WAny`). A payload enum is verified only under the key its tagged
+            // info is actually filed under; the identity entry of one whose
+            // tagged info is bare-keyed is SKIPPED, exactly as it was skipped
+            // before this key existed. Moving `tagged_enums_` onto the identity
+            // is the next registry over and is NOT done here.
+            auto tit = tagged_enums_.find(en);
+            if (tit == tagged_enums_.end() && evit->second.has_payload()) continue;
+            if (tit != tagged_enums_.end()) {
                 auto st = tit->second.llvm_type;
                 if (!st || (st.isIdentified() && !st.isInitialized())) continue;
                 mt = st;

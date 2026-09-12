@@ -1,0 +1,28 @@
+// A lookup KEY is not an IDENTITY, one registry over from the struct side.
+//
+// `alpha::Kolej` (`: u8`, 3 variants) and `beta::Kolej` (`: i64`, 5 variants)
+// are same-named enums in two packages of ONE module. mlir-gen's `enum_types_`
+// was keyed by the BARE enum name, so only one of them could register and every
+// `sizeof` of the other resolved against the wrong backing type: measured on
+// the pre-fix compiler, `sizeof::<alpha::Kolej>()` read 8 and
+// `sizeof::<[alpha::Kolej; 4]>()` read 32. Reversing which half is `: u8` makes
+// it under-size instead — an `i64`-backed enum reporting 1 — which is a malloc
+// short by 8x, the failure `find_enum_decl`'s own comment was written against.
+//
+// The sizes are read BY THE PROGRAM, so this pins the behaviour whether or not
+// the layout verifier is on. ⚠ DO NOT "fix" a failure here by comparing bare
+// names anywhere: both enums would then match each other and the test would go
+// green about a type it never looked at.
+//
+//   alpha: 1 + 4   beta: 8 + 32   ->  45
+
+package main;
+
+use alpha;
+use beta;
+
+fn main() -> i32 {
+    let a: i64 = alpha_kolej_size() + alpha_kolej_arr();   // 1 + 4
+    let b: i64 = beta_kolej_size() + beta_kolej_arr();     // 8 + 32
+    return (a + b) as i32;                                 // 45
+}

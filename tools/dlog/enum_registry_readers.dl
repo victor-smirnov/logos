@@ -1,0 +1,52 @@
+// enum_registry_readers — WHO READS THE ENUM REGISTRY, AND DID THE READER HAVE
+// A PACKAGE IN HAND?
+//
+// The question grep answers wrongly: `grep enum_types_` returns mentions, and a
+// mention is not a read — the declaration, the comments and PROBES.md all match,
+// and a read inside a lambda is attributed to nothing by a file-keyed grep. The
+// property that matters is not "the string appears" but "this CONTEXT reads the
+// registry", and the follow-on property is "this same context also handles a
+// PACKAGE" — because a reader with a package in hand can ask for an identity,
+// and a reader without one structurally cannot.
+//
+// ⚠ CLAIM KEPT OUT OF THE FACTS: the registry field NAMES are the claim and they
+// live here, in `registry_field`, where the rule checks them against the domain.
+// The extractor knows nothing about registries.
+#include "cxx_schema.dl"
+
+.decl registry_field(name: symbol)
+registry_field("enum_types_").
+registry_field("tagged_enums_").
+registry_field("struct_types_").
+registry_field("all_struct_defs_").
+
+// A read is a REFERENCE to the field's declaration, wherever it occurs. The
+// declaration itself is a `decl`, never a `ref`, so it cannot pollute the count.
+.decl registry_read(use: symbol, field: symbol, ctx: symbol, f: symbol, l: number)
+registry_read(U, F, C, File, Line) :-
+    decl(D, "Field", _), decl_name(D, F), registry_field(F),
+    ref(U, D), ctx_of(U, C), loc(U, File, Line, _).
+
+// Does the reading context have a PACKAGE in hand? Mechanically: it calls
+// something whose name mentions a package, or qualifies a key with one.
+.decl pkg_aware_name(n: symbol)
+pkg_aware_name("pkg_name").
+pkg_aware_name("pkg").
+pkg_aware_name("qualify_pkg").
+pkg_aware_name("type_key").
+pkg_aware_name("mlir_struct_key").
+
+.decl ctx_has_pkg(c: symbol)
+ctx_has_pkg(C) :- call(Call, Callee), decl_name(Callee, N), pkg_aware_name(N), ctx_of(Call, C).
+
+.decl reader(field: symbol, ctxname: symbol, f: symbol, l: number, pkg: symbol)
+reader(F, CN, File, Line, "PKG-IN-HAND") :-
+    registry_read(_, F, C, File, Line), ctx_name(C, CN), ctx_has_pkg(C).
+reader(F, CN, File, Line, "no-pkg") :-
+    registry_read(_, F, C, File, Line), ctx_name(C, CN), !ctx_has_pkg(C).
+.output reader
+
+// The COUNT per field, so "the class is N members" is derived and not counted by eye.
+.decl reader_ctx(field: symbol, ctxname: symbol, pkg: symbol)
+reader_ctx(F, CN, P) :- reader(F, CN, _, _, P).
+.output reader_ctx

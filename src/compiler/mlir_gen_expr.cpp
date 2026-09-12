@@ -5026,10 +5026,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             exhaustive_discrete = true;
         } else {
             std::string en(TypeRef(scrut_ty).enum_name());
-            auto eit = enum_types_.find(en);
-            if (eit != enum_types_.end()) {
+            // QUALIFIED-FIRST via find_enum_decl — see the twin site in
+            // mlir_gen_stmt.cpp. A bare lookup answers about the wrong enum.
+            const lir_view::EnumView* ev = find_enum_decl(en, scrut_ty);
+            if (ev) {
                 bool all_covered = true;
-                eit->second.each_variant([&](lir_view::EnumVariantView v) {
+                ev->each_variant([&](lir_view::EnumVariantView v) {
                     if (covered.count(v.disc()) == 0) all_covered = false;
                 });
                 exhaustive_discrete = all_covered;

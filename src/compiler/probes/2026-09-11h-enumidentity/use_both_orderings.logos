@@ -1,0 +1,21 @@
+package main;
+
+use pa;
+use pb;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(tag: str, v: i64) { unsafe { printf("%s=%ld\n".as_ptr(), tag.as_ptr(), v); } }
+
+fn main() -> i32 {
+    show("pa_size", pa_size());                   // want 1
+    show("pb_size", pb_size());                   // want 8
+    show("pa_holder_size", pa_holder_size());     // want 16
+    show("pb_holder_size", pb_holder_size());     // want 16
+    show("pa_holder_rt", pa_holder_roundtrip());  // want 3078
+    show("pb_holder_rt", pb_holder_roundtrip());  // want 50078
+    show("pa_array", pa_array_stride());          // want 43
+    show("pb_array", pb_array_stride());          // want 350
+    show("pa_match", pa_match_hi());              // want 300
+    show("pb_match", pb_match_seqcst());          // want 5
+    return 0;
+}

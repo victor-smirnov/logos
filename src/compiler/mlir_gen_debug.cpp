@@ -428,22 +428,30 @@ void MLIRGenImpl::collect_enum_meta(TypeRef t) {
 
     // disc → variant name, from the EnumView (base or instance keyed).
     std::map<int64_t, std::string> names;
-    auto find_ev = [&](const std::string& nm) {
+    // ⚠ THE THREE-WAY FALLBACK BELOW IS A COMPENSATION FOR A WRONG KEY, and it
+    // stays only as a fallback. `find_enum_decl` asks QUALIFIED-FIRST — the
+    // package the TypeRef carries plus the name, which is the enum's identity —
+    // and only then by the bare name that two packages can both claim. The
+    // `substr(0, '<')` truncation and the te->name / key retries are the legacy
+    // paths for spellings that reach here with no package at all.
+    auto find_ev = [&](const std::string& nm) -> const lir_view::EnumView* {
         auto it = enum_types_.find(nm);
-        if (it != enum_types_.end()) return it;
+        if (it != enum_types_.end()) return &it->second;
         auto lt = nm.find('<');
-        return lt != std::string::npos ? enum_types_.find(nm.substr(0, lt))
-                                       : enum_types_.end();
+        if (lt == std::string::npos) return nullptr;
+        it = enum_types_.find(nm.substr(0, lt));
+        return it != enum_types_.end() ? &it->second : nullptr;
     };
     auto* te = resolve_tagged_enum(ename, t);
+    const lir_view::EnumView* ev = find_enum_decl(ename, t);
     // Generic enum instances are registered in enum_types_ under the mono-mangled
     // name (e.g. `Option__i64`), not the bare `Option` from type_str — so prefer
     // te->name (the instance key) for the variant-name lookup.
-    auto evit = te ? find_ev(te->name) : enum_types_.end();
-    if (evit == enum_types_.end()) evit = find_ev(ename);
-    if (evit == enum_types_.end()) evit = find_ev(key);
-    if (evit != enum_types_.end())
-        evit->second.each_variant([&](lir_view::EnumVariantView v) {
+    if (!ev && te) ev = find_ev(te->name);
+    if (!ev) ev = find_ev(ename);
+    if (!ev) ev = find_ev(key);
+    if (ev)
+        ev->each_variant([&](lir_view::EnumVariantView v) {
             names[v.disc()] = std::string(v.name());
         });
 

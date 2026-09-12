@@ -39,3 +39,10 @@ pub fn beta_dyn_mark(n: i64) -> i64 {
     let d: &dyn Dyg = &t;
     return d.mark();
 }
+
+// ── enum_bare_key carrier (2026-09-11) ──────────────────────────────────────
+// beta's half. FIVE variants and `: i64` on purpose: a bare-keyed registry is
+// only observable when the two enums' BACKING TYPES differ. See alpha.logos.
+pub enum Kolej : i64 { A = 10, B = 20, C = 30, D = 40, E = 50 }
+pub fn beta_kolej_size() -> i64 { return sizeof::<Kolej>() as i64; }
+pub fn beta_kolej_arr() -> i64 { return sizeof::<[Kolej; 4]>() as i64; }

@@ -1,0 +1,32 @@
+# TARGET ROWS — round 2026-09-11h, subject ASSIGNED (enum registry identity).
+# Written BEFORE the compiler was touched.
+#
+# THE SUBJECT IS NOT A QUEUE ROW. The prompt fixes the subject as
+# `enum_types_` keyed on a bare name, and states up front that the standing
+# evidence is an OBSERVABILITY hole (the verifier's `1 unmatched`), not a
+# wrong answer — "if your pair does not produce a wrong answer either, say so
+# with the number and land the identity keying anyway". So there is no row to
+# close by construction, and NO ROW IS TO BE MANUFACTURED unless a pair
+# produces a wrong answer on the base binary.
+#
+# ROWS IN THE SAME CLASS, re-verified against today's base binary before any
+# edit — all 82 rows reproduce (queue gate rc 0, 2026-09-11), these three read
+# by hand as the ones a name-vs-identity repair could plausibly move:
+#
+#   typestr_minted_alike                    4  diag expected &i64, got &i64
+#   generic_enum_type_printed_without_args  4  diag expected Opt, got Opt
+#   localvec_for_ref_names_stdlib_as_slice  4  diag expected &Vec<i64>, got &Vec<i64>
+#
+# WHY THESE THREE AND NOT OTHERS: every one is a tier-4 `diag` row whose
+# recorded text names TWO DIFFERENT TYPES WITH ONE STRING. That is the
+# subject's own shape one layer out — a printed NAME is not an IDENTITY — and
+# if the repair had reached the diagnostic printer, these are the rows that
+# would have moved. PREDICTION, written before the build: it does NOT reach
+# them. `enum_types_` is mlir-gen's codegen registry; the three diagnostics are
+# minted in sema/typeck from `type_str`, a different composer over a different
+# map. All three stay red.
+#
+# WHY NOT A GROUPING: tested the way the last two rounds tested theirs — does
+# ONE candidate change move BOTH members? The candidate here is the registry
+# key. `typestr_minted_alike` prints `&i64` twice, which is not an enum at all;
+# no enum-registry change can reach it. The grouping is refuted at member one.

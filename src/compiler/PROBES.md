@@ -39119,3 +39119,184 @@ of the 13 programs is `Option__Location`. `Option<[i64;4]>` / `Option<[i64;8]>`,
 instantiated explicitly with `sizeof` taken, NEVER REACH `sema_abi_layout`'s
 enum arm. The hazard is **UNEXERCISED, not refuted**, and is unchanged in either
 direction by this round (mono and mlir-gen already used this mangler).
+
+## 2026-09-11h — `enum_types_` WAS KEYED ON A BARE NAME, AND THE PAIR THAT PROVES IT MISCOMPILES `sizeof` IN BOTH DIRECTIONS
+
+Subject assigned: `mlir_gen.cpp` pass 0.5 registers every enum as
+`enum_types_[std::string(ed.name())]`, so two packages declaring one enum name
+cannot both be registered. The prompt recorded the standing evidence as an
+OBSERVABILITY hole — `logos.lang.cmp.Ordering` reads `1 unmatched` in every
+program — and stated it had been "probed and NOT reproducing as a miscompile",
+a user `enum Ordering : u8` correctly getting size 1.
+
+**IT REPRODUCES.** The probe that found nothing put a USER package against a
+PRELUDE package. Put two NON-prelude packages of one module against each other
+and the wrong answer is immediate, in BOTH directions:
+
+| pair | `sizeof::<pa::Ordering>()` | `sizeof::<pb::Ordering>()` | base | armed |
+|---|---|---|---|---|
+| pa `: u8` (3 var) / pb `: i64` (5 var) | want 1 | want 8 | **8** / 8 | 1 / 8 |
+| pa `: i64` (3 var) / pb `: u8` (5 var) | want 8 | want 1 | **1** / 1 | 8 / 1 |
+
+The second row is the expensive direction: an `i64`-backed enum reporting
+`sizeof` **1**, and `sizeof::<[Ordering; 4]>()` **4** against a true 32 — a
+`malloc` sized off it is short by 8x, which is the failure `find_enum_decl`'s
+own comment says it was written to stop.
+
+CONTROL, ONE VARIABLE, ON THE BASE BINARY: rename pb's enum to `OrderingB` and
+nothing else — `pa_size` goes 8 -> 1. Rename it back — 8. The variable is the
+BARE NAME and nothing else.
+
+SHAPES VARIED, NOT COUNTS (rule 5). Five shapes over one pair: `sizeof`, the
+enum as a STRUCT FIELD (`Holder { tag: Ordering, v: i64 }`, size + a write
+round-trip), an ARRAY (`[Ordering; 4]` stride), a wildcard-free MATCH over all
+variants, and the discriminant value itself. **TWO of the five fire** — `sizeof`
+and the array stride. The struct-field and match shapes are CORRECT on the base
+binary, because sema sizes the field from its own registry and the match arms
+are covered by discriminant value. So the defect is a DISAGREEMENT between
+mlir-gen's `sizeof` and sema's field layout, which is precisely the thing the
+layout verifier exists to catch and could not — it could not hold both types.
+
+CLASS ENUMERATED WITH `tools/dlog`, NOT WITH GREP (new rule
+`enum_registry_readers.dl`, claim kept out of the extractor: the registry field
+names are `registry_field` facts in the rule). Grep says "~23 mentions across
+seven files". The rule asks for REFERENCES TO THE FIELD DECLARATION grouped by
+enclosing named context, and answers **four contexts** for `enum_types_`:
+`generate` (the registration site), `find_enum_decl`, `verify_layout_engines`,
+and `find_ev` — the compensating lambda in `mlir_gen_debug.cpp`. Pre-fix it was
+SIX: the two match-exhaustiveness sites in `mlir_gen_stmt.cpp` /
+`mlir_gen_expr.cpp` read the map directly and now go through `find_enum_decl`.
+CROSS-CHECKED AGAINST A PER-SITE READ, as the prompt requires: the two numbers
+agree term for term on the current tree. The rule's second column is the one
+grep cannot produce — whether the reading context has a PACKAGE in hand — and it
+names the next registry over without being asked: `tagged_enums_`'s only two
+readers, `register_tagged_enum` and `resolve_tagged_enum`, are both `no-pkg`,
+i.e. structurally unable to ask for an identity.
+
+AND THE COLLISION CENSUS IS TWO, NOT ONE. Over all 4417 enum declarations in
+the tree, 97 bare names are declared in more than one package — but almost all
+are separate test programs, each its own compile. Inside `stdlib/`, where every
+package can be in one compile, there are exactly **two**: `Ordering`
+(`logos.lang.cmp` 3 variants / `logos.lang.atomic` 5) and **`ControlFlow`**
+(`logos.lang.ops` / `logos.lang.control_flow`, both `<B, C>` with `Continue`
+and `Break`) — the second had never been named.
+
+WHAT THE FIX DOES. `enum_types_` carries the package-qualified identity
+(`qualify_pkg(ed.pkg(), name)` — `layout::type_key`, the ledger's own composer)
+alongside the bare entry, which stays as a legacy alias; `find_enum_decl` asks
+QUALIFIED-FIRST off the TypeRef's own `pkg_name()` and falls back to bare only
+for callers that have a name and nothing else. No normalisation ANYWHERE: a
+by-name comparison would match cmp's `Ordering` against atomic's, find 4/4 on
+both and report green about a type it never looked at.
+
+⚠ THE FIRST ARM OF THE VERIFIER LOOP MINTED A DISAGREEMENT ABOUT A TYPE IT HAD
+NOT RESOLVED, AND L1 CAUGHT IT. With a BARE fallback for `tagged_enums_` (still
+bare-keyed), the new qualified entry for `logos.lang.writ.anyval.WAny` fell
+through to the C-LIKE branch — `enum_disc_mlir` answers i32 for a PAYLOAD enum —
+and `wany_niche_enum` aborted with `layout_of says 4, llvm::DataLayout says 8`.
+L1 807 -> 806. The bare fallback WAS the defect being removed, reappearing
+inside the repair. Removed: a payload enum is verified only under the key its
+tagged info is actually filed under. L1 back to 807/807.
+
+VERIFIER: `1 unmatched` -> **0**, `disagreements` 0 before and after, `declined`
+0. `enum types` 58 -> 59, `layout_of` 1895 -> 1896 with `c-like` 6 -> 7,
+`mono_abi_layout` 1872 -> 1873 with `c-like` 2 -> 3. `sema_abi_layout` total
+unchanged at 65: its `Ordering` row did not appear, it stopped being unmatched.
+
+⚠ THIS ONE IS NOT EMISSION-NEUTRAL, AND THE PREVIOUS ROUND'S WAS. Of 16 stdlib
+archive members, 10 are byte-identical and `logos-lang.o` is not:
+`logos.lang.cmp.Ordering::reverse` goes from 8 bytes of code to 20. Base emitted
+`mov $2,%eax; sub %edi,%eax` — the closed form `2 - x`; armed emits the
+three-way test. Both are correct on `{Less, Equal, Greater}`; the base binary
+chose its lowering having resolved the match against ATOMIC's five-variant
+`Ordering`. So the stdlib was not miscompiled, but its code was decided by the
+wrong enum's variant set.
+
+ORACLES, all against `build-enumid` (the armed tree) with the unmodified `build`
+as the control, `fires:` per column:
+
+| column | base | armed |
+|---|---|---|
+| L1 | 807/807 | **807/807**, rc 0 |
+| `L4 bc` (`-L bc`) | — | **1574/1574, 0 failed** |
+| L4 native half (5130) | — | 5126 passed; 3 TIMEOUTS that PASS in isolation at 6.9 s each (load-shaped, a fact about the box under a 32-way 5130-test run), and `logos_09_layout_engine_agreement` **UNASKABLE** |
+| `stdlib-cost` | — | all four layers compile |
+| `run_oracle.py` | 6668 run | 6668 run, **1 row differs** |
+| verifier | 1 unmatched, 0 disagreements | **0 unmatched**, 0 disagreements, 0 declined |
+
+`run_oracle` DIFFED BOTH WAYS over 6668 fixtures compiled, linked and RUN on
+each binary: the ONLY differing row is `cast-region-to-uint`, which the standing
+instruction subtracts by name because it prints a stack address. RUNTIME COST 0.
+
+⚠ THREE INSTRUMENT FAILURES MEASURED THIS ROUND, ALL IN THE "A GATE CAN LIE"
+FAMILY, AND ONE OF THEM IS MINE:
+
+  1. **`gate-run.sh` KEYS ON `$ROOT/build`, NOT ON THE TREE IT IS RUN FROM.**
+     `BUILD=${LOGOS_BUILD:-$ROOT/build}` (line 27). Run `test-levels.sh L4 bc`
+     from INSIDE `build-enumid`, and ctest runs the ARMED binaries while
+     gate-run reads and writes the verdict store under the BASE build's id. It
+     printed `all 1576 tests in this filter are ALREADY MEASURED under this
+     build. build 1050: … libs 1b954a89ffc5ed97` — the base hash from STEP 1 —
+     and exited 0 having measured nothing. A 16th kind: the gate answered about
+     a DIFFERENT BINARY than the one under test. `LOGOS_BUILD=<abs path>` is
+     mandatory for any run out of a second build dir, and `FORCE=1` without it
+     is WORSE than the false pass, because it writes armed results under the
+     base key.
+  2. **A STALE MARKER FILE SATISFIED AN `until [ -f … ]` INSTANTLY.** The
+     scratchpad already held an `L1.rc` dated the previous day, so the block
+     returned in zero seconds with a rc from another session while L1 was still
+     running. `rm -f` the marker BEFORE launching, every time; `[ -f ]` cannot
+     tell a marker from a fossil.
+  3. **MY OWN CLAIM ABOUT `build_hash.py` WAS WRONG AND IS RECORDED AS WRONG.**
+     I reported it "returns the same hash for both builds, so it cannot key
+     them apart". It takes the build dir as **argv[1]**, not `LOGOS_BUILD`; I
+     had passed the env var, so it hashed `build/` twice. Asked correctly:
+     base `1b954a89ffc5ed97 43`, armed `66189df6f64e3280 43` — it distinguishes
+     them perfectly, and the defect is entirely gate-run's default in (1).
+
+⚠ `logos_09_layout_engine_agreement` — THE ROUND'S OWN SUBJECT GATE — COULD NOT
+BE ASKED, and said so rather than passing: "`build-enumid` has no build.ninja —
+this is not a build tree, so the compiler's dependency record cannot be read …
+EXIT 3: THE BUILD COULD NOT BE ASKED. Nothing above is evidence." `build/` is a
+Ninja tree and I configured the second one with the default Makefile generator.
+The gate is RIGHT to refuse; the property it checks was measured by hand instead
+(the verifier line, on two programs). Configure any future second build dir with
+`-G Ninja`.
+
+⚠ AND A BUILD RACE, PRE-EXISTING, HIT TWICE: `emit_module` stages through a
+FIXED `/tmp/logos_emit_<module>` path, so a `-j32` build in which several
+fixture targets each demand `liblogos-lang.a` clobbers itself —
+`objcopy: the input file '/tmp/logos_emit_logos-lang/logos-lang.writ0' is empty`
+and `carries no readable .pkgi member after ar … 63 package(s) would have been
+lost silently`. It SELF-HEALS on a retry, which is why it has never been seen:
+the second pass finds the archive built. Not this round's subject; recorded.
+
+THE FIX RATCHETS, AND THE FIXTURE IS THE RATCHET, NOT THE REPAIR.
+`tests/logos/pass/coex_enum_bare_key` — `alpha::Kolej` (`: u8`, 3 variants)
+against `beta::Kolej` (`: i64`, 5), two packages of the one `coex` module
+already in the tree, both sizes and both array strides read BY THE PROGRAM so
+the pin survives the verifier being off. CONTROL REVERT, the module and the
+fixture hand-compiled by each binary in turn:
+
+    build (base)      -> exit 80     8 + 32 + 8 + 32 — BOTH halves resolved to beta's
+    build-enumid      -> exit 45     1 +  4 + 8 + 32 — each half its own
+
+PREDICTION FROM `TARGET_ROWS.txt`, WRITTEN BEFORE THE BUILD AND HELD: the repair
+does NOT reach the three tier-4 `diag` rows whose recorded text names two types
+with one string (`typestr_minted_alike`, `generic_enum_type_printed_without_args`,
+`localvec_for_ref_names_stdlib_as_slice`). All three reproduce their exact
+recorded sentences on today's base binary and are untouched; they are minted in
+sema/typeck from `type_str`, a different composer over a different map. The
+queue is unchanged at 82 and NO ROW WAS MANUFACTURED — the defect this round
+found was CLOSED in the same commit, which is what the queue's own discipline
+asks for, so it lands as an ordinary pass fixture instead of a row.
+
+NEXT, NAMED BY THE PROPERTY COLUMN RATHER THAN BY GUESS: `tagged_enums_` is
+still bare-keyed, and its only two readers — `register_tagged_enum` and
+`resolve_tagged_enum` — are both `no-pkg` in the dlog census, i.e. structurally
+unable to ask for an identity. The verifier loop here SKIPS a payload enum's
+identity entry for exactly that reason, and says so at the site. Two packages
+each declaring a same-named PAYLOAD enum with different payload layouts is the
+shape that has no pin today; `logos.lang.ops::ControlFlow<B,C>` against
+`logos.lang.control_flow::ControlFlow<B,C>` is that shape, in the stdlib, with
+identical variants and therefore currently invisible.

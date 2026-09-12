@@ -4819,10 +4819,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             exhaustive_discrete = true;
         } else {
             std::string en(enum_lt.enum_name());
-            auto eit = enum_types_.find(en);
-            if (eit != enum_types_.end()) {
+            // QUALIFIED-FIRST via find_enum_decl — a bare `enum_types_.find`
+            // here would count the variants of the OTHER package's enum of the
+            // same name and call a match exhaustive (or not) about a type this
+            // arm never scrutinised.
+            const lir_view::EnumView* ev = find_enum_decl(en, enum_lt);
+            if (ev) {
                 bool all_covered = true;
-                eit->second.each_variant([&](lir_view::EnumVariantView v) {
+                ev->each_variant([&](lir_view::EnumVariantView v) {
                     if (covered.count(v.disc()) == 0) all_covered = false;
                 });
                 exhaustive_discrete = all_covered;

@@ -51,3 +51,15 @@ pub fn alpha_dyn_mark(n: i64) -> i64 {
     let d: &dyn Dyg = &t;
     return d.mark();
 }
+
+// ── enum_bare_key carrier (2026-09-11) ──────────────────────────────────────
+// `alpha::Kolej` and `beta::Kolej` are same-named enums in different packages
+// of ONE module. `mlir_gen.cpp` pass 0.5 registered `enum_types_[ed.name()]` —
+// the BARE name — so only one of the two could hold the slot, and every
+// `sizeof` of the loser resolved against the WINNER's backing type. THREE
+// variants, `: u8`, so this half is 1 byte and the array stride is 1; beta's is
+// `: i64` and 8. On a bare-keyed registry one of the four numbers below is
+// wrong, and WHICH one depends only on registration order.
+pub enum Kolej : u8 { Lo = 1, Mid = 2, Hi = 3 }
+pub fn alpha_kolej_size() -> i64 { return sizeof::<Kolej>() as i64; }
+pub fn alpha_kolej_arr() -> i64 { return sizeof::<[Kolej; 4]>() as i64; }

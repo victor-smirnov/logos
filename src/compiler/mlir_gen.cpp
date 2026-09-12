@@ -149,6 +149,13 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // layouts in the second pass.
     for (auto& ed : prog.enums) {
         std::string ed_name(ed.name());
+        // IDENTITY, NOT A LOOKUP KEY. The bare name is not one: two packages may
+        // each declare `enum Ordering` (logos.lang.cmp and logos.lang.atomic both
+        // do, and both are in the prelude's reach), and a bare-keyed map can hold
+        // only one of them. Register the package-QUALIFIED key the way the struct
+        // loop above does, and keep the bare entry as a legacy alias for the
+        // readers that have only a name. Readers ask QUALIFIED-FIRST.
+        enum_types_[qualify_pkg(ed.pkg(), ed_name)] = ed;
         enum_types_[ed_name] = ed;
         if (ed.has_payload() && !tagged_enums_.count(ed_name)) {
             TaggedEnumInfo stub;

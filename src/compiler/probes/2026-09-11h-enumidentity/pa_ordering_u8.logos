@@ -1,0 +1,30 @@
+package pa;
+
+pub enum Ordering : u8 { Lo = 1, Mid = 2, Hi = 3 }
+
+// SHAPE B: the enum as a STRUCT FIELD. If the registry hands pa's enum pb's
+// 8-byte discriminant, `v` moves and the write through `s.v` lands elsewhere.
+pub struct Holder { pub tag: Ordering, pub v: i64 }
+
+pub fn pa_size() -> i64 { return sizeof::<Ordering>() as i64; }
+pub fn pa_holder_size() -> i64 { return sizeof::<Holder>() as i64; }
+pub fn pa_holder_roundtrip() -> i64 {
+    let mut h: Holder = Holder { tag: Ordering::Hi, v: 77i64 };
+    h.v = h.v + 1i64;
+    return h.v + ((h.tag as i64) * 1000i64);   // 78 + 3000 = 3078
+}
+// SHAPE C: an ARRAY of the enum — the element STRIDE is the discriminant size.
+pub fn pa_array_stride() -> i64 {
+    let a: [Ordering; 4] = [Ordering::Lo, Ordering::Mid, Ordering::Hi, Ordering::Lo];
+    return (sizeof::<[Ordering; 4]>() as i64) * 10i64 + (a[2] as i64);  // 40 + 3 = 43
+}
+// SHAPE D: a MATCH over all THREE variants, no wildcard. Exhaustiveness is
+// decided by counting the registered EnumView's variants.
+pub fn pa_match_all(o: Ordering) -> i64 {
+    match o {
+        Ordering::Lo => { return 100i64; }
+        Ordering::Mid => { return 200i64; }
+        Ordering::Hi => { return 300i64; }
+    }
+}
+pub fn pa_match_hi() -> i64 { return pa_match_all(Ordering::Hi); }

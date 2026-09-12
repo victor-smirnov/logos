@@ -1,0 +1,27 @@
+package pb;
+
+pub enum Ordering : i64 { Relaxed = 10, Acquire = 20, Release = 30, AcqRel = 40, SeqCst = 50 }
+
+pub struct Holder { pub tag: Ordering, pub v: i64 }
+
+pub fn pb_size() -> i64 { return sizeof::<Ordering>() as i64; }
+pub fn pb_holder_size() -> i64 { return sizeof::<Holder>() as i64; }
+pub fn pb_holder_roundtrip() -> i64 {
+    let mut h: Holder = Holder { tag: Ordering::SeqCst, v: 77i64 };
+    h.v = h.v + 1i64;
+    return h.v + ((h.tag as i64) * 1000i64);   // 78 + 50000 = 50078
+}
+pub fn pb_array_stride() -> i64 {
+    let a: [Ordering; 4] = [Ordering::Relaxed, Ordering::Acquire, Ordering::Release, Ordering::AcqRel];
+    return (sizeof::<[Ordering; 4]>() as i64) * 10i64 + (a[2] as i64);  // 320 + 30 = 350
+}
+pub fn pb_match_all(o: Ordering) -> i64 {
+    match o {
+        Ordering::Relaxed => { return 1i64; }
+        Ordering::Acquire => { return 2i64; }
+        Ordering::Release => { return 3i64; }
+        Ordering::AcqRel => { return 4i64; }
+        Ordering::SeqCst => { return 5i64; }
+    }
+}
+pub fn pb_match_seqcst() -> i64 { return pb_match_all(Ordering::SeqCst); }
