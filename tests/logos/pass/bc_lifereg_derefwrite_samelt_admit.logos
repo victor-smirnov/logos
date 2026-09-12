@@ -1,0 +1,20 @@
+// lifereg.B — THE PASS HALF OF THE PLAIN-DEREF-WRITE DOOR.
+// `*d = y` lowers to SDerefWrite with ptr.kind() == VarRef, which reaches
+// NEITHER the AddrOfTemp deposit nor the index_mut one, so `holder_path_params_`
+// was never written and `return out` read an empty record (borrow_check.cpp,
+// Code::DerefWrite). Closed 2026-09-12; this is the LEGAL half.
+// ONE TOKEN from its fail twin bc_lifereg_derefwrite_param_escape_fail: `y` is
+// `&'a i64` here and elided there. Legal, and it must RUN and return `y`.
+package bc_lifereg_derefwrite_samelt_admit;
+fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
+  let mut out: &'a i64 = x;
+  { let d: &mut &'a i64 = &mut out; *d = y; }
+  return out;
+}
+fn main() -> i32 {
+  let u: i64 = 11i64;
+  let v: i64 = 22i64;
+  let r: &i64 = f(&u, &v);
+  if *r != 22i64 { return 1i32; }
+  return 0i32;
+}

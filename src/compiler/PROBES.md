@@ -39681,3 +39681,41 @@ that dump answers NO on a program where it happened.
    12 legal shapes unmoved. The smallest fundable thing in this block.
 2. NOT `liferegbrbhop`. Whatever ceiling 0 says, the stdlib did not compile.
 3. `--t17` is NOT fundable until its lowering is NAMED. One census line.
+
+## 2026-09-12b — THE PLAIN DEREF WRITE `*ptr = v`, AND SIX DEAD ARMS
+
+site: src/compiler/borrow_check.cpp::visit_stmt Code::DerefWrite (fall-through,
+      ptr.kind() neither AddrOfTemp nor MethodCall)
+build: 4ce36eea9e50fa26 43 (base, control-reverted and re-read at the end)
+fires: 0 over the ENTIRE pre-existing pass+fail corpus. Measured as a one-variable
+       delta on ONE file list, base vs fixed: `liferegbpath.door.derefwrite`
+       10 -> 14, and all 4 of that delta are attributable, one each, to the four
+       fixtures THIS round adds (censused individually). ⚠ RULE 4 — a zero over a
+       corpus that contains none of the shape is not a safety claim, which is why
+       the guard here is the 14-program hand battery (0 legal refusals), not the
+       corpus zero. It also explains the defect's survival: nothing in the tree
+       wrote `*ptr = v` into a borrow-carrying holder.
+
+THE CLASS BY PROPERTY, not by spelling: an arm that calls `place_write_loans`
+but makes no `note_holder_escape_prov` deposit. Seven such arms by reading; the
+arrival census (`dwclassarr`) measured SIX of them dead — `.stmt` never fires,
+because every one of those spellings lowers to `DerefWrite(AddrOfTemp(...))`.
+The live one is repaired. The file's own recorded claim named only FieldWrite
+and TupleWrite as dead; IndexWrite, FieldIndexWrite, ChainFieldWrite and
+DerefFieldWrite are dead too, and that is now measured rather than assumed.
+
+Closed: soundness_queue `lifereg_deref_store_param_admits`, plus the FieldRead
+spelling `*h.r = y` that no row ever named (found BY the census, not by the
+ledger). Both pinned in pairs one token apart. Also closes, unpredicted and
+verified: loop-carried, match-arm and two-level `**e = y` spellings.
+
+⚠ A DEPOSIT COUNT OF 1 IS NOT A CLOSURE. New row
+`lifereg_field_reborrow_deposit_unread_admits` measures deposit 1 / read 0 on a
+program that still admits: `&mut r.v` keys the record on a field PLACE while the
+return reads through the root. Three rounds in this arc have cited "the door
+fired" as evidence a door closed; this is the counter-example.
+
+⚠ THE OTHER NEW ROW IS A DESCENT, NOT A DOOR:
+`lifereg_derefwrite_descent_stops_at_deref_admits` — the AddrOfTemp walk steps
+through FieldRead/TupleIndex only and breaks at IndexRead AND at Deref. The
+IndexRead half is bc_admits `--t17`; the Deref half had no row.

@@ -1,0 +1,33 @@
+// SOUNDNESS QUEUE — `admits`. Illegal Rust (upstream E0621: explicit lifetime
+// required in the type of `y`), compiled clean by logosc.
+//
+// THE `AddrOfTemp` DESCENT STOPS AT A `Deref` STEP. Not a missing door — the
+// door is there and fires for `h.v = y` (closed 2026-09-11e) — but the walk in
+// Code::DerefWrite that finds the place root steps only through FieldRead and
+// TupleIndex, and BREAKS on both IndexRead and Deref. `(*r).v = y` lowers to
+// SDerefWrite(AddrOfTemp(FieldRead(Deref(VarRef r)))), so the descent stops one
+// hop short of `VarRef h` and the deposit's `c.kind() == EC::VarRef` guard is
+// never satisfied.
+//
+// MEASURED 2026-09-12 on the binary that closed the plain-deref door, so this
+// is NOT that door in another spelling:
+//   census dwclass.dereffieldwrite.stmt = 0   (the named arm is never entered)
+//   census liferegbpath.deposit         = 0   (no deposit at all)
+// The one-variable control is the FIELD spelling, which IS closed:
+//   h.v = y;        -> rc 1     (refused, E0621 — the 09-11e landing)
+//   (*r).v = y;     -> rc 0     THIS DEFECT
+//
+// ⚠ THE INDEX HALF OF THIS SAME ROOT IS ALREADY CARRIED by bc_admits row
+// `mut-slice-struct-lifetime-transmute--t17` (lifereg.NEW-B2); the `Deref`
+// half had no row, which is why this one exists rather than a third index row.
+//
+// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// Opened 2026-09-12.
+package lifereg_derefwrite_descent_stops_at_deref_admits;
+struct H { v: &i64 }
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut h: H = H { v: x };
+  { let r: &mut H = &mut h; (*r).v = y; }   // THE DEFECT: admitted, upstream E0621
+  return h.v;
+}
+fn main() -> i32 { return 0i32; }

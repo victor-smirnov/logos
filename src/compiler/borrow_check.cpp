@@ -13691,6 +13691,27 @@ private:
                 // null, so the landed "behind a `&` reference" rule (E0594)
                 // cannot run for a plain field write. The `*h.r = v` spelling
                 // hands it a bare FieldRead and is checked. Unwrap one hop.
+                // lifereg.B — the plain deref write `*ptr = v` (ptr VarRef
+                // or FieldRead): the last LIVE door of the class "an arm the
+                // LOAN channel treats as a write into a holder while the PARAMS
+                // channel does not". Six sibling arms measured DEAD; see
+                // PROBES.md 2026-09-12b. Root by the AddrOfTemp door's own
+                // recipe — one walker, no drift. ⚠ PATH IS EMPTY BY
+                // CONSTRUCTION: a deref write stores the WHOLE referent, so the
+                // record must REPLACE every obligation under the root, not add
+                // one beside them (that is what re-legalises `*d = y; *d = x`).
+                if (auto dwp7 = v.ptr(); dwp7 && v.value() &&
+                    dwp7.kind() != EC::AddrOfTemp && dwp7.kind() != EC::MethodCall) {
+                    std::string r7 = dwp7.kind() == EC::VarRef
+                        ? std::string(EVarRefView{dwp7}.name())
+                        : flow_operand_root(dwp7);
+                    std::string e7 = rehome_reborrow(r7);
+                    if (!e7.empty() && !var_has(NO_SLOT, e7)) e7 = ref_place_root(e7);
+                    if (e7.empty()) e7 = r7;
+                    if (!e7.empty() && var_has(NO_SLOT, e7))
+                        note_holder_escape_prov(e7, holder_ty_of(e7), v.value(),
+                                                ln, "derefwrite", std::string{});
+                }
                 {
                     auto cpm_ptr = v.ptr();
                     if (logos::probe::on("dwatunwrap") && cpm_ptr &&

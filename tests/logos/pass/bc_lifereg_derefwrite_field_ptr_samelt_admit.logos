@@ -1,0 +1,21 @@
+// lifereg.B — THE SECOND SPELLING OF THE PLAIN-DEREF-WRITE DOOR.
+// `*h.r = y` lowers to SDerefWrite with ptr.kind() == FieldRead, not VarRef.
+// It is the SAME door — neither the AddrOfTemp deposit nor the index_mut one
+// runs — and NO LEDGER ROW NAMED IT: it was found by the 2026-09-12b arrival
+// census over the seven `place_write_loans`-without-deposit doors, which is
+// why it is pinned here rather than left to be rediscovered.
+// ONE TOKEN from its fail twin: `y` is `&'a i64` here and elided there.
+package bc_lifereg_derefwrite_field_ptr_samelt_admit;
+struct H<'b> { r: &mut &'b i64 }
+fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
+  let mut out: &'a i64 = x;
+  { let h: H<'a> = H { r: &mut out }; *h.r = y; }
+  return out;
+}
+fn main() -> i32 {
+  let u: i64 = 33i64;
+  let v: i64 = 44i64;
+  let r: &i64 = f(&u, &v);
+  if *r != 44i64 { return 1i32; }
+  return 0i32;
+}

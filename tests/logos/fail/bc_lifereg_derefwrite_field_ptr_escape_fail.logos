@@ -1,0 +1,14 @@
+// lifereg.B — THE FAIL HALF OF THE FieldRead SPELLING. Illegal Rust (E0621).
+// No soundness-queue row ever named this program; the arrival census found it
+// as the second spelling of the door the queue row named, and closing the door
+// closed both in one structural change.
+// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// ONE TOKEN from pass/bc_lifereg_derefwrite_field_ptr_samelt_admit.
+package bc_lifereg_derefwrite_field_ptr_escape_fail;
+struct H { r: &mut &i64 }
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut out: &i64 = x;
+  { let h: H = H { r: &mut out }; *h.r = y; }
+  return out;
+}
+fn main() -> i32 { return 0i32; }

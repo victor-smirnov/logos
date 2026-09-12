@@ -1,0 +1,32 @@
+// SOUNDNESS QUEUE — `admits`. Illegal Rust (upstream E0621), compiled clean.
+//
+// THE DEPOSIT LANDS AND THE READ DOES NOT FIND IT — the same SHAPE as
+// `lifereg_container_elem_read_admits`, on a different channel, and the
+// distinction is the whole reason it is a row. MEASURED 2026-09-12 on the
+// binary that closed the plain-deref-write door:
+//   census liferegbpath.deposit        = 1   (the door fires)
+//   census liferegbpath.door.derefwrite = 1
+//   census liferegbpath.read           = 0   <-- THE HOLE
+// Contrast the twin one token away, where both sides fire:
+//   `let d: &mut &i64 = &mut out; *d = y;`  deposit 1 / read 1  -> rc 1
+//
+// `&mut r.v` takes a reborrow of a FIELD PLACE, so the deposit is keyed on the
+// place the reborrow names, while `return w.v` reads through the ROOT `w`.
+// `path_params_of`'s re-home (`rehome_reborrow` on the root) resolves a
+// reborrow LOCAL, not a reborrow of a field place, so the two keys never meet.
+// Fixing it is on the READ walk, which prices over every field read in the
+// stdlib — its own round, exactly like the container row.
+//
+// ⚠ THIS IS WHY A DEPOSIT COUNT IS NOT A CLOSURE: the door census says 1 and
+// the program still admits.
+//
+// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// Opened 2026-09-12.
+package lifereg_field_reborrow_deposit_unread_admits;
+struct W<T> { v: T }
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut w: W<&i64> = W { v: x };
+  { let r: &mut W<&i64> = &mut w; let p: &mut &i64 = &mut r.v; *p = y; }
+  return w.v;                 // THE DEFECT: admitted, upstream E0621
+}
+fn main() -> i32 { return 0i32; }

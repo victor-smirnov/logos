@@ -5799,8 +5799,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ls tests/logos/pass/*.logos -> 3048 (was 3046 pinned, 3047 at
 #                7b3ee3277). soundness_queue `# TOTAL` unchanged at 82,
 #                bc_admits unchanged at 85 — this landing closed NO ledger row.
-REGISTRY-ALL         9604
-REGISTRY-NOIMPORTED  5132
+# 2026-09-12b-dwvardoor (the plain-deref-write door of `lifereg.B`): ALL +4,
+#                NOIMPORTED +4, TIERCOMMIT unmoved. All four are this round's
+#                own, landed as TWO PAIRS one token apart —
+#                pass/bc_lifereg_derefwrite_samelt_admit +
+#                fail/bc_lifereg_derefwrite_param_escape_fail (the `*d = y`
+#                VarRef spelling, which WAS soundness_queue row
+#                lifereg_deref_store_param_admits) and
+#                pass/bc_lifereg_derefwrite_field_ptr_samelt_admit +
+#                fail/bc_lifereg_derefwrite_field_ptr_escape_fail (the `*h.r = y`
+#                FieldRead spelling, which NO row ever named — the arrival
+#                census found it, not the ledger). Re-derived by direct listing:
+#                ls tests/logos/pass/*.logos -> 3050, ls tests/logos/fail/*.logos
+#                +2. soundness_queue `# TOTAL` 83 -> 84 (one row DELETED, two
+#                OPENED); bc_admits unchanged at 85 — this landing closed NO
+#                ledger row, and `--t17` was explicitly declined by measurement.
+REGISTRY-ALL         9608
+REGISTRY-NOIMPORTED  5136
 REGISTRY-TIERCOMMIT  143
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate

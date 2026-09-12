@@ -1,0 +1,15 @@
+// lifereg.B — THE FAIL HALF OF THE PLAIN-DEREF-WRITE DOOR.
+// Was soundness_queue row `lifereg_deref_store_param_admits` (tier 2, admits),
+// deleted 2026-09-12 when this door landed. Illegal Rust, upstream E0621
+// (explicit lifetime required in the type of `y`); upstream file is
+// tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs
+// @ da5114692c9ebe46b869488c5f34f92eb10b98c1.
+// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// ONE TOKEN from pass/bc_lifereg_derefwrite_samelt_admit: `y` is elided here.
+package bc_lifereg_derefwrite_param_escape_fail;
+fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+  let mut out: &i64 = x;
+  { let d: &mut &i64 = &mut out; *d = y; }
+  return out;
+}
+fn main() -> i32 { return 0i32; }
