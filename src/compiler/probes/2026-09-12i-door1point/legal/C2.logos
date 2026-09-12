@@ -1,0 +1,16 @@
+// C2 — the holder ALTERNATES between two referents inside the body. Both loans
+// are raised below the holder's textual use, so door 1's predicate sees the
+// Q < P shape twice over, on two different targets.
+package c2;
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut b: i64 = 2i64;
+    let mut r: &mut i64 = &mut a;
+    let mut i: i64 = 0i64;
+    while i < 4i64 {
+        *r = *r + 1i64;
+        if i < 2i64 { r = &mut b; } else { r = &mut a; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

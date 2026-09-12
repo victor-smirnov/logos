@@ -1,0 +1,16 @@
+// C7 — `loop` + `break`, holder used ONLY above the raise, referent read AFTER
+// the loop. The read is outside the body, so nothing in the body conflicts.
+package c7;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut m: i64 = 0i64;
+    let mut x: &mut i64 = &mut m;
+    let mut i: i64 = 0i64;
+    loop {
+        *x = *x + 1i64;
+        x = &mut n;
+        i = i + 1i64;
+        if i > 2i64 { break; }
+    }
+    return 0i32;
+}

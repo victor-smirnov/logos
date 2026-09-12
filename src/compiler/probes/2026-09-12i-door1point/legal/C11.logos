@@ -1,0 +1,19 @@
+// C11 — the holder is a FUNCTION PARAMETER reference, reassigned in the body.
+// The raise is a reborrow of a param, not of a local; `param_*` tables are
+// among the per-function state dlog listed as never written by the walk.
+package c11;
+fn bump(p: &mut i64, q: &mut i64) -> i64 {
+    let mut x: &mut i64 = p;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        *x = *x + 1i64;
+        x = &mut *q;
+        i = i + 1i64;
+    }
+    return 0i64;
+}
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let mut b: i64 = 0i64;
+    return bump(&mut a, &mut b) as i32;
+}

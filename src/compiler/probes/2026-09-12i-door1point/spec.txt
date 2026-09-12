@@ -1,0 +1,42 @@
+name: loanpt1
+file: src/compiler/borrow_check.cpp
+---
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+---
+            // PROBES loanpt1 / loanptS — DOOR 1, RE-SPELLED AS A PROGRAM-POINT
+            // PREDICATE (round 2026-09-12i). `holders_last_use` is a
+            // per-function MAXIMUM over source points; inside a loop body a
+            // holder use that is textually ABOVE the raise is LATER in time,
+            // because the back edge reorders them. Keep a MUT loan alive for
+            // exactly that window — raised at P, holder last use lu with
+            // body_first <= lu < P — and change nothing outside it: lu > P (the
+            // D1 fixtures that bought intra-body NLL) and lu < body_first (the
+            // holder's last use BEFORE the loop) both still retire.
+            if (it->is_mut && it->raise_point != 0 && lu != 0 &&
+                !loop_stack_.empty() &&
+                loop_stack_.back().body_first_point != 0 &&
+                it->raise_point >= loop_stack_.back().body_first_point &&
+                lu >= loop_stack_.back().body_first_point &&
+                lu < it->raise_point &&
+                (logos::probe::on("loanpt1") || logos::probe::on("loanptS"))) {
+                ++it; continue;
+            }
+            if (lu == 0 && logos::probe::on("nll_lu_zero")) { ++it; continue; }
+===
+name: loanpt2
+file: src/compiler/borrow_check.cpp
+---
+            if (scopes_.size() >= 2 && !suppress_reports_) {
+---
+            bool pt2_ = logos::probe::on("loanpt2");    // probe: pass-1 re-home, MUT only
+            bool ptS_ = logos::probe::on("loanptS");    // probe: door 1 + door 2
+            if (scopes_.size() >= 2 && (!suppress_reports_ || pt2_ || ptS_)) {
+===
+name: loanptS
+file: src/compiler/borrow_check.cpp
+---
+                    if (logos::probe::on("rehome_all")) return true;
+---
+                    if (suppress_reports_ && (pt2_ || ptS_) && !rec.is_mut) return false;
+                    if (logos::probe::on("rehome_all")) return true;
+===

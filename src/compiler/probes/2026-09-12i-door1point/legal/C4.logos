@@ -1,0 +1,20 @@
+// C4 — NESTED LOOPS. The loan is raised in the INNER body; the outer body's own
+// holder use sits above it. loop_stack_.back() is the inner frame, so the
+// body's lower bound must be the inner one.
+package c4;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let mut j: i64 = 0i64;
+        while j < 2i64 {
+            let r: &mut i64 = &mut n;
+            *r = *r + 1i64;
+            j = j + 1i64;
+        }
+        acc = acc + n;
+        i = i + 1i64;
+    }
+    return (acc - 6i64) as i32;
+}

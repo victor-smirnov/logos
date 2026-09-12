@@ -1,0 +1,16 @@
+// C9 — THE RAISE IS INSIDE A BARE BLOCK IN THE BODY, the holder's use above
+// it. D3's outward sweep crosses bare-block frames, so the record's frame and
+// the loop frame differ here — the predicate must not depend on the frame.
+package c9;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut m: i64 = 0i64;
+    let mut x: &mut i64 = &mut m;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *x = *x + 1i64;
+        { x = &mut n; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

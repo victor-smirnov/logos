@@ -1,0 +1,17 @@
+// C3 — THE HOLDER'S LAST USE IS BEFORE THE LOOP. Door 1 must NOT fire: the use
+// at Q is outside the body, so the back edge does not reorder it and the loan
+// must still retire by the ordinary NLL rule. If the predicate forgets the
+// body's lower bound this refuses.
+package c3;
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let r: &mut i64 = &mut n;
+    *r = 7i64;
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        acc = acc + n;
+        i = i + 1i64;
+    }
+    return (acc - 21i64) as i32;
+}

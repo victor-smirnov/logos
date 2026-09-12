@@ -983,6 +983,15 @@ struct BorrowRecord {
     // name-keyed lookup.
     uint32_t              holder_slot = 0xFFFFFFFFu;
     std::vector<uint32_t> co_holder_slots;   // parallel to co_holders
+    // The PROGRAM POINT at which this loan was raised — `stmt_point`'s packed
+    // (line, ordinal), the SAME space as `holders_last_use` and
+    // `release_dead_borrows`'s cursor, NOT the raw `line` the diagnostics use.
+    // See PROBES.md round 2026-09-12i (door 1): the NLL releaser keys on
+    // `holders_last_use`, a per-function MAXIMUM over those points, so inside a
+    // loop body a holder use that is textually ABOVE the raise is later in
+    // TIME (the back edge reorders them). Distinguishing that case needs the
+    // raise point, which no other field carries. 0 = not recorded.
+    uint64_t              raise_point = 0;
 };
 
 // B83: a tracked field borrow recorded in the current scope. On pop,
@@ -2445,6 +2454,12 @@ private:
         // exit — i.e. after the loop's own scopes unwind — so loop-local loans
         // are release-simulated against this baseline (loop_exit_snapshot).
         size_t                outer_scope_count = 0;
+        // The source point of the body's FIRST statement — the only number
+        // that says whether a given line lies inside THIS body. Door 1 needs
+        // it to tell "the holder's last use is above the raise, in the same
+        // body" (the back edge reorders them) from "the holder's last use is
+        // before the loop" (it does not). 0 = unknown / empty body.
+        uint64_t              body_first_point = 0;
     };
     std::vector<LoopFrame> loop_stack_;
     // Set during the loop dataflow's dry-run pass (pass 1), which recomputes the
@@ -4633,7 +4648,7 @@ private:
                 if (!scopes_.empty())
                     scopes_.back().borrows.push_back(
                         {target, is_mut, holder, target_slot,
-                         {}, slot_of_binding(holder), {}});
+                         {}, slot_of_binding(holder), {}, max_line_seen_});
                 return;
             }
             if (it->shared_borrows > 0) {
@@ -4672,7 +4687,7 @@ private:
         if (!scopes_.empty())
             scopes_.back().borrows.push_back(
                 {target, is_mut, holder, target_slot,
-                 {}, slot_of_binding(holder), {}});
+                 {}, slot_of_binding(holder), {}, max_line_seen_});
     }
 
     // ── THE ONE RECORD SITE ───────────────────────────────────────────────
@@ -11660,6 +11675,16 @@ private:
     // walk through here now; pass 1 is the dry run, and releasing there too is
     // what keeps post1_s/post2_s agreeing about which counters reach the back
     // edge.
+    // The point of a block's FIRST statement, or 0 for an empty block. Door 1
+    // (round 2026-09-12i) uses it as the loop body's lower bound.
+    uint64_t first_point_of(lir_view::BlockRef br) {
+        uint64_t first = 0;
+        br.each_stmt([&](lir_view::StmtRef sr) {
+            if (first == 0) first = stmt_point(sr);
+        });
+        return first;
+    }
+
     uint64_t walk_stmts_releasing(lir_view::BlockRef br, bool defer_release) {
         uint64_t cursor = 0;
         br.each_stmt([&](lir_view::StmtRef sr) {
@@ -11779,6 +11804,7 @@ private:
         //    correctly. Reporting here would duplicate every in-body error.
         loop_stack_.push_back(LoopFrame{std::string(label), {}, {}, std::string(break_slot)});
         loop_stack_.back().outer_scope_count = scopes_.size();   // r11: frames that survive the loop
+        loop_stack_.back().body_first_point = first_point_of(body);
         bool saved_sup = suppress_reports_;
         suppress_reports_ = true;
         push_scope();
@@ -11870,6 +11896,7 @@ private:
         dangling_           = pre_dang;
         loop_stack_.push_back(LoopFrame{std::string(label), {}, {}, std::string(break_slot)});
         loop_stack_.back().outer_scope_count = scopes_.size();   // r11: frames that survive the loop
+        loop_stack_.back().body_first_point = first_point_of(body);
         cur_diverged_ = false;
         push_scope();
         for (auto& v : loop_vars) {

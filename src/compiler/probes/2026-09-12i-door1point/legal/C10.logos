@@ -1,0 +1,19 @@
+// C10 — TWO INDEPENDENT REFERENTS, two holders, both raised below their own
+// uses. Legal; a predicate that keys on "some loan is live in this loop"
+// rather than on the record would refuse the second.
+package c10;
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let mut b: i64 = 0i64;
+    let mut ax: &mut i64 = &mut a;
+    let mut bx: &mut i64 = &mut b;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *ax = *ax + 1i64;
+        *bx = *bx + 2i64;
+        ax = &mut a;
+        bx = &mut b;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

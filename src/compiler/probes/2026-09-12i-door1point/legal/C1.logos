@@ -1,0 +1,19 @@
+// C1 — THE HOLDER IS REASSIGNED EVERY ITERATION TO THE SAME REFERENT, and
+// nothing else touches it. Legal Rust: the old loan's last use is `*x` at the
+// top, so it is dead by the time `x = &mut v` raises the new one. This is the
+// ledger row `borrowck-lend-flow-loop` with its `borrow(&v)` line DELETED —
+// one token apart from the program door 1 must refuse, and the shape the
+// pricing round never wrote.
+package c1;
+fn main() -> i32 {
+    let mut v: i64 = 3i64;
+    let mut w: i64 = 4i64;
+    let mut x: &mut i64 = &mut w;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *x = *x + 1i64;
+        x = &mut v;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

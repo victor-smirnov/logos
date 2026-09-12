@@ -1,0 +1,18 @@
+// C6 — A SHARED loan in exactly the Q < P shape. Door 1 is mut-only by
+// construction (release_borrows_held_by's own note: a shared loan is a
+// COUNTER). This pins that the shared half is untouched.
+package c6;
+fn sum(v: &i64) -> i64 { return *v; }
+fn main() -> i32 {
+    let a: i64 = 3i64;
+    let b: i64 = 4i64;
+    let mut p: &i64 = &a;
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        acc = acc + sum(p);
+        p = &b;
+        i = i + 1i64;
+    }
+    return (acc - 11i64) as i32;
+}

@@ -1,0 +1,14 @@
+// C8 — `for` spelling of C1. All four loop forms route through
+// visit_loop_body, so the predicate must behave identically; the pricing
+// round's battery had no reassigned holder in a `for`.
+package c8;
+fn main() -> i32 {
+    let mut v: i64 = 3i64;
+    let mut w: i64 = 4i64;
+    let mut x: &mut i64 = &mut w;
+    for _k in 0i64..3i64 {
+        *x = *x + 1i64;
+        x = &mut v;
+    }
+    return 0i32;
+}
