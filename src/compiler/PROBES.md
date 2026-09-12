@@ -39719,3 +39719,100 @@ fired" as evidence a door closed; this is the counter-example.
 `lifereg_derefwrite_descent_stops_at_deref_admits` — the AddrOfTemp walk steps
 through FieldRead/TupleIndex only and breaks at IndexRead AND at Deref. The
 IndexRead half is bc_admits `--t17`; the Deref half had no row.
+
+## 2026-09-12c — `--t17`'s LOWERING NAMED: IT IS `SliceIndex`, NOT `IndexRead`, AND THE ARM AIMED AT IT FOR THREE ROUNDS TESTS THE WRONG NODE
+
+site: src/compiler/borrow_check.cpp::visit_stmt Code::DerefWrite, the §B6 /
+      holder-escape-provenance `while (c)` walk (the one that steps FieldRead
+      and TupleIndex and `break`s on everything else)
+build: census build 307472870fe45036 43 (reverted); probe build 2e1bc1d88ca55f26
+       (`liferegslicehop` installed); base at STEP 1 283ea902b826b1ff 43
+fires: liferegslicehop 7430 · dwderefhop 7583 · liferegdwhops 15040
+
+### THE ONE CENSUS LINE THE LAST ROUND ASKED FOR, AND ITS ANSWER
+
+2026-09-12b closed with "`--t17` is NOT fundable until its lowering is NAMED.
+One census line. I did not build that, and I say so rather than guessing it."
+Built: `sr.kind()` at `visit_stmt` entry plus, for `Code::DerefWrite`, the ptr
+chain walked one node at a time. Three programs, one build:
+
+    --t17                 `s[0u64] = y`  DerefWrite · AddrOfTemp · **SliceIndex** · VarRef(s)
+    ..._descent_stops...  `(*r).v = y`   DerefWrite · AddrOfTemp · FieldRead · **Deref** · VarRef(r)
+    ..._field_reborrow... `*p = y`       DerefWrite · **VarRef(p)**   (deposit 1 / read 0)
+
+⚠ THE ARM THREE ROUNDS AIMED AT `--t17` TESTS A NODE `--t17` DOES NOT HAVE. The
+probe-gated widening in that same loop, `lifereg_indexstore` (2026-08-28), is
+`c.kind() == EC::IndexRead && pointee Kind::Array`. `--t17`'s node is
+`EC::SliceIndex` (24), not `EC::IndexRead` (15): BOTH conjuncts miss. Every
+repair priced as "widen `Kind::Array` to `Slice`" — including 2026-09-11d's
+re-rooting note and 2026-09-12a's `liferegbrbhop` — was aimed at a door whose
+NODE KIND was never the one in the tree. The recorded mechanism said SLICE-ness
+was the blocker; the blocker is that a `SliceIndex` hop is absent from the walk
+entirely. An absence has no spelling, which is why four rounds of reading did
+not find it and one census line did.
+
+### THE PROBE TABLE — ALL COLUMNS
+
+| probe | fires | ceiling (bc_admits) | queue | cost pass | cfail | stdlib | runtime | verdict |
+|---|---|---|---|---|---|---|---|---|
+| `liferegslicehop` | 7430 | **1** | 0 | 0 | 0/1494 | 4 of 4 | (see below) | **FUNDABLE** |
+| `dwderefhop` | 7583 | 0 | **1** | 0 | 0/1494 | 4 of 4 | (see below) | **FUNDABLE** |
+| `liferegdwhops` | 15040 | **1** | **1** | 0 | 0/1494 | 4 of 4 | RUNTIME | **FUNDABLE** |
+
+`liferegslicehop` = add a `SliceIndex` hop to that walk. `dwderefhop` = the
+`Deref` hop, ALREADY IN THE TREE probe-gated since 2026-09-04b and never priced
+against the deposit door, which did not exist until 2026-09-11e — RULE 8, a
+ceiling decays and so does a zero. `liferegdwhops` = both.
+
+### ADDITIVITY WAS CHECKED, NOT ASSUMED (rule 13)
+
+    bc_admits ceiling   1 + 0 = 1     queue rows   0 + 1 = 1
+    illegal hand progs  1 + 2 = 3     legal refusals 0 + 0 = 0
+The union probe's sets are the exact unions of the halves' sets, diffed BOTH
+ways. No interaction, no negative increment, no series — unlike 2026-09-12a's
+`liferegbrbhop`, which was half a chain.
+
+### SETS, PREDICTED BY NAME BEFORE THE RUN, DIFFED BOTH WAYS
+
+  `liferegslicehop` bc_admits predicted {`mut-slice-struct-lifetime-transmute--t17`}
+     actual {same}; queue predicted {} actual {}. Both differences EMPTY.
+  `dwderefhop` bc_admits predicted {} actual {}; queue predicted
+     {`lifereg_derefwrite_descent_stops_at_deref_admits`} actual {same}. EMPTY.
+  `liferegdwhops` = the union, predicted and actual. EMPTY both ways.
+  Neither `lifereg_field_reborrow_deposit_unread_admits` nor
+  `lifereg_container_elem_read_admits` moves under any of the three — predicted,
+  and it is what keeps G1 and G2 disjoint by measurement rather than by claim.
+
+### THE DIAGNOSTIC OF EVERY ROW CLAIMED, READ
+
+All four newly-refused programs print the Logos sentence for E0621:
+  "lifetime mismatch: return type has lifetime 'a but 'y' has lifetime (elided)"
+which is the sentence the closed `--c17` fail fixture already pins. Upstream's
+own `.stderr` for `mut-slice-struct-lifetime-transmute.rs`
+(/home/logos/cxx/rust, da5114692c9) is `error[E0621]: explicit lifetime required
+in the type of 'y'` at `out[0]` — right verdict, and the established rendering.
+
+### HAND ORACLE — 14 LEGAL PROGRAMS IN 14 SHAPES (rule 5), 0 REFUSED
+
+same-lifetime slice store · scalar slice store · short borrow stored but NOT
+returned · slice store through a slice PARAMETER · same-lifetime deref-field
+write · scalar deref-field write · deref-field write not returned · Vec element
+store · nested `[[i64;2];2]` inner slice store · slice-of-structs field write ·
+`&STATIC` stored through the slice and returned at 'a · two-level `**q = 5` ·
+slice store inside a `while` loop · two-level `(**q).v = x`.
+All 14 compile identically under all three probes and under base.
+
+3 ILLEGAL programs, all refused under the union: the `--t17` slice door, the
+deref-FIELD door, and `(*r).0 = y` — the deref-TUPLE door, **which no ledger row
+and no queue row names**. It is closed by `dwderefhop` as a side effect and was
+not predicted.
+
+### THE STALE-MARKER TRAP, ONE LEVEL UP FROM LAST ROUND'S
+
+⚠ The session scratchpad is REUSED across rounds. An `until [ -f RO_DONE ]`
+block exited INSTANTLY on an `RO_DONE` dated 2026-09-11 05:15 while this round's
+run_oracle was eleven minutes from finishing, and the `.tsv` files beside it were
+a previous round's (02:39 / 02:50, against a build from 04:28). Last round threw
+away a diff against a file still being WRITTEN; this is the same defect where the
+marker is not merely early but from a DIFFERENT ROUND. `rm` the marker before
+blocking on it, and `ls -la` every artefact you are about to diff.

@@ -13362,9 +13362,14 @@ private:
                         // Deref and the loop breaks, so no root is reached and
                         // `dwparamdst` (which tests the root) priced 0 through a
                         // hop that never runs — rule 11. PROBES.md.
-                        else if (logos::probe::on("dwderefhop") &&
+                        else if ((logos::probe::on("dwderefhop") ||
+                                  logos::probe::on("liferegdwhops")) &&
                                  c.kind() == EC::Deref)
                             c = EDerefView{c}.operand();
+                        else if ((logos::probe::on("liferegslicehop") ||
+                                  logos::probe::on("liferegdwhops")) &&
+                                 c.kind() == EC::SliceIndex)
+                            c = ESliceIndexView{c}.slice();
                         // MEASURED 2026-08-28, 379-row ledger: 187 fires,
                         // CEILING 0, COST 0. NEGATIVE RESULT. Predicted
                         // mut-slice-struct-lifetime-transmute--c17 (and
