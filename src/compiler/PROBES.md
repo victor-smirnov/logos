@@ -38926,3 +38926,107 @@ corpus rewrite of two fixtures with their own before/after obligation, and this 
 was the queue row. `layout_verify_recursive_ref` is UNCHANGED and still rc 139 (segfault, no
 diagnostic) on the fixed binary: a different mechanism, and its own non-self-referential control
 was green before this fix too.
+
+---
+
+## 2026-09-11f — THE VERIFIER'S `unmatched` KEYS, NAMED FOR THE FIRST TIME: NOT ONE OF THEM IS THE "LEGITIMATELY UNVERIFIABLE" SHAPE ITS OWN HEADER PREDICTS, AND 62% ARE A KEY THE `truth` MAP ALREADY HOLDS UNDER A DIFFERENT SPELLING
+
+build: `8c2294bf39c2e079 43` (read, before and after — the probe was reverted and the hash
+restored digit for digit). Queue gate `logos_00_soundness_queue` **rc 0**, 82 rows, `# TOTAL 82`.
+`probe-log-lint.py`: 271 records, every site symbol resolves.
+
+**PROMPT CORRECTION.** The prompt states `option_box_recursive_struct_field_list` reports **3
+unmatched**. On today's binary it reports **5**. `acd150787` landed between the measurement and
+the prompt. The floor of 2 on `custom_dst_smartptr_owning_drop`, `drop_glue_three_levels`,
+`zone_mut_fat_ref`, `coerce_4` reproduces exactly. The STEP-1 gate line carries `LOGOS_LIB_DIR`
+and is correct as given (checked against the prompt text, not against the journal).
+
+**THE INSTRUMENT.** `mlir_gen_types.cpp`, the `!has_truth && !cross` arm. The arm has the key,
+the engine, the shape and the answer in hand where it increments `n_unmatched`; three
+`logos::probe::census()` calls print them, plus every `truth[...]` key with its
+`llvm::DataLayout` size/align, plus a `metaprog_round_` tag so a superseded round's map cannot
+launder a key as matched. **MEASUREMENT ONLY** — census is a no-op without `LOGOS_CENSUS`, and
+the control is that the five subject programs report the identical unmatched COUNTS on the probe
+binary and on the base binary. Reverted; not landed.
+
+⚠ THE ROUND-TAG WAS BOUGHT BY A WRONG ANSWER. The first aggregation merged all gen rounds' truth
+maps and reported 38 `layout_of` answers as "unmatched but the key is in truth EXACTLY" — an
+impossibility. 382 of 3160 programs run the verifier 2-5 times. The second wrong answer was
+mine: the twin comparison compared `('32','8')` against `('size=32','align=8')` and reported
+**4726 hidden disagreements**. Both were arithmetic on the analysis side, not the tool's — and
+both read as findings.
+
+**POPULATION.** 3160 programs (`tests/logos/pass` + `tests/spec/pass`), 3107 rc 0, 3108 with at
+least one unmatched key in the FINAL round. 8618 unmatched answers, **68 distinct keys**.
+
+### THE CLASS, BY TWIN — the question the count could not answer
+
+| engine × shape | twin class | answers | distinct keys |
+|---|---|---|---|
+| sema_abi_layout × tagged | `$G1$` → `__` | 3167 | 12 |
+| sema_abi_layout × tagged | `$G2$` → `__` | 606 | 1 |
+| sema_abi_layout × niche | `$G1$` → `__` | 7 | 6 |
+| sema_abi_layout × c-like | `$G1$` → `__` | 1 | 1 |
+| sema_abi_layout × product | strip `$M<16hex>` | 1531 | 14 |
+| mono_abi_layout × c-like | **NO TWIN** | 3108 | 1 |
+| mono_abi_layout × tagged | **NO TWIN** | 180 | 30 |
+| mono_abi_layout × niche | **NO TWIN** | 12 | 2 |
+| sema_abi_layout × tagged | **NO TWIN** | 6 | 1 |
+
+**5312 of 8618 answers (62%) name a type `truth` ALREADY HOLDS in the same compile, under a
+different spelling — and where the twin exists the bytes agree in 5312 of 5312.** Examples,
+answer vs the twin's `llvm::DataLayout` row: `Option$G1$Location` 32/8 = `Option__Location` 32/8;
+`Option$G1$Box$G1$Node` 8/8 = `Option__Box$G1$Node` 8/8; `Result$G2$void$Error` 4/4 =
+`Result__void__Error` 4/4; `Ident$M2b09c0fe11e753e9` 16/8 = `Ident` 16/8.
+
+**WHICH OF THE THREE CASES.** Of the 68 keys, **ZERO are the legitimately-unverifiable shape the
+verifier's own header predicts.** Not one is a union and not one is a custom DST: the `union`
+cell is NON-empty and cross-checked (23 answers over 21-23 programs, all three engines), which is
+the header's cross-ENGINE route working exactly as written. Every unmatched key is an ENUM
+instance, a mono STRUCT instance, or a metaprog-mangled struct. So this is case 2 — **A MISSING
+CROSS-CHECK** — for 62% provably (the second authority is in the same map, keyed differently),
+and case 2-or-3 for the remaining 38%, which nothing in the tree can currently tell apart.
+
+### THREE ROOTS, NOT ONE — and the handed-down "floor of two" splits across two of them
+
+1. **`$G<n>$` vs `__`** — sema names a generic instance `Option$G1$Location`; mlir-gen's enum
+   registry names the same instance `Option__Location`. The `__` spelling is used by mlir-gen for
+   generic ENUM instances only: 610 truth keys in one compile carry `$G1$` (structs) against 32
+   `Option__` (enums), so the split is not a global mangling difference, it is the outermost
+   generic ENUM head. 3781 answers.
+2. **`$M<16hex>`** — sema's key carries the metaprog/hygiene suffix, `truth`'s does not.
+   1531 answers, 14 keys, all `product`.
+3. **`logos.lang.cmp.Ordering`, unmatched in 3108 of 3108 programs** — mono keys it
+   `<pkg>.<bare name>`; `enum_types_` is keyed by the BARE NAME
+   (`unordered_map<string, EnumView>`), and the only `.Ordering` row in `truth` is
+   `logos.lang.atomic.Ordering` — **a different enum with the same bare name**. cmp's Ordering
+   reaches `truth` only as a type ARGUMENT, spelled `Ordering$Macc8979d95601b4b`. ⚠ A naive
+   by-bare-name match here would have compared mono's `logos.lang.cmp.Ordering` against
+   `logos.lang.atomic.Ordering`, and both are 4/4 today, so it would have read GREEN. *A lookup
+   key is not an identity* — the normalisation this round prices must be by declaration, not by
+   string.
+
+### THE MATRIX IS THE REPORT, AND ONE CELL IS AT TEN
+
+| engine | product | union | transparent | c-like | tagged | niche |
+|---|---|---|---|---|---|---|
+| layout_of | 5878578 | 25 | 7040 | 19645 | 162935 | 9446 |
+| mono_abi_layout | 5881987 | 25 | 7040 | 6818 | 98784 | 7105 |
+| sema_abi_layout | 248723 | 23 | 7021 | 6226 | **10** | 801 |
+
+Checked answers over 3109 programs. **`sema_abi_layout` × `tagged` is 10 — in the WHOLE corpus,
+non-zero in 10 of 3109 programs — against 3779 sema tagged answers that went unverified.** 99.7%
+of sema's tagged-enum branch has never been checked against anything, and every one of those
+misses is a spelling. This is the header's own `mono_abi_layout × c-like at ZERO` report, fired
+in the cell next to it, and it has been printed on every build all along.
+
+### WHAT DESERVES FUNDING
+
+Root 1 alone: sema's `tagged` cell 10 → 3789 and `niche` 801 → 808, ONE normalisation, and the
+authority is already computed. Root 2: +1531 product answers. Root 3 is the one that must NOT be
+done by string. Root 1 is also the only one whose repair is testable by an existing canary —
+`LOGOS_LAYOUT_CANARY=sema_abi_layout` must go red on a tagged enum after it, and cannot today.
+
+⚠ NOT A FIX. Nothing was landed; the arm still counts what it counted. A round that closes this
+by making the verifier check LESS has done the one thing this tree forbids — the direction here
+is strictly more cells checked.
