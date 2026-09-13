@@ -80,3 +80,6 @@ regions-free-region-ordering-caller1); cost 0 / cfail 0 / stdlib ok. Hand batter
 lrall's, lrimpl's (i3), lragg's (a5 d6 d7 n2 n3 r2 k21) and lrtemp's (k23) refusals, plus r8
 (impl binder AND aggregate — doors in series, closed only under lrx in batch 2); every legal
 program of batches 1-2 still compiles and runs; x3 x10 v8 unchanged from lrall.
+`lrouter` = lrland + the let door's direct-borrow compare on the value's OUTER slot only (batch-2
+battery: t3 `let z: &'a &i64 = &(id(p))` stays admitted under lrtemp because the value's INNER slot
+carries `'a`). Predicted: ceiling 3 (same names), cost 0; hand battery = lrland's set + t3.

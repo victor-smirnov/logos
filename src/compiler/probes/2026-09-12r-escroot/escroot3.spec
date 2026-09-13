@@ -5,7 +5,7 @@ file: src/compiler/sema_expr.cpp
 ---
     // PROBE stcg / lrall — src/compiler/PROBES.md 2026-09-12r.
     TypeRef sc_ret_ = fi.ret_type;
-    if (logos::probe::on("stcg") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland"))) {
+    if (logos::probe::on("stcg") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter"))) {
         std::vector<std::string> sb_ = fi.lifetime_params;
         std::unordered_set<std::string> srb_;
         for (auto p0_ : fi.param_types) collect_param_regions_(p0_, srb_);
@@ -32,7 +32,7 @@ file: src/compiler/sema_expr.cpp
         ? fi.ret_type
         : subst_type_sema(fi.ret_type, struct_subst, lt_subst);
     // PROBE stcg / lrall (method half) — src/compiler/PROBES.md 2026-09-12r.
-    if (logos::probe::on("stcg") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland"))) {
+    if (logos::probe::on("stcg") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter"))) {
         std::vector<std::string> mb_ = fi.lifetime_params;
         std::unordered_set<std::string> mrb_;
         for (auto p0_ : fi.param_types) collect_param_regions_(p0_, mrb_);
@@ -62,7 +62,7 @@ file: src/compiler/sema_expr.cpp
 ---
     {   // PROBE stcg / lrall (generic half) — src/compiler/PROBES.md 2026-09-12r.
         std::vector<std::string> gb_ = fi.lifetime_params;
-        if (logos::probe::on("stcg") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland"))) {
+        if (logos::probe::on("stcg") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter"))) {
             std::unordered_set<std::string> grb_;
             for (auto p0_ : fi.param_types) collect_param_regions_(p0_, grb_);
             collect_param_regions_(fi.ret_type, grb_);
@@ -87,7 +87,7 @@ file: src/compiler/borrow_check.cpp
             case EC::AddrOfTemp: {
                 // PROBE esdrf / esc / lbd / lrall — src/compiler/PROBES.md 2026-09-12r.
                 if (logos::probe::on("esdrf") || logos::probe::on("esc") ||
-                    logos::probe::on("lbd") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland"))) {
+                    logos::probe::on("lbd") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter"))) {
                     BorrowPlace bp_ = extract_borrow_place(
                         lir_view::EAddrOfTempView{e}.inner(), prog_.type_pool.impl());
                     if (bp_.through_ref) { logos::probe::census("esdrf.stop"); return; }
@@ -111,7 +111,7 @@ file: src/compiler/borrow_check.cpp
             case EC::MethodCall: {
                 // PROBE escnd / esc / lbd / lrall — src/compiler/PROBES.md 2026-09-12r.
                 if (!(logos::probe::on("escnd") || logos::probe::on("esc") ||
-                      logos::probe::on("lbd") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland")))) return;
+                      logos::probe::on("lbd") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter")))) return;
                 const auto* pool_ = prog_.type_pool.impl();
                 const FlowSummary* fs_ = nullptr;
                 unsigned base_ = 0;
@@ -149,12 +149,12 @@ file: src/compiler/borrow_check.cpp
             }
             case EC::EnumLitData:
                 // PROBE lragg / lrx — src/compiler/PROBES.md 2026-09-12r.
-                if (!(logos::probe::on("lragg") || logos::probe::on("lrx") || logos::probe::on("lrland"))) return;
+                if (!(logos::probe::on("lragg") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter"))) return;
                 lir_view::EEnumLitDataView{e}.each_payload(
                     [&](lir_view::ExprRef fv) { collect_borrowed_local_roots(fv, out); });
                 return;
             case EC::ArrLit:
-                if (!(logos::probe::on("lragg") || logos::probe::on("lrx") || logos::probe::on("lrland"))) return;
+                if (!(logos::probe::on("lragg") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter"))) return;
                 lir_view::EArrLitView{e}.each_elem(
                     [&](lir_view::ExprRef fv) { collect_borrowed_local_roots(fv, out); });
                 return;
@@ -177,10 +177,10 @@ file: src/compiler/borrow_check.cpp
                 declare_var(name, v.var_slot());  // Phase-1
 ---
                 // PROBE lbd / lrall — src/compiler/PROBES.md 2026-09-12r.
-                if ((logos::probe::on("lbd") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland"))) &&
+                if ((logos::probe::on("lbd") || (logos::probe::on("lrall") || logos::probe::on("lrimpl") || logos::probe::on("lragg") || logos::probe::on("lrtemp") || logos::probe::on("lrvar") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter"))) &&
                     val && t && !v.compiler_glue() &&
                     (!fn_lifetime_params_.empty() ||
-                     ((logos::probe::on("lrimpl") || logos::probe::on("lrx") || logos::probe::on("lrland")) && !sig_regions_.empty()))) {
+                     ((logos::probe::on("lrimpl") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter")) && !sig_regions_.empty()))) {
                     using EC_ = lir_schema::expr::Code;
                     std::function<void(TypeRef, std::vector<std::string>&, int)> slots_ =
                         [&](TypeRef ty, std::vector<std::string>& o, int d) {
@@ -209,7 +209,7 @@ file: src/compiler/borrow_check.cpp
                         if (l.empty() || outlives_is_static(l) || l == "'_") return false;
                         if (std::find(fn_lifetime_params_.begin(), fn_lifetime_params_.end(),
                                       l) != fn_lifetime_params_.end()) return true;
-                        if ((logos::probe::on("lrimpl") || logos::probe::on("lrx") || logos::probe::on("lrland")) &&
+                        if ((logos::probe::on("lrimpl") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter")) &&
                             sig_regions_.count(l) > 0) {
                             logos::probe::census("lrimpl.sigbinder");
                             return true;
@@ -225,10 +225,16 @@ file: src/compiler/borrow_check.cpp
                     std::string lt_;
                     bool call_ = val.kind() == EC_::Call || val.kind() == EC_::MethodCall;
                     bool borrow_ = val.kind() == EC_::AddrOf || val.kind() == EC_::AddrOfTemp;
+                    // PROBE lrouter — the OUTER slot only, for a direct borrow. PROBES.md 2026-09-12r.
+                    bool outer_only_ = logos::probe::on("lrouter");
+                    TypeRef vt_ = val.type(pool);
+                    std::string vouter_ = (vt_ && is_ref_kind(vt_)) ? std::string(vt_.lifetime())
+                                                                   : std::string{};
                     if (borrow_ && is_ref_kind(t) && is_binder_(std::string(t.lifetime())) &&
-                        !val_has_(std::string(t.lifetime())))
+                        (outer_only_ ? vouter_ != std::string(t.lifetime())
+                                     : !val_has_(std::string(t.lifetime()))))
                         lt_ = std::string(t.lifetime());
-                    bool agg_ = (logos::probe::on("lragg") || logos::probe::on("lrx") || logos::probe::on("lrland")) &&
+                    bool agg_ = (logos::probe::on("lragg") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter")) &&
                         (val.kind() == EC_::StructLit || val.kind() == EC_::TupleLit ||
                          val.kind() == EC_::ArrLit || val.kind() == EC_::EnumLitData);
                     if ((call_ || agg_) && ts_.size() == 1 && is_binder_(ts_[0]) && !val_has_(ts_[0]))
@@ -242,7 +248,7 @@ file: src/compiler/borrow_check.cpp
                             auto in_ = lir_view::EAddrOfTempView{val}.inner();
                             temp_ = in_ && (in_.kind() == EC_::AddrOf ||
                                             in_.kind() == EC_::AddrOfTemp ||
-                                            ((logos::probe::on("lrtemp") || logos::probe::on("lrx") || logos::probe::on("lrland")) &&
+                                            ((logos::probe::on("lrtemp") || logos::probe::on("lrx") || logos::probe::on("lrland") || logos::probe::on("lrouter")) &&
                                              (in_.kind() == EC_::Call || in_.kind() == EC_::MethodCall)));
                         }
                         if (!lesc_.empty()) {
