@@ -1,0 +1,8 @@
+// Inside a generic fn a call with a TypeVar argument defers type inference to mono; the region bound is asked anyway.
+// TWIN of pass/bc_staticdemand_deferred_generic_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_deferred_generic_refuse;
+fn keep2<'a, X>(x: X, r: &'a i64) -> i64 where 'a: 'static { return *r; }
+fn outer<T>(t: T, u: &i64) -> i64 {
+    return keep2(t, u);
+}
+fn main() -> i32 { let n: i64 = 11i64; return outer(5i64, &n) as i32; }

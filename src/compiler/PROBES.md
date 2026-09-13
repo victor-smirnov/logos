@@ -42964,3 +42964,121 @@ Nothing lands this round; "closes" = closed by the named arm on build f63616863d
   (tier1 19 / tier2 24 / tier3 57 / tier4 8) · probe-log-lint 283 records · bc_admits # TOTAL 74 unchanged.
   Committed with it: this record, soundness_queue row `promoted_literal_call_arg_refused` + its program. Committed before
   the builds: TARGETS.md, PREDICTIONS.md (both batches), both specs, tools/dlog/static_demand_sites.dl.
+
+## 2026-09-13d-staticdemand — LANDED: A STATIC ITEM'S ELIDED REGIONS ARE 'static AT EVERY WRITE TO A `static mut`, AND A CALLEE'S `'x: 'static` IS ASKED AT EVERY CALL SITE THAT HOLDS ITS WHERE-CLAUSE — bc_admits issue-69114-static-mut-ty (nllmoves.R1) AND regions-static-bound (lifereg.L2) CLOSE
+site: src/compiler/sema_impl.hpp::check_call_outlives
+build: 657d61bda97f1a15 (compiler) · cb8b17efe5bfdfd0 43 after the re-glob rebuild
+measured: 2026-09-13
+fires: n/a (landing, no probe)
+ceiling: 2 rows closed = predicted {issue-69114-static-mut-ty, regions-static-bound}, both ways
+cost: see GATES
+verdict: LANDED; pricing's two recommended arms (`stmutdeclx`, `cooutsitese`) both CONDEMNED by hand, landed instead as the write-site fill and the mapped-region check
+note: priced by 2026-09-13c-staticdemand; this record is the landing.
+
+### STEP 1 (read, not carried)
+    HEAD 148299718 clean · queue # TOTAL 108 = 108 listed · gate rc 0 (LOGOS_LIB_DIR given; the prompt's STEP-1 command carries it)
+    bc_admits 74 · blocked 8 · probe-log-lint 283 · build_hash 86911f4ef2b44caf 43 · dlog selftest rc 0 (19/24, duty 1->0)
+    baselines on 86911f4e: gate-run -L bc = store build 1128 "6788 recorded, 0 failed" (already measured, not re-run) ·
+    run_oracle 6715 rc 0 · fail_text_oracle 1541 rc 0 (both from build/ before its rebuild, one configure)
+
+### THE PRICING'S RECOMMENDATION, ATTACKED BY HAND (own shapes, 36 legal + 20 illegal, multi-line; + pricing's 76)
+Armed on build-land0913d with the batch-2 spec re-applied (control twin arm-none == base except e04, whose rc is garbage — see FOUND):
+    cooutsites   illegal closed x01 x02 x03 x05 x06 x09 · legal moved 0
+    cooutsitese  + x08 · REFUSES LEGAL e01 (`let o: Option<&i64> = Some(&V)` into `Option<&'a i64>`), e02 (`Vec<&i64>` + push(&V)),
+                 e05 (`&CONST`), e08 (`let arr: [&i64;2] = [&V,&V2]; arr[1]`) — an EMPTY region is "not recorded", not "not 'static" (rule 16). CONDEMNED 4.
+    stmutdeclx   illegal closed y02 y03 y04 y05 y06 · REFUSES LEGAL r04 `pick(SR,&n)`, r08 `W{r:SR}.set(&n)`, r17 `eqr(SR,&n)` (SR a non-mut
+                 `static SR: &u8`) · repairs r16. CONDEMNED 3. The three are a BASE over-refusal reaching new programs: `pick(&FOO,&n)`,
+                 `eqr(&V,&n)`, `eqr(s,&n)` with `s: &'static` are refused on 86911f4e (queue row static_arg_pins_shared_callee_region_refused).
+    stmutassign  closes y06 only · legal 0.
+Prediction file (before any landing edit): scratch PREDICT_landing — 2 rows; hand closes listed by name; legal 0.
+
+### THE CHANGE (sema only, +~150)
+  M2 `check_call_outlives`: pairs closed transitively; a `'x: 'static` pair is asked of EVERY caller region any argument carries for `'x`
+     (not the first mapping — x04 `both(&V, u)`); an empty region is skipped (the condemned arm). Sentence names the argument and a
+     demangled callee: "call to 'K::keep': borrowed data escapes — argument 1 `u` does not live for 'static, which the callee's bound
+     `'a: 'static` requires". Called now at: lower_call exact (was the only one), lower_call overload/deferred non-generic path (z05),
+     finish_generic_call, lower_method_call (receiver = parameter 0), trait-bound TypeVar method dispatch (z03), try_method_on_dyn (z02),
+     lower_static_call. Non-'static pairs now also asked at the six new sites (x06: a method's `'a: 'b` between unrelated `'p`,`'q`).
+  M1 `static_item_regions_` (Ref/MutRef/Array/Tuple/borrowed Slice; empty or minted -> 'static) applied ONLY as the comparand of a write:
+     lower_assign on an unshadowed `static mut`, lower_place_assign when the place's root (FIELD/TUPLE/INDEX/DEREF hops) is one.
+     NOT at the declaration: that is stmutdeclx, condemned above. A Struct/Enum lifetime-arg fill was built, closed NOTHING (y01's elided
+     `H` has no slot), and was removed.
+
+### THE CLASS BY PROPERTY — dlog static_demand_sites.dl on the landed sema_expr.cpp (selftest rc 0 first)
+    KNOWN ANSWER stated before the run:  outlives_askers = {lower_call, finish_generic_call, lower_method_call, lower_static_call, try_method_on_dyn}
+    MEASURED: exactly that (5; was {lower_call}). arg_site_blind = {expect_type, type_bounds_satisfied_quiet, lower_generic_ref,
+    lower_invoke_expr, lower_struct_lit, lower_enum_lit_data, lower_enum_lit_data_from_static} — exactly the predicted 7.
+    PER-SITE READ beside it: lower_call's arg sites = tuple-struct ctor (a struct's own bounds — sibling check_struct_lit_outlives),
+    closure/fn-ptr invoke (no carrier, row), exact path (asks), non-generic overload/deferred path (asks since this landing; dlog's
+    context-level "asks" was already true of lower_call before — ctx_of coarsens PERMISSIVELY here, which is how z05 was found by hand,
+    not by the rule). The trait-bound dispatch sits inside lower_method_call: one context, two sites, both ask now.
+    "Fixed 7 sites the enumeration and the battery saw", not "the class had 7".
+
+### CLOSED ROWS, DIAGNOSTIC READ
+    issue-69114-static-mut-ty :16 "assignment to 'BAR': variance mismatch — expected &'static u8, got &u8 — …" and :20 the same for BAR_ELIDED (upstream E0597 at both)
+    regions-static-bound      :32 "call to 'static_id': borrowed data escapes — argument 1 `u` does not live for 'static, which the callee's bound `'a: 'static` requires" (upstream E0521)
+    Programs move tests/imported/admit/{nll,regions} -> tests/imported/fail/{nll,regions} with those .expected.
+    Minted-name scan (every hand program + every queue program, landed binary): 1 file, outlives_call_instantiation `'%1: '%2` —
+    INHERITED, printed identically by 86911f4e (rule 14; not this change).
+
+### HAND BATTERY, FINAL BINARY vs 86911f4e — 157 programs (mine 81 incl. controls, pricing's 76)
+    legal verdict or exit code moved: 0 (b*/e04 excluded by name: their rc is the static-array miscompile's garbage, cc/diag compared)
+    illegal closed (47 changed lines, all illegal): rows ×2; pricing c07 c09 c10 c13 d26 m1i_{array,named_param,nested_ref,param,tuple}_elided
+    m2i_{generic_T_where_static,method_param,mut_ref,named_caller,static_method,struct_arg}; mine x01 x02 x03 x04 x05 x06 x09 y01b y04 y05 y06 z02 z03 z04 z05.
+    The method-site non-'static pair re-words one already-red program (m2i_method_nonstatic_unrelated: return mismatch -> the call-site
+    outlives sentence, the one the free-fn site prints for x07) — see fail_text in GATES.
+
+### NEIGHBOURS (standing rule 2026-09-12)
+    neighbour                                                        verdict             reason / number
+    M2 method, `T::f`, generic fn, transitive, struct arg, &mut, named caller, Option(u), struct lit(u), impl-region method (x09)   CLOSED   same helper, same site class
+    M2 second argument of one region (x04)                           CLOSED   strict extension: every mapping, not the first
+    M2 `dyn` method (z02), `T: Trait` method (z03), deferred generic context (z05)   CLOSED   the helper called at the three sites dlog/battery named
+    M2 method `'a: 'b` unrelated caller regions (x06)                CLOSED   non-'static pairs at the new sites
+    M2 body borrow `&n` / `Vec<&i64>` local push (c06 d24 m2i_let_local_ref x08)   ROWED call_static_bound_empty_arg_region_admits   (3) own cost: the empty-region arm refuses legal e01 e02 e05 e08
+    M2 fn item called through a local (z01) / closure / fn-ptr      ROWED fn_item_pointer_call_where_static_admits   (1) the invoke's type has no where-clause
+    M1 explicit 'static, param, named param, `&&u8`, tuple (bare + nested), array element, tuple field, `H<'static>` (y01b)   CLOSED   write-site fill + place root
+    M1 `let p = &mut BAR; *p = &n` (y02), `replace(&mut BAR, &n)` (y03)   ROWED static_mut_write_through_borrow_admits   (2) doors in series: decl fill closes both and refuses r04 r08 r17 via static_arg_pins_shared_callee_region_refused
+    M1 elided struct lifetime arg `static mut HS: H` (y01, y08)     ROWED static_mut_elided_struct_region_write_admits   (1) no slot: a Struct lifetime-arg fill closed nothing; `H<'static>` closes
+    M1 `NAME = s.as_str()`                                          ROWED static_mut_str_slice_write_admits   (1) no Slice region in the comparator (`let r: &'static str = s.as_str()` compiles)
+    M1 `static mut OP: Option<&i64>`                                NOT A ROW   A1: the `Option::None` initializer is refused first, blessed
+
+### FOUND, NOT NEIGHBOURS — rowed, each reproducing on 86911f4e
+    static_array_whole_borrow_reads_garbage (tier 1, run 1): `let s = &ARR; s[0]` / `g(&ARR)` for `static ARR: [i64;3]` read other memory
+      (96/112/144/192 run to run; `ARR[2]` and `&ARR[2]` are right)
+    vec_new_uninferred_push_dropped (tier 3): `let mut v = Vec::new(); v.push(4u8)` — mlir_gen "Vec$G1$T__push had no instantiation", abort
+    static_arg_pins_shared_callee_region_refused (tier 3): a 'static first argument pins a shared callee region; the local second is refused
+    where_impl_region_static_bound_unused_refused (tier 3): a method's `where 'a: 'static` on the impl region is not used for its return
+    soundness_queue 108 -> 117 by direct listing.
+
+### CORRECTIONS MADE ON THE WAY — each caught by a gate, not by the battery
+    * L1 (build cb8b17ef) gates tier 128/130: logos_00_separator_split_lint — my `rfind("__")` demangle at the method and `T::f`
+      sites and a `starts_with("__")` name filter were three NEW raw-separator splits (the separator class). Now the parts are carried:
+      the method site prints `method_name` (`mangled` may be reassigned to a base type's, so its type half is not the callee's),
+      `T::f` prints `resolved_class::method_name` (the parts `mangled` is composed from, reassigned together), and the argument
+      name is omitted for a `_`-led or `:`-bearing binding (fails closed: a synthesized name is never printed). Two .expected moved
+      (`'K::keep'` -> `'keep'`, `'K::two'` -> `'two'`); ledger unchanged, lint rc 0.
+    * logos_00_census_pin — the two RENAMED-FIXTURE lines were appended at the end of the census, outside its RENAMED block; moved
+      under 2026-09-13b's. Registry pins measured by `ctest -N` before the edit: ALL 9687 -> 9715, NOIMPORTED 5199 -> 5225,
+      TIERCOMMIT 132 -> 130 (+28 native, -2 bc_admit). direct_door_census_gate `corpus` 3090 -> 3104, `nonglob` 2899 -> 2913, by listing.
+
+### CONTROL REVERT (build-land0913d, never build/)
+    compiler patch saved, HEAD's sema_expr.cpp / sema_impl.hpp / sema_stmt.cpp restored, logosc rebuilt, patch re-applied
+    (sha of the three files identical before/after): under the reverted compiler ALL 16 new fail programs (14 bc_staticdemand_*_refuse
+    + the 2 moved ports) are ADMITTED — every fixture this commit adds is red without the change. The base binary 86911f4e admitted
+    both rows at open (bc store build 1128 green on logos_00_bc_admit_*).
+
+### GATES — final build 4cf0bf5e5e07b0cf 43
+    queue gate rc 0, 117 rows (tier1 20 / tier2 29 / tier3 60 / tier4 8)
+    hand battery 157 programs vs 86911f4e: identical to the pre-correction build; 0 legal moved; minted/synthesized-name scan over
+    every hand, queue and new fixture program: 1 file, outlives_call_instantiation `'%1: '%2`, INHERITED
+    L1 rc 0: 807/807, smoke 12 684, gates 130/130 (09:27:50 -> 09:31:33)
+    L4 bc (detached) core 5224/5225 + bc 1589/1591 (2 disabled, as at 1128) — the one red, lint_mismatch_monopoly, is INHERITED
+      from aca7386fc: `scripts/lint-mismatch-monopoly.sh` grepped `src include` unfiltered, and the pricing round's committed
+      staticdemand2.spec copies expect_type's emitter twice (store: passed at 1128/c3370b6fc, failed at 1139). Repaired by
+      excluding `*.spec` ONLY; controls: tree -> "1 emitter", rc 0; scratch mirror with one compiled emitter + a .spec copy -> green;
+      a second compiled emitter -> red "found 2 emitters". Re-recorded FORCE=1 (the script edit does not move the build identity):
+      build 1139 lint passed.
+    run_oracle: 6715 common with the 86911f4e baseline, 0 lost, 0 changed except cast-region-to-uint (subtracted by name: a stack
+      address), +14 = the bc_staticdemand_*_admit pass halves, each RUN
+    fail_text_oracle: 1541 common, 0 changed in rc / stderr sha / .expected match, +16 = the 14 native fail halves + 2 moved ports
+    stdlib: full `cmake --build build` rc 0 on the landed compiler (all four layers rebuilt, 08:54-08:56 and again for 4cf0bf5e)

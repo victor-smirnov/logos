@@ -1,0 +1,9 @@
+// A callee's `where 'a: 'static` is asked of the caller region `u` carries: `u`'s is not 'static.
+// TWIN of pass/bc_staticdemand_where_static_param_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_where_static_param_refuse;
+fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
+fn g(u: &i64) -> i64 {
+    let r = static_id(u);
+    return *r;
+}
+fn main() -> i32 { let n: i64 = 7i64; return g(&n) as i32; }

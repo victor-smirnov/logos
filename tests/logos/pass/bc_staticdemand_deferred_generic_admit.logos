@@ -1,0 +1,9 @@
+// The deferred call with a 'static argument; it runs.
+// TWIN of fail/bc_staticdemand_deferred_generic_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_deferred_generic_admit;
+static N: i64 = 11i64;
+fn keep2<'a, X>(x: X, r: &'a i64) -> i64 where 'a: 'static { return *r; }
+fn outer<T>(t: T, u: &'static i64) -> i64 {
+    return keep2(t, u);
+}
+fn main() -> i32 { return outer(5i64, &N) as i32; }

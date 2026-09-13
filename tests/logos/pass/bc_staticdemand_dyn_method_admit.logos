@@ -1,0 +1,13 @@
+// Through `&dyn Keep` with a 'static argument; it runs.
+// TWIN of fail/bc_staticdemand_dyn_method_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_dyn_method_admit;
+static N: i64 = 9i64;
+trait Keep { fn keep<'a>(self: &Self, t: &'a i64) -> i64 where 'a: 'static; }
+struct K { b: i64 }
+impl Keep for K {
+    fn keep<'a>(self: &Self, t: &'a i64) -> i64 where 'a: 'static { return *t + self.b; }
+}
+fn g(d: &dyn Keep, u: &'static i64) -> i64 {
+    return d.keep(u);
+}
+fn main() -> i32 { let k = K { b: 1i64 }; return g(&k, &N) as i32; }

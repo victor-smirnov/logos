@@ -1,0 +1,10 @@
+// `u: &'static i64` satisfies the callee's `where 'a: 'static`; it runs.
+// TWIN of fail/bc_staticdemand_where_static_param_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_where_static_param_admit;
+static N: i64 = 7i64;
+fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
+fn g(u: &'static i64) -> i64 {
+    let r = static_id(u);
+    return *r;
+}
+fn main() -> i32 { return g(&N) as i32; }

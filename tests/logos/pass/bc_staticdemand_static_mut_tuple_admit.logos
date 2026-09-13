@@ -1,0 +1,9 @@
+// The tuple rebuilt from a static borrow; it runs.
+// TWIN of fail/bc_staticdemand_static_mut_tuple_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_static_mut_tuple_admit;
+static FOO: u8 = 4u8;
+static mut TP: ((&u8, i64), i64) = ((&FOO, 1i64), 2i64);
+fn set(n: u8) {
+    unsafe { TP = ((&FOO, 1i64), 2i64); }
+}
+fn main() -> i32 { set(5u8); unsafe { return *(TP.0).0 as i32; } }

@@ -1,0 +1,9 @@
+// The array element written with a static borrow; it runs.
+// TWIN of fail/bc_staticdemand_static_mut_place_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_static_mut_place_admit;
+static FOO: u8 = 4u8;
+static mut ARR: [&u8; 2] = [&FOO, &FOO];
+fn set(n: u8) {
+    unsafe { ARR[1] = &FOO; }
+}
+fn main() -> i32 { set(6u8); unsafe { return (*ARR[0] + *ARR[1]) as i32; } }

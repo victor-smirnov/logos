@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row where_impl_region_static_bound_unused_refused (tier 3).
+// A method's `where 'a: 'static` on the IMPL's region is not used when checking
+// the method's own return: `self.r: &'a i64` returned as `&'static i64` is
+// refused "lifetime mismatch: return type has lifetime 'static but 'self' has
+// lifetime (elided)". The same bound on a FN's own region is honoured
+// (regions-static-bound-ok). Legal Rust (reading; no rustc binary here).
+package where_impl_region_static_bound_unused_refused;
+static V: i64 = 9i64;
+struct W<'a> { r: &'a i64 }
+impl<'a> W<'a> {
+    fn keep(self: &Self) -> &'static i64 where 'a: 'static { return self.r; }
+}
+fn main() -> i32 {
+    let w = W { r: &V };
+    let s = w.keep();
+    return *s as i32 - 9i32;
+}

@@ -20,7 +20,12 @@ cd "$(dirname "$0")/.."
 # MEASURED 2026-08-01 at the widening: still exactly 1 emitter
 # (src/compiler/sema_expr.cpp), which is what makes this a safe widening and
 # not a re-baselining.
-hits=$(grep -rn "expected {}, got {}" src include \
+# ⚠ `*.spec` IS EXCLUDED, AND ONLY IT: a probe spec under src/compiler/probes/ is a
+# non-compiled whole-context COPY of a source file (2026-09-13c-staticdemand's
+# staticdemand2.spec copied expect_type's emitter twice and redded this gate at
+# aca7386fc with no emitter added to the compiler). Every compiled file is still
+# in the population. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+hits=$(grep -rn --exclude='*.spec' "expected {}, got {}" src include \
        | grep -vE "^\S+: *//|variance mismatch")
 n=$(printf '%s' "$hits" | grep -c . || true)
 if [ "$n" -gt 1 ]; then

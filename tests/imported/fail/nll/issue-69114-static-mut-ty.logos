@@ -1,6 +1,6 @@
 // rustc nll/issue-69114-static-mut-ty.rs — upstream E0597 `n` does not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R1
+// shelf: fail · root nllmoves.R1 · CLOSED 2026-09-13d-staticdemand (src/compiler/PROBES.md)
 // Original path: tests/ui/nll/issue-69114-static-mut-ty.rs @ 4b0c9d76a
 // Modifications: the two `println!` lines become the exit-code sum in `main` (assert ->
 //   exit code); `#![allow(static_mut_refs)]` dropped (no lint of that name here).

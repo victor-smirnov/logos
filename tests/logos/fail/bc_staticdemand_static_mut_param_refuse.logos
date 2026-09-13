@@ -1,0 +1,9 @@
+// A parameter's region is not 'static, so it cannot be written into a static.
+// TWIN of pass/bc_staticdemand_static_mut_param_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_static_mut_param_refuse;
+static FOO: u8 = 4u8;
+static mut BAR: &u8 = &FOO;
+fn set(p: &u8) {
+    unsafe { BAR = p; }
+}
+fn main() -> i32 { set(&FOO); unsafe { return *BAR as i32; } }

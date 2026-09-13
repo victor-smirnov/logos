@@ -4263,6 +4263,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     auto ipts_ = inst_call_params_(fi.param_types, fi.lifetime_params, arg_exprs,
                                    fi.ret_type);
+    if (!has_pack_expand && n_args == fi.param_types.size())
+        check_call_outlives(std::string(callee), fi.param_types, arg_exprs, fi.lifetime_outlives);
     if (has_pack_expand) {
         // Pass through — mono will expand and validate
     } else if (fi.is_vararg) {
@@ -5216,6 +5218,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         if (ta_) check_written_type_wf(ta_, std::format("turbofish type argument of '{}'", callee_diag),
                                        current_outlives_, /*decl_site=*/false);
     check_type_bounds(callee_diag, fi.type_params, type_args);
+    check_call_outlives(callee_diag, fi.param_types, arg_exprs, fi.lifetime_outlives);
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
@@ -8150,6 +8153,13 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                 } else {
                     SemaSubst self_subst;
                     self_subst["Self"] = expr_type(recv);
+                    {
+                        std::vector<lir::LExprPtr> co_all_;
+                        co_all_.push_back(recv);
+                        for (auto& a_ : arg_exprs) co_all_.push_back(a_);
+                        check_call_outlives(std::string(method_name), m.param_types, co_all_,
+                                            m.lifetime_outlives, {}, /*first_arg_is_receiver=*/true);
+                    }
                     for (uint64_t i = 0; i < explicit_args; ++i) {
                         auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
                         // Canonical-order coercion: arg_to_dyn → reborrow →
@@ -8830,6 +8840,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                                    std::string(method_name)),
                                        /*permissive=*/true,
                                        chosen_method->param_types[0]);
+                }
+                {
+                    std::vector<lir::LExprPtr> co_all_;
+                    co_all_.push_back(recv);
+                    for (auto& a_ : arg_exprs) co_all_.push_back(a_);
+                    check_call_outlives(std::string(method_name), chosen_method->param_types, co_all_,
+                                        chosen_method->lifetime_outlives, {},
+                                        /*first_arg_is_receiver=*/true);
                 }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
@@ -10358,6 +10376,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 check_variance(expr_type(recv), p0_,
                                std::format("method '{}' receiver", mangled),
                                /*permissive=*/true, fi.param_types[0]);
+        }
+        {
+            const std::string shown_(method_name);
+            std::vector<lir::LExprPtr> co_all_;
+            co_all_.push_back(recv);
+            for (auto& a_ : arg_exprs) co_all_.push_back(a_);
+            check_call_outlives(std::string(mangled), fi.param_types, co_all_,
+                                fi.lifetime_outlives, shown_, /*first_arg_is_receiver=*/true);
         }
         for (uint64_t i = 0; i < explicit_args; ++i) {
             size_t pi = i + 1;
@@ -16687,6 +16713,11 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
 
+    if (arg_exprs.size() == fi.param_types.size()) {
+        const std::string shown_ = resolved_class + "::" + std::string(method_name);
+        check_call_outlives(std::string(mangled), fi.param_types, arg_exprs,
+                            fi.lifetime_outlives, shown_);
+    }
     uint64_t n_args = arg_exprs.size();
     if (n_args != fi.param_types.size()) {
         error(std::format("static call '{}': expected {} args, got {}",

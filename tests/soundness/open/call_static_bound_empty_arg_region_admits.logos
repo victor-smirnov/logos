@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row call_static_bound_empty_arg_region_admits (tier 2).
+// NEIGHBOUR of bc_admits regions-static-bound, ROWED — reason 3 (its own cost is
+// measured non-zero). A callee's `where 'a: 'static` is checked at every call site
+// since 2026-09-13d against the caller region an argument CARRIES; a borrow of a
+// body local (`&n`) carries NO region (empty) and is skipped. The arm that reads an
+// empty region as a violation (`cooutsitese`) closes this and refuses FOUR legal
+// programs whose 'static argument reaches the call through a carrier that drops the
+// region: `let o: Option<&i64> = Some(&V)`, `Vec<&i64>` + push(&V), `&CONST`,
+// `let arr: [&i64; 2] = [&V, &V2]; arr[1]`. Rust: E0597 `n` does not live long enough.
+package call_static_bound_empty_arg_region_admits;
+fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
+fn f() -> i64 {
+    let n: i64 = 1i64;
+    let r = static_id(&n);
+    return *r;
+}
+fn main() -> i32 { return f() as i32; }

@@ -6506,6 +6506,47 @@ private:
         auto adj = outlives_adj(current_outlives_);
         return subtype(from, to, adj, variance_table_, /*depth=*/0, permissive);
     }
+    // A static item's elided regions are 'static (Rust items.static). PROBES.md 2026-09-13d-staticdemand.
+    TypeRef static_item_regions_(TypeRef t) {
+        if (!t) return t;
+        using K = LogosType::Kind;
+        const auto k = TypeRef(t).kind();
+        auto fill = [](std::string_view lt) {
+            return (lt.empty() || lt_is_minted(lt)) ? std::string("'static") : std::string(lt);
+        };
+        if (k == K::Ref || k == K::MutRef)
+            return make_ref(k == K::MutRef, static_item_regions_(TypeRef(t).pointee()),
+                            fill(TypeRef(t).lifetime()));
+        if (k == K::Array)
+            return make_array(static_item_regions_(TypeRef(t).elem()), TypeRef(t).arr_size(),
+                              std::string_view(TypeRef(t).arr_size_var()));
+        if (k == K::Tuple) {
+            std::vector<TypeRef> es;
+            for (auto e : TypeRef(t).tuple_elems()) es.push_back(static_item_regions_(e));
+            return make_tuple_type(std::move(es));
+        }
+        if (k == K::Slice && TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow)
+            return make_slice_type(static_item_regions_(TypeRef(t).elem()), TypeRef(t).mut_ptr(),
+                                   TypeRef::OwningKind::Borrow, fill(TypeRef(t).lifetime()));
+        return t;
+    }
+    // "argument 2 `u`" / "the receiver" — for a call-site sentence.
+    std::string describe_call_arg_(const std::vector<lir::LExprPtr>& args, size_t i,
+                                   bool first_is_receiver) {
+        std::string what = (first_is_receiver && i == 0)
+            ? std::string("the receiver")
+            : std::format("argument {}", first_is_receiver ? i : i + 1);
+        if (i < args.size() && args[i]) {
+            auto er = expr_ref_of(args[i]);
+            if (er.kind() == lir_schema::expr::Code::VarRef) {
+                std::string nm(lir_view::EVarRefView{er}.name());
+                // A synthesized binding (`_`-led, or an address token with `:`) is not named.
+                if (!nm.empty() && nm.front() != '_' && nm.find(':') == std::string::npos)
+                    what += std::format(" `{}`", nm);
+            }
+        }
+        return what;
+    }
     // B69: caller cross-check of callee's `where 'a: 'b` bounds.
     // Walks param_types parallel to arg_types and extracts a callee→caller
     // lifetime substitution map. For each pair in callee_outlives,
@@ -6516,15 +6557,21 @@ private:
         const std::string& callee_name,
         const std::vector<TypeRef>& callee_param_types,
         const std::vector<lir::LExprPtr>& arg_exprs,
-        const std::vector<std::pair<std::string, std::string>>& callee_outlives) {
+        const std::vector<std::pair<std::string, std::string>>& callee_outlives,
+        std::string_view callee_display = {},
+        bool first_arg_is_receiver = false) {
         if (callee_outlives.empty()) return;
         // Build callee_lt → caller_lt substitution by walking matched
         // param/arg type pairs.
         std::unordered_map<std::string, std::string> subst;
+        // Every caller region a callee region met, with the argument it came from.
+        std::unordered_map<std::string, std::vector<std::pair<std::string, size_t>>> met;
+        size_t cur_arg = 0;
         auto record = [&](std::string_view callee_lt, std::string_view caller_lt) {
             if (callee_lt.empty() || caller_lt.empty()) return;
             std::string ck = outlives_norm(callee_lt);
             std::string vk = outlives_norm(caller_lt);
+            met[ck].emplace_back(vk, cur_arg);
             auto it = subst.find(ck);
             if (it == subst.end()) subst.emplace(ck, vk);
             // If already present and different — conflict, but caller-region
@@ -6568,12 +6615,48 @@ private:
             }
         };
         size_t n = std::min(callee_param_types.size(), arg_exprs.size());
-        for (size_t i = 0; i < n; ++i)
+        for (size_t i = 0; i < n; ++i) {
+            cur_arg = i;
             if (arg_exprs[i]) walk(callee_param_types[i], expr_type(arg_exprs[i]));
+        }
         auto adj = outlives_adj(current_outlives_);
-        for (auto& [c_long, c_short] : callee_outlives) {
+        // The callee's pairs, closed transitively (`'a: 'b, 'b: 'static` demands `'a: 'static`).
+        std::vector<std::pair<std::string, std::string>> pairs = callee_outlives;
+        for (bool grew = true; grew;) {
+            grew = false;
+            const auto snap = pairs;
+            for (auto& [l1, s1] : snap)
+                for (auto& [l2, s2] : snap) {
+                    if (outlives_norm(s1) != outlives_norm(l2)) continue;
+                    bool have = false;
+                    for (auto& [l3, s3] : pairs)
+                        if (outlives_norm(l3) == outlives_norm(l1) &&
+                            outlives_norm(s3) == outlives_norm(s2)) { have = true; break; }
+                    if (!have) { pairs.emplace_back(l1, s2); grew = true; }
+                }
+        }
+        const std::string callee_name_shown =
+            callee_display.empty() ? callee_name : std::string(callee_display);
+        for (auto& [c_long, c_short] : pairs) {
             // 'static is reserved — always satisfies; skip checking.
             if (outlives_is_static(c_long)) continue;
+            // `'x: 'static` names no second argument region: it is asked of the
+            // caller region the argument carries. PROBES.md 2026-09-13d-staticdemand.
+            if (outlives_is_static(c_short)) {
+                auto it_m = met.find(outlives_norm(c_long));
+                if (it_m == met.end()) continue;
+                for (auto& [caller_lt, ai] : it_m->second) {
+                    if (outlives(caller_lt, "'static", adj, /*permissive_empty=*/false))
+                        continue;
+                    error(std::format(
+                        "call to '{}': borrowed data escapes — {} does not live for "
+                        "'static, which the callee's bound `{}: 'static` requires",
+                        callee_name_shown,
+                        describe_call_arg_(arg_exprs, ai, first_arg_is_receiver), c_long));
+                    break;
+                }
+                continue;
+            }
             auto it_l = subst.find(outlives_norm(c_long));
             auto it_s = subst.find(outlives_norm(c_short));
             // Only enforce when BOTH callee lifetimes are visible at arg
@@ -6589,7 +6672,7 @@ private:
                     "call to '{}': caller does not satisfy callee's "
                     "outlives bound `{}: {}` (under arg-type substitution: "
                     "`{}: {}` required)",
-                    callee_name, c_long, c_short, caller_long, caller_short));
+                    callee_name_shown, c_long, c_short, caller_long, caller_short));
             }
         }
     }

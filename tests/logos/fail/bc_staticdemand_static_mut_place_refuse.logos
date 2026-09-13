@@ -1,0 +1,9 @@
+// A place rooted at a `static mut` — an array element and a tuple field — lies inside its 'static-read type.
+// TWIN of pass/bc_staticdemand_static_mut_place_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_static_mut_place_refuse;
+static FOO: u8 = 4u8;
+static mut ARR: [&u8; 2] = [&FOO, &FOO];
+fn set(n: u8) {
+    unsafe { ARR[1] = &n; }
+}
+fn main() -> i32 { set(6u8); unsafe { return (*ARR[0] + *ARR[1]) as i32; } }

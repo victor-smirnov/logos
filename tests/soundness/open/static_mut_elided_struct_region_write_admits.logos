@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row static_mut_elided_struct_region_write_admits (tier 2).
+// NEIGHBOUR of bc_admits issue-69114-static-mut-ty, ROWED — reason 1 (the fact has
+// no carrier there). `static mut HS: H` with `struct H<'a>` elides the struct's
+// lifetime argument, and the elided argument has NO SLOT in the declared type: a
+// fill of Struct lifetime args at the write closed nothing (measured 2026-09-13d),
+// while the same program with `H<'static>` written is refused. Both writes below,
+// the whole value and the field, are E0597 in Rust.
+package static_mut_elided_struct_region_write_admits;
+static V: i64 = 5i64;
+struct H<'a> { r: &'a i64 }
+static mut HS: H = H { r: &V };
+fn set() {
+    let n: i64 = 1i64;
+    unsafe {
+        HS = H { r: &n };
+        HS.r = &n;
+    }
+}
+fn main() -> i32 { set(); unsafe { return *HS.r as i32; } }

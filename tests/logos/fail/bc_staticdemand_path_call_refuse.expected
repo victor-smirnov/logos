@@ -1,0 +1,1 @@
+call to 'K::keep': borrowed data escapes — argument 1 `u` does not live for 'static, which the callee's bound `'a: 'static` requires

@@ -5930,9 +5930,20 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                TIERCOMMIT 134 -> 132 — measured digit for digit. bc_admits `# TOTAL`
 #                76 -> 74; soundness_queue 104 -> 105 (one row OPENED, a battery find that
 #                reproduces on the base binary; none closed).
-REGISTRY-ALL         9687
-REGISTRY-NOIMPORTED  5199
-REGISTRY-TIERCOMMIT  132
+# 2026-09-13d (staticdemand — a static item's elided regions are 'static at every write to a
+#                `static mut` (bare, place, tuple/array), and a callee's `'x: 'static` is asked at
+#                every call site that holds the callee's where-clause: exact, overload/deferred,
+#                generic, method, trait-bound method, `dyn` method, `T::f`).
+#                FOURTEEN native PAIRS, all bc_staticdemand_* — +28. TWO closed rows' programs MOVE
+#                tests/imported/admit -> tests/imported/fail (issue-69114-static-mut-ty,
+#                regions-static-bound; declared RENAMED-FIXTURE below): registry-neutral in ALL,
+#                -2 `logos_00_bc_admit_*` in NOIMPORTED and TIERCOMMIT. So ALL 9687 -> 9715,
+#                NOIMPORTED 5199 -> 5225, TIERCOMMIT 132 -> 130 — measured by `ctest -N` on the
+#                re-globbed build before this pin was touched. bc_admits `# TOTAL` 74 -> 72;
+#                soundness_queue 108 -> 117 (nine rows OPENED, none closed).
+REGISTRY-ALL         9715
+REGISTRY-NOIMPORTED  5225
+REGISTRY-TIERCOMMIT  130
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
@@ -9106,6 +9117,8 @@ RENAMED-FIXTURE  tests/imported/admit/nll/method-ufcs-inherent-4.logos  tests/im
 RENAMED-FIXTURE  tests/imported/admit/regions/regions-free-region-ordering-caller1.logos  tests/imported/fail/regions/regions-free-region-ordering-caller1.logos  2026-09-12r: the bc_admits row it carried (lifereg.D) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0716 verdict upstream's own .stderr gives first
 RENAMED-FIXTURE  tests/imported/admit/nll/issue-55394--b.logos  tests/imported/fail/nll/issue-55394--b.logos  2026-09-13b: the bc_admits row it carried (nllmoves.NEW-3) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the return-type region verdict against the impl's anonymous lifetime
 RENAMED-FIXTURE  tests/imported/admit/nll/issue-98170.logos  tests/imported/fail/nll/issue-98170.logos  2026-09-13b: the bc_admits row it carried (nllmoves.R13) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the `Self` literal region verdict at the literal, as upstream's first error
+RENAMED-FIXTURE  tests/imported/admit/nll/issue-69114-static-mut-ty.logos  tests/imported/fail/nll/issue-69114-static-mut-ty.logos  2026-09-13d: the bc_admits row it carried (nllmoves.R1) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the write to a `static mut` against its 'static elided region
+RENAMED-FIXTURE  tests/imported/admit/regions/regions-static-bound.logos  tests/imported/fail/regions/regions-static-bound.logos  2026-09-13d: the bc_admits row it carried (lifereg.L2) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the callee's `'a: 'static` asked at the call
 RENAMED-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  tests/logos/pass/wql_agg_avg_bool_value_rule.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  tests/logos/pass/query_f64_agg_hand_derived.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  tests/logos/pass/query_order_by_float_data_key.logos  P5: the old name stated a COUNT of engines the cut falsified

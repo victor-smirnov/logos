@@ -1,0 +1,12 @@
+// `K::keep(u)` with a 'static `u`; it runs.
+// TWIN of fail/bc_staticdemand_path_call_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_path_call_admit;
+static N: i64 = 5i64;
+struct K { }
+impl K {
+    fn keep<'a>(t: &'a i64) -> i64 where 'a: 'static { return *t; }
+}
+fn g(u: &'static i64) -> i64 {
+    return K::keep(u);
+}
+fn main() -> i32 { return g(&N) as i32; }

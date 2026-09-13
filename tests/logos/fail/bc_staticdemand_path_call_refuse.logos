@@ -1,0 +1,11 @@
+// `K::keep(u)` — the path-call site asks the callee's `'a: 'static`.
+// TWIN of pass/bc_staticdemand_path_call_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_path_call_refuse;
+struct K { }
+impl K {
+    fn keep<'a>(t: &'a i64) -> i64 where 'a: 'static { return *t; }
+}
+fn g(u: &i64) -> i64 {
+    return K::keep(u);
+}
+fn main() -> i32 { let n: i64 = 5i64; return g(&n) as i32; }

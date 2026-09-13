@@ -1,0 +1,11 @@
+// The caller declares `'p: 'q`; it runs.
+// TWIN of fail/bc_staticdemand_method_nonstatic_bound_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_method_nonstatic_bound_admit;
+struct K { b: i64 }
+impl K {
+    fn two<'a, 'b>(self: &Self, x: &'a i64, y: &'b i64) -> i64 where 'a: 'b { return *x + *y; }
+}
+fn g<'p, 'q>(k: &K, x: &'p i64, y: &'q i64) -> i64 where 'p: 'q {
+    return k.two(x, y);
+}
+fn main() -> i32 { let n: i64 = 1i64; let m: i64 = 2i64; let k = K { b: 0i64 }; return g(&k, &n, &m) as i32; }

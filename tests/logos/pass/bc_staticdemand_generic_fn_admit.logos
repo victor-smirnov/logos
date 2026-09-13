@@ -1,0 +1,10 @@
+// The generic callee with a 'static argument; it runs.
+// TWIN of fail/bc_staticdemand_generic_fn_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_generic_fn_admit;
+static N: i64 = 6i64;
+fn keep<'a, T>(t: &'a T) -> &'static T where 'a: 'static { return t; }
+fn g(u: &'static i64) -> i64 {
+    let r = keep(u);
+    return *r;
+}
+fn main() -> i32 { return g(&N) as i32; }

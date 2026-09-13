@@ -1,0 +1,9 @@
+// A callee with a TYPE parameter goes through the generic call path, which asks too.
+// TWIN of pass/bc_staticdemand_generic_fn_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_generic_fn_refuse;
+fn keep<'a, T>(t: &'a T) -> &'static T where 'a: 'static { return t; }
+fn g(u: &i64) -> i64 {
+    let r = keep(u);
+    return *r;
+}
+fn main() -> i32 { let n: i64 = 6i64; return g(&n) as i32; }

@@ -1,0 +1,9 @@
+// One region, two arguments: EVERY argument that meets `'a` must be 'static, not the first.
+// TWIN of pass/bc_staticdemand_second_arg_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_second_arg_refuse;
+static V: i64 = 2i64;
+fn both<'a>(x: &'a i64, y: &'a i64) -> i64 where 'a: 'static { return *x + *y; }
+fn g(u: &i64) -> i64 {
+    return both(&V, u);
+}
+fn main() -> i32 { let n: i64 = 3i64; return g(&n) as i32; }

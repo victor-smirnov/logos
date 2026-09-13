@@ -3336,6 +3336,11 @@ lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
         check_variance(expr_type(rhs), var_type,
                        std::format("assignment to '{}'", name),
                        /*permissive=*/false);
+    // A write to a `static mut`: its declared elided regions are 'static. PROBES.md 2026-09-13d-staticdemand.
+    if (is_static_mut && var_type && rhs)
+        check_variance(expr_type(rhs), static_item_regions_(var_type),
+                       std::format("assignment to '{}'", name),
+                       /*permissive=*/false);
     // Implicit safe integer widening on assignment.
     if (var_type && is_integer_kind(TypeRef(var_type).kind()) && is_integer_kind(TypeRef(expr_type(rhs)).kind()) &&
         TypeRef(expr_type(rhs)).kind() != LogosType::Kind::IntLit &&
@@ -8761,8 +8766,32 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // &mut H<'_>". That is check_call_outlives failing to instantiate an
     // elided struct-lifetime argument, and it is why every counter-example
     // above had to be written as an uncalled fn.
+    // A place rooted at a `static mut` lies inside the static's declared type,
+    // whose elided regions are 'static. PROBES.md 2026-09-13d-staticdemand.
+    bool place_in_static_mut = false;
+    for (auto cur = place_node; !cur.is_null();) {
+        const int32_t cc = code_of(cur);
+        if ((cc == la::FIELD_READ || cc == la::TUPLE_INDEX || cc == la::INDEX_READ) &&
+            cur.has_key(la::RECEIVER)) {
+            cur = unwrap_paren_node(map_of(cur.get(la::RECEIVER.code)));
+            continue;
+        }
+        if (cc == la::DEREF && cur.has_key(la::VALUE)) {
+            cur = unwrap_paren_node(map_of(cur.get(la::VALUE.code)));
+            continue;
+        }
+        if (cc == la::VAR_REF) {
+            std::string rn(str_of(cur.get(la::NAME.code)));
+            place_in_static_mut = module_static_muts_.count(rn) != 0 &&
+                                  !current_type_params_.count(rn);
+            for (auto it = scope_.rbegin(); place_in_static_mut && it != scope_.rend(); ++it)
+                if (it->vars.count(rn)) place_in_static_mut = false;
+        }
+        break;
+    }
     if (pt && val)
-        check_variance(expr_type(val), pt,
+        check_variance(expr_type(val),
+                       place_in_static_mut ? static_item_regions_(pt) : pt,
                        std::format("assignment to '{}'",
                                    render_place_node(place_node)),
                        /*permissive=*/false);

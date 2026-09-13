@@ -1,0 +1,9 @@
+// A 'static argument satisfies `'a: 'b, 'b: 'static`; it runs.
+// TWIN of fail/bc_staticdemand_transitive_bound_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_transitive_bound_admit;
+static N: i64 = 8i64;
+fn hop<'a, 'b>(t: &'a i64) -> i64 where 'a: 'b, 'b: 'static { return *t; }
+fn g(u: &'static i64) -> i64 {
+    return hop(u);
+}
+fn main() -> i32 { return g(&N) as i32; }

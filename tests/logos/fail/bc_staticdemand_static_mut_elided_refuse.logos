@@ -1,0 +1,9 @@
+// `static mut BAR: &u8` elides a region, and a static's elided region is 'static: `&n` cannot be stored.
+// TWIN of pass/bc_staticdemand_static_mut_elided_admit, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_static_mut_elided_refuse;
+static FOO: u8 = 4u8;
+static mut BAR: &u8 = &FOO;
+fn set(n: u8) {
+    unsafe { BAR = &n; }
+}
+fn main() -> i32 { set(3u8); unsafe { return *BAR as i32; } }

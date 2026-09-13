@@ -1,0 +1,9 @@
+// A `&'static u8` parameter written into the static; it runs.
+// TWIN of fail/bc_staticdemand_static_mut_param_refuse, one token apart. src/compiler/PROBES.md 2026-09-13d-staticdemand.
+package bc_staticdemand_static_mut_param_admit;
+static FOO: u8 = 4u8;
+static mut BAR: &u8 = &FOO;
+fn set(p: &'static u8) {
+    unsafe { BAR = p; }
+}
+fn main() -> i32 { set(&FOO); unsafe { return *BAR as i32; } }

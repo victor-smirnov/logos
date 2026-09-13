@@ -49,7 +49,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 108
+# TOTAL 117
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -153,3 +153,12 @@ trait_impl_for_ref_method_call_receiver_refused 3 tests/soundness/open/trait_imp
 enum_payload_rewrap_carries_declared_region_refuses 3 tests/soundness/open/enum_payload_rewrap_carries_declared_region_refuses refuses
 struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses 3 tests/soundness/open/struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses refuses
 promoted_literal_call_arg_refused 3 tests/soundness/open/promoted_literal_call_arg_refused refuses
+static_array_whole_borrow_reads_garbage 1 tests/soundness/open/static_array_whole_borrow_reads_garbage run 1
+vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_dropped refuses
+static_arg_pins_shared_callee_region_refused 3 tests/soundness/open/static_arg_pins_shared_callee_region_refused refuses
+where_impl_region_static_bound_unused_refused 3 tests/soundness/open/where_impl_region_static_bound_unused_refused refuses
+call_static_bound_empty_arg_region_admits 2 tests/soundness/open/call_static_bound_empty_arg_region_admits admits
+static_mut_write_through_borrow_admits 2 tests/soundness/open/static_mut_write_through_borrow_admits admits
+static_mut_elided_struct_region_write_admits 2 tests/soundness/open/static_mut_elided_struct_region_write_admits admits
+fn_item_pointer_call_where_static_admits 2 tests/soundness/open/fn_item_pointer_call_where_static_admits admits
+static_mut_str_slice_write_admits 2 tests/soundness/open/static_mut_str_slice_write_admits admits
