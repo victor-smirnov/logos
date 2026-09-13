@@ -1,0 +1,58 @@
+// decl_arrival_sites — THREE DECLARATION CHECKS THAT EXIST AND ONE ARRIVAL NEVER REACHES
+// (round 2026-09-13e-declarrival).
+//
+// Q1. WHICH CONTEXTS READ AN EXPLICIT ARGUMENT LIST (`la::TYPE_PARAMS`), AND WHICH OF
+//     THEM CAN EVEN SEE A LIFETIME ITEM IN IT (`la::LIFETIME_PARAM`)?
+//     A context that reads TYPE_PARAMS and never names LIFETIME_PARAM cannot count
+//     lifetime arguments: that absence has no spelling. ⚠ ctx_of COARSENS — a context
+//     that names LIFETIME_PARAM anywhere (e.g. for a DECLARATION list) counts as "sees".
+// Q2. WHICH CONTEXTS READ A WHERE CLAUSE (`la::WHERE`), AND WHICH ASK A NAME LOOKUP?
+// Q3. WHICH CONTEXTS HOLD AN ASSOCIATED-CONST TYPE (`assoc_consts`) AND COMPARE WITH
+//     `types_equal`, AND WHICH EVER CALL A REGION COMPARATOR?
+//
+// KNOWN-ANSWER CONTROLS, stated before the run (each read by grep on 7b21acc54):
+//   K1 collect_impl ∈ tp_sees_lt       (sema_collect.cpp: TYPE_PARAMS read + `code_of(item) == la::LIFETIME_PARAM`)
+//   K2 fold_where_bounds ∈ where_lookup (sema.cpp: `if (lookup_type_by_name(tname)) continue;`)
+//   K3 collect_impl ∈ const_types_equal (sema_collect.cpp: `if (!types_equal(ac_def.type, ctype))`)
+// If any control fails, nothing below is believed.
+#include "cxx_schema.dl"
+
+.decl named_method(did: symbol, name: symbol)
+named_method(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N).
+named_method(D, N) :- decl(D, "Function", _), decl_name(D, N).
+
+.decl ctx_calls(ctx: symbol, callee: symbol)
+ctx_calls(C, N) :- named_method(D, N), call(K, D), ctx_of(K, X), ctx_name(X, C).
+
+.decl ctx_refs(ctx: symbol, name: symbol)
+ctx_refs(C, N) :- decl_name(D, N), ref(U, D), ctx_of(U, X), ctx_name(X, C).
+
+.decl code_decl(name: symbol, q: symbol)
+code_decl(N, Q) :- decl(D, _, Q), decl_name(D, N), (N = "TYPE_PARAMS" ; N = "LIFETIME_PARAM" ; N = "WHERE").
+.output code_decl
+
+// ── Q1 ──
+.decl tp_reader(ctx: symbol)
+tp_reader(C) :- ctx_refs(C, "TYPE_PARAMS").
+.decl tp_sees_lt(ctx: symbol)
+tp_sees_lt(C) :- tp_reader(C), ctx_refs(C, "LIFETIME_PARAM").
+.output tp_sees_lt
+.decl tp_blind_lt(ctx: symbol)
+tp_blind_lt(C) :- tp_reader(C), !ctx_refs(C, "LIFETIME_PARAM").
+.output tp_blind_lt
+
+// ── Q2 ──
+.decl where_reader(ctx: symbol)
+where_reader(C) :- ctx_refs(C, "WHERE").
+.output where_reader
+.decl where_lookup(ctx: symbol)
+where_lookup(C) :- where_reader(C), ctx_calls(C, "lookup_type_by_name").
+.output where_lookup
+
+// ── Q3 ──
+.decl const_types_equal(ctx: symbol)
+const_types_equal(C) :- ctx_refs(C, "assoc_consts"), ctx_calls(C, "types_equal").
+.output const_types_equal
+.decl const_region_cmp(ctx: symbol, how: symbol)
+const_region_cmp(C, H) :- const_types_equal(C), ctx_calls(C, H), (H = "subtype" ; H = "variance_ok" ; H = "check_variance").
+.output const_region_cmp
