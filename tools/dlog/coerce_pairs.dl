@@ -1,0 +1,56 @@
+// coerce_pairs — WHICH CROSS-KIND COERCIONS DOES THE STRUCTURAL CHECK ACCEPT, AND
+// WHICH OF THEM DOES THE VARIANCE CHECK EVER COMPARE? (round 2026-09-14a-ptrcoerce)
+//
+// Property, not spelling: an IfStmt inside `types_compatible` whose CONDITION tests
+// the kind of the parameter named `from` against a `LogosType::Kind` constant AND
+// the kind of the parameter named `to` against another. Each (from-kind, to-kind)
+// pair with different constants is a cross-kind coercion the lifetime-erased check
+// admits. `subtype()` (include/logos/compiler/subtype.hpp) returns true on every
+// kind mismatch except the fn-value kinds, so every such pair is a door where
+// pointee variance is never asked. A grep of `Kind::Ptr` cannot pair the two
+// sides of one condition; the tree can.
+//
+// ⚠ COARSENING, stated before the run: the pair is keyed on the NEAREST IfStmt.
+// A nested `if` whose condition names only `to` (the array-decay block) pairs
+// with nothing here — its from-kind lives in the OUTER condition. Cross-checked
+// per site by reading, and both numbers reported.
+//
+// KNOWN-ANSWER CONTROL, stated before the run (read at sema.cpp types_compatible):
+// the pairs (Ref,Ptr) (MutRef,Ptr) (Ptr,Ref) (Ptr,MutRef) (MutRef,Ref) (Ref,Slice)
+// (MutRef,Slice) (Ref,Closure) (MutRef,Closure) (Struct,TraitObject) (Ptr,TraitObject)
+// (Ptr,TaggedPtr) must ALL appear. A missing one means the extraction or the rule
+// is wrong and nothing below is believed.
+#include "cxx_schema.dl"
+
+.decl kind_const(cd: symbol, name: symbol)
+kind_const(C, N) :- enum_member(E, C, N), decl(E, "Enum", Q), contains("Kind", Q).
+
+// the nearest enclosing IfStmt, climbing only through expressions
+.decl in_if(n: symbol, ifs: symbol)
+in_if(N, P) :- node(N, _, P, _), node(P, "IfStmt", _, _).
+in_if(N, I) :- node(N, _, P, _), node(P, K, _, _), K != "IfStmt", K != "CompoundStmt",
+               K != "CXXMethod", K != "Function", in_if(P, I).
+
+// descendants of an `==` comparison
+.decl under_eq(d: symbol, b: symbol)
+under_eq(D, B) :- node(D, _, B, _), binop(B, "==").
+under_eq(D, B) :- node(D, _, P, _), under_eq(P, B).
+
+.decl eq_side(b: symbol, param: symbol, kind: symbol)
+eq_side(B, Pn, K) :- under_eq(U1, B), ref(U1, PD), decl(PD, "ParmVar", _), decl_name(PD, Pn),
+                     under_eq(U2, B), ref(U2, CD), kind_const(CD, K).
+
+.decl tc_if(ifs: symbol)
+tc_if(I) :- node(I, "IfStmt", _, _), ctx_of(I, C), ctx_name(C, "types_compatible").
+
+.decl accepted_pair(from: symbol, to: symbol, file: symbol, line: number)
+accepted_pair(F, T, File, L) :- tc_if(I),
+    in_if(B1, I), eq_side(B1, "from", F),
+    in_if(B2, I), eq_side(B2, "to", T),
+    F != T, loc(I, File, L, _).
+.output accepted_pair
+
+.decl same_kind_if(k: symbol, line: number)
+same_kind_if(F, L) :- tc_if(I), in_if(B1, I), eq_side(B1, "from", F),
+    in_if(B2, I), eq_side(B2, "to", F), loc(I, _, L, _).
+.output same_kind_if
