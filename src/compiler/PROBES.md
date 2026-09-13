@@ -42767,3 +42767,200 @@ sentences, not every raw-lifetime printer: "fixed 1 site, the scan saw 1", not "
     refusal to run, not a verdict. Re-run with the acknowledgement; the number above is that run's.
   * The first numbered-binder branch keyed on `last_rigid_mismatch()` and never fired: B04/I5/s12 printed
     "expected P<'_, '_>, got P<'_, '_>". Caught reading the battery; replaced by numbering in the `es == gs` tail.
+
+## 2026-09-13c-staticdemand — A `'static` DEMAND THAT EXISTS AND IS NEVER ASKED: A WRITE TO A `static mut` WHOSE ELIDED `&u8` IS NOT READ AS 'static (nllmoves.R1), AND A CALLEE'S `where 'a: 'static` THAT `check_call_outlives` SKIPS BECAUSE 'static IS NEVER A SUBSTITUTION KEY (lifereg.L2)
+site: src/compiler/sema_impl.hpp::check_call_outlives
+build: f63616863ddeadfa
+measured: 2026-09-13
+fires: see the batch tables (per probe)
+ceiling: 1 + 1 (two roots, two mechanisms, no shared change)
+cost: 0 in pass / cfail / stdlib for all four batch-1 names
+verdict: see WHAT DESERVES FUNDING
+note: priced, not fixed. Specs and predictions committed before each build (613dd08bf, aca7386fc).
+
+### STEP 1, READ FROM THE TREE — AND THE PROMPT'S CORRECTIONS
+    HEAD 9aa431c28 at open, clean · soundness_queue # TOTAL 107 = 107 by direct listing · queue gate rc 0 (with LOGOS_LIB_DIR)
+    bc_admits # TOTAL 74 · bc_admits_blocked # TOTAL 8 · probe-log-lint 282 records, every site resolves
+    build_hash 86911f4ef2b44caf 43 (read) — binary 05:55, newer than every source except PROBES.md (prose)
+    dlog selftest rc 0: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0 across 756aed65
+  Corrections to the prompt, each checked against the text given:
+    * the prompt's STEP-1 gate command DOES carry LOGOS_LIB_DIR; nothing to correct there.
+    * `probe-batch.sh` does NOT revert its edits on a normal RC=0 finish — the tree was left with all four files
+      modified. Reverted by naming the four files after checking the diff was probe-only (4 markers, 1 replaced line).
+    * `scripts/report-worksheet.py` printed NO PROVENANCE for the five ports this round opened (it did not
+      recognise `// Original path: … @ <sha>` on one line); upstream read directly from /home/logos/cxx/rust.
+
+### THE SURVEY — ROOTS WITH ZERO PROBES.md RECORDS, BY SET, NOT BY SPELLING
+Records = `## <name>` blocks with a `site:` line; a root matches as `<channel>.<suffix>` or `*.<suffix>`.
+    zero-record roots: bck.NEW-L lifereg.C lifereg.L1 lifereg.L2 lifereg.NEW-4 lifereg.NEW-B2(excluded)
+      lifereg.NEW-E0226 lifereg.NEW-N2 lifereg.NEW-N3 lifereg.R17 nllmoves.E nllmoves.NEW-4 nllmoves.NEW-N1
+      nllmoves.NEW-N2 nllmoves.R1 nllmoves.R18
+    ⚠ "zero records" ≠ "never surveyed": lifereg.NEW-4's 19552 was measured 2026-09-01c/09-02p in narrative
+      (no `site:` record) and lifereg.L2 is named in the 09-07b ltbnd round's target list.
+
+### WHY THIS BLOCK — BOTH ARE AN ARM THAT EXISTS REACHED THROUGH A FACT THE SITE DOES NOT CARRY
+ONE-VARIABLE CONTROLS on 86911f4e (compile verdict; every legal one also linked and RUN):
+    M1  let r: &'static u8 = &n              REFUSED  "let 'r': variance mismatch — expected &'static u8, got &u8"
+        h.r = &n   (field &'static)          REFUSED  "assignment to 'h.r': variance mismatch"
+        *pp = &n   (pp: &mut &'static u8)    REFUSED  "deref-write '*ptr = …': variance mismatch"
+        BAR = &n   (static mut BAR: &'static u8)  ADMITTED
+        BAR = &n   (static mut BAR: &u8)          ADMITTED  ← the row
+    M2  fn sid(t: &'static i64); sid(u) / sid(&n)          REFUSED "call to 'sid' arg 1: variance mismatch"
+        fn static_id<'a>(t:&'a i64) where 'a: 'static; static_id(u) / static_id(&n)   ADMITTED  ← the row
+        …same bound on a method, through `'a: 'b, 'b: 'static`, on a generic fn, on `K::keep`   ADMITTED
+    M3  fn assert_static<T: 'static>; assert_static(&line) / via a let / via `arr[0]`          ADMITTED
+THE DECAYED RECORD: the installed probe `lifereg_varassign` (comment in lower_assign: "REFUTED 2026-08-27 OVER A
+LIVE SITE … CEILING 0 … Do not re-propose") now REFUSES `BAR = &n` with explicit 'static, `BAR = p`, and a bare local
+`let mut r: &'static u8 = &FOO; r = &n;`. The 2026-09-02s 'static-slot door landed after it. It still does NOT close
+the row (the static's `&u8` stays EMPTY — doors in series), and it is CONDEMNED BY HAND: it refuses LEGAL
+`let mut r = &FOO; r = &n;` and `let mut r: &u8 = &FOO; r = &n;` — the local's type inherits the init's 'static
+(`expected &static u8` — the region minted by `&STATIC`, spelled without a tick).
+THE SECOND INSTALLED PROBE `sttpempty` (check_type_bounds): closes 19552 and refuses LEGAL
+`let o: Option<&i64> = Option::Some(&S); assert_static(o)` and `let arr: [&i64;1] = [&S]; let w: &i64 = arr[0];
+assert_static(w)`. The second is 19552's own shape with a static — a COLLISION, not a purchase. Its separator is
+not at check_type_bounds: an elided let annotation nested in an ADT arg / array elem drops the init's 'static,
+while `let w: &i64 = &S` keeps it (s2 accepted). Not priced (condemnable by hand, rule: smaller batch).
+
+### dlog — static_demand_sites.dl (selftest rc 0 first), KNOWN ANSWER STATED BEFORE THE RUN
+    outlives_askers = {lower_call}   known answer: the single `check_call_outlives(` call at the exact-overload
+                                     path is inside lower_call — per-site read agrees. CONTROL HOLDS.
+    arg_site_blind (11 contexts): expect_type finish_generic_call lower_enum_lit_data lower_enum_lit_data_from_static
+      lower_generic_ref lower_invoke_expr lower_method_call lower_static_call lower_struct_lit try_method_on_dyn
+      type_bounds_satisfied_quiet
+    PER-SITE READ, side by side (ctx_of coarsens in BOTH directions here):
+      dlog "asks" = 1 context; per site = 1 of 4 argument sites inside lower_call (exact path asks; the closure-
+        callee path, the inferred-generic path and its fallback do not) — PERMISSIVE coarsening
+      dlog "blind" includes lower_struct_lit; per site it asks through the SIBLING `check_struct_lit_outlives` — the
+        rule keyed on one callee name cannot see a repair by delegation
+      expect_type / type_bounds_satisfied_quiet / lower_generic_ref are not call sites (they merely call a coercer)
+      ⇒ per-site blind call sites: generic (finish_generic_call), method ×2, static-call, dyn-method, closure invoke,
+        enum literal ×2. Of these, a fn-pointer/closure invoke has NO where-clause carrier.
+    static_name_decider: lower_assign (bare write), check_place_writable (place write; its caller
+      lower_place_assign runs check_variance on the place type), lower_var_ref (read), lower_unary /
+      lower_expr_inner (the `&STATIC` / `&mut STATIC` 'static mint). Write deciders = 2, both reach check_variance,
+      and the one door neither has is the static's DECLARED elided region read as 'static.
+
+### BATCH 1 — PROBE TABLE, build f63616863ddeadfa 43 (read), L1 inert (rc 0 unarmed), spec 613dd08bf
+    probe        doors                                        fires   ceil cost cfail(of 1541) std  closed, BY NAME
+    stmutassign  static-mut bare write checked vs its type,     17746   1    0    0              ok   {issue-69114-static-mut-ty}
+                 elided Ref regions filled 'static AT THE WRITE
+    stmutdecl    the STATIC ITEM's declared type filled 'static  91974   1    0    0              ok   {issue-69114-static-mut-ty}
+                 at collect_const + the bare-write check
+    cooutstatt   check_call_outlives: a short side 'static is       98   1    0    0              ok   {regions-static-bound}
+                 checked (mapped caller region vs 'static) + transitive saturation
+    cooutall     cooutstatt + the helper at lower_method_call     63766   1    0    0              ok   {regions-static-bound}
+  hand-only on the same build: stmutbare (check, no fill) · cooutstat (no saturation) · cooutstate (+ empty region)
+PREDICTED BY NAME (613dd08bf): stmutassign/stmutdecl {69114}, cooutstatt {regions-static-bound}, cooutall ⊇ that.
+predicted∖measured = ∅, measured∖predicted = ∅ for all four. Hand: predicted cooutall closes d24 — WRONG, d24's `&n`
+is an EMPTY region and no batch-1 name arms the empty rule with the method site; corrected in the batch-2 predictions.
+
+### BATCH 2 — THE STRICT EXTENSIONS, build fef29e3403b8e8fd 43 (read), L1 inert, spec aca7386fc
+    probe        doors                                        fires   ceil cost cfail(of 1541) std  closed, BY NAME
+    stmutdeclx   stmutdecl + fill recurses Array/Tuple/Slice      92218   1    0    0              ok   {issue-69114-static-mut-ty}
+    cooutsites   cooutstatt at exact + METHOD + GENERIC + T::f    80294   1    0    0              ok   {regions-static-bound}
+    cooutsitese  cooutsites + an EMPTY argument region violates   80348   1    0    0              ok   {regions-static-bound}
+    sdwhole      stmutdeclx ∪ cooutsitese                        172566   2    0    0              ok   {issue-69114-static-mut-ty, regions-static-bound}
+predicted∖measured = ∅, measured∖predicted = ∅ for all four (PREDICTIONS.md batch 2). Hand: predicted stmutdeclx closes
+m1i_str_slice — WRONG (see NEIGHBOURS: the comparator reads no Slice region).
+RULE 18 CONTROL TWIN: 280 common (program, name) cells between f63616863ddeadfa and fef29e3403b8e8fd — 0 differ.
+RULE 13: cooutstatt ⊂ cooutsites ⊂ cooutsitese are one row each on the ledger and separate only on hand programs
+(generic, static-call, method-param; then c06 / let-local / d24). stmutdecl vs stmutdeclx likewise (array, tuple).
+The ledger cannot tell any twin apart; only the hand battery can.
+
+### EVERY CLOSED ROW'S DIAGNOSTIC, READ (the real ledger programs)
+    issue-69114-static-mut-ty  (stmutassign, stmutdecl, stmutdeclx, sdwhole — identical text)
+      :16 error [fn set_bar]: assignment to 'BAR': variance mismatch — expected &'static u8, got &u8 — lifetime structure incompatible …
+      :20 error [fn set_bar_elided]: assignment to 'BAR_ELIDED': variance mismatch — expected &'static u8, got &u8 — …
+      upstream E0597 "`n` does not live long enough" at each `= &n` — both sites, the generic variance sentence
+      (the 09-02s 'static-slot precedent), not rustc's wording.
+    regions-static-bound  (every coout* name)
+      :32 error [fn error]: call to 'static_id': borrowed data escapes — the callee's bound `'a: 'static` requires a 'static argument
+      upstream E0521 "borrowed data escapes outside of function". The probe sentence is mine; a landing owes it the
+      argument's name. ⚠ AT A METHOD / `T::f` SITE THE CALLEE PRINTS MANGLED: `call to 'W__keep'`, `call to 'K__keep'`.
+    MINTED-NAME SCAN (the column no harness owns): every armed stderr of both batteries grepped for `'%`, `__anon`,
+    `%<digit>` — 0 files, both builds.
+    RULE-14 RISK, measured by hand: cooutall/cooutsites RE-WORD an already-red non-'static method bound
+    (m2i_method_nonstatic_unrelated: "lifetime mismatch: return type has lifetime 'q …" → "call to 'W__pick': caller does
+    not satisfy callee's outlives bound `'a: 'b` (under arg-type substitution: `'p: 'q` required)"). cfail 0 of 1541:
+    no fixture has the shape — the text change is real and unpinned.
+
+### COSTS NO HARNESS COLUMN SAW (rule 5) — hand battery, 75 programs in 30+ shapes (76 written; q4 discarded, my own type error), every legal one LINKED AND RUN
+Shapes varied, not counted: static-to-static write, `&str` literal write, promoted `&5i64` write, `&'static` param write,
+static read into a local then reassigned, `static mut` integer counter, shadowing local named like the static, static
+array element write, fn returning `&'static`; `where 'a: 'static` fed by a static, an alpha-renamed binder, a `&'static`
+param chain, `&S.f` / `&ARR[i]`, a non-'static `'a: 'b` bound at a fn and at a method, a caller that DECLARES `'x: 'static`,
+transitive `'a:'b,'b:'static` fed by a static, `&str` literal, an implied-bound method, a receiver-bounded method, the four
+in-tree pass fixtures (region_2, regions-static-bound-ok, region-where-outlives-static-id-rg, regions-static-bound-rpass).
+    legal programs whose verdict or exit code moved under ANY of the 9 arms (2 builds):  0
+    illegal programs closed: see NEIGHBOURS
+RUNTIME COLUMN (scripts/run_oracle.py, LOGOS_BUILD=build fef29e3403b8e8fd, ONE build, serial passes, whole name only):
+    unarmed  6715 pass fixtures compiled+linked+RUN (07:48:14 -> 07:58); read-back control 6715 lines = 6715 names = 6715 common, 0 changed
+    sdwhole  6715 common, 0 lost, 0 added, 0 changed, 1 subtracted by name (cast-region-to-uint) (07:58:13 -> 08:08)
+    ⚠ priced on the UNION only. A zero on the whole bounds each part's runtime change on every fixture both compile
+    (the parts refuse nothing the whole compiles: pass cost 0 for all eight names) — it is not a per-name measurement.
+
+### NEIGHBOURS (standing rule 2026-09-12) — each tested against the priced change or a STRICT EXTENSION at the same site
+Nothing lands this round; "closes" = closed by the named arm on build f63616863ddeadfa / fef29e3403b8e8fd, legal battery unchanged.
+    neighbour (hand program)                                    verdict                        reason / number
+    M1 explicit `static mut BAR: &'static u8`, `BAR = &n` (c09)  closes with stmutbare/assign/decl  the check alone (door 1)
+    M1 elided static, param source `BAR = p` (m1i_param_elided)  closes with stmutassign/decl     same site
+    M1 `fn keep<'a>(p:&'a u8){ BAR = p }` (m1i_named_param)      closes with stmutassign/decl     same site
+    M1 `static mut PP: &&u8`, `PP = &r` (m1i_nested_ref)        closes with stmutassign/decl     fill recurses through Ref
+    M1 `static mut ARR: [&u8;2]`, `ARR[0] = &n`                  closes with stmutdeclx ONLY      strict extension: fill recurses into Array; the write is lower_place_assign, so the DECL-site fill reaches it and the assign-site fill does not (rule 9 separator)
+    M1 `static mut TP: (&u8,i64)`, `TP = (&n,1)`                 closes with stmutdeclx ONLY      strict extension: Tuple
+    M1 `static mut NAME: &str`, `NAME = s.as_str()`              ROWED — reason 1, no carrier    the comparator reads no Slice region: `let r: &'static str = s.as_str()` and `let r: &'static [i64] = &v[0..2]` COMPILE on the base binary (q1, q3), and `static mut NAME: &'static str` written explicitly is still admitted under every arm (q2). Same fact as bc_admits better-blame-constraint-for-outlives-static (09-02p: "`Kind::Slice` has no region slot")
+    M1 `static mut OP: Option<&i64>`, `OP = Some(&n)`            ROWED — reason 2, doors in series  the INITIALIZER `Option::None` is refused first ("initializer must be a literal expression … or metacall") under every arm; that refusal is blessed divergence A1 (const-eval replaced by metacall), not a defect
+    M1 bare LOCAL `let mut r: &'static u8 = &FOO; r = &n` (d17), deferred `let r: &'static i64; r = &n` (i09)
+                                                                 ROWED — reason 1, no carrier    lower_assign's `var_type` for a local is the INIT's type: the installed `lifereg_varassign` refuses d17 AND the legal `let mut r = &FOO; r = &n` / `let mut r: &u8 = &FOO; r = &n` (l01 l02) with the identical "expected &'static u8"-shaped comparand. Whether the annotation WROTE the region is not carried
+    M2 `where 'a: 'static`, param source (the row, c07)          closes with cooutstat*           mapped caller region vs 'static
+    M2 through `'a: 'b, 'b: 'static` (d26)                       closes with cooutstatt           strict extension: transitive saturation of the callee's pairs
+    M2 struct arg `W<'a>` (m2i_struct_arg), `&mut` (m2i_mut_ref), named caller `<'q>` (m2i_named_caller)
+                                                                 close with cooutstat             same site
+    M2 method call, param source (m2i_method_param)              closes with cooutall/sites       the same helper called at lower_method_call
+    M2 generic fn `<'a, T>` (m2i_generic_T_where_static)         closes with cooutsites           the same helper at finish_generic_call
+    M2 `K::keep(u)` (m2i_static_method)                          closes with cooutsites           the same helper at lower_static_call
+    M2 body borrow `&n` / `let p: &i64 = &n` (c06, m2i_let_local_ref), method `w.keep(&n)` (d24)
+                                                                 close with cooutsitese ONLY      the EMPTY-region rule: `record` drops an empty caller region, so nothing maps
+    M2 closure / fn-pointer invoke                               ROWED — reason 1, no carrier    a fn-pointer or closure type carries no where-clause (lower_invoke_expr, dlog arg_site_blind)
+    M3 `T: 'static` with an EMPTY region (19552)                 ROWED — reason 2, doors in series  sttpempty closes it but refuses legal s4 `let o: Option<&i64> = Some(&S)` and s5 (19552's own shape with a static): an elided let annotation nested in an ADT arg / array element drops the init's 'static. That door must open first.
+
+### FOUND, NOT NEIGHBOURS
+  * ROWED — soundness_queue `promoted_literal_call_arg_refused` (tier 3, refuses; 107 -> 108 by direct listing, queue gate
+    rc 0): `let a = id(&5i64);` is refused "temporary value dropped while borrowed" (also unused; also into a `&'static i64`
+    param). Legal Rust by constant promotion — claim rests on reading, no rustc binary. `let a: &i64 = &5i64;` alone runs 5.
+    No fail `.expected` of the 25 pinning that sentence passes a literal as a call argument.
+  * NOT ROWED, A1: `static mut OP: Option<&i64> = Option::None;` — "initializer must be a literal expression … or metacall".
+    Blessed divergence A1 (const-eval replaced by metacall); consistent with its logic.
+  * REPORTED, NOT EDITED — corpus questions with an owner:
+      nll/impl-trait-captures (nllmoves.NEW-N1): upstream has NO edition pin (edition 2015). Under Rust 2024 an RPIT captures
+        every in-scope lifetime including the elided argument lifetime, so `fn foo<'a>(x: &i64) -> impl Foo<'a>` returning a
+        `W { r: x }` is LEGAL 2024 Rust by my reading (no rustc binary). Same shape as issue-51268's 09-11 retire note.
+      regions/explicit-static-bound-on-trait (lifereg.NEW-4): the port is LEGAL as ported (09-01f §7, re-read: `W` has no
+        lifetime and `Anyish` has no `'static` supertrait). Still grouped under one root with 19552, which is a different door.
+  * `tools/dlog/static_demand_sites.dl` — new rule, known answer `outlives_askers = {lower_call}` stated before the run and
+    measured exactly; its `arg_site_blind` is COARSE in both directions and was cross-checked per site (above).
+  * `probe-batch.sh` leaves its edits in the tree on RC=0 (both batches). Recorded, not changed (tooling freeze).
+
+### WHAT DESERVES FUNDING
+ 1. **M2 as `cooutsitese`** — `check_call_outlives` checks a callee's `'a: 'static` (transitively saturated) against the mapped
+    caller region, an EMPTY caller region violates it, and the helper is called at the generic, method and `T::f` sites.
+    1 row + 9 illegal neighbours closed by hand, 0 legal moved, cost 0/0/ok. A landing owes: the argument's name in the
+    sentence, a demangled callee at method/static sites, and a decision on the non-'static method-site re-word (rule 14).
+    Closure/fn-pointer invoke stays a row: no carrier.
+ 2. **M1 as `stmutdeclx`** — a static item's elided regions ARE 'static (Rust items.static), read at collection, and a bare write
+    to a `static mut` checked against it. 1 row + 6 illegal neighbours by hand, 0 legal moved, cost 0/0/ok, fires 92218.
+    Prefer the DECL-site fill to the write-site fill: it also reaches `ARR[i] =` through lower_place_assign. Slice and
+    ADT-arg neighbours stay rows (no Slice region in the comparator; A1 initializer first).
+ 3. NOT `lifereg_varassign` as installed (refuses legal l01 l02), NOT `sttpempty` (refuses legal s4 s5; 19552 collides with
+    its legal twin). The door both wait on is the elided let annotation that drops the init's 'static inside an ADT arg /
+    array element — a separate block.
+ 4. The two are INDEPENDENT (two sites, two facts): no candidate change moves both rows except the union `sdwhole`, and
+    `sdwhole`'s set is exactly the disjoint union — ceilings additive here, 1 + 1 = 2.
+
+### THE TREE AT CLOSE — PRICED, NOT FIXED
+  compiled sources identical to HEAD at open (`git diff -- src/compiler/*.cpp src/compiler/*.hpp include` empty); both
+  batches' edits reverted by naming the four files; `build/` rebuilt from them: build_hash 86911f4ef2b44caf 43 (read) = the
+  opening binary. L1 from build/ rc 0 (807/807 + smoke 12 684 + 132 gates, 08:13:53 -> 08:17) · queue gate rc 0, 108 rows
+  (tier1 19 / tier2 24 / tier3 57 / tier4 8) · probe-log-lint 283 records · bc_admits # TOTAL 74 unchanged.
+  Committed with it: this record, soundness_queue row `promoted_literal_call_arg_refused` + its program. Committed before
+  the builds: TARGETS.md, PREDICTIONS.md (both batches), both specs, tools/dlog/static_demand_sites.dl.

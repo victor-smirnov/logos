@@ -1,0 +1,24 @@
+package promoted_literal_call_arg_refused;
+
+fn id(p: &i64) -> &i64 {
+    return p;
+}
+
+fn main() -> i32 {
+    let a = id(&5i64);
+    if *a != 5i64 { return 1i32; }
+    return 0i32;
+}
+// SOUNDNESS QUEUE row promoted_literal_call_arg_refused (tier 3).
+// Legal Rust: `&5i64` is a constant expression and is promoted to a `&'static i64`
+// (rvalue static promotion), so the reference `id` returns outlives the statement.
+// ⚠ No rustc binary on this box; the legality claim rests on the promotion rule as
+// read, and `let a: &i64 = &5i64;` (the same literal WITHOUT the call) compiles and
+// runs 5 today. TODAY refused: "temporary value dropped while borrowed: this reference
+// borrows into a temporary that is dropped at the end of the statement; bind the
+// owning value to a variable first so it outlives the borrow" — also when `a` is
+// never used, and also when the parameter is `&'static i64`. Measured 2026-09-13c
+// on builds 86911f4ef2b44caf (unarmed hand m2l_promoted_and_field / split_promoted) and
+// fef29e3403b8e8fd (p1, p3, p6). `const_promote::is_promoted_borrow` answers `&5i64` and
+// `&id(3i64)` (pass fixture bc_tmpassign_promoted) but a promoted literal passed AS A
+// CALL ARGUMENT whose result is bound is not recognised.
