@@ -1,0 +1,35 @@
+// place_extract_consumers — WHICH CONTEXTS HAND A PLACE TO extract_borrow_place, AND WHICH OF THEM THEN ASK
+// check_recv_conflict? (round 2026-09-14a-ptrcoerce, bck.B)
+//
+// Property: the walker `extract_borrow_place` roots FieldRead / TupleIndex / IndexRead / Deref / VarRef and has no
+// arm for Code::AddrOf, so a consumer handed an AddrOf gets `root` empty — and check_recv_conflict's first line
+// returns on an empty root. That early exit is PERMISSIVE. The class is every context that calls the walker; the
+// ones that ALSO call check_recv_conflict are where an unrooted AddrOf becomes a silently skipped conflict.
+// A grep for "extract_borrow_place(" lists call LINES; it cannot say which enclosing function (or named lambda)
+// a line belongs to, nor which of those also reaches the conflict check.
+//
+// ⚠ COARSENING stated before the run: ctx_of keys on the enclosing named context. visit() holds dozens of arms,
+// so "visit calls both" says nothing about ONE arm. The per-site read is reported beside it.
+//
+// KNOWN-ANSWER CONTROL, stated before the run: the context enclosing the MethodCall arm's bare-place receiver
+// check (the one this round probes as aorecvsk) must appear in `both`; if `both` is empty the extraction is wrong.
+#include "cxx_schema.dl"
+
+.decl named_fn(did: symbol, name: symbol)
+named_fn(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N).
+named_fn(D, N) :- decl(D, "Function", _), decl_name(D, N).
+
+.decl ctx_call_site(ctx: symbol, callee: symbol, line: number)
+ctx_call_site(C, N, L) :- named_fn(D, N), call(K, D), ctx_of(K, X), ctx_name(X, C), loc(K, _, L, _).
+
+.decl walker_consumer(ctx: symbol, line: number)
+walker_consumer(C, L) :- ctx_call_site(C, "extract_borrow_place", L).
+.output walker_consumer
+
+.decl conflict_asker(ctx: symbol, line: number)
+conflict_asker(C, L) :- ctx_call_site(C, "check_recv_conflict", L).
+.output conflict_asker
+
+.decl both(ctx: symbol)
+both(C) :- walker_consumer(C, _), conflict_asker(C, _).
+.output both
