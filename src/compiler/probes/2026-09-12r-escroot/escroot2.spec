@@ -308,3 +308,31 @@ file: src/compiler/borrow_check.cpp
             for (auto& p : fn.params()) sr_(p.type(fn_pool), 0);
             sr_(fn.ret_type(fn_pool), 0);
         }
+===
+name: dwcensus1
+file: src/compiler/borrow_check.cpp
+---
+                        std::vector<std::string> esc_;
+                        collect_borrowed_local_roots(v.value(), esc_);
+---
+                        std::vector<std::string> esc_;
+                        collect_borrowed_local_roots(v.value(), esc_);
+                        logos::probe::census("esc.dw.param_arm");   // CENSUS 2026-09-12r
+===
+name: dwcensus2
+file: src/compiler/borrow_check.cpp
+---
+                        else if (cur.kind() == EC::TupleIndex){ cur = ETupleIndexView{cur}.receiver(); }
+                        else break;
+                    }
+---
+                        else if (cur.kind() == EC::TupleIndex){ cur = ETupleIndexView{cur}.receiver(); }
+                        else break;
+                    }
+                    // CENSUS 2026-09-12r — the place walk stopped at a Deref of a PARAMETER.
+                    if (cur && cur.kind() == EC::Deref) {
+                        auto o_ = EDerefView{cur}.operand();
+                        if (o_ && o_.kind() == EC::VarRef &&
+                            param_names_.count(std::string(EVarRefView{o_}.name())))
+                            logos::probe::census("esc.dw.walk_stops_at_param_deref");
+                    }
