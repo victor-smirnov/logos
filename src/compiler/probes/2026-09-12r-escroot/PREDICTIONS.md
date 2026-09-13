@@ -69,3 +69,14 @@ Predicted COST (legal, must compile+run): t1 t2 a1 a2 a3 a4 a6 i1 i2 v1 v2 v3 v5
 legal program of batch 1. Named risks: lrtemp → t1 (`&v[1]` on a Vec param may lower to a call),
 t2; lrvar → v6 (shadowing may leave a stale source), v7 (branch), v8 (holder channel);
 lrimpl → i1 i2.
+
+## BATCH 3 — THE COMBINATION (spec `escroot3.spec`), WRITTEN BEFORE ITS BUILD
+
+`lrland` = lrall + lrimpl + lragg + lrtemp — NOT lrvar: the batch-2 hand battery measured lrvar
+refusing the LEGAL v8 (`let hr = &h; let e = hr.r; *out = e;` → "'h' does not live long enough").
+Rule 13: the parts were priced alone, the combination was not. `lrall` again as control twin.
+Predicted: ceiling 3 (method-ufcs-inherent-3, method-ufcs-inherent-4,
+regions-free-region-ordering-caller1); cost 0 / cfail 0 / stdlib ok. Hand battery: the union of
+lrall's, lrimpl's (i3), lragg's (a5 d6 d7 n2 n3 r2 k21) and lrtemp's (k23) refusals, plus r8
+(impl binder AND aggregate — doors in series, closed only under lrx in batch 2); every legal
+program of batches 1-2 still compiles and runs; x3 x10 v8 unchanged from lrall.
