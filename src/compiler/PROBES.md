@@ -43082,3 +43082,279 @@ Prediction file (before any landing edit): scratch PREDICT_landing — 2 rows; h
       address), +14 = the bc_staticdemand_*_admit pass halves, each RUN
     fail_text_oracle: 1541 common, 0 changed in rc / stderr sha / .expected match, +16 = the 14 native fail halves + 2 moved ports
     stdlib: full `cmake --build build` rc 0 on the landed compiler (all four layers rebuilt, 08:54-08:56 and again for 4cf0bf5e)
+
+## 2026-09-13e-declarrival — THREE DECLARATION CHECKS THAT EXIST AND ONE ARRIVAL NEVER REACHES: AN UNDECLARED WHERE SUBJECT (lifereg.R17 where half), A TURBOFISH'S LIFETIME COUNT AT A CONSTRUCTOR (lifereg.R17 ctor half), AN ASSOCIATED CONST'S REGIONS AGAINST THE TRAIT'S (nllmoves.R18)
+site: src/compiler/sema_expr.cpp::lower_enum_lit_data_from_static
+build: 9dfd8daabf28f2eb (batch 1) · 008906213bed3058 (batch 2) · 208482e377cb7ca4 (batch 3)
+measured: 2026-09-13
+fires: rtunion 27879132 (the union) · whundeclfn 26360996 · c3enum 5107 · k3const 33 — every name in the batch tables
+ceiling: 3 rows by the union rtunion = {outlives-with-missing, constructor-lifetime-early-binding-error, trait-associated-constant}, additive 1+1+1
+cost: 0 in pass / cfail 0 of 1557 / stdlib 4 of 4 / runtime 6729 fixtures 0 changed (rtunion); 0 legal moved over 122 hand programs
+verdict: see WHAT DESERVES FUNDING
+note: priced, not fixed. TARGETS.md, PREDICTIONS.md and declarrival.spec committed before batch 1's build (9e52f42d2); batch 2's spec and predictions before its build.
+
+### STEP 1, READ FROM THE TREE — AND THE PROMPT'S CORRECTIONS
+    HEAD 7b21acc54 at open, clean · soundness_queue # TOTAL 117 = 117 by direct listing · queue gate rc 0 (with LOGOS_LIB_DIR)
+    bc_admits # TOTAL 72 · bc_admits_blocked # TOTAL 8 · probe-log-lint 284 records, every site symbol resolves
+    build_hash 4cf0bf5e5e07b0cf 43 (read) = the landed 2026-09-13d GATES build; binary 09:24
+    dlog selftest rc 0: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0 across 756aed65
+  Corrections, each checked against the text given:
+    * the prompt's STEP-1 gate command DOES carry LOGOS_LIB_DIR; nothing to correct.
+    * "last derived 2026-09-13" survey: re-derived by SET over 317 `## ` records with a `site:` line. Every ledger root now
+      appears in ≥1 record, because 2026-09-13c's own survey block names the zero-record roots; excluding that block, the
+      zero-record set is bck.NEW-L lifereg.C lifereg.L1 lifereg.NEW-4 lifereg.NEW-B2 lifereg.NEW-E0226 lifereg.NEW-N2
+      lifereg.NEW-N3 lifereg.R17 nllmoves.E nllmoves.NEW-4 nllmoves.NEW-N1 nllmoves.NEW-N2 nllmoves.R18 (+ the one-record
+      roots lifereg.NEW-PROJBOUND, nllmoves.R14, nllmoves.R2, nllmoves.R3, lifereg.NEW-N4, lifereg.NEW-R19, nllmoves.NEW-2,
+      nllmoves.NEW-L1 — each mention a list line, not a priced probe).
+    * `probe-batch.sh` still writes fixed /tmp names (/tmp/probe-<name>.out, /tmp/probe-batch-*.log); timestamps quoted below.
+
+### THE SURVEY'S CHOICE — WHY THESE THREE (TARGETS.md, committed 9e52f42d2 before any build)
+Each is an ARM THAT EXISTS reached through a fact the site does not carry. One-variable controls on 4cf0bf5e (every legal one
+linked and RUN):
+    W  `fn f(x: &T)` / `fn f<U: Gen<T>>` / `where U: Gen<T>`   REFUSED "unknown type 'T'"
+       `where T: Tr`, T declared nowhere — free fn, inherent method, trait-impl method, trait method decl, impl header, struct
+                                                             ADMITTED; `f::<A, A>(&a)` against `fn f<U: Tr>(..) where T: Tr` RUNS (rc 3):
+                                                             T became a SECOND type parameter (fold_where_bounds' add-fallback)
+    C  `let e: E<'static> = ..` for `enum E<'a,'b>`            REFUSED "'E': expected 2 lifetime arg(s), got 1"
+       `E::V::<'static>(&x)`, `S::<'static,'static,'static> {..}`, `E::N::<'static>`, `E::V::<i64,i64>(1)`   ADMITTED
+    K  const type `Option<i64>` vs trait `Option<&'b str>`     REFUSED (by base name, both spelled 'Option')
+       `&'c str` vs `&'b str`; `Option<&'b str>` vs `Option<&'a str>` under 'a:'b   ADMITTED
+       method return `Option<&'c i64>` vs trait `Option<&'b i64>`                   ADMITTED (the method-compare site)
+Not taken: lifereg.L1 (the free-fn analogue refuses only at RETURN — no call-site arm); nllmoves.NEW-N2 (its struct analogue is
+LEGAL by implied bounds — no arm); lifereg.NEW-E0226 (docs/spec/types.md: "recorded but not yet enforced" — no arm);
+lifereg.NEW-PROJBOUND (signature-type WF admits `AuthSession<U>` for unbounded U too — a wide class, not one arrival).
+
+### dlog — decl_arrival_sites.dl (selftest rc 0 first), KNOWN ANSWERS STATED BEFORE THE RUN, over sema{,_expr,_collect,_decl,_stmt}.cpp
+    K1 collect_impl ∈ tp_sees_lt ✓   K2 fold_where_bounds ∈ where_lookup ✓   K3 collect_impl ∈ const_types_equal ✓   CONTROLS HOLD
+    tp_blind_lt (35 contexts read TYPE_PARAMS and never name LIFETIME_PARAM), the turbofish arrivals among them:
+      lower_enum_lit_data_from_static lower_struct_lit lower_generic_ref lower_generic_call lower_static_call lower_method_call
+      build_turbofish try_variant
+    const_region_cmp = ∅ — collect_impl never calls subtype / variance_ok / check_variance at all.
+    where_reader ∖ where_lookup: collect_enum collect_fn collect_struct collect_trait compute_fn_lifetime_outlives lower_enum_def
+      lower_struct_def
+    PER-SITE READ, side by side: sema_expr.cpp names LIFETIME_PARAM at exactly two lines — lower_type_intrinsic (dlog: sees ✓) and
+    lower_quote_ty (not a TYPE_PARAMS reader ✓); neither enum-lit nor struct-lit function names it (dlog: blind ✓). 2 of 2 agree.
+    ⚠ dlog did NOT see the door that decided W: `read_type_params` returns before `fold_where_bounds` when the fn has no
+    type-param list. "Which callers reach the fold" is a CFG question on an early return; the rule asked a context question.
+
+### BATCH 1 — PROBE TABLE, build 9dfd8daabf28f2eb 43 (read), L1 inert (rc 0 unarmed, 807/807 + 130 gates, 10:25), spec 9e52f42d2
+    probe          fires     ceiling  cost  cfail(of 1557)  stdlib  closed (diffed BY NAME against PREDICTIONS.md)
+    whundecl           0        —      —      —              —      NEVER FIRED — unreached over the whole population
+    ctltenum        6156        1      0      0              ok     {constructor-lifetime-early-binding-error} = predicted
+    ctltenum0       6156        1      0      0              ok     {constructor-lifetime-early-binding-error} = predicted
+    cttyenum        6156        0      0      0              ok     ∅ = predicted
+    ctltstruct     12011        0      0      0              ok     ∅ = predicted
+    ctltall        18167        1      0      0              ok     {constructor-...} ; fires 6156+12011, ceiling 1+0: ADDITIVE
+    acregion          36        0      0      0              ok     ∅ ≠ predicted {trait-associated-constant} — see K below
+    acregionraw       72        0      0      0              ok     ∅ (72 = 2 `on()` evaluations per arrival, 36 arrivals)
+    sigimplrgn   1501528        0      0      0              ok     ∅ = predicted
+    ksall        1501564        0      0      0              ok     ∅ ; fires 36+1501528: ADDITIVE
+    Row diagnostic READ (ctltenum/ctltenum0/ctltall, identical):
+      constructor-lifetime-early-binding-error.logos:30: error [fn main]: 'E': expected 2 lifetime arg(s), got 1
+      constructor-lifetime-early-binding-error.logos:31: error [fn main]: 'E': expected 2 lifetime arg(s), got 3
+      (upstream E0107 "enum takes 2 lifetime arguments but 1 lifetime argument was supplied" — right verdict, both lines, the
+      type-position arm's own sentence)
+
+### WHY TWO PREDICTIONS MISSED — DOORS IN SERIES, MEASURED ON THE BATCH-1 BINARY
+    W  whundecl refuses the free fn (r17_a), impl header (wh3), struct (wh4), `where T: 'a` (I_w12) and NOT the row, the inherent
+       method (r17_e), the trait-impl method (wh8), the trait method decl (wh5), the trait default body (I_w11). Every miss is a fn
+       with NO type-param list: `read_type_params` returns `if (!node.has_key(la::TYPE_PARAMS))` BEFORE the fold. The row's
+       `set_handler` has none. The fallback itself is correct and unreachable from the row: doors in series.
+    K  acregion's census fires 6 on the row and refuses nothing. `&'c str` is a SLICE, and subtype()'s Slice arm compares only the
+       element — the slice's own region is the missing observation `ltslicevar`/`ltslicelt` already record. The same arm refuses the
+       non-slice twins: `&'c i64` vs `&'b i64` "has type '&'c i64', which is not compatible with the trait's '&'b i64' (lifetime
+       mismatch)", `Option<&'c i64>`, `(&'c i64, i64)`. `probe::on` arms one name per process, so acregion + ltslicelt cannot be
+       armed together; the strict extension compares the slice region inside the same block (batch 2).
+    sigimplrgn is LIVE and closes an illegal program unarmed-admitted: method `-> Option<&'c i64>` against trait
+       `-> Option<&'b i64>` refused "method 'ac' does not match the trait declaration: the return type is declared
+       'Option<&'b i64>' and the impl declares 'Option<&'c i64>' (lifetime mismatch)". It misses `&'c str` for the Slice reason.
+
+### RUNTIME COLUMN (batch-1 binary 9dfd8daabf28f2eb, one configure, interleaved in one chain 11:13 -> 11:33)
+    run_oracle unarmed vs LOGOS_PROBE=ctltall: 6729 pass fixtures compiled, linked and RUN on both; common 6729, lost 0, gained 0,
+    changed 0 (cast-region-to-uint subtracted by name). ctltall's refusals are a superset of ctltenum's, so ctltenum's runtime cost
+    is bounded by the same 0.
+
+### HAND BATTERY, BATCH 1 (99 programs, then +11 for arms the pricer had not attacked; every legal one linked and RUN)
+    base (4cf0bf5e, unarmed) — LEGAL PROGRAMS ALREADY REFUSED, i.e. not a probe's cost, each re-read:
+      L_k09 `impl<'z> Get<'z>` returning `&'z` for trait `&'a`   "method 'get' does not match … declared '&'a i64' and the impl declares '&'z i64'"
+      L_k11 crossed binders, L_k13 `&'a` for `&'b` under `'a: 'b` — same sentence; the return compare keys region NAMES (rule 12)
+      L_w10 `impl<X,Y> Sum for P<X,Y> where X: Tr, Y: Tr`       "type parameter 'X' has no trait bound providing method 't'"
+      L_k08 `Self::NAME` in a trait default body                  "unknown enum 'Self'"
+      L_c04 `Result::Ok::<i64, _>(6)`                              mlir_gen internal "unknown field type in 'SkipWhileIter$G2$OptionIter$G1$_$_'"
+      L_t01 `enum E<T, U = i64>`, `E::V::<i64>(3)`                 mlir_gen internal "unknown tagged enum 'E__i64__<error>'"
+      L_t02 `S::<'_, i64> { .. }`, ct8 `E::V::<'_, i64>(..)`, ct11 `f::<'_, '_>(..)`  "unexpected type node code 131" (backlog lt_turbofish_absent)
+    armed, diff vs base BY NAME:
+      whundecl    +REFUSED r17_a wh3 wh4 I_w12 (all illegal)                   legal moved 0
+      ctltenum    +REFUSED I_c13 (+row)                                        legal moved 0 (ct7, illegal, gains a 2nd sentence)
+      ctltenum0   +REFUSED I_c13 ct2 I_c11                                     legal moved 0
+      cttyenum    +REFUSED ct3 r17_h                                           legal moved 0; L_t01 (already refused, internal) is
+                  re-worded "enum 'E': expected 2 type arg(s), got 1" — the arm ignores DEFAULTED type params: a defect of the
+                  arm that is invisible only because the base refuses the program for another reason (rule 14 in reverse)
+      ctltstruct  +REFUSED ct5 I_c12 r17_i                                         legal moved 0
+      ctltall     = ctltenum ∪ ctltstruct, by name
+      acregion / acregionraw / ksall / sigimplrgn   no change on the battery (the Slice door); sigimplrgn's live refusal is kd7
+
+### BATCH 2 — THE STRICT EXTENSIONS, build 008906213bed3058 43 (read), L1 inert (rc 0 unarmed, 807/807 + 130 gates, 11:41), spec 849792395
+    probe          fires     ceiling  cost  cfail(of 1557)  stdlib  closed (BY NAME vs PREDICTIONS2.md)
+    whundeclx     7741363       0      0      0              ok     ∅ ≠ predicted {outlives-with-missing} — W2
+    whundeclm     7741363       0      0      0              ok     ∅ ≠ predicted — W2 (fires = on() evaluations at every no-key arrival)
+    acregionsl         33       1      0      0              ok     {trait-associated-constant} = predicted
+    ctltunit         3206       0      0      0              ok     ∅ = predicted
+    sigimplrgnsl  1501528       0      0      0              ok     ∅ = predicted
+  Row diagnostics READ on the batch-2 binary:
+    acregionsl  trait-associated-constant: ONE error, on FailStruct only (3 compares, 1 refusal; OKStruct1 `'b`, OKStruct2 `'a` under `'a: 'b` pass):
+      error [impl Anything for FailStruct]: impl Anything for FailStruct: associated constant 'AC' has type 'Option<&[u8]>', which is not
+      compatible with the trait's 'Option<&[u8]>' (lifetime mismatch)
+      ⚠ RIGHT VERDICT, WRONG SENTENCE: `type_str` prints a borrowed slice as `&[u8]` and drops its region, so the sentence names ONE
+      spelling twice and neither `'c` nor `'b`. A landing owes the source spelling (`&'c str` vs `&'b str`).
+    whundeclm / whundeclx  outlives-with-missing: still rc 0. See W2 below.
+    ctltunit / sigimplrgnsl  the row is not theirs; rc 0 on it, as predicted.
+  HAND BATTERY, 116 programs, keyed join against the unarmed 116 (a line diff of fixed-width columns printed NOTHING for acregionsl and
+  was wrong — every comparison below is a join by file name; batch 1's were re-done the same way and agree):
+    acregionsl    +REFUSED cn1 cn8 I_k15 r18_b kd1 kd2 kd3 kd4 (all illegal)   legal moved 0 (L_k01..L_k07, cn3, cn4, cn10 compile and run)
+    ctltunit      +REFUSED ct12 `E::N::<'static>` "'E': expected 2 lifetime arg(s), got 1"; census ctlt.unit.turbofish.present 1   legal moved 0
+    sigimplrgnsl  +REFUSED cn2 kd7 r18_c (all illegal)                           legal moved 0 (L_k10 `&'static` for `&'a`, L_k12)
+                  sentence for cn2 repeats the slice printer defect ("declared '&[u8]' and the impl declares '&[u8]'")
+    whundeclx     +REFUSED r17_a wh3 wh4 I_w12 = batch-1 whundecl, by name       legal moved 0
+    whundeclm     no change
+
+### W2 — THE THIRD DOOR ON THE WHERE ROW, FOUND BY CENSUS, NOT BY READING
+    whundeclm guarded `!node.has_key(la::TYPE_PARAMS)`. Its census `where.noparams.subject` reads 242 on EVERY compile — nowhere.logos
+    (no where clause at all), the row, the row re-spelled `where Zzq: ..`, I_m07, r17_e, wh5, wh8, I_w11 — so all 242 are
+    prelude/stdlib subjects (all resolved) and a USER method contributes ZERO arrivals. `collect_fn` calls `read_type_params(node)`
+    unconditionally, and read_type_params has THREE returns before the fold: no key, `tpav.is_null()`, no ITEMS. A user method
+    with no own params takes the second. A fn signature with no `<...>` is the whole population of the row's shape; the probe
+    was placed on a door no user program opens. Batch 3 guards "does not reach the fold" instead of one spelling of it.
+    ⚠ dlog: `where_lookup` ∋ fold_where_bounds is TRUE and was the known answer; it says nothing about which arrivals REACH it.
+
+### NEIGHBOURS (standing rule 2026-09-12) — each tested against the priced change or a STRICT EXTENSION at the same site
+    neighbour (the SAME decision from the SAME fact)                        verdict      the change that closes it / the reason and the number
+    C  `E::V::<'static,'static,'static>(&x)` (too many, same row)            CLOSED       c3enum, same site
+    C  `E::V::<'q,'q>(r)` on `enum E<'a>` in a generic fn (I_c13)            CLOSED       c3enum
+    C  `E::V::<'static>(1)` on a LIFETIME-FREE enum (ct2, I_c11)              CLOSED       c3enum's zero-declared case (batch-1 ctltenum0: 1/0/0/ok)
+    C  `S::<'static,'static,'static> { .. }` struct literal (ct5, r17_i, I_c12)  CLOSED    c3struct, strict extension, the struct-lit arrival (batch-1 0/0/0/ok)
+    C  `E::N::<'static>` unit variant path (ct12)                            CLOSED       c3unit, strict extension at lower_enum_lit (batch-2 0/0/0/ok)
+    C  `S::<'static>(&0,&0)` TUPLE-STRUCT ctor, `f::<'a>(..)` fn turbofish   ROWED        (2) doors in series: the turbofish does not lower at all —
+                                                                                           "unexpected type node code 131" on the LEGAL `f::<'_,'_>` and
+                                                                                           `E::V::<'_, i64>` too (backlog lt_turbofish_absent, tuplestruct_ctor_turbofish)
+    C  `E::V::<i64,i64>(1)` TYPE-arg count at the ctor (ct3, r17_h)          NOT A NEIGHBOUR  a different fact (type count, the check_type_arg_arity arm), same
+                                                                                           arrival. Priced as cttyenum: 0/0/0/ok, closes both — and its arm ignores
+                                                                                           DEFAULTED params (L_t01, refused unarmed for an internal reason, re-worded):
+                                                                                           (3) own cost, unpriced in the direction no corpus program exercises
+    K  `&'c str` / `Option<&'b str>` under 'a:'b / `(&'c str, i64)` / `&'c [i64]` / `&'c i64` const (cn1 cn8 I_k15 kd1-kd4 r18_b)   CLOSED   k3const
+    K  method RETURN `&'c str`, `Option<&'c i64>` vs trait (cn2 kd7 r18_c)   CLOSED       k3sig, strict extension at the method-compare site (batch-2 0/0/0/ok)
+    K  method PARAM `Option<&'c str>` vs trait `Option<&'b str>` (cn11)      ROWED        (3) its own cost is unpriced: the param slot is CONTRAVARIANT and k3sig
+                                                                                           compares only returns; a param arm is a different comparison, not a
+                                                                                           strict extension of k3sig
+    K  renamed / crossed impl binders and `&'a` for `&'b` under 'a:'b REFUSED (L_k09 L_k11 L_k13)   ROWED   a legal-refusal hole at the same site: the existing
+                                                                                           return compare keys region NAMES. k3sig ADDS a check and cannot remove a
+                                                                                           refusal: (1) the fact has no carrier in that comparator — it never maps
+                                                                                           the trait's lifetime params through `trait_lt_args`. Queue rows below.
+
+### BATCH 3 — HAND BATTERY, 122 programs (116 + six whundeclfn attacks: a stdlib type name, a struct / enum / alias declared LATER in
+the file, `where Self: Sized` in an inherent impl, a trait-impl method repeating its header bound), keyed join vs the unarmed 122
+    whundeclfn    +REFUSED I_m07 "unknown type 'Q'", r17_e, wh8 (all illegal)          legal moved 0 (L_m01..L_m12, L_w01..L_w09 run)
+    whundeclimpl  +REFUSED I_w13 "[struct P]: unknown type 'T'"                         legal moved 0
+    whundeclall   = whundecl ∪ whundeclfn ∪ whundeclimpl, BY NAME (8)                   legal moved 0
+    c3enum        +REFUSED I_c11 I_c13 ct2                                              legal moved 0
+    c3struct      +REFUSED I_c12 ct5 r17_i                                              legal moved 0
+    c3unit        +REFUSED ct12                                                         legal moved 0
+    k3const       +REFUSED cn1 cn8 I_k15 kd1 kd2 kd3 kd4 r18_b                          legal moved 0
+    k3sig         +REFUSED cn2 kd7 r18_c                                                legal moved 0
+    rtunion       26 = the union of the eight parts BY NAME                             legal moved 0; admitted-run changed 0
+  Row diagnostics READ on build 208482e377cb7ca4:
+    whundeclfn / whundeclall / rtunion  outlives-with-missing: `error [fn HandlerWrapper__set_handler]: unknown type 'T'`
+      (census where.nofold.undecl 1 of 125 subjects) — upstream E0412 "cannot find type `T` in this scope": right verdict,
+      the type-position arm's own sentence; the bracket names the mangled fn, as every sema diagnostic here does.
+    rtunion  constructor-lifetime-early-binding-error: both lines, "'E': expected 2 lifetime arg(s), got 1" / "got 3"
+    rtunion  trait-associated-constant: FailStruct only, the `Option<&[u8]>`-twice sentence (the slice printer defect)
+    W  `where T: Tr` undeclared on a free fn WITH params (r17_a), `where T: 'a` (I_w12), impl header (wh3), struct (wh4)   CLOSED  whundeclall's
+                                                                                           fold half (batch-1 whundecl: never fired over the population)
+    W  inherent method (r17_e), trait-impl method (wh8), inherent method `where Q: Tr` (I_m07)   CLOSED  whundeclfn — the same arrival as the row
+    W  a TRAIT impl header `impl<X> Sum for P<X> where T: Tr` (I_w13)        CLOSED       whundeclimpl, strict extension at collect_impl's own where loop
+                                                                                           (NEVER FIRED over the population; hand only)
+    W  a trait DEFAULT body `where T: Tr` in a trait with NO impl (I_w11)    ROWED        (2) doors in series: a default body is collected only per impl
+                                                                                           (`collect_fn(default_ast)` from collect_impl). The same program with
+                                                                                           `impl Q for S {}` added IS refused under whundeclfn: "[fn S__q]: unknown
+                                                                                           type 'T'" (census where.nofold.undecl 1). Unimplemented, the body is not read.
+    W  a trait method DECLARATION `fn q(..) where T: Tr;` (wh5)              ROWED        (3) own cost unpriced: with an impl added it is STILL admitted under
+                                                                                           whundeclfn (census 242 = a program with no where clause at all). The decl's
+                                                                                           where clause is read only by collect_trait's `Self: Sized` object-safety scan
+                                                                                           — a different site; the lookup is available there but not priced this round
+
+### BATCH 3 — PROBE TABLE, build 208482e377cb7ca4 43 (read), L1 inert (rc 0 unarmed), spec a5ee92062
+    probe          fires      ceiling  cost  cfail(of 1557)  stdlib  closed (BY NAME vs PREDICTIONS3.md)
+    whundeclfn    26360996       1      0      0              ok     {outlives-with-missing} = predicted
+    whundeclimpl         0       —      —      —              —      NEVER FIRED over the population (hand: I_w13 only)
+    whundeclall   26360996       1      0      0              ok     {outlives-with-missing} = whundeclfn; the fold and header halves add 0
+    c3enum            5107       1      0      0              ok     {constructor-lifetime-early-binding-error} — batch-1 ctltenum0 re-measured,
+                                                                     no decay (fires count on() EVALUATIONS: 5107 vs 6156 is fewer on() calls
+                                                                     per arrival in the rewritten block, not a smaller population)
+    rtunion       27879132       3      0      0              ok     {constructor-lifetime-early-binding-error, trait-associated-constant,
+                                                                     outlives-with-missing} = predicted
+    c3struct         12011       0      0      0              ok     ∅ = predicted (= batch-1 ctltstruct, digit for digit)
+    c3unit            3206       0      0      0              ok     ∅ = predicted (= batch-2 ctltunit, digit for digit)
+    k3const             33       1      0      0              ok     {trait-associated-constant} — batch-2 acregionsl re-measured, no decay
+    k3sig          1501528       0      0      0              ok     ∅ = predicted (= batch-2 sigimplrgnsl, digit for digit)
+  ADDITIVITY (rule 13), checked: rtunion's ceiling 3 = whundeclfn 1 + c3enum 1 + k3const 1 + c3struct 0 + c3unit 0 + whundeclimpl 0 + k3sig 0;
+  the SET is the disjoint union of the three one-row sets. No arm's row is another arm's: three roots, three mechanisms, no shared change.
+
+### RUNTIME COLUMN, BATCH 3 (build 208482e377cb7ca4, one configure, one chain)
+    run_oracle unarmed (13:08) vs LOGOS_PROBE=rtunion (13:18): 6729 pass fixtures compiled, linked and RUN on both; common 6729, lost 0,
+    gained 0, changed 0 (cast-region-to-uint subtracted by name). rtunion arms all eight parts; a part can damage a fixture only by a
+    refusal or by `sig_match = false`, and either would show in the union — so each part's runtime cost is bounded by this 0.
+    Batch 1's chain (ctltall, build 9dfd8daa) read the same: 6729 / 0 / 0 / 0.
+
+### FOUND, NOT NEIGHBOURS — ROWED (soundness_queue 117 -> 122 by direct listing), each reproducing unarmed on 4cf0bf5e AND on the clean rebuild at close (build_hash 4cf0bf5e5e07b0cf 43, read — the opening binary)
+    impl_method_ret_renamed_header_binder_refused (t3)  `impl<'z> Get<'z> for H<'z>` returning `&'z` for trait `-> &'a`: "method 'get' does not
+        match the trait declaration: the return type is declared '&'a i64' and the impl declares '&'z i64'". The return compare keys
+        region NAMES and never maps the trait's params through `trait_lt_args` (rule 12 in the compiler). Crossed binders, same sentence.
+    impl_method_ret_longer_region_under_header_bound_refused (t3)  `&'a` for trait `&'b` under `impl<'a: 'b, 'b>`: same sentence — equality,
+        not subtyping under the impl's outlives.
+    trait_impl_header_where_bound_dropped_refused (t3)  `impl<X, Y> Sum for P<X, Y> where X: Tr, Y: Tr`: "type parameter 'X' has no trait bound
+        providing method 't'". `read_type_params_from` does not fold a trait impl header's where clause; recorded in prose 2026-09-02u §3
+        ("RECORDED NOT PURSUED") and never rowed until now.
+    trait_default_body_self_assoc_const_refused (t3)  `Self::NAME` in a trait default body: "unknown enum 'Self'".
+    enum_ctor_partial_turbofish_underscore_internal (t3)  `Result::Ok::<i64, _>(6)`: mlir_gen internal "unknown field type in
+        'SkipWhileIter$G2$OptionIter$G1$_$_'" — the `_` reaches codegen unresolved.
+    NOT rowed, and why: `enum E<T, U = i64>` with `E::V::<i64>(3)` (L_t01) is refused internally ("unknown tagged enum 'E__i64__<error>'"),
+    but whether Rust admits a defaulted enum param omitted in a VALUE path rests on my reading only — no rustc on this box; recorded here,
+    not rowed. The code-131 turbofish refusals are already the backlog's lt_turbofish_absent / tuplestruct_ctor_turbofish.
+
+### WHAT DESERVES FUNDING
+ 1. **All three rows, as ONE landing of three arrivals** — priced whole (rtunion) and by part, additive in the set and the count:
+    ceiling 3 = {outlives-with-missing, constructor-lifetime-early-binding-error, trait-associated-constant}, cost 0 in pass / cfail 0 of
+    1557 / stdlib 4 of 4 / runtime 6729 / 0 changed, 26 illegal hand programs closed, 0 legal moved over 122 hand programs in 60+ shapes.
+    ⚠ COST 0 HAS BEEN WRONG EIGHT TIMES THIS ARC. The funding round's own battery must attack what this one did not: a where subject
+    that names a type from ANOTHER package (`use`d), a GAT / projection subject (skipped by code, never exercised), a trait
+    whose lifetime params outnumber the impl's trait-reference args (k3const declines on size mismatch — an under-refusal), an
+    INVARIANT ADT arg in a const type (the slice walk treats every ADT arg as covariant), an `&'c mut [T]` const.
+ 2. **What a landing owes, measured, not guessed:**
+    · k3const / k3sig print `&[u8]` twice — `type_str` drops a borrowed slice's region; the sentence must name `&'c str` and `&'b str`.
+    · whundeclfn / whundeclall: the fold fallback's lenient add ("type param in where clause not in param list — add it") is dead on
+      the corpus (NEVER FIRED) and admitted the second-type-parameter program on the base binary; the landing deletes the fallback
+      rather than guarding it, and the probe here is the evidence that nothing reaches it.
+    · c3enum's zero-declared case is Rust (E0107 on a lifetime turbofish to a lifetime-free enum); the type-position arm keeps its
+      prepass exemption — at lowering, the declaration is complete.
+    · the three arrivals share ONE sentence each with the arm they reach ("unknown type 'T'", "'E': expected N lifetime arg(s), got M");
+      no new diagnostic template is minted.
+ 3. **Neighbours for the same commit** (all priced 0/0/0/ok and closing only illegal hand programs): c3struct, c3unit, whundeclimpl, k3sig.
+    Rowed with reasons: wh5 (3), I_w11 (2), cn11 (3), the code-131 turbofish shapes (2) — see NEIGHBOURS.
+ 4. NOT cttyenum as priced (0/0/0/ok): its arm ignores defaulted type params, visible only on a program the base already refuses.
+
+### MISTAKES OF MY OWN
+  * A line diff of fixed-width result columns printed NOTHING for acregionsl while eight programs had moved. Every armed-vs-base
+    comparison in this record is a join keyed by file name; batch 1's were re-done that way and agree.
+  * whundeclm was placed on ONE spelling of "does not reach the fold" (a missing key); the arrival every user method takes is a
+    NULL key. It priced 0/0/0/ok on a door no user program opens. Caught by a census that read 242 on a program with no where clause.
+  * The first dry-run of the batch-3 spec crashed on `io.popen` before writing; re-run with subprocess, anchors unique in apply order.
+
+### THE TREE AT CLOSE — PRICED, NOT FIXED
+  compiled sources identical to HEAD (`git diff -- src/compiler include` empty); each batch's edits reverted BY NAME after checking the
+  diff held only the batch's probe markers (5, 5, 8); `build/` rebuilt from them: build_hash 4cf0bf5e5e07b0cf 43 (read) = the opening
+  binary. Queue gate rc 0 on it, 122 rows (tier1 20 / tier2 29 / tier3 65 / tier4 8), '# TOTAL' 122. The five new rows reproduce on it,
+  each sentence read; minted-name scan over their stderr: none. bc_admits # TOTAL 72 unchanged.
+  L1 from build/ rc 0: 807/807 + smoke + gates 130/130 (13:28) · probe-log-lint 285 records, every site resolves · lint_mismatch_monopoly
+  rc 0 (1 emitter: expect_type) · no compiled source in the diff.
+  Committed before the builds: TARGETS.md, PREDICTIONS{,2,3}.md, declarrival{,2,3}.spec, tools/dlog/decl_arrival_sites.dl
+  (9e52f42d2, 849792395, a5ee92062).
