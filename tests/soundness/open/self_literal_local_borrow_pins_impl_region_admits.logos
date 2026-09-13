@@ -1,0 +1,25 @@
+// ADMISSION, tier 2 — Rust refuses (E0597), logosc compiles. Inside `impl<'s> Foo<'s>`,
+// `Self { r: &v }` IS `Foo<'s>`: the literal pins the impl's region, `'s` outlives the
+// function, and `v` is a body local — "`v` does not live long enough" even though the
+// value never escapes. logosc types a literal from its values and never meets `'s`.
+// NEIGHBOUR of nllmoves.R13 (issue-98170), ROWED WITH REASON (2) DOORS IN SERIES, measured
+// 2026-09-13a-selfregion on build 20b6d3c2a8770cbf: under `selfv` (body Self carries the
+// header's regions + the checked Self literal + named header binders) the literal check is
+// LIVE and PASSES — census `selflitv.site 2`, `selflitv.override 2`, `selflitv.differs 2`,
+// still compiles — because `&v`'s region is EMPTY at the literal, and an empty region is
+// permissive in the variance check. The door that gives a local borrow a region (12q's door L,
+// declined on four legal refusals) must open first.
+package self_literal_local_borrow_pins_impl_region_admits;
+struct Foo<'s> { r: &'s i64 }
+impl<'s> Foo<'s> {
+    fn peek(self: &Self) -> i64 {
+        let v: i64 = 40i64;
+        let t = Self { r: &v };
+        return *t.r;
+    }
+}
+fn main() -> i32 {
+    let w: i64 = 1i64;
+    let f = Foo { r: &w };
+    return f.peek() as i32;
+}

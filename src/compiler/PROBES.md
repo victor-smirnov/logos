@@ -42426,3 +42426,212 @@ dead local where the static's 9 belongs); the UAF program exits 8. Landed: all r
 d4 `let x: &'a i64 = &v; return x;` prints TWO lines (E0597 at the let, then the return sentence);
 rustc prints one. e1 q2 q5 q6 print the right reason instead of a binder-name variance mismatch. q3
 prints `got A` without region args (the method half's result type).
+
+## 2026-09-13a-selfregion — `Self` IS THE IMPL SELF TYPE IN THE SIGNATURE AND A BARE NAME IN THE BODY: THE HEADER'S `'_` IS MINTED AS AN ELIDED OUTPUT SLOT (nllmoves.NEW-3), AND A LITERAL SPELLED `Self` IS TYPED FROM ITS VALUES (nllmoves.R13) — TWO DOORS, AND THE CHEAP FORM OF THE SECOND UN-REFUSES FOUR ILLEGAL PROGRAMS
+
+site: src/compiler/sema_collect.cpp::collect_impl (the header Self and the inherited-default Self),
+      src/compiler/sema_decl.cpp::lower_impl_block (seed_self + `current_impl_lifetime_params_`),
+      src/compiler/sema_expr.cpp::lower_struct_lit (both literal paths), ::lower_static_call
+      (`Self::V(..)`), ::lower_enum_lit (unit `Self::V`).
+build: base a5088a6875e092aa (read with build_hash.py); armed batch 1 95f2163a0e7cf8dc (never priced,
+       L1 red unarmed on a text lint), batch 2 20b6d3c2a8770cbf, batch 3 a8888e641e49ba96. Every probe
+       REVERTED; `build/` rebuilt from clean sources at close and it reads a5088a6875e092aa 43 — the
+       base hash digit for digit, which is the control that no probe is left in the binary.
+fires: implanon 4395539 · selfbody 2529580 · selfv 5096632 · selfvg 5691507 · selfve 5043 (batch 2) ·
+       implanonx 10959178 · selfvee 5101675 · selfveu 5099619 (batch 3). Census buckets used:
+       implanon.collect.renamed, implanon.structarg, implanon.ref, implanon.lower.binder,
+       selfbody.resolve, selfbody.candidate(.generic), selfbody.seeded, selflitv.site, selflitv.override,
+       selflitv.differs, selflitv.gen.*, selfve.site, selfve.check, implanonx.default.site,
+       implanonx.default.renamed, selfveu.retyped; and the landed mint buckets mint.structarg.*,
+       mint.ret.unified.
+tools/dlog: NEW RULES `self_denote.dl` and `impl_self_readers.dl`; `selftest.sh` rc 0 first. Known-answer
+       controls and per-site reads below; `self_denote.dl` took four versions to agree with its grep.
+
+
+PRICING round. Base build `a5088a6875e092aa 43` (read; logosc sha256 57a8f7afa6a7e4d8), HEAD `1940f93fe`.
+Targets written before any edit: `src/compiler/probes/2026-09-13a-selfregion/TARGETS.md`; predictions:
+`PREDICTIONS.md` (committed with each spec before its build: `44515ee9f`, `a19ff9421`).
+
+### STEP 1, READ FROM THE TREE — AND THE PROMPT'S CORRECTIONS
+queue gate rc 0 (with `LOGOS_LIB_DIR`) · `soundness_queue.ledger` # TOTAL 100 (100 rows, 100 programs) ·
+`bc_admits.ledger` # TOTAL 76 (76 rows) · `bc_admits_blocked.ledger` # TOTAL 8 · probe-log-lint 280 records.
+⚠ The prompt says "three consecutive ledger rounds closed ZERO rows (85 → 85 → 85)": the round before this
+one (`1940f93fe`, door C) closed three; the ledger is 76.
+⚠ The prompt's STEP-1 gate command DOES carry `LOGOS_LIB_DIR` (checked against the text given, not the journal).
+⚠ "Re-verify THE THREE ROWS' recorded controls" names no rows; read as the three A16-blocked rows it names two
+of "one day old" (09-12) — they are. All three controls REPRODUCE on a5088a68: `augmented-assignments` + `impl
+Drop for Int` refused "cannot move 'x' while it is borrowed"; `ownership-struct-update-moved-error` + `impl Drop`
+refused "use of moved variable 'start'" at the projection AND the whole-value spelling; `--r13` with `impl Drop
+for Inner` refused E0509 at the struct-pattern AND the dotted-path door. Still A16's.
+⚠ Never-surveyed roots re-derived (both spellings): `nllmoves.NEW-3` and `nllmoves.R13` appear in PROBES.md only
+inside lists of zero-record roots; `bck.A-FNMUT`, `bck.NEW-BLOCKREF`, `bck.NEW-A16` now carry records;
+`nllmoves.R5`, `nllmoves.R11-ASSIGN`, `bck.NEW-N4` are not ledger roots.
+⚠ The scratchpad is SHARED WITH EARLIER ROUNDS: `ctl/` held 49 files from a previous round (moved aside by
+timestamp before use), `cen/raw` is dated 09-11, `r0912*` directories sit beside this round's.
+
+### WHY THIS BLOCK
+Two never-surveyed roots whose illegal program's NAMED twin is refused by an ARM THAT EXISTS (the return-type
+variance check), so the question is a fact the code does not carry, not a missing mechanism.
+
+### ONE-VARIABLE CONTROLS (base binary, compile+link+run)
+    n3a  impl Foo<'_>      fn newf(bar:&mut Bar) -> Self { Foo{bar} }      ADMITTED (the row)
+    n3b  impl<'s> Foo<'s>  same                                              REFUSED variance, "expected Foo<'s>"
+    e1   impl Foo<'_>      fn newf(bar:&mut Bar, o:&i64) -> Self            REFUSED "expected Foo<'_>, got Foo"
+    r13a impl MyStruct<'_> make<'a>(f:&'a) -> MyStruct<'a> { Self{f} }      ADMITTED (the row)
+    r13b impl<'q> MyStruct<'q>  same                                         ADMITTED  <- naming the region changes nothing
+    s3   impl<'q> …  make<'a>(f:&'a) -> Self { Self{f} }                     REFUSED "got MyStruct<'a>"
+    t1/t2  `let s: Self = 5` in the BODY           "expected MyStruct" — bare, under impl<'q> AND impl '_
+    t3/t4  `-> Self { 5 }` in the SIGNATURE        "expected MyStruct<'q>" / "expected MyStruct<'_>"
+    t5   `let s: i64 = Self { field: x }`          "got MyStruct<'a>" — the literal is typed from its VALUES
+CENSUS (LOGOS_CENSUS) n3a vs n3b: n3b has `mint.structarg.written 1`; n3a has NO structarg bucket and
+`mint.ret.unified` +1 — the header's `'_` reaches the signature mint (`ltmintimpl` arm, sema_impl.hpp, no
+census of its own), is minted fresh, and elision rule 1 unifies it with `bar`. That is NEW-3: the impl's
+anonymous region is read as the FUNCTION's elided output slot. R13 is a different fact at a different layer:
+the BODY `Self` binding (lower_fn / lower_impl_block) carries no lifetime args at all, and a literal spelled
+`Self` is value-substituted like any path literal.
+
+### dlog — TWO NEW RULES, EACH WITH ITS KNOWN ANSWER AND A PER-SITE READ
+`selftest.sh` rc 0 first (28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0).
+`tools/dlog/self_denote.dl` — which sites WRITE the `Self` binding, QUERY it, or COMPARE a name to `"Self"`
+(sema_decl sema_collect sema_expr sema). Known answer = a grep of each form; the rule took FOUR versions:
+    writes   v1 0 (needed the subscript as the `=` node's child 0 — clang interposes implicit nodes)
+             v2 19 (counted `x = current_type_params_["Self"]`, a READ on the RHS, sema_decl.cpp:3172)
+             v3 0 (keyed the LHS as child 0 — for an overloaded `operator=` child 0 is the CALLEE)
+             v4 18 = grep 18, set-identical (excludes the RHS = the LAST child)
+    queries  v1 16 (depth 4 cannot reach a `const char*` -> `std::string` construction), v2+ 27 = grep 27
+    compares 14 = grep 14 = per-site read 14 (struct literal, both enum literals, static-call class, type
+             position, trait assoc ref, collect_trait; seven compare a TYPE VARIABLE's name). None is on the
+             call-callee path — the carrier `Self(x)` lacks.
+    writers by context (v4): lower_impl_block 5 · collect_impl 3 · lower_fn 3 · collect_struct 2 ·
+             lower_struct_def 2 · lower_trait_def 2 · collect_trait 1.
+`tools/dlog/impl_self_readers.dl` — which named contexts resolve an impl header's self type (read TYPE and
+IMPL_TYPE_PARAMS, call resolve_type). Known answer {collect_impl, lower_impl_block}: measured exactly that;
+four more contexts mention IMPL_TYPE_PARAMS and never resolve (three accessors, lower_struct_def). The
+inherited-default Self (L14's site) is INSIDE collect_impl — dlog's context granularity cannot separate it
+from the header site; the census did (`implanon.collect.renamed 1` and L14 still refused).
+
+### BATCH 1 — NEVER PRICED (build 95f2163a0e7cf8dc 43, read)
+L1 red with nothing armed on `logos_00_key_identity_lint` ("find() bare entity-name arguments: count 14,
+ledger pins 12"): both D2 records added `current_type_params_.find("Self")`. The lint is TEXT over the source.
+Not respelled to get past it: spec v2 reads `hint_struct_type_`, the Self `lower_struct_lit` already resolved.
+Its hand battery (87 programs x 6 arms) stands as a measurement of that build — see PREDICTIONS.md: `selfall`
+(D1 + unchecked D2 + D3) closes both rows AND un-refuses four ILLEGAL programs (s3 I1 I3 I5); `selfpair`
+refuses LEGAL s13 L3. Condemned by hand, not re-priced.
+
+### BATCH 2 — PROBE TABLE, build 20b6d3c2a8770cbf 43 (read), L1 inert (rc 0 unarmed)
+    probe      doors            fires     ceil cost cfail(of 1528) std  closed, BY NAME
+    implanon   D3               4395539    1    0    0              ok   {issue-55394--b}
+    selfbody   D1               2529580    0    0    0              ok   {}                ⛔ refuses LEGAL L3 (hand)
+    selfv      D1+D2v+D3        5096632    2    0    0              ok   {issue-55394--b, issue-98170}
+    selfvg     selfv+D1 generic 5691507    2    0    0              ok   {issue-55394--b, issue-98170}
+    selfve     enum check alone    5043    0    0    0              ok   {}                (series: no D1)
+PREDICTED BY NAME before the build (PREDICTIONS.md, `a19ff9421`): implanon {55394--b}, selfbody {}, selfv and
+selfvg {55394--b, 98170}. predicted∖measured = ∅ and measured∖predicted = ∅ for all four.
+`selfve`'s prediction described selfv + the check; the spec gated it on `selfve` ALONE. The error is mine and
+the census says what was measured instead: h2 `selfve.site 1`, no `selfve.check`.
+RULE 18 CONTROL TWIN: `implanon` on build 95f2163a vs 20b6d3c2 — 66 common hand programs, 0 verdict
+differences; unarmed 66/66 identical.
+RUNTIME COLUMN (scripts/run_oracle.py, LOGOS_BUILD=build 20b6d3c2a8770cbf, ONE build, serial passes, ~10 min each):
+    unarmed  6703 fixtures compiled+linked+RUN (02:41:59 -> 02:51:51); none-vs-none control 0 changed
+    implanon 6703 common, 0 lost, 0 added, 0 changed, 1 subtracted by name (cast-region-to-uint)
+    selfv    6703 common, 0 lost, 0 added, 0 changed, 1 subtracted by name
+    selfvg   6703 common, 0 lost, 0 added, 0 changed, 1 subtracted by name
+⚠ The first runtime diff read the headerless table's row 0 as a header and compared 6702 of 6703; its
+none-vs-none control still printed 0 — a control that cannot see a dropped row. Fixed before any armed read.
+
+### BATCH 3 — THE THREE NEIGHBOURS BATCH 2 LEFT UNMEASURED, build a8888e641e49ba96 43 (read), L1 inert
+    probe      doors                           fires      ceil cost cfail(of 1528) std  closed, BY NAME
+    implanonx  implanon + inherited-default Self 10959178   1    0    0              ok   {issue-55394--b}
+    selfvee    selfv + `Self::V(..)` check        5101675   2    0    0              ok   {issue-55394--b, issue-98170}
+    selfveu    selfv + unit `Self::V` retype      5099619   2    0    0              ok   {issue-55394--b, issue-98170}
+PREDICTED BY NAME (PREDICTIONS.md, `a7fa7e3dc`): the same three sets; both differences empty for all three.
+Hand battery (101 programs x 5 arms): implanonx = implanon's set + L14 compiles (75); selfvee = selfv's
+set + h2 refused ("enum literal 'Self': variance mismatch — expected E<'q>, got E<'a>"); selfveu = selfv's
+set + h15 refused ("return type mismatch — expected E<'a>, got E<'q>"). No legal program refused under
+any of the three (h8 43, h16 77, L5 65, L15 76 unchanged). selfvee ALSO refuses t8 — the enum-into-`i64`
+type confusion below — for a REGION reason, not the type reason: an illegal program with a wrong sentence.
+RULE 18: selfv on 20b6d3c2 vs a8888e64, 87 common programs, 0 verdict differences; unarmed 87/87.
+RUNTIME (batch 3, build a8888e64, fresh unarmed table on the SAME build; none-vs-none 6703 / 0 changed):
+    implanonx 6703 common, 0 lost, 0 added, 0 changed, 1 subtracted by name (cast-region-to-uint)
+    selfvee   6703 common, 0 lost, 0 added, 0 changed, 1 subtracted by name
+    selfveu   6703 common, 0 lost, 0 added, 0 changed, 1 subtracted by name
+
+### NEIGHBOURS — standing rule 2026-09-12: closed by the priced change, or rowed with a reason
+| neighbour (same decision, same fact) | verdict | reason / number |
+|---|---|---|
+| enum target `impl E<'_>` (e6), trait impl `impl Mk for Foo<'_>` (s5), ref target `impl Mk for &'_ i64` (h1), generic `impl<T> W<'_,T>` (e5), two anonymous regions (s12, I5), `-> Self` vs a fn binder (r13d) — all ILLEGAL, admitted on base | CLOSED by `implanon` | D3 renames every `'_` in the header self type, pre-order; 8 of 8 refused, same build twice (66/66 twin) |
+| `impl Foo<'_> { fn pick(self: Self, other: Self) -> Self }` (L1) — LEGAL, REFUSED on base | CLOSED by `implanon` | compiles and runs 61 |
+| inherited trait default `pick` for `impl Pick for Foo<'_> {}` (L14) — LEGAL, refused on base | CLOSED by the strict extension `implanonx` | second site in the same context (census `implanon.collect.renamed 1` and still refused under implanon); `implanonx` compiles it and it runs 75; L15 (named) unchanged 76 |
+| `let s: Self = …` in the body (s1) | CLOSED by `selfbody` (inside `selfv`) | D1 seeds the body Self with the header's regions |
+| generic `impl<'q, T> W<'q, T>`: `Self { r: x }` into `W<'a, T>` (I2) | CLOSED by `selfvg` | strict extension of D1 to generic impls; generic legal L10 L13 unchanged |
+| `Self::A(x)` variant constructor (h2) | CLOSED by the strict extension `selfvee` | batch-2 `selfve` alone was series-blocked (`selfve.site 1`, no `selfve.check`); with D1 it refuses "enum literal 'Self': expected E<'q>, got E<'a>"; legal h8 unchanged 43 |
+| `Self::B` unit variant (h15) | CLOSED by the strict extension `selfveu` | retyped as Self: "return type mismatch — expected E<'a>, got E<'q>"; legal h16 77 and L5 65 unchanged |
+| `Self { r: &v }` with `v` a body local (h5) — ILLEGAL (E0597: Self pins `'s`) | ROWED `self_literal_local_borrow_pins_impl_region_admits` | (2) doors in series: the literal check is LIVE and PASSES (`selflitv.site 2`, `override 2`, `differs 2`, still admitted) because `&v`'s region is EMPTY at the literal; the door that names a local borrow's region (12q door L, declined on 4 legal refusals) must open first |
+| `Self(x)` tuple-struct constructor (t9) — LEGAL, refused "call to undefined function 'Self'" | ROWED `self_tuple_struct_ctor_refused` | (1) no carrier: the call-callee path never rewrites the spelling (dlog `self_cmp`: 14 comparison sites, none on the call-callee path) |
+
+### EVERY CLOSED ROW'S DIAGNOSTIC, READ (the real ledger programs, not copies)
+  issue-55394--b (nllmoves.NEW-3), under implanon / selfv / selfvg — one line:
+      "return type mismatch: variance mismatch — expected Foo<'__anon0>, got Foo — lifetime structure
+       incompatible (check &mut invariance / contravariance rules)"
+      rustc: "lifetime may not live long enough … return type is Foo<'2> … let's call the lifetime of this
+      reference `'1`". RIGHT VERDICT, RIGHT LINE, and a SYNTHESIZED BINDER NAME in the user's sentence.
+  issue-98170 (nllmoves.R13), under selfv / selfvg — four lines, two per fn (upstream prints four):
+      ":18 struct literal 'Self': variance mismatch — expected MyStruct<'__anon0>, got MyStruct<'a>"
+      ":18 return type mismatch: variance mismatch — expected MyStruct<'a>, got MyStruct<'__anon0>"
+      and the same pair at :22 (the trait-impl half). rustc: "lifetime `'1` appears in the `impl`'s self
+      type … associated function was supposed to return data with lifetime `'a` but it is returning data
+      with lifetime `'1`" + "this usage requires that `'a` must outlive `'1`". Same COUNT and the same two
+      sites per fn as upstream (the literal, then the return).
+⚠ A ROW CLOSED BY A WRONG DIAGNOSTIC IS NOT CLOSED. `'__anon0` is the probe's spelling of Rust's `'1`; a
+landing must render a synthesized header binder the way rustc does ("the lifetime `'_` in the impl's self
+type"), or the sentence names something the user never wrote. Not measured here: the rendering is a
+landing obligation and is named as one.
+
+### COSTS NO HARNESS COLUMN SAW (rule 5) — hand battery, 100+ programs in 30+ shapes
+  selfbody (D1 alone)   REFUSES LEGAL L3 (`let g: Self = Foo { r: self.r }` under impl Foo<'_>): the body
+                        Self is Foo<'_> and `'_` is compared as a NAME. Harness: cost 0 / cfail 0 / std ok.
+  selfpair (batch 1)    REFUSES LEGAL s13 L3 — same cause.
+  selfall  (batch 1)    UN-REFUSES ILLEGAL s3 I1 I3 I5 — an unchecked Self literal.
+  implanon, selfv, selfvg: no legal program refused, no illegal program un-refused, in the battery.
+So D1 and D2 are doors in series WITH D3 as a precondition, and D2 is sound only in its checked form.
+
+### FOUND, NOT A NEIGHBOUR — ROWED IN tests/logos/soundness_queue.ledger (100 -> 104 by direct listing)
+  enum_variant_value_into_scalar_let_admits (tier 1): `let s: i64 = E::A(x);` compiles with no diagnostic
+      and the exit code is not stable across two unarmed runs of one binary (136 / 200; 216 / 24 / 72) —
+      it reads memory the constructor never wrote. The plain `E::A(x)` spelling, in a free fn, does it
+      too: not about `Self`. Root not read.
+  closure_elided_param_called_with_field_ref_refuses (tier 3): a legal closure `|q: &i64| -> i64 { *q }`
+      called with `self.r` is refused ("the elided lifetime of closure parameter 'q' and the elided
+      lifetime of parameter 'self' are two dist…"). Unchanged by every probe. ⚠ Legality rests on a
+      reading; no rustc binary here.
+  self_tuple_struct_ctor_refused (tier 3) and self_literal_local_borrow_pins_impl_region_admits (tier 2):
+      the two ROWED neighbours in the table above, with their reasons in their headers.
+
+### ⚠ READER ERRORS OF MY OWN, CAUGHT BEFORE THEY BECAME NUMBERS
+  * A shell loop printed `rc=0` beside an error line for both ledger programs armed; an explicit capture
+    reads rc 1 armed, 0 unarmed. The compiler did not lie; the loop's `$?` was not the compile's.
+  * The first runtime diff treated the headerless table's row 0 as a header (6702 of 6703), and its
+    none-vs-none control still read 0 — a control blind to a dropped row.
+  * Batch 2's `selfve` was gated on `selfve` alone while PREDICTIONS.md described it as selfv + the
+    check. Caught by census, re-built as batch 3's `selfvee`.
+  * The first close-out rebuild never ran: its guard `git diff --quiet -- src include` counted PROBES.md
+    (it lives under src/compiler), the `&&` chain stopped before cmake, and a ten-minute wait blocked on a
+    marker that could not appear. Re-guarded on compiled sources only.
+  * The scratchpad and /tmp are SHARED with earlier rounds: `ctl/` (49 foreign files), `cen/raw` (09-11),
+    `cen2/` (09-09 files) — every file read here was checked for this round's timestamp first.
+
+### WHAT DESERVES FUNDING
+1. **D3 AS `implanonx` — FUND IT FIRST, ALONE IF NEED BE.** The impl header's `'_` becomes a named impl
+   binder at the header Self, at lowering (declared in `current_impl_lifetime_params_`), and at the
+   inherited-default Self. Ceiling 1 (issue-55394--b), cost 0 in every column including the runtime one
+   (implanon and implanonx: 0 changed of 6703), no legal refusal in 101 hand programs; it also COMPILES two legal
+   programs today's binary refuses (L1, L14) and refuses eight illegal class members. One obligation
+   before landing: the sentence names `'__anon0`, which the user never wrote — render it as rustc does.
+2. **D1 + CHECKED D2 + D3, WITH ALL THREE STRICT EXTENSIONS (generic body Self, `Self::V(..)` check,
+   unit `Self::V` retype) — FUND AS ONE LANDING, NEVER IN PARTS.** Ceiling 2 (both target rows), cost 0
+   in every harness column and in the runtime column (selfv, selfvg, selfvee, selfveu: 0 changed of 6703
+   each). Its parts are condemned alone by hand: D1 without D3 refuses legal L3; D2 unchecked
+   un-refuses four illegal programs. Not priced as ONE name: the landing must re-price the union
+   (rule 13 — per-name measurements are not additive).
+3. NOT this plane: h5 (a local borrow into a Self literal) waits on the door that gives a local borrow a
+   region; `Self(x)` needs a callee-path arm that does not exist.

@@ -1,0 +1,24 @@
+// OVER-REFUSAL, tier 3 — legal Rust, refused. A closure whose parameter has an
+// ELIDED reference type, `|q: &i64| -> i64 { *q }`, is called with a reference
+// read off `self`. Rust: legal — a closure's elided parameter region is
+// higher-ranked for this shape, and the call only reads `*q`. logosc refuses with
+//     error [fn Foo__remake]: closure call arg 1: the elided lifetime of closure
+//     parameter 'q' and the elided lifetime of p…
+// Found 2026-09-13a-selfregion by a legal-shape battery program (L9) for impls whose
+// self type has regions; the refusal is UNCHANGED by every probe of that round, so it
+// is not about `Self`. ⚠ The legality claim rests on a reading — no rustc binary here.
+// Root NOT read. PROBES.md carries this sentence's family at "closure parameter: the
+// elided lifetime of closure parameter" (a return-wrong-bound-region record).
+package closure_elided_param_called_with_field_ref_refuses;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn remake(self: &Self) -> i64 {
+        let mk = |q: &i64| -> i64 { return *q; };
+        return mk(self.r);
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 69i64;
+    let f = Foo { r: &v };
+    return f.remake() as i32;
+}
