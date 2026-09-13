@@ -1,0 +1,25 @@
+package static_call_callee_region_named_in_result_refuses;
+
+struct A<'a> { x: &'a i64 }
+
+impl<'q> A<'q> {
+    fn newa(x: &'q i64) -> A<'q> {
+        return A { x: x };
+    }
+}
+
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    let a: A<'_> = A::newa(&v);
+    if *a.x != 6i64 { return 1i32; }
+    return 0i32;
+}
+// SOUNDNESS QUEUE row static_call_callee_region_named_in_result_refuses (tier 3).
+// Legal Rust: `A::newa(&v)` instantiates the impl's `'q` at the caller's borrow,
+// and `A<'_>` accepts it. TODAY refused: "let 'a': variance mismatch — expected
+// A<'_>, got A<'q>". `lower_static_call` types the call's result as the callee's
+// declared `fi.ret_type` and never calls `subst_call_ret_lts_`, so the callee's
+// binder reaches the caller BY NAME; the free-fn arms do substitute (census
+// `subst.call.site` fires for `newa(&v)`, not for `A::newa(&v)`). The same name
+// leak ADMITS `method-ufcs-inherent-3` when the two binders are spelled alike.
+// src/compiler/PROBES.md 2026-09-12q.

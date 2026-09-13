@@ -1907,7 +1907,7 @@ trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/
 
 # ── tests/ui/nll ─────────────────────────────────────────
 
-adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33
+adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33  #  2026-09-12q: NOT moved by `letnamed`/`letnamedc` (predicted). Upstream has no `let` — the `&c` reaches `'static` at the turbofish CTOR ARGUMENT (a permissive call-argument site); the port's let annotation is not where the region is decided. The `&local -> 'static` plane is PROBES.md 2026-09-02p §4.
 borrowed-referent-issue-38899 bck.NEW-BLOCKREF tests/imported/admit/nll/borrowed-referent-issue-38899  # OPENED 2026-09-08: the port had dropped upstream's `mut block`; with it restored the program is upstream's construct, rustc reports E0502 `cannot borrow *block.current as immutable because it is also borrowed as mutable` (tests/ui/nll/borrowed-referent-issue-38899.stderr @ da5114692c9) and logosc compiles it silently. SINGLE-ROW ROOT, no separating pair measured, no grouping claim.
 borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
@@ -1927,8 +1927,8 @@ issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issu
 issue-69114-static-mut-ty nllmoves.R1 tests/imported/admit/nll/issue-69114-static-mut-ty
 issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
-method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3
-method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4
+method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3  #  ⚠ ADMITTED BY NAME COINCIDENCE, measured 2026-09-12q (build fc8539b37318b78a): the impl's `'a` reaches the caller UNSUBSTITUTED and meets `foo`'s `'a` as a string — alpha-renaming the impl to `impl<'q> A<'q>` REFUSES it ("expected A<'a>, got A<'q>"), and the same leak refuses legal programs (soundness queue static_call_callee_region_named_in_result_refuses). DOORS IN SERIES: `A::newa<T>` leaves lower_static_call through finish_generic_call, which instantiates only fi.lifetime_params (never the impl's binders) — then door L (`letnamed`, PROBES.md 2026-09-12q) must see `A<'_>` from a local. Neither alone moves it.
+method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4  #  ⚠ PRICED 2026-09-12q: CLOSED by `letnamed` (lt_eq: EMPTY sub vs a binder of this scope), right site and pair — but that arm refuses FOUR legal programs (p24 `&**b`, s1 `&*w.b`, s2 `&xs[1]`, pass bc_b6ptr_param_holder_field) and pre-empts five right E0597 sentences at deref-write. DECLINED as priced; the positive-fact form (a body-LOCAL borrow's region) is the funded next step. PROBES.md 2026-09-12q.
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c

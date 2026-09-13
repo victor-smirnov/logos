@@ -42070,3 +42070,193 @@ receiver exclusion — plus the hoist of `merge_arg_prov` into `prov_of_operand`
 the removal of the now-dead `peel_temp_base`. Recorded as an overrun, not hidden:
 the budget was declared against the DOOR, and the mechanism turned out to be the
 door AND the minting site in series.
+
+## 2026-09-12q-letregion — `method-ufcs-inherent-3` IS ADMITTED BY NAME COINCIDENCE: `lower_static_call` NEVER INSTANTIATES A CALLEE REGION, SO THE IMPL'S `'a` MEETS THE CALLER'S `'a` AS A STRING — AND THE SAME LEAK REFUSES NINE LEGAL PROGRAMS THE MOMENT THE TWO BINDERS ARE SPELLED APART
+
+site: src/compiler/sema_expr.cpp::lower_static_call — door C's return (and `lower_method_call`'s
+      `lt_subst` return for the method half); door L at include/logos/compiler/subtype.hpp
+      `types_equal_with_lifetimes`'s `lt_eq`, beside the landed `stland.lteq` arm.
+build: 4f35348054cb5b5b (armed, read with build_hash.py); base fc8539b37318b78a; reverted and
+       rebuilt at close.
+fires: letnamedc 69969 · letnamed 296 · stcallret 69673 · stcallrets 6445 (`probe::on` hits over
+       the pricing populations). Census buckets that rode the build: letnamed.lteq.binder,
+       stcallret.site, stcallret.differs, mcallret.differs. ALL FOUR PROBES REVERTED; the tree
+       carries no probe from this round.
+tools/dlog: NEW RULE `callret_subst.dl`, known-answer control = its own `subst_site` output must
+       list exactly the three landed `subst_call_ret_lts_` call sites (it does); `selftest.sh` rc 0
+       first. Cross-checked against a per-site read: 61 reads / 34 contexts by rule, 15 call-result
+       sites by reading.
+
+PRICING round. Base build `fc8539b37318b78a 43` (read), HEAD `f0e571fe0`. Targets written before
+any edit: `src/compiler/probes/2026-09-12q-letregion/TARGETS.md`; predictions: `PREDICTIONS.md`
+(committed with the spec in `b04ac0d88`, before the batch built).
+
+### STEP 1, READ FROM THE TREE — AND THE PROMPT'S CORRECTIONS
+queue gate rc 0 · `soundness_queue.ledger` # TOTAL 92 (92 rows) · `bc_admits.ledger` # TOTAL 79
+(79 rows) · `bc_admits_blocked.ledger` # TOTAL 8 · probe-log-lint 278 records.
+⚠ The prompt says bc_admits 85 and the queue 85: listing says 79 and 92.
+⚠ "Re-verify THE THREE ROWS' recorded controls" names no three rows; the three are this round's
+targets, and none carries a recorded control in its header — the controls below are new.
+⚠ Never-surveyed list re-derived (both spellings): of the handed seven, `nllmoves.R11-ASSIGN` and
+`nllmoves.R5` are gone from the ledger, `bck.NEW-N4` does not exist, `bck.A-FNMUT` and
+`bck.NEW-BLOCKREF` now carry records. Lowest-mention roots today: `lifereg.NEW-PROJBOUND` 0 full /
+1 suffix, `nllmoves.R14` 1/1, `nllmoves.NEW-2/3/4`, `nllmoves.NEW-CAPLOAN`, `NEW-N2` 1 full each.
+
+### WHY THIS BLOCK
+09-08 §10 left `method-ufcs-inherent-3` "STILL OPEN ON THIS PROPERTY, unpriced (a CALL-RETURN
+mint)". An ARM THAT EXISTS (`check_variance` at let; the landed 'static arm in `lt_eq`) reached
+through a fact the code does not carry. Three roots, one hypothesised door — tested, not assumed.
+
+### ONE-VARIABLE CONTROLS (base binary)
+(table filled from ctl/ runs)
+
+### dlog — THE CLASS BY PROPERTY
+`selftest.sh` rc 0 first (28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1->0).
+New rule `tools/dlog/callret_subst.dl`: contexts reading a field `ret_type` vs contexts calling
+`subst_call_ret_lts_`. Known-answer control: `subst_site` must list the three landed call sites
+(lower_call ×2, finish_generic_call ×1) — it does, exactly. Answer over sema_expr.cpp:
+reads_and_substs 10 reads / 2 contexts; reads_never_substs 61 reads / 34 contexts.
+Per-site cross-check (read, not trusted): 15 of the 61 type a CALL RESULT from a callee's
+ret_type with no region instantiation — lower_static_call 16369 16466 16496 16615 16641,
+lower_method_call 8971(partial, lt_subst_tv) 9640 9810 10609(partial, non-empty args only),
+try_method_on_slice 7696 7800, try_method_on_dstref 8043, try_method_on_dyn 8107 8259,
+try_method_on_tagged 7919. The other 46 are not call results (hints, decl synthesis, binop/cast).
+
+### CENSUS (LOGOS_CENSUS, base binary)
+e2 free fn: subst.call.site 1, subst.call.mentioned 1 → `A<'_>`.
+e1 static call: NO subst.call.* bucket → `A<'q>`.
+m1 method call: inst.call.site 1, inst.call.differs 1, NO ret instantiation → `A<'q>`.
+d5 (`&'static` let, refused): stland.lteq 1, stland.outl 1. d2 (`&'a` let, admitted): neither.
+
+### HAND BATTERY — armed build 4f35348054cb5b5b 43, 96 programs × {unarmed, 4 probes}, compiled+linked+RUN
+Door L (`letnamed`, and identically `letnamedc`) — NEWLY REFUSED, all illegal in Rust (E0597):
+d1 d2 d6 d7 e2 n1 n2 n3 n4 n6 r2 r3 r8 — thirteen, seven syntactic shapes (bare ref, struct lit,
+enum ctor, tuple, array, Option, `&mut`, field-of-local, nested ADT, `&mut &'a` holder, impl binder).
+⛔ LEGAL PROGRAMS REFUSED by door L, three shapes, all from the second battery written after the
+first came back clean (rule 5):
+  p24 `let r: &'a i64 = &**b;`   b: &'a Box<i64>
+  s1  `let r: &'a i64 = &*w.b;`  w: &'a W, W { b: Box<i64> }
+  s2  `let r: &'a i64 = &xs[1];` xs: &'a [i64]
+  every one prints "let 'r': variance mismatch — expected &'a i64, got &i64". The EMPTY region
+  here is "no fact recorded", not "a local" (rule 16): the landed F/F' carry (2026-09-02p) covers
+  `&*p` and `&p.f` and stops at a Box deref and at an index.
+⛔ TEXT COST, two programs whose RIGHT diagnostic is REPLACED (sema pre-empts borrow_check):
+  d3 `*p = &v`      E0597 "'v' does not live long enough: … stored through 'p'" → "deref-write '*ptr = …': variance mismatch"
+  d4 `let x: &'a = &v; return x` "cannot return reference to local variable 'x'" → "let 'x': variance mismatch"
+Door L NOT reached: d8, r1 — ASSIGNMENT `x = &v` into an `&'a` binding; `lower_assign` calls no
+check_variance (probe `lifereg_varassign`, REFUTED 2026-08-27 as ceiling 0 — a different site).
+
+Door C (`stcallret` = static+method, `stcallrets` = static only):
+REPAIRED LEGAL (compile + run correct): a6 a10 e3 m3 m5 o3 + queue draft static_call_* (static
+half, both probes); m1 + queue draft method_call_* (method half, stcallret only).
+NOT repaired: m2 `Self::newa(x)` inside impl — census: stcallret.site 1, subst.call.mapped 1, the
+substitution is RIGHT (`'q` ← x's `'q`); its refusal is the LET ANNOTATION `A<'_>` vs a binder, a
+different fact. m4 `G::newg(&v)` (generic struct) — census: stcallret.site 0, no subst bucket;
+the arm is elsewhere.
+⛔ UN-REFUSAL under door C ALONE: q6 `*out = A::newa(&v)` (illegal) — base refused it ON THE
+CALLEE'S NAME `'q`; `stcallret`/`stcallrets` compile it and it runs. `letnamedc` re-refuses it.
+DOOR C MAY NOT LAND WITHOUT A DOOR THAT SEES `A<'_>` FROM A LOCAL.
+Sentence IMPROVED by door C (still refused, now for the right reason): q1 names `'b` not `'q`;
+q2 q5 "cannot return reference to local variable 'v': dangling reference"; q4 `A<'_>` vs 'static.
+q3 under the method half prints `got A` — the lifetime args were dropped from the printed type.
+
+### NEIGHBOURS — measured, one line each (standing rule 2026-09-12)
+| neighbour (same fact, same decision) | closed by a probe here? | reason, with the number |
+|---|---|---|
+| method call result (`s.pick(&v)`, m1) — door C's fact at `lower_method_call` | YES, by the strict extension `stcallret` (method half) | census mcallret.differs 1; m1 compiles+runs 20 |
+| `Self::newa(x)` inside the impl (m2) | NO | (1) not this fact: the substitution is RIGHT (subst.call.mapped 1); the refusal is `let a: A<'_>` vs a binder — the `'_` let annotation, a different carrier |
+| generic-struct static call `G::newg(&v)` (m4) | NO | (3) unpriced: stcallret.site fires 0 — the call takes another arm of `lower_static_call` (16615 or the generic path); a strict extension there was not built this round |
+| trait/dyn/slice/tagged/dstref method arms (dlog: 7 sites) | not tested | (3) unpriced: no hand program reaches them yet |
+| ASSIGNMENT `x = &v` into an `&'a` binding (d8, r1) — door L's fact at `lower_assign` | NO | (1) no carrier: `lower_assign` calls no check_variance (`lifereg_varassign` REFUTED 2026-08-27, ceiling 0) |
+| `adt-tuple-enums--t33` — `'static` at a turbofish ENUM CTOR ARGUMENT | NO (prediction) | (1) its region arrives at a call ARGUMENT (permissive) not at the let; and the `&local → 'static` plane is the 2026-09-02p owner-walled block |
+
+### THE PROBE TABLE — build 4f35348054cb5b5b 43 (armed, read), batch L1 rc 0 inert
+    probe       arms                               fires  ceiling cost cfail std  runtime
+    letnamedc   L + C(static) + C(method)          69969     5      1    5    ok  1 of 6697 (= the pass cost, a compile refusal)
+    letnamed    L (lt_eq: EMPTY sub vs scope binder) 296     5      1    5    ok  not run (identical to letnamedc in every other column)
+    stcallret   C(static) + C(method)              69673     0      0    0    ok  0 of 6697
+    stcallrets  C(static)                           6445     0      0    0    ok  not run (a subset of stcallret's edit)
+runtime = scripts/run_oracle.py, base and armed from ONE configure, 6697 fixtures each (9m53 /
+9m59 / 9m53), cast-region-to-uint subtracted by name. Hand battery: 110 programs (96 + 14),
+every one compiled, linked and RUN.
+RULE 9, MEASURED: `letnamed` and `letnamedc` are identical in EVERY harness column, digit for
+digit and name for name; they separate only on the hand battery (a6 a10 e3 m1 m3 m5 o3 repaired,
+q6 re-refused). `stcallret` and `stcallrets` likewise — separated only by m1 and the method
+queue program. The harness cannot see door C at all: its population has no written region in a
+`let` annotation fed by a static or method call.
+
+### THE SETS, DIFFED BOTH WAYS (predicted in PREDICTIONS.md before the build)
+letnamedc: predicted {method-ufcs-inherent-3, method-ufcs-inherent-4}; measured {e0621-mut-ref-
+aliases-pointee-lifetime, issue-54124, issue-62007-assign-differing-fields--c, method-ufcs-
+inherent-4, regions-free-region-ordering-caller1}.
+  predicted ∩ closed      method-ufcs-inherent-4
+  predicted ∖ closed      method-ufcs-inherent-3 — `A::newa<T>` has a TYPE parameter, so
+                          lower_static_call hands it to `finish_generic_call` BEFORE the probed
+                          return (census under letnamedc: no stcallret.site bucket; its result
+                          still types `A<'a>`). `finish_generic_call` substitutes only
+                          `fi.lifetime_params` — the fn's own, which is empty — and the impl's
+                          `'a` leaks by name. DOORS IN SERIES: C at the generic arm, then L.
+  closed ∖ predicted      the four others, read one by one:
+letnamed: the same five. stcallret / stcallrets: predicted ∅, measured ∅.
+adt-tuple-enums--t33: predicted not closed, not closed.
+
+### EVERY CLOSED ROW'S DIAGNOSTIC, READ
+  method-ufcs-inherent-4 (nllmoves.NEW-S7-1)  "let 'x': variance mismatch — expected A<'a>, got A<'_>"
+      rustc E0597 `v` does not live long enough. Right site, right pair; the variance sentence
+      the landed 'static twin already prints. RIGHT REASON.
+  regions-free-region-ordering-caller1 (lifereg.D)  "let 'z': … expected &'a &u64, got &&u64"
+      rustc E0716 + E0597 at that let. Right site, right pair. RIGHT REASON.
+  issue-54124 (nllmoves.NEW-L1)  "let 'f': … expected fn(&i64) -> i64, got fn(&'a i64) -> i64"
+      rustc "lifetime may not live long enough". Right verdict — but the EMPTY side is the fn
+      pointer's HIGHER-RANKED parameter, not a local: right for a reason the arm does not state.
+  e0621-mut-ref-aliases-pointee-lifetime (lifereg.NEW-R19)  "assignment to 'buffer.buf': …
+      expected &'a mut i64, got &mut i64"; rustc E0621. `&mut *buffer.buf` borrows through the
+      ELIDED `&mut Buffer<'a>` param — EMPTY is "no fact recorded", the same accident that refuses
+      s1/p24. A form keyed on a positive LOCAL fact would NOT close it. NOT CLAIMABLE.
+  issue-62007-assign-differing-fields--c (nllmoves.R3)  "assignment to 'list.1': … expected
+      &'a mut List<T>, got &mut List<T>"; rustc E0499 ONLY — the assignment `list.1 = &mut **n`
+      is regionally LEGAL in Rust. A WRONG-REASON REFUSAL, and a fifth rule-16 shape (Box deref
+      of a binding from `as_mut()`). NOT CLOSED.
+⇒ the defensible ceiling is 2 (ufcs-4, caller1), plus 54124 for a reason the arm does not own.
+
+### THE COST, READ
+pass: tests/logos/pass/bc_b6ptr_param_holder_field — `*out = hr.r`, hr = &h, h a LOCAL struct
+  built from the param `src`. Refused "deref-write '*ptr = …': variance mismatch — expected &i64,
+  got &i64". EMPTY again means "no fact recorded" (a field read through a local's borrow of a
+  param-sourced value). A LEGAL REFUSAL, the corpus's fourth witness beside p24 s1 s2.
+cfail 5, all the SAME shape and all `.expected LOST`: bc_b6clo_param_escape, bc_b6ptr_param_
+  escape, bc_b6ptr_param_field_escape, borrowck-local-borrow-with-panic-outlives-fn, propagate-
+  multiple-requirements. Each is `*out = &local`; unarmed prints the RIGHT sentence — E0597
+  "'local' does not live long enough: it is borrowed and stored through 'out' …" — and armed
+  sema refuses first at the deref-write with "variance mismatch — expected &i64, got &i64", ONE
+  SPELLING TWICE. Rule 14 inverted: a new sema refusal PRE-EMPTS an existing, better borrow_check
+  refusal. The deref-write site already had its answer.
+
+### NEIGHBOUR CORRECTION FROM THE PRICED RUN
+`method-ufcs-inherent-3` (T1) and m4 (`G::newg`) are the SAME neighbour: a static call whose
+callee has a TYPE parameter (or whose host struct is generic) leaves `lower_static_call` through
+`finish_generic_call` before the probed return, and `finish_generic_call` instantiates only
+`fi.lifetime_params` — never the impl's binders. Reason (3), unpriced: the strict extension (hand
+the impl-region-augmented binder list to the `subst_call_ret_lts_` call in `finish_generic_call`)
+was not built this round. It is one call site and the same list `stcallret` already computes.
+
+### WHAT DESERVES FUNDING, AND WHAT DOES NOT
+DO NOT FUND door L as priced (`letnamed` / `letnamedc`). FOUR legal refusals in four shapes — p24
+`&**b`, s1 `&*w.b`, s2 `&xs[1]`, and the corpus pass fixture bc_b6ptr_param_holder_field — plus
+FIVE right E0597 sentences replaced by a variance sentence that prints one type twice, and two of
+its five rows closed for the wrong reason. The arm reads EMPTY as "a local", and EMPTY means "no
+fact recorded" wherever the landed carry (`&*p`, `&p.f`, 2026-09-02p) stops: a Box deref, an
+index, a field read through a local's borrow. Rule 16, measured four times in one round.
+FUND the POSITIVE form: mint the fact at the borrow — `&x` / `&mut x` whose place ROOT is a
+body-local binding (not a parameter, not a deref of one) gets a region that says so — and refuse
+at `lt_eq` only on THAT region facing a scope binder, and NOT at the deref-write site, where
+borrow_check already refuses with the right sentence (check it first, rule 14). Predicted to keep
+ufcs-4 and caller1 (both are `&local` at a let), to give up e0621 and 62007--c (neither is a local),
+and to refuse none of p24 s1 s2 bc_b6ptr_param_holder_field. That prediction is the next round's
+to measure; it is not a result.
+FUND door C only TOGETHER with that door: alone it repairs eight legal refusals (a6 a10 e3 m1 m3
+m5 o3 + both queue programs) at harness cost 0/0/0/ok — and UN-REFUSES q6 (`*out = A::newa(&v)`),
+which base refused only by the accident of the callee's binder name. Extend it to
+`finish_generic_call` in the same change (T1, m4) — T1 cannot close without it.
+The two over-refusals door C repairs are rowed in the soundness queue this round (tier 3), because
+they are legal Rust refused today whatever happens to door L.
