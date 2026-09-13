@@ -1,0 +1,17 @@
+// impl_self_readers — WHICH NAMED CONTEXTS RESOLVE AN IMPL HEADER'S SELF TYPE.
+// 2026-09-13a-selfregion, D3's class: a `'_` in `impl Foo<'_>` enters the program wherever
+// the header's TYPE node is resolved. Context-level on purpose (ctx_of coarsens; the
+// question is "which function"). Known answer: collect_impl and lower_impl_block.
+#include "cxx_schema.dl"
+.decl reads_code(ctx: symbol, code: symbol)
+reads_code(CN, K) :- ref(U, D), decl_name(D, K), (K = "IMPL_TYPE_PARAMS" ; K = "TYPE"),
+    ctx_of(U, C), ctx_name(C, CN).
+.decl calls(ctx: symbol, f: symbol)
+calls(CN, F) :- call(CA, D), decl_name(D, F), (F = "resolve_type" ; F = "make_generic_struct" ; F = "make_generic_enum"),
+    ctx_of(CA, C), ctx_name(C, CN).
+.decl impl_self_reader(ctx: symbol)
+.output impl_self_reader
+impl_self_reader(CN) :- reads_code(CN, "IMPL_TYPE_PARAMS"), reads_code(CN, "TYPE"), calls(CN, "resolve_type").
+.decl impl_ctx_no_resolve(ctx: symbol)
+.output impl_ctx_no_resolve
+impl_ctx_no_resolve(CN) :- reads_code(CN, "IMPL_TYPE_PARAMS"), !calls(CN, "resolve_type").

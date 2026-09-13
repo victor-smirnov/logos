@@ -72,3 +72,21 @@ name: doors in series, predicted to move nothing.
              h2 refused. Census `selfve.site` > 0 on h2 — if 0, `Self::A(x)` does not reach this site
              and the zero is a DEAD SITE, not a refutation (rule 1).
 Lint dry-run on the applied spec (all five records): `ctest -L lint` 20/20, key_identity_lint rc 0.
+
+## BATCH 3 (spec selfregion3.spec) — PREDICTIONS BY NAME, WRITTEN BEFORE ITS BUILD
+Why a third build: batch 2's `selfve` was gated on `selfve` ALONE, so it priced the enum check WITHOUT
+D1 — and census on h2 reads `selfve.site 1`, no `selfve.check`: the body Self has no regions to check
+against. Doors in series; the neighbour was never measured in the form that could close it. This
+prediction file's batch-2 entry for `selfve` described a probe that was not built. Corrected here.
+Three records, one per file, one priced name each (every gate widened so each name carries its doors):
+  implanonx  implanon + an inherited default method's Self takes the header's named anonymous regions
+             (collect_impl, the `self_lt_args_` default-method branch). bc_admits {issue-55394--b}.
+             Hand: implanon's set + L14 COMPILES and runs 75 (legal, refused on base and under every
+             batch-2 name). L15 (named twin) unchanged 76.
+  selfvee    selfv + the enum data-literal check at `Self::V(..)` (lower_static_call).
+             bc_admits {issue-55394--b, issue-98170}. Hand: selfv's set + h2 REFUSED
+             ("enum literal 'Self': variance mismatch"); h8 legal unchanged 43.
+  selfveu    selfv + a unit variant spelled `Self::V` typed as Self (lower_enum_lit).
+             bc_admits {issue-55394--b, issue-98170}. Hand: selfv's set + h15 REFUSED (return type
+             mismatch, expected E<'a>, got E<'q>); h16 legal unchanged 77; L5 legal unchanged 65.
+Queue: none moves. `-fsyntax-only` on all three edited TUs rc 0; no added `find("Self")`.
