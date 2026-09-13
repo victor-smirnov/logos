@@ -1,0 +1,78 @@
+// local_root_deciders — WHICH CONTEXTS DECIDE "THIS VALUE BORROWS A BODY-LOCAL'S
+// OWN STORAGE", AND WHICH OF THEM CAN SEE A CALL RESULT OR A DEREF CROSSING?
+//
+// 2026-09-12r: the out-param escape arm (`*out = <value>`, out a PARAMETER)
+// refuses `*out = &v` (E0597) and ADMITS `*out = id(&v)` — and REFUSES the legal
+// `*out = &ys[1]` with `ys: &'a [i64]` a local REFERENCE. Its helper
+// `collect_borrowed_local_roots` walks FieldRead/IndexRead/SliceIndex/TupleIndex
+// by itself, never asking whether a step crossed a reference, and has no
+// Call/MethodCall arm. `extract_borrow_place` already records `through_ref`.
+// The question is an ENUMERATION BY PROPERTY: every context that switches on an
+// expr::Code borrow node (AddrOf / AddrOfTemp) AND reads `param_names_` (the
+// "is it a local" half of the decision). For each: does it name Call/MethodCall,
+// does it delegate to `extract_borrow_place`, does it read a flow summary?
+// ⚠ `ctx_of` coarsens to the nearest NAMED context; a lambda inside a function
+// is its own context only when bound to a name. Cross-checked by reading.
+#include "cxx_schema.dl"
+target_enum(E) :- decl(E, "Enum", "logos::compiler::lir_schema::expr::Code").
+#include "lir_dispatch.dl"
+
+.decl field_named(did: symbol, name: symbol)
+field_named(D, N) :- decl(D, "Field", _), decl_name(D, N).
+
+// ⚠ A NAMED LAMBDA IS ITS OWN CONTEXT, AND THE FIRST RUN OF THIS RULE LOST ITS
+// OWN SUBJECT THAT WAY: `collect_borrowed_local_roots` reads `param_names_`
+// inside `auto emit = [&](…)`, so the read was attributed to `emit` and the
+// helper under suspicion was absent from `decider` — the known-answer control
+// failed. A read inside a lambda is a read by every context enclosing it.
+.decl lifted(k: symbol, outer: symbol)
+lifted(K, K) :- named_context(K).
+lifted(K, O) :- lifted(K, M), node(M, "LambdaExpr", P, _), ctx_of(P, O), O != M.
+
+.decl ctx_refs_field(ctx: symbol, name: symbol)
+ctx_refs_field(X, N) :- field_named(D, N), ref(U, D), ctx_of(U, K), lifted(K, O), ctx_name(O, X).
+
+.decl fn_named(did: symbol, name: symbol)
+fn_named(D, N) :- decl(D, _, _), decl_name(D, N).
+
+.decl ctx_calls(ctx: symbol, name: symbol)
+ctx_calls(X, N) :- fn_named(D, N), call(U, D), ctx_of(U, K), lifted(K, O), ctx_name(O, X).
+
+.decl borrow_node_tester(ctx: symbol)
+borrow_node_tester(X) :- tests(X, "AddrOf", _).
+borrow_node_tester(X) :- tests(X, "AddrOfTemp", _).
+
+.decl decider(ctx: symbol)
+.output decider
+decider(X) :- borrow_node_tester(X), ctx_refs_field(X, "param_names_").
+
+.decl decider_sees_call(ctx: symbol)
+.output decider_sees_call
+decider_sees_call(X) :- decider(X), tests(X, "Call", _).
+decider_sees_call(X) :- decider(X), tests(X, "MethodCall", _).
+
+.decl decider_blind_to_call(ctx: symbol)
+.output decider_blind_to_call
+decider_blind_to_call(X) :- decider(X), !decider_sees_call(X).
+
+.decl decider_delegates_place(ctx: symbol)
+.output decider_delegates_place
+decider_delegates_place(X) :- decider(X), ctx_calls(X, "extract_borrow_place").
+
+// A decider that walks place steps ITSELF (tests FieldRead) without delegating
+// to `extract_borrow_place` — the one that owns `through_ref`.
+.decl decider_walks_alone(ctx: symbol)
+.output decider_walks_alone
+decider_walks_alone(X) :- decider(X), tests(X, "FieldRead", _), !decider_delegates_place(X).
+
+// Every consumer of the helper under suspicion, by call edge.
+.decl helper_consumer(ctx: symbol, file: symbol, line: number)
+.output helper_consumer
+helper_consumer(X, F, L) :- fn_named(D, "collect_borrowed_local_roots"), call(U, D),
+                            ctx_of(U, K), ctx_name(K, X), loc(U, F, L, _).
+
+// known-answer control: both hand-read helpers MUST be deciders.
+.decl control_missing(ctx: symbol)
+.output control_missing
+control_missing("collect_borrowed_local_roots") :- !decider("collect_borrowed_local_roots").
+control_missing("collect_borrow_locals") :- !decider("collect_borrow_locals").
