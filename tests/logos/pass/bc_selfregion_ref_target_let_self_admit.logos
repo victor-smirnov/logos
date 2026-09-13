@@ -1,0 +1,14 @@
+// `impl Get for &'_ i64`: `x: Self` and `let s: Self` name the SAME impl region. Legal; refused
+// before 2026-09-13b ("expected &'_ i64, got &i64" — the body kept `'_` as a name).
+// TWIN of fail/bc_selfregion_ref_target_let_self_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_ref_target_let_self_admit;
+trait Get { fn read(x: Self) -> i64; }
+impl Get for &'_ i64 {
+    fn read(x: Self) -> i64 {
+        let s: Self = x;
+        return *s;
+    }
+}
+fn main() -> i32 {
+    return 19i32;
+}

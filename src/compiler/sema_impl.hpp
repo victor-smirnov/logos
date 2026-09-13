@@ -582,6 +582,86 @@ private:
     // region met, minted or written, in signature order (the elision rules
     // count those). When `fixed` is non-empty every elided slot takes THAT name
     // instead — elision rule 1/3's unification, the half `ltmintfresh` lacked.
+    // `impl Foo<'_>` IS `impl<'x> Foo<'x>`: each header `'_` is an anonymous IMPL binder,
+    // named `'__anonN` so collect_impl and lower_impl_block agree. PROBES.md 2026-09-13b.
+    TypeRef name_impl_anon_lts_(TypeRef t, int& n) {
+        if (!t) return t;
+        using K = LogosType::Kind;
+        auto anon = [](std::string_view l) { return l == "'_" || l == "_"; };
+        switch (t.kind()) {
+        case K::Ref:
+        case K::MutRef: {
+            std::string l(t.lifetime());
+            TypeRef p = name_impl_anon_lts_(t.pointee(), n);
+            bool ch = (p != t.pointee());
+            if (anon(l)) { l = "'__anon" + std::to_string(n++); ch = true; }
+            return ch ? make_ref(t.kind() == K::MutRef, p, l) : t;
+        }
+        case K::Struct:
+        case K::ZonedStruct:
+        case K::Enum: {
+            std::vector<std::string> ls = t.lifetime_args();
+            bool ch = false;
+            for (auto& l : ls)
+                if (anon(l)) { l = "'__anon" + std::to_string(n++); ch = true; }
+            std::vector<TypeRef> as;
+            for (auto a : t.type_args()) { auto na = name_impl_anon_lts_(a, n); ch |= (na != a); as.push_back(na); }
+            if (!ch) return t;
+            if (t.kind() == K::Enum)
+                return make_generic_enum(t.enum_name(), std::move(as), std::move(ls), t.pkg_name());
+            if (t.kind() == K::ZonedStruct)
+                return make_generic_datatype(t.struct_name(), std::move(as), std::move(ls), t.pkg_name());
+            return make_generic_struct(t.struct_name(), std::move(as), std::move(ls), t.pkg_name());
+        }
+        default:
+            return t;
+        }
+    }
+    TypeRef number_impl_anon_lts_(TypeRef t, int d = 0) {
+        if (!t || d > 24) return t;
+        using K = LogosType::Kind;
+        auto num = [](const std::string& l) {
+            return lt_is_impl_anon(l) ? "'_#" + std::to_string(std::stoi(l.substr(7)) + 1) : l;
+        };
+        switch (t.kind()) {
+        case K::Ref:
+        case K::MutRef:
+            return make_ref(t.kind() == K::MutRef, number_impl_anon_lts_(t.pointee(), d + 1),
+                            num(std::string(t.lifetime())));
+        case K::Struct:
+        case K::ZonedStruct:
+        case K::Enum: {
+            std::vector<std::string> ls = t.lifetime_args();
+            for (auto& l : ls) l = num(l);
+            std::vector<TypeRef> as;
+            for (auto a : t.type_args()) as.push_back(number_impl_anon_lts_(a, d + 1));
+            if (t.kind() == K::Enum)
+                return make_generic_enum(t.enum_name(), std::move(as), std::move(ls), t.pkg_name());
+            if (t.kind() == K::ZonedStruct)
+                return make_generic_datatype(t.struct_name(), std::move(as), std::move(ls), t.pkg_name());
+            return make_generic_struct(t.struct_name(), std::move(as), std::move(ls), t.pkg_name());
+        }
+        default:
+            return t;
+        }
+    }
+    static bool type_mentions_impl_anon_(TypeRef t, int d = 0) {
+        if (!t || d > 24) return false;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+        case K::Ref:
+        case K::MutRef:
+            return lt_is_impl_anon(std::string(t.lifetime())) || type_mentions_impl_anon_(t.pointee(), d + 1);
+        case K::Struct:
+        case K::ZonedStruct:
+        case K::Enum:
+            for (auto& l : t.lifetime_args()) if (lt_is_impl_anon(l)) return true;
+            for (auto a : t.type_args()) if (type_mentions_impl_anon_(a, d + 1)) return true;
+            return false;
+        default:
+            return false;
+        }
+    }
     TypeRef mint_type_lts_(TypeRef t, std::vector<std::string>& out,
                            const std::string& fixed = {}, int depth = 0) {
         if (!t || depth > 24) return t;
@@ -6678,17 +6758,33 @@ private:
             const std::string& wn_ = fm_ ? rm_.second : rm_.first;
             auto om_ = org_.find(mn_);
             if (om_ != org_.end() && !wn_.empty() && !lt_is_minted(wn_)) {
-                error(std::format("{}: the elided lifetime of {} is a region "
-                                  "distinct from {}, and no bound relates them "
-                                  "— name it {}",
-                                  ctx, om_->second, wn_, wn_));
+                if (lt_is_impl_anon(wn_))  // an impl header's `'_` has no name to write
+                    error(std::format("{}: the elided lifetime of {} is a region distinct "
+                                      "from the anonymous lifetime `'_` of the impl's self "
+                                      "type, and no bound relates them",
+                                      ctx, om_->second));
+                else
+                    error(std::format("{}: the elided lifetime of {} is a region "
+                                      "distinct from {}, and no bound relates them "
+                                      "— name it {}",
+                                      ctx, om_->second, wn_, wn_));
                 return;
             }
         }
+        const bool impl_anon_ = type_mentions_impl_anon_(from) || type_mentions_impl_anon_(to);
+        // Several anonymous impl binders print as one spelling (`'_`): number them.
+        const bool numbered_ = impl_anon_ && es == gs;
+        if (numbered_)
+            es = type_str(number_impl_anon_lts_(to), true), gs = type_str(number_impl_anon_lts_(from), true);
         error(std::format("{}: variance mismatch — expected {}, got {} — "
                           "lifetime structure incompatible "
-                          "(check &mut invariance / contravariance rules)",
-                          ctx, es, gs));
+                          "(check &mut invariance / contravariance rules){}",
+                          ctx, es, gs,
+                          numbered_ ? " — `'_#1`, `'_#2`, … are the anonymous lifetimes of the impl's "
+                                      "self type, in order: each is a region of the whole impl"
+                          : impl_anon_ ? " — `'_` in the impl's self type is a region of the whole "
+                                         "impl, not an elided lifetime of this function"
+                          : ""));
     }
 
     // ── Type resolution ──────────────────────────────────────────

@@ -1,0 +1,16 @@
+// `Self::V { r: x }` IS `E<'q>`; `x: &'a` does not outlive `'q`: rustc errors.
+// TWIN of pass/bc_selfregion_self_struct_variant_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_self_struct_variant_refuse;
+enum E<'s> { V { r: &'s i64 }, N }
+impl<'q> E<'q> {
+    fn mk<'a>(x: &'a i64) -> E<'a> {
+        return Self::V { r: x };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 45i64;
+    match E::mk(&v) {
+        E::V { r } => { return *r as i32; }
+        E::N => { return 1i32; }
+    }
+}

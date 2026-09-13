@@ -87,6 +87,11 @@ inline bool lt_is_minted(std::string_view lt) {
     return lt.size() > 1 && lt[0] == '\'' && lt[1] == '%';
 }
 
+// An impl header's `'_`, named per impl: sema_impl.hpp::name_impl_anon_lts_.
+inline bool lt_is_impl_anon(std::string_view lt) {
+    return lt.starts_with("'__anon");
+}
+
 inline bool outlives_is_static(std::string_view lt) {
     return lt == "'static" || lt == "static";
 }

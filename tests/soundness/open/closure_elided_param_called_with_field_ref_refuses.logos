@@ -4,6 +4,11 @@
 // higher-ranked for this shape, and the call only reads `*q`. logosc refuses with
 //     error [fn Foo__remake]: closure call arg 1: the elided lifetime of closure
 //     parameter 'q' and the elided lifetime of p…
+// ⚠ THE SENTENCE CHANGED 2026-09-13b-selfregion-land AND THE REFUSAL DID NOT. `self.r` is now typed with
+// the impl header's NAMED anonymous region, so the closure branch of check_variance names it:
+//     closure call arg 1: the elided lifetime of closure parameter 'q' is a region distinct from the
+//     anonymous lifetime `'_` of the impl's self type, and no bound relates them
+// (base a5088a6875e092aa read the sentence quoted above). The program is still legal and still refused.
 // Found 2026-09-13a-selfregion by a legal-shape battery program (L9) for impls whose
 // self type has regions; the refusal is UNCHANGED by every probe of that round, so it
 // is not about `Self`. ⚠ The legality claim rests on a reading — no rustc binary here.

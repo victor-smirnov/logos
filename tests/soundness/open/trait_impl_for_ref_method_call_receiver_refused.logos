@@ -1,0 +1,21 @@
+// OVER-REFUSAL, tier 3 — legal Rust, refused. A trait implemented FOR A REFERENCE type,
+// `impl<'a> Get for &'a i64 { fn get(self: Self) -> i64 }`, called with method syntax on a
+// `&i64` local: `r.get()`. Rust: legal (the receiver `r: &'x i64` IS `Self`). logosc refuses
+// at the CALL SITE with
+//     error [fn main]: method call: receiver is not a struct (got &i64)
+// Found 2026-09-13b-selfregion-land by a legal-shape battery program (A09) for impls whose self
+// type has regions; it reproduces with a NAMED impl binder on the base binary a5088a6875e092aa, so
+// it is not about `'_` or `Self`. The same impl called as a static trait fn (`fn read(x: Self)`)
+// compiles. Root NOT read. ⚠ Legality rests on a reading — no rustc binary on this box.
+package trait_impl_for_ref_method_call_receiver_refused;
+trait Get { fn get(self: Self) -> i64; }
+impl<'a> Get for &'a i64 {
+    fn get(self: Self) -> i64 {
+        return *self;
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 19i64;
+    let r = &v;
+    return r.get() as i32;
+}

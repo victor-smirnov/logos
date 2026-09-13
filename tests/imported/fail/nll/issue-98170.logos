@@ -1,6 +1,6 @@
 // rustc nll/issue-98170.rs — upstream "lifetime may not live long enough"
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R13
+// shelf: fail (was admit · root nllmoves.R13; CLOSED 2026-09-13b — src/compiler/PROBES.md)
 // Original path: tests/ui/nll/issue-98170.rs @ 4b0c9d76a
 // Modifications: `&'a [u32]` -> `&'a i64` (no slice needed; the region structure is
 //   the subject); upstream's method name `new` -> `make` on the inherent impl, because

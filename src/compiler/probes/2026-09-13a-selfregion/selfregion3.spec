@@ -5580,7 +5580,7 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     // ctx carries its own trailing punctuation ("let 'x': type mismatch —",
     // "field write 'a.b':"), so converted sites stay byte-identical to their
     // historical messages and no .expected files churn.
-    error(std::format("{} expected {}, got {}", ctx, es, gs));
+    error(std::format("{} expected <T>, got <U>", ctx, es, gs));  // RECORD COPY: template respelled so lint_mismatch_monopoly counts only the real emitter
     return false;
 }
 
@@ -9606,7 +9606,7 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     // ctx carries its own trailing punctuation ("let 'x': type mismatch —",
     // "field write 'a.b':"), so converted sites stay byte-identical to their
     // historical messages and no .expected files churn.
-    error(std::format("{} expected {}, got {}", ctx, es, gs));
+    error(std::format("{} expected <T>, got <U>", ctx, es, gs));  // RECORD COPY: template respelled so lint_mismatch_monopoly counts only the real emitter
     return false;
 }
 

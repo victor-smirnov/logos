@@ -3150,17 +3150,38 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     //   - concrete-type-arg target, no impl param `impl Foo<i64>`       (G156-9)
     //   - blanket impl on a type-var `impl<…F:Bar> Trait for F` → Self = F
     //     (explicit methods; default methods are already seeded — G156-13)
+    // The header's `'_` are impl binders (named as at collect_impl), and the BODY `Self`
+    // carries the header's regions. PROBES.md 2026-09-13b.
+    TypeRef self_named = target_resolved;
+    if (node.has_key(la::TYPE)) {
+        auto wn = map_of(node.get(la::TYPE.code));
+        if (!self_named && code_of(wn) == la::GENERIC_INST) self_named = resolve_type(wn);
+        if (self_named) {
+            int impl_anon_n = 0;
+            self_named = name_impl_anon_lts_(self_named, impl_anon_n);
+            for (int i = 0; i < impl_anon_n; ++i)
+                current_impl_lifetime_params_.push_back("'__anon" + std::to_string(i));
+        }
+    }
     TypeRef seed_self = nullptr;
     if (target_resolved) {
         auto tk = TypeRef(target_resolved).kind();
         if (tk == LogosType::Kind::Tuple || LogosType::is_fn_value_kind(tk) ||
             tk == LogosType::Kind::Ref   || tk == LogosType::Kind::MutRef)
-            seed_self = target_resolved;
+            seed_self = self_named;
         else if ((tk == LogosType::Kind::Struct ||
                   tk == LogosType::Kind::ZonedStruct ||
                   tk == LogosType::Kind::Enum) &&
                  impl_tps.empty() && !TypeRef(target_resolved).type_args().empty())
-            seed_self = target_resolved;  // concrete-type-arg, no impl param
+            seed_self = self_named;  // concrete-type-arg, no impl param
+    }
+    if (!seed_self && self_named &&
+        (TypeRef(self_named).kind() == LogosType::Kind::Struct ||
+         TypeRef(self_named).kind() == LogosType::Kind::ZonedStruct ||
+         TypeRef(self_named).kind() == LogosType::Kind::Enum) &&
+        !TypeRef(self_named).lifetime_args().empty()) {
+        logos::probe::census("selfregion.lower.seeded");
+        seed_self = self_named;
     }
     if (!seed_self && impl_is_blanket && !impl_tps.empty())
         seed_self = make_typevar(target);  // blanket on a bound type-var

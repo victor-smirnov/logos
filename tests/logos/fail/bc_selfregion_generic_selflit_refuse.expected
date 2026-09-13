@@ -1,0 +1,1 @@
+struct literal 'Self': variance mismatch — expected W<'_, T>, got W<T> — lifetime structure incompatible (check &mut invariance / contravariance rules) — `'_` in the impl's self type is a region of the whole impl, not an elided lifetime of this function

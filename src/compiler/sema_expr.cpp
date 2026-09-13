@@ -11502,6 +11502,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // carries the binding under the literal key "Self". Pre-fix
     // lower_struct_lit just looked up "Self" in structs_, didn't find
     // it, and errored "unknown struct 'Self'".
+    TypeRef self_lit_t = nullptr;  // a literal SPELLED `Self`: checked against Self below
     if (sname_buf == "Self") {
         auto svit = current_type_params_.find("Self");
         if (svit != current_type_params_.end() && svit->second &&
@@ -11509,6 +11510,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
              TypeRef(svit->second).kind() == LogosType::Kind::ZonedStruct)) {
             sname_buf = std::string(TypeRef(svit->second).struct_name());
             hint_struct_type_ = svit->second;
+            self_lit_t = svit->second;
         }
     }
     // Find in structs_ or datatypes_ (package-aware).
@@ -12065,6 +12067,22 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                             nl[i] = it2->second;
                     changed = true;
                 }
+                // A literal spelled `Self` IS the impl self type: its value regions must fit
+                // Self's, and it then carries Self's.
+                if (self_lit_t && TypeRef(self_lit_t).struct_name() == std::string(sname)) {
+                    std::vector<std::string> sl = TypeRef(self_lit_t).lifetime_args();
+                    bool full = sl.size() == sinfo.lifetime_params.size();
+                    for (auto& x : sl) if (x.empty()) full = false;
+                    if (full) {
+                        logos::probe::census("selfregion.structlit.gen.checked");
+                        TypeRef vt = slit_is_zoned ? make_generic_datatype(std::string(sname), args, nl)
+                                                   : make_generic_struct(std::string(sname), args, nl);
+                        TypeRef st = slit_is_zoned ? make_generic_datatype(std::string(sname), args, sl)
+                                                   : make_generic_struct(std::string(sname), args, sl);
+                        check_variance(vt, st, "struct literal 'Self'", /*permissive=*/true);
+                        nl = sl; changed = true;
+                    }
+                }
                 if (changed) {
                     logos::probe::census("subst.structlit.gen.differs");
                     lit_type = slit_is_zoned
@@ -12364,6 +12382,21 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         for (size_t i = 0; i < sinfo.lifetime_params.size(); ++i)
             if (auto it = flt.find(sinfo.lifetime_params[i]); it != flt.end())
                 ng_lt_args[i] = it->second;
+        // A literal spelled `Self` IS the impl self type (see the generic path above).
+        if (self_lit_t && TypeRef(self_lit_t).struct_name() == std::string(sname)) {
+            std::vector<std::string> sl = TypeRef(self_lit_t).lifetime_args();
+            bool full = sl.size() == sinfo.lifetime_params.size();
+            for (auto& x : sl) if (x.empty()) full = false;
+            if (full) {
+                logos::probe::census("selfregion.structlit.checked");
+                TypeRef vt = slit_is_zoned ? make_generic_datatype(std::string(sname), std::vector<TypeRef>{}, ng_lt_args)
+                                           : make_generic_struct(std::string(sname), std::vector<TypeRef>{}, ng_lt_args);
+                TypeRef st = slit_is_zoned ? make_generic_datatype(std::string(sname), std::vector<TypeRef>{}, sl)
+                                           : make_generic_struct(std::string(sname), std::vector<TypeRef>{}, sl);
+                check_variance(vt, st, "struct literal 'Self'", /*permissive=*/true);
+                ng_lt_args = sl;
+            }
+        }
     }
     // B77: verify struct's `where 'a: 'b` against caller's outlives graph.
     check_struct_lit_outlives(std::string(sname),
@@ -13737,11 +13770,14 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     // `Self` to the enclosing enum's name so the variant lookup succeeds (the
     // tuple-variant form `Self::Bar(x)` already resolves via lower_static_call;
     // the struct-shaped form is handled in the struct-lit path).
+    TypeRef self_spelled_enum = nullptr;  // `Self::V..` IS the impl self type
     if (ename_buf == "Self") {
         auto sit = current_type_params_.find("Self");
         if (sit != current_type_params_.end() && sit->second &&
-            TypeRef(sit->second).kind() == LogosType::Kind::Enum)
+            TypeRef(sit->second).kind() == LogosType::Kind::Enum) {
             ename_buf = std::string(TypeRef(sit->second).enum_name());
+            self_spelled_enum = sit->second;
+        }
     }
     // G160-2: peel a non-generic type-alias to an enum (`type A = Foo; A::Qux`).
     if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
@@ -13877,6 +13913,13 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         }
         result_t = make_generic_enum(std::string(ename), std::move(targs), std::move(lt_args));
     }
+    // A unit variant spelled `Self::V` has no values to type it: it IS Self, regions included.
+    if (self_spelled_enum && TypeRef(self_spelled_enum).enum_name() == std::string(ename) &&
+        TypeRef(self_spelled_enum).type_args().empty() &&
+        !TypeRef(self_spelled_enum).lifetime_args().empty()) {
+        logos::probe::census("selfregion.enumlit.unit.retyped");
+        result_t = self_spelled_enum;
+    }
     return builder().enum_lit(std::string(ename), std::string(vname), disc, result_t);
 }
 
@@ -13884,11 +13927,14 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     std::string ename_buf(str_of(node.get(la::NAME.code)));
     // G160-1: `Self::Baz { .. }` / `Self::Bar(x)` inside an `impl Enum` body —
     // resolve `Self` to the enclosing enum name (mirrors lower_enum_lit).
+    TypeRef self_spelled_enum = nullptr;  // `Self::V..` IS the impl self type
     if (ename_buf == "Self") {
         auto sit = current_type_params_.find("Self");
         if (sit != current_type_params_.end() && sit->second &&
-            TypeRef(sit->second).kind() == LogosType::Kind::Enum)
+            TypeRef(sit->second).kind() == LogosType::Kind::Enum) {
             ename_buf = std::string(TypeRef(sit->second).enum_name());
+            self_spelled_enum = sit->second;
+        }
     }
     // G160-2: peel a non-generic type-alias to an enum.
     if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
@@ -14445,6 +14491,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             mark_moved_expr(expr_ref_of(p));
     }
 
+    if (self_spelled_enum && !TypeRef(self_spelled_enum).lifetime_args().empty()) {
+        logos::probe::census("selfregion.enumlit.data.checked");
+        check_variance(result_type, self_spelled_enum, "enum literal 'Self'", /*permissive=*/true);
+    }
     return builder().enum_lit_data(std::string(ename), std::string(vname), vinfo->value, std::move(payload), result_type);
 }
 
@@ -15974,6 +16024,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // G153-4: `Self::method()` inside an impl body — resolve `Self` to the
     // impl's concrete type name (bound in current_type_params_["Self"]) so the
     // static method resolves, exactly as if the type name were written.
+    TypeRef self_spelled_enum = nullptr;  // `Self::V(..)` IS the impl self type
     if (class_name == "Self") {
         auto sit = current_type_params_.find("Self");
         if (sit != current_type_params_.end() && sit->second) {
@@ -15985,6 +16036,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             else if (st.kind() == LogosType::Kind::Enum)
                 resolved = std::string(st.enum_name());
             if (!resolved.empty()) class_name = std::move(resolved);
+            if (st.kind() == LogosType::Kind::Enum) self_spelled_enum = sit->second;
         }
     }
 
@@ -16035,7 +16087,12 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 for (auto& v : eit->second.variants)
                     if (v.name == method_name) { is_variant = true; break; }
             if (is_variant) {
-                return lower_enum_lit_data_from_static(node, enum_name, method_name);
+                auto ev = lower_enum_lit_data_from_static(node, enum_name, method_name);
+                if (ev && self_spelled_enum && !TypeRef(self_spelled_enum).lifetime_args().empty()) {
+                    logos::probe::census("selfregion.enumlit.static.checked");
+                    check_variance(expr_type(ev), self_spelled_enum, "enum literal 'Self'", /*permissive=*/true);
+                }
+                return ev;
             }
             // B97.5: not a variant — fall through. lower_static_call will
             // look up the method via fn mangle paths (which include trait-

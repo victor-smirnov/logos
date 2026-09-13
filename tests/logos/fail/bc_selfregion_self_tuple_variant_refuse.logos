@@ -1,0 +1,17 @@
+// `Self::A(x)` inside `impl<'q> E<'q>` IS `E<'q>`, and `x: &'a` does not outlive `'q`:
+// rustc errors (the enum spelling of nll/issue-98170).
+// TWIN of pass/bc_selfregion_self_tuple_variant_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_self_tuple_variant_refuse;
+enum E<'s> { A(&'s i64), B }
+impl<'q> E<'q> {
+    fn mk<'a>(x: &'a i64) -> E<'a> {
+        return Self::A(x);
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 43i64;
+    match E::mk(&v) {
+        E::A(r) => { return *r as i32; }
+        E::B => { return 1i32; }
+    }
+}

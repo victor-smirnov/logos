@@ -49,7 +49,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 104
+# TOTAL 107
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -149,3 +149,6 @@ self_literal_local_borrow_pins_impl_region_admits 2 tests/soundness/open/self_li
 self_tuple_struct_ctor_refused 3 tests/soundness/open/self_tuple_struct_ctor_refused refuses
 enum_variant_value_into_scalar_let_admits 1 tests/soundness/open/enum_variant_value_into_scalar_let_admits admits
 closure_elided_param_called_with_field_ref_refuses 3 tests/soundness/open/closure_elided_param_called_with_field_ref_refuses refuses
+trait_impl_for_ref_method_call_receiver_refused 3 tests/soundness/open/trait_impl_for_ref_method_call_receiver_refused refuses
+enum_payload_rewrap_carries_declared_region_refuses 3 tests/soundness/open/enum_payload_rewrap_carries_declared_region_refuses refuses
+struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses 3 tests/soundness/open/struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses refuses

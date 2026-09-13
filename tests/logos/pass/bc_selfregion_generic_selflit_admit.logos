@@ -1,0 +1,14 @@
+// In a GENERIC impl, a literal spelled `W` is typed from `x`, and the fn's own `'_` ties to `x`. Legal.
+// TWIN of fail/bc_selfregion_generic_selflit_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_generic_selflit_admit;
+struct W<'s, T> { r: &'s T }
+impl<T> W<'_, T> {
+    fn mk(x: &T) -> W<'_, T> {
+        return W { r: x };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 47i64;
+    let w = W::mk(&v);
+    return *w.r as i32;
+}

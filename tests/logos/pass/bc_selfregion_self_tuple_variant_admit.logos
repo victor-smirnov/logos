@@ -1,0 +1,16 @@
+// `E::A(x)` is typed from `x`: `E<'a>`. Legal.
+// TWIN of fail/bc_selfregion_self_tuple_variant_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_self_tuple_variant_admit;
+enum E<'s> { A(&'s i64), B }
+impl<'q> E<'q> {
+    fn mk<'a>(x: &'a i64) -> E<'a> {
+        return E::A(x);
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 43i64;
+    match E::mk(&v) {
+        E::A(r) => { return *r as i32; }
+        E::B => { return 1i32; }
+    }
+}

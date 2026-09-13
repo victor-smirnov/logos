@@ -42635,3 +42635,135 @@ So D1 and D2 are doors in series WITH D3 as a precondition, and D2 is sound only
    (rule 13 — per-name measurements are not additive).
 3. NOT this plane: h5 (a local borrow into a Self literal) waits on the door that gives a local borrow a
    region; `Self(x)` needs a callee-path arm that does not exist.
+
+## 2026-09-13b-selfregion-land — AN IMPL HEADER'S `'_` IS A NAMED IMPL BINDER, THE BODY `Self` CARRIES THE HEADER'S REGIONS, AND A VALUE SPELLED `Self` IS CHECKED AGAINST `Self`: TWO bc_admits ROWS CLOSE (nllmoves.NEW-3, nllmoves.R13), FOUR LEGAL PROGRAMS STOP BEING REFUSED, AND THE FIRST LANDED BUILD LEAKED THE SYNTHESIZED NAME `'__anon0` INTO ONE USER SENTENCE
+
+site: src/compiler/sema_impl.hpp::name_impl_anon_lts_ (and number_impl_anon_lts_, type_mentions_impl_anon_,
+      check_variance), src/compiler/sema_collect.cpp::collect_impl (header Self, inherited-default Self),
+      src/compiler/sema_decl.cpp::lower_impl_block (binders + body Self seed), src/compiler/sema_expr.cpp::lower_struct_lit
+      (both literal paths), ::lower_enum_lit, ::lower_enum_lit_data, ::lower_static_call, src/compiler/sema.cpp::type_str,
+      include/logos/compiler/outlives.hpp::lt_is_impl_anon.
+build: base a5088a6875e092aa 43 (read). Landing builds 38a9952a33ae8358 (first) -> be6216e1fa9f2577 (numbered
+       sentence) -> e6bacd51a1dcf027 (reconfigure, fixtures registered) -> 86911f4ef2b44caf (closure-branch leak fixed).
+fires: a LANDING, no probe armed — liveness is read from the landed census buckets (one per site), LOGOS_CENSUS on
+       build 38a9952a: issue-55394--b collect.named 1 + lower.seeded 1; issue-98170 structlit.checked 2 + collect.named 2
+       + lower.seeded 2; B03 enumlit.data.checked 1; B06 enumlit.static.checked 1; B12 enumlit.unit.retyped 1.
+       Buckets: selfregion.{collect.named, default.named, lower.seeded, structlit.checked, structlit.gen.checked,
+       enumlit.unit.retyped, enumlit.data.checked, enumlit.static.checked}.
+tools/dlog: `self_denote.dl` re-run on the LANDED sources, `selftest.sh` rc 0 first; no rule written or changed.
+
+LANDING round for 2026-09-13a-selfregion. HEAD c3370b6fc.
+
+### STEP 1, READ — AND CORRECTIONS
+queue gate rc 0 (104 rows) · bc_admits # TOTAL 76 · blocked 8 · probe-log-lint **281** records (the pricing report
+says 280: that was its own count before its commit) · build a5088a6875e092aa 43.
+⚠ `lint_mismatch_monopoly` (tier_full) was RED AT HEAD c3370b6fc: `selfregion3.spec` carries a verbatim copy of
+sema_expr.cpp with `expect_type`'s template twice ("found 3 emitters"). L1 cannot see it (not tier_commit). Repaired
+by respelling the two record-copy lines (`<T>`/`<U>`), the precedent this file set for its own templates; lint rc 0.
+Baselines: gate store build 1117 (-L bc, 2837 in filter, all measured, 0 failed) · run_oracle 6703 rc 0 ·
+fail_text_oracle 1528 rc 0 — both on a5088a68, taken this round (04:57 / 05:07).
+
+### THE CHANGE (+223 / -15 in sema + include; NO BUDGET WAS DECLARED BEFORE IMPLEMENTING — a miss)
+The union the pricing round funded, un-gated, one helper instead of two lambdas:
+  D3  `name_impl_anon_lts_`: each header `'_` -> `'__anonN` (probe order) at collect_impl's header Self, pushed
+      into `current_impl_lifetime_params_` at lower_impl_block, and given to an inherited default's Self.
+  D1  lower_impl_block seeds the BODY `Self` with the named header type (generic impls included — selfvg).
+  D2v a literal spelled `Self` is `check_variance(values -> Self)` then carries Self's regions (both paths);
+      `Self::V(..)` is checked (selfvee); unit `Self::V` is typed as Self (selfveu).
+DIFFERENCES FROM THE PROBES, each measured below:
+  X1  the ref/tuple/fn and concrete-type-arg seeds take the NAMED type (probes kept `'_` as a name there).
+  X2  `Self::V { .. }` (lower_enum_lit_data) is checked like `Self::V(..)` — a member the pricing round never listed.
+  X3  rendering: `'__anonN` prints `'_`; a mismatch mentioning one appends "`'_` in the impl's self type is a region
+      of the whole impl, not an elided lifetime of this function"; when both sides print alike the binders are
+      numbered `'_#1`, `'_#2`; the closure-parameter sentence names "the anonymous lifetime `'_` of the impl's self
+      type" instead of the binder.
+  The Self-literal check reads a local captured where the name is resolved, not the `hint_struct_type_` member.
+
+### PREDICTED (PREDICTIONS.md, written after the edit and before any build — stated there) vs MEASURED
+  bc_admits: {issue-55394--b, issue-98170} predicted, measured exactly; ∖ both ways = ∅. Blocked: none moved.
+  queue: 0 closed predicted, 0 closed measured.
+  hand, illegal newly refused: predicted B02 B03 B04 B06 B08 B09 B10 B11 B12 — measured exactly, plus the pricing
+      set, plus s14 and t8 (not named in the prediction: s14 is illegal and correctly refused; t8 is the enum-into-
+      `i64` confusion refused for a REGION reason — the wrong sentence 2026-09-13a recorded under selfvee).
+  hand, legal newly compiling: predicted A09 A10 — measured A10 only. A09 lost its `let s: Self` refusal (X1) and
+      is still refused by an UNRELATED defect at its call site ("method call: receiver is not a struct (got &i64)"),
+      which reproduces on base with a NAMED impl binder: rowed (below). Its static-call form A09s compiles (19).
+  hand, legal unchanged: all 21 listed, same exit codes. A03 A03b A04 A04b still refused, as predicted.
+
+### THE CLASS, BY PROPERTY — dlog `self_denote.dl` on the LANDED sources (selftest rc 0 first)
+writes 18 · queries 27 · compares 14 — the pricing round's 18/27/14 digit for digit: the landing adds NO lookup of
+the name (the key_identity lint agrees, rc 0). The 14 compares, read per site:
+  VALUE spelled `Self` typed at the site (4)  lower_struct_lit · lower_enum_lit · lower_enum_lit_data · lower_static_call
+                                              (the class-name rewrite) — ALL FOUR carry the check now.
+  TYPE position (3)                           resolve_type · resolve_type_assoc_ref · collect_trait
+  a TYPE VARIABLE's name (7)                  unify_types · try_method_on_tagged · walk · lower_static_call (is_static) ·
+                                              probe · is_self · _self_shape_artefact
+  `Self(x)`: no compare on the call-callee path — the carrier is absent (rowed 2026-09-13a, reason 1).
+Header-Self builders: collect_impl (header + inherited default) and lower_impl_block (seed) take the named type.
+⚠ lower_impl_block's own inherited-default lowering still builds a region-less Self; L14 compiles and runs 75 through
+it, so it is not a refusal site in any program measured — not claimed as a closed site.
+
+### THE LEAK, CAUGHT BY READING A QUEUE PROGRAM'S TEXT, THEN ENUMERATED BY SCAN
+First landed build: `closure_elided_param_called_with_field_ref_refuses` changed its sentence to "… is a region distinct
+from '__anon0, and no bound relates them — name it '__anon0" — a name nobody can write. The queue gate stayed green
+(it checks `refuses`), and fail_text_oracle cannot see a queue program. SCAN (anonscan.sh): every program under
+tests/logos/fail, tests/imported/{fail,admit}, tests/soundness/open, tests/spec/fail plus every hand program — 2937 +
+battery — compiled on e6bacd51, stderr grepped for `__anon`: 2 programs, ONE site (the closure branch of
+check_variance, which prints the written name raw). Fixed there. Re-scan on 86911f4ef2b44caf: 0 programs. ⚠ A scan sees the corpus'
+sentences, not every raw-lifetime printer: "fixed 1 site, the scan saw 1", not "the class had 1".
+
+### EVERY CLOSED ROW'S DIAGNOSTIC, READ (moved programs, final binary)
+  issue-55394--b  :8  "return type mismatch: variance mismatch — expected Foo<'_>, got Foo — lifetime structure
+                  incompatible (…) — `'_` in the impl's self type is a region of the whole impl, not an elided lifetime
+                  of this function"   rustc: lifetime may not live long enough. One error, upstream's line.
+  issue-98170     :18 and :22, two per fn, as upstream: "struct literal 'Self': variance mismatch — expected
+                  MyStruct<'_>, got MyStruct<'a> — … — `'_` in the impl's self type …", then "return type mismatch: …
+                  expected MyStruct<'a>, got MyStruct<'_> …"   rustc: lifetime `'1` appears in the `impl`'s self type.
+
+### NEIGHBOURS (standing rule 2026-09-12)
+| neighbour | verdict | reason / number |
+|---|---|---|
+| n3a e5 e6 h1 s5 s12 I5 r13d (header `'_`, every target shape), r13a2 (trait half) — illegal, admitted on base | CLOSED | D3; 9 of 9 refused |
+| L1 `pick(self: Self, other: Self)`, L14 inherited default — legal, refused on base | CLOSED | run 61 / 75; pass fixtures |
+| s1 s14 r13b I2 B11 (`let s: Self`, Self literal, generic impl) — illegal | CLOSED | D1 + D2v |
+| h2 B06 B10 (`Self::A(x)`), h15 B12 (unit `Self::B`) — illegal | CLOSED | D2v at lower_static_call / lower_enum_lit |
+| B03 `Self::V { r: x }` — illegal, admitted on base, NOT in the pricing round's list | CLOSED | X2 at lower_enum_lit_data |
+| B02 Self literal inside `Some(..)`, B08 `impl W<&'_ i64>` return, B09 generic `'_` literal, B04 two `'_` swapped — illegal | CLOSED | refused, sentences read |
+| A10 `impl W<&'_ i64>` `let g: Self`, A09s `impl Get for &'_ i64` `let s: Self` — legal, refused on base | CLOSED | X1; run 20 / 19 |
+| h5 `Self { r: &local }` | STAYS ROWED (reason 2) | re-measured: still compiles, runs 40 |
+| `Self(x)` tuple-struct constructor | STAYS ROWED (reason 1) | still "call to undefined function 'Self'" |
+
+### FOUND, NOT NEIGHBOURS — ROWED (soundness_queue 104 -> 107 by direct listing), each reproducing on base a5088a68
+  trait_impl_for_ref_method_call_receiver_refused (3)  `impl<'a> Get for &'a i64`, `r.get()`: "receiver is not a struct".
+  enum_payload_rewrap_carries_declared_region_refuses (3)  `E::A(r)` re-wrapped: "expected E<'a>, got E<'s>" — the
+      DECLARATION's region name on a match-bound payload.
+  struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses (3)  `E::V { r }` under `&E<'a>`: "E::V arg 0:
+      expected &'s i64, got i64". Hypothesis only: the binding-mode loss of variant_payload_nested_struct_sub_double_drops.
+
+### FIXTURES — ELEVEN PAIRS + ONE PASS-ONLY, all `bc_selfregion_*`, one token apart (two_anon: two)
+  anon_header_ret · selflit_fn_binder · self_tuple_variant · self_unit_variant · self_struct_variant · let_self_annot ·
+  generic_selflit · two_anon · anon_pick · typearg_anon_let_self · ref_target_let_self; pass-only
+  anon_trait_default_pick (a default body cannot name the self type's region). Base binary: 8 of 11 fail halves
+  COMPILE AND RUN; 4 pass halves (anon_pick, anon_trait_default_pick, typearg_anon_let_self, ref_target_let_self) are
+  REFUSED. Final: 25/25 (+ the two moved programs). Census pin 9664/5178/134 -> 9687/5199/132, predicted and measured
+  digit for digit; door census corpus 3078 -> 3090, nonglob 2887 -> 2899 by listing.
+
+### COLUMNS ON THE FINAL BUILD 86911f4ef2b44caf
+  L1 rc 0 (807/807 + 132 gates, 06:15:54) · L4 bc rc 0 (detached, gate store build 1128: core+spec 5199/5199, bc ports 1587/1587 of 1589 in filter — the 2 disabled, 06:29:40) · run_oracle rc 0 — 6715 run; 6703 common with
+  base, 0 lost, 0 changed after `cast-region-to-uint` subtracted by name; +12 = the pass halves, exits 41 61 75 47 46
+  19 45 43 44 42 48 20, empty stdout (06:12:30) · fail_text_oracle rc 0 — 1541 recorded; of the 1528 common with base: 0 rc, 0 .expected-match, 0 stderr-text changes; +13 (the 11 fail halves and the 2 moved rows), every one rc 1 and matching (06:02:18) · stdlib-cost rc 0, all four layers · queue gate rc 0, 107 rows (tier1 19 / tier2 24 / tier3 56 / tier4 8) ·
+  new fixtures 25/25 · hand battery 139 programs, base -> final: 28 compiles->refused (the two rows, 25 illegal neighbours, t8), 3 refused->compiles (A10 L1 L14, legal, run 20/61/75), 0 legal programs refused; the nine enum-into-scalar programs change exit code between two runs of ONE binary (queue row enum_variant_value_into_scalar_let_admits) and are excluded by name.
+
+### MISTAKES OF MY OWN
+  * PREDICTIONS.md was written after the source edit (before any build). Said in the file.
+  * No diff budget was declared before implementing.
+  * First landing build went to `build-copy`, a Unix-Makefiles dir: several targets run the same stdlib custom command
+    into ONE staging dir (/tmp/logos_emit_logos-lang) and race under -j ("objcopy: … is empty"). Killed; built in the
+    Ninja `build/`. A build-system hazard, not a compiler cost — recorded, not repaired.
+  * `pkill -f 'cmake --build build-copy'` matched its own shell and killed it, not the build.
+  * `ctest -R logos_09_direct_door_census` pulls the whole pass corpus in as fixtures (3091 tests); killed.
+  * A09 predicted to compile; an unrelated call-site defect refuses it (rowed).
+  * The detached chain's `test-levels.sh L4 bc` returned rc 2 at its OWN barrier (`LOGOS_L4_BG=1` unset) in 0 s — a
+    refusal to run, not a verdict. Re-run with the acknowledgement; the number above is that run's.
+  * The first numbered-binder branch keyed on `last_rigid_mismatch()` and never fired: B04/I5/s12 printed
+    "expected P<'_, '_>, got P<'_, '_>". Caught reading the battery; replaced by numbering in the `es == gs` tail.

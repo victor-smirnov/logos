@@ -1,0 +1,18 @@
+// An INHERITED trait default `fn pick(self: Self, other: Self) -> Self` for `impl Pick for Foo<'_>`:
+// every `Self` is `Foo<'_>` with the impl's ONE region, so returning `other` is legal. Refused before
+// 2026-09-13b. PASS ONLY: a default body cannot name the self type's region, so no illegal spelling
+// is one token away; its fail neighbour is fail/bc_selfregion_anon_pick_refuse. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_anon_trait_default_pick_admit;
+struct Foo<'s> { r: &'s i64 }
+trait Pick {
+    fn pick(self: Self, other: Self) -> Self { return other; }
+}
+impl Pick for Foo<'_> { }
+fn main() -> i32 {
+    let a: i64 = 74i64;
+    let b: i64 = 75i64;
+    let f = Foo { r: &a };
+    let g = Foo { r: &b };
+    let h = f.pick(g);
+    return *h.r as i32;
+}

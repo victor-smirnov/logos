@@ -1,0 +1,16 @@
+// `let g: Foo = ..` elides g's region, which the value fills. Legal.
+// TWIN of fail/bc_selfregion_let_self_annot_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_let_self_annot_admit;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn stash(&self, x: &i64) -> i64 {
+        let g: Foo = Foo { r: x };
+        return *g.r + *self.r;
+    }
+}
+fn main() -> i32 {
+    let a: i64 = 40i64;
+    let b: i64 = 6i64;
+    let f = Foo { r: &a };
+    return f.stash(&b) as i32;
+}

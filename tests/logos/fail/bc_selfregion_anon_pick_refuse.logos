@@ -1,0 +1,18 @@
+// `other: Foo` elides a region of its OWN, unrelated to the impl's `'_` that `-> Self` names:
+// rustc errors (lifetime may not live long enough).
+// TWIN of pass/bc_selfregion_anon_pick_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_anon_pick_refuse;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn pick(self: Self, other: Foo) -> Self {
+        return other;
+    }
+}
+fn main() -> i32 {
+    let a: i64 = 60i64;
+    let b: i64 = 61i64;
+    let f = Foo { r: &a };
+    let g = Foo { r: &b };
+    let h = f.pick(g);
+    return *h.r as i32;
+}

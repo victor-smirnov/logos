@@ -1,0 +1,17 @@
+// `impl Foo<'_>` IS `impl<'x> Foo<'x>`: `Self` is `Foo<'x>` with `'x` a region of the whole
+// impl, so `-> Self` does not unify with `r`'s region. rustc: lifetime may not live long enough
+// (nll/issue-55394). Before 2026-09-13b the header `'_` reached the signature mint as the fn's
+// own elided slot and this compiled.
+// TWIN of pass/bc_selfregion_anon_header_ret_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_anon_header_ret_refuse;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn wrap(r: &i64) -> Self {
+        return Foo { r: r };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 41i64;
+    let f = Foo::wrap(&v);
+    return *f.r as i32;
+}

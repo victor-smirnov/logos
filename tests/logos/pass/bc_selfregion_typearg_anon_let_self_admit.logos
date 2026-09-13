@@ -1,0 +1,18 @@
+// `impl W<&'_ i64>`: the body `Self` is `W<&'impl i64>` and `self.t` has that region. Legal;
+// refused before 2026-09-13b, when the body `Self` kept the header's `'_` as a NAME.
+// TWIN of fail/bc_selfregion_typearg_anon_let_self_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_typearg_anon_let_self_admit;
+struct W<T> { t: T }
+impl W<&'_ i64> {
+    fn dup(&self, x: &i64) -> Self {
+        let g: Self = W { t: self.t };
+        return g;
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 20i64;
+    let u: i64 = 1i64;
+    let w = W { t: &v };
+    let y = w.dup(&u);
+    return *y.t as i32;
+}

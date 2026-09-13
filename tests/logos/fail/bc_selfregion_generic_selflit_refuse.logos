@@ -1,0 +1,15 @@
+// In a GENERIC impl `impl<T> W<'_, T>`, a literal spelled `Self` IS `W<'impl, T>`, and `x`
+// does not outlive the impl's region: rustc errors.
+// TWIN of pass/bc_selfregion_generic_selflit_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_generic_selflit_refuse;
+struct W<'s, T> { r: &'s T }
+impl<T> W<'_, T> {
+    fn mk(x: &T) -> W<'_, T> {
+        return Self { r: x };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 47i64;
+    let w = W::mk(&v);
+    return *w.r as i32;
+}

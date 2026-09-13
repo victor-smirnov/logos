@@ -1,0 +1,16 @@
+// A unit variant spelled by the enum's name takes whatever region its context needs. Legal.
+// TWIN of fail/bc_selfregion_self_unit_variant_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_self_unit_variant_admit;
+enum E<'s> { A(&'s i64), B }
+impl<'q> E<'q> {
+    fn b<'a>(x: &'a i64) -> E<'a> {
+        return E::B;
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 44i64;
+    match E::b(&v) {
+        E::A(r) => { return 1i32; }
+        E::B => { return 44i32; }
+    }
+}

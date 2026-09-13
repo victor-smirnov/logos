@@ -5917,9 +5917,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                soundness_queue 94 -> 100 (two rows CLOSED, eight OPENED — every one a
 #                neighbour of this class rowed with its reason, or a defect the
 #                counter-example battery found that reproduces on the base binary).
-REGISTRY-ALL         9664
-REGISTRY-NOIMPORTED  5178
-REGISTRY-TIERCOMMIT  134
+# 2026-09-13b (selfregion-land — an impl header's `'_` is a NAMED impl binder at every
+#                site that builds `Self` from the header, the BODY `Self` carries the
+#                header's regions, and a value SPELLED `Self` (struct literal, `Self::V(..)`,
+#                `Self::V { .. }`, unit `Self::V`) is checked against / typed as Self).
+#                PREDICTED before the cut, then measured by the gate before the pin was
+#                touched: ELEVEN native PAIRS + ONE pass-only half, all bc_selfregion_* —
+#                +23. TWO closed rows' programs MOVE tests/imported/admit/nll ->
+#                tests/imported/fail/nll (issue-55394--b, issue-98170; declared
+#                RENAMED-FIXTURE below): registry-neutral in ALL, -2 `logos_00_bc_admit_*`
+#                in NOIMPORTED and TIERCOMMIT. So ALL 9664 -> 9687, NOIMPORTED 5178 -> 5199,
+#                TIERCOMMIT 134 -> 132 — measured digit for digit. bc_admits `# TOTAL`
+#                76 -> 74; soundness_queue 104 -> 105 (one row OPENED, a battery find that
+#                reproduces on the base binary; none closed).
+REGISTRY-ALL         9687
+REGISTRY-NOIMPORTED  5199
+REGISTRY-TIERCOMMIT  132
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
@@ -9091,6 +9104,8 @@ RENAMED-FIXTURE  tests/imported/admit/borrowck/borrowck-lend-flow-loop.logos  te
 RENAMED-FIXTURE  tests/imported/admit/nll/method-ufcs-inherent-3.logos  tests/imported/fail/nll/method-ufcs-inherent-3.logos  2026-09-12r: the bc_admits row it carried (nllmoves.NEW-1) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0597 verdict at the let
 RENAMED-FIXTURE  tests/imported/admit/nll/method-ufcs-inherent-4.logos  tests/imported/fail/nll/method-ufcs-inherent-4.logos  2026-09-12r: the bc_admits row it carried (nllmoves.NEW-S7-1) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0597 verdict at the let
 RENAMED-FIXTURE  tests/imported/admit/regions/regions-free-region-ordering-caller1.logos  tests/imported/fail/regions/regions-free-region-ordering-caller1.logos  2026-09-12r: the bc_admits row it carried (lifereg.D) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0716 verdict upstream's own .stderr gives first
+RENAMED-FIXTURE  tests/imported/admit/nll/issue-55394--b.logos  tests/imported/fail/nll/issue-55394--b.logos  2026-09-13b: the bc_admits row it carried (nllmoves.NEW-3) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the return-type region verdict against the impl's anonymous lifetime
+RENAMED-FIXTURE  tests/imported/admit/nll/issue-98170.logos  tests/imported/fail/nll/issue-98170.logos  2026-09-13b: the bc_admits row it carried (nllmoves.R13) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the `Self` literal region verdict at the literal, as upstream's first error
 RENAMED-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  tests/logos/pass/wql_agg_avg_bool_value_rule.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  tests/logos/pass/query_f64_agg_hand_derived.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  tests/logos/pass/query_order_by_float_data_key.logos  P5: the old name stated a COUNT of engines the cut falsified

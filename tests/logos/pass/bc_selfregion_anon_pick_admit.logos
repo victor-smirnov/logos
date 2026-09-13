@@ -1,0 +1,18 @@
+// Both parameters and the result are `Self` = `Foo<'_>`, ONE impl region: returning `other` is
+// legal. Refused before 2026-09-13b, when each `Self`'s `'_` was minted as a separate elided slot.
+// TWIN of fail/bc_selfregion_anon_pick_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_anon_pick_admit;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn pick(self: Self, other: Self) -> Self {
+        return other;
+    }
+}
+fn main() -> i32 {
+    let a: i64 = 60i64;
+    let b: i64 = 61i64;
+    let f = Foo { r: &a };
+    let g = Foo { r: &b };
+    let h = f.pick(g);
+    return *h.r as i32;
+}

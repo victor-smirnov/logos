@@ -2419,13 +2419,13 @@ std::string type_str(TypeRef t, bool source_form) {
         // diagnostic that invents one describes a type nobody wrote (and moves
         // every pinned `.expected`). See outlives.hpp::lt_is_minted.
         if (!TypeRef(t).lifetime().empty() && !lt_is_minted(TypeRef(t).lifetime()))
-            { s.append(TypeRef(t).lifetime()); s += " "; }
+            { std::string l_(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
         return s + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::MutRef: {
         std::string s = "&";
         if (!TypeRef(t).lifetime().empty() && !lt_is_minted(TypeRef(t).lifetime()))
-            { s.append(TypeRef(t).lifetime()); s += " "; }
+            { std::string l_(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::Array: {
@@ -2454,7 +2454,7 @@ std::string type_str(TypeRef t, bool source_form) {
           bool first = true;
           for (auto& lt : vis_lts) {
               if (!first) r += ", "; first = false;
-              r += lt.empty() ? "'_" : lt;
+              r += (lt.empty() || lt_is_impl_anon(lt)) ? "'_" : lt;
           }
           for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
               if (!first) r += ", "; first = false;
@@ -2559,7 +2559,7 @@ std::string type_str(TypeRef t, bool source_form) {
         bool first = true;
         for (auto& lt : vis_lts) {
             if (!first) r += ", "; first = false;
-            r += lt.empty() ? "'_" : lt;
+            r += (lt.empty() || lt_is_impl_anon(lt)) ? "'_" : lt;
         }
         for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
             if (!first) r += ", "; first = false;

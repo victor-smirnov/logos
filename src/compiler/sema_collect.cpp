@@ -3801,6 +3801,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // resolves (codegens as a plain ptr).
         if (!self_type && target_resolved)
             self_type = target_resolved;
+        if (self_type) {
+            int impl_anon_n = 0;
+            TypeRef named = name_impl_anon_lts_(self_type, impl_anon_n);
+            if (named != self_type) { logos::probe::census("selfregion.collect.named"); self_type = named; }
+        }
         if (self_type)
             current_type_params_["Self"] = self_type;
     }
@@ -4963,6 +4968,30 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     // any concrete receiver satisfying Bound. Without this, the
                     // trait's defaults are invisible on a blanket impl.
                     std::string def_reg_target = is_blanket ? check_target : target;
+                    // An inherited default's Self takes the header's NAMED anonymous binders.
+                    if (!is_blanket && self_type && impl_self_ty &&
+                        TypeRef(self_type).kind() == TypeRef(impl_self_ty).kind() &&
+                        (TypeRef(self_type).kind() == LogosType::Kind::Struct ||
+                         TypeRef(self_type).kind() == LogosType::Kind::ZonedStruct ||
+                         TypeRef(self_type).kind() == LogosType::Kind::Enum)) {
+                        std::vector<std::string> sl = TypeRef(self_type).lifetime_args();
+                        std::vector<std::string> il = TypeRef(impl_self_ty).lifetime_args();
+                        bool same = TypeRef(self_type).kind() == LogosType::Kind::Enum
+                            ? TypeRef(self_type).enum_name() == TypeRef(impl_self_ty).enum_name()
+                            : TypeRef(self_type).struct_name() == TypeRef(impl_self_ty).struct_name();
+                        bool any = false;
+                        if (same && sl.size() == il.size())
+                            for (size_t i = 0; i < sl.size(); ++i)
+                                if (sl[i].empty() && lt_is_impl_anon(il[i])) { sl[i] = il[i]; any = true; }
+                        if (any) {
+                            logos::probe::census("selfregion.default.named");
+                            std::vector<TypeRef> ta;
+                            for (auto a : TypeRef(self_type).type_args()) ta.push_back(a);
+                            self_type = TypeRef(self_type).kind() == LogosType::Kind::Enum
+                                ? make_generic_enum(TypeRef(self_type).enum_name(), std::move(ta), std::move(sl), TypeRef(self_type).pkg_name())
+                                : make_generic_struct(TypeRef(self_type).struct_name(), std::move(ta), std::move(sl), TypeRef(self_type).pkg_name());
+                        }
+                    }
                     if (is_blanket)
                         current_type_params_["Self"] = make_typevar(target);
                     else if (self_type)

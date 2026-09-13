@@ -1,0 +1,17 @@
+// A unit variant spelled `Self::B` has no values, and it IS the impl self type `E<'q>`,
+// which is returned as `E<'a>`: rustc errors (lifetime may not live long enough).
+// TWIN of pass/bc_selfregion_self_unit_variant_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_self_unit_variant_refuse;
+enum E<'s> { A(&'s i64), B }
+impl<'q> E<'q> {
+    fn b<'a>(x: &'a i64) -> E<'a> {
+        return Self::B;
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 44i64;
+    match E::b(&v) {
+        E::A(r) => { return 1i32; }
+        E::B => { return 44i32; }
+    }
+}

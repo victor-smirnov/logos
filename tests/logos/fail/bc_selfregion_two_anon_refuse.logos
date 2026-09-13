@@ -1,0 +1,17 @@
+// `impl P<'_, '_>` has TWO distinct anonymous regions, and swapping the fields puts each
+// reference in the other's slot: rustc errors (no relation between the two).
+// TWIN of pass/bc_selfregion_two_anon_admit, two tokens (the fields swap) apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_two_anon_refuse;
+struct P<'a, 'b> { x: &'a i64, y: &'b i64 }
+impl P<'_, '_> {
+    fn same(&self) -> Self {
+        return Self { x: self.y, y: self.x };
+    }
+}
+fn main() -> i32 {
+    let a: i64 = 20i64;
+    let b: i64 = 28i64;
+    let p = P { x: &a, y: &b };
+    let q = p.same();
+    return (*q.x + *q.y) as i32;
+}

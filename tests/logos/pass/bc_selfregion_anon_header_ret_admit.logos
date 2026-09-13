@@ -1,0 +1,15 @@
+// `impl Foo<'_>` IS `impl<'x> Foo<'x>`. A `'_` written in the FUNCTION's return type is
+// that function's elided output region, tied to `r`: legal, and it runs.
+// TWIN of fail/bc_selfregion_anon_header_ret_refuse, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_anon_header_ret_admit;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn wrap(r: &i64) -> Foo<'_> {
+        return Foo { r: r };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 41i64;
+    let f = Foo::wrap(&v);
+    return *f.r as i32;
+}

@@ -1,0 +1,13 @@
+// `x: &i64` elides a region of its own, unrelated to the impl's: rustc errors.
+// TWIN of pass/bc_selfregion_ref_target_let_self_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_ref_target_let_self_refuse;
+trait Get { fn read(x: Self) -> i64; }
+impl Get for &'_ i64 {
+    fn read(x: &i64) -> i64 {
+        let s: Self = x;
+        return *s;
+    }
+}
+fn main() -> i32 {
+    return 19i32;
+}

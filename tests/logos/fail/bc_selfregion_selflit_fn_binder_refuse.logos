@@ -1,0 +1,15 @@
+// A literal spelled `Self` IS the impl self type `MyStruct<'_>`, not `MyStruct<'a>` (nll/issue-98170):
+// rustc errors at the literal and at the return.
+// TWIN of pass/bc_selfregion_selflit_fn_binder_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_selflit_fn_binder_refuse;
+struct MyStruct<'a> { field: &'a i64 }
+impl MyStruct<'_> {
+    fn make<'a>(field: &'a i64) -> MyStruct<'a> {
+        return Self { field: field };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 42i64;
+    let m = MyStruct::make(&v);
+    return *m.field as i32;
+}

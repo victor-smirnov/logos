@@ -1,0 +1,18 @@
+// In the BODY, `Self` is `Foo<'_>` with the impl's region, and `x` does not outlive it:
+// rustc errors (lifetime may not live long enough). Before 2026-09-13b the body `Self` was
+// a bare `Foo` with no region at all.
+// TWIN of pass/bc_selfregion_let_self_annot_admit, one token apart. src/compiler/PROBES.md 2026-09-13b-selfregion-land.
+package bc_selfregion_let_self_annot_refuse;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn stash(&self, x: &i64) -> i64 {
+        let g: Self = Foo { r: x };
+        return *g.r + *self.r;
+    }
+}
+fn main() -> i32 {
+    let a: i64 = 40i64;
+    let b: i64 = 6i64;
+    let f = Foo { r: &a };
+    return f.stash(&b) as i32;
+}
