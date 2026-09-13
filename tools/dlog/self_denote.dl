@@ -1,0 +1,63 @@
+// self_denote — WHICH SITES DECIDE WHAT `Self` DENOTES, AND WHICH ASK A NAME
+// WHETHER IT WAS SPELLED `Self`. 2026-09-13a-selfregion.
+//
+// The question the round needs: the impl self type's lifetime args reach the
+// SIGNATURE `Self` (collect) and not the BODY `Self` (lower_fn binds a bare
+// struct), and a literal spelled `Self` is typed from its values. Both are
+// decisions about one fact — "this `Self` is the impl's self type, regions
+// included" — made at several sites. A grep for `"Self"` finds 60+ hits and
+// cannot tell a WRITE of the binding from a READ or a name COMPARISON.
+//
+// Mechanical only: `str_lit(I, "Self")` under a subscript / call / comparison.
+// ⚠ ctx_of coarsens to the enclosing named function; the per-site read beside
+// it in the round record is the cross-check.
+#include "cxx_schema.dl"
+
+.decl sub(top: symbol, x: symbol, d: number)
+.decl seed(x: symbol)
+seed(N) :- binop(N, _).
+seed(N) :- call(N, _).
+sub(N, N, 0) :- seed(N).
+sub(N, C, D+1) :- sub(N, X, D), D < 10, node(C, _, X, _).
+
+.decl self_lit_under(top: symbol)
+self_lit_under(T) :- sub(T, I, _), str_lit(I, "Self").
+
+// W: `current_type_params_["Self"] = …` — an assignment whose LHS subtree
+// subscripts current_type_params_ with the literal.
+.decl names_ctp(top: symbol)
+names_ctp(T) :- sub(T, U, _), ref(U, D), decl_name(D, "current_type_params_").
+.decl subscript_self(n: symbol)
+subscript_self(N) :- binop(N, "[]"), self_lit_under(N), names_ctp(N).
+.decl self_write(ctx: symbol, file: symbol, line: number)
+.output self_write
+// ⚠ FIRST VERSION required the subscript to be the `=` node's DIRECT child 0
+// and read ZERO against a grep of 18: clang interposes implicit nodes. Now: a
+// subscript_self anywhere under the `=` that is NOT under its RHS operand.
+// ⚠ SECOND VERSION read 19 against 18: `x = current_type_params_["Self"]`
+// (sema_decl.cpp, the tuple-self save) is a READ, the subscript on the RHS.
+// ⚠ THIRD VERSION keyed the LHS as child 0 and read ZERO: for an overloaded
+// `operator=` clang's child 0 is the CALLEE, not the left operand. So the rule
+// no longer names the LHS at all; it excludes the RHS, the LAST child.
+.decl rhs(a: symbol, r: symbol)
+rhs(A, R) :- binop(A, "="), node(R, _, A, I), !node(_, _, A, I + 1).
+seed(R) :- rhs(_, R).
+self_write(CN, F, L) :- binop(A, "="), sub(A, S, _), subscript_self(S),
+    !rhs_has(A, S), loc(A, F, L, _), ctx_of(A, C), ctx_name(C, CN).
+.decl rhs_has(a: symbol, s: symbol)
+rhs_has(A, S) :- rhs(A, R), sub(R, S, _), subscript_self(S).
+
+// R: find/count/at/erase("Self") on current_type_params_.
+.decl self_query(ctx: symbol, method: symbol, file: symbol, line: number)
+.output self_query
+self_query(CN, M, F, L) :- call(N, D), decl_name(D, M),
+    (M = "find" ; M = "count" ; M = "at" ; M = "erase"),
+    self_lit_under(N), names_ctp(N),
+    loc(N, F, L, _), ctx_of(N, C), ctx_name(C, CN).
+
+// C: a comparison of some value against the literal "Self" — the sites that
+// ask whether a NAME was spelled `Self` (struct literal, path, call callee).
+.decl self_cmp(ctx: symbol, file: symbol, line: number)
+.output self_cmp
+self_cmp(CN, F, L) :- binop(N, Op), (Op = "==" ; Op = "!="), self_lit_under(N),
+    !names_ctp(N), loc(N, F, L, _), ctx_of(N, C), ctx_name(C, CN).
