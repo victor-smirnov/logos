@@ -155,8 +155,7 @@ file: src/compiler/borrow_check.cpp
 ---
                 // PROBE lbd / lrall — src/compiler/PROBES.md 2026-09-12r.
                 if ((logos::probe::on("lbd") || logos::probe::on("lrall")) &&
-                    val && t && !v.compiler_glue() && !name.starts_with("__") &&
-                    !fn_lifetime_params_.empty()) {
+                    val && t && !v.compiler_glue() && !fn_lifetime_params_.empty()) {
                     using EC_ = lir_schema::expr::Code;
                     std::function<void(TypeRef, std::vector<std::string>&, int)> slots_ =
                         [&](TypeRef ty, std::vector<std::string>& o, int d) {
