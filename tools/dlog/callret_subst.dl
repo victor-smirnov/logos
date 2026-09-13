@@ -1,0 +1,41 @@
+// callret_subst — WHICH CONTEXTS BUILD A CALL'S RESULT TYPE FROM A CALLEE'S
+// `ret_type`, AND WHICH OF THEM EVER INSTANTIATE THE CALLEE'S REGIONS?
+//
+// 2026-09-12q: `A::newa(&v)` (impl<'q> A<'q>) types as `A<'q>` — the callee's
+// binder by NAME — while the free fn `newa(&v)` types as `A<'_>`. The free-fn
+// arms call `subst_call_ret_lts_`; the question is an ENUMERATION: every context
+// that reads a field named `ret_type` versus every context that calls
+// `subst_call_ret_lts_`. The ABSENCE (reads ret_type, never substitutes) is
+// derived, not grepped. ⚠ `ctx_of` coarsens to the nearest named context, so a
+// context that substitutes on ONE path and not another reads as "substitutes";
+// every row is cross-checked by reading the site.
+#include "cxx_schema.dl"
+
+.decl rettype_field(did: symbol)
+rettype_field(D) :- decl(D, "Field", _), decl_name(D, "ret_type").
+
+.decl rettype_read(ctx: symbol, file: symbol, line: number)
+rettype_read(X, F, L) :- rettype_field(D), ref(U, D), ctx_of(U, K),
+                         ctx_name(K, X), loc(U, F, L, _).
+
+.decl subst_decl(did: symbol)
+subst_decl(D) :- decl(D, _, _), decl_name(D, "subst_call_ret_lts_").
+
+.decl ctx_substs(ctx: symbol)
+ctx_substs(X) :- subst_decl(D), call(U, D), ctx_of(U, K), ctx_name(K, X).
+
+.decl ctx_reads(ctx: symbol)
+ctx_reads(X) :- rettype_read(X, _, _).
+
+.decl reads_never_substs(ctx: symbol, file: symbol, line: number)
+reads_never_substs(X, F, L) :- rettype_read(X, F, L), !ctx_substs(X).
+.output reads_never_substs
+
+.decl reads_and_substs(ctx: symbol, file: symbol, line: number)
+reads_and_substs(X, F, L) :- rettype_read(X, F, L), ctx_substs(X).
+.output reads_and_substs
+
+// known-answer control: the three landed subst sites must appear here.
+.decl subst_site(ctx: symbol, file: symbol, line: number)
+subst_site(X, F, L) :- subst_decl(D), call(U, D), ctx_of(U, K), ctx_name(K, X), loc(U, F, L, _).
+.output subst_site
