@@ -5888,9 +5888,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                PRE-EXISTING over-refusal that reproduces on the base binary).
 #                tier_commit 139 -> 138 was already the measured value before
 #                this round; it is re-pinned here by direct measurement.
-REGISTRY-ALL         9646
-REGISTRY-NOIMPORTED  5164
-REGISTRY-TIERCOMMIT  138
+# 2026-09-12n (bcdoor — the operand-position `&<temporary>` minting-site class
+#                landing). ALL 9646 -> 9652 (+6: the three native PAIRS
+#                bc_bcdoor_{fnptr,closure,argborrow}_{admit,refuse}).
+#                NOIMPORTED 5164 -> 5169 (+6 native, -1: the closed row's own
+#                `logos_00_bc_admit_lifetimes_temporary-lifetime-extension-tuple-
+#                ctor` retires as its program moves tests/imported/admit/lifetimes
+#                -> tests/imported/fail/lifetimes, registry-neutral in ALL).
+#                TIERCOMMIT 138 -> 137 is that same retired admit test, and it is
+#                the delta PREDICTED before the cut. bc_admits `# TOTAL` 80 -> 79;
+#                soundness_queue unchanged at 92, gate rc 0.
+REGISTRY-ALL         9652
+REGISTRY-NOIMPORTED  5169
+REGISTRY-TIERCOMMIT  137
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

@@ -1,0 +1,13 @@
+// PAIR B, pass half — the same indirect call through the same fn pointer, with
+// the argument's referent owned by a named local that outlives the borrow.
+package bc_bcdoor_fnptr_admit;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+fn temp() -> T { return T { n: 5i64 }; }
+fn mk<'a>(r: &'a T) -> X<'a> { return X { r: r }; }
+fn main() -> i32 {
+    let t: T = temp();
+    let some: fn(&T) -> X = mk;
+    let g: X = some(&t);
+    return g.r.n as i32;
+}

@@ -1,0 +1,12 @@
+// PAIR C, pass half — the same closure called on a borrow of a named local that
+// outlives the statement.
+package bc_bcdoor_closure_admit;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+fn temp() -> T { return T { n: 5i64 }; }
+fn main() -> i32 {
+    let t: T = temp();
+    let c = |r: &T| -> X { return X { r: r }; };
+    let g: X = c(&t);
+    return g.r.n as i32;
+}

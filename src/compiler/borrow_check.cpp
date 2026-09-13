@@ -8120,6 +8120,35 @@ private:
         return p;
     }
 
+    // ── bcdoor — THE MINTING SITE FOR `&<temporary>` IN OPERAND POSITION ──
+    // prov_of's AddrOfTemp arm answers the LIFETIME-EXTENSION question, which is
+    // about a `let` initialiser, and so returns is_local. In OPERAND position
+    // Rust does not extend (a call is not an extending expression) and the borrow
+    // is statement-scoped — the E0716 fact. Code::Call has minted it for its own
+    // arguments since 2026-08-31u; the other three call arms read bare prov_of
+    // and lost it. One helper, used by all four. PROBES.md §2026-09-12n-bcdoor.
+    RefProv prov_of_operand(lir_view::ExprRef a) const {
+        using Code = lir_schema::expr::Code;
+        RefProv ap = prov_of(a);
+        if (!a || a.kind() != Code::AddrOfTemp) return ap;
+        lir_view::ExprRef inner = lir_view::EAddrOfTempView{a}.inner();
+        lir_view::ExprRef base = inner;
+        for (int i = 0; base && i < 8; ++i) {
+            if (base.kind() == Code::FieldRead)
+                { base = lir_view::EFieldReadView{base}.receiver(); continue; }
+            if (base.kind() == Code::TupleIndex)
+                { base = lir_view::ETupleIndexView{base}.receiver(); continue; }
+            if (base.kind() == Code::AddrOfTemp)
+                { base = lir_view::EAddrOfTempView{base}.inner(); continue; }
+            break;
+        }
+        if (is_temporary_value_expr(inner) || is_temporary_value_expr(base) ||
+            (base && base.kind() == Code::VarRef &&
+             is_materialized_temp_name(lir_view::EVarRefView{base}.name())))
+            ap.is_temp = true;
+        return ap;
+    }
+
     RefProv prov_of_raw(lir_view::ExprRef e) const {
         if (!e) return {};
         using namespace lir_view;
@@ -8302,7 +8331,21 @@ private:
             case Code::ClosureCall:
             case Code::FnPtrCall: {   // H4 — see note_closure_caps
                 TypeRef rt = e.type(pool);
-                if (!is_ref_kind(rt) && !is_borrow_carrying_type(rt)) return {};
+                // bcdoor — #77's repair, applied to the 2nd of this class's THREE
+                // doors. The 3rd is the MethodCall arm below; Code::Call was
+                // repaired alone in #77. PROBES.md §2026-09-12n-bcdoor.
+                bool nd_door = !is_ref_kind(rt) && !is_borrow_carrying_type(rt) &&
+                               type_may_carry_borrow(rt);
+                if (!is_ref_kind(rt) && !is_borrow_carrying_type(rt) && !nd_door)
+                    return {};
+                // The new door answers the E0716 question ONLY: is_local is the
+                // ESCAPE channel (dangling only if RETURNED), a different class.
+                // Carrying it here refused two stdlib fns that return an OWNED
+                // value — Rc<dyn Resident>::clone and dyn_graph_edge_rows.
+                auto nd_narrow = [&](RefProv p) -> RefProv {
+                    if (!nd_door) return p;
+                    return RefProv{{}, /*is_local=*/false, /*is_temp=*/p.is_temp};
+                };
                 const std::vector<std::string>* caps = closure_caps_of(call_callee(e));
                 // ── H4-e: A CAPTURE-LESS CLOSURE'S RESULT TIES TO ITS SOLE
                 //          REFERENCE ARGUMENT, BY THE ELISION RULE ──────────
@@ -8385,20 +8428,22 @@ private:
                     EFnPtrCallView fv{e};
                     RefProv merged = {};
                     if (const FlowSummary* fs = flow_of_fnptr(fv.callee())) {
+                        if (nd_door && fs->over_approx) return {};  // no guess
                         size_t i = 0;
                         fv.each_arg([&](ExprRef a) {
                             if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
-                                merged = merge_prov(merged, prov_of(a));
+                                merged = merge_prov(merged, prov_of_operand(a));
                             ++i;
                         });
-                        return merged;
+                        return nd_narrow(merged);
                     }
+                    if (nd_door) return {};  // no summary at all IS a guess
                     fv.each_arg([&](ExprRef a) {
                         if (!a) return;
                         TypeRef at = a.type(pool);
                         if (is_plain_ref_kind(at) ||
                             (!is_ref_kind(at) && is_borrow_carrying_type(at)))
-                            merged = merge_prov(merged, prov_of(a));
+                            merged = merge_prov(merged, prov_of_operand(a));
                     });
                     return merged;
                 }
@@ -8410,7 +8455,7 @@ private:
                 // result's provenance is its argument's or it is nothing.
                 if (!caps) {
                     ExprRef a = sole_ref_arg();
-                    return a ? prov_of(a) : RefProv{};
+                    return a ? nd_narrow(prov_of_operand(a)) : RefProv{};
                 }
                 RefProv merged = {};
                 for (auto& cap : *caps) {
@@ -8426,6 +8471,7 @@ private:
                     if (var_has(NO_SLOT, cap) && !param_names_.count(cap))
                         merged.is_local = true;
                 }
+                if (nd_door) return nd_narrow(merged);
                 // THE CAPTURING EXIT IS LEFT ALONE, AND THAT IS MEASURED,
                 // not an omission: a closure with captures still returns a
                 // reference that may name an ARGUMENT and the loop above
@@ -8484,10 +8530,13 @@ private:
                 TypeRef m_rt = e.type(pool);
                 bool m_bc = is_borrow_carrying_type(m_rt);
                 bool m_fat_gate_shut = false;
+                bool m_new_door = false;   // bcdoor — PROBES.md §2026-09-12n
                 {
                     bool plain = is_plain_ref_kind(m_rt);
                     bool fat   = !plain && is_ref_kind(m_rt);
-                    if (!plain && !fat && !m_bc) return {};
+                    m_new_door = !plain && !fat && !m_bc &&
+                                 type_may_carry_borrow(m_rt);
+                    if (!plain && !fat && !m_bc && !m_new_door) return {};
                     m_fat_gate_shut = fat && !m_bc && !result_borrows_self(v);
                 }
                 // D1 round 3 / F1 + F2 — the receiver is an OPERAND, not a
@@ -8519,6 +8568,9 @@ private:
                 // fallback below (which would tie the result to the receiver,
                 // the very over-refusal the fat gate exists to prevent).
                 if (m_fat_gate_shut && (!fs || fs->over_approx)) return {};
+                // bcdoor: the new door is strictly narrower than the fat one —
+                // it speaks only on an EXACT summary, never on a guessed mask.
+                if (m_new_door && (!fs || fs->over_approx)) return {};
                 RefProv rp = {};
                 bool recv_contributes = true;
                 if (fs) {
@@ -8528,9 +8580,14 @@ private:
                     v.each_arg([&](ExprRef a){ ops.push_back(a); });
                     for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i)
                         if (fs->to_result & (1ull << i))
-                            rp = merge_prov(rp, prov_of(ops[i]));
+                            // bcdoor: ops[0] is the RECEIVER, which has its own
+                            // temp clause below (three AND gates, each bought by
+                            // a stdlib refusal). Mint on ARGUMENTS only — minting
+                            // on the receiver refuses wql/srcloc.logos `fn resolve`.
+                            rp = merge_prov(rp, i == 0 ? prov_of(ops[i])
+                                                       : prov_of_operand(ops[i]));
                 } else {
-                    rp = prov_of(v.receiver());
+                    rp = prov_of(v.receiver());   // bcdoor: receiver, not an arg
                     // F1's half that does NOT depend on a summary: a by-VALUE
                     // borrow-carrying argument carries its provenance exactly
                     // like a plain-ref one.
@@ -8538,7 +8595,7 @@ private:
                         if (!a) return;
                         TypeRef at = a.type(pool);
                         if (!is_ref_kind(at) && is_borrow_carrying_type(at))
-                            rp = merge_prov(rp, prov_of(a));
+                            rp = merge_prov(rp, prov_of_operand(a));
                     });
                 }
                 // A by-VALUE-self adapter (`.enumerate()` / `.filter()` —
@@ -8674,6 +8731,9 @@ private:
                         }
                     }
                 }
+                // bcdoor: the E0716 fact ONLY — see the note at the FnPtrCall door.
+                if (m_new_door)
+                    return RefProv{{}, /*is_local=*/false, /*is_temp=*/rp.is_temp};
                 return rp;
             }
             case Code::Call: {
@@ -8842,34 +8902,11 @@ private:
                 // change the answer for every consumer, including the direct
                 // `let` the extension rule exists for, and this does not touch
                 // it at all.
-                auto peel_temp_base = [](ExprRef b) {
-                    for (int i = 0; b && i < 8; ++i) {
-                        if (b.kind() == Code::FieldRead)
-                            { b = EFieldReadView{b}.receiver(); continue; }
-                        if (b.kind() == Code::TupleIndex)
-                            { b = ETupleIndexView{b}.receiver(); continue; }
-                        if (b.kind() == Code::AddrOfTemp)
-                            { b = EAddrOfTempView{b}.inner(); continue; }
-                        break;
-                    }
-                    return b;
-                };
+                // bcdoor: hoisted to prov_of_operand. This arm's rule, landed
+                // 2026-08-31u (`e716fldarg` + `e716rtmparg`), is now the shared
+                // one and the other three call arms mint the same fact.
                 auto merge_arg_prov = [&](ExprRef a) {
-                    RefProv ap = prov_of(a);
-                    // LANDED 2026-08-31u (was `e716fldarg` + `e716rtmparg`):
-                    // the temporary may be under a field / tuple-index hop, and
-                    // it may be the `__rtmp_N` local sema materialises for a
-                    // droppable rvalue. Both are statement-scoped.
-                    if (a.kind() == Code::AddrOfTemp) {
-                        ExprRef inner = EAddrOfTempView{a}.inner();
-                        ExprRef base  = peel_temp_base(inner);
-                        if (is_temporary_value_expr(inner) ||
-                            is_temporary_value_expr(base) ||
-                            (base && base.kind() == Code::VarRef &&
-                             is_materialized_temp_name(EVarRefView{base}.name())))
-                            ap.is_temp = true;
-                    }
-                    merged = merge_prov(merged, ap);
+                    merged = merge_prov(merged, prov_of_operand(a));
                 };
                 if (const FlowSummary* fs = flow_of_call(cv.callee())) {
                     // ── #77 round 2: RE-MEASURED, AND THE DOOR STAYS SHUT ──

@@ -41938,3 +41938,135 @@ carries a 2026-09-12g OWNER-BLOCKED note on three green pass pins. Four of seven
 `.logos` files from earlier rounds and a `for f in *.logos` ran all of them, mixing
 this round's eight programs into a 120-line table. Caught because the names were
 unfamiliar. This round's programs were moved to `scratchpad/r0912/hand/` first.
+
+## 2026-09-12n-bcdoor — THE ARGUMENT `&<temporary>` LOSES ITS E0716 FACT AT THREE OF FOUR CALL ARMS BECAUSE ONLY `Code::Call` EVER MINTED IT, AND BOTH ROOT NAMES THE LEDGER CARRIED FOR THIS ROW — `lifereg.D` AND ITS PROPOSED REPLACEMENT `NEW-STRUCTCARRY` — ARE REFUTED BY THEIR OWN ONE-VARIABLE CONTROLS
+site: src/compiler/borrow_check.cpp::prov_of_operand — the new SHARED minting site;
+      and `BorrowChecker::prov_of_raw` at its four call-form arms
+      (`Code::Call`, `Code::FnPtrCall`/`ClosureCall`, `Code::MethodCall`).
+build: BASE 930ba7b870356185 43 (HEAD 1c47f372f, READ; build/bin/logosc dated
+       Sep 12 18:45, md5 4752bcda1dd683d804a25a02c2a652b4, kept at
+       scratchpad/r0912n/logosc.BASE for the control revert).
+       ARMED 6ea261bff4453fc9 43 when the columns below were taken; the
+       binary embeds a configure timestamp and is not byte-reproducible, so a
+       rebuild of the SAME source re-keys it — at the commit it reads
+       fc8539b37318b78a 43. CONTROL REVERT rebuilt at 0060728975cf77ee 43.
+       FOUR intermediate builds, three of them
+       REFUTATIONS bought at one build each — see THE THREE REFUSALS below.
+measured: 2026-09-12
+fires: n/a — no probe. A census print (`LOGOS_BCDOOR`) at the two doors, at their
+       exits and at `visit_stmt`'s `let` chain; installed, read, and REMOVED.
+       `grep -c LOGOS_BCDOOR src/compiler/borrow_check.cpp` is 0 at the commit.
+ceiling: 1 measured by direct sweep of ALL 88 admit-shelf programs, not estimated.
+cost: 0 — full `cmake --build` green, stdlib four layers green, L1 807/807 +
+      12 684 generated + 137 gates, ten hand-written legal shapes all admit.
+ledger: bc_admits `# TOTAL` 80 -> 79. soundness_queue unchanged at 92, gate rc 0.
+
+### THE CLASS, ENUMERATED BY PROPERTY WITH `tools/dlog`, NOT BY GREP
+New rule `tools/dlog/bcdoor_sites.dl`. KNOWN-ANSWER CONTROL: `selftest.sh` passed
+first (19 walkers / 24 findings / try_path 1-5 / domain 42-5, duty 1 -> 0), and the
+rule's own control is the tree's comment at `type_may_carry_borrow_erased` — "the
+four arms that discharge it call THIS name". dlog answers `struct_door_count = 4`
+and names 3783/8731/9370/12971, matching digit for digit. `attr_door_count = 43`
+call sites of `is_borrow_carrying_type` program-wide; `attr_door_unnamed` EMPTY.
+
+⚠ THE RULE IS DELIBERATELY SITE-LEVEL. `ctx_of` coarsens to the enclosing
+function, and all four call arms share ONE context — a context-level "does this
+function call the structural predicate" answers YES for every arm the moment the
+#77 repair made one of them do so. That is the 37-vs-0 failure's exact shape.
+CROSS-CHECKED PER SITE BY READING, and the read adds the DIRECTION column that
+decides which are holes (only a PERMISSIVE exit can be one):
+
+    line  arm                      direction                          state
+    8305  ClosureCall/FnPtrCall    PERMISSIVE ENTRY DOOR              OPEN
+    8400  FnPtrCall arg loop       arg-INCLUSION, not an exit         n/a
+    8485  MethodCall               PERMISSIVE ENTRY DOOR              OPEN
+    8540  MethodCall arg loop      arg-INCLUSION, not an exit         n/a
+    8730  Call                     PERMISSIVE ENTRY DOOR              REPAIRED #77
+    8969  Call arg loop            arg-INCLUSION, not an exit         n/a
+
+So the door class is THREE members, #77 repaired ONE, and the file says why in its
+own words: "The channel was not summary-blind by its rule, it was summary-blind by
+its DOOR." The instance was fixed and the class left open, in the tree, for rounds.
+
+### BUT THE DOOR WAS ONLY HALF THE MECHANISM (RULE 2), AND THE OTHER HALF IS THE ROOT
+Opening both doors changed NOTHING: all five illegal hand programs still compiled.
+A zero is not an answer until the site is proven live — the census says the doors
+ARE live (`nd=1` in `fn main` for the fn-pointer, closure and method shapes) and
+the fact arriving is `tmp=0 loc=1`. Then the ONE-VARIABLE CONTROL, C1 vs I2,
+identical term for term except the CALLEE FORM:
+
+    let g: X = mk(&temp());     fn ITEM     rc 1 REFUSED
+    let g: X = some(&temp());   fn POINTER  rc 0 admitted
+
+MY FIRST EXPLANATION WAS REFUTED BY ITS OWN CONTROL. I predicted the direct call
+materialises its argument into a `__rtmp` local and the indirect call does not; the
+census prints `matname=0 innerkind=7` for BOTH. Materialisation is not the variable.
+
+THE ACTUAL ROOT, and it is a MINTING SITE (memory rule 16 — "no fact recorded" and
+"the fact is absent" are different, and only the minting site distinguishes them):
+`prov_of`'s `AddrOfTemp` arm answers the LIFETIME-EXTENSION question, which is
+about a `let` initialiser, and deliberately returns `{is_local=true, is_temp=false}`
+(2026-09-03e, Rust-canonical: `let r = &mut 5;` extends). In OPERAND position Rust
+does NOT extend — a call is not an extending expression — and the borrow is
+statement-scoped, the E0716 fact. `Code::Call` mints that fact separately inside
+`merge_arg_prov` (landed 2026-08-31u as `e716fldarg` + `e716rtmparg`). The other
+three arms read bare `prov_of` and lost it. ONE minting site, `prov_of_operand`,
+now serves all four; `merge_arg_prov` is three lines and delegates to it.
+
+### THREE REFUSALS BOUGHT THE NARROWING, EACH AT ONE BUILD, EACH NAMED
+The crude forms were not argued away, they were BUILT and the stdlib refused them.
+  1. Door widened with `type_may_carry_borrow_ERASED` -> `Rc<dyn Resident>::clone`
+     refused ("cannot return reference to local variable"). The `wide` arm exists
+     for `dyn`/closure/impl-trait HIDING a borrow; this class is structs with
+     reference FIELDS, which `holds_any_ref` answers without it. -> non-erased.
+  2. Door carrying `is_local` -> `dyn_graph_edge_rows` refused, returning an OWNED
+     `Vec<DynEdge>` by value. `is_local` is the ESCAPE channel (dangling only if
+     RETURNED); `record_prov` reports E0716 on `is_temp` ALONE. The new door is
+     narrowed to `is_temp` and cannot speak in the other channel at all.
+  3. Minting on the METHOD RECEIVER -> `stdlib/mem/wql/srcloc.logos::resolve`
+     refused. The receiver is NOT an argument: it has its own temp clause with
+     three AND gates, each already bought by a stdlib refusal. ARGUMENTS ONLY.
+⚠ (3) IS WHY `borrowck-let-suggestion` (bck.NEW-BCS) STAYS OPEN and why the
+handed-down recommendation is refuted in BOTH directions — see below.
+
+### BOTH HALVES OF THE HANDED-DOWN RECOMMENDATION ARE REFUTED BY MEASUREMENT
+2026-09-12m priced this block and said: "FUND T2's door … Ceiling 1" and "DO NOT
+FUND T1 yet: two doors in series and the upstream one is a TYPE fact."
+  · T1 `temporary-lifetime-extension-tuple-ctor` IS the row that closes, and it is
+    not two doors in series. 12m's census print sat above branch A of `visit_stmt`'s
+    `let` chain and reported only A and B, recording T1 as "branch NONE". That chain
+    has a THIRD branch (#86, keyed on `type_may_carry_borrow_erased`) which its
+    print could not see and which DOES fire: measured `A=0 B=0 C=1`.
+  · T2 `borrowck-let-suggestion` is the one that does NOT move, for refusal (3).
+  · T3 `issue-36082` does not move, as 12m predicted.
+⚠ A PRICING ROUND'S CENSUS IS AS GOOD AS ITS PRINT'S PLACEMENT. A print above the
+first branch of an if/else-if chain enumerates that chain's PREFIX, and reports the
+remainder as "no branch" — which reads exactly like a closed door.
+
+### THE CLOSED SET, DIFFED BOTH WAYS, BY DIRECT SWEEP
+Every one of the 88 programs on the admit shelf (80 bc_admits + 8 blocked) compiled
+on the armed binary. EXACTLY ONE changed verdict, and it is the target row:
+    1 tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor
+Nothing else closed, and nothing that must stay admitted became refused.
+
+### THE HAND BATTERY — TEN LEGAL SHAPES, WRITTEN BEFORE THE ARM
+Rule 5 says cost 0 is not a safety claim and hand programs all of one syntax are
+not either. VARIED BY SHAPE, not by count: named-local receiver, param receiver
+returning the carrier, fn-pointer with a named local, closure with a named local,
+temporary receiver with a non-borrowing result, TEMPORARY RECEIVER WHOSE RESULT
+BORROWS AN ARGUMENT (the door opens and it must still admit), by-value-self
+consuming the temporary, param-rooted fn pointer, a second hop, and a closure
+called twice. ALL TEN ADMIT on the armed binary, and all ten admitted on the base.
+Five illegal shapes: I2 (fn pointer), I3 (closure), I5 (fn pointer, method-call
+temporary, annotated binding) now REFUSE with upstream's sentence; I1 and I4 (method
+on a TEMPORARY RECEIVER) stay admitted and are bck.NEW-BCS, which is still open.
+
+### WHAT THE DIFF COST, AGAINST A BUDGET DECLARED BEFORE IMPLEMENTING
+Declared: candidate A at "2 logic lines, <=10 added, >20 = design smell"; candidate
+B (make `is_borrow_carrying_type` itself structural) DECLINED BEFORE BUILDING on 43
+call sites vs 2. Actual: 73 added / 36 removed, OVER the declared smell threshold.
+The overrun is refusals (2) and (3) — the `nd_narrow`/`m_new_door` narrowing and the
+receiver exclusion — plus the hoist of `merge_arg_prov` into `prov_of_operand` and
+the removal of the now-dead `peel_temp_base`. Recorded as an overrun, not hidden:
+the budget was declared against the DOOR, and the mechanism turned out to be the
+door AND the minting site in series.

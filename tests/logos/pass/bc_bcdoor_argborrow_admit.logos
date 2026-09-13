@@ -1,0 +1,20 @@
+// PAIR D, pass half — THE PAIR THAT PINS WHAT THIS CHANGE IS *NOT*. The receiver
+// IS a temporary and the result IS a lifetime-carrying struct — both halves of
+// the door this change opens — but the returned borrow comes from the ARGUMENT,
+// which outlives the statement. Rust admits this, and so must logosc: the
+// verdict has to follow the callee's flow summary, not the receiver's shape.
+// One token apart from fail/bc_bcdoor_argborrow_refuse: the argument.
+package bc_bcdoor_argborrow_admit;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+struct W { k: i64 }
+impl W {
+    fn wrapa<'a>(self: &W, r: &'a T) -> X<'a> { return X { r: r }; }
+}
+fn mkw() -> W { return W { k: 1i64 }; }
+fn temp() -> T { return T { n: 5i64 }; }
+fn main() -> i32 {
+    let t: T = temp();
+    let g: X = mkw().wrapa(&t);
+    return g.r.n as i32;
+}

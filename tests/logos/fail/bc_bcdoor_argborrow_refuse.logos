@@ -1,0 +1,16 @@
+// PAIR D, fail half — the SAME temporary receiver and the SAME method, with the
+// ARGUMENT made a temporary too. Now the returned struct really does point into
+// a value that dies at the semicolon. rustc: E0716.
+package bc_bcdoor_argborrow_refuse;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+struct W { k: i64 }
+impl W {
+    fn wrapa<'a>(self: &W, r: &'a T) -> X<'a> { return X { r: r }; }
+}
+fn mkw() -> W { return W { k: 1i64 }; }
+fn temp() -> T { return T { n: 5i64 }; }
+fn main() -> i32 {
+    let g: X = mkw().wrapa(&temp());
+    return g.r.n as i32;
+}

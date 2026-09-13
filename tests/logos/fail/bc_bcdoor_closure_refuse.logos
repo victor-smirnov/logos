@@ -1,0 +1,15 @@
+// PAIR C, fail half — the SAME class door reached through a CLOSURE value. This
+// shape has no ledger row of its own; it was found by enumerating the class BY
+// PROPERTY (dlog bcdoor_sites.dl) rather than by the two rows that were handed
+// down, and it was ADMITTED before this change exactly as the two rows were.
+// One token apart from pass/bc_bcdoor_closure_admit: `&temp()` there is `&t`.
+// rustc: E0716 "temporary value dropped while borrowed".
+package bc_bcdoor_closure_refuse;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+fn temp() -> T { return T { n: 5i64 }; }
+fn main() -> i32 {
+    let c = |r: &T| -> X { return X { r: r }; };
+    let g: X = c(&temp());
+    return g.r.n as i32;
+}

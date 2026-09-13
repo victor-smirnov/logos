@@ -197,10 +197,19 @@
 #              MERGE CANDIDATE ACROSS BLOCKS, recorded and NOT merged (owner decision).
 #   lifereg.D  REFUTED ON BOTH ROWS, AND FOR TWO DIFFERENT REASONS — it is not one root
 #              and neither half is "a temporary has no owner":
-#     NEW-STRUCTCARRY (temporary-lifetime-extension-tuple-ctor) the temporary HAS a
-#              loan: `let g: &T = keep(&temp());` is REFUSED with the right E0716
-#              sentence. Vary ONLY the return type: `-> &'a T` REFUSED, `-> X<'a>`
-#              ADMITTED. The loan is not followed into a struct that carries the region.
+#     NEW-STRUCTCARRY — WITHDRAWN 2026-09-12n, ROW CLOSED. The proposal read "the
+#              loan is not followed into a struct that carries the region", off a
+#              pair that varied ONLY the return type. That pair NO LONGER
+#              REPRODUCES: on 1c47f372f both `-> &'a T` and `-> X<'a>` REFUSE
+#              through a named fn item, so the return type carries no information.
+#              Nor was the variable the CALLEE FORM (2026-09-12m's replacement
+#              hypothesis): the real variable is OPERAND POSITION. `&<temporary>`
+#              as an ARGUMENT is statement-scoped — Rust extends a `let`
+#              initialiser, and a call is not an extending expression — and
+#              `prov_of`'s AddrOfTemp arm answers the EXTENSION question, so it
+#              returns is_local. Code::Call minted the E0716 fact separately in
+#              `merge_arg_prov` (2026-08-31u); FnPtrCall/ClosureCall read bare
+#              `prov_of` and lost it. ONE minting site now serves all four arms.
 #     NEW-LETANNOT (regions-free-region-ordering-caller1) no temporary is involved at
 #              all: replace `&(&y)` with a named local and it still admits. `let z: &'a
 #              u64 = &y;` inside `call1<'a>` ADMITS; only `return z;` refuses, and by a
@@ -1770,7 +1779,17 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # arm printed at line 557 of a 40-line file and blamed a stdlib function. The
 # landing sets both around the refusal. The GENERAL defect is unchanged and is
 # the standing soundness_queue row `e0184_blame_header_names_unrelated_impl`.
-# TOTAL 80
+#
+# 2026-09-12n — 80 -> 79 (ONE ROW CLOSED, `bcdoor`). `lifereg.D`'s
+# `temporary-lifetime-extension-tuple-ctor` is deleted; the port moves to
+# tests/imported/fail/lifetimes/ and pins upstream's E0716 sentence. The CLASS was
+# enumerated by property with tools/dlog (`bcdoor_sites.dl`) and the class fix is a
+# single shared minting site, `prov_of_operand`, used by all four call arms of
+# `prov_of_raw`. The METHOD RECEIVER is deliberately NOT in it — it has its own
+# temp clause with three AND gates, each bought by a stdlib refusal, and minting
+# there refuses stdlib/mem/wql/srcloc.logos `fn resolve`. That leaves
+# `borrowck-let-suggestion` (bck.NEW-BCS) OPEN and correctly so.
+# TOTAL 79
 
 
 # ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
@@ -1880,7 +1899,6 @@ e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/life
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a METHOD CALL whose receiver-region demand is never checked. PAIR: the same escape through two FREE fns REFUSES (`return type mismatch: variance mismatch — expected &'static bool, got &'s bool`); through `self.a()` it admits. Writing 's explicitly changes nothing, so elision is NOT the variable
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 mut-slice-struct-lifetime-transmute--t17 lifereg.NEW-B2 tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17  # 2026-09-12d DECLINED, AND THE NUMBER IS TWO LEGAL PROGRAMS. `liferegslicehop` refuses `s[0u64] = s[1u64]` and `dwderefhop` refuses `(*r).a = (*r).b` (both legal — every element/field is `&'a i64`), each with `cannot return reference to local variable '?': dangling reference`, a DIFFERENT sentence from the one this row closes with. ONE OVER-REFUSAL PER HOP, so the "cheaper half" variant ships one too (rule 18). 12c's 14 hand shapes all varied the DESTINATION and never the SOURCE; varying the RHS to a place READ through the same pointer/slice is what breaks it. NOT SEPARABLE: a probe that opens both hops and skips `add_ref_sources` entirely still refuses both legal programs AND still closes this row — the live consumer is `note_holder_escape_prov` further down the same block, so the deposit that buys the row IS the deposit that over-refuses. Two other causes were BUILT and REFUTED: an additive `store_ref_sources` arm (identical in all 27 columns) and "pairs is empty" (fire log says pairs=1 both times). The repair lives in the DANGLING channel, on the `'?'` population — its own round. CLASS, by `tools/dlog` place_walkers.dl at fixpoint (selftest green on 28fc7c75 first): projection domain is FIVE (Deref FieldRead IndexRead TupleIndex SliceIndex); the §B6 walk handles 2. ⚠ dlog scores `visit_stmt` 5/5 because it keys on the FUNCTION and that function holds several walks — the per-site read says 2/5; both numbers reported, the tool is coarse here. A class member the hop does NOT close is now queue row `lifereg_slice_elem_field_store_admits` (`s[0u64].v = y`). PRIOR: 2026-09-12c LOWERING NAMED BY CENSUS, AND IT REFUTES THE ARM THREE ROUNDS AIMED HERE: `s[0u64] = y` is SDerefWrite(AddrOfTemp(SliceIndex(VarRef s))) — node kind EC::SliceIndex (24), NOT EC::IndexRead (15). The probe-gated widening in the same §B6/holder walk (`lifereg_indexstore`) tests `IndexRead && pointee Kind::Array`: BOTH conjuncts miss, so "widen Kind::Array to Slice" was never the change. A `SliceIndex` hop added to that walk (`liferegslicehop`) prices CEILING 1 = THIS ROW, cost 0 on pass(ledger+legal) + fail(text, 0/1494) + stdlib(4 of 4) + runtime(6672 run fixtures, 0 lost / 0 added / 1 changed = cast-region-to-uint, subtracted by name), 14 legal hand shapes unmoved. FUNDABLE — see PROBES.md 2026-09-12c. PRIOR: 2026-09-11d RE-ROOTED lifereg.B -> lifereg.NEW-B2 on an arrival census: the slice-element store reaches NONE of the five holder-deposit doors (0 arrivals, incl. the index_mut receiver door), so no fact carried to a door helps it; --c17's field door arrives and closes at ceiling 1. The two rows are TWO mechanisms. PRIOR: STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT lifereg.B CONFIRMED by the same pair as --c17: root-local store REFUSED, through an INDEX admitted. The two rows are one mechanism at two projections and are now two DIFFERENT programs (field vs index), which they were not before
-temporary-lifetime-extension-tuple-ctor lifereg.D tests/imported/admit/lifetimes/temporary-lifetime-extension-tuple-ctor  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.D REFUTED for this row: the temporary DOES have a loan — `let g: &T = keep(&temp());` is REFUSED with the right E0716 sentence. ONE-VARIABLE PAIR: same call, same temporary, only the RETURN TYPE varies — `-> &'a T` REFUSED, `-> X<'a>` (a struct carrying the region) ADMITTED. Propose lifereg.NEW-STRUCTCARRY
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
 

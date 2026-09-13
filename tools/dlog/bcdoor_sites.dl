@@ -1,0 +1,51 @@
+// bcdoor_sites — THE ATTRIBUTE-KEYED DOOR vs THE STRUCTURAL ONE, BY SITE.
+//
+// `is_borrow_carrying_type` answers from `ts_.borrow_carrying`, a NAME SET fed
+// by the `#[borrow_carrying]` ATTRIBUTE. `type_may_carry_borrow_erased` answers
+// STRUCTURALLY (holds_any_ref fixpoint, type-args, tuples, slices). #77 moved
+// ONE gate — prov_of_raw's Code::Call arm — from the first to the second and
+// recorded why ("summary-blind by its DOOR"). This question asks which other
+// gates still stand on the name set.
+//
+// ⚠ DELIBERATELY SITE-LEVEL, NOT CONTEXT-LEVEL. The recorded dlog failure
+// (37 defects vs clang's 0) was `ctx_of` silently coarsening: all four call-form
+// arms of prov_of_raw share ONE enclosing context, so a context-level "does this
+// function call the structural predicate" answers YES for every arm the moment
+// any one arm does — which is exactly the #77 repair's shape. The output is one
+// row per CALL NODE with its own line, to be cross-checked per site by reading.
+#include "cxx_schema.dl"
+
+.decl attr_door_decl(did: symbol)
+attr_door_decl(D) :- decl(D, _, Q), match(".*is_borrow_carrying_type.*", Q).
+
+.decl struct_door_decl(did: symbol)
+struct_door_decl(D) :- decl(D, _, Q), match(".*type_may_carry_borrow_erased.*", Q).
+
+// every call site of each door, with its OWN location
+.decl attr_door_site(file: symbol, line: number, ctx: symbol, callid: symbol)
+.output attr_door_site
+attr_door_site(F, L, Name, N) :-
+    call(N, D), attr_door_decl(D), loc(N, F, L, _), ctx_of(N, C), ctx_name(C, Name).
+
+.decl struct_door_site(file: symbol, line: number, ctx: symbol, callid: symbol)
+.output struct_door_site
+struct_door_site(F, L, Name, N) :-
+    call(N, D), struct_door_decl(D), loc(N, F, L, _), ctx_of(N, C), ctx_name(C, Name).
+
+// a door call whose enclosing context could not be named — a hole in the census
+.decl attr_door_unnamed(file: symbol, line: number, callid: symbol)
+.output attr_door_unnamed
+attr_door_unnamed(F, L, N) :-
+    call(N, D), attr_door_decl(D), loc(N, F, L, _), !attr_named(N).
+.decl attr_named(callid: symbol)
+attr_named(N) :- call(N, D), attr_door_decl(D), ctx_of(N, C), ctx_name(C, _).
+
+// counts — the known-answer control: the tree's own comment says
+// type_may_carry_borrow has 28 consumers and FOUR arms discharge the erased form.
+.decl attr_door_count(n: number)
+.output attr_door_count
+attr_door_count(N) :- N = count : { attr_door_site(_, _, _, _) }.
+
+.decl struct_door_count(n: number)
+.output struct_door_count
+struct_door_count(N) :- N = count : { struct_door_site(_, _, _, _) }.

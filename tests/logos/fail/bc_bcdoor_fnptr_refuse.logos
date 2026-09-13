@@ -1,0 +1,15 @@
+// PAIR B, fail half — THE FN-POINTER door (prov_of_raw's Code::FnPtrCall entry
+// gate, the same class as PAIR A one arm over). An INDIRECT call returning a
+// lifetime-carrying struct, applied to a borrow of a temporary. One token apart
+// from pass/bc_bcdoor_fnptr_admit: `&temp()` there is `&t`.
+// rustc: E0716 "temporary value dropped while borrowed".
+package bc_bcdoor_fnptr_refuse;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+fn temp() -> T { return T { n: 5i64 }; }
+fn mk<'a>(r: &'a T) -> X<'a> { return X { r: r }; }
+fn main() -> i32 {
+    let some: fn(&T) -> X = mk;
+    let g: X = some(&temp());
+    return g.r.n as i32;
+}

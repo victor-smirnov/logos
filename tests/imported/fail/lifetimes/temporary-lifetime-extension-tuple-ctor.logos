@@ -1,6 +1,12 @@
 // rustc lifetimes/temporary-lifetime-extension-tuple-ctor.rs — upstream E0716 temporary value dropped while borrowed
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.D  (root RE-CHECKED 2026-09-08, see below)
+// shelf: FAIL — CLOSED 2026-09-12n (`bcdoor`). Was an admit row under root
+// lifereg.D with a proposed `lifereg.NEW-STRUCTCARRY`; BOTH root names are
+// refuted. The variable is neither the return type nor the callee form: an
+// argument `&<temporary>` reaches Code::Call through `merge_arg_prov`, which
+// MINTS the E0716 fact, and reached the FnPtrCall/ClosureCall arms through bare
+// `prov_of`, which answers the lifetime-EXTENSION question instead and returns
+// is_local. One minting site now serves all four call arms.  (root RE-CHECKED 2026-09-08, see below)
 // RE-PORTED AS-IS 2026-09-08 (stage 6). The old port kept the illegal line but had
 // dropped upstream's CONTRAST — the legal constructor forms that DO extend. The
 // contrast is the whole test: extension applies through a constructor path and NOT
@@ -29,7 +35,7 @@ fn main() -> i32 {
     let a: &T = &temp();                 // OK upstream too (extension)
     let e: X = X { r: &temp() };         // OK upstream too (extension through a ctor)
     let some: fn(&T) -> X = mk;          // turn the ctor into a regular function
-    let g = some(&temp());               // THE DEFECT: admitted, upstream E0716
+    let g = some(&temp());               // REFUSED since 2026-09-12n: upstream E0716
     if a.n != 5i64 { return 1i32; }
     if e.r.n != 5i64 { return 1i32; }
     if g.r.n != 5i64 { return 1i32; }
