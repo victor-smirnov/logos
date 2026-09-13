@@ -46,3 +46,26 @@ Predicted ESCND-ONLY COST: k17 k18 (old walk names the reference local through t
 Not reached by any arm (measured admitted, predicted unchanged): x3 x10 (VarRef of a local
 reference — no arm), x5 x9 (field write through a param — excluded plane), k21 (EnumLitData),
 k23 (`&(call)` temp — temp case keys on AddrOf/AddrOfTemp inner only).
+
+## BATCH 2 — STRICT EXTENSIONS FOR THE NEIGHBOURS (spec `escroot2.spec`), WRITTEN BEFORE ITS BUILD
+
+Every arm of `lrall` stays on in every batch-2 name; each name adds ONE extension; `lrx` = all.
+
+| probe | extension at the same site | neighbour it tests |
+|---|---|---|
+| lrall  | none (control twin on the batch-2 build, rule 18) | — |
+| lrimpl | let door's binder set += every named region of the SIGNATURE (params, ret) | r8, i3 (impl binder) |
+| lragg  | let door on StructLit/TupleLit/ArrLit/EnumLitData (single slot); collect += EnumLitData, ArrLit | d6 n1 n2 n3 r2 a5; k21 (escape) |
+| lrtemp | E0716 temp case += `&(call)` | k23, t3 |
+| lrvar  | collect += VarRef through the §B6 source map (`ref_sources_under`) | x3 x10 (escape) |
+| lrx    | all four | — |
+
+Ledger rows predicted closed: lrall 3 (as batch 1). lrimpl/lragg/lrtemp/lrvar/lrx: the same 3; no
+further bc_admits row is predicted — none of the extensions' neighbours was found on the ledger.
+Uncertain, not claimed: any ledger row with an aggregate-literal `let` under a fn binder.
+Hand battery, predicted newly REFUSED (illegal): lrimpl r8 i3 · lragg d6 n1 n2 n3 r2 a5 k21 ·
+lrtemp k23 t3 · lrvar x3 x10.
+Predicted COST (legal, must compile+run): t1 t2 a1 a2 a3 a4 a6 i1 i2 v1 v2 v3 v5 v6 v7 v8 + every
+legal program of batch 1. Named risks: lrtemp → t1 (`&v[1]` on a Vec param may lower to a call),
+t2; lrvar → v6 (shadowing may leave a stale source), v7 (branch), v8 (holder channel);
+lrimpl → i1 i2.
