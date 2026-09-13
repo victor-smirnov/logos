@@ -1,0 +1,20 @@
+// THE LEGAL TWIN of fail/bc_static_call_result_let_static,
+// one token apart (`A<'_>` here, `A<'static>` there). Was soundness_queue row
+// static_call_callee_region_named_in_result_refuses (legal Rust refused: the callee's binder reached the
+// caller BY NAME). CLOSED 2026-09-12r — src/compiler/PROBES.md.
+package bc_static_call_callee_region_instantiated;
+
+struct A<'a> { x: &'a i64 }
+
+impl<'q> A<'q> {
+    fn newa(x: &'q i64) -> A<'q> {
+        return A { x: x };
+    }
+}
+
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    let a: A<'_> = A::newa(&v);
+    if *a.x != 6i64 { return 1i32; }
+    return 0i32;
+}

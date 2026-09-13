@@ -1,0 +1,18 @@
+// `&ys[1]` with `ys` a local REFERENCE borrows the POINTEE, whose life is the
+// caller's — not `ys`'s own storage. The out-param escape arm walked the index
+// by itself and named `ys` ("'ys' does not live long enough"), refusing legal
+// Rust. TWIN of fail/bc_escroot_local_array_index, one token apart: `ys` here,
+// the local ARRAY `zs` there. src/compiler/PROBES.md 2026-09-12r.
+package bc_escroot_ref_local_index;
+fn store<'a>(xs: &'a [i64], out: &mut &'a i64) {
+    let zs: [i64; 2] = [5i64, 6i64];
+    let ys: &'a [i64] = xs;
+    *out = &ys[1];
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [4i64, 7i64, 9i64];
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    store(&arr, &mut r);
+    return *r as i32;
+}

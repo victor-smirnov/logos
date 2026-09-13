@@ -1,0 +1,25 @@
+package let_borrow_of_call_temp_inner_slot_admits;
+
+fn id<'q>(x: &'q i64) -> &'q i64 {
+    return x;
+}
+
+fn foo<'a>(p: &'a i64) {
+    let z: &'a &i64 = &(id(p));   // THE DEFECT: admitted, upstream E0716
+}
+
+fn main() -> i32 { return 0i32; }
+// SOUNDNESS QUEUE row let_borrow_of_call_temp_inner_slot_admits (tier 2).
+// Illegal Rust (E0716: the temporary holding `id(p)` is freed at the end of the
+// statement, the annotation requires the borrow to last `'a`). TODAY compiled clean.
+// The 2026-09-12r let door refuses the same shape over a LOCAL (`&(id(&v))`, and
+// upstream's `&(&y)`), but here the value's INNER slot is `'a` (from `p`), and the door
+// asks "does the value's type carry `'a` in ANY slot" — position-blind.
+// ⚠ ROWED, NOT CLOSED — REASON (3), ITS OWN COST IS MEASURED NON-ZERO. The strict
+// extension at the same site — compare the OUTER slot only — was built and priced as
+// probe `lrouter` (build 17ba7cfc1c1c97da): it refuses this program with the right
+// E0716 sentence, and it refuses the equally illegal `let r: &'a &i64 = &s.kref();`
+// (s: &'a S) with "'__lit_temp_0' does not live long enough" — a sentence naming a
+// compiler-synthesized binding, because sema materializes the call result into a
+// named temporary before borrowing it. A refusal bought with that sentence is not a
+// close. src/compiler/PROBES.md 2026-09-12r.

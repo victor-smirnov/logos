@@ -1,6 +1,6 @@
 // rustc regions/regions-free-region-ordering-caller1.rs — upstream E0716 temporary value dropped while borrowed + E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.D  (root RE-CHECKED 2026-09-08, see below)
+// shelf: fail (was admit · root lifereg.D; CLOSED 2026-09-12r — src/compiler/PROBES.md)  (root RE-CHECKED 2026-09-08, see below)
 // RE-PORTED AS-IS 2026-09-08 (stage 6). The old port already carried the construct
 // verbatim; only the provenance and the annotation of what is illegal are added.
 // Original path: tests/ui/regions/regions-free-region-ordering-caller1.rs

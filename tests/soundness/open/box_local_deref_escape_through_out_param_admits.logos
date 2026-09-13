@@ -1,0 +1,18 @@
+package box_local_deref_escape_through_out_param_admits;
+
+fn store<'a>(out: &mut &'a i64) {
+    let bx: Box<i64> = Box::new(3i64);
+    *out = &*bx;   // THE DEFECT: admitted, upstream E0597 (`*bx` dropped while borrowed)
+}
+
+fn main() -> i32 { return 0i32; }
+// SOUNDNESS QUEUE row box_local_deref_escape_through_out_param_admits (tier 2).
+// Illegal Rust (E0597: `bx` does not live long enough). TODAY compiled clean.
+// The out-param escape arm (borrow_check visit_stmt, Code::DerefWrite, `q` a
+// PARAMETER) asks `collect_borrowed_local_roots`, and `&*bx` over a Box reaches it as a
+// CALL, not as an `AddrOfTemp` place: census under the 2026-09-12r call arm reads
+// `esc.call.site 1`, `esc.call.root 0` — the call arm is entered and finds no argument
+// the callee's flow summary ties to the result. THE FACT HAS NO CARRIER THERE: the
+// Box deref's summary does not name its receiver. The same shape through `id(&*bx)`
+// (k22) is admitted for the same reason. ⚠ LEGALITY RESTS ON A READING: no rustc
+// binary on this box. src/compiler/PROBES.md 2026-09-12r.

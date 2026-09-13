@@ -1,0 +1,20 @@
+package index_through_ref_to_vec_let_refuses;
+
+fn foo<'a>(v: &'a Vec<i64>) -> i64 {
+    let r: &'a i64 = &v[1];
+    return *r;
+}
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(80i64);
+    if foo(&v) != 80i64 { return 1i32; }
+    return 0i32;
+}
+// SOUNDNESS QUEUE row index_through_ref_to_vec_let_refuses (tier 3).
+// Legal Rust: `v[1]` auto-derefs `&Vec<i64>` and borrows the element for `'a`.
+// TODAY refused: "let 'r': type mismatch — expected &'a i64, got &'a Vec<i64>" — the
+// index through a REFERENCE to a Vec types as the Vec itself. Found 2026-09-12r by the
+// counter-example battery written for the let door (t1); it reproduces on the base
+// binary fc8539b37318b78a, before any change of that round. src/compiler/PROBES.md 2026-09-12r.

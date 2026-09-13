@@ -1,0 +1,18 @@
+package assign_local_borrow_into_annotated_binder_admits;
+
+fn foo<'a>(q: &'a i64) -> i64 {
+    let v: i64 = 3i64;
+    let mut x: &'a i64 = q;
+    x = &v;       // THE DEFECT: admitted, upstream E0597
+    return *x;
+}
+
+fn main() -> i32 { return 0i32; }
+// SOUNDNESS QUEUE row assign_local_borrow_into_annotated_binder_admits (tier 2).
+// Illegal Rust (E0597: `x`'s declared `&'a i64` requires `v` borrowed for `'a`).
+// TODAY compiled clean. The LET spelling `let x: &'a i64 = &v;` is refused by the
+// 2026-09-12r let door. THE FACT HAS NO CARRIER AT THE ASSIGNMENT: the binding's type
+// is the same `&'a i64` whether the `'a` was WRITTEN or INFERRED — measured: an
+// unannotated `let mut x = q;` and this annotated one both print `got &'a i64` (j1/j3),
+// and `let mut x = q; x = &v; return *x;` is LEGAL and runs 3 (j2). A rule keyed on the
+// binding's type refuses j2. src/compiler/PROBES.md 2026-09-12r.

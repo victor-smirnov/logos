@@ -1,0 +1,19 @@
+// A borrow of a LOCAL returned by a CALL and stored through a `&mut` PARAMETER.
+// The out-param escape arm named only a literal `&local` at the write, so the
+// same borrow laundered through `id` compiled and read freed stack at run time.
+// TWIN of pass/bc_escroot_call_result_static, one token apart: `&local` here,
+// `&G` there. src/compiler/PROBES.md 2026-09-12r.
+package bc_escroot_call_result_escape;
+static G: i64 = 9i64;
+fn id<'q>(x: &'q i64) -> &'q i64 {
+    return x;
+}
+fn store(out: &mut &i64) {
+    let local: i64 = 1i64;
+    *out = id(&local);
+}
+fn main() -> i32 {
+    let mut p: &i64 = &G;
+    store(&mut p);
+    return *p as i32;
+}

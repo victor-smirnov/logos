@@ -42260,3 +42260,169 @@ which base refused only by the accident of the callee's binder name. Extend it t
 `finish_generic_call` in the same change (T1, m4) — T1 cannot close without it.
 The two over-refusals door C repairs are rowed in the soundness queue this round (tier 3), because
 they are legal Rust refused today whatever happens to door L.
+
+## 2026-09-12r-escroot — DOOR C LANDS WITH THE DOOR THAT SEES A LOCAL BORROW: THREE LEDGER ROWS AND TWO QUEUE ROWS CLOSE, AND THE "ONE UN-REFUSAL" THAT CONDEMNED DOOR C ALONE WAS AN ESCAPE THE FREE-FN SPELLING ALREADY ADMITTED — `collect_borrowed_local_roots` WAS BLIND TO A CALL RESULT AND WALKED THROUGH A REFERENCE LOCAL, WRONG IN BOTH DIRECTIONS AT ONE SITE
+
+site: src/compiler/sema_expr.cpp::lower_static_call (plain return), ::lower_method_call (result
+      map), ::finish_generic_call (binders) — one helper `call_region_binders_` (sema_impl.hpp);
+      src/compiler/borrow_check.cpp::collect_borrowed_local_roots (AddrOfTemp delegates to
+      `extract_borrow_place`, new Call/MethodCall arm) and ::check_let_binder_escape (new, called
+      from visit_stmt Code::Let).
+build: a5088a6875e092aa (landed, read with build_hash.py); base fc8539b37318b78a; armed batch 1
+       2e480821a00bda96, batch 2 5d215966230faf3c, batch 3 17ba7cfc1c1c97da.
+fires: stcg 79737 · lrall 2985483 · lbd 2905745 · esdrf 2 · escnd 20 · esc 22 (batch 1) ·
+       lrall 2985483 (x3, one per build) · lrimpl 5891195 · lragg 2985632 · lrtemp 2985483 ·
+       lrvar 2985514 · lrx 5893439 · lrland 5893408 · lrouter 5895545. Census buckets used: esc.call.site, esc.call.root, esdrf.stop, lbd.cand,
+       lbd.fire.local, lbd.fire.temp, stcg.*.differs, esc.dw.param_arm,
+       esc.dw.walk_stops_at_param_deref, lrimpl.sigbinder, lrvar.root.
+tools/dlog: NEW RULE `local_root_deciders.dl`; `selftest.sh` rc 0 first (28fc7c75: 19 walkers /
+       24 findings / try_path 1-5 / domain 42-5; duty 1->0). Known-answer control = both
+       hand-read helpers (`collect_borrowed_local_roots`, `collect_borrow_locals`) must be
+       deciders — the FIRST run FAILED it (the `param_names_` read sits in the lambda `emit`,
+       `ctx_of` gave it its own context), fixed by lifting lambda reads to the enclosing
+       function; the control then passes.
+
+LANDING round for 2026-09-12q. Base build `fc8539b37318b78a 43`, HEAD `3c18ecb06`. Targets and
+predictions committed before any compiler edit (`676acaf7f`; batch 2 `865a4e7bb`/`b47bca18f`;
+batch 3 `a2b67b09c`/`da09df59d`). One spec fix between (`2a7e63ad3`): the let door's `__` name
+exclusion was a raw separator split and `separator_split_lint` refused it on the inert L1.
+
+### STEP 1
+queue gate rc 0 · queue # TOTAL 94 (94 rows) · bc_admits 79 · blocked 8 · probe-log-lint 279.
+Baselines on the base build: `gate-run.sh -L bc` build 1093 6753 recorded / 0 failed (store read,
+nothing re-run) · `run_oracle.py` 6697 fixtures (6693 rc 0, 4 rc 90) · `fail_text_oracle.py` 1519.
+⚠ 12q's paraphrase is correct on every number it states. Its "door C alone un-refuses q6" is
+correct and INCOMPLETE — see §1.
+
+### §1 THE UN-REFUSAL WAS ALREADY ADMITTED IN ITS FREE-FN SPELLING
+q6 `*out = A::newa(&v)` was refused on base only by the callee's binder NAME. Base binary:
+    x1 `*out = newa(&v)` (free fn → A<'q>)   rc 0  ILLEGAL
+    x2 `*out = id(&v)`                        rc 0  ILLEGAL — runs, exit 8 (neither 77 nor 5);
+                                                     valgrind: "exit_group(status) contains
+                                                     uninitialised byte(s)"
+    x4 `*out = &v`                            rc 1  E0597 "stored through 'out'"
+And the same arm refuses LEGAL Rust:
+    y1 `let ys: &'a [i64] = xs; *out = &ys[1];`     rc 1 "'ys' does not live long enough"
+    y2 `let w2: &'a W = w; *out = &w2.f;`           rc 1
+    y3 `let t2: &'a (i64,i64) = t; *out = &t2.1;`   rc 1
+One helper, both directions: `collect_borrowed_local_roots` has no Call arm, and walks
+Field/Index/Slice/Tuple steps itself without asking whether a step crossed a reference —
+`extract_borrow_place` already records that (`through_ref`). TWO NOTIONS, THE NARROW ONE WON.
+
+### §2 THE CLASS BY PROPERTY (dlog) AND BY READING
+9 deciders ("tests expr::Code AddrOf/AddrOfTemp and reads param_names_", lambdas lifted).
+Blind to Call/MethodCall: 4 — collect_borrowed_local_roots, collect_borrow_locals,
+value_local_root, carried_prov_of_recv. Walks places without `extract_borrow_place`: 3 —
+collect_borrowed_local_roots, value_local_root, prov_of_raw. Intersection: 1.
+Per-site read: `collect_borrow_locals` answers an AddrOf-only slot question (not an escape
+decision); `value_local_root`'s call blindness is covered upstream by prov_of's Call arm (x7
+`return id(&v)` IS refused on base); `carried_prov_of_recv` delegates to prov_of for everything
+but AddrOf/AddrOfTemp/VarRef. So the escape-through-out-param decision has ONE member, and it is
+the intersection. dlog 4 blind / read 1 deciding — over-count direction, both numbers here.
+
+### §3 PROBE TABLE — batch 1, build 2e480821a00bda96 43, L1 inert
+    probe  arms                                   fires   ceil cost cfail std
+    stcg   C (static, method, generic binders)    79737    0    0    0   ok
+    esdrf  deref stop                                 2    0    0    0   ok
+    escnd  call arm, old walk                        20    0    0    0   ok
+    esc    deref stop + call arm                     22    0    0    0   ok
+    lbd    esc + let door                       2905745    2    0    0   ok
+    lrall  C + esc + let door                   2985483    3    0    0   ok
+batch 2, build 5d215966230faf3c 43, L1 inert — every name carries all of lrall's arms
+    probe   extension                                          fires   ceil cost cfail std
+    lrall   none (CONTROL TWIN, rule 18)                     2985483    3    0    0   ok  = batch 1, digit for digit
+    lrimpl  let door binders += signature regions            5891195    3    0    0   ok
+    lragg   let door on aggregate literals + collect arms    2985632    3    0    0   ok
+    lrtemp  E0716 temp case += `&(call)`                     2985483    3    0    0   ok
+    lrvar   collect += VarRef via §B6 ref_sources_under      2985514    3    0    0   ok  ⛔ refuses LEGAL v8 (hand)
+    lrx     all four                                         5893439    3    0    0   ok  ⛔ inherits v8
+
+### §4 SETS, DIFFED BOTH WAYS (PREDICTIONS.md, written before the build)
+lrall predicted {method-ufcs-inherent-3, method-ufcs-inherent-4, regions-free-region-ordering-
+caller1}; measured the same three. lbd predicted {ufcs-4, caller1}; measured the same. stcg,
+esdrf, escnd, esc predicted ∅; measured ∅. adt-tuple-enums--t33 predicted not closed; not closed.
+
+### §5 EVERY CLOSED ROW'S DIAGNOSTIC, READ
+  method-ufcs-inherent-3 (nllmoves.NEW-1)   "'v' does not live long enough: it is borrowed into 'x',
+      whose declared type requires lifetime 'a, which outlives this function (E0597)"
+      rustc E0597 `v` does not live long enough / "argument requires that `v` is borrowed for `'a`".
+  method-ufcs-inherent-4 (nllmoves.NEW-S7-1) same sentence; rustc prints E0597 twice (both `&v`).
+  regions-free-region-ordering-caller1 (lifereg.D) "temporary value dropped while borrowed: 'z'
+      borrows a temporary, but its declared type requires lifetime 'a, which outlives this function
+      (E0716)"; rustc E0716 then E0597 for `y`. First error matches; the second is not printed.
+  Queue static_call_callee_region_named_in_result_refuses: compiles, runs 0.
+  Queue method_call_fn_binder_in_result_refuses: compiles, runs 0.
+
+### §6 HAND BATTERY (rule 5) — 167 programs × 7 builds-arms, compiled, linked, RUN
+Newly REFUSED, all illegal: x1 x2 k14 k19 k20 g25 (call arm) · d1 d2 e2 n4 n6 k24 + the three
+rows (let door). Newly COMPILING, all legal, all run to their exit code: y1 y2 y3 (deref stop) ·
+a6 a10 e3 m1 m3 m4 m5 o3 + both queue programs (door C).
+Legal and unchanged under every arm, in 30 shapes: k2 k3 k4 k5 k6 k8 k11 k12 k13 k15 k16 k17 k18
+k25 k26 k27 x8 g4 g5 g6 g8 g9 g13 g16 g18 g19 g20 g21 g22 g23 g24 v1 v2 v3 v5 w3 + 12q's legal
+battery (L*, n7..n12, p13..p26, r4..r7, a3 a11 a12 e4 e5 o1 o2) + bc_b6ptr_param_holder_field.
+MEASURED COSTS OF ARMS NOT LANDED: escnd alone refuses k17 k18 (the old walk through a reference
+local, now reached via the call arm) — invisible to every harness column (cost 0). stcg alone
+un-refuses e1 (T1 alpha-renamed) and q6.
+TEXT CHANGES on still-refused illegal programs (not in the corpus, cfail 0 of 1519): d4 gains a
+second line (E0597 at the let before "cannot return reference to local variable 'x'"); e1 q2 q5 q6
+now print the right reason instead of a binder-name variance mismatch; q3 prints `got A` — the
+method half's result type prints without its region args.
+batch 3, build 17ba7cfc1c1c97da 43, L1 inert — the COMBINATION (rule 13)
+    probe    arms                                                    fires   ceil cost cfail std
+    lrall    control twin (third build)                            2985483    3    0    0   ok
+    lrland   lrall + lrimpl + lragg + lrtemp          (LANDED)     5893408    3    0    0   ok
+    lrouter  lrland + outer-slot compare for a direct borrow       5895545    3    0    0   ok
+Closed set, all three: exactly {method-ufcs-inherent-3, method-ufcs-inherent-4,
+regions-free-region-ordering-caller1}, as predicted in PREDICTIONS.md before each build.
+⚠ RULE 5, FOURTH TIME IN THIS ARC: lrvar, lrx and lrouter price cost 0 / cfail 0 / stdlib ok and
+each refuses a program the hand battery reads differently — lrvar a LEGAL one (v8).
+
+### §7 NEIGHBOURS — standing rule 2026-09-12: closed in this commit, or rowed with a reason
+| neighbour (same decision, same fact) | verdict | reason / number |
+|---|---|---|
+| generic static call (T1 `A::newa<T>`, m4 `G::newg`) — result binders in `finish_generic_call` | CLOSED | door C's strict extension (impl binders); m4 compiles+runs 22; T1 refused |
+| method call result (`s.pick(&v)`, m1 + queue row) | CLOSED | same helper at `lower_method_call`; m1 runs 20; queue program runs 0 |
+| `*out = f(&local)` / `*out = s.m()` / `*out = idg(&v)` (x1 x2 k14 k19 k20 g25, q6 x6) — escape arm blind to a call result | CLOSED | Call/MethodCall arm via the callee flow summary; x2 was a run-time read of freed stack |
+| `*out = &ys[1]` with `ys` a local REFERENCE (y1 y2 y3) — legal, refused | CLOSED | `extract_borrow_place`'s `through_ref`; all three run 7/13/17 |
+| let under an IMPL binder (i3 `let r: &'x i64 = id(&v)`) | CLOSED | lrimpl: signature regions; i1 i2 legal unchanged |
+| let of an aggregate literal (d6 d7 n2 n3 r2 a5), `*out = Option::Some(&v)` (k21) | CLOSED | lragg; a1 a2 a3 a4 a6 legal unchanged |
+| impl binder AND aggregate (r8) | CLOSED | doors in series lrimpl+lragg, both landed |
+| `let z: &'a &i64 = &(id(&v))` (k23) | CLOSED | lrtemp |
+| `let z: &'a &i64 = &(id(p))` (t3), `&s.kref()` (t2) — inner slot carries the binder | ROWED `let_borrow_of_call_temp_inner_slot_admits` | (3) cost measured: lrouter closes t3 right and refuses t2 with "'__lit_temp_0' does not live long enough" |
+| `let r = &v; *out = r;` (x10), `let r = id(&v); *out = r;` (x3) | ROWED `local_ref_binding_escape_through_out_param_admits` | (3) cost measured non-zero: lrvar refuses LEGAL v8 through the §B6 holder channel |
+| `*out = &*bx` / `id(&*bx)` over a Box LOCAL (b1 k22) | ROWED `box_local_deref_escape_through_out_param_admits` | (1) no carrier: census esc.call.site 1, esc.call.root 0 — the Box deref's summary names no argument |
+| `out.x = &v` through a `&mut` PARAMETER (x9 x5) | ROWED `field_write_through_param_local_escape_admits` | (3) unpriced: census esc.dw.param_arm 0 (x4 reads 1); the one same-arm extension is inside the lifereg.B holder-deposit walk this round was excluded from |
+| `x = &v` into `let mut x: &'a i64` (d8 r1) | ROWED `assign_local_borrow_into_annotated_binder_admits` | (1) no carrier: `let mut x = q` and `let mut x: &'a i64 = q` print the same type (j1/j3); j2 is legal and runs 3 |
+| dyn method call with a fn binder (w1, legal, refused) | ROWED `dyn_method_fn_binder_argument_refuses` | (2) doors in series: refused at "method 'pick' arg 1", upstream of the result; `T: P` spelling runs 71 |
+| `Self::newa(x)` in the impl (m2), `let r: &'_ i64 = x` (m2h) — legal, refused | ROWED `anon_region_let_annotation_refuses_named_region` | (1) not this fact: a `'_` let annotation refuses ANY named region (m2g m2h m2i on base) |
+| `adt-tuple-enums--t33` — `'static` at a ctor argument | NOT MOVED | (1) the region is decided at the argument, and the let door keys on FUNCTION binders, never `'static` |
+Found by the battery, not a neighbour: `index_through_ref_to_vec_let_refuses` (t1, legal `&v[1]` through
+`&'a Vec<i64>` refused "expected &'a i64, got &'a Vec<i64>" on base) — rowed.
+⚠ t2 was written as a LEGAL counter-example and is ILLEGAL (E0716: an extended temporary cannot live
+`'a`). Base admits it and runs 81. Corrected here; it is the second program of the t3 row.
+
+### §LANDED — build a5088a6875e092aa 43 (read), un-gated = `lrland` minus its census lines
+Hand battery on the landed binary, unarmed: every one of 184 programs reproduces `lrland`'s armed
+verdict (the two closed queue programs moved; the two new queue programs match their rows).
+queue gate rc 0 (100 rows) · stdlib-cost rc 0 · census pin 9664/5178/134, the delta predicted before
+the cut · direct_door/population pins 3078 = 191 + 2887 · 21/21 new + neighbour fixtures · L1 rc 0
+(807/807 + 134 gates) · run_oracle 6703 run, 0 changed of 6697 common (cast-region-to-uint
+subtracted by name), the six new pass halves exit 9/7/41/43/0/0 · fail_text_oracle 1528 recorded (1519 + 9 new), 0 changed rc/.expected-match and 0 stderr-text changes of 1519 common · L4 bc rc 0 (build 1117: 5178/5178 core+spec, 1585/1585 bc, detached).
+CONTROL REVERT on the saved base binary fc8539b37318b78a: the three rows compile and run 0; both
+closed queue programs refuse; bc_escroot_call_result_escape COMPILES AND RUNS exit 1 (it reads the
+dead local where the static's 9 belongs); the UAF program exits 8. Landed: all refuse / run right.
+
+### §8 WHAT DID NOT LAND, BY NAME AND NUMBER
+  stcg alone     un-refuses e1 (T1 alpha-renamed) and q6 — soundness regression, 2 programs.
+  escnd          refuses LEGAL k17 k18 (the old walk through a reference local) — cost 2, invisible
+                 to all harness columns.
+  lrvar / lrx    refuse LEGAL v8 — cost 1, invisible to all harness columns.
+  lrouter        right verdict on t3, WRONG SENTENCE on t2 ("'__lit_temp_0' …").
+  12q door L     (EMPTY region = "local") — superseded by the positive form landed here: every one of
+                 its four legal refusals (p24, s1-shape, s2-shape, bc_b6ptr_param_holder_field) and its
+                 five pre-empted E0597 sentences is absent (battery + cfail 0).
+
+### §9 TEXT CHANGES THE LANDING MAKES (all on illegal programs outside the corpus; cfail 0 of 1519)
+d4 `let x: &'a i64 = &v; return x;` prints TWO lines (E0597 at the let, then the return sentence);
+rustc prints one. e1 q2 q5 q6 print the right reason instead of a binder-name variance mismatch. q3
+prints `got A` without region args (the method half's result type).

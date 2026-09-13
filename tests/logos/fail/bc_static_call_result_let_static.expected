@@ -1,0 +1,1 @@
+let 'a': variance mismatch — expected A<'static>, got A<'_> — lifetime structure incompatible (check &mut invariance / contravariance rules)

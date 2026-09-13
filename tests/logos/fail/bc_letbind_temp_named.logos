@@ -1,0 +1,13 @@
+// A let declared `&'a &i64` fed by a borrow of a TEMPORARY: rustc E0716 at the let.
+// TWIN of pass/bc_letbind_temp_anon, one token apart (the written lifetime).
+// src/compiler/PROBES.md 2026-09-12r.
+package bc_letbind_temp_named;
+fn call1<'a>(x: &'a i64) -> i64 {
+    let y: i64 = 3i64;
+    let z: &'a &i64 = &(&y);
+    return **z + *x;
+}
+fn main() -> i32 {
+    let w: i64 = 40i64;
+    return call1(&w) as i32;
+}

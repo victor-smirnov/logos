@@ -1,0 +1,13 @@
+// THE LEGAL TWIN of fail/bc_letbind_temp_named, one token apart: without the
+// written `'a` the temporary's life is extended to the enclosing block, which is
+// all the binding needs. src/compiler/PROBES.md 2026-09-12r.
+package bc_letbind_temp_anon;
+fn call1<'a>(x: &'a i64) -> i64 {
+    let y: i64 = 3i64;
+    let z: & &i64 = &(&y);
+    return **z + *x;
+}
+fn main() -> i32 {
+    let w: i64 = 40i64;
+    return call1(&w) as i32;
+}

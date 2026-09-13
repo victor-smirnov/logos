@@ -1309,6 +1309,21 @@ private:
         }
         return out;
     }
+    // A call result's binders: own lifetime params + every signature region. PROBES.md 2026-09-12r.
+    std::vector<std::string> call_region_binders_(const std::vector<std::string>& own,
+                                                  const std::vector<TypeRef>& param_types,
+                                                  TypeRef ret_type) {
+        std::vector<std::string> b = own;
+        std::unordered_set<std::string> rb;
+        for (auto p : param_types) collect_param_regions_(p, rb);
+        collect_param_regions_(ret_type, rb);
+        std::vector<std::string> rs(rb.begin(), rb.end());
+        std::sort(rs.begin(), rs.end());
+        for (auto& r : rs)
+            if (!outlives_is_static(r) && std::find(b.begin(), b.end(), r) == b.end())
+                b.push_back(r);
+        return b;
+    }
     TypeRef subst_call_ret_lts_(const std::vector<TypeRef>& param_types,
                                 const std::vector<std::string>& lifetime_params,
                                 const std::vector<lir::LExprPtr>& args,

@@ -1,0 +1,24 @@
+package local_ref_binding_escape_through_out_param_admits;
+
+fn foo<'a>(out: &mut &'a i64) {
+    let v: i64 = 1i64;
+    let r: &i64 = &v;
+    *out = r;     // THE DEFECT: admitted, upstream E0597
+}
+
+fn main() -> i32 { return 0i32; }
+// SOUNDNESS QUEUE row local_ref_binding_escape_through_out_param_admits (tier 2).
+// Illegal Rust (E0597: `v` does not live long enough). TODAY compiled clean, while the
+// same borrow written in place, `*out = &v;`, IS refused ("stored through 'out'"). The
+// through-a-call spelling `let r = id(&v); *out = r;` is admitted the same way.
+// The out-param escape arm asks `collect_borrowed_local_roots`, which has no VarRef arm:
+// a binding that HOLDS a borrow names nothing.
+// ⚠ ROWED, NOT CLOSED — REASON (3), ITS OWN COST IS MEASURED NON-ZERO. The strict
+// extension at the same helper — a VarRef arm reading the §B6 source map
+// (`ref_sources_under`) — was built and priced as probe `lrvar` (2026-09-12r, build
+// 5d215966230faf3c): it refuses THIS program and its call twin, and it REFUSES THE
+// LEGAL
+//     let h: H<'a> = H { r: p }; let hr: &H<'a> = &h; let e: &'a i64 = hr.r; *out = e;
+// with "'h' does not live long enough": the §B6 map names the HOLDER a reference was
+// copied out of, the exact caveat PROBES.md 2026-09-02c §2 records for this arm.
+// src/compiler/PROBES.md 2026-09-12r.

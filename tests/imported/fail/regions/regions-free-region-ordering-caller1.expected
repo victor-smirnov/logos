@@ -1,0 +1,1 @@
+temporary value dropped while borrowed: 'z' borrows a temporary, but its declared type requires lifetime 'a, which outlives this function (E0716)

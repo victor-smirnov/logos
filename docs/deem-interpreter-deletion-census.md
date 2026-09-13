@@ -5898,9 +5898,28 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                TIERCOMMIT 138 -> 137 is that same retired admit test, and it is
 #                the delta PREDICTED before the cut. bc_admits `# TOTAL` 80 -> 79;
 #                soundness_queue unchanged at 92, gate rc 0.
-REGISTRY-ALL         9652
-REGISTRY-NOIMPORTED  5169
-REGISTRY-TIERCOMMIT  137
+# 2026-09-12r (escroot — call-result region instantiation + the let door that sees
+#                a local borrow + the out-param escape walk made call-aware and
+#                deref-honest). PREDICTED before the cut, then measured by the gate
+#                before the pin was touched: SIX native PAIRS —
+#                bc_escroot_call_result_{static,escape},
+#                bc_escroot_{ref_local_index,local_array_index},
+#                bc_letbind_call_{param,local}_named, bc_letbind_temp_{anon,named},
+#                bc_static_call_{callee_region_instantiated,result_let_static},
+#                bc_method_call_{fn_binder_instantiated,result_let_static} — ALL +12.
+#                THREE closed rows' programs MOVE tests/imported/admit ->
+#                tests/imported/fail (method-ufcs-inherent-3, method-ufcs-inherent-4,
+#                regions-free-region-ordering-caller1; declared RENAMED-FIXTURE below):
+#                registry-neutral in ALL, -3 `logos_00_bc_admit_*` in NOIMPORTED and
+#                TIERCOMMIT. So ALL 9652 -> 9664, NOIMPORTED 5169 -> 5178, TIERCOMMIT
+#                137 -> 134. Re-derived by direct listing: ls tests/logos/pass/*.logos
+#                3072 -> 3078 (+6), ls tests/logos/fail/*.logos 1272 -> 1278 (+6). bc_admits `# TOTAL` 79 -> 76;
+#                soundness_queue 94 -> 100 (two rows CLOSED, eight OPENED — every one a
+#                neighbour of this class rowed with its reason, or a defect the
+#                counter-example battery found that reproduces on the base binary).
+REGISTRY-ALL         9664
+REGISTRY-NOIMPORTED  5178
+REGISTRY-TIERCOMMIT  134
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is
@@ -9069,6 +9088,9 @@ GONE-FIXTURE  tests/logos/pass/wql_engine_source_e2e.logos  died with its subjec
 RENAMED-FIXTURE  tests/imported/admit/borrowck/borrow-immutable-upvar-mutation-impl-trait.logos  tests/imported/fail/borrowck/borrow-immutable-upvar-mutation-impl-trait.logos  2026-09-12b: the bc_admits row it carried was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the Fn-family kind verdict at the `-> impl Fn` return position
 RENAMED-FIXTURE  tests/imported/admit/nll/issue-27868.logos  tests/imported/fail/nll/issue-27868.logos  2026-09-12f: the bc_admits row it carried was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning upstream's own E0506 sentence
 RENAMED-FIXTURE  tests/imported/admit/borrowck/borrowck-lend-flow-loop.logos  tests/imported/fail/borrowck/borrowck-lend-flow-loop.logos  2026-09-12i: the bc_admits row it carried (bck.NEW-2) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0502 verdict upstream's own .stderr gives it
+RENAMED-FIXTURE  tests/imported/admit/nll/method-ufcs-inherent-3.logos  tests/imported/fail/nll/method-ufcs-inherent-3.logos  2026-09-12r: the bc_admits row it carried (nllmoves.NEW-1) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0597 verdict at the let
+RENAMED-FIXTURE  tests/imported/admit/nll/method-ufcs-inherent-4.logos  tests/imported/fail/nll/method-ufcs-inherent-4.logos  2026-09-12r: the bc_admits row it carried (nllmoves.NEW-S7-1) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0597 verdict at the let
+RENAMED-FIXTURE  tests/imported/admit/regions/regions-free-region-ordering-caller1.logos  tests/imported/fail/regions/regions-free-region-ordering-caller1.logos  2026-09-12r: the bc_admits row it carried (lifereg.D) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the E0716 verdict upstream's own .stderr gives first
 RENAMED-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  tests/logos/pass/wql_agg_avg_bool_value_rule.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  tests/logos/pass/query_f64_agg_hand_derived.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  tests/logos/pass/query_order_by_float_data_key.logos  P5: the old name stated a COUNT of engines the cut falsified

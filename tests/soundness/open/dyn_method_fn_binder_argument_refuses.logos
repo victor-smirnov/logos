@@ -1,0 +1,37 @@
+package dyn_method_fn_binder_argument_refuses;
+
+trait P {
+    fn pick<'q>(&self, x: &'q i64) -> &'q i64;
+}
+
+struct S { k: i64 }
+
+impl P for S {
+    fn pick<'q>(&self, x: &'q i64) -> &'q i64 {
+        let _u: i64 = self.k;
+        return x;
+    }
+}
+
+fn store<'a>(d: &dyn P, p: &'a i64, out: &mut &'a i64) {
+    *out = d.pick(p);
+}
+
+fn main() -> i32 {
+    let s: S = S { k: 0i64 };
+    let w: i64 = 70i64;
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    store(&s, &w, &mut r);
+    if *r != 70i64 { return 1i32; }
+    return 0i32;
+}
+// SOUNDNESS QUEUE row dyn_method_fn_binder_argument_refuses (tier 3).
+// Legal Rust: the method's own `'q` is instantiated at `p`'s `'a`. TODAY refused:
+// "method 'pick' arg 1: variance mismatch — expected &'q i64, got &'a i64". The
+// `&dyn P` dispatch arm compares the ARGUMENT against the callee's binder BY NAME —
+// the method-call path instantiates it (`inst_call_params_`), this arm does not.
+// The generic-bound spelling `T: P` compiles and runs 71 (w3), so the receiver form is
+// the variable. DOORS IN SERIES for door C (call-result region instantiation,
+// 2026-09-12r): the refusal is at the argument, upstream of the result, and `lrall`
+// leaves it refused unchanged. src/compiler/PROBES.md 2026-09-12r.

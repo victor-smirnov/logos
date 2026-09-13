@@ -1,0 +1,25 @@
+package field_write_through_param_local_escape_admits;
+
+struct A<'a> { x: &'a i64 }
+
+fn foo<'a>(out: &mut A<'a>) {
+    let v: i64 = 1i64;
+    out.x = &v;   // THE DEFECT: admitted, upstream E0597
+}
+
+fn main() -> i32 { return 0i32; }
+// SOUNDNESS QUEUE row field_write_through_param_local_escape_admits (tier 2).
+// Illegal Rust (E0597: `v` does not live long enough — stored into the caller's
+// `A<'a>`). TODAY compiled clean. The whole-value spelling `*out = A { x: &v }` IS
+// refused ("stored through 'out'"); the FIELD spelling is not.
+// MEASURED 2026-09-12r (census, build 5d215966230faf3c): the out-param escape arm in
+// visit_stmt Code::DerefWrite is entered only for a BARE pointer — `*out = &v` reads
+// `esc.dw.param_arm 1`, this program reads 0 — and the walk does not stop at a Deref
+// of the parameter either (`esc.dw.walk_stops_at_param_deref` 0). So the write takes
+// the `AddrOfTemp` branch, whose place walk ends at `VarRef out` itself.
+// ⚠ ROWED, NOT CLOSED — REASON (3), ITS OWN COST IS UNPRICED: the one strict extension
+// at this arm is an escape check inside that AddrOfTemp walk, which is the lifereg.B
+// holder-deposit plane (probes dwderefhop / liferegdwhops / lifereg_indexstore) that
+// the 2026-09-12r round was excluded from by name; it was not built or priced.
+// ⚠ The `dwclass.dereffieldwrite.stmt` census an earlier row cites no longer exists in
+// any source file, so a 0 read from it is vacuous. src/compiler/PROBES.md 2026-09-12r.

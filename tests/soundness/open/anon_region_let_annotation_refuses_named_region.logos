@@ -1,0 +1,22 @@
+package anon_region_let_annotation_refuses_named_region;
+
+fn f<'q>(x: &'q i64) -> i64 {
+    let r: &'_ i64 = x;
+    return *r;
+}
+
+fn main() -> i32 {
+    let v: i64 = 13i64;
+    if f(&v) != 13i64 { return 1i32; }
+    return 0i32;
+}
+// SOUNDNESS QUEUE row anon_region_let_annotation_refuses_named_region (tier 3).
+// Legal Rust: `'_` in a let annotation is an inference hole, so `&'_ i64` accepts a
+// `&'q i64`. TODAY refused: "let 'r': variance mismatch — expected &'_ i64, got &'q i64".
+// The same sentence for `A<'_>` fed by a struct literal of a param (`A { x: x }`) and by
+// a call `mk(x)` — measured 2026-09-12r on build fc8539b37318b78a (m2g/m2h/m2i).
+// ⚠ NOT door C: 12q's `Self::newa(x)` (m2) was attributed to "the `'_` let annotation",
+// and it is, in general — the callee substitution there is right (subst.call.mapped 1).
+// Door C (2026-09-12r) repairs `A<'_> = A::newa(&v)` only because `&v`'s region is
+// EMPTY; the same call fed by a named region is still refused by this defect.
+// src/compiler/PROBES.md 2026-09-12r.

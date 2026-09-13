@@ -1,0 +1,1 @@
+'v' does not live long enough: it is borrowed into 'x', whose declared type requires lifetime 'a, which outlives this function (E0597)

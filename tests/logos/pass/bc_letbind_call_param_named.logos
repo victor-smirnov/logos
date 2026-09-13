@@ -1,0 +1,19 @@
+// THE LEGAL TWIN of fail/bc_letbind_call_local_named, one token apart: the
+// call's argument is the PARAMETER `p`, whose region outlives the function, so
+// the let's declared `A<'a>` is satisfied. src/compiler/PROBES.md 2026-09-12r.
+package bc_letbind_call_param_named;
+struct A<'a> { x: &'a i64 }
+impl<'q> A<'q> {
+    fn newa(x: &'q i64) -> A<'q> {
+        return A { x: x };
+    }
+}
+fn foo<'a>(p: &'a i64) -> i64 {
+    let v: i64 = 22i64;
+    let x: A<'a> = A::newa(p);
+    return *x.x + v - v;
+}
+fn main() -> i32 {
+    let w: i64 = 41i64;
+    return foo(&w) as i32;
+}

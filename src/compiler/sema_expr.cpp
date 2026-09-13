@@ -5222,7 +5222,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     if (logos::probe::on("ltsubstcall") || logos::probe::arm_subst() || logos::probe::on("ltmintsubst") ||
         logos::probe::on("ltsubstfree") || logos::probe::on("ltmintfree") ||
         logos::probe::on("ltmintimpl") || logos::probe::arm_inst())
-        ret = subst_call_ret_lts_(fi.param_types, fi.lifetime_params, arg_exprs, ret);
+        ret = subst_call_ret_lts_(
+            fi.param_types, call_region_binders_(fi.lifetime_params, fi.param_types, fi.ret_type),
+            arg_exprs, ret);
     // MEASURED 2026-08-28, 379-row ledger: 104 fires, CEILING 4 vs COST 0 —
     // and BOTH halves of that price are misleading, which is the finding.
     //   • RULE 6. The predicted closed set was 7 rows naming call-site region
@@ -10605,9 +10607,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     // Substitute TypeVars + lifetimes in return type.
-    TypeRef ret = (struct_subst.empty() && lt_subst.empty())
-        ? fi.ret_type
-        : subst_type_sema(fi.ret_type, struct_subst, lt_subst);
+    // One binder map for the result, as for the arguments. PROBES.md 2026-09-12r.
+    TypeRef ret;
+    {
+        std::vector<TypeRef> spts;
+        for (auto p0 : fi.param_types)
+            spts.push_back(struct_subst.empty() ? p0 : subst_type_sema(p0, struct_subst));
+        std::vector<lir::LExprPtr> all;
+        all.push_back(recv);
+        for (auto& a : arg_exprs) all.push_back(a);
+        ret = subst_type_sema(fi.ret_type, struct_subst,
+                              build_call_lt_subst_(spts,
+                                  call_region_binders_(fi.lifetime_params, fi.param_types, fi.ret_type),
+                                  all, fi.ret_type));
+    }
     {   // Elision at the CALL: an elided output region is self's / the single input's.
         std::vector<TypeRef> ats_;
         if (recv) ats_.push_back(expr_type(recv));
@@ -16638,7 +16651,11 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // so that scope-end drops do not fire on transferred-ownership locals.
     track_args_moved(arg_exprs, &fi.param_types);
 
-    return builder().call(fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);
+    // Callee regions instantiated at this call, not reached by name. PROBES.md 2026-09-12r.
+    TypeRef sc_ret = subst_call_ret_lts_(
+        fi.param_types, call_region_binders_(fi.lifetime_params, fi.param_types, fi.ret_type),
+        arg_exprs, fi.ret_type);
+    return builder().call(fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs), sc_ret);
 }
 
 // Bare `{ stmts; tail_expr }` at expression position. The tail expression

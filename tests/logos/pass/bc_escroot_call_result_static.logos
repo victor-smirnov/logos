@@ -1,0 +1,17 @@
+// THE LEGAL TWIN of fail/bc_escroot_call_result_escape, one token apart: the
+// call's argument names a `static`, so the result outlives every caller.
+// src/compiler/PROBES.md 2026-09-12r.
+package bc_escroot_call_result_static;
+static G: i64 = 9i64;
+fn id<'q>(x: &'q i64) -> &'q i64 {
+    return x;
+}
+fn store(out: &mut &i64) {
+    let local: i64 = 1i64;
+    *out = id(&G);
+}
+fn main() -> i32 {
+    let mut p: &i64 = &G;
+    store(&mut p);
+    return *p as i32;
+}

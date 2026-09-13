@@ -1789,7 +1789,20 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # temp clause with three AND gates, each bought by a stdlib refusal, and minting
 # there refuses stdlib/mem/wql/srcloc.logos `fn resolve`. That leaves
 # `borrowck-let-suggestion` (bck.NEW-BCS) OPEN and correctly so.
-# TOTAL 79
+# ── 2026-09-12r — 79 -> 76. THREE rows CLOSED by one change, predicted as three BY NAME
+# before every build (src/compiler/probes/2026-09-12r-escroot/PREDICTIONS.md):
+#   method-ufcs-inherent-3                nllmoves.NEW-1     E0597 at the let
+#   method-ufcs-inherent-4                nllmoves.NEW-S7-1  E0597 at the let
+#   regions-free-region-ordering-caller1  lifereg.D          E0716 at the let
+# Ports MOVE admit/ -> tests/imported/fail/{nll,regions}/. Door C (a static/method/generic call
+# RESULT instantiates the callee's regions, impl binders included) IN SERIES with a POSITIVE let
+# door in borrow_check: a declared type naming a lifetime of the function that the value's own
+# type does not carry, fed by a borrow of THIS frame's storage — reached through the callee's
+# flow summary for a call, and never through a reference (`extract_borrow_place` `through_ref`).
+# 12q's EMPTY-region door and its four legal refusals are NOT what landed. ⚠ POSITION-BLIND:
+# single-slot types and a direct borrow's annotation only; the inner-slot case is soundness_queue
+# `let_borrow_of_call_temp_inner_slot_admits`. PROBES.md 2026-09-12r.
+# TOTAL 76
 
 
 # ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
@@ -1927,8 +1940,6 @@ issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issu
 issue-69114-static-mut-ty nllmoves.R1 tests/imported/admit/nll/issue-69114-static-mut-ty
 issue-98170 nllmoves.R13 tests/imported/admit/nll/issue-98170
 match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
-method-ufcs-inherent-3 nllmoves.NEW-1 tests/imported/admit/nll/method-ufcs-inherent-3  #  ⚠ ADMITTED BY NAME COINCIDENCE, measured 2026-09-12q (build fc8539b37318b78a): the impl's `'a` reaches the caller UNSUBSTITUTED and meets `foo`'s `'a` as a string — alpha-renaming the impl to `impl<'q> A<'q>` REFUSES it ("expected A<'a>, got A<'q>"), and the same leak refuses legal programs (soundness queue static_call_callee_region_named_in_result_refuses). DOORS IN SERIES: `A::newa<T>` leaves lower_static_call through finish_generic_call, which instantiates only fi.lifetime_params (never the impl's binders) — then door L (`letnamed`, PROBES.md 2026-09-12q) must see `A<'_>` from a local. Neither alone moves it.
-method-ufcs-inherent-4 nllmoves.NEW-S7-1 tests/imported/admit/nll/method-ufcs-inherent-4  #  ⚠ PRICED 2026-09-12q: CLOSED by `letnamed` (lt_eq: EMPTY sub vs a binder of this scope), right site and pair — but that arm refuses FOUR legal programs (p24 `&**b`, s1 `&*w.b`, s2 `&xs[1]`, pass bc_b6ptr_param_holder_field) and pre-empts five right E0597 sentences at deref-write. DECLINED as priced; the positive-fact form (a body-LOCAL borrow's region) is the funded next step. PROBES.md 2026-09-12q.
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
@@ -1949,7 +1960,6 @@ regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. INDEX place-op door. Same root and same pairs as --c26, and the two are now two different doors rather than one program twice  ⚠ See `--c26`: same mechanism, INDEX place-op door, same blocker.
 regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had ANNOTATED the closure, which is the one thing upstream leaves to inference; annotation removed. ROOT RE-CHECKED, lifereg.C SPLITS: this row is the closure's return region flowing into a CALLER-CHOSEN generic `B`. PAIR: the same escape written as a FN ITEM signature is REFUSED (`variance mismatch — expected &'static i64, got &'p i64`)
-regions-free-region-ordering-caller1 lifereg.D tests/imported/admit/regions/regions-free-region-ordering-caller1  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.D REFUTED for this row too, and NOT for the same reason as the other D row: replacing the temporary `&(&y)` with a NAMED local still admits, so no temporary is involved. PAIR: `let z: &'a u64 = &y;` inside `call1<'a>` ADMITS, and only adding `return z;` refuses — and by a SYNTACTIC dangling-local rule, not by the annotation. Propose lifereg.NEW-LETANNOT: a let annotation naming a free region is not a constraint on its initializer
 regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured — do not group it. Upstream's four LEGAL contrast traits need a lifetime SUPERTRAIT bound (`trait T: 'static`), which does not parse here -> unrowed_backlog lifetime_supertrait_bound
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had dropped upstream's `for<'z>` HRTB; restored (it parses) and nothing changed, so the BOUND is not read either way. ROOT RE-CHECKED, lifereg.C SPLITS: this row is a CAPTURED enclosing local escaping through the closure's return. PAIR: a closure returning a borrow of its OWN local is REFUSED (`cannot return reference to local variable 'w'`); the same closure returning a borrow of the ENCLOSING fn's local is ADMITTED — the dangling check is frame-local

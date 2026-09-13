@@ -1,0 +1,17 @@
+// THE ILLEGAL TWIN of pass/bc_static_call_callee_region_instantiated, one token
+// apart: `A<'static>` cannot hold a borrow of the local `v`. The sentence now names
+// the caller's region (`A<'_>`), not the callee's binder `'q` it used to leak.
+// src/compiler/PROBES.md 2026-09-12r.
+package bc_static_call_result_let_static;
+struct A<'a> { x: &'a i64 }
+impl<'q> A<'q> {
+    fn newa(x: &'q i64) -> A<'q> {
+        return A { x: x };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    let a: A<'static> = A::newa(&v);
+    if *a.x != 6i64 { return 1i32; }
+    return 0i32;
+}

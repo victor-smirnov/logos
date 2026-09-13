@@ -1,0 +1,17 @@
+// THE ILLEGAL TWIN of pass/bc_method_call_fn_binder_instantiated, one token
+// apart: `A<'static>` cannot hold a borrow of the local `v`. src/compiler/PROBES.md 2026-09-12r.
+package bc_method_call_result_let_static;
+struct A<'a> { x: &'a i64 }
+struct S { k: i64 }
+impl S {
+    fn pick<'q>(&self, x: &'q i64) -> A<'q> {
+        return A { x: x };
+    }
+}
+fn main() -> i32 {
+    let s: S = S { k: 1i64 };
+    let v: i64 = 20i64;
+    let a: A<'static> = s.pick(&v);
+    if *a.x != 20i64 { return 1i32; }
+    return 0i32;
+}

@@ -910,6 +910,30 @@ static void merge_provs(ProvMap& base, const ProvMap& other) {
         base[name] = merge_prov(base[name], p);
 }
 
+// Every region slot of a type, outer to inner, empty included. PROBES.md 2026-09-12r.
+static void region_slots(TypeRef ty, std::vector<std::string>& out, int depth = 0) {
+    if (!ty || depth > 24) return;
+    using K = LogosType::Kind;
+    switch (ty.kind()) {
+    case K::Ref: case K::MutRef:
+        out.push_back(std::string(ty.lifetime()));
+        region_slots(ty.pointee(), out, depth + 1);
+        return;
+    case K::Struct: case K::ZonedStruct: case K::Enum:
+        for (auto& l : ty.lifetime_args()) out.push_back(std::string(l));
+        for (auto a : ty.type_args()) region_slots(a, out, depth + 1);
+        return;
+    case K::Tuple:
+        for (auto el : ty.tuple_elems()) region_slots(el, out, depth + 1);
+        return;
+    case K::Array: case K::Slice:
+        region_slots(ty.elem(), out, depth + 1);
+        return;
+    default:
+        return;
+    }
+}
+
 static bool is_ref_kind(TypeRef t) {
     // logos-core 2.1 (default trait-object lifetime rule): `&dyn Trait`
     // resolves to Kind::TraitObject (a fat pair {data, vtable}, not
@@ -2307,6 +2331,8 @@ private:
     std::unordered_map<std::string, DanglingRef>              dangling_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
     std::vector<std::string>             fn_lifetime_params_;
+    // Named regions of the current signature (impl binders included). PROBES.md 2026-09-12r.
+    std::unordered_set<std::string>      sig_regions_;
     // B66: outlives graph from fn.lifetime_outlives — used to accept the
     // return-lifetime check when an explicit `where 'src: 'ret` (or
     // transitive) covers the case.
@@ -3305,6 +3331,7 @@ private:
     // The locals whose OWN STORAGE this value borrows at this expression: an
     // `&place` / `&mut place` whose base binding is a local of this frame,
     // through aggregate literals, casts and an `AddrOfTemp` place chain.
+    // Call-aware and deref-honest since PROBES.md 2026-09-12r.
     // NARROWER than `collect_ref_sources`, which names the HOLDER a reference
     // was copied out of and so would refuse the legal `*out = hr.r`
     // (pass/bc_b6ptr_param_holder_field). Params outlive the frame: excluded.
@@ -3323,20 +3350,11 @@ private:
                 emit(std::string(lir_view::EAddrOfView{e}.var_name()));
                 return;
             case EC::AddrOfTemp: {
-                auto cur = lir_view::EAddrOfTempView{e}.inner();
-                while (cur) {
-                    if (cur.kind() == EC::FieldRead)
-                        cur = lir_view::EFieldReadView{cur}.receiver();
-                    else if (cur.kind() == EC::IndexRead)
-                        cur = lir_view::EIndexReadView{cur}.receiver();
-                    else if (cur.kind() == EC::SliceIndex)
-                        cur = lir_view::ESliceIndexView{cur}.slice();
-                    else if (cur.kind() == EC::TupleIndex)
-                        cur = lir_view::ETupleIndexView{cur}.receiver();
-                    else break;
-                }
-                if (cur && cur.kind() == EC::VarRef)
-                    emit(std::string(lir_view::EVarRefView{cur}.name()));
+                BorrowPlace bp = extract_borrow_place(
+                    lir_view::EAddrOfTempView{e}.inner(), prog_.type_pool.impl());
+                if (bp.through_ref) return;   // the POINTEE's storage, not the local's
+                if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
+                emit(bp.root);
                 return;
             }
             case EC::StructLit:
@@ -3349,6 +3367,49 @@ private:
                 return;
             case EC::Cast:
                 collect_borrowed_local_roots(lir_view::ECastView{e}.operand(), out);
+                return;
+            case EC::Call:
+            case EC::MethodCall: {
+                const auto* pool = prog_.type_pool.impl();
+                const FlowSummary* fs = nullptr;
+                unsigned base = 0;
+                lir_view::ExprRef recv;
+                if (e.kind() == EC::Call) {
+                    fs = flow_of_call(lir_view::ECallView{e}.callee());
+                } else {
+                    lir_view::EMethodCallView mv{e};
+                    fs = flow_of_method(mv); base = 1; recv = mv.receiver();
+                }
+                if (!fs || !fs->available) return;
+                auto one = [&](lir_view::ExprRef a, unsigned pi) {
+                    if (!a || pi >= fs->nparams) return;
+                    if ((fs->to_result & (1ull << pi)) == 0) return;
+                    if (a.kind() != EC::AddrOf && a.kind() != EC::AddrOfTemp) return;
+                    collect_borrowed_local_roots(a, out);
+                };
+                // ⚠ receiver tied only when Self holds no borrow — PROBES.md 2026-09-03n §6.
+                if (base == 1) {
+                    lir_view::ExprRef rin = recv;
+                    if (rin && rin.kind() == EC::AddrOfTemp)
+                        rin = lir_view::EAddrOfTempView{rin}.inner();
+                    TypeRef rt = rin ? rin.type(pool) : TypeRef{};
+                    if (rt && is_ref_kind(rt) && rt.pointee()) rt = rt.pointee();
+                    if (!(rt && type_may_carry_borrow(rt))) one(recv, 0);
+                }
+                unsigned ai = base;
+                if (e.kind() == EC::Call)
+                    lir_view::ECallView{e}.each_arg([&](lir_view::ExprRef a) { one(a, ai++); });
+                else
+                    lir_view::EMethodCallView{e}.each_arg([&](lir_view::ExprRef a) { one(a, ai++); });
+                return;
+            }
+            case EC::EnumLitData:
+                lir_view::EEnumLitDataView{e}.each_payload(
+                    [&](lir_view::ExprRef fv) { collect_borrowed_local_roots(fv, out); });
+                return;
+            case EC::ArrLit:
+                lir_view::EArrLitView{e}.each_elem(
+                    [&](lir_view::ExprRef fv) { collect_borrowed_local_roots(fv, out); });
                 return;
             default:
                 return;
@@ -12971,6 +13032,10 @@ private:
                         retain_operand_loans(val, name, ln);
                     }
                 }
+                // E0597/E0716 at the let — PROBES.md 2026-09-12r.
+                if (val && t && !v.compiler_glue() &&
+                    (!fn_lifetime_params_.empty() || !sig_regions_.empty()))
+                    check_let_binder_escape(name, t, val, ln);
                 declare_var(name, v.var_slot());  // Phase-1
                 note_reborrow(name, t, val);      // H1
                 note_closure_caps(name, val);     // H4
@@ -14483,6 +14548,53 @@ public:
                                            prog_.type_pool.impl(), v)
                       : nullptr;
     }
+    // ⚠ Position-blind: fires only where the region slot is unambiguous. PROBES.md 2026-09-12r.
+    void check_let_binder_escape(const std::string& name, TypeRef t,
+                                 lir_view::ExprRef val, uint32_t ln) {
+        using EC = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        auto is_binder = [&](const std::string& l) {
+            if (l.empty() || outlives_is_static(l) || l == "'_") return false;
+            return std::find(fn_lifetime_params_.begin(), fn_lifetime_params_.end(), l) !=
+                       fn_lifetime_params_.end() ||
+                   sig_regions_.count(l) > 0;
+        };
+        std::vector<std::string> ts, vs;
+        region_slots(t, ts);
+        region_slots(val.type(pool), vs);
+        auto val_has = [&](const std::string& l) {
+            return std::find(vs.begin(), vs.end(), l) != vs.end();
+        };
+        std::string lt;
+        bool borrow = val.kind() == EC::AddrOf || val.kind() == EC::AddrOfTemp;
+        bool call = val.kind() == EC::Call || val.kind() == EC::MethodCall;
+        if (borrow && is_ref_kind(t) && is_binder(std::string(t.lifetime())) &&
+            !val_has(std::string(t.lifetime())))
+            lt = std::string(t.lifetime());
+        bool agg = val.kind() == EC::StructLit || val.kind() == EC::TupleLit ||
+                   val.kind() == EC::ArrLit || val.kind() == EC::EnumLitData;
+        if ((call || agg) && ts.size() == 1 && is_binder(ts[0]) && !val_has(ts[0]))
+            lt = ts[0];
+        if (lt.empty()) return;
+        std::vector<std::string> roots;
+        collect_borrowed_local_roots(val, roots);
+        if (!roots.empty()) {
+            report(ln, std::format(
+                "'{}' does not live long enough: it is borrowed into '{}', whose declared "
+                "type requires lifetime {}, which outlives this function (E0597)",
+                roots.front(), name, lt));
+            return;
+        }
+        if (val.kind() == EC::AddrOfTemp) {
+            auto in = lir_view::EAddrOfTempView{val}.inner();
+            if (in && (in.kind() == EC::AddrOf || in.kind() == EC::AddrOfTemp ||
+                       in.kind() == EC::Call || in.kind() == EC::MethodCall))
+                report(ln, std::format(
+                    "temporary value dropped while borrowed: '{}' borrows a temporary, but "
+                    "its declared type requires lifetime {}, which outlives this function (E0716)",
+                    name, lt));
+        }
+    }
     // `let z = f(&mut y)`: record, with the BINDING as holder, a loan of every
     // argument the callee's flow summary marks as reaching the RESULT.
     // ADDITIVE — the consuming visit has already run. PROBES.md 2026-09-03n.
@@ -14662,6 +14774,15 @@ public:
         });
         fn_lifetime_params_.clear();
         for (auto lp : fn.lifetime_params()) fn_lifetime_params_.push_back(std::string(lp));
+        sig_regions_.clear();
+        {
+            std::vector<std::string> sl;
+            for (auto& p : fn.params()) region_slots(p.type(fn_pool), sl);
+            region_slots(fn.ret_type(fn_pool), sl);
+            for (auto& l : sl)
+                if (!l.empty() && !lt_is_minted(l) && !outlives_is_static(l) && l != "'_")
+                    sig_regions_.insert(l);
+        }
         {
             std::vector<std::pair<std::string, std::string>> lo;
             for (auto& [a, b] : fn.lifetime_outlives())
