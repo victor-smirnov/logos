@@ -11583,6 +11583,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         return error_expr();
     }
     auto& sinfo = *sinfo_ptr;
+    check_turbofish_lifetime_arity_(node, sname, sinfo.lifetime_params);
 
     // §6.1: union construction takes EXACTLY ONE field-init (which
     // one is "active"). Multi-init `U { a: 1, b: 2 }` is meaningless
@@ -13816,6 +13817,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     std::string_view ename = ename_buf;
     auto vname = str_of(node.get(la::FIELD.code));
     auto [epkg_el, esi_el] = find_enum_by_name(ename);
+    if (esi_el) check_turbofish_lifetime_arity_(node, ename, esi_el->lifetime_params);
     auto eit = esi_el ? enums_.find(sema_key(epkg_el, std::string(ename))) : enums_.end();
     if (eit == enums_.end()) eit = enums_.find(std::string(ename));
     if (eit == enums_.end()) {
@@ -14593,6 +14595,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             }
         }
     }
+    check_turbofish_lifetime_arity_(node, ename, einfo.lifetime_params);
     // Build result type + type-check (same logic as lower_enum_lit_data)
     std::vector<TypeRef> resolved_payload_types = vinfo->payload_types;
 

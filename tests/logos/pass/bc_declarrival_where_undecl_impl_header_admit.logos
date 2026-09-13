@@ -1,0 +1,22 @@
+// A TRAIT impl header's where subject `X` is the impl's parameter; it runs.
+// TWIN of fail/bc_declarrival_where_undecl_impl_header_refuse, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_where_undecl_impl_header_admit;
+trait Tr {
+    fn t(self: &Self) -> i64;
+}
+impl Tr for i64 {
+    fn t(self: &Self) -> i64 { return *self; }
+}
+trait Q {
+    fn q(self: &Self) -> i64;
+}
+struct P<X> { x: X }
+impl<X> Q for P<X>
+where X: Tr
+{
+    fn q(self: &Self) -> i64 { return 6i64; }
+}
+fn main() -> i32 {
+    let p = P { x: 1i64 };
+    return p.q() as i32;
+}

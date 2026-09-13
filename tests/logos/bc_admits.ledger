@@ -1802,7 +1802,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # 12q's EMPTY-region door and its four legal refusals are NOT what landed. ⚠ POSITION-BLIND:
 # single-slot types and a direct borrow's annotation only; the inner-slot case is soundness_queue
 # `let_borrow_of_call_temp_inner_slot_admits`. PROBES.md 2026-09-12r.
-# TOTAL 72
+# TOTAL 69
 
 
 # ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
@@ -1907,7 +1907,6 @@ dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-
 # ── tests/ui/lifetimes ─────────────────────────────────────────
 
 borrowck-let-suggestion bck.NEW-BCS tests/imported/admit/lifetimes/borrowck-let-suggestion
-constructor-lifetime-early-binding-error lifereg.R17 tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port was a struct LITERAL; upstream is a CONSTRUCTOR PATH. The enum half `E::V::<'static>(&x)` ports verbatim and admits (1 and 3 args for 2 params). ROOT RE-CHECKED: not a region root — a lifetime-ARG-COUNT check that does not exist. Tuple-struct ctor turbofish is unparseable (node code 131) -> unrowed_backlog tuplestruct_ctor_turbofish
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a METHOD CALL whose receiver-region demand is never checked. PAIR: the same escape through two FREE fns REFUSES (`return type mismatch: variance mismatch — expected &'static bool, got &'s bool`); through `self.a()` it admits. Writing 's explicitly changes nothing, so elision is NOT the variable
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
@@ -1941,7 +1940,6 @@ projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/n
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
-trait-associated-constant nllmoves.R18 tests/imported/admit/nll/trait-associated-constant
 type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
 type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
@@ -1951,7 +1949,6 @@ var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
 issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
-outlives-with-missing lifereg.R17 tests/imported/admit/regions/outlives-with-missing  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.R17 REFUTED: upstream's error is E0412 `cannot find type T in this scope` — NAME RESOLUTION in a where clause, no region anywhere. Does not group with the other R17 row. Propose a resolver root, not a lifereg one
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had NO place-op adjustment (`v.oh_no(&v)` on the vector itself) and duplicated --t26; restored to upstream's DEREF door. ROOT lifereg.R2 = the SAME mechanism as bck.D/nllmoves.D: two loans minted inside ONE call's own evaluation deposit nothing. PAIRS: sequenced into lets REFUSED; the shared loan taken FIRST as a named local then the receiver autoref REFUSED; both inside the call ADMITTED  ⚠ SAME BLOCKER AS `two-phase-nonrecv-autoref--c-mut-and-shared-args`, 2026-09-09: measured to be the same mechanism reached through a DEREF place op (and `--t26` through an INDEX place op), and the census says why both read zero at the activation check — `record_borrow` deposits the bare-place receiver's reservation inside its own `in_call_args_` bracket, which runs BEFORE `visit_args` pushes the call-args frame, so the gate never asks. One line of scope bookkeeping, not a new predicate. Blocked with that row on the two green pass fixtures named there.
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. INDEX place-op door. Same root and same pairs as --c26, and the two are now two different doors rather than one program twice  ⚠ See `--c26`: same mechanism, INDEX place-op door, same blocker.

@@ -65,7 +65,7 @@ enum_payload_nested_pattern_absent defect 1  tests/imported/admit/nll/enum-drop-
     # and `let_at_binding_tuple_sub_unsupported` (doors in SERIES on ONE reader) or a third door —
     # if one reader, these are one row, not three.
 
-tuplestruct_ctor_turbofish  defect     1  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error
+tuplestruct_ctor_turbofish  defect     1  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error
     # 2026-09-08 — a turbofish on a TUPLE-STRUCT CONSTRUCTOR CALL does not parse:
     # `struct S<'a,'b>(&'a i64, &'b i64); let s = S::<'static>(&x, &x);` answers
     # `error [fn main]: unexpected type node code 131`. MISSING FEATURE: explicit

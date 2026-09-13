@@ -1,0 +1,9 @@
+// `E::V::<'_, '_>` names both lifetime arguments; it runs.
+// TWIN of fail/bc_declarrival_ctor_lt_turbofish_refuse, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_ctor_lt_turbofish_admit;
+enum E<'a, 'b> { V(&'a i64), U(&'b i64) }
+fn main() -> i32 {
+    let x: i64 = 7i64;
+    let e = E::V::<'_, '_>(&x);
+    return match e { E::V(p) => *p as i32, E::U(q) => *q as i32 };
+}

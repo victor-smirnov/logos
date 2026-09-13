@@ -3205,6 +3205,9 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 mi.type_params = read_type_params_from(m, la::TYPE_PARAMS.code);
                 push_type_params(mi.type_params);
             }
+            // A trait method DECLARATION's where subjects, read here whether or not an impl collects its body.
+            // PROBES.md 2026-09-13f-declarrivalland.
+            check_where_subjects_resolve_(m);
             if (m.has_key(la::PARAMS)) {
                 auto pav = m.get(la::PARAMS.code);
                 if (!pav.is_null() && pav.is_pointer()) {
@@ -3410,7 +3413,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
         extract_impl_lt(la::IMPL_TYPE_PARAMS.code);
         impl_lt_outlives = read_lifetime_outlives_from(node, la::IMPL_TYPE_PARAMS.code);
     } else if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
+        where_subject_check_deferred_ = true;   // asked below, once Self is bound
         impl_tps = read_type_params(node);
+        where_subject_check_deferred_ = false;
         push_type_params(impl_tps);
         impl_type_params_ = impl_tps;  // so collect_fn includes them in fn.type_params
         extract_impl_lt(la::TYPE_PARAMS.code);
@@ -3809,6 +3814,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
         if (self_type)
             current_type_params_["Self"] = self_type;
     }
+    // The header's where SUBJECTS, every impl form, once Self is bound. PROBES.md 2026-09-13f-declarrivalland.
+    check_where_subjects_resolve_(node);
     // Verify trait exists (only for trait impls)
     // Copy and Drop are built-in marker traits — not always visible through
     // the dependency-graph (pub trait + use isn't enough when the target
@@ -4387,6 +4394,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                         "impl {} for {}: associated constant '{}' declared as '{}' but trait requires '{}'",
                                         trait_name, target, cname,
                                         type_str(ctype), type_str(ac_def.type)));
+                                // ... and by REGION. PROBES.md 2026-09-13f-declarrivalland.
+                                else if (TypeRef want = static_item_regions_(rename_trait_regions_(
+                                             ac_def.type, tit2->second.lifetime_params, trait_lt_args), true);
+                                         want && !impl_regions_conform_(static_item_regions_(ctype, true), want, impl_lt_outlives))
+                                    error(std::format(
+                                        "impl {} for {}: associated constant '{}' has type '{}', which is not "
+                                        "compatible with the trait's '{}' (lifetime mismatch)",
+                                        trait_name, target, cname, type_str(static_item_regions_(ctype, true), true),
+                                        type_str(want, true)));
                                 break;
                             }
                         }
@@ -4856,6 +4872,22 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                     "the return type is declared '{}' and the "
                                     "impl declares '{}'", type_str(tra),
                                     type_str(c->ret_type));
+                            sig_match = false;
+                        }
+                    }
+                    // The return's REGIONS against the trait's, when every one is an impl-header binder or 'static.
+                    // PROBES.md 2026-09-13f-declarrivalland.
+                    if (sig_match && m.ret_type && c->ret_type) {
+                        TypeRef tr = m.ret_type;
+                        if (!trait_arg_subst.empty()) tr = subst_type_sema(tr, trait_arg_subst);
+                        tr = rename_trait_regions_(tr, tit->second.lifetime_params, trait_lt_args);
+                        if (tr && !is_generic_param(tr) && !is_generic_param(c->ret_type) &&
+                            regions_all_impl_header_(tr, c->ret_type, impl_lt_params) &&
+                            !impl_regions_conform_(c->ret_type, tr, impl_lt_outlives)) {
+                            if (self_mismatch_note.empty())
+                                self_mismatch_note = std::format(
+                                    "the return type is declared '{}' and the impl declares '{}' (lifetime mismatch)",
+                                    type_str(tr, true), type_str(c->ret_type, true));
                             sig_match = false;
                         }
                     }

@@ -1,0 +1,8 @@
+// `E::N::<'static, 'static>` names both; it runs.
+// TWIN of fail/bc_declarrival_unit_variant_lt_turbofish_refuse, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_unit_variant_lt_turbofish_admit;
+enum E<'a, 'b> { V(&'a i64), N(&'b i64), Z }
+fn main() -> i32 {
+    let e = E::Z::<'static, 'static>;
+    return match e { E::V(p) => 1i32, E::N(q) => 2i32, E::Z => 3i32 };
+}

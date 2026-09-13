@@ -1,0 +1,14 @@
+// A method returning `&'c [i64]` against the trait's `&'b [i64]`: 'c is unrelated to 'b.
+// TWIN of pass/bc_declarrival_method_ret_slice_region_admit, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_method_ret_slice_region_refuse;
+trait Tr<'b> {
+    fn get(self: &Self) -> &'b [i64];
+}
+struct S { }
+impl<'b, 'c> Tr<'b> for S {
+    fn get(self: &Self) -> &'c [i64] { return &[]; }
+}
+fn main() -> i32 {
+    let s = S { };
+    return (s.get().len() + 3i64) as i32;
+}

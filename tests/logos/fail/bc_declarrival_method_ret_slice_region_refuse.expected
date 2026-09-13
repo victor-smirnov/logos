@@ -1,0 +1,1 @@
+impl Tr for S: method 'get' does not match the trait declaration: the return type is declared '&'b [i64]' and the impl declares '&'c [i64]' (lifetime mismatch)

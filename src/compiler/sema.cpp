@@ -2468,9 +2468,14 @@ std::string type_str(TypeRef t, bool source_form) {
             r += type_str(TypeRef(t).tuple_elems()[i], source_form);
         }
         return r + ")"; }
-    case LogosType::Kind::Slice:
-        return std::format("&{}[{}]", TypeRef(t).mut_ptr() ? "mut " : "",
-                           type_str(TypeRef(t).elem(), source_form));
+    case LogosType::Kind::Slice: {
+        // Source form names a borrowed slice's region, as the Ref arm does. PROBES.md 2026-09-13f-declarrivalland.
+        std::string l_(TypeRef(t).lifetime());
+        const bool named_ = source_form && !l_.empty() && !lt_is_minted(l_) &&
+                            TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow;
+        return std::format("&{}{}[{}]", named_ ? (lt_is_impl_anon(l_) ? std::string("'_ ") : l_ + " ") : std::string(),
+                           TypeRef(t).mut_ptr() ? "mut " : "", type_str(TypeRef(t).elem(), source_form));
+    }
     case LogosType::Kind::UnsizedSlice:
         return std::format("[{}]", type_str(TypeRef(t).elem(), source_form));
     case LogosType::Kind::UnsizedDyn:
@@ -6018,13 +6023,11 @@ void SemaChecker::fold_where_bounds(TinyMapView node, std::vector<TypeParam>& re
                         // here and was added as a phantom param named after
                         // the concrete type, inflating the fn's type_params
                         // → "could not infer all type arguments". Skip the
-                        // concrete subject; only a genuinely-undeclared
-                        // type-PARAM name keeps the lenient add-fallback.
+                        // concrete subject.
                         if (lookup_type_by_name(tname)) continue;
-                        // type param in where clause not in param list — add it
-                        TypeParam tp; tp.name = tname;
-                        result.push_back(std::move(tp));
-                        tp_ptr = &result.back();
+                        // An undeclared subject is E0412, never a new parameter. PROBES.md 2026-09-13f-declarrivalland.
+                        if (!where_subject_check_deferred_) error(std::format("unknown type '{}'", tname));
+                        continue;
                     }
                     if (constraint.has_key(la::ITEMS)) {
                         auto bounds = arr_of(constraint.get(la::ITEMS.code));
@@ -6050,12 +6053,16 @@ void SemaChecker::fold_where_bounds(TinyMapView node, std::vector<TypeParam>& re
 
 std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
     std::vector<TypeParam> result;
-    if (!node.has_key(la::TYPE_PARAMS)) return result;
+    // A signature with no `<...>` asks the where-subject question too; nothing to fold onto. PROBES.md 2026-09-13f-declarrivalland.
+    const bool has_list = node.has_key(la::TYPE_PARAMS) && !node.get(la::TYPE_PARAMS.code).is_null() &&
+                          map_of(node.get(la::TYPE_PARAMS.code)).has_key(la::ITEMS);
+    if (!has_list) {
+        check_where_subjects_resolve_(node);
+        return result;
+    }
     AnyVal tpav = node.get(la::TYPE_PARAMS.code);
-    if (tpav.is_null()) return result;
     // type_param_list => { ITEMS: $... }
     auto tplist = map_of(tpav);
-    if (!tplist.has_key(la::ITEMS)) return result;
     auto tpitems = arr_of(tplist.get(la::ITEMS.code));
     // Pre-pass: add all type param names as typevars so bounds referencing sibling params resolve.
     // CONST params pre-register too (as ConstVars) — a sibling's trait bound

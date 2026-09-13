@@ -1,0 +1,9 @@
+// `S::<'_> {..}` names its one lifetime argument; it runs.
+// TWIN of fail/bc_declarrival_struct_lit_lt_turbofish_refuse, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_struct_lit_lt_turbofish_admit;
+struct S<'a> { r: &'a i64 }
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let s = S::<'_> { r: &x };
+    return *s.r as i32;
+}

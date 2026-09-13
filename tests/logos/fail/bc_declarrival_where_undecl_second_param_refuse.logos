@@ -1,0 +1,18 @@
+// An undeclared where subject is E0412, never a second type parameter: `f::<i64, i64>` ran on the opening binary.
+// TWIN of pass/bc_declarrival_where_undecl_second_param_admit, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_where_undecl_second_param_refuse;
+trait Tr {
+    fn t(self: &Self) -> i64;
+}
+impl Tr for i64 {
+    fn t(self: &Self) -> i64 { return *self; }
+}
+fn f<U: Tr>(u: &U) -> i64
+where T: Tr
+{
+    return u.t();
+}
+fn main() -> i32 {
+    let a = 3i64;
+    return f::<i64, i64>(&a) as i32;
+}

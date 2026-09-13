@@ -1,6 +1,6 @@
 // rustc nll/trait-associated-constant.rs — upstream "const not compatible with trait"
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R18
+// shelf: fail · root nllmoves.R18 · CLOSED 2026-09-13f-declarrivalland (src/compiler/PROBES.md)
 // Original path: tests/ui/nll/trait-associated-constant.rs @ 4b0c9d76a
 // Modifications: `#![feature(rustc_attrs)]` and the `use std::option::Option` dropped
 //   (`Option` is in scope; the attribute is compiler-internal); `None` -> `Option::None`;

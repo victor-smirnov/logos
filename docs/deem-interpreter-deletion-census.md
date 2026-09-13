@@ -5941,9 +5941,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                NOIMPORTED 5199 -> 5225, TIERCOMMIT 132 -> 130 — measured by `ctest -N` on the
 #                re-globbed build before this pin was touched. bc_admits `# TOTAL` 74 -> 72;
 #                soundness_queue 108 -> 117 (nine rows OPENED, none closed).
-REGISTRY-ALL         9715
-REGISTRY-NOIMPORTED  5225
-REGISTRY-TIERCOMMIT  130
+# 2026-09-13f (declarrivalland — three declaration checks now asked at every arrival: a where SUBJECT resolves at every
+#                fn/impl/trait-method arrival (the add-fallback deleted), a value path's LIFETIME turbofish is counted at
+#                the enum ctor / struct literal / unit variant, an impl item's REGIONS are compared with the trait's at the
+#                associated const and the method return).
+#                EIGHT native PAIRS, all bc_declarrival_* — +16. THREE closed rows' programs MOVE
+#                tests/imported/admit -> tests/imported/fail (outlives-with-missing, constructor-lifetime-early-binding-error,
+#                trait-associated-constant; declared RENAMED-FIXTURE below): registry-neutral in ALL, -3 `logos_00_bc_admit_*`
+#                in NOIMPORTED and TIERCOMMIT. So ALL 9715 -> 9731, NOIMPORTED 5225 -> 5238, TIERCOMMIT 130 -> 127 — measured
+#                by `ctest -N` on the re-globbed build before this pin was touched. bc_admits `# TOTAL` 72 -> 69;
+#                soundness_queue 122 -> 125 (three rows OPENED, none closed).
+REGISTRY-ALL         9731
+REGISTRY-NOIMPORTED  5238
+REGISTRY-TIERCOMMIT  127
+RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
+RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
+RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

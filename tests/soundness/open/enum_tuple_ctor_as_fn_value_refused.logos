@@ -1,0 +1,18 @@
+package enum_tuple_ctor_as_fn_value_refused;
+
+enum E {
+    V(i64),
+}
+
+fn main() -> i32 {
+    let f = E::V;
+    let e = f(4i64);
+    return match e {
+        E::V(x) => if x == 4i64 { 0i32 } else { 1i32 },
+    };
+}
+// SOUNDNESS QUEUE row enum_tuple_ctor_as_fn_value_refused (tier 3).
+// Legal Rust: a tuple variant's constructor is a function item and may be bound to a local.
+// ⚠ No rustc binary on this box; the legality claim rests on reading the rule.
+// TODAY refused: "call to undefined function 'f'". Measured 2026-09-13f on 4cf0bf5e5e07b0cf
+// (base) and 9e85182a92a2ea50 (landed), same sentence.

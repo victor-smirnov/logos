@@ -1,0 +1,9 @@
+// `E::V::<'_>` names 1 lifetime argument for an enum declaring 2 (E0107).
+// TWIN of pass/bc_declarrival_ctor_lt_turbofish_admit, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_ctor_lt_turbofish_refuse;
+enum E<'a, 'b> { V(&'a i64), U(&'b i64) }
+fn main() -> i32 {
+    let x: i64 = 7i64;
+    let e = E::V::<'_>(&x);
+    return match e { E::V(p) => *p as i32, E::U(q) => *q as i32 };
+}

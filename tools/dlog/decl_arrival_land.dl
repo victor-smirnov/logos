@@ -1,0 +1,67 @@
+// decl_arrival_land — THE CLASS ON THE LANDED TREE (round 2026-09-13f-declarrivalland).
+//
+// The pricing rule decl_arrival_sites.dl asked which contexts READ a fact and never ASK the
+// check. This rule asks the landing's question: after the change, which readers of the fact
+// still neither ask the check themselves nor DELEGATE to a function that does. A delegation
+// is a call edge to a named asker, so it has a spelling a grep cannot follow across TUs.
+//
+// QW. WHICH CONTEXTS READ A WHERE CLAUSE (`la::WHERE`) AND NEITHER CALL lookup_type_by_name
+//     NOR fold_where_bounds NOR check_where_subjects_resolve_ NOR read_type_params (which
+//     now always folds)? Each is a where reader that resolves no subject: a candidate
+//     neighbour to READ by hand (a reader of outlives only is not one).
+// QC. WHICH CONTEXTS CALL check_turbofish_lifetime_arity_ (the value-path arrivals), and which
+//     TURBOFISH readers (read TYPE_PARAMS, never name LIFETIME_PARAM) do NOT?
+// QK. WHICH CONTEXTS HOLD assoc_consts + types_equal AND CALL impl_regions_conform_?
+//
+// KNOWN-ANSWER CONTROLS, stated before the run (each read by grep on the landed sources):
+//   L1 lower_enum_lit_data_from_static ∈ turbofish_asker   (sema_expr.cpp: check_turbofish_lifetime_arity_(node, ename, ...))
+//   L2 collect_impl ∈ const_region_asker                   (sema_collect.cpp: impl_regions_conform_(static_item_regions_(ctype), ...))
+//   L3 read_type_params ∉ where_silent                     (sema.cpp: fold_where_bounds(node, result) on both paths)
+//   L4 collect_trait ∈ where_subject_asker                 (sema_collect.cpp: check_where_subjects_resolve_(m) under whtraitdecl)
+// If any control fails, nothing below is believed.
+#include "cxx_schema.dl"
+
+.decl named_method(did: symbol, name: symbol)
+named_method(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N).
+named_method(D, N) :- decl(D, "Function", _), decl_name(D, N).
+
+.decl ctx_calls(ctx: symbol, callee: symbol)
+ctx_calls(C, N) :- named_method(D, N), call(K, D), ctx_of(K, X), ctx_name(X, C).
+
+.decl ctx_refs(ctx: symbol, name: symbol)
+ctx_refs(C, N) :- decl_name(D, N), ref(U, D), ctx_of(U, X), ctx_name(X, C).
+
+// ── QW ──
+.decl where_reader(ctx: symbol)
+where_reader(C) :- ctx_refs(C, "WHERE").
+.output where_reader
+.decl where_subject_asker(ctx: symbol)
+where_subject_asker(C) :- ctx_calls(C, "lookup_type_by_name").
+where_subject_asker(C) :- ctx_calls(C, "fold_where_bounds").
+where_subject_asker(C) :- ctx_calls(C, "check_where_subjects_resolve_").
+where_subject_asker(C) :- ctx_calls(C, "read_type_params").
+.output where_subject_asker
+.decl where_silent(ctx: symbol)
+where_silent(C) :- where_reader(C), !where_subject_asker(C).
+.output where_silent
+
+// ── QC ──
+.decl turbofish_asker(ctx: symbol)
+turbofish_asker(C) :- ctx_calls(C, "check_turbofish_lifetime_arity_").
+.output turbofish_asker
+.decl tp_blind_lt(ctx: symbol)
+tp_blind_lt(C) :- ctx_refs(C, "TYPE_PARAMS"), !ctx_refs(C, "LIFETIME_PARAM").
+.decl tp_blind_unasked(ctx: symbol)
+tp_blind_unasked(C) :- tp_blind_lt(C), !turbofish_asker(C).
+.output tp_blind_unasked
+
+// ── QK ──
+.decl const_types_equal(ctx: symbol)
+const_types_equal(C) :- ctx_refs(C, "assoc_consts"), ctx_calls(C, "types_equal").
+.output const_types_equal
+.decl const_region_asker(ctx: symbol)
+const_region_asker(C) :- const_types_equal(C), ctx_calls(C, "impl_regions_conform_").
+.output const_region_asker
+.decl const_region_silent(ctx: symbol)
+const_region_silent(C) :- const_types_equal(C), !ctx_calls(C, "impl_regions_conform_").
+.output const_region_silent

@@ -1,0 +1,21 @@
+// A method with no `<...>` of its own; its where subject `H` is the impl's parameter; it runs.
+// TWIN of fail/bc_declarrival_where_undecl_method_refuse, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_where_undecl_method_admit;
+trait Tr {
+    fn t(self: &Self) -> i64;
+}
+impl Tr for i64 {
+    fn t(self: &Self) -> i64 { return *self; }
+}
+struct W<H> { h: H }
+impl<H> W<H> {
+    fn get(self: &Self) -> i64
+    where H: Tr
+    {
+        return 4i64;
+    }
+}
+fn main() -> i32 {
+    let w = W { h: 4i64 };
+    return w.get() as i32;
+}

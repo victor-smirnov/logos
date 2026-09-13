@@ -1,0 +1,13 @@
+// An associated const `&'c str` against the trait's `&'b str`: 'c is unrelated to 'b.
+// TWIN of pass/bc_declarrival_assoc_const_region_admit, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_assoc_const_region_refuse;
+trait Anything<'a: 'b, 'b> {
+    const AC: Option<&'b str>;
+}
+struct S { }
+impl<'a: 'b, 'b, 'c> Anything<'a, 'b> for S {
+    const AC: Option<&'c str> = Option::None;
+}
+fn main() -> i32 {
+    return match S::AC { Option::Some(s) => 1i32, Option::None => 4i32 };
+}

@@ -43358,3 +43358,125 @@ the file, `where Self: Sized` in an inherent impl, a trait-impl method repeating
   rc 0 (1 emitter: expect_type) · no compiled source in the diff.
   Committed before the builds: TARGETS.md, PREDICTIONS{,2,3}.md, declarrival{,2,3}.spec, tools/dlog/decl_arrival_sites.dl
   (9e52f42d2, 849792395, a5ee92062).
+
+## 2026-09-13f-declarrivalland — LANDED: THREE DECLARATION CHECKS NOW ASKED AT EVERY ARRIVAL — A WHERE SUBJECT RESOLVES (every fn/impl/trait-method arrival, the add-fallback deleted), A VALUE PATH'S LIFETIME TURBOFISH IS COUNTED (enum ctor, struct literal, unit variant), AN IMPL ITEM'S REGIONS ARE COMPARED WITH THE TRAIT'S (assoc const + method return, Slice region included) — bc_admits outlives-with-missing, constructor-lifetime-early-binding-error, trait-associated-constant CLOSE (72 -> 69)
+site: src/compiler/sema_impl.hpp::check_where_subjects_resolve_
+build: 9e85182a92a2ea50 43 (landed, read) · control 4cf0bf5e5e07b0cf 43 (opening binary, clean HEAD 926ff2b24)
+measured: 2026-09-13
+fires: n/a (landing, no probe)
+ceiling: 3 rows closed = predicted {outlives-with-missing, constructor-lifetime-early-binding-error, trait-associated-constant}, both ways
+cost: see ORACLES ON THE LANDED BUILD — 0 in bc / runtime / fail text / stdlib; 0 legal moved over 75 hand programs after 4 repairs
+verdict: LANDED. Predictions committed before any edit: ed96a03c6 (probes/2026-09-13f-declarrivalland/PREDICTIONS.md).
+note: priced by 2026-09-13e-declarrival; this record is the landing.
+
+### STEP 1, READ FROM THE TREE
+    HEAD 926ff2b24 clean · soundness_queue # TOTAL 122 = 122 by listing · queue gate rc 0 (LOGOS_LIB_DIR) · bc_admits 72 · blocked 8
+    probe-log-lint 285 records · build_hash 4cf0bf5e5e07b0cf 43 (read) · dlog selftest rc 0 (19/24/1-5/42-5; duty 1 -> 0)
+    The paraphrase's STEP-1 numbers match the tree; no correction.
+
+### BASELINE (opening binary, one configure)
+    gate-run -L bc: build 1139 ALREADY MEASURED, 6816 recorded / 0 failed (2 disabled) · run_oracle 6729 compiled+linked+RUN ·
+    fail_text_oracle 1557 recorded.
+
+### THE PRICING'S RECOMMENDATION, ATTACKED FIRST — 75 hand programs of mine, shapes the pricer did not use
+  On the recommended form (rtunion's arms as mechanisms), keyed join by file name vs the opening binary, FOUR LEGAL PROGRAMS REFUSED:
+    G_w01  `where &T: Show` on a method with no `<...>` of `impl<T> W<T>`       "duplicate type parameter 'T' in fn W__get"
+           (running the FOLD on a no-list arrival reaches its ref-subject arm, which ADDS the enclosing param as a method param)
+    G_w22  `impl Twice for S where Self: Tr` (trait impl header)                  "unknown type 'Self'"
+    G_w28  `impl S where Self: Tr` (inherent, no params)                          "unknown type 'Self'"
+           (collect_impl binds Self AFTER it reads the header; whundeclimpl's placement asks before)
+    G_k26  trait `const N: Option<&'static str>`, impl `const N: Option<&str>`   "... has type 'Option<&[u8]>' ... 'Option<&'static [u8]>'"
+           (static_item_regions_ does not descend into ADT args; the elided region inside Option stayed "")
+  None of the four is in the pricing battery. Landed instead (below), each repaired at its door and re-run: 0 legal moved.
+  NOT a cost, read: G_k23 (trait `Option<&'b str>`, impl<'b> `Option<&str>`) — rustc DENIES it by default
+  (RELEASES.md: "Bump `elided_lifetimes_in_associated_constant` to deny", #124211); the landed build admits it, as base did.
+
+### THE LANDED CHANGE (4 compiled files)
+  W  read_type_params: a signature with no `<...>` asks check_where_subjects_resolve_ (the subject question only, no fold);
+     fold_where_bounds: the add-fallback ("type param in where clause not in param list — add it") DELETED -> "unknown type 'X'";
+     collect_impl: every impl form's header subjects asked ONCE, after `Self` is bound; the inherent-generic header's fold defers
+     via where_subject_check_deferred_; collect_trait: a trait METHOD DECLARATION's where subjects (whether or not an impl
+     collects its default body) — the pricing's rowed neighbours wh5 and I_w11 CLOSE in this commit.
+  C  check_turbofish_lifetime_arity_ at lower_enum_lit_data_from_static, lower_struct_lit, lower_enum_lit (unit variant); the
+     zero-declared case is counted (E0107; the declaration is complete at lowering). The type-position sentence.
+  K  rename_trait_regions_ (trait binders -> the impl's trait-reference lifetime args, POSITIONALLY, through subst_type_sema's
+     existing lifetime map — not the probe's hand-rolled walker), impl_regions_conform_ (subtype under the impl's outlives + the
+     Slice region subtype()'s head never compares), regions_all_impl_header_ (k3sig's guard). Assoc const: both sides through
+     static_item_regions_(t, through_adts=true). Method return: in the candidate loop before `matching`.
+     type_str: SOURCE FORM prints a borrowed slice's region (the pricing's "Option<&[u8]> twice" sentence).
+  Diff budget declared 180 compiled lines; landed 191. Over by 11: the two repairs the counter-examples forced.
+
+### CLOSED SET — predicted by name (ed96a03c6), diffed both ways
+  bc_admits 72 -> 69: outlives-with-missing · constructor-lifetime-early-binding-error · trait-associated-constant = predicted.
+    outlives-with-missing                     `error [fn HandlerWrapper__set_handler]: unknown type 'T'` (E0412)
+    constructor-lifetime-early-binding-error  :30 "'E': expected 2 lifetime arg(s), got 1" · :31 "... got 3" (E0107, both lines)
+    trait-associated-constant                 FailStruct only: "associated constant 'AC' has type 'Option<&'c [u8]>', which is not
+                                              compatible with the trait's 'Option<&'b [u8]>' (lifetime mismatch)"
+  Programs move tests/imported/admit/{regions,lifetimes,nll} -> tests/imported/fail/{...}.
+  soundness_queue: 0 closed (predicted 0).
+  Hand battery vs prediction: newly refused X_w01 X_w02 X_w03 X_w04 X_w07 X_w09 X_w10 X_c02 X_c03 X_c05 X_k02 X_k04 X_k05 = predicted;
+  + X_w06 (the trait-decl arm, predicted under whtraitdecl, landed) + X_k06 X_w11 X_w12 (written after the prediction). LEGAL moved 0.
+  ONE BASE LEGAL REFUSAL REPAIRED by the fallback deletion: G_w27 `impl<X> W<X> where Self: Tr` — base "could not infer type
+  arguments for generic method 'W__twice'" (the phantom `Self` parameter); landed runs 4.
+  Re-worded already-red: X_c04 `Option::Some::<'static>(1)` now opens with "'Option': expected 0 lifetime arg(s), got 1" before the
+  code-131 line it always printed.
+
+### CLASS BY PROPERTY — dlog decl_arrival_land.dl on the landed sources (selftest rc 0 first); known answers L1-L4 stated first, all hold
+    turbofish_asker = {lower_enum_lit, lower_enum_lit_data_from_static, lower_struct_lit} · const_region_asker = {collect_impl},
+    const_region_silent = ∅ · where_silent = {compute_fn_lifetime_outlives, lower_enum_def, lower_struct_def}
+  PER-SITE READ, side by side: dlog 3 where-silent contexts / per-site 0 neighbours — all three read WHERE only through
+  read_lifetime_outlives_from (outlives), and their subjects are asked at collect (collect_{fn,struct,enum} -> read_type_params).
+  tp_blind_unasked 33: the value-path turbofish arrivals among them, each probed by hand on the landed binary —
+    lower_method_call `s.m::<'static,'static>()`, lower_generic_ref `id::<'static,'static>`, lower_generic_call `pick::<'static,'static,i64>`
+    -> "unexpected type node code 131" (doors in series, backlog lt_turbofish_absent); try_variant (pattern `E::V::<..>(p)`) -> syntax
+    error (no carrier); lower_static_call `S::mk::<'static,'static>(&x)` ADMITTED — NOT A NEIGHBOUR: `'a` is late-bound and Rust does
+    not count late-bound lifetime args (lint only; reading, no rustc on this box).
+
+### NEIGHBOURS (standing rule 2026-09-12)
+    neighbour                                                                 verdict   the change / the reason and the number
+    W  no-list method / assoc fn / free fn with params / struct / impl header  CLOSED    W (X_w01 X_w02 X_w03 X_w04 X_w07 X_w09 X_w11)
+    W  trait method DECLARATION `fn q<U>(..) where T: Tr;` (wh5, X_w06)         CLOSED    collect_trait arm, strict extension (battery 0 legal moved)
+    W  trait default body, no impl (I_w11) / with impl (X_w10)                 CLOSED    same arm (the decl's where clause is the body's)
+    W  `where Self: Tr` on a FREE fn (X_w12)                                   CLOSED    E0411 upstream; "unknown type 'Self'"
+    W  method `where F: Fn(i64) -> i64` on an impl param DROPPED (legal refused) ROWED     not a neighbour: a different decision (the bound's
+                                                                                          attach, not the subject's resolution) — queue row
+    C  enum ctor / struct literal / unit variant, too few, too many, zero-declared CLOSED   C
+    C  method / fn-ref / generic-call lifetime turbofish                          ROWED     (2) doors in series: code 131 on the legal forms too
+    C  pattern `E::V::<..>(p)`                                                    ROWED     (1) no carrier: the parser refuses the path
+    K  const `&'c str`, `Option<&'b str>`, tuple, array, `&'b &'c str`, `'static` vs named   CLOSED  K
+    K  method return `&'c [i64]`, `Option<&'c i64>`, tuple                       CLOSED    K (method-return site)
+    K  method PARAM `Option<&'c str>` (cn11)                                      ROWED     (3) own cost unpriced: a contravariant compare, not
+                                                                                          this one; unchanged from the pricing's row reason
+    K  const `Option<&'b dyn Show>` / `Option<fn(&'q i64)>` renamed binders      n/a       legal, admitted (G_k01 G_k02): subst_type_sema renames
+                                                                                          TraitObject/FnPtr regions the probe's walker skipped
+
+### FIXTURES — eight PAIRS, bc_declarrival_*, control-reverted
+  where_undecl_{method,impl_header,second_param} · ctor_lt_turbofish · struct_lit_lt_turbofish · unit_variant_lt_turbofish ·
+  assoc_const_region · method_ret_slice_region. Pass halves RUN (exit 4 6 3 7 5 3 4 3). Fail halves pin the sentence in full.
+  CONTROL (opening binary 4cf0bf5e): all 8 fail halves ADMITTED rc 0 and all 3 row programs rc 0; landed: refused. Two pairs were
+  RESHAPED after the first control: the method and second-param refuse halves were already refused on base for a DERIVED reason
+  (the phantom parameter) — rc inherited, text new (rule 14); reshaped so base admits them.
+
+### FOUND, reproducing identically on 4cf0bf5e AND 9e85182a, rowed (soundness_queue 122 -> 125)
+    method_where_fn_bound_on_impl_param_refused (t3) · struct_named_like_type_param_refused (t3) · enum_tuple_ctor_as_fn_value_refused (t3)
+  NOT rowed: G_k05 `const R: &'b &'a str = &"abc"` ("cannot return reference to temporary value") — the minimal free-const control is
+  refused for an unrelated auto-deref reason, so the door was not isolated; G_k22 `-> [&'b str; 2]` MLIR crash — the free-fn minimal
+  form runs 3, not reduced.
+
+### ORACLES ON THE LANDED BUILD (9e85182a92a2ea50 43, read; the same configure as the baseline)
+    queue gate rc 0 (122 rows, before the tree edit) · gate-run -L bc build 1167: 2890 passed / 0 failed / 2 other of 2892 ·
+    run_oracle 6729 common, 0 lost, 0 gained, 0 changed (cast-region-to-uint by name) · fail_text_oracle 1557 common, 0 lost,
+    0 gained, 0 changed · stdlib: the full `cmake --build build` rc 0, all four layers compiled by the landed compiler.
+    ⚠ Cost 0 in every column is not the safety claim; the 75-program battery is — it refused FOUR legal programs on the recommended
+    form that every one of these columns had priced at 0 in the pricing round.
+  FINAL TREE: build_hash 6d1bbee8344b2a81 43 (read) · queue gate rc 0, 125 rows (tier1 20 / tier2 29 / tier3 68 / tier4 8) · L1 rc 0 (807/807, smoke 12 684, gates 127/127) · L4 bc rc 0 (core+spec 5238/5238 passed, 0 failed, 0 other; bc 1592/1594 passed, 0 failed, 2 other; 2 disabled) · probe-log-lint 286 records rc 0 · lint_mismatch_monopoly rc 0 · census pins REGISTRY 9731 / 5238 / 127 (ctest -N on the re-globbed build) · door census corpus 3112 = 191 + 2921 · bc_admits # TOTAL 69 · soundness_queue # TOTAL 125
+
+### MISTAKES OF MY OWN
+  * Two `rc=$?` loops printed the exit code of a `$(basename …)` substitution, not the compiler's; every verdict quoted here was re-read
+    from stderr or a separate `rc=$?` line.
+  * The first fixture draft's fail halves for method / second-param were refused on the opening binary already (derived reason);
+    caught by the control revert, reshaped.
+  * First build failed: helpers in sema_impl.hpp named TinyMapView/la:: without sema_detail.
+  * A census check run as `ctest -R 'census_pin|direct_door_census|corpus_registration'` matched far more than three gates and ran pass
+    fixtures for 15 min; the chain written to stop it used `pkill -f <its output path>`, which matched the chain's OWN command line and
+    killed the rebuild mid-compile (exit 144). Relaunched without the kill; the real gates ran inside L1.

@@ -6507,7 +6507,8 @@ private:
         return subtype(from, to, adj, variance_table_, /*depth=*/0, permissive);
     }
     // A static item's elided regions are 'static (Rust items.static). PROBES.md 2026-09-13d-staticdemand.
-    TypeRef static_item_regions_(TypeRef t) {
+    // `through_adts`: an associated const's `Option<&str>` too (2026-09-13f-declarrivalland).
+    TypeRef static_item_regions_(TypeRef t, bool through_adts = false) {
         if (!t) return t;
         using K = LogosType::Kind;
         const auto k = TypeRef(t).kind();
@@ -6515,20 +6516,134 @@ private:
             return (lt.empty() || lt_is_minted(lt)) ? std::string("'static") : std::string(lt);
         };
         if (k == K::Ref || k == K::MutRef)
-            return make_ref(k == K::MutRef, static_item_regions_(TypeRef(t).pointee()),
+            return make_ref(k == K::MutRef, static_item_regions_(TypeRef(t).pointee(), through_adts),
                             fill(TypeRef(t).lifetime()));
         if (k == K::Array)
-            return make_array(static_item_regions_(TypeRef(t).elem()), TypeRef(t).arr_size(),
+            return make_array(static_item_regions_(TypeRef(t).elem(), through_adts), TypeRef(t).arr_size(),
                               std::string_view(TypeRef(t).arr_size_var()));
         if (k == K::Tuple) {
             std::vector<TypeRef> es;
-            for (auto e : TypeRef(t).tuple_elems()) es.push_back(static_item_regions_(e));
+            for (auto e : TypeRef(t).tuple_elems()) es.push_back(static_item_regions_(e, through_adts));
             return make_tuple_type(std::move(es));
         }
         if (k == K::Slice && TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow)
-            return make_slice_type(static_item_regions_(TypeRef(t).elem()), TypeRef(t).mut_ptr(),
+            return make_slice_type(static_item_regions_(TypeRef(t).elem(), through_adts), TypeRef(t).mut_ptr(),
                                    TypeRef::OwningKind::Borrow, fill(TypeRef(t).lifetime()));
+        if (through_adts && (k == K::Struct || k == K::ZonedStruct || k == K::Enum)) {
+            std::vector<std::string> ls = TypeRef(t).lifetime_args();
+            if (ls.size() < decl_lt_arity_(t)) ls.resize(decl_lt_arity_(t));
+            for (auto& l : ls) l = fill(l);
+            std::vector<TypeRef> as;
+            for (auto a : TypeRef(t).type_args()) as.push_back(static_item_regions_(a, true));
+            if (k == K::Enum) return make_generic_enum(TypeRef(t).enum_name(), std::move(as), std::move(ls), TypeRef(t).pkg_name());
+            if (k == K::ZonedStruct)
+                return make_generic_datatype(TypeRef(t).struct_name(), std::move(as), std::move(ls), TypeRef(t).pkg_name());
+            return make_generic_struct(TypeRef(t).struct_name(), std::move(as), std::move(ls), TypeRef(t).pkg_name());
+        }
         return t;
+    }
+    // ── THREE DECLARATION CHECKS AT THE ARRIVALS THAT NEVER ASKED THEM. PROBES.md 2026-09-13f-declarrivalland ──
+    // E0412 at a where clause no fold reads: every NAME subject must resolve. An impl header defers
+    // it until `Self` is bound (collect_impl).
+    bool where_subject_check_deferred_ = false;
+    void check_where_subjects_resolve_(sema_detail::TinyMapView node) {
+        using namespace sema_detail;
+        if (where_subject_check_deferred_ || !node.has_key(la::WHERE)) return;
+        AnyVal wav = node.get(la::WHERE.code);
+        if (wav.is_null() || !map_of(wav).has_key(la::ITEMS)) return;
+        auto wi = arr_of(map_of(wav).get(la::ITEMS.code));
+        for (uint64_t i = 0; i < wi.size(); ++i) {
+            auto c = map_of(wi.get(i));
+            if (code_of(c) != la::TYPE_PARAM || !c.has_key(la::NAME)) continue;
+            std::string nm(str_of(c.get(la::NAME.code)));
+            if (!lookup_type_by_name(nm)) error(std::format("unknown type '{}'", nm));
+        }
+    }
+    // E0107 at a VALUE path: a turbofish's lifetime args against the declaration (complete at lowering).
+    void check_turbofish_lifetime_arity_(sema_detail::TinyMapView node, std::string_view name,
+                                         const std::vector<std::string>& decl_lts) {
+        using namespace sema_detail;
+        if (!node.has_key(la::TYPE_PARAMS)) return;
+        AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+        if (tpav.is_null() || !tpav.is_pointer() || !map_of(tpav).has_key(la::ITEMS)) return;
+        auto its = arr_of(map_of(tpav).get(la::ITEMS.code));
+        size_t n = 0;
+        for (uint64_t i = 0; i < its.size(); ++i)
+            if (code_of(map_of(its.get(i))) == la::LIFETIME_PARAM) ++n;
+        if (n > 0 && n != decl_lts.size())
+            error(std::format("'{}': expected {} lifetime arg(s), got {}", name, decl_lts.size(), n));
+    }
+    // A trait item's type with the trait's binders renamed POSITIONALLY to the impl's trait-reference
+    // lifetime args; nullptr when the counts differ (not decided here).
+    TypeRef rename_trait_regions_(TypeRef t, const std::vector<std::string>& trait_lts,
+                                  const std::vector<std::string>& trait_lt_args) {
+        if (!t || trait_lts.size() != trait_lt_args.size()) return nullptr;
+        SemaLifetimeSubst ls;
+        for (size_t i = 0; i < trait_lts.size(); ++i) {
+            ls[trait_lts[i]] = trait_lt_args[i];
+            ls[outlives_norm(trait_lts[i])] = trait_lt_args[i];
+        }
+        return ls.empty() ? t : subst_type_sema(t, {}, ls);
+    }
+    // An impl item's type against the (renamed) trait's by REGION: subtype() under the impl's outlives, plus the
+    // Slice region subtype()'s head (types_equal_with_lifetimes) never compares.
+    bool impl_regions_conform_(TypeRef have, TypeRef want,
+                               const std::vector<std::pair<std::string, std::string>>& impl_outlives) {
+        const auto adj = outlives_adj(impl_outlives);
+        std::function<bool(TypeRef, TypeRef, int)> slice_ok = [&](TypeRef a, TypeRef b, int d) -> bool {
+            using K = LogosType::Kind;
+            if (!a || !b || d > 24 || a.kind() != b.kind()) return true;
+            switch (a.kind()) {
+            case K::Slice:
+                return outlives(a.lifetime(), b.lifetime(), adj, /*permissive_empty=*/false) &&
+                       slice_ok(a.elem(), b.elem(), d + 1);
+            case K::Ref: case K::MutRef: return slice_ok(a.pointee(), b.pointee(), d + 1);
+            case K::Array: return slice_ok(a.elem(), b.elem(), d + 1);
+            case K::Tuple: case K::Struct: case K::ZonedStruct: case K::Enum: {
+                auto ea = a.kind() == K::Tuple ? a.tuple_elems() : a.type_args();
+                auto eb = a.kind() == K::Tuple ? b.tuple_elems() : b.type_args();
+                for (size_t i = 0; i < ea.size() && i < eb.size(); ++i)
+                    if (!slice_ok(ea[i], eb[i], d + 1)) return false;
+                return true;
+            }
+            default: return true;
+            }
+        };
+        return subtype(have, want, adj, variance_table_, 0, false) && slice_ok(have, want, 0);
+    }
+    // Every region either side names is an impl-header binder or 'static, and none is elided.
+    static bool regions_all_impl_header_(TypeRef a, TypeRef b, const std::vector<std::string>& impl_lts) {
+        std::vector<std::string> seen;
+        std::function<void(TypeRef, int)> walk = [&](TypeRef t, int d) {
+            using K = LogosType::Kind;
+            if (!t || d > 24) return;
+            switch (t.kind()) {
+            case K::Ref: case K::MutRef: seen.emplace_back(t.lifetime()); walk(t.pointee(), d + 1); return;
+            case K::Slice:
+                if (t.slice_owning_kind() == TypeRef::OwningKind::Borrow) seen.emplace_back(t.lifetime());
+                walk(t.elem(), d + 1);
+                return;
+            case K::Array: walk(t.elem(), d + 1); return;
+            case K::Tuple: for (auto e : t.tuple_elems()) walk(e, d + 1); return;
+            case K::Struct: case K::ZonedStruct: case K::Enum:
+                for (auto& l : t.lifetime_args()) seen.push_back(l);
+                for (auto x : t.type_args()) walk(x, d + 1);
+                return;
+            default: return;
+            }
+        };
+        walk(a, 0);
+        walk(b, 0);
+        if (seen.empty()) return false;
+        for (auto& l : seen) {
+            if (l.empty()) return false;
+            const auto n = outlives_norm(l);
+            if (n == "'static") continue;
+            if (std::none_of(impl_lts.begin(), impl_lts.end(),
+                             [&](const std::string& h) { return outlives_norm(h) == n; }))
+                return false;
+        }
+        return true;
     }
     // "argument 2 `u`" / "the receiver" — for a call-site sentence.
     std::string describe_call_arg_(const std::vector<lir::LExprPtr>& args, size_t i,

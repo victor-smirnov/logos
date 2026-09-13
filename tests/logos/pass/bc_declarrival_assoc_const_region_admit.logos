@@ -1,0 +1,13 @@
+// An associated const `&'a str` against the trait's `&'b str` under `'a: 'b`; it runs.
+// TWIN of fail/bc_declarrival_assoc_const_region_refuse, one token apart. src/compiler/PROBES.md 2026-09-13f-declarrivalland.
+package bc_declarrival_assoc_const_region_admit;
+trait Anything<'a: 'b, 'b> {
+    const AC: Option<&'b str>;
+}
+struct S { }
+impl<'a: 'b, 'b, 'c> Anything<'a, 'b> for S {
+    const AC: Option<&'a str> = Option::None;
+}
+fn main() -> i32 {
+    return match S::AC { Option::Some(s) => 1i32, Option::None => 4i32 };
+}
