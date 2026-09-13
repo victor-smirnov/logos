@@ -1,0 +1,19 @@
+package arrayref_to_arrayptr_coercion_refused;
+fn f<'a>(x: &'a [&'a i64; 3]) -> *const [&'a i64; 3] {
+    return x;
+}
+fn main() -> i32 {
+    let v: i64 = 1i64;
+    let a: [&i64; 3] = [&v, &v, &v];
+    let p: *const [&i64; 3] = f(&a);
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let q: *const [i64; 3] = &arr;
+    return 0i32;
+}
+// SOUNDNESS QUEUE row arrayref_to_arrayptr_coercion_refused (tier 3).
+// Legal Rust: `&[T; N]` coerces to `*const [T; N]` like any `&T -> *const T`.
+// TODAY refused: "return type mismatch — expected *const [&'a i64; 3], got &'a [&'a i64; 3]"
+// and "let 'p'/'q': type mismatch — expected *const [i64; 3], got &[i64; 3]". types_compatible's
+// array-DECAY branch (`&[T; N]` -> `*const T`) answers first for every Array pointee and returns
+// `types_compatible(elem, to.pointee())` — false for a `[T; N]` pointee — so the general
+// `&T -> *const T` branch below it is never reached. Found 2026-09-14a-ptrcoerce (I11, K01, K02).

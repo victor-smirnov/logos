@@ -43480,3 +43480,217 @@ note: priced by 2026-09-13e-declarrival; this record is the landing.
   * A census check run as `ctest -R 'census_pin|direct_door_census|corpus_registration'` matched far more than three gates and ran pass
     fixtures for 15 min; the chain written to stop it used `pkill -f <its output path>`, which matched the chain's OWN command line and
     killed the rebuild mid-compile (exit 144). Relaunched without the kill; the real gates ran inside L1.
+
+## 2026-09-14a-ptrcoerce — A REFERENCE-TO-RAW-POINTER COERCION LEAVES subtype() THROUGH ITS KIND-MISMATCH EXIT (nllmoves.R14), AND A VEC INDEX STORE'S `&mut v` RECEIVER IS NEVER ROOTED (bck.B)
+site: include/logos/compiler/subtype.hpp::subtype
+build: 041a5b988a104e81 (batch 2) · d54975fbc27f66b7 (batch 1, hand only) · d0cb415e3ea9dd53 (batch 3) · 38323413a8199ace (batch 4)
+measured: 2026-09-13
+fires: refptrcod 3088 · mutconstco 1 · ptrcoerced 3089 · crosskindxd 4137 · aorecvsk 11 · pcuniond 4148 · ebpaddrof 14685 · ebpaddrofmut 102 — every name in the batch tables
+ceiling: 2 rows by the union pcuniond = {type-check-pointer-coercions, borrowck-loan-vec-content}, additive 1+1
+cost: pcuniond 0 in pass / cfail 0 of 1568 / stdlib 4 of 4 / runtime 6737 fixtures 0 changed; 0 legal moved over 127 hand programs — batch 2's pcunion refused 3 pass fixtures in the runtime column alone (+ D01 by hand)
+verdict: see WHAT DESERVES FUNDING
+note: priced, not fixed. TARGETS.md (a6ee3fd11), batch-1 spec + PREDICTIONS.md (6b7f0b2b3), batch-2 spec + PREDICTIONS2.md (6565d5c7d) each committed before its build.
+
+### STEP 1, READ FROM THE TREE — AND THE PROMPT'S CORRECTIONS
+    HEAD 94d2461e0 at open, clean · soundness_queue # TOTAL 125 = 125 by direct listing · queue gate rc 0 (LOGOS_LIB_DIR given, 84 s)
+    bc_admits # TOTAL 69 · bc_admits_blocked # TOTAL 8 · probe-log-lint 286 records, every site symbol resolves
+    build_hash 6d1bbee8344b2a81 43 (read) — binary 14:43, HEAD committed 15:07 (PROBES.md/ledger prose only after it)
+    dlog selftest rc 0: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0 across 756aed65
+  Corrections, each checked against the text given:
+    * the STEP-1 gate command carries LOGOS_LIB_DIR; nothing to correct.
+    * "every ledger root now appears in SOME record" holds for root IDS; keyed on each row's FIXTURE NAME in `site:` records the
+      never-priced set is much larger (TARGETS.md lists it) — a root id in a survey list is not a pricing.
+    * probe-batch.sh exits rc 2 at a red L1 WITHOUT reverting (its trap covers INT/TERM/HUP only): batch 1 left both files modified;
+      restored by naming them. (Recorded; tooling freeze.)
+    * probe-batch.sh still writes fixed /tmp names (/tmp/probe-<name>.out, /tmp/probe-batch-*.log).
+
+### NEIGHBOURS (standing rule 2026-09-12) — each tested against the priced change or a STRICT EXTENSION at the same site
+Nothing lands this round; "closes" = refused by the named arm on the batch build, legal battery unchanged.
+R14 — the fact: a cross-kind coercion types_compatible accepts leaves subtype() through `sub.kind() != sup.kind()` (or the
+Ptr arm's `mut_ptr` shape exit) with no pointee variance. Domain by dlog coerce_pairs.dl (26 pairs, 12 region-bearing):
+    neighbour (hand program)                              verdict                     reason / number
+    `& &'a -> *const &'b` return (the row, 3 doors)       closes: refptrco            same exit
+    `*mut &'a -> *const &'b` return (the row, 1 door)     closes: mutconstco          Ptr-arm shape exit
+    let `&mut &'a -> *mut &'b` (I01, r14g)                closes: refptrco            same exit, let site
+    arg `& &'a -> *const &'b` (I02, r14h)                 closes: refptrco            same exit, arg site
+    struct field `*const &'b` from `& &'a` (I04)          closes: refptrco            same exit, field site
+    `&mut &'a -> *mut &'b` under `'a: 'b` (I09)           closes: refptrco            *mut Inv
+    `&'c mut &'a -> &'c &'b` (I05)                        closes: crosskindx ONLY     strict extension: MutRef->Ref pair
+    `&Vec<&'a> -> &[&'b]` (I07)                           closes: crosskindx ONLY     strict extension: Ref(Vec)->Slice pair
+    the row's 3 `as`-cast doors (array_elem, array_coerce, nested_array); I12 `let y: *const &i64 = x; return y`
+                                                          ROWED — reason 2, doors in series  the ELIDED `*const &i64` let annotation
+                                                          drops the region (region.outlives.permissive-elided-source); I10, the same
+                                                          door with the annotation NAMED `'a`, is refused TODAY
+    `&T -> dyn Trait`, `Ptr -> TraitObject`, `Struct -> TraitObject`   ROWED — reason 1, no carrier  a trait object's
+                                                          `+ 'a` bound is "recorded but not yet enforced" (docs/spec/types.md)
+    `&dyn Fn -> Closure` (Ref/MutRef -> Closure)          ROWED — reason 1, no carrier  a bare Closure type has no region slot
+    `*const &'a -> & &'b` (I06), `&[&'a; 2] -> *const &'b` (I08)
+                                                          NOT A NEIGHBOUR — not Rust coercions (implicit ptr->ref and array decay are
+                                                          Logos-only in types_compatible); reported, not rowed
+bck.B — the fact: an explicit `&mut v` receiver (Code::AddrOf) is not rooted by extract_borrow_place, so the receiver
+conflict check skips it though method_self_kind resolves `index_mut` to 2:
+    `let e = &v[0]; v[1] = 4; *e` (J04, lv1)              closes: aorecvsk
+    the row (closure store beside `&v[0u64]`)            closes: aorecvsk
+    `Vec<Vec<i64>>` store under `&v[0]` (J06)             closes: aorecvsk
+    `Vec<String>` store under `&v[0]` (J08)               closes: aorecvsk
+    `for x in v.iter() { v[0] = *x; }` (J09)              closes: aorecvsk
+    field Vec `s.v[1] = 4` under `&s.v[0]` (J05b)         NOT A NEIGHBOUR — refused TODAY through the field receiver path
+    user `IndexMut` struct store (J02)                    NOT A NEIGHBOUR — refused TODAY (the `__index_mut` Call path)
+    the other walker consumers (take_ref_borrows ×6, visit_stmt ×4, propagate_pat_borrows, …) — the delegation priced as batch 3 (below): same closed row, 3 / 1 pinned diagnostics re-worded; NOT neighbours closed by a cheaper change, rowed as reason 3 (own cost measured non-zero) only if a future round names one of them as a hole
+
+### BATCH 1 — DID NOT PRICE; ITS HAND BATTERY STANDS (build d54975fbc27f66b7 43, read; spec 6b7f0b2b3)
+L1 with NOTHING armed went red on `logos_00_key_identity_lint`: "subtype.hpp holds 1 bare-name intercept(s)" — crosskindx's
+`struct_name() == "Vec"`. A probe that trips a lint with no name armed is not inert; probe-batch stopped (rc 2) and, its trap
+covering signals only, left both files modified. Restored by naming them.
+Hand battery on that build (106 programs × unarmed + 7 names, every legal one linked and RUN):
+  R14 names — exactly as predicted, every door and neighbour (see NEIGHBOURS); 0 legal programs moved under any name.
+  idxstoremut / amutrecv — moved NOTHING, J04 included: PREDICTION WRONG. LOGOS_CENSUS on J04: `amutrecv.*` = 0, `mcrecv.kind.11`
+  (Code::AddrOf) = 1. Read at the site: method_self_kind resolves `index_mut` to 2 BY BASE NAME, so the `sk == 0` gate excluded
+  the very arrival, and extract_borrow_place has no Code::AddrOf arm, so the `sk >= 1` check above it returns at
+  `bp.root.empty()`. The instrument asked the right question behind the wrong gate — a zero from an unreached arm (rule 1).
+
+### BATCH 2 — PROBE TABLE, build 041a5b988a104e81 43 (read), L1 inert (rc 0 unarmed, 15:47), spec 6565d5c7d
+    probe        fires  ceiling cost cfail(of 1568) std  closed, BY NAME (diffed against PREDICTIONS2.md)
+    refptrco      3088    1      0    0             ok   {type-check-pointer-coercions} = predicted
+    mutconstco       1    1      0    0             ok   {type-check-pointer-coercions} = predicted  (the row's own door is the WHOLE population)
+    ptrcoerce     3089    1      0    0             ok   {type-check-pointer-coercions} = predicted  (1 ∪ 1 = 1, fires 3088+1)
+    aorecvsk        11    1      0    0             ok   {borrowck-loan-vec-content} = predicted (flagged uncertain; it held)
+    aorecvty        11    1      0    0             ok   {borrowck-loan-vec-content} — IDENTICAL to aorecvsk in every column (rule 9)
+    crosskindx    4136    1      0    0             ok   {type-check-pointer-coercions} = predicted
+    pcunion       4147    2      0    0             ok   {borrowck-loan-vec-content, type-check-pointer-coercions} = predicted; additive 1+1
+predicted∖measured = ∅, measured∖predicted = ∅ for all seven.
+⚠ RULE 4: aorecvsk's population is ELEVEN arrivals over the whole corpus+stdlib. Its zero cost is a small-population zero;
+the columns that carry weight for it are the hand battery (below) and the runtime column.
+⚠ RULE 9 / 18: aorecvsk and aorecvty separate NOWHERE measured — 118 hand programs and every harness column. The type-keyed twin
+is not shown distinct; only the sk-keyed one is recommended because it is the narrower claim.
+
+### EVERY CLOSED ROW'S DIAGNOSTIC, READ (the real ledger programs, armed)
+    type-check-pointer-coercions (refptrco: 3 lines; mutconstco: 1; ptrcoerce / crosskindx / pcunion: all 4)
+      :17 [fn shared_to_const]: return type mismatch: variance mismatch — expected *const &'b i64, got &&'a i64 — …
+      :18 [fn unique_to_const]: … expected *const &'b i64, got &mut &'a i64 — …
+      :19 [fn unique_to_mut]:   … expected *mut &'b i64, got &mut &'a i64 — …
+      :20 [fn mut_to_const]:    … expected *const &'b i64, got *mut &'a i64 — …
+      upstream (tests/ui/nll/type-check-pointer-coercions.stderr): "lifetime may not live long enough" at all 7 fns (8 errors;
+      unique_to_mut twice). 4 of 7 doors refuse, naming the right fn and both regions; the three `as`-cast doors stay silent
+      (NEIGHBOURS: doors in series). The sentence is the existing variance one, not rustc's.
+    borrowck-loan-vec-content (aorecvsk / aorecvty / pcunion)
+      [fn has_mut_vec_but_tries_to_change_it]: cannot borrow 'v' as mutable: 'v' has shared borrows
+      upstream E0502/E0499 "cannot borrow `v` as mutable" at the closure. Right fn, right place, check_recv_conflict's own sentence.
+    MINTED-NAME SCAN (the column no harness owns): 1784 armed stderr files of both batteries grepped for `'%`, `__anon`, `%<digit>`,
+    `'_<digit>` — 0 hits.
+    RULE-14 RISK, measured by hand: J03 (`let s: &[i64] = &v; v[1] = 4; s[0]`, refused TODAY with one line) gains a SECOND error
+    line under aorecvsk/aorecvty/pcunion — a duplicate for one fact. cfail 0 of 1568: no fixture has the shape; the text change is
+    real and unpinned, and a landing owes it (report at one site, not both).
+
+### BATCH 3 — THE REPAIR BY DELEGATION, build d0cb415e3ea9dd53 43 (read), spec 9bb26ce4b
+dlog place_extract_consumers.dl (selftest rc 0 first; known answer `both ⊇ {visit}` stated before the run and held). ⚠ It ran on
+the tree carrying batch 2's probe edits (probe-batch leaves them on rc 0): line 15495 in its output is aorecvsk's own call.
+    walker consumers (28 call sites, 8 contexts): arm_value_roots collect_borrowed_local_roots collect_ref_sources_paths
+      propagate_pat_borrows rec1 ×2 taint_of take_ref_borrows ×6 visit ×11 visit_stmt ×4
+    conflict askers: check_place_mut_use (7085) · visit (15481 MethodCall bare-place receiver, 16060 SD-DST Call arg0)
+    PER-SITE, side by side: grep counts 30 `extract_borrow_place(` lines = 28 calls + the definition + 1 comment, and 7
+    `check_recv_conflict(` lines = definition + 3 calls + the probe + 2 comments — dlog and grep agree. `both = {visit}` is
+    COARSE (visit holds 11 walker calls); per site only 15481 hands the walker a receiver that can be Code::AddrOf, and 16060
+    gates on a DstRef callee.
+Hand battery (127 programs × unarmed + 2): ebpaddrof ≡ ebpaddrofmut on every program. Closed = aorecvsk's set exactly (the row,
+J04 J06 J08 J09), 0 legal moved — and EVERY refusal it adds prints the fact TWICE ("cannot borrow 'v' as mutable: 'v' has shared
+borrows" + "… 1 shared borrow(s) active"), while J01 J02 J03 J07 (refused TODAY) each gain a line. The walker root reaches a
+second reporter (the record path) for the same fact.
+PRICING (L1 inert, rc 0 unarmed):
+    probe         fires  ceiling cost cfail(of 1568) std  closed                         verdict
+    ebpaddrof     14685    1      0    3             ok   {borrowck-loan-vec-content}    STOP — re-words 3 pinned diagnostics
+    ebpaddrofmut    102    1      0    1             ok   {borrowck-loan-vec-content}    re-words 1
+  cfail, by name (.expected-match 1 -> 0, rc unchanged): ebpaddrof {bc_letbind_temp_named, mutate-vec-while-iterating--b-push-
+  while-iterating-mut, regions-free-region-ordering-caller1}; ebpaddrofmut {mutate-vec-while-iterating--b-push-while-iterating-mut}.
+  aorecvsk (batch 2, one consumer) re-words 0 of 1568 for the same closed row. RULE 9 IN THE WILD: ebpaddrof and ebpaddrofmut are
+  identical on all 127 hand programs and separate only on fires (14685 / 102) and the fail-text column (3 / 1).
+  ⇒ The delegation is NOT the better repair here: it closes nothing aorecvsk does not, and every extra consumer it reaches is a
+  second reporter of the same fact. aorecvsk stays the recommendation for bck.B; the walker's missing AddrOf arm is recorded, not
+  funded.
+
+### THE RUNTIME COLUMN CONDEMNED refptrco — AND NOTHING ELSE DID (batch 2 build 041a5b988a104e81, one configure, one chain)
+    unarmed  6737 pass fixtures compiled+linked+RUN (16:20:46 -> 16:30:41); read-back 6737 lines = 6737 names
+    pcunion  6737 common, 0 lost, 0 added, 4 changed; cast-region-to-uint subtracted by name (a stack address) -> 3 (16:30:41 -> 16:40:38)
+      tests/logos/pass/array_ref         run 42 -> COMPILE REFUSED
+      tests/logos/pass/struct_ptr_field  run 42 -> COMPILE REFUSED
+      tests/logos/pass/while_search      run 42 -> COMPILE REFUSED
+    pass cost 0, cfail 0 of 1568, stdlib 4 of 4 — the three are outside ceiling-probe's pass population. Each passes `&mut a` over
+    `a: [i32; N]` where `*mut i32` is expected: types_compatible's array DECAY (a Logos-only coercion the corpus pins) arrives at
+    the new Ref->Ptr arm, which compared `[i32; N]` with `i32` under `*mut` invariance. Cost 0 in five columns was wrong a TENTH
+    time, and the hand battery had 60 legal programs and not one decay (rule 5).
+
+### BATCH 4 — THE DECAY-AWARE SPELLING, build 38323413a8199ace 43 (read), spec b3af3b9bb
+Hand battery (127 programs × unarmed + 7; `refptrco` / `mutconstco` / `aorecvsk` hand-armable in the same code, unpriced):
+    ATTRIBUTION, MEASURED: `refptrco` refuses F_array_ref, F_struct_ptr_field, F_while_search (the three fixtures, copied) AND D01
+    (`fn f<'a>(x: &mut [&'a i64; 2]) -> *mut &'a i64`, legal as a decay) — FOUR legal programs. Under refptrcod / ptrcoerced /
+    crosskindxd / pcuniond all three fixtures compile and RUN 42 and D01 compiles.
+    refptrcod closes the row's 3 Ref->Ptr doors and I01 I02 I04 I09 r14d r14g r14h exactly as refptrco did, plus D03 and I08 (a
+    decay with UNRELATED regions — Logos-only coercion, reported, not claimed as a Rust neighbour).
+    0 legal programs moved under any `d` name.
+PRICING (L1 inert, rc 0 unarmed), predicted∖measured = ∅ and measured∖predicted = ∅ for all four (PREDICTIONS4.md):
+    probe        fires  ceiling cost cfail(of 1568) std  closed, BY NAME
+    refptrcod     3088    1      0    0             ok   {type-check-pointer-coercions}
+    ptrcoerced    3089    1      0    0             ok   {type-check-pointer-coercions}
+    crosskindxd   4137    1      0    0             ok   {type-check-pointer-coercions}
+    pcuniond      4148    2      0    0             ok   {borrowck-loan-vec-content, type-check-pointer-coercions}; additive 1+1
+  fires: refptrcod = refptrco (3088) digit for digit — the decay peel changes WHICH comparison is asked, not how often; crosskindxd
+  4137 vs crosskindx 4136 and pcuniond 4148 vs pcunion 4147 differ by the one arrival the `d` census path adds. A rule-9 case: the
+  two spellings are identical in every harness column and separate ONLY on the runtime column and the hand battery.
+RUNTIME: build 38323413a8199ace, one configure, one chain: pcuniond 17:30:01 -> 17:40:01, unarmed (SAME binary) 17:40:01 -> 17:50:02
+    same binary, unarmed vs pcuniond      6737 common, 0 lost, 0 added, 0 changed after cast-region-to-uint subtracted by name
+    batch-2 pcunion vs pcuniond           exactly {array_ref, struct_ptr_field, while_search}: refused -> run 42
+    RULE 18 CONTROL TWIN, unarmed 041a5b988a104e81 vs unarmed 38323413a8199ace: 6737 common, 0 changed after the same subtraction
+
+### FOUND, NOT NEIGHBOURS — ROWED (soundness_queue 125 -> 130 by direct listing), each reproducing unarmed on the base binary AND on the clean rebuild at close
+    vec_index_store_len_in_index_refused (tier 3)            `v[(v.len() - 1) as u64] = 5` — two-phase IndexMut autoref (B02)
+    vec_index_store_through_mutref_param_refused (tier 3)   `v[i] = x` through `v: &mut Vec` — the WRITE twin of index_through_ref_to_vec_let_refuses (B05)
+    static_ref_nested_borrow_region_not_static_refused (3)  `&&G` / `&R` against `& &'static i64` (r14j, M10) — the 'static read plane, not taken
+    arrayref_to_arrayptr_coercion_refused (tier 3)          `&[T; N] -> *const [T; N]` — the decay branch answers first (I11, K01, K02)
+    struct_lit_field_vec_new_infer_refused (tier 3)         `S { v: Vec::new() }` — box_vec_new_infer's fact at a struct-literal field (J05, B11, K03)
+  Each claim of legality rests on READING (no rustc binary on this box); every legal program was linked and run where it compiled.
+  NOT ROWED: M02 / M05 (my own programs, E0106 exactly as rustc); I06 / I08 (Logos-only coercions `*const T -> &T` and
+  `&[T; N] -> *const T` — not Rust; whether they should exist at all is the owner's, reported here).
+
+### WHAT DESERVES FUNDING
+ 1. **R14 as `crosskindxd`** — subtype() asks the Ptr arm's own rule (*const Co, *mut Inv, as subtype both ways) of a
+    `&T`/`&mut T` -> `*const U`/`*mut U` coercion before its kind-mismatch exit, comparing the ELEMENT for types_compatible's
+    array decay; `*mut T -> *const U` is Co at the Ptr arm's shape exit; and the two other region-bearing Rust cross-kind pairs
+    the dlog domain lists (`&mut T -> &U`, `&Vec<T> -> &[U]`) are asked too. Closes type-check-pointer-coercions at 4 of 7 doors +
+    8 illegal hand neighbours, 0 legal moved over 127 hand programs, cost 0 / cfail 0 of 1568 / stdlib 4 of 4 / runtime 6737 fixtures 0 changed (pcuniond).
+    The row's 3 `as`-cast doors stay a queue row (elided `*const &i64` let annotation — doors in series). A landing owes: rustc's
+    "lifetime may not live long enough" is NOT what prints — the existing variance sentence does, naming both regions and the fn.
+    ⚠ NOT `refptrco`/`ptrcoerce`/`crosskindx`/`pcunion` as priced in batch 2: FOUR legal programs (three pinned pass fixtures + D01)
+    that five columns called cost 0.
+ 2. **bck.B as `aorecvsk`** — at the MethodCall arm, a receiver sema built as an explicit `&mut v` (Code::AddrOf) with
+    method_self_kind 2 is rooted at its variable and handed to check_recv_conflict. Closes borrowck-loan-vec-content + J04 J06
+    J08 J09 by hand (J09 is `for x in v.iter() { v[0] = *x; }` — iterator invalidation with no row), 0 legal moved, cost 0 /
+    cfail 0 / stdlib ok / runtime (in pcuniond) 6737 fixtures 0 changed. ⚠ Population ELEVEN arrivals (rule 4) and a duplicate line on
+    already-refused J03 (rule 14) — a landing owes one report per fact.
+ 3. NOT `ebpaddrof` / `ebpaddrofmut` (the delegation into extract_borrow_place): the same closed row, and 3 / 1 pinned fail
+    diagnostics re-worded because every extra consumer it reaches re-reports the fact.
+ 4. The two are INDEPENDENT (two files, two facts): pcuniond = 1 + 1 = 2, measured, and no single change moves both rows.
+
+### MISTAKES OF MY OWN
+  * crosskindx carried a bare `struct_name() == "Vec"` into a header the key-identity lint walks; batch 1 died at L1 with nothing
+    armed. One build and one L1 (~7 min) lost; the hand battery on that build was still used.
+  * idxstoremut was gated `sk == 0` on a reading of a COMMENT ("method_self_kind can't always resolve the desugared index_mut") —
+    here it DOES resolve, by base name. A census on one hand program before the batch would have shown the arm unreached.
+  * My legal battery (60 programs over two rounds of writing) never spelled an array decay, the one Logos-only coercion that
+    arrives at the arm I wrote; the runtime column found it. The shape I did not write was the one that broke the arm.
+  * I copied build/bin/logosc out of build/ for a "base" control while the batch was relinking it; a copied binary cannot find
+    the stdlib (rc 4 on every program). 17 verdicts discarded, recorded here so nobody reads them.
+  * The round id says 2026-09-14a while every measurement here is dated 2026-09-13 (the box's date); the id was minted before I
+    read the date and is kept because four commits and the probe directory already carry it.
+  * My first census run gave LOGOS_CENSUS=1, which is a PATH: it wrote a file named `1` into the repo root (removed by name).
+
+### THE TREE AT CLOSE — PRICED, NOT FIXED
+  compiled sources identical to HEAD at open (`git diff -- src/compiler include` empty after each batch's two files were restored by
+  name); `build/` rebuilt from them: build_hash 6d1bbee8344b2a81 43 (read, 17:51) = the opening binary.
+  L1 from build/ rc 0 (807/807 + 127 gates, 17:54:25 -> 17:58:01) · queue gate rc 0, 130 rows (tier1 20 / tier2 29 / tier3 73 /
+  tier4 8), '# TOTAL' 130 = 130 by direct listing, 17:59:28 · bc_admits # TOTAL 69 unchanged.
+  Committed with this record: the five queue rows and their programs. Committed before the builds: TARGETS.md + coerce_pairs.dl
+  (a6ee3fd11), spec + PREDICTIONS (6b7f0b2b3), spec2 + PREDICTIONS2 (6565d5c7d), spec3 + PREDICTIONS3 + place_extract_consumers.dl
+  (9bb26ce4b), spec4 + PREDICTIONS4 (b3af3b9bb).
+  dlog: two NEW rules, each with a known-answer control stated in its header before the run and measured: coerce_pairs.dl (12 named
+  pairs expected, all 12 present; the nested array-decay block missed, as its coarsening note predicted) and
+  place_extract_consumers.dl (`both ⊇ {visit}`, held; cross-checked per site against grep, counts agree). No extractor change.

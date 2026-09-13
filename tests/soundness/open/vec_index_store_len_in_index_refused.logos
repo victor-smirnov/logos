@@ -1,0 +1,15 @@
+package vec_index_store_len_in_index_refused;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(2i64);
+    v[(v.len() - 1i64) as u64] = 5i64;
+    return (v[1u64] - 5i64) as i32;
+}
+// SOUNDNESS QUEUE row vec_index_store_len_in_index_refused (tier 3).
+// Legal Rust: `v[v.len() - 1] = x` — the IndexMut autoref of `v` is a two-phase borrow, so the
+// shared `v.len()` inside the index argument is accepted (reading; no rustc binary on this box).
+// TODAY refused: "cannot borrow 'v' as shared: mutable borrow still in scope here (first
+// borrowed at line 6, conflicting use at line 6)". The `v.push(v.len())` receiver form compiles.
+// Found 2026-09-14a-ptrcoerce by the Vec-store hand battery (B02), reproducing on the base binary
+// 6d1bbee8344b2a81 AND the batch builds with nothing armed. src/compiler/PROBES.md 2026-09-14a-ptrcoerce.
