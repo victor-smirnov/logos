@@ -1,0 +1,65 @@
+// static_demand_sites — TWO DOORS WHERE A `'static` DEMAND EXISTS AND IS NOT ASKED
+// (round 2026-09-13c-staticdemand).
+//
+// Q1. WHICH CONTEXTS COMPARE A CALL'S ARGUMENTS WITH THE CALLEE'S PARAMETERS, AND
+//     WHICH OF THEM EVER CROSS-CHECK THE CALLEE'S `'a: 'b` BOUNDS?
+//     Property: a context that calls the argument coercer `coerce_arg_to_param`
+//     or the type-parameter bound checker `check_type_bounds` HOLDS a callee's
+//     parameter list at a call. The separator is whether it reaches
+//     `check_call_outlives`, a call-graph fact. A grep of "check_call_outlives"
+//     finds the one site that asks; the sites that do NOT ask have no spelling.
+//
+// Q2. WHICH CONTEXTS DECIDE A WRITE/READ OF A MODULE STATIC BY NAME, AND WHICH OF
+//     THEM CALL THE VARIANCE COMPARATOR AT ALL?
+//     Property: references to the field `module_static_muts_` or calls to the
+//     static-name predicates. ⚠ ctx_of COARSENS: a context that calls
+//     check_variance somewhere (even behind a probe) is "checks" here. The verdict
+//     is cross-checked per site by reading, not taken from this output.
+//
+// KNOWN-ANSWER CONTROL, stated before it was run: `outlives_askers` must be
+// exactly the ONE context enclosing sema_expr.cpp's single
+// `check_call_outlives(` call (read by grep: the exact-overload path of
+// lower_call). If it is empty or larger, the extraction is wrong and nothing
+// below is believed.
+#include "cxx_schema.dl"
+
+.decl named_method(did: symbol, name: symbol)
+named_method(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N).
+
+.decl ctx_calls(ctx: symbol, callee: symbol)
+ctx_calls(C, N) :- named_method(D, N), call(K, D), ctx_of(K, X), ctx_name(X, C).
+
+// ── Q1 ────────────────────────────────────────────────────────────────────
+.decl arg_param_site(ctx: symbol)
+arg_param_site(C) :- ctx_calls(C, "coerce_arg_to_param").
+arg_param_site(C) :- ctx_calls(C, "check_type_bounds").
+
+.decl outlives_askers(ctx: symbol)
+outlives_askers(C) :- ctx_calls(C, "check_call_outlives").
+.output outlives_askers
+
+.decl arg_site_blind(ctx: symbol)
+arg_site_blind(C) :- arg_param_site(C), !outlives_askers(C).
+.output arg_site_blind
+
+.decl arg_site_asks(ctx: symbol)
+arg_site_asks(C) :- arg_param_site(C), outlives_askers(C).
+.output arg_site_asks
+
+// ── Q2 ────────────────────────────────────────────────────────────────────
+.decl static_name_decider(ctx: symbol, file: symbol, line: number)
+static_name_decider(C, F, L) :- decl(D, "Field", _), decl_name(D, "module_static_muts_"),
+    ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+static_name_decider(C, F, L) :- named_method(D, "static_access_needs_unsafe"),
+    call(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+static_name_decider(C, F, L) :- named_method(D, "is_module_static_unshadowed"),
+    call(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output static_name_decider
+
+.decl static_ctx_variance(ctx: symbol)
+static_ctx_variance(C) :- static_name_decider(C, _, _), ctx_calls(C, "check_variance").
+.output static_ctx_variance
+
+.decl static_ctx_novariance(ctx: symbol)
+static_ctx_novariance(C) :- static_name_decider(C, _, _), !ctx_calls(C, "check_variance").
+.output static_ctx_novariance
