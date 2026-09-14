@@ -1,0 +1,14 @@
+package p2n;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let mut i: i64 = 0i64;
+    while i < 1000i64 {
+        let src: [i64; 3] = [1i64, 2i64, i];
+        let v = [x * 2i64 for x in src];
+        i = i + 1i64;
+    }
+    return 0i32;
+}

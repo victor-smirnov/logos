@@ -1,0 +1,1 @@
+[fn f]: operator '==': lifetime may not live long enough — *const Inv<'a> and *const Inv<'b> have no common type: 'a must outlive 'b and 'b must outlive 'a, because Inv<'a> is invariant over that lifetime

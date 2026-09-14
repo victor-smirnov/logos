@@ -1,0 +1,1 @@
+[fn f]: operator '==': lifetime may not live long enough — *mut W<'a> and *mut W<'b> have no common type: 'a must outlive 'b and 'b must outlive 'a, because a mutable pointer is invariant over its pointee

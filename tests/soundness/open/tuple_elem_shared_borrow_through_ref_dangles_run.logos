@@ -1,0 +1,51 @@
+// SOUNDNESS QUEUE row tuple_elem_shared_borrow_through_ref_dangles_run (tier 1).
+// A SHARED BORROW OF A TUPLE ELEMENT TAKEN THROUGH A REFERENCE AND HANDED OUT OF THE FUNCTION POINTS AT DEAD STACK.
+//
+// `&t.1` with `t: &'a (i64, i64)` is a `&'a i64` into the CALLER's tuple — legal Rust (by reading; no rustc binary
+// on this box). Today the reference handed out addresses storage that dies with the callee: once another call
+// reuses that stack, `*r` no longer reads 17.
+//   PART 1  out-parameter through a ref local (`*out = &t2.1`, hand y3 of round 2026-09-12r-escroot)  -> exit 1
+//   PART 2  `return &t.1`                                                                             -> exit 2 once PART 1 is fixed
+// MEASURED 2026-09-14 on build c52dcb19dff987ff 43: exit 1, valgrind "Conditional jump or move depends on
+// uninitialised value(s)" in main. PART 2 alone exits 2 with the same valgrind record. The PART 1 shape also exits 1
+// on the base copy baa2a38e8b650fb3.
+// WHY IT WAS NOT ROWED BEFORE: y3 as written has no call between `foo` and the read, so it exits 17 — the right
+// answer, read out of the dead frame — and only valgrind sees it ("Syscall param exit_group(status) contains
+// uninitialised byte(s)", origin a stack allocation). The 2026-09-14h harvest recorded it in its commit message
+// alone. The clobbering call is what makes the defect an exit code.
+// CONTROLS, same binary, each valgrind-clean and exit 0: the STRUCT twin `*out = &t.b` with `t: &'a P`; the MUTABLE
+// twin `*out = &mut t.1` with `t: &'a mut (i64, i64)`; the element borrowed and read inside the callee; `let rt = &t;
+// let q = &rt.1;` read after a call in ONE frame. So: shared, tuple, through a reference, escaping the frame.
+// FIX = exit 0 and valgrind clean.
+package tuple_elem_shared_borrow_through_ref_dangles_run;
+
+fn foo<'a>(t: &'a (i64, i64), out: &mut &'a i64) {
+    let t2: &'a (i64, i64) = t;
+    *out = &t2.1;
+}
+
+fn get<'a>(t: &'a (i64, i64)) -> &'a i64 {
+    return &t.1;
+}
+
+fn clobber(n: i64) -> i64 {
+    let a: [i64; 8] = [n, n, n, n, n, n, n, n];
+    let b: [i64; 8] = [n, n, n, n, n, n, n, n];
+    return a[3] + b[5];
+}
+
+fn main() -> i32 {
+    // ── PART 1
+    let t: (i64, i64) = (3i64, 17i64);
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    foo(&t, &mut r);
+    let c: i64 = clobber(99i64);
+    if *r != 17i64 { return 1i32; }
+
+    // ── PART 2
+    let q: &i64 = get(&t);
+    let d: i64 = clobber(77i64);
+    if *q != 17i64 { return 2i32; }
+    return 0i32;
+}

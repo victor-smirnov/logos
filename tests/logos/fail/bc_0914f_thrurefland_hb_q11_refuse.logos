@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-14f-thrurefland, program q11 — caught: verdict moved base -> landed — PROBES.md "closure body (q10), method on `self.p` (q11) CLOSED"; measured base RUN 0 -> today REFUSED
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_r2.sFtP/q11_method_self_field_illegal.logos
+package bc_0914f_thrurefland_hb_q11_refuse;
+struct S<'a> { p: *mut &'a i64 }
+impl<'a> S<'a> {
+    fn same<'b>(&self, o: *mut &'b i64) -> bool {
+        return self.p == o;
+    }
+}
+fn main() -> i32 {
+    return 0i32;
+}

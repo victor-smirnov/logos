@@ -5980,8 +5980,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                So ALL 9809 -> 10173, NOIMPORTED 5311 -> 5675, TIERCOMMIT 122 -> 122 — PREDICTED, then measured by `ctest -N`
 #                on the re-globbed build before this pin was touched. bc_admits `# TOTAL` 64 unchanged; soundness_queue 164 -> 165
 #                (one row OPENED, none closed).
-REGISTRY-ALL         10173
-REGISTRY-NOIMPORTED  5675
+# 2026-09-14i (harvest 2 — the hand batteries of rounds 2026-09-14e-thruref and 2026-09-14f-thrurefland, second snapshot
+#                /home/logos/sandbox/hand-harvest-2026-09-14b, manifest src/compiler/probes/2026-09-14i-harvest2/MANIFEST.tsv).
+#                33 native pass fixtures bc_0914{e_thruref,f_thrurefland}_hb_<id>_admit and 41 native fail fixtures
+#                bc_0914{e_thruref,f_thrurefland}_hb_<id>_refuse, no pairs, no moves — +74, all native, none tier_commit.
+#                So ALL 10173 -> 10247, NOIMPORTED 5675 -> 5749, TIERCOMMIT 122 -> 122 — PREDICTED, then measured by `ctest -N`
+#                on the re-globbed build before this pin was touched. bc_admits `# TOTAL` 64 unchanged; soundness_queue 165 -> 167
+#                (two rows OPENED, none closed); unrowed_backlog 15 -> 16.
+REGISTRY-ALL         10247
+REGISTRY-NOIMPORTED  5749
 REGISTRY-TIERCOMMIT  122
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

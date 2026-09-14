@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-14f-thrurefland, program d14 — caught: verdict moved base -> landed — PREDICTIONS.md "HAND, ILLEGAL — must stay refused (sentence read): d04 d05 d08 d14 ..."; measured base first error "cannot assign to 'r' while 'r.a...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/d14_reassign_then_write_old_owner_illegal.logos
+package bc_0914f_thrurefland_hb_d14_refuse;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let mut s2: P = P { a: 3i64, b: 4i64 };
+    let mut r: &mut P = &mut s1;
+    let a: &mut i64 = &mut r.a;
+    r = &mut s2;
+    s1.a = 3i64;
+    *a = 5i64;
+    return r.a as i32;
+}

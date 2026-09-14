@@ -1,0 +1,20 @@
+package p2v;
+use logos.mem.collections.vec;
+pub struct Vec<T> { a: i64, b: i64 }
+struct D { c: *mut i64 }
+impl Drop for D {
+    fn drop(&mut self) { unsafe { *self.c = *self.c + 1i64; } }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    {
+        let v = [D { c: p } for x in src];
+    }
+    let got: i64 = unsafe { n };
+    if got != 3i64 {
+        return got as i32 + 10i32;
+    }
+    return 0i32;
+}

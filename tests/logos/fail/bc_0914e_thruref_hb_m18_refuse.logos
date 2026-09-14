@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-14e-thruref, program m18 — caught: verdict moved base -> landed — PREDICTIONS.md "m16 m17 m18 m20 (UNCERTAIN: each passes the assignment now and must be refused by the OWNER's loan / the move / the escape)"; measu...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/hb3.sdHf/m18_reassign_then_use_new_mut_conflict_illegal.logos
+package bc_0914e_thruref_hb_m18_refuse;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let mut r: &mut P = &mut s1;
+    let a: &mut i64 = &mut r.a;
+    r = r;
+    *a = 7i64;
+    return 0i32;
+}

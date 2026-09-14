@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-14f-thrurefland, program x11d — caught: verdict moved base -> landed — PROBES.md "Every non-Copy twin (x07d x11d x12d x15d, `impl Drop`) and every write twin (x15w x11w x12w x18w) is refused on the landed build with th...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_own2.YBqC/x11d_tuple_local_reassign_move_drop_owner_illegal.logos
+package bc_0914f_thrurefland_hb_x11d_refuse;
+struct P { a: i64, b: i64 }
+impl Drop for P { fn drop(&mut self) { } }
+fn eat(p: P) -> i64 { return p.a; }
+fn main() -> i32 {
+    let s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut t: (&P, i64) = (&s1, 10i64);
+    let a: &i64 = &t.0.a;
+    t = (&s2, 20i64);
+    let m: i64 = eat(s1);
+    return (*a + m + t.0.a) as i32;
+}

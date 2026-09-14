@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-14f-thrurefland, program q15 — caught: verdict moved base -> landed — PROBES.md "array / tuple / struct / fn-return under an invariant carrier (q13 q14 q15 q19 q32) CLOSED"; measured base RUN 0 -> today REFUSED
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_r2.sFtP/q15_struct_under_mutptr_illegal.logos
+package bc_0914f_thrurefland_hb_q15_refuse;
+struct W<'x> { r: &'x i64 }
+fn f<'a, 'b>(x: *mut W<'a>, y: *mut W<'b>) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    return 0i32;
+}

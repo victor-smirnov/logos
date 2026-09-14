@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-14f-thrurefland, program q24 — caught: verdict moved base -> landed — PROBES.md "`<` `<=` `>` `>=` (q01 q24) CLOSED — refused before the verifier crash they reach on base"; measured base MLIR verifier -> today the reg...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_r2.sFtP/q24_ge_fnptr_illegal.logos
+package bc_0914f_thrurefland_hb_q24_refuse;
+fn f<'a, 'b>(x: fn(&'a mut &'a i64), y: fn(&'b mut &'b i64)) -> bool {
+    return x >= y;
+}
+fn main() -> i32 {
+    return 0i32;
+}

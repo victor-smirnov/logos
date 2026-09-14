@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-14f-thrurefland, program d01 — caught: verdict moved base -> landed — PROBES.md "ref-typed LOCAL root (`&r.a`, `r = &s2`), let / match-default / written walk CLOSED (queue row; d01 d06 d09 d12 d24 d29 d30 d31, t1-t3)"...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/d01_ref_local_depth2_path_legal.logos
+package bc_0914f_thrurefland_hb_d01_admit;
+struct In { x: i64, y: i64 }
+struct P { inner: In, b: i64 }
+fn main() -> i32 {
+    let s1: P = P { inner: In { x: 1i64, y: 2i64 }, b: 3i64 };
+    let s2: P = P { inner: In { x: 4i64, y: 5i64 }, b: 6i64 };
+    let mut r: &P = &s1;
+    let a: &i64 = &r.inner.x;
+    r = &s2;
+    return (*a + r.inner.y) as i32;
+}

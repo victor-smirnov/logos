@@ -1,0 +1,1 @@
+[fn main]: cannot borrow 's1.a': 's1' is already mutably borrowed

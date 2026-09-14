@@ -1,0 +1,7 @@
+package lc;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v = [x * 2i64 for x in src];
+    return 0i32;
+}

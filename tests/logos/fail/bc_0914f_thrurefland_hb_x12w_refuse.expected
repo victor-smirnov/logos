@@ -1,0 +1,1 @@
+[fn main]: cannot borrow 's1.0' as mutable: 's1' has shared borrows

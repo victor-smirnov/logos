@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-14f-thrurefland, program x12w — caught: verdict moved base -> landed — PROBES.md "Every non-Copy twin (x07d x11d x12d x15d, `impl Drop`) and every write twin (x15w x11w x12w x18w) is refused on the landed build with th...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_own2.YBqC/x12w_place_retarget_write_owner_illegal.logos
+package bc_0914f_thrurefland_hb_x12w_refuse;
+struct H<'x> { r: &'x (i64, i64) }
+fn main() -> i32 {
+    let mut s1: (i64, i64) = (1i64, 2i64);
+    let s2: (i64, i64) = (3i64, 4i64);
+    let mut h: H = H { r: &s1 };
+    let a: &i64 = &h.r.0;
+    h.r = &s2;
+    s1.0 = 9i64;
+    return (*a + h.r.0) as i32;
+}

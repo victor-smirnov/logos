@@ -1,0 +1,24 @@
+package p2k;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+static mut DROPS: i64 = 0i64;
+
+impl<T> Drop for Vec<T> {
+    fn drop(&mut self) {
+        unsafe { DROPS = DROPS + 1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    {
+        let v = [x * 2i64 for x in src];
+    }
+    let d: i64 = unsafe { DROPS };
+    if d != 0i64 {
+        return d as i32 + 10i32;
+    }
+    return 0i32;
+}

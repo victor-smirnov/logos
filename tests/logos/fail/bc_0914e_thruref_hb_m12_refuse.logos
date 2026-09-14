@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-14e-thruref, program m12 — caught: refuted an arm — PROBES.md "asgrefany (20 moved): pbdbmasg's 18 + m12 ADMITTED (illegal, runs rc 3)"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/nbr.31vm/m12_field_loan_owned_struct_reassign_illegal.logos
+package bc_0914e_thruref_hb_m12_refuse;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let a: &i64 = &s1.a;
+    s1 = P { a: 3i64, b: 4i64 };
+    return *a as i32;
+}

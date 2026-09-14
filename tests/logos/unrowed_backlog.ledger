@@ -333,4 +333,29 @@ dyn_vtable_bare_key_miscompile  defect     2  src/compiler/mlir_gen_dyn.cpp:962,
     # bucket on 09-10g's own probe (do the two registrations' `concrete_struct_name`
     # differ?) and has NOT been run. See PROBES.md 2026-09-11 §5.
 
-# TOTAL 15
+localvec_homonym_listcomp_vec_leak valgrind 1 src/compiler/probes/2026-09-14i-harvest2/valgrind/
+    # 2026-09-14 (build c52dcb19dff987ff 43). A LEGAL PROGRAM LEAKS ITS LIST-COMPREHENSION `Vec` WHEN THE MODULE
+    # DECLARES ITS OWN TYPE NAMED `Vec`. Hand p2 of round 2026-09-10d-vecbare: `pub struct Vec<T> { a: i64, b: i64 }`
+    # beside `use logos.mem.collections.vec;` and `let v = [x * 2i64 for x in src];` exits 0 (right) and valgrind
+    # reports "64 bytes in 1 blocks are definitely lost" in `vec$vec_new__g__void__i64` called from main. The
+    # 2026-09-14h harvest did not land it (a pass fixture would assert a leaking program) and did not row it (no exit
+    # code shows it); until now it lived only in that commit message. Measured today, programs in the directory named:
+    #   p2_localvec_listcomp_leak      exit 0, 64 b definitely lost (1 block)
+    #   p2n_leak_scales_1000           exit 0, 64,000 b in 1,000 blocks — one vec per iteration, never freed
+    #   p2g_nongeneric_local_vec_leaks exit 0, 64 b lost — a NON-generic `struct Vec { a: i64 }` is enough, so the key
+    #                                  is the bare NAME `Vec`, not the mangled `Vec$G1$i64` stem
+    #   p2k_local_vec_drop_not_run     exit 0, still lost, and a local `impl<T> Drop for Vec<T>` counting drops reads 0:
+    #                                  the stdlib vec's drop is SKIPPED, not misrouted to the local impl
+    #   p2h_other_name_clean           `pub struct Vecc<T>` instead: exit 0, valgrind clean
+    #   lc_no_homonym_clean            no local type: exit 0, valgrind clean
+    # NOT the same entry as soundness_queue `localvec_mangled_collision_listcomp_internal` (that one needs BOTH `Vec`s
+    # instantiated and dies in mono; here only the stdlib one is) nor `localvec_for_ref_names_stdlib_as_slice` (a
+    # method symbol built from the bare name, a diag). Same FAMILY — a decision keyed on the bare name `Vec` — at a
+    # third consumer, the scope-exit drop of a synthesised stdlib `Vec`. Not proven to share a root with either.
+    # THE ONE MEASUREMENT THAT MAKES IT A ROW: a DESTRUCTOR COUNT through the same comprehension —
+    # p2v_destructor_count_blocked (`[D { c: p } for x in src]` beside the homonym, want 3 drops). It cannot be read
+    # today: a non-scalar element dies in mlir_gen first, which is the open row
+    # `listcomp_nonscalar_elem_internal_verifier_diag` (doors in series; that row waits on an owner question about
+    # two A6 clauses). When that row closes, run p2v: a count below 3 makes this a tier-1 `run` row.
+
+# TOTAL 16

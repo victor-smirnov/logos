@@ -1,0 +1,7 @@
+// hand battery: round 2026-09-14e-thruref, program r06 — caught: verdict moved base -> landed — PROBES.md "`<` `<=` `>` `>=` on raw pointers crashes the MLIR verifier on base (r06)"; measured base MLIR verifier -> today the region sentence
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/ctl.AXJG/r06_mutptr_lt.logos
+// same program (modulo package/comments/whitespace) in round 2026-09-14f-thrurefland as q01 (land14f_r2.sFtP/q01_ord_lt_mutptr_illegal.logos)
+package bc_0914e_thruref_hb_r06_refuse;
+fn f<'a, 'b>(x: *mut &'a i64, y: *mut &'b i64) -> bool { return x < y; }
+fn main() -> i32 { return 0i32; }

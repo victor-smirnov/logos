@@ -1,0 +1,6 @@
+// hand battery: round 2026-09-14e-thruref, program r17 — caught: verdict moved base -> landed — PROBES.md "cmpinv (8 moved): REFUSED r01 r05 r09 r10 r17 r18 r23"; landed 2026-09-14f, measured base RUN 0 -> today REFUSED
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/hb3.sdHf/r17_static_vs_a_mutptr_illegal.logos
+package bc_0914e_thruref_hb_r17_refuse;
+fn f<'a>(x: *mut &'a i64, y: *mut &'static i64) -> bool { return x == y; }
+fn main() -> i32 { return 0i32; }

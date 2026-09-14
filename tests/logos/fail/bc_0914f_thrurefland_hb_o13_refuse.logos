@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-14f-thrurefland, program o13 — caught: verdict moved base -> landed — not cited by id; attributed by path (land14f_own.1gCs, the 14f battery); measured base first error names the reference overwrite -> today the owner...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_own.1gCs/o13_mutref_reassign_write_owner_illegal.logos
+package bc_0914f_thrurefland_hb_o13_refuse;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let mut s2: P = P { a: 3i64, b: 4i64 };
+    let mut r: &mut P = &mut s1;
+    let a: &i64 = &r.a;
+    r = &mut s2;
+    s1.a = 5i64;
+    return (*a + r.a) as i32;
+}

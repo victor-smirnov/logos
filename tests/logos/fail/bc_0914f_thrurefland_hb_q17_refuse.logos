@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-14f-thrurefland, program q17 — caught: verdict moved base -> landed — PREDICTIONS.md "HAND (land14f_r2), ILLEGAL — refused: q07 q10 q11 q13 q14 q15 q17 q19 q25 q31 q32 q34"; measured base RUN 0 -> today REFUSED
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_r2.sFtP/q17_one_sided_outlives_illegal.logos
+package bc_0914f_thrurefland_hb_q17_refuse;
+fn f<'a, 'b: 'a>(x: *const &mut &'a i64, y: *const &mut &'b i64) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    return 0i32;
+}

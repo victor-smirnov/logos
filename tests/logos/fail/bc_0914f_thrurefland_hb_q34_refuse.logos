@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-14f-thrurefland, program q34 — caught: verdict moved base -> landed — PROBES.md "invariant ADT under `*const` (q34 `Inv<'a>`) CLOSED (per-parameter variance)"; measured base RUN 0 -> today REFUSED
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_r2.sFtP/q34_cell_like_invariant_struct_under_constptr_illegal.logos
+package bc_0914f_thrurefland_hb_q34_refuse;
+struct Inv<'x> { m: &'x mut &'x i64 }
+fn f<'a, 'b>(x: *const Inv<'a>, y: *const Inv<'b>) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    return 0i32;
+}

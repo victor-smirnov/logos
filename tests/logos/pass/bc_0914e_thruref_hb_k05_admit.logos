@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-14e-thruref, program k05 — caught: refuted an arm, predicted wrong — PROBES.md "pbdbm (15 moved): ... REFUSED LEGAL b10 k01 k05 k08 (a use of the scrutinee after the binding's LAST use) and t4 t5 t6 m14 m15 (an assig...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/ctlb2.kQ72/k05_reborrow_in_arm_after.logos
+package bc_0914e_thruref_hb_k05_admit;
+fn bump(o: &mut Option<i64>) { *o = Option::Some(7i64); }
+fn main() -> i32 {
+    let mut foo: Option<i64> = Option::Some(3i64);
+    let bar: &mut Option<i64> = &mut foo;
+    match bar {
+        Option::Some(baz) => {
+            *baz = 4i64;
+            bump(bar);
+        }
+        Option::None => { }
+    }
+    match foo { Option::Some(v) => { return (v - 7i64) as i32; } Option::None => { return 9i32; } }
+}
