@@ -1,0 +1,18 @@
+package bc_vecstore_loop_loan_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64);
+    let w: i64 = 3i64;
+    let mut i: i64 = 0i64;
+    let f: &i64 = &v[1u64];
+    while i < 2i64 {
+        let e: &i64 = &v[1u64];
+        v[0u64] = *e + i;
+        i = i + 1i64;
+    }
+    let k: i64 = *f + v[0u64];
+    show("k=%lld", k);
+    return k as i32;
+}

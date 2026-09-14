@@ -1,0 +1,18 @@
+package vec_index_store_value_borrows_vec_refused;
+fn total(v: &[i64]) -> i64 {
+    return v[0u64] + v[1u64];
+}
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(3i64);
+    v.push(4i64);
+    v[0u64] = total(&v);
+    return (v[0u64] - 7i64) as i32;
+}
+// SOUNDNESS QUEUE row vec_index_store_value_borrows_vec_refused (tier 3).
+// Legal Rust: `v[0] = total(&v)` — an assignment evaluates its assigned VALUE before the assignee
+// place, so the shared `&v` ends before IndexMut's `&mut v` (reading the Reference; no rustc binary
+// on this box). TODAY refused: "cannot borrow 'v' as shared: mutable borrow still in scope here"
+// at the store's own line. `v[0u64] = v.len()` (a receiver read, no `&v`) compiles and runs.
+// Distinct from vec_index_store_len_in_index_refused (the INDEX operand). Found 2026-09-14b-
+// ptrcoerceland by the landing's hand battery (V08), reproducing on base 6d1bbee8344b2a81.

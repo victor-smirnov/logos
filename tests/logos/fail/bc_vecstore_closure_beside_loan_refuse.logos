@@ -1,0 +1,17 @@
+package bc_vecstore_closure_beside_loan_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn takes_imm<F: FnOnce()>(r: &i64, f: F) -> i64 {
+    f();
+    return *r;
+}
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    let mut w: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64);
+    w.push(3i64); w.push(4i64);
+    let k: i64 = takes_imm(&v[0u64], || { v[1u64] = 4i64; });
+    let t: i64 = k + v[1u64];
+    show("t=%lld", t);
+    return t as i32;
+}

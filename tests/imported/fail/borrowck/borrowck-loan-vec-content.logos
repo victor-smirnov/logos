@@ -1,6 +1,6 @@
 // rustc borrowck/borrowck-loan-vec-content.rs — upstream E0499 cannot borrow `v` as mutable
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root bck.B
+// shelf: fail · closed 2026-09-14b-ptrcoerceland (was admit, root bck.B)
 // RE-PORTED AS-IS 2026-09-07 (stage 5). The previous port had DROPPED the closure
 // entirely — it was `let e = &v[0]; v[1] = 4;`, a direct conflicting borrow, which
 // is a different mechanism from upstream's "the mutable capture of `v` by a closure
@@ -28,7 +28,7 @@ fn has_mut_vec_but_tries_to_change_it() {
     v.push(1i64); v.push(2i64); v.push(3i64);
     takes_imm_elt(
         &v[0u64],
-        || {                       // THE DEFECT: admitted, upstream E0499
+        || {                       // upstream E0499; refused since 2026-09-14b
             v[1u64] = 4i64;
         });
 }

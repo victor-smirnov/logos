@@ -1,0 +1,15 @@
+package vec_push_arg_reads_loan_refused;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(2i64);
+    let e: &i64 = &v[1u64];
+    v.push(*e + 1i64);
+    return (v[2u64] - 3i64) as i32;
+}
+// SOUNDNESS QUEUE row vec_push_arg_reads_loan_refused (tier 3).
+// Legal Rust: `v.push(*e + 1)` — the autoref `&mut v` of a method receiver is a TWO-PHASE borrow, and `e`'s last
+// use is the argument, evaluated before activation (reading; no rustc binary on this box). TODAY refused, twice:
+// "cannot borrow 'v' as mutable: 'v' has shared borrows" + "... 1 shared borrow(s) active" — the lexical loan of
+// `e` lives through the line of its last use. The store spelling `v[0u64] = *e + 1i64` compiles (2026-09-14b-
+// ptrcoerceland's store query). Found by that landing's hand battery (V02P), reproducing on base 6d1bbee8344b2a81.

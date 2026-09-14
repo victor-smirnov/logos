@@ -1,0 +1,16 @@
+package enum_variant_pattern_on_integer_scrutinee_admits;
+fn main() -> i32 {
+    let x: i64 = 7i64;
+    let out: i64 = match x {
+        Some(r) => r,
+        None => 0i64,
+    };
+    return out as i32;
+}
+// SOUNDNESS QUEUE row enum_variant_pattern_on_integer_scrutinee_admits (tier 2).
+// Illegal: `Some(r)` / `None` are Option variants and the scrutinee is `i64` (rustc E0308
+// mismatched types). TODAY admitted with no diagnostic and the binary exits 0 (not 7). Spelled
+// through `Vec::get` (which returns `i64` in this stdlib) with a block arm `let y: i64 = *r;` the
+// compiler instead dies in mlir_gen ("initializer produced no value", COMPILE FAILED, no error
+// line). Found 2026-09-14b-ptrcoerceland (hand programs V06, Z01, Z03, Z05, Z07), reproducing on
+// base 6d1bbee8344b2a81.

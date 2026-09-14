@@ -1,0 +1,1 @@
+[fn down]: return type mismatch: variance mismatch — expected &'c &'static i64, got &'c mut &'a i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

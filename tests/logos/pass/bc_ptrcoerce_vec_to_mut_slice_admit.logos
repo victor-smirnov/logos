@@ -1,0 +1,16 @@
+package bc_ptrcoerce_vec_to_mut_slice_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static G: i64 = 7i64;
+fn view<'a, 'c>(v: &'c mut Vec<&'a i64>) -> &'c mut [&'a i64] {
+    return v;
+}
+fn main() -> i32 {
+    let mut v: Vec<&'static i64> = Vec::new();
+    v.push(&G);
+    let s: &mut [&i64] = view(&mut v);
+    s[0u64] = &G;
+    let k: i64 = *v[0u64];
+    show("k=%lld", k);
+    return k as i32;
+}

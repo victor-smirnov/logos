@@ -2405,6 +2405,24 @@ private:
     // Max statement line visited so far — the NLL release point after a
     // COMPOUND statement (its uses extend past its start line).
     uint64_t max_line_seen_ = 0;   // #75: a PROGRAM POINT, see stmt_point
+    // The MethodCall a DerefWrite statement writes through (a Vec's `v[i] = x`), while it is visited.
+    const uint8_t* store_target_mc_ = nullptr;
+    // A store evaluates its value and index before IndexMut's `&mut v` (Rust): true when every loan that conflicts
+    // with it is a whole-`v` shared loan whose holders' last use is this statement, raised inside the innermost loop.
+    // A query, not a release. PROBES.md 2026-09-14b-ptrcoerceland.
+    bool store_loans_die_in_stmt_(const std::string& root) {
+        auto* sit = var_find(NO_SLOT, root);
+        if (sit == nullptr || !sit->shared_field_borrows.empty() || !sit->mut_field_borrows.empty()) return false;
+        const size_t loop_lo = loop_stack_.empty() ? 0 : loop_stack_.back().outer_scope_count;
+        for (size_t fi = 0; fi < scopes_.size(); ++fi)
+            for (auto& b : scopes_[fi].borrows) {
+                if (b.is_mut || b.target != root) continue;
+                if (b.holder.empty() || fi < loop_lo || holder_drops_after_last_use(b) ||
+                    holders_last_use(b) > max_line_seen_)
+                    return false;
+            }
+        return true;
+    }
 
     // ── #75: (line, ordinal) program points ────────────────────────────────
     //
@@ -13965,7 +13983,12 @@ private:
                                         cpm_ptr ? cpm_ptr.type(pool) : TypeRef{},
                                         ln);
                 }
-                visit(v.ptr(),   /*consuming=*/false, ln);
+                {
+                    const uint8_t* saved_st_ = store_target_mc_;
+                    if (v.ptr() && v.ptr().kind() == EC::MethodCall) store_target_mc_ = v.ptr().addr();
+                    visit(v.ptr(),   /*consuming=*/false, ln);
+                    store_target_mc_ = saved_st_;
+                }
                 visit(v.value(), /*consuming=*/true,  ln);
                 break;
             }
@@ -15476,9 +15499,18 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             if (auto recv = v.receiver();
                 recv && recv.kind() != Code::AddrOfTemp) {
                 int sk = method_self_kind(v);
-                if (sk >= 1)
-                    check_recv_conflict(extract_borrow_place(recv, pool),
-                                        /*is_mut=*/sk == 2, line);
+                if (sk >= 1) {
+                    BorrowPlace rbp = extract_borrow_place(recv, pool);
+                    // An explicit `&mut v` / `&v` receiver (a Vec's `v[i] = x`, `(&mut v).push(x)`) names `v`
+                    // (bck.B). PROBES.md 2026-09-14b-ptrcoerceland.
+                    bool ask_ = true;
+                    if (rbp.root.empty() && recv.kind() == Code::AddrOf) {
+                        rbp.root = std::string(EAddrOfView{recv}.var_name());
+                        rbp.root_type = TypeRef(recv.type(pool)).pointee();
+                        ask_ = e.addr() != store_target_mc_ || !store_loans_die_in_stmt_(rbp.root);
+                    }
+                    if (ask_) check_recv_conflict(rbp, /*is_mut=*/sk == 2, line);
+                }
             }
             // ── A METHOD-CALL RECEIVER IS A WHOLE-VALUE USE OF ITS PLACE,
             // AND THE PARTIAL-MOVE MAP WAS NEVER ASKED ABOUT IT (E0382) ────

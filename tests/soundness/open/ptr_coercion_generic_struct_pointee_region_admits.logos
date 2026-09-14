@@ -1,0 +1,18 @@
+package ptr_coercion_generic_struct_pointee_region_admits;
+fn vp<'a>(v: &'a Vec<&'a i64>) -> *const Vec<&'static i64> {
+    return v;
+}
+fn bp<'a>(b: &'a Box<&'a i64>) -> *const Box<&'static i64> {
+    return b;
+}
+fn main() -> i32 {
+    return 0i32;
+}
+// SOUNDNESS QUEUE row ptr_coercion_generic_struct_pointee_region_admits (tier 2).
+// Illegal: `*const Vec<&'static i64>` from `&'a Vec<&'a i64>` — `*const T` and Vec/Box are covariant, and
+// `'a: 'static` does not hold (rustc: lifetime may not live long enough). TODAY admitted.
+// DOORS IN SERIES, the neighbour of the 2026-09-14b-ptrcoerceland subtype() arm that was NOT closed: asking a
+// generic-struct pointee reads the variance table, which derives Vec<T>/Box<T> INVARIANT from their `*mut T` field
+// (Rust: covariant through Unique/NonNull). Asked as-is the arm refused the LEGAL `&'a Vec<&'static i64> ->
+// *const Vec<&'a i64>` and its Box twin (measured, first build of the landing), so the arm skips generic-struct
+// pointees until vec_box_invariant_in_t_refused is repaired.

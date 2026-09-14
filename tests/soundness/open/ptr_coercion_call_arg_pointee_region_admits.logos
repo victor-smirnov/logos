@@ -1,0 +1,22 @@
+package ptr_coercion_call_arg_pointee_region_admits;
+fn keep(p: *const &'static i64) -> i64 {
+    return 0i64;
+}
+fn count(s: &[&'static i64]) -> i64 {
+    return s.len();
+}
+fn f<'a>(x: & &'a i64, v: &mut Vec<&'a i64>) -> i64 {
+    return keep(x) + count(v);
+}
+fn main() -> i32 {
+    return 0i32;
+}
+// SOUNDNESS QUEUE row ptr_coercion_call_arg_pointee_region_admits (tier 2).
+// Illegal: `& &'a i64 -> *const &'static i64` and `&mut Vec<&'a i64> -> &[&'static i64]` at CALL ARGUMENTS (rustc:
+// lifetime may not live long enough). TODAY admitted. The same-kind `*const &'a i64` into `keep` is refused.
+// REASON 1 — THE FACT HAS NO CARRIER at this site: 2026-09-14b-ptrcoerceland's subtype() arms ask only at strict
+// sites, because a call argument's raw-pointer target arrives with the CALLEE's region already instantiated, and
+// `take<'b>(p: *const &'b i64)` called with a `&'b &'a i64` under `'a: 'b` (LEGAL) reads the same printed target
+// `*const &'static i64` as this program's WRITTEN 'static (measured E09 vs N02 on that landing's first builds:
+// asked at arguments, the arm refused E09). Queue row mutptr_region_param_elided_let_arg_refused is that
+// instantiation's own defect. Method arguments (N05) are the same door.

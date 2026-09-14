@@ -1,0 +1,22 @@
+package vec_box_invariant_in_t_refused;
+static G: i64 = 7i64;
+fn shorter<'a>(v: &'a Vec<&'static i64>) -> &'a Vec<&'a i64> {
+    return v;
+}
+fn count<'a>(v: &Vec<&'a i64>, r: &'a i64) -> i64 {
+    return v.len() + *r;
+}
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let mut v: Vec<&'static i64> = Vec::new();
+    v.push(&G);
+    let n: i64 = shorter(&v).len() + count(&v, &x);
+    return (n - 3i64) as i32;
+}
+// SOUNDNESS QUEUE row vec_box_invariant_in_t_refused (tier 3).
+// Legal Rust: Vec<T> is covariant in T (its buffer is Unique<T>/NonNull<T>), so `&'a Vec<&'static i64>` is a
+// `&'a Vec<&'a i64>`, and `count(&v, &x)` picks 'a = x's region. TODAY refused at both: "return type mismatch:
+// variance mismatch — expected &'a Vec<&'a i64>, got &'a Vec<&'static i64>" and "call to 'count' arg 2: variance
+// mismatch — expected &'static i64". sema's compute_variances derives the parameter from the stdlib Vec's `*mut T`
+// field, which is invariant (correctly, for a raw pointer). Found 2026-09-14b-ptrcoerceland (Q01S, Q11P, Q17),
+// reproducing on base 6d1bbee8344b2a81.

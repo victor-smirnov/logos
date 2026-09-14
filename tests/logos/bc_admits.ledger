@@ -1802,7 +1802,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # 12q's EMPTY-region door and its four legal refusals are NOT what landed. ⚠ POSITION-BLIND:
 # single-slot types and a direct borrow's annotation only; the inner-slot case is soundness_queue
 # `let_borrow_of_call_temp_inner_slot_admits`. PROBES.md 2026-09-12r.
-# TOTAL 69
+# TOTAL 67
 
 
 # ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
@@ -1879,7 +1879,6 @@ augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignme
 borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
 borrowck-loan-blocks-move-cc--r10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --t10 (upstream box_imm/box_imm_explicit are textually identical); merging is an owner decision
 borrowck-loan-blocks-move-cc--t10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --r10; merging is an owner decision
-borrowck-loan-vec-content bck.B tests/imported/admit/borrowck/borrowck-loan-vec-content
 borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed  #  ⚠ LEGAL AS PORTED, measured 2026-09-11: the "minimal reduction" dropped the only LATER use of its loan, so under NLL the loan is dead at the move and our arm is correct. 2x2 measured (restore the later use / remove it, x admit / refuse). RETIRE CANDIDATE or re-port with the later use restored — owner's.
@@ -1940,7 +1939,6 @@ projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/n
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
-type-check-pointer-coercions nllmoves.R14 tests/imported/admit/nll/type-check-pointer-coercions
 type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 

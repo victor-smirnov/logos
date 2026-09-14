@@ -1,0 +1,23 @@
+package bc_ptrcoerce_generic_struct_pointee_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static G: i64 = 7i64;
+fn vp<'a>(v: &'a Vec<&'static i64>) -> *const Vec<&'a i64> {
+    return v;
+}
+fn bp<'a>(b: &'a Box<&'static i64>) -> *const Box<&'a i64> {
+    return b;
+}
+fn vr<'a>(v: &'a mut Vec<&'static i64>) -> &'a Vec<&'a i64> {
+    return v;
+}
+fn main() -> i32 {
+    let mut v: Vec<&'static i64> = Vec::new();
+    v.push(&G);
+    let b: Box<&'static i64> = Box::new(&G);
+    let p: *const Vec<&i64> = vp(&v);
+    let q: *const Box<&i64> = bp(&b);
+    let n: i64 = unsafe { (*p).len() } + vr(&mut v).len();
+    show("n=%lld", n);
+    return n as i32;
+}

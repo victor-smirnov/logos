@@ -1,0 +1,18 @@
+package ptr_coercion_struct_literal_field_region_admits;
+struct HS { p: *const &'static i64 }
+struct TS(*const &'static i64);
+fn f<'a>(x: & &'a i64) -> i64 {
+    let h: HS = HS { p: x };
+    let t: TS = TS(x);
+    return 0i64;
+}
+fn main() -> i32 {
+    return 0i32;
+}
+// SOUNDNESS QUEUE row ptr_coercion_struct_literal_field_region_admits (tier 2).
+// Illegal: a `& &'a i64` stored into a `*const &'static i64` field through a struct literal and a tuple-struct
+// constructor (rustc: lifetime may not live long enough). TODAY admitted; the same-kind `*const &'a i64` is refused.
+// REASON 2 — DOORS IN SERIES: literal fields pass permissive=true, and their region binders arrive UNINSTANTIATED:
+// `H<'a> { p: *mut &'a i64 }` built from a `*mut &'static i64` (LEGAL) is refused today (queue row
+// struct_lit_field_invariant_region_static_refused), and 2026-09-14b-ptrcoerceland's arm, asked there, refused the
+// cross-kind `H { p: &mut r }` too (E02). The literal's binder instantiation must be right before the arm can ask.

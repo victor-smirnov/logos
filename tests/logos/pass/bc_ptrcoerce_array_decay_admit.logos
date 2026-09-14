@@ -1,0 +1,14 @@
+package bc_ptrcoerce_array_decay_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static G: i64 = 7i64;
+fn first<'a>(x: &[&'a i64; 2]) -> *const &'a i64 {
+    return x;
+}
+fn main() -> i32 {
+    let a: [&'static i64; 2] = [&G, &G];
+    let p: *const &i64 = first(&a);
+    let k: i64 = unsafe { **p };
+    show("k=%lld", k);
+    return k as i32;
+}

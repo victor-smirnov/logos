@@ -43694,3 +43694,156 @@ RUNTIME: build 38323413a8199ace, one configure, one chain: pcuniond 17:30:01 -> 
   dlog: two NEW rules, each with a known-answer control stated in its header before the run and measured: coerce_pairs.dl (12 named
   pairs expected, all 12 present; the nested array-decay block missed, as its coarsening note predicted) and
   place_extract_consumers.dl (`both ⊇ {visit}`, held; cross-checked per site against grep, counts agree). No extractor change.
+
+## 2026-09-14b-ptrcoerceland — R14 AND bck.B LAND: A CROSS-KIND COERCION IS ASKED THE RULE OF THE KIND IT LANDS IN (AT A STRICT SITE, NOT THROUGH A GENERIC STRUCT), AND A VEC STORE'S `&mut v` RECEIVER IS ROOTED (A LOAN WHOSE HOLDERS DIE IN THE STORE DOES NOT CONFLICT) — bc_admits 69 -> 67; THE PRICED ARMS REFUSED SIXTEEN LEGAL PROGRAMS THAT FIVE ZERO COLUMNS MISSED, EACH REPAIRED AT ITS DOOR
+site: include/logos/compiler/subtype.hpp::subtype
+build: 6d1bbee8344b2a81 43 (base) · 5d8cb956f8788fb5 43 (build 1, the priced spelling) · a2312bd8680b539a 43 (build 2) · 199b050a2479da77 43 (build 3) · 33067b51ad15d447 43 (build 4) · 47bea7f0aeb42d36 43 (build 5, landed)
+measured: 2026-09-13
+fires: n/a — a landing, no probe names
+ceiling: 2 rows closed, predicted by name (5e15a399b): type-check-pointer-coercions, borrowck-loan-vec-content
+cost (build 5): -L bc build 1187 2939 passed / 0 failed / 2 other of 2941 · cfail 1568 common 0 changed (+15 added, all match) · wide -L fail 2785, 15 changed = the new fail halves and moved rows · stdlib 4 of 4 · runtime 6737 common 0 changed (cast-region-to-uint subtracted by name; +15 added, all run their .expected exit) · hand battery 304 programs × base + landed: 0 legal moved
+verdict: LANDED (two files); the pricing round's crosskindxd / aorecvsk as priced are DECLINED — 16 legal programs, below
+note: record 2026-09-14a-ptrcoerce priced both; its WHAT DESERVES FUNDING is corrected here by measurement
+
+### STEP 1, READ FROM THE TREE — AND THE HANDED-DOWN REPORT'S CORRECTIONS
+    HEAD e7bf64732 at open (the four pricing commits UNPUSHED: origin/main 94d2461e0), clean · soundness_queue # TOTAL 130 = 130 ·
+    queue gate rc 0 (LOGOS_LIB_DIR given) · bc_admits # TOTAL 69 · bc_admits_blocked # TOTAL 8 · probe-log-lint 287 records ·
+    build_hash 6d1bbee8344b2a81 43 (read) · dlog selftest rc 0 (19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0)
+    baseline from the store: -L bc build 1168, 2911 already measured, 0 failed · run_oracle 6737 rc 0 · fail_text_oracle 1568 rc 0 ·
+    stdlib-cost 4 of 4 — all on 6d1bbee8344b2a81, one configure.
+  Corrections to the report handed to this round, each measured:
+    * "crosskindxd ... its cost is 0 in every column" and "aorecvsk ... 0 legal moved" — the columns were right and the verdict was
+      wrong: the arm family REFUSED SIXTEEN LEGAL PROGRAMS (table below), none of them in the pricing battery's shapes (rule 5).
+    * "`&Vec<T>` -> `&[T]` ... the Ptr arm's own rule": subtype()'s arms read the variance TABLE, which derives Vec<T>/Box<T>
+      invariant from a `*mut T` field (Rust: covariant). Any pointee naming them imports that fact.
+    * "*mut asked as subtype both ways, as lenient as types_compatible": NOT as lenient as the in-kind arm — an elided side against
+      'static fails the reverse ask at a strict site (M5, M10, M11); the in-kind Ptr/MutRef arms ask types_equal_with_lifetimes.
+    * "the two cast doors stay silent (elided let annotation)": re-measured, holds (I10 named annotation refused, I12 elided admitted,
+      on both binaries).
+
+### THE CHANGE (two files; 5e15a399b holds the prediction, written before the first edit)
+  include/logos/compiler/subtype.hpp::subtype, above the kind-mismatch exit, ONLY when !permissive_empty:
+    `&T`/`&mut T` -> `*const U` pointee Co (array decay compares the element) / `*mut U` types_equal_with_lifetimes (the Ptr arm's test);
+    `&mut T` -> `&U` pointee Co (the outer region is not asked); `&Vec<T>` -> `&[U]` element Co / `&mut [U]` types_equal_with_lifetimes;
+    the Ptr arm's `*mut T` -> `*const U` shape exit asks pointee Co. Every arm skips a type naming a generic struct / callable /
+    trait object (detail::names_generic_struct).
+  src/compiler/borrow_check.cpp: the MethodCall arm roots a Code::AddrOf receiver extract_borrow_place leaves empty at its
+    variable; when that MethodCall is the one a DerefWrite statement writes through (store_target_mc_), it skips the check if
+    store_loans_die_in_stmt_: every whole-`v` shared loan has a holder whose last use is <= this statement's point, raised inside
+    the innermost loop, no dropck use, no field loans. A query, not a release.
+
+### FIVE BUILDS — THE FIRST THREE CONDEMNED BY HAND, THE FOURTH BY L4 ALONE, EVERY ONE GREEN IN THE COLUMNS
+    build  spelling                                       -L bc (2911)  runtime 6737  cfail 1568  stdlib  LEGAL REFUSED BY HAND
+    1      crosskindxd + aorecvty as priced (5d8cb956)    0 failed      0 changed     0 changed   4 of 4  Q01 Q11 Q15 V02 V02B V02I V20 V21 V25 V26 V27
+    2      + generic-struct guard + store query           —             —             —           built   (M5 M10 M11 E02 E09 not yet written)
+    3      = 2, measured with new shapes (199b050a)       —             —             —           built   M5 M10 M11 E02 E09
+    4      *mut via types_equal, strict sites (33067b51)  0 failed           0 changed         0 changed    4 of 4 none of 304 — but L4 core+spec: writ_ref_outlives_container RE-WORDED
+    5      MutRef->Ref asks the POINTEE only (47bea7f0)   0 failed           0 changed         0 changed    4 of 4 none of 304; wide -L fail 2785 common, 15 changed = the 13 new fail halves + the 2 moved rows, 0 other
+  Build 4's cost was in the TEXT column and outside every oracle's population: `let a: &mut WArray<WAny> = h.array(..); return a;`
+  against `-> &'a WArray<WAny>` printed a sema variance mismatch (the arm's lifetime_at on an ELIDED outer region at a strict
+  return; the in-kind path is lenient through subtype()'s first line) where its .expected pins "cannot return reference to
+  local variable". fail_text_oracle's population is -L bc -L fail (1568); the fixture is not bc-labelled. Repaired by asking
+  the pointee only (the outer region of `&'x mut` -> `&'static` is refused TODAY by another rule, T3). A WIDE text column
+  (every -L fail fixture, the base copy's binary vs build 5, a scratch wrapper of fail_text_oracle.py) was then run once.
+  The legal programs, each linked and RUN on base, each refused by the spelling named:
+    Q01  `&'a mut Vec<&'static i64> -> &'a Vec<&'a i64>`          MutRef->Ref arm reads Vec invariant (same-kind Q01S refused on BASE)
+    Q11  `&'a Vec<&'static i64> -> *const Vec<&'a i64>`           Ref->Ptr arm, same fact (Q11P same-kind refused on base)
+    Q15  `&'a Box<&'static i64> -> *const Box<&'a i64>`           same fact, Box
+    V02 / V02B / V02I  `let e = &v[1]; v[0] = *e + 1` / `= *e` / `v[*e as u64] = 9`   store receiver, loan's holder dies IN the store
+    V20 V21 V26 V27  the same inside an `if` arm / after a last use in the arm / a match arm / a bare block
+    V25  `while .. { let e = &v[1]; v[0] = *e + i; }`              a loan raised inside the loop body
+    M5 / M10 / M11  `let q: *mut &i64 = &mut r` (r: &'static) / decay `&mut [&'static i64; 2]` / arg to `*mut &i64`   reverse subtype ask on an elided side
+    E02  `H<'a> { p: *mut &'a i64 }` built as `H { p: &mut r }`   struct-literal binder uninstantiated (E02S/E02M same-kind refused on base)
+    E09  `take<'b>(p: *const &'b i64)` called with `&'b &'a i64` under `'a: 'b`   call-site raw-pointer region instantiated 'static (E09S same-kind refused on base)
+  CORRECTLY REFUSED shapes that separated them: Q14 (user `*mut T` struct, invariant in Rust too), V02A `(&mut v).push(*e + 1)`
+  (an explicit `&mut` is not two-phase), V23 (a loan raised before the loop, used inside it), X05 (holder used after the store).
+
+### CLOSED SET, DIFFED BOTH WAYS, AND EVERY CLOSED ROW'S DIAGNOSTIC (read)
+  bc_admits.ledger 69 -> 67 = predicted {type-check-pointer-coercions, borrowck-loan-vec-content}; predicted∖measured = ∅, measured∖predicted = ∅.
+    type-check-pointer-coercions — 4 of 7 doors (upstream: "lifetime may not live long enough" at all 7):
+      :17 [fn shared_to_const]: return type mismatch: variance mismatch — expected *const &'b i64, got &&'a i64
+      :18 unique_to_const `got &mut &'a i64` · :19 unique_to_mut `expected *mut &'b i64` · :20 mut_to_const `got *mut &'a i64`
+      (the existing in-kind sentence, both regions and the fn named; not rustc's). Cast doors -> queue row, reason 2.
+    borrowck-loan-vec-content — [fn has_mut_vec_but_tries_to_change_it]: cannot borrow 'v' as mutable: 'v' has shared borrows
+      (check_recv_conflict's own sentence; upstream E0499 at the closure).
+  Soundness queue: 0 rows closed (predicted 0). Hand battery, 304 programs, base vs landed (keyed by name): every change is an
+  illegal program refused or a text line; 0 legal moved; the 13 new fail halves refuse and the 15 pass halves run unchanged.
+  WHERE THE FIX DIFFERS FROM THE PROBE: three narrowings (strict sites; generic-struct skip; `*mut` via types_equal) and the
+  store query — each bought by a measured legal refusal above. aorecvsk's `sk == 2` gate is widened to sk >= 1 (aorecvty, measured
+  identical in every priced column; X02 `(&v).len()` under `&mut` is refused TODAY by check_live either way).
+  TEXT (rule 14, one-report-per-fact): J03 / J03S / X04 (`let s: &[i64] = &v; v[1] = 4; s[0]`) gain a SECOND line — the push
+  spelling J03P prints two lines on BASE; the store spelling now prints what its sibling does. Not minted.
+
+### CLASS BY PROPERTY — tools/dlog
+  R14: coerce_pairs.dl on sema.cpp (content-keyed, unchanged): 26 accepted cross-kind pairs; region-bearing and asked by the landing:
+    (Ref,Ptr) (MutRef,Ptr) (MutRef,Ref) (Ref,Slice) (MutRef,Slice) + the Ptr arm's own *mut->*const shape exit.
+  bck.B: place_extract_consumers.dl on the LANDED borrow_check.cpp (selftest rc 0 first; known answer both ⊇ {visit}, held):
+    27 walker calls in 9 contexts; conflict askers check_place_mut_use:7102, visit:15512 (the landed MethodCall arm), visit:16076
+    (SD-DST arg0, DstRef-gated). PER-SITE beside it: grep 27 non-comment `extract_borrow_place(` calls, 4 `check_recv_conflict(`
+    lines (definition + 3 calls) — dlog and grep agree. No extractor change, no new rule.
+
+### NEIGHBOURS (standing rule 2026-09-12)
+    neighbour                                                     verdict                    reason / number
+    return doors (row x4), let (I01 Y06), place write (Y01),      CLOSED here                same exit
+      decay (I08 D03 Y03), tuple pointee (Y07), `&mut`->`&` (I05),
+      `&Vec`->`&[T]` let, `&mut Vec`->`&mut [T]` (Y08)
+    call / method argument (I02 r14h Y02 Y04 N02 N05)             ROWED ptr_coercion_call_arg_pointee_region_admits   1, no carrier: E09's instantiated 'static and N02's written one are the same printed target
+    struct literal / tuple-struct field (I04 N03 N04)             ROWED ptr_coercion_struct_literal_field_region_admits 2, doors in series: E02 (binder uninstantiated; E02S/E02M refused on base)
+    tail-expression return (N01)                                  ROWED ptr_coercion_tail_return_region_admits        3, own cost unpriced: the tail site passes permissive=true for every type
+    generic-struct pointee (`*const Vec<&'static>` from `&Vec<&'a>`)  ROWED ptr_coercion_generic_struct_pointee_region_admits 2: Q11/Q15 refused while the table reads Vec/Box invariant
+    the row's 3 `as`-cast doors                                   ROWED ptr_coercion_cast_door_elided_let_region_admits 2: I10 named annotation refused, I12 elided admitted (both binaries)
+    `&T`->dyn / `&dyn Fn`->Closure pairs                          carried from 2026-09-14a, reason 1 (trait-object `+ 'a` not enforced; bare Closure has no region); NOT re-measured here
+    `*const T`->`&T` (I06), `[T;N]`->`*const T`, `&[T;N]`->`&T`   NOT neighbours: Logos-only coercions (types_compatible), reported for the owner
+    Vec store: J04 J06 J08 J09 X05 X06 V23, the row's closure,    CLOSED here                same fact
+      explicit `(&mut v).push` X01 V02A
+    `(&v).len()` under `&mut v[0]` (X02)                          not a neighbour            refused today (check_live)
+    generic user IndexMut store (X03)                             not a neighbour            the store never reaches borrow check: sema refuses it (row generic_user_indexmut_store_refused)
+    the other 26 walker consumers                                 not neighbours by per-site read; the delegation (ebpaddrof) re-worded 3 pinned diagnostics (2026-09-14a) — reason 3
+
+### FOUND, REPRODUCING IDENTICALLY ON BASE 6d1bbee8344b2a81 AND LANDED 33067b51ad15d447 — ROWED (queue 130 -> 144 by direct listing; queue gate rc 0 at 144)
+    tier 3 refuses: vec_index_store_value_borrows_vec_refused (V08) · mutptr_region_param_elided_let_arg_refused (M4, E09S) ·
+      vec_box_invariant_in_t_refused (Q01S Q11P Q17) · vec_push_arg_reads_loan_refused (V02P) · vec_push_ifarm_after_loan_last_use_refused (V24) ·
+      array_store_value_reads_loan_refused (V02L) · struct_lit_field_invariant_region_static_refused (E02S E02M) · generic_user_indexmut_store_refused (G1)
+    tier 2 admits: enum_variant_pattern_on_integer_scrutinee_admits (Z07; runs 0, and via Vec::get a mlir_gen internal COMPILE FAILED) +
+      the five neighbour rows above.
+  Legality of every tier-3 row rests on READING (no rustc binary on this box).
+
+### FIXTURES — 13 PAIRS + 2 PINS, CONTROL REVERT ON THE OPENING BINARY
+    bc_ptrcoerce_{shared_to_const, unique_to_mut, mut_to_const, array_decay, mutref_to_ref, vec_to_slice, vec_to_mut_slice}_{admit,refuse}
+    bc_vecstore_{elem_loan, addrof_push, closure_beside_loan, iter_live, value_reads_loan, loop_loan}_{admit,refuse}
+    bc_ptrcoerce_generic_struct_pointee_admit (Q11 Q15 Q01) · bc_ptrcoerce_elided_mutptr_admit (M5 M10 M11)
+  Pass halves RUN and assert exit + stdout; fail halves pin the whole first diagnostic. run_test.sh on the landed binary: 15/15 pass,
+  13/13 fail. CONTROL REVERT, run_test.sh on a copy of the opening binary 6d1bbee8344b2a81 (bin + lib, identical verdicts checked):
+  15/15 pass halves pass, 13/13 fail halves RED (admitted). Both row programs admitted rc 0 there.
+
+### THE TREE AT CLOSE
+  registry: ctest -N ALL 9731 -> 9759, NOIMPORTED 5238 -> 5264, TIERCOMMIT 127 -> 125 — PREDICTED before the re-configure
+  (+15 pass +13 fail +2 imported fail -2 logos_00_bc_admit_*), measured exactly; census pin updated after.
+  bc_admits # TOTAL 69 -> 67 = 67 rows · soundness_queue # TOTAL 130 -> 144 = 144 rows · new fixtures + moved rows + bc_admits ledger gate ctest rc 0.
+
+### GATES AT CLOSE (build 47bea7f0aeb42d36 43, the landed sources)
+  (build 4) L1 from build/ — FIRST RUN RED: logos_00_population_pin_lint, direct_door PIN['corpus'] pinned 3112 listed 3127, PIN['nonglob'] 2921 /
+  2936 (the fifteen new pass fixtures). Re-derived in direct_door_census_gate.sh BY DIRECT LISTING (ls tests/logos/pass/*.logos -> 3127;
+  {wql_*,deem_*} -> 191; 3127 = 191 + 2936), the fifteen named there. L1 re-run rc 0: 807/807, smoke 12 684, gates 125/125.
+  L4 bc on BUILD 4 (33067b51) — the first launch was REFUSED by test-levels.sh's own barrier (rc 2, no test ran: L4 needs LOGOS_L4_BG=1 as the
+  acknowledgement that it runs detached); relaunched with it: RC 8, core+spec 4667 / 4668 — logos_06_diagnostics_fail_writ_ref_outlives_container RE-WORDED (the store says passed
+  on every earlier build, 1168 included; the base copy passes it). Repaired as build 5; re-gated from the columns up:
+  -L bc build 1187: 2939 passed / 0 failed / 2 other of 2941 · run_oracle 6752 = 6737 common 0 changed + 15 added (all rc 0, .expected exits) ·
+  fail_text_oracle 1583 = 1568 common 0 changed + 15 added (rc 1, match 1) · WIDE -L fail 2785 (base copy vs build 5): 15 changed = the 13
+  new fail halves + 2 moved rows, 0 other · stdlib-cost 4 of 4 · queue gate rc 0 (144) · 32 targeted tests incl. writ_ref_outlives_container pass.
+  L1 on build 5 rc 0 (807/807, smoke 12 684, gates 125/125) · L4 bc on build 5 RC 0: core+spec 4655 run this pass, 4655 passed / 0 failed,
+  the rest of the 5264 already green in the store for build 1187; bc half = -L bc above (2939 passed / 0 failed / 2 disabled).
+  census pin REGISTRY 9759 / 5264 / 125 (predicted, measured) · probe-log-lint 288 records rc 0 · queue gate rc 0 (144).
+
+### DECLINED BY NAME
+    crosskindxd as priced — 11 legal programs on build 1 (Q01 Q11 Q15 + the V set is aorecvty's) and M5 M10 M11 E02 E09 on build 3
+    aorecvsk / aorecvty as priced — V02 V02B V02I V20 V21 V25 V26 V27 (8 legal)
+    refptrco / ptrcoerce / crosskindx / pcunion — already declined by 2026-09-14a (4 legal)
+    ebpaddrof / ebpaddrofmut — 3 / 1 pinned diagnostics re-worded (2026-09-14a)
+
+### MISTAKES OF MY OWN
+  * The first build landed the pricing round's spelling after ONE battery (51 programs); the next three builds each found legal
+    refusals in shapes nobody had written. The battery that condemned build 3 was written only after build 2 passed.
+  * A staged fixture pair (bc_vecstore_loop_loan_admit) borrowed a variable the loop mutates — illegal; caught on reading, rewritten.
+  * bc_ptrcoerce_vec_to_slice_refuse used a call argument; the strict-site narrowing admitted it on build 4; moved to a let.
+  * An unquoted heredoc let bash expand backticks inside a queue program's header; rewritten.

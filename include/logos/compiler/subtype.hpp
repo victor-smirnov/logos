@@ -329,6 +329,25 @@ inline bool lifetime_at(Variance v,
     return false;
 }
 
+// The type names a struct with type arguments (or a callable/trait object) somewhere inside it.
+inline bool names_generic_struct(TypeRef t, int depth = 0) {
+    if (!t || depth > 32) return false;
+    using K = LogosType::Kind;
+    switch (t.kind()) {
+        case K::Struct: case K::ZonedStruct: return !t.type_args().empty();
+        case K::Ref: case K::MutRef: case K::Ptr: return names_generic_struct(t.pointee(), depth + 1);
+        case K::Array: case K::Slice: return names_generic_struct(t.elem(), depth + 1);
+        case K::Tuple:
+            for (auto x : t.tuple_elems()) if (names_generic_struct(x, depth + 1)) return true;
+            return false;
+        case K::Enum:
+            for (auto x : t.type_args()) if (names_generic_struct(x, depth + 1)) return true;
+            return false;
+        case K::FnPtr: case K::FnItem: case K::Closure: case K::TraitObject: return true;
+        default: return false;
+    }
+}
+
 } // namespace detail
 
 // Definition.
@@ -352,9 +371,33 @@ inline bool subtype(TypeRef sub, TypeRef sup,
     using K = LogosType::Kind;
     if (detail::types_equal_with_lifetimes(sub, sup, &adj, permissive_empty)) return true;
 
-    // Different kinds: caller's compat check handles legitimate cross-kind
-    // coercions (e.g. IntLit → i32, &mut → &, Vec → slice). Don't impose a
-    // variance constraint there.
+    // A CROSS-KIND COERCION types_compatible admits is asked the rule of the kind it LANDS in; the exit below waved
+    // each through with no pointee variance (nllmoves.R14). ⚠ Only at a strict site (return, let, impl item): a call
+    // argument's raw-pointer regions and a struct literal's field regions arrive uninstantiated. ⚠ Not where the
+    // types name a generic struct: Vec/Box read invariant in the variance table, Rust's are covariant.
+    // PROBES.md 2026-09-14b-ptrcoerceland.
+    if (!permissive_empty && (sub.kind() == K::Ref || sub.kind() == K::MutRef) && sup.kind() == K::Ptr &&
+        sub.pointee() && sup.pointee()) {
+        TypeRef sp = sub.pointee();
+        if (sp.kind() == K::Array && sup.pointee().kind() != K::Array && sp.elem()) sp = sp.elem();  // array decay
+        if (detail::names_generic_struct(sp) || detail::names_generic_struct(sup.pointee())) return true;
+        if (sup.mut_ptr())  // the Ptr arm's own invariance test
+            return detail::types_equal_with_lifetimes(sp, sup.pointee(), &adj, permissive_empty);
+        return subtype(sp, sup.pointee(), adj, vars, depth + 1, permissive_empty);
+    }
+    if (!permissive_empty && sub.kind() == K::MutRef && sup.kind() == K::Ref && sub.pointee() && sup.pointee())
+        return detail::names_generic_struct(sub.pointee()) || detail::names_generic_struct(sup.pointee()) ||
+               subtype(sub.pointee(), sup.pointee(), adj, vars, depth + 1, permissive_empty);  // pointee only
+    // `&Vec<T>` -> `&[U]`: types_compatible admits it for the stdlib Vec only, and it is this function's only gate.
+    if (!permissive_empty && (sub.kind() == K::Ref || sub.kind() == K::MutRef) && sup.kind() == K::Slice && sub.pointee() &&
+        sub.pointee().kind() == K::Struct && sub.pointee().type_args().size() == 1 && sup.elem()) {
+        TypeRef se = sub.pointee().type_args()[0];
+        if (detail::names_generic_struct(se) || detail::names_generic_struct(sup.elem())) return true;
+        if (sup.mut_ptr())  // `&mut [U]`: the MutRef arm's own invariance test
+            return detail::types_equal_with_lifetimes(se, sup.elem(), &adj, permissive_empty);
+        return subtype(se, sup.elem(), adj, vars, depth + 1, permissive_empty);
+    }
+    // Other different kinds (IntLit → i32, …): the caller's compat check handles them.
     //
     // EXCEPT FnItem → FnPtr. sema.hpp declares the rule this exit broke:
     // "every Kind::FnPtr check in sema/mono/mlir-gen also accepts
@@ -391,7 +434,9 @@ inline bool subtype(TypeRef sub, TypeRef sup,
             //   *const T — Co in pointee (matches Rust)
             //   *mut T   — Inv in pointee
             // Both: no lifetime tracking on Ptr itself.
-            if (sub.mut_ptr() != sup.mut_ptr()) return true;  // shape diff
+            if (sub.mut_ptr() != sup.mut_ptr())  // `*mut T` -> `*const U` drops write permission: pointee Co, at a strict site
+                return permissive_empty || !sub.mut_ptr() || detail::names_generic_struct(sub.pointee()) ||
+                       subtype(sub.pointee(), sup.pointee(), adj, vars, depth + 1, permissive_empty);
             if (sub.mut_ptr())
                 return detail::types_equal_with_lifetimes(sub.pointee(), sup.pointee(), &adj,
                                                           permissive_empty);

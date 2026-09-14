@@ -1,0 +1,1 @@
+[fn shared_to_const]: return type mismatch: variance mismatch — expected *const &'b i64, got &&'a i64

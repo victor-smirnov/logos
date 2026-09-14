@@ -1,0 +1,15 @@
+package bc_ptrcoerce_shared_to_const_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static G: i64 = 7i64;
+fn raw<'a>(x: & &'a i64) -> *const &'a i64 {
+    return x;
+}
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let r: &i64 = &v;
+    let p: *const &i64 = raw(&r);
+    let k: i64 = unsafe { **p };
+    show("k=%lld", k);
+    return k as i32;
+}

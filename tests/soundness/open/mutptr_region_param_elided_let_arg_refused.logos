@@ -1,0 +1,18 @@
+package mutptr_region_param_elided_let_arg_refused;
+fn raw<'a>(q: *mut &'a i64) -> i64 {
+    return unsafe { **q };
+}
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    let mut r: &i64 = &v;
+    let q: *mut &i64 = &mut r;
+    return (raw(q) - 3i64) as i32;
+}
+// SOUNDNESS QUEUE row mutptr_region_param_elided_let_arg_refused (tier 3).
+// Legal Rust: `raw<'a>` takes `*mut &'a i64`; the caller's `q: *mut &i64` carries an inferred region and 'a is
+// chosen to equal it (reading; no rustc binary on this box). TODAY refused: "call to 'raw' arg 1: variance
+// mismatch — expected *mut &'static i64, got *mut &i64" — the callee's 'a is instantiated as 'static against a
+// LOCAL borrow. The `&mut &'a i64` twin compiles, and so does `let q: *mut &'static i64` over a static. The same
+// instantiation refuses the named `*const` spelling: `take<'b>(p: *const &'b i64)` called with a `*const &'a i64`
+// under `'a: 'b` reads "expected *const &'static i64" (E09S), while the `&'b &'b i64` param twin compiles.
+// Found 2026-09-14b-ptrcoerceland (hand programs M1, M4, E09S), reproducing on base 6d1bbee8344b2a81.

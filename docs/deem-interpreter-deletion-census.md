@@ -5951,12 +5951,22 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                in NOIMPORTED and TIERCOMMIT. So ALL 9715 -> 9731, NOIMPORTED 5225 -> 5238, TIERCOMMIT 130 -> 127 — measured
 #                by `ctest -N` on the re-globbed build before this pin was touched. bc_admits `# TOTAL` 72 -> 69;
 #                soundness_queue 122 -> 125 (three rows OPENED, none closed).
-REGISTRY-ALL         9731
-REGISTRY-NOIMPORTED  5238
-REGISTRY-TIERCOMMIT  127
+# 2026-09-14b (ptrcoerceland — a cross-kind coercion is asked the rule of the kind it lands in at a strict site, and a
+#                Vec store's explicit `&mut v` receiver is rooted). THIRTEEN native PAIRS (bc_ptrcoerce_*, bc_vecstore_*)
+#                plus TWO pass pins (bc_ptrcoerce_generic_struct_pointee_admit, bc_ptrcoerce_elided_mutptr_admit) — +28.
+#                TWO closed rows' programs MOVE tests/imported/admit -> tests/imported/fail (type-check-pointer-coercions,
+#                borrowck-loan-vec-content; declared RENAMED-FIXTURE below): registry-neutral in ALL, -2
+#                `logos_00_bc_admit_*` in NOIMPORTED and TIERCOMMIT. So ALL 9731 -> 9759, NOIMPORTED 5238 -> 5264,
+#                TIERCOMMIT 127 -> 125 — PREDICTED, then measured by `ctest -N` on the re-globbed build before this pin
+#                was touched. bc_admits `# TOTAL` 69 -> 67; soundness_queue 130 -> 144 (fourteen rows OPENED, none closed).
+REGISTRY-ALL         9759
+REGISTRY-NOIMPORTED  5264
+REGISTRY-TIERCOMMIT  125
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
+RENAMED-FIXTURE  tests/imported/admit/nll/type-check-pointer-coercions.logos  tests/imported/fail/nll/type-check-pointer-coercions.logos  2026-09-14b: the bc_admits row it carried (nllmoves.R14) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a reference-to-raw-pointer coercion's pointee variance at a return
+RENAMED-FIXTURE  tests/imported/admit/borrowck/borrowck-loan-vec-content.logos  tests/imported/fail/borrowck/borrowck-loan-vec-content.logos  2026-09-14b: the bc_admits row it carried (bck.B) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a Vec index store under a live element loan
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

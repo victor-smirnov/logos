@@ -1,0 +1,15 @@
+package ptr_coercion_tail_return_region_admits;
+fn f<'a, 'b>(x: & &'a i64) -> *const &'b i64 {
+    x
+}
+fn main() -> i32 {
+    return 0i32;
+}
+// SOUNDNESS QUEUE row ptr_coercion_tail_return_region_admits (tier 2).
+// Illegal: the implicit TAIL return of `& &'a i64` as `*const &'b i64` (rustc: lifetime may not live long enough).
+// TODAY admitted, while `return x;` is refused (bc_ptrcoerce_shared_to_const_refuse) and the same-kind tail `x:
+// *const &'a i64` is refused.
+// REASON 3 — ITS OWN COST IS UNPRICED: the tail-expression return runs check_variance with the DEFAULT
+// permissive=true (sema_stmt.cpp, "R2 (audit-v2)"), the explicit return passes false, and 2026-09-14b-ptrcoerceland's
+// subtype() arms ask only at strict sites. Closing it means making the tail site strict for EVERY type, a change
+// to every tail return in the corpus that was not priced.

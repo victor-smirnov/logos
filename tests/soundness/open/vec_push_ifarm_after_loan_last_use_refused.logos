@@ -1,0 +1,19 @@
+package vec_push_ifarm_after_loan_last_use_refused;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(2i64);
+    let c: bool = v.len() > 1i64;
+    let e: &i64 = &v[1u64];
+    if c {
+        let x: i64 = *e;
+        v.push(x);
+    }
+    return (v.len() - 3i64) as i32;
+}
+// SOUNDNESS QUEUE row vec_push_ifarm_after_loan_last_use_refused (tier 3).
+// Legal Rust: `e` is dead after `let x = *e`, before `v.push(x)` (NLL). TODAY refused: "cannot borrow 'v' as
+// mutable: 'v' has shared borrows". release_dead_borrows does not sweep an if/match-arm frame's OUTER loans
+// (measured over-release there broke the stdlib, borrow_check.cpp), so a loan raised before the `if` survives its
+// holder's last use inside the arm. The same three lines with no `if` compile. Found 2026-09-14b-ptrcoerceland
+// (V24), reproducing on base 6d1bbee8344b2a81.

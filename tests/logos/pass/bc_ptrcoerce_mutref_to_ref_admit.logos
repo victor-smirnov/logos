@@ -1,0 +1,14 @@
+package bc_ptrcoerce_mutref_to_ref_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static G: i64 = 7i64;
+fn down<'a, 'c>(x: &'c mut &'a i64) -> &'c &'a i64 {
+    return x;
+}
+fn main() -> i32 {
+    let mut r: &'static i64 = &G;
+    let rr: &&i64 = down(&mut r);
+    let k: i64 = **rr;
+    show("k=%lld", k);
+    return k as i32;
+}
