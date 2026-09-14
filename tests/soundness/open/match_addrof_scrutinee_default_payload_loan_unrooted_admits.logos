@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row match_addrof_scrutinee_default_payload_loan_unrooted_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED. `match &mut foo { Option::Some(baz) => .. }` binds `baz: &mut String` to `foo.0` by the
+// default binding mode; `foo.take()` while `baz` is live is a second mutable borrow (rustc E0499). logosc compiles and
+// RUNS it. The scrutinee is an AddrOf, and extract_borrow_place has no AddrOf arm, so propagate_pat_borrows gets an
+// empty root and returns before any mode is asked — recording the default-binding-mode loan at the enum door (probe
+// pbdbm, which closes the `let bar = &mut foo; match bar` spelling, issue-51117) does not reach it. The same missing
+// arm is the property tools/dlog/place_extract_consumers.dl states (2026-09-14a). A fourth door for issue-51117's
+// class, not in series with it. PROBES.md 2026-09-14e-thruref (hand b03). Rust: refused.
+package match_addrof_scrutinee_default_payload_loan_unrooted_admits;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut foo: Option<String> = Option::Some(String::from("foo"));
+    match &mut foo {
+        Option::Some(baz) => {
+            let _t: Option<String> = foo.take();
+            let _n: i64 = baz.len();
+        }
+        Option::None => { }
+    }
+    return 0i32;
+}

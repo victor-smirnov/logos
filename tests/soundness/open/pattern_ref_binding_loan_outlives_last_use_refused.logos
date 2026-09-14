@@ -1,0 +1,24 @@
+// SOUNDNESS QUEUE row pattern_ref_binding_loan_outlives_last_use_refused (tier 3).
+// LEGAL RUST REFUSED. `baz` is a `ref mut` pattern binding of `(*bar).0`; its last use is `n = baz.len()`, so under NLL
+// the loan is dead at `bar.take()`. logosc refuses "cannot borrow 'bar' as mutable: field of 'bar' is already
+// borrowed": a loan recorded by propagate_pat_borrows is held by the BINDING until the arm ends, not until its last
+// use — the `let a = &mut r.a; *a = 5; touch(r);` spelling RUNS. Same refusal on base for a by-value scrutinee
+// (`match foo { Some(ref mut baz) => { ..; foo = None } }`), the struct default door (`P { a, b } => { *a = 5; touch(r) }`)
+// and the tuple default door. ⚠ THIS IS THE THIRD DOOR IN SERIES BEFORE issue-51117 (bck.B): the arm that records the
+// default-binding-mode loan at the enum door (probe pbdbm) joins this over-refusal there too (hands b10 k01 k05 k08).
+// PROBES.md 2026-09-14e-thruref (hands e01-e06). Rust: exit 0.
+package pattern_ref_binding_loan_outlives_last_use_refused;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut foo: Option<String> = Option::Some(String::from("foo"));
+    let bar: &mut Option<String> = &mut foo;
+    let mut n: i64 = 0i64;
+    match *bar {
+        Option::Some(ref mut baz) => {
+            n = baz.len();
+            let _t: Option<String> = bar.take();
+        }
+        Option::None => { }
+    }
+    return n as i32 - 3i32;
+}

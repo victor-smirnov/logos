@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row place_assign_ref_field_while_pointee_loan_refused (tier 3).
+// LEGAL RUST REFUSED. `h.r` is a REFERENCE field; `&h.r.0` borrows `(*h.r).0`, the pointee. Storing a new reference
+// into `h.r` does not touch that storage, yet logosc refuses "cannot borrow 'h.r' as mutable: 'h.r.0' is already
+// borrowed". The local-variable twin is refvar_assign_conflicts_with_pointee_field_loan_refused; this one is decided
+// by the PLACE-write path, a different reader of the same fact (a dotted loan under a reference-typed place names the
+// pointee). PROBES.md 2026-09-14e-thruref (hand m13). Rust: exit 0.
+package place_assign_ref_field_while_pointee_loan_refused;
+struct H<'x> { r: &'x (i64, i64) }
+fn main() -> i32 {
+    let s1: (i64, i64) = (1i64, 2i64);
+    let s2: (i64, i64) = (3i64, 4i64);
+    let mut h: H = H { r: &s1 };
+    let a: &i64 = &h.r.0;
+    h.r = &s2;
+    return (*a + h.r.0 - 4i64) as i32;
+}

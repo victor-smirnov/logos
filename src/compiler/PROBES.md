@@ -44098,3 +44098,174 @@ note: predictions src/compiler/probes/2026-09-14d-meetoblland/PREDICTIONS.md (cb
   registry ALL 9759 -> 9783 / NOIMPORTED 5264 -> 5286 / TIERCOMMIT 125 -> 123, predicted then measured · pass corpus 3139 = 191 + 2948 ·
   CONTROL REVERT on the base copy 47bea7f0: 12/12 fail halves red, 11/12 pass halves pass (the 12th is the raw-pointer repair's own
   legal refusal), both row programs admitted rc 0 · probe-log-lint 290 records.
+
+## 2026-09-14e-thruref — issue-51117 (bck.B) IS THREE DOORS IN SERIES: A DEFAULT-BINDING PAYLOAD LOAN IS NEVER RECORDED (D1), AN ASSIGNMENT TO A REFERENCE LOCAL CONFLICTS WITH A LOAN OF ITS POINTEE (D2), AND A PATTERN BINDING HOLDS ITS LOAN PAST ITS LAST USE (D3, INHERITED); type-check-pointer-comparisons (nllmoves.R2) IS ONE ARM — `==` ON POINTERS ASKS types_compatible, REGION-BLIND
+site: src/compiler/borrow_check.cpp::propagate_pat_borrows
+site: src/compiler/borrow_check.cpp::visit_stmt
+site: src/compiler/sema_expr.cpp::lower_binop
+build: baa2a38e8b650fb3 43 (base, read) · e00c6956a8a745c0 43 (probe batch, read)
+measured: 2026-09-14
+fires: pbdbm 3012 · asgref 209436 · pbdbmasg 212448 (= 3012 + 209436, additive) · asgrefany 212448 · cmpinv 23968 · cmpinvtop 47936 (two probe::on reads per arrival)
+ceiling: pbdbm {issue-51117} · asgref 0 · pbdbmasg {issue-51117} · asgrefany {issue-51117} · cmpinv {type-check-pointer-comparisons} · cmpinvtop {type-check-pointer-comparisons}; every set = the predicted set, diffed both ways ∅/∅
+cost: pbdbm pass 3 (type_3, type_8, bc_patloan_ergonomic_ref_local_reassign_admit) · asgref pbdbmasg cmpinv cmpinvtop pass 0 · cfail 0 of 1597 for all but asgrefany (8) · stdlib 4 of 4 for all six · runtime (run_oracle, 6764 common, cast-region-to-uint subtracted) asgref 0 · cmpinv 0 · pbdbmasg 0 · HAND: pbdbmasg refuses 4 legal (b10 k01 k05 k08), pbdbm 9 legal
+verdict: FUND asgref (D2) and cmpinv (R2); D1 is NOT fundable before D3; asgrefany/cmpinvtop are control twins
+note: targets src/compiler/probes/2026-09-14e-thruref/TARGETS.md, spec thruref.spec, PREDICTIONS.md — committed 4fbc1a16f before the build.
+
+### STEP 1, READ FROM THE TREE
+  HEAD 31e561e94, clean · queue gate rc 0 with LOGOS_LIB_DIR (the prompt's command carries it — checked against the text given) ·
+  soundness_queue # TOTAL 153 = 153 rows · bc_admits 65 · blocked 8 · probe-log-lint 290 · build_hash baa2a38e8b650fb3 43 (= the
+  14d landed build, read) · dlog selftest rc 0 (28fc7c75 19/24/1-5/42-5, duty 1 -> 0).
+
+### THE SURVEY, BY SET
+  Every ledger root × every `## ` record that has a `site:` line, matched on the ROW'S FIXTURE NAMES (not the root spelling).
+  Roots with NO site-bearing record naming their program: bck.A-FNMUT bck.B(issue-51117) bck.NEW-CAPMOVE bck.NEW-L
+  lifereg.NEW-E0226 lifereg.NEW-N2 lifereg.NEW-N3 nllmoves.B nllmoves.E nllmoves.NEW-2 nllmoves.NEW-4 nllmoves.NEW-N2 nllmoves.R2.
+  Excluded by name or by their own notes: A-FNMUT (three pins), NEW-CAPMOVE. nllmoves.NEW-2 has 09-07b ltbnd narrative. Not taken
+  (TARGETS.md): NEW-L (both one-step spellings refuse; loop plane measured 12i), E0226 / NEW-N2 / NEW-N3 / nllmoves.NEW-N2 (no
+  arm), nllmoves.E (drop glue), nllmoves.B (guard implicit loan permissive by construction; struct-literal meet plane).
+
+### ONE-VARIABLE CONTROLS, base baa2a38e8b650fb3 (compile verdict; every legal one linked and RUN)
+  bck.B — WHICH DOOR RECORDS THE PATTERN LOAN
+    b02 `match *bar { Some(ref mut baz) }` + bar.take()     REFUSED   b05 by-value `match foo { Some(ref mut baz) }`  REFUSED
+    b08 struct default `match r { P { a, b } }` + r.a = 5    REFUSED   c01 tuple default `(a, b)`                        REFUSED
+    c03 nested `Some(Some(baz))` + `*bar = None`             REFUSED   c07 method-result scrutinee                        REFUSED
+    b01 (the row) b04 if-let b06 i64 payload b07 param c04 while-let c06 user `E::A(x)`  ADMITTED — a depth-1 variant payload
+    bound by the DEFAULT binding mode; b03 `match &mut foo` ADMITTED; c09 move of the owner ADMITTED.
+    propagate_pat_borrows returns on `mode > 2` BY MEASUREMENT: keying modes 3/4 on the scrutinee place red type_3 / type_8.
+  THE WALL IS A DOOR (D2), AND IT REFUSES LEGAL RUST TODAY AT EVERY OTHER DOOR
+    t1 written `match *cur { Cons(ref v, ref rest) => cur = &**rest }`   REFUSED "cannot assign to 'cur' while 'cur.1' is borrowed"
+    t2 struct default + `r = &s2`   t3 tuple default + `r = &s2`   m1 `let a = &r.a; r = &s2;`   m2 `&mut` twin   m5 tuple twin  REFUSED
+    m6 `let a = &(*r).a; r = &s2;`  RUNS — and x3 `let a = &mut (*r).a; r.a = 5; *a = 7` / x4 `touch(r)` / x5 shared then write
+    ADMITTED: the explicit Deref spelling is unkeyed in BOTH directions, the auto-deref spelling keyed on the local.
+  nllmoves.R2 — r07 `same(x, y)` REFUSED, r03 `let z: *mut &'a i64 = y` REFUSED, r01 `x == y` r05 `x != y` ADMITTED.
+
+### dlog — thruref_assign_sites.dl (NEW RULE; selftest rc 0 first), over borrow_check.cpp
+  KNOWN ANSWER, stated before the run: grep reads 6 `field_borrow_conflicts(` call lines (5370 6930 7120 13181 15039 15359).
+  fbc_call = 6 rows in 5 contexts — AGREES. fbc_verb pairs each call with its verb literal, which grep cannot do where the literal
+  sits on a continuation line: consume "move" · check_recv_conflict "call on" · check_place_mut_use "assign through" · visit_stmt
+  "assign to" · visit "use" (15039) and "move"/"use" (15359). fbc_noverb = ∅.
+  ⇒ D2's class = the whole-value OVERWRITE readers = {visit_stmt "assign to"}. consume's "move" is E0505 and must keep conflicting
+  (hand m11 refused under asgref); visit's "use" is a read. PER-SITE READ beside it: the Assign arm's two whole-variable COUNTERS
+  (shared_borrows / mut_borrowed) decide the same question from a different fact (m8 m9) and are not field_borrow_conflicts callers,
+  so the rule cannot see them — found by hand. ⚠ ctx_of coarsening: visit holds two calls with different verb sets.
+
+### PROBE TABLE — build e00c6956a8a745c0 43 (read), L1 inert rc 0 (807/807, gates 123/123, log 01:34), gate-db builds 1203 -> 1204..1209
+    probe      doors                                                   fires   ceil cost cfail/1597 std  runtime
+    pbdbm      D1: modes 3/4 record like a written ref / ref mut        3012    1    3    0          ok   —  (condemned: cost 3)
+    asgref     D2: Assign to a REF-typed local skips field conflicts  209436    0    0    0          ok   0 of 6764
+    pbdbmasg   D1 + D2, the whole (rule 13)                           212448    1    0    0          ok   0 of 6764
+    asgrefany  D1 + D2 skip for ANY local (rule-9 twin)               212448    1    0    8          ok   —
+    cmpinv     R2: ==/!= needs equal regions at invariant positions    23968    1    0    0          ok   0 of 6764
+    cmpinvtop  R2 twin: depth cut after the *mut/&mut test             47936    1    0    0          ok   —
+  pbdbm COST = logos_25_spec_pass_type_3, logos_25_spec_pass_type_8, logos_02_semantic_core_pass_bc_patloan_ergonomic_ref_local_reassign_admit
+    (predicted type_3/type_8; the third is the owner's pin of the same wall, and its header names D2's abuse twin
+    tests/imported/fail/regions/regions-pattern-typing-issue-19997 — unchanged under asgref, cfail 0).
+  asgrefany cfail 8 = seven fail fixtures UN-REFUSED (assignment-to-differing-field--f-assign-over-field-loan,
+    bc_field_borrow_vs_whole_assign_fail, bc_patloan_ref_assign_fail, borrowck-assign-comp, borrowck-lend-flow-match,
+    borrowck-overloaded-index-and-overloaded-deref--b, borrowck-pat-reassign-binding) + one text-only (bc_d1r10_e0_root_rebind_strands_alias):
+    the ref-kind predicate is what keeps them — the harness separates the twin, and so does hand m12.
+  Rule 13: pbdbm + asgref = 3012 + 209436 fires = pbdbmasg exactly; ceilings 1 + 0 = 1; cost 3 + 0 -> 0 (NEGATIVE increment: D2
+    repairs D1's cost). Additive in fires, not in cost.
+
+### THE SETS, BY NAME, AND THE DIAGNOSTICS
+  issue-51117 under pbdbm / pbdbmasg: "cannot borrow 'bar' as mutable: field of 'bar' is already borrowed" — the written `ref mut`
+    door's existing sentence (b02, base); upstream E0499 "cannot borrow `*bar` as mutable more than once at a time". Right verdict,
+    names the local where rustc names the place `*bar`.
+  type-check-pointer-comparisons under cmpinv / cmpinvtop: THREE errors, one at each annotated function (compare_const, compare_mut,
+    compare_fn_ptr), none at compare_hr_fn_ptr / compare_const_fn_ptr — "operator '==': lifetime may not live long enough — X and Y
+    have no common type, because a lifetime under an invariant position differs". Upstream prints TWO per function (one per
+    direction). `fn(..) -> void` is type_str's spelling. No minted name in any refused stderr (scanned for `'%`, `'__anon`, `'^`).
+### HAND BATTERY — 102 programs (by path; one basename, m14, was shared by a malformed first draft and its fix and
+### was re-read by path), base baa2a38e8b650fb3 vs the batch build unarmed vs each name
+  Unarmed batch build == base on every program (the first battery overlapped the stdlib rebuild; re-run after L1).
+  pbdbm (15 moved): REFUSED illegal b01 b04 b06 b07 c04 c06 issue-51117 · REFUSED LEGAL b10 k01 k05 k08 (a use of the
+    scrutinee after the binding's LAST use) and t4 t5 t6 m14 m15 (an assignment to the reference cursor).
+    Unmoved: b03 (`match &mut foo`, AddrOf scrutinee) · c09 (move of the OWNER) · k02 k03 k04 k06 k07.
+  asgref (7 moved, all LEGAL, all RUN): m1 m2 m5 t1 t2 t3 + the drafted row program. Unmoved and correct: m10 m11 m12
+    m16 m17 m18 m20 x6 x7 x8 stay refused; m8 m9 m13 stay refused (other readers); x3 x4 x5 stay admitted (other door).
+  pbdbmasg (18 moved): pbdbm's illegal set + asgref's legal set; t4 t5 t6 m14 m15 RUN again; b10 k01 k05 k08 STILL
+    REFUSED — D2 does not reach them.
+  asgrefany (20 moved): pbdbmasg's 18 + m12 ADMITTED (illegal, runs rc 3) + e03 (legal, by the wrong arm). The rule-9
+    twin separates by hand; the harness columns decide whether it separates there.
+  cmpinv (8 moved): REFUSED r01 r05 r09 r10 r17 r18 r23 + type-check-pointer-comparisons. Unmoved legal r02 r04 r11 r12
+    r13 r14 r15 r16 r19 r20 r21. r22 (two ELIDED params) NOT refused — predicted refused; its call twin r24 and let twin
+    r25 are admitted on base too: two elided parameter regions compare equal at every site (the elision plane).
+  cmpinvtop (7 moved): cmpinv minus r23. ⚠ My own spelling put the depth cut AFTER the `*mut`/`&mut` test, so at
+    depth 1 the twin is cmpinv; r09/r10 (predicted separators) do not separate, r23 (`*const *const &mut &'a`) does.
+
+### THE THIRD DOOR — INHERITED, MEASURED ON BASE (rule 14)
+  e01 `match *bar { Some(ref mut baz) => { n = baz.len(); bar.take(); } }`   REFUSED base, legal
+  e02 written `ref mut`, copy out then `*bar = None`                          REFUSED base, legal
+  e03 by-value scrutinee `match foo { Some(ref mut baz) => { ..; foo = None } }` REFUSED base, legal
+  e04 struct default door `P { a, b } => { *a = 5; touch(r) }`                  REFUSED base, legal
+  e05 tuple default door `(a, b) => { *a = 5; r.1 = 9 }`                        REFUSED base, legal
+  e06 let form `let a = &mut r.a; *a = 5; touch(r);`                            RUNS
+  ⇒ a pattern binding holds its loan until the arm ends, at every door that records one; pbdbm adds the enum door to
+    this over-refusal. D1 cannot land before D3.
+
+### NEIGHBOURS (standing rule 2026-09-12) — neighbour · verdict in this pricing · reason / number
+  D1 — the pattern loan of a by-ref binding under a reference scrutinee
+    enum door, `let bar = &mut foo; match bar` (the row) + if-let, while-let, param, user enum   CLOSED by pbdbm (b01 b04 b06 b07 c04 c06)
+    enum door behind D3 (a use after the binding's last use)   NOT closable by D1: REASON 2, doors in series — D3 refuses b10 k01 k05 k08
+                                                              under pbdbmasg; inherited at the written ref / struct / tuple doors (e01-e05)
+                                                              -> row pattern_ref_binding_loan_outlives_last_use_refused
+    `match &mut foo` (AddrOf scrutinee)       REASON 1, no carrier: extract_borrow_place has no AddrOf arm, the walk returns before the
+                                              mode is asked (b03 unmoved) -> row match_addrof_scrutinee_default_payload_loan_unrooted_admits
+    move of the OWNER under a live payload binding   REASON 1: a different fact (the owner kept borrowed through the scrutinee);
+                                              unmoved by pbdbm, and the WRITTEN ref mut door admits it too (o01, c09)
+                                              -> row pattern_enum_payload_ref_owner_move_admits
+    struct-variant `E::A { x }` under `&mut E`  already queue row struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses (k09 = it)
+  D2 — a dotted loan under a REFERENCE-typed local names the pointee
+    let form `&r.a` / `&mut r.a` / `&r.1`, written `match *cur` walk, struct and tuple default doors   CLOSED by asgref (m1 m2 m5 t1 t2 t3)
+                                              -> row refvar_assign_conflicts_with_pointee_field_loan_refused (asgref's own row)
+    whole reborrow `let a = &*r; r = &s2;` (+ `&mut *r`)   REASON 1, no carrier: the whole-variable counters cannot tell it from
+                                              `let q = &r` (m10, must stay E0506); RecordFlags::of_binding is not stored in VarState
+                                              -> row refvar_reborrow_whole_then_assign_counter_refused
+    place write `h.r = &s2` under `&h.r.0`    REASON 1: another reader (the place-write path), its target carries no ref-kind bit at
+                                              that site (m13 unmoved) -> row place_assign_ref_field_while_pointee_loan_refused
+    explicit `&mut (*r).a` then `r.a = 5` / `touch(r)` / `(*r).a = 5`   NOT a D2 neighbour (the permissive direction, a different
+                                              door: the Deref lowering keys nothing) -> row explicit_deref_field_borrow_through_refvar_unkeyed_admits
+    move of a `&mut` local under a pointee field loan (m11)   NOT a neighbour: E0505, must keep conflicting — asgref leaves it refused
+  R2 — `==` on pointer-like operands
+    `*mut` / `*const &mut` / fn params / depth-2 `*const *const &mut`   CLOSED by cmpinv (r01 r05 r09 r10 r17 r18 r23)
+    two ELIDED parameter regions (r22)        NOT this arm: r24 `same(x, y)` and r25 a let admit the same pair on base — two elided
+                                              regions compare equal at every site (the lifereg.A elision plane); legality rests on reading
+    `<` / `<=` / `>` / `>=` on raw pointers   crashes the MLIR verifier on base (r06), no borrow question
+                                              -> row rawptr_ordering_compare_mlir_verifier_refused
+
+### WHAT DESERVES FUNDING
+  1. asgref (D2) — FUND, on its own. Zero rows, and it un-refuses SEVEN legal programs by hand (m1 m2 m5 t1 t2 t3 and its row) with
+     cost 0 in pass / cfail / stdlib / runtime, no illegal program opened over 14 abuse shapes (m10 m11 m12 m16 m17 m18 m20 x6 x7 x8,
+     19997's fail fixture). It is also the second door of issue-51117: without it D1 costs type_3 / type_8 / the patloan pin.
+     Landing needs: its rowed neighbours' reasons re-measured, and the queue row it closes landed as a pass fixture.
+  2. cmpinv (R2) — FUND. Ceiling 1 by name, cost 0 in five columns, the row closed with an error at each of upstream's three
+     annotated functions and none at its two OK controls; 11 legal pointer shapes unmoved (r02 r04 r11 r12 r13 r14 r15 r16 r19 r20 r21).
+     Rule 9 twin cmpinvtop separates only by hand (r23). Landing: re-word to name the two regions (upstream says "'a must outlive 'b"),
+     decide whether one sentence per direction is owed.
+  3. D1 (pbdbm) — DO NOT FUND before D3. pbdbmasg is cost 0 in every harness column and REFUSES FOUR LEGAL PROGRAMS by hand
+     (b10 k01 k05 k08). D3 (a pattern binding's loan released at its last use) is the next pricing job for issue-51117; it is
+     inherited at three doors today (row pattern_ref_binding_loan_outlives_last_use_refused), so pricing it first has its own value.
+
+### MISTAKES OF MY OWN
+  * The first hand battery ran while probe-batch was rebuilding the stdlib layers; re-run in full after L1.
+  * Two different programs shared the basename m14 (a malformed first draft and its fix); the analysis keyed on the basename and
+    reported a flip on the UNARMED build that 80 repeated compiles refuted. Re-read by path.
+  * cmpinvtop's depth cut sits after the `*mut`/`&mut` test, so it is cmpinv on every depth-1 shape; r09/r10, predicted separators,
+    do not separate. r23 was written after the run to separate the names.
+  * PREDICTIONS.md predicted r22 refused under cmpinv — wrong: the elided pair compares equal everywhere (r24 r25).
+  * PREDICTIONS.md predicted k01 k05 k08 UNCERTAIN under pbdbm; all refused, and the reason (D3) is inherited, found only after.
+
+### RUNTIME COLUMN — run_oracle on the probe build e00c6956a8a745c0, one configure, serial (02:05 -> 02:45)
+  unarmed 6764 compiled/linked/RUN (6760 cc 0, 4 cc 90) · asgref 6764 common, 1 changed = cast-region-to-uint (stack address,
+  subtracted) -> 0 · cmpinv same -> 0 · pbdbmasg same -> 0.
+
+### QUEUE — soundness_queue 153 -> 161 by direct listing, gate rc 0 on base baa2a38e8b650fb3 (tier1=20 tier2=42 tier3=91 tier4=8)
+  t2 explicit_deref_field_borrow_through_refvar_unkeyed_admits (x3) · t2 pattern_enum_payload_ref_owner_move_admits (o01 c09) ·
+  t2 match_addrof_scrutinee_default_payload_loan_unrooted_admits (b03) · t3 refvar_assign_conflicts_with_pointee_field_loan_refused
+  (m1; asgref closes it) · t3 refvar_reborrow_whole_then_assign_counter_refused (m8) · t3 place_assign_ref_field_while_pointee_loan_refused
+  (m13) · t3 pattern_ref_binding_loan_outlives_last_use_refused (e01; D3) · t3 rawptr_ordering_compare_mlir_verifier_refused (r06).
+  Legality of every t3 row rests on READING (no rustc binary on this box).
+
+### GATES AT CLOSE — probe sources reverted (grep: 0 probe lines), build/ rebuilt, build_hash baa2a38e8b650fb3 43 = base (read)
+  L1 rc 0 (807/807, smoke/gates 123/123, log 02:55:13) · queue gate 161 hold rc 0 on the rebuilt binary · probe-log-lint 291 records ·
+  bc_admits 65 / blocked 8 unchanged (pricing only) · no probe left installed.

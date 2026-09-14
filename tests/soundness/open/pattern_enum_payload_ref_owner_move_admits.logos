@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row pattern_enum_payload_ref_owner_move_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED. `bar = &mut foo`; `baz` is a `ref mut` binding of `(*bar).0`, live until `baz.len()`, so
+// `foo` is still mutably borrowed when `let moved = foo;` moves it (rustc E0505). logosc compiles and RUNS it. A WRITE
+// to the owner in the same position is refused ("cannot assign to 'foo' while it is mutably borrowed"), and so is the
+// move under a STRUCT pattern (`match r { P { a, b } => { let moved = s; a.len() } }`) and under the let form
+// (`let a = &mut r.a; let moved = s;`). The default-binding-mode spelling (`match bar { Option::Some(baz) => .. }`) is
+// admitted the same way, and recording its loan at the enum door (probe pbdbm) does not move it: the missing fact is
+// the owner kept borrowed by a binding reached through the reference scrutinee, not the binding's own loan.
+// PROBES.md 2026-09-14e-thruref (hands o01-o04, c09). Rust: refused.
+package pattern_enum_payload_ref_owner_move_admits;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut foo: Option<String> = Option::Some(String::from("foo"));
+    let bar: &mut Option<String> = &mut foo;
+    match *bar {
+        Option::Some(ref mut baz) => {
+            let moved: Option<String> = foo;
+            let _n: i64 = baz.len();
+        }
+        Option::None => { }
+    }
+    return 0i32;
+}

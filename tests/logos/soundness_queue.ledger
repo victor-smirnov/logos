@@ -49,7 +49,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 153
+# TOTAL 161
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -201,3 +201,13 @@ closure_elided_return_annotation_region_admits 2 tests/soundness/open/closure_el
 where_struct_literal_instantiation_rigid_refused 3 tests/soundness/open/where_struct_literal_instantiation_rigid_refused refuses
 struct_lit_invariant_binder_first_wins_covariant_region_refused 3 tests/soundness/open/struct_lit_invariant_binder_first_wins_covariant_region_refused refuses
 generic_mutref_pair_local_borrow_escape_admits 2 tests/soundness/open/generic_mutref_pair_local_borrow_escape_admits admits
+# ── 2026-09-14e-thruref: eight defects the pricing round's hand battery found around issue-51117's three doors and the
+# pointer-comparison arm, each reproducing on base baa2a38e8b650fb3 43 (read) before any edit; reason and hands in each header.
+refvar_assign_conflicts_with_pointee_field_loan_refused 3 tests/soundness/open/refvar_assign_conflicts_with_pointee_field_loan_refused refuses
+explicit_deref_field_borrow_through_refvar_unkeyed_admits 2 tests/soundness/open/explicit_deref_field_borrow_through_refvar_unkeyed_admits admits
+refvar_reborrow_whole_then_assign_counter_refused 3 tests/soundness/open/refvar_reborrow_whole_then_assign_counter_refused refuses
+place_assign_ref_field_while_pointee_loan_refused 3 tests/soundness/open/place_assign_ref_field_while_pointee_loan_refused refuses
+rawptr_ordering_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_ordering_compare_mlir_verifier_refused refuses
+pattern_ref_binding_loan_outlives_last_use_refused 3 tests/soundness/open/pattern_ref_binding_loan_outlives_last_use_refused refuses
+pattern_enum_payload_ref_owner_move_admits 2 tests/soundness/open/pattern_enum_payload_ref_owner_move_admits admits
+match_addrof_scrutinee_default_payload_loan_unrooted_admits 2 tests/soundness/open/match_addrof_scrutinee_default_payload_loan_unrooted_admits admits

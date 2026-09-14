@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row refvar_reborrow_whole_then_assign_counter_refused (tier 3).
+// LEGAL RUST REFUSED. `let a = &*r;` reborrows the POINTEE; assigning `r = &s2` afterwards leaves `a` valid. logosc
+// refuses "cannot assign to 'r' because it is borrowed": the reborrow is rooted at the reference VARIABLE (the Deref
+// arm's documented policy) and raises `shared_borrows` on `r`, and the Assign arm's whole-variable counters cannot
+// tell that loan from `let q = &r;` (a borrow OF the binding, which must stay refused: E0506). VarState carries no bit
+// separating the two — `RecordFlags::of_binding` exists at record time and is not stored. The `&mut *r` twin refuses
+// "cannot assign to 'r' while it is mutably borrowed". PROBES.md 2026-09-14e-thruref (hands m8 m9; control m10).
+// Rust: exit 0.
+package refvar_reborrow_whole_then_assign_counter_refused;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut r: &P = &s1;
+    let a: &P = &*r;
+    r = &s2;
+    return (a.a + r.a - 4i64) as i32;
+}

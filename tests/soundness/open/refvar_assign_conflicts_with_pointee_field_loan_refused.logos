@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row refvar_assign_conflicts_with_pointee_field_loan_refused (tier 3).
+// LEGAL RUST REFUSED. `r` is a REFERENCE; `&r.a` borrows `(*r).a`, the POINTEE's storage. Assigning a new reference
+// to `r` does not touch that storage (NLL kills the loans through `r` on overwrite), yet logosc refuses with
+// "cannot assign to 'r' while 'r.a' is borrowed": visit_stmt's Assign arm hands the whole-value write to
+// field_borrow_conflicts with path "", and a dotted loan recorded under a reference-typed local is read as a loan on
+// the local's own storage — a reference has no fields of its own. The explicit spelling `&(*r).a` RUNS (and is a hole
+// in the other direction: row explicit_deref_field_borrow_through_refvar_unkeyed_admits).
+// Same reader refuses the pattern forms: a written `match *cur { List::Cons(ref v, ref rest) => cur = &**rest }` list
+// walk, and `match r { P { a, b } => r = &s2 }` / `(a, b)` under the default binding mode. PROBES.md
+// 2026-09-14e-thruref (door D2; probe asgref). Found on base baa2a38e8b650fb3 43 (hands m1 m2 m5 t1 t2 t3).
+// Rust: exit 0.
+package refvar_assign_conflicts_with_pointee_field_loan_refused;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut r: &P = &s1;
+    let a: &i64 = &r.a;
+    r = &s2;
+    return (*a + r.a - 4i64) as i32;
+}

@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row explicit_deref_field_borrow_through_refvar_unkeyed_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED. `let a = &mut (*r).a;` holds a mutable loan of the pointee's field; `r.a = 5` writes the
+// same place while `a` is live (rustc E0506 "cannot assign to `r.a` because it is borrowed"). logosc compiles and RUNS
+// it. The auto-deref spelling `&mut r.a` IS refused ("'r.a' is already mutably borrowed"), so the explicit Deref
+// lowering reaches the loan channel without the key the FieldRead spelling carries. Siblings on base, same verdict:
+// `touch(r)` (a reborrow of the whole `*r`, E0499) and `(*r).a = 5` under a shared `&(*r).a` (E0506).
+// PROBES.md 2026-09-14e-thruref (hands x3 x4 x5; found on base baa2a38e8b650fb3 43). Rust: refused.
+package explicit_deref_field_borrow_through_refvar_unkeyed_admits;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let r: &mut P = &mut s1;
+    let a: &mut i64 = &mut (*r).a;
+    r.a = 5i64;
+    *a = 7i64;
+    return 0i32;
+}
