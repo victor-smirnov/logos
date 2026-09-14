@@ -1,0 +1,19 @@
+package tuplestruct_ctor_declared_binder_name_admits;
+struct P<'s>(&'s i64, &'s i64);
+fn mk<'a, 'b>(x: &'a i64, y: &'b i64) -> P<'a> {
+    return P(x, y);
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let b: i64 = 5i64;
+    let p: P = mk(&a, &b);
+    return (*p.0 + *p.1) as i32;
+}
+// SOUNDNESS QUEUE row tuplestruct_ctor_declared_binder_name_admits (tier 2).
+// Illegal: `P(x, y)` puts a `&'b i64` into a `P<'a>` with no `'b: 'a` (rustc: lifetime may not live long enough).
+// TODAY admitted. The tuple-struct constructor (lower_call's `B-ts-01` arm) instantiates NO binder: each field is
+// compared by check_variance against the DECLARED `&'s i64`, and `'s` is not a binder of the fn under check, so
+// outlives() answers by its permissive default. Rule 12's shape: with the binder spelled `'a` like the fn's, the
+// same body is refused (c10, "tuple-struct 'P' field 1: variance mismatch — expected &'a i64, got &'b i64").
+// Twin row: tuplestruct_ctor_declared_binder_name_refused. Found 2026-09-14c-meetobl (T1), base 47bea7f0aeb42d36;
+// unchanged under mobl / moblany.

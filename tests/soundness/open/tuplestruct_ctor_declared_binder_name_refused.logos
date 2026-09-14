@@ -1,0 +1,17 @@
+package tuplestruct_ctor_declared_binder_name_refused;
+struct P<'s>(&'s i64, &'s i64);
+fn mk<'a, 'b: 'a>(x: &'a i64, y: &'b i64) -> P<'a> {
+    return P(x, y);
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let b: i64 = 5i64;
+    let p: P = mk(&a, &b);
+    return (*p.0 + *p.1) as i32;
+}
+// SOUNDNESS QUEUE row tuplestruct_ctor_declared_binder_name_refused (tier 3).
+// Legal Rust (exit 7): `'b: 'a`, so both fields fit `P<'a>`. TODAY refused: "tuple-struct 'P' field 0: variance
+// mismatch — expected &'s i64, got &'a i64" (and field 1). The constructor compares each field against the
+// DECLARED binder name `'s` with no instantiation; spelled `'a` like the fn's binder the same program compiles
+// and runs 7 (T3). ⚠ Legality rests on a reading — no rustc binary on this box.
+// Twin row: tuplestruct_ctor_declared_binder_name_admits. Found 2026-09-14c-meetobl (T2), base 47bea7f0aeb42d36.

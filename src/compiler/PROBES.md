@@ -43847,3 +43847,143 @@ note: record 2026-09-14a-ptrcoerce priced both; its WHAT DESERVES FUNDING is cor
   * A staged fixture pair (bc_vecstore_loop_loan_admit) borrowed a variable the loop mutates — illegal; caught on reading, rewritten.
   * bc_ptrcoerce_vec_to_slice_refuse used a call argument; the strict-site narrowing admitted it on build 4; moved to a let.
   * An unquoted heredoc let bash expand backticks inside a queue program's header; rewritten.
+
+## 2026-09-14c-meetobl — A REGION BINDER OFFERED TWO REGIONS DISCHARGES THE ONE IT DID NOT KEEP: THE STRUCT LITERAL'S MEET WIDENS TO "" (A WILDCARD), THE NON-GENERIC LITERAL AND THE ENUM LITERAL KEEP THE FIRST AND CHECK THE REST REGION-BLIND (lifereg.NEW-N1 regions-creating-enums3, lifereg.NEW-R19 regions-glb-free-free--glb-free-free)
+site: include/logos/compiler/outlives.hpp::outlives
+site: src/compiler/sema_impl.hpp::structlit_lt_subst_
+site: src/compiler/sema_impl.hpp::build_call_lt_subst_
+site: src/compiler/sema_expr.cpp::lower_struct_lit
+site: src/compiler/sema_expr.cpp::lower_enum_lit_data
+site: src/compiler/sema_expr.cpp::lower_enum_lit_data_from_static
+build: 47bea7f0aeb42d36 43 (base, read) · 1520624dc7626a4f 43 (batch 1, read) · 8313b6accf4f7de7 43 (batch 2, read)
+measured: 2026-09-13
+fires: mobl 5429 · moblng 291 · moblenum 5124 · moblcall 14 · moblgen 7 · moblany 5429 · moblsome 5447 · (batch 1) meetobl 5145
+ceiling: mobl 2 · moblng 1 · moblenum 1 · moblcall 0 · moblgen 0 · moblany 2 · moblsome 0 · (batch 1) meetobl 0
+cost: 0 pass / cfail 0 of 1583 / stdlib 4 of 4 for every name; runtime (mobl) 6752 common 0 changed (cast-region-to-uint subtracted by name); hand battery 81 programs (61 under all seven names, 20 under mobl / moblany) + 32 one-variable controls: 0 legal moved
+verdict: FUND moblany (= mobl + the enum site's invariant binders): ceiling 2 = predicted by name, 0 in every harness column, 0 legal moved over 81 battery programs by hand; LAND WITH A PRINTER (the token is hidden: "got Ast", "got P2<'b>")
+note: PRICED, NOT FIXED. Specs meetobl.spec (batch 1), meetobl2.spec (batch 2), predictions PREDICTIONS.md / PREDICTIONS2.md, targets TARGETS.md — each committed before its build.
+
+### STEP 1, READ FROM THE TREE
+  HEAD a1d93c39c, clean · queue gate rc 0 (LOGOS_LIB_DIR given; the prompt's command carries it — checked against the text given) ·
+  soundness_queue # TOTAL 144 = 144 rows · bc_admits # TOTAL 67 · bc_admits_blocked # TOTAL 8 · probe-log-lint 288 records ·
+  build_hash 47bea7f0aeb42d36 43 (read) · dlog selftest rc 0 (28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0).
+
+### WHY THIS BLOCK — THE NEVER-PRICED SET, DERIVED
+  PROBES.md split at `## ` (1880 records); per ledger root, records with a `site:` line naming the root qualified (`lifereg.NEW-N1`),
+  by suffix (`*.NEW-N1`) or by one of its fixtures. With `site:`+`ceiling:` required, 0 qualified records: bck.A-FNMUT, bck.D,
+  bck.NEW-1, bck.NEW-4, bck.NEW-A16, bck.NEW-CAPLOAN (suffix only), bck.NEW-CAPMOVE, bck.NEW-CESC (suffix), lifereg.NEW-N1, lifereg.R2,
+  nllmoves.D, nllmoves.NEW-CAPLOAN, nllmoves.NEW-CESC. Excluded by their own notes: A-FNMUT (three green pass fixtures), bck.D /
+  nllmoves.D / lifereg.R2 (the two-phase decline; R2 is bck.D's mechanism), NEW-1/NEW-4/NEW-A16 (A16), NEW-CAPMOVE, the CAPLOAN /
+  CESC roots (worked 2026-09-09i/j, 2026-09-11b/c). lifereg.NEW-N1's three rows: trait-method-lifetime-suggestion (the Self plane),
+  better-blame-constraint-for-outlives-static (Bytes has NO binder: the Slice/'static elision plane), regions-creating-enums3 —
+  the 2026-08-30 survey's M-AGG, "aggregate instantiates a region binder and emits no outlives constraint", never priced.
+  Census on the base binary put lifereg.NEW-R19's glb row on the same fact: meet.structlit.applied=4 (the meet mints "");
+  regions-creating-enums3 meet.enumlit.multi.co=1 (no meet: first-wins). ONE FACT, TWO SPELLINGS — the grouping was TESTED:
+  mobl moves both, moblng only glb, moblenum only enums3.
+
+### ONE-VARIABLE CONTROLS (base 47bea7f0aeb42d36)
+    c01 `Ast::Add(x, y)` -> Ast<'a>          ADMITS     c05 `E::One(y)` -> E<'a>              REFUSED (one candidate)
+    c03 `P { x: x, y: y }` -> P<'a>          ADMITS     c04 `P { x: y, y: y }` -> P<'a>       REFUSED (one candidate)
+    c06 `E::Two(x, y)` -> E<'a>              ADMITS     X10 `E::Three(y, 1, x)` -> E<'a>      REFUSED (first-wins takes 'b)
+    c07 `pair(x, y)` -> P<'a> · c08 `pick(x, y)` -> &'a   ADMIT (meet.call.applied)
+    g01 the glb row on `&i64` ADMITS · g02 `Flag { name: s, desc: s }` REFUSED
+
+### ARRIVAL CENSUS (rule 17), base binary, 8948 pass/fail .logos files, one process each
+    meet.structlit.applied 2 files (both pass) · meet.call.applied 5 files (2 pass) · meet.enumlit.multi.co 0 files ·
+    meet.structlit.multi.inv 2 (fail) · meet.call.fnvar.inv 5. The corpus half of every cost column CANNOT see most of this
+    mechanism (rule 4) — the hand battery is the column that carries it.
+
+### dlog — binder_inst_sites.dl (NEW RULE; selftest rc 0 first), over sema{_expr,,_decl,_stmt,_collect}.cpp
+  Question: every FUNCTION (lambdas folded into the enclosing one — the pairing walks are all `std::function walk`) that references
+  `lifetime_params` and reads an actual region (`lifetime()` / `lifetime_args()`), split by whether it calls `census_meet_`.
+  KNOWN ANSWER, stated first: meet_site must equal the census_meet_ callers. It lists 5 (structlit_lt_subst_, build_call_lt_subst_,
+  lower_enum_lit_data, lower_enum_lit_data_from_static, lower_method_call); grep -n 'census_meet_(' agrees, 5 — and my own earlier
+  head-limited grep had shown 4. Answer: 5 meet-aware + 12 other. PER-SITE READ beside it: of the 12, ONE is a real instantiation
+  site — lower_struct_lit's non-generic first-wins walk, the door batch 1 missed by reading and dlog had listed — and 11 are not
+  (collect_impl, compute_fn_lifetime_outlives, datatype_wf_preds, lower_enum_def, lower_fn, lower_impl_block, lower_struct_def:
+  declaration-time name validation; field_type_of_for_type: one written region per binder; resolve_type_generic_inst: written args;
+  lower_enum_lit: hint only; lower_static_call: delegates to build_call_lt_subst_). dlog 17 · per-site 6.
+
+### BATCH 1 — A BROKEN HOP (build 1520624dc7626a4f 43, read; L1 inert rc 0; spec bef3f8703)
+    meetobl  fires 5145 · ceiling 0 · cost 0 · cfail 0 of 1583 · stdlib 4 of 4 — "no effect", and NOT a refutation (rule 11).
+  The spelling read a token as "" at every EQUALITY (lt_eq, lifetime_at Inv). subtype()'s head asks types_equal_with_lifetimes before
+  any Co arm, so "" == 'a answered first. Census, armed: X01 X02 X04 X10 X13 fire meetobl.eq.inert only, never outl.arrive. By hand it
+  UN-REFUSED X10 and X13 (two illegal programs refused on base). meetoblinv (asked everywhere) refused X02 X03 X18 and left every
+  NON-GENERIC struct literal admitted with outl.refuse.sub firing — the second door (lower_struct_lit's walk); a GENERIC `P<'a, T>`
+  literal refused (v5). Batch 1 was stopped after its first line; the trap reverted and rebuilt to 47bea7f0aeb42d36 43.
+
+### BATCH 2 — PROBE TABLE, build 8313b6accf4f7de7 43 (read), L1 inert rc 0, spec 90097dc33
+    name       mints at                                   fires  ceiling  cost  cfail     std   closed (predicted by name, diffed both ways)
+    mobl       structlit meet + non-generic literal +      5429     2       0    0/1583   4/4   {regions-creating-enums3, regions-glb-free-free--glb-free-free} ∅/∅
+               call meet + both enum literal sites
+    moblng     structlit meet + non-generic literal type    291     1       0    0/1583   4/4   {regions-glb-free-free--glb-free-free} ∅/∅
+    moblenum   both enum literal sites                     5124     1       0    0/1583   4/4   {regions-creating-enums3} ∅/∅
+    moblcall   call meet                                     14     0       0    0/1583   4/4   {} ∅/∅ — live: 14 = the census's meet.call.applied total
+    moblgen    structlit meet only                            7     0       0    0/1583   4/4   {} ∅/∅ — door in series (the glb row's Flag is non-generic)
+    moblany    mobl + enum invariant binders (no guard)    5429     2       0    0/1583   4/4   = mobl
+    moblsome   mobl's sites, sub-side ANY (control twin)   5447     0       0    0/1583   4/4   {} — by hand it UN-REFUSES X05 X10 X13
+  ADDITIVITY (rule 13), battery: moblng 12 + moblenum 2 + moblcall 1 = mobl 15; ledger: 1 + 1 + 0 + 0 = 2. moblgen 0 is the first half
+  of a series with moblng. RUNTIME COLUMN (mobl, build 8313b6accf4f7de7, one configure, one chain 21:47 -> 22:07): unarmed 6752 rc 0, armed 6752 rc 0,
+  6752 common, 1 changed = cast-region-to-uint (stdout sha only; subtracted by name) -> 0 changed; 0 only-armed, 0 only-unarmed.
+  Queue gate under LOGOS_PROBE=mobl: rc 0, 144 rows hold — 0 queue rows move.
+
+### EVERY CLOSED ROW'S DIAGNOSTIC (the real ledger programs, armed mobl)
+    regions-creating-enums3               :19 [fn mk_add_bad1]: return type mismatch: variance mismatch — expected Ast<'a>, got Ast — lifetime structure incompatible (...)
+    regions-glb-free-free--glb-free-free   :8 [fn Flag__set_desc]: return type mismatch: variance mismatch — expected Flag<'a>, got Flag — lifetime structure incompatible (...)
+  Right verdict at the right site (the return) naming the fn; upstream says "lifetime may not live long enough". ⚠ THE SENTENCE IS
+  WEAK: type_str hides the token (lt_is_minted), so the got-side names NO region; with two binders it MISLEADS — X55 prints
+  "expected P2<'a, 'b>, got P2<'b>" where the first slot is the token. A landing must print the candidates. No stderr of any run
+  (batteries 1-3 under every name) contains the spelling `'%^` (scanned).
+
+### HAND BATTERY — 81 programs (batteries 1+2: 61, run under every batch-2 name; battery 3: 20, run under mobl and moblany), base copy vs batch-2 binary (unarmed IDENTICAL to base, verdict and exit)
+  Legal, compiled + linked + RUN, exit unchanged: L01-L08 L10-L32 L35-L42 (every name) · L50-L57 L59 L61-L63 (mobl, moblany) · J02 T3 (base, mobl, moblany) (shapes: `where` bound
+  and transitive chain, 'static candidate, two locals, loop, call meet at a let / argument / Vec push in a loop, elided let / return,
+  nested literal, tuple / Box / Option return, impl header bound, impl method self field + static, generic T struct, `&'a str`
+  literal + param, Option<&'l> field, `&'a dyn` fields, `&'a [T]` fields, three-variant user enum, `*out =` store with bound, Vec push
+  of a meet, Option slot store, `P::new` static call, two-binder struct, meet of a meet, trait impl on the meet, closure capture,
+  by-value self method, match arms building the literal, invariant-binder enum with bound).
+  Illegal refused under mobl (admitted on base): X01 X02 X03 X04 X07 X08 X09 X11 X12 X14 X15 X16 X17 X18 X19 X50 X51 X53 X54 X55;
+  under moblany additionally J01. Still admitted under every name: X52 (not a neighbour, below), T1 (not a neighbour, below).
+  Pre-existing legal refusals found (base = armed): L33, L34, L58 (Box read invariant — the root of vec_box_invariant_in_t_refused),
+  T2, L09 / L60 were MY mis-spellings (E0106 in Rust too; `&v[0u64]` types as `&Vec`) — discarded.
+
+### NEIGHBOURS (standing rule 2026-09-12) — each tested against the priced change or a strict extension at the same site
+    neighbour                                                  verdict                                 reason / number
+    struct literal meet, generic literal type + field checks   CLOSED by mobl (moblgen)                v5 refused; ceiling 0 alone (series)
+    non-generic literal walk (lower_struct_lit)                CLOSED by mobl (moblng)                 the glb row; X01 X04 X07-X09 X11 X12 X14-X17 X19
+    call meet (build_call_lt_subst_, free fn and static call)  CLOSED by mobl (moblcall)               X03 (moblcall alone); X53 `P::new(x, y)` (mobl); no ledger row
+    enum literal, both sites, covariant binder                 CLOSED by mobl (moblenum)               regions-creating-enums3, X02 X18
+    enum literal, INVARIANT binder offered two regions (J01)   CLOSED by the STRICT EXTENSION moblany  identical to mobl in all five harness columns; J01 refused, J02 legal runs 6
+    struct literal INVARIANT binder (the meet's guard)         ROWED-FOR-FUNDING NOTE, reason 3        the guard-less meet with a token is not installed; the "" form (ltmeetany)
+                                                                                                        un-refuses 2 pinned fail fixtures (2026-08-31n); unpriced with a token
+    call INVARIANT binder (callmeet guard)                     reason 3                                ltcallmeetany "" form: ceiling 23 / cost 3 (2026-08-31n); unpriced with a token
+    tuple-struct constructor `P(x, y)`                         NOT a neighbour — reason 1, no carrier  it instantiates NO binder: fields compared against the DECLARED name (T1 admits, T2 refuses); rowed
+    enum payload binding `E::Two(_, q)`                        NOT a neighbour                         the binding carries the declaration's binder name (p4 renamed refuses, p5 legal refuses); rowed
+    type parameter T offered two regions (`first(x, y)`)       NOT a neighbour — reason 1              unify_types binds a SemaSubst of types, no candidate set; rowed (L34)
+
+### FOUND, NOT NEIGHBOURS — ROWED (soundness_queue 144 -> 149 by direct listing), each reproducing on base 47bea7f0 AND the restored build
+    tier 2 admits: enum_payload_binding_declared_binder_name_collision_admits (X52 p1 p2) · tuplestruct_ctor_declared_binder_name_admits (T1)
+    tier 3 refuses: let_mutref_annotation_to_meet_struct_refused (L33) · generic_type_param_two_regions_first_wins_refused (L34) ·
+      tuplestruct_ctor_declared_binder_name_refused (T2)
+  Legality of every tier-3 row rests on READING (no rustc binary on this box).
+
+### WHAT DESERVES FUNDING
+  1. moblany as the landing, with three repairs the price does not buy: (a) a PRINTER for the token (name the candidates, or print the
+     region the refusal is about) — the closing sentences name no region and X55's misleads; (b) replace the process-global token
+     registry (meet_members, a static counter) by a per-fn table cleared where minted_lt_origin is, or prove the leak harmless;
+     (c) the landing's own hand battery in shapes this one did not write — generic fns instantiated with a meet-typed value inside
+     trait objects, `impl Trait` returns of a meet, closures RETURNING a meet, zoned/datatype literals (slit_is_zoned), and the
+     stdlib's own literals under -O2.
+  2. The two tuple-struct rows are one root and very probably one change (route the constructor through structlit_lt_subst_ like
+     the literal it lowers to) — price it with its twin rows.
+  3. NOT funded: the struct-literal / call invariant binders with a token (reason 3 above) — price them as their own names first.
+
+### MISTAKES OF MY OWN
+  * Batch 1 read the token as "" at equalities to keep Inv "inert" — without reading subtype()'s head, which asks the equality
+    first. Seven prices were bought for one broken hop; the hand battery found it in two minutes, the batch would have printed seven
+    zeros. Stopped after one line.
+  * My first per-site read of the literal lowering followed the GENERIC branch and missed lower_struct_lit's own walk; dlog had it
+    in its non-meet-aware list the whole time.
+  * My first kill of batch 1 matched `pgrep -f` against my own shell's command line and killed the tool call, not the batch; the
+    second used explicit pids.
+  * Three programs of mine were not what I claimed (L09, L60, I01-I03 reaching a different door); each caught before counting.
