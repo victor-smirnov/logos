@@ -7481,7 +7481,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     for (auto pt : fi_ptr->param_types)
         ft.closure_params.push_back(subst_type_sema(pt, subst));
     ft.closure_ret = fi_ptr->ret_type ? subst_type_sema(fi_ptr->ret_type, subst) : void_t();
-    auto fn_type = pool_->alloc(std::move(ft));
+    auto fn_type = fnptr_item_binders_(pool_->alloc(std::move(ft)), &fi_ptr->lifetime_params);
 
     std::string base = fi_ptr->symbol_name.empty() ? std::string(callee) : fi_ptr->symbol_name;
     return builder().generic_ref(base, std::move(type_args), fn_type);
@@ -14056,7 +14056,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
                 ft.kind = LogosType::Kind::FnPtr;
                 for (auto pt : mfi->param_types) ft.closure_params.push_back(pt);
                 ft.closure_ret = mfi->ret_type ? mfi->ret_type : void_t();
-                auto fn_type = pool_->alloc(std::move(ft));
+                auto fn_type = fnptr_item_binders_(pool_->alloc(std::move(ft)), &mfi->lifetime_params);
                 return builder().var_ref(
                     mfi->symbol_name.empty() ? msym : mfi->symbol_name, fn_type);
             }
@@ -14200,7 +14200,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 ft.kind = LogosType::Kind::FnPtr;
                 for (auto pt : mfi->param_types) ft.closure_params.push_back(pt);
                 ft.closure_ret = mfi->ret_type ? mfi->ret_type : void_t();
-                auto fn_type = pool_->alloc(std::move(ft));
+                auto fn_type = fnptr_item_binders_(pool_->alloc(std::move(ft)), &mfi->lifetime_params);
                 return builder().var_ref(
                     mfi->symbol_name.empty() ? msym : mfi->symbol_name, fn_type);
             }
@@ -17385,7 +17385,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             for (auto p : TypeRef(expr_type(else_val)).closure_params())
                 fpt.closure_params.push_back(p);
             fpt.closure_ret = TypeRef(expr_type(else_val)).closure_ret();
-            TypeRef fp = pool_->alloc(std::move(fpt));
+            TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
             if (types_compatible(expr_type(then_val), fp) &&
                 types_compatible(expr_type(else_val), fp)) {
                 result_type = fp;

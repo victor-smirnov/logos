@@ -6958,6 +6958,222 @@ private:
         }
     }
 
+    // ── A FN VALUE'S OWN REGIONS AT A FN-POINTER COERCION. PROBES.md 2026-09-14k-fnptrbinderland ──
+    // Every region slot of a type in one fixed pre-order, through f; a nested fn value keeps its own (not descended).
+    template <class F>
+    TypeRef fpv_walk_(TypeRef t, F& f, int d = 0) {
+        if (!t || d > 24) return t;
+        using K = LogosType::Kind;
+        const auto k = TypeRef(t).kind();
+        if (k == K::Ref || k == K::MutRef) {
+            std::string lt_ = f(std::string_view(TypeRef(t).lifetime()));
+            return make_ref(k == K::MutRef, fpv_walk_(TypeRef(t).pointee(), f, d + 1), lt_);
+        }
+        if (k == K::Array)
+            return make_array(fpv_walk_(TypeRef(t).elem(), f, d + 1), TypeRef(t).arr_size(),
+                              std::string_view(TypeRef(t).arr_size_var()));
+        if (k == K::Tuple) {
+            std::vector<TypeRef> es_;
+            for (auto e : TypeRef(t).tuple_elems()) es_.push_back(fpv_walk_(e, f, d + 1));
+            return make_tuple_type(std::move(es_));
+        }
+        if (k == K::Slice && TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow) {
+            std::string lt_ = f(std::string_view(TypeRef(t).lifetime()));
+            return make_slice_type(fpv_walk_(TypeRef(t).elem(), f, d + 1), TypeRef(t).mut_ptr(),
+                                   TypeRef::OwningKind::Borrow, lt_);
+        }
+        if ((k == K::Struct || k == K::ZonedStruct || k == K::Enum) &&
+            (!TypeRef(t).lifetime_args().empty() || !TypeRef(t).type_args().empty())) {
+            std::vector<std::string> ls_;
+            for (auto& l : TypeRef(t).lifetime_args()) ls_.push_back(f(std::string_view(l)));
+            std::vector<TypeRef> as_;
+            for (auto a : TypeRef(t).type_args()) as_.push_back(fpv_walk_(a, f, d + 1));
+            if (k == K::Enum)
+                return make_generic_enum(TypeRef(t).enum_name(), std::move(as_), std::move(ls_), TypeRef(t).pkg_name());
+            if (k == K::ZonedStruct)
+                return make_generic_datatype(TypeRef(t).struct_name(), std::move(as_), std::move(ls_), TypeRef(t).pkg_name());
+            return make_generic_struct(TypeRef(t).struct_name(), std::move(as_), std::move(ls_), TypeRef(t).pkg_name());
+        }
+        return t;
+    }
+    TypeRef fpv_fn_(TypeRef t, std::vector<TypeRef> ps, TypeRef r) {
+        LogosTypeBuilder nt;
+        nt.kind = TypeRef(t).kind();
+        nt.closure_params = std::move(ps);
+        nt.closure_ret = r;
+        if (nt.kind == LogosType::Kind::Closure) {
+            nt.trait_name = std::string(TypeRef(t).trait_name());
+            nt.const_val = TypeRef(t).const_val();
+            nt.lifetime = std::string(TypeRef(t).lifetime());
+        } else {
+            nt.struct_name = std::string(TypeRef(t).struct_name());   // FnPtr ABI tag / FnItem identity
+        }
+        if (nt.kind == LogosType::Kind::FnItem)
+            for (auto a : TypeRef(t).type_args()) nt.type_args.push_back(a);
+        return pool_->alloc(std::move(nt));
+    }
+    static bool fpv_elided_(std::string_view lt) { return lt.empty() || lt == "'_"; }
+    static bool fpv_mentions_fnptr_(TypeRef t, int d = 0) {
+        if (!t || d > 24) return false;
+        const auto k = TypeRef(t).kind();
+        if (k == LogosType::Kind::FnPtr) return true;
+        if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) return fpv_mentions_fnptr_(TypeRef(t).pointee(), d + 1);
+        if (k == LogosType::Kind::Array) return fpv_mentions_fnptr_(TypeRef(t).elem(), d + 1);
+        if (k == LogosType::Kind::Tuple) {
+            for (auto e : TypeRef(t).tuple_elems()) if (fpv_mentions_fnptr_(e, d + 1)) return true;
+            return false;
+        }
+        if (k == LogosType::Kind::Struct || k == LogosType::Kind::Enum)
+            for (auto a : TypeRef(t).type_args()) if (fpv_mentions_fnptr_(a, d + 1)) return true;
+        return false;
+    }
+    // A fn pointer minted from a fn ITEM's signature: the item's own lifetime parameters (`own`, or with none given every
+    // written non-'static name) become binder tokens of the pointer.
+    TypeRef fnptr_item_binders_(TypeRef fp, const std::vector<std::string>* own) {
+        if (!fp || TypeRef(fp).kind() != LogosType::Kind::FnPtr) return fp;
+        SemaLifetimeSubst ls_;
+        auto add_ = [&](std::string_view lt) {
+            if (fpv_elided_(lt) || lt_is_minted(lt) || outlives_is_static(lt)) return;
+            const std::string n_ = outlives_norm(lt);
+            if (ls_.count(n_)) return;
+            const std::string tok_ = mint_fnptr_binder(n_);
+            ls_[n_] = tok_;
+            if (n_.size() > 1) ls_[n_.substr(1)] = tok_;
+        };
+        if (own) {
+            for (auto& l : *own) add_(l);
+        } else {
+            auto rec_ = [&](std::string_view lt) -> std::string { add_(lt); return std::string(lt); };
+            for (auto p : TypeRef(fp).closure_params()) fpv_walk_(p, rec_);
+            fpv_walk_(TypeRef(fp).closure_ret(), rec_);
+        }
+        if (ls_.empty()) return fp;
+        logos::probe::census("fnptr.item.binders");
+        std::vector<TypeRef> ps_;
+        for (auto p : TypeRef(fp).closure_params()) ps_.push_back(subst_type_sema(p, {}, ls_));
+        return fpv_fn_(fp, std::move(ps_), subst_type_sema(TypeRef(fp).closure_ret(), {}, ls_));
+    }
+    // SUP: each elided slot is a fresh rigid placeholder; an elided return is the sole elided input's, else its own.
+    TypeRef fnptr_sup_view_(TypeRef to) {
+        static unsigned fpn_ = 0;
+        size_t n_in_ = 0;
+        std::string sole_;
+        auto tok_ = [&](std::string_view lt) -> std::string {
+            if (!fpv_elided_(lt)) return std::string(lt);
+            ++n_in_;
+            sole_ = "'%f" + std::to_string(++fpn_);
+            return sole_;
+        };
+        std::vector<TypeRef> ps_;
+        for (auto p : TypeRef(to).closure_params()) ps_.push_back(fpv_walk_(p, tok_));
+        const size_t n_ = n_in_;
+        const std::string s_ = sole_;
+        auto rtok_ = [&](std::string_view lt) -> std::string {
+            if (!fpv_elided_(lt)) return std::string(lt);
+            return n_ == 1 ? s_ : "'%f" + std::to_string(++fpn_);
+        };
+        TypeRef r_ = fpv_walk_(TypeRef(to).closure_ret(), rtok_);
+        return fpv_fn_(to, std::move(ps_), r_);
+    }
+    // SUB: the value's OWN regions — an elided slot, a binder token, a closure-minted region, every non-'static name of a
+    // fn ITEM — are existential: each takes the sup's region at its position, the MEET of them when offered two.
+    TypeRef fnptr_sub_view_(TypeRef from, TypeRef sup) {
+        using K = LogosType::Kind;
+        const auto fk_ = TypeRef(from).kind();
+        auto sp_ = TypeRef(from).closure_params();
+        auto pp_ = TypeRef(sup).closure_params();
+        if (sp_.size() != pp_.size()) return from;
+        auto is_b_ = [&](std::string_view lt) {
+            if (fpv_elided_(lt) || lt_is_fnptr_binder(lt)) return true;
+            if (outlives_is_static(lt)) return false;
+            return fk_ == K::FnItem || closure_minted_lts().count(std::string(lt)) != 0;
+        };
+        std::vector<std::string> acc_;
+        auto rec_ = [&](std::string_view lt) -> std::string { acc_.push_back(std::string(lt)); return std::string(lt); };
+        std::vector<std::vector<std::string>> Pi_, Si_;
+        for (auto p : pp_) { acc_.clear(); fpv_walk_(p, rec_); Pi_.push_back(acc_); }
+        for (auto s : sp_) { acc_.clear(); fpv_walk_(s, rec_); Si_.push_back(acc_); }
+        std::unordered_map<std::string, std::string> m_;
+        std::unordered_map<std::string, std::vector<std::string>> offers_;
+        std::vector<std::string> order_;
+        size_t n_slots_ = 0;
+        for (size_t i = 0; i < sp_.size(); ++i) {
+            n_slots_ += Si_[i].size();
+            if (Si_[i].size() != Pi_[i].size()) continue;
+            for (size_t j = 0; j < Si_[i].size(); ++j)
+                if (is_b_(Si_[i][j]) && !fpv_elided_(Si_[i][j])) {
+                    auto& v_ = offers_[Si_[i][j]];
+                    if (v_.empty()) order_.push_back(Si_[i][j]);
+                    if (std::find(v_.begin(), v_.end(), Pi_[i][j]) == v_.end()) v_.push_back(Pi_[i][j]);
+                }
+        }
+        for (auto& k_ : order_) {
+            auto& v_ = offers_[k_];
+            m_[k_] = v_.size() > 1 ? mint_meet_token(v_) : v_[0];
+        }
+        std::string sole_;
+        std::vector<TypeRef> ps_;
+        for (size_t i = 0; i < sp_.size(); ++i) {
+            size_t j_ = 0;
+            const bool aligned_ = Si_[i].size() == Pi_[i].size();
+            auto sub_ = [&](std::string_view lt) -> std::string {
+                const size_t jj = j_++;
+                std::string out(lt);
+                if (is_b_(lt)) {
+                    if (fpv_elided_(lt)) { if (aligned_) out = Pi_[i][jj]; }
+                    else if (auto it = m_.find(std::string(lt)); it != m_.end()) out = it->second;
+                }
+                if (n_slots_ == 1) sole_ = out;
+                return out;
+            };
+            ps_.push_back(fpv_walk_(sp_[i], sub_));
+        }
+        acc_.clear(); fpv_walk_(TypeRef(sup).closure_ret(), rec_); const auto Pr_ = acc_;
+        acc_.clear(); fpv_walk_(TypeRef(from).closure_ret(), rec_); const auto Sr_ = acc_;
+        size_t jr_ = 0;
+        auto rsub_ = [&](std::string_view lt) -> std::string {
+            const size_t jj = jr_++;
+            if (!is_b_(lt)) return std::string(lt);
+            if (!fpv_elided_(lt)) {
+                auto it = m_.find(std::string(lt));
+                return it != m_.end() ? it->second : std::string(lt);
+            }
+            if (n_slots_ == 1) return sole_;
+            return Sr_.size() == Pr_.size() ? Pr_[jj] : std::string(lt);
+        };
+        TypeRef r_ = fpv_walk_(TypeRef(from).closure_ret(), rsub_);
+        if (!m_.empty()) logos::probe::census("fnptr.sub.binder");
+        return fpv_fn_(from, std::move(ps_), r_);
+    }
+    // `for<'r> ` for a FnPtr whose binder's written name is also a free name of the pair: one spelling, two regions.
+    std::string fnptr_binder_prefix_(TypeRef t, TypeRef other) {
+        if (!t || TypeRef(t).kind() != LogosType::Kind::FnPtr) return {};
+        std::vector<std::string> toks_, free_;
+        auto rec_ = [&](std::string_view lt) -> std::string {
+            if (lt_is_fnptr_binder(lt)) {
+                const std::string w_ = lt_written(lt);
+                if (std::find(toks_.begin(), toks_.end(), w_) == toks_.end()) toks_.push_back(w_);
+            } else if (!lt.empty() && !lt_is_minted(lt)) {
+                free_.push_back(outlives_norm(lt));
+            }
+            return std::string(lt);
+        };
+        for (auto p : TypeRef(t).closure_params()) fpv_walk_(p, rec_);
+        fpv_walk_(TypeRef(t).closure_ret(), rec_);
+        const auto own_ = toks_;
+        if (other && LogosType::is_fn_value_kind(TypeRef(other).kind())) {
+            for (auto p : TypeRef(other).closure_params()) fpv_walk_(p, rec_);
+            fpv_walk_(TypeRef(other).closure_ret(), rec_);
+        }
+        bool clash_ = false;
+        for (auto& w : own_)
+            if (std::find(free_.begin(), free_.end(), w) != free_.end()) clash_ = true;
+        if (!clash_) return {};
+        std::string r_ = "for<";
+        for (size_t i = 0; i < own_.size(); ++i) r_ += (i ? ", " : "") + own_[i];
+        return r_ + "> ";
+    }
+
     // Emit an "X: variance mismatch …" error if from ↛ to under variance.
     // `permissive` should be false at body sites (return / let-init) where
     // both lifetimes are fn-scope-fixed; true at call-site arg-pass where
@@ -6990,7 +7206,76 @@ private:
         if (!types_compatible(from, to)) return;  // outer check handles it
         last_rigid_mismatch() = {};
         last_meet_refusal() = {};
-        if (variance_ok(from, to, permissive)) return;
+        TypeRef vfrom_ = from, vto_ = to;
+        if (TypeRef(to).kind() == LogosType::Kind::FnPtr && LogosType::is_fn_value_kind(TypeRef(from).kind())) {
+            logos::probe::census(permissive ? "fnptr.cv.arrive.permissive" : "fnptr.cv.arrive.strict");
+            vto_ = fnptr_sup_view_(to);
+            vfrom_ = fnptr_sub_view_(from, vto_);
+        } else if (fpv_mentions_fnptr_(to)) {   // the same views at a fn pointer NESTED in a covariant-shaped position
+            std::function<bool(TypeRef&, TypeRef&, int)> nest_ = [&](TypeRef& f_, TypeRef& t_, int d_) -> bool {
+                using K = LogosType::Kind;
+                if (!f_ || !t_ || d_ > 24) return false;
+                const auto k_ = TypeRef(t_).kind();
+                if (k_ == K::FnPtr && LogosType::is_fn_value_kind(TypeRef(f_).kind())) {
+                    logos::probe::census("fnptr.cv.nested.view");
+                    t_ = fnptr_sup_view_(t_);
+                    f_ = fnptr_sub_view_(f_, t_);
+                    return true;
+                }
+                if (TypeRef(f_).kind() != k_) return false;
+                if (k_ == K::Ref || k_ == K::MutRef) {
+                    TypeRef fp_ = TypeRef(f_).pointee(), tp_ = TypeRef(t_).pointee();
+                    if (!nest_(fp_, tp_, d_ + 1)) return false;
+                    f_ = make_ref(k_ == K::MutRef, fp_, std::string(TypeRef(f_).lifetime()));
+                    t_ = make_ref(k_ == K::MutRef, tp_, std::string(TypeRef(t_).lifetime()));
+                    return true;
+                }
+                if (k_ == K::Tuple && TypeRef(f_).tuple_elems().size() == TypeRef(t_).tuple_elems().size()) {
+                    std::vector<TypeRef> fe_, te_;
+                    bool any_ = false;
+                    for (size_t i = 0; i < TypeRef(t_).tuple_elems().size(); ++i) {
+                        TypeRef a_ = TypeRef(f_).tuple_elems()[i], b_ = TypeRef(t_).tuple_elems()[i];
+                        any_ |= nest_(a_, b_, d_ + 1);
+                        fe_.push_back(a_);
+                        te_.push_back(b_);
+                    }
+                    if (!any_) return false;
+                    f_ = make_tuple_type(std::move(fe_));
+                    t_ = make_tuple_type(std::move(te_));
+                    return true;
+                }
+                if (k_ == K::Array) {
+                    TypeRef a_ = TypeRef(f_).elem(), b_ = TypeRef(t_).elem();
+                    if (!nest_(a_, b_, d_ + 1)) return false;
+                    f_ = make_array(a_, TypeRef(f_).arr_size(), std::string_view(TypeRef(f_).arr_size_var()));
+                    t_ = make_array(b_, TypeRef(t_).arr_size(), std::string_view(TypeRef(t_).arr_size_var()));
+                    return true;
+                }
+                if ((k_ == K::Enum || k_ == K::Struct) && TypeRef(f_).type_args().size() == TypeRef(t_).type_args().size() &&
+                    !TypeRef(t_).type_args().empty()) {
+                    std::vector<TypeRef> fa_, ta_;
+                    bool any_ = false;
+                    for (size_t i = 0; i < TypeRef(t_).type_args().size(); ++i) {
+                        TypeRef a_ = TypeRef(f_).type_args()[i], b_ = TypeRef(t_).type_args()[i];
+                        any_ |= nest_(a_, b_, d_ + 1);
+                        fa_.push_back(a_);
+                        ta_.push_back(b_);
+                    }
+                    if (!any_) return false;
+                    if (k_ == K::Enum) {
+                        f_ = make_generic_enum(TypeRef(f_).enum_name(), std::move(fa_), TypeRef(f_).lifetime_args(), TypeRef(f_).pkg_name());
+                        t_ = make_generic_enum(TypeRef(t_).enum_name(), std::move(ta_), TypeRef(t_).lifetime_args(), TypeRef(t_).pkg_name());
+                    } else {
+                        f_ = make_generic_struct(TypeRef(f_).struct_name(), std::move(fa_), TypeRef(f_).lifetime_args(), TypeRef(f_).pkg_name());
+                        t_ = make_generic_struct(TypeRef(t_).struct_name(), std::move(ta_), TypeRef(t_).lifetime_args(), TypeRef(t_).pkg_name());
+                    }
+                    return true;
+                }
+                return false;
+            };
+            nest_(vfrom_, vto_, 0);
+        }
+        if (variance_ok(vfrom_, vto_, permissive)) return;
         auto [es, gs] = type_str_pair(to, from);
         // A meet token is hidden by type_str: name the regions the value was built from and the one that fails.
         if (auto [mt_, mm_, mo_] = last_meet_refusal();
@@ -7068,6 +7353,8 @@ private:
         const bool numbered_ = impl_anon_ && es == gs;
         if (numbered_)
             es = type_str(number_impl_anon_lts_(to), true), gs = type_str(number_impl_anon_lts_(from), true);
+        es = fnptr_binder_prefix_(to, from) + es;
+        gs = fnptr_binder_prefix_(from, to) + gs;
         error(std::format("{}: variance mismatch — expected {}, got {} — "
                           "lifetime structure incompatible "
                           "(check &mut invariance / contravariance rules){}",

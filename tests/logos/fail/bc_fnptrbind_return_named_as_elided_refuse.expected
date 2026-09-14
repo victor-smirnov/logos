@@ -1,0 +1,1 @@
+[fn f]: return type mismatch: variance mismatch — expected fn(&i64) -> i64, got fn(&'r i64) -> i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

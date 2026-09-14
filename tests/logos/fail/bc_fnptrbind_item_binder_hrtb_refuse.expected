@@ -1,0 +1,1 @@
+[fn main]: let 'f': variance mismatch — expected fn(&'z i64, &'z i64) -> &'static i64, got fn ITEM<bc_fnptrbind_item_binder_hrtb_refuse$pick__f__ref_i64__ref_i64>(&'a i64, &'a i64) -> &'a i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

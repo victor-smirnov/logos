@@ -1,0 +1,10 @@
+// FNPTRBIND pair (2026-09-14k-fnptrbinderland), one token apart from bc_fnptrbind_hrtb_sub_to_named_refuse.
+// Closes soundness queue fnptr_hrtb_sub_binder_to_named_return_refused: a higher-ranked pointer is more general than any
+// instance, 'x := 'r (legal by reading; no rustc binary).
+package bc_fnptrbind_hrtb_sub_to_named_admit;
+fn f<'r>(g: for<'x> fn(&'x i64) -> i64) -> fn(&'r i64) -> i64 {
+    return g;
+}
+fn main() -> i32 {
+    return 0i32;
+}

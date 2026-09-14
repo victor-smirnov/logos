@@ -1,0 +1,8 @@
+// FNPTRBIND pair (2026-09-14k-fnptrbinderland): one token apart from tests/imported/fail/nll/issue-54124 — the annotation
+// names 'a, which the closure's parameter accepts.
+package bc_fnptrbind_issue54124_twin_admit;
+fn test<'a>(q: &'a i64) -> i32 {
+  let f: fn(&'a i64) -> i64 = |x: &'a i64| -> i64 { return *x; };
+  return f(q) as i32;
+}
+fn main() -> i32 { let v: i64 = 5i64; return test(&v); }

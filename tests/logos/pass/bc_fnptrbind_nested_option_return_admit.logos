@@ -1,0 +1,6 @@
+// FNPTRBIND pair (2026-09-14k-fnptrbinderland), one token apart from bc_fnptrbind_nested_option_return_refuse.
+package bc_fnptrbind_nested_option_return_admit;
+fn t<'r>(g: fn(&'r i64) -> i64) -> Option<fn(&'r i64) -> i64> {
+    return Option::Some(g);
+}
+fn main() -> i32 { return 0i32; }

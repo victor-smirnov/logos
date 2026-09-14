@@ -1,0 +1,8 @@
+// FNPTRBIND pair (2026-09-14k-fnptrbinderland), one token apart from bc_fnptrbind_let_named_as_elided_refuse: the
+// annotation names 'a, so no higher-ranked pointer is demanded.
+package bc_fnptrbind_let_named_as_elided_admit;
+fn test<'a>(g: fn(&'a i64) -> i64) -> i32 {
+    let f: fn(&'a i64) -> i64 = g;
+    return 0i32;
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,1 @@
+let 'f': variance mismatch — expected fn(&i64) -> i64, got fn(&'a i64) -> i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

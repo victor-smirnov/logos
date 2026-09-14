@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14k-fnptrbinderland, program c01 — caught: legal, refused with the item-binder rename control-reverted (fnptrnoitembind): a turbofish ref carries the item's named region
+// legality: by reading, no rustc binary
+package bc_0914k_fnptrbinderland_hb_c01_admit;
+fn idg<'q, T>(x: &'q T) -> &'q T { return x; }
+fn main() -> i32 {
+    let f: fn(&i64) -> &i64 = idg::<i64>;
+    let v: i64 = 41i64;
+    return *f(&v) as i32;
+}

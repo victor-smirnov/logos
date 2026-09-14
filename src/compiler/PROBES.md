@@ -44664,3 +44664,144 @@ verdict: CEILING {issue-54124, issue-101280}; cost 0 pass, stdlib ok, fail-text 
   (TIERCOMMIT 122 unchanged). A population pin is a column no pricing owns — I re-derived one and forgot the other.
   L1 (from build/): rc 0 — 807/807, enumerator smoke 12 684, gates tier 122/122 (the second run; the first was rc 1 on census_pin).
   probe-log-lint: 299 records, every site symbol resolves. lint-mismatch-monopoly: 1 emitter.
+
+## 2026-09-14k-fnptrbinderland — A FN VALUE'S OWN REGIONS, CARRIED BY ITS TYPE: bc_admits issue-54124 (nllmoves.NEW-L1) AND issue-101280 (lifereg.NEW-N4) CLOSE (64 -> 62); soundness_queue fnptr_elided_param_let_from_named_admits, fnptr_elided_param_return_from_named_admits, fnptr_item_named_binder_vs_fnptr_type_refused, fnptr_hrtb_sub_binder_to_named_return_refused AND fnptr_elided_param_nested_option_admits CLOSE, ONE ROW OPENS (176 -> 172)
+
+### STEP 1, READ FROM THE TREE
+  HEAD 31f0b0989, clean · soundness_queue # TOTAL 176 = 176 rows by direct listing · bc_admits 64 · blocked 8 · probe-log-lint
+  299 records · build_hash 4bc75379010a5384 43 (read; the pricing record's close-out hash, the compiler sources are HEAD's) ·
+  queue gate rc 0 WITH LOGOS_LIB_DIR (the prompt's command carries it — checked against the text given).
+  Corrections to the handed-down report: none to its numbers; its "L1 rc 0 on the final run" is the record's own and was not re-run.
+
+### BASELINES, base 4bc75379010a5384 (build/, saved copy base4bc7 for every later control)
+  gate-run -L bc: gate-db build 1220 — 3443 passed / 0 failed / 2 other · run_oracle: 7007 pass fixtures compiled, linked, RUN ·
+  fail_text_oracle: 1832 fail fixtures recorded.
+
+### WHAT LANDED — THREE PARTS OF ONE FACT, EACH PROVEN NECESSARY BY ITS OWN CONTROL REVERT
+  H   resolve_type(FN_PTR_TYPE) renames a written `for<'r>` binder apart to a binder token `'%hN` (outlives.hpp mint_fnptr_binder;
+      the registry keeps the written name). type_str prints the written name; a variance sentence prefixes `for<'r>` only when the
+      binder's written name is also a FREE name of the pair (issue-101280's 'r): the three fail fixtures the pricing's H re-worded
+      (fn-subtype, hr-fn-aaa-as-aba, placeholder-outlives-existential) print their pinned text byte for byte again.
+  M   every site that mints a FnPtr from a fn ITEM's signature renames the item's OWN lifetime parameters to binder tokens:
+      lower_if_expr's and the match's fn-item join (every written non-'static name), the generic turbofish ref
+      (fi.lifetime_params), both inherent/trait method-path value sites (mfi.lifetime_params; an impl's lifetimes stay names).
+  E'' check_variance, sup a FnPtr and sub a fn value: the sup's elided slots are fresh rigid placeholders (an elided return is the
+      sole elided input's); the sub's OWN regions — an elided slot, a binder token, a closure-minted region, every non-'static name
+      of a FnItem — take the sup's region by position, a MEET token when offered two. NO current_lt_binders() test: the pricing's
+      undeclared-name rule (fnptrelide2) is dropped, which is what un-refuses h25 (rule 12). The same two views are applied at a
+      fn pointer NESTED under Ref/Tuple/Array/Struct/Enum type arguments (priced below as fnptrnested, landed unconditional,
+      rebuilding a container only when a nested view changed it).
+  Diff: include/logos/compiler/outlives.hpp +24, src/compiler/sema.cpp +38/-3, sema_expr.cpp 4 sites, sema_stmt.cpp 1 site,
+  sema_impl.hpp +289. Where the landing differs from its probes: the nested walk skips types that mention no FnPtr and rebuilds
+  only a changed branch (the probe rebuilt every container unconditionally) — same verdicts, re-measured at the gates below.
+
+## fnptrnoitembind — control revert of M alone
+site: src/compiler/sema_impl.hpp::fnptr_item_binders_
+build: e2de63dd9f24e014
+measured: 2026-09-14
+fires: 0
+ceiling: 0
+cost: 7
+verdict: M IS NECESSARY — without it 7 legal hand programs are refused: c01 c02 c30 c36 c37 h16 h25; no illegal program's verdict moves.
+note: fires is not recorded for a control (the on() test sits at the top of the helper, before its census). c01 a turbofish ref with a
+  named item region; c02 a method path with the method's own region; c30 a MATCH-join of fn items (the pricing battery had only the
+  if-join); c36 a turbofish item's 'a spelled like the scope's 'a; h16 h25 the if-joins. Diff against the unarmed landed build, 99
+  programs by path.
+
+## fnptrnohrtb — control revert of H alone
+site: src/compiler/sema.cpp::resolve_type
+build: e2de63dd9f24e014
+measured: 2026-09-14
+fires: 0
+ceiling: 0
+cost: 4
+verdict: H IS NECESSARY — without it issue-101280 is admitted again and 4 legal hand programs are refused: c08 c15 c39 h08a.
+note: c08 `for<'a> fn(&'a i64) -> &'a i64` from an elided pointer and back; c15 an alpha-rename for<'p> -> for<'q>; c39 a fn(&i64) local
+  passed to a for<'x> parameter; h08a the queue row fnptr_hrtb_sub_binder_to_named_return_refused.
+
+## fnptrnested — the same views at a fn pointer nested in a type argument (the strict extension for the nested neighbour)
+site: src/compiler/sema_impl.hpp::check_variance
+build: e2de63dd9f24e014
+measured: 2026-09-14
+fires: 2
+ceiling: 1
+cost: 0
+verdict: CLOSES fnptr_elided_param_nested_option_admits (i10) and hand x05 (tuple element); -L bc armed (build-land0913d 947bfe673e22c773, gate-db build 1) 3443 passed / 0 failed; fail-text 0 of 1832 changed; stdlib all four layers compile; hand battery 0 legal refused of 99; runtime below. LANDED.
+note: fires = census fnptr.cv.nested.view over the two closing programs (1 each); ceiling is the queue (the bc ledger holds no nested row).
+  Diagnostics read: "return type mismatch: variance mismatch — expected Option<fn(&i64) -> i64>, got Option<fn(&'r i64) -> i64>" and
+  "let 'p': variance mismatch — expected (fn(&i64) -> i64, i32), got (fn(&'r i64) -> i64, i32)".
+
+## fnptrstrictf — the permissive default never meets a sup placeholder '%f (strict extension for the permissive neighbours)
+site: include/logos/compiler/outlives.hpp::outlives
+build: 947bfe673e22c773
+measured: 2026-09-14
+fires: 0
+ceiling: 0
+cost: 0
+verdict: MOVED NOTHING — i08 i09 still admitted, census fnptr.cv.arrive.permissive 1 each; the fire log stayed empty. UNEXPLAINED NULL, not evidence about the door (rule 11); superseded by fnptrstrictf2.
+
+## fnptrstrictf2 — the permissive default never meets a sup placeholder '%f OR binder token '%h
+site: include/logos/compiler/outlives.hpp::outlives
+build: e2de63dd9f24e014
+measured: 2026-09-14
+fires: 5
+ceiling: 2
+cost: 2
+verdict: CLOSES fnptr_elided_param_struct_literal_admits (i08) and fnptr_elided_param_call_arg_admits (i09), with i08b i09b i09c — and REFUSES 2 LEGAL hand programs, c37 and c39, at the fn-pointer CALL site, which shares the permissive default. DECLINED; both rows stay, reason 3, the number 2 in their headers.
+note: fires = census fnptr.strict2.refuse over i08 i09 i08b i09b i09c. c37: "fn-ptr call arg 1: variance mismatch — expected &'z i64,
+  got &'a i64" (a for<'z> pointer called with a local of the scope's 'a); c39: "fn-ptr call arg 1: ... expected &'x i64, got &i64".
+  A landing needs the call of a fn-pointer VALUE to instantiate the pointer's own binders from its arguments first — a different change.
+
+### NEIGHBOURS (standing rule 2026-09-12) — neighbour · closed in this commit / rowed · reason and number
+    let from a named pointer (i02 i12 i14 i16, x03 match-join, x07 impl lifetime)   CLOSED — fnptr_elided_param_let_from_named_admits
+    return (i01 i18, x09 two params)                                    CLOSED — fnptr_elided_param_return_from_named_admits
+    a fn item's own binder vs a pointer type (h20 h22 h27 h28, c12 c14) CLOSED — fnptr_item_named_binder_vs_fnptr_type_refused
+    a for<'x> value into a named pointer (h08a, c15 c39)                CLOSED — fnptr_hrtb_sub_binder_to_named_return_refused
+    nested type argument (i10 Option, x05 tuple)                        CLOSED — fnptr_elided_param_nested_option_admits (fnptrnested)
+    closure parameter naming a scope region (x10)                       CLOSED (hand fixture; no row existed)
+    struct-literal field (i08)                                          ROWED — reason 3: fnptrstrictf2 closes it and refuses 2 legal (c37 c39)
+    call argument (i09)                                                 ROWED — reason 3: the same arm, the same 2
+    plain re-assignment (i11)                                           ROWED — reason 1, unchanged: lower_assign asks no variance question
+    the call of a returned fn pointer (h08b)                            ROWED — not this fact, unchanged under every name
+    array-literal element (fnitem_to_fnptr_array_elem_admits, arraylit_closure_elem_fnptr_refused)   UNMOVED by every name (queue gate)
+
+### NEW DEFECT FOUND (not borrow-check)
+  user_type_alias_shadows_stdlib_type_param_refused (tier 3): a user package's unused `type T = i64;` refuses a legal program with
+  559 errors inside the stdlib's specializations — the alias name resolves in place of a stdlib generic body's own `T`. Measured on
+  base 4bc75379010a5384, one program each: T 559, I 71, R 29, U 28, F 14, E 6 errors; K V S Item Output Res Rr and `struct R` compile.
+  Found writing counter-example c21 (`type R = for<'r> fn(..)`), which it refuses; c21 is not a fixture for that reason.
+
+### COLUMNS FOR WHAT LANDED (E'' + H + M + nested), before the final build
+  runtime: run_oracle base 4bc75379010a5384 (09:29 -> 09:41) vs e2de63dd9f24e014 with LOGOS_PROBE=fnptrnested (10:02 -> 10:13), one
+    configure (build/): 7007 common, 0 added, 0 removed, 1 changed = cast-region-to-uint (stdout sha only; prints a stack address;
+    subtracted by name) -> 0 changed.
+  fail-text: base vs e2de unarmed 0 of 1832 changed; e2de unarmed vs e2de fnptrnested 0 of 1832 changed.
+  stdlib: all four layers compile, unarmed and under fnptrnested (e2de63dd9f24e014).
+  hand battery (99 programs by path, 52 of the pricing + 47 written here): 0 legal refused; illegal closed on top of base: i01 i02 i03 i04
+    i12 i14 i16 i18 x03 x07 x09 x10, and i10 x05 with the nested view. Still admitted: i08 i09 i11 (rowed), u01 (legality unknown —
+    predicted refused, measured admitted: recorded, not claimed).
+  invented names: full stderr of 286 programs (the battery, every queue program, the new fail fixtures, the two closed ports, the three
+    fail fixtures the pricing's H re-worded) scanned for `'%`: 1 hit, outlives_call_instantiation ("`'%1: '%2` required"), which the
+    base binary prints identically — inherited, not this landing's.
+
+### GATES AT CLOSE — the final tree, full `cmake -B build` + `cmake --build build -j32` rc 0, build_hash 0230e503bd682184 43 (read),
+### every probe name removed from the compiled sources (grep: 0)
+  soundness_queue_gate (LOGOS_LIB_DIR set) rc 0: 172 rows = # TOTAL 172 by direct listing (tier1 22, tier2 47, tier3 94, tier4 9).
+  bc_admits 62 = # TOTAL 62; blocked 8. The two per-row tests logos_00_bc_admit_{nll_issue-54124,regions_issue-101280} went RED on the
+    landed binary before their rows were deleted ("NO LONGER ADMITTED"); logos_00_bc_admits_ledger holds registration and # TOTAL only.
+  narrow ctest (every new fixture, census_pin, direct_door_census, soundness_queue, bc_admits_ledger, probe_log_lint,
+    lint_mismatch_monopoly, with fixture dependencies): 3417/3417. The two moved ports logos_06_diagnostics_fail_issue-{54124,101280}: 2/2.
+  L1 (from build/): rc 0 — 807/807, enumerator smoke 12 684, gates tier 120/120.
+  run_oracle vs base 4bc75379010a5384: 7007 common, 0 removed, 1 changed = cast-region-to-uint (subtracted by name) -> 0; 17 added = the 17
+    new pass fixtures, each exit code equal to its .expected.
+  fail_text_oracle vs base: 1832 common, 0 changed, 0 removed; 12 added = 10 new fail fixtures + 2 moved ports, all rc 1 with .expected matched.
+  stdlib-cost: all four layers compile.
+  CONTROL REVERT on the base copy 4bc75379010a5384: 18/18 closing halves show the defect — 12 illegal admitted (let/return/nested refuse
+    halves, x03 x05 x07 x09 x10, issue-54124, issue-101280), 6 legal refused (item_binder_hrtb_admit, hrtb_sub_to_named_admit, c12 c14 c15 c37).
+    No closed row is a `run` row.
+  Pins re-derived BY LISTING before the gates: direct_door_census corpus 3382 -> 3399, nonglob 3191 -> 3208 (glob 191); census_pin
+    REGISTRY-ALL 10260 -> 10287, NOIMPORTED 5762 -> 5787, TIERCOMMIT 122 -> 120 (ctest -N on the re-globbed build) — both before L1.
+  probe-log-lint: 304 records, every site symbol resolves.
+  ⚠ MISTAKE OF MY OWN: the first detached L4 bc exited rc 2 without running — test-levels.sh refuses unless LOGOS_L4_BG=1 is set, and a
+    detached subshell does not set it. Re-run with the variable, below.
+  L4 bc (from build/, LOGOS_L4_BG=1, detached, 10:43 -> 10:59): rc 0 — 5787/5787 and 1599/1599, 0 failed.

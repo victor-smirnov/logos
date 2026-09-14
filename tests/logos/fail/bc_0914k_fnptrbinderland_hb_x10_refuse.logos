@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14k-fnptrbinderland, program x10 — caught: illegal, admitted on base (a closure parameter named 'a into fn(&i64) -> &'static i64), refused by the landing
+// legality: by reading, no rustc binary
+package bc_0914k_fnptrbinderland_hb_x10_refuse;
+fn t<'a>(q: &'a i64) -> i32 {
+    let f: fn(&i64) -> &'static i64 = |x: &'a i64| -> &'static i64 { return &K; };
+    return 0i32;
+}
+static K: i64 = 1i64;
+fn main() -> i32 { return 0i32; }

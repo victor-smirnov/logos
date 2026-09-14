@@ -1,0 +1,10 @@
+// FNPTRBIND pair (2026-09-14k-fnptrbinderland), one token apart from bc_fnptrbind_item_binder_hrtb_admit: the return
+// claims 'static, which 'a := 'z cannot give (rustc E0308; legality by reading, no rustc binary).
+package bc_fnptrbind_item_binder_hrtb_refuse;
+fn pick<'a>(a: &'a i64, b: &'a i64) -> &'a i64 { if *a > *b { return a; } return b; }
+fn main() -> i32 {
+    let f: for<'z> fn(&'z i64, &'z i64) -> &'static i64 = pick;
+    let x: i64 = 32i64;
+    let y: i64 = 3i64;
+    return *f(&x, &y) as i32;
+}

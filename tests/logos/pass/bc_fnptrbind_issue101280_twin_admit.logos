@@ -1,0 +1,6 @@
+// FNPTRBIND pair (2026-09-14k-fnptrbinderland): one token apart from tests/imported/fail/regions/issue-101280 — `g` is
+// `for<'x, 'y> fn(&'x i64, &'y i64)`, more general than `for<'r> fn(&'r i64, &'r i64)`.
+package bc_fnptrbind_issue101280_twin_admit;
+type Ty = for<'r> fn(&'r i64, &'r i64);
+fn f<'r>(g: fn(&i64, &i64)) -> Ty { return g; }
+fn main() -> i32 { return 0i32; }

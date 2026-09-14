@@ -1,0 +1,1 @@
+return type mismatch: variance mismatch — expected for<'r> fn(&'r i64, &'r i64) -> void, got fn(&'r i64, &i64) -> void — lifetime structure incompatible (check &mut invariance / contravariance rules)

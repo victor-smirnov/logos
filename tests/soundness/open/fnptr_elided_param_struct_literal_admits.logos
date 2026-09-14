@@ -2,11 +2,12 @@
 // ILLEGAL PROGRAM ADMITTED: A FN POINTER WITH A NAMED PARAMETER REGION INITIALISES A `fn(&i64) -> i64` STRUCT FIELD.
 //
 // Same fact as fnptr_elided_param_let_from_named_admits at a STRUCT-LITERAL field. rustc refuses (E0308); legality by
-// reading, no rustc binary. TODAY admitted, build c52dcb19dff987ff 43. NEIGHBOUR ROWED WITH A REASON — doors in series:
-// the field-init sites call check_variance with permissive=true, and outlives()'s permissive tail admits two unrelated
-// regions neither of which is mentioned in a where clause; the fnptr arms (fnptrelide/fnptrbinder/fnptrbinder2) reach
-// this site and do not move it (hand battery, PROBES.md 2026-09-14j-fnptrbinder). The permissive door
-// (lifereg_structlitstrict) must open first.
+// reading, no rustc binary. Admitted on build c52dcb19dff987ff 43 and on the landing of 2026-09-14k-fnptrbinderland.
+// NEIGHBOUR ROWED WITH REASON 3 — ITS OWN COST IS MEASURED NON-ZERO: the strict extension at the same fact (fnptrstrictf2:
+// a fn-pointer sup's own placeholder or binder token is never met by outlives()'s permissive default) closes this row
+// and its call-argument twin, and refuses 2 LEGAL hand programs at the fn-pointer CALL site, which shares that default:
+// c37 (an if-join of items into a for<'z> pointer, then called) and c39 (a fn(&i64) local passed to a for<'x> parameter,
+// pinned as bc_0914k_fnptrbinderland_hb_c39_admit). The narrower fnptrstrictf (the '%f placeholder only) moved nothing.
 // Found: hand i08, round 2026-09-14j-fnptrbinder.
 package fnptr_elided_param_struct_literal_admits;
 struct H { f: fn(&i64) -> i64 }

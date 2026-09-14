@@ -1,0 +1,1 @@
+[fn t]: let 'p': variance mismatch — expected (fn(&i64) -> i64, i32), got (fn(&'r i64) -> i64, i32) — lifetime structure incompatible (check &mut invariance / contravariance rules)

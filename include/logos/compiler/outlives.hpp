@@ -121,6 +121,30 @@ inline std::tuple<std::string, std::string, std::string>& last_meet_refusal() {
     return r;
 }
 
+// A FN VALUE'S OWN BINDER, carried by its type: a fn-pointer type's `for<'r>`, or a fn item's lifetime parameter in a
+// fn pointer minted from the item. `'%hN` is lt_is_minted; the registry keeps the written name. PROBES.md 2026-09-14k.
+inline std::unordered_map<std::string, std::string>& fnptr_binder_names() {
+    static std::unordered_map<std::string, std::string> m;
+    return m;
+}
+inline bool lt_is_fnptr_binder(std::string_view lt) {
+    return lt.size() > 2 && lt[0] == '\'' && lt[1] == '%' && lt[2] == 'h';
+}
+inline std::string mint_fnptr_binder(std::string_view written) {
+    static unsigned n = 0;
+    std::string t = "'%h" + std::to_string(++n);
+    fnptr_binder_names()[t] = outlives_norm(written);
+    return t;
+}
+// The spelling a diagnostic shows: a binder token prints as the name the user wrote.
+inline std::string lt_written(std::string_view lt) {
+    if (lt_is_fnptr_binder(lt)) {
+        auto it = fnptr_binder_names().find(std::string(lt));
+        if (it != fnptr_binder_names().end()) return it->second;
+    }
+    return std::string(lt);
+}
+
 // An impl header's `'_`, named per impl: sema_impl.hpp::name_impl_anon_lts_.
 inline bool lt_is_impl_anon(std::string_view lt) {
     return lt.starts_with("'__anon");

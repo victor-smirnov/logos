@@ -1,0 +1,9 @@
+// FNPTRBIND pair (2026-09-14k-fnptrbinderland), one token apart from bc_fnptrbind_hrtb_sub_to_named_admit: `g` accepts
+// only 'static, and 'r does not outlive 'static (rustc E0308; legality by reading, no rustc binary).
+package bc_fnptrbind_hrtb_sub_to_named_refuse;
+fn f<'r>(g: for<'x> fn(&'static i64) -> i64) -> fn(&'r i64) -> i64 {
+    return g;
+}
+fn main() -> i32 {
+    return 0i32;
+}

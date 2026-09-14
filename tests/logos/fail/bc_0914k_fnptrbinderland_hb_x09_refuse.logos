@@ -1,0 +1,7 @@
+// hand battery: round 2026-09-14k-fnptrbinderland, program x09 — caught: illegal, admitted on base (fn(&'r, &'r) returned as fn(&i64, &i64)), refused by the landing
+// legality: by reading, no rustc binary
+package bc_0914k_fnptrbinderland_hb_x09_refuse;
+fn t<'r>(g: fn(&'r i64, &'r i64) -> i64) -> fn(&i64, &i64) -> i64 {
+    return g;
+}
+fn main() -> i32 { return 0i32; }

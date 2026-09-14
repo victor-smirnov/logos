@@ -1,0 +1,1 @@
+[fn t]: return type mismatch: variance mismatch — expected Option<fn(&i64) -> i64>, got Option<fn(&'r i64) -> i64> — lifetime structure incompatible (check &mut invariance / contravariance rules)

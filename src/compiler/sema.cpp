@@ -2418,14 +2418,14 @@ std::string type_str(TypeRef t, bool source_form) {
         // A MINTED region prints as ELIDED: the user wrote no name there, and a
         // diagnostic that invents one describes a type nobody wrote (and moves
         // every pinned `.expected`). See outlives.hpp::lt_is_minted.
-        if (!TypeRef(t).lifetime().empty() && !lt_is_minted(TypeRef(t).lifetime()))
-            { std::string l_(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
+        if (!TypeRef(t).lifetime().empty() && (!lt_is_minted(TypeRef(t).lifetime()) || lt_is_fnptr_binder(TypeRef(t).lifetime())))
+            { std::string l_ = lt_written(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
         return s + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::MutRef: {
         std::string s = "&";
-        if (!TypeRef(t).lifetime().empty() && !lt_is_minted(TypeRef(t).lifetime()))
-            { std::string l_(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
+        if (!TypeRef(t).lifetime().empty() && (!lt_is_minted(TypeRef(t).lifetime()) || lt_is_fnptr_binder(TypeRef(t).lifetime())))
+            { std::string l_ = lt_written(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::Array: {
@@ -2448,7 +2448,7 @@ std::string type_str(TypeRef t, bool source_form) {
         // lifetime args were elided at the use site.
         std::vector<std::string> vis_lts;
         for (auto& lt : TypeRef(t).lifetime_args())
-            if (!lt_is_minted(lt)) vis_lts.push_back(lt);
+            if (!lt_is_minted(lt) || lt_is_fnptr_binder(lt)) vis_lts.push_back(lt_written(lt));
         if (TypeRef(t).type_args().empty() && vis_lts.empty()) return std::string(TypeRef(t).struct_name());
         { std::string r = std::string(TypeRef(t).struct_name()) + "<";
           bool first = true;
@@ -2470,7 +2470,7 @@ std::string type_str(TypeRef t, bool source_form) {
         return r + ")"; }
     case LogosType::Kind::Slice: {
         // Source form names a borrowed slice's region, as the Ref arm does. PROBES.md 2026-09-13f-declarrivalland.
-        std::string l_(TypeRef(t).lifetime());
+        std::string l_ = lt_written(TypeRef(t).lifetime());
         const bool named_ = source_form && !l_.empty() && !lt_is_minted(l_) &&
                             TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow;
         return std::format("&{}{}[{}]", named_ ? (lt_is_impl_anon(l_) ? std::string("'_ ") : l_ + " ") : std::string(),
@@ -2556,7 +2556,7 @@ std::string type_str(TypeRef t, bool source_form) {
     case LogosType::Kind::Enum: {
         std::vector<std::string> vis_lts;
         for (auto& lt : TypeRef(t).lifetime_args())
-            if (!lt_is_minted(lt)) vis_lts.push_back(lt);
+            if (!lt_is_minted(lt) || lt_is_fnptr_binder(lt)) vis_lts.push_back(lt_written(lt));
         if (!source_form ||
             (TypeRef(t).type_args().empty() && vis_lts.empty()))
             return std::string(TypeRef(t).enum_name());
@@ -8490,6 +8490,30 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         t.closure_ret = node.has_key(la::RET_TYPE)
             ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
             : void_t();
+        // A `for<'r>` binder is this type's OWN region, not the enclosing scope's 'r: renamed apart. PROBES.md 2026-09-14k.
+        if (node.has_key(la::HRTB_BINDERS)) {
+            SemaLifetimeSubst hb_;
+            auto hav_ = node.get(la::HRTB_BINDERS.code);
+            if (!hav_.is_null() && map_of(hav_).has_key(la::ITEMS)) {
+                auto hi_ = arr_of(map_of(hav_).get(la::ITEMS.code));
+                for (uint64_t i = 0; i < hi_.size(); ++i) {
+                    auto av_ = hi_.get(i);
+                    if (av_.is_null()) continue;
+                    std::string b_;
+                    if (av_.is_value()) b_ = std::string(str_of(av_));
+                    else if (map_of(av_).has_key(la::NAME)) b_ = std::string(str_of(map_of(av_).get(la::NAME.code)));
+                    if (b_.empty()) continue;
+                    const std::string tok_ = mint_fnptr_binder(b_);
+                    hb_[b_] = tok_;
+                    hb_[outlives_norm(b_)] = tok_;
+                }
+            }
+            if (!hb_.empty()) {
+                logos::probe::census("fnptr.hrtb.renamed");
+                for (auto& p : t.closure_params) p = subst_type_sema(p, {}, hb_);
+                t.closure_ret = subst_type_sema(t.closure_ret, {}, hb_);
+            }
+        }
         // E0106 on a fn-pointer type's written return, >= 2 distinct input
         // lifetimes. The 0-input form (`fn() -> &T`) is left as the fn-signature
         // rule leaves it: pinned legal by spec/pass/generic_2.

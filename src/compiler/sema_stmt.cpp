@@ -11308,7 +11308,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     for (auto p : TypeRef(expr_type(val)).closure_params())
                         fpt.closure_params.push_back(p);
                     fpt.closure_ret = TypeRef(expr_type(val)).closure_ret();
-                    TypeRef fp = pool_->alloc(std::move(fpt));
+                    TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
                     if (types_compatible(result_type, fp) &&
                         types_compatible(expr_type(val), fp)) {
                         result_type = fp;

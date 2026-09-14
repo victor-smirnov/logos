@@ -5987,9 +5987,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                So ALL 10173 -> 10247, NOIMPORTED 5675 -> 5749, TIERCOMMIT 122 -> 122 — PREDICTED, then measured by `ctest -N`
 #                on the re-globbed build before this pin was touched. bc_admits `# TOTAL` 64 unchanged; soundness_queue 165 -> 167
 #                (two rows OPENED, none closed); unrowed_backlog 15 -> 16.
-REGISTRY-ALL         10260
-REGISTRY-NOIMPORTED  5762
-REGISTRY-TIERCOMMIT  122
+# 2026-09-14k (fnptrbinderland — a fn value's own regions carried by its type; bc_admits issue-54124 and issue-101280 CLOSED,
+#                soundness_queue fnptr_elided_param_{let_from_named,return_from_named,nested_option}_admits,
+#                fnptr_item_named_binder_vs_fnptr_type_refused and fnptr_hrtb_sub_binder_to_named_return_refused CLOSED). 17 native pass
+#                fixtures (7 bc_fnptrbind_*_admit halves + 10 bc_0914k_fnptrbinderland_hb_<id>_admit), 10 native fail fixtures (5
+#                bc_fnptrbind_*_refuse halves + 5 bc_0914k_fnptrbinderland_hb_<id>_refuse), and two ports moved tests/imported/admit ->
+#                tests/imported/fail (their logos_00_bc_admit_* tests, tier_commit and not imported-labelled, leave; two imported fail
+#                tests join). So ALL 10260 -> 10287 (+17 +10 +2 -2), NOIMPORTED 5762 -> 5787 (+17 +10 -2), TIERCOMMIT 122 -> 120 (-2)
+#                — measured by `ctest -N` on the re-globbed build 0230e503bd682184 before this pin was touched. bc_admits `# TOTAL`
+#                64 -> 62; soundness_queue 176 -> 172 (five rows CLOSED, one OPENED).
+REGISTRY-ALL         10287
+REGISTRY-NOIMPORTED  5787
+REGISTRY-TIERCOMMIT  120
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
@@ -9180,6 +9189,8 @@ RENAMED-FIXTURE  tests/logos/pass/wql_incr_static_three_ways.logos  tests/logos/
 RENAMED-FIXTURE  tests/logos/pass/wql_incr_retract_three_ways.logos  tests/logos/pass/wql_incr_retract_two_ways.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/wql_tier_capability_disagreement.logos  tests/logos/pass/wql_u64_capability_matrix.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/logos/pass/wql_value_domain_tiers_measured.logos  tests/logos/pass/wql_value_domain_measured.logos  P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/imported/admit/nll/issue-54124.logos  tests/imported/fail/nll/issue-54124.logos  2026-09-14k: the bc_admits row it carried (nllmoves.NEW-L1) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
+RENAMED-FIXTURE  tests/imported/admit/regions/issue-101280.logos  tests/imported/fail/regions/issue-101280.logos  2026-09-14k: the bc_admits row it carried (lifereg.NEW-N4) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
 
 # The population rule, executable, in the form FACT 6 now uses. ⚠ THIS LIST WAS
 # CORRECTED BEFORE THE FACT WAS RE-AIMED, because its own comment used to assert

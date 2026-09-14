@@ -49,7 +49,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 176
+# TOTAL 172
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -225,12 +225,8 @@ elided_param_regions_invariant_compare_admits 2 tests/soundness/open/elided_para
 # ── 2026-09-14j-fnptrbinder: defects the pricing round's hand battery found around a fn-pointer type's own regions (an elided
 # slot read as a wildcard, a `for<..>` binder read as the enclosing scope's name), each reproducing on build c52dcb19dff987ff 43
 # before any edit; the reason a neighbour is rowed rather than moved is in each program's header.
-fnptr_elided_param_let_from_named_admits 2 tests/soundness/open/fnptr_elided_param_let_from_named_admits admits
-fnptr_elided_param_return_from_named_admits 2 tests/soundness/open/fnptr_elided_param_return_from_named_admits admits
 fnptr_elided_param_struct_literal_admits 2 tests/soundness/open/fnptr_elided_param_struct_literal_admits admits
 fnptr_elided_param_call_arg_admits 2 tests/soundness/open/fnptr_elided_param_call_arg_admits admits
-fnptr_elided_param_nested_option_admits 2 tests/soundness/open/fnptr_elided_param_nested_option_admits admits
 fnptr_assign_named_to_elided_admits 2 tests/soundness/open/fnptr_assign_named_to_elided_admits admits
-fnptr_item_named_binder_vs_fnptr_type_refused 3 tests/soundness/open/fnptr_item_named_binder_vs_fnptr_type_refused refuses
-fnptr_hrtb_sub_binder_to_named_return_refused 3 tests/soundness/open/fnptr_hrtb_sub_binder_to_named_return_refused refuses
 fnptr_call_result_region_param_reads_static_refused 3 tests/soundness/open/fnptr_call_result_region_param_reads_static_refused refuses
+user_type_alias_shadows_stdlib_type_param_refused 3 tests/soundness/open/user_type_alias_shadows_stdlib_type_param_refused refuses
