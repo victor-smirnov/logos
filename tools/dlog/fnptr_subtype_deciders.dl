@@ -1,0 +1,36 @@
+// fnptr_subtype_deciders — WHICH SITES DECIDE `sub <: sup` FOR A VALUE THAT MAY BE A FN POINTER
+// (round 2026-09-14j-fnptrbinder).
+//
+// The block's fact is that a fn-pointer type's own regions (its elided slots, its `for<..>` binder) are read as a
+// wildcard or as the enclosing scope's name. Its neighbours are the OTHER sites that decide the same relation from
+// the same fact. Two doors reach the comparator:
+//   Q1 every call of the variance-coercion checker `check_variance`, by enclosing context and line — the arm under
+//      price edits its body, so every caller is reached; which of them is STRICT is an argument value this schema
+//      does not carry (no bool-literal relation), so it is read per site, never taken from here.
+//   Q2 every context that calls the comparator family directly — `variance_ok`, `subtype`, `subtype_at`,
+//      `types_equal_with_lifetimes` — WITHOUT going through check_variance. These are deciders the arm cannot see.
+//
+// KNOWN-ANSWER CONTROL, stated before the run: over sema_stmt.cpp, `cv_site` restricted to that file must hold
+// exactly the 7 lines a grep of `check_variance(` finds there outside the declaration
+// (573 773 2647 3336 3341 3554 8793, base tree). Fewer or more means the extraction is wrong and nothing below is believed.
+#include "cxx_schema.dl"
+
+.decl named_callee(did: symbol, name: symbol)
+named_callee(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N).
+named_callee(D, N) :- decl(D, "Function", _), decl_name(D, N).
+
+.decl cv_site(ctx: symbol, file: symbol, line: number)
+cv_site(C, F, L) :- named_callee(D, "check_variance"), call(K, D), ctx_of(K, X), ctx_name(X, C), loc(K, F, L, _).
+.output cv_site
+
+.decl comparator(name: symbol)
+comparator("variance_ok").
+comparator("subtype").
+comparator("subtype_at").
+comparator("types_equal_with_lifetimes").
+
+.decl direct_decider(ctx: symbol, callee: symbol, file: symbol, line: number)
+direct_decider(C, N, F, L) :- comparator(N), named_callee(D, N), call(K, D), ctx_of(K, X), ctx_name(X, C),
+    loc(K, F, L, _), C != "check_variance", C != "variance_ok", C != "subtype", C != "subtype_at",
+    C != "types_equal_with_lifetimes", C != "lifetime_at".
+.output direct_decider
