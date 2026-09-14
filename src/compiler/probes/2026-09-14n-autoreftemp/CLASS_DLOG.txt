@@ -1,0 +1,50 @@
+ROUND 2026-09-14n-autoreftemp — THE CLASS, ENUMERATED BY tools/dlog, CROSS-CHECKED PER SITE
+rule: tools/dlog/autoref_temp_sites.dl (NEW this round). selftest.sh run first: rc 0,
+  "ok 28fc7c75...: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates across 756aed65 (1 -> 0)", 67 s.
+subject TUs: sema_expr.cpp sema_stmt.cpp sema.cpp mono_clone.cpp lir_builder.cpp (ask.sh: 5 TUs, 3 extracted, 16 s).
+
+KNOWN ANSWER — AND IT WAS WRONG IN MY DIRECTION, NOT THE TOOL'S:
+  stated before the run: "25 calls to LirBuilder::addr_of_temp". That number came from a grep piped through `head -40`,
+  which cut the list. dlog read 38 spill sites (36 LirBuilder::addr_of_temp calls + 2 lir_mirror_emit_addr_of_temp).
+  A full grep afterwards: 39 lines = sema_expr 23, sema_stmt 6, sema_impl.hpp 1, mono_clone 5, lir_builder 2 (one is
+  the definition). Per file the two agree term for term (dlog attributes lir_builder's lambda at :18 where grep sees
+  the definition at :235). The truncated grep is exactly the premature closure the tool's README names.
+
+spill_ctx_asks (context references hoist_stmt_temp / is_hoistable_temp_rvalue / materialize_recv_ref): 4 contexts
+  lower_expr_inner, lower_index_read, lower_unary, materialize_recv_ref
+spill_ctx_blind: 19 contexts
+  push_operand push_pc lower_binop take_operand_ref lower_let emit_destruct lower_place_assign lower_place_compound_assign
+  lower_intrinsic_tuple_all_eq try_implicit_reborrow_mut widen_int_expr resolve_wany try_schema_method
+  schema_wany_to_typed build build_chain subst_expr direct reuse_mut_ref
+
+⚠ ctx_of COARSENS, AND IT DID HERE: lower_index_read and lower_unary "ask" at OTHER lines (12837/12873, 3401) while
+  their spill sites 12723 and 3242/3244 do not. A context that asks does not prove the site asks. PER-SITE READ:
+
+site                         line(s)          operand can be a FRESH DROPPABLE rvalue?   measured (hand program, base)
+materialize_recv_ref         sema_expr 281    yes — already owned (hoist above it)       control: h32/h33 correct 1001
+lower_expr_inner `&mut *p`   1526 1530        no — a deref place
+lower_expr_inner `&mut *x`   1541             no — non-pointer deref operand (illegal)
+lower_expr_inner extending   1568             extended by the let arm (__lit_temp_N)     control: h40 correct 1001
+take_operand_ref DEREF       2376             no — deref operand
+take_operand_ref rvalue      2379             YES — enum `==`, TypeVar `==`, String==str  h25 LEAK (n=1), h34 LEAK (34 B)
+tuple Eq lref_e/rref_e       2495 2496        YES                                         h07 LEAK (n=1)
+push_operand (THE ROW)       2586             YES                                         row + h02..h27 LEAK
+push_pc                      2616             YES                                         h05 LEAK (n=1)
+lower_unary `&&v`            3242 3244        YES                                         h39 LEAK (n=1)
+lower_unary `&*p` family     3347 3350 3356   no — deref places
+lower_unary extending        3400             extended by the let arm                     control: h32 correct
+tuple_all_eq intrinsic       5762             no — a tuple FIELD place
+resolve_wany etc.            10937 10954 11097  Writ WAny/Writ receivers — not reached by any hand program; not classified
+lower_index_read range       12723            YES — `mkarr()[a..b]`                       h35 LEAK (n=0 for 1001)
+try_implicit_reborrow_mut    15774            no — filtered to places
+widen_int_expr               sema_impl 8893   no — an integer cast
+emit_destruct `ref` field    sema_stmt 2050   no — a field place
+lower_let scalar literal     2427             no — scalar, no destructor
+lower_let `let ref y = e`    2517             YES                                         h41 LEAK (n=1)
+compound assign / place asgn 3195 3216 8882   no — lower_mut_place places
+mono_clone build_chain/build 2685 2686 2727 2833  no — tuple element places
+mono_clone subst_expr        1244             re-emission of an existing AddrOfTemp — inherits its operand
+
+MEMBERS (fresh droppable rvalue, no owner): push_operand, push_pc, tuple Eq, take_operand_ref, index range,
+  `&&v`, `let ref`. Seven sites. The first five are armed in batch 1; `&&v` and `let ref` were found by the per-site
+  read AFTER batch 1 started and are priced as batch 2 on the same tree.

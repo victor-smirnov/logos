@@ -1,0 +1,2 @@
+autorefhoist: union of oprhoist pchoist tupeqhoist torhoist idxrangehoist — every site above answers this name
+oprmrr: push_operand delegates to SemaChecker::materialize_recv_ref (armed inside the oprhoist record)

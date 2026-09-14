@@ -1,0 +1,33 @@
+// SOUNDNESS QUEUE row tuple_eq_autoref_temp_never_dropped (tier 1). A DROPPABLE TUPLE TEMPORARY AUTO-REF'D FOR TUPLE `==` IS NEVER DROPPED.
+//
+// `t == (D { … }, 5)` with non-primitive elements routes through the tuple Eq impl; the `lref_e`/`rref_e`
+// auto-ref in lower_binop (CP-cm-08b) spills each tuple with a bare `addr_of_temp`. Priced by probe `tupeqhoist`:
+// closes this program, 1 -> 1001. NEVER FIRED over the corpus.
+//
+// Found 2026-09-14n-autoreftemp by hand program h07, measured on base b54c1160ae8e4066 43 and on the probed
+// binary 15fbccc186107d4b 43 unarmed (identical). Rust: exit 0. Legality by reading; no rustc binary on this box.
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT through a raw `*mut i64`: today 1, exit 1; correct 1001, exit 0.
+package tuple_eq_autoref_temp_never_dropped;
+use logos.lang.cmp;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v > 0i64 && other.v > 0i64; } }
+fn mk(v: i64, c: *mut i64) -> D { return D { v: v, c: c }; }
+
+fn body(p: *mut i64) -> i64 {
+    let t: (D, i64) = (D { v: 1i64, c: p }, 5i64);
+    if !(t == (D { v: 1000i64, c: p }, 5i64)) { return 3i64; }
+    return 0i64;
+}
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = body(p);
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld r=%ld\n".as_ptr(), got, r); }
+    if r != 0i64 { return 2i32; }
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}

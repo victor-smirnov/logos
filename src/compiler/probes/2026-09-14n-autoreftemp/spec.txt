@@ -1,0 +1,163 @@
+name: oprhoist
+file: src/compiler/sema_expr.cpp
+---
+                            bool is_mut = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+                            args.push_back(builder().addr_of_temp(
+                                std::move(e), is_mut, make_ref(is_mut, vty)));
+---
+                            bool is_mut = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+                            // ── ROUND 2026-09-14n CEILING PROBES (env-gated) ──
+                            // oprhoist: a FRESH DROPPABLE operand spilled by the
+                            // operator auto-ref gets the statement-temp owner
+                            // materialize_recv_ref gives a receiver. oprmrr: the
+                            // whole chokepoint (hoist + zone + region carry).
+                            logos::probe::census("autoref.push_operand.spill");
+                            const bool ar_fresh_ = cur_stmt_temp_hoist_ && e && expr_type(e) &&
+                                is_move_type(expr_type(e)) && is_hoistable_temp_rvalue(e);
+                            if (ar_fresh_) logos::probe::census("autoref.push_operand.fresh");
+                            if (logos::probe::on("oprmrr")) {
+                                args.push_back(materialize_recv_ref(
+                                    std::move(e), is_mut, make_ref(is_mut, vty)));
+                                return;
+                            }
+                            if (ar_fresh_ && (logos::probe::on("oprhoist") ||
+                                              logos::probe::on("autorefhoist")))
+                                e = hoist_stmt_temp(std::move(e), is_mut);
+                            args.push_back(builder().addr_of_temp(
+                                std::move(e), is_mut, make_ref(is_mut, vty)));
+===
+name: pchoist
+file: src/compiler/sema_expr.cpp
+---
+                                bool im = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+                                pcargs.push_back(builder().addr_of_temp(
+                                    std::move(e), im, make_ref(im, vty)));
+---
+                                bool im = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+                                // ── ROUND 2026-09-14n CEILING PROBE pchoist (env-gated)
+                                logos::probe::census("autoref.push_pc.spill");
+                                const bool pc_fresh_ = cur_stmt_temp_hoist_ && e && expr_type(e) &&
+                                    is_move_type(expr_type(e)) && is_hoistable_temp_rvalue(e);
+                                if (pc_fresh_) logos::probe::census("autoref.push_pc.fresh");
+                                if (pc_fresh_ && (logos::probe::on("pchoist") ||
+                                                  logos::probe::on("autorefhoist")))
+                                    e = hoist_stmt_temp(std::move(e), im);
+                                pcargs.push_back(builder().addr_of_temp(
+                                    std::move(e), im, make_ref(im, vty)));
+===
+name: tupeqhoist
+file: src/compiler/sema_expr.cpp
+---
+            auto lref_e = builder().addr_of_temp(std::move(lhs), false, lty);
+            auto rref_e = builder().addr_of_temp(std::move(rhs), false, rty);
+---
+            // ── ROUND 2026-09-14n CEILING PROBE tupeqhoist (env-gated)
+            logos::probe::census("autoref.tuple_eq.spill");
+            for (lir::LExprPtr* te_ : {&lhs, &rhs}) {
+                const bool te_fresh_ = cur_stmt_temp_hoist_ && *te_ && expr_type(*te_) &&
+                    is_move_type(expr_type(*te_)) && is_hoistable_temp_rvalue(*te_);
+                if (te_fresh_) logos::probe::census("autoref.tuple_eq.fresh");
+                if (te_fresh_ && (logos::probe::on("tupeqhoist") ||
+                                  logos::probe::on("autorefhoist")))
+                    *te_ = hoist_stmt_temp(std::move(*te_), false);
+            }
+            auto lref_e = builder().addr_of_temp(std::move(lhs), false, lty);
+            auto rref_e = builder().addr_of_temp(std::move(rhs), false, rty);
+===
+name: torhoist
+file: src/compiler/sema_expr.cpp
+---
+        return builder().addr_of_temp(std::move(lowered), false,
+                                      make_ref(false, vty));
+    };
+---
+        // ── ROUND 2026-09-14n CEILING PROBE torhoist (env-gated)
+        logos::probe::census("autoref.take_operand_ref.spill");
+        {
+            const bool to_fresh_ = cur_stmt_temp_hoist_ && lowered && expr_type(lowered) &&
+                is_move_type(expr_type(lowered)) && is_hoistable_temp_rvalue(lowered);
+            if (to_fresh_) logos::probe::census("autoref.take_operand_ref.fresh");
+            if (to_fresh_ && (logos::probe::on("torhoist") ||
+                              logos::probe::on("autorefhoist")))
+                lowered = hoist_stmt_temp(std::move(lowered), false);
+        }
+        return builder().addr_of_temp(std::move(lowered), false,
+                                      make_ref(false, vty));
+    };
+===
+name: idxrangehoist
+file: src/compiler/sema_expr.cpp
+---
+                recv = builder().addr_of_temp(std::move(recv), /*is_mut=*/false,
+                                              make_ref(false, arr_type));
+---
+                // ── ROUND 2026-09-14n CEILING PROBE idxrangehoist (env-gated)
+                logos::probe::census("autoref.index_range.spill");
+                {
+                    const bool ir_fresh_ = cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
+                        is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv);
+                    if (ir_fresh_) logos::probe::census("autoref.index_range.fresh");
+                    if (ir_fresh_ && (logos::probe::on("idxrangehoist") ||
+                                      logos::probe::on("autorefhoist")))
+                        recv = hoist_stmt_temp(std::move(recv), false);
+                }
+                recv = builder().addr_of_temp(std::move(recv), /*is_mut=*/false,
+                                              make_ref(false, arr_type));
+===
+name: autorefhoist
+file: src/compiler/probes/2026-09-14n-autoreftemp/UNION.txt
+---
+autorefhoist: union marker
+---
+autorefhoist: union of oprhoist pchoist tupeqhoist torhoist idxrangehoist — every site above answers this name
+===
+name: oprmrr
+file: src/compiler/probes/2026-09-14n-autoreftemp/UNION.txt
+---
+oprmrr: delegation marker
+---
+oprmrr: push_operand delegates to SemaChecker::materialize_recv_ref (armed inside the oprhoist record)
+
+===
+# BATCH 2 — applied BY HAND on top of the seven records above (same tree, one more build), priced with
+# scripts/ceiling-probe.sh one name at a time. Found by the per-site read of tools/dlog autoref_temp_sites.dl
+# after batch 1 had started (CLASS_DLOG.txt).
+name: dblrefmrr
+file: src/compiler/sema_expr.cpp
+---
+        auto inner_ref_t = make_ref(false, expr_type(inner));
+        auto inner_addr = builder().addr_of_temp(std::move(inner), false, inner_ref_t);
+---
+        auto inner_ref_t = make_ref(false, expr_type(inner));
+        // ── ROUND 2026-09-14n CEILING PROBE dblrefmrr (env-gated): the inner `&` of
+        // `&&<rvalue>` takes the single-`&` path's owner (materialize_recv_ref),
+        // unless the node sits in an extending `let` position.
+        logos::probe::census("autoref.double_ref.spill");
+        if (cur_stmt_temp_hoist_ && inner && expr_type(inner) &&
+            is_move_type(expr_type(inner)) && is_hoistable_temp_rvalue(inner))
+            logos::probe::census("autoref.double_ref.fresh");
+        auto inner_addr = (logos::probe::on("dblrefmrr") && !extending_borrow_nodes_.count(node.ptr()))
+            ? materialize_recv_ref(std::move(inner), false, inner_ref_t)
+            : builder().addr_of_temp(std::move(inner), false, inner_ref_t);
+
+===
+name: letrefext
+file: src/compiler/sema_stmt.cpp
+---
+        if (have_ext) {
+            {
+                auto inner = ext_inner;
+---
+        // ── ROUND 2026-09-14n CEILING PROBE letrefext (env-gated): `let ref y = <rvalue>`
+        // is sugar for `let y = &<rvalue>` (P4-pm-14, below), so it takes the same
+        // named-temp extension carrier instead of the anonymous addr_of_temp spill.
+        if (!have_ext && node.has_key(la::IS_REF)) {
+            AnyVal lr_av_ = node.get(la::IS_REF.code);
+            if (!lr_av_.is_null() && lr_av_.is_value() && lr_av_.as_value<uint8_t>() != 0) {
+                logos::probe::census("autoref.let_ref_bind.value");
+                if (logos::probe::on("letrefext")) { ext_inner = val_node; have_ext = true; }
+            }
+        }
+        if (have_ext) {
+            {
+                auto inner = ext_inner;

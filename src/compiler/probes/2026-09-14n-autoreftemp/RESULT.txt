@@ -1,0 +1,81 @@
+ROUND 2026-09-14n-autoreftemp — RESULT. PRICED, NOT FIXED.
+
+BUILDS READ:  base b54c1160ae8e4066 43 (HEAD f05cdd8aa)
+              batch 1 (7 probes)  15fbccc186107d4b 43   L1 rc 0 unarmed (probe-batch)
+              batch 2 (+2 probes) 8edd07133a6554af 43   L1 rc 0 unarmed: 807/807, 12 684 smoke, 119 gates
+              restored            b54c1160ae8e4066 43 — READ BACK EXACTLY after `git checkout` of the two probed files + rebuild;
+                                  `strings build/bin/logosc` finds 0 probe names
+QUEUE GATE (base, LOGOS_LIB_DIR set): rc 0, 185 rows (tier1=22 tier2=57 tier3=98 tier4=8)
+TIER 1: all 22 rows re-measured, 22 reproduce exactly (REMEASURE_TIER1.txt).
+BC LEDGERS: bc_admits 61, bc_admits_blocked 8 — untouched.
+
+THE TABLE (`queue` answers this round; `ceiling` is the bc_admits ledger, 0 by construction here)
+  probe          site                    fires  queue  ceiling cost  cfail     stdlib  runtime   valgrind
+  oprhoist       push_operand                2    1      0      0    0/1858    ok      NOT MEASURED  —
+  pchoist        push_pc                     0    —      —      —    —         —       —         —       NEVER FIRED
+  tupeqhoist     lower_binop (tuple Eq)      0    —      —      —    —         —       —         —       NEVER FIRED
+  torhoist       take_operand_ref            0    —      —      —    —         —       —         —       NEVER FIRED
+  idxrangehoist  lower_index_read (range)    0    —      —      —    —         —       —         —       NEVER FIRED
+  autorefhoist   the five above              2    1      0      0    0/1858    ok      0 of 7030  LEAK 57->54, CORRUPT 3=3, 0 new
+  oprmrr         push_operand -> mrr         8    1      0      0    0/1858    ok      0 of 7030  —
+  dblrefmrr      lower_unary `&&`            1    0      0      0    0/1858    ok      0 of 7030  LEAK 57=57, CORRUPT 3=3, identical
+  letrefext      lower_let `let ref`         2    0      0      0    0/1858    ok      0 of 7030  LEAK 57=57, CORRUPT 3=3, identical
+  fires = arrivals where the arm's predicate answered (oprmrr: every spill at push_operand).
+  NEVER FIRED is the FIRST KIND OF ZERO — an unreached site in the population (pass ledger+legal, 1858 fail fixtures,
+  four stdlib layers). Each of those four sites is PROVEN LIVE by hand (its program moves under its own name only).
+  runtime = scripts/run_oracle.py against the unarmed run on the SAME binary (8edd07133a6554af).
+  valgrind = tests/lattice/valgrind/sweep.sh, LEAK/CORRUPT sets diffed both ways against the unarmed sweep, same binary.
+
+QUEUE, CLOSED SET DIFFED BOTH WAYS against PREDICTIONS.txt (written before the batch):
+  oprhoist / autorefhoist / oprmrr: predicted {operator_autoref_temp_never_dropped}; the gate's own FAIL line read
+    exactly that row (want run=1, read run=0); predicted-not-measured 0, measured-not-predicted 0. Crash lines 6 = 6.
+  dblrefmrr / letrefext (gate over 185 rows): predicted {}; read {} (rc 0).
+
+HAND BATTERY — 37 programs (h02-h20, h24-h41; h01 h21-h23 were never written), each compiled + linked + run twice
+  + valgrind, destructor counts through a raw `*mut i64`. base b54c1160 == batch-1 unarmed == batch-2 unarmed on every
+  program they share (inert). Movers, per arm, EXACTLY as predicted by name:
+    oprhoist, oprmrr (identical): h02 h03 h04 h06 h09 h10 h11 h13 h14 h15 h16 h17 h18 h24 h26 h27 -> correct count,
+      h19 (String == String: 68 bytes definitely lost -> 0 errors), h30 (sequence 12 -> 1265, Rust's),
+      h31 (sequence 12 -> 216; Rust 126) — MOVED BUT STILL WRONG: an evaluation-ORDER change.
+    pchoist h05 · tupeqhoist h07 · torhoist h25 h34 · idxrangehoist h35 · dblrefmrr h39 · letrefext h41
+    autorefhoist: the exact union of the five single-site arms (additivity MEASURED).
+  Unmoved under every arm: h08 (short-circuit false, inherited correct), controls h12 h28 h29 h32 h33 h37 h40, and
+    the out-of-class defects h20 h36 (by-value operator: 1002 / 2002) and h38 (`&D == &D` address compare).
+
+ROWS OPENED (9; TOTAL 185 -> 194 by direct listing; tier1 22 -> 31), each program verified `run 1` on the inert
+  binary AND under its own arm (the six site rows read 1001 / exit 0 armed; the order row reads 216 / exit 1 under
+  autorefhoist and oprmrr; the two out-of-class rows unmoved):
+    partial_cmp_operator_autoref_temp_never_dropped   tuple_eq_autoref_temp_never_dropped
+    enum_eq_operand_temp_never_dropped                array_rvalue_range_index_temp_never_dropped
+    double_ref_temp_arg_never_dropped                 let_ref_bind_temp_never_dropped
+    operator_autoref_temp_eval_order_run              byvalue_operator_operand_not_moved_double_drop
+    ref_struct_eq_compares_addresses_run
+ROWS CLOSED: 0 (pricing round; no compiler source lands).
+
+VALGRIND SWEEP, UNARMED (tests/lattice/valgrind/sweep.sh, build 8edd07133a6554af 43, 17:40:47 -> 18:11:25):
+  swept 7042 · allocated 1814 · zero-alloc 5037 (coverage, not evidence) · not run 191 · clean of the allocating 1754
+  LEAK 57 · CORRUPT 3 · TIMEOUT 3 · CFAIL 62 · LINKFAIL 124 · NOVG 2
+  ⚠ NOVG 2 = fiber_thread_future and http_workers_basic: `timeout 60` signalled the `valgrind` WRAPPER and
+  /usr/bin/valgrind.bin survived — 1328 s and 1307 s elapsed when killed BY PID (rc 137). Every later sweep in the chain
+  ran with a reaper killing any valgrind.bin older than 300 s (reaper.log in the scratch chain dir names each one).
+VALGRIND SWEEP, autorefhoist (same binary, 18:11:25 -> 18:25:31; reaper killed fiber_thread_future at 302 s and
+  http_workers_basic at 312 s — NOVG 2 on both sweeps):
+  LEAK 57 -> 54, DIFFED BOTH WAYS: only-unarmed {tests/imported/pass/drop/field-replace-in-struct-with-drop-b154 (6 allocs
+  4 frees 16 B -> 6/6), tests/logos/pass/string_eq_empty (2/1 8 B -> 2/2), tests/logos/pass/wql_el_cmp_measured (83/75 40 B
+  -> 83/83)}; only-armed {}. CORRUPT 3 = 3, TIMEOUT 3 = 3, CFAIL 62 = 62, LINKFAIL 124 = 124, identical sets.
+  Numeric (allocs/frees/definite/indirect/reachable/invalid) changed on exactly those three fixtures. No new record anywhere.
+  b154 is the corpus member the row header cites and string_eq_empty is the one 179dd17ff named; wql_el_cmp_measured was
+  NOT predicted — a third corpus member of the class, found by the sweep.
+VALGRIND SWEEP, letrefext (18:25:31 -> 18:39:33; reaper 302 s / 311 s on the same two thread fixtures): every status
+  set identical to unarmed, both ways (LEAK 57, CORRUPT 3, TIMEOUT 3, CFAIL 62, LINKFAIL 124, NOVG 2); numeric changes 0.
+VALGRIND SWEEP, dblrefmrr (18:39:33 -> 18:53:35; reaper 328 s / 308 s, same two fixtures): identical in every set both
+  ways, numeric changes 0. Chain end build hash read back 8edd07133a6554af 43 — the binary did not change under the chain.
+
+GATES ON THE COMMITTED TREE (probes reverted, build b54c1160ae8e4066 43):
+  L1 rc 0: 807/807, smoke 12 684, gates tier 119/119 · soundness_queue_gate rc 0: 194 rows = # TOTAL 194 by direct listing
+  (tier1 31, tier2 57, tier3 98, tier4 8) · bc_admits 61, bc_admits_blocked 8 untouched · probe-log-lint 312 -> 321 records
+  (+9 = the nine records of this round; every `site:` symbol grepped by hand in its file: push_operand 6, push_pc 5,
+  lower_binop 3, take_operand_ref 8, lower_index_read 2, lower_unary 3 in sema_expr.cpp; lower_let 16 in sema_stmt.cpp).
+HAND-BATTERY HARVEST (rule of 2026-09-14): the programs that caught something are all still WRONG on the committed
+  binary, so every one is a queue row, not a fixture — 9 rows, 0 pass/fail fixtures. The controls (h08 h12 h28 h29 h32 h33
+  h37 h40) caught nothing and stay in scratch.

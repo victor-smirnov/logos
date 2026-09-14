@@ -1,0 +1,24 @@
+ROUND 2026-09-14n-autoreftemp — PREDICTIONS, BY NAME, WRITTEN BEFORE THE BATCH RAN
+base build b54c1160ae8e4066 43. Hand battery base readings: scratch hb_autoref.sNBN/base{2,3,4}_result_b54c1160.txt
+
+QUEUE (soundness_queue_gate.sh reading "no longer reproduces"):
+  oprhoist, oprmrr, autorefhoist : operator_autoref_temp_never_dropped, and NOTHING ELSE
+  pchoist, tupeqhoist, torhoist, idxrangehoist : NOTHING (no row carries their shapes)
+
+HAND BATTERY, base -> armed (want = Rust):
+  oprhoist moves to correct: h02 h03 h04 h06 h09 h10 h11 h13 h14 h15 h16 h17 h18 h24 h26 h27
+                             h19 (String == String: valgrind clean), h30 (seq 1265)
+  oprhoist moves but stays WRONG: h31 (base seq 12; armed predicted 216 — the hoist evaluates the
+                             rhs temp BEFORE the lhs `*pick(..)` call; Rust 126). An ORDER change.
+  pchoist moves: h05 only.   tupeqhoist moves: h07 only.
+  torhoist moves: h25 (enum operand), h34 (String temp == str literal) only.
+  idxrangehoist moves: h35 only.
+  autorefhoist = exact union of the five single-site arms (additivity predicted, to be measured).
+  oprmrr = same hand set as oprhoist.
+  UNCHANGED under every arm: h08 (short-circuit false, 1, inherited correct), controls h12 h28 h29
+    h32 h33 h37, and the two unrelated defects h20/h36 (by-value operator double drop, 1002/2002)
+    and h38 (`&D == &D` compares addresses).
+
+COST (pass / cfail / stdlib / runtime / valgrind): predicted 0 for the hoist arms — the owner
+  mechanism is the one the receiver door already uses. oprmrr predicted possibly NON-zero in cfail
+  (materialize_recv_ref also carries a place region onto the ref, which borrow-check reads).

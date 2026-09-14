@@ -1,0 +1,30 @@
+// SOUNDNESS QUEUE row ref_struct_eq_compares_addresses_run (tier 1). WRONG ANSWER AT RUN TIME.
+// `ra == rb` over two `&D`, where `D` has a user `impl Eq`, compares the two ADDRESSES and answers
+// false. Rust's `impl PartialEq<&B> for &A where A: PartialEq<B>` calls `D::eq` through the
+// reference: true, exit 7.
+//
+// The ONE-layer neighbour of nested_ref_eq_compares_addresses_run (`&&i64`). docs/DIVERGENCES.md
+// "Recently caught up" records `&T == &T` as value equality; docs/spec/expressions.md
+// `expr.binop.ref-prim-autoderef-eq` implements it only for references to PRIMITIVE scalars, and
+// `expr.binop.pointer-equality` sends every other reference to the address compare. Neither registry
+// canonises address equality for references to a type with an Eq impl, so this is the same rule not
+// yet applied, not a divergence. Legality by reading; no rustc binary on this box.
+//
+// Found 2026-09-14n-autoreftemp by hand program h38, written as a CONTROL (place operands) for the
+// operator auto-ref arm, on base b54c1160ae8e4066 43; unmoved by every arm of that round.
+package ref_struct_eq_compares_addresses_run;
+use logos.lang.cmp;
+
+struct D { v: i64 }
+impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    let ra: &D = &a;
+    let rb: &D = &b;
+    if ra == rb {
+        return 7i32;
+    }
+    return 1i32;
+}

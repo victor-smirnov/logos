@@ -1,0 +1,29 @@
+#include "cxx_schema.dl"
+// autoref_temp_sites — EVERY SPILL OF AN RVALUE INTO AN ANONYMOUS ADDRESS, AND WHETHER ITS CONTEXT CAN REGISTER AN OWNER
+// round 2026-09-14n-autoreftemp.
+// The class: "a site that takes the address of a lowered operand with `LirBuilder::addr_of_temp` and hands the
+// reference on". When the operand is a FRESH DROPPABLE rvalue, the spill has no owner and its destructor never runs
+// (queue row operator_autoref_temp_never_dropped). The owner-registering routine is `SemaChecker::hoist_stmt_temp`,
+// guarded by `SemaChecker::is_hoistable_temp_rvalue`; `SemaChecker::materialize_recv_ref` is the chokepoint that
+// calls both.
+// Claim-free: the domain is every call to a declaration whose qualified name contains `addr_of_temp` (the builder
+// method AND the mirror emitter), keyed by site; the question is whether the enclosing context references one of the
+// three owner facts. ⚠ ctx_of coarsens (a lambda may report its enclosing function), so a context that ASKS does not
+// prove the SITE asks — every "asks" row is cross-checked by a per-site read.
+// KNOWN ANSWER (grep, stated before the run): 25 calls to LirBuilder::addr_of_temp under src/compiler
+// (sema_expr.cpp 13, sema_stmt.cpp 6, sema_impl.hpp 1, mono_clone.cpp 4, lir_builder.cpp 1) and 3 calls to
+// hoist_stmt_temp (sema_expr.cpp 261, 10876, 11197).
+.decl spill_site(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output spill_site
+spill_site(F, L, N, Q) :- decl(D, _, Q), contains("addr_of_temp", Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl owner_fact(D: symbol, Q: symbol)
+owner_fact(D, Q) :- decl(D, _, Q), (contains("hoist_stmt_temp", Q) ; contains("is_hoistable_temp_rvalue", Q) ; contains("materialize_recv_ref", Q)).
+.decl owner_ask(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output owner_ask
+owner_ask(F, L, N, Q) :- owner_fact(D, Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl spill_ctx_asks(Ctx: symbol)
+.output spill_ctx_asks
+spill_ctx_asks(N) :- spill_site(_, _, N, _), owner_ask(_, _, N, _).
+.decl spill_ctx_blind(Ctx: symbol)
+.output spill_ctx_blind
+spill_ctx_blind(N) :- spill_site(_, _, N, _), !spill_ctx_asks(N).

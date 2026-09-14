@@ -1,0 +1,31 @@
+ROUND 2026-09-14n-autoreftemp — TARGET ROWS, NAMED BEFORE THE COMPILER IS TOUCHED
+build read at selection time: b54c1160ae8e4066 43 (HEAD f05cdd8aa, ninja no-op)
+queue gate rc at selection time: 0 (185 rows, tier1=22 tier2=57 tier3=98 tier4=8)
+
+TARGET (tier 1, one row):
+  operator_autoref_temp_never_dropped   tier 1  run 1   (leak: destructor count 1 for 1001)
+
+NEIGHBOURS TO TEST WITH THE SAME CHANGE (no rows; the class is enumerated by tools/dlog
+autoref_temp_sites.dl and cross-checked by a per-site read):
+  push_pc        — the `partial_cmp` twin of push_operand, sema_expr.cpp lower_binop
+  lref_e/rref_e  — the tuple-Eq auto-ref, same function
+  take_operand_ref — the `String == str` view, same function
+  every other LirBuilder::addr_of_temp spill in sema whose operand can be a fresh droppable rvalue
+
+WHY THIS BLOCK (the next round inherits this):
+  * All 22 tier-1 rows reproduce EXACTLY as recorded on b54c1160ae8e4066 (re-measured this round).
+  * The shadow block (shadowed_binding_never_dropped, shadow_over_param_double_drop) was PRICED
+    2026-09-07t and declined 2026-09-07u for its STRUCTURAL cost (slot identity: 2 LIR schema
+    fields, 4 name-keyed side tables, 203 mlir-gen scope_ mentions) — a crude arm is priced and
+    a correct one needs a schema round, not a pricing round.
+  * This row's owner-registering arm EXISTS AND IS LIVE NEXT DOOR: materialize_recv_ref ->
+    is_hoistable_temp_rvalue -> hoist_stmt_temp, used by the method-receiver door, the
+    struct-only-generic receiver door, and the field-base door. The operator operand spills
+    with a bare addr_of_temp. One candidate change (route the operator operand through the
+    same guard + hoist) is small, has a control (the receiver door is correct today), and has
+    an abuse direction that can be tested by hand (a PLACE operand must NOT be hoisted: a
+    Deref / FieldRead / IndexRead operand copied into an owned temp is a double drop).
+  * The row was found 2026-09-06 and never priced.
+
+GROUPING TEST: does ONE change at push_operand also move push_pc / tuple-Eq / enum-Eq shapes?
+  Measured by hand programs h05 (partial_cmp), h06 (direct lt), h07 (tuple), h25 (enum operand).

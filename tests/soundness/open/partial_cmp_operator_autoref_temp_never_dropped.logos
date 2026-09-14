@@ -1,0 +1,43 @@
+// SOUNDNESS QUEUE row partial_cmp_operator_autoref_temp_never_dropped (tier 1). A DROPPABLE TEMPORARY AUTO-REF'D AT A `<` OPERAND THAT DISPATCHES THROUGH `partial_cmp` IS NEVER DROPPED.
+//
+// `a < V { … }` over a struct with only `partial_cmp(&self, &other)`: the `push_pc` lambda in SemaChecker's
+// operator dispatch (src/compiler/sema_expr.cpp, lower_binop, the T2-16 PartialOrd arm) spills the operand with a
+// bare `addr_of_temp` — the twin of `push_operand` (row operator_autoref_temp_never_dropped). Priced by probe
+// `pchoist` (statement-temp hoist at this site): closes this program, 1 -> 1001. The corpus never reaches the site
+// (NEVER FIRED over pass, fail and stdlib), so the hand program is the whole evidence.
+//
+// Found 2026-09-14n-autoreftemp by hand program h05, measured on base b54c1160ae8e4066 43 and on the probed
+// binary 15fbccc186107d4b 43 unarmed (identical). Rust: exit 0. Legality by reading; no rustc binary on this box.
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT through a raw `*mut i64`: today 1, exit 1; correct 1001, exit 0.
+package partial_cmp_operator_autoref_temp_never_dropped;
+use logos.lang.cmp;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v > 0i64 && other.v > 0i64; } }
+fn mk(v: i64, c: *mut i64) -> D { return D { v: v, c: c }; }
+struct V { v: i64, c: *mut i64 }
+impl Drop for V { fn drop(self: &mut V) { unsafe { *self.c = *self.c + self.v; } } }
+impl PartialOrd for V {
+    fn partial_cmp(self: &V, other: &V) -> Ordering {
+        if self.v < other.v { return Ordering::Less; }
+        if self.v > other.v { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+fn body(p: *mut i64) -> i64 {
+    let a: V = V { v: 1i64, c: p };
+    if !(a < V { v: 1000i64, c: p }) { return 3i64; }
+    return 0i64;
+}
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = body(p);
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld r=%ld\n".as_ptr(), got, r); }
+    if r != 0i64 { return 2i32; }
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}

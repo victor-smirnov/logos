@@ -45121,3 +45121,153 @@ note: 14l's record priced it cost 0 in every column; the column that condemns it
   CONTROL REVERT (base copy f9e2e766 + its libs, 0230e503bd682184): 17/17 closing halves show the defect — 12 illegal admitted (the
   b2 and c24 row programs, c06 c07 c09 c10 c17 c19 c21 c23 l05 s57) and 5 legal refused (the b4 and c25 row programs, v13 s28 s57b) —
   and the port itself admitted (rc 0, runs 0). The twin compiles and runs 0 on both; s18 is a guard, refused on base AND landed.
+
+# ═══ ROUND 2026-09-14n-autoreftemp (PRICING, soundness queue tier 1) — AN OPERATOR OPERAND'S TEMPORARY HAS NO
+#     OWNER, AND THE CLASS IS SEVEN SPILL SITES WEARING ONE ROW ═══════════════════════════════════════════════
+
+Round subject: tier 1 of `tests/logos/soundness_queue.ledger`. Target named BEFORE the compiler was touched:
+`src/compiler/probes/2026-09-14n-autoreftemp/TARGET_ROWS.txt` (operator_autoref_temp_never_dropped). Predictions by
+name: `PREDICTIONS.txt`, written before the batch ran. All 22 tier-1 rows re-measured first: `REMEASURE_TIER1.txt` —
+22 of 22 reproduce exactly. Class enumeration: `CLASS_DLOG.txt` (tools/dlog, new rule `autoref_temp_sites.dl`,
+selftest rc 0 first). Full table: `RESULT.txt`.
+
+## oprhoist
+site: src/compiler/sema_expr.cpp::push_operand
+build: 15fbccc186107d4b
+measured: 2026-09-14
+fires: 2
+ceiling: 0
+cost: 0
+verdict: queue 1 — operator_autoref_temp_never_dropped, exactly as predicted; 18 hand programs to correct, h31 to a WRONG ORDER (216)
+note: statement-temp hoist (is_hoistable_temp_rvalue + hoist_stmt_temp) at the operator auto-ref. cfail 0 of 1858, stdlib ok.
+
+## pchoist
+site: src/compiler/sema_expr.cpp::push_pc
+build: 15fbccc186107d4b
+measured: 2026-09-14
+fires: 0 — NEVER FIRED over pass/fail/stdlib (an UNREACHED site in the population; live by hand: h05 1 -> 1001)
+ceiling: 0
+cost: — (not measured: never fired)
+verdict: hand only — h05, as predicted
+
+## tupeqhoist
+site: src/compiler/sema_expr.cpp::lower_binop
+build: 15fbccc186107d4b
+measured: 2026-09-14
+fires: 0 — NEVER FIRED (unreached in the population; live by hand: h07 1 -> 1001)
+ceiling: 0
+cost: — (not measured: never fired)
+verdict: hand only — h07, as predicted
+
+## torhoist
+site: src/compiler/sema_expr.cpp::take_operand_ref
+build: 15fbccc186107d4b
+measured: 2026-09-14
+fires: 0 — NEVER FIRED (unreached in the population; live by hand: h25 1 -> 1001, h34 34 B lost -> 0 errors)
+ceiling: 0
+cost: — (not measured: never fired)
+verdict: hand only — h25 h34, as predicted
+
+## idxrangehoist
+site: src/compiler/sema_expr.cpp::lower_index_read
+build: 15fbccc186107d4b
+measured: 2026-09-14
+fires: 0 — NEVER FIRED (unreached in the population; live by hand: h35 0 -> 1001)
+ceiling: 0
+cost: — (not measured: never fired)
+verdict: hand only — h35, as predicted
+
+## autorefhoist
+site: src/compiler/sema_expr.cpp::lower_binop
+build: 15fbccc186107d4b
+measured: 2026-09-14
+fires: 2
+ceiling: 0
+cost: 0
+verdict: queue 1 (the same row); hand set = the EXACT UNION of the five single-site arms (additivity measured)
+note: every one of the five sites answers this name. cfail 0 of 1858, stdlib ok.
+
+## oprmrr
+site: src/compiler/sema_expr.cpp::push_operand
+build: 15fbccc186107d4b
+measured: 2026-09-14
+fires: 8
+ceiling: 0
+cost: 0
+verdict: queue 1 (the same row); hand set identical to oprhoist on all 37 programs, h31 included (216)
+note: delegation to SemaChecker::materialize_recv_ref (hoist + zone check + region carry). The predicted cfail cost
+  from the region carry did not appear: 0 of 1858.
+
+## dblrefmrr
+site: src/compiler/sema_expr.cpp::lower_unary
+build: 8edd07133a6554af
+measured: 2026-09-14
+fires: 1
+ceiling: 0
+cost: 0
+verdict: queue 0 (no row carried the shape before this round); hand h39 1 -> 1001 and nothing else, as predicted
+note: batch 2, stacked on batch 1's seven edits, one more build; L1 rc 0 unarmed (807/807, 12 684, 119 gates).
+  The inner `&` of `&&<rvalue>` routed through SemaChecker::materialize_recv_ref unless extending. cfail 0 of 1858,
+  stdlib ok.
+
+## letrefext
+site: src/compiler/sema_stmt.cpp::lower_let
+build: 8edd07133a6554af
+measured: 2026-09-14
+fires: 2
+ceiling: 0
+cost: 0
+verdict: queue 0; hand h41 1 -> 1001 and nothing else, as predicted. cfail 0 of 1858, stdlib ok.
+note: `let ref y = <rvalue>` recognised by the named-temp extension arm (C6-cc-04 / T0-4) that `let y = &<rvalue>`
+  already takes. A statement-temp hoist would be the wrong owner here (Rust extends to the block).
+
+### NEIGHBOURS (standing rule 2026-09-12) — the class is seven spill sites (CLASS_DLOG.txt), one decision each:
+    neighbour                                          arm            closes by hand      queue row this round
+    push_operand (THE ROW + 17 shapes)                 oprhoist       18 of 18 counts     operator_autoref_temp_never_dropped (priced, open)
+    push_pc — `<` via partial_cmp                      pchoist        h05                 partial_cmp_operator_autoref_temp_never_dropped (NEW)
+    tuple Eq lref_e/rref_e                             tupeqhoist     h07                 tuple_eq_autoref_temp_never_dropped (NEW)
+    take_operand_ref — enum ==, TypeVar ==, String==str torhoist      h25 h34             enum_eq_operand_temp_never_dropped (NEW)
+    lower_index_read RANGE of an array rvalue          idxrangehoist  h35                 array_rvalue_range_index_temp_never_dropped (NEW)
+    lower_unary `&&<rvalue>`                           dblrefmrr      h39                 double_ref_temp_arg_never_dropped (NEW)
+    lower_let `let ref y = <rvalue>`                   letrefext      h41                 let_ref_bind_temp_never_dropped (NEW)
+    (guard) operator operand ORDER                     none           every operator arm reads 216   operator_autoref_temp_eval_order_run (NEW)
+  NOTHING LANDS in this commit (a pricing round), so no neighbour is "closed in this commit". Each member is a row so
+  the landing round's gate forces the whole class; the landing must close the seven site rows TOGETHER or name, per
+  row, one of the three reasons. The ORDER row is why none of the crude arms is the fix: the statement-temp hoist
+  prepends the rvalue before the statement, which reorders it past a left operand that has side effects.
+
+### NOT THIS CLASS (found by the same battery, unmoved by every arm, rowed):
+    byvalue_operator_operand_not_moved_double_drop  h20 (1002) h36 (2002): a BY-VALUE operator overload records no move
+      of its operands — push_operand's other arm, a different decision (consumption, not temp ownership).
+    ref_struct_eq_compares_addresses_run            h38: `&D == &D` with a user Eq compares addresses — the one-layer
+      neighbour of nested_ref_eq_compares_addresses_run.
+
+### RUNTIME COLUMN (scripts/run_oracle.py, LOGOS_BUILD=build 8edd07133a6554af 43, one binary, serial passes ~10-12 min each)
+  unarmed 16:45:31->16:58:11, 7030 pass fixtures compiled + linked + RUN. Each armed run vs that unarmed run:
+    autorefhoist 17:09:47  oprmrr 17:20:07  dblrefmrr 17:30:27  letrefext 17:40:47 — common 7030, only-base 0,
+    only-armed 0, changed 1 = cast-region-to-uint by name (prints a stack address; four armed runs gave four shas) -> 0.
+  oprhoist was not run separately: its site's hoist is inside autorefhoist, which reads 0 (rule 13 says a narrower
+  arm's cost cannot be inferred from a wider one's — so oprhoist's runtime is NOT MEASURED, and is said so).
+
+### VALGRIND COLUMN (tests/lattice/valgrind/sweep.sh, same binary 8edd07133a6554af 43, status sets diffed both ways vs unarmed)
+  unarmed: swept 7042, allocated 1814, LEAK 57, CORRUPT 3, TIMEOUT 3, CFAIL 62, LINKFAIL 124, NOVG 2.
+  ⚠ SURVIVORS: `timeout 60` signals the `valgrind` wrapper; /usr/bin/valgrind.bin kept fiber_thread_future and
+  http_workers_basic alive 1328 s / 1307 s on the unarmed sweep until killed by PID; later sweeps ran with a 300 s reaper.
+  autorefhoist: LEAK 57 -> 54 — field-replace-in-struct-with-drop-b154, string_eq_empty, wql_el_cmp_measured stop
+    leaking (frees == allocs), only-armed EMPTY; CORRUPT/TIMEOUT/CFAIL/LINKFAIL identical. A benefit, cost 0.
+    wql_el_cmp_measured was not predicted: a third corpus member of the class.
+  letrefext: identical in every set, 0 numeric changes.
+  dblrefmrr: identical in every set, 0 numeric changes.
+
+### GATES (committed tree: probes reverted, build read back b54c1160ae8e4066 43 exactly, 0 probe names in the binary)
+  L1 rc 0 (807/807, 12 684 smoke, gates 119/119) · soundness_queue_gate rc 0 on 194 rows = # TOTAL 194 by listing
+  (tier1 22 -> 31) · probe-log-lint 312 -> 321 records, each `site:` symbol grepped by hand · bc ledgers untouched.
+
+### WHAT DESERVES FUNDING
+  ONE landing round for the class, not seven: the owner at all seven sites is the statement-temp scope (the `let ref`
+  site: the block, via the existing __lit_temp_N arm). Every arm is cost 0 in pass, fail, stdlib and runtime, and
+  valgrind shows only benefit (three corpus leaks close). But the crude hoist is NOT the fix for the operator sites:
+  operator_autoref_temp_eval_order_run reads 216 under all three operator arms. The landing needs an ORDER-PRESERVING owner — materialise
+  the operand where it is evaluated (a named temp registered in the statement's temp scope WITHOUT prepending its
+  initialiser before the statement), which `hoist_stmt_temp` today cannot express. The receiver door never needed it
+  because a receiver is evaluated first.
