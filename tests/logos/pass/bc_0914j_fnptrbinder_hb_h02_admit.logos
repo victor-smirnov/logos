@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14j-fnptrbinder, program h02 — caught: refuted the rule-9 twin fnptrelidesup: REFUSED this legal program — a fn item's own 'a against an elided fn-pointer slot
+// legality: by reading, no rustc binary
+package bc_0914j_fnptrbinder_hb_h02_admit;
+fn idr<'a>(x: &'a i64) -> i64 { return *x; }
+fn main() -> i32 {
+    let f: fn(&i64) -> i64 = idr;
+    let v: i64 = 12i64;
+    return f(&v) as i32;
+}

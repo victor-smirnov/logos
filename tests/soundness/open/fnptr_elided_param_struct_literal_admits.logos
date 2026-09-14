@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row fnptr_elided_param_struct_literal_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: A FN POINTER WITH A NAMED PARAMETER REGION INITIALISES A `fn(&i64) -> i64` STRUCT FIELD.
+//
+// Same fact as fnptr_elided_param_let_from_named_admits at a STRUCT-LITERAL field. rustc refuses (E0308); legality by
+// reading, no rustc binary. TODAY admitted, build c52dcb19dff987ff 43. NEIGHBOUR ROWED WITH A REASON — doors in series:
+// the field-init sites call check_variance with permissive=true, and outlives()'s permissive tail admits two unrelated
+// regions neither of which is mentioned in a where clause; the fnptr arms (fnptrelide/fnptrbinder/fnptrbinder2) reach
+// this site and do not move it (hand battery, PROBES.md 2026-09-14j-fnptrbinder). The permissive door
+// (lifereg_structlitstrict) must open first.
+// Found: hand i08, round 2026-09-14j-fnptrbinder.
+package fnptr_elided_param_struct_literal_admits;
+struct H { f: fn(&i64) -> i64 }
+fn mk<'r>(g: fn(&'r i64) -> i64) -> H {
+    return H { f: g };
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row fnptr_hrtb_sub_binder_to_named_return_refused (tier 3).
+// LEGAL PROGRAM REFUSED: `for<'x> fn(&'x i64) -> i64` IS REFUSED WHERE `fn(&'r i64) -> i64` IS EXPECTED.
+//
+// A higher-ranked pointer is more general than any instance: 'x := 'r. Legal Rust (reading; no rustc binary). TODAY
+// refused, build c52dcb19dff987ff 43: "return type mismatch: variance mismatch — expected fn(&'r i64) -> i64, got
+// fn(&'x i64) -> i64". resolve_type(FN_PTR_TYPE) never reads HRTB_BINDERS (docs/spec/types.md type.fn-ptr.hrtb: "not yet
+// semantically enforced"), so 'x is a plain rigid name. Moved only by the WHOLE (fnptrbinder: the binder renamed apart
+// AND the sub's binders existential), not by either half — rule 13, PROBES.md 2026-09-14j-fnptrbinder.
+// Found: hand h08 (split: h08a this half, h08b the call half), round 2026-09-14j-fnptrbinder. FIX = compiles.
+package fnptr_hrtb_sub_binder_to_named_return_refused;
+fn f<'r>(g: for<'x> fn(&'x i64) -> i64) -> fn(&'r i64) -> i64 {
+    return g;
+}
+fn main() -> i32 {
+    return 0i32;
+}

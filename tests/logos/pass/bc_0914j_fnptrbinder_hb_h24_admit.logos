@@ -1,0 +1,8 @@
+// hand battery: round 2026-09-14j-fnptrbinder, program h24 — caught: refuted fnptrelide/fnptrbinder: REFUSED this legal program — an unannotated closure parameter hinted from the pointer type
+// legality: by reading, no rustc binary
+package bc_0914j_fnptrbinder_hb_h24_admit;
+fn main() -> i32 {
+    let f: fn(&i64) -> i64 = |x| { return *x + 1i64; };
+    let v: i64 = 33i64;
+    return f(&v) as i32;
+}

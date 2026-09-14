@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-14j-fnptrbinder, program h16 — caught: refuted fnptrelide/fnptrbinder: REFUSED this legal program — an if-join of two fn items is a fn pointer carrying one item's named region
+// legality: by reading, no rustc binary
+package bc_0914j_fnptrbinder_hb_h16_admit;
+fn ida<'a>(x: &'a i64) -> i64 { return *x; }
+fn idb<'b>(x: &'b i64) -> i64 { return *x + 2i64; }
+fn main() -> i32 {
+    let c: bool = true;
+    let f: fn(&i64) -> i64 = if c { ida } else { idb };
+    let v: i64 = 24i64;
+    return f(&v) as i32;
+}

@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row fnptr_elided_param_let_from_named_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: A FN POINTER WITH A NAMED PARAMETER REGION IS STORED AS `fn(&i64) -> i64` AT A LET.
+//
+// `fn(&i64) -> i64` is `for<'x> fn(&'x i64) -> i64`: it must accept ANY region. `g: fn(&'a i64) -> i64` accepts only
+// 'a, so the coercion needs 'x: 'a for every 'x, and rustc refuses it (E0308 "one type is more general than the other",
+// the shape of tests/ui/regions/issue-101280 and tests/ui/nll/user-annotations/issue-54124). Legality by reading; no rustc
+// binary on this box. TODAY admitted (build c52dcb19dff987ff 43): the elided region inside a fn-pointer type is "",
+// and lt_eq reads "" as a wildcard at subtype()'s first line (types_equal_with_lifetimes), so the FnPtr contra arm is
+// never asked. This is the plain-fn-pointer twin of bc_admits issue-54124 (a closure there).
+// Same fact, measured moved by ONE arm (fnptrelide, PROBES.md 2026-09-14j-fnptrbinder) together with issue-54124: hands
+// i12 (two params, one named), i14 (a closure whose tuple parameter names 'a), i16 (an if-join of the named pointer).
+// Found: hand i02, round 2026-09-14j-fnptrbinder. FIX = refused with a region sentence, while legal h01 h16 h24 h26 h31
+// h32 (tests/logos/pass/bc_0914j_fnptrbinder_hb_*_admit) keep compiling — the priced arm refused them.
+package fnptr_elided_param_let_from_named_admits;
+fn test<'a>(g: fn(&'a i64) -> i64) -> i32 {
+    let f: fn(&i64) -> i64 = g;
+    return 0i32;
+}
+fn main() -> i32 { return 0i32; }

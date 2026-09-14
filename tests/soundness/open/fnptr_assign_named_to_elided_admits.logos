@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row fnptr_assign_named_to_elided_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: A LOCAL OF TYPE `fn(&i64) -> i64` IS RE-ASSIGNED A FN POINTER WITH A NAMED PARAMETER REGION.
+//
+// Same fact at a plain re-assignment. rustc refuses (E0308); legality by reading, no rustc binary. TODAY admitted, build
+// c52dcb19dff987ff 43. NEIGHBOUR ROWED WITH A REASON — the fact has no carrier there: lower_assign calls check_variance
+// only under the probe lifereg_varassign (refuted 2026-08-27 as a no-op) and for a static mut; the let of the same
+// value (hand i02) is refused by the priced arm, the assignment is never asked (dlog fnptr_subtype_deciders: cv_site
+// lower_assign 2 sites, both gated).
+// Found: hand i11, round 2026-09-14j-fnptrbinder.
+package fnptr_assign_named_to_elided_admits;
+fn ida(x: &i64) -> i64 { return *x; }
+fn t<'r>(g: fn(&'r i64) -> i64) -> i32 {
+    let mut f: fn(&i64) -> i64 = ida;
+    f = g;
+    return 0i32;
+}
+fn main() -> i32 { return 0i32; }

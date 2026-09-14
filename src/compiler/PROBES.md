@@ -44395,3 +44395,272 @@ note: predictions src/compiler/probes/2026-09-14f-thrurefland/PREDICTIONS.md, co
   HAND, UNCERTAIN in the predictions: q08 legal RUNS (mutual outlives accepted); q33 legal RUNS; d07 d17 d26 d27 d32 stay refused
     with the owner's sentence; d28 admitted — the inherited loop plane above, not a D2 cost.
   Wrong in the predictions: g01 needed a third build (monomorphic copies); q16 needed the per-parameter variance read (build 2).
+
+## 2026-09-14j-fnptrbinder — A FN-POINTER TYPE'S OWN REGIONS ARE READ AS A WILDCARD (AN ELIDED SLOT, `""`) OR AS THE ENCLOSING SCOPE'S NAME (A `for<'r>` BINDER, NEVER READ): issue-54124 (nllmoves.NEW-L1) AND issue-101280 (lifereg.NEW-N4) ARE TWO DOORS OF ONE FACT, ADDITIVE 1 + 1 = 2 AT COST 0 IN EVERY HARNESS COLUMN — AND THE HAND BATTERY REFUSES 8 LEGAL PROGRAMS WITH THE ARM THE HARNESS PRICED AT 0
+
+### STEP 1, READ FROM THE TREE
+  HEAD ff347770b, clean · queue gate rc 0 WITH LOGOS_LIB_DIR (the prompt's command carries it — checked against the text given) ·
+  soundness_queue # TOTAL 167 = 167 rows by direct listing · bc_admits 64 · blocked 8 · probe-log-lint 292 records ·
+  build_hash c52dcb19dff987ff 43 (read) · dlog selftest rc 0 (28fc7c75 19/24/1-5/42-5; duty 1 -> 0).
+  Corrections to the prompt, each checked against the text given: none to the STEP-1 commands. The survey needed a different
+  record definition than the prompt's (below).
+
+### THE SURVEY, BY SET
+  Ledger roots × PROBES.md, three definitions, because one is not enough:
+    (1) `## name` blocks whose SECOND line is `site:` (the old record form): 219 records; 29 of 38 roots have none.
+    (2) any `site:` line within ±10 lines of a mention (root, `*.suffix`, or a row's program name): roots with ZERO windows —
+        bck.NEW-1 bck.NEW-4 bck.NEW-BLOCKREF bck.NEW-CAPMOVE bck.NEW-L lifereg.NEW-4 lifereg.NEW-E0226 lifereg.NEW-N2
+        lifereg.NEW-PROJBOUND lifereg.R2 nllmoves.NEW-4 nllmoves.NEW-L1 nllmoves.NEW-N1 nllmoves.NEW-N2 nllmoves.R3.
+    (3) the window hits read: lifereg.NEW-N4's one hit is 12n-bcdoor's list line ("issue-54124 and issue-101280 hold fn-pointer
+        locals but pass no temporary"), not a price.
+  Excluded by notes/prompt: NEW-1, NEW-4 (A16), NEW-CAPMOVE, lifereg.R2 (blocked with argresvact), nllmoves.R3 (12i refuted).
+  issue-54124 WAS closed once, by `letnamed` (2026-09-12q), "right verdict — but the EMPTY side is the fn pointer's HIGHER-RANKED
+  parameter, not a local: right for a reason the arm does not state". That sentence is this block's fact.
+
+### ONE-VARIABLE CONTROLS, base c52dcb19dff987ff (every legal one linked and RUN)
+  F05 `let f: fn(&'a i64) -> i64 = |x: &'static i64| ..`   REFUSED "let 'f': variance mismatch"   (the arm exists, strict let)
+  F10 `fn f<'r>(g: fn(&'r i64) -> i64) -> for<'x> fn(&'x i64) -> i64 { g }`   REFUSED (return site)
+  F01 issue-54124 · F06 issue-101280 · F11 `fn(&'r) -> fn(&)` return · F13 `let f: fn(&i64) -> i64 = g` (g: fn(&'a))   ADMITTED
+  F09 `fn f<'r>(g: for<'x> fn(&'x i64) -> i64) -> fn(&'r i64) -> i64 { g }`   REFUSED — LEGAL (reading): the same fact, other direction
+  F02 F03 F04 F12 F14 (elided/named/static closures and items into matching pointers)   RUN 3 4 5 6 7
+  Declined blocks measured the same way: bck.NEW-L — L02 block push REFUSED E0597, L03 loop-assign REFUSED, L07 loop-push with no
+  later use ADMITTED, L04/L05/L06 legal RUN: an arm reached through a missing fact too (the push deposit never reaches 12i's
+  back-edge arm); one row; next round's candidate. lifereg.NEW-E0226 (no arm), nllmoves.NEW-4 (the meet plane), lifereg.NEW-N2
+  (port moved a where-clause projection into an argument; legality unreadable), nllmoves.NEW-N1 (legal under 2024 capture).
+
+### THE MECHANISM, READ
+  · subtype() (include/logos/compiler/subtype.hpp) opens with types_equal_with_lifetimes(sub, sup); its lt_eq reads an EMPTY
+    region as a wildcard. An elided `&` inside `fn(&i64)` is `""`, so `fn(&'r i64) <: fn(&i64)` returns true at line one and the
+    FnPtr/FnItem/Closure arm (contra params, co ret) is never asked. The same `""` IS refused where it meets 'static
+    ("an EMPTY sub region is not 'static", 2026-09-02s) — bc_stfnptr_static_param_into_elided_fail, universe-violation.
+  · resolve_type(FN_PTR_TYPE) (src/compiler/sema.cpp) resolves PARAMS and RET_TYPE and never reads HRTB_BINDERS;
+    docs/spec/types.md `type.fn-ptr.hrtb`: "parsed and captured … not yet semantically enforced". `for<'r>` is the string 'r.
+  · Divergence registries: docs/DIVERGENCES.md A1..A17 name no fn-pointer or higher-ranked row; docs/spec/divergences.md
+    `trait.bound.hrtb-erased` covers `for<>` on TRAIT BOUNDS only; `region.outlives.permissive-elided-source` (ownership.md)
+    carries no divergence marker and speaks of permissive coercion sites — the arm here acts at the strict ones. So: Rust.
+
+### dlog — fnptr_subtype_deciders.dl (NEW RULE; selftest rc 0 first), over sema_stmt.cpp sema_expr.cpp sema_collect.cpp
+    KNOWN ANSWER stated before the run: cv_site ∩ sema_stmt.cpp = the 7 `check_variance(` lines a grep finds. MEASURED 7
+    (lower_stmt_inner 573 773 · lower_let 2647 · lower_assign 3336 3341 · lower_return 3554 · lower_place_assign 8793). CONTROL HOLDS.
+    cv_site sema_expr.cpp = 19 (per-site grep 19: equal). Strictness is an argument VALUE the schema does not carry — read per site.
+    direct_decider (the comparator family called OUTSIDE check_variance, which the arm under price cannot see):
+      meet_ / inv_ (sema_expr.cpp, the pointer-comparison common type — excluded plane) variance_ok ×4 permissive;
+      impl_regions_conform_ (sema_impl.hpp) subtype strict — an impl item's types against the trait's;
+      collect_impl (sema_collect.cpp) types_equal_with_lifetimes ×3 — the written self type, not a fn pointer: not a neighbour.
+    Cross-check: the tree held batch 1's probe edits when extracted (they add calls to new helpers, none to a comparator).
+
+## fnptrelide — door E: a fn-pointer SUP's elided regions are its own rigid binders; the SUB's own binders take the sup's region
+site: src/compiler/sema_impl.hpp::check_variance
+build: 268c7e872b43e250
+measured: 2026-09-14
+fires: 319198
+ceiling: 1
+cost: 0
+verdict: CEILING {issue-54124} as predicted; cost 0 pass / 0 fail-text / stdlib ok — and 8 LEGAL hand programs refused. Not fundable.
+note: the view is applied in check_variance when `to` is a FnPtr and `from` a fn value: sup `""`/`'_` slots -> fresh '%fN (an
+  elided return tied to a sole elided input); sub slots that are `""`/'%h/any non-'static name of a fn ITEM -> the sup's region at
+  the same walk position. Diagnostics print the ORIGINAL types. Legal refused: h01 h24 h31 h32 (a closure's elided parameter is
+  closure-MINTED, a name the view kept rigid — sentence "expected fn(&i64) -> i64, got fn(&i64) -> i64", one spelling twice), h16
+  h25 (an if-join of fn items is a FnPtr carrying one item's NAMED region), h26 (h01 inside a fn with 'a), h06 (one item binder
+  offered two placeholders, first wins). Legal refused on BASE and admitted+RUN under it: h20 h22 h27 h28.
+
+## fnptrelidesup — rule-9 twin: the SUP half of door E only
+site: src/compiler/sema_impl.hpp::check_variance
+build: 268c7e872b43e250
+measured: 2026-09-14
+fires: 319198
+ceiling: 1
+cost: 2
+verdict: SEPARATES from fnptrelide in every column: pass 2, fail-text 5, and 17 legal hand programs refused. The sub half is necessary.
+note: pass cost logos_02_semantic_core_pass_bc_bcdoor_fnptr_admit, …_regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr-ok;
+  fail-text: bc_0912n_bcdoor_hb_i2_refuse, _i5_refuse, bc_bcdoor_fnptr_refuse, temporary-lifetime-extension-tuple-ctor (.expected
+  LOST), regions-fn-subtyping-return-static-fail--c30-let-binding-fnptr (text only). Same fires as fnptrelide, digit for digit.
+
+## fnptrhrtb — door H: resolve_type renames a fn-pointer type's `for<'r>` binders apart ('%hN)
+site: src/compiler/sema.cpp::resolve_type
+build: 268c7e872b43e250
+measured: 2026-09-14
+fires: 3165669
+ceiling: 1
+cost: 0
+verdict: CEILING {issue-101280} as predicted; cost 0 pass, stdlib ok; fail-text 3 — every one a WORSE sentence. Not fundable as written.
+note: fn-subtype, hr-fn-aaa-as-aba, placeholder-outlives-existential stay refused (rc unchanged) but '%h is minted and type_str
+  hides it: "expected fn(&i64, &i64) -> &i64, got fn(&i64, &i64) -> &i64" — one spelling twice, the binder names gone. issue-101280's
+  own closing sentence: "return type mismatch: variance mismatch — expected fn(&i64, &i64) -> void, got fn(&'r i64, &i64) -> void"
+  — reads as satisfiable. A landing must print the written binder. `fires` counts every resolve_type arrival of the on() test, not
+  renames (census fnptr.hrtb.renamed: 2 on issue-101280, 4 on h08).
+
+## fnptrbinder — E + H, the whole
+site: src/compiler/sema_impl.hpp::check_variance
+site: src/compiler/sema.cpp::resolve_type
+build: 268c7e872b43e250
+measured: 2026-09-14
+fires: 3484867
+ceiling: 2
+cost: 0
+verdict: CEILING {issue-54124, issue-101280}; ADDITIVE 1 + 1 = 2, sets disjoint (rule 13 checked, not assumed); fail-text 3 (H's); the
+  same 8 legal hand refusals as fnptrelide. Additionally h08's return half (F09, legal, refused on base) is admitted ONLY by the whole.
+
+### BATCH 1 TABLE — build 268c7e872b43e250 43 (read), L1 inert rc 0, gate-db builds 1211 -> 1212..1215
+    probe          fires     ceil cost cfail std   hand legal refused / legal un-refused / illegal closed (of 36+12 hand programs)
+    fnptrelide      319198    1    0    0   ok    8 (h01 h06 h16 h24 h25 h26 h31 h32) / 4 (h20 h22 h27 h28) / 7 (i01 i02 i03 i12 i14 i16 i18)
+    fnptrelidesup   319198    1    2    5   ok   17 / 0 / 7
+    fnptrhrtb      3165669    1    0    3   ok    0 / 0 / 1 (i04)
+    fnptrbinder    3484867    2    0    3   ok    8 / 5 (+h08's return half) / 8
+  PREDICTED vs MEASURED by name: ledger sets 4 of 4 exact. Hand: predicted fnptrelide refuses h06 — yes; predicted it keeps h01 h16
+  h24 h25 h26 h31 h32 — WRONG (7 unpredicted legal refusals, two mechanisms). Predicted i11 unknown — measured unmoved (no consumer).
+  Predicted h09 (struct literal) unmoved — yes. fnptrhrtb re-words exactly the three predicted fixtures.
+
+## fnptrelide2 — door E': E, and a SUB binder is also a closure-minted name, any non-'static name no enclosing scope declares, and a name offered two sup regions takes their MEET
+site: src/compiler/sema_impl.hpp::check_variance
+build: 91687ec87ac41661
+measured: 2026-09-14
+fires: 319198
+ceiling: 1
+cost: 0
+verdict: CEILING {issue-54124}; cost 0 pass / 0 fail-text / stdlib ok; hand: 1 legal refused (h25, predicted, rule 12), 5 legal un-refused (h08a h20 h22 h27 h28), 7 illegal closed. The fundable half.
+note: the meet uses the landed mint_meet_token (2026-09-14d) as a TOOL; this is not the meet plane's question (which binder a
+  literal keeps), it is how an existential offered two placeholders is instantiated. i15 (`fn(&'static i64, &i64) -> &'static i64`
+  from `pick<'a>`) and i17 (`for<'x,'y> fn(&'x, &'y) -> &'x` from pick) stay refused with it — the meet does not widen.
+  UNPREDICTED: h08a admitted without H — `'x` is declared by no enclosing scope, so the refined rule already reads it as the sub's own.
+
+## fnptrbinder2nm — E' + H without the meet (rule 9 / 13: the meet increment)
+site: src/compiler/sema_impl.hpp::check_variance
+site: src/compiler/sema.cpp::resolve_type
+build: 91687ec87ac41661
+measured: 2026-09-14
+fires: 3484867
+ceiling: 2
+cost: 0
+verdict: identical to fnptrbinder2 in EVERY harness column, digit for digit (fires, ceiling, cost, the three cfail names, stdlib); separates on ONE hand program: h06 refused.
+
+## fnptrbinder2 — E' + H, the refined whole
+site: src/compiler/sema_impl.hpp::check_variance
+site: src/compiler/sema.cpp::resolve_type
+build: 91687ec87ac41661
+measured: 2026-09-14
+fires: 3484867
+ceiling: 2
+cost: 0
+verdict: CEILING {issue-54124, issue-101280}; cost 0 pass, stdlib ok, fail-text 3 (H's hidden binder names); hand 1 legal refused (h25) of 32; 8 illegal closed of the 12 admitted on base; no invented name in any stderr (scan of all 52). Fund E' now; H only with its sentence repaired.
+
+### BATCH 2 TABLE — build 91687ec87ac41661 43 (read), L1 inert rc 0, gate-db builds 1216 -> 1217..1219
+    probe           fires     ceil cost cfail std   hand legal refused / legal un-refused / illegal closed (52 programs by path)
+    fnptrelide2      319198    1    0    0   ok    1 (h25) / 5 (h08a h20 h22 h27 h28) / 7 (i01 i02 i03 i12 i14 i16 i18)
+    fnptrbinder2nm  3484867    2    0    3   ok    2 (h06 h25) / 5 / 8 (+ i04)
+    fnptrbinder2    3484867    2    0    3   ok    1 (h25) / 5 / 8
+  PREDICTED vs MEASURED by name (PREDICTIONS2.md): ledger sets 3 of 3 exact; h01 h06 h16 h24 h26 h31 h32 admitted — yes; h25 still
+  refused — yes; h06 refused only under nm — yes; i15 i17 refused under every name — yes; i04 only with H — yes; i08 i09 i10 i11 and
+  h08b unmoved — yes. NOT predicted: fnptrelide2 admits h08a.
+  THE SETS, both ways: measured ∖ predicted = ∅ and predicted ∖ measured = ∅ on the ledger for all seven names over both batches.
+
+### THE CLOSING DIAGNOSTICS, READ (fnptrbinder2)
+  issue-54124  "let 'f': variance mismatch — expected fn(&i64) -> i64, got fn(&'a i64) -> i64 — lifetime structure incompatible"
+     rustc: "lifetime may not live long enough … requires that '1 must outlive 'a". Right site, right pair, the variance sentence the
+     let arm already prints (F05, and letnamed's in 2026-09-12q). CLAIMABLE.
+  issue-101280 "return type mismatch: variance mismatch — expected fn(&i64, &i64) -> void, got fn(&'r i64, &i64) -> void"
+     rustc E0308 "one type is more general than the other … expected `for<'r> fn(Cell<(&'r _, &'r _)>)`". Right verdict and site; the
+     sentence DROPS the binder, so the expected type reads as the elided pointer the value would satisfy. NOT CLAIMABLE AS WORDED —
+     the same defect as H's three re-worded fail fixtures.
+
+### RUNTIME COLUMN — run_oracle on the batch-2 build 91687ec87ac41661 43 (read before and after), one configure, serial
+  unarmed run_none.tsv (08:35 -> 08:45) and LOGOS_PROBE=fnptrbinder2 run_fnptrbinder2.tsv (08:45 -> 08:55): 6994 pass fixtures
+  compiled, linked and RUN in each; 6994 common, 0 added, 0 removed, 1 changed = cast-region-to-uint (stdout sha only: it prints a
+  stack address; subtracted by name) -> 0 changed. fnptrbinder2 is a superset of fnptrelide2's view plus H, so the column covers
+  both fundable halves; fnptrelide2 was not run separately.
+
+### NEIGHBOURS (standing rule 2026-09-12) — neighbour · verdict in this pricing · reason / number
+  Enumerated by property (dlog fnptr_subtype_deciders: every check_variance caller + every direct comparator caller) and by hand
+  position. "Moves" = the hand program's verdict under fnptrbinder2 on build 91687ec87ac41661.
+    let, named fn-pointer param -> elided (i02, i12, i14, i16)   MOVED by the same arm as issue-54124 · rowed only because this round
+                                                                  prices, it does not land: fnptr_elided_param_let_from_named_admits
+    return (i01, i18)                                             MOVED (lower_return, strict) · rowed: fnptr_elided_param_return_from_named_admits
+    a fn item's own named binder vs a fn-pointer type (h20 h22 h27 h28)   MOVED (legal, refused on base, RUN under the arm) ·
+                                                                  rowed: fnptr_item_named_binder_vs_fnptr_type_refused
+    `for<'x>` sub binder to a named pointer (h08a)                MOVED by fnptrelide2 alone (the undeclared-name rule) · rowed:
+                                                                  fnptr_hrtb_sub_binder_to_named_return_refused
+    struct-literal field (i08)                                    NOT MOVED · reason 2, doors in series: the field-init sites pass
+                                                                  permissive=true; outlives()'s permissive tail admits an unmentioned pair;
+                                                                  the arm arrives (census fnptr.cv.arrive.permissive) and cannot refuse ·
+                                                                  fnptr_elided_param_struct_literal_admits
+    call argument (i09)                                           NOT MOVED · reason 2, the same permissive door (lifereg_callargstrict) ·
+                                                                  fnptr_elided_param_call_arg_admits
+    nested: `Option<fn(&i64) -> i64>` (i10)                       NOT MOVED · reason 1, no carrier: the view is taken only at a TOP-LEVEL
+                                                                  FnPtr sup (census fnptr.cv.nested); inside subtype() a TypeRef carries no
+                                                                  binder set · fnptr_elided_param_nested_option_admits
+    plain re-assignment (i11)                                     NOT MOVED · reason 1: lower_assign asks check_variance only under the
+                                                                  refuted probe lifereg_varassign and for a static mut (dlog: 2 cv_sites,
+                                                                  both gated) · fnptr_assign_named_to_elided_admits
+    array-literal element (queue fnitem_to_fnptr_array_elem_admits)   NOT MOVED (ledger gate, all names) · reason 1, nested (array elem)
+    impl item vs trait (impl_regions_conform_, dlog direct_decider)   NOT PRICED · reason 1: a direct subtype() call the view does not wrap
+    pointer comparison common type (meet_/inv_, dlog)             NOT PRICED · excluded plane (THRUREF R2); permissive
+    the call of a fn pointer returned by `f<'r>` (h08b)           NOT MOVED · not this fact: the callee region in the returned type is
+                                                                  never instantiated · fnptr_call_result_region_param_reads_static_refused
+    binder-name collision (h25, legal)                            REFUSED by fnptrbinder2 · reason 3, its own cost: an if-join carries 'a and
+                                                                  the enclosing fn declares 'a — a NAME SET cannot say which binding 'a
+                                                                  denotes (rule 12). Pass fixture bc_0914j_fnptrbinder_hb_h25_admit pins it.
+
+### HAND BATTERY — 52 programs by PATH (hb.dkj4/: 32 legal h*, 18 illegal i*, h08 split into h08a/h08b), each compiled on the
+### saved base copy c52dcb19dff987ff (bin + stdlib, LOGOS_LIB_DIR set — a copied logosc without it cannot find the prelude and
+### every compile read cc=4; that first run is discarded, not counted), on each batch build unarmed, and under every name
+  Base catches, before any build: legal REFUSED h08 (two defects: h08a the return, h08b the call) h20 h22 h27 h28; illegal
+  ADMITTED i01 i02 i03(=issue-54124) i04(=issue-101280) i08 i09 i10 i11 i12 i14 i16 i18.
+  Shapes varied (rule 5): let / return / struct literal / call argument / re-assignment / if-join / nested Option / tuple parameter /
+  slice parameter / `&mut` parameter / struct lifetime argument `W<'_>` / method path `S::get` / turbofish item / closure annotated,
+  unannotated, returned / `for<>` alias / meet offers ('static + elided, two `for<>`, 'static + `for<>`).
+
+### CATCHES LANDED IN THIS COMMIT (Victor 2026-09-14), by id
+  PASS (13, tests/logos/pass/bc_0914j_fnptrbinder_hb_<id>_admit, exit code asserted, each run on base and read):
+    h01 h06 h16 h24 h25 h26 h31 h32 — refused by fnptrelide/fnptrbinder (priced cost 0);  h02 h03 h04 h15 h21 — refused by fnptrelidesup.
+    h25 is also refused by the refined fnptrbinder2.
+  QUEUE ROWS (9, verdict still wrong on the committed binary c52dcb19dff987ff), 167 -> 176 by direct listing:
+    fnptr_elided_param_let_from_named_admits (i02; members i12 i14 i16 in its header) · fnptr_elided_param_return_from_named_admits
+    (i01; i18) · fnptr_elided_param_struct_literal_admits (i08) · fnptr_elided_param_call_arg_admits (i09) ·
+    fnptr_elided_param_nested_option_admits (i10) · fnptr_assign_named_to_elided_admits (i11) ·
+    fnptr_item_named_binder_vs_fnptr_type_refused (h22; h20 h27 h28) · fnptr_hrtb_sub_binder_to_named_return_refused (h08a) ·
+    fnptr_call_result_region_param_reads_static_refused (h08b).
+  NOT LANDED: i03/i04 (already bc_admits rows); i05 i06 i07 i13 i15 i17 (refused on base and under every name, no verdict moved,
+  no prediction wrong); the remaining legal h* (verdict never moved).
+
+### WHAT DESERVES FUNDING
+ 1. **FUND door E' (fnptrelide2) — issue-54124 (nllmoves.NEW-L1), ceiling 1, cost 0 in pass / fail-text / stdlib / runtime (below),
+    one legal hand refusal (h25) that is rule 12 and is pinned as a pass fixture.** The fact to carry, stated as Rust's rule: in
+    `sub <: sup` with `sup` a fn-pointer type, the sup's own late-bound regions (every elided slot, every `for<>` binder) are
+    placeholders; the sub's own (an elided slot, a closure-minted region, a fn item's lifetime parameters, a name no enclosing scope
+    declares) are existentials instantiated from the sup — a meet when offered two. The landing should replace the NAME-SET test
+    (`current_lt_binders()`) with the binder set of the value's own type — the minting site knows it — which is also what closes h25.
+    Close in the same commit, per the standing rule, the neighbours this arm moves: fnptr_elided_param_let_from_named_admits,
+    fnptr_elided_param_return_from_named_admits, fnptr_item_named_binder_vs_fnptr_type_refused, fnptr_hrtb_sub_binder_to_named_return_refused.
+ 2. **door H (issue-101280, lifereg.NEW-N4) — fund ONLY WITH ITS SENTENCE.** Ceiling 1, cost 0 by rc, but every refusal it touches
+    prints the binder as nothing ('%h is minted and type_str hides it): three pinned fail fixtures lose their text and the row's own
+    closing sentence reads satisfiable. The carrier is right (resolve_type(FN_PTR_TYPE) must read HRTB_BINDERS); the renamed token
+    needs a display spelling that is the written `for<'r>`. Price that before landing; the three fixtures are the check.
+ 3. NOT FUNDABLE: fnptrelide / fnptrbinder (batch 1) — cost 0 in every harness column and 8 legal hand refusals; fnptrelidesup — the
+    rule-9 twin, 2 pass + 5 fail-text + 17 hand.
+ 4. Rowed with named reasons, not this block's arm: the permissive struct-literal and call-argument doors (i08, i09 — reason 2), the
+    nested type argument and the plain re-assignment (i10, i11 — reason 1), and the call of a returned fn pointer (h08b — a different
+    fact). Next round's candidate of the same shape, measured today: bck.NEW-L buffer-reuse (the push deposit never reaches 12i's
+    loop back-edge arm; L02/L03 refuse, L07 admits).
+
+### MISTAKES OF MY OWN
+  * The first base battery run used a COPIED logosc without LOGOS_LIB_DIR: 38 of 38 read cc=4 ("module_loader: cannot find package
+    'logos.std.prelude'"). Caught because every row was identical; re-run with the variable. A uniform column is a reader, not a result.
+  * PREDICTIONS.md said fnptrelide keeps h01/h24 (closures) and h16 (if-join) — it refused them. I had read closure_minted_lts() in
+    outlives.hpp before writing the arm and still wrote the sub view as if a closure's elided slot were "". Seven unpredicted legal
+    refusals from one arm the harness priced at cost 0 — the eleventh cost-0 refutation of this arc, the battery again the only column.
+  * PREDICTIONS2 did not say what fnptrelide2 does to h08a; it admits it (a `for<'x>` name no scope declares is a sub binder under the
+    refined rule), so H's sub half is subsumed and H buys only issue-101280's sup half.
+
+### GATES AT CLOSE — probe sources reverted (git checkout of the two named files after each batch; grep of every probe name: 0),
+### build/ rebuilt from them: build_hash 4bc75379010a5384 43 (read; the compiler sources are HEAD's, the hash moved with the
+### rebuilt stdlib/fixture archives and the re-glob that registered the 13 new pass fixtures)
+  soundness_queue_gate (LOGOS_LIB_DIR set) rc 0: 176 rows, # TOTAL 176 by direct listing (tier1 22, tier2 50, tier3 95, tier4 9).
+  ctest -j over the 13 bc_0914j_fnptrbinder_hb_*_admit + logos_09_direct_door_census + logos_00_probe_log_lint +
+  lint_mismatch_monopoly + logos_00_soundness_queue (3386 selected with their fixture dependencies): 100% passed.
+  Pins re-derived BY LISTING before the gate: direct_door_census corpus 3369 -> 3382, nonglob 3178 -> 3191, glob 191
+  (ls tests/logos/pass/*.logos | wc -l -> 3382; ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l -> 191).
+  ⚠ census_pin was NOT re-derived before L1 and redded it (pinned ALL 10247 / -LE imported 5749, measured 10260 / 5762): the
+  delta is exactly the 13 pass fixtures; REGISTRY-ALL / REGISTRY-NOIMPORTED updated in docs/deem-interpreter-deletion-census.md
+  (TIERCOMMIT 122 unchanged). A population pin is a column no pricing owns — I re-derived one and forgot the other.
+  L1 (from build/): rc 0 — 807/807, enumerator smoke 12 684, gates tier 122/122 (the second run; the first was rc 1 on census_pin).
+  probe-log-lint: 299 records, every site symbol resolves. lint-mismatch-monopoly: 1 emitter.
