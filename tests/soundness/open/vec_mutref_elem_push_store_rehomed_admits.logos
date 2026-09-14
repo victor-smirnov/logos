@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row vec_mutref_elem_push_store_rehomed_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: A `Vec<&mut i64>` HOLDING `&mut x` RECEIVES `&mut d` OF A BLOCK LOCAL AND IS USED AFTER.
+//
+// rustc refuses (E0597); legality by reading, no rustc binary. TODAY admitted (runs exit 2), build 0230e503bd682184 43.
+// Same A2 alias edge as vec_push_after_outer_push_store_rehomed_admits, minted from a `&mut` operand stored as an ELEMENT.
+// MEASURED: a2elem and a2skipall REFUSE it; a2elemshr (the shared-operand-only twin) does NOT — the `&mut` half is the
+// difference between the two inner predicates. Found: hand c02, round 2026-09-14l-storeedge.
+package vec_mutref_elem_push_store_rehomed_admits;
+fn main() -> i32 {
+    let mut x: i64 = 5i64;
+    let mut v: Vec<&mut i64> = Vec::new();
+    v.push(&mut x);
+    {
+        let mut d: i64 = 1i64;
+        v.push(&mut d);
+    }
+    return v.len() as i32;
+}

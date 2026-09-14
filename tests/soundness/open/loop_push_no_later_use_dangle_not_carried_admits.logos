@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row loop_push_no_later_use_dangle_not_carried_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: A LOOP PUSHES `&data` OF A BODY LOCAL INTO AN OUTER VEC; NO USE AFTER THE LOOP.
+//
+// rustc refuses (E0597): iteration 2's push uses `buffer` while it holds iteration 1's dead `&data`. Legality by reading,
+// no rustc binary. TODAY admitted, build 0230e503bd682184 43. DOORS IN SERIES with the A2 edge (reason 2): visit_loop_body restores
+// `dangling_` for pass 2 and nothing carries iteration 1's dangle to iteration 2's use; MEASURED unmoved by a2elem, a2elemshr
+// and a2skipall. Members, same measurements: l04 (`buffer.len()` inside the body), c12 (`clear()` at the top of each iteration
+// — upstream buffer-reuse-pattern-issue-147694's test_buffer_cleared_at_start), c18 (the ASSIGN twin: `h = &data`, `*h` at the
+// top, no use after — no push, no edge). Found: 14j control L07, re-measured round 2026-09-14l-storeedge.
+package loop_push_no_later_use_dangle_not_carried_admits;
+fn main() -> i32 {
+    let mut buffer: Vec<&i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let data: i64 = i;
+        buffer.push(&data);
+        i = i + 1i64;
+    }
+    return 0i32;
+}

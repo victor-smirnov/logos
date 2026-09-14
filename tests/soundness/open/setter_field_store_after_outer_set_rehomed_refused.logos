@@ -1,0 +1,24 @@
+// SOUNDNESS QUEUE row setter_field_store_after_outer_set_rehomed_refused (tier 3).
+// LEGAL PROGRAM REFUSED: `h.set(&x)` THEN `h.set(&d)` OF A BLOCK LOCAL, THEN A PLAIN READ OF `x` WITH `h` DEAD.
+//
+// Legal Rust; legality by reading, no rustc binary. TODAY refused, build 0230e503bd682184 43: "'d' does not live long enough: it is borrowed
+// by 'x'". Twin of setter_field_store_after_outer_set_rehomed_admits, same reasons and numbers: unmoved by a2elem / a2elemshr
+// (no element type argument), compiles and runs exit 0 under a2skipall (cost 1 pinned fail fixture).
+// Found: hand c25, round 2026-09-14l-storeedge.
+package setter_field_store_after_outer_set_rehomed_refused;
+struct H<'a> { r: &'a i64 }
+impl<'a> H<'a> {
+    fn set(self: &mut H<'a>, r: &'a i64) { self.r = r; }
+}
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let y: i64 = 6i64;
+    let mut h: H = H { r: &y };
+    h.set(&x);
+    {
+        let d: i64 = 1i64;
+        h.set(&d);
+    }
+    let v: i64 = x;
+    return (v as i32) - 5i32;
+}

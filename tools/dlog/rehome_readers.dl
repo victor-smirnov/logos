@@ -1,0 +1,29 @@
+#include "cxx_schema.dl"
+// rehome_readers — WHICH SITES CHOOSE A HOLDER BY CHASING THE ALIAS GRAPH'S
+// ENDPOINT, AND WHICH OF THEIR CONTEXTS ASK WHETHER THE CHASED BINDING IS A
+// REFERENCE (reborrow_mut_) — round 2026-09-14l.
+// Claim-free: the domain is every reference to a declaration whose qname ends
+// in `RefGraph::endpoint` or `rehome_reborrow` (the one-word wrapper), keyed by
+// the declaration, not the spelling.
+// KNOWN ANSWER (grep, stated before the run): rehome_reborrow call sites 6
+// (+1 definition line), direct endpoint calls 3 (two in one helper + the
+// wrapper's body).
+.decl endpoint_decl(D: symbol, Q: symbol)
+endpoint_decl(D, Q) :- decl(D, _, Q), (contains("RefGraph::endpoint", Q) ; contains("::rehome_reborrow", Q)).
+.decl chase_read(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output chase_read
+chase_read(F, L, N, Q) :- endpoint_decl(D, Q), ref(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+chase_read(F, L, N, Q) :- endpoint_decl(D, Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl mutref_ask(File: symbol, Line: number, Ctx: symbol)
+.output mutref_ask
+mutref_ask(F, L, N) :- decl(D, "Field", Q), contains("reborrow_mut_", Q), ref(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl chase_ctx_asks(Ctx: symbol)
+.output chase_ctx_asks
+chase_ctx_asks(N) :- chase_read(_, _, N, _), mutref_ask(_, _, N).
+.decl chase_ctx_blind(Ctx: symbol)
+.output chase_ctx_blind
+chase_ctx_blind(N) :- chase_read(_, _, N, _), !chase_ctx_asks(N).
+// WRITERS of the graph: every call to RefGraph::add / RefGraph::set, by context.
+.decl graph_write(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output graph_write
+graph_write(F, L, N, Q) :- decl(D, _, Q), (contains("RefGraph::add", Q) ; contains("RefGraph::set", Q)), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).

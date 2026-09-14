@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row vec_push_after_outer_push_store_rehomed_refused (tier 3).
+// LEGAL PROGRAM REFUSED: AFTER `buffer.push(&x)` AND A BLOCK-LOCAL PUSH, A PLAIN READ OF `x` IS REFUSED AS A DANGLE.
+//
+// Legal Rust: `buffer` is never used after the block; the read of `x` is a copy. Legality by reading, no rustc binary.
+// TODAY refused, build 0230e503bd682184 43: "'data' does not live long enough: it is borrowed by 'x', which is used here after 'data' goes
+// out of scope (E0597)". Same root as vec_push_after_outer_push_store_rehomed_admits: the second push's §B6 source is deposited
+// on `x` through the A2 alias edge `buffer -> x`. MEASURED: compiles and runs exit 0 under a2elem, a2elemshr and a2skipall.
+// Member: v13 (`push(&x); push(&y); read; x = 10; y = 20` refused "cannot assign to 'y' because it is borrowed"), same three.
+// Found: hand b4, round 2026-09-14l-storeedge.
+package vec_push_after_outer_push_store_rehomed_refused;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut buffer: Vec<&i64> = Vec::new();
+    buffer.push(&x);
+    {
+        let data: i64 = 1i64;
+        buffer.push(&data);
+    }
+    let y: i64 = x;
+    return (y as i32) - 5i32;
+}

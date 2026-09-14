@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row free_fn_outparam_ref_store_no_dangle_deposit_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: `fn stash<'a>(v: &mut Vec<&'a i64>, x: &'a i64) { v.push(x); }` CALLED WITH A BLOCK LOCAL.
+//
+// rustc refuses (E0597 at `buffer.len()` after the block); legality by reading, no rustc binary. TODAY admitted, build 0230e503bd682184 43.
+// No outer push precedes it, so no alias edge is involved: the free-call arm deposits no §B6 source for a reference stored
+// through an out-param (door 8b's stored_ref_elem arm is the MethodCall arm's). Reason 1 for this round's arms: MEASURED
+// unmoved by a2elem, a2elemshr, a2skipall (and c22, the same call after an outer stash, likewise).
+// Found: hand c22b, round 2026-09-14l-storeedge.
+package free_fn_outparam_ref_store_no_dangle_deposit_admits;
+fn stash<'a>(v: &mut Vec<&'a i64>, x: &'a i64) {
+    v.push(x);
+}
+fn main() -> i32 {
+    let mut buffer: Vec<&i64> = Vec::new();
+    {
+        let d: i64 = 1i64;
+        stash(&mut buffer, &d);
+    }
+    return buffer.len() as i32;
+}

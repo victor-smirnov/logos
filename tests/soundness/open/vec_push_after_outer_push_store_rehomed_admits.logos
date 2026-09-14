@@ -1,0 +1,24 @@
+// SOUNDNESS QUEUE row vec_push_after_outer_push_store_rehomed_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: A VEC THAT ALREADY STORES `&x` RECEIVES `&d` OF A BLOCK LOCAL AND IS USED AFTER THE BLOCK.
+//
+// rustc refuses (E0597 `d` does not live long enough); legality by reading, no rustc binary. TODAY admitted, build 0230e503bd682184 43.
+// ROOT (LOGOS_DUMP_BC_RELEASE): the first push runs apply_flow_outparams' A2 half, `reborrow_of_.add(buffer, x)`; every later
+// destination re-home (`rehome_reborrow` / place_write_root's resolve) chases endpoint(buffer) = `x`, so the second push deposits
+// its §B6 source and its loan on `x`. The loop spelling of the same fact is bc_admits buffer-reuse-pattern-issue-147694.
+// MEASURED under the round's probes: a2elem and a2elemshr REFUSE it (E0597 naming 'buffer'); a2skipall too.
+// Members of the same fact, same measurements (hand programs by path in hb/): c07 (`clear()` between), c09 (E0506 `x = 9` after
+// a second push), c10 (loop push(&x), `x = 3` after), c17 (a `&mut buffer` alias pushes the local), c19 (outer push, loop pushes
+// locals), c21 (`buffer[0] = &d` index store), c23 (a user `Bag<T>::put`), l05 (for-loop), c06 (alias `r` pushing loop locals).
+// Found: hand b2, round 2026-09-14l-storeedge.
+package vec_push_after_outer_push_store_rehomed_admits;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut buffer: Vec<&i64> = Vec::new();
+    buffer.push(&x);
+    {
+        let data: i64 = 1i64;
+        buffer.push(&data);
+    }
+    let _ = buffer.len();
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row arraylit_ref_elem_store_after_init_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: `let mut arr: [&i64; 1] = [&x]; { let d; arr[0] = &d; } *arr[0]`.
+//
+// rustc refuses (E0597); legality by reading, no rustc binary. TODAY admitted (runs exit 1), build 0230e503bd682184 43.
+// The array literal of references is recorded as an alias edge by note_reborrow's P1 arm (`is_reborrow_store_value`), a
+// DIFFERENT writer from the A2 half; root at the index store not isolated (no initialiser-free spelling exists). MEASURED
+// unmoved by a2elem, a2elemshr and a2skipall — reason 1 for the A2 arms: the fact is written at another site.
+// Found: hand c14, round 2026-09-14l-storeedge.
+package arraylit_ref_elem_store_after_init_admits;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut arr: [&i64; 1] = [&x];
+    {
+        let d: i64 = 1i64;
+        arr[0u64] = &d;
+    }
+    let v: i64 = *arr[0u64];
+    return v as i32;
+}
