@@ -1,0 +1,37 @@
+// thruref_assign_sites — WHICH CONTEXTS DECIDE A FIELD-BORROW CONFLICT FOR A WHOLE-VALUE ACCESS, AND WITH WHICH VERB
+// (round 2026-09-14e-thruref, bck.B issue-51117, door D2)
+//
+// Property: a dotted loan under a REFERENCE-typed local names the POINTEE (a reference has no fields). A reader that
+// asks field_borrow_conflicts with path "" for a whole-value access treats that loan as a loan on the local's own
+// storage. The class is every call of field_borrow_conflicts, split by the verb literal it passes (assign / move /
+// use / …) — the verb says whether the access OVERWRITES the local (kills loans through it: must not conflict), MOVES
+// it (E0505: must conflict), or reads it.
+// A grep for "field_borrow_conflicts(" lists LINES and cannot pair a line with its verb when the literal sits on a
+// continuation line, nor name the enclosing context of a line inside visit()'s arms.
+//
+// KNOWN ANSWER, stated before the run (grep, 2026-09-14e): 6 call lines — 5370 13181 15039 6930 7120 15359 — with
+// verbs "move" (5370), "assign to" (13181), "use" (15039); the other three are place accesses.
+// ⚠ COARSENING: ctx_of keys on the enclosing named context; the per-site read is reported beside it.
+#include "cxx_schema.dl"
+
+.decl named_fn(did: symbol, name: symbol)
+named_fn(D, N) :- decl(D, "CXXMethod", _), decl_name(D, N).
+named_fn(D, N) :- decl(D, "Function", _), decl_name(D, N).
+
+.decl fbc_call(k: symbol, ctx: symbol, line: number)
+fbc_call(K, C, L) :- named_fn(D, "field_borrow_conflicts"), call(K, D), ctx_of(K, X), ctx_name(X, C), loc(K, _, L, _).
+.output fbc_call
+
+.decl under(k: symbol, n: symbol)
+under(K, A) :- fbc_call(K, _, _), node(A, _, K, _).
+under(K, B) :- under(K, A), node(B, _, A, _).
+
+.decl fbc_verb(ctx: symbol, line: number, verb: symbol)
+fbc_verb(C, L, T) :- fbc_call(K, C, L), under(K, S), str_lit(S, T).
+.output fbc_verb
+
+.decl fbc_noverb(ctx: symbol, line: number)
+fbc_noverb(C, L) :- fbc_call(K, C, L), !has_lit(K).
+.decl has_lit(k: symbol)
+has_lit(K) :- under(K, S), str_lit(S, _).
+.output fbc_noverb
