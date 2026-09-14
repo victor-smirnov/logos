@@ -1,0 +1,1 @@
+[fn differ]: operator '!=': lifetime may not live long enough — *const &'a mut &'a i64 and *const &'b mut &'b i64 have no common type: 'a must outlive 'b and 'b must outlive 'a, because a mutable reference is invariant over its referent

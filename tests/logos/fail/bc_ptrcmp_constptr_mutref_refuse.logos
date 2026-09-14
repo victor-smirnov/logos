@@ -1,0 +1,10 @@
+package bc_ptrcmp_constptr_mutref_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn differ<'a, 'b>(x: *const &'a mut &'a i64, y: *const &'b mut &'b i64) -> bool {
+    return x != y;
+}
+fn main() -> i32 {
+    show("differ=%lld\n", 2i64);
+    return 2i32;
+}

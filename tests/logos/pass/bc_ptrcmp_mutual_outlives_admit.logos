@@ -1,0 +1,13 @@
+package bc_ptrcmp_mutual_outlives_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn same<'a: 'b, 'b: 'a>(x: *mut &'a i64, y: *mut &'b i64) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    let mut r: &'static i64 = &3i64;
+    let p: *mut &'static i64 = &mut r as *mut &'static i64;
+    let n: i64 = if same(p, p) { 6i64 } else { 0i64 };
+    show("same=%lld\n", n);
+    return n as i32;
+}

@@ -1807,7 +1807,13 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # more distinct regions is instantiated at a meet token that keeps them (struct literal, both
 # enum literal sites, the call meet); outlives() asks every member on the sub side. Ports MOVE
 # admit/ -> tests/imported/fail/regions/. PROBES.md 2026-09-14d-meetoblland.
-# TOTAL 65
+# ── 2026-09-14f — 65 -> 64. type-check-pointer-comparisons (nllmoves.R2) CLOSED: a comparison
+# operator on pointer-like operands needs a COMMON type — reference layers peel pairwise, and
+# below them regions under an invariant position (a `*mut`/`&mut` pointee, an invariant
+# parameter) must be equal or outlive each other. One error at each of upstream's three
+# annotated functions, none at its two OK controls. Port MOVES admit/ -> tests/imported/fail/nll/.
+# PROBES.md 2026-09-14f-thrurefland.
+# TOTAL 64
 
 
 # ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
@@ -1944,7 +1950,6 @@ projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/n
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
-type-check-pointer-comparisons nllmoves.R2 tests/imported/admit/nll/type-check-pointer-comparisons
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 
 # ── tests/ui/regions ─────────────────────────────────────────

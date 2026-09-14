@@ -1,0 +1,24 @@
+// SOUNDNESS QUEUE row loop_second_iteration_mut_alias_through_retargeted_ref_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED. On the SECOND iteration `r` points at `s2` (retargeted at the end of the first), so
+// `a = &mut r.a` holds a mutable loan of `s2.a` while `z = &mut s2` takes a second one: rustc E0499 "cannot borrow
+// `s2` as mutable more than once at a time". logosc compiles and runs it: the loop body is checked against the
+// first iteration's state, where `r` still names `s1`. The whole-reborrow spelling `let a = &mut *r` admits the same
+// way (hand w7); `r = &mut s2` in place of `r = z` (hand d28) was refused on base only by the assign-under-field-loan
+// reader, for the wrong reason, and is admitted since that reader learned a loan behind a reference survives the
+// overwrite (round 2026-09-14f-thrurefland). Found on base baa2a38e8b650fb3 43 (hands w6 w7). Rust: refused.
+package loop_second_iteration_mut_alias_through_retargeted_ref_admits;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let mut s2: P = P { a: 3i64, b: 4i64 };
+    let mut r: &mut P = &mut s1;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let a: &mut i64 = &mut r.a;
+        let z: &mut P = &mut s2;
+        *a = *a + 1i64;
+        r = z;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

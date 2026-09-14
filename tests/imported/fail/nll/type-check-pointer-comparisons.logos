@@ -1,6 +1,6 @@
 // rustc nll/type-check-pointer-comparisons.rs — upstream "lifetime may not live long enough"
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.R2
+// shelf: fail · root nllmoves.R2 (row CLOSED 2026-09-14f-thrurefland: `==` on pointer-like operands needs a common type)
 // Original path: tests/ui/nll/type-check-pointer-comparisons.rs @ 4b0c9d76a
 // Modifications: i32 -> i64; `fn main() {}` -> `fn main() -> i32 { return 0i32; }`.
 //   All FIVE functions are present, including upstream's two `// OK` controls

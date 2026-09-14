@@ -1,0 +1,15 @@
+// Was SOUNDNESS QUEUE row refvar_assign_conflicts_with_pointee_field_loan_refused, CLOSED 2026-09-14f-thrurefland.
+// `r` is a REFERENCE; `&r.a` borrows `(*r).a`, the POINTEE's storage. Assigning a new reference to `r` is a shallow
+// write of the local and leaves that loan valid (rustc places_conflict: a Shallow(None) access against a borrow whose
+// remaining projection holds a Deref). visit_stmt's Assign arm now skips a field loan whose path crosses a reference.
+// Refusing twin: tests/logos/fail/bc_thruref_assign_ref_binding_borrowed_refuse (`let q = &r;` borrows the binding).
+package bc_thruref_assign_ref_local_admit;
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut r: &P = &s1;
+    let a: &i64 = &r.a;
+    r = &s2;
+    return (*a + r.a - 4i64) as i32;
+}

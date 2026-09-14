@@ -1,0 +1,13 @@
+package bc_thruref_place_retarget_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct H<'x> { r: &'x (i64, i64), o: (i64, i64) }
+fn main() -> i32 {
+    let s1: (i64, i64) = (1i64, 2i64);
+    let s2: (i64, i64) = (3i64, 4i64);
+    let mut h: H = H { r: &s1, o: (5i64, 6i64) };
+    let a: &i64 = &h.o.0;
+    h.o = s2;
+    show("a=%lld\n", *a);
+    return (*a + h.r.1) as i32;
+}

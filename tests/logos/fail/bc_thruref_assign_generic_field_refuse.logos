@@ -1,0 +1,14 @@
+package bc_thruref_assign_generic_field_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P { a: i64, b: i64 }
+struct W<T> { v: T, k: i64 }
+fn main() -> i32 {
+    let s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut w: W<P> = W { v: P { a: 1i64, b: 2i64 }, k: 0i64 };
+    let a: &i64 = &w.v.a;
+    w = W { v: P { a: 3i64, b: 4i64 }, k: 1i64 };
+    show("a=%lld\n", *a);
+    return (*a + w.v.b + s1.b + s2.a - 5i64) as i32;
+}

@@ -1,0 +1,14 @@
+package bc_thruref_assign_struct_ref_field_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P { a: i64, b: i64 }
+struct H<'x> { r: &'x P, o: P }
+fn main() -> i32 {
+    let s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut h: H = H { r: &s1, o: P { a: 5i64, b: 6i64 } };
+    let b: &i64 = &h.o.b;
+    h = H { r: &s2, o: P { a: 7i64, b: 8i64 } };
+    show("b=%lld\n", *b);
+    return (*b + h.r.a) as i32;
+}

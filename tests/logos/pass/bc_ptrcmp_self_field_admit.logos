@@ -1,0 +1,18 @@
+package bc_ptrcmp_self_field_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct S<'a> { p: *mut &'a i64 }
+impl<'a> S<'a> {
+    fn same<'b>(&self, o: *mut &'a i64) -> bool {
+        return self.p == o;
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 9i64;
+    let mut r: &i64 = &v;
+    let p: *mut &i64 = &mut r as *mut &i64;
+    let s: S = S { p: p };
+    let n: i64 = if s.same(p) { 7i64 } else { 0i64 };
+    show("same=%lld\n", n);
+    return n as i32;
+}

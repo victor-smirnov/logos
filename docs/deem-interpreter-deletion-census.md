@@ -5966,14 +5966,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                NOIMPORTED 5264 -> 5286, TIERCOMMIT 125 -> 123 — PREDICTED, then measured by `ctest -N` on the re-globbed
 #                build before this pin was touched. bc_admits `# TOTAL` 67 -> 65; soundness_queue 149 -> 153 (four rows
 #                OPENED, none closed).
-REGISTRY-ALL         9783
-REGISTRY-NOIMPORTED  5286
-REGISTRY-TIERCOMMIT  123
+# 2026-09-14f (thrurefland — an overwrite of a place skips a field loan behind a reference inside it; a comparison on
+#                pointer-like operands needs a common type). THIRTEEN native PAIRS (bc_thruref_* / bc_ptrcmp_*, the two
+#                closed queue programs landing as bc_thruref_assign_ref_local_admit / bc_thruref_place_retarget_row_admit
+#                and two refuse-only halves among them) — +26. ONE closed row's program MOVES tests/imported/admit ->
+#                tests/imported/fail (type-check-pointer-comparisons; declared RENAMED-FIXTURE below): registry-neutral in
+#                ALL, -1 `logos_00_bc_admit_*` in NOIMPORTED and TIERCOMMIT. So ALL 9783 -> 9809, NOIMPORTED 5286 -> 5311,
+#                TIERCOMMIT 123 -> 122 — PREDICTED, then measured by `ctest -N` on the re-globbed build before this pin
+#                was touched. bc_admits `# TOTAL` 65 -> 64; soundness_queue 161 -> 164 (two rows CLOSED, five OPENED).
+REGISTRY-ALL         9809
+REGISTRY-NOIMPORTED  5311
+REGISTRY-TIERCOMMIT  122
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
 RENAMED-FIXTURE  tests/imported/admit/nll/type-check-pointer-coercions.logos  tests/imported/fail/nll/type-check-pointer-coercions.logos  2026-09-14b: the bc_admits row it carried (nllmoves.R14) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a reference-to-raw-pointer coercion's pointee variance at a return
 RENAMED-FIXTURE  tests/imported/admit/borrowck/borrowck-loan-vec-content.logos  tests/imported/fail/borrowck/borrowck-loan-vec-content.logos  2026-09-14b: the bc_admits row it carried (bck.B) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a Vec index store under a live element loan
+RENAMED-FIXTURE  tests/imported/admit/nll/type-check-pointer-comparisons.logos  tests/imported/fail/nll/type-check-pointer-comparisons.logos  2026-09-14f: the bc_admits row it carried (nllmoves.R2) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a pointer comparison's invariant regions
 RENAMED-FIXTURE  tests/imported/admit/regions/regions-creating-enums3.logos  tests/imported/fail/regions/regions-creating-enums3.logos  2026-09-14d: the bc_admits row it carried (lifereg.NEW-N1) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an enum literal whose binder is offered two regions
 RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-free.logos  tests/imported/fail/regions/regions-glb-free-free--glb-free-free.logos  2026-09-14d: the bc_admits row it carried (lifereg.NEW-R19) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a struct literal whose binder is offered a named and an elided region
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.

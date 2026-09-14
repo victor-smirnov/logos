@@ -1,0 +1,1 @@
+[fn same]: operator '==': lifetime may not live long enough — fn(&'c mut &'a i64) -> void and fn(&'d mut &'b i64) -> void have no common type: 'a must outlive 'b and 'b must outlive 'a, because a mutable reference is invariant over its referent

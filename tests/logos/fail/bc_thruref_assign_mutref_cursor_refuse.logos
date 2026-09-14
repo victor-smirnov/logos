@@ -1,0 +1,16 @@
+package bc_thruref_assign_mutref_cursor_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let mut s2: P = P { a: 3i64, b: 4i64 };
+    let mut r: &mut P = &mut s1;
+    let a: &mut i64 = &mut r.a;
+    *a = 10i64;
+    r = &mut s1;
+    *a = 11i64;
+    r.b = 12i64;
+    show("s1.a=%lld\n", s1.a);
+    return (s1.a + s2.b) as i32;
+}

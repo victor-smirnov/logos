@@ -44269,3 +44269,129 @@ note: targets src/compiler/probes/2026-09-14e-thruref/TARGETS.md, spec thruref.s
 ### GATES AT CLOSE — probe sources reverted (grep: 0 probe lines), build/ rebuilt, build_hash baa2a38e8b650fb3 43 = base (read)
   L1 rc 0 (807/807, smoke/gates 123/123, log 02:55:13) · queue gate 161 hold rc 0 on the rebuilt binary · probe-log-lint 291 records ·
   bc_admits 65 / blocked 8 unchanged (pricing only) · no probe left installed.
+
+## 2026-09-14f-thrurefland — AN OVERWRITE OF A PLACE SKIPS A FIELD LOAN BEHIND A REFERENCE INSIDE IT (THE LOCAL ASSIGN READER AND THE DEREFWRITE RETARGET READER), AND A COMPARISON ON POINTER-LIKE OPERANDS NEEDS A COMMON TYPE — bc_admits type-check-pointer-comparisons CLOSES (65 -> 64); soundness_queue refvar_assign_conflicts_with_pointee_field_loan_refused and place_assign_ref_field_while_pointee_loan_refused CLOSE
+site: src/compiler/borrow_check.cpp::field_borrow_conflicts
+site: src/compiler/borrow_check.cpp::loan_path_crosses_ref_
+site: src/compiler/borrow_check.cpp::visit_stmt
+site: src/compiler/borrow_check.cpp::visit
+site: src/compiler/sema_expr.cpp::lower_binop
+build: baa2a38e8b650fb3 43 (base, read; copy of bin + stdlib kept for the control) · build 1 · build 2 · build 3 · c52dcb19dff987ff 43 (LANDED, the re-globbed configure, read)
+measured: 2026-09-14
+fires: n/a (landing, no probe installed)
+ceiling: bc_admits {type-check-pointer-comparisons} = predicted; queue {refvar_assign_conflicts_with_pointee_field_loan_refused, place_assign_ref_field_while_pointee_loan_refused} = predicted; both diffed both ways
+cost: pass 0 (L4 bc 5309/5311 + 1597/1597; the 2 reds were the direct-door population pin, re-derived by name) · cfail 0 of 1611 pre-existing fixtures changed rc or match (7 rc + 8 match changes = the closing halves; 1 text-only = D2 dropping its own wrong-reason line) · stdlib 4 of 4 · runtime 6764 common 0 changed after cast-region-to-uint, 13 added = the pass halves · HAND 138 programs, every closing verdict as predicted, 0 legal refused, 0 illegal opened
+verdict: LANDED (D2 widened to its class at two readers; R2 widened to all six comparison operators, reference peel and per-parameter variance); D1 (pbdbm) DECLINED: pbdbmasg refuses 4 legal (b10 k01 k05 k08) behind D3
+note: predictions src/compiler/probes/2026-09-14f-thrurefland/PREDICTIONS.md, committed 1862a9262 before the first build.
+
+### NEIGHBOURS (standing rule 2026-09-12) — neighbour · verdict · reason / number
+  D2 — a dotted loan behind a reference, against a SHALLOW overwrite
+    ref-typed LOCAL root (`&r.a`, `r = &s2`), let / match-default / written walk        CLOSED (queue row; d01 d06 d09 d12 d24 d29 d30 d31, t1-t3)
+    tuple / struct LOCAL holding a reference (`&t.0.a`, `&h.r.b`, nested `h.m.p.a`)      CLOSED, same reader, the path-type walk (d02 d03 d16 d18 d22)
+    generic field through a type argument (`W<&P>`, `&w.v.a`)                            CLOSED, monomorphic copies read, used only when all agree (g01)
+    place RETARGET `h.r = &s2` under `&h.r.0` (visit AddrOfTemp under DerefWrite)         CLOSED (queue row; p02) — carrier: DerefWrite's own `retarget`
+    whole reborrow `let a = &*r; r = &s2;`                                               ROWED, REASON 1: VarState has no bit separating `&*r` from `&r`
+                                                                                         (refvar_reborrow_whole_then_assign_counter_refused, unmoved)
+    loan ON the reference field itself (`&h.r`, d20) / owned field (d04 d05 d23 g02)     NOT neighbours: the loan is not behind a reference; stay refused
+    Box root (`&b.a`, `b = box_new(..)`, d19)                                            NOT a neighbour: an owning deref; stays refused
+  R2 — `==` family on pointer-like operands
+    `==` `!=` on `*mut` / `*const &mut` / fn params (the row)                           CLOSED
+    `<` `<=` `>` `>=` (q01 q24)                                                          CLOSED — refused before the verifier crash they reach on base
+    reference layers over a pointer (`&*mut &'a` via `let rx = &x`, q25)                 CLOSED (peel)
+    array / tuple / struct / fn-return under an invariant carrier (q13 q14 q15 q19 q32)  CLOSED
+    invariant ADT under `*const` (q34 `Inv<'a>`)                                         CLOSED (per-parameter variance)
+    closure body (q10), method on `self.p` (q11)                                        CLOSED
+    tuple / Option of raw pointers (q04 q05)                                             NOT reachable: raw pointers implement no Eq
+                                                                                         (new row rawptr_tuple_eq_no_eq_impl_refused)
+    two ELIDED parameters (r22)                                                          NOT this arm: elision plane, unchanged at call and let too
+
+### MISTAKES OF MY OWN
+  * I read d15 / o11 / o12 / v1-v7 as ILLEGAL programs opened by D2. They are not illegal in Logos: `struct P { a: i64, b: i64 }`
+    is auto-Copy under blessed divergence A16, so `eat(s1)` copies. Every non-Copy twin (x07d x11d x12d x15d, `impl Drop`) and every
+    write twin (x15w x11w x12w x18w) is refused on the landed build with the owner's own sentence. I did not land anything on the
+    misreading, but I spent a build's worth of analysis on a record-site loan-inheritance change the tree never needed.
+  * d28 (loop, `r = &mut s2` while a loan taken through `r` into `s2` lives) is admitted after D2. It is NOT a D2 cost: the loop's
+    second-iteration state is the hole, open on base with no D2 involvement (w6 w7 run); D2 removed a refusal given for the wrong
+    reason. Rowed loop_second_iteration_mut_alias_through_retargeted_ref_admits.
+  * Build 1 refused q16 (`*const W<'a>` vs `*const W<'b>`, W covariant): my struct leaf asked subtype() in both directions, and two
+    unrelated named regions are not subtypes either way. Repaired with the per-parameter variance read, build 2.
+  * Build 2 left g01 refused: the generic base struct is absent after mono; only `W$G1$…` copies exist. Repaired build 3.
+  * My first rewrite of the ref-peel fixture compared each reference with ITSELF, so the refuse half compiled on build 3. Caught by
+    running every half before copying it; the pair was rewritten to compare `rx == ry`.
+  * The first bc_ptrcmp pass halves called region-generic functions with a local `*mut &i64` and were refused — the existing queue row
+    mutptr_region_param_elided_let_arg_refused, not this change. The halves now pass `'static` pointers.
+
+### GATES ON THE LANDED BUILD c52dcb19dff987ff 43 (one configure with the re-glob) — so far
+  soundness_queue gate rc 0: 164 hold (tier1=21 tier2=43 tier3=92 tier4=8), '# TOTAL' 164 = direct listing.
+  Also run on BASE baa2a38e8b650fb3 with the five new rows added and the two closed rows still present: 166 hold, rc 0 —
+  every new row reproduces on base before any edit.
+  registry: ctest -N Total Tests 9809 = predicted REGISTRY-ALL 9809; 26 bc_thruref_* / bc_ptrcmp_* registered.
+  named gates (ctest -N -R listed by name before believing 100%): lint_mismatch_monopoly · logos_00_corpus_registration ·
+  logos_00_probe_log_lint · logos_00_bc_admits_ledger · logos_00_soundness_queue · logos_00_census_pin — 6/6 passed.
+  stdlib-cost rc 0: all four layers compile, nothing armed.
+  USER SENTENCES: every refused stderr of the 138-program battery on build 3 scanned for `'%` `'__anon` `'^` `$G<n>` — none;
+  23 comparison refusals read, each naming the two written regions and the carrier.
+  ⚠ L4 bc's FIRST launch exited rc 2 in a minute: test-levels.sh refuses a foreground L4 (>600 s) unless LOGOS_L4_BG=1.
+  That rc is the script's refusal, not a red gate; relaunched detached with the variable and a fresh log name.
+
+### tools/dlog — fieldloan_readers.dl (NEW RULE; selftest rc 0 first, 28fc7c75 19/24/1-5/42-5, duty 1 -> 0)
+  KNOWN ANSWER stated before the run: grep reads 46 lines naming shared_field_borrows / mut_field_borrows in borrow_check.cpp =
+  2 FieldDecls + 7 comment-only + 37 code lines. mapref = 39 refs on 37 distinct lines (1459 and 2415 hold two refs each) —
+  AGREES with the 37 code lines. 13 contexts; `reports` (coarse, ctx_of) = 6: field_borrow_conflicts · take_field_borrow_path_ ·
+  take_borrow_whole_ · check_whole_read_vs_field_loans · check_recv_conflict · visit.
+  PER-SITE READ beside it (rule: a context-level guard cannot answer a site-level question): of the six, the SHALLOW-OVERWRITE
+  deciders are field_borrow_conflicts called with "assign to" (visit_stmt Assign) and visit's AddrOfTemp loops reached under a
+  DerefWrite retarget — both changed. take_borrow_whole_ is a whole `&`/`&mut` (deep), check_whole_read_vs_field_loans a read,
+  check_recv_conflict a method receiver, take_field_borrow_path_ a new field loan: none is an overwrite, none changed.
+
+### CONTROL REVERT — every new half on the BASE copy baa2a38e8b650fb3 (bin + libs), landed verdicts beside
+  CLOSING halves, base must show the defect — 15/15:
+    R2 refuse halves bc_ptrcmp_{constptr_mutref,fnptr_param,mutptr_regions,mutual_outlives,ref_peel,self_field}_refuse  COMPILE and RUN
+      on base (admitted); type-check-pointer-comparisons COMPILES on base.
+    bc_ptrcmp_order_regions_refuse is REFUSED on base — by the MLIR verifier ("'arith.cmpi' op operand #0 must be
+      signless-integer-like"), not by a borrow sentence. Read by the pinned text, not the exit code: the `.expected` does NOT
+      occur in base's stderr, so run_test.sh's substring check reds on base. No pass twin exists: a legal pointer ordering
+      dies in the same verifier (row rawptr_ordering_compare_mlir_verifier_refused).
+    D2 admit halves bc_thruref_{assign_generic_field,assign_mutref_cursor,assign_ref_local,assign_struct_ref_field,
+      assign_tuple_ref_elem,place_retarget,place_retarget_row}_admit REFUSED on base with the overwrite sentence.
+  GUARDING halves, base must equal landed — 12/12: the six bc_ptrcmp_*_admit RUN with the same exit and stdout; the six
+    bc_thruref_*_refuse REFUSED with the same first line on both builds (they pin the abuse direction: a loan on an OWNED
+    field, on the binding itself, a second `&mut` of the same target).
+  ⚠ FIRST CONTROL READ 13/15: bc_ptrcmp_self_field_refuse was refused on base IN MAIN, by the existing row
+    mutptr_region_param_elided_let_arg_refused (`same(p)` instantiated the method's `'b` at 'static) — a second, unrelated
+    refusal the fixture carried on both builds, so it could never show the R2 defect. main no longer calls it; landed: 1 error,
+    first line == .expected; base: runs rc 7, pinned text absent. The pair is now one token apart in the signature ('a / 'b).
+
+### RUNTIME COLUMN — run_oracle on the LANDED build c52dcb19dff987ff (6777 compiled, linked, RUN), against which base
+  BASE = the pricing round's unarmed table run_none.tsv on build e00c6956a8a745c0: base sources plus probe lines proven inert
+  at L1, same configure, and fixture archives built by THAT compiler. 6764 common: 1 changed = cast-region-to-uint (stack
+  address, subtracted by name) -> 0 changed. 13 added = exactly the thirteen pass halves, each ccrc 0 and exiting what its
+  .expected pins (constptr_mutref 2 · fnptr_param 4 · mutptr_regions 1 · mutual_outlives 6 · ref_peel 8 · self_field 7 ·
+  generic_field 5 · mutref_cursor 23 · ref_local 0 · struct_ref_field 5 · tuple_ref_elem 5 · place_retarget 5 · retarget_row 0).
+  0 removed.
+  ⚠ WHY NOT A SWAPPED-BINARY BASE RUN. Copying the base logosc + stdlib into build/ gives hash e60813dfc0bbbe8b, not base's
+  baa2a38e8b650fb3: build_hash.py also hashes the 23 fixture archives build/tests/logos/*.a, which the landed build rebuilt.
+  100 of the 6927 `-L pass` commands link one of them (`-l …/build/tests/logos/lib*.a`: coex_*, cross_archive, …), so a
+  swapped run would be base-compiler-over-landed-archive for exactly those rows. run_none.tsv is clean for all of them.
+  The FAIL-TEXT population names none of those archives (0 of 1611 commands), so its base IS the swapped build.
+
+### FAIL-TEXT COLUMN — fail_text_oracle, landed c52dcb19dff987ff vs base (logosc + stdlib byte-identical to baa2a38e8b650fb3)
+  1611 common, 0 added, 0 removed. rc changed 7 · match changed 8 · text-only 1 — every one a half this round added:
+    rc 0 -> 1 and match 0 -> 1: bc_ptrcmp_{constptr_mutref,fnptr_param,mutptr_regions,mutual_outlives,ref_peel,self_field}_refuse,
+      type-check-pointer-comparisons (base admits; landed refuses with the pinned sentence).
+    match only: bc_ptrcmp_order_regions_refuse (base rc 1 from the MLIR verifier, pinned sentence absent).
+    text only: bc_thruref_assign_mutref_cursor_refuse — base printed TWO errors, the wrong-reason "cannot assign to 'r' while
+      'r.a' is mutably borrowed" then the real E0499 "cannot borrow 's1' as mutable: already mutably borrowed"; landed prints the
+      second alone. Pinned text present on both; the verdict is unchanged and the removed line is D2's own.
+  ZERO pre-existing fail fixtures changed rc, match or text.
+
+### PREDICTED vs MEASURED, by name, both ways
+  bc_admits: predicted {type-check-pointer-comparisons}; measured {type-check-pointer-comparisons}; diff both ways empty.
+  queue closed: predicted {refvar_assign_conflicts_with_pointee_field_loan_refused, place_assign_ref_field_while_pointee_loan_refused};
+    measured the same set; empty both ways. queue # TOTAL predicted 162, measured 164: the base battery found FIVE rows, not three —
+    loop_second_iteration_mut_alias_through_retargeted_ref_admits and ref_to_rawptr_type_parse_refused were found after the
+    prediction was written. A call-arg 'static instantiation refusal the first pass halves hit is the existing row
+    mutptr_region_param_elided_let_arg_refused and was NOT added again.
+  HAND, UNCERTAIN in the predictions: q08 legal RUNS (mutual outlives accepted); q33 legal RUNS; d07 d17 d26 d27 d32 stay refused
+    with the owner's sentence; d28 admitted — the inherited loop plane above, not a D2 cost.
+  Wrong in the predictions: g01 needed a third build (monomorphic copies); q16 needed the per-parameter variance read (build 2).

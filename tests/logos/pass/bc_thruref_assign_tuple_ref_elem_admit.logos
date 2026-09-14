@@ -1,0 +1,13 @@
+package bc_thruref_assign_tuple_ref_elem_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut t: (&P, P) = (&s1, P { a: 5i64, b: 6i64 });
+    let a: &i64 = &t.0.a;
+    t = (&s2, P { a: 7i64, b: 8i64 });
+    show("a=%lld\n", *a);
+    return (*a + t.0.b) as i32;
+}

@@ -2886,6 +2886,158 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         if (!ok)
             error(std::format("operator '{}': type mismatch ({} vs {})",
                   op, type_str(lt), type_str(rt)));
+        // A comparison needs ONE type: PartialEq / PartialOrd for raw and fn pointers are implemented for a single type,
+        // while for `&A` / `&mut A` they compare THROUGH the pointee (`impl PartialEq<&B> for &A`), so reference layers
+        // peel pairwise first. Below them a raw or fn pointer pair must MEET — regions under a covariant or contravariant
+        // position always do; under an invariant one (a `*mut` / `&mut` pointee) they must be equal or outlive each
+        // other. bc_admits nllmoves.R2; PROBES.md 2026-09-14f-thrurefland.
+        if (ok && !ptr_null_cmp) {
+            using PK_ = LogosType::Kind;
+            auto is_r_ = [](TypeRef t) { return t && (t.kind() == PK_::Ref || t.kind() == PK_::MutRef); };
+            TypeRef pa_ = lt, pb_ = rt;
+            for (int d_ = 0; d_ < 16 && is_r_(pa_) && is_r_(pb_); ++d_) { pa_ = pa_.pointee(); pb_ = pb_.pointee(); }
+            if (pa_ && pb_ && (pa_.kind() == PK_::Ptr || LogosType::is_fn_value_kind(pa_.kind()))) {
+                const auto adj_ = outlives_adj(current_outlives_);
+                std::string bad_x_, bad_y_, why_;
+                // Every region pair of two same-shaped types equal or mutually outliving; the first that is not is kept.
+                auto same_ = [&](const std::string& x, const std::string& y) {
+                    if (outlives_norm(x) == outlives_norm(y)) return true;
+                    if (!x.empty() && !y.empty() && outlives(x, y, adj_, false) && outlives(y, x, adj_, false))
+                        return true;
+                    if (bad_x_.empty() && bad_y_.empty()) { bad_x_ = x; bad_y_ = y; }
+                    return false;
+                };
+                std::function<bool(TypeRef, TypeRef, int)> mutual_ = [&](TypeRef a, TypeRef b, int d) -> bool {
+                    if (!a || !b || d > 24) return true;
+                    const bool af = LogosType::is_fn_value_kind(a.kind()), bf = LogosType::is_fn_value_kind(b.kind());
+                    if (a.kind() != b.kind() && !(af && bf)) return true;
+                    switch (a.kind()) {
+                    case PK_::Ref: case PK_::MutRef:
+                        return same_(std::string(a.lifetime()), std::string(b.lifetime())) &&
+                               mutual_(a.pointee(), b.pointee(), d + 1);
+                    case PK_::Ptr: return mutual_(a.pointee(), b.pointee(), d + 1);
+                    case PK_::Slice:
+                        return same_(std::string(a.lifetime()), std::string(b.lifetime())) &&
+                               mutual_(a.elem(), b.elem(), d + 1);
+                    case PK_::Array: return mutual_(a.elem(), b.elem(), d + 1);
+                    case PK_::Tuple: {
+                        auto ea = a.tuple_elems(), eb = b.tuple_elems();
+                        for (size_t i = 0; i < ea.size() && i < eb.size(); ++i)
+                            if (!mutual_(ea[i], eb[i], d + 1)) return false;
+                        return true;
+                    }
+                    case PK_::Struct: case PK_::ZonedStruct: case PK_::Enum: {
+                        auto la = a.lifetime_args(), lb = b.lifetime_args();
+                        for (size_t i = 0; i < la.size() && i < lb.size(); ++i)
+                            if (!same_(la[i], lb[i])) return false;
+                        auto ta = a.type_args(), tb = b.type_args();
+                        for (size_t i = 0; i < ta.size() && i < tb.size(); ++i)
+                            if (!mutual_(ta[i], tb[i], d + 1)) return false;
+                        return true;
+                    }
+                    default:
+                        if (af && bf) {
+                            auto ap = a.closure_params(), bp = b.closure_params();
+                            for (size_t i = 0; i < ap.size() && i < bp.size(); ++i)
+                                if (!mutual_(ap[i], bp[i], d + 1)) return false;
+                            return mutual_(a.closure_ret(), b.closure_ret(), d + 1);
+                        }
+                        return true;
+                    }
+                };
+                // Does a common type exist? `a`/`b` sit at a co- or contravariant position.
+                std::function<bool(TypeRef, TypeRef, int)> meet_ = [&](TypeRef a, TypeRef b, int d) -> bool {
+                    if (!a || !b || d > 24) return true;
+                    const bool af = LogosType::is_fn_value_kind(a.kind()), bf = LogosType::is_fn_value_kind(b.kind());
+                    if (a.kind() != b.kind() && !(af && bf)) return true;
+                    // An invariant carrier: subtype() decides it; mutually outliving regions are equal regions.
+                    auto inv_ = [&](TypeRef ia, TypeRef ib, const char* why) -> bool {
+                        if (variance_ok(a, b, true) || variance_ok(b, a, true)) return true;
+                        if (mutual_(ia, ib, d + 1)) return true;
+                        why_ = why;
+                        return false;
+                    };
+                    switch (a.kind()) {
+                    case PK_::Ptr:
+                        if (a.mut_ptr() && b.mut_ptr())
+                            return inv_(a.pointee(), b.pointee(), "a mutable pointer is invariant over its pointee");
+                        return meet_(a.pointee(), b.pointee(), d + 1);
+                    case PK_::MutRef:
+                        return inv_(a.pointee(), b.pointee(), "a mutable reference is invariant over its referent");
+                    case PK_::Ref: return meet_(a.pointee(), b.pointee(), d + 1);
+                    case PK_::Slice:
+                        if (a.mut_ptr() && b.mut_ptr())
+                            return inv_(a.elem(), b.elem(), "a mutable slice reference is invariant over its element");
+                        return meet_(a.elem(), b.elem(), d + 1);
+                    case PK_::Array: return meet_(a.elem(), b.elem(), d + 1);
+                    case PK_::Tuple: {
+                        auto ea = a.tuple_elems(), eb = b.tuple_elems();
+                        for (size_t i = 0; i < ea.size() && i < eb.size(); ++i)
+                            if (!meet_(ea[i], eb[i], d + 1)) return false;
+                        return true;
+                    }
+                    case PK_::Struct: case PK_::ZonedStruct: case PK_::Enum: {
+                        if (variance_ok(a, b, true) || variance_ok(b, a, true)) return true;
+                        // Per declared parameter, as subtype() reads the table: a covariant or contravariant slot
+                        // meets freely, an invariant one must be equal. Unrecorded reads Co, as there.
+                        const auto nm_ = [&](TypeRef t) {
+                            return std::string(t.pkg_name()) + (t.pkg_name().empty() ? "" : ".") +
+                                   std::string(t.kind() == PK_::Enum ? t.enum_name() : t.struct_name());
+                        };
+                        if (nm_(a) != nm_(b)) return true;
+                        const auto vit_ = variance_table_.find(nm_(a));
+                        auto var_ = [&](size_t i, bool is_lt) {
+                            if (vit_ == variance_table_.end()) return Variance::Co;
+                            auto it = vit_->second.find((is_lt ? "@" : "#") + std::to_string(i));
+                            return it == vit_->second.end() ? Variance::Co : it->second;
+                        };
+                        auto la = a.lifetime_args(), lb = b.lifetime_args();
+                        for (size_t i = 0; i < la.size() && i < lb.size(); ++i)
+                            if (var_(i, true) == Variance::Inv && !same_(la[i], lb[i])) {
+                                why_ = type_str(a, true) + " is invariant over that lifetime";
+                                return false;
+                            }
+                        auto ta = a.type_args(), tb = b.type_args();
+                        for (size_t i = 0; i < ta.size() && i < tb.size(); ++i) {
+                            const Variance v_ = var_(i, false);
+                            if (v_ == Variance::Inv) {
+                                if (!mutual_(ta[i], tb[i], d + 1)) {
+                                    why_ = type_str(a, true) + " is invariant over that type argument";
+                                    return false;
+                                }
+                            } else if (v_ != Variance::BiVar && !meet_(ta[i], tb[i], d + 1)) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                    case PK_::TraitObject: case PK_::DstRef:
+                        if (variance_ok(a, b, true) || variance_ok(b, a, true) || mutual_(a, b, d + 1)) return true;
+                        why_ = type_str(a, true) + " is invariant over that lifetime";
+                        return false;
+                    default:
+                        if (af && bf) {
+                            auto ap = a.closure_params(), bp = b.closure_params();
+                            for (size_t i = 0; i < ap.size() && i < bp.size(); ++i)
+                                if (!meet_(ap[i], bp[i], d + 1)) return false;
+                            return meet_(a.closure_ret(), b.closure_ret(), d + 1);
+                        }
+                        return true;
+                    }
+                };
+                if (!meet_(pa_, pb_, 0)) {
+                    const std::string ta_ = type_str(lt, true), tb_ = type_str(rt, true);
+                    if (!bad_x_.empty() || !bad_y_.empty())
+                        error(std::format("operator '{}': lifetime may not live long enough — {} and {} have no common "
+                                          "type: {} must outlive {} and {} must outlive {}, because {}",
+                                          op, ta_, tb_, region_words_(bad_x_), region_words_(bad_y_),
+                                          region_words_(bad_y_), region_words_(bad_x_), why_));
+                    else
+                        error(std::format("operator '{}': lifetime may not live long enough — {} and {} have no common "
+                                          "type, because {}", op, ta_, tb_, why_));
+                }
+            }
+        }
         if (ptr_null_cmp) {
             lir::LExprPtr lit_expr = (TypeRef(lt).kind() == LogosType::Kind::IntLit) ? lhs : rhs;
             if (auto v = get_intlit_value(lit_expr)) {

@@ -1,0 +1,14 @@
+// Was SOUNDNESS QUEUE row place_assign_ref_field_while_pointee_loan_refused, CLOSED 2026-09-14f-thrurefland.
+// `h.r` is a REFERENCE field; `&h.r.0` borrows `(*h.r).0`. Storing a new reference into `h.r` (a DerefWrite retarget)
+// is a shallow write of the place, so visit()'s AddrOfTemp arm skips a field loan behind the reference it overwrites.
+// Refusing twin: tests/logos/fail/bc_thruref_place_retarget_refuse (the loan is on an OWNED tuple field).
+package bc_thruref_place_retarget_row_admit;
+struct H<'x> { r: &'x (i64, i64) }
+fn main() -> i32 {
+    let s1: (i64, i64) = (1i64, 2i64);
+    let s2: (i64, i64) = (3i64, 4i64);
+    let mut h: H = H { r: &s1 };
+    let a: &i64 = &h.r.0;
+    h.r = &s2;
+    return (*a + h.r.0 - 4i64) as i32;
+}

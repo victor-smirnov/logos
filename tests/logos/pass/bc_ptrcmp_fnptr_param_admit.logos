@@ -1,0 +1,12 @@
+package bc_ptrcmp_fnptr_param_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn bump(x: &mut &i64) { }
+fn same<'a, 'b, 'c, 'd>(f: fn(&'c mut &'a i64), g: fn(&'d mut &'a i64)) -> bool {
+    return f == g;
+}
+fn main() -> i32 {
+    let n: i64 = if same(bump, bump) { 4i64 } else { 0i64 };
+    show("same=%lld\n", n);
+    return n as i32;
+}

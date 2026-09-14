@@ -2224,6 +2224,9 @@ class BorrowChecker {
     // already decided at the borrow/projection site (else double-report, or a
     // spurious whole-`w` conflict when walking `w.buf`'s base).
     bool                                 in_addr_source_ = false;
+    // Set by the DerefWrite arm around the destination's visit when the written place's own type is a reference: the
+    // AddrOfTemp arm consumes it as a SHALLOW write. PROBES.md 2026-09-14f-thrurefland.
+    bool                                 retarget_dest_ = false;
     // Set while visiting the RHS of a `let __dst_N = rhs;` — the temp sema
     // materialises for a pattern-destructuring `let`. Read by
     // deref_move_exempt only; see the exemption there for why the position
@@ -4343,9 +4346,90 @@ private:
     //     a plain read only collides with a MUT field borrow.
     //   empty `path`   = whole-value access — collides with ANY field borrow.
     //   `verb`         = shapes the diagnostic ("move", "use").
+    // A dotted loan whose path crosses a REFERENCE at or below `from` segments names storage behind that reference, so a
+    // SHALLOW overwrite of the first `from` segments leaves it alone (rustc places_conflict: a Shallow(None) access
+    // against a borrow whose remaining projection holds a Deref). The walk follows tuple indices and struct fields
+    // (a type-parameter field through the type's arguments); a step it cannot type answers false — the conflict stands.
+    // PROBES.md 2026-09-14f-thrurefland.
+    TypeRef loan_step_type_(TypeRef t, std::string_view seg) const {
+        const auto* pool = prog_.type_pool.impl();
+        if (!t || seg.empty()) return nullptr;
+        using K = LogosType::Kind;
+        if (t.kind() == K::Tuple) {
+            size_t i = 0;
+            for (char c : seg) { if (c < '0' || c > '9') return nullptr; i = i * 10 + size_t(c - '0'); }
+            auto es = t.tuple_elems();
+            return i < es.size() ? es[i] : TypeRef(nullptr);
+        }
+        if (t.kind() != K::Struct && t.kind() != K::ZonedStruct) return nullptr;
+        const std::string sname(t.struct_name());
+        // A generic instantiation is present only as its monomorphic copy `Name$G<n>$…`, whose name this walk does
+        // not rebuild: the field's type is read off EVERY copy with that arity and used only when they all agree.
+        if (!t.type_args().empty()) {
+            const std::string pfx = sname + "$G" + std::to_string(t.type_args().size()) + "$";
+            TypeRef agreed = nullptr;
+            bool seen = false;
+            for (auto* defs : {&prog_.structs, &prog_.struct_specializations})
+                for (auto& sd : *defs) {
+                    if (!sd.name().starts_with(pfx)) continue;
+                    TypeRef ft = nullptr;
+                    for (auto& f : sd.fields()) if (f.name() == seg) { ft = f.type(pool); break; }
+                    if (!ft) return nullptr;
+                    if (seen && !(ft == agreed)) return nullptr;
+                    agreed = ft;
+                    seen = true;
+                }
+            if (seen) return agreed;
+        }
+        auto find_in = [&](const std::vector<lir_view::StructView>& defs) -> TypeRef {
+            for (auto& sd : defs) {
+                if (sd.name() != sname) continue;
+                for (auto& f : sd.fields()) {
+                    if (f.name() != seg) continue;
+                    TypeRef ft = f.type(pool);
+                    if (ft && ft.kind() == K::TypeVar) {
+                        const std::string tv(ft.type_var_name());
+                        auto tps = sd.type_params();
+                        auto args = t.type_args();
+                        for (size_t k = 0; k < tps.size(); ++k)
+                            if (tps[k].name() == tv) return k < args.size() ? args[k] : TypeRef(nullptr);
+                        return nullptr;
+                    }
+                    return ft;
+                }
+                return nullptr;
+            }
+            return nullptr;
+        };
+        if (TypeRef r = find_in(prog_.structs)) return r;
+        return find_in(prog_.struct_specializations);
+    }
+    bool loan_path_crosses_ref_(TypeRef t, std::string_view path, size_t from) const {
+        size_t pos = 0, seg = 0;
+        for (int guard = 0; t && guard < 64; ++guard) {
+            if (pos >= path.size()) return false;           // the loan is ON this prefix, not behind it
+            if (seg >= from && is_ref_kind(t)) return true;
+            size_t dot = path.find('.', pos);
+            std::string_view s = path.substr(pos, dot == std::string_view::npos ? std::string_view::npos : dot - pos);
+            pos = dot == std::string_view::npos ? path.size() : dot + 1;
+            ++seg;
+            t = loan_step_type_(t, s);
+        }
+        return false;
+    }
+    static size_t path_segments_(std::string_view path) {
+        return path.empty() ? 0 : size_t(std::count(path.begin(), path.end(), '.')) + 1;
+    }
+
+    // `behind_ref_root`: the overwritten place's ROOT type; a loan behind a reference at or below `path` is skipped.
     bool field_borrow_conflicts(const VarState& st, const std::string& target,
                                 const std::string& path, bool need_exclusive,
-                                uint32_t line, const char* verb) {
+                                uint32_t line, const char* verb,
+                                TypeRef behind_ref_root = nullptr) {
+        const size_t behind_from_ = path_segments_(path);
+        auto behind_ = [&](const std::string& p) {
+            return behind_ref_root && loan_path_crosses_ref_(behind_ref_root, p, behind_from_);
+        };
         // THE WHOLE-VALUE BORROWS ARE BORROWS ON PATH "" — the invariant the
         // VarState declaration above states in words and this reader did not
         // implement. `let b = &a;` raises `shared_borrows` on the ROOT and
@@ -4376,6 +4460,7 @@ private:
             return true;
         }
         for (auto& p : st.mut_field_borrows) {
+            if (behind_(p)) continue;
             if (path.empty() || paths_overlap(path, p)) {
                 report(line, std::format(
                     "cannot {} '{}' while '{}' is mutably borrowed",
@@ -4393,6 +4478,7 @@ private:
                 // 13 iterations, `c <= 0` true 1.
                 (void)logos::probe::on("sharedzero_site_conflict");
                 if (c <= 0 && !logos::probe::on("sharedzero_live_conflict")) continue;
+                if (behind_(p)) continue;
                 if (path.empty() || paths_overlap(path, p)) {
                     report(line, std::format(
                         "cannot {} '{}' while '{}' is borrowed",
@@ -13177,10 +13263,13 @@ private:
                     // rc 0 while the `&v` spelling refused. The prefix query and
                     // the loan itself both already existed (`take_field_borrow`
                     // records at the dotted path); nothing was asking.
+                    // ⚠ An overwrite of the LOCAL is shallow: a field loan behind a reference inside it (`&r.a` with
+                    // `r: &P`, `&t.0.a` with `t.0: &P`) names the pointee and stays valid. PROBES.md 2026-09-14f-thrurefland.
                     if (!said_shared)
                         field_borrow_conflicts(*it, name, /*path=*/"",
                                                /*need_exclusive=*/true, ln,
-                                               "assign to");
+                                               "assign to",
+                                               val ? val.type(pool) : TypeRef(nullptr));
                 }
                 bool val_is_agg_lit2 = val &&
                     (val.kind() == lir_schema::expr::Code::StructLit ||
@@ -13841,10 +13930,14 @@ private:
                             dwr.root_slot = dwp.root_slot;
                             record_borrow(dwr, /*is_mut=*/true, ln, "__dwbase");
                         }
+                        retarget_dest_ = retarget;
                         visit(v.ptr(), /*consuming=*/false, ln);
+                        retarget_dest_ = false;
                         pop_scope();
                     } else {
+                        retarget_dest_ = retarget;   // a RETARGET is a shallow write of the place (PROBES.md 2026-09-14f-thrurefland)
                         visit(v.ptr(),   /*consuming=*/false, ln);
+                        retarget_dest_ = false;
                     }
                     visit(v.value(), /*consuming=*/true,  ln);
                     if (!wroot.empty())
@@ -15081,6 +15174,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             EAddrOfTempView v{e};
             auto inner = v.inner();
             bool is_mut = is_mut_ref(e.type(pool));
+            // Consumed HERE, so no nested visit inherits it: this AddrOfTemp is the retargeted destination itself.
+            const bool shallow_retarget_ = std::exchange(retarget_dest_, false);
             BorrowPlace bp = extract_borrow_place(inner, pool);
             std::string root = bp.root;
             std::string path = bp.path;
@@ -15204,6 +15299,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         // 18 iterations, `c <= 0` true 7.
                         (void)logos::probe::on("sharedzero_site_addrof");
                         if (c <= 0 && !logos::probe::on("sharedzero_live_addrof")) continue;
+                        if (shallow_retarget_ &&
+                            loan_path_crosses_ref_(bp.root_type, p, path_segments_(path))) continue;
                         if (paths_overlap(path, p) && is_mut) {
                             report(line, std::format(
                                 "cannot borrow '{}' as mutable: '{}' is already borrowed",
@@ -15212,6 +15309,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         }
                     }
                     for (auto& p : sit->mut_field_borrows) {
+                        if (shallow_retarget_ &&
+                            loan_path_crosses_ref_(bp.root_type, p, path_segments_(path))) continue;
                         if (paths_overlap(path, p)) {
                             report(line, std::format(
                                 "cannot borrow '{}': '{}' is already mutably borrowed",
