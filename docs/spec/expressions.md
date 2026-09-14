@@ -3359,7 +3359,7 @@ When the expected type for an untyped closure literal is not itself a bare Fn-bo
 
 ### `expr.list-comp.desugar-vec` — List comprehension desugars to Vec build loop
 
-A list comprehension `[value for x in iter (if guard)?]` desugars to a block that binds `let mut v: Vec<T> = vec_new::<T>()`, iterates `x` over `iter`, (optionally gated by `guard`) calls `Vec::push(&mut v, value)`, and evaluates to `v`. T is the iterator element type; the block's type is `Vec<T>`.
+A list comprehension `[value for x in iter (if guard)?]` desugars to a block that binds `let mut v: Vec<T> = vec_new::<T>()`, iterates `x` over `iter`, (optionally gated by `guard`) calls `Vec::push(&mut v, value)`, and evaluates to `v`. T is the type of `value` (as for a map comprehension, where K and V are the types of `key` and `value`); `x` has the iterator element type; the block's type is `Vec<T>`. Owner ruling 2026-09-14: `expr.comprehension.list-and-map` governs — the collection holds the `value` results, not the iterated elements.
 
 *Divergence:* Logos-specific surface syntax (Python-style comprehension); not present in Rust.
 

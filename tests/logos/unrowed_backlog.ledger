@@ -355,7 +355,8 @@ localvec_homonym_listcomp_vec_leak valgrind 1 src/compiler/probes/2026-09-14i-ha
     # THE ONE MEASUREMENT THAT MAKES IT A ROW: a DESTRUCTOR COUNT through the same comprehension —
     # p2v_destructor_count_blocked (`[D { c: p } for x in src]` beside the homonym, want 3 drops). It cannot be read
     # today: a non-scalar element dies in mlir_gen first, which is the open row
-    # `listcomp_nonscalar_elem_internal_verifier_diag` (doors in series; that row waits on an owner question about
-    # two A6 clauses). When that row closes, run p2v: a count below 3 makes this a tier-1 `run` row.
+    # `listcomp_value_elem_type_refused` (doors in series; formerly listcomp_nonscalar_elem_internal_verifier_diag,
+    # re-filed 2026-09-14 after the owner ruled the A6 question: the element type is the value's type). When that
+    # row closes, run p2v: a count below 3 makes this a tier-1 `run` row.
 
 # TOTAL 16

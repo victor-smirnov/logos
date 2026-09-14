@@ -1077,7 +1077,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 
 ### `expr.list-comp.desugar-vec` — List comprehension desugars to Vec build loop
 - **Divergence**: Logos-specific surface syntax (Python-style comprehension); not present in Rust.
-- **Rule**: A list comprehension `[value for x in iter (if guard)?]` desugars to a block that binds `let mut v: Vec<T> = vec_new::<T>()`, iterates `x` over `iter`, (optionally gated by `guard`) calls `Vec::push(&mut v, value)`, and evaluates to `v`. T is the iterator element type; the block's type is `Vec<T>`.
+- **Rule**: A list comprehension `[value for x in iter (if guard)?]` desugars to a block that binds `let mut v: Vec<T> = vec_new::<T>()`, iterates `x` over `iter`, (optionally gated by `guard`) calls `Vec::push(&mut v, value)`, and evaluates to `v`. T is the type of `value` (as for a map comprehension, where K and V are the types of `key` and `value`); `x` has the iterator element type; the block's type is `Vec<T>`. Owner ruling 2026-09-14: `expr.comprehension.list-and-map` governs — the collection holds the `value` results, not the iterated elements.
 - **Source**: `src/compiler/sema_expr.cpp#L10885-L10986`
 
 ### `expr.list-comp.requires-vec-import` — List comprehension requires Vec in scope

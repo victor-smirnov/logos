@@ -217,7 +217,9 @@ rawptr_int_zero_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_int_
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
 ref_to_rawptr_type_parse_refused 3 tests/soundness/open/ref_to_rawptr_type_parse_refused refuses
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
-listcomp_nonscalar_elem_internal_verifier_diag 4 tests/soundness/open/listcomp_nonscalar_elem_internal_verifier_diag diag op operand type mismatch: expected operand type
+# 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
+# listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
+listcomp_value_elem_type_refused 3 tests/soundness/open/listcomp_value_elem_type_refused refuses
 # 2026-09-14i-harvest2: y3 (2026-09-12r-escroot) made exit-visible by a clobbering call; r22 (2026-09-14e-thruref) still admitted.
 # Both reproduce on build c52dcb19dff987ff 43; legality by reading. R6 (2026-09-09g) joined impl_fn_return_stack_env_dangles as its PART 3.
 tuple_elem_shared_borrow_through_ref_dangles_run 1 tests/soundness/open/tuple_elem_shared_borrow_through_ref_dangles_run run 1
