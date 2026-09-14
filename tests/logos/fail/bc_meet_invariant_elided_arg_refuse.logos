@@ -1,0 +1,17 @@
+package bc_meet_invariant_elided_arg_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P<'a> { x: &'a i64, y: &'a i64 }
+static S: i64 = 5i64;
+fn same<T>(a: &mut T, b: &mut T) -> i64 { return 0i64; }
+fn put(p: &mut P, z: &i64) -> i64 {
+    let mut q = P { x: p.x, y: z };
+    return same(p, &mut q) + *q.x + *q.y;
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let mut p = P { x: &a, y: &a };
+    let k = put(&mut p, &S);
+    show("k=%lld", k);
+    return k as i32;
+}

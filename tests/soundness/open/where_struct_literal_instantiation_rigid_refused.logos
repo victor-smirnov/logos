@@ -1,0 +1,18 @@
+package where_struct_literal_instantiation_rigid_refused;
+struct W<'a, 'b> where 'b: 'a { lo: &'a i64, hi: &'b i64 }
+fn go<'a, 'c>(x: &'a i64, z: &'c i64) -> i64 {
+    let w = W { lo: x, hi: z };
+    return *w.lo + *w.hi;
+}
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let c: i64 = 3i64;
+    return go(&a, &c) as i32;
+}
+// SOUNDNESS QUEUE row where_struct_literal_instantiation_rigid_refused (tier 3).
+// Legal Rust (exit 4): the literal instantiates W<'r1, 'r2> at regions its values outlive; 'r1 = 'r2 = the fn body
+// satisfies `'b: 'a`. TODAY refused: "struct literal 'W': caller does not satisfy declared outlives bound `'b: 'a`
+// (under lifetime substitution: `'c: 'a` required)". check_struct_lit_outlives substitutes each binder by an ACTUAL
+// region of the values and asks the where-bound between those, as though the instantiation were rigid.
+// ⚠ Legality rests on a reading — no rustc binary on this box.
+// Found 2026-09-14d-meetoblland (L122, L122b), reproducing on base 47bea7f0aeb42d36 and the landed build.

@@ -1,0 +1,15 @@
+package bc_meet_struct_ptr_invariant_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct C<'a> { m: *mut &'a i64, r: &'a i64 }
+fn mk<'a, 'b>(m: *mut &'a i64, r: &'b i64) -> C<'a> {
+    return C { m: m, r: r };
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let mut ra: &i64 = &a;
+    let c = mk(&mut ra, &a);
+    let k: i64 = *c.r + 3i64;
+    show("k=%lld", k);
+    return k as i32;
+}

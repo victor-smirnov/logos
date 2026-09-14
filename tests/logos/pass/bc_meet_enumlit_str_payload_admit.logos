@@ -1,0 +1,13 @@
+package bc_meet_enumlit_str_payload_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+enum E<'a> { N, Two(&'a str, &'a str) }
+fn mk<'a, 'b: 'a>(x: &'a str, y: &'b str) -> E<'a> {
+    return E::Two(x, y);
+}
+fn main() -> i32 {
+    match mk("ab", "cde") {
+        E::Two(p, q) => { show("len=%lld", (p.len() + q.len()) as i64); return (p.len() + q.len()) as i32; }
+        E::N => { return 1i32; }
+    }
+}

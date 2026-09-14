@@ -881,6 +881,10 @@ private:
                 walk(pt.elem(), at.elem());
                 return;
             }
+            if (pk == K::Ptr && at.kind() == K::Ptr) {   // a raw pointer's pointee regions pair too
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
         };
         for (size_t i = 0; i < param_types.size() && i < args.size(); ++i)
             if (args[i]) walk(param_types[i], expr_type(args[i]));
@@ -906,7 +910,7 @@ private:
                 logos::probe::census(co ? "meet.call.fnvar.co" : "meet.call.fnvar.inv");
                 if (!logos::probe::callmeet_unguarded() && !co) continue;
                 logos::probe::census("meet.call.applied");
-                ls[lp] = "";     // the meet: unnamed, exactly as the literal's
+                ls[lp] = mint_meet_token(it->second);   // the meet keeps its candidates (outlives.hpp::lt_is_meet)
             }
         }
         std::unordered_set<std::string> mentioned;
@@ -1027,6 +1031,64 @@ private:
     bool binder_is_covariant_(const std::string& vkey, size_t i) {
         auto v = binder_variance_(vkey, i);
         return v && (*v == Variance::Co || *v == Variance::BiVar);
+    }
+    // An enum literal's binder offered two or more distinct regions is instantiated at their meet token instead of
+    // the first. No covariance guard: subtype() compares an enum's region args Co. PROBES.md 2026-09-14d-meetoblland.
+    template <class Subst>
+    void enumlit_meet_(const std::vector<std::string>& binders, const LtCands& cands, Subst& lt_subst) {
+        for (auto& b : binders) {
+            auto cit = cands.find(b);
+            if (cit == cands.end()) continue;
+            std::unordered_set<std::string> dd(cit->second.begin(), cit->second.end());
+            dd.erase(std::string{});
+            if (dd.size() < 2) continue;
+            logos::probe::census("meet.enumlit.token");
+            lt_subst[b] = mint_meet_token(cit->second);
+        }
+    }
+    // A region as a sentence may name it: a written name, an elided parameter's slot, or a meet's members.
+    std::string region_words_(const std::string& lt, int depth = 0) {
+        if (lt_is_meet(lt) && depth < 8) {
+            auto it = meet_members().find(lt);
+            if (it != meet_members().end()) {
+                std::string r;
+                for (size_t i = 0; i < it->second.size(); ++i) {
+                    if (i) r += (i + 1 == it->second.size()) ? " and " : ", ";
+                    r += region_words_(it->second[i], depth + 1);
+                }
+                return r;
+            }
+        }
+        if (lt_is_minted(lt)) {
+            auto oit = minted_lt_origin().find(lt);
+            return oit != minted_lt_origin().end() ? "the elided lifetime of " + oit->second
+                                                   : std::string("an elided lifetime");
+        }
+        if (lt.empty()) return "an elided lifetime";
+        return lt_is_impl_anon(lt) ? std::string("'_") : outlives_norm(lt);
+    }
+    static bool type_mentions_lt_(TypeRef t, const std::string& lt, int d = 0) {
+        if (!t || d > 24) return false;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+        case K::Ref: case K::MutRef:
+            return t.lifetime() == lt || type_mentions_lt_(t.pointee(), lt, d + 1);
+        case K::Slice: case K::TraitObject: case K::DstRef:
+            if (t.lifetime() == lt) return true;
+            if (t.kind() == K::Slice) return type_mentions_lt_(t.elem(), lt, d + 1);
+            for (auto a : t.type_args()) if (type_mentions_lt_(a, lt, d + 1)) return true;
+            return false;
+        case K::Struct: case K::ZonedStruct: case K::Enum:
+            for (auto& l : t.lifetime_args()) if (l == lt) return true;
+            for (auto a : t.type_args()) if (type_mentions_lt_(a, lt, d + 1)) return true;
+            return false;
+        case K::Tuple:
+            for (auto e : t.tuple_elems()) if (type_mentions_lt_(e, lt, d + 1)) return true;
+            return false;
+        case K::Array: return type_mentions_lt_(t.elem(), lt, d + 1);
+        case K::Ptr: return type_mentions_lt_(t.pointee(), lt, d + 1);
+        default: return false;
+        }
     }
     void census_meet_(const char* site,
                       const std::vector<std::string>& binders,
@@ -1354,6 +1416,10 @@ private:
                 for (size_t i = 0; i < de.size() && i < ae.size(); ++i) walk(de[i], ae[i]);
                 return;
             }
+            if (dk2 == K::Ptr && at.kind() == K::Ptr) {   // a raw pointer's pointee regions pair too
+                walk(dt.pointee(), at.pointee());
+                return;
+            }
         };
         for (auto& f : decl_fields)
             for (auto& [fname, fval] : fields)
@@ -1382,7 +1448,7 @@ private:
                   !(probe_meet_amb_guard_() &&
                     decl_fields_region_evidence_bad_(decl_fields))))) {
                 logos::probe::census("meet.structlit.applied");
-                out[lp] = "";
+                out[lp] = mint_meet_token(it->second);   // the meet keeps its candidates (outlives.hpp::lt_is_meet)
                 continue;
             }
             out[lp] = it->second.front();
@@ -6874,6 +6940,15 @@ private:
             const std::string& caller_short = it_s->second;
             if (caller_long == caller_short) continue;
             if (!outlives(caller_long, caller_short, adj, /*permissive_empty=*/false)) {
+                if (lt_is_meet(caller_long) || lt_is_meet(caller_short)) {   // a meet token has no spelling
+                    auto side_ = [&](const std::string& l) {
+                        return lt_is_meet(l) ? "the region built from " + region_words_(l) : l;
+                    };
+                    error(std::format("struct literal '{}': caller does not satisfy declared outlives bound "
+                                      "`{}: {}` (under lifetime substitution: {} must outlive {})",
+                                      sname, c_long, c_short, side_(caller_long), side_(caller_short)));
+                    continue;
+                }
                 error(std::format(
                     "struct literal '{}': caller does not satisfy declared "
                     "outlives bound `{}: {}` (under lifetime substitution: "
@@ -6914,8 +6989,27 @@ private:
             permissive = false;
         if (!types_compatible(from, to)) return;  // outer check handles it
         last_rigid_mismatch() = {};
+        last_meet_refusal() = {};
         if (variance_ok(from, to, permissive)) return;
         auto [es, gs] = type_str_pair(to, from);
+        // A meet token is hidden by type_str: name the regions the value was built from and the one that fails.
+        if (auto [mt_, mm_, mo_] = last_meet_refusal();
+            !mt_.empty() && (type_mentions_lt_(from, mt_) || type_mentions_lt_(to, mt_)) &&
+            (mm_.empty() || region_words_(mm_) != region_words_(mo_))) {   // two slots one sentence cannot tell apart
+            SemaLifetimeSubst hide_;   // the token's slot prints as `'_`, not as a missing argument
+            hide_[mt_] = "";
+            const std::string es_ = type_str(subst_type_sema(to, {}, hide_), true),
+                              gs_ = type_str(subst_type_sema(from, {}, hide_), true);
+            if (!mm_.empty())
+                error(std::format("{}: lifetime may not live long enough — a {} built from {} is used as {}, "
+                                  "and {} does not outlive {}",
+                                  ctx, gs_, region_words_(mt_), es_, region_words_(mm_), region_words_(mo_)));
+            else
+                error(std::format("{}: lifetime may not live long enough — a {} built from {} is used as {}, "
+                                  "and {} outlives none of them",
+                                  ctx, gs_, region_words_(mt_), es_, region_words_(mo_)));
+            return;
+        }
         // Two spellings that agree carry the difference in a region the
         // short form hides (`Foo<'static>` vs `Foo`): print the source form.
         if (es == gs) es = type_str(to, true), gs = type_str(from, true);

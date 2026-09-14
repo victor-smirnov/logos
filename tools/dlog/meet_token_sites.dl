@@ -1,0 +1,43 @@
+// meet_token_sites — AFTER THE 2026-09-14d LANDING: WHICH BINDER-INSTANTIATION FUNCTIONS REACH THE MEET TOKEN?
+//
+// binder_inst_sites.dl (2026-09-14c) enumerated functions that reference `lifetime_params` and read an actual
+// region, split by whether they call `census_meet_`. The landing mints a token (`mint_meet_token`) at a binder
+// offered two or more regions. This question splits the SAME population by whether the function reaches
+// `mint_meet_token` directly or through one of its callers-by-delegation (`structlit_lt_subst_`,
+// `build_call_lt_subst_`, `enumlit_meet_`) — transitively, to fixpoint, over the call graph restricted to
+// functions named in these TUs. ⚠ `fctx` coarsens to the enclosing function; every row is read.
+#include "cxx_schema.dl"
+
+.decl fnode(n: symbol)
+fnode(N) :- node(N, "Function", _, _).
+fnode(N) :- node(N, "CXXMethod", _, _).
+.decl fctx(n: symbol, c: symbol)
+fctx(N, N) :- fnode(N).
+fctx(N, C) :- node(N, _, P, _), P != "-", !fnode(N), fctx(P, C).
+.decl fname(c: symbol, name: symbol)
+fname(C, X) :- fnode(C), decl_node(C, D), decl_name(D, X).
+
+.decl lp_ref(fn: symbol)
+lp_ref(X) :- decl_name(D, "lifetime_params"), ref(U, D), fctx(U, C), fname(C, X).
+.decl region_read(fn: symbol)
+region_read(X) :- decl_name(D, "lifetime"), decl(D, "CXXMethod", _), call(U, D), fctx(U, C), fname(C, X).
+region_read(X) :- decl_name(D, "lifetime_args"), decl(D, "CXXMethod", _), call(U, D), fctx(U, C), fname(C, X).
+
+.decl calls_name(caller: symbol, callee: symbol)
+calls_name(X, Y) :- call(U, D), decl_name(D, Y), fctx(U, C), fname(C, X).
+.decl reaches_mint(fn: symbol)
+reaches_mint(X) :- calls_name(X, "mint_meet_token").
+reaches_mint(X) :- calls_name(X, Y), reaches_mint(Y), X != Y.
+
+.decl binder_inst(fn: symbol, file: symbol, line: number)
+binder_inst(X, F, L) :- lp_ref(X), region_read(X), fname(C, X), loc(C, F, L, _).
+.decl binder_inst_reaches_token(fn: symbol, file: symbol, line: number)
+binder_inst_reaches_token(X, F, L) :- binder_inst(X, F, L), reaches_mint(X).
+.output binder_inst_reaches_token
+.decl binder_inst_no_token(fn: symbol, file: symbol, line: number)
+binder_inst_no_token(X, F, L) :- binder_inst(X, F, L), !reaches_mint(X).
+.output binder_inst_no_token
+// known-answer control: every DIRECT caller of mint_meet_token (grep must agree).
+.decl mint_site(fn: symbol, file: symbol, line: number)
+mint_site(X, F, L) :- decl_name(D, "mint_meet_token"), call(U, D), fctx(U, C), fname(C, X), loc(U, F, L, _).
+.output mint_site

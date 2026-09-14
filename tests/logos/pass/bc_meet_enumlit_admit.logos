@@ -1,0 +1,15 @@
+package bc_meet_enumlit_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+enum E<'a> { N, Two(&'a i64, &'a i64) }
+fn mk<'a, 'b: 'a>(x: &'a i64, y: &'b i64) -> E<'a> {
+    return E::Two(x, y);
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let b: i64 = 6i64;
+    match mk(&a, &b) {
+        E::Two(p, q) => { show("sum=%lld", *p + *q); return (*p + *q) as i32; }
+        E::N => { return 1i32; }
+    }
+}

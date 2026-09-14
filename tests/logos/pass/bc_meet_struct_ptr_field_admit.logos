@@ -1,0 +1,15 @@
+package bc_meet_struct_ptr_field_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static G: i64 = 6i64;
+struct S<'a> { p: *const &'a i64, n: i64 }
+fn mk<'a>(p: *const &'a i64) -> S<'a> {
+    return S { p: p, n: 1i64 };
+}
+fn main() -> i32 {
+    let r: &'static i64 = &G;
+    let s = mk(&r);
+    let k: i64 = unsafe { **s.p } + s.n;
+    show("k=%lld", k);
+    return k as i32;
+}

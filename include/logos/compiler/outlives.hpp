@@ -18,6 +18,7 @@
 #include <queue>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -87,6 +88,39 @@ inline bool lt_is_minted(std::string_view lt) {
     return lt.size() > 1 && lt[0] == '\'' && lt[1] == '%';
 }
 
+// A MEET TOKEN — a region binder offered TWO OR MORE distinct regions is
+// instantiated at the region every one of them outlives, and the token keeps
+// them. `'%^N` is lt_is_minted, so every consumer that reads a minted slot as
+// elided keeps its answer; the comparator (`outlives`) asks the members.
+// The registry is append-only and process-wide: the counter never reissues a
+// name. PROBES.md 2026-09-14d-meetoblland.
+inline std::unordered_map<std::string, std::vector<std::string>>& meet_members() {
+    static std::unordered_map<std::string, std::vector<std::string>> m;
+    return m;
+}
+inline bool lt_is_meet(std::string_view lt) {
+    return lt.size() > 2 && lt[0] == '\'' && lt[1] == '%' && lt[2] == '^';
+}
+inline std::string mint_meet_token(const std::vector<std::string>& cands) {
+    static unsigned n = 0;
+    std::vector<std::string> ms;
+    for (auto& c : cands) {
+        if (c.empty()) continue;
+        bool dup = false;
+        for (auto& x : ms) if (x == c) { dup = true; break; }
+        if (!dup) ms.push_back(c);
+    }
+    std::string t = "'%^" + std::to_string(++n);
+    meet_members()[t] = std::move(ms);
+    return t;
+}
+// The last member a meet failed on: {token, member, the other region}. Read by
+// check_variance so the refusal names the region, not a hidden token.
+inline std::tuple<std::string, std::string, std::string>& last_meet_refusal() {
+    static std::tuple<std::string, std::string, std::string> r;
+    return r;
+}
+
 // An impl header's `'_`, named per impl: sema_impl.hpp::name_impl_anon_lts_.
 inline bool lt_is_impl_anon(std::string_view lt) {
     return lt.starts_with("'__anon");
@@ -132,6 +166,27 @@ inline bool outlives(
 {
     auto L = outlives_norm(longer);
     auto S = outlives_norm(shorter);
+    // A MEET TOKEN (see lt_is_meet): on the SUB side it outlives S iff EVERY
+    // member does; on the SUP side L outlives it iff L outlives ANY member.
+    // Asked here, ahead of the elision arms, so every comparator reaches it.
+    if (lt_is_meet(L) || lt_is_meet(S)) {
+        auto itL = meet_members().find(L);
+        if (itL != meet_members().end()) {
+            for (auto& m : itL->second)
+                if (!outlives(m, shorter, adj, permissive_empty)) {
+                    last_meet_refusal() = {L, m, S};
+                    return false;
+                }
+            return true;
+        }
+        auto itS = meet_members().find(S);
+        if (itS != meet_members().end()) {
+            for (auto& m : itS->second)
+                if (outlives(longer, m, adj, permissive_empty)) return true;
+            last_meet_refusal() = {S, std::string{}, L};
+            return false;
+        }
+    }
     // PROBES ltelidesup / ltelidesub / ltelideboth — AN ELIDED REGION HAS NO
     // NAME, so `outlives()` treats it as compatible with everything. That, not
     // region inference, is what admits the lifereg.A elision rows: naming the

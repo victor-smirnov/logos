@@ -1,0 +1,21 @@
+package generic_mutref_pair_local_borrow_escape_admits;
+struct P<'a> { x: &'a i64, y: &'a i64 }
+fn swap2<T>(a: &mut T, b: &mut T) -> i64 { return 0i64; }
+fn put(p: &mut P) -> i64 {
+    let local: i64 = 9i64;
+    let mut q = P { x: p.x, y: &local };
+    return swap2(p, &mut q);
+}
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let mut p = P { x: &a, y: &a };
+    return put(&mut p) as i32;
+}
+// SOUNDNESS QUEUE row generic_mutref_pair_local_borrow_escape_admits (tier 2).
+// Illegal: `swap2<T>(a: &mut T, b: &mut T)` makes T invariant, so `q: P<'x>` must equal `P<'p>` — the caller's
+// region — and `&local` does not live that long (rustc: `local` does not live long enough). TODAY admitted.
+// A borrow of this frame's storage has NO region name at the struct literal (the pairing walk skips an empty
+// region), so `q` is typed from `p.x` alone and the invariant comparison at the call has nothing to refuse.
+// Not a meet: with a NAMED second region the landing refuses the same shape (fixture pair
+// bc_meet_invariant_elided_arg_{admit,refuse}). Found 2026-09-14d-meetoblland (X201), reproducing on base
+// 47bea7f0aeb42d36 and the landed build.

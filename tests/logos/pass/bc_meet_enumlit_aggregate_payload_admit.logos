@@ -1,0 +1,16 @@
+package bc_meet_enumlit_aggregate_payload_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P<'a> { x: &'a i64, y: &'a i64 }
+enum E<'a> { N, Two(P<'a>, &'a i64) }
+fn mk<'a, 'b: 'a>(x: &'a i64, y: &'b i64) -> E<'a> {
+    return E::Two(P { x: x, y: x }, y);
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let b: i64 = 3i64;
+    match mk(&a, &b) {
+        E::Two(p, r) => { show("sum=%lld", *p.x + *p.y + *r); return (*p.x + *p.y + *r) as i32; }
+        E::N => { return 1i32; }
+    }
+}

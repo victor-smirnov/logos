@@ -1,0 +1,19 @@
+package bc_meet_self_field_store_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P<'a> { x: &'a i64, y: &'a i64 }
+struct H<'a> { p: P<'a>, n: i64 }
+impl<'a> H<'a> {
+    fn set<'b: 'a>(self: &mut H<'a>, x: &'a i64, y: &'b i64) {
+        self.p = P { x: x, y: y };
+        self.n = self.n + 1i64;
+    }
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let b: i64 = 3i64;
+    let mut h = H { p: P { x: &a, y: &a }, n: 0i64 };
+    h.set(&a, &b);
+    show("sum=%lld", *h.p.x + *h.p.y + h.n);
+    return (*h.p.x + *h.p.y + h.n) as i32;
+}

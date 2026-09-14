@@ -5959,14 +5959,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                `logos_00_bc_admit_*` in NOIMPORTED and TIERCOMMIT. So ALL 9731 -> 9759, NOIMPORTED 5238 -> 5264,
 #                TIERCOMMIT 127 -> 125 — PREDICTED, then measured by `ctest -N` on the re-globbed build before this pin
 #                was touched. bc_admits `# TOTAL` 69 -> 67; soundness_queue 130 -> 144 (fourteen rows OPENED, none closed).
-REGISTRY-ALL         9759
-REGISTRY-NOIMPORTED  5264
-REGISTRY-TIERCOMMIT  125
+# 2026-09-14d (meetoblland — a region binder offered two or more regions is instantiated at a meet token that keeps
+#                them; the pairing walks read enum aggregate, fat-pointer and raw-pointer regions). TWELVE native PAIRS (bc_meet_*) — +24. TWO closed rows' programs MOVE tests/imported/admit ->
+#                tests/imported/fail (regions-creating-enums3, regions-glb-free-free--glb-free-free; declared RENAMED-FIXTURE
+#                below): registry-neutral in ALL, -2 `logos_00_bc_admit_*` in NOIMPORTED and TIERCOMMIT. So ALL 9759 -> 9783,
+#                NOIMPORTED 5264 -> 5286, TIERCOMMIT 125 -> 123 — PREDICTED, then measured by `ctest -N` on the re-globbed
+#                build before this pin was touched. bc_admits `# TOTAL` 67 -> 65; soundness_queue 149 -> 153 (four rows
+#                OPENED, none closed).
+REGISTRY-ALL         9783
+REGISTRY-NOIMPORTED  5286
+REGISTRY-TIERCOMMIT  123
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
 RENAMED-FIXTURE  tests/imported/admit/nll/type-check-pointer-coercions.logos  tests/imported/fail/nll/type-check-pointer-coercions.logos  2026-09-14b: the bc_admits row it carried (nllmoves.R14) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a reference-to-raw-pointer coercion's pointee variance at a return
 RENAMED-FIXTURE  tests/imported/admit/borrowck/borrowck-loan-vec-content.logos  tests/imported/fail/borrowck/borrowck-loan-vec-content.logos  2026-09-14b: the bc_admits row it carried (bck.B) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a Vec index store under a live element loan
+RENAMED-FIXTURE  tests/imported/admit/regions/regions-creating-enums3.logos  tests/imported/fail/regions/regions-creating-enums3.logos  2026-09-14d: the bc_admits row it carried (lifereg.NEW-N1) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an enum literal whose binder is offered two regions
+RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-free.logos  tests/imported/fail/regions/regions-glb-free-free--glb-free-free.logos  2026-09-14d: the bc_admits row it carried (lifereg.NEW-R19) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a struct literal whose binder is offered a named and an elided region
 # 2026-08-23 (#120 — THE 15th KIND OF GATE LIE, and the one that shipped `ud2`.
 # `poisoned_fns` demotes a function to a trap stub when mono cannot instantiate
 # something it needs. Inside a metaprog round that is EXPECTED — the round is

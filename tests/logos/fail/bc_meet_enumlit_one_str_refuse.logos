@@ -1,0 +1,13 @@
+package bc_meet_enumlit_one_str_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+enum E<'a> { N, One(&'a str) }
+fn mk<'a, 'b>(x: &'a str, y: &'b str) -> E<'a> {
+    return E::One(y);
+}
+fn main() -> i32 {
+    match mk("ab", "cde") {
+        E::One(q) => { show("len=%lld", q.len() as i64); return q.len() as i32; }
+        E::N => { return 1i32; }
+    }
+}

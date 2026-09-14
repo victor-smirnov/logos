@@ -49,7 +49,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 149
+# TOTAL 153
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -197,3 +197,7 @@ tuplestruct_ctor_declared_binder_name_admits 2 tests/soundness/open/tuplestruct_
 let_mutref_annotation_to_meet_struct_refused 3 tests/soundness/open/let_mutref_annotation_to_meet_struct_refused refuses
 generic_type_param_two_regions_first_wins_refused 3 tests/soundness/open/generic_type_param_two_regions_first_wins_refused refuses
 tuplestruct_ctor_declared_binder_name_refused 3 tests/soundness/open/tuplestruct_ctor_declared_binder_name_refused refuses
+closure_elided_return_annotation_region_admits 2 tests/soundness/open/closure_elided_return_annotation_region_admits admits
+where_struct_literal_instantiation_rigid_refused 3 tests/soundness/open/where_struct_literal_instantiation_rigid_refused refuses
+struct_lit_invariant_binder_first_wins_covariant_region_refused 3 tests/soundness/open/struct_lit_invariant_binder_first_wins_covariant_region_refused refuses
+generic_mutref_pair_local_borrow_escape_admits 2 tests/soundness/open/generic_mutref_pair_local_borrow_escape_admits admits

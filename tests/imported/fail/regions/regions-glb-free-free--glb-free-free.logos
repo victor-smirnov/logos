@@ -1,6 +1,6 @@
 // rustc regions/regions-glb-free-free.rs — upstream E0621 explicit lifetime required in the type of `s`
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-R19
+// shelf: fail · closed 2026-09-14d-meetoblland (was admit, root lifereg.NEW-R19): a binder offered two regions is instantiated at their meet
 package regions_glb_free_free_glb_free_free;
 struct Flag<'a> { name: &'a str, desc: &'a str }
 impl<'a> Flag<'a> {

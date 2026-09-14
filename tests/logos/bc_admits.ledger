@@ -1802,7 +1802,12 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # 12q's EMPTY-region door and its four legal refusals are NOT what landed. ⚠ POSITION-BLIND:
 # single-slot types and a direct borrow's annotation only; the inner-slot case is soundness_queue
 # `let_borrow_of_call_temp_inner_slot_admits`. PROBES.md 2026-09-12r.
-# TOTAL 67
+# ── 2026-09-14d — 67 -> 65. regions-creating-enums3 (lifereg.NEW-N1) and
+# regions-glb-free-free--glb-free-free (lifereg.NEW-R19) CLOSED: a region binder offered two or
+# more distinct regions is instantiated at a meet token that keeps them (struct literal, both
+# enum literal sites, the call meet); outlives() asks every member on the sub side. Ports MOVE
+# admit/ -> tests/imported/fail/regions/. PROBES.md 2026-09-14d-meetoblland.
+# TOTAL 65
 
 
 # ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
@@ -1950,9 +1955,7 @@ issue-101280 lifereg.NEW-N4 tests/imported/admit/regions/issue-101280
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had NO place-op adjustment (`v.oh_no(&v)` on the vector itself) and duplicated --t26; restored to upstream's DEREF door. ROOT lifereg.R2 = the SAME mechanism as bck.D/nllmoves.D: two loans minted inside ONE call's own evaluation deposit nothing. PAIRS: sequenced into lets REFUSED; the shared loan taken FIRST as a named local then the receiver autoref REFUSED; both inside the call ADMITTED  ⚠ SAME BLOCKER AS `two-phase-nonrecv-autoref--c-mut-and-shared-args`, 2026-09-09: measured to be the same mechanism reached through a DEREF place op (and `--t26` through an INDEX place op), and the census says why both read zero at the activation check — `record_borrow` deposits the bare-place receiver's reservation inside its own `in_call_args_` bracket, which runs BEFORE `visit_args` pushes the call-args frame, so the gate never asks. One line of scope bookkeeping, not a new predicate. Blocked with that row on the two green pass fixtures named there.
 regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. INDEX place-op door. Same root and same pairs as --c26, and the two are now two different doors rather than one program twice  ⚠ See `--c26`: same mechanism, INDEX place-op door, same blocker.
-regions-creating-enums3 lifereg.NEW-N1 tests/imported/admit/regions/regions-creating-enums3
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had ANNOTATED the closure, which is the one thing upstream leaves to inference; annotation removed. ROOT RE-CHECKED, lifereg.C SPLITS: this row is the closure's return region flowing into a CALLER-CHOSEN generic `B`. PAIR: the same escape written as a FN ITEM signature is REFUSED (`variance mismatch — expected &'static i64, got &'p i64`)
-regions-glb-free-free--glb-free-free lifereg.NEW-R19 tests/imported/admit/regions/regions-glb-free-free--glb-free-free
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured — do not group it. Upstream's four LEGAL contrast traits need a lifetime SUPERTRAIT bound (`trait T: 'static`), which does not parse here -> unrowed_backlog lifetime_supertrait_bound
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had dropped upstream's `for<'z>` HRTB; restored (it parses) and nothing changed, so the BOUND is not read either way. ROOT RE-CHECKED, lifereg.C SPLITS: this row is a CAPTURED enclosing local escaping through the closure's return. PAIR: a closure returning a borrow of its OWN local is REFUSED (`cannot return reference to local variable 'w'`); the same closure returning a borrow of the ENCLOSING fn's local is ADMITTED — the dangling check is frame-local
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list

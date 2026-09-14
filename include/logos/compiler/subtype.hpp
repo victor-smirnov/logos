@@ -90,12 +90,13 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
                 // under check, not an inference variable, and two distinct ones
                 // are not equal. EITHER side suffices: what faces a universal
                 // here is a local's fresh region, which no bound relates to it.
-                if (bx_ || by_) {
+                if ((bx_ || by_) && !(lt_is_meet(x) || lt_is_meet(y))) {
                     last_rigid_mismatch() = {std::string(x), std::string(y)};
                     return false;
                 }
             }
-            return true;
+            if (!((lt_is_meet(x) || lt_is_meet(y)) && (bx_ || by_)))
+                return true;
         }
         if (x.empty() || y.empty()) {
             (void)logos::probe::on("lteqempty_site");
@@ -288,6 +289,9 @@ inline bool lifetime_at(Variance v,
         // src/compiler/PROBES.md 2026-08-31.
         case Variance::Inv: {
             (void)logos::probe::on("ltinvarm_site");
+            // A meet token at an invariant position is EQUAL to a region it outlives and that outlives it.
+            if (lt_is_meet(sub_lt) || lt_is_meet(sup_lt))
+                return outlives(sub_lt, sup_lt, adj, false) && outlives(sup_lt, sub_lt, adj, false);
             // A MINTED REGION IS AN INFERENCE VARIABLE — the same fact as in
             // `lt_eq` above, at the OTHER equality site (rule 3: one name, and
             // both sites it is asked at).

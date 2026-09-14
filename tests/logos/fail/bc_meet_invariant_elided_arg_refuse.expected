@@ -1,0 +1,1 @@
+[fn put]: call to 'same' arg 2: lifetime may not live long enough — a &mut P<'_> built from the elided lifetime of parameter 'p' and the elided lifetime of parameter 'z' is used as &mut P, and the elided lifetime of parameter 'z' does not outlive the elided lifetime of parameter 'p'

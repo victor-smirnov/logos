@@ -1,0 +1,14 @@
+package bc_meet_structlit_nongeneric_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P<'a> { x: &'a i64, y: &'a i64 }
+fn mk<'a, 'b: 'a>(x: &'a i64, y: &'b i64) -> P<'a> {
+    return P { x: x, y: y };
+}
+fn main() -> i32 {
+    let a: i64 = 3i64;
+    let b: i64 = 4i64;
+    let p = mk(&a, &b);
+    show("sum=%lld", *p.x + *p.y);
+    return (*p.x + *p.y) as i32;
+}

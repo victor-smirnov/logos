@@ -1,0 +1,1 @@
+[fn mk_add_bad1]: return type mismatch: lifetime may not live long enough — a Ast<'_> built from 'a and 'b is used as Ast<'a>, and 'b does not outlive 'a

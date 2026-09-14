@@ -1,0 +1,14 @@
+package bc_meet_structlit_generic_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct G<'a, T> { r: &'a T, s: &'a T }
+fn mk<'a, 'b, T>(x: &'a T, y: &'b T) -> G<'a, T> {
+    return G { r: x, s: y };
+}
+fn main() -> i32 {
+    let a: i64 = 4i64;
+    let b: i64 = 5i64;
+    let g = mk(&a, &b);
+    show("sum=%lld", *g.r + *g.s);
+    return (*g.r + *g.s) as i32;
+}

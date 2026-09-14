@@ -1,0 +1,18 @@
+package bc_meet_method_ret_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+struct P<'a> { x: &'a i64, y: &'a i64 }
+impl<'a> P<'a> {
+    fn second(self: &P<'a>) -> &'a i64 { return self.y; }
+}
+fn go<'a, 'b>(x: &'a i64, y: &'b i64) -> &'a i64 {
+    let p = P { x: x, y: y };
+    return p.second();
+}
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 6i64;
+    let r = go(&a, &b);
+    show("second=%lld", *r);
+    return *r as i32;
+}

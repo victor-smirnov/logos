@@ -12386,6 +12386,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 for (size_t i = 0; i < de.size() && i < ae.size(); ++i) walk(de[i], ae[i]);
                 return;
             }
+            if (dk2 == K::Ptr && at.kind() == K::Ptr) {   // a raw pointer's pointee regions pair too
+                walk(dt.pointee(), at.pointee());
+                return;
+            }
         };
         for (auto& f : sinfo.fields)
             for (auto& [fname, fval] : fields)
@@ -12404,6 +12408,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // recorded" and "the fact is absent" are different, and only this
         // minting site can tell them apart. A type that never reached a mint
         // keeps zero args and still yields at the comparison.
+        // A binder offered two regions takes the meet token structlit_lt_subst_ minted, not the first region.
+        {
+            auto bl_ng = structlit_lt_subst_(sinfo.lifetime_params, sinfo.fields, fields,
+                                             sinfo.package.empty() ? std::string(sname)
+                                                                   : sinfo.package + "." + std::string(sname));
+            for (auto& [k, v] : bl_ng)
+                if (lt_is_meet(v)) flt[k] = v;
+        }
         logos::probe::census("lit.mint.sized");
         ng_lt_args.assign(sinfo.lifetime_params.size(), std::string{});
         for (size_t i = 0; i < sinfo.lifetime_params.size(); ++i)
@@ -14273,6 +14285,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             if ((pk == K::Struct || pk == K::ZonedStruct || pk == K::Enum) && at.kind() == pk) {
                 auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
                 for (size_t i = 0; i < pl.size() && i < al.size(); ++i) {
+                    if (!pl[i].empty() && !al[i].empty())
+                        lt_cands[pl[i]].push_back(al[i]);
                     if (!pl[i].empty() && !al[i].empty() && !lt_subst.count(pl[i]))
                         lt_subst[pl[i]] = al[i];
                 }
@@ -14280,10 +14294,24 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 for (size_t i = 0; i < pa.size() && i < aa.size(); ++i) walk(pa[i], aa[i]);
                 return;
             }
+            if ((pk == K::Slice || pk == K::TraitObject || pk == K::DstRef) &&
+                at.kind() == pk) {
+                std::string pl(pt.lifetime()), al(at.lifetime());
+                if (!pl.empty() && !al.empty()) {
+                    lt_cands[pl].push_back(al);
+                    if (!lt_subst.count(pl)) lt_subst[pl] = al;
+                }
+                return;
+            }
+            if (pk == K::Ptr && at.kind() == K::Ptr) {   // a raw pointer's pointee regions pair too
+                walk(pt.pointee(), at.pointee());
+                return;
+            }
         };
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
             if (payload[i]) walk(vinfo->payload_types[i], expr_type(payload[i]));
         census_meet_("enumlit", einfo.lifetime_params, lt_cands, eit->first);
+        enumlit_meet_(einfo.lifetime_params, lt_cands, lt_subst);
     }
 
     // Build the enum type (may be generic, e.g. Option<i32>)
@@ -14623,17 +14651,34 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             }
             if ((pk == K::Struct || pk == K::ZonedStruct || pk == K::Enum) && at.kind() == pk) {
                 auto pl = pt.lifetime_args(); auto al = at.lifetime_args();
-                for (size_t i = 0; i < pl.size() && i < al.size(); ++i)
+                for (size_t i = 0; i < pl.size() && i < al.size(); ++i) {
+                    if (!pl[i].empty() && !al[i].empty())
+                        lt_cands[pl[i]].push_back(al[i]);
                     if (!pl[i].empty() && !al[i].empty() && !lt_subst.count(pl[i]))
                         lt_subst[pl[i]] = al[i];
+                }
                 auto pa = pt.type_args(); auto aa = at.type_args();
                 for (size_t i = 0; i < pa.size() && i < aa.size(); ++i) walk(pa[i], aa[i]);
+                return;
+            }
+            if ((pk == K::Slice || pk == K::TraitObject || pk == K::DstRef) &&
+                at.kind() == pk) {
+                std::string pl(pt.lifetime()), al(at.lifetime());
+                if (!pl.empty() && !al.empty()) {
+                    lt_cands[pl].push_back(al);
+                    if (!lt_subst.count(pl)) lt_subst[pl] = al;
+                }
+                return;
+            }
+            if (pk == K::Ptr && at.kind() == K::Ptr) {   // a raw pointer's pointee regions pair too
+                walk(pt.pointee(), at.pointee());
                 return;
             }
         };
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
             if (payload[i]) walk(vinfo->payload_types[i], expr_type(payload[i]));
         census_meet_("enumlit", einfo.lifetime_params, lt_cands, eit->first);
+        enumlit_meet_(einfo.lifetime_params, lt_cands, lt_subst);
     }
 
     TypeRef result_type = make_enum_type(ename);

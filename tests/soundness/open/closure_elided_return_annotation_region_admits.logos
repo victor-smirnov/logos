@@ -1,0 +1,17 @@
+package closure_elided_return_annotation_region_admits;
+fn go<'a, 'b>(x: &'a i64, y: &'b i64) -> &'a i64 {
+    let f = || -> &i64 { return y; };
+    return f();
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let b: i64 = 5i64;
+    return *go(&a, &b) as i32;
+}
+// SOUNDNESS QUEUE row closure_elided_return_annotation_region_admits (tier 2).
+// Illegal: the closure returns `y: &'b i64`; calling it yields a `&'b i64` returned as `&'a i64` with no `'b: 'a`
+// (rustc: lifetime may not live long enough). TODAY admitted. The closure's WRITTEN return type `&i64` has an elided
+// region, the call `f()` is typed from that annotation, and an elided sub region against a named return answers
+// permissively; the region the body actually returns never reaches the caller. The struct spelling
+// (`|| -> P { return P { x: y, y: y }; }` returned as `P<'a>`) is admitted the same way.
+// Found 2026-09-14d-meetoblland (X202, X203, X115), reproducing on base 47bea7f0aeb42d36 and the landed build.

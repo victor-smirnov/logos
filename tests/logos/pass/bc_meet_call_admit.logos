@@ -1,0 +1,14 @@
+package bc_meet_call_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn keep_first<'c>(u: &'c i64, v: &'c i64) -> &'c i64 { return u; }
+fn go<'a, 'b: 'a>(x: &'a i64, y: &'b i64) -> &'a i64 {
+    return keep_first(x, y);
+}
+fn main() -> i32 {
+    let a: i64 = 2i64;
+    let b: i64 = 8i64;
+    let r = go(&a, &b);
+    show("first=%lld", *r);
+    return *r as i32;
+}

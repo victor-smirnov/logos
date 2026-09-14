@@ -43987,3 +43987,114 @@ note: PRICED, NOT FIXED. Specs meetobl.spec (batch 1), meetobl2.spec (batch 2), 
   * My first kill of batch 1 matched `pgrep -f` against my own shell's command line and killed the tool call, not the batch; the
     second used explicit pids.
   * Three programs of mine were not what I claimed (L09, L60, I01-I03 reaching a different door); each caught before counting.
+
+## 2026-09-14d-meetoblland — A REGION BINDER OFFERED TWO OR MORE REGIONS IS INSTANTIATED AT A MEET TOKEN THAT KEEPS THEM (STRUCT LITERAL, BOTH ENUM LITERAL SITES, THE CALL MEET) AND outlives() ASKS EVERY MEMBER ON THE SUB SIDE; THE PAIRING WALKS READ ENUM AGGREGATE, FAT-POINTER AND RAW-POINTER REGIONS — bc_admits regions-creating-enums3, regions-glb-free-free--glb-free-free CLOSE (67 -> 65)
+site: include/logos/compiler/outlives.hpp::mint_meet_token
+site: include/logos/compiler/outlives.hpp::outlives
+site: include/logos/compiler/subtype.hpp::types_equal_with_lifetimes
+site: include/logos/compiler/subtype.hpp::lifetime_at
+site: src/compiler/sema_impl.hpp::structlit_lt_subst_
+site: src/compiler/sema_impl.hpp::build_call_lt_subst_
+site: src/compiler/sema_impl.hpp::enumlit_meet_
+site: src/compiler/sema_impl.hpp::check_variance
+site: src/compiler/sema_expr.cpp::lower_struct_lit
+site: src/compiler/sema_expr.cpp::lower_enum_lit_data
+site: src/compiler/sema_expr.cpp::lower_enum_lit_data_from_static
+build: 47bea7f0aeb42d36 43 (base, read) · 7a641654d2ddce47 43 (build 1) · 5eff5ce62605a5dc 43 (build 2) · cef85c1f7031e137 43 (build 3) · a5d42ad16385d5fa 43 (build 4, probes moblinvany / moblptr) · 0c4a126831e86bd8 43 (build 5) · baa2a38e8b650fb3 43 (build 6, LANDED, read)
+measured: 2026-09-13
+fires: census on build 3 over 149 hand programs: meet.structlit.applied 260 in 78 files · meet.enumlit.token 24 in 24 files · meet.call.applied 20 in 9 files; regions-creating-enums3 meet.enumlit.token 1 · regions-glb-free-free--glb-free-free meet.structlit.applied 3
+ceiling: 2 = predicted by name; the 75 admit-shelf tests on build 2: exactly #94 and #96 red, diffed both ways ∅/∅
+cost: build 2 -L bc 2939 passed / 0 failed · run_oracle 6752 common, 1 changed = cast-region-to-uint (subtracted) -> 0 · fail_text_oracle 1583 common 0 changed · stdlib 4 of 4 · queue 149 hold; moblptr (build 4, armed vs unarmed): -L bc 2961 / 0 failed · run 6762 common 0 changed after cast-region-to-uint · fail text 1595 common 0 changed · stdlib 4 of 4 · queue 151 hold
+verdict: LANDED — pricing's moblany plus five repairs, each found by a hand program in a shape the pricing did not write
+note: predictions src/compiler/probes/2026-09-14d-meetoblland/PREDICTIONS.md (cb2e27862), written after the source edits and before the first build. PRICED, then LANDED.
+
+### STEP 1, READ FROM THE TREE
+  HEAD d3816b9c8, clean (the pricing report's "HEAD a1d93c39c" was ITS opening HEAD) · queue gate rc 0 with LOGOS_LIB_DIR (the prompt's
+  command carries it, checked against the text given) · soundness_queue # TOTAL 149 = 149 rows · bc_admits 67 · blocked 8 ·
+  probe-log-lint 289 · build_hash 47bea7f0aeb42d36 43 · dlog selftest rc 0 (28fc7c75 19/24/1-5/42-5, duty 1 -> 0).
+  Baseline on 47bea7f0aeb42d36: -L bc build 1187 2941 recorded / 0 failed (store, not re-run) · run_oracle 6752 · fail_text_oracle 1583.
+
+### THE CHANGE
+  outlives.hpp: `'%^N` meet tokens (lt_is_minted, so every elided-slot consumer keeps its answer), an append-only process-wide member
+  registry (the counter never reissues a name, so a token never aliases; a per-fn clear would turn a surviving token into an unknown
+  NAMED region, which is not safer), outlives(): sub side EVERY member, sup side ANY member; last_meet_refusal for the printer.
+  sema_impl.hpp: structlit_lt_subst_ / build_call_lt_subst_ mint the token where they minted "" (covariance guards unchanged);
+  enumlit_meet_ mints at both enum literal sites with NO guard (subtype compares an enum's region args Co); check_variance names the
+  members and the failing one ("lifetime may not live long enough — a P<'_> built from 'a and 'b is used as P<'a>, and 'b does not
+  outlive 'a"), falling back to the old sentence when the two regions word identically; check_struct_lit_outlives words a token.
+  sema_expr.cpp: lower_struct_lit's non-generic walk takes the token; both enum walks record candidates at the aggregate arm, gain the
+  fat-pointer arm; all five pairing walks gain the raw-pointer arm. subtype.hpp: a token is exempt from the rigid-binder arm of lt_eq and
+  is equal at lifetime_at Inv iff mutual outlives.
+
+### THE RECOMMENDATION, ATTACKED FIRST — each repair found by a hand program, each with an off-switch measured on build 2 / probe on build 4
+    L201  LEGAL refused by build 1: an elided `&mut P` and a literal with a `'static` member passed to `same<T>(&mut T, &mut T)`; lt_eq's
+          rigid arm refused token vs signature binder without asking its members -> token-aware rigid + Inv arms (moblnoeq reopened exactly L201)
+    enums3 / X55 SENTENCE: "expected Ast, got Ast built from" (enum short form), "got P2<'b>" hiding the token's slot -> source form, slot as `'_`
+    LINT  lint_mismatch_monopoly RED in L4 bc on build 5 (5285 passed / 1 failed): the first sentence re-used expect_type's protected
+          type-mismatch template (the expected-X-got-Y spelling) in check_variance. NO pricing column owns that lint (tier_full, not
+          L1, not a cost column) — reworded ("a X built from .. is used as Y"), build 6. ⚠ This record's first spelling of that
+          sentence quoted the template literally and redded the lint AGAIN on build 6 with no emitter in the compiler: the lint scans
+          all of src/, PROBES.md included. Never write the brace template in prose.
+    L122  SENTENCE LEAK `'%^4` in check_struct_lit_outlives (every refused stderr scanned for `'%`; 0 after the repair); X07/X19 "static" unnormalised
+    X118  ILLEGAL admitted by build 1: enum walk's aggregate arm recorded no candidate (`E::Two(P { x: x, y: x }, y)`) -> moblnoencand reopened exactly X118
+    X119 X120 X302 X308  ILLEGAL admitted: the enum walk had no fat-pointer arm (`&'a str`, `&'a [T]`) -> moblnofat reopened exactly these four
+    L401 X410  LEGAL refused / ILLEGAL admitted on base: no raw-pointer arm in any pairing walk -> moblptr, cost 0 in five columns (above) +
+          6 legal raw-pointer shapes (generic node, 'static pointee, elided call, Vec of ptr structs, method on ptr field): 0 moved
+    PREDICTION MISSES: L102 predicted refused by default, compiled (Q's binder had ONE candidate); X115 predicted refused, still admitted
+          (the closure's WRITTEN return annotation erases the region — rowed below, not a meet).
+
+### HAND BATTERY — 149 programs (the pricing's 81 + 68 of mine: landbat 34, landbatm2 5, landbatf 12, invnb 13 + 6, ptrattack 6), base copy vs builds
+  build 3 vs base: moved = the illegal refusals (X01-X04 X07-X09 X11 X12 X14-X19 X50 X51 X53-X55 J01 J03 X106 X112 X114 X118 X119 X120
+  X124 X302 X308) and ONE legal program, L104 (refused -> runs 6, predicted: `total<T>(&p, &q)` over two meets). build 3 vs build 2: 0.
+  Pre-existing legal refusals, identical on base and landed: L33 L34 L58 (rowed by the pricing round), L122/L122b, L407 L408 (rowed below).
+
+### NEIGHBOURS (standing rule 2026-09-12) — neighbour · verdict · reason / number
+    struct literal meet, generic literal               CLOSED   pair bc_meet_structlit_generic, X112
+    non-generic literal walk                           CLOSED   regions-glb-free-free--glb-free-free, pair bc_meet_structlit_nongeneric
+    call meet (free fn, static call, method)           CLOSED   X03 X13 X53 X121, pairs bc_meet_call, bc_meet_method_ret
+    store of a meet into a place                       CLOSED   X16 X51 X106, pair bc_meet_self_field_store
+    enum literal, both sites, any binder variance      CLOSED   regions-creating-enums3 X02 X18 J01 J03, pair bc_meet_enumlit
+    enum walk aggregate arm dropped a candidate        CLOSED   X118, pair bc_meet_enumlit_aggregate_payload
+    enum walk had no fat-pointer arm                   CLOSED   X119 X120 X302 X308, pairs bc_meet_enumlit_str_payload, bc_meet_enumlit_one_str
+    pairing walks had no raw-pointer arm (5 walks)     CLOSED   L401 X410, pairs bc_meet_struct_ptr_field, bc_meet_struct_ptr_invariant
+    rigid-binder / Inv arm refusing a token            CLOSED   L201, pair bc_meet_invariant_elided_arg
+    struct literal / call INVARIANT binder whose first ROWED, REASON 3: moblinvany (token at an invariant binder) closes L407 L408 and
+      candidate is the covariant field's region                re-words SIX pinned fail diagnostics (fail_text 1595 common, 6 changed, rc
+                                                               unchanged, .expected unmatched), two into a sentence naming one parameter's two
+                                                               elided slots identically -> struct_lit_invariant_binder_first_wins_covariant_region_refused
+    tuple-struct constructor                           NOT a neighbour, reason 1 (instantiates no binder; rows from 2026-09-14c)
+    type parameter T offered two regions               NOT a neighbour, reason 1 (row generic_type_param_two_regions_first_wins_refused)
+    a borrow of this frame (`&local`) in a literal     NOT a neighbour: the region has no name, the walk skips it -> row generic_mutref_pair_local_borrow_escape_admits
+    closure's written elided return annotation         NOT a neighbour -> row closure_elided_return_annotation_region_admits
+    where-bound checked at a literal                   NOT a neighbour: one candidate refuses on base (L122b) -> row where_struct_literal_instantiation_rigid_refused
+    L504 `0 as *const &i64` argument pinned 'static    NOT a neighbour, already the queue's call-site raw-pointer 'static plane
+
+### dlog — meet_token_sites.dl (NEW RULE; selftest rc 0 first), over sema{_expr,,_decl,_stmt,_collect}.cpp on build 1's sources
+  KNOWN ANSWER: mint_site = direct callers of mint_meet_token = 3 (build_call_lt_subst_, enumlit_meet_, structlit_lt_subst_); grep 3.
+  Population binder_inst = 17, the pricing rule's 17. reaches_token (transitive, by NAME) 14 · no_token 3 (compute_fn_lifetime_outlives,
+  datatype_wf_preds, lower_enum_def — declaration-time, the pricing round's per-site read). ⚠ reaches-by-name is COARSE: collect_impl,
+  lower_fn, lower_impl_block, field_type_of_for_type "reach" through ordinary lowering. Per-site read beside it: 6 real instantiation
+  sites, all 6 reach a token (structlit_lt_subst_, build_call_lt_subst_, both enum literal fns via enumlit_meet_, lower_struct_lit,
+  lower_method_call via build_call_lt_subst_). dlog 14 / 3 · per-site 6 / 0. The walk ARMS (fat, raw pointer, aggregate candidate) were
+  found by hand programs, not by this rule — a question of which ARMS a walk has is the next one to ask of dlog.
+
+### FOUND — ROWED (soundness_queue 149 -> 153 by direct listing), each reproducing on base 47bea7f0 and the landed build
+    t2 closure_elided_return_annotation_region_admits (X202 X203 X115) · t2 generic_mutref_pair_local_borrow_escape_admits (X201)
+    t3 where_struct_literal_instantiation_rigid_refused (L122 L122b) · t3 struct_lit_invariant_binder_first_wins_covariant_region_refused (L407; runs 5 under moblinvany)
+  Legality of every t3 row rests on READING (no rustc binary on this box).
+
+### MISTAKES OF MY OWN
+  * PREDICTIONS.md was written after the source edits (before the first build), not before any edit.
+  * Four of my programs were malformed (L101 L102 main's `*mut` instantiation, L103 Vec field read, L201 E0507 body, L203 `&a` as
+    'static) — each re-written and re-run on base before counting.
+  * A wait loop without a tool timeout was moved to the background once; re-entered with the timeout.
+
+### GATES AT CLOSE — landed build baa2a38e8b650fb3 43 (read), one configure with the re-glob
+  lint-mismatch-monopoly holds (1 emitter, registered test passes) · L1 rc 0 (807/807, smoke 12 684, gates 123/123) ·
+  L4 bc rc 0 (gate-db build 1202: 5286 passed / 0 failed; second phase 1596 passed / 0 failed / 2 other) ·
+  run_oracle 6764: 6752 common with build 2, 1 changed = cast-region-to-uint (subtracted) -> 0, 12 added = the bc_meet_*_admit halves ·
+  fail_text_oracle 1597: 1583 common 0 changed, 14 added = 12 bc_meet_*_refuse halves + the 2 moved rows, each rc 1 with .expected matching ·
+  queue gate 153 hold (build 5 rc 0; logos_00_soundness_queue passed inside L4) · stdlib 4 of 4 (every build compiled all four layers) ·
+  registry ALL 9759 -> 9783 / NOIMPORTED 5264 -> 5286 / TIERCOMMIT 125 -> 123, predicted then measured · pass corpus 3139 = 191 + 2948 ·
+  CONTROL REVERT on the base copy 47bea7f0: 12/12 fail halves red, 11/12 pass halves pass (the 12th is the raw-pointer repair's own
+  legal refusal), both row programs admitted rc 0 · probe-log-lint 290 records.
