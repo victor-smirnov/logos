@@ -1,0 +1,43 @@
+// binder_inst_sites — WHICH FUNCTIONS INSTANTIATE A DECLARATION'S REGION BINDERS FROM ACTUAL
+// REGIONS, AND WHICH OF THEM KNOW THAT ONE BINDER CAN BE OFFERED MORE THAN ONE REGION?
+//
+// 2026-09-14c-meetobl: `Ast::Add(x, y)` (enum literal) keeps the FIRST region offered for 'a
+// and checks the second payload region-blind; `Flag { name: a, desc: s }` (struct literal)
+// meets the two into "", a wildcard. Both are "a binder offered several regions". The question
+// is an ENUMERATION by PROPERTY: every function (lambdas folded into their ENCLOSING function,
+// because the pairing walks here are all `std::function walk` lambdas) that references a decl
+// named `lifetime_params` AND reads an actual region (`lifetime()` / `lifetime_args()`),
+// split by whether that function calls `census_meet_` (the candidate-set census).
+// ⚠ `fctx` coarsens to the enclosing function; a function that reads lifetime_params for an
+// unrelated reason (arity, printing) is a false member — every row is read.
+#include "cxx_schema.dl"
+
+.decl fnode(n: symbol)
+fnode(N) :- node(N, "Function", _, _).
+fnode(N) :- node(N, "CXXMethod", _, _).
+.decl fctx(n: symbol, c: symbol)
+fctx(N, N) :- fnode(N).
+fctx(N, C) :- node(N, _, P, _), P != "-", !fnode(N), fctx(P, C).
+.decl fname(c: symbol, name: symbol)
+fname(C, X) :- fnode(C), decl_node(C, D), decl_name(D, X).
+
+.decl lp_ref(fn: symbol)
+lp_ref(X) :- decl_name(D, "lifetime_params"), ref(U, D), fctx(U, C), fname(C, X).
+.decl region_read(fn: symbol)
+region_read(X) :- decl_name(D, "lifetime"), decl(D, "CXXMethod", _), call(U, D), fctx(U, C), fname(C, X).
+region_read(X) :- decl_name(D, "lifetime_args"), decl(D, "CXXMethod", _), call(U, D), fctx(U, C), fname(C, X).
+.decl meet_aware(fn: symbol)
+meet_aware(X) :- decl_name(D, "census_meet_"), call(U, D), fctx(U, C), fname(C, X).
+
+.decl binder_inst(fn: symbol, file: symbol, line: number)
+binder_inst(X, F, L) :- lp_ref(X), region_read(X), fname(C, X), loc(C, F, L, _).
+.decl binder_inst_meet_aware(fn: symbol, file: symbol, line: number)
+binder_inst_meet_aware(X, F, L) :- binder_inst(X, F, L), meet_aware(X).
+.output binder_inst_meet_aware
+.decl binder_inst_first_wins_or_other(fn: symbol, file: symbol, line: number)
+binder_inst_first_wins_or_other(X, F, L) :- binder_inst(X, F, L), !meet_aware(X).
+.output binder_inst_first_wins_or_other
+// known-answer control: every census_meet_ caller, whatever it reads.
+.decl meet_site(fn: symbol, file: symbol, line: number)
+meet_site(X, F, L) :- decl_name(D, "census_meet_"), call(U, D), fctx(U, C), fname(C, X), loc(U, F, L, _).
+.output meet_site
