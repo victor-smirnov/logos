@@ -1,0 +1,28 @@
+// fieldloan_readers — WHICH CONTEXTS TOUCH THE FIELD-PATH LOAN MAPS, AND WHICH OF THEM REPORT
+// (round 2026-09-14f-thrurefland, door D2 of bck.B / refvar_assign_conflicts_with_pointee_field_loan_refused)
+//
+// Property: a dotted loan under a REFERENCE-typed prefix names storage behind that reference. Every context that reads
+// VarState::shared_field_borrows / mut_field_borrows and REPORTS is a decision site that may treat such a loan as a loan
+// on the prefix's own storage. The spelling-free question: every MemberExpr whose referenced FieldDecl is one of the two
+// maps, grouped by enclosing named context, and whether that context also holds a string literal beginning "cannot".
+// KNOWN ANSWER, stated before the run (grep 2026-09-14f): 46 source lines mention either name in borrow_check.cpp, of
+// which 6 are comment-only (4336 4532 4534 4785 4878 5572); the two declarations (666 667) are FieldDecls, not refs.
+// ⚠ COARSENING (the 2026-08-27 lesson): ctx_of keys on the enclosing named context; a context that reports need not
+// report FROM the map read. The per-site read beside it decides.
+#include "cxx_schema.dl"
+
+.decl mapfield(d: symbol, n: symbol)
+mapfield(D, N) :- decl(D, "Field", _), decl_name(D, N), N = "shared_field_borrows".
+mapfield(D, N) :- decl(D, "Field", _), decl_name(D, N), N = "mut_field_borrows".
+
+.decl mapref(k: symbol, map: symbol, ctx: symbol, line: number)
+mapref(K, N, C, L) :- mapfield(D, N), ref(K, D), ctx_of(K, X), ctx_name(X, C), loc(K, _, L, _).
+.output mapref
+
+.decl reports(ctx: symbol)
+reports(C) :- mapref(_, _, C, _), ctx_of(S, X), ctx_name(X, C), str_lit(S, T), match("cannot.*", T).
+.output reports
+
+.decl mapref_ctx(ctx: symbol, n: number)
+mapref_ctx(C, N) :- mapref(_, _, C, _), N = count : { mapref(_, _, C, _) }.
+.output mapref_ctx
