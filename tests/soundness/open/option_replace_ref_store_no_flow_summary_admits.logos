@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row option_replace_ref_store_no_flow_summary_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: `o.replace(&x)` THEN `o.replace(&d)` OF A BLOCK LOCAL, THEN `o` READ AFTER THE BLOCK.
+//
+// rustc refuses (E0597); legality by reading, no rustc binary. TODAY admitted (runs exit 1), build 0230e503bd682184 43.
+// A store through an out-param whose callee has NO flow summary: LOGOS_DUMP_FLOWS=replace prints
+// `logos.lang.option.Option__replace__g__refmut_Option__T: UNAVAILABLE` (the generic body forwards to mem::replace_ref), so
+// apply_flow_outparams returns at its documented `if (!fs) return;` hole and no deposit, loan or edge is recorded.
+// REASON 1 for the store-edge landing: the fact has no carrier at this call. PREDICTED refused under se_nomut and MEASURED
+// admitted (round 2026-09-14m-storeedge-land). Member, same measurement: s34 (`o.replace(&x); x = 2; o.is_some()`, E0506).
+// Found: hand s35, round 2026-09-14m-storeedge-land.
+package option_replace_ref_store_no_flow_summary_admits;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut o: Option<&i64> = Option::None;
+    o.replace(&x);
+    {
+        let d: i64 = 2i64;
+        o.replace(&d);
+    }
+    if o.is_some() { return 1i32; }
+    return 0i32;
+}

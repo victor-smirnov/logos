@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-14m-storeedge-land, program c06 — caught: illegal, admitted on base (a `&mut buffer` alias pushes loop locals, Vec used after), refused by the landing
+// legality: by reading, no rustc binary
+package bc_0914m_storeedgeland_hb_c06_refuse;
+fn main() -> i32 {
+    let mut buffer: Vec<&i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    {
+        let r: &mut Vec<&i64> = &mut buffer;
+        while i < 2i64 {
+            let d: i64 = i;
+            r.push(&d);
+            i = i + 1i64;
+        }
+    }
+    return buffer.len() as i32;
+}

@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row setter_mutref_field_store_after_outer_set_rehomed_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: `m.set(&mut x)` THEN `m.set(&mut d)` OF A BLOCK LOCAL, THEN `*m.r` AFTER THE BLOCK — a setter storing a `&mut`.
+//
+// rustc refuses (E0597); legality by reading, no rustc binary. TODAY admitted (runs exit 2), build 0230e503bd682184 43.
+// The store-edge fact (apply_flow_outparams' A2 edge `m -> x` re-homes the second store onto `x`) at an operand that HOLDS a
+// `&mut`. NEIGHBOUR ROWED, REASON 1 — the fact has no carrier there: a `&mut` stored through an out-param IS the shape A2 exists
+// for (`wire(&mut t, &mut vs); t.x.push(..)` writes THROUGH the stored `&mut`), and the flow summary's mask names the PARAMETER
+// `m`, not the field the callee stored into, so the site cannot tell a later store INTO `m` from a write THROUGH `m.r`. MEASURED
+// (2026-09-14m-storeedge-land): unmoved by se_nomut (the landing), se_nomutelem and a2elemorshr (`M<'a>` has no type argument).
+// Found: hand s22, round 2026-09-14m-storeedge-land.
+package setter_mutref_field_store_after_outer_set_rehomed_admits;
+struct M<'a> { r: &'a mut i64 }
+impl<'a> M<'a> {
+    fn set(self: &mut M<'a>, r: &'a mut i64) { self.r = r; }
+}
+fn main() -> i32 {
+    let mut g: i64 = 1i64;
+    let mut x: i64 = 5i64;
+    let mut m: M = M { r: &mut g };
+    m.set(&mut x);
+    {
+        let mut d: i64 = 2i64;
+        m.set(&mut d);
+    }
+    return *m.r as i32;
+}

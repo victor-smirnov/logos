@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-14m-storeedge-land, program s57 — caught: illegal, admitted on base (`Vec<&dyn Show>` receives a block local after an outer push), refused by the landing; unpredicted
+// legality: by reading, no rustc binary
+package bc_0914m_storeedgeland_hb_s57_refuse;
+trait Show { fn n(&self) -> i64; }
+struct K { v: i64 }
+impl Show for K { fn n(&self) -> i64 { return self.v; } }
+fn main() -> i32 {
+    let x: K = K { v: 1i64 };
+    let mut v: Vec<&dyn Show> = Vec::new();
+    v.push(&x);
+    {
+        let d: K = K { v: 2i64 };
+        v.push(&d);
+    }
+    return v.len() as i32;
+}

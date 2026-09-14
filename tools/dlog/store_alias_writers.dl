@@ -1,0 +1,25 @@
+#include "cxx_schema.dl"
+// store_alias_writers — EVERY WRITER OF A CHECKER ALIAS GRAPH, AND WHETHER ITS CONTEXT ASKS THE WRITE-THROUGH QUESTION
+// round 2026-09-14m-storeedge-land.
+// The class: "a site that records `dst -> p` (dst names/aliases p) from a value STORED into dst". A store of a value
+// through which no write can reach p (no `&mut` inside it) makes dst a HOLDER, not an alias; the summarizer's own
+// store path (U2) already asks `is_mut_ref || bc_holds_mut_ref_type` before its note_alias.
+// Claim-free: the domain is every call to a declaration whose qname contains `RefGraph::add` or `RefGraph::set`
+// (the checker graphs AND the summarizer's), keyed by the declaration; the question is whether the enclosing context
+// references one of the three write-through facts the tree has: `is_mut_ref`, `bc_holds_mut_ref_type`, `reborrow_mut_`.
+// KNOWN ANSWER (from 14l's rehome_readers graph_write, stated before the run): 9 writer sites.
+.decl graph_writer(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output graph_writer
+graph_writer(F, L, N, Q) :- decl(D, _, Q), (contains("RefGraph::add", Q) ; contains("RefGraph::set", Q)), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl wt_fact(D: symbol, Q: symbol)
+wt_fact(D, Q) :- decl(D, _, Q), (contains("bc_holds_mut_ref_type", Q) ; contains("is_mut_ref", Q) ; contains("reborrow_mut_", Q)).
+.decl wt_ask(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output wt_ask
+wt_ask(F, L, N, Q) :- wt_fact(D, Q), ref(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+wt_ask(F, L, N, Q) :- wt_fact(D, Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl writer_ctx_asks(Ctx: symbol)
+.output writer_ctx_asks
+writer_ctx_asks(N) :- graph_writer(_, _, N, _), wt_ask(_, _, N, _).
+.decl writer_ctx_blind(Ctx: symbol)
+.output writer_ctx_blind
+writer_ctx_blind(N) :- graph_writer(_, _, N, _), !writer_ctx_asks(N).

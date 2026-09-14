@@ -1,0 +1,14 @@
+// STOREEDGE pair (2026-09-14m-storeedge-land): one token apart from tests/imported/fail/borrowck/buffer-reuse-pattern-issue-147694 —
+// `data` is declared BEFORE the loop, so every push stores a reference that outlives the Vec's last use (legal; by reading).
+package bc_storeedge_issue147694_twin_admit;
+fn main() -> i32 {
+    let mut buffer: Vec<&i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    let data: i64 = 2i64;
+    while i < 2i64 {
+        buffer.push(&data);
+        i = i + 1i64;
+    }
+    let _ = buffer.len();
+    return 0i32;
+}

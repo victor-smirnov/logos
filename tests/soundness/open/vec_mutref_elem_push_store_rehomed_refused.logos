@@ -4,6 +4,12 @@
 // Legal Rust: `v` is dead after the block. Legality by reading, no rustc binary. TODAY refused, build 0230e503bd682184 43: "cannot use 'y'
 // while it is mutably borrowed" — the second push's loan on `y` is held by `x` through the A2 edge `v -> x`.
 // MEASURED: compiles and runs exit 0 under a2elem and a2skipall; still refused under a2elemshr.
+// NEIGHBOUR ROWED AT THE STOREEDGE LANDING (2026-09-14m-storeedge-land), REASON 3 — its own cost is measured non-zero: the only arm
+// that closes it is the element test (operand type == a type argument of the out-param), and on the landing's build that test
+// UN-REFUSES an illegal program the base refuses (hand s18: a generic `W<U>` whose field stores `&mut Vec<&C>`, written through
+// `t.x.push(&c)` before `c.bump()`), and adds the false "cannot return reference to local variable 'result'" line to fail fixture
+// issue-62007-assign-differing-fields--t22. The landing (se_nomut: no A2 edge unless the operand holds a `&mut`) leaves it refused.
+// Member, same measurements: s36 (`Vec<&mut i64>` block push, source used after the Vec dies).
 // Found: hand v01, round 2026-09-14l-storeedge.
 package vec_mutref_elem_push_store_rehomed_refused;
 fn main() -> i32 {

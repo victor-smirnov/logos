@@ -5996,9 +5996,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                tests join). So ALL 10260 -> 10287 (+17 +10 +2 -2), NOIMPORTED 5762 -> 5787 (+17 +10 -2), TIERCOMMIT 122 -> 120 (-2)
 #                — measured by `ctest -N` on the re-globbed build 0230e503bd682184 before this pin was touched. bc_admits `# TOTAL`
 #                64 -> 62; soundness_queue 176 -> 172 (five rows CLOSED, one OPENED).
-REGISTRY-ALL         10287
-REGISTRY-NOIMPORTED  5787
-REGISTRY-TIERCOMMIT  120
+# 2026-09-14m (storeedge-land — a stored value with no `&mut` in it makes the destination a holder, not an alias; bc_admits
+#                buffer-reuse-pattern-issue-147694 CLOSED, soundness_queue vec_push_after_outer_push_store_rehomed_{admits,refused} and
+#                setter_field_store_after_outer_set_rehomed_{admits,refused} CLOSED). 6 native pass fixtures (3 bc_storeedge_*_admit halves
+#                + 3 bc_0914m_storeedgeland_hb_<id>_admit), 13 native fail fixtures (2 bc_storeedge_*_refuse halves + 11
+#                bc_0914m_storeedgeland_hb_<id>_refuse), and one port moved tests/imported/admit -> tests/imported/fail (its
+#                logos_00_bc_admit_* test, tier_commit and not imported-labelled, leaves; one imported fail test joins). So ALL
+#                10287 -> 10306 (+6 +13 +1 -1), NOIMPORTED 5787 -> 5805 (+6 +13 -1), TIERCOMMIT 120 -> 119 (-1) — PREDICTED, then
+#                measured by `ctest -N` on the re-globbed build b54c1160ae8e4066 before this pin was touched. bc_admits `# TOTAL`
+#                62 -> 61; soundness_queue 183 -> 185 (four rows CLOSED, six OPENED).
+REGISTRY-ALL         10306
+REGISTRY-NOIMPORTED  5805
+REGISTRY-TIERCOMMIT  119
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
@@ -9191,6 +9200,7 @@ RENAMED-FIXTURE  tests/logos/pass/wql_tier_capability_disagreement.logos  tests/
 RENAMED-FIXTURE  tests/logos/pass/wql_value_domain_tiers_measured.logos  tests/logos/pass/wql_value_domain_measured.logos  P5: the old name stated a COUNT of engines the cut falsified
 RENAMED-FIXTURE  tests/imported/admit/nll/issue-54124.logos  tests/imported/fail/nll/issue-54124.logos  2026-09-14k: the bc_admits row it carried (nllmoves.NEW-L1) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
 RENAMED-FIXTURE  tests/imported/admit/regions/issue-101280.logos  tests/imported/fail/regions/issue-101280.logos  2026-09-14k: the bc_admits row it carried (lifereg.NEW-N4) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
+RENAMED-FIXTURE  tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694.logos  tests/imported/fail/borrowck/buffer-reuse-pattern-issue-147694.logos  2026-09-14m: the bc_admits row it carried (bck.NEW-L) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
 
 # The population rule, executable, in the form FACT 6 now uses. ⚠ THIS LIST WAS
 # CORRECTED BEFORE THE FACT WAS RE-AIMED, because its own comment used to assert

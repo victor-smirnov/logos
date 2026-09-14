@@ -1,0 +1,14 @@
+// STOREEDGE pair (2026-09-14m-storeedge-land): was soundness_queue vec_push_after_outer_push_store_rehomed_refused. One token apart from
+// fail/bc_storeedge_vec_push_after_outer_push_refuse: after the block the program reads `x`, and the Vec is dead (legal; by reading).
+package bc_storeedge_vec_push_after_outer_push_admit;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut buffer: Vec<&i64> = Vec::new();
+    buffer.push(&x);
+    {
+        let data: i64 = 1i64;
+        buffer.push(&data);
+    }
+    let y: i64 = x;
+    return (y as i32) - 5i32;
+}

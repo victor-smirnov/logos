@@ -1,0 +1,21 @@
+// hand battery: round 2026-09-14m-storeedge-land, program s18 — caught: illegal, refused on base, ADMITTED by the priced arm a2elemorshr and by se_nomutelem (a generic `W<U>` field storing `&mut Vec` matches the element test); the landing keeps it refused
+// legality: by reading, no rustc binary
+package bc_0914m_storeedgeland_hb_s18_refuse;
+struct C { n: i64 }
+impl C {
+    fn bump(self: &mut C) { self.n = self.n + 1i64; }
+}
+struct W<U> { x: U }
+fn wire<'a, 'b>(t: &mut W<&'a mut Vec<&'b C>>, v: &'a mut Vec<&'b C>) {
+    t.x = v;
+}
+fn main() -> i32 {
+    let mut c: C = C { n: 1i64 };
+    let mut other: Vec<&C> = Vec::new();
+    let mut vs: Vec<&C> = Vec::new();
+    let mut t: W<&mut Vec<&C>> = W { x: &mut other };
+    wire(&mut t, &mut vs);
+    t.x.push(&c);
+    c.bump();
+    return vs.len() as i32;
+}

@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row vec_holder_moved_src_assigned_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: `v.push(&x); let w = v; x = 3; w.len()` — THE HOLDER MOVED, THEN THE REFERENT ASSIGNED WHILE THE NEW HOLDER LIVES.
+//
+// rustc refuses (E0506); legality by reading, no rustc binary. TODAY admitted (runs exit 1), build 0230e503bd682184 43.
+// NOT the store-edge fact: unmoved by se_nomut, se_nomutelem and a2elemorshr (round 2026-09-14m-storeedge-land). The loan
+// `v` holds on `x` is not inherited by `w` across the move. Found: hand s03, round 2026-09-14m-storeedge-land.
+package vec_holder_moved_src_assigned_admits;
+fn main() -> i32 {
+    let mut x: i64 = 5i64;
+    let mut v: Vec<&i64> = Vec::new();
+    v.push(&x);
+    let w: Vec<&i64> = v;
+    x = 3i64;
+    return w.len() as i32;
+}

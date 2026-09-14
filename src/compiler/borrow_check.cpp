@@ -5191,8 +5191,12 @@ private:
                 // every field of it, so this is a coarsening in the safe
                 // direction — and the admit controls beside the witness are
                 // what price it.
-                for (auto& p : ref_sources_of(src))
-                    reborrow_of_.add(dst, p);
+                // 2026-09-14m STOREEDGE: a stored value with no `&mut` in it makes
+                // `dst` a HOLDER of its borrow, never an alias (the summarizer's U2
+                // rule, checker side). Record: src/compiler/PROBES.md.
+                if (bc_holds_mut_ref_type(ts_, st))
+                    for (auto& p : ref_sources_of(src))
+                        reborrow_of_.add(dst, p);
                 // ── #78: THE SCOPE-ESCAPE HALF OF THE SAME DEPOSIT ────────
                 //
                 // Everything above this line is the LOAN/EXCLUSIVITY channel:

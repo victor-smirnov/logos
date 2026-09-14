@@ -5,6 +5,9 @@
 // Same A2 alias edge as vec_push_after_outer_push_store_rehomed_admits, minted from a `&mut` operand stored as an ELEMENT.
 // MEASURED: a2elem and a2skipall REFUSE it; a2elemshr (the shared-operand-only twin) does NOT — the `&mut` half is the
 // difference between the two inner predicates. Found: hand c02, round 2026-09-14l-storeedge.
+// NEIGHBOUR ROWED AT THE STOREEDGE LANDING (2026-09-14m-storeedge-land), REASON 3 — its own cost is measured non-zero: the element
+// test that closes it un-refuses hand s18 (illegal, refused on base: a generic `W<U>` field storing `&mut Vec<&C>`, written through
+// before `c.bump()`) and adds a false line to fail fixture issue-62007-assign-differing-fields--t22. Unmoved by the landing (se_nomut).
 package vec_mutref_elem_push_store_rehomed_admits;
 fn main() -> i32 {
     let mut x: i64 = 5i64;

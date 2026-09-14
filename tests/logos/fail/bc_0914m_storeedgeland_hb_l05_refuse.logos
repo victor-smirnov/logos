@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-14m-storeedge-land, program l05 — caught: illegal, admitted on base (the ledger row's shape in a `for` loop), refused by the landing
+// legality: by reading, no rustc binary
+package bc_0914m_storeedgeland_hb_l05_refuse;
+fn main() -> i32 {
+    let mut buffer: Vec<&i64> = Vec::new();
+    for i in 0i64..2i64 {
+        let data: i64 = i;
+        buffer.push(&data);
+    }
+    let _ = buffer.len();
+    return 0i32;
+}

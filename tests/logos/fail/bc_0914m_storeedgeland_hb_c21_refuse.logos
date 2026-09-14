@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-14m-storeedge-land, program c21 — caught: illegal, admitted on base (index store `buffer[0] = &d` after an outer push), refused by the landing; unpredicted in 14l
+// legality: by reading, no rustc binary
+package bc_0914m_storeedgeland_hb_c21_refuse;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut buffer: Vec<&i64> = Vec::new();
+    buffer.push(&x);
+    {
+        let d: i64 = 1i64;
+        buffer[0u64] = &d;
+    }
+    return buffer.len() as i32;
+}

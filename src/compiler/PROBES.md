@@ -44998,3 +44998,126 @@ note: gate-db build 1228. Separates from a2elemorshr on hand programs and the qu
     whole (it is idempotent); the queue gate and a base-copy run of all eleven confirmed every recorded verdict afterwards.
   * PREDICTIONS.md said nothing about index stores (c21) or a user generic container (c23): both close under every name. The class is
     wider than "Vec::push" in the direction the arm already covers — which is what the element test reads, not the method name.
+
+## 2026-09-14m-storeedge-land — A STORED VALUE WITH NO `&mut` IN IT MAKES THE DESTINATION A HOLDER, NEVER AN ALIAS: apply_flow_outparams' A2 edge is minted only when the operand holds a `&mut` (`bc_holds_mut_ref_type`, the summarizer's own U2 rule read on the checker side). bc_admits buffer-reuse-pattern-issue-147694 (bck.NEW-L) CLOSES (62 -> 61); soundness_queue four rows CLOSE, six OPEN (183 -> 185). The priced arm a2elemorshr is DECLINED: its element test un-refuses an illegal program
+
+### STEP 1, READ FROM THE TREE
+  HEAD 8d60df835, clean · soundness_queue gate rc 0 WITH LOGOS_LIB_DIR (the prompt's command carries it — checked against the text given) ·
+  # TOTAL 183 = 183 rows by direct listing · bc_admits 62 · blocked 8 · probe-log-lint 309 records · build_hash 0230e503bd682184 43 (read) ·
+  `gate-run.sh -L bc` on build/: store build 1221, all 3474 in the filter already measured, 7388 recorded, 0 failed · dlog selftest rc 0
+  (28fc7c75 19/24/1-5/42-5; duty 1 -> 0). Corrections to the handed-down report: none to its numbers; its recommendation is refuted below.
+
+### THE CHANGE (borrow_check.cpp::apply_flow_outparams, the A2 loop)
+  `for (p : ref_sources_of(src)) reborrow_of_.add(dst, p)` now runs only under `bc_holds_mut_ref_type(ts_, st)`. A `&T`, a `&dyn Tr`,
+  a struct/tuple/Option carrying only shared borrows is STORED into `dst`: its loans still move (inherit_loans / take_ref_borrows, above
+  the edge, untouched) and its §B6 escape record still lands (#86 MISS 3, before the loan filter), but `dst` no longer resolves to the
+  referent, so a later destination re-home of `dst` (rehome_reborrow, place_write_root's resolve) stays on `dst`. A `&mut` operand keeps
+  A2 exactly as before — that is the shape A2 exists for (`wire(&mut t, &mut vs); t.x.push(..)` writes THROUGH the stored `&mut`).
+  Rust's reading: `buffer.push(&x)` makes `buffer: Vec<&'x i64>` hold a loan of `x`; `buffer` is not a reference to `x`, and a later
+  `buffer.push(&d)` is a write to `buffer`.
+  The summarizer already said this: borrow_flow_summary.inc's U2 store path returns before `note_alias` unless the stored value
+  `is_mut_ref || bc_holds_mut_ref_type`. The checker's twin of that store had no such gate.
+
+### PROBES — ONE build (build-land0913d, build_hash e0377416a092dffd, logosc md5 9f818409, re-globbed to 10287 tests before pricing), one site, four names
+  se_nomut      no A2 edge unless the operand holds a `&mut`                    (THE LANDING)
+  se_nomutelem  se_nomut OR the 14l element test                                (rule 9 twin: the element half)
+  a2elemorshr   the 14l priced arm verbatim (element test OR shared `&`)         (control)
+  a2shr         the 14l shared half verbatim                                     (control, hand battery only)
+
+## se_nomut — no A2 alias edge unless the stored operand holds a `&mut` (bc_holds_mut_ref_type)
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: e0377416a092dffd
+measured: 2026-09-14
+fires: 233
+ceiling: 1
+cost: 0
+verdict: CEILING {buffer-reuse-pattern-issue-147694} as predicted; cost 0 pass(ledger+legal) / 0 of 1844 fail-text / stdlib all four layers (armed binary, -O0, own scratch — stdlib-cost.sh hardcodes build/bin/logosc, so it was replicated against build-land0913d, unarmed and armed both 0 errors); hand battery 0 legal programs newly refused of 107; runtime: run_oracle on build-land0913d (one configure) unarmed 13:55:52->14:06:21 vs LOGOS_PROBE=se_nomut 14:06:21->14:16:38 — 7024 common, 0 added, 0 removed, 1 changed = cast-region-to-uint (stdout sha only; subtracted by name) -> 0. LANDED.
+note: gate DB is a fresh store (LOGOS_GATE_DB under the round's scratch): builds 1 (unarmed) -> 2 (armed). `fires` counts every A2 operand visit.
+
+## se_nomutelem — se_nomut OR the operand's type equals an element type argument of the out-param (rule-9 twin)
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: e0377416a092dffd
+measured: 2026-09-14
+fires: not counted (hand battery only; every name's on() is evaluated at each A2 operand visit, so a count is the site population, 233)
+ceiling: 1
+cost: 1
+verdict: hand battery only. Separates from se_nomut on five programs: closes c02 and un-refuses v01, s36 (the `&mut` element pair) — and UN-REFUSES s18, an ILLEGAL program base refuses (a generic `W<U>` whose field holds `&mut Vec<&C>`; `wire(&mut t, &mut vs); t.x.push(&c); c.bump(); vs.len()` — its operand type equals `W`'s type argument, so the element test drops A2's own edge). DECLINED: cost 1 illegal admitted.
+note: the element test is a spelling of "stored as a container element" that a generic STRUCT FIELD also satisfies. 14l's --t22 false line (a2elem) is the same half.
+
+## a2elemorshr — 14l's recommended arm, re-measured as a control on this build
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: e0377416a092dffd
+measured: 2026-09-14
+fires: not counted (hand battery only; every name's on() is evaluated at each A2 operand visit, so a count is the site population, 233)
+ceiling: 1
+cost: 1
+verdict: hand battery only. Identical to se_nomutelem on all 107 programs, s18 included: admits it (runs exit 1). DECLINED — the funding recommendation of 14l refused by a shape its 84-program battery did not contain (a generic struct, not a container, whose type argument is the stored `&mut`).
+note: 14l's record priced it cost 0 in every column; the column that condemns it is a hand program, again.
+
+### HAND BATTERY — 107 distinct programs by path + md5 (concatenated md5 7e78cef1): 65 of 14l's (its hb/ 63 + ctl.AXJG l01 l05) and 42 written here (seland hb/ 31: s01-s37, hb2/ 11: s40-s57; s06 s30 s45 dropped for sema errors unrelated to borrow check)
+  Shapes aimed at the arm (rule 5): a holder of a holder (`outer.push(&buffer)`, then `x = 3`); a reference copied out of the Vec; the
+  holder moved; a setter storing into a nested field; `iter()` over the holder while the source is assigned; a getter returning the
+  stored `&'a`; a free-fn stash of a shared ref; a `&Vec` stored then the Vec pushed; `Option::replace` stores; a
+  `RefCell<Vec<&i64>>` written through a shared holder; tuple / Option / struct payloads carrying `&`; `Vec<&dyn Show>`; a setter
+  storing `&mut` into a field; a generic `W<U>` wire of `&mut Vec`; functions returning Vecs of `&self` fields / parameter elements.
+  Base (build/ 0230e503bd682184) vs build-land0913d unarmed: identical on every program (inert). Landed build/ (6056e973fbbe3102) vs
+  se_nomut: identical on all 124 runs common to both (107 programs + fixture/row copies) (s56 differs only because its source was fixed between the runs).
+  CLOSED by se_nomut (illegal admitted on base -> refused, diagnostic read): L01-shape l01 l05, b2, c06 c07 c09 c10 c17 c19 c21 c23 c24,
+  s57 (`Vec<&dyn Show>`, unpredicted). UN-REFUSED (legal refused on base -> compiles, RUN exit 0 under valgrind): b4 c25 v13 s28
+  (two block-scoped holders re-homed onto `x`, predicted) s57b (unpredicted).
+  PREDICTED WRONG: s34 / s35 (`Option::replace`) predicted refused, measured ADMITTED under every name: the callee has no flow summary
+  (LOGOS_DUMP_FLOWS=replace: `Option__replace__g__refmut_Option__T: UNAVAILABLE`), apply_flow_outparams returns at `if (!fs) return;`.
+  s18 predicted "uncertain under the element names" — measured admitted by both.
+  NEW DEFECTS, base and landed alike, not this fact (unmoved by every name): s02 (`let r: &i64 = v[0]; x = 9; *r` admitted, runs 9),
+  s03 (`let w = v; x = 3; w.len()` admitted), s26 (RefCell interior push of a block local through a shared holder admitted; borrow
+  check is live in `unsafe fn` — control u02 refused), s22/s22b (setter storing `&mut` into a field: illegal admitted / legal refused).
+
+### CLASS ENUMERATION — dlog, NEW RULE tools/dlog/store_alias_writers.dl (selftest rc 0 first)
+  Question: every writer of a checker alias graph (RefGraph::add / ::set calls), and whether its context references a write-through
+  fact (`is_mut_ref`, `bc_holds_mut_ref_type`, `reborrow_mut_`). KNOWN ANSWER stated before the run: 14l's graph_write = 9 sites.
+  MEASURED graph_writer 9 — CONTROL HOLDS. writer_ctx_asks 4 (apply_flow_outparams — the landing's own call —, note_reborrow,
+  note_reborrow_place, note_alias); writer_ctx_blind 4 (prescan_note, note_place_copy, visit_stmt, propagate_pat_reborrows).
+  ⚠ ctx_of is coarse: note_reborrow / note_reborrow_place "ask" only to RECORD reborrow_mut_, not to gate their edge. PER-SITE READ of all 9:
+    apply_flow_outparams 5199  a STORE through an out-param into a holder root — THE CLASS; gated by this landing.
+    note_reborrow 12570        `let name = val`: the binding IS a reference, EXCEPT P1 (an array literal of refs, `is_reborrow_store_value`) —
+                               a store into an aggregate ROOT: the only other member. c14 / queue arraylit_ref_elem_store_after_init_admits.
+    note_reborrow_place 12655  `h.r = val`: the PLACE `h.r` is the reference (field-keyed) — alias, correct; P1 arrays as above, one place deeper.
+    note_place_copy 12615      a by-value copy carries sub-place edges `h2.r -> x` from `h1.r` — field-keyed, alias, correct.
+    propagate_pat_reborrows 6674 6716  a pattern binding whose own type is a reference — alias, correct.
+    visit_stmt 14629           a `break value` into the loop expression's slot — the slot IS the reference — alias, correct.
+    prescan_note 11258         the pre-pass graph, MONOTONE, read only to extend last uses — never a destination re-home.
+    note_alias (summary .inc 775)  already gated (U2).
+  So the class is TWO writers: A2 (closed here) and P1 (rowed, reason 1 — a different site whose store is a literal, not a call).
+
+### NEIGHBOURS (standing rule 2026-09-12)
+    neighbour                                                closed / rowed   reason and the number
+    loop push, later use (THE LEDGER ROW)                    CLOSED           ceiling 1
+    loop-free push after push, clear, E0506, index store,    CLOSED           queue vec_push_after_outer_push_store_rehomed_{admits,refused}
+      alias push, user Bag<T>, for-loop (b2 b4 c06 c07 c09 c10 c17 c19 c21 c23 l05 v13)
+    setter storing a shared `&` into a field (c24 c25)       CLOSED           queue setter_field_store_after_outer_set_rehomed_{admits,refused}
+    `Vec<&dyn Tr>` element (s57 s57b)                        CLOSED           — (unpredicted; not a queue row)
+    two holders of one source (s28)                          CLOSED           —
+    `&mut` stored as a Vec element (c02 v01 s36)             rowed            reason 3: the only closing arm (element test) un-refuses s18 (1 illegal) and adds --t22's false line
+    setter storing a `&mut` into a field (s22 s22b)          rowed (NEW)      reason 1: the summary mask names the PARAMETER; a store INTO `m` and a write THROUGH `m.r` are one fact at this site
+    `Option::replace` store (s35 s34)                        rowed (NEW)      reason 1: no flow summary for the callee (UNAVAILABLE), `if (!fs) return`
+    array literal of refs, then index store (c14)            rowed (kept)     reason 1: note_reborrow's P1 writer, another site (dlog per-site read above)
+    free-fn out-param store (c22 c22b s37)                   rowed (kept)     reason 1: no §B6 deposit at the Call arm; s37 unmoved
+    loop push/assign, no later use (L07 l04 c12 c18)         rowed (kept)     reason 2: pass 2 restores dangling_
+    write through `vs[0]` into a `&mut Vec` element (w02)    rowed (kept)     reason 1: an index step ends the resolve path
+    two-phase-across-loop                                    not this fact    door 1 (14l)
+
+### QUEUE, CLOSED SET DIFFED BOTH WAYS
+  PREDICTED (PREDICTIONS.md, before the armed build was read) se_nomut: 4 rows — vec_push_after_outer_push_store_rehomed_{admits,refused},
+  setter_field_store_after_outer_set_rehomed_{admits,refused}. MEASURED (soundness_queue_gate, LOGOS_PROBE=se_nomut, build-land0913d, rc 1):
+  exactly those 4 NO LONGER REPRODUCE; predicted-not-measured 0, measured-not-predicted 0. bc_admits: predicted {buffer-reuse-pattern-issue-147694},
+  measured the same (ceiling-probe, fresh store). Where the fix differs from its probe: nothing — the landed source is the probe's predicate
+  unconditionally, and the landed binary equals the armed one on all 124 hand runs they share.
+
+### GATES (landed, build/ b54c1160ae8e4066, logosc md5 d09a6766, full cmake --build after the re-glob; no probe name in the binary)
+  soundness_queue_gate rc 0: 185 rows = # TOTAL 185 by direct listing (tier1 22, tier2 57, tier3 98, tier4 8) · bc_admits 61 by listing ·
+  L1 rc 0: 807/807, smoke 12 684, gates tier 119/119 · L4 bc rc 0 (detached, LOGOS_L4_BG=1): 5805/5805 + 1600/1600, gate-db build 1229 ·
+  census_pin measured ALL 10306 / -LE imported 5805 / tier_commit 119 (= predicted) · direct_door_census corpus 3405 / glob 191 /
+  nonglob 3214 by listing · probe-log-lint 312 records · run_oracle landed 14:51:49->15:02:10 vs pricing unarmed and armed: 7024 common, 0 removed, 1 changed = cast-region-to-uint (stdout sha; subtracted by name) -> 0, 6 added = the six new pass fixtures · fail_text_oracle landed vs pricing unarmed and armed: 1844 common, 0 changed, 0 removed, 14 added = the 13 new fail fixtures + the moved port ·
+  CONTROL REVERT (base copy f9e2e766 + its libs, 0230e503bd682184): 17/17 closing halves show the defect — 12 illegal admitted (the
+  b2 and c24 row programs, c06 c07 c09 c10 c17 c19 c21 c23 l05 s57) and 5 legal refused (the b4 and c25 row programs, v13 s28 s57b) —
+  and the port itself admitted (rc 0, runs 0). The twin compiles and runs 0 on both; s18 is a guard, refused on base AND landed.

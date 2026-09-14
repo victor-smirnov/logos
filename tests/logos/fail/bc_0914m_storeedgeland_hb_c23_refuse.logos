@@ -1,0 +1,19 @@
+// hand battery: round 2026-09-14m-storeedge-land, program c23 — caught: illegal, admitted on base (user `Bag<T>::put` of a block local after an outer put), refused by the landing; unpredicted in 14l
+// legality: by reading, no rustc binary
+package bc_0914m_storeedgeland_hb_c23_refuse;
+struct Bag<T> { items: Vec<T> }
+impl<T> Bag<T> {
+    fn put(self: &mut Bag<T>, t: T) { self.items.push(t); }
+    fn count(self: &Bag<T>) -> i64 { return self.items.len() as i64; }
+}
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let items0: Vec<&i64> = Vec::new();
+    let mut bag: Bag<&i64> = Bag { items: items0 };
+    bag.put(&x);
+    {
+        let d: i64 = 1i64;
+        bag.put(&d);
+    }
+    return bag.count() as i32;
+}

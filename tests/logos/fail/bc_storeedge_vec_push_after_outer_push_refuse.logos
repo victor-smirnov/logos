@@ -1,0 +1,14 @@
+// STOREEDGE pair (2026-09-14m-storeedge-land): was soundness_queue vec_push_after_outer_push_store_rehomed_admits. One token apart from
+// pass/bc_storeedge_vec_push_after_outer_push_admit: the Vec is USED after the block (rustc E0597; by reading, no rustc binary).
+package bc_storeedge_vec_push_after_outer_push_refuse;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let mut buffer: Vec<&i64> = Vec::new();
+    buffer.push(&x);
+    {
+        let data: i64 = 1i64;
+        buffer.push(&data);
+    }
+    let _ = buffer.len();
+    return 0i32;
+}

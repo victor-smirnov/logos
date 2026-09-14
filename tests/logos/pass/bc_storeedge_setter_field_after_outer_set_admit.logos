@@ -1,0 +1,19 @@
+// STOREEDGE pair (2026-09-14m-storeedge-land): was soundness_queue setter_field_store_after_outer_set_rehomed_refused. One token apart from
+// fail/bc_storeedge_setter_field_after_outer_set_refuse: `x` is read after the block and `h` is dead (legal; by reading).
+package bc_storeedge_setter_field_after_outer_set_admit;
+struct H<'a> { r: &'a i64 }
+impl<'a> H<'a> {
+    fn set(self: &mut H<'a>, r: &'a i64) { self.r = r; }
+}
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let y: i64 = 6i64;
+    let mut h: H = H { r: &y };
+    h.set(&x);
+    {
+        let d: i64 = 1i64;
+        h.set(&d);
+    }
+    let v: i64 = x;
+    return (v as i32) - 5i32;
+}

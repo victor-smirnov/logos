@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row vec_elem_ref_copied_out_src_assigned_admits (tier 2).
+// ILLEGAL PROGRAM ADMITTED: `v.push(&x); let r: &i64 = v[0]; x = 9; *r` — A REFERENCE COPIED OUT OF A VEC, THEN ITS REFERENT ASSIGNED.
+//
+// rustc refuses (E0506 assign to `x` while borrowed); legality by reading, no rustc binary. TODAY admitted (runs exit 9),
+// build 0230e503bd682184 43. NOT the store-edge fact: unmoved by se_nomut, se_nomutelem and a2elemorshr (round
+// 2026-09-14m-storeedge-land), and admitted on base with or without the A2 edge. The loan `v` holds on `x` does not reach a
+// `&i64` copied out by an index read. Found: hand s02, round 2026-09-14m-storeedge-land.
+package vec_elem_ref_copied_out_src_assigned_admits;
+fn main() -> i32 {
+    let mut x: i64 = 5i64;
+    let mut v: Vec<&i64> = Vec::new();
+    v.push(&x);
+    let r: &i64 = v[0u64];
+    x = 9i64;
+    return *r as i32;
+}
