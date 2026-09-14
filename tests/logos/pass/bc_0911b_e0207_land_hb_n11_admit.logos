@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-11b-e0207-land, program n11 — caught: refuted an arm — PROBES.md "THREE LEGAL PROGRAMS WERE REFUSED: n1 ... n10 ... n11" (the first landing form)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/e0207/n11.logos
+// LEGAL: 'a constrained through the SELF TYPE's generic argument (`W<'a>`),
+// a LIFETIME_PARAM nested one level down, not a bare `&'a S`.
+package bc_0911b_e0207_land_hb_n11_admit;
+struct W<'a> { r: &'a i64 }
+trait Tr { type Item; fn go(self: Self) -> i64; }
+impl<'a> Tr for W<'a> {
+    type Item = &'a i64;
+    fn go(self: Self) -> i64 { return 11i64; }
+}
+fn main() -> i32 { return 0i32; }

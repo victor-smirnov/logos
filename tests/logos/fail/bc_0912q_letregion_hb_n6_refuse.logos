@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-12q-letregion, program n6 — caught: verdict moved base -> landed — PROBES.md "Newly REFUSED, all illegal: x1 x2 k14 k19 k20 g25 (call arm) · d1 d2 e2 n4 n6 k24"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912q/ctl/n6_named_from_field_of_local.logos
+package bc_0912q_letregion_hb_n6_refuse;
+struct P { k: i64 }
+fn foo<'a>(q: &'a i64) -> i64 {
+    let p: P = P { k: 3i64 };
+    let r: &'a i64 = &p.k;
+    return *r;
+}
+fn main() -> i32 { return 0i32; }

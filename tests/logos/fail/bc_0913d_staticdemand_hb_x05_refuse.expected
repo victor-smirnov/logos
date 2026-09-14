@@ -1,0 +1,1 @@
+[fn f]: call to 'keeph': borrowed data escapes — argument 1 `h` does not live for 'static, which the callee's bound `'a: 'static` requires

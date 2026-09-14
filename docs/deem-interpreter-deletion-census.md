@@ -5974,8 +5974,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL, -1 `logos_00_bc_admit_*` in NOIMPORTED and TIERCOMMIT. So ALL 9783 -> 9809, NOIMPORTED 5286 -> 5311,
 #                TIERCOMMIT 123 -> 122 — PREDICTED, then measured by `ctest -N` on the re-globbed build before this pin
 #                was touched. bc_admits `# TOTAL` 65 -> 64; soundness_queue 161 -> 164 (two rows CLOSED, five OPENED).
-REGISTRY-ALL         9809
-REGISTRY-NOIMPORTED  5311
+# 2026-09-14h (harvest — the hand batteries of 43 earlier rounds, snapshot + committed src/compiler/probes, manifest
+#                src/compiler/probes/2026-09-14h-harvest/MANIFEST.tsv). 184 native pass fixtures bc_<round>_hb_<id>_admit and
+#                180 native fail fixtures bc_<round>_hb_<id>_refuse, no pairs, no moves — +364, all native, none tier_commit.
+#                So ALL 9809 -> 10173, NOIMPORTED 5311 -> 5675, TIERCOMMIT 122 -> 122 — PREDICTED, then measured by `ctest -N`
+#                on the re-globbed build before this pin was touched. bc_admits `# TOTAL` 64 unchanged; soundness_queue 164 -> 165
+#                (one row OPENED, none closed).
+REGISTRY-ALL         10173
+REGISTRY-NOIMPORTED  5675
 REGISTRY-TIERCOMMIT  122
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

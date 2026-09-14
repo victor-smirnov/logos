@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-13c-staticdemand, program m1i_nested_ref — caught: verdict moved base -> landed — PROBES.md "HAND BATTERY, FINAL BINARY vs 86911f4e — illegal closed: ... pricing c07 c09 c10 c13 d26 m1i_{array,named_param,nested_ref,param,tuple}_...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0913c.6YX8/hand/m1i_nested_ref.logos
+package bc_0913c_staticdemand_hb_m1i_nested_ref_refuse;
+static FOO: u8 = 1u8;
+static PF: &u8 = &FOO;
+static mut PP: &&u8 = &PF;
+fn set() {
+    let n: u8 = 2u8;
+    let r: &u8 = &n;
+    unsafe { PP = &r; }
+}
+fn main() -> i32 { set(); return 0i32; }

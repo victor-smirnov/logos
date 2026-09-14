@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-13e-declarrival, program r17_e — caught: refuted an arm — PROBES.md "whundecl refuses ... and NOT the row, the inherent method (r17_e), the trait-impl method (wh8), the trait method decl (wh5), the trait d...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/round0913e.QpSY/arm_whundecl.QfCj/r17_e_where_undeclared_impl_method.logos
+package bc_0913e_declarrival_hb_r17_e_refuse;
+trait Tr { fn t(self: &Self) -> i64; }
+struct W<H: Tr> { h: H }
+impl<H: Tr> W<H> {
+  fn m(self: &Self) -> i64
+  where T: Tr
+  {
+    return 1i64;
+  }
+}
+fn main() -> i32 { return 0i32; }

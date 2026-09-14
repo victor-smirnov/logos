@@ -1,0 +1,1 @@
+[fn P__flip]: struct literal 'Self': variance mismatch — expected P<'_#1, '_#2>, got P<'_#2, '_#1> — lifetime structure incompatible (check &mut invariance / contravariance rules) — `'_#1`, `'_#2`, … are the anonymous lifetimes of the impl's self type, in order: each is a region of the whole impl

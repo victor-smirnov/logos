@@ -1,0 +1,26 @@
+// hand battery: round 2026-09-09sigland, program X08 — caught: verdict moved base -> landed — PROBES.md "X01 ... base rc 0, printed 1 · X02 base rc 0 · X03 base rc 139 · X05 · X06 · X08 base rc 0" (refused by the landing)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/sig/X08_never_called.logos
+// ILLEGAL Rust in an impl whose method is NEVER CALLED. A conformance
+// check is a property of the DECLARATION; a check that only fires when a
+// call is resolved leaves this program admitted.
+package bc_0909sigland_hb_x08_refuse;
+
+struct R {
+    v: i64,
+}
+
+trait Ask {
+    fn ask(self: &Self) -> i64;
+}
+
+impl Ask for R {
+    fn ask(self: &R) -> bool {
+        return self.v > 0i64;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    return 0;
+}

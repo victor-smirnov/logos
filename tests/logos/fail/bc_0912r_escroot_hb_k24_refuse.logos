@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-12r-escroot, program k24 — caught: verdict moved base -> landed — PROBES.md "Newly REFUSED, all illegal: x1 x2 k14 k19 k20 g25 (call arm) · d1 d2 e2 n4 n6 k24"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912r/ctl/k24_illegal_let_mutref_local_call.logos
+package bc_0912r_escroot_hb_k24_refuse;
+fn idm<'q>(x: &'q mut i64) -> &'q mut i64 {
+    return x;
+}
+fn foo<'a>() {
+    let mut v: i64 = 1i64;
+    let r: &'a mut i64 = idm(&mut v);
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14d-meetoblland, program X410 — caught: verdict moved base -> landed — PROBES.md (same line)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/invnb.tuCq/X410_struct_ptr_field_static_demand.logos
+package bc_0914d_meetoblland_hb_x410_refuse;
+struct S<'a> { p: *const &'a i64 }
+fn mk<'a>(p: *const &'a i64) -> S<'static> {
+    return S { p: p };
+}
+fn main() -> i32 { return 0i32; }

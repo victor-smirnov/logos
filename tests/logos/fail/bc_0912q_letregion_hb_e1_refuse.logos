@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-12q-letregion, program e1 — caught: refuted an arm — PROBES.md "stcg alone un-refuses e1 (T1 alpha-renamed) and q6 — soundness regression, 2 programs"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912q/ctl/e1_ufcs3_alpha_impl_q.logos
+package bc_0912q_letregion_hb_e1_refuse;
+struct A<'a> { x: &'a i64 }
+impl<'q> A<'q> {
+    fn newa<T>(x: &'q i64, y: T) -> A<'q> {
+        return A { x: x };
+    }
+}
+fn foo<'a>() {
+    let v: i64 = 22i64;
+    let x: A<'a> = A::newa(&v, 22i64);
+}
+fn main() -> i32 { return 0i32; }

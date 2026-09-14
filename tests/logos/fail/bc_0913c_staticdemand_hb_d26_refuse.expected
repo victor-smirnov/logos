@@ -1,0 +1,1 @@
+[fn error]: call to 'static_id_indirect': borrowed data escapes — argument 1 `v` does not live for 'static, which the callee's bound `'a: 'static` requires

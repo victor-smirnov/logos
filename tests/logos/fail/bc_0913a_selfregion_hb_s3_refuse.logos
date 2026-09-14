@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-13a-selfregion, program s3 — caught: refuted an arm — PROBES.md "selfall (batch 1) UN-REFUSES ILLEGAL s3 I1 I3 I5"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ctl/s3_self_lit_ret_self_named.logos
+package bc_0913a_selfregion_hb_s3_refuse;
+struct MyStruct<'a> { field: &'a i64 }
+impl<'q> MyStruct<'q> {
+    fn make<'a>(field: &'a i64) -> Self {
+        return Self { field: field };
+    }
+}
+fn main() -> i32 { return 0i32; }

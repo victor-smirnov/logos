@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-09k-selfrecv, program h10 — caught: verdict moved base -> landed — selfrecvland/ROUND.md:130 "REFUSED after the arm (10) h1 h2 h5 h7 h9 h10 h13 n9 n10 n12"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09k-selfrecv/hand/h10.logos
+// h10: REVERSE — trait declares by-value `Self`; impl takes `&mut Self`.
+package bc_0909k_selfrecv_hb_h10_refuse;
+pub trait Eat { fn eat(self: Self) -> i64; }
+struct S { v: i64 }
+impl Eat for S { fn eat(self: &mut S) -> i64 { return self.v; } }
+fn main() -> i32 { let mut s: S = S { v: 5i64 }; return s.eat() as i32; }

@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14c-meetobl, program X05 — caught: refuted an arm — PROBES.md "moblsome ... by hand it UN-REFUSES X05 X10 X13"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/battery.WM5P/X05_ret_other_region.logos
+package bc_0914c_meetobl_hb_x05_refuse;
+struct P<'a> { x: &'a i64, y: &'a i64 }
+fn mk<'a, 'b>(x: &'a i64, y: &'b i64) -> P<'b> {
+    return P { x: x, y: y };
+}
+fn main() -> i32 { return 0i32; }

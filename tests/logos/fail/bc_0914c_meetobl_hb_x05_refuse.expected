@@ -1,0 +1,1 @@
+[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'a and 'b is used as P<'b>, and 'a does not outlive 'b

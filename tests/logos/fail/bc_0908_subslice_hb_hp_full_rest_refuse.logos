@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-08-subslice, program hp_full_rest — caught: verdict moved base -> landed — PROBES.md "NINE programs of the landing compile SILENTLY, rc 0: hp_t13 hp_full_rest hp_mid_rest hp_rest_twice hp_iflet_rest ..." (base); PROBES.md ...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ce/hp_full_rest.logos
+package bc_0908_subslice_hb_hp_full_rest_refuse;
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+fn arr() -> [P; 3] { return [P { n: 1i64 }, P { n: 2i64 }, P { n: 3i64 }]; }
+fn use_a(v: &[P; 3]) -> i64 { return 3i64; }
+fn main() -> i32 {
+    let a: [P; 3] = arr();
+    match a { [x @ ..] => { } }
+    if use_a(&a) != 3i64 { return 1i32; }
+    return 0i32;
+}

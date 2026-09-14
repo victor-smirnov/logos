@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-06-patmut, program h39 — caught: refuted an arm — PROBES.md "`patmutany` ADMITS h02 h03 h06 h12 h21 h25 h33 h39 and fail_issue-33819"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06-patmut/hand/h39_for_arr_nomut_recv.logos
+package bc_0906_patmut_hb_h39_refuse;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+fn main() -> i32 {
+    let arr: [S; 2] = [S { v: 1i64 }, S { v: 2i64 }];
+    for s in arr {
+        let r: &mut i64 = s.get();
+        *r = *r + 10i64;
+    }
+    return 0i32;
+}

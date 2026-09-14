@@ -1,0 +1,23 @@
+// hand battery: round 2026-09-10d-vecbare, program n2 — caught: verdict moved base -> landed — PROBES.md "n2 ... rc 139 | refused ... n3 rc 139 | refused, same · n4 rc 139 | refused, same"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0910d/ce/n2_localvec_homonym_with_import.logos
+// n2 — HOMONYM: the module declares its OWN `Vec` AND imports the stdlib one.
+// Both live in the same compilation. The local `Vec` must not reach the slice
+// coercion; the stdlib one, obtained through `vec_new`, must still reach it.
+package bc_0910d_vecbare_hb_n2_refuse;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn total(s: &[i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    for x in s { t = t + *x; }
+    return t;
+}
+
+fn main() -> i32 {
+    let v: Vec<i64> = Vec { a: 7i64, b: 3i64 };
+    let n: i64 = total(&v);
+    if n != 0i64 { return 1i32; }
+    return 0i32;
+}

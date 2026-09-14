@@ -1,0 +1,1 @@
+[fn W__mk]: struct literal 'Self': variance mismatch — expected W<'q, T>, got W<'a, T> — lifetime structure incompatible (check &mut invariance / contravariance rules)

@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-08-fatrepr-fix, program G7 — caught: verdict moved base -> landed — RESULT.md "CLOSED (REFUSED -> rc 0, compiled + linked + RUN, answer checked): G1 ... G8"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-08-fatrepr-fix/hand/G7.logos
+// G7 LEGAL — the ctor inside a GENERIC FUNCTION, so the variant is resolved
+// through the from-static lowering path with a substitution in flight.
+package bc_0908_fatrepr_fix_hb_g7_admit;
+enum E { N, S(&[i64]) }
+fn mk<T>(t: T, p: &[i64; 3]) -> E { return E::S(p); }
+fn main() -> i32 {
+    let a: [i64; 3] = [5i64, 6i64, 7i64];
+    let e: E = mk::<i64>(1i64, &a);
+    match e {
+        E::N => { return 1i32; }
+        E::S(s) => { if s[1] != 6i64 { return 10i32; } }
+    }
+    return 0i32;
+}

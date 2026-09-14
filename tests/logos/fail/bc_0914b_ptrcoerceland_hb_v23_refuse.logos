@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-14b-ptrcoerceland, program V23 — caught: verdict moved base -> landed — PROBES.md NEIGHBOURS "CLOSED here" (return/let/place/decay/tuple/`&mut`->`&`/Vec store) + PROBES.md "every change is an illegal program refused or ...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land14a_twins3.L1yE/V23_loop_store_value_loan_illegal.logos
+package bc_0914b_ptrcoerceland_hb_v23_refuse;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64);
+    let c: bool = v.len() > 1i64;
+    let e: &i64 = &v[0u64];
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        v[1u64] = *e;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

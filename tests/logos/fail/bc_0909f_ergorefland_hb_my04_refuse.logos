@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-09f-ergorefland, program my04 — caught: verdict moved base -> landed — RESULTS.md:10-17,75 "my03 ... 0 -> refused" (my04 my05 my07 my08 my12 my13 my31 same)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09f-ergorefland/hand/my04_slice_elem_ref_shared.logos
+// ILLEGAL 2024: written `ref` at an ARRAY element under a SHARED `&`. The
+// pricing set only used the `&mut` spelling at this door.
+package bc_0909f_ergorefland_hb_my04_refuse;
+fn main() -> i32 {
+    let arr: [i64; 2] = [7i64, 8i64];
+    let mut out: i64 = 0i64;
+    match &arr {
+        [ref p, q] => { out = *p + *q; }
+    }
+    if out != 15i64 { return 1i32; }
+    return 0i32;
+}

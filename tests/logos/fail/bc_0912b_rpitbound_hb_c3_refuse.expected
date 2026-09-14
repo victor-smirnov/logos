@@ -1,0 +1,1 @@
+[fn mk]: closure does not implement `FnMut`: its body moves out (consumes) a captured variable, so it is `FnOnce`

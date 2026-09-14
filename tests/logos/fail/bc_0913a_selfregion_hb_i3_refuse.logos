@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-13a-selfregion, program I3 — caught: refuted an arm — PROBES.md "selfall (batch 1) UN-REFUSES ILLEGAL s3 I1 I3 I5"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ctl2/I3_anon_self_lit_unrelated_param.logos
+package bc_0913a_selfregion_hb_i3_refuse;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn swap_in(self: &Self, x: &i64) -> Foo<'_> { return Self { r: x }; }
+}
+fn main() -> i32 { return 0i32; }

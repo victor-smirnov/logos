@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-09k-selfrecv, program h2 — caught: verdict moved base -> landed — selfrecvland/ROUND.md:130 "REFUSED after the arm (10) h1 h2 h5 h7 h9 h10 h13 n9 n10 n12"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09k-selfrecv/hand/h2.logos
+// h2: SHARED-ref Drop receiver against the stdlib Drop trait.
+package bc_0909k_selfrecv_hb_h2_refuse;
+struct S { v: i64, c: *mut i64 }
+impl Drop for S {
+    fn drop(self: &S) { unsafe { *self.c = *self.c + 1i64; } }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    { let s: S = S { v: 7i64, c: p }; }
+    let got: i64 = unsafe { n };
+    return got as i32;
+}

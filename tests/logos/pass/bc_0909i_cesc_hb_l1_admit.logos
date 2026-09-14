@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-09i-cesc, program L1 — caught: refuted an arm — hand_matrix.tsv "L1 admit REFUSED admit LEGAL — cost of cescbound"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09i-cesc/hand/L1.logos
+// LEGAL: a `Box<dyn Fn + 'a>` whose closure captures a `&'a i64`. The bound IS
+// discharged by the capture. Rust accepts.
+package bc_0909i_cesc_hb_l1_admit;
+use logos.mem.boxed;
+fn mk<'a>(r: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    return Box::new(|| -> i64 { return *r; });
+}
+fn main() -> i32 { let v: i64 = 3i64; let b = mk(&v); return 0i32; }

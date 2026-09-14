@@ -1,0 +1,1 @@
+[fn set_desc]: return type mismatch: lifetime may not live long enough — a Flag<'_> built from 'a and the elided lifetime of parameter 's' is used as Flag<'a>, and the elided lifetime of parameter 's' does not outlive 'a

@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-13b-selfregion-land, program B03 — caught: verdict moved base -> landed — PROBES.md-42731 "illegal, admitted on base | CLOSED" (n3a e5 e6 h1 s5 s12 I5 r13d r13a2; s1 s14 r13b I2 B11; h2 B06 B10 h15 B12; B03; B02 B08 B09 B...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land/hb/B03_struct_shape_self_variant_fn_binder.logos
+package bc_0913b_selfregion_land_hb_b03_refuse;
+enum E<'s> { V { r: &'s i64 }, N }
+impl<'q> E<'q> {
+    fn mk<'a>(x: &'a i64) -> E<'a> {
+        return Self::V { r: x };
+    }
+}
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-06f-scalarland, program g08 — caught: verdict moved base -> landed, predicted wrong — PROBES.md "20 of 20 g-programs refused at base; NINETEEN now compile and run 0" (g08 -> run 139, PROBES.md) | (c) PROBES.md "THE PREDICTION MISSED ...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06f-scalarland/hand/g08.logos
+package bc_0906f_scalarland_hb_g08_admit;
+fn main() -> i32 {
+    let v: i64 = 20i64;
+    let mut out: i64 = 0i64;
+    match &v {
+        1i64..=5i64 => { out = 1i64; }
+        ref r => { out = **r + 100i64; }
+    }
+    if out != 120i64 { return 1i32; }
+    return 0i32;
+}

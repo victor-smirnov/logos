@@ -1,0 +1,8 @@
+// hand battery: round 2026-09-14a-ptrcoerce, program D03 — caught: verdict moved base -> landed — PROBES.md NEIGHBOURS "CLOSED here" (return/let/place/decay/tuple/`&mut`->`&`/Vec store) + PROBES.md "every change is an illegal program refused or ...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/survey14a.MrUR/bat6/D03_illegal_decay_region.logos
+package bc_0914a_ptrcoerce_hb_d03_refuse;
+fn f<'a, 'b>(x: &mut [&'a i64; 2]) -> *mut &'b i64 {
+    return x;
+}
+fn main() -> i32 { return 0i32; }

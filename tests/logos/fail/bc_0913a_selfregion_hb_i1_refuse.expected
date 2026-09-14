@@ -1,0 +1,1 @@
+[fn Foo__swap_in]: struct literal 'Self': variance mismatch — expected Foo<'s>, got Foo — lifetime structure incompatible (check &mut invariance / contravariance rules)

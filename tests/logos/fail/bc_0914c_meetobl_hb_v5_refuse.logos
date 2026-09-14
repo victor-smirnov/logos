@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14c-meetobl, program v5 — caught: verdict moved base -> landed — PROBES.md "meetoblinv ... a GENERIC `P<'a, T>` literal refused (v5)" — the refusal is CORRECT (y: &'b into P<'a> with no 'b: 'a); MEASURED this inv...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/x01var.mch8/v5_generic_struct_T.logos
+package bc_0914c_meetobl_hb_v5_refuse;
+struct P<'a, T> { x: &'a T, y: &'a T }
+fn mk<'a, 'b>(x: &'a i64, y: &'b i64) -> P<'a, i64> {
+    return P::<i64> { x: x, y: y };
+}
+fn main() -> i32 { return 0i32; }

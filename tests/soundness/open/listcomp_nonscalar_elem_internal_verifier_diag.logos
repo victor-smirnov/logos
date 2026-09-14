@@ -1,0 +1,34 @@
+// SOUNDNESS QUEUE row listcomp_nonscalar_elem_internal_verifier_diag (tier 4, `diag`).
+// A list comprehension whose element VALUE is not of the iterator's element type
+// and is not a scalar (a struct literal, a tuple) dies inside mlir_gen:
+//   error: 'func.call' op operand type mismatch: expected operand type 'i64',
+//          but provided '!llvm.ptr' for operand number 1
+// rc 1, an internal verifier failure where a user diagnostic belongs. Measured
+// 2026-09-14h on build c52dcb19dff987ff 43; a one-field struct, a two-field struct, a
+// struct with a Drop impl and a tuple `(x, x)` all print this line. No local `Vec`
+// homonym is involved (that is localvec_mangled_collision_listcomp_internal, a
+// different message). Found while re-measuring hand program p2 (2026-09-10d-vecbare).
+//
+// ⚠ THE VERDICT IS AN OWNER QUESTION, BECAUSE TWO CLAUSES OF THE SAME BLESSED
+// DIVERGENCE (A6, docs/spec/divergences.md) DISAGREE:
+//   `expr.comprehension.list-and-map`: `[expr for x in iter]` produces a collection
+//     by iterating `iter` — read plainly, a collection of `expr` values: LEGAL.
+//   `expr.list-comp.desugar-vec`: `let mut v: Vec<T> = vec_new::<T>()` where "T is the
+//     iterator element type" — so this program pushes a `P` into a `Vec<i64>`: ILLEGAL.
+// The implementation follows the second, measured: `let v: Vec<bool> = [x > 1i64 for x in
+// src]` is refused "expected Vec<bool>, got Vec<i64>". This row is filed as `diag`
+// under that clause (the program is ill-typed, the sentence is internal); if the owner
+// rules for the first reading, the fix is instead that it compiles and runs, exit 3.
+// By reading, no rustc binary (comprehensions are not Rust).
+package listcomp_nonscalar_elem_internal_verifier_diag;
+use logos.mem.collections.vec;
+
+struct P {
+    k: i64
+}
+
+fn main() -> i32 {
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v = [P { k: x } for x in src];
+    return v.len() as i32;
+}

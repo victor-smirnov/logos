@@ -1,0 +1,1 @@
+[fn G__drop]: impl Drop for G: method 'drop' does not match the trait declaration: the receiver is declared '&mut G<T>' and the impl declares 'G<T>'

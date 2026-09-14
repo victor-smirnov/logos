@@ -1,0 +1,1 @@
+[fn f]: call to 'keep': borrowed data escapes — the receiver does not live for 'static, which the callee's bound `'a: 'static` requires

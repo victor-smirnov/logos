@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-13d-staticdemand, program y01b — caught: verdict moved base -> landed — PROBES.md "HAND BATTERY, FINAL BINARY vs 86911f4e — illegal closed: ... pricing c07 c09 c10 c13 d26 m1i_{array,named_param,nested_ref,param,tuple}_...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land0913d.kjFy/extra2/y01b_struct_static_explicit.logos
+package bc_0913d_staticdemand_hb_y01b_refuse;
+static V: i64 = 5i64;
+struct H<'a> { r: &'a i64 }
+static mut HS: H<'static> = H { r: &V };
+fn set() {
+    let n: i64 = 1i64;
+    unsafe { HS = H { r: &n }; }
+}
+fn main() -> i32 { set(); unsafe { return *HS.r as i32; } }

@@ -1,0 +1,1 @@
+[fn go]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'a and the elided lifetime of parameter 'y' is used as P<'a>, and the elided lifetime of parameter 'y' does not outlive 'a

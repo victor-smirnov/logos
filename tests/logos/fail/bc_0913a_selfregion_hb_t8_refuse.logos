@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-13a-selfregion, program t8 — caught: verdict moved base -> landed, predicted wrong — PROBES.md-42731 "illegal, admitted on base | CLOSED" (n3a e5 e6 h1 s5 s12 I5 r13d r13a2; s1 s14 r13b I2 B11; h2 B06 B10 h15 B12; B03; B02 B08 B09 B...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ty/t8_enum_body_self_named.logos
+package bc_0913a_selfregion_hb_t8_refuse;
+enum E<'s> { A(&'s i64), B }
+impl<'q> E<'q> {
+    fn g<'a>(x: &'a i64) -> i64 {
+        let s: i64 = Self::A(x);
+        return 0i64;
+    }
+}
+fn main() -> i32 { return 0i32; }

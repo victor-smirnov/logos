@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14d-meetoblland, program X120 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "X119 X120 X302 X308 ILLEGAL admitted: the enum walk had no fat-pointer arm" | (b) PROBES.md "build 3 vs base: moved = the illegal refusa...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/landbat.gPIU/X120_enum_one_str_wrong_region.logos
+package bc_0914d_meetoblland_hb_x120_refuse;
+enum E<'a> { N, One(&'a str) }
+fn mk<'a, 'b>(y: &'b str) -> E<'a> {
+    return E::One(y);
+}
+fn main() -> i32 { return 0i32; }

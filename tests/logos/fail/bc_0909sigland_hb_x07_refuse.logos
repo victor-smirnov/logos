@@ -1,0 +1,29 @@
+// hand battery: round 2026-09-09sigland, program X07 — caught: predicted wrong — PROBES.md "X07 ... ⚠ THE PREDICTION SAID \"must not change\" AND IT CHANGED"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/sig/X07_direct_call_mismatch.logos
+// ILLEGAL Rust, reached by a DIRECT method call with no generic bound and
+// no trait object at all. If the check lives at the impl-collection site
+// this door is closed by construction; if it lives at a call site it is not.
+package bc_0909sigland_hb_x07_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Ask {
+    fn ask(self: &Self) -> i64;
+}
+
+impl Ask for R {
+    fn ask(self: &R) -> bool {
+        return self.v > 0i64;
+    }
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    pr(r.ask());
+    return 0;
+}

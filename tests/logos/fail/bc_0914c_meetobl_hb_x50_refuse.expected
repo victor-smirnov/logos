@@ -1,0 +1,1 @@
+[fn f]: method 'Vec__push' arg 1: lifetime may not live long enough — a P<'_> built from 'a and 'b is used as P<'a>, and 'b does not outlive 'a

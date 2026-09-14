@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-09f-ergorefland, program my03 — caught: verdict moved base -> landed — RESULTS.md:10-17,75 "my03 ... 0 -> refused" (my04 my05 my07 my08 my12 my13 my31 same)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09f-ergorefland/hand/my03_struct_tuple_index_ref.logos
+// ILLEGAL 2024: written `ref` behind a struct-pattern TUPLE INDEX (`TS { 0: ref a }`).
+package bc_0909f_ergorefland_hb_my03_refuse;
+struct TS(i64, i64);
+fn main() -> i32 {
+    let t: TS = TS(5i64, 6i64);
+    let mut out: i64 = 0i64;
+    match &t {
+        TS { 0: ref a, 1: b } => { out = *a + *b; }
+    }
+    if out != 11i64 { return 1i32; }
+    return 0i32;
+}

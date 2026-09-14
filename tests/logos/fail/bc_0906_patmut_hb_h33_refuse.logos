@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-06-patmut, program h33 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "`patmutany` ADMITS h02 h03 h06 h12 h21 h25 h33 h39 and fail_issue-33819" | (b) PROBES.md "ILLEGAL, base ADMITS -> whole REFUSES `cannot ...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06-patmut/hand/h33_iflet_nested_struct_nomut_boxderef.logos
+package bc_0906_patmut_hb_h33_refuse;
+struct W { b: Box<i64> }
+fn main() -> i32 {
+    let o: Option<W> = Option::Some(W { b: Box::new(1i64) });
+    if let Option::Some(W { b: bb }) = o {
+        let r: &mut i64 = &mut *bb;
+        *r = 5i64;
+    }
+    return 0i32;
+}

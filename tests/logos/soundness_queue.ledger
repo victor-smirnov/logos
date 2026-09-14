@@ -49,7 +49,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 164
+# TOTAL 165
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -216,3 +216,5 @@ loop_second_iteration_mut_alias_through_retargeted_ref_admits 2 tests/soundness/
 rawptr_int_zero_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_int_zero_compare_mlir_verifier_refused refuses
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
 ref_to_rawptr_type_parse_refused 3 tests/soundness/open/ref_to_rawptr_type_parse_refused refuses
+# 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
+listcomp_nonscalar_elem_internal_verifier_diag 4 tests/soundness/open/listcomp_nonscalar_elem_internal_verifier_diag diag op operand type mismatch: expected operand type

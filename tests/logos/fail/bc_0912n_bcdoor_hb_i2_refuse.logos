@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-12n-bcdoor, program I2 — caught: verdict moved base -> landed — PROBES.md "Five illegal shapes: I2 (fn pointer), I3 (closure), I5 (...) now REFUSE with upstream's sentence" (landing f0e571fe0 edits borrow_check....
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912n/hand/I2.logos
+// ILLEGAL (upstream E0716) — the T1 ledger row's shape: fn POINTER returning a
+// lifetime-carrying struct, applied to a borrow of a TEMPORARY.
+package bc_0912n_bcdoor_hb_i2_refuse;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+fn temp() -> T { return T { n: 5i64 }; }
+fn mk<'a>(r: &'a T) -> X<'a> { return X { r: r }; }
+fn main() -> i32 {
+    let some: fn(&T) -> X = mk;
+    let g = some(&temp());
+    return g.r.n as i32;
+}

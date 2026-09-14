@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-13a-selfregion, program r13d — caught: verdict moved base -> landed — PROBES.md-42731 "illegal, admitted on base | CLOSED" (n3a e5 e6 h1 s5 s12 I5 r13d r13a2; s1 s14 r13b I2 B11; h2 B06 B10 h15 B12; B03; B02 B08 B09 B...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ctl/r13d_self_ret.logos
+package bc_0913a_selfregion_hb_r13d_refuse;
+struct MyStruct<'a> { field: &'a i64 }
+impl MyStruct<'_> {
+    fn make<'a>(field: &'a i64) -> Self { return MyStruct { field: field }; }
+}
+fn main() -> i32 { return 0i32; }

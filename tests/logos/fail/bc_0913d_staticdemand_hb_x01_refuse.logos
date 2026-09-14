@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-13d-staticdemand, program x01 — caught: verdict moved base -> landed — PROBES.md "HAND BATTERY, FINAL BINARY vs 86911f4e — illegal closed: ... pricing c07 c09 c10 c13 d26 m1i_{array,named_param,nested_ref,param,tuple}_...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land0913d.kjFy/hand/x01_option_local.logos
+package bc_0913d_staticdemand_hb_x01_refuse;
+fn keepo<'a>(o: Option<&'a i64>) -> i64 where 'a: 'static {
+    match o { Option::Some(r) => { return *r; } Option::None => { return 0i64; } }
+}
+fn f(u: &i64) -> i64 {
+    return keepo(Option::Some(u));
+}
+fn main() -> i32 { let n = 1i64; return f(&n) as i32; }

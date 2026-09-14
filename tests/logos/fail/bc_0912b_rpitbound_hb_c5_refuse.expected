@@ -1,0 +1,1 @@
+[fn S__maker]: closure does not implement `Fn`: its body mutates a captured variable, so it is `FnMut`

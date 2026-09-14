@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-10d-vecbare, program n3 — caught: verdict moved base -> landed — PROBES.md "n2 ... rc 139 | refused ... n3 rc 139 | refused, same · n4 rc 139 | refused, same"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0910d/ce/n3_localvec_mutref_coerce.logos
+// n3 — THE OTHER HALF OF THE 2322 DISJUNCT: `&mut Vec<T>` -> `&[T]`. The queue
+// row's program takes the `Ref` arm only; this one takes `MutRef`, which is a
+// SEPARATE kind test in the same condition.
+package bc_0910d_vecbare_hb_n3_refuse;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn total(s: &[i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    for x in s { t = t + *x; }
+    return t;
+}
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec { a: 7i64, b: 3i64 };
+    let n: i64 = total(&mut v);
+    if n != 0i64 { return 1i32; }
+    return 0i32;
+}

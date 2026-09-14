@@ -1,0 +1,1 @@
+[fn S__eat]: impl Eat for S: method 'eat' does not match the trait declaration: the receiver is declared 'S' and the impl declares '&mut S'

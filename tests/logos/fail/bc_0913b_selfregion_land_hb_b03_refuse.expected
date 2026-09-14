@@ -1,0 +1,1 @@
+[fn E__mk]: enum literal 'Self': variance mismatch — expected E<'q>, got E<'a> — lifetime structure incompatible (check &mut invariance / contravariance rules)

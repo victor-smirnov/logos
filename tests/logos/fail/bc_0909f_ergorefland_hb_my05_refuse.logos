@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-09f-ergorefland, program my05 — caught: verdict moved base -> landed — RESULTS.md:10-17,75 "my03 ... 0 -> refused" (my04 my05 my07 my08 my12 my13 my31 same)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09f-ergorefland/hand/my05_nested_variant_refmut.logos
+// ILLEGAL 2024: `ref mut` at a variant payload nested inside another variant,
+// under `&mut`.
+package bc_0909f_ergorefland_hb_my05_refuse;
+enum Inner { A(i64), B }
+fn main() -> i32 {
+    let mut o: Option<Inner> = Option::Some(Inner::A(3i64));
+    match &mut o {
+        Option::Some(Inner::A(ref mut v)) => { *v = *v + 1i64; }
+        _ => {}
+    }
+    return 0i32;
+}

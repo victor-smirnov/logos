@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-12n-bcdoor, program I5 — caught: verdict moved base -> landed — PROBES.md "Five illegal shapes: I2 (fn pointer), I3 (closure), I5 (...) now REFUSE with upstream's sentence" (landing f0e571fe0 edits borrow_check....
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912n/hand/I5.logos
+// ILLEGAL — fn POINTER door with the temporary produced by a METHOD call rather
+// than a free function, and the binding annotated rather than inferred.
+package bc_0912n_bcdoor_hb_i5_refuse;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+struct F { z: i64 }
+impl F { fn make(self: &F) -> T { return T { n: 5i64 }; } }
+fn mk<'a>(r: &'a T) -> X<'a> { return X { r: r }; }
+fn main() -> i32 {
+    let f: F = F { z: 0i64 };
+    let some: fn(&T) -> X = mk;
+    let g: X = some(&f.make());
+    return g.r.n as i32;
+}

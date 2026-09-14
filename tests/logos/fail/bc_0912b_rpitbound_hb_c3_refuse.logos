@@ -1,0 +1,18 @@
+// hand battery: round 2026-09-12b-rpitbound, program c3 — caught: verdict moved base -> landed — rpitbound/RESULT.md "c1/c2/c3/c5 illegal, rc 0 before, refused after"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-12b-rpitbound/hand/c3.logos
+package bc_0912b_rpitbound_hb_c3_refuse;
+struct Own { v: i64 }
+impl Drop for Own {
+    fn drop(&mut self) { }
+}
+fn eat(o: Own) -> i64 { return o.v; }
+// ILLEGAL: `impl FnMut` (req 1) given a consuming closure (kind 2).
+fn mk() -> impl FnMut() -> i64 {
+    let o: Own = Own { v: 5i64 };
+    return move || -> i64 { return eat(o); };
+}
+fn main() -> i32 {
+    let mut f = mk();
+    return f() as i32;
+}

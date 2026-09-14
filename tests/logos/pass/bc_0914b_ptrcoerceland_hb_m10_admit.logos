@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-14b-ptrcoerceland, program M10 — caught: refuted an arm — PROBES.md "build 3 ... M5 M10 M11 E02 E09"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land14a_twins4.YY4f/M10_let_elided_mutptr_decay_static_elems.logos
+package bc_0914b_ptrcoerceland_hb_m10_admit;
+static G: i64 = 7i64;
+fn main() -> i32 {
+    let mut a: [&'static i64; 2] = [&G, &G];
+    let q: *mut &i64 = &mut a;
+    return unsafe { **q } as i32;
+}

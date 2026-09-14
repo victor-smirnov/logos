@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-09f-ergorefland, program my08 — caught: verdict moved base -> landed — RESULTS.md:10-17,75 "my03 ... 0 -> refused" (my04 my05 my07 my08 my12 my13 my31 same)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09f-ergorefland/hand/my08_struct_sub_refmut_under_mutref.logos
+// ILLEGAL 2024: `ref mut` at a struct-field SUB-PATTERN under `&mut` — the
+// pricing set used the shared `&` spelling at this door.
+package bc_0909f_ergorefland_hb_my08_refuse;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut p: P = P { x: 3i64, y: 4i64 };
+    match &mut p {
+        P { x: ref mut v, .. } => { *v = *v + 1i64; }
+    }
+    if p.x != 4i64 { return 1i32; }
+    return 0i32;
+}

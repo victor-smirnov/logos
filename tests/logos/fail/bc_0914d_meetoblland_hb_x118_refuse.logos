@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-14d-meetoblland, program X118 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "X118 ILLEGAL admitted by build 1" | (b) PROBES.md "build 3 vs base: moved = the illegal refusals (X01-X04 X07-X09 X11 X12 X14-X19 X50 X5...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/landbat.gPIU/X118_enum_struct_payload_and_ref_nobound.logos
+package bc_0914d_meetoblland_hb_x118_refuse;
+struct P<'a> { x: &'a i64, y: &'a i64 }
+enum E<'a> { N, Two(P<'a>, &'a i64) }
+fn mk<'a, 'b>(x: &'a i64, y: &'b i64) -> E<'a> {
+    return E::Two(P { x: x, y: x }, y);
+}
+fn main() -> i32 { return 0i32; }

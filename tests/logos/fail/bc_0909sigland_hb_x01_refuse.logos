@@ -1,0 +1,33 @@
+// hand battery: round 2026-09-09sigland, program X01 — caught: verdict moved base -> landed — PROBES.md "X01 ... base rc 0, printed 1 · X02 base rc 0 · X03 base rc 139 · X05 · X06 · X08 base rc 0" (refused by the landing)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/sig/X01_i64_vs_bool.logos
+// ILLEGAL Rust: the trait declares `-> i64`, the impl declares `-> bool`.
+// Today this compiles and the caller reads a bool's byte as an i64.
+package bc_0909sigland_hb_x01_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn pr(v: i64) { unsafe { printf("%lld\n".as_ptr(), v); } }
+
+struct R {
+    v: i64,
+}
+
+trait Ask {
+    fn ask(self: &Self) -> i64;
+}
+
+impl Ask for R {
+    fn ask(self: &R) -> bool {
+        return self.v > 0i64;
+    }
+}
+
+fn use_it<T: Ask>(t: &T) -> i64 {
+    return t.ask();
+}
+
+fn main() -> i32 {
+    let r: R = R { v: 1i64 };
+    let x: i64 = use_it::<R>(&r);
+    pr(x);
+    return 0;
+}

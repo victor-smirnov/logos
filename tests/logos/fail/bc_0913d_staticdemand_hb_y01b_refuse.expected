@@ -1,0 +1,1 @@
+[fn set]: assignment to 'HS': variance mismatch — expected H<'static>, got H<'_> — lifetime structure incompatible (check &mut invariance / contravariance rules)

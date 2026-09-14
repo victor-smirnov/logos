@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+DROP v=11
+DROP v=12
+-- end

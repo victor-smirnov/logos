@@ -1,0 +1,18 @@
+// hand battery: round 2026-09-08-fatrepr-fix, program D1 — caught: verdict moved base -> landed — RESULT.md "CLOSED (REFUSED -> rc 0, RUN): D1 inherent method · D5 TRAIT method · D8 ... · D2 closure -> fn ptr"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-08-fatrepr-fix/hand/D1.logos
+// D1 — the ROW's shape reduced: `Rc<A>` at an `Rc<dyn Sp>` METHOD parameter.
+// The selector class member the row names.
+package bc_0908_fatrepr_fix_hb_d1_admit;
+use logos.lang.rc;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct Holder { n: i64 }
+impl Holder { pub fn eat(&self, r: Rc<dyn Sp>) -> i64 { return r.v() + self.n; } }
+fn main() -> i32 {
+    let h: Holder = Holder { n: 1i64 };
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    if h.eat(rc) != 18i64 { return 10i32; }
+    return 0i32;
+}

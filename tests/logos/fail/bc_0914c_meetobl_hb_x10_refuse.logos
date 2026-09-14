@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14c-meetobl, program X10 — caught: refuted an arm — PROBES.md "By hand it UN-REFUSED X10 and X13 (two illegal programs refused on base)" (meetobl)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/battery.WM5P/X10_enum_three_payloads.logos
+package bc_0914c_meetobl_hb_x10_refuse;
+enum E<'a> { N, Three(&'a i64, i64, &'a i64) }
+fn mk<'a, 'b>(x: &'a i64, y: &'b i64) -> E<'a> {
+    return E::Three(y, 1i64, x);
+}
+fn main() -> i32 { return 0i32; }

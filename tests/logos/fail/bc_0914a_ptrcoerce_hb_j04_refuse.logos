@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-14a-ptrcoerce, program J04 — caught: verdict moved base -> landed, predicted wrong — PROBES.md "idxstoremut / amutrecv — moved NOTHING, J04 included: PREDICTION WRONG" | (b) PROBES.md NEIGHBOURS "CLOSED here" (return/let/place/decay...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/survey14a.MrUR/ctl/lv1_vec_index_write.logos
+package bc_0914a_ptrcoerce_hb_j04_refuse;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64);
+    let e: &i64 = &v[0u64];
+    v[1u64] = 4i64;
+    let _k: i64 = *e;
+    return 0i32;
+}

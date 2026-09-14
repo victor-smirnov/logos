@@ -1,0 +1,1 @@
+[fn $ref_&'_ i64__mk]: return type mismatch: variance mismatch — expected &'_ i64, got &i64 — lifetime structure incompatible (check &mut invariance / contravariance rules) — `'_` in the impl's self type is a region of the whole impl, not an elided lifetime of this function

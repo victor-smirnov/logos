@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-12q-letregion, program q6 — caught: refuted an arm — PROBES.md "⛔ UN-REFUSAL under door C ALONE: q6 `*out = A::newa(&v)` (illegal)" | (a) PROBES.md "stcg alone un-refuses e1 (T1 alpha-renamed) and q6 ...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912q/ctl/q6_illegal_static_then_escape.logos
+package bc_0912q_letregion_hb_q6_refuse;
+struct A<'a> { x: &'a i64 }
+impl<'q> A<'q> {
+    fn newa(x: &'q i64) -> A<'q> {
+        return A { x: x };
+    }
+}
+fn foo<'a>(out: &mut A<'a>) {
+    let v: i64 = 1i64;
+    *out = A::newa(&v);
+}
+fn main() -> i32 { return 0i32; }

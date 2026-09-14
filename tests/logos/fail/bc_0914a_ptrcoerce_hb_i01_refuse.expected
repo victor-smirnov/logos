@@ -1,0 +1,1 @@
+[fn f]: let 'y': variance mismatch — expected *mut &'b i64, got &mut &'a i64 — lifetime structure incompatible (check &mut invariance / contravariance rules)

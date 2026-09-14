@@ -1,0 +1,24 @@
+// hand battery: round 2026-09-06n-placedropfix, program N1 — caught: verdict moved base -> landed — PROBES.md table "N1 ... base 1010 armed **1011** correct 1011 · N2 4 -> **10** · N5 1010 -> **1011** · N6 1010 -> **1011** · N7 1001 -> **1002**" (...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06n-placedropfix/hand/N1_array_of_droppable_fields.logos
+// N1 — the element type has NO `Drop` impl but DOES have droppable FIELDS.
+// Exercises the `has_droppable_fields(pt)` leg of drop_old_place, which no
+// pricing-round hand program used (all of them used a direct `impl Drop`).
+// Expected: 1 (old a[0].d) + 1000 (new a[0].d) + 10 (a[1].d) = 1011.
+package bc_0906n_placedropfix_hb_n1_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { d: D }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let mut a: [W; 2] = [W { d: D { v: 1i64, c: p } }, W { d: D { v: 10i64, c: p } }];
+        a[0] = W { d: D { v: 1000i64, c: p } };
+        if a[0].d.v != 1000i64 { return 4i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("COUNT=%ld\n".as_ptr(), got); }
+    return 0i32;
+}

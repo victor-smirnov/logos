@@ -1,0 +1,1 @@
+[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'static and 'a is used as P<'static>, and 'a does not outlive 'static

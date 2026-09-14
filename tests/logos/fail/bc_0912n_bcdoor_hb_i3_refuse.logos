@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-12n-bcdoor, program I3 — caught: verdict moved base -> landed — PROBES.md "Five illegal shapes: I2 (fn pointer), I3 (closure), I5 (...) now REFUSE with upstream's sentence" (landing f0e571fe0 edits borrow_check....
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912n/hand/I3.logos
+// ILLEGAL — the same door through a CLOSURE instead of a fn pointer.
+package bc_0912n_bcdoor_hb_i3_refuse;
+struct T { n: i64 }
+struct X<'a> { r: &'a T }
+fn temp() -> T { return T { n: 5i64 }; }
+fn main() -> i32 {
+    let c = |r: &T| -> X { return X { r: r }; };
+    let g = c(&temp());
+    return g.r.n as i32;
+}

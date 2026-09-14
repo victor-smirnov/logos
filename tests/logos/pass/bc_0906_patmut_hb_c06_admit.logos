@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-06-patmut, program c06 — caught: predicted wrong — predictions-2026-09-06b.txt:9 "c05 c06 c07 c12 ... refused -> run 0"; PROBES.md "c05 c06 c07 ... RAN on base too"; c12 "refused" (PROBES.md)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06-patmut/hand2/c06_toplevel_tuple_pat_mut_recv.logos
+package bc_0906_patmut_hb_c06_admit;
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+fn main() -> i32 {
+    let t: (S, i64) = (S { v: 1i64 }, 2i64);
+    let mut out: i64 = 0i64;
+    match t {
+        (mut s, k) => { let r: &mut i64 = s.get(); *r = 8i64; out = s.v + k; }
+    }
+    if out != 10i64 { return 1i32; }
+    return 0i32;
+}

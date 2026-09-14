@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14d-meetoblland, program X302 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "X119 X120 X302 X308 ILLEGAL admitted: the enum walk had no fat-pointer arm" | (b) PROBES.md "build 3 vs base: moved = the illegal refusa...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/landbatf.Dk2p/X302_enum_slice_payload_nobound.logos
+package bc_0914d_meetoblland_hb_x302_refuse;
+enum E<'a> { N, Two(&'a [i64], &'a [i64]) }
+fn mk<'a, 'b>(x: &'a [i64], y: &'b [i64]) -> E<'a> {
+    return E::Two(x, y);
+}
+fn main() -> i32 { return 0i32; }

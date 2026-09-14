@@ -1,0 +1,1 @@
+[fn R__ask]: impl Ask for R: method 'ask' does not match the trait declaration: the return type is declared 'i64' and the impl declares 'bool'

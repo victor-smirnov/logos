@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-14c-meetobl, program J03 — caught: verdict moved base -> landed — PROBES.md "build 3 vs base: moved = the illegal refusals (X01-X04 X07-X09 X11 X12 X14-X19 X50 X51 X53-X55 J01 J03 X106 X112 X114 X118 X119 X120 X12...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/invguard2.MAFy/J03_inv_enum_r_first_unrelated.logos
+package bc_0914c_meetobl_hb_j03_refuse;
+enum W<'a> { N, V(&'a i64, &'a mut &'a i64) }
+fn f<'a, 'b>(r: &'b i64, m: &'a mut &'a i64) -> W<'a> {
+    return W::V(r, m);
+}
+fn main() -> i32 { return 0i32; }

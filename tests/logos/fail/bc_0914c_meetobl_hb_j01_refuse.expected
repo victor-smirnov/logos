@@ -1,0 +1,1 @@
+[fn f]: return type mismatch: lifetime may not live long enough — a M<'_> built from 'a and 'b is used as M<'a>, and 'b does not outlive 'a

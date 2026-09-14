@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+DROP v=8
+-- end

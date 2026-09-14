@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-12q-letregion, program m3 — caught: verdict moved base -> landed — PROBES.md "Newly COMPILING, all legal, all run to their exit code: y1 y2 y3 (deref stop) · a6 a10 e3 m1 m3 m4 m5 o3"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912q/ctl/m3_legal_trait_static_call.logos
+package bc_0912q_letregion_hb_m3_admit;
+struct A<'a> { x: &'a i64 }
+trait Mk<'q> { fn mk(x: &'q i64) -> A<'q>; }
+struct Z { }
+impl<'q> Mk<'q> for Z {
+    fn mk(x: &'q i64) -> A<'q> {
+        return A { x: x };
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 21i64;
+    let a: A<'_> = Z::mk(&v);
+    return *a.x as i32;
+}

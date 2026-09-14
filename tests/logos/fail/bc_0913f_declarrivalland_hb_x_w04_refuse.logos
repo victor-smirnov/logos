@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-13f-declarrivalland, program X_w04 — caught: verdict moved base -> landed — PROBES.md "Hand battery vs prediction: newly refused X_w01 ... X_k05 = predicted; + X_w06 ... + X_k06 X_w11 X_w12"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land0913f.KArC/hbfix_whtraitdecl.qRvF/X_w04_trait_impl_method_own_param_where_undecl.logos
+package bc_0913f_declarrivalland_hb_x_w04_refuse;
+trait Tr {
+  fn t(self: &Self) -> i64;
+}
+impl Tr for i64 {
+  fn t(self: &Self) -> i64 { return *self; }
+}
+trait Q {
+  fn q<U>(self: &Self, u: &U) -> i64;
+}
+struct S { }
+impl Q for S {
+  fn q<U>(self: &Self, u: &U) -> i64
+  where T: Tr
+  {
+    return 1i64;
+  }
+}
+fn main() -> i32 { return 0i32; }

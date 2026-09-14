@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-09k-selfrecv, program h9 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "h9 trait `&mut Self`, impl `&S` depth ADMITS ty REFUSES" | (b) selfrecvland/ROUND.md:130 "REFUSED after the arm (10) h1 h2 h5 h7 h9 h10 ...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09k-selfrecv/hand/h9.logos
+// h9: non-Drop trait declares `&mut Self`; impl takes `&Self`.
+package bc_0909k_selfrecv_hb_h9_refuse;
+pub trait Tick { fn tick(self: &mut Self) -> i64; }
+struct S { v: i64 }
+impl Tick for S { fn tick(self: &S) -> i64 { return self.v; } }
+fn main() -> i32 { let mut s: S = S { v: 4i64 }; return s.tick() as i32; }

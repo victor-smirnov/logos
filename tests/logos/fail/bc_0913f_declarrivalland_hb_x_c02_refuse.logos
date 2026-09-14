@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-13f-declarrivalland, program X_c02 — caught: verdict moved base -> landed — PROBES.md "Hand battery vs prediction: newly refused X_w01 ... X_k05 = predicted; + X_w06 ... + X_k06 X_w11 X_w12"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land0913f.KArC/hbfix_whtraitdecl.qRvF/X_c02_struct_lit_turbofish_on_lifetime_free_struct.logos
+package bc_0913f_declarrivalland_hb_x_c02_refuse;
+struct P { x: i64 }
+fn main() -> i32 {
+  let p = P::<'static> { x: 1i64 };
+  return p.x as i32;
+}

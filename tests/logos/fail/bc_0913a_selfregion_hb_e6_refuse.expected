@@ -1,0 +1,1 @@
+[fn E__mk]: return type mismatch: variance mismatch — expected E<'_>, got E — lifetime structure incompatible (check &mut invariance / contravariance rules) — `'_` in the impl's self type is a region of the whole impl, not an elided lifetime of this function
