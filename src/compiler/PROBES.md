@@ -44805,3 +44805,196 @@ note: fires = census fnptr.strict2.refuse over i08 i09 i08b i09b i09c. c37: "fn-
   ⚠ MISTAKE OF MY OWN: the first detached L4 bc exited rc 2 without running — test-levels.sh refuses unless LOGOS_L4_BG=1 is set, and a
     detached subshell does not set it. Re-run with the variable, below.
   L4 bc (from build/, LOGOS_L4_BG=1, detached, 10:43 -> 10:59): rc 0 — 5787/5787 and 1599/1599, 0 failed.
+
+## 2026-09-14l-storeedge — A CONTAINER THAT STORES A REFERENCE IS RECORDED AS AN ALIAS OF ITS REFERENT: apply_flow_outparams' A2 edge `buffer -> x` makes every later destination re-home of `buffer` land on `x`. bck.NEW-L's handed-down mechanism (the loop back edge) is REFUTED for buffer-reuse-pattern-issue-147694 and REPLACED; two-phase-across-loop is a different door
+
+### STEP 1, READ FROM THE TREE
+  HEAD 84a4738bd, clean · soundness_queue gate rc 0 WITH LOGOS_LIB_DIR (the prompt's command carries it — checked against the text
+  given) · soundness_queue # TOTAL 172 = 172 rows by direct listing · bc_admits 62 · blocked 8 · probe-log-lint 304 records ·
+  build_hash 0230e503bd682184 43 (read; equals 14k's close-out hash; `cmake --build build` = "no work to do") · dlog selftest rc 0
+  (28fc7c75 19/24/1-5/42-5; duty 1 -> 0).
+  Corrections to the prompt, each checked against the text given: none to the STEP-1 commands. The handed-down candidate's
+  MECHANISM ("the push deposit never reaches 12i's loop back-edge arm") is refuted below; its ROW choice stands.
+
+### THE SURVEY, BY SET
+  37 ledger roots × PROBES.md. (1) `## name` records (334, `site:` within two lines) whose `verdict:`/`ceiling` lines name one of a
+  root's programs: only bck.B (14e-thruref, issue-51117) — the verdict lines name rows by program too rarely for this definition to
+  separate anything. (2) the same records' whole bodies naming a program or `*.SUFFIX`: every root has ≥ 2, and for bck.NEW-L the
+  hits are 14e-thruref's and fnptrbinder2's survey lists, not prices. So "never priced" holds for bck.NEW-L under both.
+
+### THE MECHANISM, READ AND MEASURED (base 0230e503bd682184, LOGOS_DUMP_BC_RELEASE)
+  · The ledger row's loop: pass 1 records loan `target=data holder=buffer`; pass 2 records `target=data holder=data`. The holder
+    in pass 2 is the TARGET itself.
+  · Why: `buffer.push(&x)` reaches apply_flow_outparams (push's summary `out0 <- 1`), whose A2 "prospective half" runs
+    `for (p : ref_sources_of(src)) reborrow_of_.add(dst, p)` — an ALIAS edge `buffer -> x`. A2 was written for
+    `wire(&mut t, &mut vs); t.x.push(c.mk())`, where the stored operand is a `&mut` a later write goes THROUGH. A `&x` stored as
+    a Vec ELEMENT is not that: the Vec holds a reference, it does not become one.
+  · Every single-name destination resolver then chases `RefGraph::endpoint(buffer)` = `x`: the MethodCall arm's `rn`
+    (§B6 add_ref_sources + door 8b), `rn86` (escape), place_write_root's resolve (the out-param door's `dst`). A later
+    `buffer.push(&d)` deposits its §B6 source and its loan on `x`.
+  · In the loop, pass 1 mints `buffer -> data`, `reborrow_of_` is not restored for pass 2, pass 2's push resolves to `data`;
+    store_ref_sources skips a binding that borrows itself, so nothing is deposited and nothing dangles at the body's `}`.
+  · Loop-free, same fact, both directions: b2 `push(&x); { let d; push(&d); } buffer.len()` ADMITTED; b4 the same with `let y = x`
+    after the block REFUSED "'data' does not live long enough: it is borrowed by 'x'" (legal: buffer is dead there).
+
+### dlog — rehome_readers.dl (NEW RULE; selftest rc 0 first), over borrow_check.cpp
+    KNOWN ANSWER stated before the run: grep finds 6 `rehome_reborrow(` call sites + its definition line + 2 direct
+    `reborrow_of_.endpoint(` calls in resolve_place_reborrow = 9 reads of the endpoint. MEASURED chase_read 9. CONTROL HOLDS.
+    chase_ctx_asks (a chasing context that also reads `reborrow_mut_`, the only "is this node a `&mut`" fact the graph has) = 0;
+    chase_ctx_blind = 5 contexts (path_params_of, rehome_reborrow, resolve_place_reborrow, visit, visit_stmt).
+    ⚠ ctx_of is coarse here: `visit` and `visit_stmt` hold several chases each; the per-site read is 9 sites, 7 of which choose a
+    write destination / holder (8264 is a read-side lookup, 12839 the wrapper). Both numbers reported.
+    graph_write (RefGraph::add / ::set) = 9 sites: borrow_flow_summary.inc:775 note_alias (the summarizer's own graph),
+    apply_flow_outparams 5195 (A2 — THIS arm), propagate_pat_reborrows 6670 6712, prescan_note 11254 (the pre-pass graph),
+    note_reborrow 12566 (P1: an array LITERAL of references — c14's writer), note_place_copy 12611, note_reborrow_place 12651,
+    the break slot 14625.
+
+### THE HANDED-DOWN CANDIDATE, RE-MEASURED (base 0230e503bd682184, every legal program linked and RUN under valgrind)
+  14j controls re-run by path, all reproduce: L01 (row) ADMITTED · L02 block push REFUSED E0597 · L03 loop assign REFUSED · L07 loop push
+  no later use ADMITTED · L04 L05 L06 legal RUN.
+  · The loop is not the variable: b2 (`push(&x); { let d; push(&d); } buffer.len()`) is ADMITTED with no loop at all, and b4 (the same,
+    then `let y = x`, legal) is REFUSED naming 'x'. The back-edge arm (lu_reordered_by_back_edge) is never consulted by either.
+  · two-phase-across-loop (bck.NEW-L, the second member of the root id) is NOT this fact: c04b — the port with upstream's later use
+    restored (`return strings.len()` for upstream's `println!("{:?}", strings)`) — is REFUSED on base; c04e (the port as written, no
+    later use) ADMITTED; c04 c04c c04d (while / counter / len-break, each with a later use) REFUSED. Its loan's holder uses sit AT or
+    BELOW the raise, so 12i's `lu < raise_point` window never keeps it across the back edge. A door-1 question. Unmoved by every name.
+
+### PROBES — batch 1, ONE site (apply_flow_outparams, the A2 `reborrow_of_.add(dst, p)` loop), three names, ONE build f696010328ae8565
+  Rule 9: `a2skipall` = the outer guard alone (no A2 edge at all); `a2elem` = the inner predicate "the operand's type is one of the
+  out-param container's element type arguments" (door 8b's `stored_ref_elem` test, the receiver type peeled of references, falling
+  back to holder_ty_of); `a2elemshr` = the same AND the operand is a SHARED `&`.
+
+## a2elem — no A2 alias edge when the out-param STORES the operand as a container element
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: f696010328ae8565
+measured: 2026-09-14
+fires: 1369
+ceiling: 1
+cost: 0
+verdict: CEILING {buffer-reuse-pattern-issue-147694} as predicted; cost 0 pass(ledger+legal) / stdlib all four layers; fail-text 1 of 1844 TEXT-ONLY (issue-62007-assign-differing-fields--t22 gains a false line — a pre-existing mis-root, rowed); hand battery 0 legal refused; runtime: run_oracle on build/ (f696010328ae8565, one configure) unarmed 11:52->12:02 vs LOGOS_PROBE=a2elem 12:13->12:23 — 7024 common, 0 added, 0 removed, 1 changed = cast-region-to-uint (stdout sha only; subtracted by name) -> 0.
+note: gate-db builds 1222 (unarmed) -> 1223 (armed). The added line on --t22 is "cannot return reference to local variable 'result': dangling reference": the fixture returns a Vec holding `&mut list.0.value` through a `&'a mut L` in a by-value tuple parameter; without the edge the escape record is no longer re-homed away and the aggregate-parameter mis-root shows. Legal programs of that shape are refused ON BASE under every name (e01 e04 e07 e08 e09) -> queue row aggregate_param_ref_field_borrow_returned_says_dangling_refused. Hand: closes b2 c02 c06 c07 c09 c10 c17 c19 c21 c23 l01 l05 L01 and the row; un-refuses b4 v01 v13 (each RUN exit 0, valgrind clean).
+
+## a2elemshr — a2elem AND the operand is a shared `&` (rule-9 twin of the inner predicate)
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: f696010328ae8565
+measured: 2026-09-14
+fires: 1146
+ceiling: 1
+cost: 0
+verdict: CEILING {buffer-reuse-pattern-issue-147694} as predicted; cost 0 pass / 0 of 1844 fail-text / stdlib all four layers; hand battery 0 legal refused; runtime: run_oracle on build/ (f696010328ae8565, one configure) unarmed 11:52->12:02 vs LOGOS_PROBE=a2elemshr 12:02->12:13 — 7024 common, 0 added, 0 removed, 1 changed = cast-region-to-uint (stdout sha only; subtracted by name) -> 0.
+note: gate-db build 1224. Separates from a2elem ONLY on hand programs (rule 9): c02 (`Vec<&mut i64>` element store, illegal) stays admitted and v01 (its legal twin) stays refused; --t22's text is unchanged because its element operand is `&mut`. Every harness column is identical to a2elem except fail-text (1 vs 0).
+
+## a2skipall — no A2 alias edge at all (the outer guard alone)
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: f696010328ae8565
+measured: 2026-09-14
+fires: 1182
+ceiling: 1
+cost: 0
+verdict: CEILING {buffer-reuse-pattern-issue-147694}; cost 0 pass / stdlib ok — and fail 2 of 1844: RC fail/bc_d1r12_a2_outparam_prospective 1 -> 0 (A2's own pinned witness un-refused) + the --t22 text line. NOT FUNDABLE; it prices what A2 is for.
+note: gate-db build 1225. Hand: everything a2elem closes, plus c24 (setter-field store, illegal) refused and c25 (legal twin) compiled and RUN exit 0 — the only arm that reaches a store into a non-element FIELD. `fires` counts every A2 site visit (the guard is on() at the top), not only skipped edges.
+
+### HAND BATTERY — by PATH and md5 (hb/ in the round's scratch dir), base copy 0230e503bd682184 and the armed build unarmed (NONE)
+### identical on every program (inert); each legal program linked and RUN under valgrind --error-exitcode=99
+  84 programs: 14j's L01-L07, 12i-era l01-l05, and 72 written here — b1-b9, c01-c26 (+c04b-e, c22b), w01-w06, v01-v13, e01-e09.
+  Shapes varied (rule 5): block / while / loop+break / for / clear() between / `&mut` alias of the Vec / index store `buffer[0] = &d`
+  / user generic `Bag<T>::put` / free-fn out-param `stash` / a setter storing into a FIELD / `Vec<&mut i64>` / `Vec<&mut Vec<_>>`
+  written through `vs[0]` / a struct field `&mut` written through (A2's own shape) / shadowed Vecs in a loop / returning a Vec of
+  parameter-field borrows / E0506 writes to the source after a push / reads of the source after the Vec is dead.
+  Legal refused by any name: NONE (a2elem, a2elemshr, a2skipall). Legal refused on BASE: b4 v01 v13 c25 e01 e04 e07 e08 e09.
+  Illegal admitted on BASE: b2 c02 c06 c07 c09 c10 c12 c14 c17 c18 c19 c21 c22 c22b c23 c24 c04e l01 l04 l05 L01 L07 w02.
+  PREDICTED vs MEASURED, both ways: predicted & closed (both elem names) L01 l01 l05 b2 c07 c09 c10 c17 c19; predicted a2elem-only
+  and so c02 / v01; predicted un-refused b4. UNPREDICTED closures: c21 (index store) and c23 (user Bag<T>) under all three names; c06
+  (marked uncertain) closed. UNPREDICTED un-refusals: v01 and v13 (written after the predictions). Predicted unmoved and unmoved: L07
+  l04 c12 c18 c04e two-phase-across-loop c14 w02. Predicted nothing about c22/c22b/c24/c25/e*: unmoved except c24/c25 under a2skipall.
+
+### NEIGHBOURS (standing rule 2026-09-12) — by the FACT "an A2 edge minted from a STORE re-homes a later destination"
+    neighbour                                         closes under              reason if rowed, and the number
+    loop push, later use (THE ROW)                    a2elem a2elemshr          — (ceiling 1)
+    loop-free push after push (b2 c07 c17 c19 l05)    a2elem a2elemshr          queue row vec_push_after_outer_push_store_rehomed_admits
+    E0506 through the loan channel (c09 c10)          a2elem a2elemshr          member of that row
+    index store `buffer[0] = &d` (c21)                a2elem a2elemshr          member of that row
+    user generic container `Bag<T>::put` (c23)        a2elem a2elemshr          member of that row
+    legal source read after the Vec dies (b4 v13)     a2elem a2elemshr          queue row vec_push_after_outer_push_store_rehomed_refused
+    `&mut` element store (c02; legal twin v01)        a2elem ONLY               queue rows vec_mutref_elem_push_store_rehomed_{admits,refused}
+    setter into a FIELD, not an element (c24 c25)     a2skipall ONLY            reason 1 for the element arms (no element type argument); a2skipall
+                                                                                reason 3: un-refuses A2's witness, 1 fixture — batch 2 prices the
+                                                                                strict extension (below)
+    array literal of refs then index store (c14)      none                      reason 1: written by note_reborrow's P1 arm, another site
+    loop push / assign, NO later use (L07 l04 c12 c18) none                     reason 2: pass 2 restores dangling_; doors in series
+    free-fn out-param store (c22 c22b)                none                      reason 1: the Call arm deposits no §B6 source at all
+    write through `vs[0]` into a `&mut Vec` elem (w02) none                     reason 1: an index step ends resolve_place_reborrow's path
+    two-phase-across-loop (c04e)                      none                      not this fact: door 1, the holder's use at the raise
+
+### BATCH 2 — the strict extension for the setter-field neighbour, SAME site, a second build (probe-batch refuses a dirty tree, so
+### batch 1's rows were committed first as 386a7f072)
+  `a2shr` = no A2 edge when the operand is a SHARED `&` (any store — element or field); `a2elemorshr` = a2elem ∪ a2shr.
+  HAND BATTERY on the batch-2 binary (md5 a23bc6dd, copied the moment it linked; NONE identical to base on every program):
+    a2elemorshr: every a2elem closure (L01 l01 l05 b2 c02 c06 c07 c09 c10 c17 c19 c21 c23 + the row) AND c24 refused; un-refuses b4 v01
+      v13 AND c25 (RUN exit 0). Legal refused: NONE of 84.
+    a2shr: the shared-operand set and c24/c25; NOT c02 (admitted) and NOT v01 (still refused) — the `&mut` element half.
+    fail fixture issue-62007-assign-differing-fields--t22: a2shr unchanged; a2elemorshr adds the same false line a2elem adds (its
+    element operand is `&mut`), the pre-existing aggregate-parameter mis-root.
+
+## a2elemorshr — no A2 alias edge when the operand is a shared `&` OR is stored as a container element (strict extension of a2elem)
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: 510fd1b47d8c29da
+measured: 2026-09-14
+fires: 1146
+ceiling: 1
+cost: 0
+verdict: CEILING {buffer-reuse-pattern-issue-147694}; cost 0 pass(ledger+legal) / stdlib all four layers; fail-text 1 of 1844 TEXT-ONLY (the same --t22 line as a2elem); hand battery 0 of 84 legal refused; queue gate closes SIX of this round's rows and no other; runtime: run_oracle on build/ (510fd1b47d8c29da, the same configure) unarmed 12:48->12:58 vs LOGOS_PROBE=a2elemorshr 12:58->13:08 — 7024 common, 0 added, 0 removed, 1 changed = cast-region-to-uint (stdout sha only; subtracted by name) -> 0. THE ARM TO FUND.
+note: gate-db builds 1226 (unarmed) -> 1227 (armed). Queue rows that stop reproducing under it (soundness_queue_gate, armed copy md5 a23bc6dd): vec_push_after_outer_push_store_rehomed_{admits,refused}, vec_mutref_elem_push_store_rehomed_{admits,refused}, setter_field_store_after_outer_set_rehomed_{admits,refused}. Hand: a2elem's closures plus c24 refused / c25 RUN exit 0.
+
+## a2shr — no A2 alias edge when the operand is a shared `&` (rule-9 twin: the shared half of a2elemorshr alone)
+site: src/compiler/borrow_check.cpp::apply_flow_outparams
+build: 510fd1b47d8c29da
+measured: 2026-09-14
+fires: 1146
+ceiling: 1
+cost: 0
+verdict: CEILING {buffer-reuse-pattern-issue-147694}; cost 0 pass / 0 of 1844 fail-text / stdlib all four layers; hand battery 0 of 84 legal refused; queue gate closes FOUR of this round's rows (vec_push_after_outer_push_store_rehomed_{admits,refused}, setter_field_store_after_outer_set_rehomed_{admits,refused}). Runtime not measured for this name.
+note: gate-db build 1228. Separates from a2elemorshr on hand programs and the queue only: c02 stays admitted and v01 stays refused (the `&mut` element store); the --t22 text line does not appear (its operand is `&mut`). `fires` equal across a2elemshr / a2shr / a2elemorshr (1146) because every name's on() is evaluated at each A2 site visit; it is the site's population, not a count of skipped edges.
+
+### WHAT DESERVES FUNDING
+ 1. **FUND a2elemorshr — bc_admits buffer-reuse-pattern-issue-147694 (bck.NEW-L), ceiling 1, cost 0 in pass, stdlib and runtime,
+    0 of 84 legal hand programs refused, and it closes six soundness_queue rows this round opened** (the vec-push pair, the `&mut`
+    element pair, the setter-field pair). The fact, stated as Rust's: a reference STORED into a place (a container element, or a field
+    through `&mut self`) makes the place a HOLDER of that borrow, never an alias of the referent; only a `&mut` stored where a later
+    write goes THROUGH it (A2's `wire(&mut t, &mut vs); t.x.push(..)`) is a reborrow. The landing should key the edge on that fact
+    rather than on the two type tests the probe uses: the element test (`operand type == an element type argument`) is door 8b's
+    own spelling, and the shared test is the write-through question asked of a type.
+    ⚠ Its one text change is a FALSE sentence on a fail fixture that stays green (--t22, "cannot return reference to local variable
+    'result'"). It is the aggregate-parameter mis-root that base already prints for legal e01/e04/e07/e08/e09 — now queue row
+    aggregate_param_ref_field_borrow_returned_says_dangling_refused. A landing that does not repair it should say so on --t22.
+ 2. a2shr is the cheaper half with no text change and four rows; a2elem/a2elemshr are dominated (a2elem = a2elemorshr minus the
+    setter pair; a2elemshr = a2shr minus the setter pair). a2skipall is NOT fundable: it un-refuses A2's own pinned witness.
+ 3. two-phase-across-loop (bck.NEW-L's second member) is NOT this fact and no name here moves it: it is door 1 — base refuses the
+    port with its later use restored. The next round that takes it should read lu_reordered_by_back_edge's `lu < raise_point` window
+    against a holder used AT the raise statement (the push itself).
+ 4. Rowed with named reasons, not this site's arm: L07/l04/c12/c18 (reason 2 — pass 2 restores dangling_), c14 (reason 1 — P1's
+    writer), c22/c22b (reason 1 — no §B6 deposit at a free-fn out-param store), w02 (reason 1 — an index step ends the resolve path).
+  (Inertness across the two batch builds, runtime column: batch 1 unarmed f696010328ae8565 vs batch 2 unarmed 510fd1b47d8c29da —
+  7024 common, 0 added, 0 removed, 1 changed = cast-region-to-uint -> 0.)
+
+### HAND-BATTERY CATCHES (Victor 2026-09-14): 0 landed as fixtures, 11 as queue rows
+  Every program that caught something here is WRONG on the committed binary (base 0230e503bd682184): the arms that move them are
+  probes, reverted. So none is a pass/fail fixture; each is a queue row or a member named in one (386a7f072): b2, b4, c02, v01, c24,
+  c25, L07, c14, c22b, w02, e04 — members c06 c07 c09 c10 c17 c19 c21 c23 l05 v13 l04 c12 c18 c22 e01 e07 e08 e09 in their headers.
+  Correct-on-base programs (w01 w03-w06, v02 v07 v08 v10-v12, c01 c04* c05 c08 c11 c13 c16 c20 c26, b1 b3 b5-b7 b9, e02 e03 e05 e06)
+  caught nothing: no verdict moved under any name and none was predicted wrong. They stay in scratch.
+
+### GATES AT CLOSE — probe sources reverted (git checkout after each batch; grep of every probe name in borrow_check.cpp: 0),
+### build/ rebuilt from them: `cmake --build build -j32` rc 0, build_hash 0230e503bd682184 43 (read; equal to the opening hash)
+  L1 (from build/): rc 0 — 807/807, enumerator smoke 12 684, gates tier 120/120.
+  soundness_queue_gate (LOGOS_LIB_DIR set) rc 0: 183 rows = # TOTAL 183 by direct listing (tier1 22, tier2 54, tier3 99, tier4 8).
+  probe-log-lint: 309 records, every site symbol resolves. lint-mismatch-monopoly: 1 emitter (expect_type).
+  No pass/fail fixture added, so direct_door_census / census_pin populations are unchanged (not re-derived: nothing to re-derive).
+
+### MISTAKES OF MY OWN
+  * The first link-less battery read `run=126` for every compiled program: logosc `-o` writes an OBJECT, not an executable, and the
+    runner executed it. Caught because the column was uniform; the runner now links the way run_test.sh does and runs under valgrind.
+  * The queue-row generator named a battery path that lived in the 14j scratch dir; it wrote six of eleven programs and died. Re-run
+    whole (it is idempotent); the queue gate and a base-copy run of all eleven confirmed every recorded verdict afterwards.
+  * PREDICTIONS.md said nothing about index stores (c21) or a user generic container (c23): both close under every name. The class is
+    wider than "Vec::push" in the direction the arm already covers — which is what the element test reads, not the method name.
