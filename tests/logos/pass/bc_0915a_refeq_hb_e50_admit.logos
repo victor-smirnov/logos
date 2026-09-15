@@ -1,0 +1,22 @@
+// hand battery: round 0915a_refeq, program e50 — caught: verdict moved base (wrong answer at run time, reference pair compared by address) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915a_refeq_hb_e50_admit;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+struct P { x: D, y: D }
+fn main() -> i32 {
+    let p: P = P { x: D { v: 3i64 }, y: D { v: 3i64 } };
+    match &p {
+        P { x, y } => {
+            if x == y {
+                return 0i32;
+            }
+            return 1i32;
+        }
+    }
+}

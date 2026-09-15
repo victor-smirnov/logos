@@ -1,3 +1,8 @@
+// CLOSED soundness_queue row generic_ref_typevar_eq_compares_addresses_run, round 2026-09-15b-refeqland (priced 2026-09-15a-refeq). A comparison of two
+// references compares THROUGH them (Rust `impl PartialEq<&B> for &A`): sema lower_binop peels reference layers pairwise,
+// dereferences an in-place value (primitive array / str / all-primitive tuple) and passes a struct / tuple / type-variable
+// pair's references to the impl. Exit 0 is Rust's answer; base 854d99ae9a2e2fbd read the address answer (or a refusal).
+// The original row header follows.
 // SOUNDNESS QUEUE row generic_ref_typevar_eq_compares_addresses_run (tier 1). WRONG ANSWER AT RUN TIME. In a generic body
 // `fn same<T: Eq>(a: &T, b: &T) -> bool { a == b }` compares the ADDRESSES for T = a struct (PART 1, exit 1) and for T = char
 // (PART 2, exit 2). T = i64 is right (control: mlir-gen's is_ref_to_prim loads a primitive pointee after substitution — its
@@ -9,7 +14,7 @@
 // part is not a struct: two sites in series, sema's answers both before mono. Battery members e11 e31.
 // Measured on builds 854d99ae9a2e2fbd 43 (base), b1a0431a68699a9c 43 and build-land0913d sha256 8850a5acc469809f. Legality by
 // reading; no rustc binary.
-package generic_ref_typevar_eq_compares_addresses_run;
+package bc_refeqland_typevar_ref_pair_calls_eq_admit;
 use logos.lang.cmp;
 struct D { v: i64 }
 impl Eq for D {

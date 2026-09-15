@@ -1,3 +1,8 @@
+// CLOSED soundness_queue row nested_ref_eq_compares_addresses_run, round 2026-09-15b-refeqland (priced 2026-09-15a-refeq). A comparison of two
+// references compares THROUGH them (Rust `impl PartialEq<&B> for &A`): sema lower_binop peels reference layers pairwise,
+// dereferences an in-place value (primitive array / str / all-primitive tuple) and passes a struct / tuple / type-variable
+// pair's references to the impl. Exit 7 is Rust's answer; base 854d99ae9a2e2fbd read the address answer (or a refusal).
+// The original row header follows.
 // SOUNDNESS QUEUE row nested_ref_eq_compares_addresses_run (tier 1).
 // WRONG ANSWER AT RUN TIME. `x == y` over `&&i64` (and over `&mut &i64`) compares the two ADDRESSES, so two
 // references to two equal values answer false. Rust's `impl PartialEq<&B> for &A where A: PartialEq<B>` compares
@@ -6,7 +11,7 @@
 // not yet applied, not a divergence. Found by round 2026-09-14f-thrurefland's hand battery (n01 n02) on base
 // baa2a38e8b650fb3 43; spec expr.binop.pointer-equality names only the reference-to-primitive case.
 // Rust: exit 7.
-package nested_ref_eq_compares_addresses_run;
+package bc_refeqland_nested_ref_layers_compare_referents_admit;
 fn main() -> i32 {
     let a: i64 = 4i64;
     let b: i64 = 4i64;

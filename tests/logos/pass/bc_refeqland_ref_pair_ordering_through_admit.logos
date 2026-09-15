@@ -1,3 +1,8 @@
+// CLOSED soundness_queue row ref_pair_ordering_mlir_verifier_refused, round 2026-09-15b-refeqland (priced 2026-09-15a-refeq). A comparison of two
+// references compares THROUGH them (Rust `impl PartialEq<&B> for &A`): sema lower_binop peels reference layers pairwise,
+// dereferences an in-place value (primitive array / str / all-primitive tuple) and passes a struct / tuple / type-variable
+// pair's references to the impl. Exit 0 is Rust's answer; base 854d99ae9a2e2fbd read the address answer (or a refusal).
+// The original row header follows.
 // SOUNDNESS QUEUE row ref_pair_ordering_mlir_verifier_refused (tier 3). `<` / `<=` OVER TWO REFERENCES TO A TUPLE (and through
 // a user `partial_cmp` over two `&D`) IS REFUSED BY THE MLIR VERIFIER:
 //   error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
@@ -5,7 +10,7 @@
 // has no pointer form. Same class as the `==` rows of round 2026-09-15a-refeq, the ORDERING operators: arm `refagg` moves this
 // program (exit 0; battery e47), arm `refstruct` moves the partial_cmp spelling (battery e39); the union `refeq` moves both.
 // Measured on build 854d99ae9a2e2fbd 43 (base, refused) and b1a0431a68699a9c 43. Legality by reading; no rustc binary.
-package ref_pair_ordering_mlir_verifier_refused;
+package bc_refeqland_ref_pair_ordering_through_admit;
 fn main() -> i32 {
     let a: (i64, i64) = (1i64, 9i64);
     let b: (i64, i64) = (1i64, 9i64);

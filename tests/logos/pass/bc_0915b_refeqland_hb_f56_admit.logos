@@ -1,0 +1,18 @@
+// hand battery: round 0915b_refeqland, program f56 — caught: verdict moved base (wrong answer at run time) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_f56_admit;
+use logos.lang.cmp;
+struct W<T> { x: T }
+impl Eq for W<i64> {
+    fn eq(&self, other: &W<i64>) -> bool {
+        return self.x == other.x;
+    }
+}
+fn main() -> i32 {
+    let a: W<i64> = W::<i64> { x: 5i64 };
+    let b: W<i64> = W::<i64> { x: 5i64 };
+    let ra: &W<i64> = &a;
+    let rb: &W<i64> = &b;
+    if ra != rb { return 1i32; }
+    return 0i32;
+}

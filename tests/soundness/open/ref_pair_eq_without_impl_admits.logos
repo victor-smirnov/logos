@@ -8,6 +8,8 @@
 // under that arm ('logos.lang.str.Splitter__eq' does not reference a valid function: a blanket impl cloned for a non-Eq struct).
 // The sema arms leave this program admitted (census refeq.sema.spair.noimpl).
 // Battery e23. Measured on builds 854d99ae9a2e2fbd 43, b1a0431a68699a9c 43, build-land0913d sha256 8850a5acc469809f.
+// 2026-09-15b-refeqland member g03: `&(E, i64) == &(E, i64)` with E a C-like enum with NO Eq impl (E0369 by reading) is admitted
+// on base and on the landed binary (the tuple arm does not route a tuple holding an enum); its by-value spelling is refused.
 // Legality by reading; no rustc binary.
 package ref_pair_eq_without_impl_admits;
 struct N { v: i64 }

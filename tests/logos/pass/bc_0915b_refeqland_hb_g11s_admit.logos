@@ -1,0 +1,17 @@
+// hand battery: round 0915b_refeqland, program g11s — caught: verdict moved base (refused: 'arith.cmpi' op operand #0 must be signless-integer-like) -> refeq landing (runs, Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_g11s_admit;
+use logos.lang.cmp;
+fn main() -> i32 {
+    let a: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let b: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let c: (bool, u8, f32) = (true, 4u8, 0.5f32);
+    let ra: &(bool, u8, f32) = &a;
+    let rb: &(bool, u8, f32) = &b;
+    let rc: &(bool, u8, f32) = &c;
+    if !(ra == rb) { return 1i32; }
+    if ra < rb { return 2i32; }
+    if !(ra < rc) { return 3i32; }
+    if rc <= ra { return 4i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// hand battery: round 0915b_refeqland, program f07 — caught: verdict moved base (wrong answer at run time) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_f07_admit;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+trait Same: Eq {
+    fn same(&self, o: &Self) -> bool {
+        return self == o;
+    }
+}
+impl Same for D {}
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    if !a.same(&b) { return 1i32; }
+    return 0i32;
+}

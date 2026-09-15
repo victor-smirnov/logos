@@ -1,0 +1,32 @@
+// SOUNDNESS QUEUE row addr_of_struct_ref_local_arg_passes_referent_run (tier 1). WRONG VALUE AT RUN TIME.
+// `inner2(&rd)` with `rd: &D` (D a struct) and a parameter `a: &&D` passes the ADDRESS OF THE STRUCT, one level
+// short: the callee's `*a` reads D's bytes as a pointer. PART 1 (non-generic `&&D` param) -> exit 1; PART 2 (generic
+// `&&T`, T = D) -> exit 2. Rust: `*a` is `rd` itself, exit 0. Controls on the same binary: `let p: &&D = &rd;
+// inner(p)` is right, and `&rd` with `rd: &i64` is right, so the defect is the call ARGUMENT `&<reference local to a
+// struct>`, not the deref in the callee.
+// OUT OF CLASS for 2026-09-15b-refeqland (it is not a comparison), rowed because the landing's hand battery found it:
+// a comparison through such an argument (`fn same<T: Eq>(a: &&T, b: &&T) { a == b }`, battery f29, and `let x: &T = *a;
+// x == y`, f29c / f29e) pointer-compared the wrong values on base (a wrong answer, or a right one by coincidence: D's
+// bits 6 == 6), and under the landing it calls `D::eq` on them and SEGFAULTS (exit 139, valgrind 1 error) — doors in
+// series. Measured on build/ 854d99ae9a2e2fbd 43 and the landed binary build-land0913d sha256 29f1824b14a4b69d (exit 1 on both).
+// Legality by reading; no rustc binary.
+package addr_of_struct_ref_local_arg_passes_referent_run;
+struct D { v: i64 }
+fn inner2(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn inner<T>(a: &&T) -> *const T {
+    let x: &T = *a;
+    return x as *const T;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let got: *const D = inner2(&rd);
+    if got != want { return 1i32; }
+    let got2: *const D = inner::<D>(&rd);
+    if got2 != want { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// hand battery: round 0915b_refeqland, program f29a — caught: verdict moved base (wrong answer at run time) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_f29a_admit;
+use logos.lang.cmp;
+fn same<T: Eq>(a: &&T, b: &&T) -> bool {
+    return a == b;
+}
+fn main() -> i32 {
+    let a: i64 = 6i64;
+    let b: i64 = 6i64;
+    let ra: &i64 = &a;
+    let rb: &i64 = &b;
+    if !same::<i64>(&ra, &rb) { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+// hand battery: round 0915a_refeq, program e16 — caught: verdict moved base (wrong answer at run time, reference pair compared by address) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915a_refeq_hb_e16_admit;
+use logos.lang.cmp;
+use logos.mem.string;
+struct H { s: String, k: i64 }
+impl Eq for H {
+    fn eq(&self, other: &H) -> bool {
+        return self.s == other.s && self.k == other.k;
+    }
+}
+fn main() -> i32 {
+    let a: H = H { s: String::from("heap-one"), k: 1i64 };
+    let b: H = H { s: String::from("heap-one"), k: 1i64 };
+    let ra: &H = &a;
+    let rb: &H = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

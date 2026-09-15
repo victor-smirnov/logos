@@ -1,0 +1,18 @@
+// hand battery: round 0915b_refeqland, program f11 — caught: verdict moved base (wrong answer at run time) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_f11_admit;
+fn main() -> i32 {
+    let z: f64 = 0.0f64;
+    let nan: f64 = z / z;
+    let a: (f64, f64) = (nan, 1.0f64);
+    let b: (f64, f64) = (nan, 1.0f64);
+    let ra: &(f64, f64) = &a;
+    let rb: &(f64, f64) = &b;
+    if ra == rb { return 1i32; }
+    let c: (f64, f64) = (-0.0f64, 1.0f64);
+    let d: (f64, f64) = (0.0f64, 1.0f64);
+    let rc: &(f64, f64) = &c;
+    let rd: &(f64, f64) = &d;
+    if rc != rd { return 2i32; }
+    return 0i32;
+}

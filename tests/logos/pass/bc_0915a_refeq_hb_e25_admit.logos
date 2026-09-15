@@ -1,0 +1,15 @@
+// hand battery: round 0915a_refeq, program e25 — caught: verdict moved base (wrong answer at run time, reference pair compared by address) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915a_refeq_hb_e25_admit;
+fn main() -> i32 {
+    let a: char = 'z';
+    let b: char = 'z';
+    let ra: &char = &a;
+    let rb: &char = &b;
+    let x: &&char = &ra;
+    let y: &&char = &rb;
+    if x != y {
+        return 1i32;
+    }
+    return 0i32;
+}

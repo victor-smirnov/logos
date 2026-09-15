@@ -1,3 +1,8 @@
+// CLOSED soundness_queue row ref_struct_eq_compares_addresses_run, round 2026-09-15b-refeqland (priced 2026-09-15a-refeq). A comparison of two
+// references compares THROUGH them (Rust `impl PartialEq<&B> for &A`): sema lower_binop peels reference layers pairwise,
+// dereferences an in-place value (primitive array / str / all-primitive tuple) and passes a struct / tuple / type-variable
+// pair's references to the impl. Exit 7 is Rust's answer; base 854d99ae9a2e2fbd read the address answer (or a refusal).
+// The original row header follows.
 // SOUNDNESS QUEUE row ref_struct_eq_compares_addresses_run (tier 1). WRONG ANSWER AT RUN TIME.
 // `ra == rb` over two `&D`, where `D` has a user `impl Eq`, compares the two ADDRESSES and answers
 // false. Rust's `impl PartialEq<&B> for &A where A: PartialEq<B>` calls `D::eq` through the
@@ -12,7 +17,7 @@
 //
 // Found 2026-09-14n-autoreftemp by hand program h38, written as a CONTROL (place operands) for the
 // operator auto-ref arm, on base b54c1160ae8e4066 43; unmoved by every arm of that round.
-package ref_struct_eq_compares_addresses_run;
+package bc_refeqland_struct_ref_pair_calls_eq_admit;
 use logos.lang.cmp;
 
 struct D { v: i64 }

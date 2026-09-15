@@ -1,0 +1,15 @@
+// hand battery: round 0915a_refeq, program e31 — caught: verdict moved base (wrong answer at run time, reference pair compared by address) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915a_refeq_hb_e31_admit;
+use logos.lang.cmp;
+fn same<T: Eq>(a: &T, b: &T) -> bool {
+    return a == b;
+}
+fn main() -> i32 {
+    let a: char = 'k';
+    let b: char = 'k';
+    if !same::<char>(&a, &b) {
+        return 1i32;
+    }
+    return 0i32;
+}

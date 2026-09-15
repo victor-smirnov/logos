@@ -1,3 +1,9 @@
+// CLOSED soundness_queue row ref_pair_aggregate_eq_compares_addresses_run, round 2026-09-15b-refeqland (priced 2026-09-15a-refeq). A comparison of two
+// references compares THROUGH them (Rust `impl PartialEq<&B> for &A`): sema lower_binop peels reference layers pairwise,
+// dereferences an in-place value (primitive array / str / all-primitive tuple) and passes a struct / tuple / type-variable
+// pair's references to the impl. Exit 0 is Rust's answer; base 854d99ae9a2e2fbd read the address answer (or a refusal).
+// PART 4 of the original row (`&(S, i64) ==`, a non-primitive tuple) is NOT closed and was cut from this fixture: it is
+// soundness_queue row ref_pair_nonprim_tuple_eq_compares_addresses_run (reason 3). The original row header follows.
 // SOUNDNESS QUEUE row ref_pair_aggregate_eq_compares_addresses_run (tier 1). WRONG ANSWER AT RUN TIME. `==` over two references
 // to a TUPLE, an ARRAY, or a `&str` compares the ADDRESSES: two references to equal values answer false.
 //   PART 1 `&(i64,i64) ==` -> exit 1 · PART 2 `&[i64;2] ==` -> 2 · PART 3 `&&str ==` (inferred lets) -> 3 · PART 4 `&(S, i64) ==`, S: Eq -> 4
@@ -10,7 +16,7 @@
 // under the union `refeq`, fail text 0 / 1861. Members of the round's battery: e09 e21 e30 e37 (e47, the ordering spelling, is
 // ref_pair_ordering_mlir_verifier_refused). Measured on build 854d99ae9a2e2fbd 43 (base) and b1a0431a68699a9c 43 (armed, unarmed
 // identical). Legality by reading; no rustc binary.
-package ref_pair_aggregate_eq_compares_addresses_run;
+package bc_refeqland_aggregate_ref_pair_compares_values_admit;
 use logos.lang.cmp;
 use logos.mem.string;
 struct S { v: i64 }
@@ -36,10 +42,5 @@ fn main() -> i32 {
     let x = &sa;
     let y = &sb;
     if !(x == y) { return 3i32; }
-    let u1: (S, i64) = (S { v: 5i64 }, 6i64);
-    let u2: (S, i64) = (S { v: 5i64 }, 6i64);
-    let ru1: &(S, i64) = &u1;
-    let ru2: &(S, i64) = &u2;
-    if !(ru1 == ru2) { return 4i32; }
     return 0i32;
 }

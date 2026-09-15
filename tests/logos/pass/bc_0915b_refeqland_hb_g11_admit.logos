@@ -1,0 +1,13 @@
+// hand battery: round 0915b_refeqland, program g11 — caught: verdict moved base (refused: use of moved value 'ra', a `&mut` tuple operand moved by `==`) -> refeq landing (runs, Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_g11_admit;
+use logos.lang.cmp;
+fn main() -> i32 {
+    let mut a: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let b: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let ra: &mut (bool, u8, f32) = &mut a;
+    let rb: &(bool, u8, f32) = &b;
+    if !(ra == rb) { return 1i32; }
+    if ra < rb { return 2i32; }
+    return 0i32;
+}

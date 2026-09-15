@@ -207,7 +207,6 @@ pattern_enum_payload_ref_owner_move_admits 2 tests/soundness/open/pattern_enum_p
 match_addrof_scrutinee_default_payload_loan_unrooted_admits 2 tests/soundness/open/match_addrof_scrutinee_default_payload_loan_unrooted_admits admits
 # ── 2026-09-14f-thrurefland: defects the landing round's hand battery found beside the pointer-comparison arm and the
 # overwrite-through-reference readers, each reproducing on base baa2a38e8b650fb3 43 before any edit; hands in each header.
-nested_ref_eq_compares_addresses_run 1 tests/soundness/open/nested_ref_eq_compares_addresses_run run 1
 loop_second_iteration_mut_alias_through_retargeted_ref_admits 2 tests/soundness/open/loop_second_iteration_mut_alias_through_retargeted_ref_admits admits
 rawptr_int_zero_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_int_zero_compare_mlir_verifier_refused refuses
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
@@ -246,7 +245,6 @@ refcell_interior_push_block_local_dangle_admits 2 tests/soundness/open/refcell_i
 option_replace_ref_store_no_flow_summary_admits 2 tests/soundness/open/option_replace_ref_store_no_flow_summary_admits admits
 # 2026-09-14n-autoreftemp: seven spill sites of one class (an rvalue auto-borrowed with no owner) + an order guard + two unrelated defects its battery caught
 byvalue_operator_operand_not_moved_double_drop 1 tests/soundness/open/byvalue_operator_operand_not_moved_double_drop run 1
-ref_struct_eq_compares_addresses_run 1 tests/soundness/open/ref_struct_eq_compares_addresses_run run 1
 # 2026-09-14o-autoreffund: the autoref landing's neighbours rowed with a named reason, and out-of-class defects its battery caught
 operator_operand_owner_after_sibling_exit_leak 1 tests/soundness/open/operator_operand_owner_after_sibling_exit_leak run 1
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
@@ -267,9 +265,14 @@ slice_pattern_arm_binding_extra_drops 1 tests/soundness/open/slice_pattern_arm_b
 deferred_init_after_inner_shadow_refused 3 tests/soundness/open/deferred_init_after_inner_shadow_refused refuses
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 let_double_ref_str_annotation_refused 3 tests/soundness/open/let_double_ref_str_annotation_refused refuses
-ref_pair_aggregate_eq_compares_addresses_run 1 tests/soundness/open/ref_pair_aggregate_eq_compares_addresses_run run 1
-generic_ref_typevar_eq_compares_addresses_run 1 tests/soundness/open/generic_ref_typevar_eq_compares_addresses_run run 1
 generic_struct_impl_ref_eq_compares_addresses_run 1 tests/soundness/open/generic_struct_impl_ref_eq_compares_addresses_run run 1
-ref_pair_ordering_mlir_verifier_refused 3 tests/soundness/open/ref_pair_ordering_mlir_verifier_refused refuses
 ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_missing_refused refuses
 ref_pair_eq_without_impl_admits 2 tests/soundness/open/ref_pair_eq_without_impl_admits admits
+# ── 2026-09-15b-refeqland (tier 1: a comparison of two references compares THROUGH them, sema lower_binop) ──
+# Five rows CLOSED (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq, generic_ref_typevar_eq, ref_pair_ordering). Five rows
+# OPENED by the landing's hand battery (ref_pair_nonprim_tuple is ref_pair_aggregate's PART 4, re-rowed), each measured on base 854d99ae9a2e2fbd AND the landed binary; reason in each header.
+addr_of_struct_ref_local_arg_passes_referent_run 1 tests/soundness/open/addr_of_struct_ref_local_arg_passes_referent_run run 1
+array_nonprim_elem_eq_compares_addresses_run 1 tests/soundness/open/array_nonprim_elem_eq_compares_addresses_run run 1
+generic_ref_typevar_ordering_mlir_verifier_refused 3 tests/soundness/open/generic_ref_typevar_ordering_mlir_verifier_refused refuses
+tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tuple_enum_elem_eq_variadic_impl_return_lost_refused refuses
+ref_pair_nonprim_tuple_eq_compares_addresses_run 1 tests/soundness/open/ref_pair_nonprim_tuple_eq_compares_addresses_run run 1

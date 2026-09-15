@@ -6020,8 +6020,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                moved. So ALL 10361 -> 10447 (+86), NOIMPORTED 5859 -> 5945 (+86), TIERCOMMIT 118 -> 118 — PREDICTED 10447 / 5945 /
 #                118 (src/compiler/probes/2026-09-14p-shadowslot/LAND_PREDICTIONS_V2.txt), then measured by the gate on the
 #                re-globbed build 854d99ae9a2e2fbd before this pin was touched. soundness_queue 197 -> 193.
-REGISTRY-ALL         10447
-REGISTRY-NOIMPORTED  5945
+# 2026-09-15b (refeqland — a comparison of two references compares THROUGH them in sema lower_binop; soundness_queue rows
+#                nested_ref_eq / ref_struct_eq / ref_pair_aggregate_eq / generic_ref_typevar_eq / ref_pair_ordering CLOSED, five
+#                OPENED). 57 native pass fixtures (5 bc_refeqland_*_admit row programs + 25 bc_0915a_refeq_hb_<id>_admit + 27
+#                bc_0915b_refeqland_hb_<id>_admit), no fail fixture, no port moved. So ALL 10447 -> 10504 (+57), NOIMPORTED
+#                5945 -> 6002 (+57), TIERCOMMIT 118 -> 118 — PREDICTED 10504 / 6002 / 118
+#                (src/compiler/probes/2026-09-15a-refeq/LAND_PREDICTIONS.txt), then measured by `ctest -N` on the re-globbed
+#                build 0fb613dc74481394 before this pin was touched. soundness_queue 200 -> 200.
+REGISTRY-ALL         10504
+REGISTRY-NOIMPORTED  6002
 REGISTRY-TIERCOMMIT  118
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

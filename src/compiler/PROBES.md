@@ -45801,3 +45801,71 @@ verdict: DECLINED AS PRICED — refeq + refmono: both rows, 27 battery shapes (r
 
 note (round): pricing commit. Probe sources reverted and build/ rebuilt pristine by the round's finalize step; the numbers are in
   the commit message. soundness_queue 193 -> 200 (seven rows from the battery; RESULT.txt has the neighbour table).
+
+# ═══ ROUND 2026-09-15b-refeqland (LANDING, soundness queue tier 1) — A COMPARISON OF TWO REFERENCES COMPARES THROUGH THEM: sema
+#     lower_binop peels reference layers pairwise, derefs an in-place value, and routes a struct / type-variable pair's references ═══
+
+Files: `src/compiler/probes/2026-09-15a-refeq/LAND_PREDICTIONS.txt` (before land1's binary; addendum before land4's). Hand battery
+f*/g* in the scratchpad; the programs that caught something landed as fixtures or are named members of a row.
+
+STEP 1: HEAD 9fef9ffcb clean; `# TOTAL` soundness_queue 200, bc_admits 60, bc_admits_blocked 8; probe-log-lint 338 records; build_hash
+854d99ae9a2e2fbd 43; queue gate rc 0 WITH LOGOS_LIB_DIR (200 rows, tier1 32 tier2 58 tier3 102 tier4 8). The pricing report's
+"probe-log-lint 332" was that round's STEP-1 reading; the pricing commit's own records made it 338. dlog selftest rc 0 (19 walkers / 24
+findings / try_path 1-5 / domain 42-5; duty 1 -> 0). refeq_deciders.dl re-asked over the edited tree: decider_ctx = lower_binop@2274,
+gen_expr_kind@760, subst_expr@612 (the same three contexts; op_test in lower_binop 46 -> 56, the new arms) — a CONTEXT-level answer,
+cross-checked by the per-site read in the pricing's CLASS_DLOG.txt; no new rule.
+
+WHAT LANDS (sema_expr.cpp lower_binop only): (1) a pair of references whose pointees are references is dereferenced pairwise, each
+peeled layer loaded as a SHARED reference; (2) a reference pair to a primitive-element array, a str, or an all-primitive tuple (Enum is
+NOT primitive here, although is_integer_kind admits it) is dereferenced to the value compare; (3) a reference pair to structs looks the
+impl up on `&pointee` and passes the references when both formals are references (also for partial_cmp ordering); (4) a reference pair
+to a type variable passes its references to the bound's eq / ne.
+
+THE PRICED UNION WAS REFUTED FOUR TIMES BY THIS ROUND'S OWN COUNTER-EXAMPLES, EACH IN A SHAPE THE PRICING DID NOT USE:
+  land1 bd36462b: f01 `&[S;2]` / f02 `&[String;2]` REFUSED E0507 (ANY array deref'd); f17 `&mut &mut D` REFUSED E0507 (a `&mut` layer
+    moved); e05 / f04s regressed (my own tightening looked the impl up on `&mut` types).
+  land2 7251cacc: g01 g05 g07 (`&(Option<_>, _)`) REFUSED — `prim` admitted Enum and the tuple route inherited the by-value refusal.
+  land3 3e4a73c8: g10 `&(String,[i64;2])`, g15 `&(Box<D>, i64)` REFUSED — an enum denylist does not bound it: the route makes the
+    reference spelling behave as the by-value one, which base refuses for enum / array / Box elements (g07v g10v g15v).
+  => the priced non-primitive-tuple route is DECLINED (reason 3); land4 29f1824b is what lands.
+
+NEIGHBOURS (standing rule 2026-09-12) — the class: every site that decides "compare through a reference or compare the pointers"
+  closed in this commit: depth-2+ peel (nested_ref_eq; e01 e06 e25 f17 f29a f29b f29d f29f); struct pair incl. `&mut`, rvalue
+    temporaries, call results, closures, methods, trait default bodies, where / impl-level bounds, ordering via partial_cmp or a direct
+    `lt` (ref_struct_eq; e02 e05 e07 e15 e16 e17 e18 e20 e28 e29 e39 e46 e49 e50 e51 e53 f04s f05 f06 f07 f08r f08s f13 f34 f36 f45
+    f47 f49 f53 f54 f56); primitive tuple / primitive array / str pair incl. ordering and `&mut` (ref_pair_aggregate_eq PARTs 1-3,
+    ref_pair_ordering; e09 e21 e30 e47 f03 f11 f28 f57 g11 g11s); type-variable pair (generic_ref_typevar_eq; e11 e31 f30).
+  rowed with a reason:
+    ref_pair_nonprim_tuple_eq_compares_addresses_run  NEW, reason 3 — the route that closes it (priced refagg tuple half) refuses
+                                                      g01 g05 g07 g10 g15 (legal, base compiled): it inherits the by-value refusal
+    generic_ref_typevar_ordering_mlir_verifier_refused NEW, reason 1 — Logos Ord carries only `cmp`: no `lt` method to route `<` to (f08)
+    generic_struct_impl_ref_eq_compares_addresses_run (existing) reason 1 / 3 unchanged (e41 1 on land4)
+    ref_typearg_eq_impl_missing_refused (existing) reason 1 unchanged (e12 e13 refused on land4)
+    ref_pair_eq_without_impl_admits (existing) reason 3 unchanged (e23; member g03 `&(E, i64)`)
+  out of class, found by the battery, rowed:
+    addr_of_struct_ref_local_arg_passes_referent_run   NEW — a call argument `&rd` (rd: &Struct) passes the referent's address (f29i f29g
+                                                      wrong on base). ⚠ EXPOSURE, NAMED: f29 / f29c / f29e compare through such an
+                                                      argument; on base they pointer-compared the wrong values (f29 wrong, f29c / f29e
+                                                      right BY COINCIDENCE: D's bits 6 == 6), under the landing they call D::eq on
+                                                      them and SEGFAULT (exit 139). Doors in series; the call-site fix is not priced.
+    array_nonprim_elem_eq_compares_addresses_run       NEW — `[S;2] == [S;2]` by value and by reference (f01 f01v f02 f38 f38v)
+    tuple_enum_elem_eq_variadic_impl_return_lost_refused NEW — by-value `(Option<i64>, i64) ==` refused by an mlir_gen internal (g07v)
+  found, not rowed (predicted and unmoved, no catch): f09 `&Box<D>` / f10 `&Vec<i64>` (no Eq impl in the stdlib: e41's / e23's facts),
+    f12 `&*const i64` pair, f24 `&[i64]` slices, f35 `&dyn` admitted, f46 `T: Clone` `==` admitted (by value too), f04 `&mut D` moved.
+
+## refeqland
+site: src/compiler/sema_expr.cpp::lower_binop
+build: build-land0913d sha256 29f1824b14a4b69d
+measured: 2026-09-15
+fires: not a probe (landed code; no gate)
+ceiling: 5 queue rows (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq PARTs 1-3, generic_ref_typevar_eq, ref_pair_ordering)
+cost: 0 — queue gate (land4 and rebuilt build/ 0fb613dc) rc 0, 200 rows, the 5 closings exactly (land2 FAIL lines = prediction, both
+  ways) · run_oracle vs base 854d99ae: 7169 common, 1 changed = cast-region-to-uint (stack address) -> 0, 55 added all as pinned ·
+  fail_text_oracle 1861 common, rc / stderr sha / .expected match moved 0 / 0 / 0 · valgrind sweep 7238 = 7181 + 57 added (all OK),
+  NEW 0 / GONE 0, LEAK/CORRUPT counters moved 0, one status move memoria_gen_tree TIMEOUT (loaded base) -> OK (re-run ALONE on the
+  rebuilt build/: 0 errors, 4 597 060 allocs = frees, 28 s — a load timeout, not a change) · 57 fixtures pass on
+  land4, 0 of 57 on base (51 wrong exit at run time, 6 refused). ⚠ NAMED EXPOSURE, not a corpus mover: f29 / f29c / f29e segfault
+  through the out-of-class call-argument defect addr_of_struct_ref_local_arg_passes_referent_run (base: wrong or right by coincidence)
+verdict: LANDED — refpeel (shared layers) + refstruct (on `&pointee`, by-reference formals) + refagg's in-place half (primitive
+  array / str / all-primitive tuple, Enum excluded) + refagg's TypeVar half. refagg's NON-PRIMITIVE TUPLE half is DECLINED (g10, g15:
+  legal programs refused). refmono / refeqx stay DECLINED (pricing record).

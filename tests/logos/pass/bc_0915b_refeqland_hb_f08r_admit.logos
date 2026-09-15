@@ -1,0 +1,20 @@
+// hand battery: round 0915b_refeqland, program f08r — caught: verdict moved base (refused: 'arith.cmpi' op operand #0 must be signless-integer-like) -> refeq landing (runs, Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_f08r_admit;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl D {
+    fn lt(&self, o: &D) -> bool {
+        return self.v < o.v;
+    }
+}
+fn less_ref(a: &D, b: &D) -> bool {
+    return a < b;
+}
+fn main() -> i32 {
+    let x: D = D { v: 3i64 };
+    let y: D = D { v: 8i64 };
+    if !less_ref(&x, &y) { return 1i32; }
+    if less_ref(&y, &x) { return 2i32; }
+    return 0i32;
+}

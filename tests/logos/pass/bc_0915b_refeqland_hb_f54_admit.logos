@@ -1,0 +1,38 @@
+// hand battery: round 0915b_refeqland, program f54 — caught: verdict moved base (wrong answer at run time) -> refeq landing (Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915b_refeqland_hb_f54_admit;
+use logos.lang.cmp;
+struct S { v: i64, c: *mut i64 }
+impl Drop for S {
+    fn drop(self: &mut S) {
+        unsafe { *self.c = *self.c + 1i64; }
+    }
+}
+impl Eq for S {
+    fn eq(&self, other: &S) -> bool {
+        return self.v == other.v;
+    }
+}
+struct P { x: S, n: i64 }
+impl Eq for P {
+    fn eq(&self, o: &P) -> bool {
+        return &self.x == &o.x && self.n == o.n;
+    }
+}
+fn main() -> i32 {
+    let mut cnt: i64 = 0i64;
+    let c: *mut i64 = &mut cnt;
+    let mut hit: i64 = 0i64;
+    {
+        let p: P = P { x: S { v: 1i64, c: c }, n: 2i64 };
+        let q: P = P { x: S { v: 1i64, c: c }, n: 2i64 };
+        let rp: &P = &p;
+        let rq: &P = &q;
+        if rp == rq { hit = hit + 1i64; }
+        if p == q { hit = hit + 1i64; }
+    }
+    let got: i64 = unsafe { cnt };
+    if got != 2i64 { return 10i32 + got as i32; }
+    if hit != 2i64 { return 1i32; }
+    return 0i32;
+}

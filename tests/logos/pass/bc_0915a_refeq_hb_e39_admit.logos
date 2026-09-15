@@ -1,0 +1,23 @@
+// hand battery: round 0915a_refeq, program e39 — caught: verdict moved base (refused: 'arith.cmpi' op operand #0 must be signless-integer-like) -> refeq landing (runs, Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915a_refeq_hb_e39_admit;
+use logos.lang.cmp;
+use logos.lang.option;
+struct D { v: i64 }
+impl D {
+    fn partial_cmp(&self, other: &D) -> Option<Ordering> {
+        if self.v < other.v { return Option::Some(Ordering::Less); }
+        if self.v > other.v { return Option::Some(Ordering::Greater); }
+        return Option::Some(Ordering::Equal);
+    }
+}
+fn main() -> i32 {
+    let a: D = D { v: 6i64 };
+    let b: D = D { v: 6i64 };
+    let ra: &D = &a;
+    let rb: &D = &b;
+    if !(ra <= rb) { return 1i32; }
+    if !(rb <= ra) { return 2i32; }
+    if ra < rb { return 3i32; }
+    return 0i32;
+}

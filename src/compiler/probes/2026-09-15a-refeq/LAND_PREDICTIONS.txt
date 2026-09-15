@@ -1,0 +1,63 @@
+LANDING 2026-09-15b-refeqland — PREDICTIONS, written after the sema edit and BEFORE any binary of it existed (06:19).
+base: HEAD 9fef9ffcb, build/ 854d99ae9a2e2fbd 43 (queue gate rc 0, 200 rows, tier1=32 tier2=58 tier3=102 tier4=8).
+candidate: the priced union refeq WITHOUT its census and WITHOUT its `&Enum` arm (unreachable: sema's primitive peel already
+  derefs `&Enum` because is_integer_kind admits Enum; pricing census epair.arrive 0), and with two TIGHTENINGS the pricing did not
+  measure: (a) a struct reference pair takes an impl only when BOTH formals are references (a by-value formal pair would receive a
+  pointer); (b) the by-reference retry lookup {&&D, &&D} is skipped for a reference pair (the pricing kept it).
+
+QUEUE ROWS predicted to CLOSE (5): nested_ref_eq_compares_addresses_run, ref_struct_eq_compares_addresses_run,
+  ref_pair_aggregate_eq_compares_addresses_run, generic_ref_typevar_eq_compares_addresses_run, ref_pair_ordering_mlir_verifier_refused.
+  Every other row reproduces (in particular generic_struct_impl_ref_eq_compares_addresses_run, ref_typearg_eq_impl_missing_refused,
+  ref_pair_eq_without_impl_admits, let_double_ref_str_annotation_refused stay). # TOTAL 200 -> 195.
+
+PRICING BATTERY (44): the 26 refeq moves reproduce (e01 e02 e05 e06 e07 e09 e11 e15 e16 e17 e18 e20 e21 e25 e28 e29 e30 e31 e37
+  e39 e46 e47 e49 e50 e51 e53 -> 0); e41 stays 1; e12 e13 e22 stay refused; e23 stays admitted; the 13 right stay right.
+
+MY BATTERY (f*, shapes the pricing did not use; base verdicts in base.txt):
+  -> 0 (Rust's answer) predicted: f03 (&&tuple, &&array) f05 (call operands, eval order seq 12) f06 (rvalue temporaries, count 2)
+     f11 (&(f64,f64): NaN false, -0.0 == 0.0) f13 (for x in v.iter(): x == &t) f17 (&mut &mut D) f26 (&((i64,i64),i64))
+     f28 (&a == &[..] rvalue array) f29 (&&T generic) f30 (generic T = usize/isize/bool/u8) f34 (explicit lifetimes, !=)
+     f36 (&& / || lazy rhs) f45 (where-clause bound) f47 (impl-level bound) f49 (ref FIELDS p.l != p.r) f53 (move closure)
+     f54 (&self.x == &o.x inside an eq impl, count 2) f04s (&mut D == &D single use)
+  UNCERTAIN, measured not predicted: f07 (trait default body `self == o`, Self) — Self may not be a TypeVar here;
+     f01 (&[S;2], droppable) and f02 (&[String;2]) — the aggregate arm derefs ANY array to a by-value compare, and the by-value
+     array compare of non-primitive elements is wrong on base (f01v exit 1): predicted STILL WRONG (exit 1), count 4, valgrind 0
+     — a deref that copied-and-dropped would read a count above 4 or a valgrind error, and that would condemn the array half;
+     f38 (&[[i64;2];2]) predicted still 1 (by-value f38v is 1 on base);
+     f04 (`&mut D` used twice after ==) base refuses 'use of moved value' — predicted still refused (the move is not this site).
+  unchanged predicted: f08 (&T < &T generic, refused: the TypeVar arm is ==/!= only) f08s f09 (&Box<D>: generic impl, e41's reason)
+     f10 (&Vec<i64>: same) f12 (&*const i64 pair: a raw-pointer pointee is not peeled; stays 1) f24 (&[i64] slices: by-value slice
+     compare wrong, not a reference layer) f35_illegal (&dyn admitted) f46_illegal / f46v_illegal (T: Clone admitted, by value too)
+     f18/f19/f20 illegal stay REFUSED with their base sentences; f04i f05-control f08v stay 0.
+
+COST predicted: run_oracle 0 movers of 7169 (the pricing measured 0 for refeq; the two tightenings only narrow it); fail text 0/0/0;
+  stdlib 4 layers build; valgrind NEW 0 / GONE 0.
+
+ADDENDUM — written 07:20, after land3 (sha 3e4a73c8) condemned the non-primitive tuple routing and BEFORE the land4 binary existed.
+MEASURED SINCE THE FIRST PREDICTION (each refuted a candidate before it could land):
+  land1 (sha bd36462b, the priced union minus census/enum arm, plus two tightenings):
+    f01 `&[S;2]` and f02 `&[String;2]` REFUSED "cannot move out of a value behind a shared reference (E0507)" (base compiled; predicted
+      "still wrong, count 4") — the in-place deref took ANY array; f17 `&mut &mut D` REFUSED "cannot move out of a value behind a mutable
+      reference (E0507)" (predicted 0) — the peel moved a `&mut` layer; e05 `&mut D ==` and f04s regressed to the address answer (priced
+      refeq moved e05) — tightening (b) looked the impl up with the `&mut` operand types; f29 `fn same<T: Eq>(a: &&T, b: &&T)` SEGFAULTS
+      (exit 139, valgrind 1 error; base exit 1) — not predicted.
+  land2 (sha 7251cacc: array deref only for a primitive element; peeled layers load as SHARED references; lookup on `&pointee`):
+    f01 f02 back to base; f17 f04s e05 -> 0; the 5 closings exactly (queue gate); run_oracle 0 movers; fail text 0/0/0. BUT g01
+    `&(Option<S>, i64)`, g05 `&(Option<i64>, String)`, g07 `&(Option<i64>, i64)` REFUSED (mlir_gen internal "`return` value lowered to
+    no value") and g03 `&(E, i64)` refused — `prim` used is_integer_kind, which admits Enum, and the tuple route inherits the BY-VALUE
+    refusal (g01v g07v refused on base). The land2 valgrind sweep was STOPPED at 897 rows (void).
+  land3 (sha 3e4a73c8: Enum excluded from `prim`, tuple route skipped for an enum-holding tuple): g01 g05 g07 back to base, g09 g12 g13
+    g06 -> 0, BUT g10 `&(String, [i64;2])` and g15 `&(Box<D>, i64)` REFUSED — by value both are refused on base (g10v g15v): an
+    enumerated denylist cannot bound this. The non-primitive tuple route is DECLINED (reason 3).
+  f29 f29c f29e: the call argument `&rd` (rd: &Struct) passes the referent's address (f29i f29g wrong on base) — out of class, rowed.
+LAND4 PREDICTION (sema: depth peel with shared layers + in-place deref of primitive array / str / all-primitive tuple + struct pair
+  routed on `&pointee` with by-reference formals + TypeVar pair routed to eq/ne; NO non-primitive tuple routing):
+  queue: 5 rows close with the aggregate row's PART 4 cut to the new row ref_pair_nonprim_tuple_eq_compares_addresses_run, which
+    reproduces (run 1); the other 6 new rows reproduce; TOTAL 200 -> 200 (5 closed, 5 opened) — addr_of_struct_ref_local_arg, array_nonprim_elem,
+    generic_ref_typevar_ordering, tuple_enum_elem, ref_pair_nonprim_tuple.
+  fixtures: 55 pass on land4 (57 minus e37 f26) and fail on base; e37 f26 g06 g09 g12 g13 read 1 (base); g01 g05 g07 g10 g15 read 1
+    (base); g11 g11s 0; f29 f29c f29e 139.
+  cost: run_oracle 0 movers; fail text 0/0/0; valgrind NEW 0 / GONE 0.
+PINS PREDICTED (07:24, before any ctest -N on the re-globbed build/): 57 native pass fixtures (5 bc_refeqland_*_admit + 25
+  bc_0915a_refeq_hb_<id>_admit + 27 bc_0915b_refeqland_hb_<id>_admit), no fail fixture, no port moved. census_pin REGISTRY-ALL
+  10447 -> 10504, NOIMPORTED 5945 -> 6002, TIERCOMMIT 118 -> 118; direct_door corpus 3544 -> 3601 = glob 191 + nonglob 3410 (listed).

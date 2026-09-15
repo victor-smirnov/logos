@@ -2335,6 +2335,49 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     auto lt = expr_type(lhs);
     auto rt = expr_type(rhs);
 
+    // A comparison of two references compares THROUGH them (`impl PartialEq<&B> for &A`): PROBES.md 2026-09-15a-refeq.
+    const bool cmp_op = op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=";
+    auto is_ref_t = [](TypeRef t) {
+        return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
+    };
+    if (cmp_op && is_ref_t(lt) && is_ref_t(rt)) {
+        while (is_ref_t(TypeRef(lt).pointee()) && is_ref_t(TypeRef(rt).pointee())) {
+            // A peeled layer is read, not moved: `&mut` layers load as shared references.
+            TypeRef pl = make_ref(false, TypeRef(lt).pointee().pointee());
+            TypeRef pr = make_ref(false, TypeRef(rt).pointee().pointee());
+            lhs = builder().deref(std::move(lhs), pl);
+            lt = pl;
+            rhs = builder().deref(std::move(rhs), pr);
+            rt = pr;
+        }
+        auto in_place = [&](TypeRef p) {
+            using K = LogosType::Kind;
+            auto prim = [](TypeRef e) {  // is_integer_kind admits Enum, which the value compare does not
+                return e && e.kind() != K::Enum &&
+                       (is_integer_kind(e.kind()) || e.kind() == K::F32 || e.kind() == K::F64 ||
+                        e.kind() == K::Bool || e.kind() == K::Char);
+            };
+            if (!p) return false;
+            if (p.kind() == K::Array) return prim(p.elem());
+            if (p.kind() == K::Slice) return p.elem() && p.elem().kind() == K::U8;
+            if (p.kind() != K::Tuple || p.tuple_elems().empty()) return false;
+            for (auto e : p.tuple_elems())
+                if (!prim(e)) return false;
+            return true;
+        };
+        TypeRef pl = TypeRef(lt).pointee(), pr = TypeRef(rt).pointee();
+        if (in_place(pl) && in_place(pr) && pl.kind() == pr.kind()) {
+            lhs = builder().deref(std::move(lhs), pl);
+            lt = pl;
+            rhs = builder().deref(std::move(rhs), pr);
+            rt = pr;
+        }
+    }
+    auto ref_pair_to = [&](LogosType::Kind k) {
+        return cmp_op && is_ref_t(lt) && is_ref_t(rt) && TypeRef(lt).pointee() && TypeRef(rt).pointee() &&
+               TypeRef(lt).pointee().kind() == k && TypeRef(rt).pointee().kind() == k;
+    };
+
     // T2-26 prereq: auto-deref a `&T`/`&mut T` operand whose pointee is a
     // numeric/bool/char primitive in an arithmetic / comparison / bitwise /
     // shift operator (Rust's `impl Add<i32> for &i32` family). `r + 1` for
@@ -2554,7 +2597,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     }
 
     // Operator overloading: if LHS is a struct, desugar to trait method call.
-    if (TypeRef(lt).kind() == LogosType::Kind::Struct) {
+    // A reference pair to structs looks the impl up on the pointee and passes the references themselves.
+    const bool struct_ref_pair = ref_pair_to(LogosType::Kind::Struct);
+    const TypeRef lt_sv = struct_ref_pair ? TypeRef(lt).pointee() : TypeRef(lt);
+    const TypeRef rt_sv = struct_ref_pair ? TypeRef(rt).pointee() : TypeRef(rt);
+    if (TypeRef(lt_sv).kind() == LogosType::Kind::Struct) {
         // Map operator to trait name and method
         std::string trait_name, method_name;
         if      (op == "+")  { trait_name = "Add"; method_name = "add"; }
@@ -2577,16 +2624,25 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         else if (op == ">")  { trait_name = "Ord"; method_name = "gt"; }
         else if (op == ">=") { trait_name = "Ord"; method_name = "ge"; }
         if (!trait_name.empty()) {
-            auto type_name = concrete_struct_name(lt);
+            auto type_name = concrete_struct_name(lt_sv);
             auto mangled = type_name + "__" + method_name;
-            auto fit = find_func_by_base_and_signature(mangled, {lt, rt}, false);
+            // A reference pair is passed as is, so only a by-reference formal pair may take it.
+            auto takes_refs = [&](const SemaFuncInfo* f) {
+                return f && f->param_types.size() == 2 && f->param_types[0] &&
+                       is_ref_like(TypeRef(f->param_types[0]).kind()) && f->param_types[1] &&
+                       is_ref_like(TypeRef(f->param_types[1]).kind());
+            };
+            auto fit = struct_ref_pair
+                ? find_func_by_base_and_signature(mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
+                : find_func_by_base_and_signature(mangled, {lt, rt}, false);
             // Rust-shape operator impls take their operands by reference
             // (`fn eq(&self, &other)`). The by-value signature above won't
             // match those, so retry with `&lt`/`&rt` (mirrors the tuple-Eq
             // lookup). push_operand below then auto-refs to match.
-            if (!fit)
+            if (!fit && !struct_ref_pair)
                 fit = find_func_by_base_and_signature(
                     mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
+            if (struct_ref_pair && !takes_refs(fit)) fit = nullptr;
             if (fit) {
                 // Auto-ref each operand when the matched impl method takes it
                 // by reference (`fn eq(&self, &other)`, the Rust shape). The
@@ -2620,10 +2676,13 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // is_gt/is_ge). Mirrors Rust's default lt/le/gt/ge bodies.
             if (op == "<" || op == "<=" || op == ">" || op == ">=") {
                 std::string pc_mangled = type_name + "__partial_cmp";
-                auto pcfit = find_func_by_base_and_signature(
+                auto pcfit = struct_ref_pair ? nullptr : find_func_by_base_and_signature(
                     pc_mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
                 if (!pcfit)
-                    pcfit = find_func_by_base_and_signature(pc_mangled, {lt, rt}, false);
+                    pcfit = struct_ref_pair
+                        ? find_func_by_base_and_signature(pc_mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
+                        : find_func_by_base_and_signature(pc_mangled, {lt, rt}, false);
+                if (struct_ref_pair && !takes_refs(pcfit)) pcfit = nullptr;
                 if (pcfit && pcfit->ret_type) {
                     std::vector<lir::LExprPtr> pcargs;
                     auto push_pc = [&](lir::LExprPtr e, TypeRef vty, size_t idx) {
@@ -2694,9 +2753,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // iter_eq's `(&*xr).eq(&*yr)`); mono dispatches it to the concrete impl
     // after T is substituted. Only intercept when an `eq`-providing bound is
     // actually in scope — otherwise fall through to the existing diagnostic.
+    // A reference pair to a type variable passes its references to `eq` / `ne`.
+    const bool tv_ref_pair = (op == "==" || op == "!=") && ref_pair_to(LogosType::Kind::TypeVar);
     if ((op == "==" || op == "!=") &&
-        TypeRef(lt).kind() == LogosType::Kind::TypeVar) {
-        std::string tv_name(TypeRef(lt).type_var_name());
+        (tv_ref_pair || TypeRef(lt).kind() == LogosType::Kind::TypeVar)) {
+        std::string tv_name(TypeRef(tv_ref_pair ? TypeRef(lt).pointee() : TypeRef(lt)).type_var_name());
         auto bit = current_type_bounds_.find(tv_name);
         bool provides_eq = false;
         int  eq_providers = 0;
@@ -2720,8 +2781,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 if (eq_providers > 1) break;
             }
             std::string m = (op == "==") ? "eq" : "ne";
-            auto lref = take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
-            auto rref = take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
+            auto lref = tv_ref_pair ? std::move(lhs) : take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
+            auto rref = tv_ref_pair ? std::move(rhs) : take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
             lir::EMethodCall mc;
             mc.receiver = std::move(lref);
             mc.method   = m;
