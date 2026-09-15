@@ -1054,9 +1054,9 @@ For `==`/`!=` where both operands are references (`&T`/`&mut T`) to the same pri
 
 *Source:* `src/compiler/mlir_gen_expr.cpp#L1090-L1131`
 
-### `expr.binop.pointer-equality` — Pointer == / != compares addresses
+### `expr.binop.pointer-equality` — Raw-pointer == / != compares addresses; references compare referents
 
-When operands are pointers (and not the deref-eligible reference-to-primitive case), `==`/`!=` compare pointer addresses.
+When the operands are raw pointers (`*const T` / `*mut T`), `==`/`!=` compare addresses. When they are references, the comparison is of the referents, as in Rust (`PartialEq for &A` delegates to `A`): reference layers are peeled pairwise (each layer read as a shared reference), a pair of references to a primitive, a primitive-element array, a `str` or an all-primitive tuple compares by value, a struct pair calls the `Eq`/`Ord` impl, and a type-variable pair calls `eq`/`ne`. Corrected 2026-09-15 (round 2026-09-15b-refeqland, `SemaChecker::lower_binop`): the clause used to send every reference other than a reference-to-primitive to the address compare, which is false about Rust. Open queue rows cover the remaining reference shapes (non-primitive tuple and array elements, generic struct impls).
 
 *Source:* `src/compiler/mlir_gen_expr.cpp#L1091-L1143`
 

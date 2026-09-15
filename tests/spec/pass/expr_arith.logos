@@ -79,12 +79,14 @@ fn main() -> i64 {
     if (2i64 + 3i64) != 5i64 { return 18; }
 
     // @rule expr.binop.pointer-equality
-    // references to a non-deref-eligible aggregate compare by address.
+    // references compare their referents (Rust `PartialEq for &A`), not their addresses:
+    // two distinct tuples with equal values are equal through references.
     {
         let pe_t: (i64, i64) = (1i64, 2i64);
+        let pe_u: (i64, i64) = (1i64, 2i64);
         let pe_p: &(i64, i64) = &pe_t;
-        let pe_q: &(i64, i64) = &pe_t;
-        if !(pe_p == pe_q) { return 19; }   // same address
+        let pe_q: &(i64, i64) = &pe_u;
+        if !(pe_p == pe_q) { return 19; }   // distinct addresses, equal values
     }
 
     // @rule expr.binop.precedence-cascade
