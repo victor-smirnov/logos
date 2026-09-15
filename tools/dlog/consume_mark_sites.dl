@@ -1,0 +1,38 @@
+#include "cxx_schema.dl"
+// consume_mark_sites — round 2026-09-15e-consume. Class: "a by-value move-type operand placed into a CONSUMING LIR node
+// is consumed, so its source is marked moved". Enumerates every call site of a LirBuilder method that builds a node
+// owning operand children, with the enclosing context, and whether that context ALSO calls one of the move markers
+// (SemaChecker::mark_moved_expr / mark_moved / mark_moved_in_expr_recursive / mark_moved_deferred_only).
+// Claim-free: the builder list and the marker list are named here, the verdict is derived.
+// ⚠ ctx_of coarsens (a lambda may report its enclosing function; a context that marks for ONE site is "marks" for
+// all of its sites), so "ctx_marks" is an UPPER bound on sites that mark and every "no_mark" row is cross-checked by
+// a per-site read.
+// KNOWN ANSWER (stated before the run, from reading): lower_arr_lit has arr_lit sites and NO marker (no_mark);
+// the TUPLE_LIT case lives in lower_expr (marks, coarse); lower_struct_lit marks; lower_unary has a call site and
+// no marker; lower_binop has call sites and (by reading) no marker in its own body.
+// MEASURED (selftest rc 0 first): FIRST RUN 0 sites — a HARNESS ZERO in this rule's spelling (decl qnames carry `logos::compiler::`),
+// corrected. SECOND RUN over sema_expr.cpp + sema_stmt.cpp: 207 sites, ctx_marks 36 / no_mark 171; the known answer present term for term
+// (lower_arr_lit no_mark 3, lower_struct_lit ctx_marks 2, lower_unary no_mark 1, lower_binop no_mark 9). CROSS-CHECK BY RUN: the no_mark
+// rows of lower_method_call / lower_static_call / lower_generic_call / try_method_on_dyn are the ctx_of coarsening — their by-value
+// arguments are marked through helpers in other contexts (hand programs d01-d08 d10 destroy once). The defects are the per-site reads
+// lower_arr_lit 13368/13372, lower_binop 2670, lower_unary 3514, lower_compound_assign 3066, lower_place_compound_assign 3229 (round
+// 2026-09-15e-consume, src/compiler/probes/2026-09-15e-consume/CLASS_DLOG.txt).
+.decl consuming_builder(Q: symbol)
+consuming_builder(Q) :- decl(_, _, Q), (Q = "logos::compiler::LirBuilder::arr_lit" ; Q = "logos::compiler::LirBuilder::tuple_lit" ; Q = "logos::compiler::LirBuilder::struct_lit" ;
+    Q = "logos::compiler::LirBuilder::enum_lit_data" ; Q = "logos::compiler::LirBuilder::call" ; Q = "logos::compiler::LirBuilder::call_v" ; Q = "logos::compiler::LirBuilder::method_call" ;
+    Q = "logos::compiler::LirBuilder::method_call_v" ; Q = "logos::compiler::LirBuilder::closure_call" ; Q = "logos::compiler::LirBuilder::fn_ptr_call" ; Q = "logos::compiler::LirBuilder::slice_lit").
+.decl marker(D: symbol)
+marker(D) :- decl(D, _, Q), (Q = "logos::compiler::SemaChecker::mark_moved_expr" ; Q = "logos::compiler::SemaChecker::mark_moved" ;
+    Q = "logos::compiler::SemaChecker::mark_moved_in_expr_recursive" ; Q = "logos::compiler::SemaChecker::mark_moved_deferred_only").
+.decl ctx_marks(C: symbol)
+ctx_marks(C) :- marker(D), call(U, D), ctx_of(U, C).
+.decl site(File: symbol, Line: number, Ctx: symbol, Builder: symbol, Verdict: symbol)
+.output site
+site(F, L, N, Q, "ctx_marks") :- consuming_builder(Q), decl(D, _, Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N), ctx_marks(C).
+site(F, L, N, Q, "no_mark")   :- consuming_builder(Q), decl(D, _, Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N), !ctx_marks(C).
+.decl ctx_count(Ctx: symbol, Verdict: symbol, N: number)
+.output ctx_count
+ctx_count(N, V, K) :- site(_, _, N, _, V), K = count : { site(_, _, N, _, V) }.
+.decl verdict_count(Verdict: symbol, N: number)
+.output verdict_count
+verdict_count(V, K) :- site(_, _, _, _, V), K = count : { site(_, _, _, _, V) }.

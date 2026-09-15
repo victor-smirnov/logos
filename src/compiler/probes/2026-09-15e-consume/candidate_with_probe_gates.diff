@@ -1,0 +1,113 @@
+diff --git a/src/compiler/sema_expr.cpp b/src/compiler/sema_expr.cpp
+index 1b6e947a9..d9fd8e31f 100644
+--- a/src/compiler/sema_expr.cpp
++++ b/src/compiler/sema_expr.cpp
+@@ -2663,6 +2663,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+                             return;
+                         }
+                     }
++                    // PROBE 2026-09-15e-consume (census + opmove / consumex) — see src/compiler/PROBES.md.
++                    if (vty && is_move_type(vty)) {
++                        logos::probe::census(std::string("consume.binop.byval.move.") + consume_probe_tag(expr_ref_of(e)));
++                        if (logos::probe::on("opmove") || logos::probe::on("consumex"))
++                            mark_moved_expr(expr_ref_of(e));
++                    }
+                     args.push_back(std::move(e));
+                 };
+                 push_operand(std::move(lhs), lt, 0);
+@@ -3510,6 +3516,13 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
+             auto fit = find_func_by_base_and_signature(mangled, {vt}, false);
+             if (fit) {
+                 std::vector<lir::LExprPtr> args;
++                // PROBE 2026-09-15e-consume (census + unmove / consumex) — see src/compiler/PROBES.md.
++                if (is_move_type(vt) && !(fit->param_types.size() == 1 && fit->param_types[0] &&
++                                          is_ref_like(TypeRef(fit->param_types[0]).kind()))) {
++                    logos::probe::census(std::string("consume.unary.byval.move.") + consume_probe_tag(expr_ref_of(operand)));
++                    if (logos::probe::on("unmove") || logos::probe::on("consumex"))
++                        mark_moved_expr(expr_ref_of(operand));
++                }
+                 args.push_back(std::move(operand));
+                 return builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args), fit->ret_type);
+             }
+@@ -13026,9 +13039,21 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
+     }
+     auto items = arr_of(node.get(la::ITEMS.code));
+     std::vector<lir::LExprPtr> elems;
+-    for (uint64_t i = 0; i < items.size(); ++i)
++    for (uint64_t i = 0; i < items.size(); ++i) {
+         elems.push_back(lower_expr(map_of(items.get(i))));
+-
++        // PROBE 2026-09-15e-consume (census + arrmove / arrmovetv / consumex) — see src/compiler/PROBES.md.
++        TypeRef consume_et = expr_type(elems.back());
++        const bool consume_tv = consume_et && TypeRef(consume_et).kind() == LogosType::Kind::TypeVar;
++        if (consume_tv)
++            logos::probe::census(std::string("consume.arrlit.tv.") + consume_probe_tag(expr_ref_of(elems.back())));
++        else if (consume_et && is_move_type(consume_et))
++            logos::probe::census(std::string("consume.arrlit.move.") + consume_probe_tag(expr_ref_of(elems.back())));
++        if (logos::probe::on("arrmovetv") ||
++            (!consume_tv && (logos::probe::on("arrmove") || logos::probe::on("consumex"))))
++            mark_moved_expr(expr_ref_of(elems.back()));
++    }
++
++    // PROBE 2026-09-15e-consume: arrmovetv (TypeVar elements marked too) is armed in the element loop above.
+     TypeRef elem_type = expr_type(elems[0]);
+     // T0-5: a CONCRETE scalar element hint (a `&[i64]` formal / annotation,
+     // via hint_arr_elem_type_) retypes an all-literal array's elements up
+diff --git a/src/compiler/sema_impl.hpp b/src/compiler/sema_impl.hpp
+index cc697a11d..3f76434e5 100644
+--- a/src/compiler/sema_impl.hpp
++++ b/src/compiler/sema_impl.hpp
+@@ -4629,6 +4629,19 @@ private:
+         return path;
+     }
+ 
++    // PROBE 2026-09-15e-consume (census tag for arrmove / arrmovetv / opmove / unmove / casmove / casplmove / consumex) — see src/compiler/PROBES.md.
++    static const char* consume_probe_tag(lir_view::ExprRef r) {
++        using C = lir_schema::expr::Code;
++        if (!r) return "N";
++        switch (r.kind()) {
++            case C::VarRef: return "V";
++            case C::FieldRead: return "F";
++            case C::TupleIndex: return "T";
++            case C::IndexRead: return "I";
++            default: return "O";
++        }
++    }
++
+     void mark_moved_expr(lir_view::ExprRef er) {
+         if (!er) return;
+         using C = lir_schema::expr::Code;
+diff --git a/src/compiler/sema_stmt.cpp b/src/compiler/sema_stmt.cpp
+index c82a63e81..b022cfdaf 100644
+--- a/src/compiler/sema_stmt.cpp
++++ b/src/compiler/sema_stmt.cpp
+@@ -3061,6 +3061,14 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
+                         mangled, {mut_ref_t, var_type}, false);
+                 if (fit) {
+                     std::vector<lir::LExprPtr> args;
++                    // PROBE 2026-09-15e-consume (census + casmove / consumex) — see src/compiler/PROBES.md.
++                    if (rhs && is_move_type(expr_type(rhs)) &&
++                        !(fit->param_types.size() == 2 && fit->param_types[1] &&
++                          is_ref_like(TypeRef(fit->param_types[1]).kind()))) {
++                        logos::probe::census(std::string("consume.opassign.var.move.") + consume_probe_tag(expr_ref_of(rhs)));
++                        if (logos::probe::on("casmove") || logos::probe::on("consumex"))
++                            mark_moved_expr(expr_ref_of(rhs));
++                    }
+                     args.push_back(std::move(recv));
+                     args.push_back(std::move(rhs));
+                     auto call = builder().call(
+@@ -3224,6 +3232,14 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
+                     auto addr = builder().addr_of_temp(lower_mut_place(place_node),  // eval #2 — &mut place
+                                                        /*is_mut=*/true, mut_ref_t);
+                     std::vector<lir::LExprPtr> args;
++                    // PROBE 2026-09-15e-consume (census + casplmove / consumex) — see src/compiler/PROBES.md.
++                    if (rhs && is_move_type(expr_type(rhs)) &&
++                        !(fit->param_types.size() == 2 && fit->param_types[1] &&
++                          is_ref_like(TypeRef(fit->param_types[1]).kind()))) {
++                        logos::probe::census(std::string("consume.opassign.place.move.") + consume_probe_tag(expr_ref_of(rhs)));
++                        if (logos::probe::on("casplmove") || logos::probe::on("consumex"))
++                            mark_moved_expr(expr_ref_of(rhs));
++                    }
+                     args.push_back(std::move(addr));
+                     args.push_back(std::move(rhs));
+                     auto call = builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name,

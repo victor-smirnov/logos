@@ -1,0 +1,19 @@
+package f05_tv_copy_twice_inst_drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+#[derive_copy]
+#[derive_clone]
+struct P { v: i64 }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn dup<T: Copy>(x: T) -> [T; 3] { return [x, x, x]; }
+fn g(p: *mut i64) -> i64 { let a: [i64; 3] = dup(5i64); return a[2]; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    if got != 0i64 { return 1i32; }
+    return 0i32;
+}

@@ -46060,3 +46060,98 @@ CONTRADICTS A RECORD: the pricing record's "match / if-let / `ref` binders (VT)"
   binder over `r: &P` read garbage on base independently of `&` (q24), and the expression door had no depth collapse at all (q14); neither
   was in the pricing battery's shapes. Its "enumerate the RefPat door's sites with dlog" found the 12 inner() sites, but the two
   defects outside RefPat were found by varying the SHAPE, not by the rule.
+
+# ═══ ROUND 2026-09-15e-consume (PRICING, soundness queue tier 1) — A BY-VALUE OPERAND PLACED INTO A CONSUMING NODE IS NOT MARKED MOVED AT
+#     FIVE SEMA SITES: THE ARRAY LITERAL'S ELEMENTS, THE OPERATOR OVERLOAD'S OPERANDS (BINARY, UNARY) AND THE *Assign RHS (VAR, PLACE) ══════
+
+Files: `src/compiler/probes/2026-09-15e-consume/` — TARGET_ROWS.txt (before any compiler edit), PREDICTIONS.txt (after the spec, before the
+build), consume.spec + candidate_with_probe_gates.diff (census + seven arms as measured), CLASS_DLOG.txt (dlog question, first-run harness zero,
+per-site read, run cross-check), RESULT.txt (every column), battery/ (hand programs a01-a12 o01-o08 m01-m13 b01-b20 x01-x09 c01-c20 d01-d12
+e01-e14 f01-f12). New dlog rule: tools/dlog/consume_mark_sites.dl (selftest rc 0 first; known answer present after the qname correction).
+
+STEP 1: HEAD 5fdfdb455 clean; `# TOTAL` soundness_queue 209, bc_admits 60, bc_admits_blocked 8; probe-log-lint 351 records; build_hash
+72c2afc955f79321 43; queue gate rc 0 with LOGOS_LIB_DIR (209 rows, tier1 31 tier2 58 tier3 112 tier4 8); dlog selftest rc 0. The prompt's numbers
+agree with the tree (31 tier-1 rows). TIER 1 RE-MEASURED on 72c2afc955f79321 43 (run x2 + valgrind): all 31 reproduce the recorded observation
+exactly; none closed (RESULT.txt, with valgrind summaries).
+
+TARGET: return_array_lit_of_moved_locals_double_drop + byvalue_operator_operand_not_moved_double_drop. WHAT SHOULD IT MEAN: Rust — an array
+literal's elements and a by-value operator method's operands are MOVED (`[a, b]`, `Add::add(a, b)`); no blessed divergence (A16 auto-Copy
+excludes a type with `impl Drop`; A17 is `Vec::get`; no spec clause on operator / array-literal operand moves).
+
+⚠ THE ROW HEADER'S ROOT IS WRONG. return_array_lit_... says "the return path's moved-set does not record them"; the array literal double-drops
+in EVERY position measured (a local with no return 22, a call argument, a struct / tuple field, a match scrutinee, a closure body, an if-expr
+arm), so the fact is lower_arr_lit's, not lower_return's. `return a + b` and `eat(a + b)` are RIGHT on base because
+mark_moved_in_expr_recursive walks a Call's args at those two consumers — the operator's move is recorded only when a consumer re-walks it.
+
+WHY THIS BLOCK: the two newest tier-1 rows, never priced; battery a/o showed both are ONE decision (a consuming node's by-value operand is
+not marked moved) at construction sites that TUPLE_LIT / lower_struct_lit / call arguments already make, so one structural change per site and a
+control row (slice_pattern_arm_binding_extra_drops, the array DESTRUCTURE fact) that must not move — it did not.
+
+COLUMNS (RESULT.txt): union consumex — queue EXACTLY the two targets; battery 56 of 111 to Rust's answer (additive by name over the five arms);
+pass 0 · fail text 0 of 1861 · stdlib ok · runtime 0 of 7322 · valgrind NEW 0 / GONE 0 of 7332. ARRIVAL CENSUS: zero move-type PLACE operands at
+all five sites in the pass corpus (114 rvalue elements, 1 TypeVar) and the stdlib (852 rvalue elements) — every cost 0 is over a population with
+no carrier. Rows opened: 10 (NEIGHBOURS.txt, each header carries its reason).
+
+## consumex
+site: src/compiler/sema_expr.cpp::lower_arr_lit
+(union name answered at every gate of arrmove / opmove / unmove / casmove / casplmove; the census tag helper is src/compiler/sema_impl.hpp::SemaChecker::consume_probe_tag)
+build: 8477d9e792aadea6 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 6926 (on() evaluations) · arrivals: pass corpus consume.arrlit.move.O 114 + consume.arrlit.tv.V 1, stdlib consume.arrlit.move.O 852, every PLACE / operator / *Assign bucket 0
+ceiling: 2 queue rows (return_array_lit_of_moved_locals_double_drop, byvalue_operator_operand_not_moved_double_drop — exactly the predicted pair); battery 56 of 111 moved, all to Rust's answer
+cost: 0 pass (ledger+legal) · 0 of 1861 fail text · stdlib 4 layers ok · runtime 0 of 7322 differ (run_oracle, cast-region-to-uint subtracted) · valgrind NEW 0 / GONE 0 of 7332 swept (unarmed vs consumex, same configure; identical status counts LEAK 53 CORRUPT 3 TIMEOUT 4; no valgrind.bin survivor after either) — ALL OVER POPULATIONS WITH ZERO PLACE ARRIVALS (census) · battery: x01-x04 re-worded (sema "use of moved variable 'a'" replaces borrow_check's "use of moved value 'a' (moved on line N)")
+verdict: FUNDABLE — the union is the class (five sites of one decision, additive by name, each arm moving only its own programs), with TWO conditions for the landing: (1) keep borrow_check's "use of moved value 'a' (moved on line N)" — sema's use-after-move check now fires first on x01-x04, pinned by fail/bc_0915e_consume_hb_x0{1,2,3,4}_refuse; (2) the corpus carries no member of this class (census), so the 56 moved battery programs must land as pass fixtures with the fix or nothing holds it.
+
+## arrmove
+site: src/compiler/sema_expr.cpp::lower_arr_lit
+build: 8477d9e792aadea6 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 6923 (every non-TypeVar element) · arrivals: move-type place elements 0 in pass corpus and stdlib (census)
+ceiling: 1 queue row (return_array_lit_of_moved_locals_double_drop, attributed by battery); battery 33 moved (a01 a02 a05 a06 a08 a09 a11 a12 b04 b05 b06 b07 b10 b15 b17 b19 c03-c06 c14-c18 e03 e04 e08 e12 + row program; e01 x01 x04 re-refused)
+cost: 0 pass · 0 of 1861 fail text · stdlib ok · runtime/valgrind priced on the union only (arm set ⊂ union, additive by name)
+verdict: PRICED — a member of the union; e01 `[src[0]]` newly refused with rustc's E0508 sentence (toward Rust); sentence regression x01 x04.
+
+## arrmovetv
+site: src/compiler/sema_expr.cpp::lower_arr_lit
+build: 8477d9e792aadea6 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 6923 · arrivals: TypeVar elements — pass corpus 1 (consume.arrlit.tv.V), stdlib 0
+ceiling: 1 queue row (return_array_lit_..., queue gate armed rc 1, exactly that row) + opened row generic_array_lit_typevar_elems_double_drop closes (1 -> 0); battery 35 = arrmove's 33 + b09 + e14; batF f03 f06 right, f11 (illegal) refused
+cost: 0 pass · 0 of 1861 fail text · stdlib ok · runtime 0 of 7322 differ (run_oracle) · the TUPLE_LIT twin keeps its TypeVar skip (row generic_unbounded_typevar_reuse_after_tuple_literal_admits)
+verdict: FUNDABLE AS arrmove's STRICT EXTENSION in the same landing — it is Rust's rule at a TypeVar element (b09 e14 f03 f06 right, f11 refused like rustc), priced 0 over a population of ONE TypeVar carrier; it makes arrays stricter than TUPLE_LIT's deliberate, un-canonised TypeVar skip, which stays a row (reason 3) with an owner.
+
+## opmove
+site: src/compiler/sema_expr.cpp::lower_binop
+build: 8477d9e792aadea6 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 2 · arrivals: consume.binop.byval.move.* 0 in pass corpus and stdlib — the 2 fires fall outside both censused populations and were NOT located (the ceiling run also compiles the bc ledger and the 1861 fail fixtures, which the census did not cover)
+ceiling: 1 queue row (byvalue_operator_operand_not_moved_double_drop, attributed by battery); battery 17 moved (o01 o05 o06 o08 b03 b11 b12 b16 b20 c09 c11 c12 c13 d11 d12 + row program; x02 re-refused)
+cost: 0 pass · 0 of 1861 fail text · stdlib ok — over a population with zero arrivals
+verdict: PRICED — a member of the union; neighbour mono_clone BinOp re-dispatch ROWED reason 1 (generic_operator_mono_redispatch_operands_double_drop).
+
+## unmove
+site: src/compiler/sema_expr.cpp::lower_unary
+build: 8477d9e792aadea6 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 0 — NEVER FIRED: an UNREACHED site in the priced population (census: consume.unary.byval.move.* 0 in pass corpus and stdlib)
+ceiling: 0 rows; battery 4 moved (o03 c07 e05; x03 re-refused)
+cost: not measured by the harness (never fired); stdlib unmeasured for this name alone, ok under consumex
+verdict: PRICED ON THE BATTERY ONLY — no corpus carrier.
+
+## casmove
+site: src/compiler/sema_stmt.cpp::lower_compound_assign
+build: 8477d9e792aadea6 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 0 — NEVER FIRED: an UNREACHED site (census consume.opassign.var.move.* 0)
+ceiling: 0 rows; battery 1 moved (c08 `acc += d`, 21 -> 11)
+cost: not measured by the harness (never fired); ok under consumex
+verdict: PRICED ON THE BATTERY ONLY — no corpus carrier.
+
+## casplmove
+site: src/compiler/sema_stmt.cpp::lower_place_compound_assign
+build: 8477d9e792aadea6 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 1 · arrivals: consume.opassign.place.move.* 0 in pass corpus and stdlib — the 1 fire falls outside both and was NOT located
+ceiling: 0 rows; battery 1 moved (e06 `w.x += d`, 2011 -> 1011)
+cost: 0 pass · 0 of 1861 fail text · stdlib ok
+verdict: PRICED ON THE BATTERY ONLY — no corpus carrier.

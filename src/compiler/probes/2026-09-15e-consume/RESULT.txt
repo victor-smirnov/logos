@@ -1,0 +1,126 @@
+round 2026-09-15e-consume — RESULT (every column). PRICING ONLY; nothing lands in src/.
+
+STEP 1 (2026-09-15 12:44): HEAD 5fdfdb455 clean. # TOTAL soundness_queue 209, bc_admits 60, bc_admits_blocked 8. probe-log-lint 351 records
+("every site symbol resolves" — not evidence, see prompt). build_hash 72c2afc955f79321 43 (logosc 11:45; sources unchanged since 0680783b6 — the
+one later commit touched tests/cmake only; `ninja -n` lists no logosc step). Queue gate (serial, LOGOS_LIB_DIR set) rc 0 at 12:46:50: 209 rows,
+tier1 31 tier2 58 tier3 112 tier4 8. Corrections to the prompt: none needed on the numbers it gives (31 tier-1 rows at writing, 31 measured).
+dlog selftest.sh rc 0.
+
+TIER 1 RE-MEASURED (base 72c2afc955f79321 43; compile LOGOS_VERIFY_LAYOUT=1, link as the gate, run twice, valgrind --leak-check=full):
+ALL 31 REPRODUCE THE LEDGER'S RECORDED OBSERVATION EXACTLY; none closed.
+  row                                              rc (x2)  stdout            valgrind
+  aggregate_extended_borrow_temp_never_dropped     1 1      inside=0 n=0      0 errors
+  array_nonprim_elem_eq_compares_addresses_run     1 1      -                 0 errors
+  at_binding_by_value_never_dropped                1 1      -                 0 errors
+  boxed_escaping_fnonce_capture_double_free        2 2      -                 0 errors (2 allocs 2 frees)
+  boxed_move_closure_fat_capture_env_overflow      134 134  -                 2 errors: Invalid write of size 8, Invalid read of size 8
+  box_field_move                                   134 134  -                 1 error: Invalid free() (2 allocs, 3 frees)
+  byvalue_operator_operand_not_moved_double_drop   1 1      -                 0 errors
+  closure_fnonce_call_in_loop_multi_free           1 1      -                 0 errors
+  closure_fnonce_cond_call_untaken_leak            1 1      -                 0 errors
+  closure_owned_dyn_capture                        1 1      -                 1 error: Invalid read of size 8
+  closure_param_shadow_double_drop                 1 1      -                 0 errors
+  enum_payload_partial_move_leak                   1 1      -                 0 errors
+  enum_variant_value_into_scalar_let_admits        136 72 (valgrind run 88)  0 errors — exit varies run to run, as recorded (admits row)
+  field_base_temp_built_before_sibling_run         1 1      k=3 seq=216       0 errors
+  generic_struct_impl_ref_eq_compares_addresses_run 1 1     -                 0 errors
+  impl_fn_return_stack_env_dangles                 1 1      -                 4 errors: Conditional jump or move depends on uninitialised value(s)
+  index_place_through_refmut_never_drops_old       1 1      n=110             0 errors
+  letelse_or_pattern_takes_else                    1 1      -                 0 errors
+  match_arm_nested_binder_shadow_double_drop       1 1      -                 0 errors
+  operator_operand_owner_after_sibling_exit_leak   1 1      r=5 seq=2         0 errors
+  param_ref_struct_cast_after_addr_of_reads_slot_run 1 1    -                 0 errors
+  ref_pair_nonprim_tuple_eq_compares_addresses_run 1 1      -                 0 errors
+  return_array_lit_of_moved_locals_double_drop     1 1      n=22              0 errors
+  self_call_in_return_kills_param_drops            1 1      -                 0 errors
+  slice_pattern_arm_binding_extra_drops            1 1      -                 0 errors
+  static_array_whole_borrow_reads_garbage          1 1      -                 0 errors
+  tuple_elem_shared_borrow_through_ref_dangles_run 1 1      -                 1 error: Conditional jump or move depends on uninitialised value(s)
+  tuplestruct_door_default_ref_mode_not_carried    2 2      drops=2           0 errors (4 allocs 2 frees, definitely lost 0)
+  variant_payload_char_literal_nomatch             1 1      -                 0 errors
+  variant_payload_nested_struct_sub_double_drops   2 2      -                 0 errors
+  weak_local_never_dropped                         1 1      -                 1 error: 12 bytes in 1 blocks are definitely lost (1 allocs, 0 frees)
+  (the impl_fn_return row header recorded 2 uninitialised records; today 4 contexts — same kind, count differs; rc unchanged)
+
+ARRIVAL CENSUS (probe build 8477d9e792aadea6 43, nothing armed; bucket = site . operand kind, V VarRef F FieldRead T TupleIndex I IndexRead
+O other = an rvalue, on which mark_moved_expr is a no-op):
+  pass corpus (run_oracle's 7322 compiles, LOGOS_CENSUS):   consume.arrlit.move.O 114 · consume.arrlit.tv.V 1 · every other bucket 0
+  stdlib, four layers (stdlib-cost.sh, LOGOS_CENSUS):        consume.arrlit.move.O 852 · every other bucket 0
+  ⚠ THE ZEROS, BY KIND. lower_arr_lit is REACHED (966 move-type elements) but by NO move-type PLACE — the arm's effective predicate has zero
+  arrivals in both populations; the operator (binop / unary) and *Assign sites have zero move-type arrivals at all (UNREACHED). So every
+  rc / text / stdlib cost 0 below prices an arm over populations that carry NONE of the programs it changes: it is not a safety claim, and the
+  hand battery (122 programs) is the only population with carriers. The single TypeVar VarRef element is arrmovetv's whole corpus population.
+
+PRICING (scripts/probe-batch.sh consume.spec, ONE build 8477d9e792aadea6 43, L1 unarmed rc 0 "batch inert"; columns from ceiling-probe.sh):
+  probe       fires  ceiling  cost  cfail          std   queue gate (serial, armed)                         battery moved (of 111)
+  consumex    6926   0        0     0 of 1861      ok    rc 1: EXACTLY the two targets close                 56 (all to Rust's answer)
+  arrmove     6923   0        0     0 of 1861      ok    (attributed by battery: return_array_lit only)      33
+  arrmovetv   6923   0        0     0 of 1861      ok    rc 1: EXACTLY return_array_lit_... closes           35 (+b09 +e14)
+  opmove      2      0        0     0 of 1861      ok    (attributed by battery: byvalue_operator only)      17
+  unmove      0      NEVER FIRED — an unreached site, not a zero                                                4
+  casmove     0      NEVER FIRED — an unreached site, not a zero                                                1
+  casplmove   1      0        0     0 of 1861      ok                                                          1
+  `ceiling` counts bc_admits rows — a HARNESS ZERO for this queue; the queue column is the gate run by hand.
+  `fires` counts on() evaluations that matched, not move-type arrivals: arrmove's gate is evaluated for every non-TypeVar element.
+  ADDITIVITY: fires 6923 + 2 + 0 + 0 + 1 = 6926 (union); battery 33 + 17 + 4 + 1 + 1 = 56 (union) — additive on both, set for set
+  (the union's 56 = the disjoint union of the five arm sets, checked by name).
+  PREDICTIONS BY NAME: queue rows exactly as predicted for consumex and arrmovetv. Battery: every predicted mover moved, every predicted
+  unmoved stayed, with ONE attribution miss — b20 `[a + b]` was predicted to need arrmove AND opmove; opmove alone moves it (the array
+  element is the call's temporary, an rvalue arrmove does not touch). ONE sentence miss — x01 x02 x03 x04 (illegal, refused on base by
+  borrow_check "use of moved value 'a' (moved on line N)") stay refused under their arm but SEMA now refuses first: "use of moved
+  variable 'a'" — the moved-on line is lost. No fail fixture pins that shape (cfail 0), so the text column cannot see it; x05 `a + a` and
+  x07 (loop) keep borrow_check's sentence. Pinned as fail fixtures bc_0915e_consume_hb_x0{1,2,3,4}_refuse.
+  NEWLY REFUSED toward Rust (predicted): e01 `[src[0]]` over a Drop element -> "cannot move out of type `[D; 1]`, a non-copy array" (E0508).
+  arrmovetv also REFUSES f11 (`fn f<T>(x: T) -> T { let a = [x]; return x; }`, illegal: E0382), admitted on base; its tuple twin f12 is
+  admitted under every arm (TUPLE_LIT's deliberate TypeVar skip).
+  Legal generic shapes under arrmovetv: f04 f05 f09 (Copy / i64 instantiations, `[x, x]` with T: Copy) stay right; f03 f06 b09 e14 move to
+  Rust's answer.
+RUNTIME (scripts/run_oracle.py, LOGOS_BUILD=build, probe build 8477d9e792aadea6 43; one configure; each table 7322 rows):
+  unarmed   13:48:55 -> 13:59:44 (with LOGOS_CENSUS: the corpus census above)
+  consumex  13:59:44 -> 14:10:28   differ from unarmed: 0 of 7322 (cast-region-to-uint / -b152 subtracted by name)
+  arrmovetv 14:10:28 -> 14:21:0x   differ from unarmed: 0 of 7322 (same subtraction)
+  A ZERO OF THE FIRST KIND FOR THE EFFECTIVE PREDICATE: the corpus carries zero move-type place operands at these sites (census), so the
+  runtime column cannot move; it is recorded as measured, not as evidence that the arms are safe.
+VALGRIND (tests/lattice/valgrind/sweep.sh, probe build 8477d9e792aadea6 43, same configure, reaper after each):
+  unarmed   14:21 -> 14:33   swept 7332 (2 excluded) · allocated 1889 · LEAK 53 CORRUPT 3 TIMEOUT 4 CFAIL 62 LINKFAIL 124 OK 7086
+  consumex  14:33 -> 14:46   swept 7332 · allocated 1889 · LEAK 53 CORRUPT 3 TIMEOUT 4 CFAIL 62 LINKFAIL 124 OK 7086
+  non-OK sets diffed both ways by path: NEW 0 · GONE 0. CORRUPT on both: bc_objlt_str_literal, custom_dst_smartptr_owning_drop, fiber_thread_basic;
+  TIMEOUT on both: memoria_btfl_multimap, memoria_gen_fse, memoria_gen_tree, memoria_ssrle_ops. No valgrind.bin survivor after either sweep.
+  (arrmovetv's valgrind column was not run: its extra set over arrmove is TypeVar elements, 1 corpus carrier, runtime 0 of 7322.)
+
+RUSTC TWINS (NEW FACT 2026-09-15: rustc 1.98.1, /home/victor/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc --edition 2024).
+  src/compiler/probes/2026-09-15e-consume/rust/ — 137 twins generated MECHANICALLY by l2rs.py (kept there), each with a `// TWIN:` line for every
+  rewrite that is not pure spelling: `type Output = R;` added to an operator impl (Logos's Add/Neg/Not carry no Output type), `T: Add` ->
+  `T: Add<Output = T>`, `#[derive_copy]` -> `#[derive(Clone, Copy)]`, a `.len()` sum cast `as i64`. RUSTC_VERDICTS.txt holds all 137.
+  The translator's first run broke ONE twin (its operator-impl rewrite matched code quoted in a row header comment); fixed (comment lines are
+  carried verbatim) and all 137 regenerated before any verdict was used.
+  * 118 compile and EVERY ONE exits 0 — every expected exit code / destructor count asserted by the battery, the two target rows, the three
+    inherited rows whose shapes were widened (slice_pattern_arm_binding_extra_drops, at_binding_by_value_never_dropped,
+    enum_payload_partial_move_leak) and the new `run` / `refuses` rows is Rust's answer.
+  * 19 refused, each where illegal was claimed: x01-x05 x07 x08 E0382 · x06 E0507 · x09 E0505 · e01 and array_lit_index_elem_move_out_admits E0508
+    (the exact sentence arrmove produces) · fill_n2 and array_repeat_len2_noncopy_says_use_of_moved E0277 · f11 f12 and both
+    generic_unbounded_typevar_reuse_* rows E0382 · f07 E0106 (my program was illegal; logosc gives the same E0106 — not a finding) · b18 E0308
+    (broken on both sides: logosc cannot find package logos.mem.vec).
+  * CONFIRMED BY RUSTC: `[a; 1]` over a non-Copy value is legal; `y @ D { v: _, c: _ }` is legal; `[b1, b2]` into `[Box<dyn Tr>; 2]` is legal;
+    `loop { break [a]; }` is legal — each twin exit 0.
+  * NO INHERITED ROW OR HEADER IS CONTRADICTED. A16 auto-Copy touches no twin's verdict (the one auto-Copy struct, batD's `K { k: i64 }`, is only borrowed).
+
+VERDICTS
+  consumex   FUNDABLE AS THE NEXT LANDING, conditionally. Closes both targets; 56 hand programs to Rust's answer (b15 rc 134 and b19 rc 139 heap
+             corruption on base); zero in pass / fail text / stdlib / runtime / valgrind over populations carrying ZERO move-type place operands
+             (census) — the battery + rustc twins are the evidence. Conditions: keep borrow_check's "(moved on line N)" sentence on x01-x04 (pinned
+             as fail fixtures; an unchanged consumex landing reds them by design); co-land array_lit_index_elem_move_out_admits.
+  arrmovetv  FUNDABLE IN PLACE OF arrmove (+ b09 e14 f03 f06; closes generic_array_lit_typevar_elems_double_drop and
+             generic_unbounded_typevar_reuse_after_array_literal_admits); its landing must price TUPLE_LIT's unblessed TypeVar skip
+             (row generic_unbounded_typevar_reuse_after_tuple_literal_admits).
+  unmove / casmove / casplmove  members of the union with no corpus carrier (battery 4 / 1 / 1).
+
+AFTER PRICING (the seven arms reverted with `git checkout` of sema_expr.cpp / sema_impl.hpp / sema_stmt.cpp, build/ rebuilt, rows + fixtures re-globbed):
+  build_hash 7eb6735b16576c45 43 (the base before the round read 72c2afc955f79321 43 — same sources, a rebuild; the hash covers the binary bytes)
+  `ctest -N`: ALL 10823 / -LE imported 6321 / tier_commit 337 — PREDICTED 10809+14 / 6307+14 / 327+10 (10 queue rows, each one test labelled
+  tier_commit; 4 fail fixtures, not tier_commit) before the pin was touched.
+  queue gate (serial, LOGOS_LIB_DIR): rc 0 — 219 rows (tier1 36 tier2 60 tier3 114 tier4 9); every new row reproduces its recorded observation.
+  ctest the 10 new logos_00_squeue_<id> + the 4 bc_0915e_consume_hb_x0N_refuse + logos_00_soundness_queue: 15 of 15 pass.
+  L1 (from build/): rc 1 BEFORE the pin edit — L1.1 808/808, smoke tier passed, gates tier 336/337: the one failure is logos_00_census_pin, the
+  registry pin this commit must move (10809/6307/327 -> 10823/6321/337).
+  L1 AFTER the pin edit (build/ 7eb6735b16576c45 43, 14:56 -> 14:59): rc 0 — smoke tier passed, gates tier 337/337, L1.1 808/808.

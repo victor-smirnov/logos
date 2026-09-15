@@ -1,0 +1,35 @@
+round 2026-09-15e-consume — PREDICTIONS, written after the spec, BEFORE the probe-batch build or any armed run.
+base: build/ 72c2afc955f79321 43 (HEAD 5fdfdb455). Batteries a/o (batA), m (batM), b/x (batB2), c (batC), d (batD), e (batE) measured on base.
+
+ARMS (one name per site; consumex = union of the five non-TypeVar arms):
+  arrmove    SemaChecker::lower_arr_lit   element loop: mark_moved_expr per element, TypeVar skipped (mirrors TUPLE_LIT)
+  arrmovetv  SemaChecker::lower_arr_lit   same site, TypeVar elements marked too (inner-predicate twin)
+  opmove     SemaChecker::lower_binop     push_operand's by-value arm: mark a move-type operand
+  unmove     SemaChecker::lower_unary     Neg/Not overload arm, by-value formal
+  casmove    SemaChecker::lower_compound_assign        *Assign overload, by-value rhs
+  casplmove  SemaChecker::lower_place_compound_assign  *Assign overload on a struct place, by-value rhs
+  consumex   union of arrmove opmove unmove casmove casplmove
+
+QUEUE (soundness_queue_gate, run separately; ceiling-probe's CEILING column counts bc_admits rows and is a HARNESS ZERO for this queue):
+  consumex   closes exactly {return_array_lit_of_moved_locals_double_drop, byvalue_operator_operand_not_moved_double_drop}
+  arrmove    closes exactly {return_array_lit_of_moved_locals_double_drop}
+  arrmovetv  same as arrmove
+  opmove     closes exactly {byvalue_operator_operand_not_moved_double_drop}
+  unmove casmove casplmove   close 0 rows
+  control slice_pattern_arm_binding_extra_drops unmoved under every arm (array DESTRUCTURE, different fact)
+
+HAND BATTERY under consumex (base-wrong legal -> Rust's answer):
+  a01 a02 a05 a06 a08 a09 a11 a12 · o01 o03 o05 o06 o08 · b03 b04 b05 b06 b07 b10 b11 b12 b15 (valgrind clean) b16 b17 b19 (no segv) b20
+  c03 c04 c05 c06 c07 c08 c09 c11 c12 c13 c14 c15 c16 c17 c18 · d11 d12 · e03 e04 e05 e06 e08 e12
+  per arm: a*/b04-b07/b10/b15/b17/b19/c03-c06/c14-c18/e03/e04/e08/e12 need arrmove; o*/b03/b11/b12/b16/b20(needs both)/c09/c11/c12/c13/d11/d12 need opmove;
+  o03 c07 e05 need unmove; c08 needs casmove; e06 needs casplmove.
+UNMOVED under consumex (different carrier):
+  b09 e14 (TypeVar array elements; predicted RIGHT under arrmovetv) · c19 c20 (generic operator re-dispatched in mono_clone; no arm)
+  d09 (`[a; 1]` non-Copy: Rust refuses E0277; a mark would give 1 but the fix is a refusal) · e09 (internal no-vtable, compile) · e11 (break-value
+  array segfault — predicted unmoved: an uninitialised read, not a double drop) · every m-series program.
+RIGHT ON BASE, STAYS RIGHT: a03 a04 a07 a10 o02 o04 o07 b01 b02 b08 b13 b14 c01 c02 c10 d01-d08 d10 e02 e07 e10.
+ILLEGAL x01-x09: stay refused with the SAME sentence (borrow_check's move record already refuses them on base).
+NEWLY REFUSED (toward Rust): e01 `[src[0]]` over a Drop element -> "cannot move out of type `[D; 1]`, a non-copy array" (rustc E0508) under arrmove/consumex.
+
+COST (guess, to be refuted): stdlib 4 layers ok; pass rc cost 0; fail text 0 changed; run_oracle <= 5 changed, each a fixture whose expected stdout
+pins a double drop; valgrind union NEW 0, GONE >= 0.

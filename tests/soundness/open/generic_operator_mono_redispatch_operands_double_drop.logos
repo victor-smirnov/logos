@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row generic_operator_mono_redispatch_operands_double_drop (tier 1). `x + y` IN A GENERIC BODY OVER `T: Add`, INSTANTIATED
+// WITH A DROP TYPE WHOSE `add` TAKES ITS OPERANDS BY VALUE, DESTROYS BOTH OPERANDS TWICE.
+// `fn sum<T: Add>(x: T, y: T) -> T { let s: T = x + y; return s; }` over D: Rust 1 + 10 (inside add) + 100 (s) = 111, exit 0. TODAY 122, exit 1.
+// NEIGHBOUR of 2026-09-15e-consume's opmove, ROWED WITH REASON 1 (the fact has no carrier there): sema lowers a TypeVar `+` to a plain BinOp
+// (no impl lookup, no push_operand, no by-value formal to read); the call is re-dispatched after substitution in mono_clone's BinOp case,
+// which builds `D__add(lhs, rhs)` with no move record. opmove / consumex leave it at 122 (measured, hand programs c19 c20). rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15e-consume/rust/generic_operator_mono_redispatch_operands_double_drop.rs: compiles, runs, exit 0.
+package generic_operator_mono_redispatch_operands_double_drop;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+impl Add for D { fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
+fn sum<T: Add>(x: T, y: T) -> T { let s: T = x + y; return s; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let s: D = sum(D { v: 1i64, c: p }, D { v: 10i64, c: p });
+        if s.v != 100i64 { return 7i32; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 111i64 { return 1i32; }
+    return 0i32;
+}

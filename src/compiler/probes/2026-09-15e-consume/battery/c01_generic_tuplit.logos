@@ -1,0 +1,24 @@
+package c01_generic_tuplit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct H { arr: [D; 2] }
+struct W { x: D, y: D }
+enum E { V(D, D), U }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn eat(d: D) -> i64 { return d.v * 0i64; }
+fn eat2(a: [D; 2]) -> i64 { return a[0].v * 0i64; }
+impl Add for D { fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
+impl Not for D { fn not(self: D) -> i64 { return self.v; } }
+impl AddAssign for D { fn add_assign(self: &mut D, o: D) { self.v = self.v + 0i64 * o.v; } }
+fn two<T>(x: T, y: T) -> (T, T) { return (x, y); }
+fn g(p: *mut i64) -> i64 { { let t: (D, D) = two(D { v: 1i64, c: p }, D { v: 10i64, c: p }); if t.1.v != 10i64 { return 7i64; } } return 0i64; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    if got != 11i64 { return 1i32; }
+    return 0i32;
+}

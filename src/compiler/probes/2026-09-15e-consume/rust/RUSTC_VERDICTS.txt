@@ -1,0 +1,137 @@
+a01_arrlit_local                                           RUSTC ok   run rc=0
+a02_ret_arrlit                                             RUSTC ok   run rc=0
+a03_ret_tuplit                                             RUSTC ok   run rc=0
+a04_ret_structlit                                          RUSTC ok   run rc=0
+a05_let_then_ret                                           RUSTC ok   run rc=0
+a06_tail_arrlit                                            RUSTC ok   run rc=0
+a07_ret_some                                               RUSTC ok   run rc=0
+a08_arg_arrlit                                             RUSTC ok   run rc=0
+a09_ret_arrlit_other_local                                 RUSTC ok   run rc=0
+a10_ret_tuplit_param                                       RUSTC ok   run rc=0
+a11_ret_arrlit_in_branch                                   RUSTC ok   run rc=0
+a12_nested_arrlit_ret                                      RUSTC ok   run rc=0
+array_lit_box_elem_unsize_to_dyn_no_vtable                 RUSTC ok   run rc=0
+array_lit_index_elem_move_out_admits                       RUSTC REFUSED error[E0508] | error[E0508]: cannot move out of type `[D; 1]`, a non-copy array
+array_repeat_len1_noncopy_operand_double_drop_run          RUSTC ok   run rc=0
+array_repeat_len2_noncopy_says_use_of_moved                RUSTC REFUSED error[E0277] | error[E0277]: the trait bound `D: Copy` is not satisfied
+at_binding_by_value_never_dropped                          RUSTC ok   run rc=0
+at_binding_whole_struct_wild_fields_refused                RUSTC ok   run rc=0
+b01_copy_arrlit_reuse                                      RUSTC ok   run rc=0
+b02_copy_op_reuse                                          RUSTC ok   run rc=0
+b03_op_reassign_acc                                        RUSTC ok   run rc=0
+b04_arrlit_reassign_src                                    RUSTC ok   run rc=0
+b05_arrlit_fields                                          RUSTC ok   run rc=0
+b06_arrlit_one_field                                       RUSTC ok   run rc=0
+b07_arrlit_cond_move                                       RUSTC ok   run rc=0
+b08_arrlit_cond_untaken                                    RUSTC ok   run rc=0
+b09_generic_arrlit                                         RUSTC ok   run rc=0
+b10_arrlit_loop_fresh                                      RUSTC ok   run rc=0
+b11_op_loop_fresh                                          RUSTC ok   run rc=0
+b12_op_cond_move                                           RUSTC ok   run rc=0
+b13_op_cond_untaken                                        RUSTC ok   run rc=0
+b14_neg_param                                              RUSTC ok   run rc=0
+b15_heap_arrlit                                            RUSTC ok   run rc=0
+b16_op_field_operands                                      RUSTC ok   run rc=0
+b17_arrlit_of_arrlit_var                                   RUSTC ok   run rc=0
+b18_vec_macro                                              RUSTC REFUSED error[E0308] | error[E0308]: mismatched types
+b19_arrlit_box                                             RUSTC ok   run rc=0
+b20_op_in_arrlit                                           RUSTC ok   run rc=0
+byvalue_operator_operand_not_moved_double_drop             RUSTC ok   run rc=0
+c01_generic_tuplit                                         RUSTC ok   run rc=0
+c02_enum_ctor                                              RUSTC ok   run rc=0
+c03_arrlit_in_structlit                                    RUSTC ok   run rc=0
+c04_arrlit_in_tuplit                                       RUSTC ok   run rc=0
+c05_arrlit_callarg                                         RUSTC ok   run rc=0
+c06_box_arrlit                                             RUSTC ok   run rc=0
+c07_not_by_value                                           RUSTC ok   run rc=0
+c08_addassign_rhs                                          RUSTC ok   run rc=0
+c09_op_in_structlit                                        RUSTC ok   run rc=0
+c10_op_callarg                                             RUSTC ok   run rc=0
+c11_op_chain                                               RUSTC ok   run rc=0
+c12_op_call_lhs                                            RUSTC ok   run rc=0
+c13_ret_op_tail                                            RUSTC ok   run rc=0
+c14_ret_arrlit_ifexpr                                      RUSTC ok   run rc=0
+c15_assign_arrlit                                          RUSTC ok   run rc=0
+c16_method_arg_arrlit                                      RUSTC ok   run rc=0
+c17_closure_arrlit_capture                                 RUSTC ok   run rc=0
+c18_match_scrut_arrlit                                     RUSTC ok   run rc=0
+c19_generic_op                                             RUSTC ok   run rc=0
+c20_generic_op_let                                         RUSTC ok   run rc=0
+d01_ufcs_type_add                                          RUSTC ok   run rc=0
+d02_ufcs_trait_add                                         RUSTC ok   run rc=0
+d03_generic_call_locals                                    RUSTC ok   run rc=0
+d04_dyn_method_arg                                         RUSTC ok   run rc=0
+d05_static_ctor_arg                                        RUSTC ok   run rc=0
+d06_closure_call_arg                                       RUSTC ok   run rc=0
+d07_fnptr_call_arg                                         RUSTC ok   run rc=0
+d08_generic_method_arg                                     RUSTC ok   run rc=0
+d09_arrfill_nocopy                                         RUSTC ok   run rc=0
+d10_trait_method_arg                                       RUSTC ok   run rc=0
+d11_let_binop_then_ret                                     RUSTC ok   run rc=0
+d12_add_tuple_elem                                         RUSTC ok   run rc=0
+e01_arrlit_index_elem_move                                 RUSTC REFUSED error[E0508] | error[E0508]: cannot move out of type `[D; 1]`, a non-copy array
+e02_arrlit_mutref_elems                                    RUSTC ok   run rc=0
+e03_arrlit_loop_reinit                                     RUSTC ok   run rc=0
+e04_self_fields_byvalue                                    RUSTC ok   run rc=0
+e05_neg_reassign                                           RUSTC ok   run rc=0
+e06_place_addassign                                        RUSTC ok   run rc=0
+e07_addassign_temp_rhs                                     RUSTC ok   run rc=0
+e08_arrlit_option_locals                                   RUSTC ok   run rc=0
+e09_arrlit_boxdyn_unsize                                   RUSTC ok   run rc=0
+e10_arrlit_refs_dyn                                        RUSTC ok   run rc=0
+e11_break_value_arrlit                                     RUSTC ok   run rc=0
+e12_match_arm_arrlit                                       RUSTC ok   run rc=0
+e13_arrlit_string_reuse_after_clone                        RUSTC ok   run rc=0
+e14_generic_struct_arrlit                                  RUSTC ok   run rc=0
+enum_payload_partial_move_leak                             RUSTC ok   run rc=0
+f01_tv_copy_dup                                            RUSTC ok   run rc=0
+f02_tv_copy_use_after                                      RUSTC ok   run rc=0
+f03_tv_two_generic_struct                                  RUSTC ok   run rc=0
+f04_tv_i64_inst                                            RUSTC ok   run rc=0
+f05_tv_copy_twice_inst_drop                                RUSTC ok   run rc=0
+f06_tv_param_reuse_no_bound                                RUSTC ok   run rc=0
+f07_tv_ref_elems                                           RUSTC REFUSED error[E0106] | error[E0106]: missing lifetime specifier
+f08_op_copy_struct_reuse                                   RUSTC ok   run rc=0
+f09_tv_copy_bound_reuse_i64                                RUSTC ok   run rc=0
+f11_tv_unbounded_reuse_after_array                         RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `x`
+f12_tv_tuple_twin_unbounded_reuse                          RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `x`
+fill_n0                                                    RUSTC ok   run rc=0
+fill_n1                                                    RUSTC ok   run rc=0
+fill_n2                                                    RUSTC REFUSED error[E0277] | error[E0277]: the trait bound `D: Copy` is not satisfied
+generic_array_lit_typevar_elems_double_drop                RUSTC ok   run rc=0
+generic_operator_mono_redispatch_operands_double_drop      RUSTC ok   run rc=0
+generic_unbounded_typevar_reuse_after_array_literal_admits RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `x`
+generic_unbounded_typevar_reuse_after_tuple_literal_admits RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `x`
+loop_break_value_array_lit_uninit_drop_run                 RUSTC ok   run rc=0
+m01_at_noreturn                                            RUSTC ok   run rc=0
+m02_at_return                                              RUSTC ok   run rc=0
+m03_at_struct_noreturn                                     RUSTC ok   run rc=0
+m04_at_iflet                                               RUSTC ok   run rc=0
+m05_slice_noreturn                                         RUSTC ok   run rc=0
+m06_slice_return                                           RUSTC ok   run rc=0
+m07_tuple_return                                           RUSTC ok   run rc=0
+m08_struct_return                                          RUSTC ok   run rc=0
+m09_tstruct_return                                         RUSTC ok   run rc=0
+m10_letslice_return                                        RUSTC ok   run rc=0
+m11_slice_partial_return                                   RUSTC ok   run rc=0
+m12_enum_payload_partial                                   RUSTC ok   run rc=0
+m13_at_return_nomatch_path                                 RUSTC ok   run rc=0
+o01_let_add                                                RUSTC ok   run rc=0
+o02_ret_add                                                RUSTC ok   run rc=0
+o03_neg                                                    RUSTC ok   run rc=0
+o04_method_add_ctl                                         RUSTC ok   run rc=0
+o05_add_temp_rhs                                           RUSTC ok   run rc=0
+o06_add_in_cond                                            RUSTC ok   run rc=0
+o07_add_params                                             RUSTC ok   run rc=0
+o08_add_field_of_struct                                    RUSTC ok   run rc=0
+return_array_lit_of_moved_locals_double_drop               RUSTC ok   run rc=0
+slice_pattern_arm_binding_extra_drops                      RUSTC ok   run rc=0
+x01_arrlit_use_after                                       RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `a`
+x02_op_use_after                                           RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `a`
+x03_neg_use_after                                          RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `a`
+x04_arrlit_twice                                           RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `a`
+x05_op_same_twice                                          RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `a`
+x06_arrlit_deref_move                                      RUSTC REFUSED error[E0507] | error[E0507]: cannot move out of `*r` which is behind a shared reference
+x07_arrlit_loop_move                                       RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `a`
+x08_op_loop_move                                           RUSTC REFUSED error[E0382] | error[E0382]: use of moved value: `a`
+x09_arrlit_borrowed_move                                   RUSTC REFUSED error[E0505] | error[E0505]: cannot move out of `a` because it is borrowed

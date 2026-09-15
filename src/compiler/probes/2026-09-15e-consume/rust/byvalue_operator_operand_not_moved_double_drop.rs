@@ -1,0 +1,47 @@
+// RUST TWIN of byvalue_operator_operand_not_moved_double_drop.logos (mechanical, tools: l2rs.py of round 2026-09-15e-consume)
+// TWIN: impl Add for A: added `type Output = i64;`
+#![allow(unused, dead_code, unused_mut, unused_variables, unused_assignments, unreachable_code)]
+use std::ops::*;
+// SOUNDNESS QUEUE row byvalue_operator_operand_not_moved_double_drop (tier 1). A BY-VALUE OPERATOR
+// OVERLOAD DOES NOT MOVE ITS OPERANDS, SO EACH ONE IS DESTROYED TWICE.
+//
+// `impl Add for A { fn add(self: A, o: A) -> i64 }` and `let s = a + b;` over two droppable locals:
+// the callee owns and drops both parameters (1 + 1000), and the caller's scope exit drops `a` and
+// `b` AGAIN — the counter reads 2002 where Rust reads 1001. With a heap payload that is a double free.
+// Rust: `a + b` desugars to `Add::add(a, b)`, which MOVES both; neither is dropped at scope exit.
+//
+// Found 2026-09-14n-autoreftemp by hand programs h20 (a local + a temporary: 1002) and h36 (two
+// locals: 2002), written as CONTROLS for the by-reference auto-ref arm and measured on base
+// b54c1160ae8e4066 43. Registries searched by construct: docs/DIVERGENCES.md has no operator-move
+// row; docs/spec/traits-generics.md `trait.binop.operator-method-autoref` says only "by-value method
+// formals receive the operand by value unchanged" — it does not say the operand stays owned.
+//
+// SITE, read not measured: SemaChecker's operator-overload dispatch in lower_binop
+// (src/compiler/sema_expr.cpp), the `push_operand` lambda's by-value arm `args.push_back(std::move(e))`
+// — it hands the operand to the call and records no move. It is the SAME lambda as the auto-ref arm
+// of operator_autoref_temp_never_dropped but a DIFFERENT decision from a different fact (whether the
+// operand is consumed, not whether a spilled temporary has an owner): the round's hoist arms leave it
+// unmoved. Legality by reading; no rustc binary on this box.
+//
+// ⚠ THE ORACLE IS A DESTRUCTOR COUNT: today 2002, exit 1; correct 1001, exit 0.
+
+struct A { v: i64, c: *mut i64 }
+impl Drop for A { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+impl Add for A { type Output = i64; fn add(self, o: A) -> i64 { return self.v + o.v; } }
+
+fn logos_main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut s: i64 = 0i64;
+    {
+        let a: A = A { v: 1i64, c: p };
+        let b: A = A { v: 1000i64, c: p };
+        s = a + b;
+    }
+    if s != 1001i64 { return 2i32; }
+    let got: i64 = unsafe { n };
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(logos_main()) }

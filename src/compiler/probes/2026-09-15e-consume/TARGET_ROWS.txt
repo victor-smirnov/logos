@@ -1,0 +1,20 @@
+round 2026-09-15e-consume — PRICING ONLY. Written before any compiler edit.
+build: build/ 72c2afc955f79321 43 (HEAD 5fdfdb455), queue gate rc 0, 209 rows, tier1 31.
+
+TARGET ROWS (tier 1):
+  return_array_lit_of_moved_locals_double_drop
+  byvalue_operator_operand_not_moved_double_drop
+
+HYPOTHESIS (to be refuted by one candidate change moving both, or not):
+  fact = "a by-value move-type operand placed into a consuming LIR node is CONSUMED; its source is marked moved"
+  decision sites that make it: TUPLE_LIT case (mark_moved_expr per elem), lower_struct_lit (2 loops), lower_call args,
+  method receiver. Sites that build a consuming node and do NOT: lower_arr_lit (elements), lower_binop push_operand's
+  by-value arm, lower_unary's Neg/Not overload arm.
+
+WHY THIS BLOCK: battery batA (base) shows the row header's "return path's moved-set" root is wrong — the ARRAY literal
+double-drops in every spelling (local, no return 22; call argument 22; tail; nested), while tuple / struct literal /
+Some(a) are right. The operator row double-drops at let / cond / field-operands / temp rhs and for unary `-a` (2),
+but is RIGHT at `return a + b` and at params (11). Both are the missing consumption mark at a construction site,
+the class the 2026-09-14o round noted but never priced. Both rows are newest (never priced).
+
+CONTROL ROW (must NOT move): slice_pattern_arm_binding_extra_drops (array DESTRUCTURE, a different fact).

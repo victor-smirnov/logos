@@ -1,0 +1,28 @@
+NEIGHBOUR TABLE — round 2026-09-15e-consume (pricing; "closed in this commit" is not available to a pricing round — each neighbour is either
+PRICED INSIDE THE UNION (a same-decision site the candidate change moves) or ROWED with its reason and measurement).
+Class = "a by-value move-type operand placed into a consuming LIR node is consumed; its source is marked moved" (decision), read from
+is_move_type(operand type) at the construction site (fact).
+
+  neighbour                                                        disposition            reason / number
+  lower_arr_lit elements (row return_array_lit_...)                PRICED, arm arrmove    target; battery 33 moved, queue row closes
+  lower_binop push_operand by-value arm (row byvalue_operator_...) PRICED, arm opmove     target; battery 17 moved, queue row closes
+  lower_unary Neg/Not overload                                     PRICED, arm unmove     same decision; battery o03 c07 e05 2 -> 1, 102 -> 101; census 0
+  lower_compound_assign *Assign rhs                                PRICED, arm casmove    same decision; c08 21 -> 11; census 0
+  lower_place_compound_assign *Assign rhs                          PRICED, arm casplmove  same decision; e06 2011 -> 1011; census 0
+  lower_arr_lit TypeVar elements                                   PRICED, arm arrmovetv  same site, inner predicate; b09 e14 f03 f06 22 -> 11; row generic_array_lit_typevar_elems_double_drop (closes under it)
+  mark_moved_in_expr_recursive has no ArrLit case (return [a, b])  SUBSUMED               construction-time mark makes it redundant: a02 a11 c14 right under arrmove
+  lower_arr_fill_lit `[a; 1]`                                      ROWED, reason 3        different site, arm not built or priced; d09 2 under consumex -> array_repeat_len1_noncopy_operand_double_drop_run
+  mono_clone BinOp / Unary re-dispatch (generic `x + y`)           ROWED, reason 1        no by-value formal exists in sema at a TypeVar BinOp; c19 c20 122 under consumex -> generic_operator_mono_redispatch_operands_double_drop
+  TUPLE_LIT TypeVar skip (generic `(x, 1)` reuse admitted)         ROWED, reason 3        deliberate skip, its comment names the gen-tuple-* fixtures it would refuse; f12 admitted under every arm -> generic_unbounded_typevar_reuse_after_tuple_literal_admits
+  sema's use-after-move sentence pre-empting borrow_check's        RECORDED               x01-x04 re-worded under the arms; pinned as fail fixtures so a landing must keep "(moved on line N)"
+
+OUT OF CLASS, found by the battery, rowed:
+  array_lit_index_elem_move_out_admits (tier 1)        base admits `[src[0]]` (n 2); arrmove refuses with E0508's sentence — closes WITH arrmove
+  array_repeat_len2_noncopy_says_use_of_moved (tier 4) rustc E0277, logosc "use of moved value"
+  loop_break_value_array_lit_uninit_drop_run (tier 1)  rc 139 under every arm
+  at_binding_whole_struct_wild_fields_refused (tier 3) `y @ D { v: _, c: _ }` refused
+  array_lit_box_elem_unsize_to_dyn_no_vtable (tier 3)  mlir_gen internal no vtable
+  generic_unbounded_typevar_reuse_after_array_literal_admits (tier 2)  admitted on base; closes under arrmovetv
+MEMBERS OF EXISTING ROWS (shape widened, no new row): at_binding_by_value_never_dropped also without a `return` (m01 m04 read 1, want 21);
+  slice_pattern_arm_binding_extra_drops also without a `return` (m05 32231) and for a partial `[z, _]` (m11 2231, want 231);
+  enum_payload_partial_move_leak's variant shape (m12 2, want 23).

@@ -1,0 +1,38 @@
+round 2026-09-15e-consume — CLASS ENUMERATION BY PROPERTY (tools/dlog), cross-checked by a per-site read and by a RUN.
+
+selftest.sh FIRST: rc 0 — "ok 28fc7c75...: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates across 756aed65 (1 -> 0)".
+
+QUESTION (new rule tools/dlog/consume_mark_sites.dl, claim-free): every call site of a LirBuilder method that builds a node OWNING operand
+children (arr_lit tuple_lit struct_lit enum_lit_data call call_v method_call method_call_v closure_call fn_ptr_call slice_lit), with its
+enclosing context, and whether that context also calls a move marker (SemaChecker::mark_moved_expr / mark_moved /
+mark_moved_in_expr_recursive / mark_moved_deferred_only). TUs: src/compiler/sema_expr.cpp src/compiler/sema_stmt.cpp.
+
+KNOWN ANSWER stated before the run (from reading): lower_arr_lit has arr_lit sites and no marker; lower_struct_lit marks; lower_unary has a call
+site and no marker; lower_binop has call sites and no marker in its own body.
+
+FIRST RUN: 0 sites — A HARNESS ZERO, my rule's spelling: decl qnames carry the namespace (`logos::compiler::LirBuilder::arr_lit`), the rule
+matched `LirBuilder::arr_lit`. Rewritten with the qualified names.
+SECOND RUN: 207 sites — ctx_marks 36, no_mark 171. Known answer present term for term: lower_arr_lit no_mark 3 (13022 empty literal, 13368,
+13372), lower_struct_lit ctx_marks 2, lower_unary no_mark 1 (3514), lower_binop no_mark 9. TUPLE_LIT (marks) is inside lower_expr_inner's
+switch: ctx_marks 7 there.
+
+⚠ ctx_of COARSENS and the rule reads "the context calls a marker", not "this site's operand is marked". Measured consequence, both directions:
+  * no_mark does NOT mean unmarked: lower_method_call (12 no_mark), lower_static_call (7), lower_generic_call (2), try_method_on_dyn (2) route
+    their by-value arguments through helpers in OTHER contexts. RUN cross-check, battery d (base): UFCS `D::add(a, b)` d01 / `Add::add(a, b)` d02,
+    generic call over locals d03, dyn method arg d04, static ctor arg d05, closure call d06, fn-pointer call d07, generic method arg d08, trait
+    method arg d10 — ALL destroy once (right). These no_mark rows are the coarsening, not defects.
+  * the rows that ARE defects, by per-site read + run:
+      lower_arr_lit 13368/13372 (elements never marked)            a01..a12 (8 of 12 wrong), b/c/e series
+      lower_binop 2670 (push_operand by-value arm, no mark)         o01 o05 o06 o08 b03 b11 b12 b16 b20 c09 c11 c12 c13 d11 d12
+      lower_unary 3514 (Neg/Not overload, operand pushed unmarked)  o03 c07 e05
+      lower_compound_assign 3066 (*Assign, by-value rhs unmarked)   c08
+      lower_place_compound_assign 3229 (same, struct place)         e06
+      lower_arr_fill_lit 13981/13990: `[a; 1]` over a non-Copy D is ADMITTED (d09, 2 drops); Rust refuses (E0277) — not the mark decision
+    per-site reads that are NOT this decision: lower_binop 2591 (tuple Eq, by-ref args), 2704/2721/2738 (partial_cmp / is_<op>, ref args and an
+    Ordering), 2796/2863 (take_operand_ref), 2901/2930 (str_eq / str_cmp over slices). All other no_mark contexts build intrinsic / quote /
+    schema / writ nodes whose operands are compiler-minted, not user places.
+  * OUTSIDE THE TWO TUs: mono_clone.cpp's BinOp / Unary re-dispatch (a generic `x + y` over T: Add) builds the call after substitution with no
+    move record: c19 c20 read 122 (want 111). Not in this rule's domain (a different TU and a different phase) — named, not enumerated.
+Why `return a + b` (o02) and `eat(a + b)` (c10) are RIGHT on base: mark_moved_in_expr_recursive walks Call args at lower_return and lower_call
+consumers, so an operator lowered to a Call is marked at THOSE consumers only. It has no ArrLit case, which is why `return [a, b]` is wrong —
+a second site of the same decision, made redundant if lower_arr_lit marks at construction.

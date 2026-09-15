@@ -1,0 +1,18 @@
+package m09_tstruct_return;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct W { x: D, y: D }
+struct T(D, i64);
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64) -> i64 { let a: D = D { v: 1i64, c: p }; let t: T = T(D { v: 2i64, c: p }, 3i64);
+    match t { T(z, k) => { return z.v + k; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld seq=%ld\n".as_ptr(), r, got); }
+    if got != 21i64 { return 1i32; }
+    return 0i32;
+}

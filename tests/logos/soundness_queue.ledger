@@ -48,7 +48,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 209
+# TOTAL 219
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -295,3 +295,16 @@ param_ref_struct_cast_after_addr_of_reads_slot_run 1 tests/soundness/open/param_
 letelse_ref_pattern_binding_undefined_refused 3 tests/soundness/open/letelse_ref_pattern_binding_undefined_refused refuses
 ref_pattern_nested_in_tuple_binding_undefined_refused 3 tests/soundness/open/ref_pattern_nested_in_tuple_binding_undefined_refused refuses
 method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_autoderef_double_ref_option_infer_refused refuses
+# ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
+#    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each
+#    measured on base 72c2afc955f79321 43 and on the probe build 8477d9e792aadea6 43 unarmed and armed; the reason is in each program's header.
+array_lit_index_elem_move_out_admits 1 tests/soundness/open/array_lit_index_elem_move_out_admits admits
+array_repeat_len1_noncopy_operand_double_drop_run 1 tests/soundness/open/array_repeat_len1_noncopy_operand_double_drop_run run 1
+generic_array_lit_typevar_elems_double_drop 1 tests/soundness/open/generic_array_lit_typevar_elems_double_drop run 1
+generic_operator_mono_redispatch_operands_double_drop 1 tests/soundness/open/generic_operator_mono_redispatch_operands_double_drop run 1
+loop_break_value_array_lit_uninit_drop_run 1 tests/soundness/open/loop_break_value_array_lit_uninit_drop_run run 139
+generic_unbounded_typevar_reuse_after_array_literal_admits 2 tests/soundness/open/generic_unbounded_typevar_reuse_after_array_literal_admits admits
+generic_unbounded_typevar_reuse_after_tuple_literal_admits 2 tests/soundness/open/generic_unbounded_typevar_reuse_after_tuple_literal_admits admits
+at_binding_whole_struct_wild_fields_refused 3 tests/soundness/open/at_binding_whole_struct_wild_fields_refused refuses
+array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
+array_repeat_len2_noncopy_says_use_of_moved 4 tests/soundness/open/array_repeat_len2_noncopy_says_use_of_moved diag use of moved value

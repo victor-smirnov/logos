@@ -1,0 +1,10 @@
+package f11_tv_unbounded_reuse_after_array;
+fn f<T>(x: T) -> T {
+    let a: [T; 1] = [x];
+    return x;
+}
+fn main() -> i32 {
+    let q: i64 = f(7i64);
+    if q != 7i64 { return 1i32; }
+    return 0i32;
+}
