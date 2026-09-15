@@ -1,0 +1,25 @@
+ROUND 2026-09-14p-shadowslot — TARGET ROWS, written before any compiler edit.
+base: HEAD 4cca8fe13, build_hash 0e7b5f11a0939689 43 (build/bin/logosc 21:32, only src/compiler/PROBES.md newer).
+
+TARGET (tier 1):
+  shadowed_binding_never_dropped   run 1   (same-frame `let x = A; let x = B;` — A never destroyed)
+  shadow_over_param_double_drop    run 1   (param `x` shadowed by local `x` — local destroyed twice, param never)
+NEIGHBOUR (tier 3), same frame record, tested under the same change or a strict extension at define():
+  shadow_rebind_after_move_refused refuses ("use of moved variable 'x'" on a NEW binding of a moved name)
+CANDIDATE NEIGHBOUR, different fact until measured otherwise:
+  let_underscore_defers_drop_to_block_end run 1 (`let _` binds a name; two `let _` in one frame are a same-frame shadow)
+
+WHY THIS BLOCK. The hypothesis the headers carry — "key the drop list by SLOT" — is one change at one registrar
+(SemaImpl::define), and the two tier-1 rows are its leak and double-free directions. Reading shows it is NOT one change:
+  * sema's frame record is name-keyed (Frame::var_order pushes a name once, Frame::vars overwrites) — the same-frame row;
+  * but an SDrop names its binding by STRING (lir SDrop has no slot) and mlir-gen resolves it through a flat
+    name -> mlir::Value map (MLIRGenImpl::scope_), so a drop emitted where the name denotes a later binding destroys
+    the later binding. The param row is two sema frames (params / body) — sema's record is right there, and the
+    wrong destruction is mlir-gen's resolution. Phase-1 slots are MINTED (VAR_SLOT on SLet/EVarRef, P_SLOT on params)
+    and consumed by NOTHING in mlir-gen.
+  * the base hand battery (30 shapes) finds the class wider than both rows: cross-frame EARLY EXITS (return / break
+    out of an inner block that shadows an outer local or a param; a match arm binding shadowing an outer local with a
+    return in the arm) destroy the inner binding twice and leak the outer one — no row names them.
+So the block is a class whose members sit behind two doors in series (sema record, mlir-gen name resolution), and the
+round's question is whether ONE carrier (the slot, carried on SDrop and resolved by mlir-gen) plus the frame record
+moves both rows, and which neighbours it moves with them.

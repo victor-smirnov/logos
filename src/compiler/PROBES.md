@@ -45401,3 +45401,149 @@ note: the same two programs on build-land0913d gave the same answers; the 68-pro
     sema_expr.cpp: materialize_recv_ref 28, lower_method_call 9, lower_field_read 2.
   L4 bc rc 0 (detached, LOGOS_L4_BG=1): 5859/5859 + 1601/1601 (2 disabled), gate-db build 1244.
   origin/main == HEAD 60a1a766f at commit time (no rebase).
+
+# ═══ ROUND 2026-09-14p-shadowslot (PRICING, soundness queue tier 1) — A DROP NAMES ITS BINDING BY A NAME THAT DENOTES A
+#     LATER BINDING: THE SAME FACT DECIDED AT THREE LAYERS, AND ONE CARRIER (THE SLOT) THAT WAS MINTED AND NEVER READ ═════
+
+Files: `src/compiler/probes/2026-09-14p-shadowslot/` — TARGET_ROWS.txt (written before any compiler edit), PREDICTIONS.txt
+(rows and hand verdicts by name, written after the spec was applied and BEFORE any binary of it existed), shadowslot.spec
+(the first four arms), candidate_with_probe_gates.diff (all seven arms as measured), CLASS_DLOG.txt, RESULT.txt.
+New dlog rule: tools/dlog/shadow_binder_sites.dl (selftest rc 0 first; known answer grep 68 vs dlog 90 binders — the grep's
+`[^]]*` misses nested subscripts; the first run read 0 because the rule keyed child 0 of a CXXOperatorCallExpr, which is the
+callee; recorded in CLASS_DLOG.txt).
+
+STEP 1 (this round's own reading): HEAD 4cca8fe13 clean; `# TOTAL` soundness_queue 191, bc_admits 60, bc_admits_blocked 8;
+probe-log-lint 324 records; build_hash 0e7b5f11a0939689 43 (build/bin/logosc 21:32, only PROBES.md newer than it); queue gate
+rc 0 WITH `LOGOS_LIB_DIR` (the prompt's STEP-1 command carries it — no correction owed there).
+
+TIER 1 RE-MEASURED (27 rows, compiled + linked + run + valgrind, build 0e7b5f11a0939689): all 27 reproduce their recorded
+exit. valgrind summaries: box_field_move 2 allocs / 3 frees, 1 error; boxed_move_closure_fat_capture_env_overflow 2 errors;
+closure_owned_dyn_capture 1 error; impl_fn_return_stack_env_dangles 4 errors; tuple_elem_shared_borrow_through_ref_dangles_run
+1 error; weak_local_never_dropped 12 B definitely lost; tuplestruct_door_default_ref_mode_not_carried 4 allocs / 2 frees
+(0 B definitely lost); every other row 0 errors. enum_variant_value_into_scalar_let_admits still admits; its exit varies run to
+run (24 native, 8 under valgrind, 40 / 8 / 72 / 216 / 248 / 232 across this round's runs) — it still has no deterministic
+wrong exit to pin.
+
+WHY THIS BLOCK: see TARGET_ROWS.txt. The headers' "key the drop list by SLOT" is one change at one registrar for the
+same-frame row, but the param row is two correct sema frames and a WRONG mlir-gen resolution: SDrop names its binding by
+string and MLIRGenImpl::scope_ is a flat name map. The Phase-1 slot is minted on every SLet / EVarRef / fn param and read
+by nothing in mlir-gen.
+
+WHAT SHOULD IT MEAN: Rust. A shadowed binding's storage lives to the end of its scope and is dropped there, in reverse
+declaration order with its siblings; a new binding of a moved name is a new binding. Registries searched by construct
+("shadow"): docs/DIVERGENCES.md has no row; docs/spec carries `borrow.move.shadowing-new-slot`,
+`borrow.scope.shadowing-fresh-slot` (slot allocation), `stmt.block.shadow-restore-on-exit` (mlir-gen name restoration) and
+`borrow.move.scope-exit-clears-moved` — none canonises a drop or a refusal, so no divergence applies. ⚠ The last clause,
+"on scope exit, all variables declared in that scope are removed from the moved set", is by NAME: an inner shadow's exit
+erases an OUTER moved binding's record. On base that revival is masked by the over-refusal (hand s31-s34, s37 are refused);
+every arm that un-refuses them must restore the outer record at pop_scope, and each does (12, Rust).
+
+### THE CLASS AND ITS NEIGHBOURS (standing rule 2026-09-12) — one table, every row measured; this is a PRICING commit, so
+### "closed" below means "closed by the arm named", and the row stays open until a landing carries that arm.
+    neighbour (hand program)                                   closes under                       reason / number
+    same-frame shadow, leak (row shadowed_binding_never_dropped; s01 s02 s06-s10 s13 s14 s16-s18 s26 s29)
+                                                               shslot (needs BOTH halves)          s01 2 -> 21; s26 62 B lost -> clean
+    param shadowed by a local (row shadow_over_param_double_drop; s03 s04 s27 s30 s36)
+                                                               shslotmg (carrier half alone)       s03 55 -> 51; s27 rc 134 -> clean
+    early exit out of an inner shadow (NEW row shadow_inner_block_early_exit_double_drop; s21 s22 s24)
+                                                               shslotmg                            s21 22 -> 21
+    new binding of a moved name, same frame (row shadow_rebind_after_move_refused; s05 s11 `let x = bump(x)`, s12 s37)
+                                                               shslot (shmoved alone runs s12 wrong)  refused -> 12
+    new binding of a moved name, outer frame (NEW row shadow_outer_frame_over_moved_name_refused; s31-s34)
+                                                               shslot                              refused -> 12 (the restore at pop_scope holds)
+    param shadowed by a local that is then MOVED, `return` path (NEW row param_shadow_moved_local_return_leak; s35)
+                                                               shslotx (strict extension, same site)  2 -> 21
+    match-arm binding shadow + `return` (NEW row match_arm_shadow_return_double_drop; s23)
+                                                               shslotpat (strict extension: pattern binders register)  22 -> 21
+    param shadowed by a moved local, fall-through epilogue (NEW row param_shadow_moved_local_epilogue_leak; s41)
+                                                               shslotev (strict extension: body_ever_moved_ re-keyed)  2 -> 21
+    closure-param shadow (NEW row closure_param_shadow_double_drop; s19)
+                                                               NONE — ROWED WITH REASON 1          22 under every arm: closure params reach
+                                                                                                   mlir-gen as CL_PARAM_NAMES/TYPES, no slot
+    `let _` twice (row let_underscore_defers_drop_to_block_end; s28)
+                                                               not this fact                       2 -> 21 under shslot, Rust 12: `_` binds
+                                                                                                   nothing; its own row's root (lower_let)
+
+## shslot
+site: src/compiler/sema_impl.hpp::define
+build: b485f2200bf9f5a0
+measured: 2026-09-14
+fires: 68158219
+ceiling: 0
+cost: 0
+verdict: PRICED, NOT LANDED — closes the two tier-1 rows and the tier-3 neighbour exactly as predicted at cost 0 in every
+  column the harness owns; superseded by its strict extensions (shslotx ⊂ shslotpat ⊂ shslotev), which fund.
+note: `fires` counts every define() call under the arm (the harness zero kind: it is not a decision count). Decisions, by
+  census: 1871 SDrops redirected over the pass corpus, 412 over the stdlib. Same-frame shadow kept under a hidden key, outer
+  moved state saved + restored at pop_scope, slot on SDrop, mlir-gen redirect (gen_let + fn params register). queue gate:
+  shadowed_binding_never_dropped 1 -> 0, shadow_over_param_double_drop 1 -> 0, shadow_rebind_after_move_refused compiles,
+  exit 0 — nothing else. bc_admits gate rc 0 (ceiling 0 in bc terms); fail-text 0 of 1861; stdlib 4 layers ok;
+  run_oracle 0 damage / 0 fix of 7083 (cast-region-to-uint subtracted). Hand: 39 of 44 shapes Rust, valgrind 0 errors on all.
+
+## shframe
+site: src/compiler/sema_impl.hpp::pop_scope
+build: b485f2200bf9f5a0
+measured: 2026-09-14
+fires: 438891
+ceiling: 0
+cost: unpriced (condemned by hand)
+verdict: DECLINED — the sema half alone turns a LEAK INTO A DOUBLE FREE: hand s09 exit 139 and s26 exit 134, valgrind 2 errors
+  each; s16 2 errors. The kept record's SDrop has no slot, so mlir-gen resolves its name to the NEW binding. Doors in series.
+note: fires = battery only (44 shapes + 29 rows).
+
+## shslotmg
+site: src/compiler/mlir_gen_stmt.cpp::gen_stmt_kind
+build: b485f2200bf9f5a0
+measured: 2026-09-14
+fires: 215491
+ceiling: 0
+cost: 0
+verdict: PRICED — the carrier half alone closes shadow_over_param_double_drop (1 -> 0, predicted) and the cross-frame early-exit
+  shapes (s03 s04 s21 s22 s24 s27 s30 s36), cost 0 in every column; it leaves every same-frame shape and every refusal as base.
+  Landable alone only as HALF of the class — the standing rule sends it in with the frame half.
+note: redirects 1837 (pass) / 410 (stdlib); bc gate rc 0; fail-text 0 of 1861; run_oracle 0 / 0; stdlib ok.
+
+## shmoved
+site: src/compiler/sema_impl.hpp::moved_vars_
+build: b485f2200bf9f5a0
+measured: 2026-09-14
+fires: 438913
+ceiling: 0
+cost: unpriced (condemned by hand)
+verdict: DECLINED — resetting the moved state alone un-refuses s05 s11 s31-s34 s37 correctly and ADMITS s12, which then runs
+  wrong (exit 1): the old binding's cond-move flag stays keyed on the name and guards the new binding's drop.
+
+## shslotx
+site: src/compiler/sema_impl.hpp::lookup_var_info
+build: 6177dbac8cc9787c
+measured: 2026-09-14
+fires: battery only
+ceiling: 0
+cost: subsumed by shslotev's pricing
+verdict: PRICED (hand) — shslot + the outer frame's record re-keyed while shadowed: s35 2 -> 21 (row
+  param_shadow_moved_local_return_leak), nothing else moves (twin shslot on the same binary identical).
+
+## shslotpat
+site: src/compiler/mlir_gen_stmt.cpp::bind_enum_payload
+build: b59792fe9e7ac10b
+measured: 2026-09-14
+fires: battery only
+ceiling: 0
+cost: subsumed by shslotev's pricing
+verdict: PRICED (hand) — shslotx + pattern binders register their slots: s23 22 -> 21 (row match_arm_shadow_return_double_drop),
+  nothing else moves (twin shslotx on the same binary identical).
+
+## shslotev
+site: src/compiler/sema_impl.hpp::body_ever_moved_
+build: 7d6920952f4b56e5
+measured: 2026-09-14
+fires: 68298171
+ceiling: 0
+cost: 0
+verdict: FUND — the widest arm: shslotpat + body_ever_moved_ re-keyed with the rename. Closes the same three rows as shslot plus
+  (by hand) s35 s23 s41, i.e. five of the six rows this round opens; the sixth (closure_param_shadow_double_drop) has no
+  carrier. Cost 0 in queue, bc gate, fail-text (0 of 1861), stdlib and run_oracle (0 / 0 of 7083, same configure).
+note: redirects 1872 (pass) / 412 (stdlib). HYBRID columns (the four stdlib layers compiled -O0 under the arm, against a
+  -O0 unarmed hybrid on the same binary): run_oracle 0 damage / 0 fix of 7083 (cast-region-to-uint subtracted); valgrind
+  NEW 0 / GONE 1 of 7095 — deem_incr_static_retract_e2e LEAK 1,216 B -> OK, re-run alone twice per side and attributed to the
+  program's own drops by cross-linking (armed object + unarmed archives clean). Fiber survivors killed by pid on both sides.

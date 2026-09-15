@@ -1,0 +1,30 @@
+#include "cxx_schema.dl"
+// shadow_binder_sites — round 2026-09-14p-shadowslot. Two questions about ONE fact, "which binding does this NAME denote":
+//  (1) mlir-gen: every site that BINDS a name into MLIRGenImpl::scope_ (`scope_[n] = v`), by enclosing context — the
+//      population a slot-keyed resolution map would have to cover; and every site that READS it with find/count.
+//  (2) sema: every reader/writer of SemaImpl's per-frame record, Frame::vars and Frame::var_order, by context.
+// Claim-free: keyed on the canonical FieldDecl, so sema's `std::vector<Frame> scope_` and mlir-gen's
+// `unordered_map<string, Value> scope_` cannot be confused — a grep for `scope_` cannot separate them.
+// ⚠ ctx_of coarsens: a lambda reports its enclosing named context. Cross-check per site.
+// KNOWN ANSWER (grep of the assignment form `scope_[..] = `, stated before the run): see CLASS_DLOG.txt.
+.decl field_use(U: symbol, Which: symbol)
+field_use(U, "mg_scope") :- decl(D, _, Q), match(".*MLIRGenImpl::scope_$", Q), ref(U, D).
+field_use(U, "fr_vars")  :- decl(D, _, Q), match(".*Frame::vars$", Q), ref(U, D).
+field_use(U, "fr_order") :- decl(D, _, Q), match(".*Frame::var_order$", Q), ref(U, D).
+// A binder: operator= whose LHS is operator[] whose object is the scope_ member. ⚠ A CXXOperatorCallExpr's child 0 is the
+// CALLEE reference; the object / LHS is child 1. The first run keyed child 0 and read mg_bind = 0 — a rule zero, not an answer.
+.decl mg_bind(Op: symbol)
+mg_bind(Asg) :- field_use(U, "mg_scope"), node(Sub, "CXXOperatorCallExpr", _, _), node(X, _, Sub, 1), through(X, U),
+                node(Asg, "CXXOperatorCallExpr", _, _), node(L, _, Asg, 1), through(L, Sub),
+                call(Asg, D), decl_name(D, "operator="),
+                call(Sub, D2), decl_name(D2, "operator[]").
+.decl site(File: symbol, Line: number, Ctx: symbol, Kind: symbol)
+.output site
+site(F, L, N, "mg_bind") :- mg_bind(A), loc(A, F, L, _), ctx_of(A, C), ctx_name(C, N).
+site(F, L, N, K) :- field_use(U, K), K != "mg_scope", loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl kind_count(Kind: symbol, N: number)
+.output kind_count
+kind_count(K, N) :- site(_, _, _, K), N = count : { site(_, _, _, K) }.
+.decl use_count(Kind: symbol, N: number)
+.output use_count
+use_count(K, N) :- field_use(_, K), N = count : { field_use(_, K) }.

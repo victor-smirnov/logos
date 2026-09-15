@@ -48,7 +48,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 191
+# TOTAL 197
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -256,3 +256,12 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 return_array_lit_of_moved_locals_double_drop 1 tests/soundness/open/return_array_lit_of_moved_locals_double_drop run 1
 aggregate_extended_borrow_temp_never_dropped 1 tests/soundness/open/aggregate_extended_borrow_temp_never_dropped run 1
 let_ref_bind_annotated_refused 3 tests/soundness/open/let_ref_bind_annotated_refused refuses
+# ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
+# Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
+# src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md.
+shadow_inner_block_early_exit_double_drop 1 tests/soundness/open/shadow_inner_block_early_exit_double_drop run 1
+match_arm_shadow_return_double_drop 1 tests/soundness/open/match_arm_shadow_return_double_drop run 1
+param_shadow_moved_local_return_leak 1 tests/soundness/open/param_shadow_moved_local_return_leak run 1
+param_shadow_moved_local_epilogue_leak 1 tests/soundness/open/param_shadow_moved_local_epilogue_leak run 1
+closure_param_shadow_double_drop 1 tests/soundness/open/closure_param_shadow_double_drop run 1
+shadow_outer_frame_over_moved_name_refused 3 tests/soundness/open/shadow_outer_frame_over_moved_name_refused refuses

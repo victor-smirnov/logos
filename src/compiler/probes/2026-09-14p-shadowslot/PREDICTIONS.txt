@@ -1,0 +1,61 @@
+ROUND 2026-09-14p-shadowslot — PREDICTIONS, written after the spec was applied and BEFORE the armed binary existed.
+Arms: shslot = whole (sema frame record + moved-state + slot on SDrop + mlir-gen slot resolution)
+      shframe = sema half only (same-frame record kept under a hidden key, moved state re-keyed / saved across frames; SDrop names stripped, NO slot)
+      shslotmg = carrier half only (slot on SDrop, mlir-gen resolves a drop whose name denotes a different registered binding)
+      shmoved = moved-state reset only (same frame: forget the old binding's moves; outer frame: save + restore at pop_scope)
+mlir-gen registers a slot at gen_let (SLet) and at gen_function_body params ONLY — pattern binders (extract_payload,
+bind_enum_payload, pat_bind, ...), closure params (gen_closure) and for-loop vars are NOT registered, so a drop reaching them
+falls back to the name. That is a PARTIAL carrier by construction and the battery below says where it must show.
+
+ROWS                                          shslot        shframe       shslotmg      shmoved
+shadowed_binding_never_dropped (run 1)        CLOSES (1001) run 1 (2000)  run 1 (1000)  run 1 (1000)
+shadow_over_param_double_drop (run 1)         CLOSES (1001) run 1 (2000)  CLOSES (1001) run 1 (2000)
+shadow_rebind_after_move_refused (refuses)    CLOSES exit 0 CLOSES        refuses       CLOSES
+let_underscore_defers_drop_to_block_end       run 1 (unmoved: one `_`)    same          same          same
+every other tier-1 row                        unmoved       unmoved       unmoved       unmoved
+
+HAND BATTERY (Rust answer)  shslot   shframe  shslotmg  shmoved   note
+s01 same frame (21)         21       22       2         2
+s02 three (321)             321      ≠321     ≠321      ≠321
+s03 param shadow (51)       51       base     51        base
+s04 param, void (51)        51       base     51        base
+s05 moved then shadow (12)  12       12       REFUSED   12
+s06 second moved (21)       21       wrong    wrong     wrong
+s07 early return (21)       21       wrong    wrong     wrong
+s08 loop break (2121)       2121     wrong    wrong     wrong
+s09 String then D (2, clean) 2 clean  wrong    leak      leak
+s10 init reads old (21)     21
+s11 let x = bump(x) (12)    12       12       REFUSED   12
+s12 cond-moved old (21/12)  21/12    ?        REFUSED   WRONG (flag stays keyed on the name)
+s13 move-closure captures new (21)  21
+s14 tuple-destructure old (21)      WRONG (pattern binder not registered: 22)
+s15 CONTROL (21)            21 all arms
+s16 D then i64 (1)          1
+s17 borrow of shadowed (21) 21
+s18 continue (2121)         2121
+s19 closure param shadow (21)       WRONG (closure params not registered)
+s20 CONTROL for var (12)    12 all arms
+s21 inner block return (21) 21       base     21        base
+s22 inner block break (21)  21       base     21        base
+s23 match arm binding + return (21) WRONG (arm binder not registered)
+s24 param + inner return (21) 21     base     21        base
+s25 CONTROL if-let (21)     21 all arms
+s26 String same frame       clean    double free  leak  leak
+s27 String param shadow     clean    base         clean base
+s28 `let _` twice (Rust 12) 21 (still wrong: `_` is not a binding — let_underscore's own fact)
+s29 `_x` twice (21)         21
+s30 generic param shadow (21) 21     base     21        base
+s31 outer moved, inner shadow (12)  12  12    REFUSED   12   (abuse direction of the pop_scope restore)
+s32 match arm over moved outer (12) 12  12    REFUSED   12
+s33 inner shadow moved too (12)     12  12    REFUSED   12
+s34 closure param over moved outer (12) 12 12 REFUSED   12
+s35 param shadow, local moved (21)  WRONG (2): the param frame's drop asks moved_vars_ by NAME — a different reader of the same fact
+s36 method param shadow (21) 21
+s37 loop, moved then shadow (1212)  1212 1212 REFUSED   1212
+s38 CONTROL distinct names (21)     21 all arms
+s39 CONTROL reassignment (12)       12 all arms
+s40 CONTROL or-pattern one slot (2) 2 all arms
+
+CORPUS: unknown and that is the risk being priced — a define() of the SAME binding twice in one frame with two slots
+would be read as a shadow and emit a phantom drop (double free) under shslot/shframe. The census buckets
+shadow.same_frame.{live,moved} / shadow.outer_frame.{live,moved} / sdrop.name_rebound count the arrivals.

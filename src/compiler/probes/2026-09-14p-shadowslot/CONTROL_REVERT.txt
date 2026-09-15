@@ -1,0 +1,12 @@
+ROUND 2026-09-14p-shadowslot — CONTROL REVERT
+Sources: the nine probe-carrying files restored with `git checkout` (lir_mirror.hpp, lir_view.hpp, lir_mirror.cpp,
+mlir_gen_fn.cpp, mlir_gen_impl.hpp, mlir_gen_stmt.cpp, mono_clone.cpp, sema.cpp, sema_impl.hpp); `git diff -- src include` empty.
+build-land0913d rebuilt from them: b34a539ae36b6e18 43 (rc 0, 81/81).
+  * the 44-shape battery + 27 tier-1 rows + 2 neighbours, compiled / linked / run / valgrind, NOTHING ARMED: 72 of 73 identical to
+    the armed build's unarmed column (b485f2200bf9f5a0 / 6177dbac8cc9787c); the 73rd is enum_variant_value_into_scalar_let_admits,
+    whose exit is not deterministic (40 there, 120 here).
+  * queue gate on the staged ledger (197 rows: +6 from this round), LOGOS_LIB_DIR set: rc 0 — "197 open row(s) (tier1=32 tier2=57
+    tier3=100 tier4=8)"; every new row reproduces on the clean binary.
+build/ (the shslotx / shslotpat / shslotev binary) rebuilt from the same sources after the hybrid columns finished:
+  build_hash 0e7b5f11a0939689 43 — IDENTICAL to the pristine base read at STEP 1 (compiler + every stdlib archive, 43 files),
+  so no probe code survives in the binary the commit is gated on. Its L1 is the commit gate (see the commit message).

@@ -1,0 +1,41 @@
+ROUND 2026-09-14p-shadowslot — WHICH SITES DECIDE "WHICH BINDING DOES THIS NAME DENOTE", BY tools/dlog, CROSS-CHECKED BY GREP
+selftest.sh first (2026-09-14 22:32): rc 0, "ok 28fc7c7509456b034bfd77b093ec68a9ba9f7b3c: 19 walkers / 24 findings / try_path 1-5 /
+  domain 42-5; duty discriminates across 756aed65 (1 -> 0)".
+rule: tools/dlog/shadow_binder_sites.dl (NEW). ask.sh over mlir_gen_stmt.cpp mlir_gen_expr.cpp mlir_gen_dyn.cpp mlir_gen_fn.cpp sema.cpp
+  sema_decl.cpp sema_expr.cpp sema_stmt.cpp (8 TUs). Keyed on the canonical FieldDecl, so sema's `std::vector<Frame> scope_` and
+  mlir-gen's `unordered_map<string, mlir::Value> scope_` are different facts — a grep for `scope_` cannot separate them.
+
+⚠ THE FIRST RUN READ mg_bind = 0 AND IT WAS A RULE ZERO, NOT AN ANSWER. The binder pattern keyed the operator[] OBJECT and the
+operator= LHS as child 0; in clang's AST a CXXOperatorCallExpr's child 0 is the CALLEE reference and the object is child 1. The
+population column (use_count mg_scope 135) was non-zero on the same run, which is what exposed it. Fixed, re-run on cached facts.
+
+KNOWN ANSWER (grep of the assignment form `scope_\[[^]]*\][[:space:]]*=[^=]`, stated before the fixed run):
+  mlir_gen_stmt 54 · mlir_gen_expr 12 · mlir_gen_dyn 0 · mlir_gen_fn 1 · mlir_gen_impl.hpp 1                     = 68
+MEASURED (dlog mg_bind):
+  mlir_gen_stmt 65 · mlir_gen_expr 17 · mlir_gen_dyn 7 · mlir_gen_fn 1 (impl.hpp is not a TU here)                = 90
+The difference is the GREP's: `[^]]*` stops at the first `]`, so `scope_[params[i].first] = …` (gen_closure: 7) and
+`scope_[bindings[bi]] = …` (extract_payload / bind_enum_payload) never match. Per-file the tool is the superset, term for term
+on the lines read (mlir_gen_dyn 1837, 2187 are the closure-param binders).
+
+mg_bind by context (21 contexts, 90 sites):
+  gen_let_inner 19 · extract_payload 12 · extract_arm_payload 11 · bind_enum_payload 8 · gen_closure 7 · pat_bind 6 ·
+  gen_for_each 4 · bind_match_ref_binder 3 · bind_name_at_slot 3 · bind_at 2 · bind_elem 2 · bind_slice_elem 2 ·
+  bind_struct_field 2 · gen_stmt_kind 2 · bind 1 · bind_field 1 · declare_local_place 1 · gen_for 1 · gen_loop 1 ·
+  gen_function_body 1 · restore 1
+  The probe's carrier registers a slot at TWO of them: gen_let (wraps gen_let_inner's 19 and declare_local_place) and
+  gen_function_body (params). Every other binder falls back to the name by construction.
+
+sema frame record (Frame::vars 35 sites, Frame::var_order 5 sites) — readers by context:
+  var_order: define · pop_scope · emit_frame_drops · register_stmt_temp · lower_stmt (the hoisted-temp erase)
+  vars: define 2 · lookup 2 · lookup_slot 2 · lookup_var_info 2 · lookup_is_mut 2 · lookup_owning_dyn 2 · cond_move_flag_for 3 ·
+        eligible 2 · emit_cond_move_field_drops 2 · emit_frame_drops 2 · lower_fn 2 · register_stmt_temp 2 · lower_let 2 ·
+        has_cond_move_flag 1 · note_static_move 1 · is_module_static_unshadowed 1 · static_access_needs_unsafe 1 ·
+        lower_block_expr 1 · lower_assign 1 · lower_place_assign 1 · lower_stmt 1
+  ⚠ ctx_of coarsens a lambda to its enclosing context; the per-site read covered define, pop_scope, emit_frame_drops,
+  register_stmt_temp, lower_stmt, eligible, lookup_slot.
+
+WHAT THE ENUMERATION SAYS ABOUT THE CLASS: the name -> binding decision is made at THREE layers that each key a DIFFERENT
+structure by the bare name — sema's frame record (Frame::var_order pushes a name once), sema's move state (moved_vars_,
+body_ever_moved_, cond_move_flags), and mlir-gen's resolution (MLIRGenImpl::scope_, 90 binders). A slot is MINTED for every
+binding (VAR_SLOT on SLet/EVarRef, P_SLOT on fn params) and READ by nothing in mlir-gen before this probe; closure params
+(CL_PARAM_NAMES / CL_PARAM_TYPES) carry no slot at all.

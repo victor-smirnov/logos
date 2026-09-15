@@ -1,0 +1,83 @@
+ROUND 2026-09-14p-shadowslot (PRICING, soundness queue tier 1) — A DROP NAMES ITS BINDING BY A NAME THAT DENOTES A LATER BINDING
+base: HEAD 4cca8fe13, build/ 0e7b5f11a0939689 43 (pristine; queue gate rc 0, 191 rows, tier1=27 tier2=57 tier3=99 tier4=8)
+armed builds: build-land0913d b485f2200bf9f5a0 43 — arms shslot shframe shslotmg shmoved
+              build/ 6177dbac8cc9787c 43 (+shslotx) -> b59792fe9e7ac10b 43 (+shslotpat) -> 7d6920952f4b56e5 43 (+shslotev)
+inert: L1 on build-land0913d with nothing armed rc 0 (807/807, gates tier 118/118); run_oracle unarmed-land vs pristine build/:
+  1 mover, logos_02_semantic_core_pass_cast-region-to-uint (prints a stack address; subtracted by name everywhere below).
+twin controls: shslot re-measured on build/ (6177dbac) = shslot on land, program for program; shslotx on b59792fe = shslotx on
+  6177dbac; shslotpat on 7d692095 = shslotpat on b59792fe. The one row that differs every time is
+  enum_variant_value_into_scalar_let_admits, whose exit is not deterministic (24 8 40 72 88 216 232 248 across this round).
+
+ARMS — each of shslot ⊂ shslotx ⊂ shslotpat ⊂ shslotev is a strict extension of the one before it AT THE SAME SITES:
+  shslot    SemaChecker::define keeps a same-frame shadowed binding under a hidden key (vars / var_order / moved_vars_ /
+            cond_move_flags / cond_move_static_moves re-keyed); an outer-frame shadow saves the outer name's moved state
+            and pop_scope restores it; make_drop_stmt strips the key and carries VarInfo::slot on SDrop (mono_clone keeps it);
+            mlir-gen registers slot -> value at gen_let and gen_function_body and redirects an SDrop whose NAME currently
+            denotes a DIFFERENT registered slot of the same name in the same function.
+  shslotx   + the OUTER frame's record is re-keyed while shadowed and restored at pop_scope (moves of the inner binding no
+            longer land on the outer name)
+  shslotpat + pattern binders register: bind_enum_payload (PatVariantDataView::bind_slots) and pat_bind Wild (bind_slot)
+  shslotev  + body_ever_moved_ is re-keyed with the rename, and a popped inner binding's ever-moved entries are erased
+  halves:   shframe (sema half, no slot) · shslotmg (carrier half only) · shmoved (moved-state reset only)
+  All seven in candidate_with_probe_gates.diff.
+
+ROWS (queue gate FAIL lines; predicted by name in PREDICTIONS.txt before any binary existed)
+  shslot     shadowed_binding_never_dropped · shadow_over_param_double_drop · shadow_rebind_after_move_refused   = predicted, exactly
+  shslotmg   shadow_over_param_double_drop                                                                   = predicted, exactly
+  shslotev   the same three as shslot                                                                        (every other row reproduces)
+  shframe / shmoved: rows not gate-run (condemned by hand, below); their battery reads: shadowed_binding 1, shadow_over_param 1,
+             shadow_rebind compiles 0 under both.
+  let_underscore_defers_drop_to_block_end: unmoved under every arm (exit 1) — its one `_` is not a shadow.
+  every other tier-1 row: unmoved under every arm.
+
+HAND BATTERY (44 shapes; Rust answer by reading; each run under valgrind, count = exit code or compared in-program)
+  base (unarmed, re-counted on the clean rebuild b34a539ae36b6e18): 27 wrong — 25 by exit (s01-s04 s06-s08 s10 s13 s14 s16-s19
+    s21-s24 s27 s28 s29 s30 s35 s36 s41; s27 a double free, rc 134 / 2 valgrind errors) and 2 right by exit but leaking on the
+    heap (s09 String 54 B, s26 String 62 B); 8 legal programs refused ("use of moved variable 'x'": s05 s11 s12 s31 s32 s33 s34
+    s37); 9 right (the controls s15 s20 s25 s38 s39 s40 s42 s43 s44).
+  shslot: 39 of 44 read Rust; not s19 (22) s23 (22) s28 (21, Rust 12) s35 (2) s41 (2); valgrind 0 errors, 0 B lost on all 44.
+    MISPREDICTED: s14 (predicted 22 — a tuple-destructure binder unregistered; read 21, because lower_let_destruct binds
+    each leaf through an SLet, which gen_let registers). Every other verdict as predicted.
+  shslotx  + s35 (2 -> 21)       shslotpat + s23 (22 -> 21)       shslotev + s41 (2 -> 21)
+  STILL WRONG under shslotev: s19 (closure param shadow, 22) · s28 (`let _` twice, 21 where Rust drops at the statement: 12)
+  condemned halves:
+    shframe  s09 exit 139 and s26 exit 134 (valgrind 2 errors each: the kept record's SDrop, stripped of its slot, resolves to
+             the NEW binding — a leak turned into a double free); s16 valgrind 2 errors. Doors in series, measured.
+    shmoved  s12 (`if c { eat(x) } let x = ...`) is ADMITTED and runs wrong (exit 1): the old binding's cond-move flag stays keyed
+             on the name and guards the NEW binding's drop.
+    shslotmg no refutation: closes s03 s04 s21 s22 s24 s27 s30 s36 (the cross-frame shapes), nothing else moves.
+
+CENSUS (LOGOS_CENSUS; the harness `fires` counts every define() call, so it is NOT a decision count — the census is)
+  arrivals (unarmed): stdlib 4 layers same_frame.live 160 · outer_frame.live 86; pass corpus (7083) same_frame.live 6152 ·
+    outer_frame.live 3209; `moved` arrivals 0 in both — the corpus never shadows a moved name (every such program is refused).
+    Sources read: macro expansions (`assert_eq!` twice in one frame = 2 same-frame arrivals) and a logos.std.fmt body (1
+    outer-frame arrival in any program that `use`s it). Battery controls s38 s39 s40 read 0; no define-twice phantom seen.
+  redirects (sdrop.name_rebound): shslot stdlib 412 / pass 1871; shslotmg stdlib 410 / pass 1837; shslotev stdlib 412 / pass 1872.
+  fires: shslot 68 158 219 · shslotmg 215 491 · shslotev 68 298 171 (whole pricing run); shframe 438 891 · shmoved 438 913 (battery)
+
+COST                                   shslot (land)   shslotmg (land)   shslotev (build/)
+  queue gate                           3 closings      1 closing         3 closings — none unpredicted
+  bc_admits ledger gate (4 args) rc    0               0                 0
+  stdlib, 4 layers from source         ok              ok                ok
+  run_oracle damage / fix (7083)       0 / 0           0 / 0             0 / 0     (vs unarmed on the same configure)
+  fail_text_oracle moved (1861)        0               0                 0
+  hybrid runtime (-O0 layers armed)                                      0 / 0 of 7083 (vs -O0 unarmed hybrid)
+  valgrind, hybrid sweep NEW / GONE                                      0 / 1 of 7095
+  ⚠ run_oracle and the sweep LINK the prebuilt stdlib archives, which are UNARMED: the 412 stdlib redirects are invisible to
+    them. The hybrid column links -O0 layer archives compiled under the arm, against a -O0 unarmed hybrid.
+
+HYBRID COLUMNS (build/ 7d6920952f4b56e5; the four stdlib layers compiled -O0 from source with the SAME binary, unarmed vs shslotev)
+  calibration: hybrid unarmed run_oracle vs pristine build/ base: 1 mover, cast-region-to-uint — -O0 layers move nothing else.
+  armed stdlib: all four layers compile under shslotev (rc 0), 412 redirects in them.
+  run_oracle, hybrid shslotev vs hybrid unarmed: 7083 common, 1 mover = cast-region-to-uint -> 0 damage, 0 fix.
+  valgrind sweep, hybrid shslotev vs hybrid unarmed (7095 each; statuses base OK 6843 LINKFAIL 124 CFAIL 62 LEAK 54 CORRUPT 3
+    TIMEOUT 7 NOVG 2): NEW LEAK/CORRUPT 0; GONE 1; no other status or field moved.
+    GONE tests/logos/pass/deem_incr_static_retract_e2e.logos  LEAK 252 allocs / 236 frees, 1,216 B definite, 544 B indirect,
+      10 errors  ->  OK 252 / 250, 0 B. RE-RUN ALONE, twice per side, same numbers. ATTRIBUTED by cross-linking: the ARMED object
+      against the UNARMED archives is clean (250 frees); the UNARMED object against the ARMED archives leaks (236). So the
+      closing is the program's own (or its monomorphised) drops, not a stdlib archive — a green pass fixture that leaked
+      1,216 B through a shadowed binding on base.
+  survivors: fiber_thread_future and http_workers_basic hung past the 60 s timeout on BOTH sides (valgrind.bin 400-580 s) and
+    were killed by pid, recorded NOVG 137 on both; they are outside every set above. ⚠ The round's first reaper matched
+    `comm == valgrind.bin` and killed NOTHING: the surviving process's comm is `memcheck-amd64-` (the tool valgrind execs).
+    A reaper keyed on the wrapper name is a harness zero.

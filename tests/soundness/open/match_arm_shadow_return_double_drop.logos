@@ -1,0 +1,33 @@
+// SOUNDNESS QUEUE row match_arm_shadow_return_double_drop (tier 1). A MATCH-ARM BINDING THAT SHADOWS AN OUTER LOCAL, WITH A
+// `return` INSIDE THE ARM, DESTROYS THE ARM BINDING TWICE AND THE OUTER LOCAL NEVER.
+//
+// `let x = D{1}; match o { Some(x) => { return x.v; } None => {} }`: Rust 21 (arm binding 2, then outer 1), exit 0. TODAY
+// 22, exit 1. Same fact as shadow_inner_block_early_exit_double_drop (a drop's NAME denotes a later binding at the drop
+// site), a DIFFERENT BINDER: measured 2026-09-14p-shadowslot, count 22 under unarmed, shslot, shslotmg and shslotx alike —
+// the priced carrier registers a slot only where gen_let and gen_function_body bind a name, and a match-arm payload
+// binding is bound by mlir-gen's pattern binders (extract_arm_payload / bind_enum_payload), which register none.
+// A STRICT EXTENSION AT THE SAME SITE CLOSES IT: shslotpat (register PatVariantDataView::bind_slots() in bind_enum_payload
+// and PatWildView::bind_slot() in pat_bind) reads 21, exit 0, on build b59792fe9e7ac10b 43 — so a landing of the carrier
+// must carry the pattern binders with it (standing rule of 2026-09-12: same class, same commit).
+// Found by hand program s23 on build b485f2200bf9f5a0 (unarmed). Legality by reading; no rustc binary.
+package match_arm_shadow_return_double_drop;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn eatd(x: D) -> i64 { return x.v; }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64) -> i64 {
+    let x: D = D { v: 1i64, c: p };
+    let o: Option<D> = Option::Some(D { v: 2i64, c: p });
+    match o {
+        Option::Some(x) => { return x.v; },
+        Option::None => {}
+    }
+    return x.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    if g(p) != 2i64 { return 9i32; }
+    if rd(p) != 21i64 { return 1i32; }
+    return 0i32;
+}

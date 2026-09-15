@@ -1,0 +1,24 @@
+// SOUNDNESS QUEUE row param_shadow_moved_local_epilogue_leak (tier 1). THE SAME LEAK AS param_shadow_moved_local_return_leak
+// ON THE FALL-THROUGH PATH: `fn g(x: D) { let x = D{2}; let _k = eatd(x); }` never destroys the parameter.
+//
+// The function epilogue passes body_ever_moved_ as emit_frame_drops' skip list, and body_ever_moved_ records the local's move
+// under the bare NAME `x` — which, after the body frame pops, is the parameter's name again. Rust 21, exit 0. TODAY 2 (the parameter never destroyed), exit 1.
+// Unmoved by EVERY priced arm of 2026-09-14p-shadowslot, shslotx included: the rename it applies is undone at pop_scope,
+// before the epilogue asks. A different reader of the same fact (the name-keyed ever-moved set). Found by hand program s41.
+// Legality by reading; no rustc binary.
+package param_shadow_moved_local_epilogue_leak;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn eatd(x: D) -> i64 { return x.v; }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(x: D, p: *mut i64) {
+    let x: D = D { v: 2i64, c: p };
+    let _k: i64 = eatd(x);
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    g(D { v: 1i64, c: p }, p);
+    if rd(p) != 21i64 { return 1i32; }
+    return 0i32;
+}
