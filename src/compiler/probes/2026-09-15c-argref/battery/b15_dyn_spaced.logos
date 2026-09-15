@@ -1,0 +1,14 @@
+package b15_dyn_spaced;
+trait Tr { fn get(self: &Self) -> i64; }
+struct D { v: i64 }
+impl Tr for D { fn get(self: &Self) -> i64 { return self.v; } }
+fn inner(a: & &dyn Tr) -> i64 {
+    let x: &dyn Tr = *a;
+    return x.get();
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &dyn Tr = &d;
+    if inner(&rd) != 6i64 { return 15i32; }
+    return 0i32;
+}

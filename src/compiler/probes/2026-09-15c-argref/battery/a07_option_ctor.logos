@@ -1,0 +1,16 @@
+package a07_option_ctor;
+struct D { v: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let o: Option<&&D> = Option::Some(&rd);
+    match o {
+        Option::Some(p) => {
+            let x: &D = *p;
+            if x as *const D != want { return 7i32; }
+        }
+        Option::None => { return 70i32; }
+    }
+    return 0i32;
+}

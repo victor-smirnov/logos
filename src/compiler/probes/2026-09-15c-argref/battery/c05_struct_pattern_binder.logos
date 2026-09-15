@@ -1,0 +1,14 @@
+package c05_struct_pattern_binder;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+struct W<'a> { r: &'a D }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let w: W = W { r: &d };
+    let W { r } = w;
+    if inner(&r) != &d as *const D { return 5i32; }
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+package b14_store_through_out_param;
+struct D { v: i64 }
+fn fill<'a>(out: &mut &'a D, src: &&'a D) {
+    *out = *src;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let e: D = D { v: 9i64 };
+    let rd: &D = &d;
+    let mut o: &D = &e;
+    fill(&mut o, &rd);
+    if o.v != 6i64 { return 14i32; }
+    return 0i32;
+}

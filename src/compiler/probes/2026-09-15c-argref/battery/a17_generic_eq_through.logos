@@ -1,0 +1,16 @@
+package a17_generic_eq_through;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(self: &Self, o: &Self) -> bool { return self.v == o.v; }
+}
+fn same<T: Eq>(a: &&T, b: &&T) -> bool {
+    return a == b;
+}
+fn main() -> i32 {
+    let d1: D = D { v: 6i64 };
+    let d2: D = D { v: 6i64 };
+    let r1: &D = &d1;
+    let r2: &D = &d2;
+    if !same::<D>(&r1, &r2) { return 17i32; }
+    return 0i32;
+}

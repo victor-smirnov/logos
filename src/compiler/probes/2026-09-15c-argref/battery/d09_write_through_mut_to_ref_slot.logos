@@ -1,0 +1,16 @@
+package d09_write_through_mut_to_ref_slot;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn repoint<'a>(slot: &mut &'a D, to: &'a D) { *slot = to; }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let e: D = D { v: 7i64 };
+    let mut rd: &D = &d;
+    repoint(&mut rd, &e);
+    if inner(&rd) != &e as *const D { return 9i32; }
+    if d.v != 6i64 { return 90i32; }
+    return 0i32;
+}

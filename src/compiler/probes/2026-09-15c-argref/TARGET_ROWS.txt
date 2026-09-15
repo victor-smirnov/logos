@@ -1,0 +1,26 @@
+ROUND 2026-09-15c-argref (PRICING, soundness queue tier 1) — TARGET ROWS, written before any compiler edit.
+base: HEAD ca0f71fcb, build/ 0fb613dc74481394 43 (queue gate rc 0, 200 rows, tier1=31 tier2=58 tier3=103 tier4=8)
+
+TARGET (by id):
+  addr_of_struct_ref_local_arg_passes_referent_run   `inner(&rd)`, rd: &D, param &&D -> the callee's *a is D's bytes.
+                                                      base exit 1 (PART 1), Rust 0.
+
+WHY THIS BLOCK:
+  * It is the row the 2026-09-15b landing turned from a silent wrong answer into SEGFAULTS (f29 f29c f29e) — a miscompile at
+    every consumer of `&<reference binding>`, not a call-argument quirk. Measured on base today (hand battery argref, 30 shapes):
+    wrong at run time in 14 — fn arg (a01 1), generic arg (a02 2), METHOD arg (a03 139), struct-literal field (a04 4), tuple elem
+    (a05 5), array elem (a06 6), Some(..) ctor (a07 7), assignment `p = &rd` (a08 8), String pointee (a14 14), `let rd: &mut D`
+    immutable binding (a15 139), generic `&&T == &&T` through the arg (a17 139 = f29), closure-call arg (a18 139), for-each
+    element `&x` (a19 139), match default-binding `&rd` (a20 139), `a.w` auto-deref in callee (a22 139), `inner::<&D>(&rd)` (a26 139),
+    closure CAPTURE of rd then `&rd` inside (a30 139). Right on base: `let p: &&D = &rd` (a24, the one consumer a local lower_let
+    arm repaired), `let p = &rd` (a09), param `rd: &D` (a10), enum / tuple / array / i64 pointee (a11 a12 a13 a25), `let mut rd`
+    (a16), `&self` (a21), `&&d` (a23), `&h.r` (a29).
+  * ROOT, READ (MLIR dump m1 vs m2/m3): an immutable `&Struct` let binds scope_[rd] to the POINTEE's address with no slot
+    (gen_let_inner's struct-ref arm), and MLIRGenImpl::gen_expr_kind(EAddrOfView) returns scope_[rd] unchanged unless the name is a
+    pointer-family PARAMETER — so `&rd` is one level short. The same "scope_[name] is the reference VALUE, not a slot" holds at
+    other binders (for-each element: ref_param_names_; match default-binding binder; closure capture) and the consumer is ONE site.
+  * Hypothesis to TEST: ONE change at the consumer (EAddrOf spills the reference value to a fresh slot when the operand binding is a
+    thin reference that holds its value) moves all 17 wrong battery shapes and the row; the lower_let `&&P` arm becomes redundant.
+    Grouping test: does it move a19 (for-each) and a20 (match) and a30 (capture) — three different minting sites — together?
+  * Not taken: the FnOnce trio (two move analyses, larger), the arm-return binder drops (three different binders per their
+    headers), array_nonprim_elem_eq / ref_pair_nonprim_tuple (reason-3 rows whose arms refuse legal programs).

@@ -1,0 +1,15 @@
+package d07_branch_value_arg;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let e: D = D { v: 7i64 };
+    let rd: &D = &d;
+    let re: &D = &e;
+    let c: bool = true;
+    if inner(if c { &rd } else { &re }) != rd as *const D { return 7i32; }
+    return 0i32;
+}

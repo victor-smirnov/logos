@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-15c-argref, program a24 — caught: argrefpos / argrefneg REFUTED: `let p: &&D = &rd;` read exit 25 under both (gen_let_inner's multi-ref arm compensates for the one-short EAddrOf); right on base and under argrefland / argreflandx
+// legality: by reading, no rustc binary
+package bc_0915c_argref_hb_a24_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let p: &&D = &rd;
+    if inner(p) != want { return 25i32; }
+    return 0i32;
+}

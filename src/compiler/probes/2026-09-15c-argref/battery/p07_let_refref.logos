@@ -1,0 +1,13 @@
+package p07_let_refref;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    let &&P { x } = p;
+    return x;
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r = &p;
+    let pp: &&P = &r;
+    if deref2(pp) != 5i32 { return 7i32; }
+    return 0i32;
+}

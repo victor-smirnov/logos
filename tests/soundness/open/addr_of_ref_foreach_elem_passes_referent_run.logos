@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row addr_of_ref_foreach_elem_passes_referent_run (tier 1). WRONG VALUE AT RUN TIME.
+// `inner(&x)` with `x` the element binding of `for x in s` (s: &[D]) passes the ELEMENT's address, one level short: exit 1.
+// Rust: `*a` is `x`, exit 0. The binder registers ref_param_names_ (census bucket argref.mlirgen.thinref.Struct.R) and
+// MLIRGenImpl::gen_expr_kind(EAddrOfView) spills only pointer-family PARAMETERS. A MEMBER of addr_of_struct_ref_local_arg_passes_referent_run's
+// class (the same consumer, a different binder): round 2026-09-15c-argref's argrefland moves it 1 -> 0 (battery a19: 139 -> 0, valgrind 1 -> 0 errors).
+// Measured on build/ 98ca3fa669468808 43, unarmed. Legality by reading; no rustc binary.
+package addr_of_ref_foreach_elem_passes_referent_run;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let arr: [D; 2] = [D { v: 6i64 }, D { v: 7i64 }];
+    let s: &[D] = &arr;
+    for x in s {
+        let want: *const D = x as *const D;
+        if inner(&x) != want { return 1i32; }
+    }
+    return 0i32;
+}

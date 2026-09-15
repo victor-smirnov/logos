@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-15c-argref, program a09 — caught: argrefpos / argrefneg REFUTED: `let p = &rd;` (rd: &D) then inner(p) read exit 9 under both (the let arm added its own level on top of the spill); right on base and under argrefland / argreflandx
+// legality: by reading, no rustc binary
+package bc_0915c_argref_hb_a09_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let p = &rd;
+    if inner(p) != want { return 9i32; }
+    return 0i32;
+}

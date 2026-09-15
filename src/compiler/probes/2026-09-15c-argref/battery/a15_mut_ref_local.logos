@@ -1,0 +1,11 @@
+package a15_mut_ref_local;
+struct D { v: i64 }
+fn inner(a: &&mut D) -> i64 {
+    return a.v;
+}
+fn main() -> i32 {
+    let mut d: D = D { v: 6i64 };
+    let rd: &mut D = &mut d;
+    if inner(&rd) != 6i64 { return 15i32; }
+    return 0i32;
+}

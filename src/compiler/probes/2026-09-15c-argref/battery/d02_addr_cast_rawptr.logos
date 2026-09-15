@@ -1,0 +1,14 @@
+package d02_addr_cast_rawptr;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let p: *const &D = &rd as *const &D;
+    let back: &D = unsafe { *p };
+    if back as *const D != rd as *const D { return 2i32; }
+    return 0i32;
+}

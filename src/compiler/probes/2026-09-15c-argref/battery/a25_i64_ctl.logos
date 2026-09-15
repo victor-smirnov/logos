@@ -1,0 +1,11 @@
+package a25_i64_ctl;
+fn inner(a: &&i64) -> i64 {
+    let x: &i64 = *a;
+    return *x;
+}
+fn main() -> i32 {
+    let d: i64 = 6i64;
+    let rd: &i64 = &d;
+    if inner(&rd) != 6i64 { return 26i32; }
+    return 0i32;
+}

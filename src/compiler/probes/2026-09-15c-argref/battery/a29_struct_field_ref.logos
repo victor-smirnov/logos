@@ -1,0 +1,13 @@
+package a29_struct_field_ref;
+struct D { v: i64 }
+struct H<'a> { r: &'a D }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let h: H = H { r: &d };
+    if inner(&h.r) != 6i64 { return 30i32; }
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+package a06_array_elem;
+struct D { v: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let arr: [&&D; 1] = [&rd];
+    let x: &D = *arr[0];
+    if x as *const D != want { return 6i32; }
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+ROUND 2026-09-15c-argref — PREDICTIONS, written BEFORE the argrefland build and its runs.
+binary of the first measurement: build/ 6fb910e4becc8d49 43 (census + argrefpos + argrefneg installed, L1 inert run pending).
+
+MEASURED ALREADY (battery a01-a30 + row, b01-b17, on 6fb910e4):
+  argrefpos (EAddrOf spills when the binding is a thin ref recorded V=var_struct_ or R=ref_param_names_, no slot record):
+    moves 0 <- wrong: row_addr_of, a01 a02 a03 a04 a05 a06 a07 a08 a14 a15 a17 a18 a19 a20 a22 a26 a30, b04 b05 b06 b07 b09 b11 b13 b17
+    BREAKS legal right-on-base: a09 (0 -> 9), a24 (0 -> 25), b02 (0 -> 2), b03 (0 -> 3) — all four go through gen_let_inner's
+    multi-ref arm, which adds the missing level itself: the neighbour that makes the same decision from the same fact.
+    misses: b08 (closure PARAMETER `|rd: &D| inner(&rd)`, 139 on base and under pos).
+  argrefneg (spill whenever no slot record): the same moves + b08; the same four breaks.
+
+PREDICTED for argrefland = argrefpos + the let arm stops adding its own level (the neighbour retired by delegation):
+  row addr_of_struct_ref_local_arg_passes_referent_run CLOSES (exit 1 -> 0).
+  a01-a08 a14 a15 a17 a18 a19 a20 a22 a26 a30, b04 b05 b06 b07 b09 b11 b13 b17 -> 0, valgrind 0 errors; b04 destructor count 1.
+  a09 a24 b02 b03 -> 0 (restored).
+  b08 stays 139 (no V/R record at a closure parameter; argrefneg's extra arrival).
+  every other battery program unchanged; the refusals (a27 a28 b10 b12 b14 b15 b16) unchanged.
+  queue gate: exactly ONE row reds (addr_of_struct_ref_local_arg_passes_referent_run); no tier-1 other row moves.
+  run_oracle / valgrind sweep / fail_text / stdlib: predicted 0 — ⚠ not a safety claim; the 4 let-arm breaks show a consumer can
+  carry its own compensation, and the comment at that arm names a "matching one-short callee convention" for the call-arg path
+  that the battery has NOT found (b01 impl-for-&D receiver, b13 generic trait method: right under pos).

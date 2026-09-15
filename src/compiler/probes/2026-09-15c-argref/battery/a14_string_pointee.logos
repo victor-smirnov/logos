@@ -1,0 +1,12 @@
+package a14_string_pointee;
+use logos.mem.string;
+fn inner(a: &&String) -> i64 {
+    let x: &String = *a;
+    return x.len();
+}
+fn main() -> i32 {
+    let s: String = String::from("abcdef");
+    let rs: &String = &s;
+    if inner(&rs) != 6i64 { return 14i32; }
+    return 0i32;
+}

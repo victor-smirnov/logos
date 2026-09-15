@@ -1,0 +1,32 @@
+ROUND 2026-09-15c-argref — THE CLASS, ENUMERATED BY PROPERTY WITH tools/dlog, CROSS-CHECKED PER SITE.
+
+selftest: `bash tools/dlog/selftest.sh` rc 0, 2026-09-15 08:10 — "ok 28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5;
+duty discriminates across 756aed65 (1 -> 0)".
+
+QUESTION (new rule tools/dlog/refalias_readers.dl, asked of mlir_gen_{stmt,expr,fn,dyn}.cpp mlir_gen.cpp mlir_gen_types.cpp on HEAD ca0f71fcb):
+  which MLIRGenImpl contexts read "what does scope_[name] hold for a reference binding" — the member sets ref_param_names_,
+  ptr_family_param_, ref_slot_vars_ (slot facts) and the conjunction var_struct_ + var_local_ptrs_ + let_vars_ (the alias test at
+  gen_let_inner's multi-ref arm)? Claim-free: the domain is every reference to those members, keyed by enclosing function name@line.
+KNOWN ANSWER, written before the run: gen_expr_kind(EAddrOfView) reads ptr_family_param_ + ref_param_names_; gen_let_inner reads the
+  alias conjunction; gen_lvalue_addr reads ref_slot_vars_. All three present in the answer.
+
+ANSWER
+  slotfact_reader (11 contexts): snapshot_var_scope, restore_var_scope, evict_var_shapes (bookkeeping), gen_let_inner@2060 (MINTS
+    ref_slot_vars_), gen_for_each@3294 (MINTS ref_param_names_), gen_lvalue_addr@1398 (reads ref_slot_vars_), gen_expr_kind@1569 =
+    EAddrOfView (reads ptr_family_param_ / ref_param_names_), gen_expr_kind@6218 = EBlockExprView (save/restore), gen_function_body@455
+    (MINTS both for parameters), dyn_storage_ptr@1563 (reads ref_param_names_), gen_closure@1707 (saves/clears ref_slot_vars_).
+  alias_test_ctx (6): snapshot / restore (bookkeeping), declare_local_place@1894, gen_let_inner@2060, gen_function_body@455, gen_closure@1707.
+  reads_line for the three slot-fact members: 32 references.
+GREP, the same question by spelling (`grep -n "ref_slot_vars_\|ref_param_names_\|ptr_family_param_"` over mlir_gen*.cpp + mlir_gen_impl.hpp):
+  35 lines = the same 32 code references + 3 comment lines (mlir_gen_expr.cpp 1414 1594, mlir_gen_stmt.cpp 3392) + the 3 member
+  declarations (impl.hpp 798 883 890, not references). dlog 32 / grep-code 32 — agree term for term.
+PER-SITE READ of the alias-test contexts (lines from reads_line): gen_let_inner 2510-2512 is the multi-ref `let r2 = &r1` arm (the
+  neighbour; it compensates for EAddrOf's one-short value); 2474/2479 the struct-ref let that MINTS the alias (no slot for an immutable
+  binding); 2611/2614 raw-pointer local tracking (not the fact). gen_closure 2112/2148: capture_is_struct — the env carries the pointee
+  address for a captured `&Struct` (the comment there says so), i.e. a second MINTING site of the alias, record var_struct_ only.
+  declare_local_place 2016/2047/2048: a deferred-init local gets a slot (battery c03 is right on base). gen_function_body 498/504/651:
+  parameters, handled by EAddrOf's ptr_family spill (battery a10 right on base).
+  => ONE consumer (EAddrOfView), ONE compensating consumer (gen_let_inner's multi-ref arm), and the minting sites differ by RECORD:
+     struct-ref let / match & if-let binders (var_struct_ + let_vars_), for-each (ref_param_names_), closure capture (var_struct_),
+     closure parameter (NOTHING — no member names it; census bucket `none`).
+⚠ ctx_of coarsens: "a context reads both" is not "a site reads both"; every row above was read by hand at its line.

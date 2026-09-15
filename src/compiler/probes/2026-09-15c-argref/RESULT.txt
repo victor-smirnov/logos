@@ -1,0 +1,133 @@
+ROUND 2026-09-15c-argref (PRICING, soundness queue tier 1) — `&<reference binding>` IS ONE LEVEL SHORT: A REFERENCE BINDING'S scope_
+ENTRY HOLDS THE REFERENCE VALUE (NO SLOT) AT FIVE BINDERS, AND THE ONE CONSUMER, gen_expr_kind(EAddrOfView), SPILLS ONLY FOR PARAMETERS
+base: HEAD ca0f71fcb, build/ 0fb613dc74481394 43 (queue gate rc 0, 200 rows, tier1=31 tier2=58 tier3=103 tier4=8)
+armed builds (build/, incremental, each proven inert by L1 unarmed rc 0 before use):
+  6fb910e4becc8d49 43 — census + argrefpos + argrefneg
+  81d6617df135b56c 43 — + argrefland (the multi-ref let arm stops adding its own level) + name census
+  98ca3fa669468808 43 — + argreflandx (argrefland + a binding with no record). ALL pricing columns are on this binary; unarmed = base.
+Files: TARGET_ROWS.txt (before any compiler edit), PREDICTIONS.txt (before the argrefland build), candidate_with_probe_gates.diff,
+  CLASS_DLOG.txt (dlog question + grep cross-check + per-site read), RESULT.txt, battery/ (74 hand programs a01-a30 b01-b17 c01-c17 d01-d10).
+
+STEP 1: HEAD ca0f71fcb clean; `# TOTAL` soundness_queue 200, bc_admits 60, bc_admits_blocked 8; probe-log-lint "339 records, every site
+  symbol resolves"; build_hash 0fb613dc74481394 43; queue gate rc 0 with LOGOS_LIB_DIR (200 rows, tier1=31 tier2=58 tier3=103 tier4=8).
+  CORRECTION to the prompt: tier 1 holds 31 rows, not 29 (the two newest, array_nonprim_elem_eq / ref_pair_nonprim_tuple_eq, were
+  opened by 2026-09-15b). `ninja -n` re-ran CMake (globbed-dir recheck) with no build step: build/ matched HEAD.
+  The prompt's STEP-1 gate command carries LOGOS_LIB_DIR — no correction owed there.
+
+TIER 1 RE-MEASURED (31 rows, build/ 0fb613dc, compiled with LOGOS_VERIFY_LAYOUT=1 + linked + run twice + valgrind --leak-check=full):
+  ALL 31 reproduce their recorded observation EXACTLY; none closed since ca0f71fcb.
+  exits: 1 for 24 rows; 134 box_field_move, boxed_move_closure_fat_capture_env_overflow; 2 variant_payload_nested_struct_sub_double_drops,
+  boxed_escaping_fnonce_capture_double_free, tuplestruct_door_default_ref_mode_not_carried ("drops=2");
+  enum_variant_value_into_scalar_let_admits compiles clean (admits) and exits 168 / 248 on two runs, 120 under valgrind (still non-deterministic).
+  valgrind ERROR SUMMARY: boxed_move_closure_fat_capture_env_overflow 2 · box_field_move 1 · closure_owned_dyn_capture 1 ·
+  impl_fn_return_stack_env_dangles 4 · tuple_elem_shared_borrow_through_ref_dangles_run 1 · weak_local_never_dropped 1 (12 bytes in 1
+  block definitely lost) · every other row 0 errors from 0 contexts.
+  stdout as recorded: aggregate_extended "inside=0 n=0", field_base "k=3 seq=216", index_place "n=110", operator_operand_owner "r=5 seq=2",
+  return_array_lit "n=22", tuplestruct_door "drops=2".
+
+WHAT SHOULD IT MEAN: Rust — `&rd` with `rd: &D` is a `&&D` whose referent is `rd` itself. Registries searched by construct: DIVERGENCES.md
+  A1-A17 name no address-of rule; docs/spec `expr.place.ref-local-slot-load` ("Rust-conformant") DESCRIBES the fact ("an immutable
+  `&Struct` local aliases the pointee with no storage of its own") as a codegen shape, not a divergence; `borrow.scoped.addrof-takes-
+  place-borrow` and `pat.bind.ref-bind-binds-address` say `&place` / `ref x` are the place's address. No blessed divergence: Rust's answer.
+
+ROOT (read, MLIR dump m1 vs m2 / m3 on 0fb613dc): `let rd: &D = &d;` — gen_let_inner's struct-ref arm binds scope_[rd] to D's ADDRESS with
+  no slot (immutable binding); `let p: &&D = &rd;` goes through the multi-ref arm, which materialises the missing level itself; a call
+  argument `inner(&rd)` goes through MLIRGenImpl::gen_expr_kind(EAddrOfView), which spills only a pointer-family PARAMETER and otherwise
+  returns scope_[rd] — D's address, one level short. `rd: &i64` is right because the scalar let gives it a slot (ref_slot_vars_).
+
+ARRIVAL CENSUS at EAddrOfView (thin reference binding; bucket = pointee kind . records S=ref_slot_vars_ L=var_local_ptrs_ R=ref_param_names_
+  V=var_struct_ T=let_vars_ E/U enum/tuple; "none" = no record):
+  pass corpus (7226 fixtures, run_oracle's own compiles, unarmed, 98ca3fa6): Struct.VT 87 · Other.T 485 (all named `v`) · Ref.T 24 (all `v`)
+    · Other.ST 69 · Ref.ST 8 · Enum.ST 6 · Array.ST 3 · Tuple.ST 2 · Struct.LVT 2 · notref 46444 · notype 8.
+    Struct.R 0, Struct.V 0, none 0 — for-each, closure-capture and closure-parameter reference bindings never reach `&` in the pass corpus:
+    UNREACHED zeros (kind 1), so argreflandx's extra arm has no runtime population there; its evidence is the battery.
+  battery: Struct.VT 21 (lets, match / if-let / `ref` binders), Struct.R 1 (a19 for-each), Struct.V 1 (a30 capture), Struct.none 1 (b08
+    closure parameter `rd`), Ref.T 4+1 (`v` inside a07's instantiated code; `p` = the multi-ref arm's own slot in b03 — an unrecorded SLOT,
+    which is why argrefneg is unsafe), Struct.LVT 1 (a16 `let mut`).
+
+ARMS (all at MLIRGenImpl::gen_expr_kind(EAddrOfView) unless said; candidate_with_probe_gates.diff):
+  argrefpos   spill a fresh slot holding scope_[name] when the binding is a thin reference with no slot record and a V or R record
+  argrefneg   spill whenever there is no slot record (S / L)
+  argrefland  argrefpos + gen_let_inner's multi-ref arm stops adding its own level (the neighbour retired by delegation)
+  argreflandx argrefland + spill a binding with NO record at all (closure parameters)
+
+NEIGHBOURS (standing rule 2026-09-12) — the class: every site that decides "is a reference binding's scope_ entry its VALUE or a SLOT
+holding it" when `&<binding>` is taken, and every consumer that compensates for the one-short answer.
+  neighbour                                           · status                         · reason / measurement
+  gen_let_inner multi-ref arm (`let p: &&D = &rd`)    · CLOSED in the candidate        · delegation: argrefpos alone BREAKS a09 a24 b02 b03 (0 -> 9 25 2 3);
+                                                                                         argrefland restores all four (the arm stops adding its level)
+  for-each element binder (ref_param_names_)          · CLOSED by argrefland           · a19 139 -> 0; new row addr_of_ref_foreach_elem 1 -> 0
+  match / if-let / `ref` / let-else binders (VT)      · CLOSED by argrefland           · a20 b06 b07 c06 -> 0; new row addr_of_ref_match_binder 1 -> 0
+  closure capture (V only)                            · CLOSED by argrefland           · a30 c01 c14 -> 0; new row addr_of_ref_closure_capture 1 -> 0
+  closure PARAMETER (no record)                       · CLOSED by the strict extension · argrefland leaves b08 c11 c12 wrong (139 139 12); argreflandx
+                                                        argreflandx                      moves them and the new row addr_of_ref_closure_param 1 -> 0
+  RefPat door over an aggregate core (match stmt /    · ROWED, REASON 2 (doors in      · struct_pattern_over_double_ref_reads_slot_run: wrong on base
+    expr door extract_payload / extract_arm_payload)    series) — AND IT PRICES THE      independently (p01 p02 p04 p06 p09); it is the "one-short callee
+                                                        LANDING NON-ZERO                 convention" the multi-ref arm's comment named: pass fixture
+                                                                                         pattern_parse_batch_full is green on base BY CANCELLATION and
+                                                                                         reads exit 1 under argrefland / argreflandx (3 of 3 runs)
+  EAddrOf for a pointer-family parameter              · already right (spill)          · a10 d09 right on base
+  deferred-init local (declare_local_place)           · already right (slot)           · c03 right on base
+  `let mut rd` (var_local_ptrs_)                      · already right (slot)           · a16 c09 right on base
+  scalar / enum / tuple / array pointee (ref_slot_vars_) · already right (slot)        · a11 a12 a13 a25 right on base
+  argrefneg (spill with no slot record)               · DECLINED, reason 3             · spills the multi-ref arm's own unrecorded slot (`p`, Ref.T):
+                                                                                         the same four breaks, and 509 corpus arrivals (`v`, Other.T /
+                                                                                         Ref.T) it would touch that no arm needs
+
+HAND BATTERY (83 programs in battery/, Rust's answer by reading; each compiled + linked + RUN under valgrind; exit 0 = Rust's answer; b04 carries
+a destructor count — exit = count - 1):
+  a01-a30 b01-b17 c01-c17 d01-d10 p01-p09. Wrong at run time on base (0fb613dc, and identical unarmed on 6fb910e4 / 81d6617d / 98ca3fa6):
+    a01 1 · a02 2 · a03 139 · a04 4 · a05 5 · a06 6 · a07 7 · a08 8 · a14 14 · a15 139 · a17 139 (= 2026-09-15b's f29 segfault) · a18 139 ·
+    a19 139 · a20 139 · a22 139 · a26 139 · a30 139 · b04 139 · b05 139 (`&r1 == &r2`) · b06 139 · b07 139 · b08 139 · b09 9 · b11 139 · b13 139 ·
+    b17 139 · c01 1 · c02 2 · c04 4 · c05 5 · c06 6 · c07 7 · c08 8 · c10 10 · c11 139 · c12 12 · c13 13 · c14 14 · c16 16 · c17 17 ·
+    d02 2 · d03 3 · d05 5 · d06 6 · d07 7 · d08 8 · d10 139 · p03 139  (48 shapes; valgrind 1 error on every 139)
+    and the target row (exit 1). Every 139 reads D's bytes as a pointer.
+  Right on base: a09 a10 a11 a12 a13 a16 a21 a23 a24 a25 a29 b01 b02 b03 c03 c09 d01 d04 d09 p05 p08.
+  Wrong on base INDEPENDENTLY of this class (the pattern door): p01 1 · p02 2 · p04 4 · p06 6 · p09 9 — unchanged under every arm.
+  Refused, legal (out of class): a27 / b15 `&&dyn` / `& &dyn` parse · a28 `&'b &'a D -> &'a D` lifetime mismatch · b10 `.v` through `&Box<D>` ·
+    b14 (minimised: `&&'a D` parse) · b16 `&&[i64]` "unsized" · p07 `let &&P { x } = p;` "supports struct patterns only" · b12 `.iter()` on
+    a slice (stdlib surface, not rowed) · c15 `Box<dyn Fn>` over a borrowing capture (illegal in Rust too: not a catch).
+
+  under argrefpos (6fb910e4): all 26 a/b wrong shapes of that run -> 0 except b08; BREAKS a09 a24 b02 b03 (-> 9 25 2 3).
+  under argrefneg (6fb910e4): the same + b08 -> 0; the same four breaks.
+  under argrefland (98ca3fa6): every wrong shape above -> 0, valgrind 0 errors, b04 count 1 — EXCEPT b08 c11 c12 (closure parameters,
+    unchanged) and p01 p02 p04 p06 p09 (pattern door, unchanged); a09 a24 b02 b03 stay 0; every refusal unchanged.
+  under argreflandx (98ca3fa6): argrefland's + b08 c11 c12 -> 0. No legal program of the 83 broken.
+
+PREDICTIONS (PREDICTIONS.txt, before the argrefland build): row closes — HIT; the listed shapes -> 0 — HIT; a09 a24 b02 b03 restored — HIT;
+  b08 unchanged — HIT; queue exactly one row — HIT; run_oracle 0 — MISS (1: pattern_parse_batch_full, the callee convention the comment
+  named and the battery had not found; b01 / b13 were the wrong places to look — it lives in a PATTERN, not a receiver).
+
+COST COLUMNS (98ca3fa669468808 43; base = the same binary unarmed; one saturating job at a time; outputs under the chain dir, timestamps
+  08:36-09:51):
+  L1 unarmed: rc 0 (on 6fb910e4, 81d6617d and 98ca3fa6).
+  queue gate (LOGOS_LIB_DIR set, beside each armed run_oracle): argrefland rc 1 / argreflandx rc 1, each with exactly ONE FAIL line:
+    addr_of_struct_ref_local_arg_passes_referent_run "NO LONGER REPRODUCES — want run=1, read run=0"; 199 other rows hold.
+  run_oracle (7226 pass fixtures): base vs argrefland — 7226 common, 2 changed: cast-region-to-uint (stack address, subtracted by name),
+    pattern_parse_batch_full 0 -> 1 (DAMAGE; re-run alone 3 times per binary: unarmed 0 0 0, argrefland 1 1 1, stdout empty both).
+    base vs argreflandx — identical: the same one DAMAGE, 0 fixed, 0 other. argrefland vs argreflandx: only the stack-address fixture.
+  fail_text_oracle (-L bc -L fail): 1861 common; rc / stderr sha / .expected match moved 0 / 0 / 0 under argrefland AND argreflandx.
+  stdlib-cost.sh: "all four layers compile" under argrefland and argreflandx.
+  valgrind sweep (union argreflandx vs unarmed, 7238 each): base OK 6990 LEAK 53 CORRUPT 2 TIMEOUT 3 NOVG 4; armed OK 6991 LEAK 53
+    CORRUPT 3 TIMEOUT 3 NOVG 2. Set diff: NEW fiber_thread_basic (NOVG -> CORRUPT), GONE none; status mover ufcs-explicit-self NOVG -> OK.
+    Both are base-side NOVG (no valgrind output under load; the reaper killed 6 stuck valgrind processes across the two sweeps). RE-RUN
+    ALONE: fiber_thread_basic exit 42, "134 errors from 94 contexts", 13 allocs / 11 frees on BOTH binaries; ufcs-explicit-self 0 errors on
+    both. => NEW 0 / GONE 0 real; LEAK / CORRUPT counters moved 0.
+  ZEROS, BY KIND: the corpus's for-each / capture / closure-parameter `&` arrivals are UNREACHED zeros (census 0 in 7226 compiles), so
+    argreflandx's extra arm is priced by the battery alone; the queue gate's other 199 rows are measured zeros (compiled and run).
+
+NEW ROWS (measured on 98ca3fa6 unarmed; staged, landed with this record): tier 1 addr_of_ref_foreach_elem_passes_referent_run (1),
+  addr_of_ref_match_binder_passes_referent_run (1), addr_of_ref_closure_capture_passes_referent_run (1), addr_of_ref_closure_param_passes_referent_run
+  (1), struct_pattern_over_double_ref_reads_slot_run (1); tier 3 double_ref_deref_return_outer_lifetime_refused, ref_to_slice_ref_param_unsized_refused,
+  ref_to_dyn_ref_type_parse_refused, double_amp_lifetime_ref_type_parse_refused, field_read_through_ref_to_box_refused,
+  let_ref_struct_pattern_irrefutable_refused. soundness_queue 200 -> 211.
+FIXTURES: 4 pass fixtures bc_0915c_argref_hb_{a09,a24,b02,b03}_admit — legal, right on base, each REFUTED argrefpos and argrefneg.
+
+WHAT DESERVES FUNDING, IN ORDER:
+  1. The RefPat aggregate-core door (struct_pattern_over_double_ref_reads_slot_run): a `&`-pattern chain onto a struct must load every
+     reference layer above the struct's own, as scalar_core_scrut does for a scalar and the enum door does with via_ref_depth. It is wrong
+     on base by itself (p01 p02 p04 p06 p09), and it is the one known consumer of the one-short value. Enumerate its sites first (both
+     match doors' RefPat arms, the enum-arm RefPat branches, mono_clone's RefPat, borrow_check's pattern walkers) — dlog's question shape.
+  2. argreflandx, co-landed with 1 or after it: cost 0 in every column except the one cancellation 1 removes; closes the target row + the
+     four binder rows opened here, and the f29 / f29c / f29e segfaults of 2026-09-15b (a17 b05).
+  Not fundable: argrefpos (half a mechanism), argrefneg (spills an unrecorded slot).

@@ -1,0 +1,16 @@
+package c08_ref_from_field_and_index;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+struct H { inn: D }
+fn main() -> i32 {
+    let h: H = H { inn: D { v: 6i64 } };
+    let rd: &D = &h.inn;
+    if inner(&rd) != &h.inn as *const D { return 8i32; }
+    let arr: [D; 2] = [D { v: 1i64 }, D { v: 2i64 }];
+    let re: &D = &arr[1];
+    if inner(&re) != &arr[1] as *const D { return 80i32; }
+    return 0i32;
+}

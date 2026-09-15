@@ -1,0 +1,16 @@
+package a03_method_arg;
+struct D { v: i64 }
+struct H { k: i64 }
+impl H {
+    fn take(self: &Self, a: &&D) -> i64 {
+        let x: &D = *a;
+        return x.v + self.k;
+    }
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let h: H = H { k: 1i64 };
+    let rd: &D = &d;
+    if h.take(&rd) != 7i64 { return 3i32; }
+    return 0i32;
+}

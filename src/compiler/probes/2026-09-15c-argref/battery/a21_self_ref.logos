@@ -1,0 +1,14 @@
+package a21_self_ref;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+impl D {
+    fn go(self: &Self) -> i64 { return inner(&self); }
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    if d.go() != 6i64 { return 22i32; }
+    return 0i32;
+}

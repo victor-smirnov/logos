@@ -1,0 +1,11 @@
+package a22_field_read_through;
+struct D { v: i64, w: i64 }
+fn inner(a: &&D) -> i64 {
+    return a.w;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64, w: 7i64 };
+    let rd: &D = &d;
+    if inner(&rd) != 7i64 { return 23i32; }
+    return 0i32;
+}

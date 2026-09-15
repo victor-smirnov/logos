@@ -1,0 +1,12 @@
+package p08_refref_binder_then_field;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    match p { &&ref q => q.x }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r = &p;
+    let pp: &&P = &r;
+    if deref2(pp) != 5i32 { return 8i32; }
+    return 0i32;
+}

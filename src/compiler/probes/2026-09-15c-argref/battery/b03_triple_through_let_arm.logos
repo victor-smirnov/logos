@@ -1,0 +1,14 @@
+package b03_triple_through_let_arm;
+struct D { v: i64 }
+fn inner(a: &&&D) -> i64 {
+    let x: &&D = *a;
+    let y: &D = *x;
+    return y.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let p: &&D = &rd;
+    if inner(&p) != 6i64 { return 3i32; }
+    return 0i32;
+}

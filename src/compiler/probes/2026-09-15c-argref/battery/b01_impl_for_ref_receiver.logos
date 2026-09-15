@@ -1,0 +1,12 @@
+package b01_impl_for_ref_receiver;
+struct D { v: i64 }
+trait Tr { fn get(self: &Self) -> i64; }
+impl<'a> Tr for &'a D {
+    fn get(self: &Self) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    if rd.get() != 6i64 { return 1i32; }
+    return 0i32;
+}

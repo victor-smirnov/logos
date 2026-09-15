@@ -1,0 +1,12 @@
+package p09_single_ref_pat_on_refref;
+struct P { x: i32 }
+fn deref1(p: &&P) -> i32 {
+    match p { &q => q.x }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r = &p;
+    let pp: &&P = &r;
+    if deref1(pp) != 5i32 { return 9i32; }
+    return 0i32;
+}

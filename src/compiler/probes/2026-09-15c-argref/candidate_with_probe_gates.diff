@@ -1,0 +1,95 @@
+diff --git a/src/compiler/mlir_gen_expr.cpp b/src/compiler/mlir_gen_expr.cpp
+index b8eb4905f..0dd1048bb 100644
+--- a/src/compiler/mlir_gen_expr.cpp
++++ b/src/compiler/mlir_gen_expr.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include <logos/compiler/sha256.hpp>
+ #include <logos/compiler/const_promote.hpp>   // #92 const promotion (shared predicate)
++#include <logos/compiler/probe.hpp>           // PROBE 2026-09-15c-argref
+ #include <logos/writ/compat.hpp>
+ #include <logos/writ/compat.hpp>
+ #include <logos/writ/compat.hpp>
+@@ -1566,7 +1567,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
+     }
+ }
+ 
+-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
++mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef argref_addr_t) {
+     // Address-of: return the alloca pointer directly.
+     std::string var_name{v.var_name()};
+     auto it = scope_.find(var_name);
+@@ -1610,6 +1611,54 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
+         }
+         return alloca;
+     }
++    // PROBE 2026-09-15c-argref (census + argrefpos / argrefneg) — see src/compiler/PROBES.md.
++    {
++        TypeRef argref_vt = argref_addr_t ? TypeRef(argref_addr_t).pointee() : TypeRef(nullptr);
++        const bool argref_thin =
++            argref_vt && (argref_vt.kind() == LogosType::Kind::Ref || argref_vt.kind() == LogosType::Kind::MutRef) &&
++            ref_repr_of(argref_vt) == RefReprKind::ThinPtr;
++        if (!argref_addr_t || !argref_vt) {
++            logos::probe::census("argref.mlirgen.notype");
++        } else if (argref_thin && it->second) {
++            std::string rec;
++            if (ref_slot_vars_.count(var_name)) rec += "S";
++            if (var_local_ptrs_.count(var_name)) rec += "L";
++            if (ref_param_names_.count(var_name)) rec += "R";
++            if (var_struct_.count(var_name)) rec += "V";
++            if (let_vars_.count(var_name)) rec += "T";
++            if (var_tagged_enum_.count(var_name)) rec += "E";
++            if (var_tuple_.count(var_name)) rec += "U";
++            if (rec.empty()) rec = "none";
++            TypeRef pe = argref_vt.pointee();
++            using K = LogosType::Kind;
++            const char* pk = !pe                                   ? "null"
++                             : pe.kind() == K::Struct              ? "Struct"
++                             : pe.kind() == K::Enum                ? "Enum"
++                             : pe.kind() == K::Tuple               ? "Tuple"
++                             : pe.kind() == K::Array               ? "Array"
++                             : pe.kind() == K::TypeVar             ? "TypeVar"
++                             : (pe.kind() == K::Ref || pe.kind() == K::MutRef) ? "Ref"
++                                                                   : "Other";
++            logos::probe::census(std::string("argref.mlirgen.thinref.") + pk + "." + rec);
++            if (std::string(pk) == "Ref" || rec == "T" || rec == "none")
++                logos::probe::census(std::string("argref.mlirgen.name.") + pk + "." + rec + "." + var_name);
++            const bool argref_slot = ref_slot_vars_.count(var_name) || var_local_ptrs_.count(var_name);
++            const bool argref_pos = !argref_slot && (var_struct_.count(var_name) || ref_param_names_.count(var_name));
++            // argreflandx: argrefland plus a binding with NO record at all (a closure parameter registers none).
++            const bool argref_none = rec == "none";
++            if ((argref_pos && (logos::probe::on("argrefpos") || logos::probe::on("argrefland") ||
++                                logos::probe::on("argreflandx"))) ||
++                (argref_none && logos::probe::on("argreflandx")) ||
++                (!argref_slot && logos::probe::on("argrefneg"))) {
++                logos::probe::census("argref.mlirgen.spill");
++                auto spill = create_entry_alloca(ptr_type());
++                builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, spill);
++                return spill;
++            }
++        } else {
++            logos::probe::census(argref_thin ? "argref.mlirgen.thinref.nullval" : "argref.mlirgen.notref");
++        }
++    }
+     // Enum value-repr: `&o` for an enum local is ONE level — the inline
+     // storage address itself (like `&Struct`). scope_ already holds that
+     // address, so hand it back directly.
+diff --git a/src/compiler/mlir_gen_stmt.cpp b/src/compiler/mlir_gen_stmt.cpp
+index 4c4130d83..b7abc70b2 100644
+--- a/src/compiler/mlir_gen_stmt.cpp
++++ b/src/compiler/mlir_gen_stmt.cpp
+@@ -2514,8 +2514,12 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
+             auto val = gen_expr(s.value);   // p's address — the one-short `&P`
+             if (!val) return;
+             // Materialise r1's missing storage: a slot holding the `&P` value.
+-            auto mid = create_entry_alloca(ptr_type());
+-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, mid);
++            // PROBE 2026-09-15c-argref (argrefland): EAddrOf already spilled it — `val` IS that slot.
++            mlir::Value mid = val;
++            if (!logos::probe::on("argrefland") && !logos::probe::on("argreflandx")) {
++                mid = create_entry_alloca(ptr_type());
++                builder_.create<mlir::LLVM::StoreOp>(loc_, val, mid);
++            }
+             // r2's own slot holds the address of that slot → `&&P`.
+             auto slot = create_entry_alloca(ptr_type());
+             builder_.create<mlir::LLVM::StoreOp>(loc_, mid, slot);

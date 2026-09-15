@@ -1,0 +1,9 @@
+package a18_closure_call_arg;
+struct D { v: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let f = |a: &&D| -> i64 { let x: &D = *a; return x.v; };
+    if f(&rd) != 6i64 { return 18i32; }
+    return 0i32;
+}

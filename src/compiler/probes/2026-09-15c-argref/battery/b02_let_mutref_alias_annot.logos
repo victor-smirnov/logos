@@ -1,0 +1,9 @@
+package b02_let_mutref_alias_annot;
+struct D { v: i64 }
+fn main() -> i32 {
+    let mut d: D = D { v: 6i64 };
+    let rd: &mut D = &mut d;
+    let p: &&mut D = &rd;
+    if p.v != 6i64 { return 2i32; }
+    return 0i32;
+}

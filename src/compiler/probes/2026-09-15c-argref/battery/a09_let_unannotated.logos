@@ -1,0 +1,14 @@
+package a09_let_unannotated;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let p = &rd;
+    if inner(p) != want { return 9i32; }
+    return 0i32;
+}

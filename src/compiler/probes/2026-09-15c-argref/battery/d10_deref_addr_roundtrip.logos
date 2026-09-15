@@ -1,0 +1,14 @@
+package d10_deref_addr_roundtrip;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let back: &D = *&rd;
+    if back.v != 6i64 { return 10i32; }
+    if back as *const D != rd as *const D { return 100i32; }
+    return 0i32;
+}

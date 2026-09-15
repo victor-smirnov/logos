@@ -1,0 +1,11 @@
+package p05_refref_pat_prim;
+struct P { x: i32 }
+fn d(p: &&i64) -> i64 {
+    match p { &&v => v }
+}
+fn main() -> i32 {
+    let n: i64 = 5i64;
+    let r: &i64 = &n;
+    if d(&r) != 5i64 { return 5i32; }
+    return 0i32;
+}

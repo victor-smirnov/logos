@@ -1,0 +1,11 @@
+package b13_generic_trait_method_through;
+struct D { v: i64 }
+trait Get { fn get(self: &Self) -> i64; }
+impl Get for D { fn get(self: &Self) -> i64 { return self.v; } }
+fn via<T: Get>(a: &&T) -> i64 { return a.get(); }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    if via::<D>(&rd) != 6i64 { return 13i32; }
+    return 0i32;
+}

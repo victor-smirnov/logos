@@ -1,0 +1,13 @@
+package a16_mut_borrow_of_ref;
+struct D { v: i64 }
+fn repoint<'a>(a: &mut &'a D, b: &'a D) {
+    *a = b;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let e: D = D { v: 9i64 };
+    let mut rd: &D = &d;
+    repoint(&mut rd, &e);
+    if rd.v != 9i64 { return 16i32; }
+    return 0i32;
+}

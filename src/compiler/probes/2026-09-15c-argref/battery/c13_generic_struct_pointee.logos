@@ -1,0 +1,17 @@
+package c13_generic_struct_pointee;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+struct G<T> { v: T }
+fn ginner(a: &&G<i64>) -> *const G<i64> {
+    let x: &G<i64> = *a;
+    return x as *const G<i64>;
+}
+fn main() -> i32 {
+    let g: G<i64> = G::<i64> { v: 6i64 };
+    let rg: &G<i64> = &g;
+    if ginner(&rg) != &g as *const G<i64> { return 13i32; }
+    return 0i32;
+}

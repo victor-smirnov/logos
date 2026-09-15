@@ -1,0 +1,12 @@
+package b10_box_pointee;
+struct D { v: i64 }
+fn inner(a: &&Box<D>) -> i64 {
+    let x: &Box<D> = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let b: Box<D> = Box::new(D { v: 6i64 });
+    let rb: &Box<D> = &b;
+    if inner(&rb) != 6i64 { return 10i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+package a12_tuple_pointee;
+fn inner(a: &&(i64, i64)) -> *const (i64, i64) {
+    let x: &(i64, i64) = *a;
+    return x as *const (i64, i64);
+}
+fn main() -> i32 {
+    let t: (i64, i64) = (6i64, 7i64);
+    let rt: &(i64, i64) = &t;
+    let want: *const (i64, i64) = rt as *const (i64, i64);
+    if inner(&rt) != want { return 12i32; }
+    return 0i32;
+}

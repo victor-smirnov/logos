@@ -1,0 +1,14 @@
+package c04_tuple_destructure;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let e: D = D { v: 7i64 };
+    let (ra, rb): (&D, &D) = (&d, &e);
+    if inner(&ra) != &d as *const D { return 4i32; }
+    if inner(&rb) != &e as *const D { return 40i32; }
+    return 0i32;
+}

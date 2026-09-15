@@ -45869,3 +45869,61 @@ cost: 0 — queue gate (land4 and rebuilt build/ 0fb613dc) rc 0, 200 rows, the 5
 verdict: LANDED — refpeel (shared layers) + refstruct (on `&pointee`, by-reference formals) + refagg's in-place half (primitive
   array / str / all-primitive tuple, Enum excluded) + refagg's TypeVar half. refagg's NON-PRIMITIVE TUPLE half is DECLINED (g10, g15:
   legal programs refused). refmono / refeqx stay DECLINED (pricing record).
+
+# ═══ ROUND 2026-09-15c-argref (PRICING, soundness queue tier 1) — `&<reference binding>` IS ONE LEVEL SHORT: A REFERENCE BINDING'S
+#     scope_ ENTRY IS ITS VALUE AT FIVE BINDERS, THE ONE CONSUMER SPILLS ONLY PARAMETERS, AND A PATTERN DOOR CANCELS THE ERROR ══════
+
+Files: `src/compiler/probes/2026-09-15c-argref/` — TARGET_ROWS.txt (before any compiler edit), PREDICTIONS.txt (before the argrefland
+build), candidate_with_probe_gates.diff (census + four arms as measured), CLASS_DLOG.txt (dlog question + grep cross-check + per-site
+read), RESULT.txt (every column), battery/ (83 hand programs a01-a30 b01-b17 c01-c17 d01-d10 p01-p09). New dlog rule:
+tools/dlog/refalias_readers.dl (selftest rc 0 first; known answer — EAddrOfView, gen_let_inner, gen_lvalue_addr — present).
+
+STEP 1: HEAD ca0f71fcb clean; `# TOTAL` soundness_queue 200, bc_admits 60, bc_admits_blocked 8; probe-log-lint 339 records; build_hash
+0fb613dc74481394 43; queue gate rc 0 with LOGOS_LIB_DIR (200 rows, tier1 31 tier2 58 tier3 103 tier4 8). CORRECTION: tier 1 is 31 rows,
+not 29. TIER 1 RE-MEASURED: all 31 reproduce exactly (RESULT.txt: exits, stdout, valgrind summaries). None closed.
+
+TARGET: addr_of_struct_ref_local_arg_passes_referent_run. WHAT SHOULD IT MEAN: Rust (`&rd` is the address of `rd`); no blessed divergence
+(`expr.place.ref-local-slot-load` describes the alias as a Rust-conformant codegen shape).
+
+## argrefpos
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+build: 6fb910e4becc8d49 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 23 (battery a-series spills) · pass corpus Struct.VT 87 arrivals (98ca3fa6 census, the bucket it spills)
+ceiling: 1 queue row (the target; exit 1 -> 0)
+cost: battery only — BREAKS 4 legal programs right on base: a09 (0 -> 9) a24 (0 -> 25) b02 (0 -> 2) b03 (0 -> 3), all through gen_let_inner's
+  multi-ref arm, which adds the level itself
+verdict: DECLINED AS PRICED (half a mechanism) — the consumer fix without retiring the compensating let arm; superseded by argrefland.
+
+## argrefneg
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+build: 6fb910e4becc8d49 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 27 (battery a-series) · pass corpus arrivals it would spill: Struct.VT 87 + Other.T 485 + Ref.T 24
+ceiling: 1 queue row
+cost: battery — the same 4 breaks; spills the multi-ref arm's unrecorded SLOT `p` (Ref.T, b03)
+verdict: DECLINED, reason 3 — "no slot record" is not "holds the value": a slot no member names exists (the multi-ref arm's r2).
+
+## argrefland
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+(second edit of the same arm, not a second name: src/compiler/mlir_gen_stmt.cpp gen_let_inner's multi-ref arm skips its own level)
+build: 98ca3fa669468808 43 (first measured on 81d6617df135b56c 43; both L1 unarmed rc 0)
+measured: 2026-09-15
+fires: battery 67 wrong-on-base shapes -> Rust's answer except the closure-parameter three · pass corpus Struct.VT 87 arrivals
+ceiling: 1 queue row (target, predicted) + 3 rows opened this round at other binders (foreach, match binder, closure capture)
+cost: 1 — run_oracle DAMAGE pattern_parse_batch_full (0 -> 1, 3 of 3 alone), 0 fixed, 0 other of 7226 (cast-region-to-uint subtracted by
+  name) · queue gate exactly the target closes · fail text 0 of 1861 (rc / sha / match) · stdlib 4 layers ok · valgrind: see argreflandx
+verdict: DECLINED AS PRICED, DOORS IN SERIES — the damaged fixture is green on base BY CANCELLATION: its `&&P { x }` callee pattern reads the
+  slot, the one-short caller hands it the struct. Row struct_pattern_over_double_ref_reads_slot_run (wrong on base alone: p01 p02 p04 p06
+  p09) must open first or co-land.
+
+## argreflandx
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+(second edit of the same arm, not a second name: src/compiler/mlir_gen_stmt.cpp gen_let_inner's multi-ref arm skips its own level)
+build: 98ca3fa669468808 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: battery 70 wrong-on-base shapes -> Rust's answer (argrefland's + b08 c11 c12) · pass corpus Struct.VT 87; `none` 0 (unreached)
+ceiling: 1 queue row (target) + 4 rows opened this round (foreach, match binder, closure capture, closure parameter)
+cost: 1 — run_oracle the same single DAMAGE (pattern_parse_batch_full) of 7226, identical to argrefland but the stack-address fixture ·
+  queue gate target only · fail text 0 of 1861 · stdlib 4 layers ok · valgrind (union) 7238 swept each, NEW 0 / GONE 0 after re-running the two base-side NOVG entries ALONE (fiber_thread_basic 134 errors on both binaries; ufcs-explicit-self 0 on both), LEAK / CORRUPT counters moved 0
+verdict: PRICED, NOT FUNDABLE ALONE — the union to fund AFTER (or WITH) the RefPat aggregate-core door; its own extra arm has no corpus population.

@@ -1,0 +1,12 @@
+package a28_return_through;
+struct D { v: i64 }
+fn pick<'a, 'b>(a: &'b &'a D) -> &'a D {
+    return *a;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let back: &D = pick(&rd);
+    if back.v != 6i64 { return 29i32; }
+    return 0i32;
+}

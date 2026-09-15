@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row double_ref_deref_return_outer_lifetime_refused (tier 3). LEGAL RUST REFUSED.
+// `fn pick<'a, 'b>(a: &'b &'a D) -> &'a D { return *a; }` copies the inner `&'a D` out; rustc accepts it. logosc refuses:
+//   error [fn pick]: lifetime mismatch: return type has lifetime 'a but 'a' has lifetime 'b
+// (the outer region is charged to the copied inner reference). The `-> &'b D` twin compiles. Found by round 2026-09-15c-argref
+// (hand a28) on build/ 98ca3fa669468808 43. Legality by reading; no rustc binary.
+package double_ref_deref_return_outer_lifetime_refused;
+struct D { v: i64 }
+fn pick<'a, 'b>(a: &'b &'a D) -> &'a D {
+    return *a;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let back: &D = pick(&rd);
+    return (back.v - 6i64) as i32;
+}

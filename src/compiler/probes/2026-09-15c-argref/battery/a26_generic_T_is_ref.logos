@@ -1,0 +1,13 @@
+package a26_generic_T_is_ref;
+struct D { v: i64 }
+fn inner<T>(a: &T) -> *const T {
+    return a as *const T;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let slot: *const &D = inner::<&D>(&rd);
+    let back: &D = unsafe { *slot };
+    if back.v != 6i64 { return 27i32; }
+    return 0i32;
+}

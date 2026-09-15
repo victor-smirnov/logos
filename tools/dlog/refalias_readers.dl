@@ -1,0 +1,30 @@
+#include "cxx_schema.dl"
+// refalias_readers — round 2026-09-15c-argref. WHICH MLIRGenImpl CONTEXTS READ "WHAT DOES scope_[name] HOLD"?
+// The row addr_of_struct_ref_local_arg_passes_referent_run: an immutable `&Struct` let binds scope_[r] to the POINTEE's address
+// (no slot), so `&r` (gen_expr_kind(EAddrOfView) returns scope_[r]) is one level short. The same fact — "scope_[name] is a
+// pointer VALUE, not a slot holding it" — is spelled by several MEMBER SETS: ref_param_names_, ptr_family_param_, ref_slot_vars_,
+// var_local_ptrs_ (slot holds a ptr), and the alias test at lower_let's multi-ref arm (var_struct_ && !var_local_ptrs_ && let_vars_).
+// Claim-free domain: every reference to one of those members; grouped per enclosing function (lambdas lifted), keyed by name@line
+// (gen_expr_kind / gen_stmt_kind overloads share a name). ⚠ ctx_of coarsens: a context reading two members is not one SITE
+// reading both — cross-checked per site by hand.
+// KNOWN ANSWER (read before the run): MLIRGenImpl::gen_expr_kind(EAddrOfView) reads ptr_family_param_ and ref_param_names_;
+// lower_let (the multi-ref arm) reads var_struct_ AND var_local_ptrs_ AND let_vars_; gen_lvalue_addr reads var_local_ptrs_ and
+// ref_slot_vars_. At least those three.
+.decl watched(D: symbol, Q: symbol)
+watched(D, Q) :- decl(D, _, Q), match("(.*::)?MLIRGenImpl::(ref_param_names_|ptr_family_param_|ref_slot_vars_|var_local_ptrs_|var_struct_|let_vars_)", Q).
+.decl fn_ctx(C: symbol, F: symbol)
+fn_ctx(C, C) :- named_context(C), (node(C, "Function", _, _) ; node(C, "CXXMethod", _, _)).
+fn_ctx(C, F) :- named_context(C), node(C, "LambdaExpr", P, _), P != "-", ctx_of(P, C2), fn_ctx(C2, F).
+.decl ctx_key(C: symbol, Key: symbol)
+ctx_key(C, cat(Nm, "@", Fl, ":", to_string(L))) :- fn_ctx(C, F), ctx_name(F, Nm), loc(F, Fl0, L, _), Fl = Fl0.
+.decl reads(Key: symbol, Q: symbol)
+reads(K, Q) :- watched(D, Q), ref(U, D), ctx_of(U, C), ctx_key(C, K).
+.decl reads_line(Key: symbol, Q: symbol, Line: number)
+.output reads_line
+reads_line(K, Q, L) :- watched(D, Q), ref(U, D), loc(U, _, L, _), ctx_of(U, C), ctx_key(C, K).
+.decl slotfact_reader(Key: symbol)
+.output slotfact_reader
+slotfact_reader(K) :- reads(K, Q), match(".*(ref_param_names_|ptr_family_param_|ref_slot_vars_)", Q).
+.decl alias_test_ctx(Key: symbol)
+.output alias_test_ctx
+alias_test_ctx(K) :- reads(K, Q1), match(".*var_struct_", Q1), reads(K, Q2), match(".*var_local_ptrs_", Q2), reads(K, Q3), match(".*let_vars_", Q3).

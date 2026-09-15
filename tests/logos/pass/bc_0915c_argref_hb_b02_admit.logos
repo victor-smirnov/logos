@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-15c-argref, program b02 — caught: argrefpos / argrefneg REFUTED: `let p: &&mut D = &rd;` over an immutable `&mut D` binding read exit 2 under both; right on base and under argrefland / argreflandx
+// legality: by reading, no rustc binary
+package bc_0915c_argref_hb_b02_admit;
+struct D { v: i64 }
+fn main() -> i32 {
+    let mut d: D = D { v: 6i64 };
+    let rd: &mut D = &mut d;
+    let p: &&mut D = &rd;
+    if p.v != 6i64 { return 2i32; }
+    return 0i32;
+}

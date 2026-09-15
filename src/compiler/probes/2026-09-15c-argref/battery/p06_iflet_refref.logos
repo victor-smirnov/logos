@@ -1,0 +1,13 @@
+package p06_iflet_refref;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    if let &&P { x } = p { return x; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r = &p;
+    let pp: &&P = &r;
+    if deref2(pp) != 5i32 { return 6i32; }
+    return 0i32;
+}

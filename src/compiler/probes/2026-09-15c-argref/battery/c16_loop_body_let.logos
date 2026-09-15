@@ -1,0 +1,16 @@
+package c16_loop_body_let;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let arr: [D; 3] = [D { v: 1i64 }, D { v: 2i64 }, D { v: 3i64 }];
+    let mut i: usize = 0usize;
+    while i < 3usize {
+        let rd: &D = &arr[i];
+        if inner(&rd) != &arr[i] as *const D { return 16i32; }
+        i = i + 1usize;
+    }
+    return 0i32;
+}

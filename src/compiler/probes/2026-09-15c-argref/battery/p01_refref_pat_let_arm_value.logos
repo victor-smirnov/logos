@@ -1,0 +1,12 @@
+package p01_refref_pat_let_arm_value;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    match p { &&P { x } => x }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r = &p;
+    let pp: &&P = &r;
+    if deref2(pp) != 5i32 { return 1i32; }
+    return 0i32;
+}

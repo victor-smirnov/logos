@@ -1,0 +1,14 @@
+package a08_assign_mut;
+struct D { v: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let e: D = D { v: 9i64 };
+    let rd: &D = &d;
+    let re: &D = &e;
+    let want: *const D = rd as *const D;
+    let mut p: &&D = &re;
+    p = &rd;
+    let x: &D = *p;
+    if x as *const D != want { return 8i32; }
+    return 0i32;
+}

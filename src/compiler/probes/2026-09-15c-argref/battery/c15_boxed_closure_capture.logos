@@ -1,0 +1,14 @@
+package c15_boxed_closure_capture;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let f: Box<dyn Fn() -> bool> = Box::new(move || -> bool { return inner(&rd) == want; });
+    if !f() { return 15i32; }
+    return 0i32;
+}

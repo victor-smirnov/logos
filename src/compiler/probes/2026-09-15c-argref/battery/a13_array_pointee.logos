@@ -1,0 +1,12 @@
+package a13_array_pointee;
+fn inner(a: &&[i64; 3]) -> *const [i64; 3] {
+    let x: &[i64; 3] = *a;
+    return x as *const [i64; 3];
+}
+fn main() -> i32 {
+    let t: [i64; 3] = [6i64, 7i64, 8i64];
+    let rt: &[i64; 3] = &t;
+    let want: *const [i64; 3] = rt as *const [i64; 3];
+    if inner(&rt) != want { return 13i32; }
+    return 0i32;
+}

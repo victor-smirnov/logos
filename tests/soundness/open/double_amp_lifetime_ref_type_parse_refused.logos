@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row double_amp_lifetime_ref_type_parse_refused (tier 3). LEGAL RUST REFUSED BY THE PARSER.
+// `src: &&'a D` — the `&&` token followed by a lifetime — is a syntax error ("syntax error near 'fn'"); the spaced `& &'a D`
+// and the lifetime-free `&&D` both parse. Found by round 2026-09-15c-argref (hand b14, minimised) on build/ 98ca3fa669468808 43.
+// Rust: exit 0. Legality by reading; no rustc binary.
+package double_amp_lifetime_ref_type_parse_refused;
+struct D { v: i64 }
+fn read<'a>(src: &&'a D) -> i64 {
+    return src.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    return (read(&rd) - 6i64) as i32;
+}

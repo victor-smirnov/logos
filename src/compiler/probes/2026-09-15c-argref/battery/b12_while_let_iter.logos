@@ -1,0 +1,15 @@
+package b12_while_let_iter;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let arr: [D; 3] = [D { v: 1i64 }, D { v: 2i64 }, D { v: 3i64 }];
+    let mut sum: i64 = 0i64;
+    for x in arr.iter() {
+        sum = sum + inner(&x);
+    }
+    if sum != 6i64 { return 12i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+package b08_closure_param;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let f = |rd: &D| -> i64 { return inner(&rd); };
+    if f(&d) != 6i64 { return 8i32; }
+    return 0i32;
+}

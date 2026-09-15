@@ -1,0 +1,15 @@
+package a10_param_ref;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn mid(rd: &D) -> i32 {
+    let want: *const D = rd as *const D;
+    if inner(&rd) != want { return 10i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    return mid(&d);
+}

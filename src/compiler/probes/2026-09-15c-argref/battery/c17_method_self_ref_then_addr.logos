@@ -1,0 +1,17 @@
+package c17_method_self_ref_then_addr;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+impl D {
+    fn me(self: &Self) -> bool {
+        let s: &D = self;
+        return inner(&s) == self as *const D;
+    }
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    if !d.me() { return 17i32; }
+    return 0i32;
+}

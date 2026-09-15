@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row addr_of_ref_closure_capture_passes_referent_run (tier 1). WRONG VALUE AT RUN TIME.
+// A closure capturing `rd: &D` calls `inner(&rd)`: the env carries the pointee address (gen_closure: capture_is_struct) and
+// `&rd` in the body is that address, one level short: exit 1. Rust: exit 0. The capture registers var_struct_ only (census Struct.V).
+// MEMBER of addr_of_struct_ref_local_arg_passes_referent_run's class: 2026-09-15c-argref's argrefland moves it 1 -> 0 (battery a30 c01 c14:
+// 139 1 14 -> 0). Measured on build/ 98ca3fa669468808 43, unarmed. Legality by reading; no rustc binary.
+package addr_of_ref_closure_capture_passes_referent_run;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let f = || -> bool { return inner(&rd) == want; };
+    if !f() { return 1i32; }
+    return 0i32;
+}

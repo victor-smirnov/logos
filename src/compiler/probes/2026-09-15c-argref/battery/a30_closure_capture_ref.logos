@@ -1,0 +1,13 @@
+package a30_closure_capture_ref;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let f = || -> i64 { return inner(&rd); };
+    if f() != 6i64 { return 31i32; }
+    return 0i32;
+}

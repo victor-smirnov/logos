@@ -1,0 +1,13 @@
+package c11_mutref_closure_param;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn inner_m(a: &&mut D) -> i64 { return a.v; }
+fn main() -> i32 {
+    let mut d: D = D { v: 6i64 };
+    let f = |rd: &mut D| -> i64 { return inner_m(&rd); };
+    if f(&mut d) != 6i64 { return 11i32; }
+    return 0i32;
+}

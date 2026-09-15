@@ -1,0 +1,10 @@
+package p02_refref_pat_double_temp;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    match p { &&P { x } => x }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    if deref2(&&p) != 5i32 { return 2i32; }
+    return 0i32;
+}

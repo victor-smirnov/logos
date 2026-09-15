@@ -1,0 +1,12 @@
+package d06_static_referent;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+static G: D = D { v: 6i64 };
+fn main() -> i32 {
+    let rd: &D = &G;
+    if inner(&rd) != rd as *const D { return 6i32; }
+    return 0i32;
+}

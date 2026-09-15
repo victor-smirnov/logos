@@ -1,0 +1,15 @@
+package c09_let_mut_alias;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let e: D = D { v: 7i64 };
+    let mut rd: &D = &d;
+    if inner(&rd) != &d as *const D { return 9i32; }
+    rd = &e;
+    if inner(&rd) != &e as *const D { return 90i32; }
+    return 0i32;
+}

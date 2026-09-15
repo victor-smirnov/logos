@@ -1,0 +1,11 @@
+package b16_slice_pointee;
+fn inner(a: &&[i64]) -> i64 {
+    let x: &[i64] = *a;
+    return x[1];
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [5i64, 6i64, 7i64];
+    let s: &[i64] = &arr;
+    if inner(&s) != 6i64 { return 16i32; }
+    return 0i32;
+}

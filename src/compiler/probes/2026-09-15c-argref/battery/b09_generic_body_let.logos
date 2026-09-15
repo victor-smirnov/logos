@@ -1,0 +1,15 @@
+package b09_generic_body_let;
+struct D { v: i64 }
+fn same_addr<T>(a: &&T, want: *const T) -> bool {
+    let x: &T = *a;
+    return x as *const T == want;
+}
+fn g<T>(x: &T) -> bool {
+    let r: &T = x;
+    return same_addr::<T>(&r, x as *const T);
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    if !g::<D>(&d) { return 9i32; }
+    return 0i32;
+}

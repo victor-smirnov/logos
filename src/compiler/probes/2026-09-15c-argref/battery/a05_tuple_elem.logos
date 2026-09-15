@@ -1,0 +1,11 @@
+package a05_tuple_elem;
+struct D { v: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let t: (&&D, i64) = (&rd, 1i64);
+    let x: &D = *t.0;
+    if x as *const D != want { return 5i32; }
+    return 0i32;
+}

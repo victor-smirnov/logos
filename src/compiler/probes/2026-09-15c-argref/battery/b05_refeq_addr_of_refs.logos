@@ -1,0 +1,13 @@
+package b05_refeq_addr_of_refs;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(self: &Self, o: &Self) -> bool { return self.v == o.v; }
+}
+fn main() -> i32 {
+    let d1: D = D { v: 6i64 };
+    let d2: D = D { v: 6i64 };
+    let r1: &D = &d1;
+    let r2: &D = &d2;
+    if !(&r1 == &r2) { return 5i32; }
+    return 0i32;
+}

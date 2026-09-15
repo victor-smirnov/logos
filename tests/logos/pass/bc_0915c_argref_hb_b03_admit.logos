@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-15c-argref, program b03 — caught: argrefpos / argrefneg REFUTED: `&p` of the let arm's `p: &&D` (a slot no record names) read exit 3 under both; right on base and under argrefland / argreflandx
+// legality: by reading, no rustc binary
+package bc_0915c_argref_hb_b03_admit;
+struct D { v: i64 }
+fn inner(a: &&&D) -> i64 {
+    let x: &&D = *a;
+    let y: &D = *x;
+    return y.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let p: &&D = &rd;
+    if inner(&p) != 6i64 { return 3i32; }
+    return 0i32;
+}

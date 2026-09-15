@@ -48,7 +48,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 200
+# TOTAL 211
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -276,3 +276,20 @@ array_nonprim_elem_eq_compares_addresses_run 1 tests/soundness/open/array_nonpri
 generic_ref_typevar_ordering_mlir_verifier_refused 3 tests/soundness/open/generic_ref_typevar_ordering_mlir_verifier_refused refuses
 tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tuple_enum_elem_eq_variadic_impl_return_lost_refused refuses
 ref_pair_nonprim_tuple_eq_compares_addresses_run 1 tests/soundness/open/ref_pair_nonprim_tuple_eq_compares_addresses_run run 1
+
+# ── 2026-09-15c-argref (PRICING, tier 1: `&<reference binding>` is one level short — scope_ holds the reference VALUE, EAddrOf returns it) ──
+# Nine rows OPENED by the round's hand battery, each measured on build/ 98ca3fa669468808 43 unarmed. Four are members of
+# addr_of_struct_ref_local_arg_passes_referent_run's class at binders with a DIFFERENT record (for-each R, match/if-let VT, capture V,
+# closure parameter none); argrefland moves the first three, argreflandx all four (src/compiler/probes/2026-09-15c-argref/RESULT.txt).
+# Five are out-of-class legal refusals the battery met.
+addr_of_ref_foreach_elem_passes_referent_run 1 tests/soundness/open/addr_of_ref_foreach_elem_passes_referent_run run 1
+addr_of_ref_match_binder_passes_referent_run 1 tests/soundness/open/addr_of_ref_match_binder_passes_referent_run run 1
+addr_of_ref_closure_capture_passes_referent_run 1 tests/soundness/open/addr_of_ref_closure_capture_passes_referent_run run 1
+addr_of_ref_closure_param_passes_referent_run 1 tests/soundness/open/addr_of_ref_closure_param_passes_referent_run run 1
+double_ref_deref_return_outer_lifetime_refused 3 tests/soundness/open/double_ref_deref_return_outer_lifetime_refused refuses
+ref_to_slice_ref_param_unsized_refused 3 tests/soundness/open/ref_to_slice_ref_param_unsized_refused refuses
+ref_to_dyn_ref_type_parse_refused 3 tests/soundness/open/ref_to_dyn_ref_type_parse_refused refuses
+double_amp_lifetime_ref_type_parse_refused 3 tests/soundness/open/double_amp_lifetime_ref_type_parse_refused refuses
+field_read_through_ref_to_box_refused 3 tests/soundness/open/field_read_through_ref_to_box_refused refuses
+struct_pattern_over_double_ref_reads_slot_run 1 tests/soundness/open/struct_pattern_over_double_ref_reads_slot_run run 1
+let_ref_struct_pattern_irrefutable_refused 3 tests/soundness/open/let_ref_struct_pattern_irrefutable_refused refuses

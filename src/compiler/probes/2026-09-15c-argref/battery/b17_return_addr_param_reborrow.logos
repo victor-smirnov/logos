@@ -1,0 +1,12 @@
+package b17_return_addr_param_reborrow;
+struct D { v: i64 }
+fn pick<'a, 'b>(a: &'b &'a D) -> &'b D {
+    return *a;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let back: &D = pick(&rd);
+    if back.v != 6i64 { return 17i32; }
+    return 0i32;
+}

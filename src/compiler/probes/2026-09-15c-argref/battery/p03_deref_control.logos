@@ -1,0 +1,12 @@
+package p03_deref_control;
+struct P { x: i32 }
+fn deref2b(p: &&P) -> i32 {
+    let x: &P = *p;
+    return x.x;
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r = &p;
+    if deref2b(&r) != 5i32 { return 3i32; }
+    return 0i32;
+}

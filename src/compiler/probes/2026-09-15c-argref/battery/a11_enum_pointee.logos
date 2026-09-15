@@ -1,0 +1,13 @@
+package a11_enum_pointee;
+enum E { A(i64), B }
+fn inner(a: &&E) -> *const E {
+    let x: &E = *a;
+    return x as *const E;
+}
+fn main() -> i32 {
+    let e: E = E::A(6i64);
+    let re: &E = &e;
+    let want: *const E = re as *const E;
+    if inner(&re) != want { return 11i32; }
+    return 0i32;
+}
