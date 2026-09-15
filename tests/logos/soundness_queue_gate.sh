@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# soundness_queue_gate.sh LOGOSC LEDGER REPO_ROOT
+# soundness_queue_gate.sh [--roster | --one ROW_ID] LOGOSC LEDGER REPO_ROOT
+#
+#   (no flag)     every row compiled + run SERIALLY — the HAND invocation rounds use in STEP 1.
+#   --roster      ctest's `logos_00_soundness_queue`: canary, ledger shape, `# TOTAL`, every row's
+#                 program exists, every shelf program has a row. Compiles only the three canaries.
+#   --one ROW_ID  ctest's `logos_00_squeue_<id>`: ONE row's recorded wrong behaviour, nothing else.
 #
 # THE OPEN SOUNDNESS DEFECTS ARE A LEDGER, AND A LEDGER MUST BE HELD IN BOTH
 # DIRECTIONS OR IT IS A SKIP LIST WEARING A LEDGER'S NAME.
@@ -46,12 +51,19 @@
 # used on every row. If the reader cannot tell them apart it reports ITSELF
 # broken (exit 4) rather than reporting the queue clean or a row closed.
 #
-# ⚠ THIS GATE COMPILES AND RUNS EVERY ROW, SERIALLY, IN ONE ctest SLOT. That is
-# the ONE SCHEDULER rule (a registered test may not fan out its own workers) and
-# it is affordable here BECAUSE THE FILE IS MEANT TO SHRINK: 18 rows measured
-# ~1.5 s each on 2026-09-04. The day it holds hundreds, do what the bc ledger did
-# (one registered test per program, roster here) — not a `-P`.
+# ⚠ UNDER ctest EVERY ROW IS ITS OWN TEST (`--one`), AND THIS FILE'S LOOP ONLY HOLDS THE ROSTER
+# (`--roster`). Until 2026-09-15 ctest ran the serial loop in ONE slot: "affordable because the file
+# is meant to shrink" (18 rows, 2026-09-04). It grew to 209 rows and took 144 s of the gates tier's
+# 145 s wall with 31 slots idle — the threshold lived in a comment and nothing held it. The ONE
+# SCHEDULER rule (a registered test may not fan out) has this corollary: a test that cannot fan out
+# and has N programs to get through runs them serially, so the programs must be N tests.
 set -euo pipefail
+
+MODE=all; ONE_ID=""
+case "${1:-}" in
+    --roster) MODE=roster; shift ;;
+    --one)    MODE=one; ONE_ID="${2:?--one needs a row id}"; shift 2 ;;
+esac
 
 LOGOSC="${1:?logosc}"
 LEDGER="${2:?ledger file}"
@@ -60,6 +72,7 @@ SHELF="$ROOT/tests/soundness/open"
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
+[ -x "$LOGOSC" ] || { echo "GATE BROKEN: no compiler at $LOGOSC"; exit 4; }
 
 # The pass tier compiles every fixture under LOGOS_VERIFY_LAYOUT=1; so does this
 # reader, so a compiler crash the corpus would meet is a `refuses` here and a
@@ -106,6 +119,10 @@ observe() {
 }
 
 # ── THE CANARY, BEFORE ANY VERDICT ──────────────────────────────────────────
+# `--one` skips it: 209 per-row tests would compile it 627 times. Its reader is proven by
+# `logos_00_soundness_queue` (--roster) in the same ctest run, same environment; a LINKFAIL on a
+# row still reports the reader broken (exit 4) below.
+if [ "$MODE" != one ]; then
 # ⚠ The clean canary USES THE STDLIB (a String), so a reader with no archives on
 # its link line — LOGOS_LIB_DIR unset, the measured way this gate was first run
 # wrong — fails HERE, as "gate broken", and not row by row as "no longer
@@ -150,6 +167,7 @@ if [ "$c_runs" != "0/0/0" ] || [ "$c_ex3" != "0/0/3" ] || [ "$c_ref" = "0/0/0" ]
     exit 4
 fi
 echo "[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused"
+fi
 
 if [ ! -f "$LEDGER" ]; then
     echo "GATE BROKEN: ledger '$LEDGER' does not exist, so the rows it was"
@@ -161,6 +179,7 @@ fail=0
 want_total=""
 n_entries=0
 seen_rel=""
+one_found=0
 declare -A by_tier=()
 
 while IFS= read -r line; do
@@ -180,6 +199,8 @@ while IFS= read -r line; do
     by_tier[$tier]=$(( ${by_tier[$tier]:-0} + 1 ))
     seen_rel="$seen_rel $rel"
 
+    if [ "$MODE" = one ] && [ "$id" != "$ONE_ID" ]; then continue; fi
+    [ "$MODE" = one ] && one_found=1
     src="$ROOT/$rel.logos"
     if [ ! -f "$src" ]; then
         echo "FAIL: row '$id' names '$rel', but $src does not exist."
@@ -188,6 +209,7 @@ while IFS= read -r line; do
         continue
     fi
 
+    [ "$MODE" = roster ] && continue
     observe "$src"
     if [ "$O_RUN" = "LINKFAIL" ]; then
         echo "GATE BROKEN: row '$id' compiled clean and did not LINK. A link failure is"
@@ -229,6 +251,17 @@ while IFS= read -r line; do
     fi
 done < "$LEDGER"
 
+if [ "$MODE" = one ]; then
+    if [ "$one_found" -ne 1 ]; then
+        echo "FAIL: no row '$ONE_ID' in $LEDGER, but its program is registered as a test."
+        echo "      A program on the open-defects shelf with no row is checked by nothing."
+        exit 1
+    fi
+    [ "$fail" -ne 0 ] && exit 1
+    echo "OK: row '$ONE_ID' still exhibits its recorded wrong behaviour."
+    exit 0
+fi
+
 if [ -z "$want_total" ]; then
     echo "GATE BROKEN: $LEDGER carries no '# TOTAL <n>' line, so its row count is"
     echo "  held against nothing and rows can appear or vanish silently."
@@ -259,6 +292,12 @@ tiers=""
 for t in $(printf '%s\n' "${!by_tier[@]}" | sort); do tiers="$tiers tier$t=${by_tier[$t]}"; done
 if [ "$fail" -ne 0 ]; then
     exit 1
+fi
+if [ "$MODE" = roster ]; then
+    echo "OK: soundness queue ROSTER holds — $n_entries open row(s) ($tiers), '# TOTAL' says $want_total;"
+    echo "    every row names an existing program, every shelf program has a row, and the"
+    echo "    canary proves the reader. Each row's behaviour is its own test, logos_00_squeue_<id>."
+    exit 0
 fi
 echo "OK: soundness queue holds — $n_entries open row(s) ($tiers), '# TOTAL' says $want_total;"
 echo "    every row's program still exhibits its recorded wrong behaviour, every"

@@ -6036,9 +6036,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                programs whose verdict moved base -> landed (bc_0915d_argrefland_hb_<id>_admit); no fail fixture, no port moved. So
 #                ALL 10508 -> 10600 (+92), NOIMPORTED 6006 -> 6098 (+92), TIERCOMMIT 118 -> 118 — measured by `ctest -N` on the
 #                re-globbed build 306d961fdb8b20b2 43 before this pin was touched, and again on the landed build 72c2afc955f79321 43 (same counts).
-REGISTRY-ALL         10600
-REGISTRY-NOIMPORTED  6098
-REGISTRY-TIERCOMMIT  118
+# 2026-09-15e (the soundness queue's rows become ctest tests — one `logos_00_squeue_<id>` per program under
+#                tests/soundness/open/, `soundness_queue_gate.sh --one <id>`; `logos_00_soundness_queue` keeps only the roster,
+#                `--roster`). No fixture added or moved. 209 rows = 209 new tests, each labelled tier_commit like the bc ledger's
+#                logos_00_bc_admit_*. So ALL 10600 -> 10809 (+209), NOIMPORTED 6098 -> 6307 (+209), TIERCOMMIT 118 -> 327 (+209)
+#                — PREDICTED 10809 / 6307 / 327 before reconfiguring, then measured by `ctest -N` on the reconfigured build.
+#                ⚠ From now on every soundness_queue row opened or closed moves all three numbers by one, as a bc_admits row does.
+REGISTRY-ALL         10809
+REGISTRY-NOIMPORTED  6307
+REGISTRY-TIERCOMMIT  327
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

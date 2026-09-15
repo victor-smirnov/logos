@@ -47,8 +47,12 @@ done
 printf '%s\n' "${ARCHIVES[@]}" > "$OUTDIR/archives.txt"
 
 find "$ROOT/tests/logos/pass" "$ROOT/tests/imported/pass" "$ROOT/tests/spec/pass" \
-     -name '*.logos' 2>/dev/null | sort > "$OUTDIR/fixtures.txt"
-echo "sweep: $(wc -l < "$OUTDIR/fixtures.txt") fixtures, $JOBS jobs, compiler $LOGOSC"
+     -name '*.logos' 2>/dev/null | sort > "$OUTDIR/fixtures.all.txt"
+# sweep_exclude.txt: fixtures that hang under valgrind (see its header). Paths only; `#` lines are comments.
+EXCL="$ROOT/tests/lattice/valgrind/sweep_exclude.txt"
+sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' -e "s#^#$ROOT/#" "$EXCL" 2>/dev/null | sort > "$OUTDIR/excluded.txt"
+comm -23 "$OUTDIR/fixtures.all.txt" "$OUTDIR/excluded.txt" > "$OUTDIR/fixtures.txt"
+echo "sweep: $(wc -l < "$OUTDIR/fixtures.txt") fixtures ($(comm -12 "$OUTDIR/fixtures.all.txt" "$OUTDIR/excluded.txt" | wc -l) excluded by sweep_exclude.txt), $JOBS jobs, compiler $LOGOSC"
 
 export ROOT OUTDIR LOGOSC LIB_DIR RUN_TIMEOUT
 cat > "$OUTDIR/one.sh" <<'ONEEOF'

@@ -1,0 +1,9 @@
+# sweep_exclude.txt — pass fixtures the valgrind sweep does NOT run, one repo-relative path per line, each with its reason.
+# They stay ordinary pass fixtures under ctest; only the instrumented run skips them. Owner decision 2026-09-15.
+# A path here that no longer exists reds nothing — delete the line with the fixture.
+#
+# Both hang under valgrind: `timeout RUN_TIMEOUT valgrind …` signals the wrapper, the tool process (`memcheck-amd64-`)
+# survives, and xargs waits on it — 5 to 20 minutes per sweep until a round's own reaper killed it (rows NOVG, rc 137),
+# measured on every sweep of 2026-09-14/15. Native runs pass.
+tests/logos/pass/fiber_thread_future.logos
+tests/logos/pass/http_workers_basic.logos

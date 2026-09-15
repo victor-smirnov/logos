@@ -1524,21 +1524,41 @@ set_tests_properties(logos_00_bc_admits_ledger PROPERTIES
 # ⚠ IN THE EVERYDAY TIER (`tier_commit`) for the same reason the bc ledger is:
 # what must not be silent is a row CLOSING without its row being deleted, and
 # that has to be seen by the commit that closed it.
-# ⚠ THIS GATE COMPILES AND RUNS ITS ROWS, SERIALLY (one scheduler — no fan-out).
-# MEASURED 2026-09-04: 18 rows, 13.8 s wall. It is affordable because the file
-# is meant to SHRINK; at hundreds of rows do what bc did (one test per program).
+# ⚠ ONE TEST PER ROW, AND THE GATE BELOW HOLDS ONLY THE ROSTER — as the bc ledger does.
+# Until 2026-09-15 this was one test compiling and running every row serially ("affordable
+# because the file is meant to SHRINK", 18 rows / 13.8 s on 2026-09-04). At 209 rows it took
+# 144 s of the gates tier's 145 s wall with 31 ctest slots idle; the threshold written here
+# was held by nothing. Rows are now scheduled by ctest (`--one`, derived from the shelf glob
+# below, so a new program gets its test automatically); the roster test (`--roster`) keeps the
+# canary, `# TOTAL`, and both directions of the program <-> row bijection.
 add_test(
     NAME logos_00_soundness_queue
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/soundness_queue_gate.sh
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/soundness_queue_gate.sh --roster
             $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/soundness_queue.ledger
             ${CMAKE_SOURCE_DIR}
 )
 set_tests_properties(logos_00_soundness_queue PROPERTIES
-    TIMEOUT 600
+    TIMEOUT 120
     LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
+file(GLOB _squeue_srcs CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/soundness/open/*.logos)
+foreach(_sq IN LISTS _squeue_srcs)
+    get_filename_component(_sqb ${_sq} NAME_WE)
+    add_test(
+        NAME logos_00_squeue_${_sqb}
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/soundness_queue_gate.sh --one ${_sqb}
+                $<TARGET_FILE:logosc>
+                ${CMAKE_CURRENT_SOURCE_DIR}/soundness_queue.ledger
+                ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(logos_00_squeue_${_sqb} PROPERTIES
+        TIMEOUT 120
+        LABELS  "logos;pass;suite_semantic_core;tier_commit"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+    )
+endforeach()
 
 # ── ONE TEST PER ADMIT PROGRAM ──────────────────────────────────────────────
 # DERIVED FROM THE GLOB, NOT LISTED, exactly as the facts registration above:
