@@ -4028,7 +4028,8 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
         if (!cur_prog_) return lir_view::StmtRef{};
         return lir_view::StmtRef(cur_prog_->type_pool.arena(),
             lir_mirror_emit_drop(
-                *cur_prog_, node_line_, name, "__box_dyn__drop", info.type, false, {}));
+                *cur_prog_, node_line_, shadow_user_name(name), "__box_dyn__drop", info.type, false, {},
+                info.slot));
     }
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);
@@ -4090,7 +4091,8 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
     }
     if (!cur_prog_) return lir_view::StmtRef{};
     return lir_view::StmtRef(cur_prog_->type_pool.arena(),
-        lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df, moved_fields));
+        lir_mirror_emit_drop(*cur_prog_, node_line_, shadow_user_name(name), dfn, info.type, df, moved_fields,
+                             info.slot));
 }
 
 // Single inner loop behind every drop walk (was 4 drifting copies).

@@ -1,0 +1,27 @@
+// SOUNDNESS QUEUE row at_binding_by_value_never_dropped (tier 1). A BY-VALUE `name @ pattern` MATCH-ARM BINDING IS NEVER DESTROYED.
+//
+// `match o { y @ Option::Some(_) => { return 4; } ... }` moves `o` into `y`; the arm's `return` must destroy `y` (the D of weight 2)
+// and then the outer local (weight 1): Rust 21, exit 0. TODAY 1 — `y` never destroyed — on the base binary and on the 2026-09-15
+// shadowslot landing alike. NOT the shadow fact: no name is shadowed here (this is the renamed control of hand program c07, whose
+// shadowing spelling segfaulted on base and reads this same 1 on the landing).
+// Found 2026-09-15 by hand program k07ctl. Legality by reading; no rustc binary.
+package at_binding_by_value_never_dropped;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64) -> i64 {
+    let x: D = D { v: 1i64, c: p };
+    let o: Option<D> = Option::Some(D { v: 2i64, c: p });
+    match o {
+        y @ Option::Some(_) => { if y.is_some() { return 4i64; } return 3i64; }
+        Option::None => {}
+    }
+    return x.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    if g(p) != 4i64 { return 9i32; }
+    if rd(p) != 21i64 { return 1i32; }
+    return 0i32;
+}

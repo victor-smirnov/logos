@@ -979,7 +979,8 @@ public:
                                              std::string_view drop_fn,
                                              TypeRef ty,
                                              bool drop_fields,
-                                             const std::vector<std::string>& moved_fields) {
+                                             const std::vector<std::string>& moved_fields,
+                                             uint32_t slot = 0xFFFFFFFFu) {
         auto var_av = put_string(var_name);
         writ::AnyVal drop_av;
         if (!drop_fn.empty()) drop_av = put_string(drop_fn);
@@ -992,6 +993,7 @@ public:
         put(map_off, sk::DROP_FIELDS,  put_bool(drop_fields));
         if (!moved_fields.empty())
             put(map_off, sk::MOVED_FIELDS, moved_av);
+        if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
         put_line(map_off, line);
         return map_off;
     }
@@ -2348,10 +2350,10 @@ const uint8_t* lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, l
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_deref_write_direct(line, ptr, value, drop_old);
 }
-const uint8_t* lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields) {
+const uint8_t* lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields, uint32_t slot) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields, moved_fields);
+    return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields, moved_fields, slot);
 }
 const uint8_t* lir_mirror_emit_deref_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, lir_view::ExprRef value) {
     auto& ctr = prog.type_pool.ctr_or_init();

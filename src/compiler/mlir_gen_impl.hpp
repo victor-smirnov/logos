@@ -727,6 +727,23 @@ private:
 
     // Per-function state.
     std::unordered_map<std::string, mlir::Value>  scope_;
+    // A binding's SLOT -> (name, value), registered where a name is bound; an SDrop resolves its binding by slot. PROBES.md 2026-09-14p-shadowslot.
+    std::unordered_map<uint32_t, std::pair<std::string, mlir::Value>> shadow_slot_val_;
+    llvm::DenseMap<mlir::Value, uint32_t> shadow_slot_of_val_;
+    // The B8 uninit drop state of a `let` by SLOT (an initialised let records none); the name-keyed maps below serve the owner.
+    struct ShadowUninit { mlir::Value flag; bool is_static = false; };
+    std::unordered_map<uint32_t, ShadowUninit> shadow_slot_uninit_;
+    std::unordered_map<std::string, uint32_t> uninit_owner_slot_;
+    std::unordered_map<uint32_t, bool> shadow_frozen_assigned_;
+    void shadow_register_slot(uint32_t s, const std::string& n) {
+        if (s == 0xFFFFFFFFu) return;
+        auto it = scope_.find(n);
+        if (it == scope_.end() || !it->second) return;
+        shadow_slot_val_[s] = {n, it->second};
+        shadow_slot_of_val_[it->second] = s;
+    }
+    void shadow_register_pattern(lir_view::PatRef p);
+    mlir::Value shadow_resolve_drop(uint32_t s, const std::string& n, mlir::Value cur);
     std::unordered_set<std::string>               let_vars_;
     // B8 dynamic drop flags: a `let mut x: T;` declared WITHOUT an initializer
     // gets a hidden i8 flag (0 = slot empty, 1 = holds a live value), like

@@ -134,6 +134,14 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
     std::vector<std::string> bindings;
     pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
     if (bindings.empty()) return;
+    // Register each payload binding's slot once the binders below have run (every exit).
+    struct ShadowPatReg {
+        MLIRGenImpl* g; lir_view::PatVariantDataView p; const std::vector<std::string>& b;
+        ~ShadowPatReg() {
+            auto sl = p.bind_slots();
+            for (size_t i = 0; i < b.size() && i < sl.size(); ++i) g->shadow_register_slot(sl[i], b[i]);
+        }
+    } shadow_pat_reg{this, pvd, bindings};
     std::vector<TypeRef> pvd_binding_types;
     pvd.each_binding_type(pool_impl(),
         [&](TypeRef t){ pvd_binding_types.push_back(t); });
@@ -1231,10 +1239,80 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
     }
 }
 
+// A drop whose NAME now denotes a different registered binding resolves to the value registered for its SLOT — only when
+// that slot was registered under the same name, in this function.
+mlir::Value MLIRGenImpl::shadow_resolve_drop(uint32_t s, const std::string& n, mlir::Value cur) {
+    if (s == 0xFFFFFFFFu || !cur) return cur;
+    auto cs = shadow_slot_of_val_.find(cur);
+    if (cs == shadow_slot_of_val_.end() || cs->second == s) return cur;
+    auto sv = shadow_slot_val_.find(s);
+    if (sv == shadow_slot_val_.end() || sv->second.first != n || !sv->second.second) return cur;
+    auto fn_of = [](mlir::Region* r) -> mlir::Operation* {
+        if (!r) return nullptr;
+        auto f = r->getParentOfType<mlir::FunctionOpInterface>();
+        return f ? f.getOperation() : nullptr;
+    };
+    mlir::Operation* here = builder_.getBlock() ? fn_of(builder_.getBlock()->getParent()) : nullptr;
+    if (!here || fn_of(sv->second.second.getParentRegion()) != here) return cur;
+    return sv->second.second;
+}
+
+// Every (name, slot) a pattern binds, registered after the pattern's binders ran.
+void MLIRGenImpl::shadow_register_pattern(lir_view::PatRef p) {
+    namespace pc = lir_schema::pat;
+    if (!p) return;
+    auto flat = [&](const std::vector<uint32_t>& sl, auto&& each) {
+        size_t i = 0;
+        each([&](std::string_view b) { if (i < sl.size()) shadow_register_slot(sl[i], std::string(b)); ++i; });
+    };
+    switch (p.kind()) {
+    case pc::Code::Wild: { lir_view::PatWildView w{p}; shadow_register_slot(w.bind_slot(), std::string(w.name())); break; }
+    case pc::Code::RefBind: { lir_view::PatRefBindView r{p}; shadow_register_slot(r.bind_slot(), std::string(r.name())); break; }
+    case pc::Code::At: {
+        lir_view::PatAtView a{p};
+        shadow_register_slot(a.bind_slot(), std::string(a.name()));
+        shadow_register_pattern(a.sub());
+        break;
+    }
+    case pc::Code::RefPat: shadow_register_pattern(lir_view::PatRefPatView{p}.inner()); break;
+    case pc::Code::VariantData: {
+        lir_view::PatVariantDataView d{p};
+        flat(d.bind_slots(), [&](auto&& f) { d.each_binding(f); });
+        break;
+    }
+    case pc::Code::Tuple: {
+        lir_view::PatTupleView t{p};
+        flat(t.bind_slots(), [&](auto&& f) { t.each_binding(f); });
+        t.each_sub([&](lir_view::PatRef sp) { shadow_register_pattern(sp); });
+        break;
+    }
+    case pc::Code::Struct:
+        lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView f) {
+            if (auto sub = f.sub()) shadow_register_pattern(sub);
+            else shadow_register_slot(f.bind_slot(), std::string(f.field_name()));
+        });
+        break;
+    case pc::Code::Slice: {
+        lir_view::PatSliceView sv{p};
+        auto rec = [&](lir_view::PatRef sp) { shadow_register_pattern(sp); };
+        sv.each_prefix(rec); sv.each_rest(rec); sv.each_suffix(rec);
+        break;
+    }
+    case pc::Code::Or: lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef a) { shadow_register_pattern(a); }); break;
+    default: break;
+    }
+}
+
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     std::string var_name(v.var_name());
     auto it = scope_.find(var_name);
     if (it == scope_.end()) return;
+    // Resolve the binding by slot for the duration of this drop; restore the name on every exit.
+    struct ShadowRestore {
+        std::unordered_map<std::string, mlir::Value>& m; std::string n; mlir::Value v;
+        ~ShadowRestore() { m[n] = v; }
+    } shadow_restore{scope_, var_name, it->second};
+    it->second = shadow_resolve_drop(v.var_slot(), var_name, it->second);
     // #123 — `#[no_auto_drop]`: EMIT NOTHING. THE LAST GATE, and the one the
     // generic containers walk through. `value_needs_drop` gates the FIELD
     // recursion (step 2) but is never asked about the var's OWN type, and step
@@ -1489,6 +1567,47 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     // it currently holds a live value (flag==1) — an early `return` before the
     // first assignment, or the !c path of a conditional init, leaves it 0 → the
     // drop is a no-op (never runs the destructor on garbage).
+    // The uninit state is the binding's own: by SLOT when the let recorded one, never another binding's under the name.
+    // A slot is trusted only when it is registered under this drop's own name.
+    uint32_t dslot = v.var_slot();
+    if (auto sv = shadow_slot_val_.find(dslot); sv == shadow_slot_val_.end() || sv->second.first != var_name)
+        dslot = 0xFFFFFFFFu;
+    if (auto rec = dslot == 0xFFFFFFFFu ? shadow_slot_uninit_.end() : shadow_slot_uninit_.find(dslot);
+        rec != shadow_slot_uninit_.end()) {
+        if (rec->second.flag) {
+            auto i8t  = builder_.getI8Type();
+            auto flag = builder_.create<mlir::LLVM::LoadOp>(loc_, i8t, rec->second.flag);
+            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 8);
+            auto live = builder_.create<mlir::LLVM::ICmpOp>(loc_, mlir::LLVM::ICmpPredicate::ne, flag, zero);
+            auto* region   = builder_.getBlock()->getParent();
+            auto* then_blk = new mlir::Block();
+            auto* cont_blk = new mlir::Block();
+            region->push_back(then_blk);
+            region->push_back(cont_blk);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, live, then_blk, cont_blk);
+            builder_.setInsertionPointToStart(then_blk);
+            emit_body();
+            if (!is_terminated(builder_.getBlock()))
+                builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+            builder_.setInsertionPointToStart(cont_blk);
+            return;
+        }
+        if (rec->second.is_static) {
+            auto own = uninit_owner_slot_.find(var_name);
+            bool assigned = (own != uninit_owner_slot_.end() && own->second == dslot)
+                ? uninit_assigned_.count(var_name) != 0
+                : shadow_frozen_assigned_[dslot];
+            if (assigned) emit_body();
+            return;
+        }
+        emit_body();
+        return;
+    }
+    if (auto own = uninit_owner_slot_.find(var_name);
+        dslot != 0xFFFFFFFFu && own != uninit_owner_slot_.end() && own->second != dslot) {
+        emit_body();
+        return;
+    }
     auto fit = uninit_drop_flag_.find(var_name);
     if (fit != uninit_drop_flag_.end()) {
         auto i8t  = builder_.getI8Type();
@@ -1695,7 +1814,22 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::gen_let(lir_view::SLetView v) {
+    const std::string let_name(v.name());
+    const uint32_t let_slot = v.var_slot();
+    if (auto own = uninit_owner_slot_.find(let_name);
+        !v.value() && own != uninit_owner_slot_.end() && own->second != let_slot)
+        shadow_frozen_assigned_[own->second] = uninit_assigned_.count(let_name) != 0;
     gen_let_inner(v);
+    shadow_register_slot(let_slot, let_name);
+    if (let_slot != 0xFFFFFFFFu) {
+        ShadowUninit u;
+        if (!v.value()) {
+            if (auto f = uninit_drop_flag_.find(let_name); f != uninit_drop_flag_.end()) u.flag = f->second;
+            else u.is_static = uninit_static_.count(let_name) != 0;
+            uninit_owner_slot_[let_name] = let_slot;
+        }
+        shadow_slot_uninit_[let_slot] = u;
+    }
     // Canary for the silent-drop class (tuple-keyed-container baghunt): a
     // `let` with an initializer whose codegen failed leaves the name unbound
     // in scope_, and every later statement referencing it is dropped too —
@@ -3008,6 +3142,7 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
     // fresh binding each iteration); a body write must not steer the loop.
     auto v_alloca = create_entry_alloca(loop_type);
     scope_[s.var] = v_alloca;
+    shadow_register_slot(v.var_slot(), s.var);
     let_vars_.insert(s.var);
     var_elem_types_[s.var] = loop_type;
 
@@ -3366,6 +3501,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     auto* incr_block = new mlir::Block();
     region->push_back(incr_block);
 
+    shadow_register_slot(v.var_slot(), s.var);
     loop_stack_.push_back({incr_block, exit_block, {}, {}});
     gen_block(s.body);
     loop_stack_.pop_back();
@@ -4405,6 +4541,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
     switch (pat.kind()) {
     case pc::Code::Wild: {
         bind_name_at_slot(std::string(lir_view::PatWildView{pat}.name()), slot_ptr, ty, shared);
+        shadow_register_slot(lir_view::PatWildView{pat}.bind_slot(), std::string(lir_view::PatWildView{pat}.name()));
         break;
     }
     // `n @ sub` NAMES THE PLACE `sub` MATCHES: the name binds by the same
@@ -5327,6 +5464,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
                 extract_payload(arm_pat);
+                shadow_register_pattern(arm_pat);
                 auto gval = arm_guard_ref ? gen_expr(arm_guard_ref) : nullptr;
                 gval = coerce_int(gval, builder_.getI1Type());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
@@ -5346,6 +5484,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
                 extract_payload(arm_pat);
+                shadow_register_pattern(arm_pat);
                 if (arm_body_ref) gen_block(arm_body_ref);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -5736,6 +5875,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     auto pat_ref = v.pat();
     auto pat_kind = pat_ref ? pat_ref.kind() : pc::Code(-1);
     auto* region = builder_.getBlock()->getParent();
+    struct ShadowLetElseReg {  // every exit: the pattern's bindings are in scope_ by then
+        MLIRGenImpl* g; lir_view::PatRef p;
+        ~ShadowLetElseReg() { g->shadow_register_pattern(p); }
+    } shadow_let_else_reg{this, v.pat()};
 
     // G144-3a: or-pattern in let-else (`let A(x) | B(x) = v else …`). Collect
     // each alt's discriminant for an OR'd tag test, and extract bindings using

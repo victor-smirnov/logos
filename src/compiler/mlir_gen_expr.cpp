@@ -5088,6 +5088,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
                 extract_arm_payload(arm_pat_ref);
+                shadow_register_pattern(arm_pat_ref);
                 auto gval = arm_guard_ref ? gen_expr(arm_guard_ref) : nullptr;
                 gval = coerce_int(gval, builder_.getI1Type());
                 if (!gval) {
@@ -5119,6 +5120,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(body_block);
             extract_arm_payload(arm_pat_ref);
+            shadow_register_pattern(arm_pat_ref);
             auto val = arm_value_ref ? gen_expr(arm_value_ref) : nullptr;
             restore_var_scope(match_scope);
             if (!is_terminated(builder_.getBlock())) {

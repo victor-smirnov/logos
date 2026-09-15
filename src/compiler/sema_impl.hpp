@@ -3924,7 +3924,7 @@ private:
     // ── Scope management ─────────────────────────────────────────
 
     struct VarInfo { TypeRef type; bool is_mut = false; bool owning_dyn = false;
-                     uint32_t slot = 0;
+                     uint32_t slot = 0xFFFFFFFFu;  // no slot unless a frame record assigns one (0 is binding 0)
                      std::string closure_id; };  // set when the binding's RHS is a closure literal
     // A closure LITERAL's captures, by closure_id (per literal — the
     // signature-keyed closure_capture_env_ is a union and answers a different
@@ -3979,6 +3979,8 @@ private:
         // Recorded here instead, on the frame that owns the root, so it
         // survives exactly as long as the local it describes.
         std::set<std::string> cond_move_static_moves;
+        // (outer frame, name, hidden key) of an outer binding this frame shadows; restored at pop_scope.
+        std::vector<std::tuple<size_t, std::string, std::string>> shadow_outer_renames;
     };
     std::vector<Frame> scope_;
     // #118 — hidden `let mut __df_N: bool = true;` statements waiting to be
@@ -4219,7 +4221,21 @@ private:
             // Remove popped variables from moved set
             for (auto& name : scope_.back().var_order)
                 moved_vars_.erase(name);
+            auto shadow_ren = std::move(scope_.back().shadow_outer_renames);
             scope_.pop_back();
+            for (auto it = shadow_ren.rbegin(); it != shadow_ren.rend(); ++it) {
+                auto& [i, sname, hid] = *it;
+                if (i >= scope_.size()) continue;
+                auto& of = scope_[i];
+                auto h = of.vars.find(hid);
+                if (h == of.vars.end() || of.vars.count(sname)) continue;
+                shadow_forget(sname);  // the popped inner binding's state dies with it
+                VarInfo keep = h->second;
+                of.vars.erase(h);
+                of.vars[sname] = keep;
+                for (auto& e : of.var_order) if (e == hid) { e = sname; break; }
+                shadow_rekey(of, hid, sname);
+            }
         }
     }
 
@@ -4931,13 +4947,91 @@ private:
                 std::string(name), type_str(t), type_str(t)));
         if (!scope_.empty()) {
             auto sname = std::string(name);
-            if (!scope_.back().vars.count(sname))
-                scope_.back().var_order.push_back(sname);
             // Phase-1: fresh dense slot per binding (shadowing → new slot),
             // unless a pattern pre-reserved one at build time.
             uint32_t slot = (reuse_slot == 0xFFFFFFFFu) ? next_slot_++ : reuse_slot;
+            shadow_prepare(sname, slot);
+            if (!scope_.back().vars.count(sname))
+                scope_.back().var_order.push_back(sname);
             scope_.back().vars[sname] = {t, is_mut, false, slot};
         }
+    }
+
+    // A shadowed binding is kept under `name\x1f<slot>` with every name-keyed record of it. PROBES.md 2026-09-14p-shadowslot.
+    void shadow_prepare(const std::string& sname, uint32_t slot) {
+        auto& fr = scope_.back();
+        auto hidden = [&](uint32_t s) { return sname + std::string(1, '\x1f') + std::to_string(s); };
+        auto keep_as = [&](Frame& f, const std::string& hid) {
+            auto it = f.vars.find(sname);
+            VarInfo keep = it->second;
+            for (auto& e : f.var_order) if (e == sname) { e = hid; break; }
+            f.vars.erase(it);
+            f.vars[hid] = keep;
+            shadow_rekey(f, sname, hid);
+        };
+        if (auto old = fr.vars.find(sname); old != fr.vars.end()) {
+            if (old->second.slot != slot) keep_as(fr, hidden(old->second.slot));
+            return;
+        }
+        for (size_t i = scope_.size() - 1; i-- > 0;) {
+            auto oit = scope_[i].vars.find(sname);
+            if (oit == scope_[i].vars.end()) continue;
+            std::string hid = hidden(oit->second.slot);
+            keep_as(scope_[i], hid);
+            fr.shadow_outer_renames.emplace_back(i, sname, hid);
+            return;
+        }
+    }
+    static bool shadow_is_path_of(const std::string& m, const std::string& root) {
+        return m == root || (m.size() > root.size() && m[root.size()] == '.' && m.compare(0, root.size(), root) == 0);
+    }
+    // Re-key ONE binding's name-keyed records (move state + closure capture state); tools/dlog/shadow_binding_state.dl.
+    void shadow_rekey(Frame& f, const std::string& from, const std::string& to) {
+        auto rk = [&](const std::string& m) { return to + m.substr(from.size()); };
+        auto rekey_set = [&](std::set<std::string>& st) {
+            std::vector<std::string> v;
+            for (auto& m : st) if (shadow_is_path_of(m, from)) v.push_back(m);
+            for (auto& m : v) { st.erase(m); st.insert(rk(m)); }
+        };
+        auto rekey_list = [&](std::vector<std::string>& l) {
+            for (auto& m : l) if (shadow_is_path_of(m, from)) m = rk(m);
+        };
+        rekey_set(moved_vars_);
+        rekey_set(f.cond_move_static_moves);
+        rekey_set(body_ever_moved_);
+        rekey_set(closure_owned_drop_);
+        std::vector<std::pair<std::string, std::string>> fl;
+        for (auto& [k, v] : f.cond_move_flags) if (shadow_is_path_of(k, from)) fl.emplace_back(k, v);
+        for (auto& [k, v] : fl) { f.cond_move_flags.erase(k); f.cond_move_flags[rk(k)] = v; }
+        std::vector<std::pair<std::string, std::string>> co;
+        for (auto& [k, v] : capture_owner_) {
+            if (v == from) v = to;
+            if (shadow_is_path_of(k, from)) co.emplace_back(k, v);
+        }
+        for (auto& [k, v] : co) { capture_owner_.erase(k); capture_owner_[rk(k)] = v; }
+        for (auto& [k, v] : closure_drop_group_) rekey_list(v);
+        if (auto g = closure_drop_group_.extract(from)) { g.key() = to; closure_drop_group_.insert(std::move(g)); }
+        for (auto& [k, v] : closure_deferred_moves_) rekey_list(v);
+        if (auto d = closure_deferred_moves_.extract(from)) { d.key() = to; closure_deferred_moves_.insert(std::move(d)); }
+    }
+    // The popped inner binding's records die with its frame.
+    void shadow_forget(const std::string& name) {
+        auto erase_paths = [&](std::set<std::string>& st) {
+            for (auto it = st.begin(); it != st.end();) it = shadow_is_path_of(*it, name) ? st.erase(it) : std::next(it);
+        };
+        erase_paths(moved_vars_);
+        erase_paths(body_ever_moved_);
+        erase_paths(closure_owned_drop_);
+        for (auto it = capture_owner_.begin(); it != capture_owner_.end();)
+            it = (shadow_is_path_of(it->first, name) || it->second == name) ? capture_owner_.erase(it) : std::next(it);
+        closure_drop_group_.erase(name);
+        closure_deferred_moves_.erase(name);
+        for (auto& [k, v] : closure_drop_group_)
+            v.erase(std::remove_if(v.begin(), v.end(), [&](const std::string& m) { return shadow_is_path_of(m, name); }), v.end());
+    }
+    static std::string shadow_user_name(const std::string& n) {
+        auto p = n.find('\x1f');
+        return p == std::string::npos ? n : n.substr(0, p);
     }
 
     TypeRef lookup(std::string_view name) const {

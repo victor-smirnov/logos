@@ -1,0 +1,21 @@
+#include "cxx_schema.dl"
+// shadow_sdrop_reads — landing of 2026-09-14p-shadowslot. ONE question about the C++ TU: which MLIRGenImpl MEMBERS does the
+// SDrop codegen (MLIRGenImpl::gen_stmt_kind(SDropView), lambdas inside it included) READ? A drop redirected to an older
+// binding by its slot still reads every member keyed by the NAME, and each such member is a place the redirect does not reach.
+// The target is keyed by LOCATION, not by name: gen_stmt_kind has one overload per statement kind, so a name-keyed context
+// would be the union of all of them. Claim: the definition line, passed in target_line below (re-derive after any edit above it).
+.decl target_line(L: number)
+target_line(1263).
+.decl target(C: symbol)
+target(C) :- node(C, "CXXMethod", _, _), ctx_name(C, "gen_stmt_kind"), loc(C, F, L, _), target_line(L), match(".*mlir_gen_stmt.cpp", F).
+.decl nested(C: symbol)
+nested(C) :- target(C).
+nested(L) :- node(L, "LambdaExpr", P, _), ctx_of(P, C), nested(C).
+.decl member(D: symbol, Q: symbol)
+member(D, Q) :- decl(D, _, Q), match("(.*::)?MLIRGenImpl::[A-Za-z_0-9]+_", Q).
+.decl sdrop_reads(Q: symbol)
+.output sdrop_reads
+sdrop_reads(Q) :- member(D, Q), ref(U, D), ctx_of(U, C), nested(C).
+.decl target_count(N: number)
+.output target_count
+target_count(N) :- N = count : { target(_) }.

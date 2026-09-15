@@ -2871,6 +2871,16 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         }
     }
 
+    // `let x = x` (or `x.f`): the move is of the binding the name denotes BEFORE this let, so record it before define.
+    bool self_rooted_move = false;
+    if (rhs && is_move_type(rhs_type)) {
+        auto r = expr_ref_of(rhs);
+        using C = lir_schema::expr::Code;
+        while (r && (r.kind() == C::FieldRead || r.kind() == C::TupleIndex))
+            r = r.kind() == C::FieldRead ? lir_view::EFieldReadView{r}.receiver() : lir_view::ETupleIndexView{r}.receiver();
+        self_rooted_move = r && r.kind() == C::VarRef && lir_view::EVarRefView{r}.name() == std::string_view(name);
+        if (self_rooted_move) mark_moved_expr(expr_ref_of(rhs));
+    }
     define(name, var_type, is_mut);
     if (rhs && expr_ref_of(rhs).kind() == lir_schema::expr::Code::ClosureBox && !scope_.empty())
         scope_.back().vars[std::string(name)].closure_id =
@@ -2925,7 +2935,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     // move type, mark it moved. mark_moved_expr handles both VarRef and
     // nested FieldRead chains, recording dotted paths so make_drop_stmt
     // can suppress per-field auto-drop on the source struct.
-    if (rhs && is_move_type(rhs_type))
+    if (rhs && is_move_type(rhs_type) && !self_rooted_move)
         mark_moved_expr(expr_ref_of(rhs));
 
     lir::SLet slet;

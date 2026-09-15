@@ -1,0 +1,12 @@
+// hand battery: round 0915_shadowland, program m13 — caught: the landing's first build leaked the second statement temporary's String (VarInfo default slot 0 on the installer's drop); valgrind 2 allocs / 1 free
+// legality: by reading, no rustc binary
+package bc_0915_shadowland_hb_m13_admit;
+use logos.mem.string;
+use logos.lang.str;
+fn s1() -> String { return String::from("abcdefgh"); }
+// m13 = m5: two `String` method-receiver temporaries, the first at slot 0. valgrind is the oracle.
+fn main() -> i32 {
+    if s1().len() < 6i64 { return 1i32; }
+    if s1().len() < 6i64 { return 2i32; }
+    return 0i32;
+}

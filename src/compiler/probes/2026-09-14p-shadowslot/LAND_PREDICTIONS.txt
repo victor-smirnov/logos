@@ -1,0 +1,36 @@
+ROUND 2026-09-15 shadowslot LANDING — PREDICTIONS, written before any edit to the probe-carrying sources beyond what abc4deb6c priced.
+base: HEAD abc4deb6c, build/ 0e7b5f11a0939689 43; candidate as priced = build-land0913d LOGOS_PROBE=shslotev.
+
+THE PRICED FORM IS REFUTED BY THIS ROUND'S BATTERY (legal programs, legality by reading, no rustc binary):
+  d04  closure binding shadowed by a scalar, droppable declared between   base exit 0 (count 21)  ->  shslotev exit 1   DAMAGE
+  c08  move closure captures old binding, same-frame shadow               base refuses            ->  shslotev exit 1 (count 2: x1 leaked)
+  d07  move closure owns outer binding, inner block shadows + returns     base refuses            ->  shslotev exit 1
+  d24  closure AND its capture both shadowed                              base refuses            ->  shslotev exit 1
+  root (dlog shadow_binding_state.dl, cross-checked by reading emit_frame_drops / make_drop_stmt): the rename carries
+  vars / var_order / moved_vars_ / cond_move_flags / cond_move_static_moves / body_ever_moved_, but NOT capture_owner_,
+  closure_drop_group_, closure_owned_drop_ (all three read by emit_frame_drops) nor closure_deferred_moves_.
+
+LANDING ARM = shslotev made unconditional, plus STRICT EXTENSIONS at the same sites:
+  S1 sema rename (define / pop_scope) also re-keys capture_owner_ (key+value), closure_drop_group_ (key+values),
+     closure_owned_drop_, closure_deferred_moves_ (key+values), decl_uninit_vars_, currently_uninit_vars_.
+  S2 lower_let: a bare `let x = <path rooted at x>` records its move BEFORE define (today after, so it lands on the NEW x).
+  S3 mlir-gen registration at the remaining binder ENTRY points: gen_for (SFor var_slot), gen_for_each (SForEach var_slot),
+     and a generic pattern walk (Wild / At / RefBind / FieldBinding / VariantData / Tuple / Struct / Slice / RefPat / Or-first)
+     after the match-stmt arm, match-expr arm and let-else bindings.
+  S4 mlir-gen SDrop: the uninit drop state (uninit_drop_flag_ / uninit_static_ / uninit_assigned_, read by NAME — dlog
+     shadow_sdrop_reads.dl: 5 name-keyed members, per-site read 5) is recorded per SLOT at gen_let and consulted by slot.
+
+QUEUE ROWS PREDICTED TO CLOSE (8; 197 -> 189):
+  tier 1: shadowed_binding_never_dropped · shadow_over_param_double_drop · shadow_inner_block_early_exit_double_drop ·
+          match_arm_shadow_return_double_drop · param_shadow_moved_local_return_leak · param_shadow_moved_local_epilogue_leak
+  tier 3: shadow_rebind_after_move_refused · shadow_outer_frame_over_moved_name_refused
+  (the last was recorded by pricing as staying open; its shslotev battery run reads cc 0, exit 0 — predicted to close)
+PREDICTED TO STAY OPEN: closure_param_shadow_double_drop (reason 1: closure params carry no slot) ·
+  let_underscore_defers_drop_to_block_end (not this fact) · every other row.
+
+HAND BATTERY (s01-s44 pricing, c01-c40 first landing attempt, d01-d27 this round), predicted verdict under LAND:
+  read Rust: every program that reads Rust under shslotev, plus c01 c06 c07 c08 c21 d01 d02 d03 d04 d05 d07 d11 d13 d21
+             d22 d23 d24 d27
+  still wrong: s19 (closure param shadow, reason 1) · s28 (`let _` twice, not this fact)
+  least confident: c06 c07 d11 d13 (S3 binder values), d21 d22 (S4), d27 (S1 uninit sets).
+COST predicted 0 in: queue gate (beyond the 8), bc gate, fail_text_oracle, stdlib, run_oracle, valgrind sweep NEW.

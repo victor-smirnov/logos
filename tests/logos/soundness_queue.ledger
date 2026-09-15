@@ -48,7 +48,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 197
+# TOTAL 193
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -85,9 +85,6 @@ sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_wr
 # compiled, linked, RUN, and its DESTRUCTOR COUNT read off a raw-pointer counter —
 # a count for "how many", a `*c = *c * 10 + v` sequence counter for "in what order".
 # Six roots, named by symbol in each program's header, not by spelling.
-shadowed_binding_never_dropped 1 tests/soundness/open/shadowed_binding_never_dropped run 1
-shadow_over_param_double_drop 1 tests/soundness/open/shadow_over_param_double_drop run 1
-shadow_rebind_after_move_refused 3 tests/soundness/open/shadow_rebind_after_move_refused refuses
 let_underscore_defers_drop_to_block_end 3 tests/soundness/open/let_underscore_defers_drop_to_block_end run 1
 box_deref_move_refused_outside_let 3 tests/soundness/open/box_deref_move_refused_outside_let refuses
 nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
@@ -258,10 +255,13 @@ aggregate_extended_borrow_temp_never_dropped 1 tests/soundness/open/aggregate_ex
 let_ref_bind_annotated_refused 3 tests/soundness/open/let_ref_bind_annotated_refused refuses
 # ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
 # Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
-# src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md.
-shadow_inner_block_early_exit_double_drop 1 tests/soundness/open/shadow_inner_block_early_exit_double_drop run 1
-match_arm_shadow_return_double_drop 1 tests/soundness/open/match_arm_shadow_return_double_drop run 1
-param_shadow_moved_local_return_leak 1 tests/soundness/open/param_shadow_moved_local_return_leak run 1
-param_shadow_moved_local_epilogue_leak 1 tests/soundness/open/param_shadow_moved_local_epilogue_leak run 1
+# src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md. Five of the six CLOSED at the 2026-09-15 landing
+# (below); closure_param_shadow_double_drop stays, reason 1 (a closure parameter carries no slot).
 closure_param_shadow_double_drop 1 tests/soundness/open/closure_param_shadow_double_drop run 1
-shadow_outer_frame_over_moved_name_refused 3 tests/soundness/open/shadow_outer_frame_over_moved_name_refused refuses
+# ── 2026-09-15 shadowslot LANDING (tier 1: a drop resolves its binding by SLOT; a shadowed binding keeps its name-keyed records) ──
+# Eight rows CLOSED (shadowed_binding_never_dropped, shadow_over_param_double_drop, shadow_rebind_after_move_refused and five of
+# 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
+match_arm_nested_binder_shadow_double_drop 1 tests/soundness/open/match_arm_nested_binder_shadow_double_drop run 1
+at_binding_by_value_never_dropped 1 tests/soundness/open/at_binding_by_value_never_dropped run 1
+slice_pattern_arm_binding_extra_drops 1 tests/soundness/open/slice_pattern_arm_binding_extra_drops run 1
+deferred_init_after_inner_shadow_refused 3 tests/soundness/open/deferred_init_after_inner_shadow_refused refuses

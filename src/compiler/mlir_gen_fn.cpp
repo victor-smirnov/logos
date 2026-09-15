@@ -489,6 +489,11 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     uninit_flag_needed_.clear();
     uninit_static_.clear();
     uninit_assigned_.clear();
+    shadow_slot_val_.clear();
+    shadow_slot_of_val_.clear();
+    shadow_slot_uninit_.clear();
+    uninit_owner_slot_.clear();
+    shadow_frozen_assigned_.clear();
     var_elem_types_.clear();
     var_struct_.clear();
     var_subscript_.clear();
@@ -511,6 +516,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
         std::string pname(p.name());
         TypeRef ptype = p.type(gfb_pool);
         scope_[pname] = entry->getArgument(i);
+        shadow_register_slot(p.slot(), pname);
         // Pointer-family params (`*mut`/`*const`/`&`/`&mut`): their SSA arg IS a
         // pointer VALUE, so `&p` is the address of the param's own slot — record
         // them so EAddrOf spills (scalars are caught there by an SSA-type check;

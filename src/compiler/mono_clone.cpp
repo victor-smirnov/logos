@@ -5204,7 +5204,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         std::vector<std::string> moved_fields;
         v.each_moved_field([&](std::string_view f) { moved_fields.emplace_back(f); });
         ns.mirror_ptr_ = lir_mirror_emit_drop(
-            out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields);
+            out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields, v.var_slot());
         break;
     }
     case SCode::Match: {

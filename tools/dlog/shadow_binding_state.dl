@@ -1,0 +1,38 @@
+#include "cxx_schema.dl"
+// shadow_binding_state — round 2026-09-15 (landing of 2026-09-14p-shadowslot). ONE question about the C++ TU:
+//   which MEMBER FIELDS of the sema checker does the SCOPE-EXIT DROP DECISION read, and which does the BINDING
+//   REGISTRAR (define / pop_scope) write?
+// A shadowed binding renamed to a hidden key must carry EVERY piece of per-binding state the drop decision reads with
+// it — a field the decision reads by NAME and the rename does not carry is a hole (measured: capture_owner_ /
+// closure_owned_drop_ turned a refusal into a silent leak, hand c08). Grep cannot answer "which fields does this
+// decision READ"; it can only find a spelling.
+// Claim-free: the decision contexts are named in drop_decision_ctx below as the function NAMES the per-site read
+// found; the rule enumerates the fields, not the author. ⚠ ctx_of coarsens a lambda (emit_frame_drops' `eligible`) to
+// its enclosing named context — which is the desired attribution here.
+.decl decision_ctx(Name: symbol)
+decision_ctx("emit_frame_drops").
+decision_ctx("make_drop_stmt").
+decision_ctx("flagged_descendants").
+decision_ctx("emit_cond_move_field_drops").
+decision_ctx("collect_drops").
+decision_ctx("collect_all_drops").
+decision_ctx("collect_drops_to_loop").
+.decl registrar_ctx(Name: symbol)
+registrar_ctx("define").
+registrar_ctx("pop_scope").
+.decl member(D: symbol, Q: symbol)
+// Kind left unconstrained (the extractor's kind spelling for a data member is not pinned by any rule yet); a member is
+// any declaration qualified by the checker class or its Frame / VarInfo records that some use REFERS to.
+member(D, Q) :- decl(D, _, Q), match("(.*::)?(SemaChecker|SemaImpl)::[A-Za-z_0-9]+_|(.*::)?Frame::[a-z_]+|(.*::)?VarInfo::[a-z_]+", Q).
+.decl reads_in(Q: symbol, Ctx: symbol)
+reads_in(Q, N) :- member(D, Q), ref(U, D), ctx_of(U, C), ctx_name(C, N), decision_ctx(N).
+.decl writes_in(Q: symbol, Ctx: symbol)
+writes_in(Q, N) :- member(D, Q), ref(U, D), ctx_of(U, C), ctx_name(C, N), registrar_ctx(N).
+.output reads_in
+.output writes_in
+.decl decision_field(Q: symbol)
+.output decision_field
+decision_field(Q) :- reads_in(Q, _).
+.decl decision_field_count(N: number)
+.output decision_field_count
+decision_field_count(N) :- N = count : { decision_field(_) }.

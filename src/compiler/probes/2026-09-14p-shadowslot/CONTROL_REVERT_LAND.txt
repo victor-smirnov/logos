@@ -1,0 +1,28 @@
+ROUND 2026-09-15 shadowslot LANDING — CONTROL REVERT: THE OLD BINARY DOES THE WRONG THING AT RUN TIME
+old = build/bin/logosc of HEAD abc4deb6c (build_hash 0e7b5f11a0939689 43), copied before the rebuild, linked against its own
+      stdlib archives (copied with it); new = build/ rebuilt from the landing sources, build_hash 87b08f31fb21b1c1 43 (identical to
+      build-land0913d, where every pricing column ran).
+Programs: the eight landed row fixtures (tests/logos/pass/bc_shadowslot_*_admit), each printing its destructor count before
+asserting it; compiled, linked, run twice, valgrind once.
+
+  fixture (closed row)                                          OLD                                    NEW
+  bc_shadowslot_same_frame_both_dropped_admit                   exit 1, n=1000 (x1 never dropped)      exit 0, n=1001, vg 0 errors
+    (shadowed_binding_never_dropped)
+  bc_shadowslot_param_and_local_each_dropped_admit              exit 1, n=2000 (local twice, param 0)  exit 0, n=1001, vg 0 errors
+    (shadow_over_param_double_drop)
+  bc_shadowslot_rebind_after_move_admitted_admit                refused: use of moved variable 'x'     exit 0, n=1001, vg 0 errors
+    (shadow_rebind_after_move_refused)
+  bc_shadowslot_inner_block_return_sequence_admit               exit 1, n=22 (inner twice, outer 0)    exit 0, n=21, vg 0 errors
+    (shadow_inner_block_early_exit_double_drop)
+  bc_shadowslot_match_arm_return_sequence_admit                 exit 1, n=22                           exit 0, n=21, vg 0 errors
+    (match_arm_shadow_return_double_drop)
+  bc_shadowslot_param_shadow_moved_return_sequence_admit        exit 1, n=2 (param leaked)             exit 0, n=21, vg 0 errors
+    (param_shadow_moved_local_return_leak)
+  bc_shadowslot_param_shadow_moved_epilogue_sequence_admit      exit 1, n=2 (param leaked)             exit 0, n=21, vg 0 errors
+    (param_shadow_moved_local_epilogue_leak)
+  bc_shadowslot_outer_moved_arm_rebind_sequence_admit           refused: use of moved variable 'x'     exit 0, n=12, vg 0 errors
+    (shadow_outer_frame_over_moved_name_refused)
+
+The row programs themselves (git show HEAD:tests/soundness/open/<row>.logos), same two binaries: OLD six exit 1 + two refused;
+NEW all eight exit 0, valgrind 0 errors. (The D payloads own no heap, so the COUNT, not valgrind, is what separates the leak from
+the double free here.)

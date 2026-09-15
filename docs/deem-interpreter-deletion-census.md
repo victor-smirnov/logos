@@ -6014,8 +6014,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                (src/compiler/probes/2026-09-14o-autoreffund/PREDICTIONS.txt), then measured by the gate on the re-globbed build
 #                0e7b5f11a0939689 before this pin was touched. bc_admits `# TOTAL` 61 -> 60; soundness_queue 194 -> 191 (eight rows
 #                CLOSED, five OPENED).
-REGISTRY-ALL         10361
-REGISTRY-NOIMPORTED  5859
+# 2026-09-15 (shadowslot landing — a drop resolves its binding by SLOT and a shadowed binding keeps its name-keyed records;
+#                soundness_queue eight shadow rows CLOSED, four OPENED). 86 native pass fixtures (8 bc_shadowslot_*_admit row
+#                programs + 33 bc_0914p_shadowslot_hb_<id>_admit + 45 bc_0915_shadowland_hb_<id>_admit), no fail fixture, no port
+#                moved. So ALL 10361 -> 10447 (+86), NOIMPORTED 5859 -> 5945 (+86), TIERCOMMIT 118 -> 118 — PREDICTED 10447 / 5945 /
+#                118 (src/compiler/probes/2026-09-14p-shadowslot/LAND_PREDICTIONS_V2.txt), then measured by the gate on the
+#                re-globbed build 854d99ae9a2e2fbd before this pin was touched. soundness_queue 197 -> 193.
+REGISTRY-ALL         10447
+REGISTRY-NOIMPORTED  5945
 REGISTRY-TIERCOMMIT  118
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

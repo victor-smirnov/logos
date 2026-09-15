@@ -1,0 +1,29 @@
+// CLOSED soundness_queue row shadow_inner_block_early_exit_double_drop, round 2026-09-15 shadowslot landing (priced 2026-09-14p-shadowslot).
+// A drop names its binding by a NAME that could denote a later binding. The landing keeps a shadowed binding under a hidden key
+// with every name-keyed record of it (sema), carries the binding's SLOT on SDrop, and mlir-gen resolves the drop by slot.
+// The destructor COUNT / SEQUENCE is the oracle: exit 0 and n=21 (inner 2, then outer 1). Rust: exit 0.
+package bc_shadowslot_inner_block_return_sequence_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn eatd(x: D) -> i64 { return x.v; }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64, b: bool) -> i64 {
+    let x: D = D { v: 1i64, c: p };
+    {
+        let x: D = D { v: 2i64, c: p };
+        if b { return x.v; }
+    }
+    return x.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p, true);
+    let got_n: i64 = rd(p);
+    unsafe { printf("n=%ld\n".as_ptr(), got_n); }
+    if r != 2i64 { return 9i32; }
+    if rd(p) != 21i64 { return 1i32; }
+    if got_n != 21i64 { return 1i32; }
+    return 0i32;
+}

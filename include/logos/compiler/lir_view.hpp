@@ -3066,6 +3066,10 @@ struct SDropView     {
     template <class F> void each_moved_field(F&& f) const noexcept {
         detail::for_each_stmt_string(self, sk::MOVED_FIELDS.code, std::forward<F>(f));
     }
+    uint32_t var_slot() const noexcept {  // Phase-1: the dropped binding's slot
+        auto v = detail::read_i64_opt(self, sk::VAR_SLOT.code);
+        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
+    }
 };
 
 struct SMatchView {

@@ -1,0 +1,24 @@
+ROUND 2026-09-15 shadowslot LANDING — V2 PREDICTION, written after the v1 binary (87b08f31fb21b1c1 43) was measured and BEFORE any
+binary of v2 existed.
+
+V1 DAMAGE (valgrind sweep vs base, each re-run alone and cross-linked; the NEW object leaks against the OLD archives, the OLD object
+is clean against the NEW archives — the program's own drops):
+  fmt_tuple_debug_mixed_elems 14/11 · fmt_tuple_debug_variadic 27/23 · format_buf_two_fns 6/4 · trama_stdlib_selfuse_e2e 4/3 ·
+  wql_el_cmp_measured 83/82 (allocs / frees). run_oracle, fail-text and the queue gate did not see it (exit codes unchanged).
+ROOT (MLIR of format_buf_two_fns, old vs new: main loses the fall-through String__drop of its second statement temporary; minimal
+  hand m13): SemaChecker::lower_stmt's installer emits the fall-through drop as make_drop_stmt(nm, VarInfo{ty, false}) — an ad-hoc
+  VarInfo whose `slot` DEFAULTED TO 0. The landing carries VarInfo::slot on every SDrop, so that drop claimed binding 0; when binding
+  0 is an autoref temporary declared without a value (`let __rtmp_0: T;`), S4's per-slot uninit record for slot 0 answered for
+  `__rtmp_1`, whose name belongs to another owner slot, and the frozen assigned-state (false) suppressed the destructor.
+  The class of "a VarInfo that claims a slot it was never given": frame records are written at exactly two sites
+  (SemaChecker::define, SemaChecker::register_stmt_temp), both with an explicit slot; ad-hoc VarInfos at three
+  (sema_stmt.cpp lower_stmt installer, the synth drop in the same file, sema.cpp's `VarInfo tinfo`), all only handed to make_drop_stmt.
+
+V2 = V1 plus:
+  F1 VarInfo::slot defaults to 0xFFFFFFFF (no slot unless a frame record assigns one) — the three ad-hoc drops carry no slot and
+     resolve by name, as on base.
+  F2 MLIRGenImpl SDrop: a slot is trusted for the uninit decision only when it is registered under the drop's own name.
+
+PREDICTED: the five v1 NEW LEAKs read OK (allocs == frees), m13 2/2; every v1 measurement otherwise unchanged — the eight rows close,
+the four new rows reproduce, the battery verdicts as v1, run_oracle 0 / 0, fail-text 0, valgrind NEW 0 / GONE 1
+(deem_incr_static_retract_e2e).

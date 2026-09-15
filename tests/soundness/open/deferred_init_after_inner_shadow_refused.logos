@@ -1,0 +1,30 @@
+// SOUNDNESS QUEUE row deferred_init_after_inner_shadow_refused (tier 3, `refuses`). A DEFERRED-INIT `let x: D;` ASSIGNED AFTER AN
+// INNER BLOCK THAT SHADOWS AND ASSIGNS ITS OWN `let x: D;` IS REFUSED AS "assignment to immutable variable 'x'".
+//
+// Legal Rust: each `let x: D;` is assigned exactly once. TODAY refused on the base binary and on the 2026-09-15 shadowslot landing:
+// SemaChecker's definite-assignment set currently_uninit_vars_ is keyed by the NAME, and the inner binding's first assignment
+// erases the outer binding's entry.
+// ROWED WITH REASON 3 (its own cost is unpriced): the arm that would close it re-keys decl_uninit_vars_ / currently_uninit_vars_
+// with the shadow rename (shadow_rekey), and was NOT built — the admitted program then reaches MLIRGenImpl::gen_assign, whose
+// drop-before-replace reads uninit_static_ / uninit_assigned_ by NAME, and an SAssign carries no slot (SAssignView: name() only).
+// Found 2026-09-15 by hand program d27. Legality by reading; no rustc binary. Rust: exit 0.
+package deferred_init_after_inner_shadow_refused;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let x: D;
+        {
+            let x: D;
+            x = D { v: 2i64, c: p };
+            if x.v != 2i64 { return 9i32; }
+        }
+        x = D { v: 1i64, c: p };
+        if x.v != 1i64 { return 8i32; }
+    }
+    if rd(p) != 21i64 { return 1i32; }
+    return 0i32;
+}

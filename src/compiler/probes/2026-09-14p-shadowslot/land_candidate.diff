@@ -1,0 +1,552 @@
+diff --git a/include/logos/compiler/lir_mirror.hpp b/include/logos/compiler/lir_mirror.hpp
+index 5eafb831d..baa01cc34 100644
+--- a/include/logos/compiler/lir_mirror.hpp
++++ b/include/logos/compiler/lir_mirror.hpp
+@@ -258,7 +258,7 @@ const uint8_t* lir_mirror_emit_expr_stmt         (lir::LProgram& prog, uint32_t
+ const uint8_t* lir_mirror_emit_match_stmt        (lir::LProgram& prog, uint32_t line, lir_view::ExprRef scrut, const std::vector<lir::LMatchArm>& arms);
+ const uint8_t* lir_mirror_emit_for_each          (lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot = 0xFFFFFFFFu, bool var_mut = false);
+ const uint8_t* lir_mirror_emit_deref_write       (lir::LProgram& prog, uint32_t line, lir_view::ExprRef ptr, lir_view::ExprRef value, bool drop_old = false);
+-const uint8_t* lir_mirror_emit_drop              (lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields = {});
++const uint8_t* lir_mirror_emit_drop              (lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields = {}, uint32_t slot = 0xFFFFFFFFu);
+ const uint8_t* lir_mirror_emit_deref_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, lir_view::ExprRef value);
+ const uint8_t* lir_mirror_emit_tuple_write       (lir::LProgram& prog, uint32_t line, std::string_view receiver, uint32_t index, lir_view::ExprRef value, TypeRef recv_type);
+ const uint8_t* lir_mirror_emit_let_else          (lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, lir_view::BlockRef else_block, const std::vector<lir::LExprPtr>& guards = {});
+diff --git a/include/logos/compiler/lir_view.hpp b/include/logos/compiler/lir_view.hpp
+index 21d0ef995..6a963a05b 100644
+--- a/include/logos/compiler/lir_view.hpp
++++ b/include/logos/compiler/lir_view.hpp
+@@ -3066,6 +3066,10 @@ struct SDropView     {
+     template <class F> void each_moved_field(F&& f) const noexcept {
+         detail::for_each_stmt_string(self, sk::MOVED_FIELDS.code, std::forward<F>(f));
+     }
++    uint32_t var_slot() const noexcept {  // Phase-1: the dropped binding's slot
++        auto v = detail::read_i64_opt(self, sk::VAR_SLOT.code);
++        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
++    }
+ };
+ 
+ struct SMatchView {
+diff --git a/src/compiler/lir_mirror.cpp b/src/compiler/lir_mirror.cpp
+index 0342b4f88..0be6b7435 100644
+--- a/src/compiler/lir_mirror.cpp
++++ b/src/compiler/lir_mirror.cpp
+@@ -979,7 +979,8 @@ public:
+                                              std::string_view drop_fn,
+                                              TypeRef ty,
+                                              bool drop_fields,
+-                                             const std::vector<std::string>& moved_fields) {
++                                             const std::vector<std::string>& moved_fields,
++                                             uint32_t slot = 0xFFFFFFFFu) {
+         auto var_av = put_string(var_name);
+         writ::AnyVal drop_av;
+         if (!drop_fn.empty()) drop_av = put_string(drop_fn);
+@@ -992,6 +993,7 @@ public:
+         put(map_off, sk::DROP_FIELDS,  put_bool(drop_fields));
+         if (!moved_fields.empty())
+             put(map_off, sk::MOVED_FIELDS, moved_av);
++        if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
+         put_line(map_off, line);
+         return map_off;
+     }
+@@ -2348,10 +2350,10 @@ const uint8_t* lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, l
+     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+     return em.emit_deref_write_direct(line, ptr, value, drop_old);
+ }
+-const uint8_t* lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields) {
++const uint8_t* lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields, uint32_t slot) {
+     auto& ctr = prog.type_pool.ctr_or_init();
+     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+-    return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields, moved_fields);
++    return em.emit_drop_direct(line, var_name, drop_fn, ty, drop_fields, moved_fields, slot);
+ }
+ const uint8_t* lir_mirror_emit_deref_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, lir_view::ExprRef value) {
+     auto& ctr = prog.type_pool.ctr_or_init();
+diff --git a/src/compiler/mlir_gen_expr.cpp b/src/compiler/mlir_gen_expr.cpp
+index b94130c5e..b8eb4905f 100644
+--- a/src/compiler/mlir_gen_expr.cpp
++++ b/src/compiler/mlir_gen_expr.cpp
+@@ -5088,6 +5088,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
+                 mlir::OpBuilder::InsertionGuard ig(builder_);
+                 builder_.setInsertionPointToStart(guard_block);
+                 extract_arm_payload(arm_pat_ref);
++                shadow_register_pattern(arm_pat_ref);
+                 auto gval = arm_guard_ref ? gen_expr(arm_guard_ref) : nullptr;
+                 gval = coerce_int(gval, builder_.getI1Type());
+                 if (!gval) {
+@@ -5119,6 +5120,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
+             mlir::OpBuilder::InsertionGuard ig(builder_);
+             builder_.setInsertionPointToStart(body_block);
+             extract_arm_payload(arm_pat_ref);
++            shadow_register_pattern(arm_pat_ref);
+             auto val = arm_value_ref ? gen_expr(arm_value_ref) : nullptr;
+             restore_var_scope(match_scope);
+             if (!is_terminated(builder_.getBlock())) {
+diff --git a/src/compiler/mlir_gen_fn.cpp b/src/compiler/mlir_gen_fn.cpp
+index b7b10c3e5..a78bac160 100644
+--- a/src/compiler/mlir_gen_fn.cpp
++++ b/src/compiler/mlir_gen_fn.cpp
+@@ -489,6 +489,11 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
+     uninit_flag_needed_.clear();
+     uninit_static_.clear();
+     uninit_assigned_.clear();
++    shadow_slot_val_.clear();
++    shadow_slot_of_val_.clear();
++    shadow_slot_uninit_.clear();
++    uninit_owner_slot_.clear();
++    shadow_frozen_assigned_.clear();
+     var_elem_types_.clear();
+     var_struct_.clear();
+     var_subscript_.clear();
+@@ -511,6 +516,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
+         std::string pname(p.name());
+         TypeRef ptype = p.type(gfb_pool);
+         scope_[pname] = entry->getArgument(i);
++        shadow_register_slot(p.slot(), pname);
+         // Pointer-family params (`*mut`/`*const`/`&`/`&mut`): their SSA arg IS a
+         // pointer VALUE, so `&p` is the address of the param's own slot — record
+         // them so EAddrOf spills (scalars are caught there by an SSA-type check;
+diff --git a/src/compiler/mlir_gen_impl.hpp b/src/compiler/mlir_gen_impl.hpp
+index f57389224..30b85451a 100644
+--- a/src/compiler/mlir_gen_impl.hpp
++++ b/src/compiler/mlir_gen_impl.hpp
+@@ -727,6 +727,23 @@ private:
+ 
+     // Per-function state.
+     std::unordered_map<std::string, mlir::Value>  scope_;
++    // A binding's SLOT -> (name, value), registered where a name is bound; an SDrop resolves its binding by slot. PROBES.md 2026-09-14p-shadowslot.
++    std::unordered_map<uint32_t, std::pair<std::string, mlir::Value>> shadow_slot_val_;
++    llvm::DenseMap<mlir::Value, uint32_t> shadow_slot_of_val_;
++    // The B8 uninit drop state of a `let` by SLOT (an initialised let records none); the name-keyed maps below serve the owner.
++    struct ShadowUninit { mlir::Value flag; bool is_static = false; };
++    std::unordered_map<uint32_t, ShadowUninit> shadow_slot_uninit_;
++    std::unordered_map<std::string, uint32_t> uninit_owner_slot_;
++    std::unordered_map<uint32_t, bool> shadow_frozen_assigned_;
++    void shadow_register_slot(uint32_t s, const std::string& n) {
++        if (s == 0xFFFFFFFFu) return;
++        auto it = scope_.find(n);
++        if (it == scope_.end() || !it->second) return;
++        shadow_slot_val_[s] = {n, it->second};
++        shadow_slot_of_val_[it->second] = s;
++    }
++    void shadow_register_pattern(lir_view::PatRef p);
++    mlir::Value shadow_resolve_drop(uint32_t s, const std::string& n, mlir::Value cur);
+     std::unordered_set<std::string>               let_vars_;
+     // B8 dynamic drop flags: a `let mut x: T;` declared WITHOUT an initializer
+     // gets a hidden i8 flag (0 = slot empty, 1 = holds a live value), like
+diff --git a/src/compiler/mlir_gen_stmt.cpp b/src/compiler/mlir_gen_stmt.cpp
+index 0c006d423..693bc9500 100644
+--- a/src/compiler/mlir_gen_stmt.cpp
++++ b/src/compiler/mlir_gen_stmt.cpp
+@@ -134,6 +134,14 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
+     std::vector<std::string> bindings;
+     pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+     if (bindings.empty()) return;
++    // Register each payload binding's slot once the binders below have run (every exit).
++    struct ShadowPatReg {
++        MLIRGenImpl* g; lir_view::PatVariantDataView p; const std::vector<std::string>& b;
++        ~ShadowPatReg() {
++            auto sl = p.bind_slots();
++            for (size_t i = 0; i < b.size() && i < sl.size(); ++i) g->shadow_register_slot(sl[i], b[i]);
++        }
++    } shadow_pat_reg{this, pvd, bindings};
+     std::vector<TypeRef> pvd_binding_types;
+     pvd.each_binding_type(pool_impl(),
+         [&](TypeRef t){ pvd_binding_types.push_back(t); });
+@@ -1231,10 +1239,80 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
+     }
+ }
+ 
++// A drop whose NAME now denotes a different registered binding resolves to the value registered for its SLOT — only when
++// that slot was registered under the same name, in this function.
++mlir::Value MLIRGenImpl::shadow_resolve_drop(uint32_t s, const std::string& n, mlir::Value cur) {
++    if (s == 0xFFFFFFFFu || !cur) return cur;
++    auto cs = shadow_slot_of_val_.find(cur);
++    if (cs == shadow_slot_of_val_.end() || cs->second == s) return cur;
++    auto sv = shadow_slot_val_.find(s);
++    if (sv == shadow_slot_val_.end() || sv->second.first != n || !sv->second.second) return cur;
++    auto fn_of = [](mlir::Region* r) -> mlir::Operation* {
++        if (!r) return nullptr;
++        auto f = r->getParentOfType<mlir::FunctionOpInterface>();
++        return f ? f.getOperation() : nullptr;
++    };
++    mlir::Operation* here = builder_.getBlock() ? fn_of(builder_.getBlock()->getParent()) : nullptr;
++    if (!here || fn_of(sv->second.second.getParentRegion()) != here) return cur;
++    return sv->second.second;
++}
++
++// Every (name, slot) a pattern binds, registered after the pattern's binders ran.
++void MLIRGenImpl::shadow_register_pattern(lir_view::PatRef p) {
++    namespace pc = lir_schema::pat;
++    if (!p) return;
++    auto flat = [&](const std::vector<uint32_t>& sl, auto&& each) {
++        size_t i = 0;
++        each([&](std::string_view b) { if (i < sl.size()) shadow_register_slot(sl[i], std::string(b)); ++i; });
++    };
++    switch (p.kind()) {
++    case pc::Code::Wild: { lir_view::PatWildView w{p}; shadow_register_slot(w.bind_slot(), std::string(w.name())); break; }
++    case pc::Code::RefBind: { lir_view::PatRefBindView r{p}; shadow_register_slot(r.bind_slot(), std::string(r.name())); break; }
++    case pc::Code::At: {
++        lir_view::PatAtView a{p};
++        shadow_register_slot(a.bind_slot(), std::string(a.name()));
++        shadow_register_pattern(a.sub());
++        break;
++    }
++    case pc::Code::RefPat: shadow_register_pattern(lir_view::PatRefPatView{p}.inner()); break;
++    case pc::Code::VariantData: {
++        lir_view::PatVariantDataView d{p};
++        flat(d.bind_slots(), [&](auto&& f) { d.each_binding(f); });
++        break;
++    }
++    case pc::Code::Tuple: {
++        lir_view::PatTupleView t{p};
++        flat(t.bind_slots(), [&](auto&& f) { t.each_binding(f); });
++        t.each_sub([&](lir_view::PatRef sp) { shadow_register_pattern(sp); });
++        break;
++    }
++    case pc::Code::Struct:
++        lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView f) {
++            if (auto sub = f.sub()) shadow_register_pattern(sub);
++            else shadow_register_slot(f.bind_slot(), std::string(f.field_name()));
++        });
++        break;
++    case pc::Code::Slice: {
++        lir_view::PatSliceView sv{p};
++        auto rec = [&](lir_view::PatRef sp) { shadow_register_pattern(sp); };
++        sv.each_prefix(rec); sv.each_rest(rec); sv.each_suffix(rec);
++        break;
++    }
++    case pc::Code::Or: lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef a) { shadow_register_pattern(a); }); break;
++    default: break;
++    }
++}
++
+ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
+     std::string var_name(v.var_name());
+     auto it = scope_.find(var_name);
+     if (it == scope_.end()) return;
++    // Resolve the binding by slot for the duration of this drop; restore the name on every exit.
++    struct ShadowRestore {
++        std::unordered_map<std::string, mlir::Value>& m; std::string n; mlir::Value v;
++        ~ShadowRestore() { m[n] = v; }
++    } shadow_restore{scope_, var_name, it->second};
++    it->second = shadow_resolve_drop(v.var_slot(), var_name, it->second);
+     // #123 — `#[no_auto_drop]`: EMIT NOTHING. THE LAST GATE, and the one the
+     // generic containers walk through. `value_needs_drop` gates the FIELD
+     // recursion (step 2) but is never asked about the var's OWN type, and step
+@@ -1489,6 +1567,44 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
+     // it currently holds a live value (flag==1) — an early `return` before the
+     // first assignment, or the !c path of a conditional init, leaves it 0 → the
+     // drop is a no-op (never runs the destructor on garbage).
++    // The uninit state is the binding's own: by SLOT when the let recorded one, never another binding's under the name.
++    const uint32_t dslot = v.var_slot();
++    if (auto rec = dslot == 0xFFFFFFFFu ? shadow_slot_uninit_.end() : shadow_slot_uninit_.find(dslot);
++        rec != shadow_slot_uninit_.end()) {
++        if (rec->second.flag) {
++            auto i8t  = builder_.getI8Type();
++            auto flag = builder_.create<mlir::LLVM::LoadOp>(loc_, i8t, rec->second.flag);
++            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 8);
++            auto live = builder_.create<mlir::LLVM::ICmpOp>(loc_, mlir::LLVM::ICmpPredicate::ne, flag, zero);
++            auto* region   = builder_.getBlock()->getParent();
++            auto* then_blk = new mlir::Block();
++            auto* cont_blk = new mlir::Block();
++            region->push_back(then_blk);
++            region->push_back(cont_blk);
++            builder_.create<mlir::cf::CondBranchOp>(loc_, live, then_blk, cont_blk);
++            builder_.setInsertionPointToStart(then_blk);
++            emit_body();
++            if (!is_terminated(builder_.getBlock()))
++                builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
++            builder_.setInsertionPointToStart(cont_blk);
++            return;
++        }
++        if (rec->second.is_static) {
++            auto own = uninit_owner_slot_.find(var_name);
++            bool assigned = (own != uninit_owner_slot_.end() && own->second == dslot)
++                ? uninit_assigned_.count(var_name) != 0
++                : shadow_frozen_assigned_[dslot];
++            if (assigned) emit_body();
++            return;
++        }
++        emit_body();
++        return;
++    }
++    if (auto own = uninit_owner_slot_.find(var_name);
++        dslot != 0xFFFFFFFFu && own != uninit_owner_slot_.end() && own->second != dslot) {
++        emit_body();
++        return;
++    }
+     auto fit = uninit_drop_flag_.find(var_name);
+     if (fit != uninit_drop_flag_.end()) {
+         auto i8t  = builder_.getI8Type();
+@@ -1695,7 +1811,22 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
+ // ---------------------------------------------------------------------------
+ 
+ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
++    const std::string let_name(v.name());
++    const uint32_t let_slot = v.var_slot();
++    if (auto own = uninit_owner_slot_.find(let_name);
++        !v.value() && own != uninit_owner_slot_.end() && own->second != let_slot)
++        shadow_frozen_assigned_[own->second] = uninit_assigned_.count(let_name) != 0;
+     gen_let_inner(v);
++    shadow_register_slot(let_slot, let_name);
++    if (let_slot != 0xFFFFFFFFu) {
++        ShadowUninit u;
++        if (!v.value()) {
++            if (auto f = uninit_drop_flag_.find(let_name); f != uninit_drop_flag_.end()) u.flag = f->second;
++            else u.is_static = uninit_static_.count(let_name) != 0;
++            uninit_owner_slot_[let_name] = let_slot;
++        }
++        shadow_slot_uninit_[let_slot] = u;
++    }
+     // Canary for the silent-drop class (tuple-keyed-container baghunt): a
+     // `let` with an initializer whose codegen failed leaves the name unbound
+     // in scope_, and every later statement referencing it is dropped too —
+@@ -3008,6 +3139,7 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
+     // fresh binding each iteration); a body write must not steer the loop.
+     auto v_alloca = create_entry_alloca(loop_type);
+     scope_[s.var] = v_alloca;
++    shadow_register_slot(v.var_slot(), s.var);
+     let_vars_.insert(s.var);
+     var_elem_types_[s.var] = loop_type;
+ 
+@@ -3366,6 +3498,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
+     auto* incr_block = new mlir::Block();
+     region->push_back(incr_block);
+ 
++    shadow_register_slot(v.var_slot(), s.var);
+     loop_stack_.push_back({incr_block, exit_block, {}, {}});
+     gen_block(s.body);
+     loop_stack_.pop_back();
+@@ -4405,6 +4538,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
+     switch (pat.kind()) {
+     case pc::Code::Wild: {
+         bind_name_at_slot(std::string(lir_view::PatWildView{pat}.name()), slot_ptr, ty, shared);
++        shadow_register_slot(lir_view::PatWildView{pat}.bind_slot(), std::string(lir_view::PatWildView{pat}.name()));
+         break;
+     }
+     // `n @ sub` NAMES THE PLACE `sub` MATCHES: the name binds by the same
+@@ -5327,6 +5461,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
+                 mlir::OpBuilder::InsertionGuard ig(builder_);
+                 builder_.setInsertionPointToStart(guard_block);
+                 extract_payload(arm_pat);
++                shadow_register_pattern(arm_pat);
+                 auto gval = arm_guard_ref ? gen_expr(arm_guard_ref) : nullptr;
+                 gval = coerce_int(gval, builder_.getI1Type());
+                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
+@@ -5346,6 +5481,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
+                 mlir::OpBuilder::InsertionGuard ig(builder_);
+                 builder_.setInsertionPointToStart(body_block);
+                 extract_payload(arm_pat);
++                shadow_register_pattern(arm_pat);
+                 if (arm_body_ref) gen_block(arm_body_ref);
+                 if (!is_terminated(builder_.getBlock()))
+                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+@@ -5736,6 +5872,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
+     auto pat_ref = v.pat();
+     auto pat_kind = pat_ref ? pat_ref.kind() : pc::Code(-1);
+     auto* region = builder_.getBlock()->getParent();
++    struct ShadowLetElseReg {  // every exit: the pattern's bindings are in scope_ by then
++        MLIRGenImpl* g; lir_view::PatRef p;
++        ~ShadowLetElseReg() { g->shadow_register_pattern(p); }
++    } shadow_let_else_reg{this, v.pat()};
+ 
+     // G144-3a: or-pattern in let-else (`let A(x) | B(x) = v else …`). Collect
+     // each alt's discriminant for an OR'd tag test, and extract bindings using
+diff --git a/src/compiler/mono_clone.cpp b/src/compiler/mono_clone.cpp
+index 3a19e4549..fcdd28a13 100644
+--- a/src/compiler/mono_clone.cpp
++++ b/src/compiler/mono_clone.cpp
+@@ -5204,7 +5204,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
+         std::vector<std::string> moved_fields;
+         v.each_moved_field([&](std::string_view f) { moved_fields.emplace_back(f); });
+         ns.mirror_ptr_ = lir_mirror_emit_drop(
+-            out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields);
++            out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields, v.var_slot());
+         break;
+     }
+     case SCode::Match: {
+diff --git a/src/compiler/sema.cpp b/src/compiler/sema.cpp
+index c7b6a5e51..4e44fee47 100644
+--- a/src/compiler/sema.cpp
++++ b/src/compiler/sema.cpp
+@@ -4028,7 +4028,8 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
+         if (!cur_prog_) return lir_view::StmtRef{};
+         return lir_view::StmtRef(cur_prog_->type_pool.arena(),
+             lir_mirror_emit_drop(
+-                *cur_prog_, node_line_, name, "__box_dyn__drop", info.type, false, {}));
++                *cur_prog_, node_line_, shadow_user_name(name), "__box_dyn__drop", info.type, false, {},
++                info.slot));
+     }
+     auto dfn = drop_fn_for(info.type);
+     bool df  = has_droppable_fields(info.type);
+@@ -4090,7 +4091,8 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
+     }
+     if (!cur_prog_) return lir_view::StmtRef{};
+     return lir_view::StmtRef(cur_prog_->type_pool.arena(),
+-        lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df, moved_fields));
++        lir_mirror_emit_drop(*cur_prog_, node_line_, shadow_user_name(name), dfn, info.type, df, moved_fields,
++                             info.slot));
+ }
+ 
+ // Single inner loop behind every drop walk (was 4 drifting copies).
+diff --git a/src/compiler/sema_impl.hpp b/src/compiler/sema_impl.hpp
+index 5ec55d4d7..9c8f9337a 100644
+--- a/src/compiler/sema_impl.hpp
++++ b/src/compiler/sema_impl.hpp
+@@ -3979,6 +3979,8 @@ private:
+         // Recorded here instead, on the frame that owns the root, so it
+         // survives exactly as long as the local it describes.
+         std::set<std::string> cond_move_static_moves;
++        // (outer frame, name, hidden key) of an outer binding this frame shadows; restored at pop_scope.
++        std::vector<std::tuple<size_t, std::string, std::string>> shadow_outer_renames;
+     };
+     std::vector<Frame> scope_;
+     // #118 — hidden `let mut __df_N: bool = true;` statements waiting to be
+@@ -4219,7 +4221,21 @@ private:
+             // Remove popped variables from moved set
+             for (auto& name : scope_.back().var_order)
+                 moved_vars_.erase(name);
++            auto shadow_ren = std::move(scope_.back().shadow_outer_renames);
+             scope_.pop_back();
++            for (auto it = shadow_ren.rbegin(); it != shadow_ren.rend(); ++it) {
++                auto& [i, sname, hid] = *it;
++                if (i >= scope_.size()) continue;
++                auto& of = scope_[i];
++                auto h = of.vars.find(hid);
++                if (h == of.vars.end() || of.vars.count(sname)) continue;
++                shadow_forget(sname);  // the popped inner binding's state dies with it
++                VarInfo keep = h->second;
++                of.vars.erase(h);
++                of.vars[sname] = keep;
++                for (auto& e : of.var_order) if (e == hid) { e = sname; break; }
++                shadow_rekey(of, hid, sname);
++            }
+         }
+     }
+ 
+@@ -4931,15 +4947,93 @@ private:
+                 std::string(name), type_str(t), type_str(t)));
+         if (!scope_.empty()) {
+             auto sname = std::string(name);
+-            if (!scope_.back().vars.count(sname))
+-                scope_.back().var_order.push_back(sname);
+             // Phase-1: fresh dense slot per binding (shadowing → new slot),
+             // unless a pattern pre-reserved one at build time.
+             uint32_t slot = (reuse_slot == 0xFFFFFFFFu) ? next_slot_++ : reuse_slot;
++            shadow_prepare(sname, slot);
++            if (!scope_.back().vars.count(sname))
++                scope_.back().var_order.push_back(sname);
+             scope_.back().vars[sname] = {t, is_mut, false, slot};
+         }
+     }
+ 
++    // A shadowed binding is kept under `name\x1f<slot>` with every name-keyed record of it. PROBES.md 2026-09-14p-shadowslot.
++    void shadow_prepare(const std::string& sname, uint32_t slot) {
++        auto& fr = scope_.back();
++        auto hidden = [&](uint32_t s) { return sname + std::string(1, '\x1f') + std::to_string(s); };
++        auto keep_as = [&](Frame& f, const std::string& hid) {
++            auto it = f.vars.find(sname);
++            VarInfo keep = it->second;
++            for (auto& e : f.var_order) if (e == sname) { e = hid; break; }
++            f.vars.erase(it);
++            f.vars[hid] = keep;
++            shadow_rekey(f, sname, hid);
++        };
++        if (auto old = fr.vars.find(sname); old != fr.vars.end()) {
++            if (old->second.slot != slot) keep_as(fr, hidden(old->second.slot));
++            return;
++        }
++        for (size_t i = scope_.size() - 1; i-- > 0;) {
++            auto oit = scope_[i].vars.find(sname);
++            if (oit == scope_[i].vars.end()) continue;
++            std::string hid = hidden(oit->second.slot);
++            keep_as(scope_[i], hid);
++            fr.shadow_outer_renames.emplace_back(i, sname, hid);
++            return;
++        }
++    }
++    static bool shadow_is_path_of(const std::string& m, const std::string& root) {
++        return m == root || (m.size() > root.size() && m[root.size()] == '.' && m.compare(0, root.size(), root) == 0);
++    }
++    // Re-key ONE binding's name-keyed records (move state + closure capture state); tools/dlog/shadow_binding_state.dl.
++    void shadow_rekey(Frame& f, const std::string& from, const std::string& to) {
++        auto rk = [&](const std::string& m) { return to + m.substr(from.size()); };
++        auto rekey_set = [&](std::set<std::string>& st) {
++            std::vector<std::string> v;
++            for (auto& m : st) if (shadow_is_path_of(m, from)) v.push_back(m);
++            for (auto& m : v) { st.erase(m); st.insert(rk(m)); }
++        };
++        auto rekey_list = [&](std::vector<std::string>& l) {
++            for (auto& m : l) if (shadow_is_path_of(m, from)) m = rk(m);
++        };
++        rekey_set(moved_vars_);
++        rekey_set(f.cond_move_static_moves);
++        rekey_set(body_ever_moved_);
++        rekey_set(closure_owned_drop_);
++        std::vector<std::pair<std::string, std::string>> fl;
++        for (auto& [k, v] : f.cond_move_flags) if (shadow_is_path_of(k, from)) fl.emplace_back(k, v);
++        for (auto& [k, v] : fl) { f.cond_move_flags.erase(k); f.cond_move_flags[rk(k)] = v; }
++        std::vector<std::pair<std::string, std::string>> co;
++        for (auto& [k, v] : capture_owner_) {
++            if (v == from) v = to;
++            if (shadow_is_path_of(k, from)) co.emplace_back(k, v);
++        }
++        for (auto& [k, v] : co) { capture_owner_.erase(k); capture_owner_[rk(k)] = v; }
++        for (auto& [k, v] : closure_drop_group_) rekey_list(v);
++        if (auto g = closure_drop_group_.extract(from)) { g.key() = to; closure_drop_group_.insert(std::move(g)); }
++        for (auto& [k, v] : closure_deferred_moves_) rekey_list(v);
++        if (auto d = closure_deferred_moves_.extract(from)) { d.key() = to; closure_deferred_moves_.insert(std::move(d)); }
++    }
++    // The popped inner binding's records die with its frame.
++    void shadow_forget(const std::string& name) {
++        auto erase_paths = [&](std::set<std::string>& st) {
++            for (auto it = st.begin(); it != st.end();) it = shadow_is_path_of(*it, name) ? st.erase(it) : std::next(it);
++        };
++        erase_paths(moved_vars_);
++        erase_paths(body_ever_moved_);
++        erase_paths(closure_owned_drop_);
++        for (auto it = capture_owner_.begin(); it != capture_owner_.end();)
++            it = (shadow_is_path_of(it->first, name) || it->second == name) ? capture_owner_.erase(it) : std::next(it);
++        closure_drop_group_.erase(name);
++        closure_deferred_moves_.erase(name);
++        for (auto& [k, v] : closure_drop_group_)
++            v.erase(std::remove_if(v.begin(), v.end(), [&](const std::string& m) { return shadow_is_path_of(m, name); }), v.end());
++    }
++    static std::string shadow_user_name(const std::string& n) {
++        auto p = n.find('\x1f');
++        return p == std::string::npos ? n : n.substr(0, p);
++    }
++
+     TypeRef lookup(std::string_view name) const {
+         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
+             auto f = it->vars.find(std::string(name));
+diff --git a/src/compiler/sema_stmt.cpp b/src/compiler/sema_stmt.cpp
+index 1b6a275ca..c82a63e81 100644
+--- a/src/compiler/sema_stmt.cpp
++++ b/src/compiler/sema_stmt.cpp
+@@ -2871,6 +2871,16 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+         }
+     }
+ 
++    // `let x = x` (or `x.f`): the move is of the binding the name denotes BEFORE this let, so record it before define.
++    bool self_rooted_move = false;
++    if (rhs && is_move_type(rhs_type)) {
++        auto r = expr_ref_of(rhs);
++        using C = lir_schema::expr::Code;
++        while (r && (r.kind() == C::FieldRead || r.kind() == C::TupleIndex))
++            r = r.kind() == C::FieldRead ? lir_view::EFieldReadView{r}.receiver() : lir_view::ETupleIndexView{r}.receiver();
++        self_rooted_move = r && r.kind() == C::VarRef && lir_view::EVarRefView{r}.name() == std::string_view(name);
++        if (self_rooted_move) mark_moved_expr(expr_ref_of(rhs));
++    }
+     define(name, var_type, is_mut);
+     if (rhs && expr_ref_of(rhs).kind() == lir_schema::expr::Code::ClosureBox && !scope_.empty())
+         scope_.back().vars[std::string(name)].closure_id =
+@@ -2925,7 +2935,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+     // move type, mark it moved. mark_moved_expr handles both VarRef and
+     // nested FieldRead chains, recording dotted paths so make_drop_stmt
+     // can suppress per-field auto-drop on the source struct.
+-    if (rhs && is_move_type(rhs_type))
++    if (rhs && is_move_type(rhs_type) && !self_rooted_move)
+         mark_moved_expr(expr_ref_of(rhs));
+ 
+     lir::SLet slet;

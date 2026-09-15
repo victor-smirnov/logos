@@ -45547,3 +45547,165 @@ note: redirects 1872 (pass) / 412 (stdlib). HYBRID columns (the four stdlib laye
   -O0 unarmed hybrid on the same binary): run_oracle 0 damage / 0 fix of 7083 (cast-region-to-uint subtracted); valgrind
   NEW 0 / GONE 1 of 7095 — deem_incr_static_retract_e2e LEAK 1,216 B -> OK, re-run alone twice per side and attributed to the
   program's own drops by cross-linking (armed object + unarmed archives clean). Fiber survivors killed by pid on both sides.
+
+# ═══ ROUND 2026-09-15 shadowslot LANDING (soundness queue tier 1) — A DROP RESOLVES ITS BINDING BY SLOT, AND A SHADOWED
+#     BINDING KEEPS EVERY NAME-KEYED RECORD OF IT; THE PRICED `shslotev` IS DECLINED AS PRICED (hand d04) ═════════════════
+
+Files: `src/compiler/probes/2026-09-14p-shadowslot/` — LAND_PREDICTIONS.txt (written before the landing edits), land_candidate.diff
+(the landed compiler change as first built), CONTROL_REVERT_LAND.txt. New dlog rules: tools/dlog/shadow_binding_state.dl and
+tools/dlog/shadow_sdrop_reads.dl (selftest rc 0 first, run by this round: 19 walkers / 24 findings / try_path 1-5 / domain 42-5,
+duty 1 -> 0).
+
+STEP 1 (this round's own reading): HEAD abc4deb6c on main == origin/main; `# TOTAL` soundness_queue 197, bc_admits 60,
+bc_admits_blocked 8; probe-log-lint 331 records; build_hash 0e7b5f11a0939689 43. ⚠ THE TREE WAS NOT CLEAN: the nine probe-carrying
+files held candidate_with_probe_gates.diff and tools/dlog/shadow_binding_state.dl was untracked — a previous landing attempt in this
+session applied the diff (01:16), built build-land0913d, started a base chain (queue / bc / gate-run -L bc / run_oracle / fail-text /
+valgrind on build/ 0e7b5f11) and wrote a 40-program battery, then ended. Its base chain was read and reused (same configure, same
+binary hash); nothing it measured on the candidate was reused.
+
+BASE (build/ 0e7b5f11a0939689 43): queue gate rc 0 (197 rows, tier1 32 tier2 57 tier3 100 tier4 8) · bc_admits_ledger_gate (4 args)
+rc 0 · gate-run -L bc rc 0 (store build 1244: 7462 recorded, 0 failed) · run_oracle 7083 · fail_text_oracle 1861 · valgrind sweep
+7095 (OK 6847, LEAK 54, CORRUPT 3, LINKFAIL 124, CFAIL 62, NOVG 2, TIMEOUT 3; two reaped at 307 s).
+
+THE PRICED ARM IS REFUTED BY A LEGAL PROGRAM. `shslotev` renames a shadowed binding and re-keys its MOVE state, but the scope-exit
+drop decision also reads the CLOSURE capture state by name — dlog shadow_binding_state.dl enumerates 18 fields the decision
+contexts read, cross-checked by reading emit_frame_drops / make_drop_stmt: capture_owner_, closure_drop_group_, closure_owned_drop_
+were not carried (closure_deferred_moves_ neither, read by mark_moved's cascade). Measured, legality by reading:
+    d04  closure binding shadowed by a scalar, droppable declared between   base exit 0 (21)   shslotev exit 1       DAMAGE
+    c08  move closure captures the old binding, same-frame shadow           base refuses       shslotev exit 1 (x1 leaked, count 2)
+    d07  move closure owns an outer binding, inner block shadows + returns  base refuses       shslotev exit 1
+    d24  closure and its capture both shadowed                              base refuses       shslotev exit 1
+    d05  FnOnce move closure called after the shadow                        base refuses       shslotev refuses (cascade marks the NEW x)
+So `shslotev` as priced is DECLINED; what lands is shslotev made unconditional plus four strict extensions at the same sites.
+
+WHAT LANDS (no probe name in the sources):
+  S0 = shslotev: SemaChecker::shadow_prepare keeps a same-frame shadowed binding under `name\x1f<slot>` and an outer-frame one under
+     the same key while the inner frame lives (restored at pop_scope); make_drop_stmt strips the key and carries VarInfo::slot on
+     SDrop (lir mirror VAR_SLOT; mono_clone keeps it); MLIRGenImpl::shadow_resolve_drop resolves an SDrop whose name now denotes a
+     different registered binding to the value registered for its slot (same name, same function).
+  S1 shadow_rekey also carries capture_owner_ (key and owner), closure_drop_group_ (key and members), closure_owned_drop_ and
+     closure_deferred_moves_ (key and members); shadow_forget erases the popped inner binding's records (its dotted moved paths
+     included — hand d28 3412) before the outer binding's are moved back.
+  S2 lower_let: a move whose root is the name being bound (`let x = x`, `let x = x.f`) is recorded BEFORE define — it was recorded
+     after, on the NEW binding (d01 d02 d03 d23 c21 refused on base and under shslotev).
+  S3 mlir-gen registers the slot at gen_for, gen_for_each, and walks the bound pattern (Wild / RefBind / At / RefPat / VariantData /
+     Tuple / Struct / Slice / Or) after the match-statement arm, the match-expression arm and let-else.
+  S4 the B8 uninit drop state is recorded per SLOT at gen_let (flag or static; an initialised let records none) and the SDrop
+     consults the binding's own record — dlog shadow_sdrop_reads.dl: the SDrop codegen reads 9 MLIRGenImpl members, 5 keyed by
+     name (scope_, let_vars_, uninit_drop_flag_, uninit_static_, uninit_assigned_), per-site read 5 of 5.
+  DECLARED BUT NOT BUILT: re-keying decl_uninit_vars_ / currently_uninit_vars_ (LAND_PREDICTIONS S1 lists it). It was dropped before
+  the build because the admitted program reaches MLIRGenImpl::gen_assign, which reads the uninit state by NAME and an SAssign has no
+  slot; d27's prediction ("reads Rust") was for that unbuilt part and is recorded as MISPREDICTED.
+
+WHAT SHOULD IT MEAN: Rust (see the pricing record; no divergence names a shadow). `let x = x` moves the old binding into the new one.
+
+HAND BATTERY (legality by reading, no rustc binary; compiled + linked + run twice + valgrind; count = destructor digits in order).
+  s01-s44 (pricing), c01-c40 (the previous landing attempt), d01-d30 and the control twins k06/k07/k30(+ctl) (this round) — 113
+  programs plus the eleven shadow rows, on base (0e7b5f11, its own archives) and on the landing (87b08f31, its own archives):
+    reads Rust on the landing: every program that read Rust on base, plus s01-s14 s16-s18 s21-s24 s26 s27 s29-s37 s41, c01 c02 c04
+      c05 c08-c11 c14-c16 c20-c24 c26 c33-c35 c37 c38 c40, d01-d03 d05 d07-d13 d16 d17 d19 d21-d25 d28, and the eight rows.
+    still wrong on the landing: s19 (row closure_param_shadow_double_drop) · s28 (row let_underscore_defers_drop_to_block_end) ·
+      c06 / k06 / d30 / k30 (NEW row match_arm_nested_binder_shadow_double_drop, reason 1) · c07 (its shadow half closed: base
+      exit 139 -> 1, and 1 is exactly its renamed control k07ctl on BOTH binaries -> NEW row at_binding_by_value_never_dropped,
+      not this fact) · k30ctl (NEW row slice_pattern_arm_binding_extra_drops, not this fact) · d27 (NEW row
+      deferred_init_after_inner_shadow_refused, reason 3).
+    MISPREDICTED against LAND_PREDICTIONS.txt: c06 and c07 (predicted to read Rust — the nested binder has no slot; the `@` leak is
+      another defect), d27 (predicted for the unbuilt uninit-set re-key). Not predicted (written after the predictions): d28 closes,
+      d29 correct on both, d30 stays wrong.
+
+THE CLASS BY PROPERTY — every place that decides "which binding does this NAME denote", and what the landing did there:
+    site / record (how enumerated)                                    this commit                    number
+    sema frame record: Frame::vars / var_order (dlog 18-field set)    CLOSED (S0)                    s01 2 -> 21, row 1000 -> 1001
+    sema move state: moved_vars_, cond_move_flags,                    CLOSED (S0)                    s35 / s41 2 -> 21; s12 refused -> 12
+      cond_move_static_moves, body_ever_moved_ (dlog)
+    sema closure capture state: capture_owner_, closure_drop_group_,  CLOSED (S1)                    d04 0 -> 0 (shslotev 1); c08 d07 d24
+      closure_owned_drop_ (dlog) + closure_deferred_moves_ (read)                                    refused -> 21; d05 refused -> 12
+    inner binding's dotted moved paths surviving the restore (read)   CLOSED (S1, shadow_forget)     d28 3412 (base 342x)
+    lower_let: a self-rooted move recorded after define (read)        CLOSED (S2)                    d01 d02 d03 d23 c21 refused -> 1/5
+    mlir-gen binders (dlog shadow_binder_sites.dl: 90 sites, 21
+      contexts): gen_let, fn params, bind_enum_payload, pat_bind Wild CLOSED (S0)                    row 22 -> 21
+      gen_for / gen_for_each                                          CLOSED (S3)                    c01 139 -> 0; d13 139 -> 0
+      match-stmt arm, match-expr arm, let-else pattern walk           CLOSED (S3)                    d11 1 -> 0; d12 1 -> 0; c07 139 -> ctl
+      nested PatWild under a tuple-struct / slice pattern             ROWED, reason 1                k06 22 (ctl 21); k30 32232 (ctl 32231):
+                                                                                                     build_pattern's PAT_WILD emits slot
+                                                                                                     0xFFFFFFFF; minting one also feeds
+                                                                                                     borrow_check's declare_pat_bindings
+      closure parameters                                              ROWED (existing), reason 1     s19 1 on both: CL_PARAM_NAMES, no slot
+    mlir-gen SDrop codegen name-keyed reads (dlog shadow_sdrop_reads.dl, 5 of 9 members):
+      scope_                                                          CLOSED (S0)
+      uninit_drop_flag_ / uninit_static_ / uninit_assigned_           CLOSED (S4)                    d21 1 -> 0; d22 1 -> 0; d26 0 -> 0
+      let_vars_ (only on the `__dyn_drop_in_place__` arm, minted by   NOT REACHED                    no program of this round reaches it;
+        mono_clone's typevar-to-dyn SDrop for a moved-out dyn tail)                                  no defect demonstrated, no row
+    mlir-gen gen_assign drop-before-replace (uninit state by name,    NO DEFECT FOUND                d29 (inner initialised shadow
+      SAssign carries no slot)                                                                       reassigned) 0 on both
+    sema definite-assignment sets decl_uninit_vars_ /                 ROWED, reason 3                d27 refused on both; the arm (re-key)
+      currently_uninit_vars_                                                                         unbuilt, its reader gen_assign is
+                                                                                                     name-keyed with no slot
+    `let _` twice                                                     not this fact (existing row)   s28 1 on both
+
+THE FIRST LANDING BUILD (v1, 87b08f31fb21b1c1 43) DAMAGED FIVE GREEN PASS FIXTURES, AND ONLY THE VALGRIND COLUMN SAW IT.
+  v1 columns vs base: queue gate rc 0 (193) · run_oracle 7083, 1 mover = cast-region-to-uint -> 0 / 0 · fail_text_oracle 1861 identical
+  · battery as above — and the valgrind sweep NEW LEAK 5: fmt_tuple_debug_mixed_elems 14/11 allocs/frees, fmt_tuple_debug_variadic
+  27/23, format_buf_two_fns 6/4, trama_stdlib_selfuse_e2e 4/3, wql_el_cmp_measured 83/82 (GONE LEAK 1: deem_incr_static_retract_e2e,
+  as priced; NEW NOVG uc-generic-call-it-b133 was the reaper killing a process whose etimes read 4123168608 s — clean in all four
+  cross-links). Each leak re-run ALONE and CROSS-LINKED: new object + old archives leaks, old object + new archives clean.
+  ROOT, by MLIR diff of format_buf_two_fns (main loses the fall-through String__drop of its second statement temporary) and a
+  minimal hand program (m13, two `String::from(..).len()` statements): SemaChecker::lower_stmt's installer emits that drop as
+  make_drop_stmt(nm, VarInfo{ty, false}); VarInfo::slot DEFAULTED TO 0, and the landing now carries VarInfo::slot on every SDrop,
+  so the drop claimed binding 0. When binding 0 is an autoref temporary declared without a value (`let __rtmp_0: T;`), the per-slot
+  uninit record for slot 0 answered for `__rtmp_1` — owner slot mismatch, frozen assigned-state false — and no destructor was
+  emitted. Hand m9-m11 (slot 0 an initialised binding) and m12 (operator autoref) did NOT reproduce: the record at slot 0 must be an
+  uninit temporary's.
+  THE CLASS (a VarInfo that claims a slot it was never given): frame records are written at exactly two sites — SemaChecker::define and
+  SemaChecker::register_stmt_temp, both with an explicit slot; ad-hoc VarInfos at three — lower_stmt's installer, the synth drop in
+  sema_stmt.cpp, sema.cpp's `VarInfo tinfo` — all handed only to make_drop_stmt (enumerated by grep of construction and frame-write
+  spellings; recorded as a grep enumeration).
+  v2 FIX: F1 VarInfo::slot defaults to 0xFFFFFFFF (the three ad-hoc drops carry no slot and resolve by name, as on base); F2 the SDrop's
+  uninit decision trusts a slot only when it is registered under the drop's own name. Predicted in LAND_PREDICTIONS_V2.txt before the
+  v2 binary existed: the five read OK, everything else as v1.
+
+V2 COLUMNS (build/ 11ce24d4868cfc6a 43 for battery / queue / run_oracle / fail-text / valgrind; the re-glob for the last fixture
+relinked to 854d99ae9a2e2fbd 43 with no source change — the pins, L1 and L4 ran on that):
+  battery: 113 programs + m13, verdicts identical to v1 (above), m13 2 allocs / 2 frees.
+  the five v1 leaks re-run alone: fmt_tuple_debug_mixed_elems 14/14, fmt_tuple_debug_variadic 27/27, format_buf_two_fns 6/6,
+    trama_stdlib_selfuse_e2e 4/4, wql_el_cmp_measured 83/83 — as predicted.
+  soundness_queue_gate rc 0: 193 rows = # TOTAL 193 by listing (tier1 29, tier2 57, tier3 99, tier4 8); the shelf lists the same 193.
+  run_oracle vs base: 7083 common, 0 only-base, 1 changed = cast-region-to-uint -> 0 damage / 0 fix; 85 added (the new pass fixtures
+    registered at that time; s01's pinned exit is 21), each ccrc 0.
+  fail_text_oracle vs base: 1861 = 1861, byte-identical.
+  valgrind sweep vs base: 7181 = 7095 common + 86 added (all OK). LEAK 54 -> 53: GONE deem_incr_static_retract_e2e (priced), NEW {};
+    CORRUPT 3, TIMEOUT 3, NOVG 2, CFAIL 62, LINKFAIL 124 identical sets, no field moved; two stalls reaped at 317 s on each side.
+  pins (PREDICTED in LAND_PREDICTIONS_V2 / apply script, then measured by the gates on 854d99ae9a2e2fbd before being touched):
+    census_pin ALL 10447 / NOIMPORTED 5945 / TIERCOMMIT 118; direct_door_census corpus 3544 = glob 191 + nonglob 3353 — the same
+    ctest run executed the 3546 corpus fixtures the census depends on, every one passed.
+  L1 (from build/, 854d99ae9a2e2fbd): rc 0 — L1.1 807/807, smoke 12 684, gates tier 118/118 (census_pin and direct_door_census green on
+    the new pins, the soundness queue and bc_admits ledger gates included).
+  L4 bc (detached, LOGOS_L4_BG=1, 854d99ae9a2e2fbd): rc 0 — 5945/5945 + 1601/1601 (2 other = disabled), gate-db build 1245.
+  probe-log-lint 331 -> 332 (+1 = shslotland); its site symbol grepped by hand: shadow_rekey 3 in sema_impl.hpp.
+  origin/main == HEAD abc4deb6c at commit time (no rebase).
+  CONTROL REVERT: CONTROL_REVERT_LAND.txt — the old binary exits 1 on six rows (n = 1000, 2000, 22, 22, 2, 2) and refuses two; the
+    landed one reads 1001, 1001, 21, 21, 21, 21, 12, 1001 with valgrind 0 errors.
+
+HAND BATTERY LANDED AS FIXTURES (rule of 2026-09-14): 86 pass fixtures — 8 closed-row programs (bc_shadowslot_*_admit, count printed
+  and pinned), 33 pricing programs whose verdict moved (bc_0914p_shadowslot_hb_<id>_admit), 45 of this round
+  (bc_0915_shadowland_hb_<id>_admit: 44 whose verdict moved or which refuted shslotev — d04 — plus m13, which caught the v1 leak).
+  Still-wrong programs became rows, not fixtures. No fail fixture: no program of the round is illegal.
+
+QUEUE: 197 -> 193. CLOSED 8 (shadowed_binding_never_dropped, shadow_over_param_double_drop, shadow_rebind_after_move_refused,
+  shadow_inner_block_early_exit_double_drop, match_arm_shadow_return_double_drop, param_shadow_moved_local_return_leak,
+  param_shadow_moved_local_epilogue_leak, shadow_outer_frame_over_moved_name_refused). OPENED 4 (match_arm_nested_binder_shadow_double_drop
+  reason 1; at_binding_by_value_never_dropped and slice_pattern_arm_binding_extra_drops, not this fact; deferred_init_after_inner_shadow_refused
+  reason 3). CONTRADICTS the pricing record: shadow_outer_frame_over_moved_name_refused was recorded as staying open ("not a drop row");
+  it closes with the landing (refused -> 12, as its own shslot battery line already read).
+
+## shslotland
+site: src/compiler/sema_impl.hpp::shadow_rekey
+build: 854d99ae9a2e2fbd
+measured: 2026-09-15
+fires: not a probe (landed code; no gate)
+ceiling: 8 rows
+cost: 0 in queue, run_oracle, fail-text, valgrind (v2); v1 cost 5 valgrind leaks (VarInfo::slot default), fixed in the same commit
+verdict: LANDED — shslotev unconditional + S1 closure capture state re-keyed + S2 self-rooted move before define + S3 for / for-each /
+  match-arm / let-else binders register + S4 per-slot uninit drop state + F1 VarInfo::slot defaults to no slot + F2 slot trusted only
+  under its own name. shslotev AS PRICED is DECLINED (hand d04: base exit 0, shslotev exit 1). shframe / shmoved / shslotmg stay
+  DECLINED (pricing record); shslot / shslotx / shslotpat are subsumed.

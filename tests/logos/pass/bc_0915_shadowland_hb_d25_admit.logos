@@ -1,0 +1,23 @@
+// hand battery: round 0915_shadowland, program d25 — caught: verdict moved base -> shadowslot landing
+// legality: by reading, no rustc binary
+package bc_0915_shadowland_hb_d25_admit;
+use logos.mem.boxed;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn eatd(x: D) -> i64 { return x.v; }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+// d25 owning Box<dyn Trait> shadowed in the same frame (d14 with the use line in the right place). Rust: 21
+
+trait Tr { fn val(&self) -> i64; }
+impl Tr for D { fn val(&self) -> i64 { return self.v; } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let b: Box<dyn Tr> = box_new(D { v: 1i64, c: p }) as Box<dyn Tr>;
+        let b: Box<dyn Tr> = box_new(D { v: 2i64, c: p }) as Box<dyn Tr>;
+        if b.val() != 2i64 { return 9i32; }
+    }
+    if rd(p) != 21i64 { return 1i32; }
+    return 0i32;
+}
