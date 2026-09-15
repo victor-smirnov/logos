@@ -1,0 +1,42 @@
+ROUND 2026-09-15a-refeq — THE CLASS, ENUMERATED BY tools/dlog, CROSS-CHECKED PER SITE
+rule: tools/dlog/refeq_deciders.dl (NEW this round). selftest.sh run first on this box: rc 0,
+  "ok 28fc7c75...: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates across 756aed65 (1 -> 0)".
+subject TUs (pristine HEAD 750a82307): sema_expr.cpp mlir_gen_expr.cpp mono.cpp mono_clone.cpp mono_const_arg.cpp
+  mono_scan.cpp mono_subst.cpp (ask.sh: 7 TUs extracted, 18 s wall).
+
+QUESTION: which named contexts both test a comparison-operator spelling ("==" "!=" "<" "<=" ">" ">=") against a string
+  and read the enumerator Ref / MutRef — i.e. which sites can decide "compare through the reference or compare the pointers".
+KNOWN ANSWER stated before the run (by reading): SemaChecker::lower_binop and MLIRGenImpl::gen_expr_kind(EBinOpView) — at
+  least two.
+
+THE RULE WAS WRONG TWICE, BOTH TIMES IN MY DIRECTION, AND THE KNOWN ANSWER CAUGHT BOTH:
+  v1  literal must be a child or grandchild of the comparison node. decider_ctx = {gen_expr_kind, subst_expr};
+      lower_binop had ZERO op tests. Traced: `op == "=="` on a std::string_view is StringLiteral -> ImplicitCastExpr ->
+      CXXConstructExpr -> CXXOperatorCallExpr, three levels. The facts were present (5525 str_lit rows in the TU, `&&` and
+      `||` in lower_binop among them); the ancestry bound was mine. Also: every gen_expr_kind overload shares one name.
+  v2  ancestry <= 4, contexts keyed name@definition-line. op_test now lower_binop@2274 46 / gen_expr_kind@760 28 /
+      subst_expr@612 6, but decider_ctx = {subst_expr@612} only: a NAMED lambda is its own named context, so the Ref reads
+      went to peel_numeric_ref@2351, is_r_@2915, mutual_@2929 (sema) and is_ref_to_prim@1208 (mlir-gen).
+  v3  lambda contexts lifted to the enclosing Function / CXXMethod. decider_ctx = lower_binop@2274, gen_expr_kind@760,
+      subst_expr@612. Matches the known answer and adds one.
+
+PER-SITE READ OF THE THREE (ctx_of / the lift COARSEN: a context holding both facts does not prove one site does):
+  site                                   reads Ref/MutRef AT the decision?          decides                       on base
+  lower_binop peel_numeric_ref (sema)    yes, one layer, pointee primitive           deref -> value compare        &i64 &char &usize &u8 right (e03 e04 e10 e27)
+  lower_binop struct/enum/tuple/TypeVar  NO — each arm keys on the operand's OWN     Eq impl call / method call    &D &String &(..) &T wrong (e02 e07 e09 e11)
+    / str arms (sema)                    kind (Struct/Enum/Tuple/TypeVar/Slice)
+  lower_binop is_r_ / mutual_ (sema)     yes — region meet of a pointer pair, peels  a REFUSAL decision, not the    not in this class (bc_admits nllmoves.R2)
+                                         reference layers pairwise                   compare's meaning
+  gen_expr_kind EBinOpView is_ref_to_prim yes, one layer, ==/!= only, pointee prim   load -> value compare         generic body T=i64 right (e32); T=char WRONG
+    (mlir-gen)                           WITHOUT Char / Usize / Isize                                              (e31) — the omission is live post-mono
+  gen_expr_kind tuple / array fast paths NO — key on Tuple / Array                   per-element load compare      &(i64,i64) &[i64;2] wrong (e09 e21)
+  subst_expr BinOp (mono_clone)          NO at the BinOp case (its Ref reads are     Struct -> `T__eq` call by     census column refeq.mono.refpair.*
+                                         other switch cases, 1685.. 4506)            VALUE; a Ref pair falls to
+                                                                                     bin_op
+  ⚠ A FOURTH MEMBER OF THE PEEL WAS HIDING IN A HELPER, AND ONLY THE CENSUS SHOWED IT: `is_integer_kind` (sema_impl.hpp)
+    returns TRUE for Kind::Enum, so peel_numeric_ref already dereferences a `&E` pair for every comparison operator. That is
+    why every `&Enum ==` shape is right on base (e08 e26 e34 e38), and why the arm's refeq.sema.epair.arrive reads 0 on the
+    battery while refpair.depth1.Enum.Enum reads 5 and enum.byvalue reads 6 (e26 alone: 1 / 0 / 1). A SHORT-CIRCUITED zero:
+    the site is reached with the fact already consumed upstream. The refagg enum branch is dead code for comparisons.
+  So: dlog 3 contexts; per-site read 2 contexts read the fact at the decision (lower_binop, gen_expr_kind), 1 context
+  (subst_expr) makes the same decision from the operand's own kind only — the same shape as the four sema arms.

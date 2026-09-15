@@ -1,0 +1,45 @@
+// SOUNDNESS QUEUE row ref_pair_aggregate_eq_compares_addresses_run (tier 1). WRONG ANSWER AT RUN TIME. `==` over two references
+// to a TUPLE, an ARRAY, or a `&str` compares the ADDRESSES: two references to equal values answer false.
+//   PART 1 `&(i64,i64) ==` -> exit 1 · PART 2 `&[i64;2] ==` -> 2 · PART 3 `&&str ==` (inferred lets) -> 3 · PART 4 `&(S, i64) ==`, S: Eq -> 4
+// Rust compares through the reference (`impl PartialEq<&B> for &A where A: PartialEq<B>`): exit 0.
+// SAME CLASS as nested_ref_eq_compares_addresses_run / ref_struct_eq_compares_addresses_run, a DIFFERENT DECISION SITE: sema's
+// lower_binop keys the tuple arm on Kind::Tuple, mlir-gen's tuple / array fast paths on Kind::Tuple / Kind::Array, and the str arm
+// on Kind::Slice — each on the operand's OWN kind, so a reference pair falls to the pointer compare. ROWED, not closed, BECAUSE
+// THIS IS A PRICING ROUND: arm `refagg` of 2026-09-15a-refeq (deref a reference pair to an array / str / all-primitive tuple;
+// pass the references to a non-primitive tuple's eq impl) moves every part (exit 0), queue closings 0, run_oracle 0 / 7169 movers
+// under the union `refeq`, fail text 0 / 1861. Members of the round's battery: e09 e21 e30 e37 (e47, the ordering spelling, is
+// ref_pair_ordering_mlir_verifier_refused). Measured on build 854d99ae9a2e2fbd 43 (base) and b1a0431a68699a9c 43 (armed, unarmed
+// identical). Legality by reading; no rustc binary.
+package ref_pair_aggregate_eq_compares_addresses_run;
+use logos.lang.cmp;
+use logos.mem.string;
+struct S { v: i64 }
+impl Eq for S {
+    fn eq(&self, other: &S) -> bool {
+        return self.v == other.v;
+    }
+}
+fn main() -> i32 {
+    let t1: (i64, i64) = (1i64, 2i64);
+    let t2: (i64, i64) = (1i64, 2i64);
+    let rt1: &(i64, i64) = &t1;
+    let rt2: &(i64, i64) = &t2;
+    if !(rt1 == rt2) { return 1i32; }
+    let a1: [i64; 2] = [3i64, 4i64];
+    let a2: [i64; 2] = [3i64, 4i64];
+    let ra1: &[i64; 2] = &a1;
+    let ra2: &[i64; 2] = &a2;
+    if !(ra1 == ra2) { return 2i32; }
+    let s2: String = String::from("ab");
+    let sa = "ab";
+    let sb = s2.as_str();
+    let x = &sa;
+    let y = &sb;
+    if !(x == y) { return 3i32; }
+    let u1: (S, i64) = (S { v: 5i64 }, 6i64);
+    let u2: (S, i64) = (S { v: 5i64 }, 6i64);
+    let ru1: &(S, i64) = &u1;
+    let ru2: &(S, i64) = &u2;
+    if !(ru1 == ru2) { return 4i32; }
+    return 0i32;
+}

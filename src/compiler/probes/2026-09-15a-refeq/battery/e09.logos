@@ -1,0 +1,12 @@
+package e09;
+use logos.lang.cmp;
+fn main() -> i32 {
+    let a: (i64, i64) = (1i64, 2i64);
+    let b: (i64, i64) = (1i64, 2i64);
+    let ra: &(i64, i64) = &a;
+    let rb: &(i64, i64) = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

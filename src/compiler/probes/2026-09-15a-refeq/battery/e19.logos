@@ -1,0 +1,17 @@
+package e19;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let ra: &D = &a;
+    let ra2: &D = &a;
+    if ra == ra2 {
+        return 0i32;
+    }
+    return 1i32;
+}

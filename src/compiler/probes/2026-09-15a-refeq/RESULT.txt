@@ -1,0 +1,191 @@
+ROUND 2026-09-15a-refeq (PRICING, soundness queue tier 1) — `==` OVER TWO REFERENCES COMPARES THE POINTERS WHERE RUST COMPARES
+THE REFERENTS: THE SAME DECISION IS TAKEN AT THREE LAYERS FROM THE OPERAND'S OWN KIND, AND ONLY TWO OF THEM PEEL A REFERENCE
+base: HEAD 750a82307, build/ 854d99ae9a2e2fbd 43 (pristine; queue gate rc 0, 193 rows, tier1=29 tier2=57 tier3=99 tier4=8)
+armed builds: build/ b1a0431a68699a9c 43 — arms refpeel refstruct refagg refeq (+ census)
+              build-land0913d (Ninja) — the same plus refmono / refeqx (refmono.spec)
+inert: L1 on build/ b1a0431a with nothing armed rc 0 (807/807, gates tier 118/118); unarmed queue gate rc 0 (193 rows);
+  unarmed battery e01-e29 identical to the pristine base (the one textual difference, e13, is my own rewrite of a program
+  whose first version had a syntax error; the rewritten e13 reads cc=1 on the pristine base too).
+Files: TARGET_ROWS.txt (before any compiler edit), PREDICTIONS.txt (before any binary; addendum before the refmono binary),
+  refeq.spec, refmono.spec, candidate_with_probe_gates.diff, CLASS_DLOG.txt, RESULT.txt.
+
+TIER 1 RE-MEASURED (29 rows, compiled + linked + run + valgrind, build/ 854d99ae9a2e2fbd): all 29 reproduce their recorded exit.
+  valgrind: box_field_move 1 error (rc 134); boxed_move_closure_fat_capture_env_overflow 2 errors (rc 134);
+  closure_owned_dyn_capture 1 error; impl_fn_return_stack_env_dangles 4 errors; tuple_elem_shared_borrow_through_ref_dangles_run
+  1 error; weak_local_never_dropped 1 error, 12 B definitely lost; every other row 0 errors. enum_variant_value_into_scalar_let_admits
+  still admits (exit 104 native, 248 under valgrind — still not deterministic). Stdout where printed: aggregate_extended "inside=0 n=0",
+  field_base "k=3 seq=216", index_place "n=110", operator_operand_owner "r=5 seq=2", return_array_lit "n=22",
+  tuplestruct_door "drops=2" — each as its header records.
+
+WHAT SHOULD IT MEAN: Rust. `impl<'a, A: ?Sized + PartialEq<B>, B: ?Sized> PartialEq<&'b B> for &'a A` (and `&mut`, and the
+  PartialOrd twins) compare THROUGH every reference layer; an address compare is `std::ptr::eq`. Registries searched by construct
+  ("==" on references): docs/DIVERGENCES.md row "Recently caught up": `&T == &T` — now value-equality (no letter; not a blessed
+  divergence); docs/spec/expressions.md `expr.binop.ref-prim-autoderef-eq` (primitive pointees only) and `expr.binop.pointer-equality`
+  ("when operands are pointers (and not the deref-eligible reference-to-primitive case) compare addresses"). The second clause
+  CLAIMS address equality for every non-primitive reference — false about Rust for references; it describes today's code, it does
+  not canonise a divergence, so the answer is Rust's. Legality of every battery program by reading; no rustc binary on this box.
+
+HAND BATTERY (44 programs, e01-e32 e34 e37 e38 e39 e41 e42 e46 e47 e49 e50 e51 e53, Rust answer by reading; each compiled + linked + RUN under valgrind; exit 0 = Rust's answer;
+drop counts in-program for e15 e37 e38 — a `*mut i64` counter compared against 2)
+  base (build/ 854d99ae, and identical unarmed on b1a0431a): 
+    WRONG at run time (25): e01 `&mut &i64 ==` · e02 `&D !=` · e05 `&mut D ==` · e06 `&&D ==` · e07 `&String ==` · e09 `&(i64,i64) ==`
+      · e11 generic `a == b` over `&T`, T = D · e15 droppable D (count right, answer wrong) · e16 heap String field · e17 call
+      results `pick(&a) == pick(&b)` · e18 field refs `&p.x == &q.x` · e20 `while ra != rb && ..` · e21 `&[i64;2] ==` · e25
+      `&&char !=` · e28 closure body · e29 `self == o` in a method · e30 `&&str` (inferred) · e31 generic over `&T`, T = char
+      · e37 droppable `&(S, i64) ==` · e41 `&W<i64> ==` (generic impl) · e46 `&String !=` · e49 match guard · e50 match-ergonomics
+      binders `P { x, y } => x == y` · e51 `&v[0] == &v[1]` · e53 `ra == &b`
+    REFUSED, legal (5): e12 / e13 T = &D through a generic or Option ('func.call' op '&D__eq' does not reference a valid function)
+      · e22 `let x: &&str = &a` (let 'x': type mismatch — expected &&&[u8], got &&[u8]) · e39 `&D <= &D` through partial_cmp and
+      e47 `&(i64,i64) <` ('arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr')
+    ADMITTED, illegal (1): e23 `&N == &N`, N without any Eq impl (E0369 by reading) — exit 1 (addresses)
+    RIGHT (13): e03 `&char` e04 `&usize/&isize` e10 `&i64 <=` e27 `&u8 >` (sema peel_numeric_ref) · e08 `&Option<i64>` e26 `&E`
+      e34 C-like e38 droppable `&Option<S>` (the same peel: is_integer_kind admits Enum) · e14 raw pointers · e19 same place
+      · e24 explicit `*x == *y` · e32 generic T = i64 (mlir-gen is_ref_to_prim) · e42 by-value generic struct (mono re-dispatch)
+  refeq (build/ b1a0431a): 24 of the 25 wrong move to Rust's answer — e01 e02 e05 e06 e07 e09 e11 e15 e16 e17 e18 e20 e21 e25 e28
+    e29 e30 e31 e37 (19, every one predicted by name) and e46 e49 e50 e51 e53 (measured after the prediction file, not predicted);
+    and 2 of the 5 refused compile and run right — e39 e47. e15 / e37 counts stay 2. valgrind 0 errors on every program that runs.
+    Unmoved: e41 (predicted in the addendum), e12 e13 e22 (refused), e23 (admitted). No program right on base moved.
+
+DECOMPOSITION (build/ b1a0431a68699a9c; queue gate FAIL lines; battery vs unarmed; fires = the harness counter, a DECISION count here
+because every on() sits after its structural test)
+  arm        queue closings (predicted by name)            battery moves to Rust (count)                                  fires
+  refpeel    nested_ref_eq_compares_addresses_run   = pred  e01 e25 (2) = pred                                              5
+  refstruct  ref_struct_eq_compares_addresses_run   = pred  e02 e05 e07 e15 e16 e17 e18 e20 e28 e29 = pred; + e39 e46 e49     25
+                                                            e50 e51 e53 (measured after the prediction file) (16)
+  refagg     none                                   = pred  e09 e11 e21 e30 e31 e37 = pred; + e47 (7)                          10
+  refeq      both                                   = pred  26 = the three parts (25) + e06 `&&D`, which needs the peel THEN     33
+                                                            the struct dispatch (predicted: doors in series)
+  ADDITIVITY: queue 1 + 1 + 0 = 2 = refeq. battery 2 + 16 + 7 = 25 < 26 = refeq, short by exactly e06.
+  ⚠ refagg's queue run read one FAIL that is NOT a closing: "194 rows, its '# TOTAL' line says 193" — I added the row
+    let_double_ref_str_annotation_refused to the ledger while that run was reading it; no row line read "no longer reproduces".
+    The refstruct run and the land-dir unarmed run each read "on the shelf with NO ledger row" for the same program (the file
+    landed before its row). Neither is a verdict about a row.
+
+CENSUS (LOGOS_CENSUS, unarmed; build/ b1a0431a)
+  stdlib, 4 layers from source:  every refeq.sema.* and refeq.mono.* bucket 0; refeq.mlirgen.ptr.other 1288 in the same processes
+    -> an UNREACHED-SITE zero (the census was live): the stdlib compares no pair of references in a non-generic body. So the
+    arms cannot change the prebuilt archives; no hybrid column is owed.
+  pass corpus (7169, run_oracle's population):  sema refpair depth1 Prim.Prim 11 · TypeVar.TypeVar 7 · Tuple.Tuple 1 · Ptr.Ptr 1;
+    Struct.Struct 0, depth2+ 0; tpair.arrive 1, vpair.arrive 7; enum.byvalue 136.
+    mono subst_expr BinOp refpair: Struct 60 · Other 17 · Enum 7 · Char 1 · Tuple 1.   mlir-gen: refpair.ptrcmp 72 · refprim.load 14.
+    -> the corpus's reference-pair struct compares are POST-MONO (60), where refeq does not reach and refmono would.
+  queue (194 rows' programs): sema depth1 Struct.Struct 1 + depth2+ Ref.Ref 1 — the two target rows and nothing else.
+  battery (e01-e38): see the table in chain notes; e26 alone: refpair Enum.Enum 1 / epair.arrive 0 / enum.byvalue 1 (CLASS_DLOG.txt).
+
+⚠ MISPREDICTED — THE MONO SITE IS WHERE EVERY STRUCT REFERENCE PAIR LANDS, NOT A SIDE DOOR FOR GENERIC IMPLS
+  (build-land0913d, sha256 8850a5acc469809f, logosc 0.43.0-preview+main-g750a8230-dirty.20260915T081333Z; unarmed battery identical
+  to build/'s unarmed battery; unarmed queue: only the shelf-without-row artefact; stdlib 4 layers rc 0 unarmed and under refmono)
+  predicted (addendum): refmono moves e41 only, closes no row.
+  measured: refmono ALONE closes ref_struct_eq_compares_addresses_run and moves 17 battery programs to Rust's answer —
+    e02 e05 e07 e11 e15 e16 e17 e18 e20 e28 e29 e41 e46 e49 e50 e51 e53 — fires 25. Sema's lower_binop never routes a `&Struct`
+    pair (its struct arm keys on the operand's own kind), so the pair survives as a raw bin_op to mono_clone subst_expr, whose
+    Struct re-dispatch sees a Ref and passes it on to the pointer compare. refmono is refstruct's set (minus e39, an ordering
+    via partial_cmp, which names no `D__le`) PLUS e11 (generic over `&T`, T = D) and e41 (a generic impl sema's lookup misses).
+  and it REFUSES e23 (`&N == &N`, N with no Eq impl; illegal, E0369 by reading) with an INTERNAL sentence:
+    error: 'func.call' op 'e23.N__eq' does not reference a valid function
+    — base admits it (exit 1). A right verdict with the wrong sentence; and the pass corpus's 60 post-mono struct reference pairs
+    are exactly the population this arm re-routes, each one refused the same way if its struct names no `X__eq`.
+
+RUNTIME COLUMN — run_oracle (build/ b1a0431a, 7169 pass fixtures compiled + linked + RUN; ro_none 04:15-04:27, ro_refeq 04:27-04:38)
+  unarmed: 7165 cc 0 · 4 cc 90 (issue-41888-b170, nested-tuple-in-variant-payload-b170, res-and-or-comb-or, spec intrinsic_2).
+  refeq vs unarmed: 7169 common, MOVERS 0 (cast-region-to-uint subtracted by name) — damage 0, fix 0.
+  refeq fires over the corpus: 8 (vpair 7 arrive -> 5 routed + 2 noeq; tpair 1). census under refeq: mono refpair.Struct 60 -> 58,
+    mlir-gen refpair.ptrcmp 72 -> 66, refprim.load 14 -> 1 (generic `&T` compares of primitives now call `T::eq`; 0 movers).
+  ⚠ WHICH ZERO: for refagg's TypeVar and tuple parts a REAL zero (reached 8 times, nothing moved); for refpeel and refstruct an
+    UNREACHED-SITE zero — the corpus holds no sema-level `&Struct` pair and no depth-2 pair (census 0), so the runtime column
+    says nothing about them and the battery is their only population (rule 4).
+
+FAIL-TEXT COLUMN — fail_text_oracle (build/ b1a0431a, 1861 `-L bc -L fail` fixtures; ft_none 04:38-04:40, ft_refeq 04:40-04:42)
+  refeq vs unarmed: 1861 common — rc moved 0, stderr sha moved 0, .expected match moved 0.
+
+NEIGHBOUR ROW PROGRAMS (written for this round, measured under every arm before they went on the shelf; exit 0 = Rust)
+  program                                              base      refpeel/refstruct/refagg  refeq    refmono        refeqx
+  ref_pair_aggregate_eq_compares_addresses_run         1         (refagg: 0)                0        1              0
+  generic_ref_typevar_eq_compares_addresses_run        1         (refagg: 0)                0        2 (D part only) 0
+  ref_pair_ordering_mlir_verifier_refused              refused   (refagg: 0)                0        refused        0
+  generic_struct_impl_ref_eq_compares_addresses_run    1         1                          1        0              0
+  ref_typearg_eq_impl_missing_refused                  refused   refused                    refused  refused        refused
+  ref_pair_eq_without_impl_admits (illegal)            admits 1  1                          1        REFUSED, internal sentence ('func.call' op '..N__eq' does not reference a valid function)
+  (refpeel/refstruct/refagg column: the battery members e09 e21 e30 e37 / e11 e31 / e47 e39 moved under refagg or refstruct as listed
+   in DECOMPOSITION; the aggregate/typevar/ordering programs above were measured under refeq, refmono, refeqx and base directly.)
+  generic_ref_typevar under refmono reads 2: its `D` part is post-mono (refmono routes it) and its `char` part reaches mlir-gen's
+  is_ref_to_prim, which omits Char — two sites in series; sema's TypeVar arm (refagg) answers both before mono.
+
+STDLIB + LEDGER GATE (build/ b1a0431a)
+  stdlib-cost.sh: all four layers compile unarmed and under refeq; refeq fires in the stdlib 0; census refeq.sema.* / mono.* 0
+    (refeq.mlirgen.ptr.other live) — the UNREACHED-SITE zero recorded above, confirmed under the arm.
+  bc_admits_ledger_gate.sh (4 args, as CMake): rc 0 unarmed, rc 0 refeq. ⚠ ITS OWN TEXT: "THIS GATE COMPILES NOTHING" — the 68 rows'
+    verdicts are the registered tests logos_00_bc_admit_*, run separately below (bcrows columns).
+LAND DIR (build-land0913d sha256 8850a5acc469809f): refeqx
+  queue: nested_ref_eq_compares_addresses_run + ref_struct_eq_compares_addresses_run close, nothing else.
+  stdlib 4 layers from source: rc 0 unarmed, refmono, refeqx.
+  battery: 27 move to Rust's answer = refeq's 26 + e41; e23 turns from ADMITTED to REFUSED with the internal sentence
+    'func.call' op 'e23.N__eq' does not reference a valid function; e12 e13 e22 stay refused; valgrind 0 errors; fires 44.
+
+VALGRIND SWEEP (tests/lattice/valgrind/sweep.sh, build/ b1a0431a, the whole pass corpus; reaper keyed on comm memcheck-amd64- AND valgrind.bin)
+  unarmed (04:44-05:01): 7181 rows — OK 6933 · LEAK 53 · CORRUPT 3 · LINKFAIL 124 · CFAIL 62 · TIMEOUT 4 (memoria_btfl_multimap,
+    memoria_ssrle_ops, memoria_gen_tree, memoria_gen_fse — loaded box) · NOVG 2 (fiber_thread_future, http_workers_basic: reaped at
+    319 s / 324 s, the two survivors every recent sweep records).
+  refeq (05:02-05:18) vs unarmed: 7181 common — NEW LEAK/CORRUPT 0 · GONE 0 · other status moves 0 · LEAK/CORRUPT rows whose
+    allocs / frees / definite / indirect moved 0. Status distribution identical (OK 6933 LEAK 53 CORRUPT 3 LINKFAIL 124 CFAIL 62
+    TIMEOUT 4 NOVG 2). Survivors reaped: 4 over the two sweeps (319 s, 324 s, 305 s, 309 s), none left alive.
+
+ATTRIBUTION — which pass fixtures carry the 60 post-mono struct reference pairs (census_attr: every run_oracle fixture compiled
+unarmed with its OWN LOGOS_CENSUS file, 8 workers, 04:37-05:18; unarmed build/ b1a0431a)
+  32 of 7169 fixtures hit a refeq.* bucket. Per-file sums reproduce the aggregate term for term (mono refpair.Struct 60, Enum 7,
+  Other 17, Char 1, Tuple 1; mlir-gen refpair.ptrcmp 72, refprim.load 14; sema Prim 11, TypeVar 7, Tuple 1, Ptr 1) — the channel
+  is sound. mono refpair.Struct lives in TWO fixtures: tests/imported/pass/where-clauses/where-clauses.logos 58 and
+  where-clauses-blanket-eq-b160.logos 2. refmono's whole runtime / text exposure is those two programs.
+
+⚠ REFMONO / REFEQX REFUSE A LEGAL PASS FIXTURE — PREDICTED NO MOVER (PREDICTIONS.txt addendum 2), MEASURED ONE (build-land0913d):
+  tests/imported/pass/where-clauses/where-clauses.logos   unarmed exit 0 · refmono and refeqx: REFUSED
+    error: 'func.call' op 'logos.lang.str.Splitter__eq' does not reference a valid function   (one callee, one error line)
+  where-clauses-blanket-eq-b160.logos: exit 0 under both (its 2 pairs name existing impls).
+  WHY (read, not guessed): `impl<X> Equal for X where X: Eq` is CLONED BY MONO FOR `logos.lang.str.Splitter`, which has NO Eq impl
+  anywhere in the stdlib (grep: `pub struct Splitter` at stdlib/lang/str/split.logos:23, no `Eq for Splitter`). The blanket impl's
+  `where X: Eq` bound is not checked at instantiation; today the clone's `self == other` is a pointer compare, which needs no symbol,
+  so the over-instantiation is invisible. Routing the pair to `X__eq` makes it a missing symbol. DOORS IN SERIES: a mono-site repair
+  first needs mono to stop cloning a bounded blanket impl for a type outside its bound (or to route only when the method exists).
+  So refmono and refeqx as priced are DECLINED; the rows they alone would close (generic_struct_impl_ref_eq_compares_addresses_run,
+  and the refusal of ref_pair_eq_without_impl_admits) are rowed with reason 3, this measurement named.
+
+THE CLASS AND ITS NEIGHBOURS (standing rule 2026-09-12) — PRICING commit: "closed" = closed by the named arm; every row stays open
+until a landing carries the arm. One table, every entry measured.
+  neighbour (decision site · battery)                                   by refeq      rowed as / reason and number
+  depth-2 peel (sema lower_binop · e01 e06 e25)                          CLOSED        target nested_ref_eq_compares_addresses_run
+  struct pair (sema struct arm / mono re-dispatch · e02 e05 e07 e15 e16  CLOSED        target ref_struct_eq_compares_addresses_run
+    e17 e18 e20 e28 e29 e46 e49 e50 e51 e53)
+  tuple / array / str pair (sema tuple + str arms, mlir-gen fast paths    CLOSED        ref_pair_aggregate_eq_compares_addresses_run (tier 1) —
+    · e09 e21 e30 e37)                                                                   rowed ONLY because this is a pricing commit; same arm
+  TypeVar pair in a generic body (sema TypeVar arm; mlir-gen             CLOSED        generic_ref_typevar_eq_compares_addresses_run (tier 1) —
+    is_ref_to_prim omits Char · e11 e31)                                                 same; refmono alone reads 2 (two sites in series)
+  ordering through references (mlir-gen arith.cmpi on a pointer ·        CLOSED        ref_pair_ordering_mlir_verifier_refused (tier 3) — same
+    e39 e47)
+  generic struct impl through references (mono subst_expr · e41)         NOT closed    generic_struct_impl_ref_eq_compares_addresses_run (tier 1)
+                                                                                         REASON 1 for the sema arm: sema names no generic impl
+                                                                                         (spair.noimpl 1); REASON 3 for the mono arm refmono:
+                                                                                         it refuses the legal pass fixture where-clauses.logos
+  reference TYPE ARGUMENT through a generic `==` (mono method resolution  NOT closed    ref_typearg_eq_impl_missing_refused (tier 3) REASON 1:
+    by receiver name · e12 e13)                                                          no `impl Eq for &A` exists; all six arms refuse it alike
+  no Eq impl at all (illegal, E0369 · e23)                               NOT closed    ref_pair_eq_without_impl_admits (tier 2) REASON 3: the
+                                                                                         arm that refuses it (refmono) says an internal sentence
+                                                                                         and refuses where-clauses.logos
+  `&Enum` pairs (e08 e26 e34 e38)                                        right on base — is_integer_kind admits Enum; no defect
+  OUT OF CLASS, found by the battery: `let x: &&str` annotation (e22)    —             let_double_ref_str_annotation_refused (tier 3)
+  ⚠ LATENT, NOT ROWED (no observable wrong behaviour today): mono clones `impl<X> Equal for X where X: Eq` for a struct outside the
+    bound (Splitter in where-clauses.logos). Invisible while the clone's body needs no symbol; it is the door refmono met.
+
+HAND BATTERY -> FIXTURES (rule of 2026-09-14): 0 land. No battery program is RIGHT on the committed (base) binary AND caught something:
+  the 13 right ones are controls whose verdict no arm moved. Every program that caught something is still wrong on base, so it is a
+  queue row or a named member of one (headers list members by id); all 44 are kept in battery/ beside this file for the landing.
+
+LAND-DIR RUNTIME (build-land0913d, run_oracle 7169; ro_none 05:18-05:29, ro_refmono 05:29-05:40)
+  calibration, build/ unarmed vs land unarmed: 0 movers (cast-region-to-uint subtracted) — the two configures agree.
+  refmono vs land unarmed: MOVERS 1 — DAMAGE logos_02_semantic_core_pass_where-clauses 0/0 -> cc 1 (refused); FIX 0; OTHER 0.
+    fires over the corpus 60 = census refeq.mono.refpair.Struct.routed 60 = the 60 attributed arrivals; one of them names a
+    missing symbol. Set = the hand measurement's set (predicted empty in addendum 2 — refuted before this column ran).
+  refeqx vs land unarmed (05:40-05:50): MOVERS 1 — DAMAGE where-clauses 0/0 -> cc 1; FIX 0; OTHER 0 (= addendum 3, predicted). fires 66.
+LAND-DIR FAIL TEXT (1861): refeqx vs land unarmed rc 0 / sha 0 / match 0 moved; calibration build/ unarmed vs land unarmed 0 / 0 / 0.
+BC ROWS — the 68 registered logos_00_bc_admit_* tests (the ledger gate compiles nothing): 68/68 pass under build/ unarmed, build/
+  refeq, land unarmed, land refeqx; bc_admits ledger gate rc 0 under refeq and refeqx. bc ceiling 0. ⚠ No LOGOS_PROBE_FIRE was set on
+  these four runs, so whether any arm was REACHED in a bc_admits program is unproven — a zero of unknown kind, not evidence.

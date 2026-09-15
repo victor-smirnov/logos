@@ -45709,3 +45709,95 @@ verdict: LANDED — shslotev unconditional + S1 closure capture state re-keyed +
   match-arm / let-else binders register + S4 per-slot uninit drop state + F1 VarInfo::slot defaults to no slot + F2 slot trusted only
   under its own name. shslotev AS PRICED is DECLINED (hand d04: base exit 0, shslotev exit 1). shframe / shmoved / shslotmg stay
   DECLINED (pricing record); shslot / shslotx / shslotpat are subsumed.
+
+# ═══ ROUND 2026-09-15a-refeq (PRICING, soundness queue tier 1) — `==` OVER TWO REFERENCES COMPARES THE POINTERS: THE SAME DECISION
+#     IS TAKEN AT THREE LAYERS FROM THE OPERAND'S OWN KIND, AND THE LAYER EVERY STRUCT PAIR ACTUALLY REACHES IS MONO ═════════════
+
+Files: `src/compiler/probes/2026-09-15a-refeq/` — TARGET_ROWS.txt (before any compiler edit), PREDICTIONS.txt (before any binary; an
+addendum before the refmono binary), refeq.spec, refmono.spec, candidate_with_probe_gates.diff (all six arms + census as measured),
+CLASS_DLOG.txt, RESULT.txt (every column), battery/ (the 44 hand programs). New dlog rule: tools/dlog/refeq_deciders.dl (selftest rc 0
+first; known answer caught TWO rule defects of mine, v1 ancestry depth and v2 named-lambda contexts — recorded in CLASS_DLOG.txt).
+
+STEP 1 (this round's own reading): HEAD 750a82307 clean; `# TOTAL` soundness_queue 193, bc_admits 60, bc_admits_blocked 8;
+probe-log-lint 332 records; build_hash 854d99ae9a2e2fbd 43 (build/ no work to do); queue gate rc 0 WITH `LOGOS_LIB_DIR` (193 rows,
+tier1 29 tier2 57 tier3 99 tier4 8). The prompt's STEP-1 command carries LOGOS_LIB_DIR — no correction owed there.
+
+TIER 1 RE-MEASURED: all 29 reproduce their recorded exit (RESULT.txt lists the valgrind summaries). None closed since 750a82307.
+
+TARGETS: nested_ref_eq_compares_addresses_run, ref_struct_eq_compares_addresses_run (TARGET_ROWS.txt says why this block).
+WHAT SHOULD IT MEAN: Rust (`impl PartialEq<&B> for &A`); `expr.binop.pointer-equality` describes today's code and is false about
+Rust for references — a report for the spec owner, not a divergence (DIVERGENCES.md lists `&T == &T` under "Recently caught up").
+
+DECIDERS (dlog + per-site read): sema lower_binop — peel_numeric_ref peels ONE layer to a primitive (and, through is_integer_kind,
+to an ENUM: every `&Enum ==` is right on base), its struct / tuple / TypeVar / str arms key on the operand's OWN kind; mlir-gen
+gen_expr_kind(EBinOpView) — is_ref_to_prim loads one layer for ==/!= without Char/Usize/Isize, tuple/array fast paths key on own
+kind; mono_clone subst_expr BinOp — re-dispatches a BY-VALUE struct only. Census: the pass corpus's struct reference pairs are
+POST-MONO (sema Struct.Struct 0, mono refpair.Struct 60); the stdlib compares no reference pair (0, census live).
+
+## refpeel
+site: src/compiler/sema_expr.cpp::lower_binop
+build: b1a0431a68699a9c
+measured: 2026-09-15
+fires: 5 (battery) · 0 (pass corpus: no depth-2 pair, census 0)
+ceiling: 1 queue row
+cost: 0 (every column under the union refeq; its own runtime zero is UNREACHED — corpus has no depth-2 pair)
+verdict: PRICED — a comparison of two references whose pointees are references is dereferenced pairwise; closes
+  nested_ref_eq_compares_addresses_run (predicted), battery e01 e25 (predicted). Half of the class: `&&D` (e06) needs refstruct too.
+
+## refstruct
+site: src/compiler/sema_expr.cpp::lower_binop
+build: b1a0431a68699a9c
+measured: 2026-09-15
+fires: 25 (battery) · 0 (pass corpus: sema sees no struct pair, census 0)
+ceiling: 1 queue row
+cost: 0 under the union refeq; its own runtime zero is UNREACHED
+verdict: PRICED, SUPERSEDED BY refmono FOR EVERY `==` — the struct arm looks the impl up on the pointee and passes the references;
+  closes ref_struct_eq_compares_addresses_run (predicted) and 16 battery shapes; misses a generic impl (e41, spair.noimpl).
+  Keeps one thing refmono lacks: the partial_cmp ORDERING spelling (e39).
+
+## refagg
+site: src/compiler/sema_expr.cpp::lower_binop
+build: b1a0431a68699a9c
+measured: 2026-09-15
+fires: 10 (battery) · 8 (pass corpus)
+ceiling: 0 target rows; the neighbour rows ref_pair_aggregate_eq / generic_ref_typevar_eq / ref_pair_ordering (opened this round)
+cost: 0 — run_oracle 0 movers of 7169 with 8 real arrivals; fail text 0 of 1861; stdlib ok; valgrind NEW 0 / GONE 0 (union refeq)
+verdict: PRICED — array / str / all-primitive-tuple reference pairs dereference to the value compare; non-primitive tuple and
+  TypeVar pairs pass the references to the impl / method. Battery e09 e11 e21 e30 e31 e37 (predicted) + e47. Its enum branch is
+  DEAD for comparisons (epair.arrive 0: a short-circuited zero, peel_numeric_ref consumed the fact).
+
+## refeq
+site: src/compiler/sema_expr.cpp::lower_binop
+build: b1a0431a68699a9c
+measured: 2026-09-15
+fires: 33 (battery) · 8 (pass corpus) · 0 (stdlib)
+ceiling: 2 queue rows (both targets, predicted by name)
+cost: 0 in every column — queue 2 closings only · bc_admits ledger gate rc 0 (compiles nothing; 68 per-row tests pass, reach unproven)
+  · fail text 0 / 1861 · stdlib 4 layers ok · run_oracle 0 movers / 7169 · valgrind NEW 0 / GONE 0 / other 0 of 7181
+verdict: PRICED — refpeel + refstruct + refagg. 26 battery programs to Rust's answer (25 of the parts + e06, doors in series).
+  Leaves e41 (generic impl) wrong and e23 (no impl, illegal) admitted.
+
+## refmono
+site: src/compiler/mono_clone.cpp::subst_expr
+build: build-land0913d sha256 8850a5acc469809f
+measured: 2026-09-15
+fires: 25 (battery) · 60 (pass corpus = the 60 attributed post-mono struct pairs, all routed)
+ceiling: 1 queue row (ref_struct_eq_compares_addresses_run) — MISPREDICTED as 0
+cost: 1 — run_oracle DAMAGE where-clauses (refused), 0 fix, 0 other of 7169; stdlib 4 layers ok; queue 1 closing only
+verdict: DECLINED AS PRICED — the mono site is where every struct reference pair lands (sema never routes one): alone it closes
+  ref_struct_eq_compares_addresses_run and 17 battery shapes incl. e11 and the generic impl e41 (predicted: e41 only — MISPREDICTED).
+  It REFUSES the legal pass fixture where-clauses.logos ('logos.lang.str.Splitter__eq' does not reference a valid function): mono
+  clones `impl<X> Equal for X where X: Eq` for Splitter, which has no Eq impl, and the pointer compare hid it. It also refuses the
+  illegal e23 with an internal sentence. Doors in series: the unchecked `where` bound at instantiation opens first.
+
+## refeqx
+site: src/compiler/mono_clone.cpp::subst_expr
+build: build-land0913d sha256 8850a5acc469809f
+measured: 2026-09-15
+fires: 44 (battery) · 66 (pass corpus)
+ceiling: 2 queue rows (both targets)
+cost: 1 — run_oracle DAMAGE where-clauses only (predicted, addendum 3); fail text 0 / 1861; bc rows 68/68; stdlib 4 layers ok
+verdict: DECLINED AS PRICED — refeq + refmono: both rows, 27 battery shapes (refeq's 26 + e41), and the same where-clauses refusal.
+
+note (round): pricing commit. Probe sources reverted and build/ rebuilt pristine by the round's finalize step; the numbers are in
+  the commit message. soundness_queue 193 -> 200 (seven rows from the battery; RESULT.txt has the neighbour table).

@@ -1,0 +1,40 @@
+#include "cxx_schema.dl"
+// refeq_deciders — EVERY SITE THAT DECIDES A COMPARISON OPERATOR'S MEANING FROM AN OPERAND'S REFERENCE KIND
+// round 2026-09-15a-refeq.
+// The class: "compare THROUGH a reference (Rust's `impl PartialEq<&B> for &A`) or compare the POINTERS". Two queue rows
+// (nested_ref_eq_compares_addresses_run, ref_struct_eq_compares_addresses_run) answer "the pointers" where Rust compares
+// the referents. The fact is "an operand's kind is Ref / MutRef"; the decision is taken wherever a comparison operator
+// spelling ("==" "!=" "<" "<=" ">" ">=") is tested against a string AND that fact is read.
+// Claim-free: the domain is (a) every string literal equal to a comparison operator that sits at most FOUR levels under
+// a comparison node (`op == "=="` on a std::string_view is StringLiteral -> ImplicitCastExpr -> CXXConstructExpr ->
+// CXXOperatorCallExpr) and (b) every reference to an enumerator named Ref or MutRef; the question is which named contexts
+// hold both. A context is keyed by NAME AND DEFINITION LINE, because every MLIRGenImpl::gen_expr_kind overload shares a name.
+// ⚠ ctx_of coarsens (a lambda reports its enclosing function), so a context holding both does not prove one SITE holds
+// both — every row is cross-checked by a per-site read in CLASS_DLOG.txt.
+// KNOWN ANSWER (read before the run): SemaChecker::lower_binop (peel_numeric_ref reads Ref/MutRef; the dispatch arms test
+// "==") and MLIRGenImpl::gen_expr_kind(EBinOpView) (is_ref_to_prim reads Ref/MutRef under `op == "=="`) — at least 2.
+// ⚠ v1 of this rule allowed only parent / grandparent and read lower_binop as NOT a decider (0 op tests in it): the known
+// answer caught it; the literal is three levels under the comparison.
+.decl cmp_op_lit(Id: symbol)
+cmp_op_lit(S) :- str_lit(S, T), (T = "==" ; T = "!=" ; T = "<" ; T = "<=" ; T = ">" ; T = ">=").
+.decl up(N: symbol, A: symbol, D: number)
+up(N, P, 1) :- cmp_op_lit(N), node(N, _, P, _).
+up(N, P, D + 1) :- up(N, A, D), D < 4, node(A, _, P, _).
+// ⚠ v2 keyed the context by ctx_of, and a NAMED lambda (`auto peel_numeric_ref = [&](…)`) is its own named context: the
+// Ref reads inside lower_binop's lambdas were attributed to `peel_numeric_ref@2351`, so lower_binop read as a non-decider
+// again (known answer caught it a second time). v3 lifts every lambda context to its enclosing Function / CXXMethod.
+.decl fn_ctx(C: symbol, F: symbol)
+fn_ctx(C, C) :- named_context(C), (node(C, "Function", _, _) ; node(C, "CXXMethod", _, _)).
+fn_ctx(C, F) :- named_context(C), node(C, "LambdaExpr", P, _), P != "-", ctx_of(P, C2), fn_ctx(C2, F).
+.decl ctx_key(C: symbol, Key: symbol)
+ctx_key(C, cat(Nm, "@", to_string(L))) :- fn_ctx(C, F), ctx_name(F, Nm), loc(F, _, L, _).
+.decl op_test(File: symbol, Line: number, Ctx: symbol, Text: symbol)
+.output op_test
+op_test(F, L, K, T) :- cmp_op_lit(S), str_lit(S, T), up(S, A, _), binop(A, _), loc(S, F, L, _), ctx_of(S, C), ctx_key(C, K).
+.decl ref_kind_read(File: symbol, Line: number, Ctx: symbol, Name: symbol)
+.output ref_kind_read
+ref_kind_read(F, L, K, E) :- enum_member(_, D, E), (E = "Ref" ; E = "MutRef"), ref(U, D), loc(U, F, L, _),
+                             ctx_of(U, C), ctx_key(C, K).
+.decl decider_ctx(Ctx: symbol)
+.output decider_ctx
+decider_ctx(K) :- op_test(_, _, K, _), ref_kind_read(_, _, K, _).

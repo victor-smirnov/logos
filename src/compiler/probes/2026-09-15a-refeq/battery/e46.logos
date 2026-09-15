@@ -1,0 +1,14 @@
+package e46;
+use logos.lang.cmp;
+use logos.mem.string;
+fn main() -> i32 {
+    let a: String = String::from("left");
+    let b: String = String::from("right");
+    let c: String = String::from("left");
+    let ra: &String = &a;
+    let rb: &String = &b;
+    let rc: &String = &c;
+    if !(ra != rb) { return 1i32; }
+    if ra != rc { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,20 @@
+package e20;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    let ra: &D = &a;
+    let rb: &D = &b;
+    let mut i: i64 = 0i64;
+    while ra != rb && i < 3i64 {
+        i = i + 1i64;
+    }
+    if i != 0i64 { return 1i32; }
+    return 0i32;
+}

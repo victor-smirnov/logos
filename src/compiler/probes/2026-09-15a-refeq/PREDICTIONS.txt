@@ -1,0 +1,57 @@
+ROUND 2026-09-15a-refeq — PREDICTIONS, written after the spec was designed and BEFORE any binary of it existed.
+base build/ 854d99ae9a2e2fbd 43 (HEAD 750a82307). Battery e01-e38 (35 programs), base verdicts in RESULT.txt.
+
+ARMS (refeq.spec):
+  refpeel    sema lower_binop: a comparison of two references whose pointees are ALSO references is dereferenced pairwise
+             until one pointee is not a reference (then the existing one-layer primitive peel applies).
+  refstruct  sema lower_binop struct arm: a comparison of two references to structs looks the impl up on the POINTEE and
+             passes the references themselves as `&self` / `&other`.
+  refagg     sema lower_binop: a reference pair to an Array / str / all-primitive Tuple is dereferenced to the value compare;
+             a reference pair to an Enum / non-primitive Tuple / TypeVar passes the references to the eq impl (or method).
+  refeq      union of the three.
+  census only: sema refpair arrivals by depth and pointee kinds; the struct / enum "no impl" fall-throughs; mono_clone
+             subst_expr's BinOp reference pairs; mlir-gen's is_ref_to_prim load vs the pointer compare of a reference pair.
+
+QUEUE ROWS (closing = the gate's FAIL line for that id; every other row reproduces)
+  refpeel    nested_ref_eq_compares_addresses_run
+  refstruct  ref_struct_eq_compares_addresses_run
+  refagg     none
+  refeq      nested_ref_eq_compares_addresses_run, ref_struct_eq_compares_addresses_run
+
+BATTERY (0 = Rust's answer; base wrong set = e01 e02 e05 e06 e07 e09 e11 e15 e16 e17 e18 e20 e21 e25 e28 e29 e30 e31 e37;
+         e23 admitted (illegal, E0369 by reading); e12 e13 e22 refused)
+  refpeel    e01 e25 -> 0.  e06 stays 1 (lands on a `&D` pair, still a pointer compare).
+  refstruct  e02 e05 e07 e15 e16 e17 e18 e20 e28 e29 -> 0 (e15 count stays 2).  e06 stays 1.
+  refagg     e09 e11 e21 e30 e31 e37 -> 0 (e37 count stays 2).  e08 e26 e34 e38 stay 0 (e38 count 2) — right on base, path changes.
+  refeq      all of the above plus e06 -> 0.
+  every arm: e12 e13 stay refused (mono resolves `eq` on a `&D` receiver: `&D__eq` does not exist); e22 stays refused (a `&&str`
+             let annotation, not this operator); e23 stays ADMITTED (no impl: falls through to the pointer compare);
+             e14 (raw pointers) e19 (same place) e24 (explicit `*`) e03 e04 e10 e27 e32 stay 0.
+  valgrind: 0 errors on every legal program that runs, under every arm.
+
+ADDENDUM — written at 04:20 after e39 e41 e42 e46 were measured under refeq (build/ b1a0431a68699a9c) and BEFORE the build
+carrying refmono (build-land0913d) finished:
+  measured, not predicted: e39 (`&D <= &D` through partial_cmp) base REFUSED ('arith.cmpi' op operand #0 must be
+    signless-integer-like, but got '!llvm.ptr') -> refeq exit 0; e46 (`&String !=`) base 2 -> refeq 0; e42 (by-value generic
+    struct, control) 0 -> 0; e41 (`&W<i64> == &W<i64>`, `impl<T: Eq> Eq for W<T>`) 1 -> 1 under refeq — census: sema
+    spair.routed 1 + spair.noimpl 1 (sema's lookup misses the generic impl), mono refpair.Struct 1, mlir-gen refpair.ptrcmp 1.
+    e42's by-value compare is served by mono_clone subst_expr's Struct re-dispatch, which has no Ref branch.
+  refmono   (mono_clone subst_expr: a Ref pair to one struct calls the pointee's method with the references)
+            rows: none. battery: e41 -> 0 ONLY IF the mangled `W$...__eq` symbol it names exists for a reference call —
+            predicted 0. Everything sema already routed is unchanged (mono sees a call, not a bin_op).
+  refeqx    = refeq + refmono: both rows; the refeq battery set plus e41.
+
+COST (predicted, not known): stdlib 4 layers compile under every arm; bc_admits ledger gate rc 0; run_oracle damage 0 under
+  refpeel; refstruct / refagg / refeq UNKNOWN — any running program that compares two references to a struct with an Eq impl
+  and relied on the address answer moves, and that is exactly what the column is for.
+
+ADDENDUM 2 — written at 05:20 (the first spelling said 05:22, ahead of the clock), after the census attribution named the two fixtures and BEFORE any refmono / refeqx run of them:
+  where-clauses.logos (mono refpair.Struct 58) and where-clauses-blanket-eq-b160.logos (2) compare only i64 in main; the struct
+  pairs are mono clones of the blanket `impl<X> Equal for X where X: Eq` body `self == other`, one per Eq struct in scope.
+  refmono / refeqx: PREDICTED NO MOVER — both compile, exit 0, same stdout — because the arm names the callee exactly as mono's
+  by-value Struct re-dispatch already does (`pkg.` + concrete_struct_name + `__eq`), which the corpus exercises. The risk named:
+  a struct in scope whose Eq method is not at that symbol would be refused like e23 ('..__eq' does not reference a valid function).
+
+ADDENDUM 3 — written at 05:41, after ro_refmono and BEFORE the ro_refeqx table existed:
+  refeqx run_oracle vs land unarmed: DAMAGE exactly {where-clauses} (the refmono set; refeq's own sema part moved 0 of 7169 on build/),
+  FIX 0, OTHER 0.

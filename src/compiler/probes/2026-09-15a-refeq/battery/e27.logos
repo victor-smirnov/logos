@@ -1,0 +1,16 @@
+package e27;
+fn main() -> i32 {
+    let a: u8 = 200u8;
+    let b: u8 = 100u8;
+    let ra: &u8 = &a;
+    let rb: &u8 = &b;
+    if !(ra > rb) { return 1i32; }
+    if rb > ra { return 2i32; }
+    let c: u8 = 100u8;
+    let d: u8 = 200u8;
+    let rc: &u8 = &c;
+    let rd: &u8 = &d;
+    if !(rc < rd) { return 3i32; }
+    if rd < rc { return 4i32; }
+    return 0i32;
+}

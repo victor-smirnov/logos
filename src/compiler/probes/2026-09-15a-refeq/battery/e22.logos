@@ -1,0 +1,14 @@
+package e22;
+use logos.lang.cmp;
+use logos.mem.string;
+fn main() -> i32 {
+    let s2: String = String::from("ab");
+    let a: &str = "ab";
+    let b: &str = s2.as_str();
+    let x: &&str = &a;
+    let y: &&str = &b;
+    if x == y {
+        return 0i32;
+    }
+    return 1i32;
+}

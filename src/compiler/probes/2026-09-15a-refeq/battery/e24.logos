@@ -1,0 +1,13 @@
+package e24;
+fn main() -> i32 {
+    let a: i64 = 4i64;
+    let b: i64 = 4i64;
+    let ra: &i64 = &a;
+    let rb: &i64 = &b;
+    let x: &&i64 = &ra;
+    let y: &&i64 = &rb;
+    if *x == *y {
+        return 0i32;
+    }
+    return 1i32;
+}

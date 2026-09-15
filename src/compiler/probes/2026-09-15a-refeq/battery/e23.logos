@@ -1,0 +1,12 @@
+package e23;
+struct N { v: i64 }
+fn main() -> i32 {
+    let a: N = N { v: 4i64 };
+    let b: N = N { v: 4i64 };
+    let ra: &N = &a;
+    let rb: &N = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

@@ -1,0 +1,12 @@
+package e34;
+enum Color { Red, Green }
+fn main() -> i32 {
+    let a: Color = Color::Green;
+    let b: Color = Color::Green;
+    let ra: &Color = &a;
+    let rb: &Color = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

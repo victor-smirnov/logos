@@ -1,0 +1,25 @@
+ROUND 2026-09-15a-refeq (PRICING, soundness queue tier 1) — TARGET ROWS, written before any compiler edit.
+base: HEAD 750a82307, build/ 854d99ae9a2e2fbd 43 (queue gate rc 0, 193 rows, tier1=29)
+
+TARGETS (by id):
+  nested_ref_eq_compares_addresses_run   `&&i64 == &&i64` compares addresses        base exit 1, Rust 7
+  ref_struct_eq_compares_addresses_run   `&D == &D` (user impl Eq) compares addresses base exit 1, Rust 7
+
+WHY THIS BLOCK:
+  * Both rows are ONE rule not applied: Rust's `impl PartialEq<&B> for &A where A: PartialEq<B>` (and PartialOrd) compares
+    THROUGH every reference layer. Today the decision "compare the referents, not the pointers" is made in TWO places from the
+    SAME fact (both operands are references): mlir-gen gen_expr_kind(EBinOpView) peels ONE layer and only to a PRIMITIVE
+    pointee (is_ref_to_prim, which also omits char/usize/isize), and SemaChecker::lower_binop dispatches `==` to an Eq impl only
+    when the operand's OWN kind is Struct / Enum / Tuple / TypeVar / str-Slice — a Ref operand of any of those falls through to
+    the raw bin_op and lands on the pointer compare.
+  * Hypothesis to TEST, not assume: ONE change at lower_binop's entry — peel `&`/`&mut` layers pairwise off both operands and
+    re-dispatch on the pointee types (the struct arm then passes the reference itself as `&self`) — moves BOTH rows.
+  * The oracle is deterministic (an equality of equal values at distinct addresses), no memory is corrupted today, so the cost
+    columns that matter are run_oracle (every running program that compares two references) and the stdlib build (stdlib code
+    that may compare references and rely on either answer). A destructor count is still read on the battery because an arm that
+    derefs a non-Copy operand and re-autorefs it could copy + drop.
+  * Not taken: the arm-return binding drops (at_binding_by_value_never_dropped, slice_pattern_arm_binding_extra_drops,
+    match_arm_nested_binder_shadow_double_drop) — three different binders/facts per their own headers (PAT_WILD slot 0xFFFFFFFF,
+    an at-binding, a moved-element record); the FnOnce trio — its headers name two move analyses and a set with no branch merge,
+    a larger change; byvalue_operator_operand_not_moved_double_drop + return_array_lit_of_moved_locals_double_drop — "a move not
+    recorded" at two different sites (push_operand; the return path's array literal), a symptom grouping, not yet a fact grouping.

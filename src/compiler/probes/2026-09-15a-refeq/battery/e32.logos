@@ -1,0 +1,13 @@
+package e32;
+use logos.lang.cmp;
+fn same<T: Eq>(a: &T, b: &T) -> bool {
+    return a == b;
+}
+fn main() -> i32 {
+    let a: i64 = 11i64;
+    let b: i64 = 11i64;
+    if !same::<i64>(&a, &b) {
+        return 1i32;
+    }
+    return 0i32;
+}

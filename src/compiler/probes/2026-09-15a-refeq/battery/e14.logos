@@ -1,0 +1,21 @@
+package e14;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    let ra: &D = &a;
+    let rb: &D = &b;
+    let ra2: &D = &a;
+    let pa: *const D = ra as *const D;
+    let pb: *const D = rb as *const D;
+    let pa2: *const D = ra2 as *const D;
+    if pa == pb { return 1i32; }
+    if pa != pa2 { return 2i32; }
+    return 0i32;
+}

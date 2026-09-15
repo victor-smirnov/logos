@@ -1,0 +1,18 @@
+package e05;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn main() -> i32 {
+    let mut a: D = D { v: 4i64 };
+    let mut b: D = D { v: 4i64 };
+    let ra: &mut D = &mut a;
+    let rb: &mut D = &mut b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

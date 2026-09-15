@@ -1,0 +1,13 @@
+package e31;
+use logos.lang.cmp;
+fn same<T: Eq>(a: &T, b: &T) -> bool {
+    return a == b;
+}
+fn main() -> i32 {
+    let a: char = 'k';
+    let b: char = 'k';
+    if !same::<char>(&a, &b) {
+        return 1i32;
+    }
+    return 0i32;
+}

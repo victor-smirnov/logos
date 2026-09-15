@@ -1,0 +1,12 @@
+package e10;
+fn main() -> i32 {
+    let a: i64 = 6i64;
+    let b: i64 = 6i64;
+    let ra: &i64 = &a;
+    let rb: &i64 = &b;
+    if !(ra <= rb) { return 1i32; }
+    if !(rb <= ra) { return 2i32; }
+    if ra < rb { return 3i32; }
+    if rb < ra { return 4i32; }
+    return 0i32;
+}

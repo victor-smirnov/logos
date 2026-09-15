@@ -1,0 +1,13 @@
+package e08;
+use logos.lang.cmp;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Option<i64> = Option::Some(5i64);
+    let b: Option<i64> = Option::Some(5i64);
+    let ra: &Option<i64> = &a;
+    let rb: &Option<i64> = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

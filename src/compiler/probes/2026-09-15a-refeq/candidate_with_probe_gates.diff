@@ -1,0 +1,324 @@
+diff --git a/src/compiler/mlir_gen_expr.cpp b/src/compiler/mlir_gen_expr.cpp
+index b8eb4905f..d6221e089 100644
+--- a/src/compiler/mlir_gen_expr.cpp
++++ b/src/compiler/mlir_gen_expr.cpp
+@@ -1227,6 +1227,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
+         };
+         TypeRef lhs_pe = is_ref_to_prim(lhs_ty);
+         TypeRef rhs_pe = is_ref_to_prim(rhs_ty);
++        {   // PROBE 2026-09-15a-refeq (census only)
++            auto isr = [](TypeRef t) {
++                return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
++            };
++            logos::probe::census(lhs_pe && rhs_pe                    ? "refeq.mlirgen.refprim.load"
++                                 : isr(lhs_ty) && isr(rhs_ty)        ? "refeq.mlirgen.refpair.ptrcmp"
++                                                                     : "refeq.mlirgen.ptr.other");
++        }
+         if (lhs_pe && rhs_pe) {
+             auto elem_t = logos_to_mlir(lhs_pe);
+             if (elem_t) {
+diff --git a/src/compiler/mono_clone.cpp b/src/compiler/mono_clone.cpp
+index fcdd28a13..ee9276c91 100644
+--- a/src/compiler/mono_clone.cpp
++++ b/src/compiler/mono_clone.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include <cstdio>
+ #include "mono_impl.hpp"
++#include <logos/compiler/probe.hpp>  // PROBE 2026-09-15a-refeq
+ #include "logos/compiler/sha256.hpp"
+ #include <logos/compiler/lir_mirror.hpp>
+ #include <logos/compiler/lir_builder.hpp>
+@@ -1208,6 +1209,48 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
+             auto new_lhs = subst_child_expr(v.lhs());
+             auto new_rhs = subst_child_expr(v.rhs());
+             auto lt = new_lhs ? new_lhs.type(out_.type_pool.impl()) : TypeRef{};
++            // PROBE 2026-09-15a-refeq (census only): a comparison of a reference pair after substitution.
++            if (lt && new_rhs && (op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=")) {
++                auto rt2 = new_rhs.type(out_.type_pool.impl());
++                auto isr = [](TypeRef t) {
++                    return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
++                };
++                if (isr(lt) && isr(rt2)) {
++                    TypeRef p = TypeRef(lt).pointee();
++                    using K = LogosType::Kind;
++                    logos::probe::census(!p                         ? "refeq.mono.refpair.null"
++                                         : p.kind() == K::Struct    ? "refeq.mono.refpair.Struct"
++                                         : isr(p)                   ? "refeq.mono.refpair.Ref"
++                                         : p.kind() == K::Enum      ? "refeq.mono.refpair.Enum"
++                                         : p.kind() == K::Tuple     ? "refeq.mono.refpair.Tuple"
++                                         : p.kind() == K::Char      ? "refeq.mono.refpair.Char"
++                                                                    : "refeq.mono.refpair.Other");
++                }
++            }
++            // PROBE 2026-09-15a-refeq (refmono / refeqx): after substitution, a comparison of a reference pair to one
++            // struct calls the pointee's comparison method with the references themselves (the by-value arm below passes
++            // the values; a generic `impl<T: Eq> Eq for W<T>` is only reachable here, sema's lookup misses it).
++            if (lt && new_rhs && (op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=") &&
++                (lt.kind() == LogosType::Kind::Ref || lt.kind() == LogosType::Kind::MutRef) && lt.pointee() &&
++                lt.pointee().kind() == LogosType::Kind::Struct) {
++                auto rt3 = new_rhs.type(out_.type_pool.impl());
++                if (rt3 && (rt3.kind() == LogosType::Kind::Ref || rt3.kind() == LogosType::Kind::MutRef) && rt3.pointee() &&
++                    rt3.pointee().kind() == LogosType::Kind::Struct &&
++                    (logos::probe::on("refmono") || logos::probe::on("refeqx"))) {
++                    std::string mname = op == "==" ? "eq" : op == "!=" ? "ne" : op == "<" ? "lt" : op == "<=" ? "le"
++                                      : op == ">" ? "gt" : "ge";
++                    TypeRef pt = lt.pointee();
++                    std::string bare = concrete_struct_name(pt) + "__" + mname;
++                    std::string pkg{pt.pkg_name()};
++                    std::string callee = pkg.empty() ? bare : pkg + "." + bare;
++                    std::vector<lir_view::ExprRef> args;
++                    args.push_back(std::move(new_lhs));
++                    args.push_back(std::move(new_rhs));
++                    logos::probe::census("refeq.mono.refpair.Struct.routed");
++                    mp_ = lir_mirror_emit_call(out_, rt_, callee, {}, args);
++                    break;
++                }
++            }
+             if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct) {
+                 std::string method_name;
+                 if      (op == "+")  method_name = "add";
+diff --git a/src/compiler/sema_expr.cpp b/src/compiler/sema_expr.cpp
+index 3be4d9002..fade33240 100644
+--- a/src/compiler/sema_expr.cpp
++++ b/src/compiler/sema_expr.cpp
+@@ -2335,6 +2335,76 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+     auto lt = expr_type(lhs);
+     auto rt = expr_type(rhs);
+ 
++    // PROBE 2026-09-15a-refeq (refpeel / refagg / refeq) — see src/compiler/PROBES.md.
++    const bool refeq_cmp_op = op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=";
++    auto refeq_is_ref = [](TypeRef t) {
++        return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
++    };
++    auto refeq_kind = [&](TypeRef t) -> const char* {
++        if (!t) return "null";
++        using K = LogosType::Kind;
++        switch (t.kind()) {
++        case K::Struct: return "Struct";
++        case K::Enum: return "Enum";
++        case K::Tuple: return "Tuple";
++        case K::TypeVar: return "TypeVar";
++        case K::Array: return "Array";
++        case K::Slice: return "Slice";
++        case K::Ref: case K::MutRef: return "Ref";
++        case K::Ptr: return "Ptr";
++        default: break;
++        }
++        if (is_integer_kind(t.kind()) || t.kind() == K::F32 || t.kind() == K::F64 || t.kind() == K::Bool ||
++            t.kind() == K::Char)
++            return "Prim";
++        return "Other";
++    };
++    if (refeq_cmp_op && refeq_is_ref(lt) && refeq_is_ref(rt)) {
++        int depth = 1;
++        for (TypeRef a = TypeRef(lt).pointee(), b = TypeRef(rt).pointee(); refeq_is_ref(a) && refeq_is_ref(b);
++             a = a.pointee(), b = b.pointee())
++            ++depth;
++        logos::probe::census(std::string("refeq.sema.refpair.depth") + (depth > 1 ? "2+." : "1.") +
++                             refeq_kind(TypeRef(lt).pointee()) + "." + refeq_kind(TypeRef(rt).pointee()));
++        if (depth > 1 && (logos::probe::on("refpeel") || logos::probe::on("refeq") || logos::probe::on("refeqx"))) {
++            while (refeq_is_ref(TypeRef(lt).pointee()) && refeq_is_ref(TypeRef(rt).pointee())) {
++                TypeRef pl = TypeRef(lt).pointee(), pr = TypeRef(rt).pointee();
++                lhs = builder().deref(std::move(lhs), pl);
++                lt = pl;
++                rhs = builder().deref(std::move(rhs), pr);
++                rt = pr;
++            }
++        }
++    }
++    // PROBE 2026-09-15a-refeq (refagg / refeq): a reference pair to a value compared in place (array, str, all-primitive
++    // tuple) is dereferenced to that value compare.
++    if (refeq_cmp_op && refeq_is_ref(lt) && refeq_is_ref(rt)) {
++        TypeRef pl = TypeRef(lt).pointee(), pr = TypeRef(rt).pointee();
++        auto placeval = [&](TypeRef p) {
++            if (!p) return false;
++            using K = LogosType::Kind;
++            if (p.kind() == K::Array) return true;
++            if (p.kind() == K::Slice && p.elem() && p.elem().kind() == K::U8) return true;
++            if (p.kind() == K::Tuple) {
++                auto es = p.tuple_elems();
++                if (es.empty()) return false;
++                for (auto e : es)
++                    if (!e || !(is_integer_kind(e.kind()) || e.kind() == K::F32 || e.kind() == K::F64 ||
++                                e.kind() == K::Bool || e.kind() == K::Char))
++                        return false;
++                return true;
++            }
++            return false;
++        };
++        if (placeval(pl) && placeval(pr) && pl.kind() == pr.kind() &&
++            (logos::probe::on("refagg") || logos::probe::on("refeq") || logos::probe::on("refeqx"))) {
++            lhs = builder().deref(std::move(lhs), pl);
++            lt = pl;
++            rhs = builder().deref(std::move(rhs), pr);
++            rt = pr;
++        }
++    }
++
+     // T2-26 prereq: auto-deref a `&T`/`&mut T` operand whose pointee is a
+     // numeric/bool/char primitive in an arithmetic / comparison / bitwise /
+     // shift operator (Rust's `impl Add<i32> for &i32` family). `r + 1` for
+@@ -2442,6 +2512,18 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+     // struct) — the mlir-gen CP-cm-08 fast-path only handles all-
+     // primitive tuples. The struct codegen for `a == b` then handles
+     // the per-field comparison via the user-supplied `impl Eq`.
++    // PROBE 2026-09-15a-refeq (refagg / refeq): a reference pair to a tuple passes the references to the tuple eq impl.
++    const bool refeq_tpair_shape = (op == "==" || op == "!=") && refeq_is_ref(lt) && refeq_is_ref(rt) &&
++                                   TypeRef(lt).pointee() && TypeRef(rt).pointee() &&
++                                   TypeRef(lt).pointee().kind() == LogosType::Kind::Tuple &&
++                                   TypeRef(rt).pointee().kind() == LogosType::Kind::Tuple;
++    if (refeq_tpair_shape) logos::probe::census("refeq.sema.tpair.arrive");
++    const bool refeq_tpair = refeq_tpair_shape && (logos::probe::on("refagg") || logos::probe::on("refeq") || logos::probe::on("refeqx"));
++    TypeRef refeq_tlt = lt, refeq_trt = rt;
++    if (refeq_tpair) {
++        lt = TypeRef(lt).pointee();
++        rt = TypeRef(rt).pointee();
++    }
+     if ((op == "==" || op == "!=") &&
+         TypeRef(lt).kind() == LogosType::Kind::Tuple &&
+         TypeRef(rt).kind() == LogosType::Kind::Tuple) {
+@@ -2511,8 +2593,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+             // Auto-ref lhs/rhs to &Tuple to match Eq's `&self` shape.
+             auto lty = make_ref(false, lt);
+             auto rty = make_ref(false, rt);
+-            auto lref_e = autoref_operand(std::move(lhs), false, lty);
+-            auto rref_e = autoref_operand(std::move(rhs), false, rty);
++            auto lref_e = refeq_tpair ? std::move(lhs) : autoref_operand(std::move(lhs), false, lty);
++            auto rref_e = refeq_tpair ? std::move(rhs) : autoref_operand(std::move(rhs), false, rty);
+             std::vector<lir::LExprPtr> args;
+             args.push_back(std::move(lref_e));
+             args.push_back(std::move(rref_e));
+@@ -2549,12 +2631,24 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+                 fi_eq->symbol_name.empty() ? used_key : fi_eq->symbol_name,
+                 {}, std::move(args), bool_t());
+         }
++        if (refeq_tpair) {  // PROBE 2026-09-15a-refeq: no impl — the operands are still the references
++            logos::probe::census("refeq.sema.tpair.noimpl");
++            lt = refeq_tlt;
++            rt = refeq_trt;
++        }
+         // No tuple Eq impl found — fall through to the primitive-only
+         // codegen fast-path (CP-cm-08) or to the historic pointer-cmp.
+     }
+ 
+     // Operator overloading: if LHS is a struct, desugar to trait method call.
+-    if (TypeRef(lt).kind() == LogosType::Kind::Struct) {
++    // PROBE 2026-09-15a-refeq (refstruct / refeq): a comparison of two references to structs compares THROUGH them.
++    const bool refeq_spair_shape = refeq_cmp_op && refeq_is_ref(lt) && refeq_is_ref(rt) && TypeRef(lt).pointee() &&
++                                   TypeRef(rt).pointee() && TypeRef(lt).pointee().kind() == LogosType::Kind::Struct &&
++                                   TypeRef(rt).pointee().kind() == LogosType::Kind::Struct;
++    const bool refeq_spair = refeq_spair_shape && (logos::probe::on("refstruct") || logos::probe::on("refeq") || logos::probe::on("refeqx"));
++    TypeRef lt_sv = refeq_spair ? TypeRef(lt).pointee() : TypeRef(lt);
++    TypeRef rt_sv = refeq_spair ? TypeRef(rt).pointee() : TypeRef(rt);
++    if (TypeRef(lt_sv).kind() == LogosType::Kind::Struct) {
+         // Map operator to trait name and method
+         std::string trait_name, method_name;
+         if      (op == "+")  { trait_name = "Add"; method_name = "add"; }
+@@ -2577,9 +2671,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+         else if (op == ">")  { trait_name = "Ord"; method_name = "gt"; }
+         else if (op == ">=") { trait_name = "Ord"; method_name = "ge"; }
+         if (!trait_name.empty()) {
+-            auto type_name = concrete_struct_name(lt);
++            auto type_name = concrete_struct_name(lt_sv);
+             auto mangled = type_name + "__" + method_name;
+-            auto fit = find_func_by_base_and_signature(mangled, {lt, rt}, false);
++            auto fit = refeq_spair
++                ? find_func_by_base_and_signature(mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
++                : find_func_by_base_and_signature(mangled, {lt, rt}, false);
+             // Rust-shape operator impls take their operands by reference
+             // (`fn eq(&self, &other)`). The by-value signature above won't
+             // match those, so retry with `&lt`/`&rt` (mirrors the tuple-Eq
+@@ -2680,6 +2776,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+                 }
+             }
+             // No impl found — fall through to normal type checking
++            if (refeq_spair) logos::probe::census("refeq.sema.spair.noimpl");
+         }
+     }
+ 
+@@ -2694,6 +2791,15 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+     // iter_eq's `(&*xr).eq(&*yr)`); mono dispatches it to the concrete impl
+     // after T is substituted. Only intercept when an `eq`-providing bound is
+     // actually in scope — otherwise fall through to the existing diagnostic.
++    // PROBE 2026-09-15a-refeq (refagg / refeq): a reference pair to a type variable calls `eq` on the references.
++    const bool refeq_vpair_shape = (op == "==" || op == "!=") && refeq_is_ref(lt) && refeq_is_ref(rt) &&
++                                   TypeRef(lt).pointee() && TypeRef(rt).pointee() &&
++                                   TypeRef(lt).pointee().kind() == LogosType::Kind::TypeVar &&
++                                   TypeRef(rt).pointee().kind() == LogosType::Kind::TypeVar;
++    if (refeq_vpair_shape) logos::probe::census("refeq.sema.vpair.arrive");
++    const bool refeq_vpair = refeq_vpair_shape && (logos::probe::on("refagg") || logos::probe::on("refeq") || logos::probe::on("refeqx"));
++    TypeRef refeq_vlt = lt;
++    if (refeq_vpair) lt = TypeRef(lt).pointee();
+     if ((op == "==" || op == "!=") &&
+         TypeRef(lt).kind() == LogosType::Kind::TypeVar) {
+         std::string tv_name(TypeRef(lt).type_var_name());
+@@ -2720,8 +2826,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+                 if (eq_providers > 1) break;
+             }
+             std::string m = (op == "==") ? "eq" : "ne";
+-            auto lref = take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
+-            auto rref = take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
++            auto lref = refeq_vpair ? std::move(lhs)
++                                    : take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
++            auto rref = refeq_vpair ? std::move(rhs)
++                                    : take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
+             lir::EMethodCall mc;
+             mc.receiver = std::move(lref);
+             mc.method   = m;
+@@ -2736,6 +2844,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+         }
+         // No eq-providing bound — fall through to the generic operator check.
+     }
++    if (refeq_vpair) {  // PROBE 2026-09-15a-refeq
++        logos::probe::census("refeq.sema.vpair.noeq");
++        lt = refeq_vlt;
++    }
+ 
+     // G150-2: `==` / `!=` on an enum. A payload-carrying enum needs a
+     // structural Eq/PartialEq impl; the historic fall-through compared the
+@@ -2744,10 +2856,44 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+     // impl when one exists. For a C-like (all-fieldless) enum the bare
+     // discriminant compare is correct, so fall through. For a payload enum
+     // with no Eq impl, error instead of miscompiling.
++    // PROBE 2026-09-15a-refeq (refagg / refeq): a reference pair to one enum passes the references to its eq impl; with no
++    // impl (a C-like enum) the discriminants are compared through them.
++    if (refeq_spair_shape) logos::probe::census(refeq_spair ? "refeq.sema.spair.routed" : "refeq.sema.spair.unarmed");
++    const bool refeq_epair_shape = (op == "==" || op == "!=") && refeq_is_ref(lt) && refeq_is_ref(rt) &&
++                                   TypeRef(lt).pointee() && TypeRef(rt).pointee() &&
++                                   TypeRef(lt).pointee().kind() == LogosType::Kind::Enum &&
++                                   TypeRef(rt).pointee().kind() == LogosType::Kind::Enum &&
++                                   TypeRef(lt).pointee().enum_name() == TypeRef(rt).pointee().enum_name();
++    if (refeq_epair_shape) logos::probe::census("refeq.sema.epair.arrive");
++    if (refeq_epair_shape && (logos::probe::on("refagg") || logos::probe::on("refeq") || logos::probe::on("refeqx"))) {
++        TypeRef pl = TypeRef(lt).pointee(), pr = TypeRef(rt).pointee();
++        std::string ebare = std::string(pl.enum_name()) + "__" + ((op == "==") ? "eq" : "ne");
++        const SemaFuncInfo* echosen = nullptr;
++        for (auto* c : find_func_candidates(ebare))
++            if (c && c->param_types.size() == 2) { echosen = c; break; }
++        if (echosen) {
++            std::vector<lir::LExprPtr> eargs;
++            eargs.push_back(std::move(lhs));
++            eargs.push_back(std::move(rhs));
++            std::string esym = echosen->symbol_name.empty() ? ebare : echosen->symbol_name;
++            if (!echosen->type_params.empty()) {
++                std::vector<TypeRef> m_type_args;
++                for (auto ta : pl.type_args()) m_type_args.push_back(ta);
++                return finish_generic_call(esym, *echosen, std::move(m_type_args), std::move(eargs));
++            }
++            return builder().call(esym, {}, std::move(eargs), bool_t());
++        }
++        logos::probe::census("refeq.sema.epair.noimpl");
++        lhs = builder().deref(std::move(lhs), pl);
++        lt = pl;
++        rhs = builder().deref(std::move(rhs), pr);
++        rt = pr;
++    }
+     if ((op == "==" || op == "!=") &&
+         TypeRef(lt).kind() == LogosType::Kind::Enum &&
+         TypeRef(rt).kind() == LogosType::Kind::Enum &&
+         TypeRef(lt).enum_name() == TypeRef(rt).enum_name()) {
++        logos::probe::census("refeq.sema.enum.byvalue");
+         // A payload-less enum literal operand (`Option::None`) lowers to the
+         // bare enum type (no type-args) when it has no local inference source
+         // (see lower_enum_lit's hint_enum_type_ path). The OTHER operand's

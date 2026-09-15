@@ -1,0 +1,31 @@
+// SOUNDNESS QUEUE row generic_ref_typevar_eq_compares_addresses_run (tier 1). WRONG ANSWER AT RUN TIME. In a generic body
+// `fn same<T: Eq>(a: &T, b: &T) -> bool { a == b }` compares the ADDRESSES for T = a struct (PART 1, exit 1) and for T = char
+// (PART 2, exit 2). T = i64 is right (control: mlir-gen's is_ref_to_prim loads a primitive pointee after substitution — its
+// list OMITS Char, Usize and Isize). Rust: exit 0.
+// DECISION SITES: sema lower_binop's TypeVar arm keys on Kind::TypeVar, so `&T` falls through as a raw bin_op; after
+// substitution mono_clone subst_expr re-dispatches only a BY-VALUE struct, and mlir-gen peels only its primitive list.
+// Measured 2026-09-15a-refeq: arm `refagg` (sema: a reference pair to a type variable calls `eq` on the references) -> exit 0;
+// arm `refmono` (mono: a reference pair to one struct calls the pointee's method) -> exit 2 — the D part is post-mono, the char
+// part is not a struct: two sites in series, sema's answers both before mono. Battery members e11 e31.
+// Measured on builds 854d99ae9a2e2fbd 43 (base), b1a0431a68699a9c 43 and build-land0913d sha256 8850a5acc469809f. Legality by
+// reading; no rustc binary.
+package generic_ref_typevar_eq_compares_addresses_run;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn same<T: Eq>(a: &T, b: &T) -> bool {
+    return a == b;
+}
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    if !same::<D>(&a, &b) { return 1i32; }
+    let c: char = 'k';
+    let d: char = 'k';
+    if !same::<char>(&c, &d) { return 2i32; }
+    return 0i32;
+}

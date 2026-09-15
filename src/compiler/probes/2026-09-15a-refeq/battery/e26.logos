@@ -1,0 +1,21 @@
+package e26;
+use logos.lang.cmp;
+enum E { A(i64), B }
+impl Eq for E {
+    fn eq(&self, other: &E) -> bool {
+        match *self {
+            E::A(x) => { match *other { E::A(y) => { return x == y; } E::B => { return false; } } }
+            E::B => { match *other { E::A(y) => { return false; } E::B => { return true; } } }
+        }
+    }
+}
+fn main() -> i32 {
+    let a: E = E::A(3i64);
+    let b: E = E::A(3i64);
+    let ra: &E = &a;
+    let rb: &E = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

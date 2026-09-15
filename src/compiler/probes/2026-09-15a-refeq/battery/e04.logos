@@ -1,0 +1,23 @@
+package e04;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn main() -> i32 {
+    let a: usize = 9usize;
+    let b: usize = 9usize;
+    let ra: &usize = &a;
+    let rb: &usize = &b;
+    let c: isize = 3isize;
+    let d: isize = 3isize;
+    if !(ra == rb) {
+        return 1i32;
+    }
+    if &c != &d {
+        return 2i32;
+    }
+    return 0i32;
+}

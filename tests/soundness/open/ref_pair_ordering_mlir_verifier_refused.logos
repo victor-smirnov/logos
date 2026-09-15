@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row ref_pair_ordering_mlir_verifier_refused (tier 3). `<` / `<=` OVER TWO REFERENCES TO A TUPLE (and through
+// a user `partial_cmp` over two `&D`) IS REFUSED BY THE MLIR VERIFIER:
+//   error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+// Legal Rust (`impl PartialOrd<&B> for &A`): exit 0. The reference pair reaches mlir-gen's generic ordering compare, which
+// has no pointer form. Same class as the `==` rows of round 2026-09-15a-refeq, the ORDERING operators: arm `refagg` moves this
+// program (exit 0; battery e47), arm `refstruct` moves the partial_cmp spelling (battery e39); the union `refeq` moves both.
+// Measured on build 854d99ae9a2e2fbd 43 (base, refused) and b1a0431a68699a9c 43. Legality by reading; no rustc binary.
+package ref_pair_ordering_mlir_verifier_refused;
+fn main() -> i32 {
+    let a: (i64, i64) = (1i64, 9i64);
+    let b: (i64, i64) = (1i64, 9i64);
+    let ra: &(i64, i64) = &a;
+    let rb: &(i64, i64) = &b;
+    if ra < rb { return 1i32; }
+    if !(ra <= rb) { return 2i32; }
+    return 0i32;
+}

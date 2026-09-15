@@ -1,0 +1,19 @@
+package e13;
+use logos.lang.cmp;
+use logos.lang.option;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    let oa: Option<&D> = Option::Some(&a);
+    let ob: Option<&D> = Option::Some(&b);
+    if oa == ob {
+        return 0i32;
+    }
+    return 1i32;
+}

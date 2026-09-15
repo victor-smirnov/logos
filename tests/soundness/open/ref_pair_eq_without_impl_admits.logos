@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row ref_pair_eq_without_impl_admits (tier 2). `==` OVER TWO REFERENCES TO A STRUCT WITH NO EQ IMPL COMPILES
+// and compares the addresses (exit 1 here). Rust refuses: E0369 binary operation `==` cannot be applied to type `&N`.
+// NEIGHBOUR of the reference-equality class, ROWED WITH REASON 3 (its own cost is measured non-zero in its SENTENCE): the
+// mono-site arm `refmono` of round 2026-09-15a-refeq REFUSES this program, but with an internal verifier sentence
+//   error: 'func.call' op 'ref_pair_eq_without_impl_admits.N__eq' does not reference a valid function
+// — a right verdict with the wrong diagnostic — and it re-routes every post-mono `&Struct` pair in the pass corpus (census 60),
+// each refused the same way if its struct names no `X__eq` — and one is: the legal pass fixture where-clauses.logos is refused
+// under that arm ('logos.lang.str.Splitter__eq' does not reference a valid function: a blanket impl cloned for a non-Eq struct).
+// The sema arms leave this program admitted (census refeq.sema.spair.noimpl).
+// Battery e23. Measured on builds 854d99ae9a2e2fbd 43, b1a0431a68699a9c 43, build-land0913d sha256 8850a5acc469809f.
+// Legality by reading; no rustc binary.
+package ref_pair_eq_without_impl_admits;
+struct N { v: i64 }
+fn main() -> i32 {
+    let a: N = N { v: 4i64 };
+    let b: N = N { v: 4i64 };
+    let ra: &N = &a;
+    let rb: &N = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

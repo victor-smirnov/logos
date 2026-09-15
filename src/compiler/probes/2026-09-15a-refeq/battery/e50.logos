@@ -1,0 +1,20 @@
+package e50;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+struct P { x: D, y: D }
+fn main() -> i32 {
+    let p: P = P { x: D { v: 3i64 }, y: D { v: 3i64 } };
+    match &p {
+        P { x, y } => {
+            if x == y {
+                return 0i32;
+            }
+            return 1i32;
+        }
+    }
+}
