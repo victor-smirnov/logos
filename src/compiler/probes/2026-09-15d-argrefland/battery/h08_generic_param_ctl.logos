@@ -1,0 +1,14 @@
+package h08_generic_param_ctl;
+struct D { v: i64 }
+fn h<U>(a: &&U) -> *const U {
+    let x: &U = *a;
+    return x as *const U;
+}
+fn g<T>(x: &T) -> bool {
+    return h::<T>(&x) == x as *const T;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    if !g::<D>(&d) { return 8i32; }
+    return 0i32;
+}

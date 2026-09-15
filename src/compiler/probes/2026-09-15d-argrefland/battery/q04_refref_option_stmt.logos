@@ -1,0 +1,13 @@
+package q04_refref_option_stmt;
+fn main() -> i32 {
+    let o: Option<i32> = Option::Some(5i32);
+    let r: &Option<i32> = &o;
+    let pp: &&Option<i32> = &r;
+    let mut got: i32 = 0i32;
+    match pp {
+        &&Option::Some(x) => { got = x; }
+        &&Option::None => { got = 77i32; }
+    }
+    if got != 5i32 { return 4i32; }
+    return 0i32;
+}

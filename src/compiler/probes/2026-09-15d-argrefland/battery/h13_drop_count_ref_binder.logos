@@ -1,0 +1,26 @@
+package h13_drop_count_ref_binder;
+struct D { v: i64, n: *mut i64 }
+impl Drop for D {
+    fn drop(self: &mut Self) { unsafe { *self.n = *self.n + 1i64; } }
+}
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let pn: *mut i64 = &mut n as *mut i64;
+    {
+        let o: Option<D> = Option::Some(D { v: 6i64, n: pn });
+        let mut s: i64 = 0i64;
+        match o {
+            Option::Some(ref rd) => {
+                s = s + inner(&rd);
+                s = s + inner(&rd);
+            }
+            Option::None => { return 90i32; }
+        }
+        if s != 12i64 { return 13i32; }
+    }
+    return (n as i32) - 1i32;
+}

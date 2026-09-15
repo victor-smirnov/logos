@@ -2480,53 +2480,6 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         return;
     }
 
-    // ── Multi-ref `let r2 = &r1` over an ALIASED immutable ref-local ──────────
-    // rule expr.method.receiver-multiref-autoderef. An immutable `&Struct` local
-    // (`let r1 = &p`) ALIASES the pointee address: scope_[r1] holds p's address
-    // (a `&P` value) with NO own storage slot (the fast path at the struct-ref
-    // `let` above; var_struct_ set, var_local_ptrs_ NOT). Taking `&r1` via
-    // EAddrOf therefore returns p's address — ONE indirection short — so storing
-    // it directly into a `&&P`-typed slot makes every later deref read too deep
-    // (wrong field / SEGV).
-    //
-    // The fix is local to THIS store: materialise the missing storage for r1's
-    // value in a fresh slot and bind r2 to the address of THAT slot, restoring
-    // the second level (r2_slot → mid_slot → P). r1 is immutable so a private
-    // copy of its `&P` value is sound and never goes stale. The READ side
-    // (type-driven double-deref) is already correct and is left untouched; the
-    // call-arg path (which consumes the one-short value by a matching one-short
-    // callee convention) and the immutable-ref read path are NOT touched.
-    if (TypeRef st(s.type);
-        st && (st.kind() == LogosType::Kind::Ref ||
-               st.kind() == LogosType::Kind::MutRef) &&
-        st.pointee() && (st.pointee().kind() == LogosType::Kind::Ref ||
-                         st.pointee().kind() == LogosType::Kind::MutRef) &&
-        s.value && s.value.kind() == lir_schema::expr::Code::AddrOf) {
-        std::string inner_var(lir_view::EAddrOfView{s.value}.var_name());
-        auto sc = scope_.find(inner_var);
-        bool aliased_immut_ref =
-            sc != scope_.end() && sc->second &&
-            sc->second.getType() == ptr_type() &&
-            var_struct_.count(inner_var) &&
-            !var_local_ptrs_.count(inner_var) &&
-            let_vars_.count(inner_var);
-        if (aliased_immut_ref) {
-            auto val = gen_expr(s.value);   // p's address — the one-short `&P`
-            if (!val) return;
-            // Materialise r1's missing storage: a slot holding the `&P` value.
-            auto mid = create_entry_alloca(ptr_type());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, mid);
-            // r2's own slot holds the address of that slot → `&&P`.
-            auto slot = create_entry_alloca(ptr_type());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, mid, slot);
-            evict_var_shapes(s.name);
-            scope_[s.name] = slot;
-            let_vars_.insert(s.name);
-            var_elem_types_[s.name] = ptr_type();
-            return;
-        }
-    }
-
     // ── Scalar ───────────────────────────────────────────────
     // Pre-allocate the slot BEFORE generating the RHS expression.
     // This ensures the AllocaOp is in the current block (entry-reachable)
@@ -4170,6 +4123,49 @@ bool MLIRGenImpl::scalar_core_scrut(mlir::Value scrut, TypeRef scrut_ty,
     return true;
 }
 
+// See mlir_gen_impl.hpp; the load arithmetic is in PROBES.md 2026-09-15d-argrefland.
+bool MLIRGenImpl::ref_pat_core_scrut(lir_view::PatRef pat, mlir::Value scrut, TypeRef scrut_ty,
+                                     lir_view::PatRef& inner, mlir::Value& out_val,
+                                     TypeRef& out_ty) {
+    namespace pc = lir_schema::pat;
+    using K = LogosType::Kind;
+    if (!pat || pat.kind() != pc::Code::RefPat || !scrut || !scrut_ty) return false;
+    if (scrut.getType() != ptr_type()) return false;
+    int k = 0;
+    lir_view::PatRef q = pat;
+    while (q && q.kind() == pc::Code::RefPat) { ++k; q = lir_view::PatRefPatView{q}.inner(); }
+    if (!q) return false;
+    std::vector<TypeRef> chain{scrut_ty};
+    while (TypeRef(chain.back()) &&
+           (TypeRef(chain.back()).kind() == K::Ref || TypeRef(chain.back()).kind() == K::MutRef) &&
+           TypeRef(chain.back()).pointee() && ref_repr_of(chain.back()) == RefReprKind::ThinPtr)
+        chain.push_back(TypeRef(chain.back()).pointee());
+    const int d = (int)chain.size() - 1;
+    if (d < 2 || k > d) return false;   // depth 1: the value already is the base
+    TypeRef core = chain.back();
+    if (!core || (core.kind() != K::Struct && core.kind() != K::ZonedStruct &&
+                  core.kind() != K::Tuple))
+        return false;
+    int loads = 0;
+    TypeRef ty;
+    if (q.kind() == pc::Code::Wild) {
+        loads = std::min(k, d - 1);
+        ty = chain[k];
+    } else if (q.kind() == pc::Code::Struct && core.kind() != K::Tuple) {
+        loads = d - 1;
+        ty = k < d ? chain[d - 1] : chain[d];
+    } else {
+        return false;
+    }
+    mlir::Value val = scrut;
+    for (int i = 0; i < loads; ++i)
+        val = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), val);
+    inner = q;
+    out_val = val;
+    out_ty = ty;
+    return true;
+}
+
 // See mlir_gen_impl.hpp: the single range-pattern test emitter.
 mlir::Value MLIRGenImpl::emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
                                          __int128 lo, __int128 hi) {
@@ -4763,6 +4759,19 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
 // gen_match
 // ---------------------------------------------------------------------------
 
+// See mlir_gen_impl.hpp.
+bool MLIRGenImpl::arms_bind_whole_scrutinee(const std::vector<lir_view::EMatchArmRef>& arms) {
+    namespace pc = lir_schema::pat;
+    for (auto& a : arms) {
+        auto p = a.pat();
+        if (!p) continue;
+        if (p.kind() == pc::Code::RefBind || p.kind() == pc::Code::At ||
+            p.kind() == pc::Code::RefPat) return true;
+        if (p.kind() == pc::Code::Wild && lir_view::PatWildView{p}.name() != "_") return true;
+    }
+    return false;
+}
+
 void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     // Pat/arm walking still goes through the C++ variant; scrut is routed
     // through the view. Full PatRef migration is a separate slice.
@@ -4803,16 +4812,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                    TypeRef(t).kind() == LogosType::Kind::MutRef) && TypeRef(t).pointee();
              t = TypeRef(t).pointee())
             ++chain;
-        bool whole_scrut_binder = false;
-        for (auto& a : arm_refs) {
-            auto p = a.pat();
-            if (!p) continue;
-            if (p.kind() == pc::Code::RefBind || p.kind() == pc::Code::At ||
-                p.kind() == pc::Code::RefPat) whole_scrut_binder = true;
-            else if (p.kind() == pc::Code::Wild &&
-                     lir_view::PatWildView{p}.name() != "_") whole_scrut_binder = true;
-        }
-        if (chain >= 2 && !whole_scrut_binder) {
+        if (chain >= 2 && !arms_bind_whole_scrutinee(arm_refs)) {
             for (int i = 1; i < chain; ++i) {
                 scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
                 scrut_ty = TypeRef(scrut_ty).pointee();
@@ -4827,17 +4827,19 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     if (TypeRef sct(scrut_ty); sct) {
         // Auto-deref `&Enum` / `&mut Enum` / `*Enum` so `match &enum_val {...}`
         // works the same as `match enum_val {...}`.
+        // Every layer, as the expression door peels. PROBES.md 2026-09-15d-argrefland.
         TypeRef enum_t = sct;
-        bool via_ref = false;
-        if ((sct.kind() == LogosType::Kind::Ref ||
-             sct.kind() == LogosType::Kind::MutRef ||
-             sct.kind() == LogosType::Kind::Ptr) && sct.pointee()) {
-            TypeRef inner(sct.pointee());
-            if (inner.kind() == LogosType::Kind::Enum) {
-                enum_t = inner;
-                via_ref = true;
-            }
+        int via_ref_depth = 0;
+        while (enum_t &&
+               (enum_t.kind() == LogosType::Kind::Ref ||
+                enum_t.kind() == LogosType::Kind::MutRef ||
+                enum_t.kind() == LogosType::Kind::Ptr) &&
+               enum_t.pointee()) {
+            ++via_ref_depth;
+            enum_t = enum_t.pointee();
         }
+        if (enum_t.kind() != LogosType::Kind::Enum) { enum_t = sct; via_ref_depth = 0; }
+        bool via_ref = via_ref_depth > 0;
         if (enum_t.kind() == LogosType::Kind::Enum) {
             te_info = resolve_tagged_enum(std::string(enum_t.enum_name()), enum_t);
             if (te_info) {
@@ -4846,7 +4848,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 // therefore the SAME one-level pointer — no extra deref. A
                 // by-value aggregate (returned by value from a fn) is spilled.
                 if (via_ref) {
-                    // scrut already IS the enum-storage pointer.
+                    // scrut IS the enum-storage pointer past `via_ref_depth - 1` loads.
+                    for (int li = 1; li < via_ref_depth; ++li)
+                        scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
                 } else if (scrut.getType() != ptr_type()) {
                     auto alloca = create_entry_alloca(te_info->llvm_type);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, alloca);
@@ -4861,6 +4865,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 // so the scalar arm tests below compare i32==disc instead of
                 // comparing the raw `&Enum` pointer (which crashed mlir-gen:
                 // `arith.cmpi operand must be integer, got !llvm.ptr`).
+                for (int li = 1; li < via_ref_depth; ++li)
+                    scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
                 scrut = builder_.create<mlir::LLVM::LoadOp>(
                     loc_, builder_.getI32Type(), scrut);
             }
@@ -5281,6 +5287,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 scope_[aname] = alloca;
                 let_vars_.insert(aname);
                 var_elem_types_[aname] = sv.getType();
+                if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
             }
             // C5: recurse into sub-pattern to bind nested fields.
             if (auto sub = pa.sub()) extract_payload(sub);
@@ -5331,6 +5338,16 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     return;
                 }
             }
+            {
+                lir_view::PatRef rq; mlir::Value rv; TypeRef rt;
+                if (!scrut_ptr && !te_info && ref_pat_core_scrut(p, scrut, scrut_ty, rq, rv, rt)) {
+                    auto saved_scrut = scrut; auto saved_coll = collapsed_scrut; TypeRef saved_ty = scrut_ty;
+                    scrut = rv; collapsed_scrut = rv; scrut_ty = rt;
+                    extract_payload(rq);
+                    scrut = saved_scrut; collapsed_scrut = saved_coll; scrut_ty = saved_ty;
+                    return;
+                }
+            }
             extract_payload(inner);
             return;
         }
@@ -5373,6 +5390,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     scope_[pwn] = alloca;
                     let_vars_.insert(pwn);
                     var_elem_types_[pwn] = sv.getType();
+                    if (!scrut_ptr) register_thin_ref_struct_binding(pwn, st);
                 }
             }
             return;
@@ -5441,8 +5459,10 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         // `&E::A` case (te_info null, `scrut` still a ptr-to-i32) keeps the
         // dedicated RefPat handler below.
         if (te_info && arm_kind == pc::Code::RefPat) {
-            if (auto inner = lir_view::PatRefPatView{arm_pat}.inner();
-                inner && (inner.kind() == pc::Code::VariantData ||
+            lir_view::PatRef inner = arm_pat;   // every `&`, not one: `&&E::V(..)`
+            while (inner && inner.kind() == pc::Code::RefPat)
+                inner = lir_view::PatRefPatView{inner}.inner();
+            if (inner && (inner.kind() == pc::Code::VariantData ||
                           inner.kind() == pc::Code::Variant ||
                           inner.kind() == pc::Code::Struct)) {
                 arm_pat = inner;

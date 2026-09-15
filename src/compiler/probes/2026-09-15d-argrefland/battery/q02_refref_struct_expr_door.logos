@@ -1,0 +1,10 @@
+package q02_refref_struct_expr_door;
+struct P { x: i32, y: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32, y: 6i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let s: i32 = match pp { &&P { x, y } => x * 10i32 + y };
+    if s != 56i32 { return 2i32; }
+    return 0i32;
+}

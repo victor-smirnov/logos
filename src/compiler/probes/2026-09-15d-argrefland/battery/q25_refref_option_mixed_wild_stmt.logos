@@ -1,0 +1,18 @@
+package q25_refref_option_mixed_wild_stmt;
+fn get(pp: &&Option<i64>) -> i64 {
+    let mut out: i64 = 0i64;
+    match pp {
+        &&Option::Some(x) => { out = x; }
+        _ => { out = 77i64; }
+    }
+    return out;
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(5i64);
+    let r: &Option<i64> = &o;
+    if get(&r) != 5i64 { return 25i32; }
+    let n: Option<i64> = Option::None;
+    let rn: &Option<i64> = &n;
+    if get(&rn) != 77i64 { return 26i32; }
+    return 0i32;
+}

@@ -6031,8 +6031,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                4 native pass fixtures (bc_0915c_argref_hb_{a09,a24,b02,b03}_admit, legal programs that refuted argrefpos /
 #                argrefneg), no fail fixture, no port moved. So ALL 10504 -> 10508 (+4), NOIMPORTED 6002 -> 6006 (+4), TIERCOMMIT
 #                118 -> 118 — measured by `ctest -N` on the re-globbed build 0fb613dc74481394 before this pin was touched.
-REGISTRY-ALL         10508
-REGISTRY-NOIMPORTED  6006
+# 2026-09-15d (argrefland — `&<reference binding>` is the binding's address; a `&`-pattern chain loads to its core; soundness_queue
+#                211 -> 209). 92 native pass fixtures: the six closed rows' programs (bc_argrefland_*_admit) and 86 hand-battery
+#                programs whose verdict moved base -> landed (bc_0915d_argrefland_hb_<id>_admit); no fail fixture, no port moved. So
+#                ALL 10508 -> 10600 (+92), NOIMPORTED 6006 -> 6098 (+92), TIERCOMMIT 118 -> 118 — measured by `ctest -N` on the
+#                re-globbed build 306d961fdb8b20b2 43 before this pin was touched, and again on the landed build 72c2afc955f79321 43 (same counts).
+REGISTRY-ALL         10600
+REGISTRY-NOIMPORTED  6098
 REGISTRY-TIERCOMMIT  118
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

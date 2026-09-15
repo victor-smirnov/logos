@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-15d-argrefland, program q06 — caught: verdict moved base b96b980fb (cc=0 run=6 vg=0) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_q06_admit;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    match pp { &&P { x: ref q } => { if *q != 5i32 { return 6i32; } } }
+    return 0i32;
+}

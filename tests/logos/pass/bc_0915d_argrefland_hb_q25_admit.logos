@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-15d-argrefland, program q25 — caught: verdict moved base b96b980fb (cc=0 run=25 vg=0) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_q25_admit;
+fn get(pp: &&Option<i64>) -> i64 {
+    let mut out: i64 = 0i64;
+    match pp {
+        &&Option::Some(x) => { out = x; }
+        _ => { out = 77i64; }
+    }
+    return out;
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(5i64);
+    let r: &Option<i64> = &o;
+    if get(&r) != 5i64 { return 25i32; }
+    let n: Option<i64> = Option::None;
+    let rn: &Option<i64> = &n;
+    if get(&rn) != 77i64 { return 26i32; }
+    return 0i32;
+}

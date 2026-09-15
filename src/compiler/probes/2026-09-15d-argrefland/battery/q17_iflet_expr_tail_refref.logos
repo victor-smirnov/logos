@@ -1,0 +1,11 @@
+package q17_iflet_expr_tail_refref;
+struct P { x: i32 }
+fn get(pp: &&P) -> i32 {
+    if let &&P { x } = pp { x } else { 0i32 }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    if get(&r) != 5i32 { return 17i32; }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// hand battery: round 2026-09-15d-argrefland, program h10 — caught: verdict moved base b96b980fb (cc=0 run=139 vg=1) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_h10_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn pick(k: i64) -> i64 {
+    let d1: D = D { v: 6i64 };
+    let d2: D = D { v: 8i64 };
+    let rd: &D = match k { 0i64 => &d1, _ => &d2 };
+    return inner(&rd);
+}
+fn main() -> i32 {
+    if pick(0i64) != 6i64 { return 10i32; }
+    if pick(1i64) != 8i64 { return 11i32; }
+    return 0i32;
+}

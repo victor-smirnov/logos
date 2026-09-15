@@ -1,0 +1,21 @@
+// hand battery: round 2026-09-15d-argrefland, program q16 — caught: verdict moved base b96b980fb (cc=1 run=- vg=-) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_q16_admit;
+struct P { x: i32, n: *mut i64 }
+impl Drop for P {
+    fn drop(self: &mut Self) { unsafe { *self.n = *self.n + 1i64; } }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let pn: *mut i64 = &mut n as *mut i64;
+    {
+        let p = P { x: 5i32, n: pn };
+        let r: &P = &p;
+        let pp: &&P = &r;
+        let mut s: i32 = 0i32;
+        match pp { &&P { x, n: _ } => { s = s + x; } }
+        let t: i32 = match pp { &&P { x, n: _ } => x };
+        if s + t != 10i32 { return 16i32; }
+    }
+    return (n as i32) - 1i32;
+}

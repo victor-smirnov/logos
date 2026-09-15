@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-15d-argrefland, program q28 — caught: verdict moved base b96b980fb (cc=0 run=29 vg=2) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_q28_admit;
+struct P { x: i64, y: i64 }
+impl P { fn sum(self: &Self) -> i64 { return self.x + self.y; } }
+fn inner(a: &&P) -> i64 { return a.y; }
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let rt: &(i64, i64) = &t;
+    match rt { q => { if q.1 != 4i64 { return 28i32; } } }
+    let p = P { x: 5i64, y: 6i64 };
+    let r: &P = &p;
+    let g: i64 = match r { q if q.x > 0i64 => q.sum(), _ => 0i64 };
+    if g != 11i64 { return 29i32; }
+    match r { q => { if inner(&q) != 6i64 { return 30i32; } } }
+    return 0i32;
+}

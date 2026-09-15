@@ -1,0 +1,11 @@
+package q27_nested_refref_enum_in_tuple;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(5i64);
+    let r: &Option<i64> = &o;
+    let pp: &&Option<i64> = &r;
+    match (pp, 2i64) {
+        (&&Option::Some(x), k) => { if x + k != 7i64 { return 27i32; } }
+        (_, _) => { return 28i32; }
+    }
+    return 0i32;
+}

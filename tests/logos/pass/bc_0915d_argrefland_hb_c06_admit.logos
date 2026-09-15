@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-15c-argref (re-run on this landing), program c06 — caught: verdict moved base b96b980fb (cc=0 run=6 vg=0) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_c06_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let o: Option<D> = Option::Some(D { v: 6i64 });
+    let Option::Some(rd) = &o else { return 60i32; };
+    if inner(&rd) != rd as *const D { return 6i32; }
+    return 0i32;
+}

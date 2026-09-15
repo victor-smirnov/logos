@@ -1,0 +1,11 @@
+package h06_closure_param_tuple_pointee;
+fn inner(a: &&(i64, i64)) -> i64 {
+    let x: &(i64, i64) = *a;
+    return x.0 + x.1;
+}
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let f = |rt: &(i64, i64)| -> i64 { return inner(&rt); };
+    if f(&t) != 7i64 { return 6i32; }
+    return 0i32;
+}

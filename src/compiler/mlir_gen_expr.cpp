@@ -1566,7 +1566,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
     }
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef addr_t) {
     // Address-of: return the alloca pointer directly.
     std::string var_name{v.var_name()};
     auto it = scope_.find(var_name);
@@ -1609,6 +1609,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
             ptr_family_param_.erase(var_name);
         }
         return alloca;
+    }
+    // `&r` over a reference binding that holds its VALUE (no slot): the address of a copy. PROBES.md 2026-09-15d-argrefland.
+    if (it->second && addr_t && TypeRef(addr_t).pointee()) {
+        TypeRef bt = TypeRef(addr_t).pointee();
+        const bool thin_ref_binding =
+            (bt.kind() == LogosType::Kind::Ref || bt.kind() == LogosType::Kind::MutRef) &&
+            ref_repr_of(bt) == RefReprKind::ThinPtr;
+        const bool has_slot = ref_slot_vars_.count(var_name) || var_local_ptrs_.count(var_name);
+        const bool holds_value = var_struct_.count(var_name) || ref_param_names_.count(var_name) ||
+                                 mlir::isa<mlir::BlockArgument>(it->second);
+        if (thin_ref_binding && !has_slot && holds_value && it->second.getType() == ptr_type()) {
+            auto spill = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, spill);
+            return spill;
+        }
     }
     // Enum value-repr: `&o` for an enum local is ONE level — the inline
     // storage address itself (like `&Struct`). scope_ already holds that
@@ -4521,6 +4536,22 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
     }
 
+    // The value half of RFC 2005's peel, as MLIRGenImpl::gen_match does it. PROBES.md 2026-09-15d-argrefland.
+    {
+        int chain = 0;
+        for (TypeRef t = scrut_ty;
+             t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                   TypeRef(t).kind() == LogosType::Kind::MutRef) && TypeRef(t).pointee();
+             t = TypeRef(t).pointee())
+            ++chain;
+        if (chain >= 2 && !arms_bind_whole_scrutinee(arm_refs) && scrut.getType() == ptr_type()) {
+            for (int i = 1; i < chain; ++i) {
+                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
+                scrut_ty = TypeRef(scrut_ty).pointee();
+            }
+        }
+    }
+
     // Detect tagged enum: load discriminant.
     mlir::Value scrut_ptr = nullptr;
     const TaggedEnumInfo* te_info = nullptr;
@@ -4634,6 +4665,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 scope_[name] = alloca;
                 let_vars_.insert(name);
                 var_elem_types_[name] = sv.getType();
+                if (!scrut_ptr) register_thin_ref_struct_binding(name, scrut_ty);
                 added.push_back(name);
             }
         } else if (pat_ref.kind() == pc::Code::Tuple) {
@@ -4943,6 +4975,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 let_vars_.insert(rbn);
                 var_elem_types_[rbn] = rcv.getType();
                 added.push_back(rbn);
+            } else if (lir_view::PatRef rq; !scrut_ptr && !te_info &&
+                       ref_pat_core_scrut(pat_ref, scrut, scrut_ty, rq, rcv, rct)) {
+                auto saved_scrut = scrut; TypeRef saved_ty = scrut_ty;
+                scrut = rcv; scrut_ty = rct;
+                added = extract_arm_payload(rq);
+                scrut = saved_scrut; scrut_ty = saved_ty;
             } else if (auto inner = lir_view::PatRefPatView{pat_ref}.inner()) {
                 added = extract_arm_payload(inner);
             }
@@ -4961,6 +4999,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 scope_[aname] = alloca;
                 let_vars_.insert(aname);
                 var_elem_types_[aname] = sv.getType();
+                if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
                 added.push_back(aname);
             }
             if (auto sub = pa.sub()) {
@@ -5069,8 +5108,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         // where te_info is null and `scrut` is still a ptr-to-i32, keeps the
         // dedicated RefPat handler further down.)
         if (te_info && arm_pat_ref.kind() == pc::Code::RefPat) {
-            if (auto inner = lir_view::PatRefPatView{arm_pat_ref}.inner();
-                inner && (inner.kind() == pc::Code::VariantData ||
+            lir_view::PatRef inner = arm_pat_ref;   // every `&`, not one: `&&E::V(..)`
+            while (inner && inner.kind() == pc::Code::RefPat)
+                inner = lir_view::PatRefPatView{inner}.inner();
+            if (inner && (inner.kind() == pc::Code::VariantData ||
                           inner.kind() == pc::Code::Variant ||
                           inner.kind() == pc::Code::Struct))
                 arm_pat_ref = inner;
@@ -5143,7 +5184,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         };
         bool is_wild = arm_pat_ref.kind() == pc::Code::Wild ||
                        arm_pat_ref.kind() == pc::Code::RefBind ||
-                       (arm_pat_ref.kind() == pc::Code::Struct &&
+                       ((arm_pat_ref.kind() == pc::Code::Struct ||
+                         arm_pat_ref.kind() == pc::Code::RefPat) &&
                         pat_irref(arm_pat_ref));
         auto get_disc = [](lir_view::PatRef p) -> int64_t {
             switch (p.kind()) {

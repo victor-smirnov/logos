@@ -1,0 +1,15 @@
+package q20_refref_wild_expr_door;
+struct P { x: i32, y: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32, y: 6i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let a: i32 = match pp { &q => q.y };
+    if a != 6i32 { return 20i32; }
+    let t: (i32, i32) = (3i32, 4i32);
+    let rt: &(i32, i32) = &t;
+    let ppt: &&(i32, i32) = &rt;
+    let b: i32 = match ppt { &q => q.1 };
+    if b != 4i32 { return 21i32; }
+    return 0i32;
+}

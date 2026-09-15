@@ -1,0 +1,18 @@
+// hand battery: round 2026-09-15d-argrefland, program q31 — caught: verdict moved base b96b980fb (cc=1 run=- vg=-) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_q31_admit;
+fn get(pp: &&Option<i64>) -> i64 {
+    match pp {
+        &&Option::Some(x) => x,
+        other => { let o2: &&Option<i64> = other; if o2 == pp { 77i64 } else { 66i64 } }
+    }
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(5i64);
+    let r: &Option<i64> = &o;
+    if get(&r) != 5i64 { return 31i32; }
+    let n: Option<i64> = Option::None;
+    let rn: &Option<i64> = &n;
+    if get(&rn) != 77i64 { return 32i32; }
+    return 0i32;
+}

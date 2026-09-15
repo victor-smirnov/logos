@@ -1,0 +1,15 @@
+package g2_cast_first;
+struct D { v: i64 }
+fn h(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn g(x: &D) -> bool {
+    let w: *const D = x as *const D;
+    return h(&x) == w;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    if !g(&d) { return 2i32; }
+    return 0i32;
+}

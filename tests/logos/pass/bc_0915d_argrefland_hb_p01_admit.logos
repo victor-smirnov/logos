@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-15c-argref (re-run on this landing), program p01 — caught: verdict moved base b96b980fb (cc=0 run=1 vg=0) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_p01_admit;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    match p { &&P { x } => x }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r = &p;
+    let pp: &&P = &r;
+    if deref2(pp) != 5i32 { return 1i32; }
+    return 0i32;
+}

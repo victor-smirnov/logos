@@ -1,0 +1,22 @@
+ROUND 2026-09-15d-argrefland — PREDICTIONS, written after the source edits and BEFORE the first candidate build or run.
+base: HEAD b96b980fb, build/ 0fb613dc74481394 43 (queue gate rc 0: 211 rows, tier1=36 tier2=58 tier3=109 tier4=8).
+candidate (one structural change, three parts):
+  A  MLIRGenImpl::gen_expr_kind(EAddrOfView): `&r` over a thin-reference binding with no slot record (ref_slot_vars_ / var_local_ptrs_)
+     that holds its value (var_struct_ / ref_param_names_ / a block argument) spills a copy — argreflandx's rule, the "none" bucket
+     replaced by mlir::BlockArgument (a slot is never a block argument).
+  B  gen_let_inner's multi-ref `let r2 = &r1` arm DELETED (repair by delegation; pricing measured the "stop adding a level" form).
+  C  MLIRGenImpl::ref_pat_core_scrut, called from both match doors' RefPat case: a `&`-chain of k over a depth-d (>=2) reference to a
+     struct / tuple core hands a Wild binder load^min(k,d-1) typed chain[k], and a struct pattern load^(d-1) typed core or &core;
+     the expression door's is_wild also admits an irrefutable RefPat arm.
+ROWS PREDICTED TO CLOSE (6): addr_of_struct_ref_local_arg_passes_referent_run, addr_of_ref_foreach_elem_passes_referent_run,
+  addr_of_ref_match_binder_passes_referent_run, addr_of_ref_closure_capture_passes_referent_run,
+  addr_of_ref_closure_param_passes_referent_run, struct_pattern_over_double_ref_reads_slot_run. No other row moves. 211 -> 205.
+PRICING BATTERY (83): the 48 wrong shapes + b08 c11 c12 -> 0; p01 p02 p04 p06 p09 -> 0; a09 a24 b02 b03 stay 0; refusals unchanged.
+THIS ROUND'S BATTERY (37, hb0915d):
+  -> 0: h02 h04 h05 h06 h07 h10 h11 h12 h13 (destructor count 1) h18; q02 q06 q08 q11 q12 q13 q16 (count 1) q18 q19 q20 q21.
+  uncertain: h03 (let-tuple destructure path, records unread), q10 (while-let lowering unread), q15 (tuple-struct pattern kind unread).
+  unchanged wrong: h08 (8; a generic PARAMETER, handled by the ptr_family spill — not this binder class), q04 (4) / q04e (verifier)
+    (enum core: the statement door's enum detection peels one layer — a different site), q14 (14; no `&`-pattern), q09 (sema refusal).
+  stay right: h01 h16 h20 h21 q01 q03 q05 q17.
+pass/pattern_parse_batch_full stays exit 0 (the cancellation's two halves move together).
+COST: run_oracle 0 damaged; fail_text 0/0/0; stdlib compiles; valgrind NEW 0 / GONE 0 (not a safety claim).

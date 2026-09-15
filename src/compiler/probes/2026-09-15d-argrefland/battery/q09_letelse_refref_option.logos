@@ -1,0 +1,11 @@
+package q09_letelse_refref_option;
+fn get(pp: &&Option<i32>) -> i32 {
+    let &&Option::Some(x) = pp else { return 77i32; };
+    return x;
+}
+fn main() -> i32 {
+    let o: Option<i32> = Option::Some(5i32);
+    let r: &Option<i32> = &o;
+    if get(&r) != 5i32 { return 9i32; }
+    return 0i32;
+}

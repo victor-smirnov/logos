@@ -48,7 +48,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 211
+# TOTAL 209
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -271,7 +271,6 @@ ref_pair_eq_without_impl_admits 2 tests/soundness/open/ref_pair_eq_without_impl_
 # ── 2026-09-15b-refeqland (tier 1: a comparison of two references compares THROUGH them, sema lower_binop) ──
 # Five rows CLOSED (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq, generic_ref_typevar_eq, ref_pair_ordering). Five rows
 # OPENED by the landing's hand battery (ref_pair_nonprim_tuple is ref_pair_aggregate's PART 4, re-rowed), each measured on base 854d99ae9a2e2fbd AND the landed binary; reason in each header.
-addr_of_struct_ref_local_arg_passes_referent_run 1 tests/soundness/open/addr_of_struct_ref_local_arg_passes_referent_run run 1
 array_nonprim_elem_eq_compares_addresses_run 1 tests/soundness/open/array_nonprim_elem_eq_compares_addresses_run run 1
 generic_ref_typevar_ordering_mlir_verifier_refused 3 tests/soundness/open/generic_ref_typevar_ordering_mlir_verifier_refused refuses
 tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tuple_enum_elem_eq_variadic_impl_return_lost_refused refuses
@@ -282,14 +281,17 @@ ref_pair_nonprim_tuple_eq_compares_addresses_run 1 tests/soundness/open/ref_pair
 # addr_of_struct_ref_local_arg_passes_referent_run's class at binders with a DIFFERENT record (for-each R, match/if-let VT, capture V,
 # closure parameter none); argrefland moves the first three, argreflandx all four (src/compiler/probes/2026-09-15c-argref/RESULT.txt).
 # Five are out-of-class legal refusals the battery met.
-addr_of_ref_foreach_elem_passes_referent_run 1 tests/soundness/open/addr_of_ref_foreach_elem_passes_referent_run run 1
-addr_of_ref_match_binder_passes_referent_run 1 tests/soundness/open/addr_of_ref_match_binder_passes_referent_run run 1
-addr_of_ref_closure_capture_passes_referent_run 1 tests/soundness/open/addr_of_ref_closure_capture_passes_referent_run run 1
-addr_of_ref_closure_param_passes_referent_run 1 tests/soundness/open/addr_of_ref_closure_param_passes_referent_run run 1
 double_ref_deref_return_outer_lifetime_refused 3 tests/soundness/open/double_ref_deref_return_outer_lifetime_refused refuses
 ref_to_slice_ref_param_unsized_refused 3 tests/soundness/open/ref_to_slice_ref_param_unsized_refused refuses
 ref_to_dyn_ref_type_parse_refused 3 tests/soundness/open/ref_to_dyn_ref_type_parse_refused refuses
 double_amp_lifetime_ref_type_parse_refused 3 tests/soundness/open/double_amp_lifetime_ref_type_parse_refused refuses
 field_read_through_ref_to_box_refused 3 tests/soundness/open/field_read_through_ref_to_box_refused refuses
-struct_pattern_over_double_ref_reads_slot_run 1 tests/soundness/open/struct_pattern_over_double_ref_reads_slot_run run 1
 let_ref_struct_pattern_irrefutable_refused 3 tests/soundness/open/let_ref_struct_pattern_irrefutable_refused refuses
+# ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
+# Six rows CLOSED (addr_of_struct_ref_local_arg, addr_of_ref_foreach_elem, addr_of_ref_match_binder, addr_of_ref_closure_capture,
+# addr_of_ref_closure_param _passes_referent_run, struct_pattern_over_double_ref_reads_slot_run) -> pass/bc_argrefland_*_admit. Four rows
+# OPENED by the landing's hand battery, each measured on base b96b980fb AND the candidate; the reason is in each program's header.
+param_ref_struct_cast_after_addr_of_reads_slot_run 1 tests/soundness/open/param_ref_struct_cast_after_addr_of_reads_slot_run run 1
+letelse_ref_pattern_binding_undefined_refused 3 tests/soundness/open/letelse_ref_pattern_binding_undefined_refused refuses
+ref_pattern_nested_in_tuple_binding_undefined_refused 3 tests/soundness/open/ref_pattern_nested_in_tuple_binding_undefined_refused refuses
+method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_autoderef_double_ref_option_infer_refused refuses

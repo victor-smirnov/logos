@@ -1,0 +1,8 @@
+package q03_refref_array_pat;
+fn main() -> i32 {
+    let a: [i32; 2] = [3i32, 4i32];
+    let r: &[i32; 2] = &a;
+    let pp: &&[i32; 2] = &r;
+    match pp { &&[x, y] => { if x * 10i32 + y != 34i32 { return 3i32; } } }
+    return 0i32;
+}

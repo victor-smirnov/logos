@@ -1,0 +1,24 @@
+// soundness_queue row addr_of_struct_ref_local_arg_passes_referent_run, CLOSED by 2026-09-15d-argrefland.
+// `inner2(&rd)` / `inner::<D>(&rd)` with `rd: &D` (an immutable `&Struct` let, scope_ holds the referent's address with no slot)
+// passes `&rd` itself: MLIRGenImpl::gen_expr_kind(EAddrOfView) spills the reference value. Base b96b980fb: exit 1 (the callee's
+// `*a` read D's bytes as a pointer). Rust: exit 0. Legality by reading; no rustc binary.
+package bc_argrefland_struct_ref_local_arg_admit;
+struct D { v: i64 }
+fn inner2(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn inner<T>(a: &&T) -> *const T {
+    let x: &T = *a;
+    return x as *const T;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let got: *const D = inner2(&rd);
+    if got != want { return 1i32; }
+    let got2: *const D = inner::<D>(&rd);
+    if got2 != want { return 2i32; }
+    return 0i32;
+}

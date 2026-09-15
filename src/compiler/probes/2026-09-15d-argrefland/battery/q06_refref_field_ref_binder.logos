@@ -1,0 +1,9 @@
+package q06_refref_field_ref_binder;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    match pp { &&P { x: ref q } => { if *q != 5i32 { return 6i32; } } }
+    return 0i32;
+}

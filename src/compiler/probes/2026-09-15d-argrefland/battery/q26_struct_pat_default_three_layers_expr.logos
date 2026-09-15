@@ -1,0 +1,16 @@
+package q26_struct_pat_default_three_layers_expr;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let p = P { x: 5i64, y: 6i64 };
+    let r: &P = &p;
+    let rr: &&P = &r;
+    let rrr: &&&P = &rr;
+    let v: i64 = match rrr { P { x, y } => *x * 10i64 + *y };
+    if v != 56i64 { return 26i32; }
+    let t: (i64, i64) = (1i64, 2i64);
+    let rt: &(i64, i64) = &t;
+    let rrt: &&(i64, i64) = &rt;
+    let w: i64 = match rrt { (a, b) => *a + *b };
+    if w != 3i64 { return 27i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// soundness_queue row struct_pattern_over_double_ref_reads_slot_run, CLOSED by 2026-09-15d-argrefland.
+// A `&`-pattern chain onto a struct through `&&P`: PART 1 fn tail `match p { &&P { x } => x }`, PART 2 statement match, PART 3
+// `if let &&P { x } = pp`, PART 4 `match pp { &q => q.x }`. MLIRGenImpl::ref_pat_core_scrut hands the inner pattern the chain loaded
+// to its base, and a whole-value `&Struct` binder registers its slot shape. Base b96b980fb: exit 1 (fields read from the slot holding
+// the inner reference). Rust: exit 0. Legality by reading; no rustc binary.
+package bc_argrefland_struct_pattern_over_double_ref_admit;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    match p { &&P { x } => x }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    if deref2(pp) != 5i32 { return 1i32; }
+    match pp { &&P { x } => { if x != 5i32 { return 2i32; } } }
+    if let &&P { x } = pp {
+        if x != 5i32 { return 3i32; }
+    }
+    match pp { &q => { if q.x != 5i32 { return 4i32; } } }
+    return 0i32;
+}

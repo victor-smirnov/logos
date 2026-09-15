@@ -1,0 +1,16 @@
+package g6_i64_param_addr_in_untaken_branch;
+fn h(a: &&i64) -> i64 {
+    let x: &i64 = *a;
+    return *x;
+}
+fn g(x: &i64, c: bool) -> i64 {
+    let mut s: i64 = 0i64;
+    if c { s = h(&x); }
+    return s + *x;
+}
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    if g(&v, false) != 6i64 { return 7i32; }
+    if g(&v, true) != 12i64 { return 8i32; }
+    return 0i32;
+}

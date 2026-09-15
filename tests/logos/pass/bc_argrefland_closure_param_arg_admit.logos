@@ -1,0 +1,16 @@
+// soundness_queue row addr_of_ref_closure_param_passes_referent_run, CLOSED by 2026-09-15d-argrefland.
+// `|rd: &D| inner(&rd) == want`: a closure PARAMETER registers no record; its scope_ entry is the block argument, never a slot, so
+// `&rd` spills it. Base b96b980fb: exit 1. Rust: exit 0. Legality by reading; no rustc binary.
+package bc_argrefland_closure_param_arg_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let want: *const D = &d as *const D;
+    let f = |rd: &D| -> bool { return inner(&rd) == want; };
+    if !f(&d) { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+package h03_tuple_pattern_ref_elem;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let (a, b) = (&d, 1i64);
+    if inner(&a) + b != 7i64 { return 3i32; }
+    return 0i32;
+}

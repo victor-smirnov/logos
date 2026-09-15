@@ -1,0 +1,8 @@
+package q01_refref_tuple_pat;
+fn main() -> i32 {
+    let t: (i32, i32) = (3i32, 4i32);
+    let r: &(i32, i32) = &t;
+    let pp: &&(i32, i32) = &r;
+    match pp { &&(a, b) => { if a + b != 7i32 { return 1i32; } } }
+    return 0i32;
+}

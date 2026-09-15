@@ -1,0 +1,17 @@
+package h04_while_let_option_ref_payload;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let mut it: Option<&D> = Option::Some(&d);
+    let mut sum: i64 = 0i64;
+    while let Option::Some(rd) = it {
+        sum = sum + inner(&rd);
+        it = Option::None;
+    }
+    if sum != 6i64 { return 4i32; }
+    return 0i32;
+}

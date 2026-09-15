@@ -1,0 +1,10 @@
+package q14_struct_pat_default_through_two_expr;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let v: i32 = match pp { P { x } => *x };
+    if v != 5i32 { return 14i32; }
+    return 0i32;
+}

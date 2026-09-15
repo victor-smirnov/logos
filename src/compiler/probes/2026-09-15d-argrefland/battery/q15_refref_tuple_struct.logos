@@ -1,0 +1,9 @@
+package q15_refref_tuple_struct;
+struct T(i32, i32);
+fn main() -> i32 {
+    let t = T(3i32, 4i32);
+    let r: &T = &t;
+    let pp: &&T = &r;
+    match pp { &&T(a, b) => { if a * 10i32 + b != 34i32 { return 15i32; } } }
+    return 0i32;
+}

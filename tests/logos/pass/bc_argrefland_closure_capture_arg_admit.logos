@@ -1,0 +1,17 @@
+// soundness_queue row addr_of_ref_closure_capture_passes_referent_run, CLOSED by 2026-09-15d-argrefland.
+// A closure capturing `rd: &D` calls `inner(&rd)`; the env carries the referent address (var_struct_), and `&rd` is now the address
+// of a copy of the reference. Base b96b980fb: exit 1. Rust: exit 0. Legality by reading; no rustc binary.
+package bc_argrefland_closure_capture_arg_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let f = || -> bool { return inner(&rd) == want; };
+    if !f() { return 1i32; }
+    return 0i32;
+}

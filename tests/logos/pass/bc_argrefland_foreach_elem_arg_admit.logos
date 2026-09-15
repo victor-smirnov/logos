@@ -1,0 +1,18 @@
+// soundness_queue row addr_of_ref_foreach_elem_passes_referent_run, CLOSED by 2026-09-15d-argrefland.
+// `inner(&x)` with `x` the element binding of `for x in s` (s: &[D]; the binder records ref_param_names_, scope_ holds the element
+// address) passes `&x` itself. Base b96b980fb: exit 1. Rust: exit 0. Legality by reading; no rustc binary.
+package bc_argrefland_foreach_elem_arg_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let arr: [D; 2] = [D { v: 6i64 }, D { v: 7i64 }];
+    let s: &[D] = &arr;
+    for x in s {
+        let want: *const D = x as *const D;
+        if inner(&x) != want { return 1i32; }
+    }
+    return 0i32;
+}

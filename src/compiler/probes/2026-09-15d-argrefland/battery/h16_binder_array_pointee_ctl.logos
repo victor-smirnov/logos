@@ -1,0 +1,15 @@
+package h16_binder_array_pointee_ctl;
+fn inner(a: &&[i64; 2]) -> i64 {
+    let x: &[i64; 2] = *a;
+    return x[1];
+}
+fn main() -> i32 {
+    let o: Option<[i64; 2]> = Option::Some([3i64, 7i64]);
+    match &o {
+        Option::Some(ra) => {
+            if inner(&ra) != 7i64 { return 16i32; }
+        }
+        Option::None => { return 90i32; }
+    }
+    return 0i32;
+}

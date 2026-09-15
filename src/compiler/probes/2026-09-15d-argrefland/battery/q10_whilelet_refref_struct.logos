@@ -1,0 +1,14 @@
+package q10_whilelet_refref_struct;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let mut n: i32 = 0i32;
+    while let &&P { x } = pp {
+        n = n + x;
+        if n > 9i32 { break; }
+    }
+    if n != 10i32 { return 10i32; }
+    return 0i32;
+}

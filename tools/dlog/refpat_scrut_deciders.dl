@@ -1,0 +1,29 @@
+#include "cxx_schema.dl"
+// refpat_scrut_deciders — round 2026-09-15d-argrefland. WHICH CONTEXTS HAND A `&`-PATTERN'S INNER PATTERN A SCRUTINEE, AND WHICH OF
+// THEM DECIDE HOW MANY REFERENCE LAYERS OF IT TO LOAD?
+// Row struct_pattern_over_double_ref_reads_slot_run: the RefPat case of a match door recursed with the SAME scrutinee value, loading
+// no layer, while scalar_core_scrut (scalars) and the enum door (via_ref_depth) load every layer above their core.
+// Claim-free domain: every call of lir_view::PatRefPatView::inner, keyed by its nearest NAMED context (lambdas keep their variable
+// name — extract_payload and extract_arm_payload are std::function lambdas and must not collapse into gen_match).
+// A context "decides layers" if it calls scalar_core_scrut or ref_pat_core_scrut, or names mlir::LLVM::LoadOp. ⚠ ctx_of coarsens:
+// a context that loads is not a site that loads for THIS recursion — every row is read by hand at its line.
+// KNOWN ANSWER (read before the run): gen_match's extract_payload and gen_expr_kind(EMatchView)'s extract_arm_payload call inner()
+// and scalar_core_scrut (and, on the candidate, ref_pat_core_scrut); pat_test calls inner() and names LoadOp; shadow_register_pattern
+// calls inner() and loads nothing; gen_match / gen_expr_kind(EMatchView) call inner() at the arm-dispatch peel.
+.decl inner_call(C: symbol, L: number, F: symbol)
+inner_call(C, L, F) :- call(U, D), decl(D, _, Q), match("(.*::)?PatRefPatView::inner", Q), loc(U, F, L, _), ctx_of(U, C).
+.decl ctx_label(C: symbol, Key: symbol)
+ctx_label(C, cat(Nm, "@", F, ":", to_string(L))) :- named_context(C), ctx_name(C, Nm), loc(C, F, L, _).
+.decl core_loader(C: symbol, How: symbol)
+core_loader(C, "scalar_core_scrut") :- call(U, D), decl(D, _, Q), match(".*::scalar_core_scrut", Q), ctx_of(U, C).
+core_loader(C, "ref_pat_core_scrut") :- call(U, D), decl(D, _, Q), match(".*::ref_pat_core_scrut", Q), ctx_of(U, C).
+core_loader(C, "LoadOp") :- ref(U, D), decl(D, _, Q), match("mlir::LLVM::LoadOp(::.*)?", Q), ctx_of(U, C).
+.decl refpat_recursor(Key: symbol, Line: number)
+.output refpat_recursor
+refpat_recursor(K, L) :- inner_call(C, L, _), ctx_label(C, K).
+.decl refpat_recursor_loads(Key: symbol, How: symbol)
+.output refpat_recursor_loads
+refpat_recursor_loads(K, H) :- inner_call(C, _, _), ctx_label(C, K), core_loader(C, H).
+.decl refpat_recursor_no_load(Key: symbol)
+.output refpat_recursor_no_load
+refpat_recursor_no_load(K) :- inner_call(C, _, _), ctx_label(C, K), !core_loader(C, _).

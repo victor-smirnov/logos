@@ -1,0 +1,32 @@
+ROUND 2026-09-15d-argrefland — THE `&`-PATTERN DOOR CLASS, ENUMERATED WITH tools/dlog, CROSS-CHECKED BY GREP AND PER SITE.
+selftest: `bash tools/dlog/selftest.sh` rc 0, 2026-09-15 10:17 — "ok 28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5;
+duty discriminates across 756aed65 (1 -> 0)".
+QUESTION (new rule tools/dlog/refpat_scrut_deciders.dl, asked of mlir_gen_{stmt,expr,dyn}.cpp mlir_gen.cpp on the CANDIDATE tree, i.e. with
+ref_pat_core_scrut present): which named contexts call lir_view::PatRefPatView::inner (hand a `&`-pattern's inner pattern a scrutinee), and
+which of them decide how many reference layers to load (call scalar_core_scrut / ref_pat_core_scrut, or name mlir::LLVM::LoadOp)?
+KNOWN ANSWER, written before the run: extract_payload and extract_arm_payload call inner() + scalar_core_scrut (+ ref_pat_core_scrut);
+pat_test calls inner() and names LoadOp; shadow_register_pattern calls inner() and loads nothing; gen_match / gen_expr_kind(EMatchView)
+call inner() at the arm-dispatch peel.
+ANSWER — refpat_recursor (12 call sites, 9 contexts):
+  extract_arm_payload@mlir_gen_expr.cpp 4951 4975 · extract_payload@mlir_gen_stmt.cpp 5298 5313 · gen_expr_kind(EMatchView) 5101 5425 ·
+  gen_match 5454 5776 · pat_test 4364 · shadow_register_pattern 1277 · ref_pat_core_scrut 4140 · lir_view.hpp is_irrefutable_pattern 3132.
+  refpat_recursor_loads: extract_arm_payload / extract_payload (scalar_core_scrut + ref_pat_core_scrut), gen_expr_kind(EMatchView) and
+  gen_match (scalar_core_scrut). refpat_recursor_no_load: pat_test, ref_pat_core_scrut, shadow_register_pattern, is_irrefutable_pattern.
+  ⚠ KNOWN-ANSWER MISS, AN EXTRACTOR LIMIT: pat_test and ref_pat_core_scrut both emit `builder_.create<mlir::LLVM::LoadOp>` and still read
+  no_load — the extractor records no `ref` for a TEMPLATE ARGUMENT, so the LoadOp term is a HARNESS ZERO. Only the two named-call terms
+  are evidence. Not repaired (the extractor is the risk); recorded.
+GREP, the same question by spelling (`PatRefPatView{..}.inner()` / `rp.inner()` over the same files + lir_view.hpp): 12 lines, the same 12.
+PER-SITE READ, and what each decides from the chain depth:
+  extract_payload 5298/5313, extract_arm_payload 4951/4975 — the RefPat case: recursed with the SAME value, loading nothing (the row's
+    root). REPAIRED by ref_pat_core_scrut (part C).
+  gen_match 5454, gen_expr_kind(EMatchView) 5101 — arm-level peel over a tagged enum: stripped ONE `&`. REPAIRED (E4: every `&`), with the
+    statement door's enum detection, which peeled one layer where the expression door peels all (E4).
+  gen_match 5776, gen_expr_kind(EMatchView) 5425 — P4-pm-18 scalar dispatch for a REFUTABLE `&`-pattern arm. The expression door routed an
+    IRREFUTABLE `&`-pattern arm here too (verifier refusal, `match &v { &n => n }`): REPAIRED by admitting it to is_wild (part C).
+  pat_test 4364 — loads one layer per `&` from a slot holding the reference: consistent with the struct / tuple data-address convention.
+  shadow_register_pattern, is_irrefutable_pattern — names / predicate only.
+  ABSENCE (not in the answer): MLIRGenImpl::pat_bind has no RefPat case, and the let-else door binds only Tuple / VariantData — a nested or
+    let-else `&`-pattern binds nothing. Arms for both were built (E2, E5) and moved no program: sema refuses first. Rowed, reason 2.
+  NOT A RefPat SITE, SAME FACT: gen_expr_kind(EMatchView) had no chain collapse for a non-reference pattern over depth >= 2 (the statement
+    door's "second half of RFC 2005's peel") — found by battery q14 / q26, REPAIRED (E3). A whole-value binder of a thin `&Struct`
+    (Wild / At, both doors) stored the reference in a slot with no shape record — found by q24 / q28 / q29, REPAIRED (E1).

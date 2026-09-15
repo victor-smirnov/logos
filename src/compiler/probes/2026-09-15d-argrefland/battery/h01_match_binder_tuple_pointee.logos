@@ -1,0 +1,15 @@
+package h01_match_binder_tuple_pointee;
+fn inner(a: &&(i64, i64)) -> i64 {
+    let x: &(i64, i64) = *a;
+    return x.1;
+}
+fn main() -> i32 {
+    let o: Option<(i64, i64)> = Option::Some((3i64, 7i64));
+    match &o {
+        Option::Some(rt) => {
+            if inner(&rt) != 7i64 { return 1i32; }
+        }
+        Option::None => { return 90i32; }
+    }
+    return 0i32;
+}

@@ -1,0 +1,16 @@
+package g5_struct_param_addr_in_untaken_branch;
+struct D { v: i64 }
+fn h(a: &&D) -> i64 {
+    return a.v;
+}
+fn g(x: &D, c: bool) -> i64 {
+    let mut s: i64 = 0i64;
+    if c { s = h(&x); }
+    return s + x.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    if g(&d, false) != 6i64 { return 5i32; }
+    if g(&d, true) != 12i64 { return 6i32; }
+    return 0i32;
+}

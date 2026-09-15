@@ -1,0 +1,14 @@
+package g4_i64_param;
+fn h(a: &&i64) -> *const i64 {
+    let x: &i64 = *a;
+    return x as *const i64;
+}
+fn g(x: &i64) -> bool {
+    let w: *const i64 = x as *const i64;
+    return h(&x) == w;
+}
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    if !g(&v) { return 4i32; }
+    return 0i32;
+}

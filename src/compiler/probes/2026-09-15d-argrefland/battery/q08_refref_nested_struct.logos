@@ -1,0 +1,10 @@
+package q08_refref_nested_struct;
+struct P { x: i32 }
+struct Q { k: i32, p: P }
+fn main() -> i32 {
+    let q = Q { k: 2i32, p: P { x: 5i32 } };
+    let r: &Q = &q;
+    let pp: &&Q = &r;
+    match pp { &&Q { k, p: P { x } } => { if k * 10i32 + x != 25i32 { return 8i32; } } }
+    return 0i32;
+}

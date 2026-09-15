@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-15c-argref (re-run on this landing), program b13 — caught: verdict moved base b96b980fb (cc=0 run=139 vg=1) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_b13_admit;
+struct D { v: i64 }
+trait Get { fn get(self: &Self) -> i64; }
+impl Get for D { fn get(self: &Self) -> i64 { return self.v; } }
+fn via<T: Get>(a: &&T) -> i64 { return a.get(); }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    if via::<D>(&rd) != 6i64 { return 13i32; }
+    return 0i32;
+}

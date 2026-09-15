@@ -1,0 +1,10 @@
+package q21_ref_scalar_binder_expr_door;
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let y: i64 = match &v { &n => n + 1i64 };
+    if y != 8i64 { return 21i32; }
+    let rv: &i64 = &v;
+    let z: i64 = match &rv { &&n => n + 2i64 };
+    if z != 9i64 { return 22i32; }
+    return 0i32;
+}

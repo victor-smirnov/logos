@@ -1,0 +1,30 @@
+// soundness_queue row addr_of_ref_match_binder_passes_referent_run, CLOSED by 2026-09-15d-argrefland.
+// `inner(&rd)` with `rd: &D` bound by `match &o { Some(rd) }` / `if let Some(rd) = &o` / `Some(ref rd)` (var_struct_ alias, no slot)
+// passes `&rd` itself. Base b96b980fb: exit 1. Rust: exit 0. Legality by reading; no rustc binary.
+package bc_argrefland_match_binder_arg_admit;
+struct D { v: i64 }
+fn inner(a: &&D) -> *const D {
+    let x: &D = *a;
+    return x as *const D;
+}
+fn main() -> i32 {
+    let o: Option<D> = Option::Some(D { v: 6i64 });
+    let mut bad: i32 = 0i32;
+    match &o {
+        Option::Some(rd) => {
+            if inner(&rd) != rd as *const D { bad = 1i32; }
+        }
+        Option::None => { return 90i32; }
+    }
+    if bad != 0i32 { return bad; }
+    if let Option::Some(rd) = &o {
+        if inner(&rd) != rd as *const D { return 2i32; }
+    }
+    match o {
+        Option::Some(ref rd) => {
+            if inner(&rd) != rd as *const D { return 3i32; }
+        }
+        Option::None => { return 91i32; }
+    }
+    return 0i32;
+}

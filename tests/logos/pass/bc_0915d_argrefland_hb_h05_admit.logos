@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-15d-argrefland, program h05 — caught: verdict moved base b96b980fb (cc=0 run=139 vg=1) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_h05_admit;
+struct D { v: i64 }
+fn bump(a: &&mut D) -> i64 {
+    return a.v + 1i64;
+}
+fn main() -> i32 {
+    let mut o: Option<D> = Option::Some(D { v: 6i64 });
+    match &mut o {
+        Option::Some(rd) => {
+            if bump(&rd) != 7i64 { return 5i32; }
+            rd.v = 9i64;
+        }
+        Option::None => { return 90i32; }
+    }
+    match o {
+        Option::Some(d) => { if d.v != 9i64 { return 50i32; } }
+        Option::None => { return 91i32; }
+    }
+    return 0i32;
+}

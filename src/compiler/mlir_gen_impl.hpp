@@ -325,6 +325,11 @@ public:
     // See PROBES.md 2026-09-06f.
     bool scalar_core_scrut(mlir::Value scrut, TypeRef scrut_ty,
                            mlir::Value& out_val, TypeRef& out_ty);
+    // The aggregate half at a `&`-pattern chain. PROBES.md 2026-09-15d-argrefland.
+    bool ref_pat_core_scrut(lir_view::PatRef pat, mlir::Value scrut, TypeRef scrut_ty,
+                            lir_view::PatRef& inner, mlir::Value& out_val, TypeRef& out_ty);
+    // Some arm binds the whole scrutinee or spells `&`: both match doors skip the collapse.
+    static bool arms_bind_whole_scrutinee(const std::vector<lir_view::EMatchArmRef>& arms);
 private:
 
     // ── DWARF debug info (-g) ─────────────────────────────────────────────

@@ -1,0 +1,18 @@
+// hand battery: round 2026-09-15c-argref (re-run on this landing), program a07 — caught: verdict moved base b96b980fb (cc=0 run=7 vg=0) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_a07_admit;
+struct D { v: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let want: *const D = rd as *const D;
+    let o: Option<&&D> = Option::Some(&rd);
+    match o {
+        Option::Some(p) => {
+            let x: &D = *p;
+            if x as *const D != want { return 7i32; }
+        }
+        Option::None => { return 70i32; }
+    }
+    return 0i32;
+}

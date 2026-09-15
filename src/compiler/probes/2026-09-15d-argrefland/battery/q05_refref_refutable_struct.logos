@@ -1,0 +1,17 @@
+package q05_refref_refutable_struct;
+struct P { x: i32, y: i32 }
+fn classify(pp: &&P) -> i32 {
+    match pp {
+        &&P { x: 5i32, y } => y,
+        _ => 99i32,
+    }
+}
+fn main() -> i32 {
+    let p = P { x: 5i32, y: 6i32 };
+    let r: &P = &p;
+    if classify(&r) != 6i32 { return 5i32; }
+    let q = P { x: 1i32, y: 6i32 };
+    let rq: &P = &q;
+    if classify(&rq) != 99i32 { return 55i32; }
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+package q12_single_ref_pat_tuple;
+fn main() -> i32 {
+    let t: (i32, i32) = (3i32, 4i32);
+    let r: &(i32, i32) = &t;
+    let pp: &&(i32, i32) = &r;
+    match pp { &q => { if q.1 != 4i32 { return 12i32; } } }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+package q30_letelse_single_ref_option;
+struct P { x: i64 }
+fn get(r: &Option<i64>) -> i64 {
+    let &Option::Some(x) = r else { return 77i64; };
+    return x;
+}
+fn getp(r: &Option<P>) -> i64 {
+    let Option::Some(q) = r else { return 78i64; };
+    return q.x;
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(5i64);
+    if get(&o) != 5i64 { return 30i32; }
+    let n: Option<i64> = Option::None;
+    if get(&n) != 77i64 { return 31i32; }
+    let op: Option<P> = Option::Some(P { x: 9i64 });
+    if getp(&op) != 9i64 { return 32i32; }
+    return 0i32;
+}

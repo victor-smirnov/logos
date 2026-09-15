@@ -1,0 +1,12 @@
+package q04e_refref_option_expr;
+fn main() -> i32 {
+    let o: Option<i32> = Option::Some(5i32);
+    let r: &Option<i32> = &o;
+    let pp: &&Option<i32> = &r;
+    let got: i32 = match pp {
+        &&Option::Some(x) => x,
+        &&Option::None => 77i32,
+    };
+    if got != 5i32 { return 4i32; }
+    return 0i32;
+}

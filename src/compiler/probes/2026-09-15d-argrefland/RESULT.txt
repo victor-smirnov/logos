@@ -1,0 +1,91 @@
+ROUND 2026-09-15d-argrefland (LANDING, soundness queue tier 1) — `&<reference binding>` IS THE BINDING'S ADDRESS; A `&`-PATTERN CHAIN
+LOADS EVERY LAYER ABOVE ITS CORE.
+base: HEAD b96b980fb, build/ 0fb613dc74481394 43 (snapshot of its logosc + lib kept for the hand runs and the control revert).
+candidates: build-dev0915d (fresh Ninja configure, same options as build/) — cand1 A+B+C; cand2 + E1..E5; cand3 = cand2 - E2 - E5 + E6
+  (fe4eaf1fad839c31 43). landed: build/ 72c2afc955f79321 43 = A B C E1 E3 E4 (E2 E5 E6 reverted) + one-definition refactor; first landing build 306d961fdb8b20b2 43.
+
+STEP 1: HEAD b96b980fb clean; `# TOTAL` soundness_queue 211 / bc_admits 60 / bc_admits_blocked 8; probe-log-lint 343; build_hash
+  0fb613dc74481394 43; queue gate rc 0 with LOGOS_LIB_DIR: 211 rows, tier1 36 tier2 58 tier3 109 tier4 8. dlog selftest rc 0.
+  The paraphrased pricing report agreed with the tree on every number it states (queue 211, 36 tier-1, pins 10508 / 6006 / 118, 3605).
+
+TARGET ROWS (fixed by the pricing record 2026-09-15c-argref/TARGET_ROWS.txt and its "fund 1 then 2"; named by id in PREDICTIONS.txt, which
+  was written after the source edits and before the first build — not before the first edit):
+  addr_of_struct_ref_local_arg_passes_referent_run, addr_of_ref_foreach_elem_passes_referent_run, addr_of_ref_match_binder_passes_referent_run,
+  addr_of_ref_closure_capture_passes_referent_run, addr_of_ref_closure_param_passes_referent_run, struct_pattern_over_double_ref_reads_slot_run.
+
+RUN EVIDENCE PER CLOSED ROW (compiled LOGOS_VERIFY_LAYOUT=1, linked, run, valgrind --leak-check=full):
+  row                                                  base b96b980fb            landed 72c2afc9 (= 306d961f)
+  addr_of_struct_ref_local_arg_passes_referent_run     exit 1, vg 0 errors       exit 0, vg 0
+  addr_of_ref_foreach_elem_passes_referent_run         exit 1, vg 0              exit 0, vg 0
+  addr_of_ref_match_binder_passes_referent_run         exit 1, vg 0              exit 0, vg 0
+  addr_of_ref_closure_capture_passes_referent_run      exit 1, vg 0              exit 0, vg 0
+  addr_of_ref_closure_param_passes_referent_run        exit 1, vg 0              exit 0, vg 0
+  struct_pattern_over_double_ref_reads_slot_run        exit 1, vg 0              exit 0, vg 0 (cand1 = C alone: exit 4 — PART 4 needed E1)
+  No row program prints; none carries a destructor. Destructor COUNTS are carried by b04 h13 q16 q29 (exit = count - 1): base 139 / 139 /
+  refused / 29, landed 0 (count 1) each, valgrind 0.
+
+HAND BATTERY (83 pricing a/b/c/d/p + 53 this round h/q/g; base and landed each run once, candidates as listed):
+  wrong or refused on base, Rust's answer on the landed binary (86, all landed as fixtures): a01-a08 a14 a15 a17 a18 a19 a20 a22 a26 a30
+    b04-b09 b11 b13 b17 c01 c02 c04-c08 c10-c14 c16 c17 d02 d03 d05-d08 d10 p01-p04 p06 p09 · h02-h07 h10-h13 h18 · q02 q04 q04e q06 q08 q10
+    q11-q16 q18-q21 q24-q26 q28 q29 q31.
+  right on base and on landed (controls): a09-a13 a16 a21 a23-a25 a29 b01-b03 c03 c09 d01 d04 d09 p05 p08 · h01 h16 h20 h21 · q01 q03 q05
+    q17 q23 · g2 g4 g5 g6.
+  wrong on both (rows): g1 h08 g3 -> param_ref_struct_cast_after_addr_of_reads_slot_run; q09 q30 -> letelse_ref_pattern_binding_undefined_refused;
+    q22 q27 -> ref_pattern_nested_in_tuple_binding_undefined_refused; q31's first spelling -> method_autoderef_double_ref_option_infer_refused.
+  refused on both, already rows (pricing): a27 b15 (parse), a28, b10, b14, b16, p07; b12 (`.iter()` on a slice, not rowed), c15 (illegal).
+  landed vs cand2 on every common program: identical (E2 / E5 / E6 moved nothing — reverted).
+  PREDICTIONS: rows 6 — HIT; the listed shapes — HIT; h03 q10 q15 (uncertain) -> 0; MISSES: q19 q20 (predicted 0 under C, read 20: the
+    `&Struct` binder had no shape — E1), the row itself under C alone (exit 4, same cause); h08 q04 q14 unchanged as predicted under A+B+C,
+    then q04 q14 moved under E4 / E3 (added after the miss, measured).
+
+CONTROL REVERT: the 92 new pass fixtures compiled + run on the base binary: 92 of 92 wrong (31 exit 139, 6 refused, 55 a wrong exit code).
+
+NEIGHBOURS (standing rule 2026-09-12):
+  neighbour                                                  status                          measurement
+  gen_let_inner multi-ref `let r2 = &r1` arm                 closed, same commit (deleted:   a09 a24 b02 b03 stay 0 (pricing fixtures)
+                                                             delegation to A)
+  for-each element binder (ref_param_names_)                closed (A)                      row foreach 1 -> 0; a19 h07 h18 -> 0
+  match / if-let / `ref` / payload / let-else binders        closed (A)                      row match_binder 1 -> 0; a20 b06 b07 c06 h02 h04
+    (var_struct_)                                                                              h05 h13 -> 0
+  closure capture (var_struct_)                              closed (A)                      row capture 1 -> 0; a30 c01 c14 -> 0
+  closure parameter (block argument, no record)              closed (A)                      row closure_param 1 -> 0; b08 c11 c12 h06 -> 0
+  `&`-pattern over an aggregate core, both match doors       closed (C)                      row struct_pattern 1 -> 0 (with E1)
+  expression door's irrefutable `&`-pattern arm dispatch     closed (C, is_wild)             q02 q16 q20 q21: verifier refusal -> 0
+  whole-value `&Struct` binder, Wild / At, both doors        closed (E1)                     q24 24 -> 0, q28 29 -> 0, q29 29 -> 0, row PART 4
+  expression door: no depth >= 2 collapse                    closed (E3)                     q14 14 -> 0, q26 26 -> 0
+  enum core under a `&`-chain (statement enum detection      closed (E4)                     q04 4 -> 0, q04e refused -> 0, q25 25 -> 0,
+    one layer; arm-level peel one `&`, both doors)                                             q31 refused -> 0
+  MLIRGenImpl::pat_bind has no RefPat case (nested `&`)      ROWED, REASON 2                 E2 built: q22 q27 unchanged (sema refuses first)
+  let-else door binds no RefPat                              ROWED, REASON 2                 E5 built: q09 q30 unchanged (sema refuses first)
+  parameter arm REBIND then a cast reads the slot            ROWED, REASON 1                 E6 built at the same site: g1 1, g3 3, h08 8
+                                                                                               unchanged; MLIR shows the cast reading the slot
+  argrefneg's "no slot record" rule                          declined (pricing, reason 3)    replaced by mlir::BlockArgument
+
+COLUMNS — HOW THEY RAN. One configure (build/, Ninja, RelWithDebInfo, clang-20). Base columns on build/ 0fb613dc74481394 43 (HEAD b96b980fb)
+  between 10:08 and 10:35: run_oracle 7230, fail_text 1861, valgrind sweep 7242, gate-run -L bc (all rc 0).
+  FIRST landing chain on build/ 306d961fdb8b20b2 43 (11:04-11:37): queue gate rc 0 (209 rows), run_oracle 7230 common / 1 moved
+    (cast-region-to-uint, stack address) / 92 added all 0,0, fail_text 1861 / 0 moved, valgrind 7242 common / 0 moved / NEW 0 / GONE 0 /
+    92 added all OK, stdlib 4 layers ok — and L1 rc 1: 807/807 pass, the gates tier red on ONE test, logos_00_key_identity_lint
+    "mlir_gen_expr.cpp bare-name intercepts: count 4, ledger pins 3". MEASURED which: the scan's own regexes over HEAD vs the tree add
+    exactly one literal, `"_"` — E3's COPY of gen_match's whole-scrutinee-binder predicate. Not bought by moving the pin: the predicate
+    became ONE definition, MLIRGenImpl::arms_bind_whole_scrutinee (mlir_gen_stmt.cpp, where the original was already counted), called by
+    both doors -> mlir_gen_expr.cpp 3 / mlir_gen_stmt.cpp 3, key_identity_lint rc 0. gate-run -L bc of that chain was stopped (it measured a
+    binary that is not committed). Comment blocks in the compiled sources were then cut to one-line markers (8 added comment lines).
+  FINAL chain on build/ 72c2afc955f79321 43 (logosc sha256 82a67595ba5aec11), from 11:47:
+    hand battery (233 = 83 pricing + 53 this round + 5 row / control programs + 92 new fixtures): identical to the 306d961f run, result
+      for result; 20 non-zero = the pre-existing refusals (a27 a28 b10 b12 b14 b15 b16 c15 p07), q09 q22 q27 q30 (sema), the four new row
+      programs, g1 g3 h08.
+    queue gate (LOGOS_LIB_DIR): rc 0 — "209 open row(s) (tier1=31 tier2=58 tier3=112 tier4=8), '# TOTAL' says 209".
+    run_oracle: base 7230 / landed 7322; common 7230, moved 1 = cast-region-to-uint (stdout sha only; prints a stack address — subtracted by
+      name): 0 damaged, 0 other. 92 landed-only = the new fixtures, all (ccrc 0, runrc 0).
+    fail_text_oracle (-L bc -L fail): 1861 / 1861 common, rc / stderr sha / .expected match moved 0.
+    registry: ctest -N ALL 10600 / -LE imported 6098 / -L tier_commit 118 (same on 306d961f); pass listing 3697 = 191 + 3506;
+      census_pin_gate rc 0, population_pin_lint --selftest rc 0 (run on the tree before the final chain).
+    valgrind sweep: base 7242 / landed 7334; common 7242, status moved 0, NEW bad 0, GONE bad 0 (LEAK 53, CORRUPT 3, TIMEOUT 3, NOVG 2,
+      CFAIL 62, LINKFAIL 124 on both); 92 landed-only, all OK. Reaper ran; no set difference needed a solo re-run.
+    stdlib-cost.sh: "all four layers compile under 'nothing armed'".
+    L1 (from build/): rc 0 — 807/807 (L1.1) and the gates tier passed (118 tests declaring tier_commit).
+    gate-run -L bc: rc 0, "gate-db: build 1248 — 3787 passed / 0 failed / 2 other, 3789 recorded" (other = poll-problem-case-3,
+      dropck-shadow-rebind: Disabled). gate_db compare 1246 (base) -> 1248: 3697 tests measured under both, 0 changed; 92 only in 1248.
+    L4 bc detached (LOGOS_L4_BG=1, from build/): rc 0, "100% tests passed, 0 tests failed out of 5218".
+    full cmake --build: rc 0 (the landed build).

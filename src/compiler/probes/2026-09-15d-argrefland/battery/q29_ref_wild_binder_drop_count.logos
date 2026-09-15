@@ -1,0 +1,19 @@
+package q29_ref_wild_binder_drop_count;
+struct D { v: i64, n: *mut i64 }
+impl Drop for D {
+    fn drop(self: &mut Self) { unsafe { *self.n = *self.n + 1i64; } }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let pn: *mut i64 = &mut n as *mut i64;
+    {
+        let d: D = D { v: 6i64, n: pn };
+        let rd: &D = &d;
+        let mut s: i64 = 0i64;
+        match rd { q => { s = s + q.v; } }
+        let rrd: &&D = &rd;
+        match rrd { &q => { s = s + q.v; } }
+        if s != 12i64 { return 29i32; }
+    }
+    return (n as i32) - 1i32;
+}

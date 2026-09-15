@@ -1,0 +1,17 @@
+package h18_capture_foreach_elem;
+struct D { v: i64 }
+fn inner(a: &&D) -> i64 {
+    let x: &D = *a;
+    return x.v;
+}
+fn main() -> i32 {
+    let arr: [D; 2] = [D { v: 6i64 }, D { v: 7i64 }];
+    let s: &[D] = &arr;
+    let mut sum: i64 = 0i64;
+    for x in s {
+        let f = || -> i64 { return inner(&x); };
+        sum = sum + f();
+    }
+    if sum != 13i64 { return 18i32; }
+    return 0i32;
+}

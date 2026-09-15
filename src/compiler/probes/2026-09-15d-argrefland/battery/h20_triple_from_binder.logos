@@ -1,0 +1,15 @@
+package h20_triple_from_binder;
+struct D { v: i64 }
+fn three(a: &&&D) -> i64 {
+    let x: &&D = *a;
+    let y: &D = *x;
+    return y.v;
+}
+fn main() -> i32 {
+    let o: Option<D> = Option::Some(D { v: 6i64 });
+    if let Option::Some(rd) = &o {
+        let prd: &&D = &rd;
+        if three(&prd) != 6i64 { return 20i32; }
+    }
+    return 0i32;
+}

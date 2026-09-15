@@ -1,0 +1,9 @@
+package q18_refmut_ref_struct;
+struct P { x: i32 }
+fn main() -> i32 {
+    let mut p = P { x: 5i32 };
+    let r: &mut P = &mut p;
+    let pp: &&mut P = &r;
+    match pp { & &mut P { x } => { if x != 5i32 { return 18i32; } } }
+    return 0i32;
+}

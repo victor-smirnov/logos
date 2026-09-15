@@ -45927,3 +45927,136 @@ ceiling: 1 queue row (target) + 4 rows opened this round (foreach, match binder,
 cost: 1 — run_oracle the same single DAMAGE (pattern_parse_batch_full) of 7226, identical to argrefland but the stack-address fixture ·
   queue gate target only · fail text 0 of 1861 · stdlib 4 layers ok · valgrind (union) 7238 swept each, NEW 0 / GONE 0 after re-running the two base-side NOVG entries ALONE (fiber_thread_basic 134 errors on both binaries; ufcs-explicit-self 0 on both), LEAK / CORRUPT counters moved 0
 verdict: PRICED, NOT FUNDABLE ALONE — the union to fund AFTER (or WITH) the RefPat aggregate-core door; its own extra arm has no corpus population.
+
+# ═══ ROUND 2026-09-15d-argrefland (LANDING, soundness queue tier 1) — `&<reference binding>` IS THE BINDING'S ADDRESS, AND A
+#     `&`-PATTERN CHAIN LOADS EVERY LAYER ABOVE ITS CORE; FIVE SITES OF ONE FACT, SIX ROWS CLOSED, FOUR OPENED ══════════════════════
+
+Files: `src/compiler/probes/2026-09-15d-argrefland/` — PREDICTIONS.txt (after the source edits, BEFORE the first candidate build or run),
+CLASS_DLOG.txt (dlog question + grep cross-check + per-site read), RESULT.txt (every column), battery/ (53 programs: h01-h21 q01-q31
+this round, g1-g6 the parameter-rebind variants). The 83 pricing programs were re-run from src/compiler/probes/2026-09-15c-argref/battery/.
+New dlog rule: tools/dlog/refpat_scrut_deciders.dl (selftest rc 0 first; known answer present for the named-call terms; the LoadOp term
+is a HARNESS ZERO — the extractor records no `ref` for a template argument — recorded, not repaired).
+
+STEP 1: HEAD b96b980fb clean; `# TOTAL` soundness_queue 211, bc_admits 60, bc_admits_blocked 8; probe-log-lint 343 records; build_hash
+0fb613dc74481394 43; queue gate rc 0 with LOGOS_LIB_DIR (211 rows, tier1 36 tier2 58 tier3 109 tier4 8). The paraphrased pricing report
+matches the tree on every number it gives.
+
+WHAT SHOULD IT MEAN: Rust — `&r` with `r: &T` is a `&&T` whose referent is `r`; a `&`-pattern is a deref of the scrutinee and default
+binding mode (RFC 2005 / Rust 2024 match ergonomics) peels the remaining layers. DIVERGENCES.md A1-A17 and docs/spec name no address-of or
+`&`-pattern divergence (the pricing record's search; re-read for `&`-pattern: `pat.bind.ref-bind-binds-address` only).
+
+THE CLASS — "how many reference layers of a value does this consumer load", five sites, one fact:
+  A  MLIRGenImpl::gen_expr_kind(EAddrOfView): `&r` over a thin-reference binding that HOLDS ITS VALUE (var_struct_ / ref_param_names_ /
+     a block argument) and has no slot record spills a copy — argreflandx's rule with its "no record" bucket replaced by
+     mlir::isa<mlir::BlockArgument> (a slot is never a block argument). B gen_let_inner's multi-ref `let r2 = &r1` arm DELETED (repair by
+     delegation: it added the missing level itself).
+  C  MLIRGenImpl::ref_pat_core_scrut, from both match doors' RefPat case: a `&`-chain of k over a depth-d (>= 2) reference to a struct /
+     tuple core hands a whole-value binder load^min(k,d-1) typed chain[k], and a struct pattern load^(d-1) typed core / &core; the
+     expression door's is_wild admits an irrefutable RefPat arm (it verifier-refused `let y = match &v { &n => n + 1 };`).
+  E1 a whole-value binder (Wild / At, both doors) of a thin `&Struct` records its slot shape (register_thin_ref_struct_binding) — wrong
+     on base by itself: `match r { q => q.y }` over `r: &P` reads the slot as the struct (battery q24 q28 q29).
+  E3 gen_expr_kind(EMatchView) collapses a depth >= 2 scrutinee to one layer for non-reference patterns, as gen_match does (q14 q26).
+  E4 gen_match's enum detection peels every layer (the expression door already did) and both doors' arm-level RefPat peel strips every
+     `&`, not one (q04 q04e q25 q31).
+  Enumeration: dlog 12 `PatRefPatView::inner()` call sites / grep 12 — the same 12, read per site in CLASS_DLOG.txt; the E1 / E3 sites were
+  found by the battery, not by the rule (their fact is not spelled by a RefPat).
+
+## argrefland
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+(second edit of the same fact: src/compiler/mlir_gen_stmt.cpp gen_let_inner's multi-ref arm deleted)
+build: 72c2afc955f79321 43 (landed binary; candidates build-dev0915d)
+measured: 2026-09-15
+fires: battery — every a/b/c/d argref shape wrong on base (48 + b08 c11 c12) and h02-h07 h10-h13 h18 -> Rust's answer
+ceiling: 5 queue rows (addr_of_struct_ref_local_arg / addr_of_ref_foreach_elem / addr_of_ref_match_binder / addr_of_ref_closure_capture /
+  addr_of_ref_closure_param _passes_referent_run)
+cost: see COLUMNS (the union is priced once)
+verdict: LANDED
+
+## refpatcore
+site: src/compiler/mlir_gen_stmt.cpp::ref_pat_core_scrut
+build: 72c2afc955f79321 43
+measured: 2026-09-15
+fires: battery p01 p02 p04 p06 q02 q06 q08 q10 q11 q12 q13 q15 q16 q18 q21 -> Rust's answer; pattern_parse_batch_full stays 0 (the cancellation's
+  two halves move together)
+ceiling: 1 queue row (struct_pattern_over_double_ref_reads_slot_run; its PART 4 needs wildrefshape — doors in series, co-landed)
+cost: see COLUMNS
+verdict: LANDED
+
+## wildrefshape
+site: src/compiler/mlir_gen_stmt.cpp::register_thin_ref_struct_binding
+build: 72c2afc955f79321 43
+measured: 2026-09-15
+fires: battery q19 q20 q24 q28 q29 p09 and the row's PART 4 -> Rust's answer
+ceiling: completes struct_pattern_over_double_ref_reads_slot_run (PART 4 exit 4 under refpatcore alone, measured)
+cost: see COLUMNS
+verdict: LANDED
+
+## exprcollapse
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+build: 72c2afc955f79321 43
+measured: 2026-09-15
+fires: battery q14 q26 -> Rust's answer
+ceiling: 0 queue rows (no row carried the shape; both programs land as fixtures)
+cost: see COLUMNS
+verdict: LANDED — the same fact at the expression door, a strict extension of the statement door's own collapse
+
+## enumrefdepth
+site: src/compiler/mlir_gen_stmt.cpp::gen_match
+build: 72c2afc955f79321 43
+measured: 2026-09-15
+fires: battery q04 (4 -> 0) q04e (verifier refusal -> 0) q25 q31 -> Rust's answer
+ceiling: 0 queue rows
+cost: see COLUMNS
+verdict: LANDED
+
+## patbindref
+site: src/compiler/mlir_gen_stmt.cpp::pat_bind
+build: build-dev0915d candidate 2 (rebuilt over before its hash was read — the number is not recorded)
+measured: 2026-09-15
+fires: 0 — q22 q27 unchanged (refused "undefined variable 'x'" by sema before codegen asks): an UNREACHED zero
+ceiling: 0
+cost: unpriced
+verdict: DECLINED, reason 2 — row ref_pattern_nested_in_tuple_binding_undefined_refused
+
+## letelseref
+site: src/compiler/mlir_gen_stmt.cpp::gen_stmt_kind
+build: build-dev0915d candidate 2 (as patbindref)
+measured: 2026-09-15
+fires: 0 — q09 q30 unchanged (sema refusal first): an UNREACHED zero
+ceiling: 0
+cost: unpriced
+verdict: DECLINED, reason 2 — row letelse_ref_pattern_binding_undefined_refused
+
+## paramrebindshape
+site: src/compiler/mlir_gen_expr.cpp::gen_expr_kind
+build: fe4eaf1fad839c31 43 (build-dev0915d candidate 3)
+measured: 2026-09-15
+fires: 0 of 3 — g1 1 -> 1, g3 3 -> 3, h08 8 -> 8 (reached: the rebind runs; the emitted `icmp eq %1, %0` shows the later cast reading
+  the SLOT, a reader the shape record does not govern)
+ceiling: 0
+cost: unpriced
+verdict: DECLINED, reason 1 — row param_ref_struct_cast_after_addr_of_reads_slot_run (EAddrOfView carries no mutability, so the arm cannot
+  ask whether the rebind is needed)
+
+COLUMNS (landed build/ 72c2afc955f79321 43 vs base 0fb613dc74481394 43, one configure; RESULT.txt has the timeline):
+  queue gate rc 0 — 209 rows (tier1 31 tier2 58 tier3 112 tier4 8); exactly the six predicted rows closed, the four new rows hold.
+  run_oracle: 7230 common, 1 moved = cast-region-to-uint (stack address, subtracted by name) -> 0 damaged, 0 other; 92 added all (0, 0).
+  fail_text_oracle: 1861 common, rc / stderr sha / .expected match moved 0.
+  valgrind sweep: 7242 common, status moved 0, NEW 0 / GONE 0 (LEAK 53 CORRUPT 3 TIMEOUT 3 NOVG 2 on both); 92 added all OK.
+  stdlib-cost: all four layers compile. L1 rc 0: 807/807 and the gates tier 118/118. gate-run -L bc: build 1248, 3787 passed / 0 failed /
+  2 other (Disabled), and gate_db compare 1246 -> 1248: 3697 measured under both, 0 changed. L4 bc detached (LOGOS_L4_BG=1): rc 0, 5218/5218.
+  hand battery on the landed binary: identical to the pre-refactor landing build 306d961fdb8b20b2 43, result for result.
+  CONTROL REVERT: the 92 new pass fixtures on the base binary — 92 wrong (31 exit 139, 6 refused, 55 wrong exit).
+  THE FIRST LANDING BUILD WAS RED IN ONE GATE: logos_00_key_identity_lint counted E3's copied `"_"` whole-binder literal as a new
+  bare-name intercept in mlir_gen_expr.cpp (4 vs pin 3). Repaired by ONE definition (MLIRGenImpl::arms_bind_whole_scrutinee), not by the
+  pin; every column above was then re-run on the rebuilt binary.
+ROWS: CLOSED 6 (the targets) -> pass/bc_argrefland_*_admit. OPENED 4: param_ref_struct_cast_after_addr_of_reads_slot_run (tier 1, reason 1),
+  letelse_ref_pattern_binding_undefined_refused (tier 3, reason 2), ref_pattern_nested_in_tuple_binding_undefined_refused (tier 3, reason 2),
+  method_autoderef_double_ref_option_infer_refused (tier 3, out of class). soundness_queue 211 -> 209.
+FIXTURES FROM THE HAND BATTERY: 86 pass fixtures bc_0915d_argrefland_hb_<id>_admit (every program whose verdict moved base -> landed); the
+  controls stay in battery/. Pins: census ALL 10508 -> 10600, NOIMPORTED 6006 -> 6098, TIERCOMMIT 118 (ctest -N); direct_door corpus
+  3605 -> 3697 = 191 + 3506 (listing); census_pin_gate rc 0, population_pin_lint rc 0, key_identity_lint rc 0.
+CONTRADICTS A RECORD: the pricing record's "match / if-let / `ref` binders (VT)" set is incomplete — a whole-value `match r { q => q.y }`
+  binder over `r: &P` read garbage on base independently of `&` (q24), and the expression door had no depth collapse at all (q14); neither
+  was in the pricing battery's shapes. Its "enumerate the RefPat door's sites with dlog" found the 12 inner() sites, but the two
+  defects outside RefPat were found by varying the SHAPE, not by the rule.

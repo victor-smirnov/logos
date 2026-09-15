@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-15c-argref (re-run on this landing), program b09 — caught: verdict moved base b96b980fb (cc=0 run=9 vg=0) -> landed argrefland (exit 0, valgrind 0 errors: Rust's answer)
+// legality: by reading, no rustc binary
+package bc_0915d_argrefland_hb_b09_admit;
+struct D { v: i64 }
+fn same_addr<T>(a: &&T, want: *const T) -> bool {
+    let x: &T = *a;
+    return x as *const T == want;
+}
+fn g<T>(x: &T) -> bool {
+    let r: &T = x;
+    return same_addr::<T>(&r, x as *const T);
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    if !g::<D>(&d) { return 9i32; }
+    return 0i32;
+}
