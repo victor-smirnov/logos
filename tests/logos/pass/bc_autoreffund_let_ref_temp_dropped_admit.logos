@@ -1,0 +1,25 @@
+// CLOSED soundness_queue row let_ref_bind_temp_never_dropped (tier 1), round 2026-09-14o-autoreffund.
+// `let ref y = D { .. }` is `let y = &D { .. }`; it used to spill the rvalue with no owner (n=1). lower_let now gives it the
+// named-temp extension that `let y = &<rvalue>` takes: dropped at the end of the block. Oracle: count 1001, exit 0.
+package bc_autoreffund_let_ref_temp_dropped_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn body(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    {
+        let ref y = D { v: 1000i64, c: p };
+        if y.v != 1000i64 { return 3i64; }
+    }
+    return a.v - 1i64;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = body(p);
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld r=%ld\n".as_ptr(), got, r); }
+    if r != 0i64 { return 2i32; }
+    if got != 1001i64 { return 1i32; }
+    return 0i32;
+}

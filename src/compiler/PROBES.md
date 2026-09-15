@@ -45271,3 +45271,133 @@ note: `let ref y = <rvalue>` recognised by the named-temp extension arm (C6-cc-0
   the operand where it is evaluated (a named temp registered in the statement's temp scope WITHOUT prepending its
   initialiser before the statement), which `hoist_stmt_temp` today cannot express. The receiver door never needed it
   because a receiver is evaluated first.
+
+# ═══ ROUND 2026-09-14o-autoreffund (LANDING, soundness queue tier 1) — AN AUTO-BORROWED OPERAND'S TEMPORARY IS OWNED BY
+#     THE TEMP SCOPE AND INITIALISED WHERE THE OPERAND IS EVALUATED ═════════════════════════════════════════════════════
+
+Funds 2026-09-14n-autoreftemp. Files: `src/compiler/probes/2026-09-14o-autoreffund/` — PREDICTIONS.txt (rows and hand
+verdicts by name, written after the source edit and BEFORE any binary of it existed), CLASS_DLOG.txt, CONTROL_REVERT.txt.
+
+THE PRICING'S RECOMMENDATION WAS NOT TAKEN AS IS, and the record it rests on is partly wrong:
+  * 14n: "The receiver door is not reordered by the same hoist because a receiver is evaluated first anyway." FALSE on
+    base b54c1160: `add(side(s), mk(2, s).get())` and `side(s) + mk(2, s).get()` read 216 (Rust 126), and
+    `add(fails(s)?, mk(2, s).get())` builds the receiver BEFORE the `?` and never drops it (21, Rust 1). The prepend is the
+    OWNER's defect (SemaChecker::hoist_stmt_temp), present at every one of its 3 callers, not a property of the crude arm.
+  * so the fix is not a hoist at seven more sites but a different owner: SemaChecker::autoref_operand registers
+    `let __rtmp_N: T;` (a null-valued SLet) in the active temp scope and returns `{ __rtmp_N = v; &[mut] __rtmp_N }`.
+    Evaluation stays in source order; the scope's existing drop (statement end, early exits via the frame, the
+    return-bind path) runs the destructor; codegen's declared-uninit tracking (B8) skips an exit lowered before the
+    initialisation. Borrow check sees `AddrOfTemp(VarRef __rtmp_N)`, the shape is_materialized_temp_name already keys.
+  * `let ref y = <rvalue>` (unannotated) and `let r = &&<rvalue>` take lower_let's named __lit_temp_N extension (the
+    block owns them, Rust's extension), not the statement owner — letrefext's form, extended to `&&`.
+
+PREDICTION vs MEASUREMENT (queue gate, candidate unarmed): predicted 8 rows by name, the gate's FAIL lines read exactly those
+8 — predicted-not-measured 0, measured-not-predicted 0; every other row still reproduces.
+HAND BATTERY (68 programs = 26 new fundbat + 5 fundx + 37 of 14n, + 5 neighbour programs): every verdict as predicted, with
+one UNCERTAIN resolved (c04 generic `T: Eq` -> 26). Still wrong as predicted: c02 c03 c18 (sibling exit door), c10 (x01),
+c12/x03 (annotation), x05 (aggregate extension).
+
+### THE CLASS AND ITS NEIGHBOURS (standing rule 2026-09-12) — one table, every row measured
+    neighbour                                             in this commit / rowed                    reason and number
+    push_operand (row + 18 shapes)                        CLOSED operator_autoref_temp_never_dropped  1 -> 1001
+    push_pc (`<` via partial_cmp)                         CLOSED partial_cmp_..._never_dropped         1 -> 1001
+    tuple Eq lref_e/rref_e                                CLOSED tuple_eq_..._never_dropped            1 -> 1001
+    take_operand_ref (enum ==, TypeVar ==, String==str)   CLOSED enum_eq_operand_temp_never_dropped    1 -> 1001
+    lower_index_read range receiver                       CLOSED array_rvalue_range_index_...          0 -> 1001
+    lower_unary `&&<rvalue>` (non-extending)              CLOSED double_ref_temp_arg_never_dropped     1 -> 1001
+    lower_let `let ref y = <rvalue>` (unannotated)        CLOSED let_ref_bind_temp_never_dropped       1 -> 1001
+    evaluation ORDER at the operator sites                CLOSED operator_autoref_temp_eval_order_run  12 -> 126 (crude arm 216)
+    `let r = &&<rvalue>` direct extension (x02)           CLOSED, never rowed                          0 -> 1000
+    method receiver prepend (materialize_recv_ref)        CLOSED, never rowed (recvinplace)            r01 r02 216 -> 126, r04 21 -> 1
+    struct-only-generic receiver (lower_method_call)      CLOSED (sgrecvinplace) + bc_admits issue-36082  n02 216 -> 126; i03 admitted -> refused
+    field base prepend (lower_field_read)                 ROWED field_base_temp_built_before_sibling_run  reason 3: fieldinplace refuses legal n04 (E0507)
+    owner registered after a later operand's exit         ROWED operator_operand_owner_after_sibling_exit_leak  reason 1: lower_binop lowers both operands before push_operand registers the owner (c02 2, c03 23762, c18 22376)
+    `&<rvalue>` extended through an aggregate `let` (x05) ROWED aggregate_extended_borrow_temp_never_dropped  reason 1: only a DIRECT `let p = &<rvalue>` mints __lit_temp_N (0 -> 0)
+    bck.NEW-BCS borrowck-let-suggestion (bc_admits)       stays open                                   reason 1: the borrow rides a STRUCT result (`Iter<'s>`), no temp provenance carrier; admitted under every arm and the landing
+  NOT THIS FACT, rowed: return_array_lit_of_moved_locals_double_drop (x01: 22 for 11 on base and landing), let_ref_bind_annotated_refused
+  (x03/c12: the annotation read as the binding's type). Unmoved as before: byvalue_operator_operand_not_moved_double_drop,
+  ref_struct_eq_compares_addresses_run.
+
+### CLASS BY PROPERTY — tools/dlog/autoref_owner_sites.dl (NEW; selftest rc 0 first). Known answer 35 / 8 / 3, measured
+  spill 34 / inplace_owner 8 / prepend_owner 3; the one miss is mine (14n's "38" sums to 37 per file). CLASS_DLOG.txt.
+
+### CONTROL REVERT — build-land0913d rebuilt from HEAD's three files (198673a1694dcf02 43), sources restored byte-identical
+  (git diff sha e4447a30dce0 before and after): all 8 row programs exit 1, 34 of 35 core catches wrong (exit 1, or c07 216 B /
+  h19 68 B / h34 34 B definitely lost), n04 correct (it condemns an arm, not base), every receiver catch wrong. CONTROL_REVERT.txt.
+
+### HAND BATTERY HARVEST (rule of 2026-09-14): 55 fixtures land. pass bc_0914o_autoreffund_hb_{c04 c05 c06 c07 c08 c09 c11 c13 c15
+  c16 c17 c19 c20 c21 c22 x02 h02 h03 h04 h06 h09 h10 h11 h13 h14 h15 h16 h17 h18 h19 h24 h26 h27 h30 h34 n04 r01 r02 r04 c14 l01 l04
+  n02 n05 l06}_admit (45; the h-programs are 14n's, whose verdicts moved now), fail bc_0914o_autoreffund_hb_{i03,i04}_refuse, and the
+  8 row programs as pass bc_autoreffund_*_admit. Wrong on the landing -> rows (5 above). Stay in scratch (caught nothing): c01 r03
+  n03 x04 l02 l03 l05 l07-l10 and 14n's controls.
+## recvinplace
+site: src/compiler/sema_expr.cpp::materialize_recv_ref
+build: 750bac96934bea72
+measured: 2026-09-14
+fires: 155
+ceiling: 0
+cost: 0
+verdict: LANDS (unconditional in this commit) — cost 0 in every column, and the neighbour rule closes it with the operator sites
+note: every method receiver that materialize_recv_ref hoisted (a fresh droppable rvalue auto-ref'd to `&self`/`&mut self`)
+  is owned by SemaChecker::autoref_operand instead of the PREPENDING SemaChecker::hoist_stmt_temp. cost columns (armed vs
+  unarmed on the same binary): pass(ledger+legal) 0, fail-text 0 of 1858, stdlib all four layers, run_oracle 7030 common /
+  1 changed = cast-region-to-uint -> 0, valgrind identical in every status set, 0 numeric changes (sweep 20:45 -> 20:59). Hand: r01 r02 216 -> 126, r04 21 -> 1, c14 217 -> 127, l01 216 -> 126,
+  l04 317 -> 137 (Rust each); i01 i02 refusals textually identical; l02 l03 l05 l07-l10 unmoved and correct.
+
+## sgrecvinplace
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: 750bac96934bea72
+measured: 2026-09-14
+fires: 14
+ceiling: 1
+cost: 0
+verdict: LANDS (unconditional in this commit) — ceiling 1 = bc_admits issue-36082 (bck.NEW-BCS), NOT predicted; its refusal
+  reads upstream's own E0716 sentence "temporary value dropped while borrowed"
+note: the struct-only-generic receiver (passed BY VALUE to a ref-like formal) was hoisted by the PREPENDING
+  hoist_stmt_temp, and its `__rtmp` was a by-value VarRef that borrow check never saw as a temporary — so a borrow of it
+  escaping the statement was ADMITTED (issue-36082 `x.borrow().get()`; hand i03 `let r: &i64 = mkg(s).peek();` runs exit 0
+  on base). Owned by autoref_operand it is an `AddrOfTemp(VarRef __rtmp_N)`, the shape is_materialized_temp_name keys.
+  cost columns (armed vs unarmed, same binary): pass(ledger+legal) 0, fail-text 0 of 1858, stdlib all four layers,
+  run_oracle 7030 common / 1 changed = cast-region-to-uint -> 0, valgrind identical in every status set, 0 numeric changes (sweep 21:16 -> 21:30). Hand: n02 n05 l06 216 -> 126; i03 admitted ->
+  refused; i04's refusal loses the internal name '__rv_1' but prints a SECOND line; l07 l08 unmoved and correct.
+  The other bck.NEW-BCS row, borrowck-let-suggestion (`let x: Iter = mkv().iter();`, the borrow carried inside a STRUCT),
+  stays admitted under each arm and under the landed binary: reason 1 — the temporary's provenance has no carrier through
+  a struct-typed result.
+
+## fieldinplace
+site: src/compiler/sema_expr.cpp::lower_field_read
+build: 750bac96934bea72
+measured: 2026-09-14
+fires: hand only (not priced over the corpus — condemned by a hand program first)
+ceiling: 0
+cost: 1 legal program refused by hand (n04)
+verdict: DECLINED — n01 (`side(s) + mk(2, s).v`) 216 -> 126, and n04 (`let s: String = mkp(p).name;`, a field MOVED out of a
+  temporary, legal) refused "cannot move out of a value behind a reference / out of an index (E0507)": the base is read
+  through the reference autoref_operand returns. Row field_base_temp_built_before_sibling_run, reason 3.
+note: the same two programs on build-land0913d gave the same answers; the 68-program battery under this name moved nothing else.
+
+### GATES ON THE LANDED TREE
+  build 0e7b5f11a0939689 43 (build/, re-configured so the 55 fixtures glob; both receiver arms unconditional, fieldinplace
+  reverted, no probe name in the binary's sources).
+  soundness_queue_gate rc 0: 191 rows = # TOTAL 191 by listing (tier1 27, tier2 57, tier3 99, tier4 8).
+  census_pin (predicted, then measured before the pin was touched): ALL 10361 / NOIMPORTED 5859 / TIERCOMMIT 118.
+  direct_door_census (predicted, then measured): corpus 3458 = glob 191 + nonglob 3267. The same ctest run executed the 3453
+    corpus fixtures it depends on — every one passed, the 53 new pass fixtures included.
+  run_oracle vs the base baseline: 7030 common, 0 only-base, 1 changed = cast-region-to-uint -> 0, 53 added = the 53 new pass
+    fixtures, each ccrc 0 runrc 0.
+  fail_text_oracle vs the base baseline: 1858 common, 0 changed, 0 only-base, 3 added = bc_0914o_autoreffund_hb_{i03,i04}_refuse
+    and the moved port issue-36082, each rc 1 with its .expected matching.
+  valgrind sweep vs the base baseline (21:54 -> 22:08): swept 7095 = 7042 + the 53 new pass fixtures (all 53 OK).
+    LEAK 57 -> 54, only-base = field-replace-in-struct-with-drop-b154, string_eq_empty, wql_el_cmp_measured (frees == allocs),
+    only-armed {}. TIMEOUT 3, CFAIL 62, LINKFAIL 124 identical sets. CORRUPT 3 -> 2 is NOT a fix: fiber_thread_basic read
+    NOVG rc 137 — valgrind.bin reaped at 315 s (three reaped this sweep, two in the baseline). Measured directly on the landed
+    binary: plain runs exit 42 x3 (its pin), valgrind x3 finish in 0-1 s with the baseline's signature (rc 97, 13 allocs /
+    11 frees, 140/140/134 errors — the count varies run to run, a threaded program); every earlier sweep this round, both
+    receiver arms included, read CORRUPT 13/11/1. A thread fixture that stalled under a loaded sweep; the fixture's only
+    comparison is `counter == 1` on an i64.
+  L1 rc 0 (22:08 -> 22:13): smoke 12 684, gates tier 118/118 (census_pin and direct_door_census green on the new pins, the
+    soundness queue and the bc_admits ledger gates included), L1.1 807/807.
+  probe-log-lint 321 -> 324 records (+3 = recvinplace, sgrecvinplace, fieldinplace); each `site:` symbol grepped by hand in
+    sema_expr.cpp: materialize_recv_ref 28, lower_method_call 9, lower_field_read 2.
+  L4 bc rc 0 (detached, LOGOS_L4_BG=1): 5859/5859 + 1601/1601 (2 disabled), gate-db build 1244.
+  origin/main == HEAD 60a1a766f at commit time (no rebase).

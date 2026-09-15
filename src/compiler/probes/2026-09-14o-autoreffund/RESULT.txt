@@ -1,0 +1,34 @@
+ROUND 2026-09-14o-autoreffund — RESULT
+BUILDS READ:  base (oracle baseline)      b54c1160ae8e4066 43  build/, HEAD 60a1a766f (clean), 19:12 -> 19:42
+              candidate (pricing)         750bac96934bea72 43  build/ = the landing + three probe gates (recvinplace,
+                                                               sgrecvinplace, fieldinplace), diff sha e4447a30dce0
+              control revert (base copy)  198673a1694dcf02 43  build-land0913d rebuilt from HEAD's three compiler files
+ORACLE BASELINE on b54c1160 (one configure, build/):
+  queue gate rc 0, 194 rows (tier1 31, tier2 57, tier3 98, tier4 8)
+  gate-run -L bc: build 1229, 3494 tests already measured, 0 failed (7407 recorded)
+  run_oracle 7030 pass fixtures (19:14 -> 19:25) · fail_text_oracle 1858 fail fixtures (-> 19:27)
+  valgrind sweep 7042 swept, 1814 allocating: LEAK 57 CORRUPT 3 TIMEOUT 3 CFAIL 62 LINKFAIL 124 NOVG 2 (reaper 312 s / 310 s)
+
+CORE LANDING (candidate unarmed, 750bac96934bea72):
+  queue gate rc 1: FAIL lines = exactly the 8 predicted rows (want run=1, read run=0); every other row reproduces
+  L1: smoke 12 684 ok · gates tier 118/119, the one red = logos_00_soundness_queue (the 8 rows) · L1.1 807/807
+  gate-run -L bc: build 1241, 3492 passed / 0 failed / 2 disabled, 3494 recorded
+  stdlib-cost: all four layers compile (unarmed)
+  run_oracle vs base: 7030 common, 0 only-base, 0 only-armed, 1 changed = cast-region-to-uint (stack address) -> 0
+  fail_text_oracle vs base: 1858 common, 0 changed, 0 only-base, 0 only-armed
+    (a first diff with a 4-field loader read "0 of 0" — a HARNESS ZERO; the file has 5 fields; re-read with a 5-field loader)
+  valgrind sweep vs base: LEAK 57 -> 54, only-base {imported drop/field-replace-in-struct-with-drop-b154, logos
+    string_eq_empty, logos wql_el_cmp_measured} (frees == allocs now), only-armed {}; CORRUPT 3, TIMEOUT 3, CFAIL 62,
+    LINKFAIL 124, NOVG 2 identical sets; numeric changes = those 3 only. Reaper 317 s x2 (the two thread fixtures).
+
+NEIGHBOUR ARMS (candidate 750bac96934bea72, each armed vs the SAME binary unarmed):
+  name           site                                fires ceiling  cost pass  fail-text   stdlib  runtime (7030)       valgrind
+  recvinplace    sema_expr.cpp::materialize_recv_ref   155     0        0      0 of 1858   ok      1 chg = c-r-t-u -> 0  identical, 0 numeric
+  sgrecvinplace  sema_expr.cpp::lower_method_call       14     1        0      0 of 1858   ok      1 chg = c-r-t-u -> 0  identical, 0 numeric
+  fieldinplace   sema_expr.cpp::lower_field_read       hand    —        1 legal refused by hand (n04, E0507) — not priced further
+  sgrecvinplace ceiling = {logos_00_bc_admit_borrowck_issue-36082}: NOT predicted; refusal = upstream E0716's own sentence.
+  hand, receiver door (fundrecv, fundrecv2): recvinplace r01 r02 l01 216 -> 126, r04 21 -> 1, c14 217 -> 127, l04 317 -> 137;
+    sgrecvinplace n02 n05 l06 216 -> 126, i03 ADMITTED (runs exit 0) -> refused, i04 sentence '__rv_1' -> the temporary (+ a
+    duplicate second line); i01 i02 refusal text identical under all three; l02 l03 l05 l07 l08 l09 l10 unmoved and correct.
+FINAL FORM (both receiver arms unconditional, fieldinplace reverted; build-land0913d 9db902ce1544c4e3): 92 hand programs ==
+  core on everything except exactly r01 r02 r04 c14 (-> Rust); 55 staged fixtures pass run_test.sh (53 pass mode, 2 fail mode).

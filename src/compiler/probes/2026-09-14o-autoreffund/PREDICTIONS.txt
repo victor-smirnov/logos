@@ -1,0 +1,42 @@
+ROUND 2026-09-14o-autoreffund — PREDICTIONS, WRITTEN BEFORE ANY FIX BINARY EXISTED
+base build: b54c1160ae8e4066 43 (HEAD 60a1a766f). Candidate: autoref_operand (declared temp-scope slot,
+initialised where the operand is evaluated) at the six sema_expr spill sites + lower_let extension for
+`let ref y = <rvalue>` (unannotated) and `let r = &&<rvalue>`. Receiver door gated as LOGOS_PROBE=recvinplace.
+
+QUEUE ROWS PREDICTED TO CLOSE (core, unarmed) — 8:
+  operator_autoref_temp_never_dropped  partial_cmp_operator_autoref_temp_never_dropped
+  tuple_eq_autoref_temp_never_dropped  enum_eq_operand_temp_never_dropped
+  array_rvalue_range_index_temp_never_dropped  double_ref_temp_arg_never_dropped
+  let_ref_bind_temp_never_dropped      operator_autoref_temp_eval_order_run (126, source order)
+PREDICTED TO STAY OPEN: byvalue_operator_operand_not_moved_double_drop, ref_struct_eq_compares_addresses_run
+  (different decisions), every other row. recvinplace armed: no additional queue row.
+
+HAND BATTERY (fundbat, Rust answer in brackets):
+  c01 1 [1] inherited      c02 2 [26] STILL WRONG: lhs owner registered after the rhs `return` is lowered
+  c03 23762 [237626] STILL WRONG (same door, `break`)   c04 26 [26] UNCERTAIN (TypeVar is_move_type)
+  c05 26  c06 12376  c07 valgrind 0 lost  c08 26  c09 26
+  c10 1237667 [12367] STILL WRONG — x01 (`return [a, b]` double drop) is a different defect
+  c11 126  c12 refused (annotated let ref: out of class, x03)  c13 262626
+  c14 core 217 [127] (receiver door untouched) / recvinplace 127
+  c15 15  c16 37  c17 inside 2 seq 26  c18 22376 [262376] STILL WRONG (same door, `continue`)
+  c19 23426876  c20 126  c21 hits 4 n 4334  c22 126
+  r01 r02: core 216 / recvinplace 126 [126]   r03: 0 both [0]   r04: core 21 / recvinplace 1 [1]
+  x02 (`let r: &&C = &&C{..}`) 1000 [1000]    x05 (tuple-extended `&C{..}`) 0 unchanged [1000]
+HAND BATTERY hb_autoref (37, previous round): the 18 oprhoist movers to their correct count, h31 126 (not 216),
+  h30 1265, h19 and h34 0 bytes lost, h05 h07 h25 h35 h39 h41 1001; controls h08 h12 h28 h29 h32 h33 h37 h40
+  unmoved; h20 h36 h38 unmoved.
+
+POPULATION PINS — predicted 20:08, before any fixture enters the tree or the build is re-globbed:
+  core landing = 44 native pass fixtures (36 bc_0914o_autoreffund_hb_<id>_admit + 8 bc_autoreffund_*_admit), no fail fixture:
+    census_pin REGISTRY-ALL 10306 -> 10350, REGISTRY-NOIMPORTED 5805 -> 5849, REGISTRY-TIERCOMMIT 119 -> 119
+    direct_door_census corpus 3405 -> 3449, nonglob 3214 -> 3258, glob 191 -> 191
+  each receiver arm that lands adds its catches: recvinplace +4 (r01 r02 r04 c14), sgrecvinplace +2 (n02 n05).
+  soundness_queue: 194 - 8 closed + 5 opened = 191 (+1 per receiver arm DECLINED: its order row).
+
+UPDATED 21:28, after the two receiver arms priced at 0 and BEFORE the landing tree is re-globbed. Both arms land; the bc_admits
+closing issue-36082 (measured under sgrecvinplace, NOT predicted above — measured-not-predicted 1) moves its port admit -> fail:
+  native pass fixtures 44 + 6 (recvinplace catches r01 r02 r04 c14 l01 l04) + 3 (sgrecvinplace catches n02 n05 l06) = 53
+  native fail fixtures 2 (i03, i04); one imported port admit -> fail
+  census_pin REGISTRY-ALL 10306 -> 10361 (+53 +2, +1 -1), NOIMPORTED 5805 -> 5859 (+53 +2 -1), TIERCOMMIT 119 -> 118 (-1)
+  direct_door_census corpus 3405 -> 3458, nonglob 3214 -> 3267, glob 191
+  soundness_queue 194 -> 191 (8 closed, 5 opened, no declined-arm row) · bc_admits 61 -> 60 · bc_admits_blocked 8

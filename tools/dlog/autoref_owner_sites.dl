@@ -1,0 +1,22 @@
+#include "cxx_schema.dl"
+// autoref_owner_sites — round 2026-09-14o-autoreffund. After the landing: which sites still spill with
+// `addr_of_temp`, which sites own through the ORDER-PRESERVING owner (`SemaChecker::autoref_operand`), and which
+// still own through the PREPENDING owner (`SemaChecker::hoist_stmt_temp`, whose `let` runs before the statement —
+// the order neighbours). Claim-free; keyed by call site. ⚠ ctx_of coarsens: a lambda may report its enclosing
+// function, so every row is cross-checked by a per-site read.
+// KNOWN ANSWER (stated before the run, from the diff): addr_of_temp calls 35 (38 of 2026-09-14n, minus 6 replaced
+// sites, plus 2 inside autoref_operand and 1 in lower_let's `&&` extension); autoref_operand calls 8
+// (push_operand, push_pc, tuple Eq x2, take_operand_ref, lower_index_read range, lower_unary `&&`,
+// materialize_recv_ref under recvinplace); hoist_stmt_temp calls 3.
+// MEASURED (selftest rc 0 first): spill 34, autoref_operand 8, hoist_stmt_temp 3. The spill miss is in the stated answer: it started
+// from 2026-09-14n's "38", whose own per-file list sums to 37; per file after the landing 19+7+1+5+2 = 34, term for term.
+// (After the landing both receiver arms are unconditional, so autoref_operand is called from materialize_recv_ref and
+// lower_method_call, and hoist_stmt_temp only from lower_field_read.)
+.decl callsite_of(File: symbol, Line: number, Ctx: symbol, Q: symbol, Kind: symbol)
+.output callsite_of
+callsite_of(F, L, N, Q, "spill") :- decl(D, _, Q), contains("addr_of_temp", Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+callsite_of(F, L, N, Q, "inplace_owner") :- decl(D, _, Q), contains("autoref_operand", Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+callsite_of(F, L, N, Q, "prepend_owner") :- decl(D, _, Q), contains("hoist_stmt_temp", Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl kind_count(Kind: symbol, N: number)
+.output kind_count
+kind_count(K, N) :- callsite_of(_, _, _, _, K), N = count : { callsite_of(_, _, _, _, K) }.

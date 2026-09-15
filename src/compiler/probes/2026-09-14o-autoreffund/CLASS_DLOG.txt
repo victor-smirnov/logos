@@ -1,0 +1,23 @@
+ROUND 2026-09-14o-autoreffund — THE CLASS AFTER THE LANDING, BY tools/dlog, CROSS-CHECKED PER FILE
+selftest.sh first: rc 0, "ok 28fc7c75...: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates across
+  756aed65 (1 -> 0)".
+rule: tools/dlog/autoref_owner_sites.dl (NEW). ask.sh over sema_expr.cpp sema_stmt.cpp sema.cpp mono_clone.cpp lir_builder.cpp
+  (5 TUs, 5 extracted). Answer dir build/dlog/cache/ans-f22108e4c2824907-0d9ac6d5ba148987-f9839d07ccc85e89.
+
+KNOWN ANSWER, stated in the rule before the run:  spill 35 · inplace_owner 8 · prepend_owner 3
+MEASURED:                                          spill 34 · inplace_owner 8 · prepend_owner 3
+The spill miss is MINE, in arithmetic: I started from 2026-09-14n's "38", but that round's own per-site list sums to 37
+(sema_expr 23, sema_impl 1, sema_stmt 6, mono_clone 5, lir_builder 2). Per file after the landing: sema_expr 19 (23 - 6
+replaced + 2 inside autoref_operand), sema_stmt 7 (6 + lower_let's `&&` extension), sema_impl 1, mono_clone 5,
+lir_builder 2 = 34 — the tool and the per-file read agree term for term.
+
+inplace_owner (SemaChecker::autoref_operand) — 8 sites, every member of the 2026-09-14n class except `let ref`:
+  push_operand · push_pc · lower_binop tuple Eq (lref_e, rref_e) · take_operand_ref (rvalue) · lower_index_read (range
+  receiver) · lower_unary `&&` (non-extending) · materialize_recv_ref (under recvinplace)
+  `let ref y = <rvalue>` and `let r = &&<rvalue>` take lower_let's named __lit_temp_N extension (the block owns them).
+prepend_owner (SemaChecker::hoist_stmt_temp) — 3 sites, the ORDER NEIGHBOURS (same prepend decision):
+  materialize_recv_ref (every method receiver; priced as recvinplace) · lower_method_call struct-only-generic receiver
+  (priced as sgrecvinplace) · lower_field_read field base (fieldinplace: condemned by hand program n04, E0507)
+remaining spills in class contexts, read per site: take_operand_ref's DEREF-of-non-pointer operand (not a fresh rvalue);
+  lower_unary `&&` extending branch (extended by the let arm when direct; through an aggregate it is row
+  aggregate_extended_borrow_temp_never_dropped, as is the single `&`); the outer `&` of `&&` (a Copy pointer).

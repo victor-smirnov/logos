@@ -8625,6 +8625,10 @@ private:
     // caller substitutes the VarRef for the rvalue; the installer emits the
     // `let`s and the scope drops.
     lir::LExprPtr hoist_stmt_temp(lir::LExprPtr v, bool is_mut);
+    // Implicit auto-ref of an operand: a fresh droppable rvalue is owned by the
+    // temp scope and initialised where it is evaluated (see PROBES.md 2026-09-14o).
+    lir::LExprPtr autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef ref_type);
+    void register_stmt_temp(const std::string& nm, TypeRef rt, lir::LExprPtr v, bool is_mut);
     // Rust temporary LIFETIME EXTENSION (destructors.md,
     // r[destructors.scope.lifetime-extension.exprs]). Borrow nodes that sit in
     // an extending position of a `let` initializer — operand of a borrow, of a

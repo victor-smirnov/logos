@@ -2348,12 +2348,24 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     if (node.has_key(la::VALUE)) {
         auto val_node = map_of(node.get(la::VALUE.code));
         bool ext_mut = false;
+        bool ext_dbl = false;   // `&&<rvalue>`: the extended temporary is borrowed twice
         TinyMapView ext_inner;
         bool have_ext = false;
-        if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
+        bool ext_ref_bind = false;
+        if (!ann && node.has_key(la::IS_REF)) {
+            AnyVal rav = node.get(la::IS_REF.code);
+            ext_ref_bind = !rav.is_null() && rav.is_value() && rav.as_value<uint8_t>() != 0;
+        }
+        if (ext_ref_bind) {
+            // `let ref y = <rvalue>` is `let y = &<rvalue>` (P4-pm-14 below).
+            ext_inner = val_node;
+            have_ext = true;
+        } else if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
             val_node.has_key(la::VALUE)) {
-            if (str_of(val_node.get(la::OP.code)) == "&") {
+            auto ext_op = str_of(val_node.get(la::OP.code));
+            if (ext_op == "&" || ext_op == "&&") {
                 ext_inner = map_of(val_node.get(la::VALUE.code));
+                ext_dbl = ext_op == "&&";
                 have_ext = true;
             }
         } else if (code_of(val_node) == la::ADDR_OF_MUT &&
@@ -2374,7 +2386,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     inner_c == la::METHOD_CALL || inner_c == la::STATIC_CALL  ||
                     inner_c == la::FN_MACRO_CALL ||
                     inner_c == la::STRUCT_LIT  || inner_c == la::TUPLE_LIT;
-                if (is_scalar_lit || is_rvalue_call) {
+                if ((is_scalar_lit && !ext_dbl) || is_rvalue_call) {
                     // Lower the literal expr — its concrete type drives the
                     // synth let's type. Use the annotation pointee as the
                     // type hint if present so suffix-less literals widen
@@ -2383,6 +2395,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     if (ann && (TypeRef(ann).kind() == LogosType::Kind::Ref ||
                                 TypeRef(ann).kind() == LogosType::Kind::MutRef))
                         hint_lit = TypeRef(ann).pointee();
+                    if (ext_dbl && hint_lit && is_ref_like(TypeRef(hint_lit).kind()))
+                        hint_lit = TypeRef(hint_lit).pointee();
                     auto saved_lit_hint = hint_call_return_type_;
                     if (hint_lit) hint_call_return_type_ = hint_lit;
                     auto lit_expr = lower_expr(inner);
@@ -2449,7 +2463,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     // reference type — a null type here made every
                     // un-annotated use read as "undefined variable".
                     define(std::string(name),
-                           ann ? ann : make_ref(ext_mut, lit_type), is_mut);
+                           ann ? ann : ext_dbl ? make_ref(false, make_ref(false, lit_type))
+                                               : make_ref(ext_mut, lit_type), is_mut);
 
                     std::vector<lir_view::StmtRef> blk;
 
@@ -2463,6 +2478,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
 
                     // user:  `let name = &[mut] __lit_temp_N;`
                     auto addr = builder().addr_of(tmp, make_ref(ext_mut, lit_type));
+                    if (ext_dbl) {
+                        TypeRef at = expr_type(addr);
+                        addr = builder().addr_of_temp(std::move(addr), false, make_ref(false, at));
+                    }
                     lir::SLet sl_user;
                     sl_user.name   = std::string(name);
                     sl_user.type   = ann ? ann : expr_type(addr);

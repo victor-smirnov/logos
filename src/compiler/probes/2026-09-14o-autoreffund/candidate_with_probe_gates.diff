@@ -1,0 +1,229 @@
+diff --git a/src/compiler/sema_expr.cpp b/src/compiler/sema_expr.cpp
+index b7899bb69..efc6bb9c1 100644
+--- a/src/compiler/sema_expr.cpp
++++ b/src/compiler/sema_expr.cpp
+@@ -220,18 +220,38 @@ void SemaChecker::mark_extending_borrows(TinyMapView e) {
+ // collector's scope frame, so an early exit lowered later in the same scope
+ // (`return` / `break` / `continue`) drops it via the standard collect_*_drops
+ // walks — the fall-through drops are dead code past a terminator.
+-lir::LExprPtr SemaChecker::hoist_stmt_temp(lir::LExprPtr v, bool is_mut) {
+-    std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+-    TypeRef rt = expr_type(v);
++void SemaChecker::register_stmt_temp(const std::string& nm, TypeRef rt,
++                                     lir::LExprPtr v, bool is_mut) {
+     cur_stmt_temp_hoist_->push_back({nm, rt, std::move(v), is_mut});
+     if (cur_stmt_temp_hoist_frame_ < scope_.size()) {
+         auto& fr = scope_[cur_stmt_temp_hoist_frame_];
+         if (!fr.vars.count(nm)) fr.var_order.push_back(nm);
+         fr.vars[nm] = {rt, is_mut, false, next_slot_++};
+     }
++}
++
++lir::LExprPtr SemaChecker::hoist_stmt_temp(lir::LExprPtr v, bool is_mut) {
++    std::string nm = std::format("__rtmp_{}", destruct_counter_++);
++    TypeRef rt = expr_type(v);
++    register_stmt_temp(nm, rt, std::move(v), is_mut);
+     return builder().var_ref(nm, rt);
+ }
+ 
++// The installer declares `let __rtmp_N: T;` (a null value); the operand becomes
++// `{ __rtmp_N = v; &[mut] __rtmp_N }`, so `v` runs in source order.
++lir::LExprPtr SemaChecker::autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef ref_type) {
++    if (!cur_stmt_temp_hoist_ || !v || !expr_type(v) || !is_move_type(expr_type(v)) ||
++        !is_hoistable_temp_rvalue(v))
++        return builder().addr_of_temp(std::move(v), is_mut, ref_type);
++    std::string nm = std::format("__rtmp_{}", destruct_counter_++);
++    TypeRef rt = expr_type(v);
++    register_stmt_temp(nm, rt, nullptr, is_mut);
++    std::vector<lir_view::StmtRef> blk;
++    blk.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
++    auto addr = builder().addr_of_temp(builder().var_ref(nm, rt), is_mut, ref_type);
++    return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(addr), ref_type);
++}
++
+ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
+                                                 TypeRef ref_type) {
+     // ONE chokepoint for every implicit `&mut` producer — `&mut o.f`,
+@@ -258,6 +278,8 @@ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
+     // keeps the plain addr_of_temp spill (unchanged behaviour).
+     if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
+         is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
++        if (logos::probe::on("recvinplace"))
++            return autoref_operand(std::move(recv), is_mut, ref_type);
+         recv = hoist_stmt_temp(std::move(recv), is_mut);
+     }
+     // The auto-ref of a PLACE carries the place's region — a module static's
+@@ -2376,8 +2398,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+             return builder().addr_of_temp(std::move(inner), false,
+                                           make_ref(false, it));
+         }
+-        return builder().addr_of_temp(std::move(lowered), false,
+-                                      make_ref(false, vty));
++        return autoref_operand(std::move(lowered), false, make_ref(false, vty));
+     };
+ 
+     // B170: `String == str` / `str == String` (+ `!=`). A string LITERAL is
+@@ -2492,8 +2513,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+             // Auto-ref lhs/rhs to &Tuple to match Eq's `&self` shape.
+             auto lty = make_ref(false, lt);
+             auto rty = make_ref(false, rt);
+-            auto lref_e = builder().addr_of_temp(std::move(lhs), false, lty);
+-            auto rref_e = builder().addr_of_temp(std::move(rhs), false, rty);
++            auto lref_e = autoref_operand(std::move(lhs), false, lty);
++            auto rref_e = autoref_operand(std::move(rhs), false, rty);
+             std::vector<lir::LExprPtr> args;
+             args.push_back(std::move(lref_e));
+             args.push_back(std::move(rref_e));
+@@ -2583,7 +2604,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+                         if (formal && is_ref_like(TypeRef(formal).kind()) &&
+                             !is_ref_like(TypeRef(vty).kind())) {
+                             bool is_mut = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+-                            args.push_back(builder().addr_of_temp(
++                            args.push_back(autoref_operand(
+                                 std::move(e), is_mut, make_ref(is_mut, vty)));
+                             return;
+                         }
+@@ -2613,7 +2634,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+                             if (formal && is_ref_like(TypeRef(formal).kind()) &&
+                                 !is_ref_like(TypeRef(vty).kind())) {
+                                 bool im = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+-                                pcargs.push_back(builder().addr_of_temp(
++                                pcargs.push_back(autoref_operand(
+                                     std::move(e), im, make_ref(im, vty)));
+                                 return;
+                             }
+@@ -3239,7 +3260,9 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
+         auto inner = lower_expr(child);
+         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
+         auto inner_ref_t = make_ref(false, expr_type(inner));
+-        auto inner_addr = builder().addr_of_temp(std::move(inner), false, inner_ref_t);
++        auto inner_addr = extending_borrow_nodes_.count(node.ptr())
++            ? builder().addr_of_temp(std::move(inner), false, inner_ref_t)
++            : autoref_operand(std::move(inner), false, inner_ref_t);
+         auto outer_ref_t = make_ref(false, inner_ref_t);
+         return builder().addr_of_temp(std::move(inner_addr), false, outer_ref_t);
+     }
+@@ -10873,7 +10896,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
+             : subst_type_sema(fi.param_types[0], struct_subst);
+         if (formal0 && is_ref_like(TypeRef(formal0).kind())) {
+             bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+-            recv = hoist_stmt_temp(std::move(recv), is_mut);
++            if (logos::probe::on("sgrecvinplace")) {
++                TypeRef rt0 = expr_type(recv);
++                recv = autoref_operand(std::move(recv), is_mut, make_ref(is_mut, rt0));
++            } else {
++                recv = hoist_stmt_temp(std::move(recv), is_mut);
++            }
+         }
+     }
+     track_args_moved(arg_exprs, &fi.param_types, /*formal_off=*/1);
+@@ -11194,7 +11222,12 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
+     // a move type — a place / borrow base is left untouched.
+     if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
+         is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
+-        recv = hoist_stmt_temp(std::move(recv), false);  // field recv = &self
++        if (logos::probe::on("fieldinplace")) {
++            TypeRef rt0 = expr_type(recv);
++            recv = autoref_operand(std::move(recv), false, make_ref(false, rt0));
++        } else {
++            recv = hoist_stmt_temp(std::move(recv), false);  // field recv = &self
++        }
+     }
+     TypeRef recv_base_t = expr_type(recv);
+     // Auto-deref field access: a receiver whose own type lacks `field_name`
+@@ -12720,8 +12753,8 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
+             } else if (rk == LogosType::Kind::Array) {
+                 elem = TypeRef(arr_type).elem();
+                 // Array value → `&[T;N]` (addr-of) → `&[T]` (slice decay).
+-                recv = builder().addr_of_temp(std::move(recv), /*is_mut=*/false,
+-                                              make_ref(false, arr_type));
++                recv = autoref_operand(std::move(recv), /*is_mut=*/false,
++                                       make_ref(false, arr_type));
+                 try_coerce_array_ref_to_slice(recv, make_slice_type(elem ? elem : i32_t()));
+             } else if ((rk == LogosType::Kind::Ref || rk == LogosType::Kind::MutRef) &&
+                        TypeRef(arr_type).pointee() &&
+diff --git a/src/compiler/sema_impl.hpp b/src/compiler/sema_impl.hpp
+index 594dc4de1..5ec55d4d7 100644
+--- a/src/compiler/sema_impl.hpp
++++ b/src/compiler/sema_impl.hpp
+@@ -8625,6 +8625,10 @@ private:
+     // caller substitutes the VarRef for the rvalue; the installer emits the
+     // `let`s and the scope drops.
+     lir::LExprPtr hoist_stmt_temp(lir::LExprPtr v, bool is_mut);
++    // Implicit auto-ref of an operand: a fresh droppable rvalue is owned by the
++    // temp scope and initialised where it is evaluated (see PROBES.md 2026-09-14o).
++    lir::LExprPtr autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef ref_type);
++    void register_stmt_temp(const std::string& nm, TypeRef rt, lir::LExprPtr v, bool is_mut);
+     // Rust temporary LIFETIME EXTENSION (destructors.md,
+     // r[destructors.scope.lifetime-extension.exprs]). Borrow nodes that sit in
+     // an extending position of a `let` initializer — operand of a borrow, of a
+diff --git a/src/compiler/sema_stmt.cpp b/src/compiler/sema_stmt.cpp
+index 75e1044d7..1b6a275ca 100644
+--- a/src/compiler/sema_stmt.cpp
++++ b/src/compiler/sema_stmt.cpp
+@@ -2348,12 +2348,24 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+     if (node.has_key(la::VALUE)) {
+         auto val_node = map_of(node.get(la::VALUE.code));
+         bool ext_mut = false;
++        bool ext_dbl = false;   // `&&<rvalue>`: the extended temporary is borrowed twice
+         TinyMapView ext_inner;
+         bool have_ext = false;
+-        if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
++        bool ext_ref_bind = false;
++        if (!ann && node.has_key(la::IS_REF)) {
++            AnyVal rav = node.get(la::IS_REF.code);
++            ext_ref_bind = !rav.is_null() && rav.is_value() && rav.as_value<uint8_t>() != 0;
++        }
++        if (ext_ref_bind) {
++            // `let ref y = <rvalue>` is `let y = &<rvalue>` (P4-pm-14 below).
++            ext_inner = val_node;
++            have_ext = true;
++        } else if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
+             val_node.has_key(la::VALUE)) {
+-            if (str_of(val_node.get(la::OP.code)) == "&") {
++            auto ext_op = str_of(val_node.get(la::OP.code));
++            if (ext_op == "&" || ext_op == "&&") {
+                 ext_inner = map_of(val_node.get(la::VALUE.code));
++                ext_dbl = ext_op == "&&";
+                 have_ext = true;
+             }
+         } else if (code_of(val_node) == la::ADDR_OF_MUT &&
+@@ -2374,7 +2386,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+                     inner_c == la::METHOD_CALL || inner_c == la::STATIC_CALL  ||
+                     inner_c == la::FN_MACRO_CALL ||
+                     inner_c == la::STRUCT_LIT  || inner_c == la::TUPLE_LIT;
+-                if (is_scalar_lit || is_rvalue_call) {
++                if ((is_scalar_lit && !ext_dbl) || is_rvalue_call) {
+                     // Lower the literal expr — its concrete type drives the
+                     // synth let's type. Use the annotation pointee as the
+                     // type hint if present so suffix-less literals widen
+@@ -2383,6 +2395,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+                     if (ann && (TypeRef(ann).kind() == LogosType::Kind::Ref ||
+                                 TypeRef(ann).kind() == LogosType::Kind::MutRef))
+                         hint_lit = TypeRef(ann).pointee();
++                    if (ext_dbl && hint_lit && is_ref_like(TypeRef(hint_lit).kind()))
++                        hint_lit = TypeRef(hint_lit).pointee();
+                     auto saved_lit_hint = hint_call_return_type_;
+                     if (hint_lit) hint_call_return_type_ = hint_lit;
+                     auto lit_expr = lower_expr(inner);
+@@ -2449,7 +2463,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+                     // reference type — a null type here made every
+                     // un-annotated use read as "undefined variable".
+                     define(std::string(name),
+-                           ann ? ann : make_ref(ext_mut, lit_type), is_mut);
++                           ann ? ann : ext_dbl ? make_ref(false, make_ref(false, lit_type))
++                                               : make_ref(ext_mut, lit_type), is_mut);
+ 
+                     std::vector<lir_view::StmtRef> blk;
+ 
+@@ -2463,6 +2478,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+ 
+                     // user:  `let name = &[mut] __lit_temp_N;`
+                     auto addr = builder().addr_of(tmp, make_ref(ext_mut, lit_type));
++                    if (ext_dbl) {
++                        TypeRef at = expr_type(addr);
++                        addr = builder().addr_of_temp(std::move(addr), false, make_ref(false, at));
++                    }
+                     lir::SLet sl_user;
+                     sl_user.name   = std::string(name);
+                     sl_user.type   = ann ? ann : expr_type(addr);

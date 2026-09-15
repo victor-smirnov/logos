@@ -1,0 +1,71 @@
+ROUND 2026-09-14o-autoreffund — CONTROL REVERT: build-land0913d rebuilt from HEAD 60a1a766f's three compiler files (git checkout,
+then restored byte-identical: sha1 OK x3, git diff sha e4447a30dce0 before and after). Every program compiled, linked, run twice,
+valgrind once, against that build's own stdlib. E=valgrind error count.
+aggregate_extended_borrow_temp_never_dropped cc=0 run=1/1 stdout=[inside=0 n=0|] E=0 
+array_rvalue_range_index_temp_never_dropped cc=0 run=1/1 stdout=[n=0 r=0|] E=0 
+bc_0914o_autoreffund_hb_c04_admit cc=0 run=1/1 stdout=[seq=2|] E=0 
+bc_0914o_autoreffund_hb_c05_admit cc=0 run=1/1 stdout=[seq=2|] E=0 
+bc_0914o_autoreffund_hb_c06_admit cc=0 run=1/1 stdout=[k=2 seq=123|] E=0 
+bc_0914o_autoreffund_hb_c07_admit cc=0 run=0/0 stdout=[] E=4 | definitely lost: 216 bytes in 4 blocks
+bc_0914o_autoreffund_hb_c08_admit cc=0 run=1/1 stdout=[seq=2|] E=0 
+bc_0914o_autoreffund_hb_c09_admit cc=0 run=1/1 stdout=[seq=2|] E=0 
+bc_0914o_autoreffund_hb_c11_admit cc=0 run=1/1 stdout=[k=3 seq=12|] E=0 
+bc_0914o_autoreffund_hb_c13_admit cc=0 run=1/1 stdout=[seq=222|] E=0 
+bc_0914o_autoreffund_hb_c15_admit cc=0 run=1/1 stdout=[seq=1|] E=0 
+bc_0914o_autoreffund_hb_c16_admit cc=0 run=1/1 stdout=[seq=3|] E=0 
+bc_0914o_autoreffund_hb_c17_admit cc=0 run=1/1 stdout=[inside=2 seq=2|] E=0 
+bc_0914o_autoreffund_hb_c19_admit cc=0 run=1/1 stdout=[seq=2342|] E=0 
+bc_0914o_autoreffund_hb_c20_admit cc=0 run=1/1 stdout=[seq=12|] E=0 
+bc_0914o_autoreffund_hb_c21_admit cc=0 run=1/1 stdout=[hits=4 n=0|] E=0 
+bc_0914o_autoreffund_hb_c22_admit cc=0 run=1/1 stdout=[seq=12|] E=0 
+bc_0914o_autoreffund_hb_h02_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h03_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h04_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h06_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h09_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h10_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h11_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h13_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h14_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h15_admit cc=0 run=1/1 stdout=[n=11 r=0|] E=0 
+bc_0914o_autoreffund_hb_h16_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h17_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h18_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h19_admit cc=0 run=0/0 stdout=[] E=2 | definitely lost: 68 bytes in 2 blocks
+bc_0914o_autoreffund_hb_h24_admit cc=0 run=1/1 stdout=[n=0 r=0|] E=0 
+bc_0914o_autoreffund_hb_h26_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h27_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_0914o_autoreffund_hb_h30_admit cc=0 run=1/1 stdout=[seq=12|] E=0 
+bc_0914o_autoreffund_hb_h34_admit cc=0 run=0/0 stdout=[n=1001 r=0|] E=1 | definitely lost: 34 bytes in 1 blocks
+bc_0914o_autoreffund_hb_n04_admit cc=0 run=0/0 stdout=[len=26 n=1000|] E=0 
+bc_0914o_autoreffund_hb_x02_admit cc=0 run=1/1 stdout=[inside=0 n=0|] E=0 
+bc_autoreffund_array_range_temp_dropped_admit cc=0 run=1/1 stdout=[n=0 r=0|] E=0 
+bc_autoreffund_double_ref_temp_dropped_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_autoreffund_enum_eq_temp_dropped_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_autoreffund_let_ref_temp_dropped_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_autoreffund_operator_temp_dropped_admit cc=0 run=1/1 stdout=[n=1|] E=0 
+bc_autoreffund_operator_temp_order_admit cc=0 run=1/1 stdout=[seq_before_scope_end=12|] E=0 
+bc_autoreffund_partial_cmp_temp_dropped_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+bc_autoreffund_tuple_eq_temp_dropped_admit cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+c14_recv_mut_self_after_side cc=0 run=1/1 stdout=[k=4 seq=217|] E=0 
+double_ref_temp_arg_never_dropped cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+enum_eq_operand_temp_never_dropped cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+field_base_temp_built_before_sibling_run cc=0 run=1/1 stdout=[k=3 seq=216|] E=0 
+let_ref_bind_annotated_refused cc=1 diag=1 run=- :: 12: error [fn main]: let 'y': type mismatch — expected i64, got &i64
+let_ref_bind_temp_never_dropped cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+n01_field_base_after_side cc=0 run=1/1 stdout=[k=3 seq=216|] E=0 
+n02_struct_generic_recv_after_side cc=0 run=1/1 stdout=[k=2 seq=216|] E=0 
+n03_recv_temp_then_return_in_sibling cc=0 run=0/0 stdout=[r=5 seq=26|] E=0 
+n04_move_field_out_of_temp cc=0 run=0/0 stdout=[len=26 n=1000|] E=0 
+n05_struct_generic_mut_recv_after_side cc=0 run=1/1 stdout=[k=7 seq=216|] E=0 
+operator_autoref_temp_eval_order_run cc=0 run=1/1 stdout=[seq_before_scope_end=12|] E=0 
+operator_autoref_temp_never_dropped cc=0 run=1/1 stdout=[] E=0 
+operator_operand_owner_after_sibling_exit_leak cc=0 run=1/1 stdout=[r=5 seq=2|] E=0 
+partial_cmp_operator_autoref_temp_never_dropped cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+r01_recv_order_call_args cc=0 run=1/1 stdout=[k=3 seq=216|] E=0 
+r02_recv_order_binop cc=0 run=1/1 stdout=[k=3 seq=216|] E=0 
+r03_recv_match_arm_eager cc=0 run=0/0 stdout=[k=7 seq=0|] E=0 
+r04_recv_question_early_exit cc=0 run=1/1 stdout=[seq=21|] E=0 
+return_array_lit_of_moved_locals_double_drop cc=0 run=1/1 stdout=[n=22|] E=0 
+tuple_eq_autoref_temp_never_dropped cc=0 run=1/1 stdout=[n=1 r=0|] E=0 
+done 67 20:05:12 version logosc 0.43.0-preview+main-g60a1a766-dirty.20260914T232303Z

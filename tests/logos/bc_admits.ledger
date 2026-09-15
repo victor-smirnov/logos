@@ -1819,7 +1819,13 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # next push's deposit stays on the Vec instead of re-homing onto the first referent. Port MOVES
 # admit/ -> tests/imported/fail/borrowck/. two-phase-across-loop (the same root id) is not this
 # fact and stays. PROBES.md 2026-09-14m-storeedge-land.
-# TOTAL 61
+# ── 2026-09-14o — 61 -> 60. issue-36082 (bck.NEW-BCS) CLOSED: a struct-only-generic method receiver
+# (`x.borrow()` -> `Ref<T>`, passed by value to a `&self` formal) was hoisted into a by-value `__rtmp` local that
+# borrow check never saw as a temporary, so `let val: &i64 = x.borrow().get();` was admitted. Owned by
+# SemaChecker::autoref_operand it is `AddrOfTemp(VarRef __rtmp_N)`: upstream's E0716 sentence. Port MOVES admit/ ->
+# tests/imported/fail/borrowck/. borrowck-let-suggestion (the borrow carried inside a STRUCT, `mkv().iter()`) is
+# not moved by it and stays. PROBES.md 2026-09-14o-autoreffund.
+# TOTAL 60
 
 
 # ── 2026-09-12k — 81 -> 80. `move-of-addr-of-mut` (`nllmoves.R5`) CLOSED, AND ──
@@ -1900,7 +1906,6 @@ borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed  #  ⚠ LEGAL AS PORTED, measured 2026-09-11: the "minimal reduction" dropped the only LATER use of its loan, so under NLL the loan is dead at the move and our arm is correct. 2x2 measured (restore the later use / remove it, x admit / refuse). RETIRE CANDIDATE or re-port with the later use restored — owner's.
 borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
-issue-36082 bck.NEW-BCS tests/imported/admit/borrowck/issue-36082
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-95079-missing-move-in-nested-closure bck.NEW-CESC tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 mut-borrow-conflict-in-closures-vec--bounded bck.NEW-CAPLOAN tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
