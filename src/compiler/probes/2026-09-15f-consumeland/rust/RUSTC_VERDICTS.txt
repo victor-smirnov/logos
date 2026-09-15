@@ -1,0 +1,75 @@
+aggregate_literal_temp_place_base_never_dropped_run RUSTC ok exit=0 stdout=k=10 n=11 
+closed_operator_operands_moved_admit RUSTC ok exit=0 stdout=n=1001 
+closed_operator_operands_moved_refuse RUSTC REFUSED error[E0382]: use of moved value: `a`
+i01_op_lhs_then_clone_rhs RUSTC REFUSED error[E0382]: use of moved value: `a`
+i02_place_addassign_then_use RUSTC REFUSED error[E0382]: use of moved value: `d`
+i03_cond_op_then_op RUSTC REFUSED error[E0382]: use of moved value: `a`
+i04_neg_in_while RUSTC REFUSED error[E0382]: use of moved value: `a`
+i05_fill1_then_use RUSTC REFUSED error[E0382]: use of moved value: `a`
+i06_arr_elem_twice RUSTC REFUSED error[E0382]: use of moved value: `a`
+i07_generic_arr_then_tuple RUSTC REFUSED error[E0382]: use of moved value: `x`
+k01_arr_two_fields_then_copy_field RUSTC ok exit=0 stdout=r=6 n=11 
+k02_arr_tuple_elem RUSTC ok exit=0 stdout=r=1 n=11 
+k03_neg_field RUSTC ok exit=0 stdout=r=1000 n=1011 
+k04_addassign_field_rhs RUSTC ok exit=0 stdout=r=1 n=11 
+k05_ifexpr_arr_arms RUSTC ok exit=0 stdout=r=1 n=11 
+k06_ifexpr_arr_arms_else RUSTC ok exit=0 stdout=r=10 n=11 
+k07_cond_arr_untaken RUSTC ok exit=0 stdout=r=0 n=1 
+k08_method_on_arr_temp RUSTC ok exit=0 stdout=r=2 n=11 
+k09_index_arr_temp_field RUSTC ok exit=0 stdout=r=10 n=11 
+k10_for_over_arr_lit RUSTC ok exit=0 stdout=r=11 n=11 
+k11_let_destructure_arr_lit RUSTC ok exit=0 stdout=r=11 n=11 
+k12_neg_of_sum RUSTC ok exit=0 stdout=r=1000 n=1111 
+k13_arr_of_sum_and_local RUSTC ok exit=0 stdout=r=100 n=211 
+k14_fill1_in_struct RUSTC ok exit=0 stdout=r=1 n=1 
+k15_fill0 RUSTC ok exit=0 stdout=r=0 n=1 
+k16_place_addassign_loop RUSTC ok exit=0 stdout=r=5 n=111 
+k17_op_reinit RUSTC ok exit=0 stdout=r=1100 n=1111 
+k18_box_arr RUSTC ok exit=0 stdout=r=1 n=11 
+k19_generic_tail_arr_box RUSTC ok exit=0 stdout=n=7 
+k20_op_in_match_arm RUSTC ok exit=0 stdout=r=0 n=111 
+t01_structlit_temp_field RUSTC ok exit=0 stdout=r=1 n=1 
+t02_tuplit_locals_temp_index RUSTC ok exit=0 stdout=r=10 n=11 
+t03_structlit_locals_temp_field RUSTC ok exit=0 stdout=r=5 n=11 
+t04_arrlit_rvalues_temp_index RUSTC ok exit=0 stdout=r=10 n=11 
+t05_arrlit_rvalues_temp_len RUSTC ok exit=0 stdout=r=2 n=11 
+t06_for_over_arrlit_rvalues RUSTC ok exit=0 stdout=r=11 n=11 
+t07_for_over_arr_local RUSTC ok exit=0 stdout=r=11 n=11 
+t08_for_over_arr_local_rvalues RUSTC ok exit=0 stdout=r=11 n=11 
+t09_some_local_temp_method RUSTC ok exit=0 stdout=r=1 n=1 
+t10_tuplit_locals_temp_method RUSTC ok exit=0 stdout=r=1 n=11 
+t11_block_arrlit_index RUSTC ok exit=0 stdout=r=1 n=11 
+t12_arrlit_temp_iter_ref RUSTC ok exit=0 stdout=r=11 n=11 
+t13_arrlit_ref_temp RUSTC ok exit=0 stdout=r=10 n=11 
+t14_arrlit_stmt_expr RUSTC ok exit=0 stdout=r=0 n=11 
+t15_tuplit_stmt_expr RUSTC ok exit=0 stdout=r=0 n=11 
+t16_arrlit_rvalue_stmt_expr RUSTC ok exit=0 stdout=r=0 n=11 
+u01_ref_arrlit_rvalues RUSTC ok exit=0 stdout=r=10 n=11 
+u02_block_arrlit_rvalues_index RUSTC ok exit=0 stdout=r=1 n=11 
+u03_tuplit_rvalues_temp_index RUSTC ok exit=0 stdout=r=10 n=11 
+u04_op_result_temp_field RUSTC ok exit=0 stdout=r=100 n=111 
+u05_neg_result_temp_field RUSTC ok exit=0 stdout=r=1000 n=1001 
+u06_arrlit_locals_in_call_ref RUSTC ok exit=0 stdout=r=11 n=11 
+u07_fill1_temp_index RUSTC ok exit=0 stdout=r=1 n=1 
+u08_op_in_arrlit_temp_index RUSTC ok exit=0 stdout=r=100 n=111 
+u09_match_on_arrlit_locals RUSTC ok exit=0 stdout=r=1 n=11 
+u10_arrlit_locals_let_then_ref RUSTC ok exit=0 stdout=r=1 n=11 
+v01_tuplestruct_add RUSTC ok exit=0 stdout=r=11 n=11 
+v02_generic_struct_concrete_add RUSTC ok exit=0 stdout=r=5 n=11 
+v03_hetero_rhs_add RUSTC ok exit=0 stdout=r=11 n=11 
+v04_self_add_in_method RUSTC ok exit=0 stdout=r=100 n=111 
+v05_bitor_mul_ops RUSTC ok exit=0 stdout=r=1000 n=11111 
+v06_move_closure_op RUSTC ok exit=0 stdout=r=11 n=11 
+v07_op_in_guard RUSTC ok exit=0 stdout=r=1 n=11 
+v08_op_rhs_tuple_elem_addassign RUSTC ok exit=0 stdout=r=100 n=111 
+v09_op_deref_ref_illegal RUSTC REFUSED error[E0507]: cannot move out of `*r` which is behind a shared reference
+v10_op_in_loop_illegal RUSTC REFUSED error[E0382]: use of moved value: `a`
+v11_neg_conditional_move RUSTC ok exit=0 stdout=r=-1 n=1 
+v12_neg_conditional_untaken RUSTC ok exit=0 stdout=r=0 n=1 
+v13_op_ref_rhs_formal RUSTC ok exit=0 stdout=r=21 n=11 
+v14_op_heap_box_payload RUSTC ok exit=0 stdout=r=11 n=11 
+w01_match_arrlit_rvalues_partial RUSTC ok exit=0 stdout=r=1 n=11 
+w02_match_arr_local_partial RUSTC ok exit=0 stdout=r=1 n=11 
+w03_match_arr_local_full RUSTC ok exit=0 stdout=r=11 n=11 
+w04_match_arrlit_locals_full RUSTC ok exit=0 stdout=r=11 n=11 
+w05_match_arr_local_partial_stmt RUSTC ok exit=0 stdout=r=1 n=11 

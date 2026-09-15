@@ -3,6 +3,7 @@
 // The array literal skips nothing here on base: it marks no element at all (row return_array_lit_of_moved_locals_double_drop). MEASURED
 // 2026-09-15e-consume: arrmove (TypeVar elements skipped, as TUPLE_LIT skips them) still admits it; the same-site variant arrmovetv REFUSES it
 // ("use of moved variable 'x'"). Tuple twin: generic_unbounded_typevar_reuse_after_tuple_literal_admits. Found by hand program f11. rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15e-consume/rust/generic_unbounded_typevar_reuse_after_array_literal_admits.rs: REFUSED error[E0382]: use of moved value: `x`.
+// ROUND 2026-09-15f-consumeland (landing) DECLINED THE ARRAY-LITERAL HALF: DOORS IN SERIES. The first candidate b3b9ae03 (elements marked moved at SemaChecker::lower_arr_lit, TypeVar elements too, and lower_arr_fill_lit for N >= 1) closed this row, but LEAKED six legal programs that are right on base only by cancellation — `[a, b].len()`, `[a, b][1].v`, `for d in [a, b]`, `{ [a, b] }[0].v`, `&[a, b]`, `[a; 1][0].v` read n = 11 -> 0 (1 -> 0), rustc 11 each (pass fixtures bc_0915f_consumeland_hb_{k08,k09,k10,t11,t13,u07}_admit). The door upstream is row aggregate_literal_temp_place_base_never_dropped_run: an array / tuple literal temporary in a place position is never dropped. Variant (hand program i07): `let a: [T; 1] = [x]; return (x, 1i64);` admitted on base and on the landing; arrmovetv refused it.
 package generic_unbounded_typevar_reuse_after_array_literal_admits;
 fn f<T>(x: T) -> T {
     let a: [T; 1] = [x];

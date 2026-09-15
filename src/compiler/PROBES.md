@@ -46155,3 +46155,61 @@ fires: 1 · arrivals: consume.opassign.place.move.* 0 in pass corpus and stdlib 
 ceiling: 0 rows; battery 1 moved (e06 `w.x += d`, 2011 -> 1011)
 cost: 0 pass · 0 of 1861 fail text · stdlib ok
 verdict: PRICED ON THE BATTERY ONLY — no corpus carrier.
+
+# ═══ ROUND 2026-09-15f-consumeland (LANDING of 2026-09-15e-consume) — THE OPERATOR HALF OF consumex LANDS; THE ARRAY-LITERAL HALF IS DECLINED:
+#     DOORS IN SERIES — MARKING `[a, b]`'s ELEMENTS MOVED LEAKS EVERY ARRAY-LITERAL TEMPORARY IN A PLACE POSITION, WHICH HAS NO OWNER ══════
+
+Files: `src/compiler/probes/2026-09-15f-consumeland/` — PREDICTIONS.txt (before any compiler edit, then the own counter-examples before the
+candidate ran), RESULT.txt (every column), NEIGHBOURS.txt, battery/ (k01-k20 i01-i07 t01-t16 u01-u10 v01-v14 w01-w05), rust/ (75 rustc 1.98.1 twins,
+l2rs.py, RUSTC_VERDICTS.txt), hrun.sh, genfix.py.
+
+WHY THE RECOMMENDATION DID NOT LAND AS PRICED: the first candidate (consumex + arrmovetv + a lower_arr_fill_lit mark, b3b9ae03042fdf51) closed
+the six rows it was predicted to close, and FIVE legal programs right on base read n = 11 -> 0 (`[a, b].len()`, `[a, b][1].v`, `for d in [a, b]`,
+`{ [a, b] }[0].v`, `&[a, b]`), a sixth via the fill-lit arm (`[a; 1][0].v` 1 -> 0); rustc 11 / 1 each. Right on base only BY CANCELLATION: with
+rvalue elements the same shapes read 0 on base (t04 t05 t06 u01 u02; tuples t02 t10 u03, since TUPLE_LIT marks). The pricing's census had read
+ZERO move-type place operands at lower_arr_lit in the pass corpus and the stdlib, so no corpus column could see it (a zero of the first kind).
+
+## opmoveland
+site: src/compiler/sema_expr.cpp::lower_binop
+build: 13f830f0f0c24fe4 43 (run_oracle / fail_text), b17b8e8c43266472 43 (same sources, re-stamped by the re-glob: valgrind, queue gate, L1, L4 bc)
+measured: 2026-09-15
+fires: unconditional (a landing, no probe) · arrivals: pass corpus and stdlib 0 move-type by-value operands (census of round 2026-09-15e-consume)
+ceiling: queue row byvalue_operator_operand_not_moved_double_drop CLOSED (2002 -> 1001); battery o01 o05 o06 o08 b03 b11 b12 b16 b20 c09 c11 c12 c13 d11 d12, own k12 k17 k20 u04 v01 v02 v04 v05 v06 v07 v14 to Rust's answer
+cost: run_oracle 0 of 7322 (cast-region-to-uint subtracted) · fail text 2 of 1865 (x02 x03 sentence, predicted) · valgrind see RESULT.txt · queue: exactly the one row
+verdict: LANDED — push_operand's by-value arm calls mark_moved_expr on a move-type operand. dlog consume_mark_sites.dl still reads lower_binop no_mark 9 (the mark is in the lambda, a different ctx_of context); the per-site read and the run decide.
+
+## unmoveland
+site: src/compiler/sema_expr.cpp::lower_unary
+build: 13f830f0f0c24fe4 43 / b17b8e8c43266472 43
+measured: 2026-09-15
+fires: unconditional · arrivals: 0 in the priced populations
+ceiling: o03 2 -> 1, c07 2 -> 1, e05 102 -> 101, own k03 1012 -> 1011, u05 1002 -> 1001, v11 2 -> 1
+cost: within opmoveland's columns (one landing)
+verdict: LANDED — the Neg / Not overload with a by-value formal marks its operand; dlog now reads ctx_marks.
+
+## casmoveland
+site: src/compiler/sema_stmt.cpp::lower_compound_assign
+build: 13f830f0f0c24fe4 43 / b17b8e8c43266472 43
+measured: 2026-09-15
+fires: unconditional · arrivals: 0 in the priced populations
+ceiling: c08 21 -> 11, own k04 21 -> 11, v08 121 -> 111
+cost: within opmoveland's columns
+verdict: LANDED — a by-value *Assign rhs is marked moved.
+
+## casplmoveland
+site: src/compiler/sema_stmt.cpp::lower_place_compound_assign
+build: 13f830f0f0c24fe4 43 / b17b8e8c43266472 43
+measured: 2026-09-15
+fires: unconditional · arrivals: 0 in the priced populations
+ceiling: e06 2011 -> 1011, own k16 211 -> 111
+cost: within opmoveland's columns
+verdict: LANDED — same decision on a struct place.
+
+## arrmovedecl
+site: src/compiler/sema_expr.cpp::lower_arr_lit
+build: b3b9ae03042fdf51 (build-dev0915d, candidate never committed; with lower_arr_fill_lit's N >= 1 mark)
+measured: 2026-09-15
+fires: unconditional in that candidate · arrivals: 0 move-type place elements in the pass corpus and stdlib (pricing census)
+ceiling: hand runs — closed return_array_lit_of_moved_locals_double_drop, generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits, generic_unbounded_typevar_reuse_after_array_literal_admits, array_repeat_len1_noncopy_operand_double_drop_run
+cost: 6 legal programs right on base leaked (k08 k09 k10 t11 t13 u07, n -> 0, rustc 11 / 1) — landed as pass fixtures bc_0915f_consumeland_hb_*_admit
+verdict: DECLINED, reason 2 (doors in series) — behind row aggregate_literal_temp_place_base_never_dropped_run (an array / tuple literal temporary in a place position is never dropped).

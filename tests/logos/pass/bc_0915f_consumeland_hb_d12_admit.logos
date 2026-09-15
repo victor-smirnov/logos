@@ -1,0 +1,27 @@
+// hand battery: round 2026-09-15f-consumeland, program d12 — caught: its destructor count moved to Rust's answer between base 7eb6735b16576c45 and the landing (a by-value operator / *Assign operand now marked moved); pricing round 2026-09-15e-consume's program, statements re-flowed one per line
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15e-consume/rust/d12_add_tuple_elem.rs: compiles, runs, exit 0 (the twin asserts the same destructor count)
+package bc_0915f_consumeland_hb_d12_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn eat(d: D) -> i64 { return d.v * 0i64; }
+impl Add for D { fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
+trait Tk { fn take(self: &Self, d: D) -> i64; }
+struct K { k: i64 }
+impl Tk for K { fn take(self: &K, d: D) -> i64 { return d.v * 0i64 + self.k; } }
+impl K { fn mk(d: D) -> K { return K { k: d.v * 0i64 }; } }
+fn g(p: *mut i64) -> i64 {
+    let t: (D, D) = (D { v: 1i64, c: p }, D { v: 10i64, c: p });
+    let s: D = t.0 + t.1;
+    return s.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    if got != 111i64 { return 1i32; }
+    return 0i32;
+}

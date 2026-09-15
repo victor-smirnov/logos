@@ -1,0 +1,24 @@
+// hand battery: round 2026-09-15f-consumeland, program o03 — caught: its destructor count moved to Rust's answer between base 7eb6735b16576c45 and the landing (a by-value operator / *Assign operand now marked moved); pricing round 2026-09-15e-consume's program, statements re-flowed one per line
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15e-consume/rust/o03_neg.rs: compiles, runs, exit 0 (the twin asserts the same destructor count)
+package bc_0915f_consumeland_hb_o03_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { x: D, y: D }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+impl Add for D { fn add(self: D, o: D) -> i64 { return self.v + o.v; } }
+impl Neg for D { fn neg(self: D) -> i64 { return 0i64 - self.v; } }
+fn g(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    let s: i64 = -a;
+    return s;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

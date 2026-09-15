@@ -1,0 +1,31 @@
+// hand battery: round 2026-09-15f-consumeland, program v04 — caught: its destructor count moved to Rust's answer between base 7eb6735b16576c45 and the landing (a by-value operator / *Assign operand now marked moved)
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-consumeland/rust/v04_self_add_in_method.rs: compiles, runs, stdout `r=100 n=111`
+package bc_0915f_consumeland_hb_v04_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+impl Sub for D {
+    fn sub(self: D, o: D) -> D {
+        return D { v: 100i64, c: self.c };
+    }
+}
+impl D {
+    fn twice(self: D, o: D) -> i64 {
+        let m: D = self - o;
+        return m.v;
+    }
+}
+fn g(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    let b: D = D { v: 10i64, c: p };
+    return a.twice(b);
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    return 0i32;
+}

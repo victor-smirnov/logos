@@ -2663,6 +2663,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                             return;
                         }
                     }
+                    // A by-value operand is consumed by the call. PROBES.md 2026-09-15f-consumeland.
+                    if (vty && is_move_type(vty)) mark_moved_expr(expr_ref_of(e));
                     args.push_back(std::move(e));
                 };
                 push_operand(std::move(lhs), lt, 0);
@@ -3510,6 +3512,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             auto fit = find_func_by_base_and_signature(mangled, {vt}, false);
             if (fit) {
                 std::vector<lir::LExprPtr> args;
+                // A by-value operand is consumed by the call. PROBES.md 2026-09-15f-consumeland.
+                if (is_move_type(vt) && !(fit->param_types.size() == 1 && fit->param_types[0] &&
+                                          is_ref_like(TypeRef(fit->param_types[0]).kind())))
+                    mark_moved_expr(expr_ref_of(operand));
                 args.push_back(std::move(operand));
                 return builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args), fit->ret_type);
             }

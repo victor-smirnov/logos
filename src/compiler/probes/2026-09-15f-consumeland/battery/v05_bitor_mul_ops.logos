@@ -1,0 +1,30 @@
+package v05_bitor_mul_ops;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+impl BitOr for D {
+    fn bitor(self: D, o: D) -> D {
+        return D { v: 100i64, c: self.c };
+    }
+}
+impl Mul for D {
+    fn mul(self: D, o: D) -> D {
+        return D { v: 1000i64, c: self.c };
+    }
+}
+fn g(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    let b: D = D { v: 10i64, c: p };
+    let c: D = D { v: 10000i64, c: p };
+    let m: D = (a | b) * c;
+    return m.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    return 0i32;
+}

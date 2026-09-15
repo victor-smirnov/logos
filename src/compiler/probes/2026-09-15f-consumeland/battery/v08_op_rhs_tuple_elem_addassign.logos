@@ -1,0 +1,24 @@
+package v08_op_rhs_tuple_elem_addassign;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+impl AddAssign for D {
+    fn add_assign(self: &mut D, o: D) {
+        self.v = self.v + 0i64;
+    }
+}
+fn g(p: *mut i64) -> i64 {
+    let t: (D, D) = (D { v: 1i64, c: p }, D { v: 10i64, c: p });
+    let mut acc: D = D { v: 100i64, c: p };
+    acc += t.1;
+    return acc.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    return 0i32;
+}

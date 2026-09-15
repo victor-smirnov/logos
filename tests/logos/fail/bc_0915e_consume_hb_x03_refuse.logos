@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-15e-consume, program x03 — caught: prediction refuted — under the priced arms (arrmove / opmove / unmove / consumex) this illegal program stays refused but SEMA refuses it first with "use of moved variable 'a'", losing borrow_check's "use of moved value 'a' (moved on line N)" (rustc E0382 names the move site); pinned so a landing keeps the better sentence
 // legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15e-consume/rust/x03_neg_use_after.rs: REFUSED error[E0382]: use of moved value: `a` — `let s = -a` (by-value Neg) then `a.v` over a Drop type is a use after move (E0382)
+// round 2026-09-15f-consumeland (the landing): the operator half of consumex landed, so `let s = -a` now marks `a` moved in SEMA and the later read is refused by sema's "use of moved variable 'a'" — the SAME sentence base 7eb6735b16576c45 already prints for the tuple `(a, 1)`, call `eat(a)`, `Some(a)` and `let b = a` spellings (4 of 4, measured). The move line is lost exactly as it is for those spellings; `.expected` re-pinned to the landed sentence (the refusal itself is unchanged, rustc E0382). The array spellings x01 / x04 keep borrow_check's.
 package bc_0915e_consume_hb_x03_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct D { v: i64, c: *mut i64 }

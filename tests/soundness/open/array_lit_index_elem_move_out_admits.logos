@@ -3,6 +3,7 @@
 // sentence SemaChecker::mark_moved_expr's IndexRead arm already gives `let s = src[0];`. The array literal never asks: lower_arr_lit does not
 // hand its elements to mark_moved_expr. MEASURED 2026-09-15e-consume: under arrmove / consumex (the element loop marks each element consumed)
 // this program is REFUSED with exactly that sentence — it closes with arrmove if arrmove lands. Found by hand program e01. rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15e-consume/rust/array_lit_index_elem_move_out_admits.rs: REFUSED error[E0508]: cannot move out of type `[D; 1]`, a non-copy array.
+// ROUND 2026-09-15f-consumeland (landing) DECLINED THE ARRAY-LITERAL HALF: DOORS IN SERIES. The first candidate b3b9ae03 (elements marked moved at SemaChecker::lower_arr_lit, TypeVar elements too, and lower_arr_fill_lit for N >= 1) closed this row, but LEAKED six legal programs that are right on base only by cancellation — `[a, b].len()`, `[a, b][1].v`, `for d in [a, b]`, `{ [a, b] }[0].v`, `&[a, b]`, `[a; 1][0].v` read n = 11 -> 0 (1 -> 0), rustc 11 each (pass fixtures bc_0915f_consumeland_hb_{k08,k09,k10,t11,t13,u07}_admit). The door upstream is row aggregate_literal_temp_place_base_never_dropped_run: an array / tuple literal temporary in a place position is never dropped.
 package array_lit_index_elem_move_out_admits;
 struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }

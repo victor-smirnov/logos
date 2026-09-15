@@ -1,0 +1,27 @@
+// hand battery: round 2026-09-15f-consumeland, program v14 — caught: its destructor count moved to Rust's answer between base 7eb6735b16576c45 and the landing (a by-value operator / *Assign operand now marked moved); base segfaulted (rc 139, valgrind 6 errors)
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-consumeland/rust/v14_op_heap_box_payload.rs: compiles, runs, stdout `r=11 n=11`
+package bc_0915f_consumeland_hb_v14_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+struct H { b: Box<D> }
+impl Add for H {
+    fn add(self: H, o: H) -> i64 {
+        return self.b.v + o.b.v;
+    }
+}
+fn g(p: *mut i64) -> i64 {
+    let a: H = H { b: Box::new(D { v: 1i64, c: p }) };
+    let b: H = H { b: Box::new(D { v: 10i64, c: p }) };
+    let s: i64 = a + b;
+    return s;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    return 0i32;
+}

@@ -1,0 +1,20 @@
+NEIGHBOUR TABLE — round 2026-09-15f-consumeland (landing of 2026-09-15e-consume's consumex, operator half only).
+Class = "a by-value move-type operand placed into a consuming LIR node is consumed; its source is marked moved" (decision), read from
+is_move_type(operand type) + the matched formal's by-value-ness at the construction site (fact).
+
+  neighbour / member                                              disposition                 reason / number
+  SemaChecker::lower_binop push_operand by-value arm              CLOSED in this commit       row byvalue_operator_operand_not_moved_double_drop 2002 -> 1001; battery o01 o05 o06 o08 b03 b11 b12 b16 b20 c09 c11 c12 c13 d11 d12, own k12 k17 k20 u04 v01 v02 v04 v05 v06 v07 v14
+  SemaChecker::lower_unary Neg / Not overload (by-value formal)   CLOSED in this commit       o03 2 -> 1, c07 2 -> 1, e05 102 -> 101, own k03 1012 -> 1011, u05 1002 -> 1001, v11 2 -> 1
+  SemaChecker::lower_compound_assign *Assign rhs                  CLOSED in this commit       c08 21 -> 11, own k04 21 -> 11, v08 121 -> 111
+  SemaChecker::lower_place_compound_assign *Assign rhs            CLOSED in this commit       e06 2011 -> 1011, own k16 211 -> 111
+  SemaChecker::lower_arr_lit elements (TypeVar included)          ROWED, reason 2 (doors in series)  first candidate b3b9ae03 closed return_array_lit_..., generic_array_lit_typevar_..., array_lit_index_elem_move_out_admits, generic_unbounded_typevar_reuse_after_array_literal_admits (4 rows) and LEAKED 5 legal programs right on base by cancellation: k08 [a, b].len() 11 -> 0, k09 [a, b][1].v 11 -> 0, k10 for d in [a, b] 11 -> 0, t11 { [a, b] }[0].v 11 -> 0, t13 &[a, b] 11 -> 0 (rustc 11 each). The door upstream, measured wrong on base alone with rvalue elements (t04 t05 t06 u01 u02 0, rustc 11): new row aggregate_literal_temp_place_base_never_dropped_run
+  SemaChecker::lower_arr_fill_lit `[a; N]`, N >= 1                ROWED, reason 2 (same door)  closed array_repeat_len1_noncopy_operand_double_drop_run (2 -> 1) and leaked u07 `[a; 1][0].v` 1 -> 0
+  mark_moved_in_expr_recursive has no ArrLit case                 stays with the array half    made redundant only by the declined construction-site mark
+  mono_clone BinOp / Unary re-dispatch (generic `x + y`)          ROWED, reason 1 (kept)       c19 c20 122 on base, on b3b9ae03 and on the landing (generic_operator_mono_redispatch_operands_double_drop)
+  TUPLE_LIT TypeVar skip                                          not a neighbour of THIS landing (a neighbour of the declined arrmovetv); row generic_unbounded_typevar_reuse_after_tuple_literal_admits kept, reason 3: gen-tuple-1..10 all spell `fn pair<T>(x: T) -> (T, T) { return (x, x); }` (illegal Rust, E0382) — the extension would refuse those ten imported pass fixtures (by reading, not built)
+  sema's use-after-move sentence pre-empting borrow_check's       RECORDED                     x02 x03 (pricing pins) and own i02 i03 now read sema's "use of moved variable 'a'"; base prints that same sentence for `(a, 1)`, `eat(a)`, `Some(a)`, `let b = a` (4 of 4); x01 x04 i01 i04 i05 i06 keep borrow_check's
+
+FOUND BESIDE, not this class, rowed:
+  aggregate_literal_temp_place_base_never_dropped_run (tier 1, run 1)   the door upstream of the array half (above)
+  match_expr_array_pattern_segfaults_run (tier 1, run 139)              u09 w01-w04 rc 139 on base and landing, rustc r=11 n=11
+  operator_trait_rhs_type_param_refused (tier 3, refuses)               v03 `impl Add<E> for D`, v13 `impl Add<&D> for D` refused on base and landing, rustc ok

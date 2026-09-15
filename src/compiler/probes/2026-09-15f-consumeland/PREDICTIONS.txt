@@ -1,0 +1,35 @@
+round 2026-09-15f-consumeland — PREDICTIONS, written BEFORE any compiler edit (HEAD 112f872b1, base build/ 7eb6735b16576c45 43).
+
+CHANGE (one decision, "a by-value move-type operand placed into a consuming node is consumed; mark its source moved", at every construction
+site that lacked it): SemaChecker::lower_arr_lit elements (TypeVar elements INCLUDED — arrmovetv, not arrmove), lower_binop push_operand's
+by-value arm, lower_unary's Neg/Not overload arm (by-value formal), lower_compound_assign and lower_place_compound_assign *Assign rhs
+(by-value formal), and the neighbour SemaChecker::lower_arr_fill_lit: `[v; N]` marks its operand when N >= 1 (after the N-1 re-lowers, so
+`[a; 2]` keeps its recorded tier-4 sentence), N == 0 and a symbolic N unmarked.
+
+QUEUE (219 rows now) — predicted to CLOSE, exactly these 6 (-> 213):
+  return_array_lit_of_moved_locals_double_drop            (run 1 -> exit 0, n=11)
+  byvalue_operator_operand_not_moved_double_drop          (run 1 -> exit 0, n=1001)
+  generic_array_lit_typevar_elems_double_drop             (run 1 -> exit 0, n=11)
+  array_lit_index_elem_move_out_admits                    (admits -> refused, E0508 sentence)
+  generic_unbounded_typevar_reuse_after_array_literal_admits (admits -> refused, "use of moved variable 'x'")
+  array_repeat_len1_noncopy_operand_double_drop_run       (run 1 -> exit 0, n=1)  [NEIGHBOUR taken, lower_arr_fill_lit]
+Predicted to STAY (control / other fact): slice_pattern_arm_binding_extra_drops, loop_break_value_array_lit_uninit_drop_run (139),
+  generic_operator_mono_redispatch_operands_double_drop (122, reason 1: mono_clone), generic_unbounded_typevar_reuse_after_tuple_literal_admits
+  (TUPLE_LIT skip kept, reason 3: gen-tuple-1..10 all spell `return (x, x)` over an unbounded T — an extension refuses 10 imported pass
+  fixtures, predicted), array_repeat_len2_noncopy_says_use_of_moved (diag "use of moved value" kept), every other row.
+
+FAIL FIXTURES: bc_0915e_consume_hb_x01..x04_refuse predicted to RED (sema's "use of moved variable 'a'" pre-empts borrow_check's
+"use of moved value 'a' (moved on line 15)"), exactly as the pricing measured. Base measured today: the SAME sema sentence is what base prints
+for the tuple `(a, 1)`, call `eat(a)`, `Some(a)` and `let b = a` spellings (4 of 4, scratch s1/) — the class sentence.
+COST predicted: run_oracle 0 changed; fail text: exactly x01..x04 changed; valgrind NEW 0 / GONE 0; stdlib ok; L1 rc 0 after pins.
+
+OWN COUNTER-EXAMPLES (k/i series, shapes the pricing battery did not use), measured on BASE and on rustc 1.98.1 BEFORE the candidate binary ran:
+  base wrong, Rust's stdout differs (predicted to move to Rust's answer on the candidate, 15):
+    k01 [w.x, w.y] 22->11 · k02 [t.0] 12->11 · k03 -w.x 1012->1011 · k04 acc += w.y 21->11 · k05/k06 if-expr arms [a]/[b] 12/21->11
+    k11 let [x, y] = [a, b] 22->11 · k12 -(a + b) 1122->1111 · k13 [a + b, c] 322->211 · k14 [a; 1] 2->1 · k16 w.x += d in while 211->111
+    k17 a + b then a reinit 1122->1111 · k18 [box, box] rc 139 (valgrind 6 errors) -> n=11 clean · k19 generic wrap<T>([x]) over Box rc 139 -> n=7
+    k20 a + b in a match arm 122->111
+  base right, stay right (5): k07 cond [a] untaken 1 · k08 [a, b].len() 11 · k09 [a, b][1].v 11 · k10 for d in [a, b] 11 · k15 [a; 0] 1
+  illegal (rustc E0382 all 7): i01..i06 refused on base by borrow_check ("use of moved value 'x' (moved on line N)"); predicted: stay refused,
+    i02 i03 i05 i06 with sema's "use of moved variable" (a read in a LATER statement), i01 (same expression) keeps borrow_check's; i04 (while) unknown.
+    i07 generic `[x]` then `(x, 1)` ADMITTED on base -> predicted REFUSED (sema).

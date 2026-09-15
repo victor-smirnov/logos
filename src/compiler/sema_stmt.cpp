@@ -3061,6 +3061,11 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
                         mangled, {mut_ref_t, var_type}, false);
                 if (fit) {
                     std::vector<lir::LExprPtr> args;
+                    // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
+                    if (rhs && is_move_type(expr_type(rhs)) &&
+                        !(fit->param_types.size() == 2 && fit->param_types[1] &&
+                          is_ref_like(TypeRef(fit->param_types[1]).kind())))
+                        mark_moved_expr(expr_ref_of(rhs));
                     args.push_back(std::move(recv));
                     args.push_back(std::move(rhs));
                     auto call = builder().call(
@@ -3224,6 +3229,11 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                     auto addr = builder().addr_of_temp(lower_mut_place(place_node),  // eval #2 — &mut place
                                                        /*is_mut=*/true, mut_ref_t);
                     std::vector<lir::LExprPtr> args;
+                    // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
+                    if (rhs && is_move_type(expr_type(rhs)) &&
+                        !(fit->param_types.size() == 2 && fit->param_types[1] &&
+                          is_ref_like(TypeRef(fit->param_types[1]).kind())))
+                        mark_moved_expr(expr_ref_of(rhs));
                     args.push_back(std::move(addr));
                     args.push_back(std::move(rhs));
                     auto call = builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name,

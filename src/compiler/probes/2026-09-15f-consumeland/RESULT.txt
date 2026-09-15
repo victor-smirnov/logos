@@ -1,0 +1,94 @@
+round 2026-09-15f-consumeland — RESULT. Landing of 2026-09-15e-consume's consumex: the OPERATOR half lands, the ARRAY half is DECLINED (doors in series).
+
+STEP 1 (15:02): HEAD 112f872b1 clean. # TOTAL soundness_queue 219, bc_admits 60, bc_admits_blocked 8. probe-log-lint 358 records (not evidence).
+build_hash 7eb6735b16576c45 43 (= the pricing's AFTER-PRICING base; `ninja` no work). Queue gate (serial, LOGOS_LIB_DIR) rc 0 at 15:10: 219 rows,
+tier1 36 tier2 60 tier3 114 tier4 9. dlog selftest.sh rc 0 ("ok 28fc7c75...: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty 1 -> 0").
+Correction to the handed-down report: none on the numbers; the prompt's paraphrase of condition (1) is refuted below.
+
+BASE COLUMNS (build/ 7eb6735b16576c45 43, one configure): run_oracle 15:03 -> 15:14:59, 7322 rows · fail_text_oracle -> 15:16:34, 1865 rows ·
+valgrind sweep 15:16 -> ~15:29, swept 7332, allocated 1889, LEAK 53 CORRUPT 3 TIMEOUT 4 CFAIL 62 LINKFAIL 124 OK 7086, no valgrind.bin survivor.
+
+THE PRICING'S RECOMMENDATION WAS REFUTED BY OWN COUNTER-EXAMPLES (shapes the pricing battery did not use).
+First candidate b3b9ae03042fdf51 (build-dev0915d; = consumex + arrmovetv + a lower_arr_fill_lit mark for N >= 1, exactly PREDICTIONS.txt's change):
+queue rows predicted to close closed on hand runs (6 of 6), and FIVE legal programs right on base became leaks, plus one via the fill-lit arm:
+  k08 `[a, b].len()`       base n=11 -> 0     rustc n=11
+  k09 `[a, b][1].v`        base n=11 -> 0     rustc n=11
+  k10 `for d in [a, b]`    base n=11 -> 0     rustc n=11
+  t11 `{ [a, b] }[0].v`    base n=11 -> 0     rustc n=11
+  t13 `let r: &[D; 2] = &[a, b]`  base n=11 -> 0  rustc n=11
+  u07 `[a; 1][0].v`        base n=1  -> 0     rustc n=1
+Each was right on base only BY CANCELLATION: the same shapes with RVALUE elements read 0 on base (t04 `[D{..}, D{..}][1].v` 0, t05 `.len()` 0,
+t06 `for` 0, u01 `&[..]` 0, u02 `{ [..] }[0].v` 0; tuple t02 u03 `(..).1.v` 0 and t10 0 with locals, because TUPLE_LIT already marks) — rustc 11
+each. So an array / tuple literal TEMPORARY in a place position has no owner, and the consumption mark exposes it for every array of locals.
+A ZERO OF THE FIRST KIND in every corpus column for these shapes: the pricing's census read zero move-type place operands at lower_arr_lit.
+DECISION: the array-literal half (arrmove / arrmovetv / the fill-lit arm) is ROWED, reason 2 (doors in series), behind new row
+aggregate_literal_temp_place_base_never_dropped_run; the operator half lands alone. Its absence of this failure mode is structural (the operand
+is consumed by a CALL whose callee drops it; no temporary owner is involved) and measured: k08 k09 k10 t11 t13 u07 right on the landing.
+
+LANDED CHANGE (sources as committed; landing binary build/ 13f830f0f0c24fe4 43 for run_oracle / fail_text, then re-stamped — see below):
+SemaChecker::lower_binop push_operand by-value arm, lower_unary (Neg / Not overload, by-value formal), lower_compound_assign and
+lower_place_compound_assign (*Assign rhs, by-value formal): mark_moved_expr on a move-type operand. 4 sites, +16 lines.
+
+QUEUE: CLOSED exactly byvalue_operator_operand_not_moved_double_drop (base run 1 n=2002 -> exit 0 n=1001, valgrind 0 errors both).
+Unmoved on the landing (hand runs): return_array_lit_of_moved_locals_double_drop n=22, generic_array_lit_typevar_elems_double_drop 1,
+array_lit_index_elem_move_out_admits admits, generic_unbounded_typevar_reuse_after_array_literal_admits admits, array_repeat_len1_... 1,
+slice_pattern_arm_binding_extra_drops 1 (control), generic_operator_mono_redispatch_operands_double_drop 1, array_repeat_len2_... diag kept,
+loop_break_value_array_lit_uninit_drop_run 139.
+OPENED: aggregate_literal_temp_place_base_never_dropped_run (1), match_expr_array_pattern_segfaults_run (1), operator_trait_rhs_type_param_refused (3).
+# TOTAL 219 -> 221 (tier1 37 tier2 60 tier3 115 tier4 9), by listing.
+
+HAND BATTERY
+  pricing battery (122 files) base vs landing (build-dev0915d 5ede6479c49e9c35, same sources): exactly 20 programs change, all run 1 -> 0 toward
+  Rust (o01 o03 o05 o06 o08 b03 b11 b12 b16 b20 c07 c08 c09 c11 c12 c13 d11 d12 e05 e06); no other verdict or stdout moved (diffed by line).
+  own k/t/u/v/w (72 files, rustc twins 75, RUSTC_VERDICTS.txt: 65 compile+run, 10 refused where illegal was claimed):
+    moved to Rust's answer: k03 k04 k12 k16 k17 k20 u04 u05 v01 v02 v04 v05 v06 v07 v08 v11 v14 (v14 base rc 139, valgrind 6 errors -> clean 3/3)
+    still wrong, the array half (rows above): k01 k02 k05 k06 k11 k13 k14 k18 k19 u06 u08 u10 t07 t14 · the temp door: t02 t04 t05 t06 t10 u01 u02 u03
+    still wrong, other defects: u09 w01-w04 rc 139 (new row) · w05 12 (slice_pattern_arm_binding_extra_drops member) · v03 v13 refused (new row)
+    illegal, refused on base and landing: i01 i04 i05 i06 v09 v10 (borrow_check's sentence kept) · i02 i03 (sentence now sema's, see below)
+    i07 generic `[x]` then `(x, 1)`: admitted on base and landing (row generic_unbounded_typevar_reuse_after_array_literal_admits; b3b9ae03 refused it)
+  LANDED AS FIXTURES (48): pass 43 bc_0915f_consumeland_hb_{o01 o03 o05 o06 o08 b03 b11 b12 b16 b20 c07 c08 c09 c11 c12 c13 d11 d12 e05 e06,
+  k03 k04 k12 k16 k17 k20 u04 u05 v01 v02 v04 v05 v06 v07 v08 v11 v14, k08 k09 k10 t11 t13 u07}_admit; fail 2 bc_0915f_consumeland_hb_i0{2,3}_refuse;
+  plus the closed row's pair pass/bc_0915f_consumeland_operator_operands_moved_admit + fail/..._refuse (one token: `+ a.v`, rustc E0382).
+  Every pass fixture was compiled and run on the landing (exit 0) and its stdout compared with its rustc twin's (or the twin's own count assert).
+
+CONDITION (1) OF THE PRICING ("keep borrow_check's '(moved on line N)' sentence on x01-x04") — REFUTED AS A CONDITION, MEASURED:
+  base 7eb6735b16576c45 already prints sema's "use of moved variable 'a'" (no move line) for the SAME read after `(a, 1)`, `eat(a)`, `Some(a)`,
+  `let b = a` — 4 of 4 (scratch s1). The borrow_check sentence x01-x04 pinned existed at the array / operator sites only BECAUSE sema recorded no
+  move there. On the landing x02 x03 (operator) take the class sentence and are re-pinned to it (`.expected` + a header line); x01 x04 (array,
+  declined) keep borrow_check's. docs/spec/ownership.md `'use of moved variable'` is the spec'd sentence for a read after a move. Keeping the move
+  line for this class is a diagnostic change for all consuming sites, not this landing's.
+
+COST COLUMNS (landing, same configure as base):
+  run_oracle     15:37:38 -> 15:48:29 on 13f830f0f0c24fe4 43: 7322 rows, differ 1 = logos_02_semantic_core_pass_cast-region-to-uint (stack
+                 address, subtracted by name) -> 0 of 7322.
+  fail_text      -> 15:50:03 on 13f830f0f0c24fe4 43: 1865 rows, differ EXACTLY 2 (stderr sha): bc_0915e_consume_hb_x02_refuse, x03 — the predicted
+                 sentence move; rc and .expected match unchanged in both.
+  ⚠ RE-GLOB RE-STAMPS THE COMPILER: registering the new fixtures (`cmake --build build`) re-ran configure, which regenerates the version stamp
+  (0.43.0-preview+main-g112f872b-dirty.20260915T195034Z) and relinked logosc (90 steps) WHILE the first valgrind sweep and queue gate were running
+  on build/: sweep CFAIL 62 -> 3034, queue gate rc 1 with cc=126 on four rows. BOTH DISCARDED, both re-run on the re-stamped binary
+  b17b8e8c43266472 43 (same sources) with nothing beside them.
+  valgrind       16:01:11 -> 16:13:50 on b17b8e8c43266472 43 (rc 0; no valgrind.bin survivor): swept 7376 (base 7332 + the 44 new pass
+                 fixtures), allocated 1933, LEAK 53 CORRUPT 3 TIMEOUT 4 CFAIL 62 LINKFAIL 124 OK 7130. Non-OK sets diffed both ways by path
+                 against base: NEW 0 · GONE 0 · status changed among the 7332 common 0; the 44 new fixtures all OK. CORRUPT on both:
+                 bc_objlt_str_literal, custom_dst_smartptr_owning_drop, fiber_thread_basic; TIMEOUT on both: memoria_btfl_multimap,
+                 memoria_gen_fse, memoria_gen_tree, memoria_ssrle_ops.
+  queue gate     16:01:11 -> 16:07:36 on b17b8e8c43266472 43 (serial, LOGOS_LIB_DIR, beside the valgrind sweep only): rc 0 — "221 open row(s)
+                 ( tier1=37 tier2=60 tier3=115 tier4=9), '# TOTAL' says 221"; every row reproduces, the three new rows included.
+  L1             first run 16:14 -> 16:17 rc 1: the ONE failure logos_00_population_pin_lint (direct_door PIN corpus 3697 listed 3741,
+                 nonglob 3506 listed 3550 — the 44 new pass fixtures, all bc_0915f_consumeland_*, all joined `nonglob`); re-derived by direct
+                 listing (3741 = 191 + 3550), re-run 16:18:06 -> 16:21:01 on b17b8e8c43266472 43: rc 0 — smoke tier passed, gates tier 339/339,
+                 L1.1 808/808.
+  L4 bc          detached 16:21:12 -> 16:35:38 on b17b8e8c43266472 43: RC=0 — 100% of 6370, bc half 1601 passed / 0 failed / 2 disabled
+                 (poll-problem-case-3, dropck-shadow-rebind, disabled before this round); gate-db build 1257.
+  census         ctest -N on the re-globbed build: ALL 10872 / NOIMPORTED 6370 / TIERCOMMIT 339 = PREDICTED 10823+49 / 6321+49 / 337+2.
+  new/changed fixtures: ctest -R 'bc_0915f_consumeland|bc_0915e_consume_hb_x0' 51 of 51 pass.
+
+DLOG CROSS-CHECK (tools/dlog/consume_mark_sites.dl re-asked on the landed sema_expr.cpp + sema_stmt.cpp; selftest rc 0 first):
+  lower_unary 1 no_mark -> ctx_marks; lower_compound_assign -> ctx_marks 1; lower_place_compound_assign ctx_marks 4 (one site marks, three are
+  other calls in the same context — the recorded ctx_of coarsening). lower_binop STILL no_mark 9: the mark is inside the push_operand LAMBDA,
+  a different context from the `builder().call` site — ctx_of's coarsening in the OTHER direction (a site that marks through a nested lambda
+  reads no_mark). Per-site read: 1 of the 9 (the by-value call) marks, 8 pass references (tuple Eq, partial_cmp, take_operand_ref, str_eq/cmp);
+  by run: 15 pricing programs + 11 own move. dlog verdict and per-site read disagree on that one site; the run decides.
+
+CONTROL REVERT: the base binary (copy of 7eb6735b16576c45 43) runs pass/bc_0915f_consumeland_operator_operands_moved_admit to exit 1, stdout n=2002
+(each operand destroyed twice); the landing exits 0, n=1001; valgrind 0 errors both (1 alloc, 1 free).

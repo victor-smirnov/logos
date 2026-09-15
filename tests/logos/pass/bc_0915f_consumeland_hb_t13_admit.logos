@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-15f-consumeland, program t13 — caught: REFUTED the pricing's recommended arm: right on base and on the landing, but LEAKED its whole array (n -> 0) under the first candidate b3b9ae03 that marked array-literal elements moved at SemaChecker::lower_arr_lit / lower_arr_fill_lit — right on base only by cancellation (row aggregate_literal_temp_place_base_never_dropped_run)
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-consumeland/rust/t13_arrlit_ref_temp.rs: compiles, runs, stdout `r=10 n=11`
+package bc_0915f_consumeland_hb_t13_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { x: D, y: D, z: i64 }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    let b: D = D { v: 10i64, c: p };
+    let r: &[D; 2] = &[a, b];
+    return r[1].v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    return 0i32;
+}

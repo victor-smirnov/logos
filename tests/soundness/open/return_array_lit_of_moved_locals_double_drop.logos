@@ -6,6 +6,7 @@
 // a double free). Not the autoref class: the array literal's elements are MOVES, and the return path's moved-set does not
 // record them. Measured on base b54c1160ae8e4066 and on the 2026-09-14o landing: 22 both.
 // Found 2026-09-14o-autoreffund by hand program x01 (while explaining c10's 12376). Legality by reading; no rustc binary.
+// ROUND 2026-09-15f-consumeland (landing) DECLINED THE ARRAY-LITERAL HALF: DOORS IN SERIES. The first candidate b3b9ae03 (elements marked moved at SemaChecker::lower_arr_lit, TypeVar elements too, and lower_arr_fill_lit for N >= 1) closed this row, but LEAKED six legal programs that are right on base only by cancellation — `[a, b].len()`, `[a, b][1].v`, `for d in [a, b]`, `{ [a, b] }[0].v`, `&[a, b]`, `[a; 1][0].v` read n = 11 -> 0 (1 -> 0), rustc 11 each (pass fixtures bc_0915f_consumeland_hb_{k08,k09,k10,t11,t13,u07}_admit). The door upstream is row aggregate_literal_temp_place_base_never_dropped_run: an array / tuple literal temporary in a place position is never dropped.
 package return_array_lit_of_moved_locals_double_drop;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct C { v: i64, c: *mut i64 }

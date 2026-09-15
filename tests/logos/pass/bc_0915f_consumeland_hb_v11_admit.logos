@@ -1,0 +1,29 @@
+// hand battery: round 2026-09-15f-consumeland, program v11 — caught: its destructor count moved to Rust's answer between base 7eb6735b16576c45 and the landing (a by-value operator / *Assign operand now marked moved)
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-consumeland/rust/v11_neg_conditional_move.rs: compiles, runs, stdout `r=-1 n=1`
+package bc_0915f_consumeland_hb_v11_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+impl Neg for D {
+    fn neg(self: D) -> i64 {
+        return 0i64 - self.v;
+    }
+}
+fn g(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    let k: i64 = rd(p);
+    let mut s: i64 = 0i64;
+    if k == 0i64 {
+        s = -a;
+    }
+    return s;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    return 0i32;
+}

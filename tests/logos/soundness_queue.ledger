@@ -48,7 +48,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 3 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable refuses
 rcdyn_borrow_arg_no_vtable     3 tests/soundness/open/rcdyn_borrow_arg_no_vtable     refuses
-# TOTAL 219
+# TOTAL 221
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -244,7 +244,6 @@ setter_mutref_field_store_after_outer_set_rehomed_refused 3 tests/soundness/open
 refcell_interior_push_block_local_dangle_admits 2 tests/soundness/open/refcell_interior_push_block_local_dangle_admits admits
 option_replace_ref_store_no_flow_summary_admits 2 tests/soundness/open/option_replace_ref_store_no_flow_summary_admits admits
 # 2026-09-14n-autoreftemp: seven spill sites of one class (an rvalue auto-borrowed with no owner) + an order guard + two unrelated defects its battery caught
-byvalue_operator_operand_not_moved_double_drop 1 tests/soundness/open/byvalue_operator_operand_not_moved_double_drop run 1
 # 2026-09-14o-autoreffund: the autoref landing's neighbours rowed with a named reason, and out-of-class defects its battery caught
 operator_operand_owner_after_sibling_exit_leak 1 tests/soundness/open/operator_operand_owner_after_sibling_exit_leak run 1
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
@@ -308,3 +307,6 @@ generic_unbounded_typevar_reuse_after_tuple_literal_admits 2 tests/soundness/ope
 at_binding_whole_struct_wild_fields_refused 3 tests/soundness/open/at_binding_whole_struct_wild_fields_refused refuses
 array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
 array_repeat_len2_noncopy_says_use_of_moved 4 tests/soundness/open/array_repeat_len2_noncopy_says_use_of_moved diag use of moved value
+aggregate_literal_temp_place_base_never_dropped_run 1 tests/soundness/open/aggregate_literal_temp_place_base_never_dropped_run run 1
+match_expr_array_pattern_segfaults_run 1 tests/soundness/open/match_expr_array_pattern_segfaults_run run 139
+operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses

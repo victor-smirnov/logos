@@ -1,0 +1,40 @@
+// hand battery: round 2026-09-15f-consumeland, program k17 — caught: its destructor count moved to Rust's answer between base 7eb6735b16576c45 and the landing (a by-value operator / *Assign operand now marked moved)
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-consumeland/rust/k17_op_reinit.rs: compiles, runs, stdout `r=1100 n=1111`
+package bc_0915f_consumeland_hb_k17_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { x: D, y: D, z: i64 }
+impl Add for D {
+    fn add(self: D, o: D) -> D {
+        return D { v: 100i64, c: self.c };
+    }
+}
+impl Neg for D {
+    fn neg(self: D) -> D {
+        return D { v: 1000i64, c: self.c };
+    }
+}
+impl AddAssign for D {
+    fn add_assign(self: &mut D, o: D) {
+        self.v = self.v + 0i64;
+    }
+}
+fn eat(d: D) -> i64 { return d.v; }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64) -> i64 {
+    let mut a: D = D { v: 1i64, c: p };
+    let b: D = D { v: 10i64, c: p };
+    let s: D = a + b;
+    a = D { v: 1000i64, c: p };
+    return a.v + s.v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    if got != 1111i64 { return 1i32; }
+    return 0i32;
+}
