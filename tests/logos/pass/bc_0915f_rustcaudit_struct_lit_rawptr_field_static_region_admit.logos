@@ -1,0 +1,11 @@
+// round 2026-09-15f-rustcaudit — the `H` half of closed row struct_lit_field_invariant_region_static_refused: `*mut &'static i64` into `H<'a>` instantiates 'a = 'static (the row said refused; at HEAD it compiles).
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/control/tier34/struct_lit_H_half.rs: compiles, runs exit 0. logosc b17b8e8c43266472 43: compiles, runs exit 0.
+package bc_0915f_rustcaudit_struct_lit_rawptr_field_static_region_admit;
+static G: i64 = 7i64;
+struct H<'a> { p: *mut &'a i64 }
+fn main() -> i32 {
+    let mut r: &'static i64 = &G;
+    let q: *mut &'static i64 = &mut r;
+    let h: H = H { p: q };
+    return (unsafe { **h.p } - 7i64) as i32;
+}

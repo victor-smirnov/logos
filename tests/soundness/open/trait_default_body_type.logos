@@ -17,3 +17,4 @@ trait T {
 fn main() -> i32 {
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0308]: mismatched types. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/trait_default_body_type.rs.

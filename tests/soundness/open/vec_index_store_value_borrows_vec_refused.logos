@@ -11,8 +11,9 @@ fn main() -> i32 {
 }
 // SOUNDNESS QUEUE row vec_index_store_value_borrows_vec_refused (tier 3).
 // Legal Rust: `v[0] = total(&v)` — an assignment evaluates its assigned VALUE before the assignee
-// place, so the shared `&v` ends before IndexMut's `&mut v` (reading the Reference; no rustc binary
-// on this box). TODAY refused: "cannot borrow 'v' as shared: mutable borrow still in scope here"
+// place, so the shared `&v` ends before IndexMut's `&mut v` (rustc 1.98.1 MEASURED, foot
+// of this file). TODAY refused: "cannot borrow 'v' as shared: mutable borrow still in scope here"
 // at the store's own line. `v[0u64] = v.len()` (a receiver read, no `&v`) compiles and runs.
 // Distinct from vec_index_store_len_in_index_refused (the INDEX operand). Found 2026-09-14b-
 // ptrcoerceland by the landing's hand battery (V08), reproducing on base 6d1bbee8344b2a81.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/vec_index_store_value_borrows_vec_refused.rs. Audit note: the value is evaluated before the IndexMut place.

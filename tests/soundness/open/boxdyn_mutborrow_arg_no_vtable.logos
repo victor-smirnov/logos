@@ -1,25 +1,18 @@
-// SOUNDNESS QUEUE row boxdyn_mutborrow_arg_no_vtable (tier 3). A LEGAL program
-// is refused, and by the BACKEND: passing `&mut b` for a `&mut dyn Tr`
-// parameter, where `b` is a `Box<dyn Tr>` local, fails in mlir-gen with
+// SOUNDNESS QUEUE row boxdyn_mutborrow_arg_no_vtable (tier 4, `diag`). An ILLEGAL program is refused with a BACKEND internal error:
+// passing `&mut b` for a `&mut dyn Sp` parameter, where `b` is a `Box<dyn Sp>` local, fails in mlir-gen with
 //
-//   mlir_gen: internal: no vtable for '&dyn Sp' as '&dyn Sp' — the fat
-//   pointer's vtable half would be left uninitialised …
+//   mlir_gen: internal: no vtable for '&dyn Sp' as '&dyn Sp' — the fat pointer's vtable half would be left uninitialised …
 //
-// i.e. it asks for a coercion from a type to ITSELF and has no answer. Compile
-// rc 1, no object file.
+// compile rc 1, no object file, no `error:` line.
 //
-// ONE-VARIABLE CONTROL, same binary, one token changed: the SHARED spelling —
-// `use_ref(&b)` for a `&dyn Sp` parameter — compiles, runs rc 0 and is
-// valgrind-clean (it is the pass fixture
-// tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop). So `&` works and `&mut`
-// does not, on the same local, at the same argument position.
-//
-// NOT the defect closed by boxdyn_arg_deref_borrow_kills_box_drop: measured on
-// BOTH binaries, base 19ff93338332ba46 43 and fixed 260d74a881ec778e 43, with
-// the identical message. That fix is in sema and this failure is in mlir-gen.
-//
-// Rust: legal — `&mut Box<dyn Sp>` deref-coerces to `&mut dyn Sp`. ⚠ There is
-// no rustc binary on this box; that legality claim rests on reading.
+// RECLASSIFIED 2026-09-15f-rustcaudit from tier 3 `refuses`: the row said "legal — `&mut Box<dyn Sp>` deref-coerces to `&mut dyn Sp`", a READING.
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/boxdyn_mutborrow_arg_no_vtable.rs: REFUSED
+//   error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied — "required for the cast from `&mut Box<dyn Sp>` to `&mut dyn Sp`"
+// A `&mut dyn` target makes the coercion an UNSIZE of `Box<dyn Sp>`, never a deref coercion. The verdict is right; the sentence is the defect (E0277).
+// The legal spelling `use_mut(&mut *b)` meets the SAME internal error: row boxdyn_mut_explicit_deref_arg_no_vtable (tier 3).
+// ⚠ FOR THE OWNER: the SHARED spelling `use_ref(&b)` is equally E0277 in rustc (twin src/compiler/probes/2026-09-15f-rustcaudit/rust/control/tier34/boxdyn_shared_borrow_arg.rs),
+// and pass fixture tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop asserts it compiles, under docs/spec/types.md `coerce.deref.box-struct-borrow`
+// — a clause in neither divergence registry whose `&Box<dyn Trait>` -> `&dyn Trait` half is false about Rust. Reported, not edited.
 package boxdyn_mutborrow_arg_no_vtable;
 use logos.mem.boxed;
 

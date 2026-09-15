@@ -1,0 +1,10 @@
+// round 2026-09-15f-rustcaudit — fail fixture bc_0915f_rustcaudit_struct_lit_mutref_field_static_annot_refuse with a LOCAL referent and no `'static` annotation: 'a is the local borrow's region.
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/control/own/struct_lit_HM_local_region.rs: compiles, runs exit 0. logosc b17b8e8c43266472 43: compiles, runs exit 0.
+package bc_0915f_rustcaudit_struct_lit_mutref_field_local_region_admit;
+struct HM<'a> { m: &'a mut &'a i64 }
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let mut s: &i64 = &v;
+    let hm: HM = HM { m: &mut s };
+    return (**hm.m - 7i64) as i32;
+}

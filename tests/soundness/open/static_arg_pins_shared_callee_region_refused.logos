@@ -3,7 +3,7 @@
 // region: a `'static` first argument pins `'a := 'static`, and the second argument —
 // a borrow of a local — is then refused "call to 'eqr' arg 2: variance mismatch —
 // expected &'static i64, got &i64". Rust picks `'a` = the call's region and both
-// arguments coerce. Legal Rust (reading; no rustc binary here). Three spellings of
+// arguments coerce. Legal Rust (rustc 1.98.1 MEASURED, foot of this file). Three spellings of
 // the same first argument: a `&'static` parameter, `&STATIC`, and a static's read.
 // This is the door in series in front of reading a static's elided region as
 // 'static at its declaration (2026-09-13d: that fill refuses r04/r08/r17 here).
@@ -21,3 +21,4 @@ fn main() -> i32 {
     if !eqr(&V, &n) { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/static_arg_pins_shared_callee_region_refused.rs.

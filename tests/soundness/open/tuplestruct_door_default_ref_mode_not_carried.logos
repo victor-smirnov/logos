@@ -49,3 +49,4 @@ fn main() -> i32 {
         return COUNT as i32;
     }
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 1 (stdout "drops=1"). Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/tuplestruct_door_default_ref_mode_not_carried.rs. Audit note: right answer is exit 1 as the header says; twin changed: `let c = COUNT; println!(.., c)` (2024 denies &static mut); control drops=0 exit 0.

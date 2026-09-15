@@ -9,7 +9,7 @@
 // this binder is built by SemaChecker::build_pattern's generic PAT_WILD arm, which emits PatWild with slot 0xFFFFFFFF, so the arm
 // binding is never registered and the outer drop cannot tell it from the outer binding. Minting a slot there also changes what
 // borrow_check's declare_pat_bindings declares — a second consumer, a different change.
-// Found 2026-09-15 by hand programs c06 / k06 / k30. Legality by reading; no rustc binary.
+// Found 2026-09-15 by hand programs c06 / k06 / k30. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package match_arm_nested_binder_shadow_double_drop;
 struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
@@ -29,3 +29,4 @@ fn main() -> i32 {
     if rd(p) != 21i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/match_arm_nested_binder_shadow_double_drop.rs. Audit note: arm binding 2 then outer 1; control exit 1.

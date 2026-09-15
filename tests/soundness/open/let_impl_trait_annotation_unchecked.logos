@@ -42,3 +42,4 @@ fn main() -> i32 {
     let f: impl Fn() -> i64 = move || -> i64 { x += 1i64; return x; };
     return f() as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class NOT EXPRESSIBLE): REFUSED — error[E0562]: `impl Trait` is not allowed in the type of variable bindings / error[E0562]: `impl Trait` is not allowed in the type of variable bindings. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/let_impl_trait_annotation_unchecked.rs. Variants: let_impl_trait_annotation_unchecked__paramposition.rs REFUSED E0277. Audit note: impl Trait in let binding is not Rust (E0562) and has no divergence row; param-position twin (2 constructs away) refuses E0277 A: Speak. Owner's.

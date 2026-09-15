@@ -62,3 +62,4 @@ unsafe fn main() -> i32 {
     free(cb);
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0277]: the size for values of type `T` cannot be known at compilation time. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/unsized_local_binds_place_dropped_after_free.rs. Audit note: TWIN CHANGED: raw-ptr auto-deref -> (*self.inner).val, c[0] -> *c, extern fn -> unsafe extern C (usize), main reduced (Logos custom-struct unsize cast needs unstable CoerceUnsized).

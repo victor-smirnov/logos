@@ -1,0 +1,22 @@
+// CLOSED soundness-queue row struct_lit_field_invariant_region_static_refused (tier 3, `refuses`) — CONTRADICTED by rustc, round 2026-09-15f-rustcaudit.
+// The row held BOTH literals legal ("'a is inferred as 'static from the field value") — a READING. Measured:
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/struct_lit_field_invariant_region_static_refused.rs: REFUSED
+//   error[E0597]: `s` does not live long enough — "type annotation requires that `s` is borrowed for `'static`"
+// `s` is ANNOTATED `&'static i64`, so the invariant `HM<'a>` pins 'a = 'static and `&mut s` must borrow a local for 'static. Correct refusal.
+// logosc (build b17b8e8c43266472 43) refuses the HM literal with the sentence pinned below; the `H` half (`*mut &'a i64`) is LEGAL and is no longer
+// refused at HEAD — the row's "refused at both literals" was stale too (pass fixture bc_0915f_rustcaudit_struct_lit_rawptr_field_static_region_admit).
+// PAIR: bc_0915f_rustcaudit_struct_lit_mutref_field_local_region_admit (a LOCAL referent: compiles and runs 0 in both compilers).
+// ⚠ The defect the row was ABOUT survives on a legal spelling: drop the `'static` annotation on `s` and rustc runs 0 while logosc still refuses —
+// soundness_queue row struct_lit_mutref_field_unannotated_static_borrow_refused.
+package bc_0915f_rustcaudit_struct_lit_mutref_field_static_annot_refuse;
+static G: i64 = 7i64;
+struct H<'a> { p: *mut &'a i64 }
+struct HM<'a> { m: &'a mut &'a i64 }
+fn main() -> i32 {
+    let mut r: &'static i64 = &G;
+    let q: *mut &'static i64 = &mut r;
+    let h: H = H { p: q };
+    let mut s: &'static i64 = &G;
+    let hm: HM = HM { m: &mut s };
+    return (unsafe { **h.p } + **hm.m - 14i64) as i32;
+}

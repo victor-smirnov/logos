@@ -1,0 +1,8 @@
+// round 2026-09-15f-rustcaudit — the store of fail fixture bc_0915f_rustcaudit_vec_index_store_len_in_index_refuse through a built-in ARRAY index: no IndexMut call, no `&mut a` before the index is evaluated.
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/control/tier34/array_index_len_in_index.rs: compiles, runs exit 0. logosc b17b8e8c43266472 43: compiles, runs exit 0.
+package bc_0915f_rustcaudit_array_index_store_len_in_index_admit;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    a[(a.len() - 1i64) as u64] = 5i64;
+    return (a[1u64] - 5i64) as i32;
+}

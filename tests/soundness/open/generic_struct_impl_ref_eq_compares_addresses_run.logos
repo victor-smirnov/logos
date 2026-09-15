@@ -12,7 +12,7 @@
 // Battery e41. Measured on builds 854d99ae9a2e2fbd 43, b1a0431a68699a9c 43, build-land0913d sha256 8850a5acc469809f.
 // 2026-09-15b-refeqland: ref_struct_eq_compares_addresses_run is CLOSED (pass/bc_refeqland_struct_ref_pair_calls_eq_admit) by the
 // sema arm alone; this row still reads exit 1 on the landed binary (build-land0913d sha256 7251cacc8e20ec02), reason 1 unchanged.
-// Legality by reading; no rustc binary.
+// Legality MEASURED with rustc 1.98.1 (foot of this file).
 package generic_struct_impl_ref_eq_compares_addresses_run;
 use logos.lang.cmp;
 struct W<T> { x: T }
@@ -31,3 +31,4 @@ fn main() -> i32 {
     }
     return 1i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/generic_struct_impl_ref_eq_compares_addresses_run.rs. Variants: generic_struct_impl_ref_eq_compares_addresses_run__copy.rs compiles, exit 0. Audit note: &W<i64> == &W<i64> goes through impl<T:PartialEq> PartialEq for W<T>; control eq=false exit 1.

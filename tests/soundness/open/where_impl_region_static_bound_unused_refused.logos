@@ -3,7 +3,7 @@
 // the method's own return: `self.r: &'a i64` returned as `&'static i64` is
 // refused "lifetime mismatch: return type has lifetime 'static but 'self' has
 // lifetime (elided)". The same bound on a FN's own region is honoured
-// (regions-static-bound-ok). Legal Rust (reading; no rustc binary here).
+// (regions-static-bound-ok). Legal Rust (rustc 1.98.1 MEASURED, foot of this file).
 package where_impl_region_static_bound_unused_refused;
 static V: i64 = 9i64;
 struct W<'a> { r: &'a i64 }
@@ -15,3 +15,4 @@ fn main() -> i32 {
     let s = w.keep();
     return *s as i32 - 9i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/where_impl_region_static_bound_unused_refused.rs.

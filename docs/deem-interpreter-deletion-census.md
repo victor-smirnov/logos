@@ -6055,8 +6055,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                bc_0915f_consumeland_operator_operands_moved_refuse, bc_0915f_consumeland_hb_i0{2,3}_refuse), none tier_commit. So
 #                ALL 10823 -> 10872 (+49), NOIMPORTED 6321 -> 6370 (+49), TIERCOMMIT 337 -> 339 (+2) — PREDICTED before the re-glob, then
 #                measured by `ctest -N` on the re-globbed build before this pin was touched.
-REGISTRY-ALL         10872
-REGISTRY-NOIMPORTED  6370
+# 2026-09-15h (rustcaudit — every soundness_queue row whose legality rested on a READING checked with rustc 1.98.1; no compiler
+#                change; soundness_queue 221 -> 221). 2 queue rows closed as CONTRADICTED (vec_index_store_len_in_index_refused,
+#                struct_lit_field_invariant_region_static_refused: their programs moved to fail/bc_0915f_rustcaudit_*_refuse) and 2 opened
+#                (boxdyn_mut_explicit_deref_arg_no_vtable, struct_lit_mutref_field_unannotated_static_borrow_refused): tier_commit +2 -2.
+#                2 more rows were reclassified tier 3 -> 4 in place (no test added or removed). Native fixtures: 2 fail (the moved programs)
+#                and 4 pass (bc_0915f_rustcaudit_*_admit), none tier_commit. So ALL 10872 -> 10878 (+6), NOIMPORTED 6370 -> 6376 (+6),
+#                TIERCOMMIT 339 -> 339 — PREDICTED before the re-glob, then measured by `ctest -N` on the re-globbed build.
+REGISTRY-ALL         10878
+REGISTRY-NOIMPORTED  6376
 REGISTRY-TIERCOMMIT  339
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

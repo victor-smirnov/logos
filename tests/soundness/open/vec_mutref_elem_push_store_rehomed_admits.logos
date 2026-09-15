@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row vec_mutref_elem_push_store_rehomed_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: A `Vec<&mut i64>` HOLDING `&mut x` RECEIVES `&mut d` OF A BLOCK LOCAL AND IS USED AFTER.
 //
-// rustc refuses (E0597); legality by reading, no rustc binary. TODAY admitted (runs exit 2), build 0230e503bd682184 43.
+// rustc refuses (E0597); MEASURED with rustc 1.98.1 (foot of this file). TODAY admitted (runs exit 2), build 0230e503bd682184 43.
 // Same A2 alias edge as vec_push_after_outer_push_store_rehomed_admits, minted from a `&mut` operand stored as an ELEMENT.
 // MEASURED: a2elem and a2skipall REFUSE it; a2elemshr (the shared-operand-only twin) does NOT — the `&mut` half is the
 // difference between the two inner predicates. Found: hand c02, round 2026-09-14l-storeedge.
@@ -19,3 +19,4 @@ fn main() -> i32 {
     }
     return v.len() as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0597]: `d` does not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/vec_mutref_elem_push_store_rehomed_admits.rs.

@@ -6,7 +6,7 @@
 // Found 2026-09-13b-selfregion-land by a legal-shape battery program (A09) for impls whose self
 // type has regions; it reproduces with a NAMED impl binder on the base binary a5088a6875e092aa, so
 // it is not about `'_` or `Self`. The same impl called as a static trait fn (`fn read(x: Self)`)
-// compiles. Root NOT read. ⚠ Legality rests on a reading — no rustc binary on this box.
+// compiles. Root NOT read. Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 package trait_impl_for_ref_method_call_receiver_refused;
 trait Get { fn get(self: Self) -> i64; }
 impl<'a> Get for &'a i64 {
@@ -19,3 +19,4 @@ fn main() -> i32 {
     let r = &v;
     return r.get() as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 19. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/trait_impl_for_ref_method_call_receiver_refused.rs.

@@ -12,7 +12,7 @@
 //   Box element `&(Box<D>, i64)` (g15; by value g15v: "type 'Box<D>' does not implement trait 'Eq'")
 // A guard excluding enum elements was built and REFUTED by g10 / g15 (an enumerated denylist of element kinds). Members that the
 // routing moved to Rust's answer and that stay wrong here: battery e37 f26 g06 g09 g12 g13. Measured on build/ 854d99ae9a2e2fbd 43
-// (base) and build-land0913d sha256 3e4a73c81b9cc7b6 (routing with the enum guard). Legality by reading; no rustc binary.
+// (base) and build-land0913d sha256 3e4a73c81b9cc7b6 (routing with the enum guard). Legality MEASURED with rustc 1.98.1 (foot of this file).
 package ref_pair_nonprim_tuple_eq_compares_addresses_run;
 use logos.lang.cmp;
 use logos.mem.string;
@@ -35,3 +35,4 @@ fn main() -> i32 {
     if !(rs1 == rs2) { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ref_pair_nonprim_tuple_eq_compares_addresses_run.rs. Variants: ref_pair_nonprim_tuple_eq_compares_addresses_run__copy.rs compiles, exit 0. Audit note: &(S,i64)==&(S,i64) and &(String,i64); control eq=false exit 1.

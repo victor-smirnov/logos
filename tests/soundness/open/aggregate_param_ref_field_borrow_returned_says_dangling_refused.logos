@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row aggregate_param_ref_field_borrow_returned_says_dangling_refused (tier 3).
 // LEGAL PROGRAM REFUSED: `fn refs<'a>(p: (&'a L, &'a L)) -> Vec<&'a i64>` PUSHES `&p.0.value` AND RETURNS THE VEC.
 //
-// Legal Rust: `&p.0.value` borrows through `&'a L`, not the local `p`. Legality by reading, no rustc binary. TODAY refused,
+// Legal Rust: `&p.0.value` borrows through `&'a L`, not the local `p`. Legality MEASURED with rustc 1.98.1 (foot of this file). TODAY refused,
 // build 0230e503bd682184 43: "cannot return reference to local variable 'r': dangling reference". NOT this round's fact (unmoved under
 // every name); found because a2elem made the same false sentence appear on fail fixture
 // tests/imported/fail/nll/issue-62007-assign-differing-fields--t22 (its only fail-text change). Members, all refused on base:
@@ -22,3 +22,4 @@ fn main() -> i32 {
     let v: Vec<&i64> = refs((&a, &b));
     return (*v[0u64] + *v[1u64]) as i32 - 7i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/aggregate_param_ref_field_borrow_returned_says_dangling_refused.rs.

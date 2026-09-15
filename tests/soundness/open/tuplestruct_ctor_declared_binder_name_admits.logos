@@ -17,3 +17,4 @@ fn main() -> i32 {
 // same body is refused (c10, "tuple-struct 'P' field 1: variance mismatch — expected &'a i64, got &'b i64").
 // Twin row: tuplestruct_ctor_declared_binder_name_refused. Found 2026-09-14c-meetobl (T1), base 47bea7f0aeb42d36;
 // unchanged under mobl / moblany.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/tuplestruct_ctor_declared_binder_name_admits.rs.

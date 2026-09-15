@@ -14,3 +14,4 @@ fn main() -> i32 {
     if third(&ARR) != 7i64 { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/static_array_whole_borrow_reads_garbage.rs. Audit note: [header says "Legal Rust; rustc exits 0" with no twin cited] control ARR[2]=8 exit 2.

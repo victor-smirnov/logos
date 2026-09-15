@@ -23,3 +23,4 @@ fn main() -> i32 {
     if c != 3i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/enum_payload_partial_move_leak.rs. Audit note: rest of a partially moved enum payload is dropped; control exit 1; earlier twin at probes/2026-09-15e-consume/rust/.

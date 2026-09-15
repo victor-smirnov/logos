@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row vec_mutref_elem_push_store_rehomed_refused (tier 3).
 // LEGAL PROGRAM REFUSED: `Vec<&mut i64>` HOLDING `&mut x` AND `&mut y`, WRITTEN THROUGH, DEAD; THEN `x = x + 1`.
 //
-// Legal Rust: `v` is dead after the block. Legality by reading, no rustc binary. TODAY refused, build 0230e503bd682184 43: "cannot use 'y'
+// Legal Rust: `v` is dead after the block. Legality MEASURED with rustc 1.98.1 (foot of this file). TODAY refused, build 0230e503bd682184 43: "cannot use 'y'
 // while it is mutably borrowed" — the second push's loan on `y` is held by `x` through the A2 edge `v -> x`.
 // MEASURED: compiles and runs exit 0 under a2elem and a2skipall; still refused under a2elemshr.
 // NEIGHBOUR ROWED AT THE STOREEDGE LANDING (2026-09-14m-storeedge-land), REASON 3 — its own cost is measured non-zero: the only arm
@@ -25,3 +25,4 @@ fn main() -> i32 {
     x = x + 1i64;
     return (x + y) as i32 - 16i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/vec_mutref_elem_push_store_rehomed_refused.rs. Audit note: `*v[0] = 7` translated as IndexMut; A17 (by-value access) does not change legality here.

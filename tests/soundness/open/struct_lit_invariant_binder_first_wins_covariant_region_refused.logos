@@ -21,5 +21,6 @@ fn main() -> i32 {
 // diagnostics (account-for-lifetimes-in-closure-suggestion, bc_ltcallmeet_invariant_binder_no_meet,
 // bc_recv_self_lt_invariant_fail, ex3-both-anon-regions-one-is-struct-5, issue-67007-escaping-data,
 // nondeterministic-lifetime-errors-15034; rc unchanged, `.expected` no longer matches), two of them into a sentence
-// naming one parameter's two elided slots identically. ⚠ Legality rests on a reading — no rustc binary on this box.
+// naming one parameter's two elided slots identically. Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 // Found 2026-09-14d-meetoblland (L407, L408), reproducing on base 47bea7f0aeb42d36 and the landed build.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 5. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/struct_lit_invariant_binder_first_wins_covariant_region_refused.rs. Audit note: header's exit 5 measured.

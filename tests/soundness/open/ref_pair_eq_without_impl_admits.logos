@@ -8,9 +8,9 @@
 // under that arm ('logos.lang.str.Splitter__eq' does not reference a valid function: a blanket impl cloned for a non-Eq struct).
 // The sema arms leave this program admitted (census refeq.sema.spair.noimpl).
 // Battery e23. Measured on builds 854d99ae9a2e2fbd 43, b1a0431a68699a9c 43, build-land0913d sha256 8850a5acc469809f.
-// 2026-09-15b-refeqland member g03: `&(E, i64) == &(E, i64)` with E a C-like enum with NO Eq impl (E0369 by reading) is admitted
+// 2026-09-15b-refeqland member g03: `&(E, i64) == &(E, i64)` with E a C-like enum with NO Eq impl (E0369, rustc 1.98.1 MEASURED) is admitted
 // on base and on the landed binary (the tuple arm does not route a tuple holding an enum); its by-value spelling is refused.
-// Legality by reading; no rustc binary.
+// Legality MEASURED with rustc 1.98.1 (foot of this file).
 package ref_pair_eq_without_impl_admits;
 struct N { v: i64 }
 fn main() -> i32 {
@@ -23,3 +23,4 @@ fn main() -> i32 {
     }
     return 1i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: invalid character '.' in crate name: `ref_pair_eq_without_impl_admits.g03`. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ref_pair_eq_without_impl_admits.rs. Variants: ref_pair_eq_without_impl_admits__derivecopy.rs REFUSED E0369; ref_pair_eq_without_impl_admits__g03.rs REFUSED E0369. Audit note: same E0369 with #[derive(Clone,Copy)]; member g03 &(E,i64)==&(E,i64) also E0369.

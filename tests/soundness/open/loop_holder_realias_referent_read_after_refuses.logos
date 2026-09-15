@@ -8,7 +8,7 @@
 // Distinct from loop_holder_realias_alternating_refuses by the SITE of the
 // refusal (a read after the loop, not a re-borrow inside it); they may share a
 // root and each carries its own program so that a repair of one is visible.
-// ⚠ Legality read from Rust's NLL by hand — no rustc binary on this box.
+// Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 package loop_holder_realias_referent_read_after_refuses;
 fn main() -> i32 {
     let mut a: i64 = 0i64;
@@ -22,3 +22,4 @@ fn main() -> i32 {
     }
     return (a + b - 103i64) as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/loop_holder_realias_referent_read_after_refuses.rs. Audit note: NLL accepts.

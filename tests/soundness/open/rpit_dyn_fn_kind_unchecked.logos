@@ -37,3 +37,4 @@ fn main() -> i32 {
     let c = move || -> i64 { z += 4i64; return z; };
     return (b() + annotated() + call_ref(&c)) as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0525]: expected a closure that implements the `Fn` trait, but this closure only implements `FnMut` / error[E0594]: cannot assign to `x`, as it is a captured variable in a `Fn` closure. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/rpit_dyn_fn_kind_unchecked.rs. Variants: rpit_dyn_fn_kind_unchecked__control_fnmut.rs compiles, exit 7. Audit note: header cites E0594 only; rustc prints E0525 first. FnMut control compiles, runs 7.

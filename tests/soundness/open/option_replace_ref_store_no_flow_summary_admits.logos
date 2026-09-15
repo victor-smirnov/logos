@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row option_replace_ref_store_no_flow_summary_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: `o.replace(&x)` THEN `o.replace(&d)` OF A BLOCK LOCAL, THEN `o` READ AFTER THE BLOCK.
 //
-// rustc refuses (E0597); legality by reading, no rustc binary. TODAY admitted (runs exit 1), build 0230e503bd682184 43.
+// rustc refuses (E0597); MEASURED with rustc 1.98.1 (foot of this file). TODAY admitted (runs exit 1), build 0230e503bd682184 43.
 // A store through an out-param whose callee has NO flow summary: LOGOS_DUMP_FLOWS=replace prints
 // `logos.lang.option.Option__replace__g__refmut_Option__T: UNAVAILABLE` (the generic body forwards to mem::replace_ref), so
 // apply_flow_outparams returns at its documented `if (!fs) return;` hole and no deposit, loan or edge is recorded.
@@ -20,3 +20,4 @@ fn main() -> i32 {
     if o.is_some() { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0597]: `d` does not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/option_replace_ref_store_no_flow_summary_admits.rs.

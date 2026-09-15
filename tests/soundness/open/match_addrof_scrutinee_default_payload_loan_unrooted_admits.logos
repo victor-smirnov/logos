@@ -19,3 +19,4 @@ fn main() -> i32 {
     }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0499]: cannot borrow `foo` as mutable more than once at a time. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/match_addrof_scrutinee_default_payload_loan_unrooted_admits.rs. Audit note: twin drops the i64 annotation on baz.len().

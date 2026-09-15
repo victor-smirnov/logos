@@ -20,7 +20,7 @@
 // ⚠ THIS IS WHY A DEPOSIT COUNT IS NOT A CLOSURE: the door census says 1 and
 // the program still admits.
 //
-// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// Legality MEASURED with rustc 1.98.1 (2026-09-15f-rustcaudit): verdict at the foot of this file.
 // Opened 2026-09-12.
 package lifereg_field_reborrow_deposit_unread_admits;
 struct W<T> { v: T }
@@ -30,3 +30,4 @@ fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
   return w.v;                 // THE DEFECT: admitted, upstream E0621
 }
 fn main() -> i32 { return 0i32; }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0621]: explicit lifetime required in the type of `y`. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/lifereg_field_reborrow_deposit_unread_admits.rs.

@@ -14,9 +14,9 @@
 // statement, not in the notion of re-initialisation.
 //
 // ⚠ FOR AN OWNER: this is the one row in the 2026-09-06 ownership batch whose
-// Rust verdict was NOT checked against rustc — there is no rustc on this box. The
-// evidence for legality is the existence of the clippy lint. If the owner reads it
-// the other way, this row retires rather than being bought.
+// Rust verdict was not checked against rustc until 2026-09-15f-rustcaudit: rustc 1.98.1
+// COMPILES it and runs exit 0 (foot of this file), so the clippy-lint evidence held
+// and the row stands.
 //
 // Measured 2026-09-06, lattice cell e_self_assign. Rust: compiles, exit 0.
 package self_assign_refused_as_moved;
@@ -36,3 +36,4 @@ fn main() -> i32 {
     if got != 1i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/self_assign_refused_as_moved.rs. Audit note: `x = x` legal; exit 0 means one drop (n==1).

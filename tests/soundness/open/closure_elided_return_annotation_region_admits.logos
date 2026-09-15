@@ -15,3 +15,4 @@ fn main() -> i32 {
 // permissively; the region the body actually returns never reaches the caller. The struct spelling
 // (`|| -> P { return P { x: y, y: y }; }` returned as `P<'a>`) is admitted the same way.
 // Found 2026-09-14d-meetoblland (X202, X203, X115), reproducing on base 47bea7f0aeb42d36 and the landed build.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/closure_elided_return_annotation_region_admits.rs.

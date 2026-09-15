@@ -44,3 +44,4 @@ fn main() -> i32 {
     if got != 1i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0382]: use of moved value: `f`. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/closure_fnonce_call_in_loop_multi_free.rs. Audit note: header already says the program is illegal and the fix is a refusal; the ledger's `run 1` records today's wrong behaviour, and rustc agrees with the header.

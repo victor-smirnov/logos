@@ -9,7 +9,7 @@
 // a5088a6875e092aa, so it is not about `Self`. HYPOTHESIS, not measured: the binding mode may be
 // lost where soundness_queue row variant_payload_nested_struct_sub_double_drops locates its own
 // loss (the payload synth in `build_pattern_variant_data`). Root NOT read.
-// ⚠ Legality rests on a reading — no rustc binary on this box.
+// Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 package struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses;
 enum E<'s> { V { r: &'s i64 }, N }
 fn again<'a>(e: &E<'a>) -> E<'a> {
@@ -26,3 +26,4 @@ fn main() -> i32 {
         E::N => { return 1i32; }
     }
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 14. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses.rs. Audit note: header's exit 14 measured.

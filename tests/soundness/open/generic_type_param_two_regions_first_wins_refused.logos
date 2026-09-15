@@ -14,5 +14,6 @@ fn main() -> i32 {
 // "call to 'first' arg 2: variance mismatch — expected &'a i64, got &'b i64". A TYPE parameter binds
 // first-wins from argument 1 (unify_types into a SemaSubst) and argument 2's region is compared against it —
 // the lifetime binders' meet (build_call_lt_subst_) has no twin for a type binder's regions.
-// ⚠ Legality rests on a reading — no rustc binary on this box.
+// Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 // Found 2026-09-14c-meetobl (L34), base 47bea7f0aeb42d36; unchanged under mobl.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 6. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/generic_type_param_two_regions_first_wins_refused.rs. Audit note: header's exit 6 measured.

@@ -14,5 +14,6 @@ fn main() -> i32 {
 // satisfies `'b: 'a`. TODAY refused: "struct literal 'W': caller does not satisfy declared outlives bound `'b: 'a`
 // (under lifetime substitution: `'c: 'a` required)". check_struct_lit_outlives substitutes each binder by an ACTUAL
 // region of the values and asks the where-bound between those, as though the instantiation were rigid.
-// ⚠ Legality rests on a reading — no rustc binary on this box.
+// Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 // Found 2026-09-14d-meetoblland (L122, L122b), reproducing on base 47bea7f0aeb42d36 and the landed build.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 4. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/where_struct_literal_instantiation_rigid_refused.rs. Variants: where_struct_literal_instantiation_rigid_refused__copy.rs compiles, exit 4. Audit note: A16 twin with derive(Clone,Copy): same, exit 4.

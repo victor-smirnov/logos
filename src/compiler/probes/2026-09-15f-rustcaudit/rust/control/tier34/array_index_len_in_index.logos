@@ -1,0 +1,6 @@
+package array_index_len_in_index;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    a[(a.len() - 1i64) as u64] = 5i64;
+    return (a[1u64] - 5i64) as i32;
+}

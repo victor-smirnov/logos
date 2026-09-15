@@ -3,8 +3,8 @@
 //
 // `fn f(x: *mut &i64, y: *mut &i64)` has two different anonymous regions, and a `*mut` is invariant over its pointee,
 // so `x == y` has no common type: rustc refuses ("lifetime may not live long enough", the error upstream
-// tests/ui/nll/type-check-pointer-comparisons.rs prints at compare_mut with the regions written). Legality by
-// reading; no rustc binary on this box.
+// tests/ui/nll/type-check-pointer-comparisons.rs prints at compare_mut with the regions written). Legality
+// MEASURED with rustc 1.98.1 (foot of this file).
 // TODAY admitted and runs (build c52dcb19dff987ff 43; also base baa2a38e8b650fb3 43). The comparison arm IS reached:
 // the NAMED spelling `fn f<'a, 'b>(x: *mut &'a i64, y: *mut &'b i64)` is refused today with "operator '==': lifetime
 // may not live long enough — *mut &'a i64 and *mut &'b i64 have no common type". It is the two ELIDED regions that
@@ -26,3 +26,4 @@ fn f(x: *mut &i64, y: *mut &i64) -> bool {
 fn main() -> i32 {
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough / error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/elided_param_regions_invariant_compare_admits.rs. Audit note: two elided *mut &i64 params do not unify; not a divergence (no registry row names elision).

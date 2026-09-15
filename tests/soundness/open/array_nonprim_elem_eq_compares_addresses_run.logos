@@ -9,7 +9,7 @@
 // by-value spelling is wrong too. Found by 2026-09-15b-refeqland's hand battery (f01 f01v f02 f38 f38v): its first
 // candidate dereferenced ANY array reference pair to the by-value compare and REFUSED f01 / f02 ("cannot move out of a
 // value behind a shared reference (E0507)"); the landed arm dereferences only a primitive-element array.
-// Measured on build/ 854d99ae9a2e2fbd 43 (base). Legality by reading; no rustc binary.
+// Measured on build/ 854d99ae9a2e2fbd 43 (base). Legality MEASURED with rustc 1.98.1 (foot of this file).
 package array_nonprim_elem_eq_compares_addresses_run;
 use logos.lang.cmp;
 struct S { v: i64, c: *mut i64 }
@@ -47,3 +47,4 @@ fn main() -> i32 {
     if x != y { return 3i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/array_nonprim_elem_eq_compares_addresses_run.rs. Audit note: [S;2]==[S;2] by value and by ref, element-wise, no move; control eq=false exit 1.

@@ -19,3 +19,4 @@ fn main() -> i32 {
 // Not a meet: with a NAMED second region the landing refuses the same shape (fixture pair
 // bc_meet_invariant_elided_arg_{admit,refuse}). Found 2026-09-14d-meetoblland (X201), reproducing on base
 // 47bea7f0aeb42d36 and the landed build.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0597]: `local` does not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/generic_mutref_pair_local_borrow_escape_admits.rs. Variants: generic_mutref_pair_local_borrow_escape_admits__derivecopy.rs REFUSED E0597. Audit note: same with #[derive(Clone,Copy)] on P.

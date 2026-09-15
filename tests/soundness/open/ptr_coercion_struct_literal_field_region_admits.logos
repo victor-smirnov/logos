@@ -16,3 +16,4 @@ fn main() -> i32 {
 // `H<'a> { p: *mut &'a i64 }` built from a `*mut &'static i64` (LEGAL) is refused today (queue row
 // struct_lit_field_invariant_region_static_refused), and 2026-09-14b-ptrcoerceland's arm, asked there, refused the
 // cross-kind `H { p: &mut r }` too (E02). The literal's binder instantiation must be right before the arm can ask.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ptr_coercion_struct_literal_field_region_admits.rs.

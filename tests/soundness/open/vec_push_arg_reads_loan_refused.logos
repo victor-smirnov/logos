@@ -9,7 +9,8 @@ fn main() -> i32 {
 }
 // SOUNDNESS QUEUE row vec_push_arg_reads_loan_refused (tier 3).
 // Legal Rust: `v.push(*e + 1)` — the autoref `&mut v` of a method receiver is a TWO-PHASE borrow, and `e`'s last
-// use is the argument, evaluated before activation (reading; no rustc binary on this box). TODAY refused, twice:
+// use is the argument, evaluated before activation (rustc 1.98.1 MEASURED, foot of this file). TODAY refused, twice:
 // "cannot borrow 'v' as mutable: 'v' has shared borrows" + "... 1 shared borrow(s) active" — the lexical loan of
 // `e` lives through the line of its last use. The store spelling `v[0u64] = *e + 1i64` compiles (2026-09-14b-
 // ptrcoerceland's store query). Found by that landing's hand battery (V02P), reproducing on base 6d1bbee8344b2a81.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/vec_push_arg_reads_loan_refused.rs. Audit note: two-phase method autoref.

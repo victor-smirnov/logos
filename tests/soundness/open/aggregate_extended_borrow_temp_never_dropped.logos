@@ -6,7 +6,7 @@
 // marks the `&` as extending, so lower_unary keeps the anonymous addr_of_temp spill, and only a DIRECT `let p = &<rvalue>`
 // gets lower_let's named __lit_temp_N owner. Not the autoref class (an explicit `&`, owned by the block, not the statement);
 // unmoved by the 2026-09-14o landing (0 -> 0), which closed the direct `let r = &&<rvalue>` form only.
-// Found 2026-09-14o-autoreffund by hand program x05. Legality by reading; no rustc binary on this box.
+// Found 2026-09-14o-autoreffund by hand program x05. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package aggregate_extended_borrow_temp_never_dropped;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct C { v: i64, c: *mut i64 }
@@ -26,3 +26,4 @@ fn main() -> i32 {
     if got != 1000i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0 (stdout "inside=0 n=1000"). Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/aggregate_extended_borrow_temp_never_dropped.rs. Audit note: tuple-operand &temp is lifetime-extended to block end; control n=0 exit 1.

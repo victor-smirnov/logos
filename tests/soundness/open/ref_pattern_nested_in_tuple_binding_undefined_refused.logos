@@ -3,7 +3,7 @@
 // "error [fn main]: undefined variable 'x'"; `(&&Option::Some(x), k)` likewise. MLIRGenImpl::pat_bind has no RefPat case. Rust: exit 0.
 // NEIGHBOUR of 2026-09-15d-argrefland's `&`-pattern door, ROWED, REASON 2 (doors in series): a pat_bind RefPat case (load the place,
 // recurse on the pointee — pat_test's convention) was built and measured at zero: this program and its enum twin unchanged, the
-// refusal is taken first. Legality by reading; no rustc binary.
+// refusal is taken first. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package ref_pattern_nested_in_tuple_binding_undefined_refused;
 struct P { x: i32 }
 fn main() -> i32 {
@@ -16,3 +16,4 @@ fn main() -> i32 {
     }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ref_pattern_nested_in_tuple_binding_undefined_refused.rs. Variants: ref_pattern_nested_in_tuple_binding_undefined_refused__copy.rs compiles, exit 0. Audit note: A16 twin with derive(Clone,Copy): same.

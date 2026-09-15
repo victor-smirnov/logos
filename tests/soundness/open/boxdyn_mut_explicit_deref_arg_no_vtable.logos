@@ -1,0 +1,23 @@
+// SOUNDNESS QUEUE row boxdyn_mut_explicit_deref_arg_no_vtable (tier 3, `refuses`). A LEGAL program is refused by the BACKEND:
+// `use_mut(&mut *b)` with `b: Box<dyn Sp>` for a `&mut dyn Sp` parameter fails in mlir-gen with
+//   mlir_gen: internal: no vtable for '&dyn Sp' as '&dyn Sp' — the fat pointer's vtable half would be left uninitialised …
+// compile rc 1, no object file (build b17b8e8c43266472 43).
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/control/tier34/boxdyn_mut_explicit_deref.rs: compiles, runs exit 0.
+// Opened 2026-09-15f-rustcaudit, when rustc showed the old row boxdyn_mutborrow_arg_no_vtable (`use_mut(&mut b)`, no `*`) to be ILLEGAL
+// (E0277 `Box<dyn Sp>: Sp` not satisfied: a `&mut Box<dyn Sp>` -> `&mut dyn Sp` coercion is an UNSIZE of the box, never a deref coercion).
+// That row is now tier 4 (right verdict, backend sentence); this is the legal spelling that meets the same internal error. Root NOT read.
+// CONTROL, same binary: the SHARED explicit deref over an Rc, `use_ref(&*r)` with `r: Rc<dyn Sp>`, compiles and runs 0 in both compilers.
+package boxdyn_mut_explicit_deref_arg_no_vtable;
+use logos.mem.boxed;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn use_mut(r: &mut dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let mut b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if use_mut(&mut *b) != 42i64 { return 3i32; }
+    return 0i32;
+}

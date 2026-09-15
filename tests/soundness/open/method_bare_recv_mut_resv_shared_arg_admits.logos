@@ -45,3 +45,4 @@ fn main() -> i32 {
     if n != 2i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0502]: cannot borrow `s` as mutable because it is also borrowed as immutable. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/method_bare_recv_mut_resv_shared_arg_admits.rs. Variants: method_bare_recv_mut_resv_shared_arg_admits__derivecopy.rs REFUSED E0502. Audit note: same with #[derive(Clone,Copy)] on S.

@@ -13,5 +13,6 @@ fn main() -> i32 {
 // Legal Rust (exit 7): `'b: 'a`, so both fields fit `P<'a>`. TODAY refused: "tuple-struct 'P' field 0: variance
 // mismatch — expected &'s i64, got &'a i64" (and field 1). The constructor compares each field against the
 // DECLARED binder name `'s` with no instantiation; spelled `'a` like the fn's binder the same program compiles
-// and runs 7 (T3). ⚠ Legality rests on a reading — no rustc binary on this box.
+// and runs 7 (T3). Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 // Twin row: tuplestruct_ctor_declared_binder_name_admits. Found 2026-09-14c-meetobl (T2), base 47bea7f0aeb42d36.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 7. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/tuplestruct_ctor_declared_binder_name_refused.rs. Variants: tuplestruct_ctor_declared_binder_name_refused__copy.rs compiles, exit 7. Audit note: A16 twin with derive(Clone,Copy): same, exit 7.

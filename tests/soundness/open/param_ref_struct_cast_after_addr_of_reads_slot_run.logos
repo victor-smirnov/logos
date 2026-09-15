@@ -6,7 +6,7 @@
 // NEIGHBOUR of 2026-09-15d-argrefland's class (the same consumer, the parameter arm), ROWED, REASON 1 (the fact has no carrier there):
 // EAddrOfView carries no mutability, so the arm cannot ask whether the rebind (the `&mut p` write-through route) is needed; the strict
 // extension at the same site (register the slot's `&Struct` shape after the rebind) was built and measured: this program 1 -> 1, its
-// generic and field-read variants 8 -> 8 and 3 -> 3. Measured on build-dev0915d. Legality by reading; no rustc binary.
+// generic and field-read variants 8 -> 8 and 3 -> 3. Measured on build-dev0915d. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package param_ref_struct_cast_after_addr_of_reads_slot_run;
 struct D { v: i64 }
 fn h(a: &&D) -> *const D {
@@ -21,3 +21,4 @@ fn main() -> i32 {
     if !g(&d) { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/param_ref_struct_cast_after_addr_of_reads_slot_run.rs. Variants: param_ref_struct_cast_after_addr_of_reads_slot_run__copy.rs compiles, exit 0. Audit note: h(&x) == x as *const D compares the pointee address; control (another address) exit 1.

@@ -27,3 +27,4 @@ impl<U> Tr for S {
 // admission behind an unrelated refusal. The claim here is that the IMPL is
 // accepted at all.
 fn main() -> i32 { return 0i32; }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0207]: the type parameter `U` is not constrained by the impl trait, self type, or predicates. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/e0207_unconstrained_impl_type_param.rs.

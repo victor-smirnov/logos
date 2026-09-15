@@ -21,7 +21,7 @@
 // door is closed" would be wrong; it was, and this row exists so it is not
 // read that way again.
 //
-// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// Legality MEASURED with rustc 1.98.1 (2026-09-15f-rustcaudit): verdict at the foot of this file.
 // Opened 2026-09-12.
 package sliceref_read_of_local_array_says_dangling;
 fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
@@ -31,3 +31,4 @@ fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
   return s[0u64];            // THE DEFECT: refused, "dangling reference"
 }
 fn main() -> i32 { return 0i32; }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/sliceref_read_of_local_array_says_dangling.rs. Audit note: index literals u64->usize.

@@ -2,7 +2,7 @@
 // `fn pick<'a, 'b>(a: &'b &'a D) -> &'a D { return *a; }` copies the inner `&'a D` out; rustc accepts it. logosc refuses:
 //   error [fn pick]: lifetime mismatch: return type has lifetime 'a but 'a' has lifetime 'b
 // (the outer region is charged to the copied inner reference). The `-> &'b D` twin compiles. Found by round 2026-09-15c-argref
-// (hand a28) on build/ 98ca3fa669468808 43. Legality by reading; no rustc binary.
+// (hand a28) on build/ 98ca3fa669468808 43. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package double_ref_deref_return_outer_lifetime_refused;
 struct D { v: i64 }
 fn pick<'a, 'b>(a: &'b &'a D) -> &'a D {
@@ -14,3 +14,4 @@ fn main() -> i32 {
     let back: &D = pick(&rd);
     return (back.v - 6i64) as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/double_ref_deref_return_outer_lifetime_refused.rs. Variants: double_ref_deref_return_outer_lifetime_refused__copy.rs compiles, exit 0. Audit note: A16 twin with derive(Clone,Copy): same.

@@ -34,3 +34,4 @@ fn main() -> i32 {
     let r: i64 = twice_ten_om(&mut c);
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0499]: cannot borrow `*f` as mutable more than once at a time. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/dyn_fnmut_nested_call_admits.rs.

@@ -1,8 +1,8 @@
 // SOUNDNESS QUEUE row tuple_elem_shared_borrow_through_ref_dangles_run (tier 1).
 // A SHARED BORROW OF A TUPLE ELEMENT TAKEN THROUGH A REFERENCE AND HANDED OUT OF THE FUNCTION POINTS AT DEAD STACK.
 //
-// `&t.1` with `t: &'a (i64, i64)` is a `&'a i64` into the CALLER's tuple — legal Rust (by reading; no rustc binary
-// on this box). Today the reference handed out addresses storage that dies with the callee: once another call
+// `&t.1` with `t: &'a (i64, i64)` is a `&'a i64` into the CALLER's tuple — legal Rust (rustc 1.98.1 MEASURED, foot
+// of this file). Today the reference handed out addresses storage that dies with the callee: once another call
 // reuses that stack, `*r` no longer reads 17.
 //   PART 1  out-parameter through a ref local (`*out = &t2.1`, hand y3 of round 2026-09-12r-escroot)  -> exit 1
 //   PART 2  `return &t.1`                                                                             -> exit 2 once PART 1 is fixed
@@ -49,3 +49,4 @@ fn main() -> i32 {
     if *q != 17i64 { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/tuple_elem_shared_borrow_through_ref_dangles_run.rs. Audit note: &t.1 through &'a tuple escapes legally; control t.1=18 exits 1.

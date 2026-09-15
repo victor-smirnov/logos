@@ -1,8 +1,8 @@
 // SOUNDNESS QUEUE row fnptr_call_result_region_param_reads_static_refused (tier 3).
 // LEGAL PROGRAM REFUSED: CALLING A FN POINTER RETURNED BY `f<'r>(..) -> fn(&'r i64) -> i64` DEMANDS A 'static ARGUMENT.
 //
-// 'r is instantiated at the call of f, and the returned pointer accepts a borrow of a local. Legal Rust (reading; no
-// rustc binary). TODAY refused, build c52dcb19dff987ff 43: "fn-ptr call arg 1: variance mismatch — expected &'static
+// 'r is instantiated at the call of f, and the returned pointer accepts a borrow of a local. Legal Rust (rustc 1.98.1
+// MEASURED, foot of file). TODAY refused, build c52dcb19dff987ff 43: "fn-ptr call arg 1: variance mismatch — expected &'static
 // i64, got &i64". Not moved by any arm priced in 2026-09-14j-fnptrbinder (the callee's region in a returned fn-pointer
 // type is never instantiated at the call); a different site from the binder fact. Not the same as
 // outlives_call_instantiation (a where clause) or static_arg_pins_shared_callee_region_refused (argument order).
@@ -17,3 +17,4 @@ fn main() -> i32 {
     let v: i64 = 18i64;
     return h(&v) as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 18. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/fnptr_call_result_region_param_reads_static_refused.rs. Audit note: header's exit 18 measured.

@@ -2,7 +2,7 @@
 // `other.is_some()` with `other: &&Option<i64>` (a named match binder over a `&&Option<i64>` scrutinee) is refused with
 // "could not infer type arguments for generic method 'Option__is_some'": method auto-deref through two reference layers onto a generic
 // enum's method does not infer T. Rust: compiles, exit 0. OUT OF CLASS for 2026-09-15d-argrefland (method resolution, not a scrutinee
-// convention); met by its hand battery (q31's first spelling). Legality by reading; no rustc binary.
+// convention); met by its hand battery (q31's first spelling). Legality MEASURED with rustc 1.98.1 (foot of this file).
 package method_autoderef_double_ref_option_infer_refused;
 fn get(pp: &&Option<i64>) -> i64 {
     match pp {
@@ -19,3 +19,4 @@ fn main() -> i32 {
     if get(&rn) != 77i64 { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/method_autoderef_double_ref_option_infer_refused.rs.

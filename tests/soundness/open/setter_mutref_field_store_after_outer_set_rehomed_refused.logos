@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row setter_mutref_field_store_after_outer_set_rehomed_refused (tier 3).
 // LEGAL PROGRAM REFUSED: `m.set(&mut x)` THEN `m.set(&mut d)` OF A BLOCK LOCAL, THEN A PLAIN READ OF `x` WITH `m` DEAD.
 //
-// Legal Rust; legality by reading, no rustc binary. TODAY refused, build 0230e503bd682184 43: "'d' does not live long enough: it is
+// Legal Rust; MEASURED with rustc 1.98.1 (foot of this file). TODAY refused, build 0230e503bd682184 43: "'d' does not live long enough: it is
 // borrowed by 'x'". Twin of setter_mutref_field_store_after_outer_set_rehomed_admits, same fact, same reason 1 and measurements.
 // Found: hand s22b, round 2026-09-14m-storeedge-land.
 package setter_mutref_field_store_after_outer_set_rehomed_refused;
@@ -21,3 +21,4 @@ fn main() -> i32 {
     let y: i64 = x;
     return (y as i32) - 5i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/setter_mutref_field_store_after_outer_set_rehomed_refused.rs.

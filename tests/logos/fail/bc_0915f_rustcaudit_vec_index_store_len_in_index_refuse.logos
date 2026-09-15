@@ -1,0 +1,16 @@
+// CLOSED soundness-queue row vec_index_store_len_in_index_refused (tier 3, `refuses`) — CONTRADICTED by rustc, round 2026-09-15f-rustcaudit.
+// The row held `v[v.len() - 1] = x` legal because "the IndexMut autoref of `v` is a two-phase borrow" — a READING, no rustc on the box then.
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/vec_index_store_len_in_index_refused.rs: REFUSED
+//   error[E0502]: cannot borrow `v` as immutable because it is also borrowed as mutable
+// An overloaded IndexMut STORE's autoref is not two-phase (only a method-call receiver's is: `v.push(v.len())` compiles in both compilers).
+// logosc (build b17b8e8c43266472 43): "cannot borrow 'v' as shared: mutable borrow still in scope here" — E0502's sentence, pinned below.
+// PAIR: bc_0915f_rustcaudit_vec_index_store_len_hoisted_admit (index hoisted into a `let`: rustc exit 0) and
+// bc_0915f_rustcaudit_array_index_store_len_in_index_admit (the same store through a built-in ARRAY index, no IndexMut call: rustc exit 0).
+package bc_0915f_rustcaudit_vec_index_store_len_in_index_refuse;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(2i64);
+    v[(v.len() - 1i64) as u64] = 5i64;
+    return (v[1u64] - 5i64) as i32;
+}

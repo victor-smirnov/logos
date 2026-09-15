@@ -1332,6 +1332,8 @@
 # the wide one, and refuses `struct W { data: &'_ i64 }`, which compiles today.
 # An exemption with a price and no purchase stays; it is pinned as
 # tests/logos/pass/bc_structfldlt_placeholder_field_lifetime.
+# ⚠ 2026-09-15f-rustcaudit, MEASURED: "a move in Rust" below is FALSE — rustc 1.98.1 --edition 2024 COMPILES the
+#   port as written (twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_reborrow-sugg-move-then-borrow.rs); upstream's own `for _ in state` is E0382.
 # STILL OPEN, NAMED: reborrow-sugg-move-then-borrow — `let moved: &mut S = s;`
 # is a move in Rust and a REBORROW in Logos (the RHS arrives as AddrOfTemp, so
 # nothing is marked). Its site is the `let` coercion, not a move-tracking gate;
@@ -1772,6 +1774,9 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 # predicate does — and with no rustc on this box the two cannot be told apart
 # here. The conservative direction is ADMIT, so this is a named under-refusal,
 # not a divergence claim, and a `where`-only E0207 stays open.
+# ⚠ 2026-09-15f-rustcaudit, MEASURED with rustc 1.98.1: `impl<U> Tr for S where U: 'static` is REFUSED E0207 and the
+#   projection-predicate form COMPILES (twins src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_e0207_where_outlives_only.rs /
+#   bcnote_e0207_where_projection.rs). The reading was right; logosc admits the outlives-only declaration — the under-refusal is real.
 #
 # ⚠ THE BLAME HEADER WAS THE BLOCKER, AND IT IS FIXED AT THIS SITE ONLY.
 # `lower_impl_block` sets neither `ctx_` nor `node_line_`, so its diagnostics
@@ -1904,13 +1909,13 @@ borrowck-loan-blocks-move-cc--r10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/
 borrowck-loan-blocks-move-cc--t10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --r10; merging is an owner decision
 borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
-borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed  #  ⚠ LEGAL AS PORTED, measured 2026-09-11: the "minimal reduction" dropped the only LATER use of its loan, so under NLL the loan is dead at the move and our arm is correct. 2x2 measured (restore the later use / remove it, x admit / refuse). RETIRE CANDIDATE or re-port with the later use restored — owner's.
+borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed  #  ⚠ LEGAL AS PORTED, measured 2026-09-11: the "minimal reduction" dropped the only LATER use of its loan, so under NLL the loan is dead at the move and our arm is correct. 2x2 measured (restore the later use / remove it, x admit / refuse). RETIRE CANDIDATE or re-port with the later use restored — owner's. ⚠ MEASURED 2026-09-15f-rustcaudit: rustc 1.98.1 --edition 2024 COMPILES the port as written (build 0, run 0; twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed.rs) and refuses the later-use restoration E0505 (__control_lateruse.rs), as it refuses upstream's .rs (E0505). The row records a CORRECT admission — for the ledger rounds.
 borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
 issue-95079-missing-move-in-nested-closure bck.NEW-CESC tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 mut-borrow-conflict-in-closures-vec--bounded bck.NEW-CAPLOAN tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): `Mine` is all-Copy-fields with no Drop, so A16 makes it Copy and `make_bar(start)` MOVES NOTHING — there is no use-after-move to refuse. The move checker itself is not the hole: the identical program with `impl Drop for Mine` added is REFUSED "use of moved variable 'start'", at BOTH the whole-value and the `start.test` projection spelling (two hand pairs). Third row of the same A16 class. Owner's. See PROBES.md 2026-09-12e
-reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow  #  ⚠ LOOKS LEGAL AS PORTED, 2026-09-11: `let moved: &mut State = state;` is a REBORROW at a coercion site, not a move, so there is nothing to refuse. ⚠ THIS RESTS ON A READING — there is no rustc binary on this box and no upstream `.stderr` covers the reduced shape. Owner's call; do not price it as a defect without an upstream answer.
+reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow  #  ⚠ LOOKS LEGAL AS PORTED, 2026-09-11: `let moved: &mut State = state;` is a REBORROW at a coercion site, not a move, so there is nothing to refuse. ⚠ MEASURED 2026-09-15f-rustcaudit: rustc 1.98.1 --edition 2024 COMPILES the port as written (build 0, run 0; twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_reborrow-sugg-move-then-borrow.rs), while upstream's own .rs is E0382. The row records a CORRECT admission. Owner's call on retiring it; do not price it as a defect.
 slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop  #  ⚠ PREDICTED BY NAME AND DID NOT CLOSE, 2026-09-12i (build ccac360a27d1b9c8). It was grouped with `borrowck-lend-flow-loop` under one property — a loan raised inside a loop body whose holder is an OUTER binding must be live at the back edge — and the door-1 + door-2 change that closed that row leaves this one ADMITTED, measured directly on the landed binary. So the grouping is refuted for this row too, as it was for `nllmoves.R3` the round before: the class as MEASURED is one ledger row plus one field-path twin with no row. Its loan is not raised by an assignment to a holder at all — `strings.push(foo.get_string())` deposits a two-phase RECEIVER reservation on `foo` into a Vec, and `release_dead_borrows` never sees a BorrowRecord whose raise_point it could compare. Whatever closes it is on the reservation plane, not the last-use plane.
 borrowck-unboxed-closures bck.A-FNMUT tests/imported/admit/borrowck/borrowck-unboxed-closures  #  ⚠ BLOCKED ON THREE PINS, 2026-09-12g — NOT a missing mechanism. The arm that closes this row is ONE CALL, `check_recv_conflict(callee_place, is_mut=true)` at borrow_check.cpp Code::ClosureCall, on top of the Fn-family CALL MODE (`fn_call_mode` / `fnfam_tvs_`) landed in that round for the E0499 half. Armed, it prints exactly upstream's verdict ("cannot borrow 'f' as mutable: not declared as mut"; rustc .stderr on the box at borrowck-unboxed-closures.rs:7 says E0596 "cannot borrow `f` as mutable, as it is not declared as mutable") and it REFUSES THREE GREEN PASS FIXTURES that spell this row's own construct: tests/logos/pass/closure_call_moves_string (`fn g<Ty, F: FnMut(String)->Ty>(s: String, f: F)`), tests/logos/pass/closure_mut_param (`fn apply<F>(f: F, x: i64) where F: FnMut(i64)->i64` — and the SAME FILE spells `fn run<F>(mut f: F)` correctly one line below), and tests/imported/pass/closures/hrtb-fnmut-via-Fn-family. POPULATION MEASURED, not sampled: all 101 non-fail corpus programs mentioning `FnMut` were compiled under the armed binary and exactly those three refuse, no others. All three are pass fixtures asserting a program rustc refuses, so closing this row means editing them — the same wall and the same rule as `--c-mut-and-shared-args` four rows down: A LEDGER ROW MAY NOT BE BOUGHT BY EDITING A PIN. CORPUS DECISION WITH AN OWNER.
@@ -1948,7 +1953,7 @@ issue-40510-3 nllmoves.NEW-CESC tests/imported/admit/nll/issue-40510-3  # STAGE-
 issue-42574-diagnostic-in-nested-closure--b nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--b  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED. The OLD port was LEGAL RUST (NLL ends the capture loan at the last use of `c`); as-is it is upstream's construct and is the SAME PROGRAM as --t15
 issue-42574-diagnostic-in-nested-closure--t15 nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--t15  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --b; merging is an owner decision
 issue-48697--t16 nllmoves.NEW-CESC tests/imported/admit/nll/issue-48697--t16  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
-issue-51268 nllmoves.NEW-CAPLOAN tests/imported/admit/nll/issue-51268  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)  ⚠ CONTRADICTED 2026-09-11 BY ITS OWN SUCCESSOR ROUND: not a defect under our own rule. Upstream pins `edition:2015..2021`, where the closure captures the WHOLE `self`; Logos captures `self.number` precisely per `borrow.closure.disjoint-field-capture`, so the paths are disjoint and Rust 2024 ACCEPTS this program. RETIRE CANDIDATE — the owner's call, not a round's; the 09-07 verdict above is stale and is kept so the two readings are visible together.
+issue-51268 nllmoves.NEW-CAPLOAN tests/imported/admit/nll/issue-51268  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)  ⚠ CONTRADICTED 2026-09-11 BY ITS OWN SUCCESSOR ROUND: not a defect under our own rule. Upstream pins `edition:2015..2021`, where the closure captures the WHOLE `self`; Logos captures `self.number` precisely per `borrow.closure.disjoint-field-capture`, so the paths are disjoint and Rust 2024 ACCEPTS this program. RETIRE CANDIDATE — the owner's call, not a round's; the 09-07 verdict above is stale and is kept so the two readings are visible together. ⚠ MEASURED 2026-09-15f-rustcaudit with rustc 1.98.1: the port COMPILES under --edition 2024 and 2021 (twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_issue-51268.rs); upstream's own tests/ui/nll/issue-51268.rs is E0502 under 2015 and 2018 and COMPILES under 2021 and 2024 — `//@ edition:2015..2021` is half-open, so whole-`self` capture is 2015/2018 only, not 2021.
 issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
 issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephaneyfx
@@ -1997,9 +2002,14 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 #   --d  a user `Index::index` call mints NO shared borrow of its receiver root.
 #        ⚠ Its sequencing control (`let k = i[3]; i[k] = 4;`) is LEGAL Rust and admits,
 #        so --d has no separating pair by sequencing, unlike every other row here.
+#        (MEASURED 2026-09-15f, rustc 1.98.1: the control COMPILES and runs 4, the row's `i[i[3]] = 4` twin is E0502 x2 —
+#        src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_two-phase-nonrecv-autoref--d__control_sequenced.rs / bcnote_two-phase-nonrecv-autoref--d-index-two-phase.rs.)
 #   --a  a call through a `FnMut` VALUE mints no borrow of the callee. Cheapest carrier
 #        is not the ledger program: `let mut c = |x: i64| { return x + 1i64; };
 #        let r = c(c(10i64));` — E0499 upstream, silent here, ZERO borrow records.
+#        ⚠ 2026-09-15f-rustcaudit, MEASURED: THAT CARRIER IS LEGAL — rustc 1.98.1 COMPILES it and runs 12 (a capture-free
+#        closure is `Fn`, both calls borrow `c` shared; twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_borrowck-unboxed-closures__carrier_nocapture.rs).
+#        logosc admitting it is correct; it is NOT a carrier for --a. The row's own FnMut program is E0596.
 #        ⚠ CORRECTED 2026-09-12f — THAT CARRIER IS **LEGAL RUST**, NOT E0499, AND A
 #        ROUND THAT TOOK IT AT ITS WORD WOULD HAVE BOUGHT THIS ROW WITH A
 #        LEGAL-PROGRAM REFUSAL. A closure with NO CAPTURES resolves to `call`, not
@@ -2231,6 +2241,7 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 #     (docs/spec/ownership.md `borrow.closure.disjoint-field-capture`,
 #     `borrow.closure.capture-by-ref-loan`), so `self.thing` and `self.number`
 #     are DISJOINT and Rust 2024 accepts the program too.
+#     (MEASURED 2026-09-15f with rustc 1.98.1: the port compiles under 2021 and 2024; upstream's .rs is E0502 under 2015/2018 only.)
 #
 # ⚠ AND THE CRUDE SPELLING'S EXTRA FOUR ROWS ARE NOT ROWS. Depositing BEFORE the
 # body walk (`capvisloan`) reads ceiling 5; the four extra closings are
@@ -2258,11 +2269,13 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 #     while it is borrowed") in BOTH the let-init and call-arg spellings when the
 #     loan is used later, and admitted in both when it is not. The NLL arm is
 #     correct and the row is the admitting cell. CORPUS DECISION.
+#     (MEASURED 2026-09-15f with rustc 1.98.1: the port COMPILES; the later-use restoration is E0505.)
 #   reborrow-sugg-move-then-borrow  ⚠ SAME SUSPICION, ON A READING ONLY (no rustc
 #     binary on this box): the port replaced upstream's `for _ in state` (a
 #     by-value `IntoIterator` call) with `let moved: &mut State = state;`, and a
 #     `let` with an explicit reference annotation is a coercion site where rustc
 #     inserts a REBORROW, not a move. CORPUS DECISION.
+#     (MEASURED 2026-09-15f with rustc 1.98.1: the port COMPILES — the reading was right.)
 # Full numbers: src/compiler/PROBES.md 2026-09-11b-capvis.
 # ── 2026-09-11c — 87 -> 86. `issue-58776-borrowck-scans-children` CLOSED. THE ─
 #    DEPOSIT ARM WAS NEVER MISSING: ITS CAPTURE LIST IS KEYED ON A NAME, AND AN
@@ -2318,7 +2331,7 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 #     `self.number` precisely (docs/spec/ownership.md
 #     `borrow.closure.disjoint-field-capture`), so the paths are disjoint and
 #     Rust 2024 accepts the program. Both divergence registries grepped by
-#     CONSTRUCT.
+#     CONSTRUCT. (MEASURED 2026-09-15f with rustc 1.98.1: 2021 and 2024 compile it.)
 # The root `bck.NEW-CAPLOAN` therefore survives with one member; `nllmoves.NEW-
 # CAPLOAN` survives with one, and that one is the corpus decision above.
 # New spec clause: `borrow.scoped.closure-call-result-holds-capture-borrows`.

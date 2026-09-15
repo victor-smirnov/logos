@@ -15,5 +15,6 @@ fn main() -> i32 {
 // Legal Rust (exit 9): `let r: &mut P = &mut p` elides P's region, inferred as p's. TODAY refused: "let 'r':
 // variance mismatch — expected &mut P, got &mut P<'a> — lifetime structure incompatible". The non-generic
 // literal's own walk types `p` first-wins as P<'a>; the `&mut` annotation's elided slot is compared under
-// invariance against it. ⚠ Legality rests on a reading — no rustc binary on this box.
+// invariance against it. Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 // Found 2026-09-14c-meetobl (L33), base 47bea7f0aeb42d36; unchanged under mobl.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 9. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/let_mutref_annotation_to_meet_struct_refused.rs. Audit note: header's exit 9 measured.

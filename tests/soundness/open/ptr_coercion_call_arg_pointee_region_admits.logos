@@ -20,3 +20,4 @@ fn main() -> i32 {
 // `*const &'static i64` as this program's WRITTEN 'static (measured E09 vs N02 on that landing's first builds:
 // asked at arguments, the arm refused E09). Queue row mutptr_region_param_elided_let_arg_refused is that
 // instantiation's own defect. Method arguments (N05) are the same door.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0521]: borrowed data escapes outside of function. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ptr_coercion_call_arg_pointee_region_admits.rs. Audit note: twin adds s.len() as i64 (usize).

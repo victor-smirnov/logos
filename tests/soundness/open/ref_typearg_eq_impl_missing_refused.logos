@@ -6,7 +6,7 @@
 // once, over a type variable, as a method call `eq` on `&T`; mono then resolves the method by the RECEIVER's type name, `&D`,
 // and no `impl Eq for &A` exists in the stdlib (only `impl Ord for &i32` / `&i64`). No arm of round 2026-09-15a-refeq moves it
 // (refpeel refstruct refagg refeq refmono refeqx: all refused, same sentence). Battery e12 e13. Measured on builds
-// 854d99ae9a2e2fbd 43, b1a0431a68699a9c 43, build-land0913d sha256 8850a5acc469809f. Legality by reading; no rustc binary.
+// 854d99ae9a2e2fbd 43, b1a0431a68699a9c 43, build-land0913d sha256 8850a5acc469809f. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package ref_typearg_eq_impl_missing_refused;
 use logos.lang.cmp;
 struct D { v: i64 }
@@ -26,3 +26,4 @@ fn main() -> i32 {
     }
     return 1i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ref_typearg_eq_impl_missing_refused.rs. Variants: ref_typearg_eq_impl_missing_refused__eqbound.rs compiles, exit 0. Audit note: TRANSLATED: Logos Eq{eq} -> Rust PartialEq; variant with impl Eq + T: Eq also exit 0.

@@ -1,0 +1,11 @@
+// round 2026-09-15f-rustcaudit — the index of fail fixture bc_0915f_rustcaudit_vec_index_store_len_in_index_refuse hoisted into a `let`, so no shared borrow of `v` overlaps the IndexMut store.
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/control/tier34/vec_index_len_hoisted.rs: compiles, runs exit 0. logosc b17b8e8c43266472 43: compiles, runs exit 0.
+package bc_0915f_rustcaudit_vec_index_store_len_hoisted_admit;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(2i64);
+    let i: u64 = (v.len() - 1i64) as u64;
+    v[i] = 5i64;
+    return (v[1u64] - 5i64) as i32;
+}

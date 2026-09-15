@@ -6,8 +6,8 @@
 // Found by 2026-09-15b-refeqland's hand battery (g01v g07v by value; g01 g05 g07 by reference): the landing's first tuple arm passed
 // a reference pair `&(Option<_>, _)` to this impl and turned base's WRONG ANSWER (pointer compare, exit 1) into this same refusal.
 // The landed arm does not route a non-primitive tuple reference pair at all (row ref_pair_nonprim_tuple_eq_compares_addresses_run,
-// reason 3); those reference spellings keep the address compare. Doors in series: this door opens before that row can close. Measured on build/ 854d99ae9a2e2fbd 43 and the landed binary. Legality by reading;
-// no rustc binary.
+// reason 3); those reference spellings keep the address compare. Doors in series: this door opens before that row can close. Measured on build/ 854d99ae9a2e2fbd 43 and the landed binary. Legality MEASURED with
+// rustc 1.98.1 (foot of this file).
 package tuple_enum_elem_eq_variadic_impl_return_lost_refused;
 use logos.lang.cmp;
 use logos.lang.option;
@@ -17,3 +17,4 @@ fn main() -> i32 {
     if !(a == b) { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/tuple_enum_elem_eq_variadic_impl_return_lost_refused.rs.

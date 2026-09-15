@@ -100,3 +100,4 @@ fn main() -> i32 {
     if got != 1i64 { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/boxed_escaping_fnonce_capture_double_free.rs. Audit note: Box<dyn FnOnce> call consumes; control exit 2.

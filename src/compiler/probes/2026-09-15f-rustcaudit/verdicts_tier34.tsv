@@ -1,0 +1,52 @@
+id	tier	observed	class	rustc_verdict	rustc_code_or_exit	logos_today	note
+boxdyn_mutborrow_arg_no_vtable	3	refuses	CONTRADICTED	refused	E0277	rc1 mlir_gen internal: no vtable for '&dyn Sp' as '&dyn Sp'	rustc picks unsize coercion &mut Box<dyn Sp> -> &mut dyn Sp (`Box<dyn Sp>: Sp` unsatisfied). The legal spelling `use_mut(&mut *b)` compiles+runs 0 in rustc and logosc refuses it with the SAME internal: the backend defect survives on a different program
+rcdyn_borrow_arg_no_vtable	3	refuses	CONTRADICTED	refused	E0277	rc1 mlir_gen internal: no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'	same E0277 mechanism (`Rc<dyn Sp>: Sp`). The legal spelling `use_ref(&*r)` compiles and runs 0 on logosc today: no defect remains. Right verdict, internal-error sentence
+self_assign_refused_as_moved	3	refuses	CONFIRMED	compiles	exit 0	rc1 use of moved variable 'x'	`x = x` legal; exit 0 means one drop (n==1)
+sliceref_read_of_local_array_says_dangling	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot return reference to local variable 'out': dangling reference	index literals u64->usize
+loop_holder_realias_alternating_refuses	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot borrow 'b' as mutable: already mutably borrowed	NLL accepts
+loop_holder_realias_referent_read_after_refuses	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot use 'a' while it is mutably borrowed	NLL accepts
+loop_init_before_break_refuses	3	refuses	CONFIRMED	compiles	exit 7	rc1 use of possibly uninitialised binding 'x'	loop body runs at least once
+closure_elided_param_called_with_field_ref_refuses	3	refuses	CONFIRMED	compiles	exit 69	rc1 closure call arg 1: the elided lifetime of closure parameter 'q' ...
+trait_impl_for_ref_method_call_receiver_refused	3	refuses	CONFIRMED	compiles	exit 19	rc1 method call: receiver is not a struct (got &i64)
+enum_payload_rewrap_carries_declared_region_refuses	3	refuses	CONFIRMED	compiles	exit 35	rc1 return type mismatch: variance mismatch — expected E<'a>, got E<'s>	header's exit 35 measured
+struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses	3	refuses	CONFIRMED	compiles	exit 14	rc1 E::V arg 0: expected &'s i64, got i64	header's exit 14 measured
+promoted_literal_call_arg_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 temporary value dropped while borrowed	`&5i64` promoted as a call arg
+static_arg_pins_shared_callee_region_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 call to 'eqr' arg 2: variance mismatch — expected &'static i64
+where_impl_region_static_bound_unused_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 lifetime mismatch: return type has lifetime 'static but 'self' has lifetime (elided)
+impl_method_ret_renamed_header_binder_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 method 'get' does not match the trait declaration ('&'a i64' vs '&'z i64')
+impl_method_ret_longer_region_under_header_bound_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 method 'get' does not match the trait declaration ('&'b i64' vs '&'a i64')	rustc accepts the covariant return under 'a: 'b
+method_where_fn_bound_on_impl_param_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 expression-as-callee: receiver type 'F' is not callable
+struct_named_like_type_param_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 struct literal: unknown struct 'W'
+enum_tuple_ctor_as_fn_value_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 call to undefined function 'f'
+vec_index_store_len_in_index_refused	3	refuses	CONTRADICTED	refused	E0502	rc1 cannot borrow 'v' as shared: mutable borrow still in scope here	IndexMut autoref is NOT two-phase: rustc refuses `v[v.len()-1] = 5`. Controls: hoisted index compiles in both compilers (exit 0); the array spelling `a[a.len()-1] = 5` compiles in rustc (exit 0) and in logosc (runs 0)
+static_ref_nested_borrow_region_not_static_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 let 'r': variance mismatch — expected &&'static i64, got &&i64
+vec_index_store_value_borrows_vec_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot borrow 'v' as shared: mutable borrow still in scope here	the value is evaluated before the IndexMut place
+mutptr_region_param_elided_let_arg_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 call to 'raw' arg 1: variance mismatch — expected *mut &'static i64
+vec_push_arg_reads_loan_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot borrow 'v' as mutable: 'v' has shared borrows	two-phase method autoref
+array_store_value_reads_loan_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot assign through 'a[..]' because 'a' is borrowed
+struct_lit_field_invariant_region_static_refused	3	refuses	CONTRADICTED	refused	E0597	rc1 struct literal 'HM' field 'm': variance mismatch — expected &'static mut &'static i64	`HM { m: &mut s }` with s: &'static i64 must borrow the local s for 'static. Split: the H half compiles in rustc (exit 0) and in logosc (runs 0); the HM half is refused by rustc E0597 and by logosc with a variance-mismatch sentence (right verdict, different sentence)
+let_mutref_annotation_to_meet_struct_refused	3	refuses	CONFIRMED	compiles	exit 9	rc1 let 'r': variance mismatch — expected &mut P, got &mut P	header's exit 9 measured
+generic_type_param_two_regions_first_wins_refused	3	refuses	CONFIRMED	compiles	exit 6	rc1 call to 'first' arg 2: variance mismatch	header's exit 6 measured
+tuplestruct_ctor_declared_binder_name_refused	3	refuses	CONFIRMED	compiles	exit 7	rc1 tuple-struct 'P' field 0: variance mismatch — expected &'s i64, got &'a i64	A16 twin with derive(Clone,Copy): same, exit 7
+where_struct_literal_instantiation_rigid_refused	3	refuses	CONFIRMED	compiles	exit 4	rc1 struct literal 'W': caller does not satisfy declared outlives bound	A16 twin with derive(Clone,Copy): same, exit 4
+struct_lit_invariant_binder_first_wins_covariant_region_refused	3	refuses	CONFIRMED	compiles	exit 5	rc1 struct literal 'C' field 'm': variance mismatch	header's exit 5 measured
+fnptr_call_result_region_param_reads_static_refused	3	refuses	CONFIRMED	compiles	exit 18	rc1 fn-ptr call arg 1: variance mismatch — expected &'static i64	header's exit 18 measured
+user_type_alias_shadows_stdlib_type_param_refused	3	refuses	CONFIRMED	compiles	exit 3	rc1 stdlib errors (first: mem.logos:60 fn swap (specialization) ...)
+vec_mutref_elem_push_store_rehomed_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot use 'y' while it is mutably borrowed	`*v[0] = 7` translated as IndexMut; A17 (by-value access) does not change legality here
+aggregate_param_ref_field_borrow_returned_says_dangling_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 cannot return reference to local variable 'r': dangling reference
+setter_mutref_field_store_after_outer_set_rehomed_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 'd' does not live long enough: it is borrowed by 'x' ... (E0597)
+let_ref_bind_annotated_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 let 'y': type mismatch — expected i64, got &i64
+deferred_init_after_inner_shadow_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 assignment to immutable variable 'x'	exit 0 means drop count/order measured (n == 21)
+let_double_ref_str_annotation_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 let 'x': type mismatch — expected &&&[u8], got &&[u8]
+ref_typearg_eq_impl_missing_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 MLIR verifier: 'func.call' op '&D__eq' does not reference a valid function	TRANSLATED: Logos Eq{eq} -> Rust PartialEq; variant with impl Eq + T: Eq also exit 0
+generic_ref_typevar_ordering_mlir_verifier_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 MLIR verifier: 'arith.cmpi' operand #0 ... '!llvm.ptr'
+tuple_enum_elem_eq_variadic_impl_return_lost_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 mlir_gen internal: `return` value lowered to no value
+double_ref_deref_return_outer_lifetime_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 lifetime mismatch: return type has lifetime 'a but 'a' has lifetime 'b	A16 twin with derive(Clone,Copy): same
+ref_to_slice_ref_param_unsized_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 the type `[i64]` is unsized: it cannot be used by value
+ref_to_dyn_ref_type_parse_refused	3	refuses	CONFIRMED	compiles	exit 0	rc4 syntax error near 'fn'
+double_amp_lifetime_ref_type_parse_refused	3	refuses	CONFIRMED	compiles	exit 0	rc4 syntax error near 'fn'
+field_read_through_ref_to_box_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 field read: struct 'Box$G1$D' has no field 'v'
+let_ref_struct_pattern_irrefutable_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 'let <pattern> = expr;' currently supports struct patterns only	A16 twin with derive(Clone,Copy): same
+letelse_ref_pattern_binding_undefined_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 undefined variable 'x'
+ref_pattern_nested_in_tuple_binding_undefined_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 undefined variable 'x'	A16 twin with derive(Clone,Copy): same
+method_autoderef_double_ref_option_infer_refused	3	refuses	CONFIRMED	compiles	exit 0	rc1 could not infer type arguments for generic method 'Option__is_some'

@@ -4,7 +4,7 @@
 // `&&Option<i64>` is refused the same way. Rust: compiles, exit 0.
 // NEIGHBOUR of 2026-09-15d-argrefland's `&`-pattern door, ROWED, REASON 2 (doors in series): the refusal is taken before any codegen
 // RefPat convention is asked; the codegen arms that would bind it (a pat_bind RefPat case + a let-else RefPat route through
-// pat_test / pat_bind) were built and measured at zero — this program and its `&&` twin unchanged. Legality by reading; no rustc binary.
+// pat_test / pat_bind) were built and measured at zero — this program and its `&&` twin unchanged. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package letelse_ref_pattern_binding_undefined_refused;
 fn get(r: &Option<i64>) -> i64 {
     let &Option::Some(x) = r else { return 77i64; };
@@ -17,3 +17,4 @@ fn main() -> i32 {
     if get(&n) != 77i64 { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/letelse_ref_pattern_binding_undefined_refused.rs.

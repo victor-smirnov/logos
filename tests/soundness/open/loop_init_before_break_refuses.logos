@@ -17,8 +17,8 @@
 // sites, so it inherits this over-refusal for `&x` — it does not create it and
 // does not widen it: the set of programs the new sites refuse is a subset of
 // what a read at the same point already refused.
-// ⚠ THE LEGALITY CLAIM RESTS ON A READING OF RUST, NOT ON RUSTC: there is no
-// rustc binary on this box. The upstream evidence that the reading is right is
+// LEGALITY MEASURED with rustc 1.98.1 (foot of this file); it agrees with
+// the reading kept below. The upstream evidence that the reading is right is
 // tests/ui/borrowck/borrowck-break-uninit.rs @ da5114692c9, which had to put
 // `break;` BEFORE `x = 0;` to obtain E0381 — the assign-then-break order is
 // exactly the one upstream does not diagnose.
@@ -35,3 +35,4 @@ fn main() -> i32 {
     }
     return x as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 7. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/loop_init_before_break_refuses.rs. Audit note: loop body runs at least once.

@@ -11,3 +11,4 @@ fn f(u: &i64) -> i64 {
     return g(u);
 }
 fn main() -> i32 { let n = 1i64; return f(&n) as i32; }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/fn_item_pointer_call_where_static_admits.rs. Audit note: header says E0521; rustc 1.98.1 prints an uncoded lifetime error.

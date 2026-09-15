@@ -1,0 +1,67 @@
+id	tier	observed	class	rustc_verdict	rustc_code_or_exit	logos_today	note
+lifereg_container_elem_read_admits	2	admits	CONFIRMED	refused	E0621	admits(cc=0,diag=0)	explicit lifetime required in the type of y
+lifereg_derefwrite_descent_stops_at_deref_admits	2	admits	CONFIRMED	refused	E0621	admits(cc=0,diag=0)	twin declares struct H<'h> (Rust requires a named field lifetime)
+lifereg_field_reborrow_deposit_unread_admits	2	admits	CONFIRMED	refused	E0621	admits(cc=0,diag=0)	
+lifereg_slice_elem_field_store_admits	2	admits	CONFIRMED	refused	E0621	admits(cc=0,diag=0)	twin declares struct H<'h>
+box_local_deref_escape_through_out_param_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	`*bx` does not live long enough
+elided_param_regions_invariant_compare_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough (x2, no code)	admits(cc=0,diag=0)	two elided *mut &i64 params do not unify; not a divergence (no registry row names elision)
+fnptr_elided_param_struct_literal_admits	2	admits	CONFIRMED	refused	E0308	admits(cc=0,diag=0)	
+fnptr_elided_param_call_arg_admits	2	admits	CONFIRMED	refused	E0308	admits(cc=0,diag=0)	
+fnptr_assign_named_to_elided_admits	2	admits	CONFIRMED	refused	E0308	admits(cc=0,diag=0)	
+vec_mutref_elem_push_store_rehomed_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+loop_push_no_later_use_dangle_not_carried_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	data dropped while borrowed, later iteration
+arraylit_ref_elem_store_after_init_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+free_fn_outparam_ref_store_no_dangle_deposit_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+vec_of_mutref_elem_receiver_store_loan_unheld_admits	2	admits	CONFIRMED	refused	E0502	admits(cc=0,diag=0)	c auto-Copy under A16 is not leaned on (c only borrowed)
+vec_elem_ref_copied_out_src_assigned_admits	2	admits	CONFIRMED	refused	E0506	admits(cc=0,diag=0)	
+vec_holder_moved_src_assigned_admits	2	admits	CONFIRMED	refused	E0506	admits(cc=0,diag=0)	
+setter_mutref_field_store_after_outer_set_rehomed_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+refcell_interior_push_block_local_dangle_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	TWIN CHANGED: Logos guard API gd.get_mut()/borrow().get() -> Rust deref; unsafe fn main -> fn main
+ref_pair_eq_without_impl_admits	2	admits	CONFIRMED	refused	E0369	admits(cc=0,diag=0)	same E0369 with #[derive(Clone,Copy)]; member g03 &(E,i64)==&(E,i64) also E0369
+option_replace_ref_store_no_flow_summary_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+e0207_unconstrained_impl_type_param	2	admits	CONFIRMED	refused	E0207	admits(cc=0,diag=0)	
+declare_pat_bindings_field_nomut_addrmut_admit	2	admits	CONFIRMED	refused	E0596	admits(cc=0,diag=0)	same with and without #[derive(Clone,Copy)] on P
+trait_default_body_type	2	admits	CONFIRMED	refused	E0308	admits(cc=0,diag=0)	
+trait_default_body_call	2	admits	CONFIRMED	refused	E0599	admits(cc=0,diag=0)	
+struct_pattern_name_check_skipped_under_ref	2	admits	CONFIRMED	refused	E0308	admits(cc=0,diag=0)	
+fnitem_to_fnptr_array_elem_admits	2	admits	CONFIRMED	refused	E0308	admits(cc=0,diag=0)	legal contrast [foo] compiles and runs 0
+unsized_local_binds_place_dropped_after_free	2	admits	CONFIRMED	refused	E0277	admits(cc=0,diag=0)	TWIN CHANGED: raw-ptr auto-deref -> (*self.inner).val, c[0] -> *c, extern fn -> unsafe extern C (usize), main reduced (Logos custom-struct unsize cast needs unstable CoerceUnsized)
+coerce_unsize_field_source_use_admitted	2	admits	CONFIRMED	refused	E0382	admits(cc=0,diag=0)	borrow of moved value h.r
+method_bare_recv_mut_resv_shared_arg_admits	2	admits	CONFIRMED	refused	E0502	admits(cc=0,diag=0)	same with #[derive(Clone,Copy)] on S
+deref_of_non_reference_admitted	2	admits	CONFIRMED	refused	E0614	admits(cc=0,diag=0)	
+rpit_dyn_fn_kind_unchecked	2	admits	CONFIRMED	refused	E0525+E0594	admits(cc=0,diag=0)	header cites E0594 only; rustc prints E0525 first. FnMut control compiles, runs 7
+let_impl_trait_annotation_unchecked	2	admits	NOT EXPRESSIBLE	refused	E0562	admits(cc=0,diag=0)	impl Trait in let binding is not Rust (E0562) and has no divergence row; param-position twin (2 constructs away) refuses E0277 A: Speak. Owner's
+dyn_fnmut_nested_call_admits	2	admits	CONFIRMED	refused	E0499	admits(cc=0,diag=0)	
+closure_literal_fnmut_nested_call_admits	2	admits	CONFIRMED	refused	E0499	admits(cc=0,diag=0)	
+field_write_through_param_local_escape_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+assign_local_borrow_into_annotated_binder_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	header's legal control j2 (unannotated let mut x = q) compiles, runs 3
+local_ref_binding_escape_through_out_param_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+let_borrow_of_call_temp_inner_slot_admits	2	admits	CONFIRMED	refused	E0716	admits(cc=0,diag=0)	
+self_literal_local_borrow_pins_impl_region_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+call_static_bound_empty_arg_region_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+static_mut_write_through_borrow_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	same with #![allow(static_mut_refs)]; no lint error printed either way
+static_mut_elided_struct_region_write_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	elided H in static accepted by rustc; H<'static> spelling also E0597
+fn_item_pointer_call_where_static_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough (no code)	admits(cc=0,diag=0)	header says E0521; rustc 1.98.1 prints an uncoded lifetime error
+static_mut_str_slice_write_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	
+ptr_coercion_cast_door_elided_let_region_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough (x3)	admits(cc=0,diag=0)	all three cast doors
+ptr_coercion_call_arg_pointee_region_admits	2	admits	CONFIRMED	refused	E0521	admits(cc=0,diag=0)	twin adds s.len() as i64 (usize)
+ptr_coercion_struct_literal_field_region_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough	admits(cc=0,diag=0)	
+ptr_coercion_tail_return_region_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough	admits(cc=0,diag=0)	
+ptr_coercion_generic_struct_pointee_region_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough (x2)	admits(cc=0,diag=0)	
+enum_variant_pattern_on_integer_scrutinee_admits	2	admits	CONFIRMED	refused	E0308 (x2)	admits(cc=0,diag=0)	
+enum_payload_binding_declared_binder_name_collision_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough	admits(cc=0,diag=0)	
+tuplestruct_ctor_declared_binder_name_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough	admits(cc=0,diag=0)	
+closure_elided_return_annotation_region_admits	2	admits	CONFIRMED	refused	lifetime may not live long enough	admits(cc=0,diag=0)	
+generic_mutref_pair_local_borrow_escape_admits	2	admits	CONFIRMED	refused	E0597	admits(cc=0,diag=0)	same with #[derive(Clone,Copy)] on P
+explicit_deref_field_borrow_through_refvar_unkeyed_admits	2	admits	CONFIRMED	refused	E0506	admits(cc=0,diag=0)	
+pattern_enum_payload_ref_owner_move_admits	2	admits	CONFIRMED	refused	E0505	admits(cc=0,diag=0)	twin drops the i64 annotation on baz.len() (usize)
+match_addrof_scrutinee_default_payload_loan_unrooted_admits	2	admits	CONFIRMED	refused	E0499	admits(cc=0,diag=0)	twin drops the i64 annotation on baz.len()
+loop_second_iteration_mut_alias_through_retargeted_ref_admits	2	admits	CONFIRMED	refused	E0499	admits(cc=0,diag=0)	
+generic_unbounded_typevar_reuse_after_array_literal_admits	2	admits	CONFIRMED	refused	E0382	admits(cc=0,diag=0)	already rustc-checked 09-15e; twin re-run from src/compiler/probes/2026-09-15e-consume/rust
+generic_unbounded_typevar_reuse_after_tuple_literal_admits	2	admits	CONFIRMED	refused	E0382	admits(cc=0,diag=0)	already rustc-checked 09-15e; re-run
+bcnote:reborrow-sugg-move-then-borrow	bck.NEW	admits	CONTRADICTED	accepted	build 0, run 0	admits(cc=0,diag=0)	row as ported is LEGAL (annotated let = reborrow); note CONFIRMED. Instrument control: upstream .rs refused E0382
+bcnote:issue-51268	nllmoves.NEW-CAPLOAN	admits	CONTRADICTED	accepted (ed2024 and ed2021)	build 0, run 0; ed2018 refused E0502	admits(cc=0,diag=0)	note CONFIRMED, one correction: ed2021 already accepts (upstream .rs too), so whole-self capture is 2015/2018 only, not 2015..2021
+bcnote:borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed	bck.NEW	admits	CONTRADICTED	accepted	build 0, run 0	admits(cc=0,diag=0)	note CONFIRMED; later-use control refused E0505; upstream .rs refused E0505
+bcnote:borrowck-unboxed-closures (carrier c(c(10)))	bck.A-FNMUT	admits	CONFIRMED	row twin refused; carrier accepted	row E0596; carrier build 0, run 12	admits(cc=0,diag=0)	note CONFIRMED: capture-free c(c(10)) is legal; Logos admits it (correct)
+bcnote:two-phase-nonrecv-autoref--d-index-two-phase (sequencing control)	bck.D	admits	CONFIRMED	row twin refused; control accepted	row E0502 x2; control build 0, run 4	admits(cc=0,diag=0)	note CONFIRMED: let k = i[3]; i[k] = 4; is legal; Logos admits it (correct). Twin: Index<i64,i64> -> Index<i64>+type Output
+bcnote:E0207 where-predicate (ledger header note)	-	note	CONFIRMED	outlives-only where refused; projection where accepted	E0207; build 0, run 0	admits(cc=0,diag=0)	note CONFIRMED: an outlives predicate does not constrain. Logos admits impl<U> Tr for S where U: 'static TODAY: a measured under-refusal, member of e0207_unconstrained_impl_type_param

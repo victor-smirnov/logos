@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row vec_holder_moved_src_assigned_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: `v.push(&x); let w = v; x = 3; w.len()` — THE HOLDER MOVED, THEN THE REFERENT ASSIGNED WHILE THE NEW HOLDER LIVES.
 //
-// rustc refuses (E0506); legality by reading, no rustc binary. TODAY admitted (runs exit 1), build 0230e503bd682184 43.
+// rustc refuses (E0506); MEASURED with rustc 1.98.1 (foot of this file). TODAY admitted (runs exit 1), build 0230e503bd682184 43.
 // NOT the store-edge fact: unmoved by se_nomut, se_nomutelem and a2elemorshr (round 2026-09-14m-storeedge-land). The loan
 // `v` holds on `x` is not inherited by `w` across the move. Found: hand s03, round 2026-09-14m-storeedge-land.
 package vec_holder_moved_src_assigned_admits;
@@ -13,3 +13,4 @@ fn main() -> i32 {
     x = 3i64;
     return w.len() as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0506]: cannot assign to `x` because it is borrowed. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/vec_holder_moved_src_assigned_admits.rs.

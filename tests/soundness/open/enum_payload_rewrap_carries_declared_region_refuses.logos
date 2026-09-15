@@ -8,7 +8,7 @@
 // `fn keep(self: Self) -> Self`); this free-fn control reproduces on the base binary
 // a5088a6875e092aa, so it is not about `Self` or the impl header. The `&E<'a>` scrutinee with
 // `E::A(*r)` is refused with the same sentence. Root NOT read.
-// ⚠ Legality rests on a reading — no rustc binary on this box.
+// Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 package enum_payload_rewrap_carries_declared_region_refuses;
 enum E<'s> { A(&'s i64), B }
 fn keep<'a>(e: E<'a>) -> E<'a> {
@@ -24,3 +24,4 @@ fn main() -> i32 {
         E::B => { return 1i32; }
     }
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 35. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/enum_payload_rewrap_carries_declared_region_refuses.rs. Audit note: header's exit 35 measured.

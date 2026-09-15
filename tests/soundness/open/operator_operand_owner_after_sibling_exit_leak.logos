@@ -12,7 +12,7 @@
 // `continue` 223 -> 22376 (Rust 262376) — the landing drops every temporary on the fall-through path and none of the
 // left temporaries on the exit path. A method RECEIVER is not affected: its owner is registered when the receiver is
 // lowered (`mk(2).get() + { return 5; }` reads 26 on base).
-// Found 2026-09-14o-autoreffund by hand program c02. Legality by reading; no rustc binary on this box.
+// Found 2026-09-14o-autoreffund by hand program c02. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package operator_operand_owner_after_sibling_exit_leak;
 use logos.lang.cmp;
 extern fn printf(fmt: *const u8, ...) -> i32;
@@ -51,3 +51,4 @@ fn main() -> i32 {
     if got != 26i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0 (stdout "r=5 seq=26"). Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/operator_operand_owner_after_sibling_exit_leak.rs. Audit note: left == temp dropped on the right operand's return; control seq=2 exit 1.

@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row struct_lit_mutref_field_unannotated_static_borrow_refused (tier 3, `refuses`). A LEGAL program is refused:
+// `let mut s: &i64 = &G;` (G a `static`, NO region annotation on `s`) then `HM { m: &mut s }` with `struct HM<'a> { m: &'a mut &'a i64 }`.
+// logosc b17b8e8c43266472 43: "struct literal 'HM' field 'm': variance mismatch — expected &static mut &static i64, got &mut &static i64".
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/control/own/struct_lit_HM_static_annot_dropped.rs: compiles, runs exit 0 —
+// `s`'s region is inferred, so 'a can be the local borrow's region.
+// Opened 2026-09-15f-rustcaudit: the old row struct_lit_field_invariant_region_static_refused ANNOTATED `s: &'static i64` and is illegal (rustc E0597; now
+// fail fixture bc_0915f_rustcaudit_struct_lit_mutref_field_static_annot_refuse). ONE-TOKEN CONTROL: a LOCAL referent (`let mut s: &i64 = &v;`) compiles and
+// runs 0 in both compilers (pass fixture bc_0915f_rustcaudit_struct_lit_mutref_field_local_region_admit) — so the referent being a `static` is the variable.
+// Root NOT read. ⚠ The sentence prints `&static` with no apostrophe where the annotated spelling prints `&'static`.
+package struct_lit_mutref_field_unannotated_static_borrow_refused;
+static G: i64 = 7i64;
+struct HM<'a> { m: &'a mut &'a i64 }
+fn main() -> i32 {
+    let mut s: &i64 = &G;
+    let hm: HM = HM { m: &mut s };
+    return (**hm.m - 7i64) as i32;
+}

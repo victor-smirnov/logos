@@ -46213,3 +46213,50 @@ fires: unconditional in that candidate · arrivals: 0 move-type place elements i
 ceiling: hand runs — closed return_array_lit_of_moved_locals_double_drop, generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits, generic_unbounded_typevar_reuse_after_array_literal_admits, array_repeat_len1_noncopy_operand_double_drop_run
 cost: 6 legal programs right on base leaked (k08 k09 k10 t11 t13 u07, n -> 0, rustc 11 / 1) — landed as pass fixtures bc_0915f_consumeland_hb_*_admit
 verdict: DECLINED, reason 2 (doors in series) — behind row aggregate_literal_temp_place_base_never_dropped_run (an array / tuple literal temporary in a place position is never dropped).
+
+# ═══ ROUND 2026-09-15f-rustcaudit (LEDGER, no compiler change) — EVERY SOUNDNESS-QUEUE ROW WHOSE LEGALITY WAS READ, CHECKED WITH rustc 1.98.1:
+#     136 CONFIRMED, 4 CONTRADICTED, 1 NOT EXPRESSIBLE, 0 DIVERGENCE; THREE bc_admits ROWS ARE LEGAL RUST AS PORTED ══════
+
+Files: `src/compiler/probes/2026-09-15f-rustcaudit/` — rust/ (every twin; `__copy` / `__derivecopy` A16 variants, `__control_*`, `bcnote_*` for the
+bc_admits notes), rust/control/{tier34,tier1,own} (control twins, tier34 and own beside their Logos programs), verdicts_tier{34,2,1}.tsv (the three
+auditors' tables), RUSTC_RERUN.tsv (every twin re-run on one invocation: id, metadata rc, error codes, build rc, run rc, stdout), rustc_one.sh,
+logos_observe.sh (the queue gate's observe() by hand). rustc: /home/victor/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc --edition 2024.
+⚠ `--emit=metadata -o /dev/null` does not work with this rustc (it creates its temp dir beside the output; an accepted program reads rc 1) — use --out-dir.
+
+POPULATION, derived by grep of tests/soundness/open headers for `by reading|no rustc|rustc binary|(reading`: 84 programs, plus every tier-2 and
+tier-1 row stating a Rust verdict it never compiled (40 + 18): 141 rows. Tier-1 rows already citing a twin (7) were not re-checked.
+
+CONTRADICTED (rustc disagrees with the row):
+  vec_index_store_len_in_index_refused (tier 3)       rustc E0502 — an overloaded IndexMut STORE's autoref is not two-phase. Row deleted; program is
+                                                      fail/bc_0915f_rustcaudit_vec_index_store_len_in_index_refuse (logosc's E0502 sentence), paired
+                                                      with pass ..._vec_index_store_len_hoisted_admit and ..._array_index_store_len_in_index_admit.
+  struct_lit_field_invariant_region_static_refused    rustc E0597 on the HM half (`s: &'static i64` annotated, `&mut s` must be 'static); the H half is
+                                                      legal and compiles at HEAD. Row deleted; program is fail/..._struct_lit_mutref_field_static_annot_
+                                                      refuse, pass ..._struct_lit_rawptr_field_static_region_admit (H) and ..._local_region_admit.
+                                                      THE ROW'S DEFECT SURVIVES ONE TOKEN AWAY: without the annotation rustc runs 0 and logosc still
+                                                      refuses — NEW row struct_lit_mutref_field_unannotated_static_borrow_refused (tier 3).
+  boxdyn_mutborrow_arg_no_vtable, rcdyn_borrow_arg_no_vtable   rustc E0277 (`&mut Box<dyn Sp>` / `&Rc<dyn Sp>` to `&dyn`/`&mut dyn` is an UNSIZE
+                                                      attempt, never a deref coercion). Right verdict, backend internal sentence: RECLASSIFIED tier 3
+                                                      `refuses` -> tier 4 `diag no vtable for …` (precedent: wrapper_unsize_missing_impl_backend_diag),
+                                                      not landed as fail fixtures — a fixture would pin `mlir_gen: internal` as the rule. The legal
+                                                      `use_mut(&mut *b)` meets the same internal error: NEW row boxdyn_mut_explicit_deref_arg_no_vtable
+                                                      (tier 3). `use_ref(&*r)` over Rc compiles and runs 0 — nothing left there.
+NOT EXPRESSIBLE: let_impl_trait_annotation_unchecked — `impl Trait` in a let binding is E0562 in rustc; neither registry has it (docs/spec/divergences.md
+  carries only `type.impl-trait.param-position-forbidden`); param-position twin E0277. Row stays, owner's (its header already said so).
+CONFIRMED: 136 rows (tier 3: 47 of 51; tier 2: 59 of 60; tier 1: 30 of 30); each of the 137 programs' foot line (the NOT EXPRESSIBLE one included) carries rustc's verdict and the twin path; in-place "by reading" phrases replaced, line numbers above the
+  foot unchanged. Every exit code a tier-1/3 header named matched rustc's.
+
+bc_admits notes (rows NOT deleted on this round's word — for the ledger rounds):
+  reborrow-sugg-move-then-borrow, borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed, issue-51268 — rustc COMPILES all three ports as
+  written; upstream's own .rs are E0382, E0505, E0502 (2015/2018 only; 2021 and 2024 compile it — `//@ edition:2015..2021` is half-open).
+  The header note "`let moved: &mut S = s;` is a move in Rust" was FALSE. The `c(c(10i64))` "cheapest carrier" for --a-fnmut-twice is LEGAL
+  (rustc runs 12: a capture-free closure is Fn). `where U: 'static` does not constrain (rustc E0207); the projection form compiles; logosc build
+  5f2f5f7272a18e08 43 ADMITS the outlives-only declaration (no row carries that spelling; member of e0207_unconstrained_impl_type_param).
+
+FOR THE OWNER: pass fixture tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop asserts `use_ref(&b)` (Box<dyn> -> &dyn) compiles; rustc E0277. It rests on
+docs/spec/types.md `coerce.deref.box-struct-borrow`, in neither divergence registry, whose `&Box<dyn Trait>` half is false about Rust.
+Header codes that differ from rustc (verdict still a refusal): rpit_dyn_fn_kind_unchecked (rustc E0525 then E0594), fn_item_pointer_call_where_static_admits
+(rustc uncoded "lifetime may not live long enough", header E0521). variant_payload_nested_struct_sub_double_drops' program exits 0 at zero drops too
+(blind to a leak). closure_fnonce_call_in_loop_multi_free is `run 1` while its fix is a refusal (rustc E0382).
+Fixtures NOT this round's subject: 785 .logos under tests/{logos,imported}/{pass,fail} carry a by-reading marker (logos/pass 530, logos/fail 248,
+imported/pass 3, imported/fail 4); checked only boxdyn_borrow_arg_keeps_box_drop and (the carrier shape) imported/pass/closures/closure-fn-bound-twice-cl2.

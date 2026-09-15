@@ -1,0 +1,207 @@
+aggregate_extended_borrow_temp_never_dropped	0	-	0	0	inside=0 n=1000 
+aggregate_param_ref_field_borrow_returned_says_dangling_refused	0	-	0	0	
+arraylit_ref_elem_store_after_init_admits	1	E0597x1,nocodex1	-	-	-
+array_nonprim_elem_eq_compares_addresses_run	0	-	0	0	
+array_store_value_reads_loan_refused	0	-	0	0	
+assign_local_borrow_into_annotated_binder_admits	1	E0597x1,nocodex1	-	-	-
+assign_local_borrow_into_annotated_binder_admits__control_j2	0	-	0	3	
+at_binding_by_value_never_dropped	0	-	0	0	
+bcnote_borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed	0	-	0	0	
+bcnote_borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed__control_lateruse	1	E0505x1,nocodex1	-	-	-
+bcnote_borrowck-unboxed-closures	1	E0596x1,nocodex1	-	-	-
+bcnote_borrowck-unboxed-closures__carrier_nocapture	0	-	0	12	
+bcnote_e0207_where_outlives_only	1	E0207x1,nocodex1	-	-	-
+bcnote_e0207_where_projection	0	-	0	0	
+bcnote_issue-51268	0	-	0	0	
+bcnote_reborrow-sugg-move-then-borrow	0	-	0	0	
+bcnote_two-phase-nonrecv-autoref--d__control_sequenced	0	-	0	4	
+bcnote_two-phase-nonrecv-autoref--d-index-two-phase	1	E0502x2,nocodex1	-	-	-
+boxdyn_mutborrow_arg_no_vtable	1	E0277x1,nocodex1	-	-	-
+boxed_escaping_fnonce_capture_double_free	0	-	0	0	
+boxed_move_closure_fat_capture_env_overflow	0	-	0	0	
+box_field_move	0	-	0	0	
+box_local_deref_escape_through_out_param_admits	1	E0597x1,nocodex1	-	-	-
+call_static_bound_empty_arg_region_admits	1	E0597x1,nocodex1	-	-	-
+closure_elided_param_called_with_field_ref_refuses	0	-	0	69	
+closure_elided_return_annotation_region_admits	1	nocodex2	-	-	-
+closure_fnonce_call_in_loop_multi_free	1	E0382x1,nocodex1	-	-	-
+closure_fnonce_cond_call_untaken_leak	0	-	0	0	
+closure_literal_fnmut_nested_call_admits	1	E0499x1,nocodex1	-	-	-
+closure_owned_dyn_capture	0	-	0	0	
+closure_owned_dyn_capture__copy	0	-	0	0	
+closure_param_shadow_double_drop	0	-	0	0	
+coerce_unsize_field_source_use_admitted	1	E0382x1,nocodex1	-	-	-
+control__tier1__aggregate_extended_borrow_temp_never_dropped	0	-	0	1	inside=0 n=0 
+control__tier1__array_nonprim_elem_eq_compares_addresses_run	0	-	0	1	
+control__tier1__at_binding_by_value_never_dropped	0	-	0	1	
+control__tier1__boxed_escaping_fnonce_capture_double_free	0	-	0	2	
+control__tier1__boxed_move_closure_fat_capture_env_overflow	0	-	0	1	
+control__tier1__box_field_move	0	-	0	1	
+control__tier1__closure_fnonce_cond_call_untaken_leak	0	-	0	1	
+control__tier1__closure_owned_dyn_capture	0	-	0	1	
+control__tier1__closure_param_shadow_double_drop	0	-	0	1	
+control__tier1__enum_payload_partial_move_leak	0	-	0	1	
+control__tier1__field_base_temp_built_before_sibling_run	0	-	0	1	k=3 seq=12 
+control__tier1__generic_struct_impl_ref_eq_compares_addresses_run	0	-	0	1	
+control__tier1__impl_fn_return_stack_env_dangles	0	-	0	1	
+control__tier1__index_place_through_refmut_never_drops_old	0	-	0	1	n=0 
+control__tier1__letelse_or_pattern_takes_else	0	-	0	2	
+control__tier1__match_arm_nested_binder_shadow_double_drop	0	-	0	1	
+control__tier1__operator_operand_owner_after_sibling_exit_leak	0	-	0	1	r=5 seq=2 
+control__tier1__param_ref_struct_cast_after_addr_of_reads_slot_run	0	-	0	1	
+control__tier1__ref_pair_nonprim_tuple_eq_compares_addresses_run	0	-	0	1	
+control__tier1__return_array_lit_of_moved_locals_double_drop	0	-	0	1	n=0 
+control__tier1__self_call_in_return_kills_param_drops	0	-	0	1	
+control__tier1__slice_pattern_arm_binding_extra_drops	0	-	0	1	
+control__tier1__static_array_whole_borrow_reads_garbage	0	-	0	2	
+control__tier1__tuple_elem_shared_borrow_through_ref_dangles_run	0	-	0	1	
+control__tier1__tuplestruct_door_default_ref_mode_not_carried	0	-	0	0	drops=0 
+control__tier1__variant_payload_char_literal_nomatch	0	-	0	1	
+control__tier1__variant_payload_nested_struct_sub_double_drops	0	-	0	0	
+control__tier1__weak_local_never_dropped	0	-	0	1	
+control__tier34__array_index_len_in_index	0	-	0	0	
+control__tier34__boxdyn_mut_explicit_deref	0	-	0	0	
+control__tier34__boxdyn_shared_borrow_arg	1	E0277x1,nocodex1	-	-	-
+control__tier34__rcdyn_explicit_deref	0	-	0	0	
+control__tier34__struct_lit_H_half	0	-	0	0	
+control__tier34__struct_lit_HM_half	1	E0597x1,nocodex1	-	-	-
+control__tier34__vec_index_len_hoisted	0	-	0	0	
+declare_pat_bindings_field_nomut_addrmut_admit	1	E0596x1,nocodex1	-	-	-
+declare_pat_bindings_field_nomut_addrmut_admit__derivecopy	1	E0596x1,nocodex1	-	-	-
+deferred_init_after_inner_shadow_refused	0	-	0	0	
+deref_of_non_reference_admitted	1	E0614x1,nocodex1	-	-	-
+double_amp_lifetime_ref_type_parse_refused	0	-	0	0	
+double_ref_deref_return_outer_lifetime_refused	0	-	0	0	
+double_ref_deref_return_outer_lifetime_refused__copy	0	-	0	0	
+dyn_fnmut_nested_call_admits	1	E0499x1,nocodex1	-	-	-
+e0207_unconstrained_impl_type_param	1	E0207x1,nocodex1	-	-	-
+elided_param_regions_invariant_compare_admits	1	nocodex3	-	-	-
+enum_payload_binding_declared_binder_name_collision_admits	1	nocodex2	-	-	-
+enum_payload_partial_move_leak	0	-	0	0	
+enum_payload_rewrap_carries_declared_region_refuses	0	-	0	35	
+enum_tuple_ctor_as_fn_value_refused	0	-	0	0	
+enum_variant_pattern_on_integer_scrutinee_admits	1	E0308x2,nocodex1	-	-	-
+enum_variant_value_into_scalar_let_admits	1	E0308x1,nocodex1	-	-	-
+explicit_deref_field_borrow_through_refvar_unkeyed_admits	1	E0506x1,nocodex1	-	-	-
+field_base_temp_built_before_sibling_run	0	-	0	0	k=3 seq=126 
+field_read_through_ref_to_box_refused	0	-	0	0	
+field_write_through_param_local_escape_admits	1	E0597x1,nocodex1	-	-	-
+fn_item_pointer_call_where_static_admits	1	nocodex2	-	-	-
+fnitem_to_fnptr_array_elem_admits	1	E0308x1,nocodex1	-	-	-
+fnitem_to_fnptr_array_elem_admits__control_foo	0	-	0	0	
+fnptr_assign_named_to_elided_admits	1	E0308x1,nocodex1	-	-	-
+fnptr_call_result_region_param_reads_static_refused	0	-	0	18	
+fnptr_elided_param_call_arg_admits	1	E0308x1,nocodex1	-	-	-
+fnptr_elided_param_struct_literal_admits	1	E0308x1,nocodex1	-	-	-
+free_fn_outparam_ref_store_no_dangle_deposit_admits	1	E0597x1,nocodex1	-	-	-
+generic_mutref_pair_local_borrow_escape_admits	1	E0597x1,nocodex1	-	-	-
+generic_mutref_pair_local_borrow_escape_admits__derivecopy	1	E0597x1,nocodex1	-	-	-
+generic_ref_typevar_ordering_mlir_verifier_refused	0	-	0	0	
+generic_struct_impl_ref_eq_compares_addresses_run	0	-	0	0	
+generic_struct_impl_ref_eq_compares_addresses_run__copy	0	-	0	0	
+generic_type_param_two_regions_first_wins_refused	0	-	0	6	
+generic_unbounded_typevar_reuse_after_array_literal_admits	1	E0382x1,nocodex1	-	-	-
+generic_unbounded_typevar_reuse_after_tuple_literal_admits	1	E0382x1,nocodex1	-	-	-
+impl_fn_return_stack_env_dangles	0	-	0	0	
+impl_method_ret_longer_region_under_header_bound_refused	0	-	0	0	
+impl_method_ret_renamed_header_binder_refused	0	-	0	0	
+index_place_through_refmut_never_drops_old	0	-	0	0	n=111 
+let_borrow_of_call_temp_inner_slot_admits	1	E0716x1,nocodex1	-	-	-
+let_double_ref_str_annotation_refused	0	-	0	0	
+letelse_or_pattern_takes_else	0	-	0	0	
+letelse_ref_pattern_binding_undefined_refused	0	-	0	0	
+let_impl_trait_annotation_unchecked	1	E0562x2,nocodex1	-	-	-
+let_impl_trait_annotation_unchecked__paramposition	1	E0277x1,nocodex1	-	-	-
+let_mutref_annotation_to_meet_struct_refused	0	-	0	9	
+let_ref_bind_annotated_refused	0	-	0	0	
+let_ref_struct_pattern_irrefutable_refused	0	-	0	0	
+let_ref_struct_pattern_irrefutable_refused__copy	0	-	0	0	
+lifereg_container_elem_read_admits	1	E0621x1,nocodex1	-	-	-
+lifereg_derefwrite_descent_stops_at_deref_admits	1	E0621x1,nocodex1	-	-	-
+lifereg_field_reborrow_deposit_unread_admits	1	E0621x1,nocodex1	-	-	-
+lifereg_slice_elem_field_store_admits	1	E0621x1,nocodex1	-	-	-
+local_ref_binding_escape_through_out_param_admits	1	E0597x1,nocodex1	-	-	-
+loop_holder_realias_alternating_refuses	0	-	0	0	
+loop_holder_realias_referent_read_after_refuses	0	-	0	0	
+loop_init_before_break_refuses	0	-	0	7	
+loop_push_no_later_use_dangle_not_carried_admits	1	E0597x1,nocodex1	-	-	-
+loop_second_iteration_mut_alias_through_retargeted_ref_admits	1	E0499x1,nocodex1	-	-	-
+match_addrof_scrutinee_default_payload_loan_unrooted_admits	1	E0499x1,nocodex1	-	-	-
+match_arm_nested_binder_shadow_double_drop	0	-	0	0	
+method_autoderef_double_ref_option_infer_refused	0	-	0	0	
+method_bare_recv_mut_resv_shared_arg_admits	1	E0502x1,nocodex1	-	-	-
+method_bare_recv_mut_resv_shared_arg_admits__derivecopy	1	E0502x1,nocodex1	-	-	-
+method_where_fn_bound_on_impl_param_refused	0	-	0	0	
+mutptr_region_param_elided_let_arg_refused	0	-	0	0	
+operator_operand_owner_after_sibling_exit_leak	0	-	0	0	r=5 seq=26 
+option_replace_ref_store_no_flow_summary_admits	1	E0597x1,nocodex1	-	-	-
+param_ref_struct_cast_after_addr_of_reads_slot_run	0	-	0	0	
+param_ref_struct_cast_after_addr_of_reads_slot_run__copy	0	-	0	0	
+pattern_enum_payload_ref_owner_move_admits	1	E0505x1,nocodex1	-	-	-
+promoted_literal_call_arg_refused	0	-	0	0	
+ptr_coercion_call_arg_pointee_region_admits	1	E0521x1,nocodex1	-	-	-
+ptr_coercion_cast_door_elided_let_region_admits	1	nocodex4	-	-	-
+ptr_coercion_generic_struct_pointee_region_admits	1	nocodex3	-	-	-
+ptr_coercion_struct_literal_field_region_admits	1	nocodex2	-	-	-
+ptr_coercion_tail_return_region_admits	1	nocodex2	-	-	-
+rcdyn_borrow_arg_no_vtable	1	E0277x1,nocodex1	-	-	-
+refcell_interior_push_block_local_dangle_admits	1	E0597x1,nocodex1	-	-	-
+ref_pair_eq_without_impl_admits	1	E0369x1,nocodex1	-	-	-
+ref_pair_eq_without_impl_admits__derivecopy	1	E0369x1,nocodex1	-	-	-
+ref_pair_eq_without_impl_admits__g03	1	E0369x1,nocodex1	-	-	-
+ref_pair_nonprim_tuple_eq_compares_addresses_run	0	-	0	0	
+ref_pair_nonprim_tuple_eq_compares_addresses_run__copy	0	-	0	0	
+ref_pattern_nested_in_tuple_binding_undefined_refused	0	-	0	0	
+ref_pattern_nested_in_tuple_binding_undefined_refused__copy	0	-	0	0	
+ref_to_dyn_ref_type_parse_refused	0	-	0	0	
+ref_to_slice_ref_param_unsized_refused	0	-	0	0	
+ref_typearg_eq_impl_missing_refused	0	-	0	0	
+ref_typearg_eq_impl_missing_refused__eqbound	0	-	0	0	
+return_array_lit_of_moved_locals_double_drop	0	-	0	0	n=11 
+rpit_dyn_fn_kind_unchecked	1	E0525x1,E0594x1,nocodex1	-	-	-
+rpit_dyn_fn_kind_unchecked__control_fnmut	0	-	0	7	
+self_assign_refused_as_moved	0	-	0	0	
+self_call_in_return_kills_param_drops	0	-	0	0	
+self_literal_local_borrow_pins_impl_region_admits	1	E0597x1,nocodex1	-	-	-
+setter_mutref_field_store_after_outer_set_rehomed_admits	1	E0597x1,nocodex1	-	-	-
+setter_mutref_field_store_after_outer_set_rehomed_refused	0	-	0	0	
+slice_pattern_arm_binding_extra_drops	0	-	0	0	
+sliceref_read_of_local_array_says_dangling	0	-	0	0	
+static_arg_pins_shared_callee_region_refused	0	-	0	0	
+static_array_whole_borrow_reads_garbage	0	-	0	0	
+static_mut_elided_struct_region_write_admits	1	E0597x1,nocodex1	-	-	-
+static_mut_elided_struct_region_write_admits__static_written	1	E0597x1,nocodex1	-	-	-
+static_mut_str_slice_write_admits	1	E0597x1,nocodex1	-	-	-
+static_mut_write_through_borrow_admits	1	E0597x1,nocodex1	-	-	-
+static_mut_write_through_borrow_admits__allowlint	1	E0597x1,nocodex1	-	-	-
+static_ref_nested_borrow_region_not_static_refused	0	-	0	0	
+struct_lit_field_invariant_region_static_refused	1	E0597x1,nocodex1	-	-	-
+struct_lit_invariant_binder_first_wins_covariant_region_refused	0	-	0	5	
+struct_named_like_type_param_refused	0	-	0	0	
+struct_pattern_name_check_skipped_under_ref	1	E0308x1,nocodex1	-	-	-
+struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses	0	-	0	14	
+trait_default_body_call	1	E0599x1,nocodex1	-	-	-
+trait_default_body_type	1	E0308x1,nocodex1	-	-	-
+trait_impl_for_ref_method_call_receiver_refused	0	-	0	19	
+tuple_elem_shared_borrow_through_ref_dangles_run	0	-	0	0	
+tuple_enum_elem_eq_variadic_impl_return_lost_refused	0	-	0	0	
+tuplestruct_ctor_declared_binder_name_admits	1	nocodex2	-	-	-
+tuplestruct_ctor_declared_binder_name_refused	0	-	0	7	
+tuplestruct_ctor_declared_binder_name_refused__copy	0	-	0	7	
+tuplestruct_door_default_ref_mode_not_carried	0	-	0	1	drops=1 
+unsized_local_binds_place_dropped_after_free	1	E0277x1,nocodex1	-	-	-
+user_type_alias_shadows_stdlib_type_param_refused	0	-	0	3	
+variant_payload_char_literal_nomatch	0	-	0	0	
+variant_payload_nested_struct_sub_double_drops	0	-	0	0	
+vec_elem_ref_copied_out_src_assigned_admits	1	E0506x1,nocodex1	-	-	-
+vec_holder_moved_src_assigned_admits	1	E0506x1,nocodex1	-	-	-
+vec_index_store_len_in_index_refused	1	E0502x1,nocodex1	-	-	-
+vec_index_store_value_borrows_vec_refused	0	-	0	0	
+vec_mutref_elem_push_store_rehomed_admits	1	E0597x1,nocodex1	-	-	-
+vec_mutref_elem_push_store_rehomed_refused	0	-	0	0	
+vec_of_mutref_elem_receiver_store_loan_unheld_admits	1	E0502x1,nocodex1	-	-	-
+vec_push_arg_reads_loan_refused	0	-	0	0	
+weak_local_never_dropped	0	-	0	0	
+where_impl_region_static_bound_unused_refused	0	-	0	0	
+where_struct_literal_instantiation_rigid_refused	0	-	0	4	
+where_struct_literal_instantiation_rigid_refused__copy	0	-	0	4	

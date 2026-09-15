@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row fnptr_assign_named_to_elided_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: A LOCAL OF TYPE `fn(&i64) -> i64` IS RE-ASSIGNED A FN POINTER WITH A NAMED PARAMETER REGION.
 //
-// Same fact at a plain re-assignment. rustc refuses (E0308); legality by reading, no rustc binary. TODAY admitted, build
+// Same fact at a plain re-assignment. rustc refuses (E0308); MEASURED with rustc 1.98.1 (foot of this file). TODAY admitted, build
 // c52dcb19dff987ff 43. NEIGHBOUR ROWED WITH A REASON — the fact has no carrier there: lower_assign calls check_variance
 // only under the probe lifereg_varassign (refuted 2026-08-27 as a no-op) and for a static mut; the let of the same
 // value (hand i02) is refused by the priced arm, the assignment is never asked (dlog fnptr_subtype_deciders: cv_site
@@ -15,3 +15,4 @@ fn t<'r>(g: fn(&'r i64) -> i64) -> i32 {
     return 0i32;
 }
 fn main() -> i32 { return 0i32; }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0308]: mismatched types. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/fnptr_assign_named_to_elided_admits.rs.

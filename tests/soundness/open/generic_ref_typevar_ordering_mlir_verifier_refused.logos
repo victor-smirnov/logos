@@ -7,7 +7,7 @@
 // `eq` / `ne` METHOD; Logos `Ord` carries only `cmp` (stdlib/lang/cmp/ord.logos), so there is no `lt` method to route
 // `<` to. The pair survives as a raw bin_op to mlir-gen, whose one-layer reference load (is_ref_to_prim) answers `==` /
 // `!=` only; a struct T lands at mono_clone subst_expr, whose reference re-dispatch (refmono) was declined, reason 3.
-// Measured on build/ 854d99ae9a2e2fbd 43 and the landed binary: refused on both. Legality by reading; no rustc binary.
+// Measured on build/ 854d99ae9a2e2fbd 43 and the landed binary: refused on both. Legality MEASURED with rustc 1.98.1 (foot of this file).
 package generic_ref_typevar_ordering_mlir_verifier_refused;
 use logos.lang.cmp;
 fn less<T: Ord>(a: &T, b: &T) -> bool {
@@ -20,3 +20,4 @@ fn main() -> i32 {
     if !less::<i64>(&x, &y) { return 2i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/generic_ref_typevar_ordering_mlir_verifier_refused.rs.

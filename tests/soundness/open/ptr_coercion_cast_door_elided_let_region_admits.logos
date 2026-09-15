@@ -26,3 +26,4 @@ fn main() -> i32 {
 // (`*const &i64`), which spec region.outlives.permissive-elided-source treats as compatible with
 // any named target; the same door with the annotation naming 'a is refused. The subtype() arm
 // the landing added is not reached until the let keeps x's region.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough / error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ptr_coercion_cast_door_elided_let_region_admits.rs. Audit note: all three cast doors.

@@ -19,3 +19,4 @@ fn main() -> i32 {
 // it compares equal by NAME (rule 12). Control, base 47bea7f0aeb42d36: the declaration renamed `enum E<'s>`
 // is REFUSED ("expected &'a i64, got &'s i64"); the same read through a struct field (`p.y` of `P<'b>`) is
 // refused ("got &'b i64"). Found 2026-09-14c-meetobl (X52, p1, p2); unchanged under every meetobl/mobl probe.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/enum_payload_binding_declared_binder_name_collision_admits.rs.

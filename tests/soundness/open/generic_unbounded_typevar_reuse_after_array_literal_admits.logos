@@ -14,3 +14,4 @@ fn main() -> i32 {
     if q != 7i64 { return 1i32; }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0382]: use of moved value: `x`. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/generic_unbounded_typevar_reuse_after_array_literal_admits.rs. Audit note: already rustc-checked 09-15e; twin re-run from src/compiler/probes/2026-09-15e-consume/rust.

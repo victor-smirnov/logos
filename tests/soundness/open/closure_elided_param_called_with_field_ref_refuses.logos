@@ -11,7 +11,7 @@
 // (base a5088a6875e092aa read the sentence quoted above). The program is still legal and still refused.
 // Found 2026-09-13a-selfregion by a legal-shape battery program (L9) for impls whose
 // self type has regions; the refusal is UNCHANGED by every probe of that round, so it
-// is not about `Self`. ⚠ The legality claim rests on a reading — no rustc binary here.
+// is not about `Self`. Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
 // Root NOT read. PROBES.md carries this sentence's family at "closure parameter: the
 // elided lifetime of closure parameter" (a return-wrong-bound-region record).
 package closure_elided_param_called_with_field_ref_refuses;
@@ -27,3 +27,4 @@ fn main() -> i32 {
     let f = Foo { r: &v };
     return f.remake() as i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 69. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/closure_elided_param_called_with_field_ref_refuses.rs.

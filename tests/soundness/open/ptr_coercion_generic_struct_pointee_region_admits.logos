@@ -16,3 +16,4 @@ fn main() -> i32 {
 // (Rust: covariant through Unique/NonNull). Asked as-is the arm refused the LEGAL `&'a Vec<&'static i64> ->
 // *const Vec<&'a i64>` and its Box twin (measured, first build of the landing), so the arm skips generic-struct
 // pointees until vec_box_invariant_in_t_refused is repaired.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough / error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ptr_coercion_generic_struct_pointee_region_admits.rs.

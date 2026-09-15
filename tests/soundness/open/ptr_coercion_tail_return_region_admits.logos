@@ -13,3 +13,4 @@ fn main() -> i32 {
 // permissive=true (sema_stmt.cpp, "R2 (audit-v2)"), the explicit return passes false, and 2026-09-14b-ptrcoerceland's
 // subtype() arms ask only at strict sites. Closing it means making the tail site strict for EVERY type, a change
 // to every tail return in the corpus that was not priced.
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ptr_coercion_tail_return_region_admits.rs.

@@ -49,3 +49,4 @@ fn main() -> i32 {
     unsafe { if NDROP != 1i64 { return NDROP as i32; } }
     return 0i32;
 }
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/variant_payload_nested_struct_sub_double_drops.rs. Audit note: ⚠ the program's exit is blind to a LEAK: `if NDROP != 1 { return NDROP }` exits 0 at 0 drops (control also exits 0); separated only by a printed count (ndrop=1 vs 0).
