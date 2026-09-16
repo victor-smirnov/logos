@@ -1,0 +1,36 @@
+// shapeless_binder — round 2026-09-16f. THE CLASS QUESTION, ASKED OF THE TU.
+//
+// A pattern binder in mlir-gen writes a name's storage into `scope_`. When the
+// bound place is an AGGREGATE, it must ALSO record the shape (`var_struct_` /
+// `var_tuple_`) or every later reader keyed on that shape GEPs the wrong base.
+// `bind_name_at_slot` is the one function that does both, so a context that
+// delegates to it is covered by construction.
+//
+// FOR EVERY CONTEXT THAT WRITES scope_, EITHER IT RECORDS A SHAPE OR IT
+// DELEGATES. The violations are DERIVED, not grepped — an absence has no
+// spelling. ⚠ ctx_of COARSENS: this is a CONTEXT-level answer and every row it
+// names is cross-checked by a per-site read before it is believed.
+#include "cxx_schema.dl"
+
+.decl tracked(m: symbol)
+tracked("scope_").
+tracked("var_struct_").
+tracked("var_tuple_").
+tracked("bind_name_at_slot").
+
+.decl member_use(cn: symbol, m: symbol, f: symbol, l: number)
+.output member_use
+member_use(CN, M, F, L) :- ref(U, D), decl_name(D, M), tracked(M),
+                           ctx_of(U, C), ctx_name(C, CN), loc(U, F, L, _).
+
+.decl binds_storage(cn: symbol)
+binds_storage(CN) :- member_use(CN, "scope_", _, _).
+
+.decl records_shape(cn: symbol)
+records_shape(CN) :- member_use(CN, "var_struct_", _, _).
+records_shape(CN) :- member_use(CN, "var_tuple_", _, _).
+records_shape(CN) :- member_use(CN, "bind_name_at_slot", _, _).
+
+.decl shapeless_binder(cn: symbol)
+.output shapeless_binder
+shapeless_binder(CN) :- binds_storage(CN), !records_shape(CN).

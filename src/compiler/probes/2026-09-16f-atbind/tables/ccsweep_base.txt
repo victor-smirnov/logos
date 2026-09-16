@@ -1,0 +1,2 @@
+fnparam_tuple_with_unit_elem_segv.logos CCRC=139
+zonemut_fat_ref_struct_field_layout_abort.logos CCRC=134

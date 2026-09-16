@@ -4659,13 +4659,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             std::string name(lir_view::PatWildView{pat_ref}.name());
             if (!name.empty() && name != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-                auto alloca = create_entry_alloca(sv.getType());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                evict_var_shapes(name);
-                scope_[name] = alloca;
-                let_vars_.insert(name);
-                var_elem_types_[name] = sv.getType();
-                if (!scrut_ptr) register_thin_ref_struct_binding(name, scrut_ty);
+                // The statement door's Wild case binds an aggregate scrutinee to
+                // its PLACE; this twin did not, so `match w { y => y.b }` in
+                // EXPRESSION position read the alloca address. Same fact as the
+                // At case above, same convention. PROBES.md 2026-09-16f.
+                // ⚠ OWNED SCRUTINEES ONLY — see the At case below (a10).
+                TypeRef wild_bty(scrut_ty);
+                const bool wild_via_ref = wild_bty &&
+                    (wild_bty.kind() == LogosType::Kind::Ref ||
+                     wild_bty.kind() == LogosType::Kind::MutRef ||
+                     wild_bty.kind() == LogosType::Kind::Ptr);
+                if (sv && sv.getType() == ptr_type() && !wild_via_ref) {
+                    bind_name_at_slot(name, sv, scrut_ty, nullptr);
+                } else {
+                    auto alloca = create_entry_alloca(sv.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                    evict_var_shapes(name);
+                    scope_[name] = alloca;
+                    let_vars_.insert(name);
+                    var_elem_types_[name] = sv.getType();
+                    if (!scrut_ptr) register_thin_ref_struct_binding(name, scrut_ty);
+                }
                 added.push_back(name);
             }
         } else if (pat_ref.kind() == pc::Code::Tuple) {
@@ -4993,13 +5007,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             std::string aname(pa.name());
             if (!aname.empty() && aname != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-                auto alloca = create_entry_alloca(sv.getType());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                evict_var_shapes(aname);
-                scope_[aname] = alloca;
-                let_vars_.insert(aname);
-                var_elem_types_[aname] = sv.getType();
-                if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
+                // Same fact as the statement door: an alloca-of-a-pointer records
+                // NO SHAPE, so `n.field` / `n.N` GEP the alloca ADDRESS.
+                // bind_name_at_slot is the one binding convention. PROBES.md 2026-09-16f.
+                // ⚠ OWNED SCRUTINEES ONLY — through a `&W` the place is the W while
+                // `scrut_ty` is the reference, and the scalar arm would load twice.
+                TypeRef binder_bty(scrut_ty);
+                const bool binder_via_ref = binder_bty &&
+                    (binder_bty.kind() == LogosType::Kind::Ref ||
+                     binder_bty.kind() == LogosType::Kind::MutRef ||
+                     binder_bty.kind() == LogosType::Kind::Ptr);
+                if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
+                    bind_name_at_slot(aname, sv, scrut_ty, nullptr);
+                } else {
+                    auto alloca = create_entry_alloca(sv.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                    evict_var_shapes(aname);
+                    scope_[aname] = alloca;
+                    let_vars_.insert(aname);
+                    var_elem_types_[aname] = sv.getType();
+                    if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
+                }
                 added.push_back(aname);
             }
             if (auto sub = pa.sub()) {

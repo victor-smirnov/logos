@@ -1,0 +1,14 @@
+b01	OK	0	k=3 n=2 
+b02	OK	0	k=3 n=2 
+b03	OK	0	k=1122 
+b04	CCFAIL	-	/tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/hb16f.9CV6/b04.logos:12: error 
+b05	CCFAIL	-	/tmp/claude-1004/-home-logos-devel-logos/25aa8421-fce1-4a11-8a89-5d2ba5981c88/scratchpad/hb16f.9CV6/b05.logos:12: error 
+b06	OK	0	k=7 n=21 
+b07	OK	139	 
+b08	CCFAIL	-	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+b09	OK	0	k=4 n=2 
+b10	OK	0	k=3 n=2 
+b11	OK	0	k=23 n=2 
+b12	OK	0	k=68 
+b13	OK	0	k=5 
+b14	OK	0	k=5 

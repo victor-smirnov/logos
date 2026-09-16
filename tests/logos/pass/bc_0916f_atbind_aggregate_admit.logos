@@ -1,3 +1,4 @@
+// CLOSED soundness_queue row at_binding_aggregate_segfaults_run — round 2026-09-16f-atbind: a match binder over an OWNED aggregate place now binds THROUGH bind_name_at_slot, so the shape (var_struct_ / var_tuple_) is recorded and `y.field` GEPs the real place. Was run 139.
 // SOUNDNESS QUEUE row at_binding_aggregate_segfaults_run (tier 1, run 139). A `name @ pattern`
 // BINDING OVER AN AGGREGATE SCRUTINEE SEGFAULTS.
 //
@@ -12,7 +13,7 @@
 // Found 2026-09-16b-armbind by hand programs b08 / b13 / b14.
 // rustc 1.98.1 --edition 2024 twins: src/compiler/probes/2026-09-16b-armbind/rust/b08.rs (k=3 n=2),
 // b13.rs (k=3 n=2), b14.rs (k=3 n=2) — all compile and run exit 0.
-package at_binding_aggregate_segfaults_run;
+package bc_0916f_atbind_aggregate_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }

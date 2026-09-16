@@ -1,0 +1,106 @@
+ROUND 2026-09-16f-atbind — PREDICTION, DECLARED BEFORE ANY COMPILER EDIT
+base binary build_hash 9014f16a6e21dabf 43 (sha256 head 35690b38dad2939c), HEAD 5dc84fc0e, tree clean
+queue gate base: rc 0, ctest 228/228
+
+ARM A (the only arm): src/compiler/mlir_gen_stmt.cpp, extract_payload's `case pc::Code::At` —
+when the scrutinee place is a POINTER, bind the `@` name through bind_name_at_slot (the one
+convention pat_bind's At case already uses) instead of storing the pointer into a fresh alloca
+as a pointer-valued scalar.
+
+THE FACT, AS MEASURED ON BASE (not as the pricing stated it): the At binder IS reachable and IS
+readable as a whole value — b02 (`take(y)` by value) and b10 (`match w { y @ W{..} => y }`) are
+CORRECT on base, k=3 n=2, because var_ref(y) loads the alloca and gets back the aggregate pointer.
+What is missing is the SHAPE: var_struct_ / var_tuple_ are never set, so every reader keyed on them
+(`y.field`, `y.N`) GEPs through the alloca ADDRESS. So the property is not "the `@` binder fails"
+but "the `@` binder has no aggregate SHAPE", and the predicted closed set is exactly the readers
+that ask for one.
+
+PREDICTED CLOSED — COUNT 1 ROW, 8 PROGRAMS:
+  row at_binding_aggregate_segfaults_run  (139 -> exit 0, k=3 n=2)
+  pricing battery: a01 a02 a03 a06 a12 a13  (139 -> 0)
+  my battery:      b01 b06 b09 b11          (139 -> 0, values in BASE_HB.tsv/rustc twins)
+
+PREDICTED UNCHANGED, AND WHY:
+  b02 b10 b03 b12 a07 a10 a14 a15  — already correct on base. INHERITED (rule 14), not fixed.
+  b08 / row at_binding_array_sub_verifier_error_refused — the array sub-pattern is refused by an
+      MLIR verifier error BEFORE any binding runs; reason 1 (no carrier at this site).
+  a05 / row at_binding_whole_struct_wild_fields_refused — a SEMA E0509 over-refusal; extract_payload
+      never runs. reason 1.
+  a11 and rows let_at_binding_tuple_sub_unsupported / let_at_binding_type_annot_syntax — the LET
+      door and the PARSER; reason 1.
+  row at_binding_ref_mut_payload_refuses — the PatAt mirror carries no ref-mode field; reason 1.
+  b04 b05 — refused "nested patterns inside enum-variant payloads are not yet supported" (SEMA,
+      before this site). rustc compiles both. NEW findings, no row holds them; reason 1.
+  a09 — rustc REFUSES it (E0382). An illegal program; it is NOT a carrier for this class either way.
+
+PREDICTED UNKNOWN, TO BE MEASURED, NOT ASSERTED:
+  row at_binding_by_value_never_dropped (a04) — an ENUM scrutinee. The pricing predicted it needs a
+      SECOND fact (an owner). Under ARM A the enum branch of bind_name_at_slot loads the enum value
+      into a fresh alloca; whether that gives the binder a drop at all is UNMEASURED. If it does not
+      move it is rowed with its number, not asserted closed.
+  a08 (we admit what rustc refuses, E0382) and b07 (`y @ (E::A(_)|E::B(_))`, 139 on base, rustc 5)
+      — both enum-shaped, both unmeasured under ARM A.
+
+FALL-BACK ARM B, IF ARM A DAMAGES AN ENUM SHAPE: delegate only when the bound type is an aggregate
+(Struct / ZonedStruct / Tuple), the property the measurement actually isolates.
+
+COST COLUMNS TO READ: run_oracle.py (base vs armed, same configure), fail_text_oracle.py,
+gate-run.sh -L bc, queue gate, L1, valgrind sweep. ceiling-probe.sh's CEILING column CANNOT see a
+queue row (it deltas logos_00_bc_admit_*) and is not read.
+
+=== AMENDMENT, 07:59, STILL BEFORE ANY BUILD (no armed binary exists yet) ===
+Three hand programs written after the base tables (c01 c02 c03) found a defect OUTSIDE the `@`
+framing this round was handed, and it changes the class:
+
+  c01  `let k = match w { y => y.b };`  — a PLAIN binder, NO `@` AT ALL, in EXPRESSION position
+       over a Drop struct. BASE: rc 139. rustc twin: k=3 n=2, exit 0.
+       Its STATEMENT twin (pricing a15, `match w { y => y.b }`) is CORRECT on base.
+  c02  expression-position `y @ (_, _)` over `(D, i64)` — BASE rc 139.
+  c03  expression-position `y @ W{..}` with a METHOD call — BASE rc 139.
+
+READ: mlir_gen_expr.cpp's `extract_arm_payload` has TWO binder cases — Wild and At — and BOTH
+store the scrutinee pointer into a fresh alloca with no shape. The STATEMENT door's Wild case has
+an aggregate special-case (`scope_[pwn] = sv; var_struct_[pwn] = …`) and that is exactly why a15
+is correct while c01 is not. So the fact is not "`@`": it is A BINDER GIVEN NO AGGREGATE SHAPE,
+and it has THREE sites, two of which the handed-down framing never named:
+   S1 mlir_gen_stmt.cpp  extract_payload        case At    (the row's site)
+   S2 mlir_gen_expr.cpp  extract_arm_payload    case At    (the a02 expression spelling)
+   S3 mlir_gen_expr.cpp  extract_arm_payload    case Wild  (c01 — NO `@`, no row holds it)
+All three are edited in this round, with the same one-line delegation to bind_name_at_slot.
+This is the standing neighbour rule's first branch: a STRICT EXTENSION of the same change at the
+same site closes it, so it is closed in the SAME commit, not rowed.
+
+PREDICTION AMENDED — PREDICTED CLOSED: 1 ROW + 11 PROGRAMS
+  row at_binding_aggregate_segfaults_run (139 -> 0)
+  a01 a02 a03 a06 a12 a13   b01 b06 b09 b11   c01 c02 c03   (139 -> 0)
+  (c01/c02/c03 have no row; they are hand-battery fixtures on landing.)
+STILL UNKNOWN, TO BE MEASURED: a04 / row at_binding_by_value_never_dropped (enum, needs an owner),
+a08, b07.
+
+=== SECOND AMENDMENT, 08:00, STILL BEFORE ANY BUILD ===
+Three more base programs, and the class grows a FOURTH site — found by varying the shape past
+what this prompt and the pricing named (rule 5):
+  c04  `let k = match t { y => y.1 };`  over `(D, i64)` in EXPRESSION position — BASE 139.
+  c05  same shape over a NON-Drop struct `Q`                                   — BASE 0, CORRECT.
+       So the discriminator is not "expression position": it is whether the scrutinee arrives as
+       a POINTER (a droppable aggregate does; a plain non-Drop struct does not).
+  c06  `match t { y => { return y.1; } }` over `(D, i64)` in STATEMENT position — BASE 139.
+       ⚠ THIS IS THE STATEMENT DOOR, WHOSE STRUCT SPELLING (a15) IS CORRECT. Its Wild case tests
+       `kind()==Struct || ZonedStruct` and a TUPLE falls through to the alloca-of-a-pointer path.
+       The pricing's warning (b) — "the aggregate branch must set BOTH var_struct_ and var_tuple_"
+       — is here a LIVE DEFECT at a site neither the pricing nor this prompt named.
+
+THE CLASS, FINAL, BY THE PROPERTY (a binder whose scrutinee is a POINTER and that records no shape):
+   S1 mlir_gen_stmt.cpp  extract_payload      case At    — the row's own site
+   S2 mlir_gen_expr.cpp  extract_arm_payload  case At    — the expression `@` spelling
+   S3 mlir_gen_expr.cpp  extract_arm_payload  case Wild  — c01/c04, NO `@` at all
+   S4 mlir_gen_stmt.cpp  extract_payload      case Wild  — c06, struct-only test, tuple missing
+All four now carry the same delegation to bind_name_at_slot. S4's non-pointer arm keeps its old
+struct branch untouched.
+
+PREDICTION, FINAL — PREDICTED CLOSED: 1 ROW + 13 PROGRAMS
+  row at_binding_aggregate_segfaults_run (139 -> 0)
+  a01 a02 a03 a06 a12 a13  b01 b06 b09 b11  c01 c02 c03 c04 c06   (139 -> 0; 15 programs, of which
+  a01/a02/a03 are the row's own spellings)
+PREDICTED UNCHANGED: b02 b03 b10 b12 c05 a07 a10 a14 a15 (correct on base, INHERITED, rule 14).
+UNKNOWN, MEASURED NOT ASSERTED: a04 / row at_binding_by_value_never_dropped, a08, b07 (enum shapes).

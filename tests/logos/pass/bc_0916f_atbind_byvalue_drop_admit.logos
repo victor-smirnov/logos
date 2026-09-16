@@ -1,3 +1,4 @@
+// CLOSED soundness_queue row at_binding_by_value_never_dropped — round 2026-09-16f-atbind: a match binder over an OWNED aggregate place now binds THROUGH bind_name_at_slot, so the shape (var_struct_ / var_tuple_) is recorded and `y.field` GEPs the real place. Was run 1.
 // SOUNDNESS QUEUE row at_binding_by_value_never_dropped (tier 1). A BY-VALUE `name @ pattern` MATCH-ARM BINDING IS NEVER DESTROYED.
 //
 // `match o { y @ Option::Some(_) => { return 4; } ... }` moves `o` into `y`; the arm's `return` must destroy `y` (the D of weight 2)
@@ -5,7 +6,7 @@
 // shadowslot landing alike. NOT the shadow fact: no name is shadowed here (this is the renamed control of hand program c07, whose
 // shadowing spelling segfaulted on base and reads this same 1 on the landing).
 // Found 2026-09-15 by hand program k07ctl. Legality MEASURED with rustc 1.98.1 (foot of this file).
-package at_binding_by_value_never_dropped;
+package bc_0916f_atbind_byvalue_drop_admit;
 struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }

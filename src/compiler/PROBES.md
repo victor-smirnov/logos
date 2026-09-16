@@ -47119,3 +47119,152 @@ It is predicted to move a01 a02 a03 a06 a12 a13 (aggregate storage) and to need 
 NOT BOUGHT: no ceiling, no cost, no runtime column, no valgrind sweep — no arm existed to price. Stating
 a cost here would be a number with nothing behind it. ⚠ And `ceiling-probe.sh`'s CEILING column could not
 have seen these rows anyway: it deltas `logos_00_bc_admit_*`, which matches no `logos_00_squeue_*` test.
+
+# ═══ ROUND 2026-09-16f-atbind (LANDING, soundness queue tier 1) — THE FACT WAS NOT `@`: A MATCH BINDER
+#     OVER AN OWNED AGGREGATE PLACE RECORDED NO SHAPE, AT FOUR SITES, AND TWO OF THEM HAVE NOTHING TO
+#     DO WITH `@`. TWO TIER-1 ROWS CLOSED, FIVE OPENED, AND THE PRICING'S OWN CONTROL REFUTED THE
+#     RECOMMENDED FORM BEFORE IT COULD LAND. ═══
+
+site: src/compiler/mlir_gen_stmt.cpp::extract_payload
+  also src/compiler/mlir_gen_expr.cpp::extract_arm_payload — in each, the `At` case and the `Wild`
+  case: FOUR sites, one change each.
+build: base 9014f16a6e21dabf 43 (sha256 head 35690b38dad2939c) · ARM A 398a199e54d36614 43 ·
+  ARM C dc8a09494ccb566b 43 (every cost column below) · final, after a reconfigure from IDENTICAL
+  sources, 26f0fdf8f299ee7a 43 — the committed binary, on which every hand verdict was RE-READ.
+measured: 2026-09-16
+fires: NOT INSTRUMENTED — no `probe::on` counter exists for this change, so "fires 0" would be a
+  HARNESS zero. The evidence is a run: 15 pricing programs, 20 of my own, 8 queue programs, two
+  binaries each, plus the two whole-corpus oracles.
+rustc: 1.98.1 --edition 2024, by path. 15 new twins; every legality claim here is MEASURED.
+
+## 1. WHAT THE HANDED-DOWN FRAMING GOT WRONG, MEASURED BEFORE ANY EDIT
+The pricing round named the class "a by-value `@` binder over an AGGREGATE" and predicted that the
+`@` binder is "never given a real, owned slot". My own base battery refutes the second half and
+narrows the first:
+  b02 `take(y)` — the binder passed BY VALUE — rc 0, k=3 n=2 CORRECT on base.
+  b10 `let z: W = match w { y @ W {..} => y };` — the binder MOVED OUT — rc 0, k=3 n=2 CORRECT on base.
+So `var_ref(y)` already read back the right aggregate pointer. What was missing was the SHAPE:
+`var_struct_` / `var_tuple_` were never recorded, so only the readers keyed on them — `y.field`,
+`y.N` — GEP'd the alloca's own ADDRESS. The property is "a binder that records no shape", and the
+programs that fail are exactly the ones that ask for one.
+⚠ AND THE PROPERTY HAS TWO MEMBERS THE FRAMING NEVER NAMED, both found by varying the shape past what
+the prompt and the pricing listed (rule 5):
+  c01 `let k = match w { y => y.b };`  — a PLAIN binder, NO `@` AT ALL, expression position: BASE 139.
+      Its statement twin (pricing a15) is CORRECT, which is why nobody had looked.
+  c06 `match t { y => { return y.1; } }` over `(D, i64)` — the STATEMENT door, whose STRUCT spelling is
+      correct: its Wild case tested `kind()==Struct || ZonedStruct`, a SPELLING of "aggregate", and a
+      TUPLE fell through to the shapeless path. BASE 139.
+  c05, the same shape over a NON-Drop struct, is CORRECT on base — so the discriminator is whether the
+  scrutinee arrives as a POINTER, not "expression position" and not "Drop".
+
+## 2. tools/dlog WAS ASKED THE CLASS QUESTION, AND IT COULD NOT SEE THE CLASS — BOTH NUMBERS
+`selftest.sh` rc 0 first (19 walkers / 24 findings / try_path 1-5 / domain 42-5, duty 1 -> 0).
+New rule `tools/dlog/shapeless_binder.dl`: for every context that writes `scope_`, either it records a
+shape (`var_struct_` / `var_tuple_`) or it delegates to `bind_name_at_slot`; violations DERIVED.
+  dlog says: 12 contexts (bind_elem, bind_slice_elem, bind_field, bind, bind_at, gen_stmt_kind, gen_let,
+             gen_for, gen_loop, gen_tuple_write, gen_index_write, shadow_register_slot).
+  per-site read says: 4 defective sites, and dlog named NONE of them.
+⚠ THIS IS THE RECORDED `ctx_of` COARSENING, REPRODUCED EXACTLY. All four sites live inside
+`extract_payload` / `extract_arm_payload`, and those lambdas DO write `var_struct_` elsewhere (the Wild
+case's struct arm), so the context-level rule certifies them. A CONTEXT-LEVEL GUARD CANNOT ANSWER A
+SITE-LEVEL QUESTION — the same failure that once reported 37 defects where clang read 0, now in the
+permissive direction. The rule is committed as a NEGATIVE result with its control, not as a gate.
+It did earn two leads, both cross-checked by a per-site read and a RUN: `bind_field` / `bind_elem` bind
+a field or element by load+store with no shape, so hand programs d01 / d02 (a STRUCT-typed field bound
+by a struct pattern) and d03 (a struct-typed ARRAY element) were written. d01/d02 are CORRECT on base
+and on the landing — INHERITED, rule 14, not findings. d03 is rc 139 on both and is the EXISTING tier-1
+row `match_expr_array_pattern_segfaults_run`, unmoved.
+
+## 3. THE ARM THE PRICING RECOMMENDED WAS REFUTED BY THE PRICING'S OWN CONTROL
+ARM A — delegate whenever the place is a pointer — closed everything it was predicted to close AND
+broke a10, `match &w { y @ W { .. } => … }`, the pricing's own REFERENCE-SCRUTINEE control: rc 0 k=3 n=2
+on base, rc 139 under ARM A. Read: through a `&W` the place IS the W while `scrut_ty` is the REFERENCE,
+so `bind_name_at_slot`'s scalar arm loads one level too many. Eighth round running in which the funding
+agent's counter-examples condemn the recommended form — here it was already in the pricing's table.
+ARM C, LANDED: delegate only when the scrutinee type is NOT Ref/MutRef/Ptr, the non-delegating path
+restored VERBATIM including its `if (!scrut_ptr)` guard. a10 back to 0, k=3 n=2.
+
+## 4. THE CLOSED SET, BY A RUN, DIFFED BOTH WAYS (base -> landed)
+ROWS CLOSED — 2, both tier 1, both re-read on the committed binary:
+  at_binding_aggregate_segfaults_run   rc 139 -> rc 0, stdout `k=3 n=2` = rustc. valgrind: ERROR SUMMARY
+    0 errors from 0 contexts.
+  at_binding_by_value_never_dropped    destructor count 1 -> 21 (= rustc's 21), rc 0. valgrind: 0 errors.
+    ⚠ Its recorded oracle was weak (rc alone); the count is what decides it, and the count is now rustc's.
+PROGRAMS 139 -> 0, all matching their rustc twin exactly: a01 a02 a03 a06 a12(n=22) a13 · b01 b06(n=21)
+  b09 b11 · c01 c02 c03 c04 c06.
+CORRECT ON BASE AND STILL CORRECT (inherited, rule 14): a07 a10 a14 a15 · b02 b03 b10 b12 · c05 · d01 d02.
+UNMOVED: b07 (139) · d03 (139) · b08 / a05 / a11 / b04 / b05 (refusals).
+
+## 5. COST — EVERY COLUMN, ON ONE CONFIGURE
+run_oracle.py   7416 fixtures compiled, linked and RUN on each binary. Sorted-file diff both ways:
+                ONE row differs, `logos_02_semantic_core_pass_cast-region-to-uint`, the fixture that
+                prints a STACK ADDRESS and is subtracted by name. RUNTIME DAMAGE 0.
+fail_text_oracle.py  1876 fail fixtures, (rc, stderr sha, .expected match). Sorted-file diff: 0 lines.
+                ⚠ A `join`-based first cut of this diff reported 20 CHANGED rows; the rows were
+                BYTE-IDENTICAL and the tool was mine. A refusal count is a first failure, not a count —
+                the number was checked against the raw lines before it was believed.
+queue gate      base rc 0 (228/228). Armed: rc 1, naming BOTH target rows as "NO LONGER REPRODUCES —
+                that is a defect CLOSING". Final, after the ledger edit: 231 tests.
+ceiling-probe   NOT READ, and not by omission: its CEILING column deltas `logos_00_bc_admit_*` and
+                matches no `logos_00_squeue_*` test, so it cannot see a queue row at all.
+compiler crashes A sweep of all 227 queue programs found logosc itself dying on two of them
+                (fnparam_tuple_with_unit_elem_segv 139, zonemut_fat_ref_struct_field_layout_abort 134).
+                THE CONTROL SWEEP ON THE BASE BINARY READS THE SAME TWO, identically: inherited tier-3
+                rows, not this round's.
+
+## 6. ROWS OPENED — 5, EACH WITH ITS REASON AND ITS NUMBER (the neighbour rule's second branch)
+  at_binding_or_subpattern_enum_segfaults_run (tier 1, run 139) — `y @ (E::A(_)|E::B(_))`. Reason 1, no
+    carrier: controls b13 (same or-pattern, NO `@`) and b14 (`@` with a non-Or sub) are BOTH correct on
+    BOTH binaries, k=5 — the fact is the combination, decided in the arm's alternative dispatch.
+  at_binding_outer_and_inner_partial_move_admits (tier 2) and at_binding_nested_field_partial_move_admits
+    (tier 2) — rustc E0382 (re-measured); we admit. Reason 1, the move checker decides these.
+    ⚠ THIS LANDING CHANGED HOW WE ARE WRONG ON BOTH, and the row says so: a08 n=2 -> n=22 and a09
+    rc 139 -> n=22. Giving the binder a real shape makes the admitted partial move DOUBLE-DROP.
+  let_at_binding_struct_pattern_moved_variable_refused (tier 3) and variant_payload_nested_at_pattern_refused
+    (tier 3) — legal Rust refused ("use of moved variable 'y'"; "nested patterns inside enum-variant
+    payloads are not yet supported"). Reason 1: sema/parser refuse before any binder runs.
+soundness_queue `# TOTAL` 227 -> 230, RE-DERIVED BY DIRECT LISTING (230 rows, 230 programs, tier1 35 ·
+  tier2 63 · tier3 121 · tier4 11). 11 pass fixtures landed (`bc_0916f_atbind_*`), all 11 re-verified on
+  the committed binary. Pins re-derived by listing: corpus 3791 -> 3802, nonglob 3600 -> 3611, glob 191;
+  REGISTRY-ALL 10939 -> 10953, NOIMPORTED 6437 -> 6451, TIERCOMMIT 345 -> 348 (+11 fixtures, +5 rows, -2).
+
+## 7. THE VALGRIND SWEEP — THE COLUMN THAT SAW IT, AND THE CONTROL REVERT
+Two sweeps, same configure, same archives, same 7437 fixtures, run ONE AT A TIME (a loaded sweep drops
+entries by timing out — that is why they were not overlapped), armed = the committed compiler, base =
+the saved 9014f16a6e21dabf binary via `LOGOSC=`.
+                       base        armed
+  swept                7437        7437
+  allocating           1975        1983
+  LEAK                   53          53      diffed BOTH ways: both directions EMPTY
+  CORRUPT                10           3      diffed BOTH ways: armed-only EMPTY
+  LINKFAIL/CFAIL/TIMEOUT 124/62/4    124/62/4
+⚠ THE SEVEN `CORRUPT` ROWS THAT VANISHED ARE EXACTLY THIS ROUND'S SEVEN NEW FIXTURES:
+bc_0916f_atbind_aggregate_admit, _hb_b01, _hb_b06, _hb_b11, _hb_c01, _hb_c04, _hb_c06. On the OLD
+binary those very programs are memory-CORRUPT under valgrind; on the landed one they are clean, and
+no fixture anywhere moved in the other direction. That is the CONTROL REVERT in the memory column,
+and it agrees with the exit codes (139 -> 0) and with the destructor counts (1 -> 21 on the drop row).
+The three CORRUPT that remain (bc_objlt_str_literal, custom_dst_smartptr_owning_drop,
+fiber_thread_basic) and all 53 LEAKs are present on BOTH binaries: inherited, untouched, not this
+round's — and not rowed here, because rowing what one did not measure the cause of is prose.
+
+## 8. THE FINAL GATES, ON THE COMMITTED BINARY 26f0fdf8f299ee7a 43
+  queue gate (serial script)  rc 0 — "230 open row(s) (tier1=35 tier2=63 tier3=121 tier4=11), '# TOTAL'
+                              says 230; every row's program still exhibits its recorded wrong behaviour,
+                              every program on the shelf has a row". The 5 NEW rows were each verified
+                              with `--one` BEFORE this run and each reads "still exhibits".
+  L1 (from build/)            rc 0 — 808/808, smoke tier 12 684 generated cases, gates tier 348/348.
+  population_pin_lint         rc 0 — corpus pinned 3802 = listed 3802; glob 191 = 191; nonglob 3611 = 3611.
+  key_identity_lint           rc 0.
+  probe-log-lint              381 records (380 + this one), every site symbol resolves — and the symbols
+                              were GREPPED BY HAND, since that lint has three measured defects and its
+                              green attests nothing: `extract_payload` 11 occurrences in
+                              mlir_gen_stmt.cpp, `extract_arm_payload` 8 in mlir_gen_expr.cpp.
+                              ⚠ Its FIRST reading was RED and correctly so: my `site:` line ended the
+                              symbol with a comma and the lint said the symbol was gone. Repaired, re-run.
+  L4 bc                       launched detached (LOGOS_L4_BG=1); never `L4 imp` — the imported tier is
+                              unreviewed.
+⚠ ONE ARTEFACT LIE CAUGHT AND NOT BELIEVED: `build/Testing/Temporary/LastTestsFailed.log` named
+logos_00_key_identity_lint and logos_00_population_pin_lint after a ctest run whose `-R` filter could
+not select either test — a STALE file from an earlier invocation. Both were then run directly and both
+pass. A verdict read from an artefact nobody re-derived is the stale-file failure this tree keeps
+recording; the fix was to run the two tests, not to trust the file.

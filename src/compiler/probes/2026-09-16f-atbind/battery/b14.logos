@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-16f-atbind, program b14 — CONTROL for b07: an @ binder over an enum with a NON-Or sub-pattern
+package b14;
+extern fn printf(fmt: *const u8, ...) -> i32;
+enum E { A(i64), B(i64) }
+fn g() -> i64 {
+    let e: E = E::B(7i64);
+    match e {
+        y @ E::B(_) => { return 5i64; }
+        E::A(_) => { return 1i64; }
+    }
+}
+fn main() -> i32 {
+    let k: i64 = g();
+    unsafe { printf("k=%ld\n".as_ptr(), k); }
+    if k != 5i64 { return 1i32; }
+    return 0i32;
+}

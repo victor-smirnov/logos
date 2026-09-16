@@ -1,0 +1,29 @@
+// SOUNDNESS QUEUE row at_binding_nested_field_partial_move_admits (tier 2, admits). `y @ W { a: q, b: _ }`
+// BINDS THE WHOLE STRUCT AND ONE OF ITS FIELDS BY MOVE AT ONCE, AND WE ADMIT IT.
+//
+// rustc 1.98.1 --edition 2024 REFUSES: error[E0382]: use of partially moved value: `w` (re-measured
+// 2026-09-16f; twin src/compiler/probes/2026-09-16e-atbind/rust/a09.rs).
+// ⚠ ITS SYMPTOM CHANGED ON 2026-09-16f: rc 139 (a SEGFAULT on an illegal program) on base, and on the
+// landed binary it compiles, runs and DOUBLE-DROPS — n=22 where one destruction would be n=2. An
+// illegal program that crashes and an illegal program that double-frees are both un-refusals; the fix
+// is the refusal. Reason 1 (no carrier at the binder site — the move checker decides this).
+// Found 2026-09-16e, rowed 2026-09-16f.
+package at_binding_nested_field_partial_move_admits;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+struct W { a: D, b: i64 }
+fn g(p: *mut i64) -> i64 {
+    let w: W = W { a: D { v: 2i64, c: p }, b: 3i64 };
+    match w {
+        y @ W { a: q, b: _ } => { return q.v; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p);
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, rd(p)); }
+    return 0i32;
+}

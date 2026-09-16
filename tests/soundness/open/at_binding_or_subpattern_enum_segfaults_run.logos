@@ -1,0 +1,30 @@
+// SOUNDNESS QUEUE row at_binding_or_subpattern_enum_segfaults_run (tier 1, run 139). An `@` BINDER
+// WHOSE SUB-PATTERN IS AN OR OF VARIANTS SEGFAULTS — and NOTHING is read through the binder.
+//
+// `match e { y @ (E::A(_) | E::B(_)) => { return 5i64; } }` over a by-value enum: rustc 1.98.1
+// --edition 2024 compiles and runs, k=5, exit 0. TODAY rc 139 on base AND on the 2026-09-16f-atbind
+// landing alike. Found 2026-09-16f (hand program b07).
+// ⚠ NOT the binder-shape fact that round closed, and its TWO CONTROLS say so, both measured on both
+// binaries: b13, the SAME or-pattern with NO `@` (`E::A(_) | E::B(_) => 5`) — correct, k=5; and b14,
+// an `@` binder over the same enum with a NON-Or sub (`y @ E::B(_)`) — correct, k=5. So neither `@`
+// alone nor the or-pattern alone is the fact: it is the COMBINATION, and it is decided in the arm's
+// alternative dispatch, not where the binder is given storage. Rowed with reason 1 (the fact has no
+// carrier at the binder site: that site binds correctly on the landed binary and this still crashes).
+package at_binding_or_subpattern_enum_segfaults_run;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+enum E { A(i64), B(i64) }
+fn g() -> i64 {
+    let e: E = E::B(7i64);
+    match e {
+        y @ (E::A(_) | E::B(_)) => { return 5i64; }
+    }
+}
+fn main() -> i32 {
+    let k: i64 = g();
+    unsafe { printf("k=%ld\n".as_ptr(), k); }
+    if k != 5i64 { return 1i32; }
+    return 0i32;
+}

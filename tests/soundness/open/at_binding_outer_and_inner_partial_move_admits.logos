@@ -1,0 +1,29 @@
+// SOUNDNESS QUEUE row at_binding_outer_and_inner_partial_move_admits (tier 2, admits). `y @ Option::Some(z)`
+// BINDS THE WHOLE VALUE AND ITS PAYLOAD BY MOVE AT ONCE, AND WE ADMIT IT.
+//
+// rustc 1.98.1 --edition 2024 REFUSES: error[E0382]: use of partially moved value: `o` (re-measured
+// 2026-09-16f; twin src/compiler/probes/2026-09-16e-atbind/rust/a08.rs). We compile it clean and run it.
+// ⚠ AND THE WAY WE ARE WRONG CHANGED ON 2026-09-16f: the destructor trace was n=2 (ONE destruction) on
+// base and is n=22 (TWO destructions of the same value, a DOUBLE DROP) on the landed binary — the binder
+// now has a real shape, so both it and the payload binding destroy the same storage. The fix is the
+// REFUSAL; the double drop is what the missing refusal costs. Reason 1 (no carrier at the binder site:
+// the decision belongs to the move checker, upstream of mlir-gen). Found 2026-09-16e, rowed 2026-09-16f.
+package at_binding_outer_and_inner_partial_move_admits;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64) -> i64 {
+    let o: Option<D> = Option::Some(D { v: 2i64, c: p });
+    match o {
+        y @ Option::Some(z) => { return z.v; }
+        Option::None => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p);
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, rd(p)); }
+    return 0i32;
+}

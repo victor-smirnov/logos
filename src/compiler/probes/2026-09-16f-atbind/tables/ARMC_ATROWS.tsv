@@ -1,0 +1,8 @@
+at_binding_aggregate_segfaults_run	OK	0	k=3 n=2 
+at_binding_array_sub_verifier_error_refused	CCFAIL	-	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+at_binding_by_value_never_dropped	OK	0	 
+at_binding_ref_mut_payload_refuses	CCFAIL	-	/home/logos/devel/logos/tests/soundness/open/at_binding_ref_mut_payload_refuses.logos:13: error [fn main]: write through
+at_binding_whole_struct_wild_fields_refused	CCFAIL	-	error [fn g]: cannot move out of 'D' into pattern binding 'y': type 'D' implements the Drop trait, so its destructor mus
+declare_pat_bindings_field_nomut_addrmut_admit	OK	0	 
+let_at_binding_tuple_sub_unsupported	CCFAIL	-	/home/logos/devel/logos/tests/soundness/open/let_at_binding_tuple_sub_unsupported.logos:12: error [fn main]: 'let <patte
+let_at_binding_type_annot_syntax	CCFAIL	-	error [/home/logos/devel/logos/tests/soundness/open/let_at_binding_type_annot_syntax.logos]: syntax error near '_' at li

@@ -1,0 +1,15 @@
+a01	OK	0	k=3 n=2 
+a02	OK	0	k=3 n=2 
+a03	OK	0	k=3 n=2 
+a04	OK	0	k=4 n=21 
+a05	CCFAIL	-	error [fn g]: cannot move out of 'D' into pattern binding 'y': type 'D' implements the Drop trait, so its destructor mus
+a06	OK	0	k=3 n=2 
+a07	OK	0	k=4 
+a08	OK	0	k=2 n=22 
+a09	OK	0	k=2 n=22 
+a10	OK	0	k=3 n=2 
+a11	CCFAIL	-	/home/logos/devel/logos/src/compiler/probes/2026-09-16e-atbind/battery/a11.logos:13: error [fn g]: use of moved variable
+a12	OK	0	k=3 n=22 
+a13	OK	0	k=3 n=2 
+a14	OK	0	k=2 n=0 
+a15	OK	0	k=3 n=2 

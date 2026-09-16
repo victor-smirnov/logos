@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-16f-atbind, program b13 — CONTROL for b07: the SAME or-pattern with NO @ binder
+package b13;
+extern fn printf(fmt: *const u8, ...) -> i32;
+enum E { A(i64), B(i64) }
+fn g() -> i64 {
+    let e: E = E::B(7i64);
+    match e {
+        E::A(_) | E::B(_) => { return 5i64; }
+    }
+}
+fn main() -> i32 {
+    let k: i64 = g();
+    unsafe { printf("k=%ld\n".as_ptr(), k); }
+    if k != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -49,7 +49,7 @@ boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_cl
 rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable     diag no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'
 boxref_sized_struct_deref_coercion_missing 3 tests/soundness/open/boxref_sized_struct_deref_coercion_missing refuses
 boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_wrong_error_code diag the trait bound `Box<dyn Sp>: Sp` is not satisfied
-# TOTAL 227
+# TOTAL 230
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -255,7 +255,6 @@ closure_param_shadow_double_drop 1 tests/soundness/open/closure_param_shadow_dou
 # Eight rows CLOSED (shadowed_binding_never_dropped, shadow_over_param_double_drop, shadow_rebind_after_move_refused and five of
 # 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
 match_arm_nested_binder_shadow_double_drop 1 tests/soundness/open/match_arm_nested_binder_shadow_double_drop run 1
-at_binding_by_value_never_dropped 1 tests/soundness/open/at_binding_by_value_never_dropped run 1
 deferred_init_after_inner_shadow_refused 3 tests/soundness/open/deferred_init_after_inner_shadow_refused refuses
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 let_double_ref_str_annotation_refused 3 tests/soundness/open/let_double_ref_str_annotation_refused refuses
@@ -307,7 +306,6 @@ fru_temporary_base_unmoved_field_never_dropped_run 1 tests/soundness/open/fru_te
 array_repeat_rvalue_noncopy_len3_admits 2 tests/soundness/open/array_repeat_rvalue_noncopy_len3_admits admits
 ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_extended_field_borrow_refused refuses
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
-at_binding_aggregate_segfaults_run 1 tests/soundness/open/at_binding_aggregate_segfaults_run run 139
 at_binding_array_sub_verifier_error_refused 3 tests/soundness/open/at_binding_array_sub_verifier_error_refused refuses
 match_array_nested_destructure_elem_double_drop 1 tests/soundness/open/match_array_nested_destructure_elem_double_drop run 1
 let_array_pattern_field_base_unbound_elem_leak 1 tests/soundness/open/let_array_pattern_field_base_unbound_elem_leak run 1
@@ -316,3 +314,8 @@ outlives_method_call_nonstatic_bound_refuses 3 tests/soundness/open/outlives_met
 vec_index_store_live_shared_loan_admits 2 tests/soundness/open/vec_index_store_live_shared_loan_admits admits
 variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tuple_door_struct_shape_sub_unresolved refuses
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses
+at_binding_or_subpattern_enum_segfaults_run 1 tests/soundness/open/at_binding_or_subpattern_enum_segfaults_run run 139
+at_binding_outer_and_inner_partial_move_admits 2 tests/soundness/open/at_binding_outer_and_inner_partial_move_admits admits
+at_binding_nested_field_partial_move_admits 2 tests/soundness/open/at_binding_nested_field_partial_move_admits admits
+let_at_binding_struct_pattern_moved_variable_refused 3 tests/soundness/open/let_at_binding_struct_pattern_moved_variable_refused refuses
+variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses

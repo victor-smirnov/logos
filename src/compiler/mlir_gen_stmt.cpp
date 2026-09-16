@@ -5296,13 +5296,30 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
             std::string aname(pa.name());
             if (!aname.empty() && aname != "_") {
-                auto alloca = create_entry_alloca(sv.getType());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                evict_var_shapes(aname);
-                scope_[aname] = alloca;
-                let_vars_.insert(aname);
-                var_elem_types_[aname] = sv.getType();
-                if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
+                // `n @ sub` NAMES THE PLACE `sub` MATCHES: bind it by the one
+                // convention every other binder uses (pat_bind's At case already
+                // does). The alloca-of-a-pointer below records NO SHAPE, so
+                // `n.field` / `n.N` GEP the alloca ADDRESS. PROBES.md 2026-09-16f.
+                // ⚠ OWNED SCRUTINEES ONLY. Through a `&W` the place IS the W and
+                // `scrut_ty` is the REFERENCE, so bind_name_at_slot's scalar arm
+                // would load one level too many — measured: it broke the legal
+                // `match &w { y @ W{..} }` (a10) that is correct without it.
+                TypeRef binder_bty(scrut_ty);
+                const bool binder_via_ref = binder_bty &&
+                    (binder_bty.kind() == LogosType::Kind::Ref ||
+                     binder_bty.kind() == LogosType::Kind::MutRef ||
+                     binder_bty.kind() == LogosType::Kind::Ptr);
+                if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
+                    bind_name_at_slot(aname, sv, scrut_ty, nullptr);
+                } else {
+                    auto alloca = create_entry_alloca(sv.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                    evict_var_shapes(aname);
+                    scope_[aname] = alloca;
+                    let_vars_.insert(aname);
+                    var_elem_types_[aname] = sv.getType();
+                    if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
+                }
             }
             // C5: recurse into sub-pattern to bind nested fields.
             if (auto sub = pa.sub()) extract_payload(sub);
@@ -5381,7 +5398,18 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             if (!pwn.empty() && pwn != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
                 TypeRef st = TypeRef(scrut_ty);
-                if (st && (st.kind() == LogosType::Kind::Struct ||
+                // THE STRUCT TEST HERE WAS A SPELLING OF "AGGREGATE": a TUPLE
+                // scrutinee fell to the alloca-of-a-pointer path below and `y.1`
+                // GEP'd the alloca address (measured, hand program c06).
+                // bind_name_at_slot binds BOTH halves. PROBES.md 2026-09-16f.
+                // ⚠ OWNED SCRUTINEES ONLY — see the At case above (a10).
+                const bool wild_via_ref = st &&
+                    (st.kind() == LogosType::Kind::Ref ||
+                     st.kind() == LogosType::Kind::MutRef ||
+                     st.kind() == LogosType::Kind::Ptr);
+                if (sv && sv.getType() == ptr_type() && !wild_via_ref) {
+                    bind_name_at_slot(pwn, sv, st, nullptr);
+                } else if (st && (st.kind() == LogosType::Kind::Struct ||
                            st.kind() == LogosType::Kind::ZonedStruct)) {
                     // Whole-value struct binding (`match v { x => … }` for an
                     // owned struct): `sv` is already the POINTER to the

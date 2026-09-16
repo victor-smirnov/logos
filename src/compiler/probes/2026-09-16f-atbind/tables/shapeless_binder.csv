@@ -1,0 +1,12 @@
+bind_elem
+bind_slice_elem
+bind_field
+bind
+bind_at
+gen_stmt_kind
+gen_let
+gen_for
+gen_loop
+gen_tuple_write
+gen_index_write
+shadow_register_slot
