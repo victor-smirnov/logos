@@ -1595,7 +1595,25 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             sl.value = std::move(rhs);
             blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
-        mark_moved(tmp);
+        // MARK ONLY THE BOUND INDICES, NOT THE WHOLE TEMP (2026-09-16j-arrpath2).
+        // `mark_moved(tmp)` suppressed the spill temp's scope-exit drop ENTIRELY, so every
+        // element the pattern does not bind had no owner left and was never destroyed —
+        // soundness_queue let_array_pattern_field_base_unbound_elem_leak, and the plainer
+        // `let [_, y] = arr` over a local, which nobody had written. The per-index path is what
+        // the array drop walk already understands: the drop emitter strips the `<tmp>.` prefix
+        // into moved_fields, SDrop's K::Array branch forwards that set, and gen_drop_value's
+        // per-index loop skips exactly those elements and destroys the rest.
+        // ⚠ THE WHOLE-SOURCE `mark_moved_expr(rhs)` ABOVE STAYS. The array really does move into
+        // the temp, so the source owes nothing; marking the SOURCE per index instead would leave
+        // the source's drop destroying the same elements the temp destroys — a DOUBLE FREE, the
+        // opposite failure direction from the leak being fixed here.
+        for (size_t j = 0; j < sub_pats.size(); ++j) {
+            auto en = sub_pats[j];
+            if (code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
+                std::string(str_of(en.get(la::NAME.code))) != "_" &&
+                is_move_type(elem_t))
+                mark_moved(tmp + "." + std::to_string(j));
+        }
         for (size_t j = 0; j < sub_pats.size(); ++j) {
             auto en = sub_pats[j];
             int32_t ec = code_of(en);
@@ -9213,22 +9231,110 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
             TypeRef et = TypeRef(scrut_type).elem();
             const uint64_t n  = TypeRef(scrut_type).arr_size();
             const uint64_t sc = sv.suffix_count();
-            auto binds_by_value = [&](lir_view::PatRef sp) {
-                if (!sp || sp.kind() != ps::Code::Wild) return false;
-                auto nm = lir_view::PatWildView{sp}.name();
-                return !nm.empty() && nm != "_" && et && is_move_type(et);
+            // MARK EVERY MOVED LEAF, NOT ONLY A WHOLE ELEMENT (2026-09-16j-arrpath2).
+            // A nested sub-pattern moves only PART of its element, so the path it owes is the
+            // FULL dotted path of each leaf it binds by value — `arr.0.a` for a struct sub,
+            // `arr.0.1` for a tuple sub, `arr.0.t.0` for a tuple inside a field, `arr.0.0` for
+            // an array inside an array. `split_skip_paths` recurses on a dotted prefix, so a
+            // deeper path suppresses exactly that leaf and still drops its siblings.
+            // The previous predicate emitted a path ONLY for a plain named binder, so a nested
+            // sub marked NOTHING and the array's scope-exit drop destroyed the moved-out leaf a
+            // SECOND time (soundness_queue match_array_nested_destructure_elem_double_drop).
+            // A whole-ELEMENT mark is not the alternative: it would leak the fields the sub-
+            // pattern does not bind, which is the failure direction 2026-09-16c measured on nine
+            // legal programs.
+            std::function<void(lir_view::PatRef, const std::string&, TypeRef)> emit_moved_leaves =
+                [&](lir_view::PatRef sp, const std::string& path, TypeRef pty) {
+                if (!sp) return;
+                // ⚠ THE PARAMETER IS SPELLED `nm` ON PURPOSE — it is a BARE-NAME INTERCEPT and the
+                // key-identity census reads it. tests/logos/key_identity_lint.sh FACT 4 pins a
+                // per-file count of bare entity-name comparisons, and its SCAN_LHS reaches the LHS
+                // spellings `nm`/`name`/`cn`/… but not a one-letter `s`. Renaming this binder made a
+                // LIVE site invisible to that census (count 23 -> 22) while the decision it makes was
+                // unchanged — the exact "a pinned file's intercepts deleted" shape the lint's own
+                // header records being bitten by. The pin is NOT moved to match a rename.
+                auto is_named = [](std::string_view nm) { return !nm.empty() && nm != "_"; };
+                switch (sp.kind()) {
+                    case ps::Code::Wild:
+                        if (is_named(lir_view::PatWildView{sp}.name()) && pty && is_move_type(pty))
+                            mark_moved(path);
+                        return;
+                    case ps::Code::At: {
+                        lir_view::PatAtView av{sp};
+                        if (is_named(av.name()) && pty && is_move_type(pty)) {
+                            mark_moved(path);   // the whole value, by value
+                            return;
+                        }
+                        emit_moved_leaves(av.sub(), path, pty);
+                        return;
+                    }
+                    case ps::Code::Struct: {
+                        lir_view::PatStructView psv{sp};
+                        psv.each_field([&](lir_view::PatFieldBindingView f) {
+                            TypeRef ft = pty ? field_type_of_for_type(pty, f.field_name())
+                                             : TypeRef(nullptr);
+                            std::string fp = path + "." + std::string(f.field_name());
+                            auto fsub = f.sub();
+                            if (!fsub) {            // shorthand `{ f }` binds by value
+                                if (ft && is_move_type(ft)) mark_moved(fp);
+                                return;
+                            }
+                            emit_moved_leaves(fsub, fp, ft);
+                        });
+                        return;
+                    }
+                    case ps::Code::Tuple: {
+                        lir_view::PatTupleView ptv{sp};
+                        std::vector<TypeRef> elems;
+                        if (pty && TypeRef(pty).kind() == LogosType::Kind::Tuple)
+                            elems = TypeRef(pty).tuple_elems();
+                        size_t ti = 0;
+                        ptv.each_sub([&](lir_view::PatRef tsp) {
+                            TypeRef tet = ti < elems.size() ? elems[ti] : TypeRef(nullptr);
+                            emit_moved_leaves(tsp, path + "." + std::to_string(ti), tet);
+                            ++ti;
+                        });
+                        return;
+                    }
+                    case ps::Code::Slice: {
+                        // An element that is ITSELF an array: recurse per index, the twin of the
+                        // outer loop below. Without this an array-in-array bound one element deep
+                        // marks nothing and double-destroys the moved leaf.
+                        if (!pty || TypeRef(pty).kind() != LogosType::Kind::Array) return;
+                        lir_view::PatSliceView isv{sp};
+                        TypeRef iet = TypeRef(pty).elem();
+                        const uint64_t in  = TypeRef(pty).arr_size();
+                        const uint64_t isc = isv.suffix_count();
+                        uint64_t pi = 0;
+                        isv.each_prefix([&](lir_view::PatRef isp) {
+                            if (pi < in)
+                                emit_moved_leaves(isp, path + "." + std::to_string(pi), iet);
+                            ++pi; });
+                        uint64_t si = 0;
+                        isv.each_suffix([&](lir_view::PatRef isp) {
+                            if (in >= isc)
+                                emit_moved_leaves(isp, path + "." + std::to_string(in - isc + si),
+                                                  iet);
+                            ++si; });
+                        return;
+                    }
+                    default:
+                        // RefBind / RefPat bind THROUGH a reference and move nothing; Variant /
+                        // Int / Bool / Range bind nothing. A VariantData payload under an array
+                        // element is the variant door's fact, not this one.
+                        return;
+                }
             };
             if (!base.empty() && n > 0) {
                 logos::probe::census("armelem.slice.door");
                 uint64_t i = 0;
                 sv.each_prefix([&](lir_view::PatRef sp) {
-                    if (i < n && binds_by_value(sp))
-                        mark_moved(base + "." + std::to_string(i));
+                    if (i < n) emit_moved_leaves(sp, base + "." + std::to_string(i), et);
                     ++i; });
                 uint64_t j = 0;
                 sv.each_suffix([&](lir_view::PatRef sp) {
-                    if (n >= sc && binds_by_value(sp))
-                        mark_moved(base + "." + std::to_string(n - sc + j));
+                    if (n >= sc)
+                        emit_moved_leaves(sp, base + "." + std::to_string(n - sc + j), et);
                     ++j; });
                 return;
             }

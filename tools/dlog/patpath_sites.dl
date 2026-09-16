@@ -1,0 +1,63 @@
+#include "cxx_schema.dl"
+// patpath_sites — round 2026-09-16j-arrpath2. THE QUESTION THE PREVIOUS ROUND NAMED AND DID NOT ASK:
+// "enumerate every site that computes a move PATH for a pattern binding, and say which of them can
+// emit more than one segment."
+//
+// WHY THIS IS A dlog QUESTION AND NOT A GREP. A move path is built by CONCATENATION, so its spelling
+// at a site is `base + "." + std::to_string(i)` or `path + "." + std::string(f.field_name())` or a
+// bare name. Grep can find the marker CALLS; it cannot tell a site that can emit a DEEPER path from
+// one that can only ever emit a bare variable name, because the distinguishing fact is what else the
+// enclosing context calls. An absence has no spelling.
+//
+// THE DOMAIN: every call of a move marker (SemaChecker::mark_moved / mark_moved_expr /
+// mark_moved_in_expr_recursive / mark_moved_deferred_only), with its enclosing named context.
+// THE PROPERTY: does that context also call a PATH BUILDER — move_path_of (which walks
+// FieldRead/TupleIndex into a dotted path) or std::to_string (which is how every index segment in
+// this compiler is spelled)? A context that calls neither can only ever mark a bare name.
+//
+// ⚠ ctx_of COARSENS, AND IT HAS BEEN WRONG IN THIS DIRECTION BEFORE. A context that builds a path
+// for ONE of its sites reads as "multi_segment" for ALL of them, so `multi_segment` is an UPPER
+// bound and `bare_only` is the half that is safe to trust. This is the third round to record the
+// coarsening; 2026-09-16e measured dlog naming 12 contexts and ZERO of the four real sites for a
+// question of exactly this shape. EVERY ROW BELOW IS CROSS-CHECKED BY A PER-SITE READ, and where the
+// two disagree THE PER-SITE READ WINS.
+//
+// KNOWN ANSWER, STATED BEFORE THE RUN, FROM READING (the control this rule is judged against):
+//   multi_segment MUST contain  SemaChecker::mark_match_scrutinee_moved   (base + "." + i, and after
+//                                 this round's edit the recursive leaf emitter's deeper paths)
+//   multi_segment MUST contain  SemaChecker::mark_moved_expr              (calls move_path_of)
+//   multi_segment MUST contain  SemaChecker::lower_let_pat                (after this round's edit,
+//                                 tmp + "." + j; BEFORE it, this context was bare_only — which is
+//                                 exactly the defect, so the rule must SEPARATE the two trees)
+//   bare_only     MUST contain  SemaChecker::lower_var_ref                (marks a name, never a path)
+.decl marker(D: symbol)
+marker(D) :- decl(D, _, Q),
+    ( Q = "logos::compiler::SemaChecker::mark_moved"
+    ; Q = "logos::compiler::SemaChecker::mark_moved_expr"
+    ; Q = "logos::compiler::SemaChecker::mark_moved_in_expr_recursive"
+    ; Q = "logos::compiler::SemaChecker::mark_moved_deferred_only" ).
+
+// A PATH BUILDER: the two ways this compiler makes a segment.
+.decl path_builder(D: symbol)
+path_builder(D) :- decl(D, _, Q),
+    ( Q = "logos::compiler::SemaChecker::move_path_of"
+    ; Q = "std::to_string" ).
+
+.decl ctx_builds_path(C: symbol)
+ctx_builds_path(C) :- path_builder(D), call(U, D), ctx_of(U, C).
+
+// Every marker call site, with the verdict.
+.decl site(File: symbol, Line: number, Ctx: symbol, Verdict: symbol)
+.output site
+site(F, L, N, "multi_segment") :- marker(D), call(U, D), loc(U, F, L, _),
+    ctx_of(U, C), ctx_name(C, N), ctx_builds_path(C).
+site(F, L, N, "bare_only")     :- marker(D), call(U, D), loc(U, F, L, _),
+    ctx_of(U, C), ctx_name(C, N), !ctx_builds_path(C).
+
+.decl ctx_count(Ctx: symbol, Verdict: symbol, N: number)
+.output ctx_count
+ctx_count(N, V, K) :- site(_, _, N, V), K = count : { site(_, _, N, V) }.
+
+.decl verdict_count(Verdict: symbol, N: number)
+.output verdict_count
+verdict_count(V, K) :- site(_, _, _, V), K = count : { site(_, _, _, V) }.

@@ -49,7 +49,16 @@ boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_cl
 rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable     diag no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'
 boxref_sized_struct_deref_coercion_missing 3 tests/soundness/open/boxref_sized_struct_deref_coercion_missing refuses
 boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_wrong_error_code diag the trait bound `Box<dyn Sp>: Sp` is not satisfied
-# TOTAL 229
+# ── 2026-09-16j-arrpath2 (LANDING, tier 1: the move PATH under an array element, at BOTH pattern doors) ── Two rows CLOSE
+#    (match_array_nested_destructure_elem_double_drop, let_array_pattern_field_base_unbound_elem_leak); their programs are now pass fixtures.
+#    FIVE rows OPEN, every one of them a hand program of that round measured on BOTH binaries. The two `run 1` rows have the RIGHT destructor
+#    COUNT and the WRONG order/timing — they were INVISIBLE until the count was fixed, and no count- or rc-based oracle can see them.
+let_array_pattern_remainder_group_order_run 1 tests/soundness/open/let_array_pattern_remainder_group_order_run run 1
+let_array_pattern_temp_source_remainder_late_run 1 tests/soundness/open/let_array_pattern_temp_source_remainder_late_run run 1
+match_ref_array_nested_struct_sub_refused 3 tests/soundness/open/match_ref_array_nested_struct_sub_refused refuses
+match_array_nested_array_subpattern_mlirgen_malfunction 3 tests/soundness/open/match_array_nested_array_subpattern_mlirgen_malfunction refuses
+let_array_pattern_nested_subpattern_refused 3 tests/soundness/open/let_array_pattern_nested_subpattern_refused refuses
+# TOTAL 232
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -306,8 +315,6 @@ array_repeat_rvalue_noncopy_len3_admits 2 tests/soundness/open/array_repeat_rval
 ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_extended_field_borrow_refused refuses
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
 at_binding_array_sub_verifier_error_refused 3 tests/soundness/open/at_binding_array_sub_verifier_error_refused refuses
-match_array_nested_destructure_elem_double_drop 1 tests/soundness/open/match_array_nested_destructure_elem_double_drop run 1
-let_array_pattern_field_base_unbound_elem_leak 1 tests/soundness/open/let_array_pattern_field_base_unbound_elem_leak run 1
 match_array_field_place_verifier_error_refused 3 tests/soundness/open/match_array_field_place_verifier_error_refused refuses
 variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tuple_door_struct_shape_sub_unresolved refuses
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses

@@ -47410,3 +47410,103 @@ note: 11 hand programs, every one against a RUN rustc 1.98.1 twin, found FOUR de
   destructor that runs twice over an i64 counter performs no second free(). The stdout destructor
   trace against a rustc twin is the entire oracle, in BOTH directions: too coarse LEAKS, too wide
   DOUBLE-FREES, and rc distinguishes neither.
+
+## 2026-09-16j-arrpath2 — THE MOVE PATH UNDER AN ARRAY ELEMENT IS COMPUTED PER LEAF AT THE MATCH DOOR: A NESTED SUB-PATTERN NOW MARKS `<base>.<i>.<field>` AND THE SCOPE-EXIT DROP STOPS DESTROYING THE MOVED-OUT LEAF A SECOND TIME
+site: src/compiler/sema_stmt.cpp::mark_match_scrutinee_moved
+build: 53884ccdf5a135ca 43 (LANDED, READ from scripts/build_hash.py; logosc sha256-16 38db1983b916d658). The three cost columns were taken on the pre-rename-repair armed binary 37f3bd28cc2f9512 43 / 008eadf7f99e126f, and the base column on cd3bfceb2938131f 43 / f7d78597fe106a64 — said plainly rather than collapsed into one hash.
+measured: 2026-09-16
+fires: armelem.slice.door 1 on y08 y02 y03 y04 y10 — ON BOTH BINARIES, identically, so the site was
+  reached before this change and is reached after it: A1 changed WHAT THE SITE DOES, not whether it
+  runs. ABSENT on y01/y09 (kind 1, unreached site: their door is lower_let_pat_bound, which never
+  calls this function). RE-MEASURED on the landed tree with LOGOS_LIB_DIR set and LOGOS_CENSUS taking
+  a FILE PATH — NOT carried from 2026-09-16i (rule 8). ⚠ My first re-measure read 0 on all seven: a
+  HARNESS ZERO (the binary copy outside the tree could not resolve its stdlib and never reached the
+  at-exit dump), caught by running the identical command on the base binary as a control.
+ceiling: 1 tier-1 soundness-queue row CLOSED — match_array_nested_destructure_elem_double_drop,
+  n=112 -> 12 against a RUN rustc 1.98.1 twin (12). The armed queue gate independently demanded it:
+  rc 1, "NO LONGER REPRODUCES — want run=1, read run=0". Four further defects nobody had rowed close
+  with it: m02 2112 -> 21, y04 (tuple sub) 112 -> 12, y07 (non-Drop sibling) 11 -> 1, y10 (tuple in a
+  field, path arr.0.t.0) 112 -> 12. ⚠ ceiling-probe.sh CANNOT SEE A QUEUE ROW at all.
+cost: THREE COST COLUMNS, ALL ZERO, each diffed BOTH WAYS on ONE configure (base f7d78597fe106a64
+  vs armed 008eadf7f99e126f), by src/compiler/probes/2026-09-16j-arrpath2/diffcols.py, which was
+  given its own known-answer control first (each table against ITSELF reads 0/0/0):
+    run_oracle  7436 common · 0 added · 0 removed · 0 CHANGED. ONE row subtracted BY NAME and on
+      MEASURED evidence, not on instruction: logos_02_semantic_core_pass_cast-region-to-uint prints a
+      raw stack address, and five consecutive runs of ONE binary give five different stdout hashes
+      (&x=7ffc40726cc0, &x=7ffe894bdd60, …).
+    fail_text   1882 common · 0 added · 0 removed · 0 CHANGED — no refusal lost, no diagnostic moved
+      or reworded, no `.expected` match flipped. Quoted because an rc-based cost is blind to
+      text-only changes and to un-refusals.
+    valgrind    7455 swept per side · 0 added · 0 removed · 0 CHANGED; the LEAK (53), CORRUPT (3) and
+      TIMEOUT (4) SETS are IDENTICAL both ways — checked twice, by diffcols.py and by a direct diff of
+      the saved per-status set files, because identical TALLIES are not identical SETS.
+  L1 on the COMMITTED binary 38db1983b916d658: core 808/808 passed, enumerator smoke tier passed
+    (12 684 generated cases), gates tier 349/350. The single red is `logos_00_probe_log_lint`, which is
+    PRE-EXISTING — red at HEAD, with the control that `git status --short src/compiler/PROBES.md` is
+    EMPTY for this change set — and is reported, not repaired (tooling is frozen, and the record it
+    rejects is CORRECT while the lint's greedy site regex is wrong).
+  soundness queue gate: rc 0, ZERO FAIL lines, 232 rows, both directions.
+  ⚠ `ceiling-probe.sh` IS NOT QUOTED HERE BECAUSE IT CANNOT SEE A QUEUE ROW AT ALL: it deltas
+  `logos_00_bc_admit_*` and two `-L` selections, none of which matches `logos_00_squeue_*`. A queue-row
+  round reading its CEILING column has measured nothing about its rows.
+verdict: FIXED — `binds_by_value` was a BOOL admitting only a plain named binder, so a nested
+  sub-pattern recorded NOTHING. Replaced by a recursive leaf emitter that emits the full dotted path
+  of every by-value leaf (Struct per field incl. shorthand, Tuple per index, Slice per index, At
+  named, everything else nothing). The consumer already existed and was verified by READING first:
+  split_skip_paths (mlir_gen_stmt.cpp:1020) pushes p.substr(seg+1) on a dotted prefix, so `arr.0.a`
+  skips field a of element 0 and still drops b.
+note: five armed programs now have the RIGHT count and the WRONG drop ORDER — rowed, not fixed
+  (let_array_pattern_remainder_group_order_run, reason 3, unpriced drop-elaboration change). I first
+  inferred "rustc drops the remainder in reverse" from three programs and SEVEN rustc-only controls
+  refuted it: a fully-owned [D;3] is 123 and Logos agrees, moved-index-0 is 123, moved-index-2 is 312;
+  only a moved index with survivors on BOTH sides differs. The spec clause
+  `expr.drop.tuple-array-index-order` is SILENT on group order, so nothing here contradicts a rule.
+
+## 2026-09-16j-arrpath2-letidx — THE `let` ARRAY DOOR MARKS ONLY THE BOUND INDICES OF ITS SPILL TEMP, NOT THE WHOLE TEMP, SO THE ELEMENTS THE PATTERN DOES NOT BIND KEEP AN OWNER
+site: src/compiler/sema_stmt.cpp::lower_let_pat_bound
+build: 53884ccdf5a135ca 43 (LANDED, READ from scripts/build_hash.py; logosc sha256-16 38db1983b916d658). The three cost columns were taken on the pre-rename-repair armed binary 37f3bd28cc2f9512 43 / 008eadf7f99e126f, and the base column on cd3bfceb2938131f 43 / f7d78597fe106a64 — said plainly rather than collapsed into one hash.
+measured: 2026-09-16
+fires: not instrumented — no counter was added (tooling is frozen) and the EFFECT SET was measured
+  directly instead, base vs armed, over 13 hand programs plus the two row programs, each against a
+  RUN rustc 1.98.1 twin. The A1 census counter is ABSENT at this door by construction, which is
+  itself the measurement that the two doors are separate (kind 1, unreached site).
+ceiling: 1 tier-1 soundness-queue row CLOSED — let_array_pattern_field_base_unbound_elem_leak,
+  n=2 -> 21 against a RUN rustc twin (21); the armed queue gate demanded it independently. Five
+  further defects nobody had rowed close with it, and two of them are the PLAINEST spellings of the
+  door: y01 `let [_, _] = arr` 0 -> 12 and y09 `let [_,_,_]` 0 -> 123 — a TOTAL leak of every element
+  on base. Also x01 2 -> 21, y12 2 -> 21, y13 92 -> 921.
+cost: THREE COST COLUMNS, ALL ZERO, each diffed BOTH WAYS on ONE configure (base f7d78597fe106a64
+  vs armed 008eadf7f99e126f), by src/compiler/probes/2026-09-16j-arrpath2/diffcols.py, which was
+  given its own known-answer control first (each table against ITSELF reads 0/0/0):
+    run_oracle  7436 common · 0 added · 0 removed · 0 CHANGED. ONE row subtracted BY NAME and on
+      MEASURED evidence, not on instruction: logos_02_semantic_core_pass_cast-region-to-uint prints a
+      raw stack address, and five consecutive runs of ONE binary give five different stdout hashes
+      (&x=7ffc40726cc0, &x=7ffe894bdd60, …).
+    fail_text   1882 common · 0 added · 0 removed · 0 CHANGED — no refusal lost, no diagnostic moved
+      or reworded, no `.expected` match flipped. Quoted because an rc-based cost is blind to
+      text-only changes and to un-refusals.
+    valgrind    7455 swept per side · 0 added · 0 removed · 0 CHANGED; the LEAK (53), CORRUPT (3) and
+      TIMEOUT (4) SETS are IDENTICAL both ways — checked twice, by diffcols.py and by a direct diff of
+      the saved per-status set files, because identical TALLIES are not identical SETS.
+  L1 on the COMMITTED binary 38db1983b916d658: core 808/808 passed, enumerator smoke tier passed
+    (12 684 generated cases), gates tier 349/350. The single red is `logos_00_probe_log_lint`, which is
+    PRE-EXISTING — red at HEAD, with the control that `git status --short src/compiler/PROBES.md` is
+    EMPTY for this change set — and is reported, not repaired (tooling is frozen, and the record it
+    rejects is CORRECT while the lint's greedy site regex is wrong).
+  soundness queue gate: rc 0, ZERO FAIL lines, 232 rows, both directions.
+  ⚠ `ceiling-probe.sh` IS NOT QUOTED HERE BECAUSE IT CANNOT SEE A QUEUE ROW AT ALL: it deltas
+  `logos_00_bc_admit_*` and two `-L` selections, none of which matches `logos_00_squeue_*`. A queue-row
+  round reading its CEILING column has measured nothing about its rows.
+verdict: FIXED — `mark_moved(tmp)` suppressed the spill temp's scope-exit drop ENTIRELY, so every
+  unbound element lost its last owner. Replaced by a per-BOUND-index mark `tmp.<j>`, guarded on
+  is_move_type(elem_t). Link verified by READING before the edit: mark_moved takes any string
+  (sema_impl.hpp:4264), sema.cpp:4088 strips the `<tmp>.` prefix into moved_fields, SDrop's K::Array
+  branch forwards that set to gen_drop_value's per-index loop.
+note: ⚠ I REJECTED THE PRICING ROUND'S RECOMMENDED FORM FOR THIS SITE, IN WRITING, BEFORE EDITING.
+  2026-09-16i recommended replacing the whole-source mark_moved_expr at :1591 with per-index marks on
+  the SOURCE. The array genuinely moves into __dst_N, so :1591 is correct and a per-index SOURCE mark
+  would leave the source's drop destroying elements the temp also destroys — a double free, the
+  opposite failure direction. :1591 was kept. ⚠ AND THE PRICING'S OWN TWO PROGRAMS CANNOT TELL THE
+  FORMS APART: in x01 and x03 the source is a local whose own drop cancels the error. The separating
+  shapes are y11/y12/y13, written for this round (A2ALT_PATCH.txt holds the alternative as an exact,
+  applicable patch so the claim stays checkable).

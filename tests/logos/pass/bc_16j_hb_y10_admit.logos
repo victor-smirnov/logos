@@ -1,0 +1,29 @@
+// hand battery: round 2026-09-16j-arrpath2, program bc_16j_hb_y10_admit — caught: a TUPLE inside a struct FIELD inside an array element — path arr.0.t.0, two segments deeper than any spelling the pricing wrote (n=112, rustc 12)
+// legality and expected trace MEASURED against a rustc 1.98.1 twin (--edition 2024 -O, compiled and RUN);
+// twin kept at src/compiler/probes/2026-09-16j-arrpath2/ybat/rust/. The destructor COUNT is the oracle:
+// n is built as n = n*10 + v by each D::drop, so a LEAK reads SHORT and a double destructor reads LONG.
+// rc alone cannot tell those apart, and valgrind is blind to both over an i64 counter.
+package bc_16j_hb_y10_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct W { a: D, b: D }
+struct V { a: D, n: i64 }
+struct P { t: (D, D) }
+struct S { arr: [D; 2], tag: i64 }
+fn g(p: *mut i64) -> i64 {
+    let arr: [P; 1] = [P { t: (D { v: 1i64, c: p }, D { v: 2i64, c: p }) }];
+    match arr {
+        [P { t: (x, _) }] => { return x.v; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p);
+    let got: i64 = unsafe { n };
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, got); }
+    if k != 1i64 { return 2i32; }
+    if got != 12i64 { return 1i32; }
+    return 0i32;
+}

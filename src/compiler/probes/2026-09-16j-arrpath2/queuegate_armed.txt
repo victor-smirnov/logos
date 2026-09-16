@@ -1,0 +1,23 @@
+[soundness] canary: a clean program ran and exited 0, a wrong one exited 3, a refusal read as refused
+tests/logos/soundness_queue_gate.sh: line 101: 597817 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 101: 597890 Aborted                 timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 101: 598093 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+tests/logos/soundness_queue_gate.sh: line 101: 598969 Aborted                 (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+tests/logos/soundness_queue_gate.sh: line 101: 599124 Segmentation fault      (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+tests/logos/soundness_queue_gate.sh: line 101: 623391 Aborted                 (core dumped) "$LOGOSC" "$src" -o "$d/t.o" > "$d/cc.out" 2> "$O_ERR"
+tests/logos/soundness_queue_gate.sh: line 101: 719438 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+tests/logos/soundness_queue_gate.sh: line 101: 725885 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+FAIL: row 'match_array_nested_destructure_elem_double_drop' (tier 1) NO LONGER REPRODUCES — want cc=0 diag=0 run=1, read cc=0 diag=0 run=0.
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/match_array_nested_destructure_elem_double_drop.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+FAIL: row 'let_array_pattern_field_base_unbound_elem_leak' (tier 1) NO LONGER REPRODUCES — want cc=0 diag=0 run=1, read cc=0 diag=0 run=0.
+      That is a defect CLOSING, and it must not be silent: delete the row,
+      decrement '# TOTAL', and land tests/soundness/open/let_array_pattern_field_base_unbound_elem_leak.logos as a pass or fail fixture
+      in the same commit — the row leaving IS the record of the fix. If
+      nothing in this change was meant to touch it, it closed by accident
+      or was never real; either way the row may not stand.
+tests/logos/soundness_queue_gate.sh: line 101: 741971 Segmentation fault      timeout 60 "$d/t" > "$d/stdout" 2> /dev/null
+RC=1

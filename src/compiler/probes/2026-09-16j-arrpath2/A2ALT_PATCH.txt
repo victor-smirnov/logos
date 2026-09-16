@@ -1,0 +1,61 @@
+A2-alt — THE PRICING ROUND'S RECOMMENDED T2 FORM, AS AN EXACT PATCH, READY TO APPLY.
+Written BEFORE measuring it, so the control is mechanical and cannot be shaded after the fact.
+Prediction (PREDICTIONS.txt, declared before the first compiler edit): this form DOUBLE-FREES on a
+shape where the source has no drop site of its own, and is INDISTINGUISHABLE from the landed form on
+the pricing round's own two programs (x01, x03).
+
+THE LANDED FORM (A2), for reference — sema_stmt.cpp, lower_let_pat_bound's array path:
+    if (rhs) mark_moved_expr(expr_ref_of(rhs));        // :1591  KEPT — the array DOES move into tmp
+    ... SLet tmp = rhs ...
+    for (size_t j = 0; j < sub_pats.size(); ++j) {     // per BOUND index, on the TEMP
+        auto en = sub_pats[j];
+        if (code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
+            std::string(str_of(en.get(la::NAME.code))) != "_" &&
+            is_move_type(elem_t))
+            mark_moved(tmp + "." + std::to_string(j));
+    }
+
+THE ALTERNATIVE (A2-alt), spelled as 16i recommends — "the per-index mark at lower_let_pat,
+REPLACING the whole-source mark_moved_expr":
+  1. DELETE the whole-source mark at :1591:
+        -    if (rhs) mark_moved_expr(expr_ref_of(rhs));
+  2. RESTORE the whole-temp mark (i.e. do NOT apply the landed per-index loop):
+        +    mark_moved(tmp);
+  3. ADD a per-BOUND-index mark on the SOURCE PLACE instead of the temp:
+        +    std::string src_path = rhs ? move_path_of(expr_ref_of(rhs)) : std::string();
+        +    if (!src_path.empty())
+        +        for (size_t j = 0; j < sub_pats.size(); ++j) {
+        +            auto en = sub_pats[j];
+        +            if (code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
+        +                std::string(str_of(en.get(la::NAME.code))) != "_" &&
+        +                is_move_type(elem_t))
+        +                mark_moved(src_path + "." + std::to_string(j));
+        +        }
+
+WHY THE PRICING'S OWN PROGRAMS CANNOT DECIDE BETWEEN THE TWO FORMS
+  x01  `let arr = [..]; let [_, y] = arr;`      — arr is a LOCAL with its own scope-exit drop, so
+       under A2-alt arr's drop destroys element 0 and y destroys element 1: reads 21, looks FIXED.
+  x03  `let s = S{arr:..}; let [_, y] = s.arr;` — s is a LOCAL with its own drop, same cancellation:
+       reads 21, looks FIXED.
+  Both forms therefore produce the row's expected trace on the two programs the pricing measured.
+  A cost column built from those two programs would have funded either arm.
+
+THE SEPARATING SHAPES (written for this control; base verdicts already measured)
+  y11  `let [_, y] = mk(p);`  the source is a CALL RESULT — a temporary with NO stable place for
+       move_path_of to name, so `src_path` comes back EMPTY and A2-alt marks NOTHING at all while
+       having deleted the whole-source mark. Predicted: the unbound element is destroyed by the
+       temp's own drop AND nothing suppresses the binding's, or the mark is simply lost.
+       Base (both forms' starting point): n=2. Landed A2: n=21. rustc: 12.
+  y12  `let s2 = s; let [_, y] = s2.arr;`  the source is a field of a local that was itself moved
+       into — the source's drop is already suppressed, so A2-alt has no owner left for element 0.
+       Base: n=2. Landed A2: n=21 (= rustc 21).
+  y13  the binding is consumed in an INNER scope, so the source's drop and the binding's drop cannot
+       cancel by accident. Base: n=92. Landed A2: n=921 (= rustc 921).
+
+HOW TO RUN THE CONTROL (one incremental rebuild of one TU)
+  1. Apply the three edits above to src/compiler/sema_stmt.cpp (the landed per-index loop removed).
+  2. `cmake --build build -j$(nproc)`   — ⚠ this OVERWRITES build/bin/logosc, so it must not run
+     beside any oracle or sweep reading that path.
+  3. `bash src/compiler/probes/2026-09-16j-arrpath2/yextra.sh <outdir> build/bin/logosc build/lib/logos`
+     and compare y11/y12/y13 against YEXTRA_armed.tsv (the landed form) and the rustc column.
+  4. REVERT to the landed form and rebuild — the tree must not be left carrying the alternative.

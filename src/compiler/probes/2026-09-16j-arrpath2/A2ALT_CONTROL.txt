@@ -1,0 +1,30 @@
+A2-alt — THE PRICING ROUND'S RECOMMENDED T2 FORM, WRITTEN DOWN AS A CONTROL BEFORE MEASURING.
+
+2026-09-16i RESULT.txt, "WHAT DESERVES FUNDING", item 1:
+  "T2's half is the per-index mark at lower_let_pat, replacing the whole-source mark_moved_expr."
+
+That form, spelled out against sema_stmt.cpp's array path in lower_let_pat:
+  - DELETE   `if (rhs) mark_moved_expr(expr_ref_of(rhs));`            (~:1591)
+  - KEEP     `mark_moved(tmp);`                                        (~:1598)
+  - ADD      per BOUND index j, a mark on the SOURCE place:
+               mark_moved(move_path_of(expr_ref_of(rhs)) + "." + j)
+
+MY PREDICTION, DECLARED BEFORE THE MEASUREMENT (PREDICTIONS.txt):
+  This DOUBLE-FREES. The array genuinely moves into __dst_N (sl.value = std::move(rhs)), so after
+  the spill the SOURCE owns nothing at all. Marking only the bound indices on the source leaves the
+  source's scope-exit drop destroying every UNBOUND element — which the temp, still wholly marked,
+  was supposed to have been the owner of... except the temp is marked moved, so the temp drops
+  nothing. Net effect for `let [_, y] = s.arr`: element 0 destroyed by s's drop (correct by
+  accident), element 1 destroyed by y (correct) — so x03 may read 21 and look FIXED.
+  The form breaks where the source is a LOCAL that is itself dropped: x01 `let [_, y] = arr` —
+  arr's own drop destroys element 0, y destroys element 1 -> 21, also looks fixed.
+  ⚠ SO THE TWO PROGRAMS THE PRICING ROUND USED CANNOT TELL THE TWO FORMS APART. The separating
+  shape is one where the SOURCE IS A TEMPORARY OR IS ITSELF MOVED AFTERWARDS, or where the source
+  place is re-read — there the source has no drop site and the unbound element leaks again, or the
+  bound element is destroyed by BOTH the binding and the source.
+  This is why the control is measured on a third binary rather than argued.
+
+CONTROL PROGRAMS (added to the y battery as y11-y13 for this comparison):
+  y11  let [_, y] = mk(p);            source is a CALL RESULT (a temporary, no owner to mark)
+  y12  let s2 = s; let [_, y] = s2.arr;  source field of a moved-in local
+  y13  let [_, y] = arr; then use nothing — arr is a local whose drop must NOT also fire

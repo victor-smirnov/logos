@@ -1,0 +1,13 @@
+swept          7455
+  allocated    1994   (reached malloc at least once)
+  zero-alloc   5271   (COVERAGE, NOT EVIDENCE)
+  not run      190
+clean (of allocating)  1938
+
+by status:
+  LEAK           53
+  CFAIL          62
+  CORRUPT        3
+  LINKFAIL       124
+  OK             7209
+  TIMEOUT        4

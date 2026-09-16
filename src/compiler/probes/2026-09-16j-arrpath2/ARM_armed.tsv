@@ -1,0 +1,24 @@
+id	cc	diag	rc	stdout
+y01	0	0	0	k=9 n=12
+y02	0	0	0	k=3 n=3124
+y03	0	0	0	k=1 n=1234
+y04	0	0	0	k=1 n=12
+y05	1	0	-	
+y06	1	1	-	
+y07	0	0	0	k=1 n=1
+y08	0	0	0	k=1 n=12
+y09	0	0	0	k=9 n=123
+y10	0	0	0	k=1 n=12
+i_m01	0	0	0	k=1 n=12
+i_m02	0	0	0	k=3 n=21
+i_m03	0	0	0	k=3 n=3124
+i_m04	0	0	0	k=1 n=12
+i_m05	0	0	0	k=2 n=21
+i_t01	1	1	-	
+i_x01	0	0	0	k=2 n=21
+i_x02	0	0	0	k=3 n=21
+i_x03	0	0	0	k=2 n=21
+i_x04	1	1	-	
+i_x05	0	0	0	k=2 n=213
+row_match_array_nested_destructure_elem_double_drop	0	0	0	k=1 n=12
+row_let_array_pattern_field_base_unbound_elem_leak	0	0	0	k=2 n=21

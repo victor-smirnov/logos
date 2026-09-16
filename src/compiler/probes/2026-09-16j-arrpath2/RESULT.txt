@@ -1,0 +1,787 @@
+ROUND 2026-09-16j-arrpath2 — LANDING. THE MOVE PATH UNDER AN ARRAY ELEMENT, AT BOTH PATTERN DOORS.
+Predictions written BEFORE the first compiler edit: PREDICTIONS.txt. Base HEAD ef41fb6b5, clean.
+Base build_hash READ: cd3bfceb2938131f 43. Armed build_hash READ: 37f3bd28cc2f9512 43.
+
+WHAT LANDED — TWO SITES, ONE FACT, AND THE SECOND IS NOT THE FORM THE PRICING RECOMMENDED
+
+A1 "nestleaf" — SemaChecker::mark_match_scrutinee_moved, the Slice arm (sema_stmt.cpp ~9216).
+  `binds_by_value` was a BOOL requiring a plain named binder (Wild with a non-`_` name), so a nested
+  sub-pattern marked NOTHING and the array's scope-exit drop destroyed the moved-out leaf a second
+  time. Replaced by a RECURSIVE LEAF EMITTER `emit_moved_leaves(sp, path, ty)` that emits the full
+  dotted path of every leaf bound by value: Wild+named -> path; Struct -> per field (shorthand `{f}`
+  binds by value, otherwise recurse); Tuple -> per index; Slice -> per index (array inside array);
+  At(named) -> the whole value, else recurse; everything else emits nothing.
+
+A2 "letidx" — SemaChecker::lower_let_pat's array path (sema_stmt.cpp ~1598).
+  `mark_moved(tmp)` marked the WHOLE spill temp moved, suppressing its scope-exit drop entirely, so
+  every element the pattern does not bind had no owner left. Replaced by a per-BOUND-index mark,
+  `mark_moved(tmp + "." + j)`, guarded on `is_move_type(elem_t)`.
+
+⚠ I CONTRADICTED THE PRICING ROUND'S RECOMMENDATION ON A2, DELIBERATELY AND IN WRITING BEFOREHAND.
+  2026-09-16i's RESULT.txt recommends "the per-index mark at lower_let_pat, REPLACING the whole-source
+  mark_moved_expr" at :1591. By reading, the array genuinely DOES move into __dst_N
+  (`sl.value = std::move(rhs)`), so :1591 is CORRECT and marking the SOURCE per index would leave the
+  source's drop destroying elements the temp also destroys — a double free, the opposite failure
+  direction from the leak being fixed. :1591 was left alone. Declared in PREDICTIONS.txt before the
+  first edit; the separating programs are y11/y12/y13 (A2ALT_CONTROL.txt), which the pricing's own
+  x01/x03 provably cannot distinguish because in those two the source is itself dropped and the two
+  forms cancel.
+
+BOTH CONSUMER LINKS WERE VERIFIED BY READING BEFORE EITHER EDIT, NOT ASSUMED
+  A1: split_skip_paths (mlir_gen_stmt.cpp:1020) returns true on an exact segment match and otherwise
+      pushes p.substr(seg+1) into child_out — so `arr.0.a` skips field a of element 0 and still drops
+      b. The recursion the arm needs already existed.
+  A2: mark_moved (sema_impl.hpp:4264) inserts a bare string into moved_vars_; sema.cpp:4088 prefix-
+      scans for "<name>." and strips it into moved_fields; SDrop's K::Array branch forwards that set to
+      gen_drop_value's per-index loop. So "__dst_0.1" arrives as moved-field "1" on __dst_0.
+
+THE ORACLE IS THE RUN. Every program prints k=<returned> n=<destructor trace>, n = n*10 + v per
+D::drop, so a LEAK reads SHORT and a DOUBLE DESTRUCTOR reads LONG. rc cannot tell them apart and
+valgrind is blind to both over an i64 counter (24 of 35 tier-1 rows read "0 errors, 0 allocs, 0
+frees" in the pricing round, both targets included). Every legality and every expected trace below is
+MEASURED against a rustc 1.98.1 twin, compiled and RUN.
+
+THE TWO TARGET ROWS CLOSE — CONFIRMED BY AN INSTRUMENT INDEPENDENT OF MY BATTERY
+  match_array_nested_destructure_elem_double_drop   n=112 -> 12   (rustc 12)
+  let_array_pattern_field_base_unbound_elem_leak    n=2   -> 21   (rustc 21)
+  The armed soundness_queue_gate.sh read rc 1 with EXACTLY TWO `FAIL` lines, both of them
+  "NO LONGER REPRODUCES — want cc=0 diag=0 run=1, read cc=0 diag=0 run=0" — the gate demanding the
+  rows be deleted. No third row moved (diff both ways; `grep -c '^FAIL'` = 2). queuegate_armed.txt.
+  The Aborted / Segmentation-fault lines in that log appear IDENTICALLY in the base run and belong to
+  rows whose recorded behaviour is an abort or a 139; they are attributed, not ignored.
+
+MY OWN COUNTER-EXAMPLES, IN SHAPES THE PRICING DID NOT WRITE (ybattery.sh / yextra.sh; base vs armed
+vs a RUN rustc twin). The pricing used len-1 nested, len-2 with one `_`, len-3 two unbound and a field
+base. It wrote NO rest pattern, NO tuple sub, NO array-in-array, NO ref binding mode, NO non-Drop
+sibling, NO temporary source. Eight of my ten base shapes were wrong and two were refusals.
+
+  id   spelling                                  base      armed     rustc    verdict
+  y01  let [_, _] = arr            NOTHING bound n=0       n=12      12       FIXED (total leak on base)
+  y09  let [_, _, _] over 3                      n=0       n=123     123      FIXED (total leak on base)
+  y04  match [(x, _)]              tuple sub     n=112     n=12      12       FIXED
+  y07  match [V{a:x,n:_}]          non-Drop sib  n=11      n=1       1        FIXED
+  y08  match [W{a:x,b:_}]                        n=112     n=12      12       FIXED
+  y10  match [P{t:(x,_)}]          arr.0.t.0     n=112     n=12      12       FIXED (deepest path in this arc)
+  y12  let [_,y] = s2.arr          moved-in src  n=2       n=21      21       FIXED
+  y13  let [_,y] = arr, inner scope              n=92      n=921     921      FIXED
+  y02  match [.., W{a:x,b:_}]      suffix+nested n=31234   n=3124    3412     COUNT fixed, ORDER wrong
+  y03  match [W{a:x,b:_}, ..]      prefix+rest   n=11234   n=1234    1342     COUNT fixed, ORDER wrong
+  y11  let [_,y] = mk(p)           TEMP source   n=2       n=21      12       COUNT fixed, TIMING wrong
+  y05  match [[x, _]]              array-in-array COMPILE FAILED (both)       unmoved — new row
+  y06  match &arr { [W{a:x,b:_}] } ref mode      REFUSED (both)               unmoved — new row
+
+  The 16i battery re-run on the armed binary (ARM_armed.tsv): i_m01 112->12, i_m02 2112->21,
+  i_x01 2->21, i_x03 2->21 all FIXED; i_m04/i_m05/i_x02 unmoved and correct (INHERITED, rule 14);
+  i_m03 31234->3124 (rustc 3412) and i_x05 2->213 (rustc 231) count-fixed/order-wrong; i_x04 and
+  i_t01 still refused.
+
+⚠ RULE 5 AGAIN, AND THIS TIME THROUGH MY OWN PROMPT'S ROW NAMES. The two rows name the FIELD spelling
+  and the len-1 nested one. The PLAINEST spellings of the let door — `let [_, _] = arr` and
+  `let [_, _, _]`, binding nothing at all — leaked EVERY element at n=0 on base, and nobody had ever
+  written them. A spelling named in a row is the least likely to be the broken one.
+
+THE ORDER RESIDUAL: I INFERRED "REVERSE" FROM THREE PROGRAMS AND rustc REFUTED ME (rustorder/)
+  Five armed programs now have the RIGHT destructor count and the WRONG order, which no count-based
+  oracle can see. My first reading was that rustc drops a partially-moved array's remainder in reverse
+  index order. Seven rustc-only probes say otherwise:
+    r01/r05  fully-owned [D;3], nothing moved      123  — FORWARD, and Logos agrees. CONTROL DOES NOT MOVE.
+    r03      let [y,_,_]   moved index 0           123  — remainder forward
+    r04      let [_,_,y]   moved index 2           312  — remainder forward
+    r02      let [_,y,_]   moved index 1           231  — the ONLY one that is not forward
+    r06/r07  struct, one field moved / fully owned 123  — declaration order both ways
+  So the divergence is confined to a moved index with survivors on BOTH sides, where rustc emits the
+  group AFTER the moved index before the group before it. "Reverse" was wrong.
+
+⚠ AND THE SPEC CLAUSE IS SILENT, NOT FALSE — so this round contradicts no rule and edits none.
+  `expr.drop.tuple-array-index-order` (docs/spec/divergences.md:2491) was renamed from
+  `…-tuple-array-reverse` on 2026-09-10 precisely because "reverse is conformant" was FALSE about
+  Rust. Its text says a fixed array drops its N elements in index order and that statically moved-out
+  positions are suppressed. It says NOTHING about the order of the surviving groups. Both divergence
+  registries were grepped — docs/DIVERGENCES.md's 17 letter rows carry nothing about aggregate drop
+  order, and the clause id read ZERO until grepped WITH its backticks, the recorded trap.
+  REPORTED FOR THE OWNER, NOT EDITED: the clause could usefully say which group order it intends.
+
+dlog — ASKED THE QUESTION THE PREVIOUS ROUND NAMED, AND IT IS A RECORDED NEGATIVE RESULT
+  selftest.sh run FIRST: rc 0, known-answer control intact (19 walkers / 24 findings / try_path 1-5 /
+  domain 42-5; duty discriminates across 756aed65, 1 -> 0).
+  New rule tools/dlog/patpath_sites.dl, committed WITH its known answer and its failure:
+  "enumerate every site that computes a move PATH for a pattern binding, and say which can emit more
+  than one segment". Over sema_stmt.cpp + sema_expr.cpp + sema.cpp: multi_segment 19, bare_only 51.
+  It found the two doors correctly (mark_match_scrutinee_moved multi_segment 2; lower_let_pat_bound
+  multi_segment 5, including my new :1615 site; lower_var_ref bare_only, as predicted).
+  ⚠ IT FILED MY OWN NEW SITE WRONG. `emit_moved_leaves` reads bare_only (3 sites) — a PER-SITE READ
+  shows all three of its mark_moved calls take multi-segment paths (`fp = path + "." + field_name`).
+  The rule's property ("the enclosing context calls move_path_of or std::to_string") cannot see a
+  path built by string concatenation from a caller-supplied prefix. dlog verdict: bare_only.
+  Per-site read: multi_segment. THE PER-SITE READ WINS, both numbers reported, and this is the third
+  recorded instance of the ctx_of/property mismatch giving a confident wrong answer on a per-site
+  question. The rule is committed with this failure written into its header, not quietly fixed.
+
+NEIGHBOUR TABLE — THE STANDING RULE. Every neighbour the class enumeration names is tested against
+the LANDED change (or a strict extension of it at the same site); closed in THIS commit, or rowed
+with ONE of the three named reasons AND the number that decides it. "Rowed for a later round" is not
+a reason and does not appear here. Every "unchanged" below is MEASURED, not asserted: the armed
+soundness_queue_gate.sh produced exactly two FAIL lines, so every other row in the queue still
+reproduces its recorded behaviour on the landed binary.
+
+ neighbour                                         verdict              reason + the number
+ -------------------------------------------------- -------------------- ------------------------------
+ match_array_nested_destructure_elem_double_drop    CLOSED, this commit  A1. n=112 -> 12 (rustc 12);
+   (TARGET T1)                                                            gate: NO LONGER REPRODUCES.
+ let_array_pattern_field_base_unbound_elem_leak     CLOSED, this commit  A2. n=2 -> 21 (rustc 21);
+   (TARGET T2)                                                            gate: NO LONGER REPRODUCES.
+ x01 let [_, y] = arr        (local, pricing-owed)  CLOSED, same change  n=2 -> 21 (rustc 21). The
+                                                                         pricing owed it a ROW; the
+                                                                         same A2 change closed it, so
+                                                                         it is a FIXTURE instead.
+ m02 match [W{a:x,b:z}]      (pricing-owed)         CLOSED, same change  n=2112 -> 21 (rustc 21).
+ y01 let [_, _]              NOTHING bound          CLOSED, same change  n=0 -> 12. TOTAL leak on base.
+ y09 let [_, _, _] over 3                           CLOSED, same change  n=0 -> 123. TOTAL leak on base.
+ y04 tuple sub in an element                        CLOSED, same change  n=112 -> 12.
+ y07 non-Drop sibling field                         CLOSED, same change  n=11 -> 1.
+ y10 tuple inside a field    (path arr.0.t.0)       CLOSED, same change  n=112 -> 12.
+ y12 source = field of a moved-in local             CLOSED, same change  n=2 -> 21.
+ y13 binding consumed in an inner scope             CLOSED, same change  n=92 -> 921.
+ -------------------------------------------------- -------------------- ------------------------------
+ i_x05 / m03 / y02 / y03  remainder GROUP ORDER     ROWED — REASON 3     Count CORRECT, order wrong:
+   -> let_array_pattern_remainder_group_order_run                        213 vs rustc 231; 3124 vs
+                                                                         3412; 1234 vs 1342. The arm is
+                                                                         a drop-ELABORATION ordering
+                                                                         change, UNPRICED; co-landing
+                                                                         it would smuggle an unpriced
+                                                                         change inside a priced one.
+                                                                         rustc controls r01/r03/r04/r05
+                                                                         show the FULLY-owned and
+                                                                         one-sided cases are forward
+                                                                         and already correct.
+ y11 temporary source, remainder dropped late       ROWED — REASON 3     Count CORRECT, timing wrong:
+   -> let_array_pattern_temp_source_remainder_late_run                   n=21 vs rustc 12. Closing it
+                                                                         means routing the spill temp
+                                                                         into the STATEMENT temp scope
+                                                                         (stmt.scope.temp-drop-at-stmt-
+                                                                         end), a different mechanism
+                                                                         from a move path, unpriced.
+ x04 let [W{a:x,b:_}]  nested sub under LET         ROWED — REASON 1     No carrier: the let door
+   -> let_array_pattern_nested_subpattern_refused                        REFUSES the shape at :1626
+                                                                         ("only plain identifier
+                                                                         bindings") before any mark
+                                                                         exists to be wrong. Admitting
+                                                                         it means BUILDING a nested
+                                                                         destructure. Refused on BOTH
+                                                                         binaries, measured.
+ y05 match [[x, _]]   array inside array            ROWED — REASON 1     No carrier: the inner pattern
+   -> match_array_nested_array_subpattern_mlirgen_malfunction            declares no binding at all, so
+                                                                         `x` is undefined and mlir-gen
+                                                                         self-diagnoses 2 malfunctions.
+                                                                         ⚠ My emitter DOES recurse into
+                                                                         Slice; this door is UPSTREAM
+                                                                         of it — no move path is ever
+                                                                         asked for. cc=1 both binaries.
+ y06 match &arr with a nested struct sub            ROWED — REASON 1     No carrier: refused by an MLIR
+   -> match_ref_array_nested_struct_sub_refused                          verifier error before any mark
+                                                                         is consulted; a ref scrutinee
+                                                                         moves nothing, so the arm has
+                                                                         nothing to emit. Refused on
+                                                                         BOTH binaries.
+                                                                         ⚠ Its sentence is BYTE-
+                                                                         IDENTICAL to at_binding_array_
+                                                                         sub_verifier_error_refused and
+                                                                         is deliberately NOT merged: a
+                                                                         shared symptom is not a shared
+                                                                         defect.
+ match_array_field_place_verifier_error_refused     ROWED — REASON 1     Unchanged (gate: still
+                                                                         reproduces). Verifier error on
+                                                                         the array-typed PLACE BASE,
+                                                                         before any move mark.
+ foreach_array_rvalue_elements_never_dropped_run    ROWED — REASON 1     Unchanged. No carrier in
+                                                                         lower_for_each's array path;
+                                                                         still owns the lower_arr_lit
+                                                                         scaffold from 2026-09-15g.
+ match_expr_array_pattern_segfaults_run             ROWED — REASON 1     Unchanged. rc 139 — it
+ loop_break_value_array_lit_uninit_drop_run                              segfaults BEFORE drop
+                                                                         accounting happens.
+ at_binding_array_sub_verifier_error_refused        ROWED — REASON 1     Unchanged. The At door, a
+                                                                         different fact (pattern_moves_
+                                                                         out's At arm already returns
+                                                                         true).
+ match_tuple_door_nested_struct_binds_nothing       ROWED — REASON 1     Unchanged (i_t01 refused on
+   (already an open row, verified present at ledger line 77)             both binaries). The TUPLE door,
+                                                                         not the array door.
+
+WHAT LANDED IN THE TREE — ROWS, FIXTURES, PINS, ALL RE-DERIVED BY DIRECT LISTING
+
+  soundness_queue.ledger  # TOTAL 229 -> 232, re-derived BY LISTING (awk '!/^#/ && NF' | wc -l = 232),
+    never by arithmetic. Tier tally by listing: tier1 35, tier2 63, tier3 123, tier4 11.
+    Tier 1 is UNCHANGED at 35 — two rows closed and two opened — which is worth saying plainly: this
+    round did not shrink tier 1, it made two of its defects VISIBLE that a count-based oracle could
+    not see, and closed two that it could.
+    ROWS CLOSED (2): match_array_nested_destructure_elem_double_drop, let_array_pattern_field_base_
+      unbound_elem_leak. Their programs left tests/soundness/open/ and landed as pass fixtures in the
+      same commit; both directions of the gate reconcile (rows 232 = programs 232, no MISSING ROW and
+      no MISSING PROG).
+    ROWS OPENED (5): let_array_pattern_remainder_group_order_run (tier 1, run 1),
+      let_array_pattern_temp_source_remainder_late_run (tier 1, run 1),
+      match_ref_array_nested_struct_sub_refused (tier 3),
+      match_array_nested_array_subpattern_mlirgen_malfunction (tier 3),
+      let_array_pattern_nested_subpattern_refused (tier 3).
+      Each program was RUN on the landed binary and reproduces its recorded behaviour exactly:
+      run=1 with n=213 and n=21 for the two run rows; cc=1 refused for the three refuses rows.
+
+  FIXTURES LANDED FROM THE HAND BATTERY — 9, each with its `.expected` (`exit: 0`), each compiled and
+  RUN on the committed binary before the gates:
+      bc_16j_row_nested_destructure_admit      k=1 n=12   (closed row T1's program)
+      bc_16j_row_letfield_unbound_admit        k=2 n=21   (closed row T2's program)
+      bc_16j_hb_y01_admit  k=9 n=12    bc_16j_hb_y04_admit  k=1 n=12
+      bc_16j_hb_y07_admit  k=1 n=1     bc_16j_hb_y09_admit  k=9 n=123
+      bc_16j_hb_y10_admit  k=1 n=12    bc_16j_hb_y12_admit  k=2 n=21
+      bc_16j_hb_y13_admit  k=2 n=921
+    Every one of the seven `hb` programs CAUGHT something: its verdict MOVED base -> landed. The
+    destructor COUNT is asserted by the program itself (`return 1i32` on a wrong trace), because
+    `.expected` carries only `exit: 0` and does not compare stdout.
+
+  POPULATION PINS, RE-DERIVED BY LISTING AND NOT BY ADDING TO THE PREVIOUS LINE
+      ls tests/logos/pass/*.logos | wc -l              -> 3819   (was 3810)
+      ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l ->  191   (unmoved)
+      partition closes: 3819 = 191 + 3628.
+    direct_door_census_gate.sh PIN: 'corpus' 3810 -> 3819, 'nonglob' 3619 -> 3628, 'glob' unmoved at
+    191, door counts unmoved (26) — none of the nine declares a container family or a `direct` output
+    form. plan_ground_census_gate.sh EXPECT_FIXTURES is the GLOB and is therefore unmoved at 191.
+
+INSTRUMENT NOTES, BOTH DIRECTIONS — INCLUDING TWO ERRORS OF MY OWN
+
+  ⚠ MY FIRST BASELINE RUN OF run_oracle.py AND fail_text_oracle.py MEASURED NOTHING, AND IT WAS MY
+    INVOCATION, NOT THE TREE. Both take the OUTPUT PATH as argv[1]; I redirected with `>` instead.
+    run_oracle refused outright ("A `>` redirect does not work: the table is written to argv[1], and
+    the join then reads phantom damage", rc 2) and fail_text died on IndexError. Re-run correctly.
+    An empty or refused column is not a zero.
+
+  ⚠ AND THE SECOND ATTEMPT HAD A REAL MEASUREMENT HAZARD I CAUGHT ONLY BY LOOKING: the base
+    run_oracle was reading build/bin/logosc while the ARMED build was about to overwrite that same
+    path, which would have produced a baseline half base and half armed. Killed and re-run properly,
+    with the base binary and its OWN stdlib archives preserved outside the tree and swapped in
+    deliberately. ⚠ `LOGOS_BUILD` cannot be pointed at that preserved copy: run_oracle derives its
+    POPULATION from `ctest --test-dir $BUILD -N -V`, so a non-ctest directory yields an empty
+    population and a confident zero — the harness zero the prompt names. Hence the binary swap.
+
+  ⚠ THE BASE AND ARMED COLUMNS WERE BOTH TAKEN BEFORE ANY RECONFIGURE, deliberately: the nine new
+    pass fixtures are not yet in build/'s ctest registry, so both runs share ONE population and the
+    diff is apples to apples. Reconfiguring between them would have added rows to one side only.
+
+  gate-run.sh -L bc: rc 0 — but READ FROM THE STORE, not freshly run ("all 3921 tests in this filter
+    are ALREADY MEASURED under this build", build 1275, 8068 recorded, 0 failed). Said plainly
+    because the DB is the source of truth and a read is not a run.
+
+  probe-log-lint.py: I wrote ZERO formal `site:` records this round, so its count is EXPECTED to
+    stand still and its green attests nothing either way (three measured defects). Reported with the
+    direct grep beside it rather than cited as evidence. Not repaired — tooling is frozen.
+
+  BUILD FRESHNESS, CHECKED NOT INHERITED. The base binary's version string reads
+    `g1e3b9d67-dirty`, two commits behind HEAD, which looks stale and is not: the only compiled
+    sources touched since (sema_expr.cpp 13:39, sema_impl.hpp 13:41) both PREDATE the 14:13 binary,
+    and the string is a CONFIGURE-time stamp, not a statement about content. The pricing round's
+    freshness claim holds; I re-derived it rather than carrying it.
+
+⚠ A FOURTH MEASURED DEFECT OF probe-log-lint.py, AND THE GATES TIER IS RED AT HEAD BECAUSE OF IT —
+  NOT BECAUSE OF THIS ROUND. REPORTED, NOT REPAIRED.
+
+  `logos_00_probe_log_lint` is a REGISTERED ctest test (#21) carrying the label `tier_commit`, and
+  test-levels.sh runs every `tier_commit` test at EVERY level L1-L3. It is RED on the tree I was
+  handed, and it will therefore report the gates tier as FAILED in this round's L1 run.
+
+  THE CONTROL, so the attribution is not an assertion: `git status --short src/compiler/PROBES.md`
+  and `git diff --stat src/compiler/PROBES.md` are both EMPTY — this round does not touch PROBES.md
+  at the time of measurement — and the lint exits 1 at HEAD. The red predates my change set.
+
+  THE RECORD IS CORRECT AND THE LINT IS WRONG. The complaint is
+      2026-09-16i-arrpath: site file src/compiler/sema_stmt.cpp::SemaChecker does not exist
+  against the record's line
+      site: src/compiler/sema_stmt.cpp::SemaChecker::mark_match_scrutinee_moved
+  which names a REAL symbol in a REAL file. The lint's expression is
+      re.search(r'^site:\s*(\S+)::(\S+)', body, re.M)
+  and the first group is GREEDY, so on a three-part `file::Class::method` site it swallows
+  `…sema_stmt.cpp::SemaChecker` as the FILE and then reports that file as missing. MEASURED by
+  running the lint's own regex over the three spellings:
+      src/compiler/sema_stmt.cpp::mark_match_scrutinee_moved          -> PASS (path exists, sym found)
+      src/compiler/sema_stmt.cpp::lower_let_pat_bound                 -> PASS (path exists, sym found)
+      src/compiler/sema_stmt.cpp::SemaChecker::mark_match_scrutinee_moved -> FAIL, path
+        'src/compiler/sema_stmt.cpp::SemaChecker' exists=False — the 16i failure reproduced exactly.
+  This is a FOURTH defect beyond the three the prompt records (a green over a zero-occurrence symbol;
+  a silent SKIP of a record whose site lacks `::`; a count that attests neither).
+
+  ⚠ AND I CORRECTED MYSELF HERE BY MEASURING. I first suspected the lint prints FAIL and exits 0 —
+  which would have made it a gate that cannot see its own failure, the 14th recorded kind. It does
+  not: `return 1` sits directly under the FAIL print (scripts/probe-log-lint.py:82), and a true
+  exit-code read (no pipe — my first read measured `tail`'s status, not the lint's) gives rc 1. The
+  gate is HONESTLY red. Recorded because the wrong version of this claim is the more interesting one
+  and I nearly filed it.
+
+  WHY I DID NOT REPAIR EITHER SIDE. The lint is TOOLING and tooling is frozen. The record is a
+  correct statement about the sources, and rewriting a correct record so that a buggy reader goes
+  green is weakening an artifact to make something pass — precisely what the rules forbid. So the
+  16i record stands as written, the lint stands as written, and BOTH are reported here.
+  MY OWN TWO RECORDS USE THE ONE-`::` SPELLING, verified above against the lint's own regex before
+  being written, so this round adds no second broken record.
+
+  ⚠ AND IT CONTRADICTS A RECORDED CLAIM. 2026-09-16i's RESULT.txt states it wrote ZERO `site:`
+  records and that the lint read "386 records, every site symbol resolves". It DID write one — the
+  record at PROBES.md:47380-47399 — and that record is what reds the lint today. The success line it
+  quotes only prints when there are no bad records, so the lint was run BEFORE the record was
+  appended and never again afterwards. The lesson is the round's own: a green measured before the
+  artifact exists is not a measurement of the artifact.
+
+CONTROL REVERT — THE OLD BINARY SHOWN DOING THE WRONG THING AT RUN TIME, ON THE EXACT PROGRAMS LANDED
+
+  Run on the PRESERVED base binary (sha256 f7d78597fe106a64…, kept outside the tree with its OWN
+  stdlib archives, so the link is base-against-base and not a mixed measurement). Each fixture
+  asserts its own destructor trace, so a wrong trace exits 1 and a wrong return value exits 2.
+
+    fixture                              base rc  base stdout      armed rc  armed stdout
+    bc_16j_row_nested_destructure_admit    1      k=1 n=112          0       k=1 n=12
+    bc_16j_row_letfield_unbound_admit      1      k=2 n=2            0       k=2 n=21
+    bc_16j_hb_y01_admit                    1      k=9 n=0            0       k=9 n=12
+    bc_16j_hb_y04_admit                    1      k=1 n=112          0       k=1 n=12
+    bc_16j_hb_y07_admit                    1      k=1 n=11           0       k=1 n=1
+    bc_16j_hb_y09_admit                    1      k=9 n=0            0       k=9 n=123
+    bc_16j_hb_y10_admit                    1      k=1 n=112          0       k=1 n=12
+    bc_16j_hb_y12_admit                    1      k=2 n=2            0       k=2 n=21
+    bc_16j_hb_y13_admit                    1      k=2 n=92           0       k=2 n=921
+
+  NINE of nine wrong on base, NINE of nine right on the landed binary. The failure is visible in the
+  TRACE, not merely in the exit code: n=0 is a TOTAL leak (every element lost), n=112 and n=11 are
+  DOUBLE destructors, n=2 and n=92 are leaks of the unbound element. An rc-only column would have
+  said "exit 1" for all nine and could not have told a leak from a double free — which is the whole
+  reason this tier's oracle is the stdout destructor count.
+
+  ⚠ AND THIS IS THE REVERT PROVEN, NOT THE ABSENCE OF A CHANGE. The base binary is a preserved COPY
+  taken before the armed build overwrote build/bin/logosc, and its hash is recorded on both sides
+  (armed 008eadf7f99e126f…, base f7d78597fe106a64…). A control that changes nothing, or that is run
+  against a binary nobody rebuilt, is the recorded 9th kind of lie; the two hashes are quoted so this
+  one is checkable.
+
+COST COLUMN 1 — run_oracle.py, THE RUNTIME COLUMN (the primary one for a drop-glue change)
+
+  base  7436 pass fixtures compiled, linked and RUN (rc 0)   armed  7436 (rc 0)
+  Diffed BOTH WAYS by src/compiler/probes/2026-09-16j-arrpath2/diffcols.py (rule 6: a ceiling bounds
+  the COUNT, not the SET), which was given its own known-answer control first — each table against
+  ITSELF reads common=7436/1882, added=0, removed=0, changed=0.
+
+      run_oracle: common=7436  added=0  removed=0  CHANGED=0  (subtracted by name: 1)
+
+  ZERO damaged programs. This is the column that matters here: a drop-glue or codegen change is
+  invisible to a compile's exit code, and an earlier round in this arc damaged 88 running programs
+  where the rc columns saw 58. Nothing moved.
+
+  ⚠ THE ONE SUBTRACTED ROW WAS SUBTRACTED ON EVIDENCE, NOT ON INSTRUCTION.
+  logos_02_semantic_core_pass_cast-region-to-uint changes stdout sha (base afbad27f8ff87c19 -> armed
+  56f8d24df89d2887) and the prompt says to subtract it by name because it prints a stack address.
+  Taking that on trust would be excusing a CHANGED row because I was told to, so it was measured:
+  five consecutive runs of ONE binary give five different stdout hashes (see below). The row is
+  NONDETERMINISTIC run to run, not damaged by this change. Its ccrc and runrc are 0 = 0 on both
+  sides; only the address-bearing stdout differs.
+
+  ⚠ POPULATION NOTE, DISCLOSED RATHER THAN BURIED: this population does NOT include the nine pass
+  fixtures this round adds — measured, not assumed (`grep -c bc_16j` over the armed table = 0, and
+  `ctest -N | grep -c bc_16j` = 0, because no reconfigure had happened yet). That is deliberate: both
+  columns were taken against ONE registry so the diff is apples to apples. The nine new fixtures are
+  covered instead by the control revert above (nine wrong on base, nine right on armed) and by L1
+  after the reconfigure.
+
+  THE cast-region-to-uint SUBTRACTION, MEASURED (the "see below" above). ONE binary (base
+  f7d78597…), five consecutive runs of tests/imported/pass/cast/cast-region-to-uint.logos:
+      run 1  sha c4ea0e9974cd837f   stdout &x=7ffc40726cc0
+      run 2  sha 23e5e02cffcbb9a9   stdout &x=7ffe894bdd60
+      run 3  sha 4c1a6195500693ab   stdout &x=7ffc14ccae00
+      run 4  sha 6864293c8ba75a9d   stdout &x=7ffc0488e3e0
+      run 5  sha ad719f513d23c1b7   stdout &x=7fff139f7310
+  Five runs, five hashes, and the stdout is a raw STACK ADDRESS under ASLR. The row cannot be stable
+  across any two runs of anything, so its base-vs-armed difference is not attributable to this change.
+  Subtracted on EVIDENCE.
+  ⚠ Recorded against myself: I wrote the subtraction paragraph BEFORE running this control, and the
+  fixture lives in tests/imported/pass/cast/, not tests/logos/pass/ — my first attempt grepped file
+  CONTENTS under the wrong directory, found nothing, and printed "could not build the control". A
+  claim written ahead of its measurement is the same defect this round reports in 16i's lint green;
+  it is corrected here rather than left standing.
+
+COST COLUMN 2 — fail_text_oracle.py, THE ONLY ORACLE THAT SEES AN UN-REFUSAL OR AN ADDED LINE
+
+  base 1882 fail fixtures recorded (rc, stderr sha, .expected match), rc 0   armed 1882, rc 0
+      fail_text: common=1882  added=0  removed=0  CHANGED=0
+
+  Nothing moved: no refusal was lost, no diagnostic gained or reworded, no `.expected` match flipped.
+  This column is quoted because an rc-based cost of 0 is BLIND to text-only changes and to
+  un-refusals (rule 15), and because `.expected` matches as a SUBSTRING — a fixture can go on passing
+  under ctest while its sentence changes underneath. Neither arm touches a diagnostic, and the column
+  agrees.
+
+  ⚠ Both fail-text runs were taken from ONE configure. fail_text_oracle.py SELF-INVALIDATES across a
+  rebuild (its ABI-freshness warning names the build timestamp), so a baseline from a different
+  configure would not have been comparable.
+
+COST COLUMN 3 — THE VALGRIND SWEEP, AND THE CONTROL ON THE INSTRUMENT THAT READS IT
+
+  Priced ONCE per batch, not per arm: one sweep on the BASE binary and one on the LANDED binary, both
+  on this configure, diffed BOTH WAYS by LEAK / CORRUPT / TIMEOUT / NOVG / CFAIL SETS and not by
+  counts (rule 6: a ceiling bounds the count, not the set). 7455 fixtures per sweep, 2 excluded by
+  tests/lattice/valgrind/sweep_exclude.txt (fiber_thread_future, http_workers_basic — both hang under
+  valgrind, the tool process survives `timeout`, and a round's own reaper had to kill them).
+
+  ⚠ THE READER WAS CONTROLLED ON REAL DATA BEFORE THE SWEEPS LANDED. diffcols.py's vg path had only
+  ever seen a synthetic 3-row pair, so it was run against a REAL sweep table — the committed baseline
+  tests/lattice/valgrind/baseline/results-2026-09-06k.tsv, 6524 rows, 9 columns — against ITSELF:
+      valgrind(status): common=6524 added=0 removed=0 CHANGED=0
+      LEAK base=90 armed=90 entered=- left=-      CORRUPT base=3 armed=3 entered=- left=-
+      TIMEOUT base=3 armed=3 entered=- left=-     CFAIL base=64 armed=64 entered=- left=-
+  The parser handles the real shape and an identity diff is empty in every set. An instrument first
+  exercised on the data it is meant to judge is not an instrument.
+
+  ⚠ AND THE COLUMN IS EXPECTED TO BE NEARLY EMPTY HERE, WHICH IS WHY IT IS NOT THE ORACLE.
+  Valgrind is BLIND to this entire class by construction: a destructor that runs twice over an `i64`
+  counter performs no second free(), and 24 of the 35 tier-1 rows read "0 errors, 0 allocs, 0 frees"
+  in the pricing round — both target rows among them. All nine legal battery programs read
+  "ERROR SUMMARY: 0 errors" on BOTH binaries, including the ones whose destructors ran four times on
+  two values. The stdout destructor TRACE is the oracle; the sweep is here to catch what the trace
+  cannot — a corruption or a heap leak introduced elsewhere in the corpus.
+
+⚠ A HARNESS ZERO OF MY OWN, CAUGHT BY A CONTROL AND CLASSIFIED — THE THIRD KIND
+
+  Re-measuring the A1 census counter on the landed binary (rule 8: a record is not an installed
+  probe, and a number measured on base may not be carried across a compiler change), my first run
+  read `armelem.slice.door = 0` on ALL SEVEN programs — including y08, the exact shape the pricing
+  round measured as FIRES 1. Taken at face value that would have said my own edit deleted the site.
+
+  IT SAID NOTHING ABOUT THE PROGRAM. The control — the SAME invocation on the base binary — wrote a
+  556-byte census file containing `patdecl.arrive.Slice 1`, while the seven armed runs wrote NO FILE
+  AT ALL (the output directory was empty, and even the raw grep printed nothing). The difference is
+  in the command, not the compiler: the armed runs invoked the binary COPY saved outside the tree
+  ($BO/logosc.armed) with no LOGOS_LIB_DIR, so it failed before reaching probe.hpp's at-exit census
+  dump. An UNREACHED SITE and a process that never got that far are indistinguishable in the count.
+  The counter itself is intact and untouched at sema_stmt.cpp:9322.
+
+  So: kind 3 of 3 — a HARNESS ZERO, not an unreached site and not a short-circuited gate. Re-taken
+  with LOGOS_LIB_DIR set and with the base column measured under the IDENTICAL command, so the two
+  numbers are comparable rather than asserted. Recorded because the prompt requires every zero to say
+  which kind it is, and because this one was mine.
+
+  THE CENSUS, RE-TAKEN CORRECTLY — BOTH BINARIES, IDENTICAL COMMAND (LOGOS_LIB_DIR set, LOGOS_CENSUS
+  taking a FILE PATH, never a flag). armed 008eadf7f99e126f, base f7d78597fe106a64.
+
+    prog  binary  armelem.slice.door  patdecl.arrive.Slice   file written
+    y08   base    1                   1                      yes
+    y08   armed   1                   1                      yes
+    y02   base/armed  1 / 1           1 / 1                  yes
+    y03   base/armed  1 / 1           1 / 1                  yes
+    y04   base/armed  1 / 1           1 / 1                  yes
+    y10   base/armed  1 / 1           1 / 1                  yes
+    y01   base/armed  ABSENT/ABSENT   ABSENT/ABSENT          yes
+    y09   base/armed  ABSENT/ABSENT   ABSENT/ABSENT          yes
+
+  READ IT PRECISELY, BECAUSE THE TWO ZEROS ARE DIFFERENT AGAIN:
+    * The five MATCH-door programs fire the door EXACTLY ONCE on BOTH binaries. The site was reached
+      before the change and is reached after it, identically — so A1 changed WHAT THE SITE DOES, not
+      whether it runs. A fires-count that moved would have meant something else entirely (a new
+      arrival, or a site I had accidentally gated), and it did not move.
+    * y01 and y09 read ABSENT on BOTH binaries — an UNREACHED SITE (kind 1), and correctly so: they
+      are `let` destructures, whose door is lower_let_pat_bound, which never calls
+      mark_match_scrutinee_moved at all. Their fix came from A2, at the other door, and the counter
+      for A1 has nothing to say about them. This is the same SPLIT the pricing round measured, now
+      RE-MEASURED on the landed tree rather than carried across a compiler change (rule 8).
+  Both records' `fires:` lines are written from THIS table, not from 16i's.
+
+CITATION AUDIT — CLOSING A ROW CAN STRAND A REFERENCE, AND NO GATE HOLDS ONE
+
+  This repo has the defect on record: bc_admits.ledger ~1713 cites a soundness-queue row that no
+  longer exists, and NO gate holds a cross-reference, so every citation in either ledger is
+  unverified prose. Two rows were deleted here, so the tree was grepped for both ids.
+
+  Every surviving reference is correct as written:
+    tests/logos/soundness_queue.ledger:53   this round's own section header, which names them AS
+                                            closed and says their programs are now pass fixtures.
+    tests/logos/pass/bc_16j_row_*_admit.logos:2  the two fixture headers, each "Was soundness_queue
+                                            row `<id>`, CLOSED by this round".
+    src/compiler/PROBES.md:47384,47386      the 16i PRICING record's `fires:` line.
+  ⚠ THE PROBES.md PAIR IS NOT A DANGLING CITATION AND WAS DELIBERATELY LEFT ALONE. It is a DATED
+  record of a census taken on 2026-09-16 while those rows were open, and it is true of the tree it
+  was measured on. Editing a historical record so it agrees with today's tree would destroy the one
+  thing a probe log is for. A record decays by design; rule 8 says re-price it, not rewrite it.
+  Neither bc_admits ledger references either row (grep: no hits).
+
+  Integrity of what this round ADDED, by listing: all row ids in the ledger are unique (uniq -d
+  empty); each of the five new ids appears exactly once in the ledger and has exactly one program.
+
+  THE BASE SWEEP, AND THE CHECK THAT IT IS A VALID COMPARISON SET AT ALL
+
+    swept 7455   OK 7209   LEAK 53   CFAIL 62   LINKFAIL 124   TIMEOUT 4   CORRUPT 3
+    allocated 1994 (reached malloc at least once) · zero-alloc 5271 · not run 190
+    ⚠ THE SWEEP'S OWN CAVEAT, QUOTED BECAUSE IT GOVERNS HOW MUCH THIS COLUMN IS WORTH: only 1994 of
+    7455 fixtures reach the allocator. "clean" on the other 5271 is COVERAGE, NOT EVIDENCE.
+
+  ⚠ A COLUMN TAKEN THROUGH A SWAPPED BINARY MUST BE PROVEN COMPARABLE BEFORE IT IS BELIEVED.
+  The base sweep ran against the PRESERVED base binary paired with the PRESERVED base archives, so a
+  mismatched pairing would show up as link failures and would silently invalidate the whole column —
+  a null result through a broken channel. LINKFAIL reads 124. The COMMITTED baseline
+  tests/lattice/valgrind/baseline/results-2026-09-06k.tsv ALSO reads exactly 124, on the same
+  `test_harness_coretest_*` family (arc, any, ascii, …). So the 124 are a PRE-EXISTING corpus
+  property, not an artifact of my pairing, and the base sweep is a valid set to diff against.
+  (The other counts differ from that baseline for the obvious reason: it swept 6524 fixtures and this
+  one sweeps 7455 — ten days of corpus growth — so only LINKFAIL is a like-for-like check.)
+
+  BASE NON-OK SETS, NAMED AND SAVED (vg_base_LEAK.txt / _CORRUPT.txt / _TIMEOUT.txt), because the
+  armed sweep is diffed against these SETS both ways, never against the counts:
+    CORRUPT 3  bc_objlt_str_literal · custom_dst_smartptr_owning_drop · fiber_thread_basic
+    TIMEOUT 4  memoria_btfl_multimap · memoria_gen_fse · memoria_gen_tree · memoria_ssrle_ops
+    LEAK   53  (listed in vg_base_LEAK.txt)
+  ⚠ fiber_thread_basic is on record as a fixture a LOADED sweep can drop by timing out (2026-09-14o),
+  so any set difference involving it will be re-run ALONE before being called a change.
+
+  THE ARMED SWEEP, AND THE PREDICTION IT CONFIRMS — AT THE SET LEVEL, NOT THE COUNT LEVEL
+
+    swept 7455   OK 7209   LEAK 53   CFAIL 62   LINKFAIL 124   TIMEOUT 4   CORRUPT 3
+    allocated 1994 · zero-alloc 5271 · not run 190     — byte-identical tallies to the base sweep.
+
+  ⚠ IDENTICAL TALLIES ARE NOT IDENTICAL SETS, so the tallies were NOT accepted as the answer: three
+  fixtures could have swapped in and out and left every count unchanged (rule 6 — a ceiling bounds
+  the COUNT, not the SET). Diffed both ways, and then checked a second time by a direct `diff` of the
+  saved per-status set files:
+      valgrind(status): common=7455  added=0  removed=0  CHANGED=0
+      LEAK     base=53 armed=53   entered=-  left=-      (set diff: IDENTICAL, 53 fixtures)
+      CORRUPT  base=3  armed=3    entered=-  left=-      (set diff: IDENTICAL, 3 fixtures)
+      TIMEOUT  base=4  armed=4    entered=-  left=-      (set diff: IDENTICAL, 4 fixtures)
+      CFAIL    base=62 armed=62   entered=-  left=-
+  ZERO fixtures entered LEAK or CORRUPT and zero left. The prediction recorded in PREDICTIONS.txt
+  BEFORE the armed sweep finished (0 entered, 0 left, because both arms change which PATHS are
+  recorded as moved and neither reaches the allocator) is CONFIRMED on the sets.
+  And because no TIMEOUT moved, the caveat pre-declared in that same addendum — that any TIMEOUT-set
+  movement, or anything involving fiber_thread_basic, would be re-run ALONE before being called a
+  change — never had to fire.
+
+  Artifacts kept beside the record: vg_base_results.tsv / vg_armed_results.tsv, their summaries, and
+  the six per-status set files (vg_{base,armed}_{LEAK,CORRUPT,TIMEOUT}.txt).
+
+ALL THREE COST COLUMNS, TOGETHER
+    run_oracle   7436 common   0 changed   (1 subtracted on MEASURED evidence, not on instruction)
+    fail_text    1882 common   0 changed   0 added   0 removed
+    valgrind     7455 common   0 changed   LEAK/CORRUPT/TIMEOUT sets identical both ways
+  Three columns, zero cost. ⚠ And that is stated with its own limit attached: `ceiling-probe.sh`
+  CANNOT SEE A QUEUE ROW at all, valgrind is blind to a double destructor over an i64 counter, and an
+  rc-based column is blind to text-only changes. The columns that CAN see this class are the stdout
+  destructor traces against rustc twins and the queue gate — and those are where the round's evidence
+  actually lives.
+
+⚠ THE GATES TIER FOUND A DEFECT OF MINE THAT NO COST COLUMN COULD — AND IT IS THE "SPELLING, NOT
+  PROPERTY" FAILURE, COMMITTED BY ME, IN THE ROUND THAT REPORTS IT
+
+  L1 read 808/808 core passed and the enumerator smoke tier passed (12 684 cases), with the GATES
+  TIER FAILED on three tests. Each is attributed, and only one was a surprise:
+
+    21  logos_00_probe_log_lint    PRE-EXISTING (16i's record; PROBES.md untouched by this change
+                                   set, lint rc 1 at HEAD). Reported above, not repaired.
+    334 logos_00_census_pin        MINE AND EXPECTED — 9 new pass fixtures + net 3 squeue tests move
+                                   FACT 5's registry baselines. Re-derived BY LISTING and updated:
+                                   REGISTRY-ALL 10967 -> 10979, NOIMPORTED 6465 -> 6477,
+                                   TIERCOMMIT 347 -> 350.
+                                   ⚠ MY OWN WRITTEN EXPECTATION WAS WRONG ON THE THIRD NUMBER: I had
+                                   predicted TIERCOMMIT +12 like the other two. It is +3, because
+                                   pass fixtures do NOT carry the `tier_commit` label — only the five
+                                   new squeue tests do, minus the two closed. Corrected in
+                                   censuspins.sh rather than left standing.
+    330 logos_00_key_identity_lint MINE, AND NOT AT ALL WHAT I WOULD HAVE GUESSED.
+
+  THE KEY-IDENTITY FAILURE, IN FULL, BECAUSE IT IS THE INTERESTING RESULT OF THIS ROUND.
+  "sema_stmt.cpp bare-name intercepts: count 22, ledger pins 23" — the count went DOWN. My A1 edit
+  replaced the `binds_by_value` bool, which contained
+        auto nm = lir_view::PatWildView{sp}.name();
+        return !nm.empty() && nm != "_" && ...
+  with a lambda spelled `is_named(std::string_view s) { return !s.empty() && s != "_"; }`.
+  THE DECISION SITE STILL EXISTS AND STILL INTERCEPTS A BARE PATTERN-BINDER NAME. Only the variable
+  name changed — and key_identity_scan.py's SCAN_LHS reaches the LHS spellings `nm`/`name`/`cn`/… but
+  NOT a one-letter `s`. So a LIVE site went invisible to a census that exists precisely to stop sites
+  going unnoticed. MEASURED, not inferred: SCAN_LHS-reachable comparisons in sema_stmt.cpp read 21 on
+  base and 20 after my edit, and the literal-set diff named exactly one vanished row, `nm != "_"`.
+
+  ⚠ THE FIX WAS NOT TO MOVE THE PIN TO 22. That would have hidden a live site and weakened a census
+  to make a gate green — and the lint's own header records "a pinned file's intercepts deleted" as
+  one of the four shapes it was bitten by. The parameter is spelled `nm` again, with a comment at the
+  site saying why the spelling is load-bearing. Literal-set diff against base: IDENTICAL, 21 = 21.
+  key_identity_lint re-run directly: rc 0, "census matches the ledger (44 rows, 50 bare
+  entity-name-keyed sites) … the tree-wide bare-name intercept roster matches per file".
+
+  ⚠ AND THE REPAIR INVALIDATES A BINARY, WHICH IS SAID PLAINLY RATHER THAN GLOSSED. sema_stmt.cpp now
+  differs from the binary that produced run_oracle, fail_text, both valgrind sweeps and L1. The change
+  is a comment plus a parameter rename with identical semantics, so no behavioural difference is
+  expected — but expectation is not measurement. The tree is rebuilt and the closed rows, the hand
+  battery and the queue gate are RE-VERIFIED on the rebuilt binary before the commit; the three cost
+  columns are reported as taken on the pre-rename binary, which is what they were.
+
+  CENSUS PIN, AFTER THE RE-DERIVATION: GREEN. `ctest -R ^logos_00_census_pin$` re-run reads
+  "100% tests passed, 0 tests failed out of 1", rc 0, against REGISTRY-ALL 10979 / NOIMPORTED 6477 /
+  TIERCOMMIT 350 — transcribed from the measured listing, never added to the previous line.
+
+  TREE INTEGRITY AT THE COMMIT, ALL BY DIRECT LISTING (not by arithmetic on a previous number):
+      soundness_queue ledger rows   232
+      tests/soundness/open programs 232
+      '# TOTAL' says                232      — all three agree, both gate directions satisfied
+      tests/logos/pass/*.logos      3819     (glob 191, nonglob 3628; partition closes)
+      REGISTRY-ALL / NOIMPORTED / TIERCOMMIT   10979 / 6477 / 350
+
+  THE REBUILD AFTER THE RENAME REPAIR: rc 0, new build/bin/logosc sha256 38db1983b916d658 (the cost
+  columns above were taken on 008eadf7f99e126f, before the repair — stated, not glossed). The closed
+  rows, the nine landed fixtures, the five new rows, the hand battery and the queue gate are ALL
+  re-verified on 38db1983 below; nothing is carried across the rebuild on trust.
+
+  REAPER DUTY, DISCHARGED: the prompt records that `timeout` kills only valgrind's wrapper while
+  `valgrind.bin` survives (two fiber fixtures once lived 1300 s). After both sweeps, a strict count of
+  `memcheck-amd64-` processes reads 0 — the "1" an earlier loose pattern reported was the `pgrep`
+  matching its own command line. No orphan is holding a core.
+
+  ⚠ AND ONE MORE HAZARD OF MY OWN, CAUGHT AND CORRECTED: the rebuild was launched while the L4 `bc`
+  run was still going, which would have had L4 compiling and linking fixtures against a binary and
+  stdlib archives being replaced underneath it — a half-old/half-new verdict, the same class of error
+  as the run_oracle baseline I killed earlier. The L4 run was killed (⚠ the first pattern-kill did NOT
+  take: `test-levels.sh L4 bc` and its ctest child were still alive afterwards, so they were killed by
+  explicit PID and the death verified by pgrep AND by load dropping 40 -> 6). L4 is re-run on the
+  FINAL binary; its interrupted progress is recorded as discarded, never reported as a result.
+
+  RE-VERIFICATION ON THE FINAL BINARY 38db1983b916d658 — THE RENAME REPAIR IS MEASURED INERT
+
+    9 landed pass fixtures, all rc=0, traces identical to the pre-repair binary:
+      y01 k=9 n=12 · y04 k=1 n=12 · y07 k=1 n=1 · y09 k=9 n=123 · y10 k=1 n=12 · y12 k=2 n=21 ·
+      y13 k=2 n=921 · row_letfield_unbound k=2 n=21 · row_nested_destructure k=1 n=12
+    5 new queue rows, all still exhibiting their recorded behaviour:
+      remainder_group_order rc=1 k=2 n=213 · temp_source_remainder_late rc=1 k=2 n=21 ·
+      match_ref_array_nested_struct_sub REFUSED · nested_array_subpattern REFUSED (cc=1, no
+      diagnostic — the recorded mlir-gen malfunction) · let nested_subpattern REFUSED
+    hand battery y01-y10 on the final binary: value-for-value identical to the 008eadf7 column
+      (y02 3124, y03 1234 — still the rowed order residual; y05 cc=1; y06 refused).
+
+  So the parameter rename changed no behaviour — MEASURED on 14 programs plus the battery, not
+  asserted from "it is only a rename".
+
+THE SOUNDNESS QUEUE GATE ON THE FINAL BINARY: GREEN, BOTH DIRECTIONS
+
+    LOGOS_LIB_DIR=... soundness_queue_gate.sh build/bin/logosc tests/logos/soundness_queue.ledger .
+    rc 0 · ZERO FAIL lines ·
+    "OK: soundness queue holds — 232 open row(s) (tier1=35 tier2=63 tier3=123 tier4=11),
+     '# TOTAL' says 232"
+
+  Every one of the 232 open rows still exhibits its recorded wrong behaviour, every program under
+  tests/soundness/open has a row, and the count matches `# TOTAL` — all on the binary being committed
+  (38db1983b916d658). Contrast the same gate BEFORE the rows were deleted: rc 1 with exactly two FAIL
+  lines, both "NO LONGER REPRODUCES", which is the gate demanding the closures be recorded. The round
+  moved that gate from red-for-the-right-reason to green, by deleting the two rows and landing their
+  programs as fixtures, and not by any other means.
+
+  ⚠ The hand invocation carries LOGOS_LIB_DIR. Without it the gate self-reports "GATE BROKEN" rc 4 —
+  its canary's clean program reads LINKFAIL — which is the reader refusing, not a red queue.
+
+THE A2-ALT CONTROL — I BUILT THE PRICING ROUND'S RECOMMENDED FORM AND MEASURED IT, AND IT SCORED MY
+OWN PREDICTIONS WRONG TWICE
+
+  A fourth binary was built carrying the 16i recommendation exactly as written ("the per-index mark at
+  lower_let_pat, REPLACING the whole-source mark_moved_expr"): source marked per BOUND INDEX via
+  move_path_of, whole-temp mark_moved(tmp) retained, the landed per-index TEMP loop removed.
+  Binaries of this round, by sha256-16:
+      base   f7d78597fe106a64 · armed 008eadf7f99e126f · landed 38db1983b916d658
+      A2-ALT 930f38a31eeb3291  — EXPERIMENT ONLY, never committed, source reverted after measuring.
+  The SCORECARD (a2alt dir, SCORECARD.txt) was written while that binary was still BUILDING, so the
+  verdict below is a lookup, not an interpretation.
+
+    id     shape                          rustc   LANDED   A2-ALT   verdict
+    y11    let [_, y] = mk(p)  CALL src     12      21       2       FORMS DIFFER — alt LEAKS elem 0
+    y12    let s2 = s; [_, y] = s2.arr      21      21      21       same
+    y13    inner scope                     921     921     921       same
+    x01    let [_, y] = arr   (16i's own)   21      21      21       INDISTINGUISHABLE
+    x03    let [_, y] = s.arr (16i's own)   21      21      21       INDISTINGUISHABLE
+    row_T1 match nested destructure         12      12      12       alt closes it too
+    row_T2 let field-base unbound           21      21      21       alt closes it too
+
+  MY CENTRAL CLAIM IS CONFIRMED BY THE CRITERION I STATED IN ADVANCE: alt == landed on BOTH of the
+  pricing round's own programs, and differs on y11 — a shape the pricing never wrote. Its five-column
+  cost table would have funded either arm, and the two forms are separable only outside its battery.
+
+  ⚠ AND MY OWN PREDICTIONS WERE WRONG TWICE, WHICH IS REPORTED BECAUSE IT IS THE POINT OF WRITING
+  THEM DOWN FIRST:
+    1. I predicted y11 -> n=0, "both elements leak". MEASURED n=2. `y` is a bound local and runs its
+       own destructor; only the UNBOUND element 0 is lost. Direction right, number wrong.
+    2. I predicted y12 -> n=2 (leak). MEASURED 21 — the alt form is CORRECT there, because `s2.arr`
+       is a FieldRead over a VarRef and move_path_of names it perfectly well. REFUTED.
+    3. ⚠ THE MECHANISM IN PREDICTIONS.txt IS REFUTED OUTRIGHT. I predicted the alt form would DOUBLE
+       FREE ("the source's drop destroying the same elements the temp also destroys"). It does not:
+       the recommendation RETAINS mark_moved(tmp), so the temp never drops at all and the failure is a
+       LEAK, not a double free. My reasoning described a different combination than the one 16i
+       actually recommended.
+    4. The alt form CLOSES BOTH TARGET ROWS (12 and 21). So the recommendation was not wrong about
+       the rows — it is wrong only where the source is a TEMPORARY with no stable place for
+       move_path_of to name, which returns empty and leaves the elements unmarked while the whole
+       temp stays suppressed.
+
+  SO THE HONEST VERDICT IS NARROWER THAN MY REJECTION IMPLIED, AND THE LANDED FORM IS STILL THE RIGHT
+  ONE: on y11 the landed form destroys both elements (21, wrong ORDER — the rowed timing defect) while
+  the alt form destroys only one (2, a LEAK — a lost destructor). A wrong order is a rowed defect; a
+  lost destructor is the class this round exists to remove. The landed form is chosen on that measured
+  difference, not on the double-free reasoning I wrote and have now refuted myself.
+
+  THE EXPERIMENT WAS REMOVED AND THE REMOVAL WAS VERIFIED, NOT ASSUMED. The landed source was
+  preserved BEFORE the experiment was applied (git checkout would have reverted to HEAD and destroyed
+  A1 and A2 along with it), and restored afterwards. Five structural checks on the restored file:
+  `src_path_alt` 0 occurrences · landed per-index TEMP loop 1 · bare `mark_moved(tmp);` 0 ·
+  whole-source `mark_moved_expr(rhs)` in the array path 1 · `is_named` parameter spelled `nm` 1 —
+  and a byte-compare against the preserved landed source reads IDENTICAL.
+  ⚠ That verification was run as a SEPARATE step because its first attempt was swallowed: a trailing
+  `&` backgrounded the whole `&&` chain, so the checks executed inside the subshell and printed
+  nothing. The third time this round that a background launch ate its own output. An unread check is
+  not a check — it was re-run in the foreground and only then believed.
+  The tree is rebuilt from the restored source, and the rebuild doubles as a DETERMINISM CHECK: the
+  same source must give back the same compiler hash it gave before the experiment.
+
+  DETERMINISM CHECK PASSED. Rebuilding from the restored source gives back
+  38db1983b916d658 — byte-identical to the compiler that was verified against the nine fixtures, the
+  five new rows, the hand battery and the queue gate. Same source, same compiler: the experiment left
+  nothing behind, and the binary being committed against is the one that was measured.
+
+  TREE CLEANLINESS, AUDITED RATHER THAN ASSERTED:
+    `src_path_alt` anywhere under src/ include/        0 files
+    `A2-ALT EXPERIMENT` marker in compiled sources     0 files
+    probe::on / getenv / LOGOS_* ADDED by this round   none (checked against the DIFF, not a raw
+      count — sema_stmt.cpp contains 7 pre-existing probe::on sites and this round adds none, so
+      nothing is left installed with the sources reverted)
+    the A1 census counter `probe::census("armelem.slice.door")` is KEPT deliberately: it predates
+      this round, it is what separated a reached-and-declining gate from an unreached site, and it is
+      re-measured on both binaries above.
+  The committed change set is exactly: 4 modified files (sema_stmt.cpp, soundness_queue.ledger,
+  direct_door_census_gate.sh, deem-interpreter-deletion-census.md), 2 deleted row programs, 9 new
+  pass fixtures with their .expected, 5 new row programs, 1 new dlog rule, and this probe directory.
+
+FINAL STATE AT THE COMMIT — EVERY NUMBER BY DIRECT LISTING OR A DIRECT READ
+
+    build_hash (READ)      53884ccdf5a135ca 43        logosc sha256-16   38db1983b916d658
+    soundness_queue        ledger rows 232 = open programs 232 = '# TOTAL' 232
+    tier tally             tier1 35 · tier2 63 · tier3 123 · tier4 11
+    pass corpus            3819   (glob 191, nonglob 3628 — the partition closes)
+    census registry        REGISTRY-ALL 10979 · NOIMPORTED 6477 · TIERCOMMIT 350
+    bc_admits / blocked    60 / 8 — untouched by this round
+
+  ⚠ THE COST COLUMNS AND THE COMMITTED BINARY ARE NOT THE SAME BUILD, AND THAT IS STATED, NOT HIDDEN.
+  run_oracle, fail_text and both valgrind sweeps were taken on 008eadf7f99e126f (build_hash
+  37f3bd28cc2f9512 43), BEFORE the key-identity rename repair. The committed binary is
+  38db1983b916d658 (build_hash 53884ccdf5a135ca 43). The repair is a comment plus a parameter rename,
+  and it was re-verified on 14 programs plus the full hand battery and the queue gate — all identical.
+  A determinism check closes the loop: rebuilding from the restored source returns 38db1983b916d658
+  exactly.
+
+GATES AT THE COMMIT
+    soundness queue gate   rc 0, ZERO FAIL lines, 232 rows, both directions      (on 38db1983)
+    census_pin             rc 0 after re-deriving the three registry baselines BY LISTING
+    key_identity_lint      rc 0 — "census matches the ledger (44 rows, 50 bare entity-name-keyed
+                           sites) … the tree-wide bare-name intercept roster matches per file"
+    direct_door_census     green (not in any failure list) with corpus 3810 -> 3819, nonglob
+                           3619 -> 3628, glob unmoved at 191
+    L1                     core 808/808 passed, enumerator smoke tier passed (12 684 generated
+                           cases); GATES TIER red on exactly ONE test, `logos_00_probe_log_lint`
+    ⚠ probe_log_lint       PRE-EXISTING AND NOT THIS ROUND'S. It is red at HEAD; the control is that
+                           `git status --short src/compiler/PROBES.md` is EMPTY — this change set does
+                           not touch the file — and the broken record is 16i's, whose site line is
+                           CORRECT while the lint's greedy `(\S+)::(\S+)` mis-parses a three-part
+                           file::Class::method site. Tooling is frozen and a correct record is not
+                           weakened to green a buggy reader. Both are reported above; neither is edited.
+                           My own two records use the one-`::` spelling, verified against the lint's
+                           own regex BEFORE being written, so this round adds no second broken record.

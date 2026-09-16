@@ -1,0 +1,4 @@
+tests/logos/pass/memoria_btfl_multimap.logos
+tests/logos/pass/memoria_gen_fse.logos
+tests/logos/pass/memoria_gen_tree.logos
+tests/logos/pass/memoria_ssrle_ops.logos

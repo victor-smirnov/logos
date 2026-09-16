@@ -1,0 +1,3 @@
+tests/logos/pass/bc_objlt_str_literal.logos
+tests/logos/pass/custom_dst_smartptr_owning_drop.logos
+tests/logos/pass/fiber_thread_basic.logos

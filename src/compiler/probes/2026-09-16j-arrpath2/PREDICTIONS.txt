@@ -1,0 +1,94 @@
+ROUND 2026-09-16j-arrpath2 — PREDICTIONS, WRITTEN BEFORE ANY COMPILER EDIT.
+Base: HEAD ef41fb6b5, tree clean. build_hash READ: cd3bfceb2938131f 43.
+Queue # TOTAL 229 (tier1=35 tier2=63 tier3=120 tier4=11), gate rc 0 both directions.
+
+THE TWO ARMS (both links verified BY READING the consumer, not assumed)
+  A1 "nestleaf" — sema_stmt.cpp mark_match_scrutinee_moved, the Slice arm (~9216).
+     TODAY: `binds_by_value(sp)` is a BOOL requiring sp.kind()==Wild with a non-`_` name, so a
+     PAT_STRUCT / PAT_TUPLE sub marks NOTHING and the array's scope-exit drop destroys the
+     moved-out leaf a second time.
+     ARM: replace the bool with a RECURSIVE LEAF EMITTER emit_moved_leaves(sp, path, ty):
+       Wild+named  -> mark_moved(path)                       (today's behaviour, unchanged)
+       Struct      -> per field with a by-value binder, recurse at path + "." + field_name
+       Tuple       -> per by-value binding, recurse at path + "." + index
+       At(named)   -> mark_moved(path); else recurse into sub
+       everything else (RefBind/RefPat/Variant/Int/Bool/Range/Wild `_`) -> emit NOTHING.
+     CONSUMER VERIFIED: split_skip_paths (mlir_gen_stmt.cpp:1020) pushes p.substr(seg+1) into
+     child_out on a dotted prefix, so `arr.0.a` skips field a of element 0 and still drops b.
+
+  A2 "letidx" — sema_stmt.cpp lower_let_pat's array path (~1598).
+     TODAY: `mark_moved(tmp)` marks the WHOLE spill temp moved, so the temp's scope-exit drop is
+     suppressed entirely and every element the pattern does not bind has NO owner left -> leak.
+     ARM: mark `tmp + "." + j` for each BOUND index j only; leave :1591's whole-source
+     mark_moved_expr(rhs) ALONE.
+     ⚠ I EXPLICITLY CONTRADICT THE PRICING ROUND HERE. 2026-09-16i's RESULT.txt recommends
+     "replacing the whole-source mark_moved_expr" at :1591 with per-index marks. By reading, the
+     whole array genuinely DOES move into __dst_N (sl.value = std::move(rhs)), so :1591 is CORRECT
+     and a per-index source mark would leave the SOURCE's drop destroying elements the TEMP also
+     destroys -> a double free, the opposite failure direction. PREDICTION: the pricing's
+     recommended form double-frees x01/x03/x05; mine does not. This is measured, not argued.
+     CONSUMER VERIFIED: mark_moved takes any string (sema_impl.hpp:4264); sema.cpp:4088 prefix-
+     scans moved_vars_ for "<name>." and strips, so "__dst_0.1" arrives as moved-field "1" on
+     __dst_0; SDrop's K::Array branch forwards the moved set to gen_drop_value's per-index loop.
+     ⚠ RISK NAMED BEFORE MEASURING: the let door wraps its statements in a TRANSPARENT SBlock.
+     If a transparent sema block emits no scope-exit drop for its locals, __dst_N never drops and
+     A2 reads ZERO no matter how the mark is spelled. That is an UNREACHED-SITE zero, and probe
+     y01 (`let [_, _] = arr;`, nothing bound) is the program that separates it: base predicts
+     n=0, a working A2 predicts n=21.
+
+PREDICTED CLOSED SET — 2 QUEUE ROWS, BY ID
+  match_array_nested_destructure_elem_double_drop   (A1)  n=112  -> 12   (rustc 12)
+  let_array_pattern_field_base_unbound_elem_leak    (A2)  n=2    -> 21   (rustc 21)
+  Queue # TOTAL 229 -> 227, re-derived BY LISTING, not by arithmetic.
+
+PREDICTED FIXED BUT UNROWED (the four the pricing named; they close WITH the rows, same commit)
+  x01 let [_, y] = arr   (local)        n=2     -> 21     (A2)
+  x05 let [_, y, _] over 3              n=2     -> 231    (A2)
+  m02 match [W{a:x,b:z}] both bound     n=2112  -> 21     (A1)
+  m03 match [_, W{a:x,b:_}] at index 1  n=31234 -> 3412   (A1)
+
+PREDICTED NOT CLOSED — rowed with reason 1 (no carrier at that site)
+  let_array_pattern_nested_subpattern_refused (x04)  the LET door REFUSES a non-PAT_WILD sub at
+      :1626 before any mark exists to be wrong; admitting it is a different change (build a
+      nested destructure), not a path computation. NEW ROW OWED.
+  match_array_field_place_verifier_error_refused     MLIR verifier error on the array-typed place
+      base, fails before any move mark is consulted.
+  foreach_array_rvalue_elements_never_dropped_run    no carrier in lower_for_each's array path.
+  match_expr_array_pattern_segfaults_run             rc 139 before drop accounting.
+  loop_break_value_array_lit_uninit_drop_run         rc 139 before drop accounting.
+  at_binding_array_sub_verifier_error_refused        the At door, a different fact.
+
+PREDICTED COST
+  L1 rc 0. run_oracle: 0 changed other than the target programs. fail_text_oracle: 0 changed
+  (neither arm touches a diagnostic). gate-run -L bc: unchanged. Valgrind sweep: no new
+  LEAK/CORRUPT entries either way.
+  ⚠ A1 WIDENS a mark and a too-WIDE mark DOUBLE-FREES; A2 NARROWS one and a too-COARSE mark
+  LEAKS. Both failure directions are invisible to rc, to valgrind over an i64 counter, to
+  ceiling-probe (which cannot see a queue row at all) and to fail_text. The stdout destructor
+  trace against a rustc 1.98.1 twin is the ONLY admissible oracle here.
+
+MY OWN COUNTER-EXAMPLES — shapes the pricing round did NOT write (battery y01-y10).
+  The pricing used len-1 nested, len-2 with one `_`, len-3 two unbound, and a field base. It used
+  NO rest pattern, NO tuple sub, NO array-in-array, NO ref binding mode, NO multi-arm, NO
+  non-Drop sibling. Every one of those is a way for A1's recursion to emit a WRONG path.
+
+ADDENDUM — THE VALGRIND SWEEP PREDICTION, WRITTEN WHILE THE ARMED SWEEP IS STILL RUNNING
+  (base sweep already read: OK 7209, LEAK 53, CFAIL 62, LINKFAIL 124, TIMEOUT 4, CORRUPT 3 of 7455;
+   armed sweep at 1569/7455 rows at the time of writing, so its outcome is NOT yet visible.)
+
+  PREDICTED: the LEAK and CORRUPT SETS do not move in either direction — 0 entered, 0 left.
+  REASONING, so the prediction is falsifiable rather than a hedge: both arms change WHICH PATHS are
+  recorded as moved, not whether memory is allocated or freed. The defects being fixed are a missing
+  destructor call (a leak of a STACK value into an i64 counter) and a doubled destructor call over
+  that same counter — neither reaches malloc, which is precisely why valgrind read "0 errors, 0
+  allocs, 0 frees" on all nine legal battery programs on BOTH binaries and on 24 of 35 tier-1 rows.
+  A change that is invisible to the allocator should be invisible to this column.
+
+  WHAT WOULD FALSIFY IT, AND WHAT I WOULD DO: any fixture ENTERING LEAK or CORRUPT is a real
+  regression this round caused and would have to be explained or the arm reverted — the runtime
+  column (0 changed of 7436) would have missed it, which is exactly what this column is for. Any
+  fixture LEAVING LEAK is a bonus fix that must still be explained, not quietly banked.
+  ⚠ AND ONE SET DIFFERENCE IS PRE-DECLARED AS NOT-A-CHANGE UNTIL RE-RUN ALONE: fiber_thread_basic is
+  on record (2026-09-14o) as a fixture a LOADED sweep can drop by timing out, and this sweep ran at
+  load 30-47. Any movement involving it, or any TIMEOUT-set movement at all, is re-run in isolation
+  before it is called a change.
