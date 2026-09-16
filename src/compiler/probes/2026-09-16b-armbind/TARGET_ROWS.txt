@@ -1,0 +1,43 @@
+ROUND 2026-09-16b-armbind — TARGET ROWS, written BEFORE touching the compiler.
+Base binary build/bin/logosc, build_hash b6a9d46a1e606239 43, HEAD efd18aefe (tree clean).
+
+THE BLOCK (measured, not inherited): A MATCH ARM THAT BINDS PIECES OF A BY-VALUE
+AGGREGATE SCRUTINEE. The handed-down tier-1 grouping in the prompt is REFUTED by
+measurement: struct, tuple and variant-payload arms are all CORRECT today
+(hand a01 a02 a04 a05 a09 a10, n=2 each, = rustc). Two doors are wrong, and the
+`let` destructure control of the same shape is RIGHT (b01 n=32 = rustc), so the
+fact is specific to the MATCH path.
+
+  DOOR A — ARRAY (slice) PATTERN, elements bound by value.
+    slice_pattern_arm_binding_extra_drops      run 1   (32231; rustc 321)
+    match_expr_array_pattern_segfaults_run     run 139 (segfault; rustc k=11 n=11)
+  ROOT CANDIDATE, READ: SemaChecker::pattern_moves_out, `case ps::Code::Slice:
+  return false;` (src/compiler/sema_stmt.cpp:9057 fn, Slice arm). The scrutinee
+  is therefore never marked moved, its scope-exit drop runs over storage whose
+  elements the arm already moved out, and every element is destroyed twice.
+  MEASURED: b02 [z,b] with return n=3223, b03 without return n=3223 (so `return`
+  is NOT the fact — the row header's framing is wrong), b05/b06 arity-1 n=22.
+  ⚠ THE SLICE ARM'S OWN COMMENT NAMES THE COST THAT BOUGHT IT ("a whole-array
+  mark here would refuse it and coarsen the sentence (measured: 1 pass + 4 fail
+  fixtures)"). The crude arm is pre-condemned by that comment; it is priced only
+  as a CEILING, and the claim of 5 fixtures is itself checked.
+
+  DOOR B — `@` BINDING OF A WHOLE AGGREGATE.
+    at_binding_by_value_never_dropped          run 1   (n=0; rustc n=2)
+  pattern_moves_out's At arm DOES return true, so the scrutinee is marked moved
+  and nothing owns the binding: the mirror image of door A (A under-marks and
+  double-drops, B marks and leaks). Four NEW findings beside it, no row today:
+    b08 `y @ W{..}` with return       SEGFAULT 139   rustc k=3 n=2
+    b13 `y @ W{..}` expression posn   SEGFAULT 139   rustc (same shape) n=2
+    b14 `y @ (_,_)` tuple             SEGFAULT 139   rustc k=3 n=2
+    b09 `y @ [_]` array   REFUSED by an MLIR VERIFIER ERROR ("'arith.cmpi' op
+        operand #0 must be signless-integer-like, but got '!llvm.ptr'")  rustc n=2
+    b10 `y @ _` over a Drop type  REFUSED "cannot move out of 'D' into pattern
+        binding 'y'" — a LEGAL program refused                            rustc n=2
+
+WHY THIS BLOCK: one predicate (pattern_moves_out) decides both doors, at two
+arms that disagree with each other; the let/for controls are correct, so the
+blast radius is the match path only; and every claim above is measured on
+today's binary against rustc 1.98.1 twins, not read off a header.
+TEST OF THE GROUPING (the only thing that decides it): does ONE candidate change
+move BOTH doors? That is what the probe table must answer — it is NOT assumed here.

@@ -1,0 +1,35 @@
+ROUND 2026-09-16b-armbind — PREDICTIONS, written BEFORE the probe run finished.
+Base build_hash b6a9d46a1e606239 43. Two arms, ONE build, both at
+SemaChecker::pattern_moves_out's `case ps::Code::Slice`:
+  slicemv  — the CRUDE whole-array mark: any named by-value element binding of a
+             move-type element marks the whole scrutinee moved.
+  slicemvn — the SAME test, but ONLY when the slice pattern has NO rest
+             (`sv_.rest()` null), i.e. the exact-arity spelling `[z, b]`.
+
+WHY THE DECOMPOSITION IS NOT CEREMONY: the pass fixture the Slice arm's own
+comment names as its cost, bc_slicearr_suffix_prefix_twin, matches ONLY with rest
+spellings (`[.., z]` and `[w, ..]`, read). Both target rows use exact arity
+(`[z, b]`, `[x, y]`). So the arm that buys the rows and the arm that pays that
+fixture are separable — if the comment's cost is really that fixture.
+
+PREDICTIONS, BY NAME:
+  P1 census armbind.slice.movesout FIRES > 0 on the corpus (the site is LIVE).
+     A zero here is an UNREACHED-SITE zero and would refute the whole root.
+  P2 slicemv COSTS bc_slicearr_suffix_prefix_twin in the pass/runtime column
+     (the comment's claim, re-measured rather than repeated).
+  P3 slicemvn does NOT cost bc_slicearr_suffix_prefix_twin (no exact-arity
+     match arm in it) -> its pass cost is 0 on that fixture.
+  P4 slicemv CLOSES slice_pattern_arm_binding_extra_drops (32231 -> 321).
+  P5 slicemvn CLOSES slice_pattern_arm_binding_extra_drops TOO (its pattern
+     `[z, b]` has no rest).
+  P6 NEITHER arm closes match_expr_array_pattern_segfaults_run (139): the
+     segfault is a DOOR IN SERIES — the value is mis-addressed before any drop
+     accounting, which a move MARK cannot reach. (The row's own header records
+     that the consumption-mark candidates left it at 139.)
+  P7 NEITHER arm moves at_binding_by_value_never_dropped (door B): the At arm
+     already returns true; the defect is the missing OWNER, not the missing mark.
+     If an arm DOES move it, the two doors are one fact and I am wrong here.
+  P8 The four cfail fixtures the comment names carry NO array pattern (checked
+     by direct read), so the "4 fail fixtures" belong to a DIFFERENT arm of that
+     round's change, not to the Slice arm. If so the comment overstates the
+     Slice arm's price and the record must say so.

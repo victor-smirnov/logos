@@ -1,0 +1,72 @@
+BASE	row_slice_pattern_arm_binding_extra_drops	run=1	
+BASE	row_match_expr_array_pattern_segfaults_run	run=139	
+BASE	row_at_binding_by_value_never_dropped	run=1	
+BASE	row_loop_break_value_array_lit_uninit_drop_run	run=139	
+BASE	row_match_arm_nested_binder_shadow_double_drop	run=1	
+BASE	row_foreach_array_rvalue_elements_never_dropped_run	run=1	s=11 n=0|
+BASE	hb_b01	run=0	k=5 n=32|
+BASE	hb_b02	run=0	k=5 n=3223|
+BASE	hb_b03	run=0	k=5 n=3223|
+BASE	hb_b04	run=139	
+BASE	hb_b05	run=0	k=2 n=22|
+BASE	hb_b06	run=0	k=2 n=22|
+BASE	hb_b07	run=0	k=4 n=0|
+BASE	hb_b08	run=139	
+BASE	hb_b09	REFUSED	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+BASE	hb_b10	REFUSED	error [fn g]: cannot move out of 'D' into pattern binding 'y': type 'D' implements the Drop trait, so its dest
+BASE	hb_b11	run=0	k=5 n=23|
+BASE	hb_b12	run=0	k=5 n=23|
+BASE	hb_b13	run=139	
+BASE	hb_b14	run=139	
+BASE	fx_suffix_prefix_twin	run=0	
+BASE	fx_subslice_disjoint	run=0	
+BASE	fx_owned_destructure	run=0	
+BASE	fx_array_pattern_match_expr	run=0	
+slicemv	row_slice_pattern_arm_binding_extra_drops	run=0	
+slicemv	row_match_expr_array_pattern_segfaults_run	run=139	
+slicemv	row_at_binding_by_value_never_dropped	run=1	
+slicemv	row_loop_break_value_array_lit_uninit_drop_run	run=139	
+slicemv	row_match_arm_nested_binder_shadow_double_drop	run=1	
+slicemv	row_foreach_array_rvalue_elements_never_dropped_run	run=1	s=11 n=0|
+slicemv	hb_b01	run=0	k=5 n=32|
+slicemv	hb_b02	run=0	k=5 n=32|
+slicemv	hb_b03	run=0	k=5 n=32|
+slicemv	hb_b04	run=139	
+slicemv	hb_b05	run=0	k=2 n=2|
+slicemv	hb_b06	run=0	k=2 n=2|
+slicemv	hb_b07	run=0	k=4 n=0|
+slicemv	hb_b08	run=139	
+slicemv	hb_b09	REFUSED	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+slicemv	hb_b10	REFUSED	error [fn g]: cannot move out of 'D' into pattern binding 'y': type 'D' implements the Drop trait, so its dest
+slicemv	hb_b11	run=0	k=5 n=23|
+slicemv	hb_b12	run=0	k=5 n=23|
+slicemv	hb_b13	run=139	
+slicemv	hb_b14	run=139	
+slicemv	fx_suffix_prefix_twin	REFUSED	/home/logos/devel/logos/tests/logos/pass/bc_slicearr_suffix_prefix_twin.logos:31: error [fn main]: use of move
+slicemv	fx_subslice_disjoint	run=0	
+slicemv	fx_owned_destructure	run=0	
+slicemv	fx_array_pattern_match_expr	run=0	
+slicemvn	row_slice_pattern_arm_binding_extra_drops	run=0	
+slicemvn	row_match_expr_array_pattern_segfaults_run	run=139	
+slicemvn	row_at_binding_by_value_never_dropped	run=1	
+slicemvn	row_loop_break_value_array_lit_uninit_drop_run	run=139	
+slicemvn	row_match_arm_nested_binder_shadow_double_drop	run=1	
+slicemvn	row_foreach_array_rvalue_elements_never_dropped_run	run=1	s=11 n=0|
+slicemvn	hb_b01	run=0	k=5 n=32|
+slicemvn	hb_b02	run=0	k=5 n=32|
+slicemvn	hb_b03	run=0	k=5 n=32|
+slicemvn	hb_b04	run=139	
+slicemvn	hb_b05	run=0	k=2 n=2|
+slicemvn	hb_b06	run=0	k=2 n=2|
+slicemvn	hb_b07	run=0	k=4 n=0|
+slicemvn	hb_b08	run=139	
+slicemvn	hb_b09	REFUSED	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+slicemvn	hb_b10	REFUSED	error [fn g]: cannot move out of 'D' into pattern binding 'y': type 'D' implements the Drop trait, so its dest
+slicemvn	hb_b11	run=0	k=5 n=23|
+slicemvn	hb_b12	run=0	k=5 n=23|
+slicemvn	hb_b13	run=139	
+slicemvn	hb_b14	run=139	
+slicemvn	fx_suffix_prefix_twin	run=0	
+slicemvn	fx_subslice_disjoint	run=0	
+slicemvn	fx_owned_destructure	run=0	
+slicemvn	fx_array_pattern_match_expr	run=0	

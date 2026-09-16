@@ -1,0 +1,34 @@
+variant_payload_char_literal_nomatch	cc=0	diag=0	run=1	stdout=-
+impl_fn_return_stack_env_dangles	cc=0	diag=0	run=1	stdout=-
+letelse_or_pattern_takes_else	cc=0	diag=0	run=1	stdout=-
+enum_payload_partial_move_leak	cc=0	diag=0	run=1	stdout=-
+weak_local_never_dropped	cc=0	diag=0	run=1	stdout=-
+closure_fnonce_cond_call_untaken_leak	cc=0	diag=0	run=1	stdout=-
+self_call_in_return_kills_param_drops	cc=0	diag=0	run=1	stdout=-
+variant_payload_nested_struct_sub_double_drops	cc=0	diag=0	run=2	stdout=-
+boxed_escaping_fnonce_capture_double_free	cc=0	diag=0	run=2	stdout=-
+closure_owned_dyn_capture	cc=0	diag=0	run=1	stdout=-
+closure_fnonce_call_in_loop_multi_free	cc=0	diag=0	run=1	stdout=-
+index_place_through_refmut_never_drops_old	cc=0	diag=0	run=1	stdout=n=110|
+static_array_whole_borrow_reads_garbage	cc=0	diag=0	run=1	stdout=-
+boxed_move_closure_fat_capture_env_overflow	cc=0	diag=0	run=134	stdout=-
+tuple_elem_shared_borrow_through_ref_dangles_run	cc=0	diag=0	run=1	stdout=-
+field_base_temp_built_before_sibling_run	cc=0	diag=0	run=1	stdout=k=3 seq=216|
+operator_operand_owner_after_sibling_exit_leak	cc=0	diag=0	run=1	stdout=r=5 seq=2|
+enum_variant_value_into_scalar_let_admits	cc=0	diag=0	run=120	stdout=-
+match_arm_nested_binder_shadow_double_drop	cc=0	diag=0	run=1	stdout=-
+closure_param_shadow_double_drop	cc=0	diag=0	run=1	stdout=-
+tuplestruct_door_default_ref_mode_not_carried	cc=0	diag=0	run=2	stdout=drops=2|
+box_field_move	cc=0	diag=0	run=134	stdout=-
+slice_pattern_arm_binding_extra_drops	cc=0	diag=0	run=1	stdout=-
+at_binding_by_value_never_dropped	cc=0	diag=0	run=1	stdout=-
+generic_operator_mono_redispatch_operands_double_drop	cc=0	diag=0	run=1	stdout=-
+param_ref_struct_cast_after_addr_of_reads_slot_run	cc=0	diag=0	run=1	stdout=-
+array_nonprim_elem_eq_compares_addresses_run	cc=0	diag=0	run=1	stdout=-
+ref_pair_nonprim_tuple_eq_compares_addresses_run	cc=0	diag=0	run=1	stdout=-
+foreach_array_rvalue_elements_never_dropped_run	cc=0	diag=0	run=1	stdout=s=11 n=0|
+generic_struct_impl_ref_eq_compares_addresses_run	cc=0	diag=0	run=1	stdout=-
+fnptr_field_call_on_temporary_never_dropped_run	cc=0	diag=0	run=1	stdout=n=0|
+fru_temporary_base_unmoved_field_never_dropped_run	cc=0	diag=0	run=1	stdout=n=110|
+loop_break_value_array_lit_uninit_drop_run	cc=0	diag=0	run=139	stdout=-
+match_expr_array_pattern_segfaults_run	cc=0	diag=0	run=139	stdout=-

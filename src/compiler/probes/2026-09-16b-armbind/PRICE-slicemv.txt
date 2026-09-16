@@ -1,0 +1,23 @@
+ceiling-probe: unarmed baseline (from the store where it is already there)
+ceiling-probe: armed run — LOGOS_PROBE=slicemv
+ceiling-probe: fail-text baseline for build 44c262fd8cab128c not yet measured
+fail-oracle: 1872 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-44c262fd8cab128c.tsv
+fail-oracle: 1872 fail fixtures recorded (rc, stderr sha, .expected match) -> build/probe/failtext-44c262fd8cab128c-slicemv.tsv
+ceiling-probe: 'slicemv'  builds 1266 (unarmed) -> 1267 (armed)
+probe: fired 13 times
+probe: CEILING = 0 rows
+probe: COST    = 1 legal programs refused   [saw: pass(ledger+legal) fail(text) stdlib]
+probe:           a LOWER bound — the corpus refuses only what it CONTAINS;
+probe:           write the counter-examples)
+probe:   logos_02_semantic_core_pass_bc_slicearr_suffix_prefix_twin
+probe: COST-fail = 4 of 1872 `-L bc -L fail` fixtures changed (rc 0, .expected-match 4, text-only 0)
+probe:   MATCH logos_06_diagnostics_fail_bc_slicearr_elem_moved_twice  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_bc_slicearr_suffix_moved_twice  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_borrowck-move-out-from-array-match  .expected LOST
+probe:   MATCH logos_06_diagnostics_fail_borrowck-move-out-from-array-use-match--b  .expected LOST
+probe: stdlib: all four layers compile under 'slicemv'
+probe: ⛔ it changes MORE pinned diagnostics (4)
+probe:    than it closes rows (0). Read every one before funding it — a
+probe:    branch that only re-words an already-red diagnostic buys nothing.
+probe: ⚠ a CEILING bounds the COUNT, not the SET: diff these names against what
+probe:   you predicted BY NAME. A matching count can be two errors cancelling.

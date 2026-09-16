@@ -1,0 +1,101 @@
+ROUND 2026-09-16b-armbind — PRICING RESULT. HEAD efd18aefe, base build_hash b6a9d46a1e606239 43
+(READ before and after; the revert+rebuild returned the binary to that same identity — the control
+that the tree carries no probe).
+
+CENSUS (STEP 1). queue gate rc 0 (220 rows, tier1=34 tier2=60 tier3=115 tier4=11, `# TOTAL` 220);
+bc_admits 60, bc_admits_blocked 8; probe-log-lint 375 records, every site symbol resolves.
+⚠ THE STEP-1 GATE COMMAND IN THE PROMPT IS CORRECT — it carries LOGOS_LIB_DIR. Re-verified against
+the prompt text itself, not repeated from a journal (the correction four rounds recorded is spent).
+dlog selftest PASSES its known answer: 19 walkers / 24 findings / try_path 1-5 / domain 42-5,
+duty discriminates across 756aed65 (1 -> 0).
+
+RE-MEASUREMENT OF ALL 34 TIER-1 ROWS on today's binary (compiled, linked, run, exit+stdout read,
+valgrind summary quoted — T1_REMEASURE.tsv, T1_VALGRIND.tsv): ALL 34 REPRODUCE EXACTLY as recorded.
+Zero closings, zero divergences. Valgrind adds what no exit code could: box_field_move "Invalid
+free()", boxed_move_closure_fat_capture_env_overflow "Invalid read/write of size 8",
+closure_owned_dyn_capture "Invalid read of size 8", weak_local_never_dropped "12 bytes in 1 blocks
+definitely lost", loop_break_value_array_lit_uninit_drop_run "Use of uninitialised value of size 8",
+match_expr_array_pattern_segfaults_run "Invalid read of size 8", impl_fn_return_stack_env_dangles and
+tuple_elem_shared_borrow_through_ref_dangles_run "Conditional jump depends on uninitialised value".
+
+THE HANDED-DOWN GROUPING IS REFUTED (six-for-six now). The prompt's tier-1 classes suggested a broad
+"match arm binds a by-value aggregate" block. MEASURED: struct, tuple and variant-payload arms are
+all CORRECT today (a01 a02 a04 a05 a09 a10, n=2 = rustc), and the `let [a,b] = arr` destructure
+control is CORRECT (b01 n=32 = rustc). Only TWO doors are wrong, and they are NOT one fact.
+
+THE ROOT, READ NOT GUESSED: SemaChecker::pattern_moves_out, `case ps::Code::Slice: return false;`.
+The scrutinee is never marked moved, so its scope-exit drop runs over storage whose elements the arm
+already moved out — every element destroyed twice. Census armbind.slice.movesout = 14 arrivals over
+the array-pattern population (patdecl.arrive.Slice 39): a LIVE site, not a harness zero.
+
+PROBE TABLE (one build, both arms env-gated at that one site; fires from probe::on)
+  arm       fires  CEILING  COST(pass)  COST-fail  stdlib  runtime/valgrind
+  slicemv     13     0*        1            4        ok     rows+battery valgrind-clean
+  slicemvn    13     0*        0            3        ok     rows+battery valgrind-clean
+  *⚠ THE CEILING COLUMN IS STRUCTURALLY BLIND TO THIS BLOCK AND ITS 0 IS NOT EVIDENCE.
+   ceiling-probe.sh computes CEILING as `gate_db.py delta ... logos_00_bc_admit_` — bc_admits rows
+   ONLY. Verified by listing: all 220 `logos_00_squeue_*` tests, including the three target rows,
+   match NONE of the script's three selections (LEDGER `^logos_00_bc_admit_`, LEGAL_A `-L bc -L
+   pass`, LEGAL_B `^logos_(25_spec|03_ownership|04_advanced)_pass`). So a soundness-queue row can
+   never raise CEILING, and the tool's verdict line ("changes MORE pinned diagnostics than it closes
+   rows") is arithmetic over a column that cannot see the rows. The row oracle below replaces it.
+
+ROW ORACLE — the grouping test, ONE candidate against BOTH doors (ARMRUN.tsv, same build, one
+variable, BASE = the same binary unarmed):
+  row / program                                  BASE    slicemv   slicemvn   rustc
+  slice_pattern_arm_binding_extra_drops          run 1   run 0     run 0      exit 0   CLOSED by both
+  match_expr_array_pattern_segfaults_run         139     139       139        k=11 n=11  unmoved
+  loop_break_value_array_lit_uninit_drop_run     139     139       139        exit 0     unmoved
+  at_binding_by_value_never_dropped              run 1   run 1     run 1      n=2        unmoved
+  match_arm_nested_binder_shadow_double_drop     run 1   run 1     run 1                 unmoved
+  foreach_array_rvalue_elements_never_dropped    run 1   run 1     run 1                 unmoved
+  hand b02 `[z,b]` return        n=3223   -> 32   -> 32     rustc 32   CORRECTED by both
+  hand b03 `[z,b]` no return     n=3223   -> 32   -> 32     rustc 32   CORRECTED by both
+  hand b05 `[z]` arity-1 return  n=22     -> 2    -> 2      rustc 2    CORRECTED by both
+  hand b06 `[z]` arity-1         n=22     -> 2    -> 2      rustc 2    CORRECTED by both
+  hand b01 `let [a,b] = arr`     n=32     -> 32   -> 32     rustc 32   INHERITED (rule 14)
+  hand b11 for-each / b12 index  n=23     -> 23   -> 23     correct    INHERITED
+  fixtures fx_subslice_disjoint / fx_owned_destructure / fx_array_pattern_match_expr: 0 -> 0 -> 0.
+DOORS A AND B ARE NOT ONE FACT — measured, not assumed. pattern_moves_out's At arm ALREADY returns
+true, so door B's scrutinee IS marked moved; its defect is the missing OWNER, downstream of the mark.
+The `return` is NOT the fact either (b03 without a return reads the same 3223 as b02), which
+contradicts slice_pattern_arm_binding_extra_drops' own header framing.
+
+THE COST, READ RATHER THAN TALLIED (every changed sentence read on both arms):
+  slicemv COST 1 = pass/bc_slicearr_suffix_prefix_twin REFUSED (direct check: BASE compiles+runs 0,
+    slicemv refused, slicemvn compiles+runs 0). The Slice arm's OWN COMMENT predicted exactly this.
+  slicemv COST-fail 4 / slicemvn COST-fail 3, the difference being bc_slicearr_suffix_moved_twice,
+    which KEEPS its fine sentence under slicemvn ("use of moved field 'a.2'") and loses it under
+    slicemv ("use of moved variable 'a'"). The three both arms coarsen — bc_slicearr_elem_moved_twice,
+    borrowck-move-out-from-array-match, borrowck-move-out-from-array-use-match--b — all use EXACT-ARITY
+    patterns (`[_p,_q,_r]`, `[_, _, x]`), so the no-rest guard cannot spare them. Predicted by name
+    before the run; the count and the SET both matched.
+  ⚠ A CORRECTION TO THE CODE'S OWN COMMENT AND TO THE ROUND RECORD THAT BOUGHT IT. The comment says
+  the whole-array mark cost "1 pass + 4 fail fixtures". The pass half is exact. The four fail fixtures
+  are REAL and are array fixtures — but they are NOT the four the round record at PROBES.md:23967
+  names (bc_patsubmove_second_use_fail, issue-53807--c-iflet-noloop, issue-31287-drop-in-guard,
+  issue-53807--move-in-loop). Those four contain NO array pattern at all (read: they are `if let
+  Option::Some(..)` enum-payload programs) and belong to that round's whole-var-mark half, measured at
+  its m4 build. Two different sets of four, one number, and the attribution was carried in a comment.
+  My own prediction P8 was HALF WRONG and is recorded as MISPREDICTED: I predicted the comment's four
+  were the record's four and therefore not array fixtures.
+
+WHAT DESERVES FUNDING: slicemvn is NOT the correct fix and must not be landed as one. It buys one row
+and four hand programs at the price of three pinned diagnostics that go from a PRECISE partial-move
+sentence ("use of moved field 'a.2'") to a COARSE one ("use of moved variable 'a'") — a strictly worse
+sentence for a program that is still correctly refused, i.e. rule 14's "re-words an already-red
+diagnostic". The measurement says the correct repair is the one the Slice comment already describes:
+mark the ELEMENT moved, not the array — a per-element record at the match-arm door, so the scrutinee's
+scope-exit drop skips exactly the moved indices and the `a.2` sentence survives. That arm was NOT built
+here: mark_match_scrutinee_moved routes a non-VarRef place through mark_moved_expr, which "REFUSES an
+array element the way every other move spelling does" (its own comment) — a door in series, and pricing
+it is the next round's work. slicemv is condemned outright (it also costs the legal pass fixture).
+
+ROWS OPENED (2), each verified reproducing on the CLEAN rebuilt binary:
+  at_binding_aggregate_segfaults_run           tier 1  run 139  (`y @ W{..}`; the expression-position
+    and tuple spellings segfault identically; rustc k=3 n=2 on all three twins)
+  at_binding_array_sub_verifier_error_refused  tier 3  refuses  (`y @ [_]` escapes an MLIR VERIFIER
+    error as the user-visible refusal; rustc k=7 n=2)
+  A THIRD candidate was DISCARDED as a duplicate, not rowed: `y @ _` over a Drop value prints a
+  sentence BYTE-IDENTICAL to the existing row at_binding_whole_struct_wild_fields_refused (compared
+  directly), so it is that row's defect at another spelling.
