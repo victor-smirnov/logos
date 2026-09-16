@@ -1,0 +1,295 @@
+diff --git a/src/compiler/borrow_check.cpp b/src/compiler/borrow_check.cpp
+index c23578730..4e20c8387 100644
+--- a/src/compiler/borrow_check.cpp
++++ b/src/compiler/borrow_check.cpp
+@@ -2413,7 +2413,72 @@ private:
+     // A store evaluates its value and index before IndexMut's `&mut v` (Rust): true when every loan that conflicts
+     // with it is a whole-`v` shared loan whose holders' last use is this statement, raised inside the innermost loop.
+     // A query, not a release. PROBES.md 2026-09-14b-ptrcoerceland.
+-    bool store_loans_die_in_stmt_(const std::string& root) {
++    // PROBES 2026-09-16e-idxdie: does `e` read the binding `name` anywhere
++    // inside it? Modelled on scan_uses_expr's shape — the same child set, no
++    // side effects and no liveness. Used to ask the ONE question the liveness
++    // query cannot: is the conflicting loan read by the store's INDEX.
++    bool expr_reads_name_(lir_view::ExprRef e, const std::string& name, int depth = 0) const {
++        if (!e || depth > 32) return false;
++        using namespace lir_view;
++        using Code = lir_schema::expr::Code;
++        auto rec = [&](ExprRef c) { return expr_reads_name_(c, name, depth + 1); };
++        switch (e.kind()) {
++            case Code::VarRef:   return EVarRefView{e}.name() == name;
++            case Code::AddrOf:   return EAddrOfView{e}.var_name() == name;
++            case Code::AddrOfTemp: return rec(EAddrOfTempView{e}.inner());
++            case Code::Unary:    return rec(EUnaryView{e}.operand());
++            case Code::Deref:    return rec(EDerefView{e}.operand());
++            case Code::Cast:     return rec(ECastView{e}.operand());
++            case Code::Try:      return rec(ETryView{e}.inner());
++            case Code::FieldRead:  return rec(EFieldReadView{e}.receiver());
++            case Code::TupleIndex: return rec(ETupleIndexView{e}.receiver());
++            case Code::SliceLen:   return rec(ESliceLenView{e}.slice());
++            case Code::SlicePtr:   return rec(ESlicePtrView{e}.slice());
++            case Code::BinOp: {
++                EBinOpView v{e};
++                return rec(v.lhs()) || rec(v.rhs());
++            }
++            case Code::IndexRead: {
++                EIndexReadView v{e};
++                return rec(v.receiver()) || rec(v.index());
++            }
++            case Code::SliceIndex: {
++                ESliceIndexView v{e};
++                return rec(v.slice()) || rec(v.index());
++            }
++            case Code::IfExpr: {
++                EIfExprView v{e};
++                return rec(v.cond()) || rec(v.then_val()) || rec(v.else_val());
++            }
++            case Code::Call: {
++                bool hit = false;
++                ECallView{e}.each_arg([&](ExprRef a) { if (rec(a)) hit = true; });
++                return hit;
++            }
++            case Code::MethodCall: {
++                EMethodCallView v{e};
++                bool hit = rec(v.receiver());
++                v.each_arg([&](ExprRef a) { if (rec(a)) hit = true; });
++                return hit;
++            }
++            default: return false;
++        }
++    }
++
++    // True when `name` is read by an ARGUMENT of the store's index_mut call —
++    // i.e. by the INDEX expression, which Rust evaluates AFTER the `&mut v`
++    // autoref. A read in the assigned VALUE is NOT here: the value is
++    // evaluated BEFORE the autoref, which is why `v[0] = *e + 1` is legal.
++    bool store_index_reads_(lir_view::ExprRef store_mc, const std::string& name) const {
++        if (!store_mc || store_mc.kind() != lir_schema::expr::Code::MethodCall) return false;
++        bool hit = false;
++        lir_view::EMethodCallView{store_mc}.each_arg(
++            [&](lir_view::ExprRef a) { if (expr_reads_name_(a, name)) hit = true; });
++        return hit;
++    }
++
++    bool store_loans_die_in_stmt_(const std::string& root,
++                                  lir_view::ExprRef store_mc = {}) {
+         auto* sit = var_find(NO_SLOT, root);
+         if (sit == nullptr || !sit->shared_field_borrows.empty() || !sit->mut_field_borrows.empty()) return false;
+         const size_t loop_lo = loop_stack_.empty() ? 0 : loop_stack_.back().outer_scope_count;
+@@ -2423,6 +2488,26 @@ private:
+                 if (b.holder.empty() || fi < loop_lo || holder_drops_after_last_use(b) ||
+                     holders_last_use(b) > max_line_seen_)
+                     return false;
++                // PROBES 2026-09-16e-idxdie: "the holder's last use is THIS
++                // statement" is not "the holder is dead before the store" — in
++                // `v[*e as u64] = 9` the loan is READ BY the store's own index
++                // expression, and rustc refuses it (E0502) while accepting the
++                // hoisted `let i = *e as u64; v[i] = 9`. The existing test
++                // cannot separate them because both compare equal-or-less.
++                if (logos::probe::on("idxdie") && holders_last_use(b) == max_line_seen_)
++                    return false;
++                // PROBES 2026-09-16e-idxdieidx: the fact stated directly. `v[i] = x`
++                // lowers to `index_mut(&mut v, i)`, so the autoref is taken BEFORE
++                // the index is evaluated and AFTER the value is: a conflicting loan
++                // read by the INDEX conflicts (rustc E0502), one read by the VALUE
++                // does not. Liveness cannot see the difference because both read in
++                // THIS statement — which is why `idxdie` above costs two landed
++                // pass fixtures and this does not.
++                if (logos::probe::on("idxdieidx") && store_mc) {
++                    if (store_index_reads_(store_mc, b.holder)) return false;
++                    for (auto& co : b.co_holders)
++                        if (store_index_reads_(store_mc, co)) return false;
++                }
+             }
+         return true;
+     }
+@@ -15610,7 +15695,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
+                     if (rbp.root.empty() && recv.kind() == Code::AddrOf) {
+                         rbp.root = std::string(EAddrOfView{recv}.var_name());
+                         rbp.root_type = TypeRef(recv.type(pool)).pointee();
+-                        ask_ = e.addr() != store_target_mc_ || !store_loans_die_in_stmt_(rbp.root);
++                        ask_ = e.addr() != store_target_mc_ || !store_loans_die_in_stmt_(rbp.root, e);
+                     }
+                     if (ask_) check_recv_conflict(rbp, /*is_mut=*/sk == 2, line);
+                 }
+diff --git a/src/compiler/sema_expr.cpp b/src/compiler/sema_expr.cpp
+index dbdc2bbb9..be8beeb4d 100644
+--- a/src/compiler/sema_expr.cpp
++++ b/src/compiler/sema_expr.cpp
+@@ -4424,7 +4424,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
+ 
+         // B69: caller cross-check of callee's `where 'a: 'b` bounds.
+         check_call_outlives(std::string(callee), exact_fi->param_types,
+-                            arg_exprs, exact_fi->lifetime_outlives);
++                            arg_exprs, exact_fi->lifetime_outlives, {},
++                            /*first_arg_is_receiver=*/false, exact_fi->ret_type);
+ 
+         track_args_moved(arg_exprs, &exact_fi->param_types);
+         // ⚠ THE EXACT-MATCH OVERLOAD PATH IS A THIRD CALL SITE, and the census
+@@ -4620,7 +4621,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
+     auto ipts_ = inst_call_params_(fi.param_types, fi.lifetime_params, arg_exprs,
+                                    fi.ret_type);
+     if (!has_pack_expand && n_args == fi.param_types.size())
+-        check_call_outlives(std::string(callee), fi.param_types, arg_exprs, fi.lifetime_outlives);
++        check_call_outlives(std::string(callee), fi.param_types, arg_exprs, fi.lifetime_outlives, {},
++                            /*first_arg_is_receiver=*/false, fi.ret_type);
+     if (has_pack_expand) {
+         // Pass through — mono will expand and validate
+     } else if (fi.is_vararg) {
+@@ -5574,7 +5576,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
+         if (ta_) check_written_type_wf(ta_, std::format("turbofish type argument of '{}'", callee_diag),
+                                        current_outlives_, /*decl_site=*/false);
+     check_type_bounds(callee_diag, fi.type_params, type_args);
+-    check_call_outlives(callee_diag, fi.param_types, arg_exprs, fi.lifetime_outlives);
++    check_call_outlives(callee_diag, fi.param_types, arg_exprs, fi.lifetime_outlives, {},
++                        /*first_arg_is_receiver=*/false, fi.ret_type);
+ 
+     // Substitute return type
+     TypeRef ret = subst_type_sema(fi.ret_type, subst);
+@@ -8514,7 +8517,8 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
+                         co_all_.push_back(recv);
+                         for (auto& a_ : arg_exprs) co_all_.push_back(a_);
+                         check_call_outlives(std::string(method_name), m.param_types, co_all_,
+-                                            m.lifetime_outlives, {}, /*first_arg_is_receiver=*/true);
++                                            m.lifetime_outlives, {}, /*first_arg_is_receiver=*/true,
++                                            m.ret_type);
+                     }
+                     for (uint64_t i = 0; i < explicit_args; ++i) {
+                         auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
+@@ -9210,7 +9214,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
+                     for (auto& a_ : arg_exprs) co_all_.push_back(a_);
+                     check_call_outlives(std::string(method_name), chosen_method->param_types, co_all_,
+                                         chosen_method->lifetime_outlives, {},
+-                                        /*first_arg_is_receiver=*/true);
++                                        /*first_arg_is_receiver=*/true, chosen_method->ret_type);
+                 }
+                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
+                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
+@@ -10746,7 +10750,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
+             co_all_.push_back(recv);
+             for (auto& a_ : arg_exprs) co_all_.push_back(a_);
+             check_call_outlives(std::string(mangled), fi.param_types, co_all_,
+-                                fi.lifetime_outlives, shown_, /*first_arg_is_receiver=*/true);
++                                fi.lifetime_outlives, shown_, /*first_arg_is_receiver=*/true,
++                                fi.ret_type);
+         }
+         for (uint64_t i = 0; i < explicit_args; ++i) {
+             size_t pi = i + 1;
+@@ -17218,7 +17223,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
+     if (arg_exprs.size() == fi.param_types.size()) {
+         const std::string shown_ = resolved_class + "::" + std::string(method_name);
+         check_call_outlives(std::string(mangled), fi.param_types, arg_exprs,
+-                            fi.lifetime_outlives, shown_);
++                            fi.lifetime_outlives, shown_,
++                            /*first_arg_is_receiver=*/false, fi.ret_type);
+     }
+     uint64_t n_args = arg_exprs.size();
+     if (n_args != fi.param_types.size()) {
+diff --git a/src/compiler/sema_impl.hpp b/src/compiler/sema_impl.hpp
+index 9f98b5450..90ff8a5eb 100644
+--- a/src/compiler/sema_impl.hpp
++++ b/src/compiler/sema_impl.hpp
+@@ -6822,6 +6822,40 @@ private:
+         }
+         return what;
+     }
++    // PROBES 2026-09-16e-cooutretv: does region `r` occur ANYWHERE in `t` at an
++    // INVARIANT position? Everything under a `&mut`'s pointee is invariant, so a
++    // callee region spelt `&mut &'a i64` is rigidly the caller's region and the
++    // caller must prove the bound. The OUTER lifetime of a `&mut` is covariant
++    // (a `&mut` argument is reborrowed), which is why k03 and m01/m02 stay legal.
++    bool region_invariantly_pinned_(TypeRef t, const std::string& r, bool inv,
++                                    int depth = 0) const {
++        if (!t || depth > 24) return false;
++        using K = LogosType::Kind;
++        switch (t.kind()) {
++        case K::Ref:
++            if (inv && !t.lifetime().empty() && outlives_norm(t.lifetime()) == r) return true;
++            return region_invariantly_pinned_(t.pointee(), r, inv, depth + 1);
++        case K::MutRef:
++            if (inv && !t.lifetime().empty() && outlives_norm(t.lifetime()) == r) return true;
++            // The POINTEE of a `&mut` is invariant.
++            return region_invariantly_pinned_(t.pointee(), r, true, depth + 1);
++        case K::Tuple:
++            for (auto e : t.tuple_elems())
++                if (region_invariantly_pinned_(e, r, inv, depth + 1)) return true;
++            return false;
++        case K::Slice: case K::Array:
++            return region_invariantly_pinned_(t.elem(), r, inv, depth + 1);
++        case K::Struct: case K::ZonedStruct: case K::Enum:
++            if (inv)
++                for (auto& l : t.lifetime_args())
++                    if (!l.empty() && outlives_norm(l) == r) return true;
++            for (auto a : t.type_args())
++                if (region_invariantly_pinned_(a, r, inv, depth + 1)) return true;
++            return false;
++        default: return false;
++        }
++    }
++
+     // B69: caller cross-check of callee's `where 'a: 'b` bounds.
+     // Walks param_types parallel to arg_types and extracts a callee→caller
+     // lifetime substitution map. For each pair in callee_outlives,
+@@ -6834,7 +6868,8 @@ private:
+         const std::vector<lir::LExprPtr>& arg_exprs,
+         const std::vector<std::pair<std::string, std::string>>& callee_outlives,
+         std::string_view callee_display = {},
+-        bool first_arg_is_receiver = false) {
++        bool first_arg_is_receiver = false,
++        TypeRef callee_ret = {}) {
+         if (callee_outlives.empty()) return;
+         // Build callee_lt → caller_lt substitution by walking matched
+         // param/arg type pairs.
+@@ -6932,6 +6967,52 @@ private:
+                 }
+                 continue;
+             }
++            // PROBES 2026-09-16e-cooutret: a callee region the caller cannot
++            // observe is instantiated AT THE CALL POINT, so a bound between two
++            // such regions is satisfied trivially and B69's demand on the
++            // caller's DECLARED graph is an over-refusal. Only a region PINNED
++            // FROM ABOVE constrains the caller, and the return type is the
++            // carrier this function is never given.
++            // TWO NAMES FOR THE INNER PREDICATE (rule 9): `cooutret` pins on the
++            // SHORT side only — the side the bound constrains from below —
++            // while `cooutretls` pins on EITHER side. m03 / m05 separate them:
++            // both carry the LONG side in the return type and rustc ACCEPTS
++            // both, so the either-side reading is the cruder one.
++            // PROBES 2026-09-16e-cooutretv: the STRICT EXTENSION of `cooutret`.
++            // `cooutret` alone is REFUTED by its own fail-text column — it
++            // un-refuses regions-lifetime-bounds-fn-c and
++            // region-multiple-lifetime-bounds-on-fns-where-clause--b, whose
++            // regions sit behind a `&mut` (an INVARIANT position) and so are
++            // pinned to the caller's regions even though they never reach the
++            // return type. A region is FREE only when every occurrence is
++            // COVARIANT and it is absent from the return type.
++            if (logos::probe::on("cooutretv")) {
++                std::unordered_set<std::string> retr_;
++                collect_param_regions_(callee_ret, retr_);
++                const auto cs_ = outlives_norm(c_short);
++                bool pinned_ = false;
++                for (auto& r_ : retr_)
++                    if (outlives_norm(r_) == cs_) { pinned_ = true; break; }
++                if (!pinned_)
++                    for (auto& pt_ : callee_param_types)
++                        if (region_invariantly_pinned_(pt_, cs_, false)) { pinned_ = true; break; }
++                if (!pinned_) continue;
++            }
++            const bool pin_either_ = logos::probe::on("cooutretls");
++            if (pin_either_ || logos::probe::on("cooutret")) {
++                std::unordered_set<std::string> retr_;
++                collect_param_regions_(callee_ret, retr_);
++                bool pinned_ = false;
++                for (auto& r_ : retr_) {
++                    const auto rn_ = outlives_norm(r_);
++                    if (rn_ == outlives_norm(c_short) ||
++                        (pin_either_ && rn_ == outlives_norm(c_long))) {
++                        pinned_ = true;
++                        break;
++                    }
++                }
++                if (!pinned_) continue;
++            }
+             auto it_l = subst.find(outlives_norm(c_long));
+             auto it_s = subst.find(outlives_norm(c_short));
+             // Only enforce when BOTH callee lifetimes are visible at arg

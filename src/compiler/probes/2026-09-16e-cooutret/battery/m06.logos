@@ -1,0 +1,11 @@
+package m06;
+fn a2<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) where 'b: 'a { *x = *y; }
+fn c2<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) { a2(x, y); }
+fn main() -> i32 {
+    let n: i64 = 7i64;
+    let m: i64 = 8i64;
+    let mut p: &i64 = &n;
+    let mut q: &i64 = &m;
+    c2(&mut p, &mut q);
+    return *p as i32;
+}

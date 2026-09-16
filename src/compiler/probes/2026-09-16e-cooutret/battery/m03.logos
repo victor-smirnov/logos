@@ -1,0 +1,8 @@
+package m03;
+fn two<'a, 'b>(x: &'a i64, y: &'b i64) -> &'a i64 where 'a: 'b { return x; }
+fn f<'p, 'q>(x: &'p i64, y: &'q i64) -> &'p i64 { return two(x, y); }
+fn main() -> i32 {
+    let n = 4i64;
+    let m = 5i64;
+    return *f(&n, &m) as i32;
+}

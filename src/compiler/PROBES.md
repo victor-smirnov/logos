@@ -47270,3 +47270,59 @@ logos_00_key_identity_lint and logos_00_population_pin_lint after a ctest run wh
 not select either test — a STALE file from an earlier invocation. Both were then run directly and both
 pass. A verdict read from an artefact nobody re-derived is the stale-file failure this tree keeps
 recording; the fix was to run the two tests, not to trust the file.
+
+## 2026-09-16e-cooutret — B69 INSTANTIATES A CALLEE'S REGIONS AT THE CALLER'S *DECLARED* ONES; RUST INSTANTIATES THEM AT THE CALL POINT, AND THE CARRIER THAT SAYS WHICH IS THE CALLEE'S RETURN TYPE — WHICH `check_call_outlives` IS NEVER GIVEN
+site: src/compiler/sema_impl.hpp::check_call_outlives
+build: 09d61601db8470bf 43
+measured: 2026-09-16
+fires: 8 of 55 hand/queue programs move; 4 of 1876 fail fixtures
+ceiling: 2 queue rows (outlives_method_call_nonstatic_bound_refuses + outlives_call_instantiation)
+cost: 0 in L1 inertness / stdlib (4 of 4) / queue-wide, and **4 in fail text — REFUTED AS PRICED**
+verdict: REFUTED. Superseded by cooutretv below. Kept because it is the measurement that
+  found the invariant half of the pin, and because five columns said 0 while the sixth did not.
+note: `cooutretls` (pin on EITHER side of the bound) is the rule-9 control: it leaves m03/m05
+  refused — two legal programs — and is otherwise digit-for-digit identical. The short side is
+  the fact. dlog static_demand_sites.dl outlives_askers = {lower_call, finish_generic_call,
+  lower_method_call, try_method_on_dyn, lower_static_call}; a per-site read finds 7 calls in
+  those same 5 contexts — the two agree term for term. ⚠ That rule's OWN known-answer control
+  is STALE (it asserts "exactly ONE context"); reported, not re-baselined.
+
+## 2026-09-16e-cooutretv — A CALLEE REGION IS FREE ONLY WHEN EVERY OCCURRENCE IS COVARIANT AND IT IS ABSENT FROM THE RETURN TYPE: THE SHORT SIDE PINNED BY A `&mut` POINTEE IS THE HALF THE RETURN-TYPE-ONLY READING MISSED
+site: src/compiler/sema_impl.hpp::check_call_outlives
+build: 95584aafacea65e6 43
+measured: 2026-09-16
+fires: 8 of 55 programs move, all 8 RUN with rustc's own exit codes (3,3,3,3,4,9,3,0)
+ceiling: 2 queue rows — outlives_method_call_nonstatic_bound_refuses, outlives_call_instantiation
+cost: 0 in L1 inertness (55) / stdlib (4 of 4) / queue-wide (only the 2 target rows move, both
+  CLOSING) / fail text **2, and both are MIS-PORTS rustc ACCEPTS** (issue-95272,
+  regions-bounded-method-type-parameters-trait-bound)
+verdict: DESERVES FUNDING. 12 of 12 battery programs agree with rustc 1.98.1; the two programs
+  that refuted `cooutret` (regions-lifetime-bounds-fn-c, region-multiple-lifetime-bounds-on-fns-
+  where-clause--b, both rustc-REFUSE) stay refused with their pinned sentences matching again.
+note: the two remaining fail-text movers are a CORPUS DECISION WITH AN OWNER, reported not
+  edited: upstream issue-95272 passes `Cell<&'a ()>` and upstream regions-bounded passes
+  `Inv<'a>` (`struct Inv<'a>{x:&'a mut &'a isize}`) — both INVARIANT — and both ports replaced
+  the carrier with a plain covariant `&'a i64`, deleting the reason the program is illegal.
+  They assert a refusal rustc does not make and are green today only because B69 over-refuses.
+⚠ AN rc OF 1 HID HALF THE COST OF THE PREDECESSOR: under `cooutret`,
+  region-multiple-...--b keeps rc 1 while BOTH its B69 errors vanish — what survives is an
+  unrelated borrowck error the outlives refusal had been masking. Only the TEXT column saw it
+  (`.expected` match 1 -> 0). A refusal count is a first failure, including when it reports
+  "unchanged".
+
+## 2026-09-16e-idxdieidx — `v[i] = x` TAKES ITS `&mut v` AUTOREF BEFORE THE INDEX IS EVALUATED AND AFTER THE VALUE IS, SO A LOAN READ BY THE *INDEX* CONFLICTS AND ONE READ BY THE *VALUE* DOES NOT — A LIVENESS QUERY CANNOT TELL THEM APART BECAUSE BOTH READ IN THE SAME STATEMENT
+site: src/compiler/borrow_check.cpp::store_loans_die_in_stmt_
+build: 09d61601db8470bf 43
+measured: 2026-09-16
+fires: 3 of 55 programs move (row2, w01, w05), every one rustc-REFUSE (E0502)
+ceiling: 1 queue row — vec_index_store_live_shared_loan_admits
+cost: 0 in L1 inertness (55) / fail text (0 of 1876) / stdlib (4 of 4) / runtime (1 of 7427 and
+  it is `cast-region-to-uint`, subtracted by name — it prints a stack address; ccrc/runrc both
+  unchanged) / queue-wide (only the target row moves, of all 230)
+verdict: DESERVES FUNDING.
+note: `idxdie` (the LIVENESS narrowing — refuse when a conflicting holder's last use is THIS
+  statement) is the rule-9 control and it is DECLINED, reason 3: it refuses
+  bc_0914b_ptrcoerceland_hb_v02_admit and _v02b_admit, two landed pass fixtures whose rustc
+  twins ACCEPT, reproducing the 2026-09-16c decline on today's binary. It was refuted BY READING
+  before it was built — w03/w04 last-use `e` in the store statement exactly as w01 does — and
+  built anyway to have the number.

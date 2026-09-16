@@ -1,0 +1,9 @@
+package m01;
+fn esc<'a, 'b>(x: &'a i64, out: &'b mut &'a i64) where 'a: 'b { *out = x; }
+fn f<'p, 'q>(x: &'p i64, out: &'q mut &'p i64) { esc(x, out); }
+fn main() -> i32 {
+    let n = 1i64;
+    let mut h: &i64 = &n;
+    f(&n, &mut h);
+    return *h as i32;
+}

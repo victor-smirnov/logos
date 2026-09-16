@@ -1,0 +1,355 @@
+2026-09-16e — THE TWO FALLBACK ROWS FROM THE RULINGS ROUND, PRICED
+================================================================================
+Both rows this round was given are CLOSED BY A MEASURED ARM, each at its own
+site, each with a control that separates the arm from the cruder reading of the
+same fact, and each with every legal program RUN rather than merely compiled.
+
+STEP 1, READ FROM THE TREE
+    HEAD 07373626c at open, clean (only this round's edits + two probe dirs after)
+    soundness_queue  # TOTAL 230 = 230 by direct listing; gate rc 0 with LOGOS_LIB_DIR
+                     (tier1=35 tier2=63 tier3=121 tier4=11)
+    bc_admits # TOTAL 60 · bc_admits_blocked # TOTAL 8
+    probe-log-lint: 381 records, every site symbol resolves
+    build_hash 26f0fdf8f299ee7a 43 (READ) · build/bin/logosc 08:27
+    dlog selftest PASSES: 19 walkers / 24 findings / try_path 1-5 / domain 42-5;
+      duty discriminates across 756aed65 (1 -> 0)
+    rustc 1.98.1 (48a229cea 2026-09-01) present at the path the prompt names.
+  CORRECTIONS TO THE PROMPT, each checked against the text actually given:
+    * the STEP-1 gate command DOES carry LOGOS_LIB_DIR. Nothing to correct. (Four
+      rounds recorded this as missing after it was fixed; it is not missing.)
+    * ⚠ `scripts/stdlib-cost.sh` HARDCODES `BIN=build/bin/logosc`. A probe that
+      lives only in a second build dir is an UNKNOWN NAME to that binary, so the
+      script arms nothing and reports "all four layers compile" — a FALSE cost 0,
+      in the expensive direction, from a tool that looks like it answered. The
+      stdlib column below was run by replicating its four-layer loop against
+      build-price/bin/logosc. Anyone pricing in a second build dir hits this.
+
+⚠ A MEASUREMENT OF MINE THAT WAS BROKEN, NOT AN ANSWER — CAUGHT AND REDONE
+My first rustc re-measurement used `--emit=metadata -o /dev/null`. rustc creates
+its temp dir NEXT TO `-o`, i.e. at `/dev/rmetaXXXX`, and died with "couldn't
+create a temp dir: Permission denied". Seven of eleven twins read REFUSES for a
+reason having nothing to do with the program — and the four that read a real
+verdict were exactly the four rustc REFUSES, so the broken channel was invisible
+in the direction that mattered. Re-run with `--out-dir`, every verdict below.
+This is the SECOND instance of this shape in two rounds: the pricing round's v02i
+twin read REFUSED because its FILENAME carried a dot (invalid crate name). A
+rustc verdict is only an oracle when the channel is proven.
+
+================================================================================
+ROW 1 — outlives_method_call_nonstatic_bound_refuses (tier 3, `refuses`)
+site: src/compiler/sema_impl.hpp::check_call_outlives  (B69)
+================================================================================
+THE FACT, AND IT IS NOT VARIANCE. B69 maps the callee's regions rigidly onto the
+caller's DECLARED regions and asks the caller's graph to satisfy the substituted
+pair. Rust instantiates the callee's regions at inference variables bounded from
+below by the argument regions, so a bound between two regions THE CALLER CANNOT
+OBSERVE is satisfied at the call point and demands nothing of the caller.
+
+The prompt (and the row header) said the separating fact is whether a callee
+region is "pinned from above — by the return type, or by a position the caller
+can observe". MEASURED, it is narrower and sharper than that: THE PIN ONLY
+MATTERS ON THE SHORT SIDE of the bound. Twelve programs, every one with a rustc
+twin compiled and (where legal) RUN:
+
+  prog  shape                                     bound    rustc      base      cooutret
+  k01   both params `&`,        ret i64           'a:'b    ACCEPTS 3  REFUSED   RUNS 3  ✓
+  k02   reversed spelling,      ret i64           'b:'a    ACCEPTS 3  REFUSED   RUNS 3  ✓
+  k03   both params `&mut`,     ret i64           'a:'b    ACCEPTS 3  REFUSED   RUNS 3  ✓
+  k05   regions in a struct arg,ret i64           'a:'b    ACCEPTS 3  REFUSED   RUNS 3  ✓
+  row1  the row: method, ret i64                  'a:'b    ACCEPTS 3  REFUSED   RUNS 3  ✓
+  m03   ret `&'a i64`      LONG side in ret       'a:'b    ACCEPTS 4  REFUSED   RUNS 4  ✓
+  m05   ret `(&'a i64,i64)` LONG side in ret      'a:'b    ACCEPTS 9  REFUSED   RUNS 9  ✓
+  k04   ret `&'b i64`     SHORT side in ret       'a:'b    REFUSES    REFUSED   REFUSED ✓
+  m04   ret `H<'b>`       SHORT side in ret       'a:'b    REFUSES    REFUSED   REFUSED ✓
+  m01   `&'b mut &'a i64` out-param, ret unit     'a:'b    ACCEPTS    compiles  unchanged ✓
+  m02   `&'b mut &'a i64` out-param, ret i64      'a:'b    ACCEPTS    compiles  unchanged ✓
+  k06   returns a borrow of a local               'b:'a    E0515      REFUSED   unchanged ✓
+        (k06 is refused at its OWN site on both sides — not a B69 program.)
+
+  12 of 12 agree with rustc under `cooutret`. Every exit code matches the rustc
+  binary's exit code, digit for digit: 3,3,3,3,3,4,9.
+
+  k03 kills "variance": both params are INVARIANT `&mut` and rustc still accepts
+  (a `&mut` argument is REBORROWED, so the callee region is free regardless).
+  m01/m02 kill "any escape pins it": a callee region escaping through a `&mut`
+  OUT-PARAMETER does not pin it either — rustc accepts both.
+
+THE CONTROL THAT PROVES THE SHORT SIDE IS THE FACT. `cooutretls` is the same arm
+pinning on EITHER side. It leaves m03 and m05 REFUSED — two legal programs — and
+is otherwise identical: 10 of 12 instead of 12 of 12. Without m03/m05 the two
+readings are indistinguishable on the whole rest of the battery, digit for digit.
+That is rule 9 paying for itself: the inner predicate needed two names.
+
+THE ARM. `check_call_outlives` gains one defaulted parameter, the callee's return
+type, and skips a pair whose SHORT side does not occur in it. The region walk is
+the EXISTING helper `collect_param_regions_` — no new traversal.
+
+THE SITES, dlog AND a per-site read, SIDE BY SIDE (both numbers, as required):
+  per-site read: 7 `check_call_outlives(` calls in sema_expr.cpp — lines 4426,
+    4623, 5577, 8516, 9211, 10748, 17220 — lying in 5 enclosing contexts.
+  dlog `static_demand_sites.dl` outlives_askers (5 contexts):
+    lower_call · finish_generic_call · lower_method_call · try_method_on_dyn ·
+    lower_static_call
+  THE TWO AGREE TERM FOR TERM. 7 calls, 5 contexts.
+  EVERY ONE COULD ALREADY SUPPLY THE RETURN TYPE — this is the part the row
+  header got wrong, and it is why the fix was one round and not several. The
+  header called it "a signature change plus 7 call sites in 5 contexts", implying
+  data that has to be plumbed. It does not: `SemaFuncInfo::ret_type` and
+  `SemaTraitMethodInfo::ret_type` already hold it at every site, and THREE of the
+  seven call sites already read `fi.ret_type` within a few lines of the call
+  (4623 `inst_call_params_`, 5577 and 17220 `subst_type_sema(fi.ret_type, …)`).
+  The change is 7 argument lists, not a plumbing arc.
+
+  ⚠ AND dlog ANSWERED MORE THAN I ASKED — `arg_site_blind`, 7 contexts that hold
+  a callee's parameter list at a call and NEVER ask check_call_outlives at all:
+    expect_type · type_bounds_satisfied_quiet · lower_generic_ref ·
+    lower_invoke_expr · lower_struct_lit · lower_enum_lit_data ·
+    lower_enum_lit_data_from_static
+  An absence has no spelling and a grep cannot find it. Not this round's block
+  and NOT rowed on this evidence — a context-level guard cannot answer a
+  site-level question (the 37-vs-0 lesson), so each needs a per-site read first.
+  ⚠ THE RULE'S OWN KNOWN-ANSWER CONTROL IS STALE: static_demand_sites.dl says
+  outlives_askers "must be exactly the ONE context enclosing sema_expr.cpp's
+  single check_call_outlives call". There are five today. The rule is not wrong;
+  its embedded control was written 2026-09-13 and the tree moved. Reported, not
+  silently re-baselined.
+
+NEIGHBOUR, CLOSED IN THE SAME CHANGE: `outlives_call_instantiation` (tier 3).
+Same decision, same fact, same predicate — and the row header of ROW 1 itself
+points at it. Under `cooutret` it RUNS exit 0, which is the row's own two-shape
+test (`foo` with declared regions AND `bar` with elided ones must BOTH compile).
+It was found by putting every outlives-family queue program into the SAME
+measured set, not by reading.
+
+================================================================================
+ROW 2 — vec_index_store_live_shared_loan_admits (tier 2, `admits`)
+site: src/compiler/borrow_check.cpp::store_loans_die_in_stmt_ (landed 2026-09-14b)
+================================================================================
+THE FACT, STATED AS AN ORDER OF EVALUATION. `v[i] = x` lowers to
+`index_mut(&mut v, i)`: the `&mut v` autoref is taken BEFORE the index argument
+is evaluated and AFTER the assigned value is. So a live shared loan of `v` read
+by the INDEX conflicts (E0502) and one read by the VALUE does not. The landed
+query asks a LIVENESS question, and liveness cannot see this: both shapes read
+the loan in the SAME statement.
+
+  prog  shape                                  rustc     base      idxdie   idxdieidx
+  w01   `v[*e as u64] = 9`      INDEX reads    REFUSES   compiles  REFUSED  REFUSED ✓
+  w05   `v[*e] = *e + 6`        INDEX + VALUE  REFUSES   compiles  REFUSED  REFUSED ✓
+  row2  the row (= w01)                        REFUSES   compiles  REFUSED  REFUSED ✓
+  w02   `let i=*e; v[i]=9`      prior stmt     ACCEPTS   compiles  same     same    ✓
+  w03   `v[0]=*e+1`             VALUE only     ACCEPTS   compiles  REFUSED✗ same    ✓
+  w04   `v[0]=*e`               VALUE only     ACCEPTS   compiles  REFUSED✗ same    ✓
+  fx_v02admit  = landed pass fixture (w03)     ACCEPTS   compiles  REFUSED✗ same    ✓
+  fx_v02badmit = landed pass fixture (w04)     ACCEPTS   compiles  REFUSED✗ same    ✓
+
+`idxdie` — the liveness narrowing, the obvious arm — costs the TWO landed pass
+fixtures exactly as the pricing round found, reproducing its reason-3 decline on
+today's binary. It is kept as the control that says the cost is in the PREDICATE,
+not the site. `idxdieidx` changes exactly THREE programs in the whole 53-program
+set (row2, w01, w05) and all three are rustc-REFUSE.
+
+⚠ I REFUTED MY OWN CHEAP ARM BY READING BEFORE BUILDING IT, then built it anyway
+to have the number. w03/w04 last-use `e` in the store statement just as w01 does,
+so no liveness comparison can separate them — that was visible in the fixture
+text. Building it cost one probe in a build already happening and turned "the
+pricing round says so" into a measurement on today's binary.
+
+================================================================================
+COST COLUMNS
+================================================================================
+L1 INERTNESS: the armed binary with NO probe armed reproduces the base binary's
+verdicts on all 53 programs, identically. (Both builds rc 0.)
+STDLIB, run against build-price/bin/logosc (NOT the hardcoded path — see above):
+    unarmed 4 of 4 · cooutret 4 of 4 · idxdieidx 4 of 4
+FAIL TEXT (fail_text_oracle.py, 1876 fail fixtures, baseline and armed from ONE
+configure — build-price):
+    idxdieidx  CHANGED 0, no row added, none removed.  ROW 2's arm is clean in
+               the one column that can see an un-refusal.
+    cooutret   CHANGED 4 — AND THIS REFUTES THE ARM AS PRICED.  Five other
+               columns said 0.  Rule 15 in the flesh.
+
+================================================================================
+⚠ THE ARM I RECOMMENDED WAS REFUTED BY ITS OWN SIXTH COLUMN, AND THE FOUR
+  FIXTURES SPLIT INTO TWO DIFFERENT FINDINGS
+================================================================================
+Three of the four went rc 1 -> rc 0: an UN-REFUSAL, the expensive direction.
+Every one was then measured against rustc 1.98.1 rather than argued about.
+
+⚠ AND AN rc OF 1 HID HALF OF IT — THE 19th WAY A GATE CAN LIE, MEASURED HERE.
+   Of the four, `region-multiple-lifetime-bounds-on-fns-where-clause--b` keeps
+   rc 1 under `cooutret`, which in an rc-based column reads "unchanged, no cost".
+   It is not unchanged. BOTH of its B69 errors are gone:
+     base      `'b: 'a` required  AND  `'b: 'c` required        (two errors)
+     cooutret  cannot borrow 'y' as mutable: already mutably borrowed
+   The surviving diagnostic is an UNRELATED borrow-check error about `*x = *y`
+   through a `&mut &`, which the outlives refusal had been MASKING by erroring
+   first. So the fixture is fully un-refused as a B69 matter while still exiting
+   1, and only the TEXT column saw it (`.expected` match 1 -> 0). My own hand
+   program m07 reproduces it exactly, which is how it was found.
+   THE CORRECTION TO MY OWN FIRST WORDING: I wrote that this fixture "still
+   refuses, a partial defect". It does not. `cooutret` un-refuses ALL FOUR;
+   two of the four are mis-ports it is RIGHT to un-refuse, and two are illegal
+   programs it is WRONG to. A refusal count is a first failure, in every column
+   — including the column that reports a refusal count of "unchanged".
+
+A. THE ARM IS GENUINELY TOO PERMISSIVE — the invariant half of the pin.
+   regions-lifetime-bounds-fn-c            `fn a<'a,'b>(x:&mut &'a i64, y:&mut &'b i64) where 'b:'a`
+   region-multiple-lifetime-bounds-on-fns-where-clause--b   the 3-region form
+   Both regions sit BEHIND A `&mut` — an INVARIANT position — so they are
+   rigidly the caller's regions and the caller must prove the bound, even though
+   neither reaches the return type. rustc REFUSES both (twins p3, p4: "lifetime
+   may not live long enough"). Reading only the RETURN TYPE is an
+   UNDER-APPROXIMATION of "pinned from above", which is what the row header
+   actually said and what I narrowed too far.
+   ⚠ WHY MY OWN ABUSE-DIRECTION PROGRAMS MISSED IT: m01/m02 were written for
+   exactly this risk (`&'b mut &'a i64` out-params) and rustc ACCEPTS both — but
+   there the region ALSO occurs covariantly (`x: &'a i64`), so it stays free.
+   The discriminating shape is a region occurring ONLY invariantly, and I did not
+   write one. Rule 5: vary the SHAPE, not the count — seven hand programs of one
+   syntax again.
+   REPAIR, and it is a strict extension at the same site: `cooutretv` pins
+   c_short when it occurs in the return type OR at an invariant position of any
+   parameter (under a `&mut`'s pointee; a `&mut`'s OUTER lifetime stays
+   covariant, which is what keeps k03/m01/m02 legal). Predictions written before
+   its build; see PREDICTIONS.txt.
+
+B. TWO IMPORTED FAIL FIXTURES ARE MIS-PORTS — A CORPUS DECISION WITH AN OWNER,
+   REPORTED AND NOT EDITED.
+   tests/imported/fail/nll/issue-95272.logos
+   tests/imported/fail/regions/regions-bounded-method-type-parameters-trait-bound.logos
+   Both ports are `fn f<'a,'b>(x:&'a i64, y:&'b i64) … where 'a:'b` called from a
+   caller with no relation — and rustc ACCEPTS that shape (twins p1, p2; it is
+   k01, which runs exit 3). UPSTREAM SAYS WHY, and it is the same word twice:
+     · issue-95272.rs passes `Cell<&'a ()>`; its own .stderr says "requirement
+       occurs because of the type `Cell<&()>`, which makes the generic argument
+       `&()` invariant".
+     · regions-bounded-method-type-parameters-trait-bound.rs passes `Inv<'a>`
+       (`struct Inv<'a> { x: &'a mut &'a isize }`); its .stderr says "the struct
+       `Inv<'a>` is invariant over the parameter `'a`".
+   BOTH PORTS REPLACED THE INVARIANT CARRIER WITH A PLAIN COVARIANT `&'a i64`,
+   which deletes the entire reason the upstream program is illegal. They assert a
+   refusal rustc does not make, and they are green today only because B69
+   over-refuses every shape — a fixture passing for the reason it should fail.
+   Under any correct arm these two MUST un-refuse. They are the same class as the
+   ports the 2026-09-13d record already flagged (r04/r08 "LEGAL as ported,
+   upstream pins the callee's region with a turbofish the dialect cannot spell").
+   ⚠ NOT EDITED, and not counted as this round's cost: a fail fixture that is
+   legal Rust as ported is an owner's call. The honest port would carry an
+   invariant carrier; whether this dialect can spell one is the owner's question.
+
+================================================================================
+NEIGHBOUR TABLE — every neighbour the class enumeration named, and what the
+landed change does to it. Neighbours were found by MEASUREMENT, not by reading:
+every outlives-family and store-family queue program was put into the SAME
+53(->55)-program set and run under each arm, so "does one candidate change move
+both?" is answered by a diff, not by an opinion.
+
+neighbour                                        closed here?  reason + number
+--------------------------------------------------------------------------------
+outlives_call_instantiation (tier 3)             CLOSED        same decision, same
+  fact, same predicate. Under the ROW 1 arm it COMPILES and RUNS exit 0, which is
+  the row's own two-shape test (`foo` with declared regions AND `bar` with elided
+  ones must both compile). ROW 1's own header points at it. Not a second fix.
+
+where_struct_literal_instantiation_rigid_refused ROWED, reason 1 — the fact has a
+  DIFFERENT CARRIER. Its diagnostic is "struct literal 'W': caller does not
+  satisfy declared outlives bound `'b: 'a`" and it comes from
+  check_struct_lit_outlives (B77), a different function: a struct literal has no
+  RETURN TYPE to read, so the ROW 1 change does not transfer. The analogous
+  repair is the same invariant-position test applied to FIELD types. Measured:
+  unchanged under cooutret, cooutretls and idxdieidx.
+
+14 other outlives/region-family queue rows      NOT NEIGHBOURS — measured, not
+  assumed. anon_region_let_annotation · double_ref_deref_return_outer_lifetime ·
+  dyn_paren_region_bound · enum_payload_rewrap_carries_declared_region ·
+  generic_type_param_two_regions_first_wins · impl_method_ret_longer_region ·
+  impl_method_ret_renamed_header_binder · method_where_fn_bound_on_impl_param ·
+  mutptr_region_param_elided_let_arg · static_arg_pins_shared_callee_region ·
+  static_ref_nested_borrow_region_not_static · struct_lit_invariant_binder_first_wins ·
+  trait_impl_header_where_bound_dropped · where_impl_region_static_bound_unused.
+  Each refuses for a DIFFERENT reason — variance mismatch, a trait-declaration
+  mismatch, a parse error, a missing bound — not the B69 pair check. A SHARED
+  SYMPTOM ("a region complaint") IS NOT A SHARED DEFECT; grouping these by
+  symptom is the error three consecutive rounds were refuted for, so they were
+  grouped by the FACT (which predicate refuses them) and all 14 fall out.
+
+vec_push_arg_reads_loan_refused                  ROWED, reason 1 — no carrier.
+vec_push_ifarm_after_loan_last_use_refused       ROWED, reason 1 — no carrier.
+  Both print the same sentence as ROW 2 ("cannot borrow 'v' as mutable: 'v' has
+  shared borrows") — the shared SYMPTOM again — but they are `v.push(...)`: a
+  METHOD RECEIVER, with no index expression at all, so the ROW 2 predicate has
+  nothing to ask. The store path is gated on `store_target_mc_`, so they are
+  untouched by construction. Measured unchanged under idxdie and idxdieidx.
+
+array_store_value_reads_loan_refused             ROWED, reason 1 — no carrier.
+  A builtin ARRAY store is a place assignment with no IndexMut call and no
+  `&mut a` autoref, so the evaluation-order fact ROW 2 turns on does not exist
+  there. Measured unchanged under both store arms.
+
+vec_index_store_value_borrows_vec_refused        ROWED, reason 1 — no carrier.
+  The VALUE operand, not the index; ROW 2's arm deliberately does not fire on a
+  value read, because that is exactly what makes v02/v02b legal.
+
+================================================================================
+`cooutretv` — THE STRICT EXTENSION, MEASURED (build-price2, 09d... see build: line)
+================================================================================
+Predictions for it were written BEFORE its build (PREDICTIONS.txt) and every one
+held:
+  · MOVES EXACTLY THE SAME 8 PROGRAMS as cooutret — k01 k02 k03 k05 m03 m05 row1
+    and the neighbour row outlives_call_instantiation — and every one RUNS with
+    rustc's own exit code: 3, 3, 3, 3, 4, 9, 3, 0.
+  · m06 and m07 STAY REFUSED, with the B69 diagnostic intact. These are the two
+    hand programs written specifically for the invariant-only shape AFTER
+    cooutret was refuted, and they are the whole difference between the two
+    arms: under cooutret m06 un-refuses (rustc REFUSES it), under cooutretv it
+    does not. The pair `cooutret`/`cooutretv` is rule 9 twice over — the first
+    split (cooutret vs cooutretls) needed m03/m05, and the second needed m06/m07.
+  · L1 INERT on all 55 programs with nothing armed.
+  · stdlib 4 of 4.
+  ⚠ ONE READING OF MY OWN OUTPUT CORRECTED: the summary line "INERT: identical on
+    all 53" is a STRING I hardcoded into the chain, not a count. The set is 55.
+    Verified by `wc -l` on the verdict file rather than by believing my own echo.
+
+  · FAIL TEXT (1876 fixtures): CHANGED **2**, and they are EXACTLY the two
+    mis-ports, predicted by name before the run:
+        issue-95272                                     rc 1 -> 0
+        regions-bounded-method-type-parameters-trait-bound  rc 1 -> 0
+    rustc ACCEPTS both shapes (twins p1, p2), so both un-refusals are CORRECT.
+    The two genuinely illegal programs that refuted `cooutret` —
+    regions-lifetime-bounds-fn-c and region-multiple-lifetime-bounds-on-fns-
+    where-clause--b — are NOT in this diff: they stay refused, with their pinned
+    sentences matching again. That is the whole difference between the two arms,
+    measured in the one column that can see it.
+    ⚠ The prediction file said "if any THIRD fixture moves, the extension is
+    wrong". None did.
+
+================================================================================
+ROW 2 — THE REMAINING COLUMNS, ALL ZERO
+================================================================================
+  FAIL TEXT (1876)      CHANGED 0.
+  RUNTIME (run_oracle, 7427 pass fixtures compiled, LINKED and RUN)
+                        CHANGED 1, and it is `cast-region-to-uint` — the fixture
+                        that prints a STACK ADDRESS and is subtracted by name
+                        (its stdout sha differs run to run; ccrc and runrc are
+                        both unchanged at 0/0). RUNTIME COST 0.
+  QUEUE-WIDE (all 230 soundness-queue programs, armed vs unarmed on one binary)
+                        CHANGED 1: vec_index_store_live_shared_loan_admits, the
+                        row itself, CC0 -> REFUSED. No other row moves in either
+                        direction — so the arm closes its row and disturbs
+                        nothing else the queue is holding.
+  STDLIB 4 of 4 · L1 INERT on 55 · the two landed pass fixtures untouched.
+
+  · QUEUE-WIDE (all 230 soundness-queue programs, armed vs unarmed on ONE
+    binary, build-price2): CHANGED 2, and both are CLOSINGS —
+        outlives_method_call_nonstatic_bound_refuses   REFUSED -> CC0
+        outlives_call_instantiation                    REFUSED -> CC0
+    No other row moves in either direction. The neighbour was not argued for;
+    it fell out of a sweep that asked every row the same question.
+
+WHAT THIS MEANS FOR THE TWO ROWS
+  ROW 2 closes on `idxdieidx`: 3 programs moved, all rustc-REFUSE; 0 in fail
+    text; 4 of 4 stdlib; L1 inert; the two landed pass fixtures untouched.
+  ROW 1 does NOT close on `cooutret` as priced. It closes on `cooutretv` if that
+    extension prices as predicted; the measurement is the one thing that decides
+    it, and a round that reported "cost 0, fund it" off the five cheap columns
+    would have shipped two admitted illegal programs.

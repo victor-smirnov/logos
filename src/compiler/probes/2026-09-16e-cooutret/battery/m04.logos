@@ -1,0 +1,9 @@
+package m04;
+struct H<'a> { pub r: &'a i64 }
+fn two<'a, 'b>(x: &'a i64, y: &'b i64) -> H<'b> where 'a: 'b { return H { r: y }; }
+fn f<'p, 'q>(x: &'p i64, y: &'q i64) -> H<'q> { return two(x, y); }
+fn main() -> i32 {
+    let n = 6i64;
+    let m = 7i64;
+    return *f(&n, &m).r as i32;
+}

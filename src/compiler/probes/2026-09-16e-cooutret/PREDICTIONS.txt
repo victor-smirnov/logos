@@ -1,0 +1,153 @@
+2026-09-16e — PREDICTIONS BY NAME, WRITTEN BEFORE THE ARMED BUILD
+
+ROW 1 — outlives_method_call_nonstatic_bound_refuses (tier 3, `refuses`)
+site: src/compiler/sema_impl.hpp::check_call_outlives (B69)
+
+THE FACT. B69 maps the callee's regions rigidly onto the caller's DECLARED regions and
+demands the caller's graph satisfy the substituted pair. Rust instantiates the callee's
+regions at INFERENCE VARIABLES bounded from below by the argument regions, so a bound
+between two regions the caller cannot observe is satisfied at the call point and demands
+nothing. The carrier that says whether the caller CAN observe a callee region is the
+callee's RETURN TYPE, and check_call_outlives is never given it.
+
+THE SEPARATING FACT IS THE SHORT SIDE, NOT VARIANCE AND NOT EITHER SIDE. Measured with
+rustc 1.98.1 --edition 2024 (twins in rust/, out-dir writable — see the correction below):
+  k01 both params `&`,        ret i64          bound 'a:'b   rustc ACCEPTS
+  k02 reversed spelling       ret i64          bound 'b:'a   rustc ACCEPTS
+  k03 both params `&mut`      ret i64          bound 'a:'b   rustc ACCEPTS   (variance is NOT the fact)
+  k05 regions in a struct arg ret i64          bound 'a:'b   rustc ACCEPTS
+  k04 ret `&'b i64`  SHORT side in ret         bound 'a:'b   rustc REFUSES
+  m04 ret `H<'b>`    SHORT side in ret         bound 'a:'b   rustc REFUSES
+  m03 ret `&'a i64`  LONG  side in ret         bound 'a:'b   rustc ACCEPTS
+  m05 ret `(&'a i64,i64)` LONG side in ret     bound 'a:'b   rustc ACCEPTS
+  m01 `&'b mut &'a i64` out-param, ret unit    bound 'a:'b   rustc ACCEPTS
+  m02 `&'b mut &'a i64` out-param, ret i64     bound 'a:'b   rustc ACCEPTS
+  k06 returns a borrow of a local — E0515 on BOTH sides, a different site, not a B69 program.
+
+TWO NAMES FOR THE INNER PREDICATE (rule 9), and m03/m05 are the programs that separate them:
+  `cooutret`    enforce the pair only when the SHORT side occurs in the callee's return type.
+  `cooutretls`  enforce when EITHER side does — the cruder reading.
+
+PREDICTED VERDICTS, BY NAME.
+  base today (MEASURED): m01 COMPILES · m02 COMPILES · m03 REFUSED · m04 REFUSED · m05 REFUSED ·
+                         k01-k05 REFUSED · k06 REFUSED (E0515, its own site) · row1 REFUSED.
+  under `cooutret`:   k01 k02 k03 k05 row1 m03 m05 FLIP to COMPILE (all rustc-ACCEPT);
+                      k04 m04 STAY REFUSED (both rustc-REFUSE); m01 m02 unchanged (already compile);
+                      k06 unchanged (E0515).
+                      => 12 of 12 programs agree with rustc. ROW 1 CLOSES.
+  under `cooutretls`: same EXCEPT m03 and m05 STAY REFUSED — two legal programs still refused.
+                      => 10 of 12. Strictly worse; this is the control that proves the short-side
+                         reading is the one carrying the fact, not a coincidence of k04.
+
+⚠ ADDED AFTER `cooutret` WAS MEASURED AND REFUTED BY ITS OWN COST COLUMN —
+   PREDICTIONS FOR THE STRICT EXTENSION `cooutretv`, WRITTEN BEFORE ITS BUILD.
+`cooutret` priced cost 0 in five columns (L1 inertness, stdlib, queue, hand
+battery, bc) and the SIXTH — fail_text_oracle, the only one that sees an
+un-refusal — reported 4 changed, three of them rc 1 -> rc 0. Measured against
+rustc, those four are TWO DIFFERENT THINGS:
+  · regions-lifetime-bounds-fn-c and region-multiple-lifetime-bounds-on-fns-
+    where-clause--b: `&mut &'a i64` — the regions sit behind a `&mut`, an
+    INVARIANT position, so they are pinned to the caller's regions without ever
+    reaching the return type. rustc REFUSES both (measured: p3, p4, "lifetime
+    may not live long enough"). `cooutret` is genuinely TOO PERMISSIVE here.
+    This is the half of "pinned from above" I under-approximated by reading only
+    the return type — and m01/m02 did not catch it because in those the region
+    ALSO appears covariantly, so it stays free.
+  · issue-95272 and regions-bounded-method-type-parameters-trait-bound: the
+    ports' own shapes are ACCEPTED by rustc (measured: p1, p2). The ports
+    DROPPED THE INVARIANCE CARRIER — upstream issue-95272 passes `Cell<&'a ()>`
+    and upstream regions-bounded passes `Inv<'a>` (`struct Inv<'a>{x:&'a mut &'a
+    isize}`), both invariant, and both ports substituted a plain covariant
+    `&'a i64`. They are MIS-PORTS asserting a refusal rustc does not make, green
+    today only because B69 over-refuses every shape. CORPUS DECISION, OWNER.
+
+`cooutretv` = pinned when c_short occurs in the RETURN TYPE **or** at an
+INVARIANT position of any parameter type (under a `&mut`'s pointee; a `&mut`'s
+OUTER lifetime stays covariant, which is what keeps k03/m01/m02 legal).
+  PREDICT, by name:
+    k01 k02 k03 k05 row1 m03 m05 n_outlives_call_instantiation -> COMPILE and RUN
+        (3,3,3,3,3,4,9,0) — unchanged from cooutret.
+    k04 m04 -> STAY REFUSED.  m01 m02 -> unchanged COMPILES.
+    fail text: regions-lifetime-bounds-fn-c STAYS REFUSED with its `.expected`
+        matching again (match 0 -> 1 vs cooutret); region-multiple-...--b STAYS
+        REFUSED with its pinned line restored (match 1).
+    fail text CHANGED vs baseline = EXACTLY 2, and both are the mis-ports
+        (issue-95272, regions-bounded-...), each un-refused in agreement with
+        rustc. If any THIRD fixture moves, the extension is wrong.
+    stdlib 4 of 4. L1 inert.
+
+COST DIRECTION — WHAT MUST NOT MOVE.
+  The `'static` short-side branch returns BEFORE this point (`outlives_is_static(c_short)`),
+  so the whole staticdemand corpus is untouched by construction: regions-static-bound,
+  call_static_bound_empty_arg_region_admits and all 36 bc_staticdemand_* fixtures.
+  PREDICT: 0 changed in fail_text_oracle, 0 in run_oracle, stdlib 4 of 4, bc ledger unchanged.
+  ⚠ MEASURED AND WORTH SAYING: `grep -rl "caller does not satisfy callee's" tests/logos/` is
+  ZERO — after 403aaaa62 removed the two fixtures that pinned this over-refusal, NO fixture
+  anywhere pins this diagnostic. The arm cannot cost a pinned sentence because there is none.
+
+THE ARM IS A NARROWING ONLY. It cannot un-refuse an illegal program that B69 refuses for a
+reason other than this pair, and it cannot admit anything B69 already admits. The risk is the
+OTHER direction: does skipping an unpinned pair admit an illegal program? m01 and m02 are the
+shapes written to test it — a callee region escaping through a `&mut` OUT-PARAMETER rather
+than the return type — and rustc ACCEPTS BOTH, so that escape route does not pin the region.
+
+WHAT THE ARM DOES NOT CLOSE, SAID PLAINLY. This is a narrowing of an over-refusal, not region
+inference. A callee region pinned by something OTHER than the return type — a lifetime
+turbofish, an invariant position the caller can observe — would still be checked against the
+caller's DECLARED graph rather than an inferred one. The honest fix remains the neighbouring
+row outlives_call_instantiation. This arm buys exactly the shapes above.
+
+--------------------------------------------------------------------------------
+ROW 2 — vec_index_store_live_shared_loan_admits (tier 2, `admits`)
+site: src/compiler/borrow_check.cpp::store_loans_die_in_stmt_ (landed 2026-09-14b)
+
+THE FACT. `v[i] = x` lowers to `index_mut(&mut v, i)`: the `&mut v` autoref is taken BEFORE
+the index argument is evaluated, and AFTER the assigned value is evaluated. So a shared loan
+of `v` read by the INDEX conflicts (E0502); one read by the VALUE does not. The landed query
+asks a LIVENESS question — "do all conflicting loans' holders last-use at or before this
+statement" — which cannot see the difference, because both shapes last-use in this statement.
+
+MEASURED, rustc 1.98.1 (twins in rust/):
+  w01 `v[*e as u64] = 9`        loan read by INDEX          rustc REFUSES E0502
+  w05 `v[*e as u64] = *e + 6`   loan read by INDEX and VALUE rustc REFUSES E0502
+  w02 `let i = *e as u64; v[i]` loan read in a PRIOR stmt    rustc ACCEPTS
+  w03 `v[0u64] = *e + 1`        loan read by VALUE only      rustc ACCEPTS
+  w04 `v[0u64] = *e`            loan read by VALUE only      rustc ACCEPTS
+  w06 `a[*e as u64] = 9` ARRAY  builtin place, no IndexMut   rustc ACCEPTS
+
+TWO NAMES (rule 9):
+  `idxdie`    the LIVENESS narrowing: refuse when a conflicting holder's last use is THIS
+              statement. REFUTED BEFORE THE BUILD, BY READING, and kept as the control that
+              says so: w03 and w04 last-use `e` in this statement too, so idxdie must refuse
+              them — and they are the landed pass fixtures bc_0914b_ptrcoerceland_hb_v02_admit
+              and _v02b_admit, both rustc-ACCEPT. This reproduces the pricing round's reason-3
+              decline and proves the cost is in the PREDICATE, not the site.
+  `idxdieidx` the INDEX-READ narrowing: refuse only when a conflicting holder is read inside
+              the store's INDEX expression. This is the fact, stated directly.
+
+PREDICTED VERDICTS, BY NAME.
+  base today (MEASURED): w01 COMPILES · w02 COMPILES · w03 COMPILES · w04 COMPILES ·
+                         w05 COMPILES · w06 REFUSED · row2 COMPILES.
+  ⚠ A CORRECTION TO MY OWN FIRST DRAFT OF THIS FILE, MADE BEFORE THE BUILD: I first wrote
+  "w05 base REFUSED", carried over from the pricing round's v05 — a DIFFERENT program. v05
+  reads `e` AFTER the store (`return (v[0u64] + *e)`), which is why it is refused on base;
+  w05 reads `e` only in the index and the value, and base COMPILES it. w05 is therefore a
+  program base gets WRONG (rustc refuses it, E0502), not one it already refuses — so it is a
+  second program `idxdieidx` must close, and it would have been scored as "unchanged, correct"
+  against a stale base reading. Rule 17: a handed-down list is a hypothesis, my own included.
+  under `idxdie`:    w01 REFUSED (correct) · w05 REFUSED (correct) · w03 REFUSED (WRONG, rustc
+                     accepts) · w04 REFUSED (WRONG, rustc accepts) · w02 unchanged · row2 REFUSED.
+                     COST >= 2 landed pass fixtures. DECLINE, reason 3 — predicted, then measured.
+  under `idxdieidx`: w01 REFUSED (correct) · w05 REFUSED (correct) · row2 REFUSED (ROW 2 CLOSES) ·
+                     w02 w03 w04 unchanged COMPILE (all rustc-ACCEPT) · w06 unchanged REFUSED
+                     (its own defect, reported below, untouched by this arm).
+                     PREDICT cost 0 in pass, fail text, stdlib, runtime and the bc ledger.
+
+⚠ A CONTRADICTION FOUND AND NOT PART OF EITHER ROW — REPORTED, NOT EDITED.
+  w06 / v04: `let mut a: [i64;2]; let e = &a[1]; a[*e as u64] = 9;` — rustc ACCEPTS (a builtin
+  array store is a place assignment, no IndexMut, no `&mut a` autoref) and logosc REFUSES with
+  "cannot assign through 'a[..]' because 'a' is borrowed". It is the exact MIRROR of w01/v01,
+  where the Vec spelling is the illegal one and the array spelling is legal. Neither row covers
+  it: the existing array rows array_store_value_reads_loan_refused and
+  vec_index_store_value_borrows_vec_refused are the VALUE-operand shapes, and this is the INDEX
+  operand. It is a legal-program-refused (tier 3) candidate row.

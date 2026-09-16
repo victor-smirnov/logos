@@ -1,0 +1,8 @@
+package m02;
+fn g<'a, 'b>(x: &'a i64, y: &'b mut &'a i64) -> i64 where 'a: 'b { *y = x; return *x; }
+fn f<'p, 'q>(x: &'p i64, y: &'q mut &'p i64) -> i64 { return g(x, y); }
+fn main() -> i32 {
+    let n = 3i64;
+    let mut h: &i64 = &n;
+    return f(&n, &mut h) as i32;
+}
