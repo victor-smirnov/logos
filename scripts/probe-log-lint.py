@@ -38,7 +38,7 @@ def main(root="."):
     for name, body in recs:
         if name in ("Format",):  # the format section is prose, not a record
             continue
-        m = re.search(r'^site:\s*(\S+)::(\S+)', body, re.M)
+        m = re.search(r'^site:\s*([^:\s]+)::(\S+)', body, re.M)  # file is up to the FIRST '::': a site may be file::Class::method
         if not m:
             # No `site:` line ⇒ this heading is narrative, not a record. Only a
             # block that claims a site is held to a site's obligations.
