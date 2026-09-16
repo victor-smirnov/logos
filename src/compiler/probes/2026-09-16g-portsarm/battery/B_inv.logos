@@ -1,0 +1,5 @@
+package issue_95272;
+struct Inv<'a> { pub p: &'a mut &'a i64 }
+fn check<'a, 'b>(x: Inv<'a>, y: Inv<'b>) -> i64 where 'a: 'b { return 1i64; }
+fn test<'a, 'b>(x: Inv<'a>, y: Inv<'b>) -> i64 { return check(x, y); }
+fn main() -> i32 { return 0i32; }

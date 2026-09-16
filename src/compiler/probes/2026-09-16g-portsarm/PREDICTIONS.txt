@@ -1,0 +1,68 @@
+2026-09-16g — PREDICTIONS, WRITTEN BEFORE THE ARMED BINARY (build-arm0916g) LINKED.
+Base = build/bin/logosc, HEAD 26d37bd56, md5 0ac3c5c2d12c223d7b73bfd337e691c5.
+The arm is 2026-09-16f's cooutretv + struct-invariance extension, DE-GATED (landed
+unconditional: the `if (logos::probe::on("landboth"))` wrapper removed).
+
+A. THE TWO MIS-PORTED FIXTURES (already measured with rustc twins, not predicted)
+   issue-95272 AS PORTED                     rustc rc 0, 0 errors  -> LEGAL RUST
+   regions-bounded-method-...-trait-bound AS PORTED  rustc rc 0, 0 errors -> LEGAL RUST
+   Both repaired texts refused by rustc rc 1 "lifetime may not live long enough".
+
+B. THE REPAIRED PORTS ON THE ARMED BINARY — PREDICTED BY READING THE HELPER
+   B_inv     (Inv<'a>{p:&'a mut &'a i64}, 95272 shape)   PREDICT REFUSED.
+       struct_invariant_in_lifetime_ resolves Inv via get_struct_si and tests its
+       FIELD `&'a mut &'a i64`: MutRef recurses with inv=true, the inner Ref's
+       lifetime matches the declared param -> invariant -> the region is pinned.
+   C_regbound (Inv<'a>, method/caller2 shape)            PREDICT REFUSED, same path.
+   A_cell    (stdlib Cell<&'a i64>, the MOST faithful to upstream's Cell<&'a ()>)
+       ⚠ PREDICT ADMITTED — AND THAT WOULD BE A HOLE.
+       `Cell<T> { value: T }` carries its invariance as a LANG-ITEM property
+       (sema_auto_trait.cpp / sema.cpp recognise logos.lang.cell.UnsafeCell and
+       make T invariant). struct_invariant_in_lifetime_ does not read that; it
+       reads the struct's FIELD TYPES, and with T = &'a i64 the field is a plain
+       covariant Ref. So the helper answers "not invariant", the pair is skipped,
+       and an illegal program compiles. If this measures as predicted, the
+       faithful Cell carrier CANNOT be used for the repaired fixture (it would be
+       a fail fixture the landed binary does not refuse), the Inv carrier is used
+       instead, and the Cell hole is a NEIGHBOUR of this arm to be closed or rowed
+       with a named reason.
+
+C. THE 14-PROGRAM BATTERY ON THE ARMED BINARY (rustc column already measured by
+   2026-09-16f and RE-MEASURED here; base column re-measured by me on 26d37bd56)
+   n01 REFUSED · n02 REFUSED (the extension's own case) · n03 REFUSED · n04 REFUSED
+   n05 COMPILES, runs 3 · n06 REFUSED · n07 COMPILES, runs 7
+   n08 COMPILES, runs 3 (covariant struct — the extension's cost direction)
+   n09 COMPILES, runs 4 (Option parameter — the fail-closed path)
+   u01 u02 u03 REFUSED · u04 runs 9 · u05 runs 3
+   ⚠ BASE TODAY ALREADY REFUSES u01/u02/u03 (I measured rc 1 on all three): row 2
+   landed in 26d37bd56, so unlike round f's table they are no longer admissions.
+   Base refuses ALL of n01-n09 (measured rc 1 each), so n05/n07/n08/n09 are the
+   four legal programs the arm must FLIP to compiling.
+
+D. THE FAIL-TEXT COLUMN — THE ONE THAT MOVED LAST TIME, PREDICTED BY NAME
+   CHANGED exactly 2, both rc 1 -> rc 0, and both are the mis-ports repaired in
+   this commit:
+       tests/imported/fail/nll/issue-95272.logos
+       tests/imported/fail/regions/regions-bounded-method-type-parameters-trait-bound.logos
+   After the repair both must be rc 1 again (refused on the ARMED binary) — that
+   is the whole point of restoring the invariant carrier.
+   PREDICT NO OTHER fail fixture moves. In particular the two genuinely-illegal
+   programs that refuted the 2026-09-16e arm must NOT move:
+       regions-lifetime-bounds-fn-c, region-multiple-...-where-clause--b
+   And the two fixtures THIS PROMPT named as the blockers —
+       regions-bounded-by-trait-requiring-static--b-used
+       regions-bounded-by-trait-requiring-static--requiring-static
+   — PREDICT UNMOVED. They are `T: 'static` turbofish fixtures with no
+   `where 'a: 'b` at all; the prompt's identification of them is wrong (see the
+   round record) and this column is the test of that.
+
+E. QUEUE SWEEP (230 rows, armed vs base)
+   PREDICT exactly 2 rows move, both rc 1 -> rc 0:
+       outlives_call_instantiation                    (row x06, the subject)
+       outlives_method_call_nonstatic_bound_refuses   (its method twin)
+   PREDICT the new row array_index_store_index_reads_loan_refused stays rc 1
+   (refused) on both: this arm does not touch array stores.
+
+F. REGISTRY PINS — +1 each, from the one queue row added
+   ALL 10959 -> 10960 · NOIMPORTED 6457 -> 6458 · TIERCOMMIT 347 -> 348,
+   each to be RE-DERIVED BY LISTING (ctest -N), never by arithmetic.

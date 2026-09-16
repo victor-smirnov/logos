@@ -1,7 +1,22 @@
-// rustc nll/issue-95272.rs — upstream lifetime-may-not-live-long-enough
+// rustc nll/issue-95272.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// ⚠ RE-PORTED 2026-09-16g (re-port as-is; the B167 port changed the program).
+// The B167 port substituted a COVARIANT `&'a i64` for upstream's `Cell<&'a ()>`,
+// deleting the very thing that makes the upstream program illegal: with
+// covariant arguments the caller may shorten 'a and `where 'a: 'b` is
+// satisfiable. MEASURED: rustc 1.98.1 --edition 2024 ACCEPTS the ported text
+// (rc 0, 0 errors; twin src/compiler/probes/2026-09-16g-portsarm/rust/p95272.rs),
+// so this fixture pinned a refusal rustc does not make.
+// The invariance is restored with a struct whose field is `&'a mut &'a i64` —
+// upstream's own device in its sibling test
+// regions-bounded-method-type-parameters-trait-bound.rs. rustc REFUSES the
+// repaired text (rc 1, "lifetime may not live long enough"; twin rust/r95272_inv.rs).
+// ⚠ The stdlib `Cell<&'a i64>` carrier is MORE faithful to upstream and was
+// measured first: this compiler ADMITS it (queue row
+// cell_typearg_region_invariance_admits), so it cannot pin a refusal here.
 package issue_95272;
-fn check<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 where 'a: 'b { return 1i64; }
-fn test<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 { return check(x, y); }
+struct Inv<'a> { pub p: &'a mut &'a i64 }
+fn check<'a, 'b>(x: Inv<'a>, y: Inv<'b>) -> i64 where 'a: 'b { return 1i64; }
+fn test<'a, 'b>(x: Inv<'a>, y: Inv<'b>) -> i64 { return check(x, y); }
 fn main() -> i32 { return 0i32; }

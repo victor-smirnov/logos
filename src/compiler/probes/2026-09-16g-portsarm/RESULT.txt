@@ -1,0 +1,444 @@
+2026-09-16g — THE TWO MIS-PORTS WERE NOT THE TWO I WAS SENT TO REPAIR
+================================================================================
+The arm LANDS. What blocked it was real, but the prompt named the WRONG TWO
+FIXTURES for it, and the two it named are correctly ported. Both facts are
+measured, not read.
+
+STEP 1, READ FROM THE TREE
+    HEAD 26d37bd56, clean.
+    soundness_queue # TOTAL 229 = 229 by direct listing (before this round's edits).
+    bc_admits # TOTAL 60 · bc_admits_blocked # TOTAL 8
+    probe-log-lint: 386 records, every site symbol resolves.
+    build_hash 130598a0d555bd6e 43 (READ).
+    queue gate rc 0 WITH LOGOS_LIB_DIR.
+    rustc 1.98.1 present.
+  CORRECTION TO THE PROMPT, checked against the text actually given (the standing
+  instruction is to re-verify the complaint, not repeat it): the STEP-1 gate
+  command DOES carry LOGOS_LIB_DIR. Nothing to correct. This is the sixth round
+  to check it and the second to find nothing.
+
+================================================================================
+⚠ STEP A — THE PROMPT NAMED THE WRONG TWO FIXTURES, AND ITS CLAIM ABOUT THEM
+  IS FALSE. THE PREVIOUS ROUND'S OWN RECORD NAMED THE RIGHT ONES.
+================================================================================
+The prompt's STEP A table sends me to repair:
+    tests/imported/fail/nll/issue-95272                                  ✓ real
+    tests/imported/fail/regions/regions-bounded-by-trait-requiring-static--*   ✗ WRONG
+2026-09-16f's RESULT.txt, which did the measuring, names instead:
+    tests/imported/fail/nll/issue-95272.logos
+    tests/imported/fail/regions/regions-bounded-method-type-parameters-trait-bound.logos
+
+MEASURED HERE, EACH CLAIM SEPARATELY (rule 17 — a handed-down list is a
+hypothesis, including this prompt):
+  1. The prompt says both ports substituted a covariant `&'a i64` where upstream
+     carries the region in an INVARIANT position, citing `Cell<&'a ()>` and
+     `Inv<'a>`. Upstream regions-bounded-by-trait-requiring-static.rs carries
+     `&'a isize` — COVARIANT — in every one of its six errors. The cited
+     `Inv<'a>` is not in that file at all: it is declared in
+     regions-bounded-method-type-parameters-trait-bound.rs, the file the previous
+     round actually named. The prompt has fused two upstream tests.
+  2. The two fixtures the prompt names are NOT mis-ported. Their upstream
+     illegality does not come from variance: `assert_send::<&'a i64>()` writes
+     the type argument EXPLICITLY, so there is no instantiation freedom to lose.
+     Verbatim twins of the PORTED text (rust/preqstatic_requiring.rs,
+     rust/preqstatic_bused.rs): rustc 1.98.1 REFUSES BOTH, rc 1, 2 errors each,
+     "lifetime may not live long enough" — the same sentence upstream's own
+     .stderr pins at lines 22/27/32. They stand as fail fixtures, unedited.
+  3. Neither of them moves under the arm. Measured on the landed binary: both
+     still rc 1. They were never the blocker.
+
+THE TWO REAL MIS-PORTS, RE-MEASURED WITH MY OWN TWINS BEFORE REPAIRING
+  ported text, verbatim twins rust/p95272.rs and rust/pregbound.rs:
+      rustc 1.98.1 --edition 2024 ACCEPTS BOTH, rc 0, ZERO errors.
+  So both fixtures pinned a refusal rustc does not make, and both were green only
+  because B69 over-refuses every shape. Confirmed independently of round f.
+  On the landed binary, AS PORTED, both flip rc 1 -> rc 0 — the blocker,
+  reproduced per file rather than inferred from an aggregate.
+
+WHAT EACH PORT CHANGED, AND HOW IT NOW READS
+  issue-95272: upstream `check<'a,'b>(x: Cell<&'a ()>, y: Cell<&'b ()>) where 'a:'b`
+    called through a fn value. The port wrote `&'a i64`/`&'b i64` and a direct
+    call. With covariant arguments the caller may shorten 'a to 'b, so `'a: 'b`
+    is satisfiable and the program is legal. REPAIRED by restoring an invariant
+    carrier — `struct Inv<'a> { pub p: &'a mut &'a i64 }` — upstream's own device
+    in its sibling test. rustc REFUSES the repaired text (rc 1, twin
+    rust/r95272_inv.rs).
+    ⚠ THE FAITHFUL CARRIER WAS TRIED FIRST AND MEASURED, NOT ASSUMED. A stdlib
+    `Cell<&'a i64>` port (twin rust/r95272.rs, rustc REFUSES rc 1) is ADMITTED by
+    the landed binary. It therefore cannot pin a refusal, and it is now a queue
+    row of its own rather than a silent choice (see NEIGHBOURS).
+  regions-bounded-method-type-parameters-trait-bound: upstream declares
+    `struct Inv<'a> { x: &'a mut &'a isize }` and passes `Inv<'b>` where `'y: 'x`
+    demands 'a. The port replaced Inv with `&'a i64`. REPAIRED by restoring
+    upstream's Inv; the trait/impl wrapper around `method` stays flattened to a
+    free fn, which is what B167 did and is not what made it legal. rustc REFUSES
+    the repaired text (rc 1, twin rust/rregbound.rs).
+  Neither `.expected` needed editing: the landed diagnostic still contains the
+  pinned sentence for both (verified with the harness's own `grep -F` semantics).
+
+================================================================================
+STEP B — THE ARM, RE-MEASURED AND LANDED
+================================================================================
+Landed unconditional: 2026-09-16f's `cooutretv` + struct-invariance extension,
+with the `if (logos::probe::on("landboth"))` wrapper REMOVED (a probe left
+installed is code in the binary that is in no source file).
+  base  build/bin/logosc      build_hash 130598a0d555bd6e 43  md5 0ac3c5c2…
+  armed build-arm0916g        build_hash 08463e710cd356d3 43  md5 061d83ae…
+
+THE 14-PROGRAM BATTERY, EVERY COLUMN RE-MEASURED HERE (not inherited), every
+rustc twin recompiled and every legal program RUN:
+  prog  rustc            base        landed
+  n01   REFUSES          REFUSED     REFUSED
+  n02   REFUSES          REFUSED     REFUSED   (the extension's own case)
+  n03   REFUSES          REFUSED     REFUSED
+  n04   REFUSES          REFUSED     REFUSED
+  n05   ACCEPTS, runs 3  REFUSED ✗   RUNS 3
+  n06   REFUSES          REFUSED     REFUSED
+  n07   ACCEPTS, runs 7  REFUSED ✗   RUNS 7
+  n08   ACCEPTS, runs 3  REFUSED ✗   RUNS 3
+  n09   ACCEPTS, runs 4  REFUSED ✗   RUNS 4
+  u01   REFUSES          REFUSED     REFUSED
+  u02   REFUSES          REFUSED     REFUSED
+  u03   REFUSES          REFUSED     REFUSED
+  u04   ACCEPTS, runs 9  RUNS 9      RUNS 9
+  u05   ACCEPTS, runs 3  RUNS 3      RUNS 3
+  14 of 14 agree with rustc on the landed binary. Every prediction in
+  PREDICTIONS.txt section C held, verdict for verdict and exit code for exit code.
+  ⚠ ONE COLUMN OF ROUND f's TABLE IS ALREADY STALE AND I RE-MEASURED RATHER THAN
+  COPYING IT: round f recorded base as RUNNING u01/u02/u03 at exit 9. On today's
+  base they are REFUSED — its row-2 arm landed in 26d37bd56. A handed-down base
+  column decays in one commit.
+
+================================================================================
+STEP C — THE UNROWED CONTRADICTION, ROWED
+================================================================================
+`w06`/`v04`, carried as prose by two rounds: an array-indexed store whose INDEX
+reads a live shared loan. Rowed as array_index_store_index_reads_loan_refused
+(tier 3, refuses).
+  ⚠ THE PROGRAM AS THE PROMPT SPELLS IT IS A BAD ROW PROGRAM, AND MEASURING IT
+  IS WHAT SHOWED THAT. `let mut a: [i64;2]; let e = &a[1]; a[*e as u64] = 9;`
+  computes index a[1] = 2 on a length-2 array: rustc compiles it and it PANICS,
+  exit 101, "index out of bounds". A `refuses` row's fix is "it compiles AND RUNS
+  correctly", so a row program that traps could never be closed. The rowed
+  program sets a[1] = 0 so the computed index is in bounds; rustc then compiles
+  it and RUNS it at exit 0 (twin rust/w06b.rs), and logosc refuses it with two
+  errors. Same defect, closable row.
+
+================================================================================
+COST COLUMNS FOR WHAT LANDS
+================================================================================
+  FAIL TEXT   base vs landed, 1881 fail fixtures, rc + normalised-stderr sha +
+              .expected match, DIFFED BOTH WAYS: CHANGED 0. only-in-base 0,
+              only-in-landed 0 — no population drift either.
+              ⚠ This 0 is the state AFTER the ports are repaired, and it is the
+              point: measured on the UN-repaired corpus the same arm moves
+              exactly 2 rows, both by hand, per file, rc 1 -> rc 0 —
+              issue-95272 and regions-bounded-method-type-parameters-trait-bound.
+              An aggregate of 2 and an aggregate of 0 are the same measurement
+              taken on either side of the repair.
+              ⚠ INSTRUMENT CAVEAT, recorded because it bounds this column:
+              _NORM scrubs only /tmp paths and the "logosc: wrote" line, so a
+              cross-configure comparison has NO timestamp scrubbing. Both columns
+              here come from dirs configured minutes apart and the diff is 0,
+              which is itself the evidence that no configure-dependent text
+              reaches these 1881 stderrs.
+              ⚠ A PAIR I DISCARDED RATHER THAN REPORT: the first base/armed pair
+              straddled a corpus edit — the base run finished 12:09 on the ported
+              text and I repaired the fixtures at 12:10 while the armed run was
+              still walking. Rows either side of an edit are not a comparison
+              (round f threw away a sweep that straddled a binary swap for the
+              same reason). Re-run clean; only the clean pair is reported.
+  STDLIB      scripts/stdlib-cost.sh on the landed binary: rc 0, all four layers
+              compile.
+  QUEUE-WIDE  231 programs (the ledger as it stood mid-round), landed vs base,
+              one program at a time: exactly 3 move and no others —
+                outlives_call_instantiation                   rc 1 -> 0  (CLOSES)
+                outlives_method_call_nonstatic_bound_refuses  rc 1 -> 0  (CLOSES)
+                cell_typearg_region_invariance_admits         rc 1 -> 0  (the new
+                  row; its movement IS its definition — the landed arm is what
+                  admits it)
+              ⚠ The sweep also printed one ABORT pair and one SEGFAULT pair on
+              queue programs. Each appeared on BOTH the base and the landed side
+              of the same program, so they cancel in an rc diff — recorded because
+              they are real compiler crashes on queue programs, and no arm of this
+              round caused them. Round f recorded the same two.
+  CONTROL REVERT, every fixture this commit adds or moves, on the BASE binary
+              (preserved as a copy before build/ was rebuilt, md5 0ac3c5c2…):
+              all six new pass fixtures REFUSED rc 1 — which is precisely why
+              they are new. Both repaired fail fixtures REFUSED rc 1 on base and
+              on landed. All six pass fixtures and both repaired fail fixtures
+              also verified through run_test.sh itself, rc 0 each, on the landed
+              binary — the harness, not my hand link.
+
+================================================================================
+NEIGHBOUR TABLE (standing rule 2026-09-12)
+================================================================================
+neighbour                                    closed here?  reason + number
+--------------------------------------------------------------------------------
+outlives_method_call_nonstatic_bound_refuses  CLOSED in    the SAME change, no
+  (the METHOD-call half of the same fact)     this commit  extension. Both rows
+  make the same decision from the same fact — "is this callee region pinned from
+  above?" — and one candidate change moved both, which is the only test the rule
+  accepts. Compiles and RUNS at exit 3, rustc's own exit for its twin.
+outlives_call_instantiation (the subject)     CLOSED       runs exit 0.
+cell_typearg_region_invariance_admits         ROWED        reason 3 — its own
+  cost is unpriced, and the arm that would close it REFUSES more, so co-landing
+  it would smuggle an unpriced change inside a priced one. THE NUMBER: the price
+  of NOT closing it on the corpus is 0 — all five fixtures carrying `Cell<&`
+  (variance-cell-of-cell, variance-cell-is-invariant, projection-implied-bounds,
+  variance-mutual-outlives-eq, propagate-fail-to-approximate-longer-no-bounds)
+  have IDENTICAL verdicts on the base and landed binaries. It is not reason 1:
+  the fact has a carrier here. It is reason 3 because `UnsafeCell`'s invariance
+  is a LANG-ITEM AXIOM (sema_auto_trait.cpp, by qualified name) and not a
+  structural property — `Cell<T>{inner:UnsafeCell<T>}` over `UnsafeCell<T>{value:T}`
+  bottoms out at a bare covariant `T`, so no field walk can reach it. Teaching the
+  pin test that axiom is a different change with its own cost direction.
+array_index_store_index_reads_loan_refused    ROWED        reason 1 — no carrier:
+  a builtin array store is a place assignment with no IndexMut call and no
+  autoref, so the store-index predicate that closed u01/u02/u03 has nothing to
+  ask. Identical to the reason round f gave for array_store_value_reads_loan_refused.
+regions-bounded-by-trait-requiring-static--{b-used,requiring-static}
+                                              NOT A NEIGHBOUR — and not a
+  mis-port either. rustc REFUSES both ported texts (rc 1, 2 errors each); their
+  illegality comes from an EXPLICIT turbofish type argument, not from variance,
+  so there is no instantiation freedom for the arm to restore. Unmoved on the
+  landed binary. Left exactly as they are.
+
+================================================================================
+CONTRADICTIONS TO RECORDED CLAIMS
+================================================================================
+1. THE PROMPT'S STEP A IS WRONG IN BOTH ITS FILE NAMES AND ITS CLAIM. It sends
+   this round to repair regions-bounded-by-trait-requiring-static--*, citing an
+   invariant carrier `Inv<'a>` that lives in a DIFFERENT upstream test. rustc
+   refuses both of those ports; they are correct and they never moved. The
+   previous round's own RESULT.txt named the right second file
+   (regions-bounded-method-type-parameters-trait-bound), and a grep of that
+   record — not of the prompt — is what found it.
+2. The prompt's STEP C program is not closable as spelt: it panics at run time
+   (index out of bounds, exit 101 under rustc). Rowed in a corrected form.
+3. Round f's base column for u01/u02/u03 ("RUNS 9", admitted) is already stale:
+   its own row-2 arm landed in 26d37bd56, and today's base REFUSES all three.
+4. A fail fixture that is legal Rust was, until this commit, asserting a refusal
+   rustc does not make — twice, and both were inside the gate. Both are repaired
+   here against their own upstream files rather than reclassified or deleted.
+
+================================================================================
+MISTAKES OF MY OWN
+================================================================================
+* THREE rc readings in this round were my shell's, not the tool's. `rc=$?` after
+  a pipe to `head` reads head's status, and `echo "$(basename $f) RC=$?"` reads
+  basename's — the command substitution runs first. The second produced a real
+  false finding ("the repaired ports are ADMITTED on base"), which inverted the
+  control-revert expectation until I re-measured it without the substitution.
+  Every rc in this record is captured immediately into a variable.
+* My first fresh configure picked /usr/bin/c++ while build/ uses clang++-20, and
+  the build died in a GENERATED parser with "na_fail_0 was not declared". I began
+  by suspecting the generator; the two generated files are byte-identical, and
+  the cache diff named the compiler. A cache cannot change compilers, so the arm
+  was built in a new dir with -DCMAKE_CXX_COMPILER.
+* I read `build_hash.py` as failing to discriminate base from landed. It takes
+  the build dir as argv[1], not from LOGOS_BUILD, so I had hashed build/ twice.
+  Correctly invoked the hashes differ (130598a0d555bd6e vs 08463e710cd356d3).
+
+  RUNTIME     scripts/run_oracle.py on the landed binary: 7429 pass fixtures
+              COMPILED, LINKED and RUN. 7425 clean; 4 at ccrc 90 —
+              "exited 0 after self-diagnosing", the 14th gate-lie kind, which is
+              a property of those fixtures and not a compile failure:
+                tests/imported/pass/match/issue-41888-b170.logos
+                tests/imported/pass/match/nested-tuple-in-variant-payload-b170.logos
+                tests/imported/pass/option-result/res-and-or-comb-or.logos
+                tests/spec/pass/intrinsic_2.logos
+              Each re-measured on the PRESERVED BASE binary and on the landed
+              one: identical on both (rc 1 / rc 1, four for four). Nothing in
+              this column is attributable to the arm.
+              ⚠ Two readings of mine were wrong before this one and are recorded
+              so the number is not trusted more than it earns: I first filtered
+              the table on a column that does not exist (`$3=="ok"`; the columns
+              are name / compile-rc / run-exit / stdout-sha), and then tested the
+              four against base with paths still carrying a leading quote from
+              `ctest -N -V`, which returned a uniform rc 4 — a bad filename, not
+              a verdict. Both were my parsing, not the tool's.
+
+  REGISTRY PINS, RE-DERIVED BY LISTING (ctest -N on the reconfigured build/),
+  never by arithmetic:
+              ALL         10959 -> 10965
+              NOIMPORTED   6457 ->  6463
+              TIERCOMMIT    347 ->   347
+              The delta is exactly what the edits predict: +6 native pass
+              fixtures, and +2 queue rows opened against -2 closed, which cancel.
+              That TIERCOMMIT is unchanged while ALL moves by 6 is itself the
+              confirmation that a squeue row carries the tier_commit label and a
+              pass fixture does not.
+  SOUNDNESS QUEUE  # TOTAL 229 -> 231 (two rows opened) -> 229 (two closed),
+              re-derived by direct listing at each step; the gate reads 229 open
+              rows on the landed binary, tier1=35 tier2=63 tier3=120 tier4=11.
+
+================================================================================
+GATES, AND THE ONE THAT CAUGHT ME
+================================================================================
+  queue gate (LOGOS_LIB_DIR set, landed binary)  rc 0 — 229 open rows = # TOTAL
+                229 by direct listing; tier1 35, tier2 63, tier3 120, tier4 11.
+  full `cmake --build build -j32`                rc 0 (build/ rebuilt from the
+                landed sources, so every gate below reads the committed compiler;
+                build_hash aa1c51e88730d5df 43, read).
+  ⚠ L1, FIRST RUN                               rc 1 — and it was RIGHT.
+                808/808 L1.1 passed, the enumerator's 12 684 generated cases
+                passed, and the GATES tier failed on exactly one test:
+                logos_00_population_pin_lint.
+                  DRIFT direct_door PIN['corpus']   pinned 3804  listed 3810
+                  DRIFT direct_door PIN['nonglob']  pinned 3613  listed 3619
+                  OK    direct_door PIN['glob']     pinned  191  listed  191
+                That is exactly this round's six new pass fixtures, and the glob
+                half correctly unmoved. The pins were re-derived in the gate that
+                HOLDS them (tests/logos/direct_door_census_gate.sh) BY DIRECT
+                LISTING — `ls tests/logos/pass/*.logos | wc -l` -> 3810, glob 191,
+                3810 - 191 = 3619 — with the six fixtures named in the pin note
+                and the half they joined stated. Re-run: the lint passes.
+                ⚠ I had already updated the OTHER pin block (the census REGISTRY
+                counts) and would have committed believing the population was
+                pinned. Two pin blocks describe this corpus and updating one is
+                not updating the other. The gate is what said so.
+  ⚠ L4, FIRST INVOCATION                        rc 2 — NOT a red suite. The
+                script REFUSES to run in the foreground ("L4 takes ~708 s; a
+                foreground tool call is capped at 600 s") and must be given
+                LOGOS_L4_BG=1 and detached. An rc that means "I declined to
+                start" is not an rc that means "the corpus failed", and reading
+                it as the latter would have been the cheapest possible way to
+                report a false red. Re-launched detached.
+
+================================================================================
+⚠ THE ARM DOES NOT LAND — AND WHAT STOPPED IT IS A THIRD FIXTURE, IN A
+  POPULATION MY OWN COST COLUMN COULD NOT SEE
+================================================================================
+L4 bc phase 1 (core+spec, 6463 tests) failed ONE test:
+    tests/spec/fail/region_diag_1__callee-bound-at-call
+Its program is the closed row's own shape — `needs<'a,'b>(&'a i32, &'b i32) -> i32
+where 'a: 'b` called with two unrelated caller regions. Base REFUSES it (rc 1);
+the armed binary ADMITS it (rc 0), so the fixture's pinned sentence
+("does not satisfy callee's") disappears and the gate reds.
+
+⚠ WHY FAIL TEXT SAID 0 AND WAS NOT WRONG: fail_text_oracle's selection is
+`-L bc -L fail` — 1881 tests. The corpus holds 3086 fail-mode tests, 494 of them
+in the spec tier, and a spec fixture carries neither label. My "CHANGED 0 of 1881"
+was a true statement about a population that EXCLUDES the fixture that actually
+moved. This is the cost-population family of mistakes again, one tier over: a
+zero is a statement about what was measured. Re-measured on the right population,
+base vs landed over all 494 spec fail fixtures: exactly 1 moved, this one.
+
+IS THE FIXTURE RIGHT? NO — AND THAT IS NOT MINE TO FIX.
+  rustc 1.98.1 --edition 2024 ACCEPTS the program (rc 0, ZERO errors; twin
+  rust/spec_callee_bound_at_call.rs). The fixture pins a refusal of legal Rust,
+  exactly like the two ports repaired above — but it is NOT a port. It is a
+  native spec fixture bound to a clause:
+      docs/spec/ownership.md:1622
+      `region.outlives.callee-bound-checked-at-call`
+  GREPPED IN BOTH REGISTRIES, by the construct and with -F: the clause is NOT in
+  docs/DIVERGENCES.md (the 17 lettered rows) and NOT in docs/spec/divergences.md
+  (the 497 clause-id divergences). So it is not a blessed divergence — it is a
+  plain conformance clause describing today's behaviour, and it cites as its
+  source the very lines the arm rewrites (sema_impl.hpp#L3382-L3462).
+  By the standing rule the answer to "what should this mean" is Rust's answer
+  unless a blessed divergence says otherwise, and Rust accepts. So the clause and
+  its fixture are asserting an over-refusal as the rule.
+  A spec clause plus its fixture is A CORPUS DECISION WITH AN OWNER, and this
+  round's authority is "the two ports named and nothing else in the corpus". So
+  the fixture was NOT edited, the clause was NOT edited, and THE ARM IS REVERTED.
+
+WHAT I UNWOUND, AND WHY EACH PIECE COULD NOT STAND ALONE
+  * src/compiler/{sema_expr.cpp,sema_impl.hpp} — reverted to HEAD.
+  * outlives_call_instantiation and outlives_method_call_nonstatic_bound_refuses
+    — REOPENED. They closed only under the arm; with it reverted their programs
+    are refused again and the rows must describe the tree that ships.
+  * the six pass fixtures — REMOVED. n05/n07/n08/n09 are LEGAL programs the
+    committed binary still REFUSES, and the hand-battery rule is explicit: a
+    program whose verdict is still wrong on the binary you commit is a queue row
+    or a member of one, never a pass fixture. They are members of the two
+    reopened rows.
+  * cell_typearg_region_invariance_admits — REMOVED. The hole is real but it is
+    the ARM's hole: on the committed binary the program is refused, so a row
+    saying "admits" would not reproduce and the queue gate would red. It is
+    recorded here and in the reopened row instead.
+  * both pin blocks — reverted, then the single legitimate delta re-derived BY
+    LISTING for the one row that does stand.
+
+WHAT STANDS, BECAUSE IT STANDS ON THE BASE BINARY
+  * Both re-ported fixtures. They are correct against upstream and against rustc
+    independently of the arm, and the committed compiler still REFUSES both
+    (rc 1) with the sentence their .expected pins. Repairing them removes two
+    false assertions from the gate whether or not the arm ever lands.
+  * The STEP C row array_index_store_index_reads_loan_refused.
+
+FOR THE OWNER, PRECISELY ONE DECISION, AND IT IS NOW THE ONLY THING IN THE WAY:
+  `region.outlives.callee-bound-checked-at-call` and its fixture assert that a
+  callee's `where 'a: 'b` is enforced against the caller's DECLARED graph even
+  when neither region is pinned from above. rustc does not do this, and the
+  measured cost of the current rule is four legal programs refused in a
+  14-program battery plus two open queue rows. The arm that fixes it is written,
+  measured 14/14 against rustc, costs 0 on 1881 bc fail fixtures, 0 on the stdlib,
+  0 in the runtime column and moves exactly 1 of 494 spec fail fixtures — that
+  one. Ruling on the clause closes both rows with the diff in
+  src/compiler/probes/2026-09-16f-landboth/row1_arm_cooutretv_plus_struct_invariance.diff.
+
+================================================================================
+CONTROL REVERT, AND WHY THE BUILD HASH IS NOT THE CONTROL
+================================================================================
+After reverting, build/ was rebuilt and its hash read c883f527392897c5 43 —
+NOT the opening 130598a0d555bd6e 43, and the binary's md5 moved too. That is not
+evidence the revert failed, and treating it as such would have been the round's
+last false red. `logosc --version` carries a timestamp stamped at CMake's
+CONFIGURE step, and this round reconfigured build/ twice; the version string is
+compiled into the binary, so the bytes differ while the sources do not. The
+build hash is a cache key over the artefacts, and it was never a statement about
+the sources.
+THE CONTROLS THAT DO ANSWER IT, all measured on the committed binary:
+  * `git diff HEAD -- src/ include/` is EMPTY — 0 lines.
+  * no probe name survives: 0 occurrences of probe::on("landboth") in either file.
+  * tests/spec/fail/region_diag_1__callee-bound-at-call — the fixture the arm
+    broke — is REFUSED again, rc 1, and passes through run_test.sh (rc 0),
+    matching its pinned sentence.
+  * the soundness queue gate passes with 230 rows, which re-verifies that BOTH
+    reopened rows exhibit their recorded refusal again.
+  * both repaired ports pass through run_test.sh on the committed binary (rc 0).
+  * the STEP C row's program is refused (rc 1) on the committed binary.
+
+================================================================================
+WHAT THE NEXT ROUND SHOULD NOT REPEAT
+================================================================================
+1. The two imported ports are DONE. Do not price them again.
+2. fail_text_oracle's 1881 is `-L bc -L fail`. For anything touching region or
+   outlives checking, the spec tier's 494 fail fixtures must be measured too —
+   they carry neither label and this round's arm moved exactly one of them.
+3. The blocker is one owner ruling on `region.outlives.callee-bound-checked-at-call`.
+   The arm, its diff, its 14-program battery and every cost column are measured
+   and recorded; nothing else is missing.
+
+================================================================================
+GATES ON THE COMMITTED TREE (arm reverted, ports repaired, one row added)
+================================================================================
+  full `cmake --build build -j32`   rc 0
+  soundness queue gate              rc 0 — 230 open rows = # TOTAL 230 by direct
+                                    listing; tier1 35, tier2 62, tier3 122, tier4 11.
+  L1                                rc 0 — 808/808, enumerator smoke tier 12 684
+                                    generated cases, gates tier 348/348 (the
+                                    population_pin_lint that caught the earlier
+                                    drift is in that 348 and passes).
+  registry pins, re-derived BY LISTING after reconfigure:
+                                    ALL 10960 · NOIMPORTED 6458 · TIERCOMMIT 348
+                                    (+1 each, the single queue row added — and
+                                    TIERCOMMIT moving with ALL confirms a squeue
+                                    row carries the tier_commit label).
+  direct_door population pins       UNMOVED at corpus 3804 / glob 191 /
+                                    nonglob 3613: no pass fixture is added by the
+                                    committed tree, which is the arithmetic the
+                                    earlier +6 drift predicted in reverse.
+  L4 bc (detached, LOGOS_L4_BG=1)   rc 0 — phase 1 core+spec 6458/6458, 0 failed;
+                                    phase 2 imported bc 1601/1601, 0 failed, 2
+                                    other (poll-problem-case-3,
+                                    dropck-shadow-rebind, DISABLED in CMake and
+                                    untouched here); gate-db build 1274.
+  ⚠ AND THIS IS THE GATE THAT EARNED THE ROUND. Read only by its tail, L4 says
+  "1601 passed / 0 failed" and looks green; `L4 bc` runs TWO phases and exits with
+  the WORSE of them. The armed run's rc 8 was phase 1 reporting "99% tests passed,
+  1 tests failed out of 6463" — one fixture, the one no other column could see.
+  An rc read as "the disabled tests" would have shipped a regression that five
+  other columns called free.

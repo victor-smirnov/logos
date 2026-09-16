@@ -1,0 +1,9 @@
+package n04;
+struct K { b: i64 }
+impl K {
+    fn two<'a, 'b>(self: &Self, x: &'a i64, y: &'b i64) -> &'b i64 where 'a: 'b { return y; }
+}
+fn f<'p, 'q>(k: &K, x: &'p i64, y: &'q i64) -> &'q i64 {
+    return k.two(x, y);
+}
+fn main() -> i32 { let n = 1i64; let m = 5i64; let k = K { b: 0i64 }; return *f(&k, &n, &m) as i32; }

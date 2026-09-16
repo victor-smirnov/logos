@@ -1,9 +1,17 @@
 // rustc regions/regions-bounded-method-type-parameters-trait-bound.rs — upstream lifetime may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// ⚠ RE-PORTED 2026-09-16g (re-port as-is; the B167 port changed the program).
+// Upstream declares `struct Inv<'a> { x: &'a mut &'a isize }` — INVARIANT in 'a —
+// and passes `Inv<'b>` where `'y: 'x` demands 'a. The B167 port replaced Inv with
+// a covariant `&'a i64`, which deletes the reason the program is illegal.
+// MEASURED: rustc 1.98.1 --edition 2024 ACCEPTS the ported text (rc 0, 0 errors;
+// twin src/compiler/probes/2026-09-16g-portsarm/rust/pregbound.rs).
+// Upstream's Inv is restored here; the trait/impl wrapper around `method` is
+// still flattened to a free fn, which is what B167's port did and is not what
+// made it legal. rustc REFUSES the repaired text (rc 1; twin rust/rregbound.rs).
 package regions_bounded_method_type_parameters_trait_bound;
-// port of regions/regions-bounded-method-type-parameters-trait-bound.rs
-// `method` requires 'y: 'x; caller2 supplies 'b for 'y and 'a for 'x with no 'b: 'a bound.
-fn method<'x, 'y: 'x>(x: &'x i64, y: &'y i64) { }
-fn caller2<'a, 'b>(a: &'a i64, b: &'b i64) { method(a, b); }
+struct Inv<'a> { pub x: &'a mut &'a i64 }
+fn method<'x, 'y: 'x>(x: Inv<'x>, y: Inv<'y>) { }
+fn caller2<'a, 'b>(a: Inv<'a>, b: Inv<'b>) { method(a, b); }
 fn main() -> i32 { return 0i32; }

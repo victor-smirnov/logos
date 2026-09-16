@@ -69,3 +69,44 @@ fn f<'p, 'q>(k: &K, x: &'p i64, y: &'q i64) -> i64 {
     return k.two(x, y);
 }
 fn main() -> i32 { let n = 1i64; let m = 2i64; let k = K { b: 0i64 }; return f(&k, &n, &m) as i32; }
+// ══ 2026-09-16g — THE BLOCKER NAMED IN THIS HEADER IS NO LONGER THE BLOCKER ══
+// The two mis-ported fixtures this header names as "the missing piece" ARE
+// REPAIRED, in the same commit that carries this note:
+//   tests/imported/fail/nll/issue-95272.logos
+//   tests/imported/fail/regions/regions-bounded-method-type-parameters-trait-bound.logos
+// Both were re-ported against their own upstream files (the invariant carrier
+// restored), both are refused by the committed compiler, and both are refused by
+// rustc 1.98.1. They no longer move under the arm. Do NOT spend another round on
+// them, and do not trust a handed-down list of blockers — including this one —
+// without re-measuring it.
+//
+// THE ARM STILL DOES NOT LAND, AND THE REASON IS NOW A DIFFERENT, SINGLE FIXTURE
+// FOUND BY L4 AND NOT BY fail_text_oracle:
+//   tests/spec/fail/region_diag_1__callee-bound-at-call   base rc 1 -> armed rc 0
+// fail_text_oracle selects `-L bc -L fail` (1881 tests). The corpus holds 3086
+// fail-mode tests, 494 of them in the spec tier, and a spec fixture carries
+// NEITHER label — so that oracle's "CHANGED 0" is true and blind here. Measured
+// over all 494 spec fail fixtures, base vs armed: exactly 1 moves, this one.
+//
+// That fixture's program is THIS ROW'S OWN SHAPE and rustc 1.98.1 ACCEPTS it
+// (rc 0, zero errors; twin src/compiler/probes/2026-09-16g-portsarm/rust/
+// spec_callee_bound_at_call.rs). It is bound to the spec clause
+// `region.outlives.callee-bound-checked-at-call` (docs/spec/ownership.md:1622),
+// which is in NEITHER divergence registry (docs/DIVERGENCES.md's 17 lettered
+// rows; docs/spec/divergences.md's 497 clause ids) — so it is a plain
+// conformance clause asserting an over-refusal as the rule, citing as its source
+// the very lines the arm rewrites (sema_impl.hpp#L3382-L3462).
+// A spec clause plus its fixture is a CORPUS DECISION WITH AN OWNER. Neither was
+// edited; the arm was REVERTED. One ruling closes this row and its neighbour.
+//
+// MEMBERS OF THIS ROW (legal programs the committed compiler still refuses, each
+// with a rustc twin that compiles and RUNS at the stated exit code):
+//   n05 static-call path exit 3 · n07 three regions transitively exit 7
+//   n08 covariant struct Co<'b> exit 3 · n09 Option<&'b i64> parameter exit 4
+//   (src/compiler/probes/2026-09-16g-portsarm/battery/, twins in rust/)
+// AND ONE HOLE THE ARM ITSELF WOULD OPEN, measured and not rowed because on the
+// committed binary the program is correctly REFUSED: `Cell<&'a i64>` carries the
+// region in a TYPE ARG, and UnsafeCell's invariance is a LANG-ITEM AXIOM
+// (sema_auto_trait.cpp) that the arm's structural pin test cannot see —
+// `Cell<T>{inner:UnsafeCell<T>}` over `UnsafeCell<T>{value:T}` bottoms out at a
+// bare covariant T. Any future arm must close that too; battery/A_cell.logos.
