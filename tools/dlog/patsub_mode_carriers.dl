@@ -1,0 +1,36 @@
+#include "cxx_schema.dl"
+// patsub_mode_carriers — round 2026-09-16c. WHICH PATTERN-BUILDING CONTEXTS RECURSE INTO A SUB-PATTERN, AND WHICH OF THEM
+// CARRY THE DEFAULT BINDING MODE INTO IT?
+// The fact: a container door that recurses must hand the sub a REF-WRAPPED component type, or the payload the scrutinee
+// still owns is Drop-scheduled twice (spec pat.binding.default-mode-carried-into-subpatterns).
+// The carrier in this tree is the lambda `dbm_sub_ty` (ref-wraps) or `mint_dbm_ref` (mints a ref-bind leaf). A context that
+// calls SemaChecker::build_pattern (or build_pattern_variant_data / build_pattern_variant) but neither carrier LOSES the mode.
+// Claim-free: the domain is every call of a build_pattern* member; the separator is a call to either carrier. No walker list.
+// ⚠ ctx_of COARSENS (a lambda reports its enclosing function) — every row is cross-checked by a per-site read.
+// KNOWN ANSWER, stated before the run: build_pattern_impl recurses AND calls dbm_sub_ty/mint_dbm_ref (a carrier);
+// build_pattern_variant_data recurses and calls NEITHER (this is the defect the queue row records). So `sub_recursor` must
+// contain at least those two and `mode_lost` must contain build_pattern_variant_data. If mode_lost is EMPTY the extraction
+// is wrong and nothing below is believed.
+.decl fn_ctx(C: symbol, F: symbol)
+fn_ctx(C, C) :- named_context(C), (node(C, "Function", _, _) ; node(C, "CXXMethod", _, _)).
+fn_ctx(C, F) :- named_context(C), node(C, "LambdaExpr", P, _), P != "-", ctx_of(P, C2), fn_ctx(C2, F).
+.decl ctx_key(C: symbol, Key: symbol)
+ctx_key(C, cat(Nm, "@", to_string(L))) :- fn_ctx(C, F), ctx_name(F, Nm), loc(F, _, L, _).
+.decl calls_named(K: symbol, N: symbol)
+calls_named(K, N) :- decl(D, _, Q), decl_name(D, N), call(U, D), ctx_of(U, C), ctx_key(C, K), Q = Q.
+.decl sub_recursor(K: symbol)
+.output sub_recursor
+sub_recursor(K) :- calls_named(K, "build_pattern").
+sub_recursor(K) :- calls_named(K, "build_pattern_variant_data").
+sub_recursor(K) :- calls_named(K, "build_pattern_variant").
+.decl carrier(K: symbol, How: symbol)
+.output carrier
+carrier(K, "dbm_sub_ty")   :- calls_named(K, "dbm_sub_ty").
+carrier(K, "mint_dbm_ref") :- calls_named(K, "mint_dbm_ref").
+carrier(K, "make_ref")     :- calls_named(K, "make_ref").
+.decl mode_lost(K: symbol)
+.output mode_lost
+mode_lost(K) :- sub_recursor(K), !carrier(K, _).
+.decl mode_carried(K: symbol)
+.output mode_carried
+mode_carried(K) :- sub_recursor(K), carrier(K, _).

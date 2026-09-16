@@ -1,0 +1,42 @@
+PREDICTIONS — round 2026-09-16c, written BEFORE the armed binary existed.
+Base build_hash ad30d614b7d2e6c2 43. Four probes in one build (build-dbm), armed one at a time.
+
+## dbmstruct (sema_stmt.cpp::build_pattern_variant_data, the pat_is_struct_shape door)
+ROOT (read, not guessed): the struct-shape branch fills `bindings` via `by_pos` and NEVER pushes to
+binding_is_ref / binding_is_mut / binding_from_wild; the loop that fills them is guarded
+`if (!pat_is_struct_shape && ...)`. So binding_from_wild.size()==0 and EVERY
+`k < binding_from_wild.size()` test in the bind_ref_modes loop is false — the default binding mode
+is dead at this door, for every `match &e { E::V { f } }`.
+QUEUE CEILING: 0 rows. variant_payload_nested_struct_sub_double_drops is cell (b) (a TUPLE-shaped
+  variant with a nested STRUCT sub, the synth path) and this door is cell (a). Predict the queue gate
+  stays rc 0 at 224 rows.
+PASS COST: exactly ONE fixture changes — bc_0907q_dbmcarry_hb_c13_admit, stdout `D5 D5` -> `D5`.
+  It is the only fixture in tests/logos/pass, tests/logos/fail, tests/imported/pass or tests/spec/pass
+  that has a struct-shaped variant pattern under a by-ref scrutinee (census by direct listing).
+  Predict 0 other pass fixtures move.
+FAIL COST: 0.
+HAND (drop count, 18 programs): 2 -> 1 for p01 p08 p10 p11 p14 p16 p17 p19 (and p18, which Rust
+  refuses outright); UNCHANGED at 2 for p03 p15 (cell (b), the synth path); UNCHANGED at 1 for
+  p02 p05 p06 p09 p12 p13 p20.
+STDLIB: 4 of 4 layers compile.
+
+## arrdecay (sema.cpp::types_compatible, the &[T;N] -> *T half only)
+FAIL SIDE: d01 and m10 become refusals (that is the point).
+PASS COST: predicted NON-ZERO and the reason to measure — the block's own comment says it "restores
+  the historical `&mut arr` thin-pointer form", i.e. it was added for corpus code. Predict a handful
+  of pass fixtures and a real risk to the stdlib FFI layers. Predict stdlib NOT 4 of 4.
+QUEUE: arrayref_to_arrayptr_coercion_refused (tier 3, refuses) is the MIRROR row — predict it does
+  NOT close (arming refuses more, not less).
+
+## refrel (sema_expr.cpp::lower_binop, relational operator with mixed-mutability reference operands)
+FAIL SIDE: g11's `ra < rb` becomes a refusal.
+PASS COST: predicted exactly ONE — bc_0915b_refeqland_hb_g11_admit. g11s is all-shared;
+  hand g06 (&mut/&mut) and g07 (&/&) are uniform and rustc runs both, so a mixed-mutability
+  predicate must leave them alone.
+QUEUE: 0 rows.
+
+## idxstore (borrow_check.cpp::store_loans_die_in_stmt_)
+PREDICTED TO OVER-REFUSE, and that is the measurement: the query cannot separate an IndexMut STORE's
+  autoref (rustc: NOT two-phase, E0502 — hand v01) from a METHOD RECEIVER's autoref (rustc: two-phase,
+  compiles — hand v03). Predict v01 correctly refused AND v03 wrongly refused.
+LEDGER: predict the bc_admits row borrowck-loan-vec-content REOPENS, i.e. the bc_admits gate goes red.

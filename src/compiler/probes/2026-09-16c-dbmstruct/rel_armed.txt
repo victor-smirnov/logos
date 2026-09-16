@@ -1,0 +1,16 @@
+g01                                                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+g02                                                  cc=0 run=0 out=
+g03                                                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+g04                                                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+g05                                                  cc=0 run=0 out=
+g06                                                  cc=0 run=0 out=
+g07                                                  cc=0 run=0 out=
+g08                                                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0915b_refeqland_hb_g11_admit                      cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0915b_refeqland_hb_g11s_admit                     cc=0 run=0 out=
+bc_0915b_refeqland_hb_f57_admit                      cc=0 run=0 out=
+bc_0915b_refeqland_hb_f08s_admit                     cc=0 run=0 out=
+bc_0915b_refeqland_hb_f08r_admit                     cc=0 run=0 out=
+bc_0915a_refeq_hb_e20_admit                          cc=0 run=0 out=
+bc_0915a_refeq_hb_e39_admit                          cc=0 run=0 out=
+bc_0915a_refeq_hb_e47_admit                          cc=0 run=0 out=

@@ -1,0 +1,85 @@
+diff --git a/src/compiler/borrow_check.cpp b/src/compiler/borrow_check.cpp
+index c23578730..69a4faf15 100644
+--- a/src/compiler/borrow_check.cpp
++++ b/src/compiler/borrow_check.cpp
+@@ -2414,6 +2414,13 @@ private:
+     // with it is a whole-`v` shared loan whose holders' last use is this statement, raised inside the innermost loop.
+     // A query, not a release. PROBES.md 2026-09-14b-ptrcoerceland.
+     bool store_loans_die_in_stmt_(const std::string& root) {
++        // ── CEILING PROBE `idxstore` — the 2026-09-14b landing read an IndexMut
++        // store's `&mut v` autoref as a two-phase borrow. rustc 1.98.1 refuses
++        // `let e = &v[1]; v[*e as usize] = 9;` with E0502 (hand v01), while
++        // `v.push(v.len())` — a METHOD RECEIVER's autoref, which really is
++        // two-phase — compiles in both (hand v03). This query cannot tell the
++        // two apart, so arming it refuses both.
++        if (logos::probe::on("idxstore")) return false;
+         auto* sit = var_find(NO_SLOT, root);
+         if (sit == nullptr || !sit->shared_field_borrows.empty() || !sit->mut_field_borrows.empty()) return false;
+         const size_t loop_lo = loop_stack_.empty() ? 0 : loop_stack_.back().outer_scope_count;
+diff --git a/src/compiler/sema.cpp b/src/compiler/sema.cpp
+index 4e44fee47..7ac297740 100644
+--- a/src/compiler/sema.cpp
++++ b/src/compiler/sema.cpp
+@@ -2287,8 +2287,13 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
+         from.pointee().elem()) {
+         bool from_mut = from.kind() == LogosType::Kind::MutRef;
+         TypeRef aelem = from.pointee().elem();
++        // ── CEILING PROBE `arrdecay` — rustc 1.98.1 refuses `&mut [T;N]` -> `*mut T`
++        // with E0308 (twins d01/m10, round 2026-09-16c). Registered in NEITHER
++        // divergence registry: `coerce.array.to-pointer-decay` is an extracted
++        // description of this very block and carries no `divergence` field.
++        // The &-to-& half below is a separate door and is NOT armed.
+         if (to.kind() == LogosType::Kind::Ptr && to.pointee() &&
+-            (from_mut || !to.mut_ptr()))
++            (from_mut || !to.mut_ptr()) && !logos::probe::on("arrdecay"))
+             return types_compatible(aelem, to.pointee());
+         if ((to.kind() == LogosType::Kind::Ref || to.kind() == LogosType::Kind::MutRef) &&
+             to.pointee() &&
+diff --git a/src/compiler/sema_expr.cpp b/src/compiler/sema_expr.cpp
+index 725fe1a79..ce18e99cf 100644
+--- a/src/compiler/sema_expr.cpp
++++ b/src/compiler/sema_expr.cpp
+@@ -2399,6 +2399,19 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
+     auto is_ref_t = [](TypeRef t) {
+         return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
+     };
++    // ── CEILING PROBE `refrel` — `core` ships a cross-mutability `PartialEq`
++    // (`&mut A == &B` is Rust-canonical, hand g02) but NO cross-mutability
++    // `PartialOrd`: rustc 1.98.1 refuses `ra < rb` for `ra: &mut T`, `rb: &T`
++    // with E0308 (hand g01 g03 g08). Uniform mutability is legal in BOTH
++    // directions (g06 `&mut`/`&mut` and g07 `&`/`&` both run in rustc), so the
++    // fact is MIXED mutability, not "a `&mut` operand".
++    if (logos::probe::on("refrel") && is_ref_t(lt) && is_ref_t(rt) &&
++        (op == "<" || op == "<=" || op == ">" || op == ">=") &&
++        (TypeRef(lt).kind() == LogosType::Kind::MutRef) !=
++        (TypeRef(rt).kind() == LogosType::Kind::MutRef))
++        error(std::format(
++            "mismatched types: `{}` compares a mutable and a shared reference; "
++            "types differ in mutability (reborrow the `&mut` operand as `&*r`)", op));
+     if (cmp_op && is_ref_t(lt) && is_ref_t(rt)) {
+         while (is_ref_t(TypeRef(lt).pointee()) && is_ref_t(TypeRef(rt).pointee())) {
+             // A peeled layer is read, not moved: `&mut` layers load as shared references.
+diff --git a/src/compiler/sema_stmt.cpp b/src/compiler/sema_stmt.cpp
+index 66b6711dd..f784108c8 100644
+--- a/src/compiler/sema_stmt.cpp
++++ b/src/compiler/sema_stmt.cpp
+@@ -4407,6 +4407,19 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef
+     // Gates the default-binding-mode ref wrap below so it never touches synth
+     // slots (those are handled by-value / Stage-2).
+     std::vector<bool> binding_from_wild;
++    // ── CEILING PROBE `dbmstruct` — THE STRUCT-SHAPED VARIANT PAYLOAD DOOR NEVER
++    // FILLS THE PARALLEL FLAG VECTORS. The loop below is guarded on
++    // `!pat_is_struct_shape`, so for `match &e { E::V { f } }` `binding_from_wild`
++    // stays EMPTY and every `k < binding_from_wild.size()` test in the
++    // bind_ref_modes loop is false — the default binding mode is dead at this
++    // door. Measured 2026-09-16c: the payload's destructor runs TWICE.
++    if (pat_is_struct_shape && logos::probe::on("dbmstruct")) {
++        for (auto& b_ : bindings) {
++            binding_is_ref.push_back(false);
++            binding_is_mut.push_back(false);
++            binding_from_wild.push_back(b_ != "_");
++        }
++    }
+     if (!pat_is_struct_shape && pnode.has_key(la::ARGS)) {
+         AnyVal aav = pnode.get(la::ARGS.code);
+         if (!aav.is_null() && aav.is_pointer()) {

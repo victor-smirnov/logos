@@ -1,0 +1,5 @@
+package k05;
+struct H<'a> { pub r: &'a i64 }
+fn two<'a, 'b>(x: H<'a>, y: H<'b>) -> i64 where 'a: 'b { return *x.r + *y.r; }
+fn f<'p, 'q>(x: H<'p>, y: H<'q>) -> i64 { return two(x, y); }
+fn main() -> i32 { let n = 1i64; let m = 2i64; return f(H { r: &n }, H { r: &m }) as i32; }

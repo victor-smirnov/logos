@@ -1,0 +1,13 @@
+package hb_n03;
+static mut NDROP: i64 = 0i64;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { NDROP = NDROP + 1i64; } } }
+enum Inn { S { f: S }, N }
+enum Outer { V(Inn), Z }
+fn inner() -> i64 {
+    let mut x = Outer::V(Inn::S { f: S { n: 5i64 } });
+    let mut out: i64 = 0i64;
+    match &x { Outer::V(Inn::S { f }) => { out = f.n; }, _ => {} }
+    return out;
+}
+fn main() -> i32 { let o: i64 = inner(); if o != 5i64 { return 100i32; } unsafe { return NDROP as i32; } }

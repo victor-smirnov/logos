@@ -46715,3 +46715,141 @@ because the round measured only FULL binds and a leak has no exit code.** Vary t
 ⚠ AND THE PARTIAL BIND WAS THE PLAINEST SPELLING OF THE CLASS. `match arr { [_, y] => … }` is the
 first thing anyone writes, it is 14 of the round's 21 programs, and the previous round's every column
 missed it because its battery bound every element. Write the plain spelling first.
+
+# ═══ ROUND 2026-09-16c-dbmstruct (PRICING, the owner's six fixture-audit rulings) — THE STRUCT-SHAPED
+#     VARIANT PAYLOAD DOOR NEVER FILLS ITS OWN FLAG VECTORS, SO THE DEFAULT BINDING MODE IS DEAD AT IT
+#     AND ELEVEN SPELLINGS DOUBLE-DROP; THE CHEAP COVARIANCE ARM FOR x06 IS REFUTED BY ITS OWN HAND
+#     PROGRAM; AND TWO MORE CONTRADICTED FIXTURES FALL OUT — ONE FOUND BY AN ARM, NOT BY THE AUDIT ═══
+
+Files: `src/compiler/probes/2026-09-16c-dbmstruct/` — PREDICTIONS.txt (written before the armed binary
+existed), RESULT.txt (every column), candidate_with_probe_gates.diff (the four probes as measured),
+battery/ (42 hand programs), rust/ (52 rustc twins), runoracle_{base,dbmstruct}.tsv, and the eight
+base/armed population files. New dlog rule: tools/dlog/patsub_mode_carriers.dl — ⚠ IT FAILED ITS OWN
+KNOWN-ANSWER CONTROL and is committed WITH the failing control, see §DLOG in RESULT.txt.
+
+STEP 1, READ FROM THE TREE: HEAD b513126ea clean · soundness_queue `# TOTAL` 224 = 224 by direct listing
+(tier1 36 tier2 60 tier3 117 tier4 11) · bc_admits 60 · bc_admits_blocked 8 · probe-log-lint 375 records ·
+build_hash ad30d614b7d2e6c2 43 (READ) · queue gate rc 0 WITH LOGOS_LIB_DIR · dlog selftest.sh rc 0.
+⚠ THE PROMPT'S STEP-1 GATE COMMAND ALREADY CARRIES `LOGOS_LIB_DIR`, checked against the text given rather
+than copied from the journal. The correction four rounds recorded is FIXED; this round does not repeat it.
+
+FOUR PROBES IN ONE BINARY (build-armelem, e3576d4a30e7147d 43), armed one name at a time.
+⚠ A FRESH `cmake -G Ninja -B <new dir>` OF THIS TREE DOES NOT BUILD: the generated PEG parser
+`build-dbm/src/compiler/logos_parser.cpp` fails with `'na_fail_0' was not declared in this scope` (4
+errors). Not my edits — all four edited TUs are `-fsyntax-only` clean, and an existing build dir builds
+them. Recorded because the next round that reaches for a fresh build dir will lose the same half hour.
+
+THE RE-MEASUREMENTS THE ROUND WAS ASKED FOR, ON TODAY'S BINARY, WITH rustc 1.98.1 BESIDE THEM:
+  c13 — runs, exit 0, stdout `D5 D5`, destructor count 2; valgrind 0 errors (⚠ THE HEAP ORACLE IS BLIND
+    TO THIS CLASS: S owns nothing, so a double DESTRUCTOR CALL leaves no heap trace — only the count
+    separates it). rustc twin: exit 0, `D5` once. THE AUDIT'S REPORT HOLDS.
+    ⚠ The audit cites twin `gen4/bc_0907q_dbmcarry_hb_c13_admit.rs`; NO SUCH FILE EXISTS. gen3 does, is
+    verbatim-faithful, and gives the audit's verdict. The fixture's own header cites gen3 correctly.
+  x06 — REFUSED at line 10 with the recorded sentence. rustc twin: ACCEPTS, exit 0, empty stderr.
+    THE AUDIT'S REPORT HOLDS.
+  ⚠ AND ONE OF MY OWN INSTRUMENTS LIED FIRST: the v02i twin read REFUSED because its filename carries a
+    dot and rustc rejected it as an INVALID CRATE NAME. Re-run with `--crate-name`, it gives E0502
+    verbatim. A null result through a broken channel — the same `.copy.rs` trap the audit records.
+
+TWO CONTRADICTED FIXTURES THE AUDIT'S SIX DO NOT CONTAIN, both measured today:
+  tests/logos/fail/bc_staticdemand_method_nonstatic_bound_refuse — x06's twin under another caller name;
+    rustc ACCEPTS, exit 3. The audit read only fixtures whose header said "by reading"; this one has no
+    such header, which is exactly why a marker-driven audit cannot close the class.
+  tests/imported/pass/enum/struct-like-variant-match — rustc REFUSES it as written (E0277, `can't compare
+    &f64 with f64`) and accepts the `*x` spelling. FOUND BY AN ARM, not by reading: it compiles today only
+    because the binding mode is dead at the door this round prices.
+
+WHAT DESERVES FUNDING, PER RULING (the full table is in RESULT.txt):
+  1 c13 double drop        FUND — one predicate, one site, ELEVEN spellings close; one door in series named
+  2 x06 over-refusal       DO NOT FUND THE CHEAP ARM — refuted by hand k04; needs the callee RETURN type
+  3a d01+m10 array decay   FUND — cost 1 corpus fixture, and it CLOSES a queue row I predicted it would not
+  3b v02i IndexMut store   DECLINE, reason 3 — refuses two legal programs (rustc twins accept both)
+  3c g11 relational        FUND — cost 1 fixture (the one being corrected); the audit's wording corrected
+
+L1 (`tests/logos/test-levels.sh L1` from build/): L1.1 808/808 passed, 0 failed; smoke tier passed
+(12 684 generated cases); THE GATES TIER FAILED on two tests, BOTH PROVEN NOT THIS ROUND'S:
+`logos_00_squeue_slice_pattern_arm_binding_extra_drops` (that row was deleted by HEAD itself, b513126ea;
+its program is gone and it is not in the ledger — build/'s ctest registry is stale) and
+`logos_00_census_pin` (pinned 10922/6420/342 by b513126ea; build/ measures 10910/6408/340, twelve fewer,
+because build/ was configured before that landing). The roster queue gate reads rc 0 at 224 rows on the
+same tree, `docs/deem-interpreter-deletion-census.md` is untouched here, and
+`ctest -N -V | grep -c '2026-09-16c-dbmstruct\|patsub_mode_carriers'` = 0 — this round registers no test.
+⚠ build/ WAS NOT RECONFIGURED TO CLEAR THEM: that moves build_hash and invalidates the gate store's
+verdicts for this build. The next reconfigure should expect exactly +12 / +12 / +2.
+
+⚠ TWO ENUMERATIONS FAILED IN THIS ROUND, BOTH BY SPELLING, AND BOTH WERE CAUGHT BY A CONTROL.
+  The new dlog rule put `build_pattern_variant_data` in `mode_carried` because `ctx_of` coarsens a whole
+  function into one context and that function calls `make_ref` at four unrelated sites — the THIRD
+  recorded instance of feedback_context_predicate_cannot_answer_site_question. Its own known-answer
+  control said so. And my corpus census grepped `match &` over tests/logos and reported ONE file; the
+  runtime column found TWO more in tests/imported, one of them matching on a PARAMETER (`match x`), which
+  that spelling cannot see. In both cases the MEASUREMENT decided, not the enumeration.
+
+## dbmstruct
+site: src/compiler/sema_stmt.cpp::build_pattern_variant_data
+build: e3576d4a30e7147d 43 (armed; base build/ ad30d614b7d2e6c2 43)
+measured: 2026-09-16
+fires: not instrumented — the effect set was measured directly, 24 hand programs base vs armed
+ceiling: 0 soundness-queue rows (gate rc 0, 224 rows, tier1 36 tier2 60 tier3 117 tier4 11 — unchanged);
+  the target is a PASS FIXTURE, bc_0907q_dbmcarry_hb_c13_admit, which goes stdout `D5 D5` -> `D5`
+cost: run_oracle 7406 common, 0 added, 0 removed, FOUR changed — c13 stdout sha (the target),
+  cast-region-to-uint (stack address, subtracted by name), and TWO ccrc 0 -> 1:
+  tests/imported/pass/enum/struct-like-variant-match (rustc REFUSES IT TOO, E0277 `can't compare &f64
+  with f64`; the `*x` control runs exit 0 — an EIGHTH contradicted fixture, not a cost) and
+  tests/imported/pass/structs-enums/generic-recursive-list-se (rustc ACCEPTS, exit 0 — a REAL
+  over-refusal: Logos lacks the `&&T -> &T` deref coercion at a call argument, a door in series).
+  ⚠ I PREDICTED "exactly ONE fixture moves" IN WRITING AND WAS WRONG: my census was a grep for
+  `match &` over tests/logos, and both programs are in tests/imported, one of them matching on a
+  PARAMETER (`match x`) that the spelling cannot find. Enumeration by spelling, not by property.
+  · stdlib 4 of 4 · fail side: the one fail fixture in the population
+  (bc_0913b_selfregion_land_hb_b03_refuse) prints its diagnostic word for word, base and armed ·
+  hand battery 24 programs: 11 double drops -> Rust's count, 8 correct programs unmoved, cell (b) (p03 p15)
+  unmoved at 2 as predicted, n03 still refused
+verdict: FUND, WITH ONE DOOR IN SERIES NAMED. The struct-shaped variant payload door never fills binding_is_ref / binding_is_mut /
+  binding_from_wild (the loop that fills them is guarded `!pat_is_struct_shape`), so binding_from_wild is
+  EMPTY and every `k < binding_from_wild.size()` test in the bind_ref_modes loop is false — the default
+  binding mode is dead at this door. Eleven spellings close in one change. The single legal program the
+  arm refuses (generic-recursive-list-se) needs the `&&T -> &T` argument coercion opened in the same
+  commit, or repaired at its own door with the reason recorded.
+
+## arrdecay
+site: src/compiler/sema.cpp::types_compatible
+build: e3576d4a30e7147d 43
+measured: 2026-09-16
+fires: not instrumented; population measured by direct listing
+ceiling: 1 soundness-queue row — arrayref_to_arrayptr_coercion_refused CLOSES (cc 1 -> 0, runs exit 0).
+  ⚠ PREDICTED NOT TO CLOSE, IN WRITING, BEFORE THE RUN. The decay branch answered first for every Array
+  pointee and shadowed the general `&T -> *const T` branch, exactly as that row's header says.
+cost: 1 pass fixture — tests/logos/pass/array_ref.logos (`let p: *mut i32 = &mut a;`) · stdlib 4 of 4
+  (ALSO PREDICTED WRONG: I predicted the stdlib would break) · m5, m11, array_into_iter, anyval_basic,
+  array_and_nested_drop unchanged · d01 and m10 refused, which is the ruling
+verdict: FUND, with array_ref.logos repaired at its own door (`as *mut i32`). Registry checked in BOTH:
+  no A1-A17 row; `coerce.array.to-pointer-decay` in docs/spec/types.md is an EXTRACTED DESCRIPTION OF
+  THIS BLOCK carrying no `divergence` field, so it blesses nothing — and its own line citations are stale.
+
+## refrel
+site: src/compiler/sema_expr.cpp::lower_binop
+build: e3576d4a30e7147d 43
+measured: 2026-09-16
+fires: not instrumented; 8-shape hand battery + the 8 relational fixtures of the refeq family
+ceiling: 0 queue rows; the target is the pass fixture bc_0915b_refeqland_hb_g11_admit
+cost: 1 pass fixture (g11 itself, the one being corrected) · stdlib 4 of 4 · UNTOUCHED and each measured
+  accepted by rustc: g02 `&mut T == &T`, g05 `&*ra < rb`, g06 `&mut T < &mut T`, g07 `&T < &T`, g11s,
+  f57, f08s, f08r, e20, e39, e47
+verdict: FUND, with the audit's statement corrected by measurement: the fact is MIXED mutability, not
+  "an implicit `&mut` -> `&` reborrow at a relational operator" — g06 (`&mut`/`&mut`) runs in rustc and
+  the wider reading would condemn it. And there are TWO doors, not one: an all-primitive tuple goes
+  through the `in_place` deref, a primitive pointee through `peel_numeric_ref` (g03).
+
+## idxstore
+site: src/compiler/borrow_check.cpp::store_loans_die_in_stmt_
+build: e3576d4a30e7147d 43
+measured: 2026-09-16
+fires: not instrumented; 9-program population, each with a rustc twin
+ceiling: the v02i fixture and hand v01 are correctly refused (rustc E0502)
+cost: TWO LEGAL PROGRAMS — bc_0914b_ptrcoerceland_hb_v02_admit and _v02b_admit, both cc 0 -> REFUSED,
+  and both ACCEPTED by rustc today (exit 3, exit 2). v03 `v.push(v.len())` correctly unmoved (a method
+  receiver's autoref really is two-phase in Rust), hoisted-index fixtures unmoved, stdlib 4 of 4
+verdict: DECLINED, REASON 3 — its own cost is measured non-zero. The predicate cannot tell "the loan's
+  last use is this statement" from "the loan is read BY the store's own value expression". The repair is
+  a narrowing at the same site (ask whether the conflicting loan is read by the INDEX or by the VALUE).

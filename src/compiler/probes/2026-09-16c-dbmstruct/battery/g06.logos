@@ -1,0 +1,11 @@
+package hb_g06;
+use logos.lang.cmp;
+
+fn main() -> i32 {
+    let mut a: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let mut b: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let ra: &mut (bool, u8, f32) = &mut a;
+    let rb: &mut (bool, u8, f32) = &mut b;
+    if ra < rb { return 2i32; }
+    return 0i32;
+}

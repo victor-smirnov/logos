@@ -1,0 +1,9 @@
+v01                                                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+v02                                                  cc=0 run=9 out=
+v03                                                  cc=0 run=1 out=
+v04                                                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+v05                                                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0914b_ptrcoerceland_hb_v02i_admit                 cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0914b_ptrcoerceland_hb_v02_admit                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0914b_ptrcoerceland_hb_v02b_admit                 cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0915f_rustcaudit_vec_index_store_len_hoisted_admit cc=0 run=0 out=

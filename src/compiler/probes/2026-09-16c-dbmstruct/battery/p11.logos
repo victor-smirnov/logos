@@ -1,0 +1,12 @@
+package hb_p11;
+static mut NDROP: i64 = 0i64;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { NDROP = NDROP + 1i64; } } }
+enum E { V { f: S, g: i64 }, Z }
+fn inner() -> i64 {
+    let mut x = E::V { f: S { n: 5i64 }, g: 1i64 };
+    let mut out: i64 = 0i64;
+    match &x { E::V { f, g } => { out = f.n; }, E::Z => {} }
+    return out;
+}
+fn main() -> i32 { let o: i64 = inner(); if o != 5i64 { return 100i32; } unsafe { return NDROP as i32; } }

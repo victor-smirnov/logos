@@ -1,0 +1,4 @@
+package k03;
+fn two<'a, 'b>(x: &'a mut i64, y: &'b mut i64) -> i64 where 'a: 'b { return *x + *y; }
+fn f<'p, 'q>(x: &'p mut i64, y: &'q mut i64) -> i64 { return two(x, y); }
+fn main() -> i32 { let mut n = 1i64; let mut m = 2i64; return f(&mut n, &mut m) as i32; }

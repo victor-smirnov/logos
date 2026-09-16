@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-16c, program p03 — ruling 1, by-ref binder drop count
+package hb_p03;
+static mut NDROP: i64 = 0i64;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { NDROP = NDROP + 1i64; } } }
+struct W { pub s: S }
+enum Outer { V(W), Z }
+fn inner() -> i64 {
+    let x = Outer::V(W { s: S { n: 5i64 } });
+    let mut out: i64 = 0i64;
+    match &x {
+        Outer::V(W { s }) => { out = s.n; },
+        Outer::Z => {}
+    }
+    return out;
+}
+fn main() -> i32 { let o: i64 = inner(); if o != 5i64 { return 100i32; } unsafe { return NDROP as i32; } }

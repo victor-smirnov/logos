@@ -1,0 +1,7 @@
+package v04;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 0i64];
+    let e: &i64 = &a[1u64];
+    a[*e as u64] = 9i64;
+    return a[0u64] as i32;
+}

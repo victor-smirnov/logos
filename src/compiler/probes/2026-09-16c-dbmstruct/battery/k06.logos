@@ -1,0 +1,4 @@
+package k06;
+fn longer<'a, 'b>(x: &'a i64, y: &'b i64) -> &'a i64 where 'b: 'a { return y; }
+fn f<'p>(x: &'p i64) -> &'p i64 { let tmp: i64 = 7i64; return longer(x, &tmp); }
+fn main() -> i32 { let n = 1i64; return *f(&n) as i32; }

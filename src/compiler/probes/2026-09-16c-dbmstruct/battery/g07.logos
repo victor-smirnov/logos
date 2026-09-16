@@ -1,0 +1,11 @@
+package hb_g07;
+use logos.lang.cmp;
+
+fn main() -> i32 {
+    let a: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let b: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let ra: &(bool, u8, f32) = &a;
+    let rb: &(bool, u8, f32) = &b;
+    if ra < rb { return 2i32; }
+    return 0i32;
+}

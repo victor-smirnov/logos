@@ -1,0 +1,9 @@
+bc_0914a_ptrcoerce_hb_d01_admit                      cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0914b_ptrcoerceland_hb_m10_admit                  cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+bc_0914b_ptrcoerceland_hb_m5_admit                   cc=0 run=7 out=
+bc_0914b_ptrcoerceland_hb_m11_admit                  cc=0 run=7 out=
+arrayref_to_arrayptr_coercion_refused                cc=0 run=0 out=
+array_ref                                            cc=1 logosc: warning: /home/logos/devel/logos/build/lib/logos/l
+array_into_iter                                      cc=0 run=0 out=
+anyval_basic                                         cc=0 run=42 out=
+array_and_nested_drop                                cc=0 run=0 out=

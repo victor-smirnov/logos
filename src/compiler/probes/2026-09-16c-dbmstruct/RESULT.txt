@@ -1,0 +1,260 @@
+ROUND 2026-09-16c — PRICING THE OWNER'S SIX FIXTURE-AUDIT RULINGS
+base build_hash ad30d614b7d2e6c2 43 (build/) · armed e3576d4a30e7147d 43 (build-armelem, four probes, one binary)
+rustc 1.98.1 --edition 2024 at /home/victor/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc
+
+== RE-MEASUREMENT OF THE TWO NAMED FIXTURES, TODAY ==
+c13 bc_0907q_dbmcarry_hb_c13_admit : logosc rc 0, RUNS exit 0, stdout "D5\nD5" (destructor count 2).
+    valgrind: 0 errors, 0 definitely lost. ⚠ THE HEAP ORACLE IS BLIND TO THIS CLASS — S owns nothing,
+    so a double DESTRUCTOR CALL is invisible to valgrind; only the count separates it.
+    rustc twin gen3/bc_0907q_dbmcarry_hb_c13_admit.rs: ACCEPTS, exit 0, stdout "D5" — count 1.
+    ⚠ THE AUDIT CITES A TWIN THAT DOES NOT EXIST: docs/rustc-fixture-audit-2026-09.md §c13 names
+    `gen4/bc_0907q_dbmcarry_hb_c13_admit.rs`; there is no such file. gen3 exists, is verbatim-faithful,
+    and gives the audit's verdict. The fixture's own header cites gen3 correctly.
+x06 bc_0913d_staticdemand_hb_x06_refuse : REFUSED rc 1, line 10,
+    "[fn f]: call to 'two': caller does not satisfy callee's outlives bound `'a: 'b`
+     (under arg-type substitution: `'p: 'q` required)"
+    rustc twin shard4-fail/twins/...: ACCEPTS, exit 0, empty stderr.
+BOTH AUDIT REPORTS STILL HOLD.
+
+== A CORRECTION TO MY OWN INSTRUMENT, RECORDED BECAUSE IT IS THE SHAPE THAT LIES ==
+The v02i twin first read "REFUSED" for a reason that has nothing to do with the program: the filename
+carries a dot (`...v02i_admit.idx.rs`) and rustc refused it as an INVALID CRATE NAME. Re-run with
+`--crate-name`, it gives the audit's E0502 verbatim. A null result through a broken channel (rule 11),
+and the same `.copy.rs` trap the audit itself records having been bitten by.
+
+== RULING 1 — c13's DOUBLE DROP. THE RECORDED ROOT IS REFUTED AND THE CLASS IS LARGER ==
+DECISION SITE (read): src/compiler/sema_stmt.cpp::build_pattern_variant_data. The `pat_is_struct_shape`
+branch fills `bindings` through `by_pos` and NEVER pushes to binding_is_ref / binding_is_mut /
+binding_from_wild — the loop that fills those three is guarded `if (!pat_is_struct_shape && ...)`.
+So for `match &e { E::V { f } }` binding_from_wild.size() == 0, every `k < binding_from_wild.size()`
+test in the bind_ref_modes loop is FALSE, and the default binding mode is DEAD at this door.
+⚠ THE HANDED-DOWN CLASS TABLE IS WRONG. PROBES.md 2026-09-07q records four cells and the rule
+"a DOOR does not carry the mode; a SUB PATH does". Measured on 42 hand programs today:
+    p08 `match &x { E3::V { f } }`  — NO container door, NO nested sub — DROPS TWICE.
+That is a fifth cell, the simplest one, and c13 reduces to it. The separating fact is not the door and
+not the sub path: it is IS_STRUCT_SHAPE on the variant pattern.
+HAND BATTERY (oracle = destructor COUNT as the exit code; rustc twin for every program):
+  DOUBLE (2) on base, Rust 1 — p01 (E::V{f},b) · p08 bare · p10 &mut · p11 two fields · p14 struct door
+    x struct-variant sub · p16 if-let · p17 double ref · p19 renamed field · n01 or-pattern · n02 let-else
+    · n04 while-let  — ELEVEN spellings, one fact
+  CORRECT (1) — p02 (E2::T(f),b) · p05 nested VARIANT sub · p06 pure struct · p09 tuple door plain binder
+    · p12 no-Drop control · p13 bare tuple-variant · p20 by-VALUE scrutinee · n05 or-pattern tuple-shape
+  CELL (b), the recorded synth path, UNCHANGED at 2 — p03 `Outer::V(W{s})` · p15 `O3::V((s,k))`
+  p18 `E::V { f: ref q }` — Logos ADMITS (and double-drops); rustc REFUSES, "cannot explicitly borrow
+    within an implicitly-borrowing pattern". A SECOND, INDEPENDENT defect at the same door: the Rust-2024
+    modifier check that `dbm_sub_ty` applies at the three container doors is not asked here.
+  n03 `match &x { Outer::V(Inn::S { f }) }` — Logos REFUSES a legal program:
+    "undefined variable 'f'" + "field read: receiver is not a struct (got <error>)". rustc: exit 0, 1 drop.
+    A THIRD finding, `refuses` class, no row today.
+
+== RULING 2 — x06's OVER-REFUSAL. THE CHEAP ARM IS REFUTED BY ITS OWN HAND PROGRAM ==
+DECISION SITE (read): src/compiler/sema_impl.hpp::check_call_outlives. It builds callee_lt -> caller_lt
+from matched param/arg type pairs, then for each callee pair `'a: 'b` whose BOTH regions map, demands
+outlives(caller_long, caller_short) in the caller's graph. Rust instead instantiates the callee's
+regions afresh at the call and is free to SHORTEN them.
+THE CLASS, by property, not by spelling: dlog tools/dlog/static_demand_sites.dl re-asked on today's tree
+  outlives_askers = lower_call, finish_generic_call, lower_method_call, try_method_on_dyn, lower_static_call  (5)
+  arg_site_blind  = expect_type, check_impl_trait_ret_bound, type_bounds_satisfied_quiet,
+                    resolve_type_generic_inst, resolve_type_assoc_ref, lower_generic_ref,
+                    lower_invoke_expr, lower_struct_lit, lower_enum_lit_data,
+                    lower_enum_lit_data_from_static                                                   (10)
+  CROSS-CHECK BY PER-SITE READ (rule: never fund a dlog verdict alone): the 7 `check_call_outlives(`
+  call lines are at sema_expr.cpp 4410, 4607 (lower_call), 5561 (finish_generic_call), 8500
+  (try_method_on_dyn), 9195, 10732 (lower_method_call), 17204 (lower_static_call) — 5 distinct
+  contexts. dlog and the read AGREE term for term.
+HAND BATTERY, 6 shapes, each with a rustc twin (LOGOS / RUSTC):
+  k01 free fn, both params `&`,   where 'a: 'b   REFUSED / ACCEPTS exit 3
+  k02 the reversed spelling       where 'b: 'a   REFUSED / ACCEPTS exit 3
+  k03 both params `&mut` (INVARIANT)             REFUSED / ACCEPTS exit 3
+  k05 regions carried in a STRUCT field          REFUSED / ACCEPTS exit 3
+  k04 the bound reaches the RETURN type          REFUSED / REFUSED "lifetime may not live long enough"
+  k06 returns a borrow of a local                REFUSED / REFUSED E0515 (a different site, both sides)
+⚠ THE CHEAP ARM IS DEAD ON ARRIVAL. "Skip the both-mapped check when both callee regions arrived
+through COVARIANT (`&`) argument positions" — the arm the ruling suggests — would also skip k04, whose
+params are both `&` and which rustc REFUSES. One hand program, drawn from a shape the ruling did not
+name, refutes it. k03 says the same thing from the other side: `&mut` is invariant and rustc still
+accepts, so variance of the ARGUMENT is not the separating fact either.
+WHAT THE SEPARATING FACT ACTUALLY IS: whether a callee region is PINNED FROM ABOVE — by the return
+type, or by an invariant position the caller can observe. `check_call_outlives` is not given the
+callee's return type at all. Wiring it is a signature change plus 7 call sites; the honest form is
+region inference (instantiate the callee's regions as variables bounded below by the arguments), which
+is the row `outlives_call_instantiation` (tier 3) already records.
+⚠ A SEVENTH CONTRADICTED FIXTURE, NOT IN THE AUDIT'S SIX:
+  tests/logos/fail/bc_staticdemand_method_nonstatic_bound_refuse pins the SAME over-refusal as x06
+  (the same program, caller named `g`). Its rustc twin ACCEPTS, exit 3, measured today. The audit only
+  examined the 786 fixtures whose header said "by reading"; this one does not carry that marker, which
+  is exactly why a marker-driven audit cannot close the class.
+ABUSE DIRECTION, CENSUSED: only 19 fixtures in the whole tree carry a non-static `'a: 'b` bound. The 49
+  staticdemand fixtures that carry `'static` go through a DIFFERENT branch of the same function (the
+  `outlives_is_static(c_short)` early arm) and no covariance arm touches them. Of the non-static fail
+  fixtures, bc_ltscope_wrong_direction_fail, bc_ltscope_wrong_direction_callsite_fail and
+  bc_fieldassign_variance_wrong_bound_fail are refused by rustc too (E0597 / "lifetime may not live
+  long enough") and by Logos through the VARIANCE site, not this one. outlives_undecl_lt is a parse-level
+  refusal. So the abuse direction for this branch is nearly empty — which is itself the finding: a
+  branch with almost no true positives and at least six measured false ones.
+
+== RULING 3 — THE OTHER FOUR, EACH PRICED ON ONE BINARY (e3576d4a30e7147d 43) ==
+-- d01 + m10, probe `arrdecay` (sema.cpp::types_compatible, the `&[T;N]` -> `*T` half ONLY) --
+REGISTRY, CHECKED IN BOTH: DIVERGENCES.md A1-A17 has no row. docs/spec/types.md DOES carry
+  `coerce.array.to-pointer-decay`, which names exactly this behaviour — but it is an EXTRACTED
+  DESCRIPTION OF THIS VERY BLOCK (evidence: sema.cpp#L1938-L1941, #L1999-L2019) and carries NO
+  `divergence` field (tools/spec-extract/rules/sema/sema/types_equal.json). A spec clause that
+  describes an implementation is not a blessing. The audit's conclusion stands; its wording needed
+  this check, because grepping the construct DOES find a clause.
+  ⚠ AND THAT CLAUSE'S OWN LINE CITATIONS ARE STALE: sema.cpp#L1938-L1941 is now find_func_candidates.
+MEASURED base -> armed: d01 cc 0 -> REFUSED · m10 cc 0 -> REFUSED (the point) · m5, m11 unchanged ·
+  array_into_iter, anyval_basic, array_and_nested_drop unchanged · stdlib 4 of 4.
+  COST: tests/logos/pass/array_ref.logos (`let p: *mut i32 = &mut a;` then `fill(p, ...)`) REFUSED.
+  ⚠ MY PREDICTION WAS WRONG TWICE, BOTH RECORDED BEFORE THE RUN:
+    I predicted the stdlib would break. It does not — 4 of 4.
+    I predicted the queue row `arrayref_to_arrayptr_coercion_refused` would NOT close. IT CLOSES:
+    cc 1 -> cc 0, runs exit 0. The decay branch was answering first for every Array pointee and
+    shadowing the general `&T -> *const T` branch — precisely what that row's header says — so
+    removing the raw-pointer half is a CEILING of 1 queue row, not only a cost.
+
+-- v02i, probe `idxstore` (borrow_check.cpp::store_loans_die_in_stmt_, landed 2026-09-14b) --
+MEASURED base -> armed: v01 (the v02i shape) cc 0 -> REFUSED, rustc E0502 — correct ·
+  bc_0914b_ptrcoerceland_hb_v02i_admit cc 0 -> REFUSED — correct ·
+  v02 (index hoisted into a `let`) unchanged — correct · v03 `v.push(v.len())` unchanged, and rustc
+  accepts it: the METHOD RECEIVER's autoref really is two-phase — correct ·
+  bc_0915f_rustcaudit_vec_index_store_len_hoisted_admit unchanged — correct
+  BUT: bc_0914b_ptrcoerceland_hb_v02_admit cc 0 -> REFUSED and bc_0914b_ptrcoerceland_hb_v02b_admit
+  cc 0 -> REFUSED, and rustc ACCEPTS BOTH (exit 3 and exit 2, twins measured today).
+VERDICT: DECLINED, reason 3 — the query cannot tell "the loan's last use is this statement" from
+  "the loan is read BY the store's own value expression", so arming it buys v02i with two legal
+  programs the 14b round landed as pass fixtures. The repair is a narrowing at the same site (ask
+  whether the conflicting loan is read by the INDEX or by the VALUE), not this predicate.
+
+-- g11, probe `refrel` (sema_expr.cpp::lower_binop) --
+MEASURED base -> armed: REFUSED g01 (mixed-mut all-primitive tuple `<`), g03 (`&mut i64 < &i64`),
+  g08 (`&mut u8 <= &u8`) and bc_0915b_refeqland_hb_g11_admit — all four are rustc E0308.
+  UNTOUCHED: g02 (`&mut T == &T`, rustc ACCEPTS — core's cross-mutability PartialEq) · g05 (`&*ra < rb`,
+  rustc ACCEPTS) · g06 (`&mut T < &mut T`, rustc ACCEPTS) · g07 (`&T < &T`) · g11s · f57 · f08s ·
+  f08r · e20 · e39 · e47. stdlib 4 of 4. Pass cost in this population: exactly ONE fixture, g11 itself.
+⚠ TWO CORRECTIONS TO THE AUDIT'S STATEMENT OF THIS FINDING, both measured:
+  (1) g06 runs in rustc, so the fact is MIXED mutability, not "an implicit `&mut` -> `&` reborrow at a
+      relational operator" — that wording would condemn `&mut T < &mut T`, which is Rust-canonical.
+  (2) g03 is a PRIMITIVE pointee and goes through `peel_numeric_ref`, a different code path from the
+      all-primitive-tuple `in_place` deref the audit describes. Two doors, one predicate.
+
+== DLOG — ONE RULE RE-ASKED, ONE RULE WRITTEN, AND THE NEW ONE FAILED ITS OWN CONTROL ==
+selftest.sh rc 0 before any use.
+static_demand_sites.dl re-asked: see RULING 2. Verdict cross-checked per site; agrees.
+tools/dlog/patsub_mode_carriers.dl — NEW. Question: which pattern-building contexts recurse into a
+  sub-pattern, and which carry the default binding mode into it. KNOWN-ANSWER CONTROL, stated in the
+  rule before the run: `mode_lost` must contain build_pattern_variant_data.
+  ⚠ IT DID NOT. The rule put build_pattern_variant_data in `mode_carried`, because that function calls
+  make_ref at four OTHER sites (relative lines 262, 399, 936, 959) and `ctx_of` coarsens a whole
+  function into one context. This is the THIRD recorded instance of exactly that failure
+  (feedback_context_predicate_cannot_answer_site_question). The control caught it; the per-site read
+  and the hand battery are what decided. The rule is committed WITH its failing control, not deleted.
+  IT WAS STILL WORTH ASKING: its `mode_lost` list named lower_let_else, build_pattern_or, lower_match,
+  lower_match_expr and emit_nested_variant_lets — and n02 (let-else), n01 (or-pattern), n04 (while-let)
+  all double-drop, while n03 (the emit_nested_variant_lets shape) is a NEW refusal of a legal program.
+  Four of the five named contexts produced a real finding.
+
+== NEIGHBOUR TABLE (standing rule 2026-09-12) — the class of ruling 1, by the MEASUREMENT ==
+Test applied to every neighbour: does the ONE candidate change (`dbmstruct`) move it? Measured, not argued.
+  neighbour                                              closed by this change?   evidence
+  tuple door x struct-shaped variant `(E::V{f},b)` = c13  CLOSED                   p01 2 -> 1
+  bare struct-shaped variant `E::V{f}`                    CLOSED                   p08 2 -> 1
+  the same under `&mut`                                   CLOSED                   p10 2 -> 1
+  two payload fields                                      CLOSED                   p11 2 -> 1
+  struct door x struct-variant sub                        CLOSED                   p14 2 -> 1
+  if-let / while-let / let-else / or-pattern              CLOSED                   p16 n04 n02 n01 2 -> 1
+  through a `let r = &x` (double ref)                     CLOSED                   p17 2 -> 1
+  renamed field `E::V { f: q }`                           CLOSED                   p19 2 -> 1
+  ALL ELEVEN CLOSE IN ONE CHANGE AT ONE SITE. That is the class the c13 fixture was always about.
+
+  nested STRUCT sub of a TUPLE-shaped variant `Outer::V(W{s})`   NOT CLOSED — REASON 2, doors in series.
+    Measured unchanged at 2 under the arm (p03). It is queue row
+    variant_payload_nested_struct_sub_double_drops, whose repair needs the arm body's destructure to run
+    over a REFERENCE, and `let (a,b) = &t;` is refused today — queue row let_tuple_destructure_ref_scrutinee.
+  nested TUPLE sub of a tuple-shaped variant `O3::V((s,k))`      NOT CLOSED — REASON 2, same row (p15, 2).
+  explicit `ref` binder under a by-ref scrutinee (p18)           NOT CLOSED — REASON 3, own cost unpriced.
+    Logos ADMITS it; rustc refuses ("cannot explicitly borrow within an implicitly-borrowing pattern").
+    The arm fixes its COUNT (2 -> 1) and not its ADMIT: closing it means asking
+    `modifier_under_ref_scrutinee` at this door too, a second predicate whose cost is not measured here.
+  struct-shaped variant nested in a tuple-variant `Outer::V(Inn::S{f})` (n03)  NOT CLOSED — REASON 1,
+    no carrier: the failure is name resolution ("undefined variable 'f'"), not a binding mode. Measured
+    still refused under the arm. rustc accepts it, 1 drop. A `refuses` row with no row today.
+
+== WHAT DESERVES FUNDING, PER RULING ==
+RULING 1 (c13) — FUND. One predicate at one site (fill the three flag vectors the struct-shape door
+  leaves empty), eleven spellings close, the c13 fixture goes to rustc's answer `D5` once, queue ceiling
+  0 and queue gate rc 0 at 224 rows, stdlib 4 of 4, the one fail fixture in the population unchanged
+  word for word. THE FIXTURE CANNOT BE CORRECTED WITHOUT IT: `.expected` alone would red the test.
+  The two cells that do NOT close (p03, p15) keep their existing row; p18 and n03 need rows.
+RULING 2 (x06) — DO NOT FUND THE CHEAP ARM, AND SAY THE NUMBER. The covariance-only arm the ruling
+  names is refuted by k04, a shape the ruling did not name: both params are `&`, rustc refuses, and the
+  arm would admit it. The correct fix needs the callee's RETURN type (or real region inference) at
+  `check_call_outlives`, which does not receive it — a signature change plus 7 call sites in 5 contexts.
+  That is the row `outlives_call_instantiation` already open. MEANWHILE THE FIXTURE MUST MOVE: x06 pins
+  the refusal of a program rustc accepts, and so does a SEVENTH fixture the audit missed,
+  bc_staticdemand_method_nonstatic_bound_refuse. Both belong in the queue as `refuses` rows, not in
+  tests/logos/fail.
+RULING 3a (d01+m10) — FUND WITH ONE REPAIR NAMED. Arming refuses exactly the two disputed fixtures plus
+  ONE ordinary corpus fixture, tests/logos/pass/array_ref.logos, and closes queue row
+  arrayref_to_arrayptr_coercion_refused. stdlib 4 of 4. array_ref.logos is repaired at its own door with
+  an explicit `as *mut i32`; that is the whole measured cost.
+RULING 3b (v02i) — DECLINE, REASON 3. Refuses two legal programs (v02, v02b) whose rustc twins were
+  measured accepting today. The fixture still may not keep asserting exit 9: it belongs in the queue as
+  an `admits` row until the narrowing at that predicate is priced.
+RULING 3c (g11) — FUND. Cost in the relational population is exactly one fixture, g11 itself — the one
+  being corrected — and every Rust-canonical spelling (`==` mixed, `&*ra <`, `&mut`/`&mut`, `&`/`&`)
+  is measured untouched. Land it with the audit's statement CORRECTED to "mixed mutability", and pin
+  `&mut T < &mut T` as a pass twin so the wider reading cannot come back.
+
+== ⚠ THE RUNTIME COLUMN REFUTED MY OWN PREDICTION, AND THE TWO BREAKS SPLIT ==
+PREDICTED IN WRITING, BEFORE THE ARMED BINARY EXISTED: "exactly ONE fixture changes —
+bc_0907q_dbmcarry_hb_c13_admit. Predict 0 other pass fixtures move."
+MEASURED, run_oracle over the whole registered pass corpus, base vs armed, 7406 common, 0 added, 0 removed:
+  FOUR changed, and TWO of them are ccrc 0 -> 1, i.e. the arm REFUSING a program that compiled.
+    logos_02_semantic_core_pass_bc_0907q_dbmcarry_hb_c13_admit   stdout sha moved — THE INTENDED EFFECT
+    logos_02_semantic_core_pass_cast-region-to-uint              stdout sha moved — prints a stack address,
+                                                                 subtracted by name, as every round does
+    logos_02_semantic_core_pass_generic-recursive-list-se        cc 0 -> 1
+    logos_02_semantic_core_pass_struct-like-variant-match        cc 0 -> 1
+⚠ MY CENSUS WAS A GREP AND IT CERTIFIED WHAT IT COULD NOT SEE. I had censused the corpus for a
+  struct-shaped variant pattern under a by-ref scrutinee and found exactly ONE file (c13). Both programs
+  above are struct-shaped variant patterns under a by-ref scrutinee. They live in tests/imported/pass,
+  which my grep did not reach, and the second matches on a PARAMETER (`x: &Foo`, `match x`), which the
+  spelling `match &` cannot find. Enumeration by SPELLING, not by property — the recorded failure, again,
+  in the same round in which dlog's context rule also failed its control.
+THE TWO BREAKS ARE NOT THE SAME FINDING. Each was given a rustc twin (rust/t_list.rs, rust/t_variant.rs,
+rust/t_variant_deref.rs):
+  struct-like-variant-match — rustc REFUSES IT AS WRITTEN: error[E0277] can't compare `&f64` with `f64`.
+    Under a by-ref scrutinee `x` binds `&f64` and `assert_eq!(x, 1.0f64)` has no impl. The control with
+    the Rust-canonical `*x` / `*y` spelling COMPILES AND RUNS exit 0.
+    ⇒ NOT A COST. It is an EIGHTH fixture whose claim rustc contradicts — found by the arm, not by the
+    audit, because the audit only read fixtures whose header said "by reading". It compiled only because
+    the binding mode was dead at this door, which is the very defect being fixed. It gains `*`.
+  generic-recursive-list-se — rustc ACCEPTS IT, exit 0. `tail: &List<T>` binds `t: &&List<i64>` under the
+    by-ref mode and `sum(t)` type-checks in Rust by DEREF COERCION at the argument position. Logos refuses:
+    "call to 'sum' arg 1: expected &List, got &&List".
+    ⇒ A REAL OVER-REFUSAL, and a DOOR IN SERIES (reason 2): the defect is a missing `&&T -> &T` deref
+    coercion at a call argument, downstream of this site and independent of it.
+CORRECTED COST FOR dbmstruct: 1 legal program refused (generic-recursive-list-se), repairable at its own
+  door exactly as the 2026-09-14b round repaired each of its sixteen; 1 imported fixture corrected
+  (struct-like-variant-match, `*x`); 1 fixture is the target (c13); 1 subtracted by name.
+  It does NOT change the verdict to DECLINE — but it changes the landing: the argument-coercion door must
+  open in the same commit, or that one fixture must be repaired at its own door with the reason recorded.
+
+== L1, AND A RED THAT IS NOT THE TREE'S ==
+`tests/logos/test-levels.sh L1` from build/: L1.1 808/808 passed, 0 failed; the enumerator's smoke tier
+passed (12 684 generated cases); THE GATES TIER FAILED, two tests:
+  logos_00_squeue_slice_pattern_arm_binding_extra_drops — "no row ... but its program is registered as a
+    test". PROVEN NOT MINE: that row was DELETED BY HEAD ITSELF (b513126ea, `git log -S`), its program is
+    gone from tests/soundness/open, and it is absent from the ledger. build/'s ctest registry still holds
+    a test for it.
+  logos_00_census_pin — pinned ALL 10922 / -LE imported 6420 / tier_commit 342; build/ measures
+    10910 / 6408 / 340. PROVEN NOT MINE: the pin was LAST WRITTEN BY b513126ea, i.e. re-derived against a
+    freshly-configured registry, and build/ measures twelve fewer because it was configured BEFORE that
+    landing and never reconfigured. `docs/deem-interpreter-deletion-census.md` is untouched in my tree.
+BOTH ARE STALENESS IN build/, NOT IN THE TREE, and the roster form of the queue gate
+(`soundness_queue_gate.sh`, run by hand with LOGOS_LIB_DIR) reads rc 0 at 224 rows on the same tree.
+⚠ I DID NOT RECONFIGURE build/ TO MAKE THEM GREEN: a reconfigure moves `build_hash.py`'s identity and
+invalidates every verdict the gate store holds for this build (stdlib-cost.sh's own header records the
+measurement). The next round that reconfigures will clear both, and should expect exactly +12 / +12 / +2.
+MY OWN CONTROL: `ctest -N -V | grep -c '2026-09-16c-dbmstruct\|patsub_mode_carriers'` = 0 — this round's
+files register no test anywhere, so they cannot have moved a census count in either direction.
