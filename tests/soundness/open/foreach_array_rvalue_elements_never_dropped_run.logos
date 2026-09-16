@@ -2,7 +2,11 @@
 // Each iteration moves one element into `d` and drops it at the end of the body: rustc s=11 n=11. TODAY s=11 n=0, exit 1 — neither
 // the loop variable nor the iterable is destroyed. With LOCAL elements (`for d in [a, b]`, pass/bc_0915f_consumeland_hb_k10_admit)
 // the count reads 11 only by cancellation (a, b drop at scope exit).
-// Named as a shape of aggregate_literal_temp_place_base_never_dropped_run's SYMPTOM; round 2026-09-15g-aggtemp MEASURED it is not
+// ⚠ THIS ROW OWNS A SCAFFOLD IN THE COMPILER: SemaChecker::lower_arr_lit / lower_arr_fill_lit do NOT mark the elements of an array
+// literal that IS a for-each iterable consumed (carrier in_foreach_iterable_, set by SemaChecker::lower_for_each). That exception
+// exists only because nothing drops the iterable or the loop variable here; when this row closes, delete the exception and the carrier.
+// Named as a shape of aggregate_literal_temp_place_base_never_dropped_run's SYMPTOM (that row CLOSED 2026-09-15g-aggtemp landing; its
+// program is now pass/bc_0915g_aggtemp_arrlit_place_base_dropped_admit); round 2026-09-15g-aggtemp MEASURED it is not
 // that defect: no arm of the door moves it (0 under ptown / ptownx / ptownxf, hand a04 t06), and marking the elements consumed
 // (ptownx) turns k10 into this same leak. Reason 1: the fact — who owns the element an array for-each binds — has no carrier in
 // SemaChecker::lower_for_each's array path (the loop variable is defined in a scope that emits no drop).

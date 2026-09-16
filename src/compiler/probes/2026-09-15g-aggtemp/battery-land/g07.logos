@@ -1,0 +1,19 @@
+package g07;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut inside: i64 = -1i64;
+    {
+        let r: &mut D = &mut D { v: 1i64, c: p };
+        r.v = 7i64;
+        inside = unsafe { *p };
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("inside=%ld n=%ld\n".as_ptr(), inside, got); }
+    if inside != 0i64 { return 2i32; }
+    if got != 7i64 { return 1i32; }
+    return 0i32;
+}

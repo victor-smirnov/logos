@@ -48,7 +48,7 @@ weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped   
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 boxdyn_mutborrow_arg_no_vtable 4 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable diag no vtable for '&dyn Sp' as '&dyn Sp'
 rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable     diag no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'
-# TOTAL 231
+# TOTAL 220
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -245,8 +245,6 @@ option_replace_ref_store_no_flow_summary_admits 2 tests/soundness/open/option_re
 # 2026-09-14o-autoreffund: the autoref landing's neighbours rowed with a named reason, and out-of-class defects its battery caught
 operator_operand_owner_after_sibling_exit_leak 1 tests/soundness/open/operator_operand_owner_after_sibling_exit_leak run 1
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
-return_array_lit_of_moved_locals_double_drop 1 tests/soundness/open/return_array_lit_of_moved_locals_double_drop run 1
-aggregate_extended_borrow_temp_never_dropped 1 tests/soundness/open/aggregate_extended_borrow_temp_never_dropped run 1
 let_ref_bind_annotated_refused 3 tests/soundness/open/let_ref_bind_annotated_refused refuses
 # ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
 # Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
@@ -295,28 +293,19 @@ method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_a
 # ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
 #    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each
 #    measured on base 72c2afc955f79321 43 and on the probe build 8477d9e792aadea6 43 unarmed and armed; the reason is in each program's header.
-array_lit_index_elem_move_out_admits 1 tests/soundness/open/array_lit_index_elem_move_out_admits admits
-array_repeat_len1_noncopy_operand_double_drop_run 1 tests/soundness/open/array_repeat_len1_noncopy_operand_double_drop_run run 1
-generic_array_lit_typevar_elems_double_drop 1 tests/soundness/open/generic_array_lit_typevar_elems_double_drop run 1
 generic_operator_mono_redispatch_operands_double_drop 1 tests/soundness/open/generic_operator_mono_redispatch_operands_double_drop run 1
 loop_break_value_array_lit_uninit_drop_run 1 tests/soundness/open/loop_break_value_array_lit_uninit_drop_run run 139
-generic_unbounded_typevar_reuse_after_array_literal_admits 2 tests/soundness/open/generic_unbounded_typevar_reuse_after_array_literal_admits admits
 generic_unbounded_typevar_reuse_after_tuple_literal_admits 2 tests/soundness/open/generic_unbounded_typevar_reuse_after_tuple_literal_admits admits
 at_binding_whole_struct_wild_fields_refused 3 tests/soundness/open/at_binding_whole_struct_wild_fields_refused refuses
 array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
 array_repeat_len2_noncopy_says_use_of_moved 4 tests/soundness/open/array_repeat_len2_noncopy_says_use_of_moved diag use of moved value
-aggregate_literal_temp_place_base_never_dropped_run 1 tests/soundness/open/aggregate_literal_temp_place_base_never_dropped_run run 1
 match_expr_array_pattern_segfaults_run 1 tests/soundness/open/match_expr_array_pattern_segfaults_run run 139
 operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses
 boxdyn_mut_explicit_deref_arg_no_vtable 3 tests/soundness/open/boxdyn_mut_explicit_deref_arg_no_vtable refuses
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
-extended_field_base_temp_dropped_at_let_end_run 1 tests/soundness/open/extended_field_base_temp_dropped_at_let_end_run run 1
-array_len_builtin_discards_receiver_run 1 tests/soundness/open/array_len_builtin_discards_receiver_run run 1
 foreach_array_rvalue_elements_never_dropped_run 1 tests/soundness/open/foreach_array_rvalue_elements_never_dropped_run run 1
 fnptr_field_call_on_temporary_never_dropped_run 1 tests/soundness/open/fnptr_field_call_on_temporary_never_dropped_run run 1
 fru_temporary_base_unmoved_field_never_dropped_run 1 tests/soundness/open/fru_temporary_base_unmoved_field_never_dropped_run run 1
 array_repeat_rvalue_noncopy_len3_admits 2 tests/soundness/open/array_repeat_rvalue_noncopy_len3_admits admits
-call_result_index_projection_invalid_mlir_refused 3 tests/soundness/open/call_result_index_projection_invalid_mlir_refused refuses
-nested_array_literal_index_initializer_lost_refused 3 tests/soundness/open/nested_array_literal_index_initializer_lost_refused refuses
 ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_extended_field_borrow_refused refuses
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses

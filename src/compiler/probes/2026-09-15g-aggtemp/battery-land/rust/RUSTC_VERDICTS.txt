@@ -1,0 +1,17 @@
+g01 rustc=0 run=0 out=s=1 n=11
+g02 rustc=0 run=0 out=s=0 n=1
+g03 rustc=0 run=0 out=r=1 n=11
+g04 rustc=0 run=0 out=k=10 n=11
+g05 rustc=0 run=0 out=k=10 n=11
+g06 rustc=0 run=0 out=inside=0 n=11
+g07 rustc=0 run=0 out=inside=0 n=7
+g08 rustc=0 run=0 out=r=5 n=11
+g09 rustc=0 run=0 out=s=1 n=1
+g10 rustc=0 run=0 out=s=211 n=211
+g11 rustc=0 run=0 out=n=1
+g12 rustc=0 run=0 out=k=10 n=11
+g13 rustc=0 run=0 out=k=10 n=11
+g14 rustc=0 run=0 out=k=1 n=1
+g15 rustc=0 run=0 out=k=10 n=11
+g16 rustc=0 run=0 out=k=10 n=11
+g17 rustc=0 run=0 out=k=10 n=11

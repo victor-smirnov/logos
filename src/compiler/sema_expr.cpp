@@ -252,6 +252,26 @@ lir::LExprPtr SemaChecker::autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef
     return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(addr), ref_type);
 }
 
+// An EXTENDED temporary: the owner minted by hoist_stmt_temp / autoref_operand, but named
+// `__lit_temp_N` (lower_let's extended-temporary spelling) so that SemaChecker::lower_stmt
+// neither drops it at the end of the statement nor erases it from the frame — the enclosing
+// BLOCK's scope-exit drop runs it, which is the lifetime Rust extends a borrowed temporary to.
+lir::LExprPtr SemaChecker::hoist_block_temp(lir::LExprPtr v, bool is_mut) {
+    std::string nm = std::format("__lit_temp_{}", destruct_counter_++);
+    TypeRef rt = expr_type(v);
+    register_stmt_temp(nm, rt, std::move(v), is_mut);
+    return builder().var_ref(nm, rt);
+}
+lir::LExprPtr SemaChecker::autoref_block_temp(lir::LExprPtr v, bool is_mut, TypeRef ref_type) {
+    std::string nm = std::format("__lit_temp_{}", destruct_counter_++);
+    TypeRef rt = expr_type(v);
+    register_stmt_temp(nm, rt, nullptr, is_mut);
+    std::vector<lir_view::StmtRef> blk;
+    blk.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
+    auto addr = builder().addr_of_temp(builder().var_ref(nm, rt), is_mut, ref_type);
+    return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(addr), ref_type);
+}
+
 lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
                                                 TypeRef ref_type) {
     // ONE chokepoint for every implicit `&mut` producer — `&mut o.f`,
@@ -1571,7 +1591,11 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // `b.deref_mut()`. Only a field place — `&mut f(a.b)` borrows the CALL's
         // temporary and leaves `a.b` an ordinary read.
         bool saved_mut_place = mut_place_ctx_;
+        // An extending `&mut <place chain>` carries the extension DOWN the chain: the
+        // rvalue base of `&mut mk().f` / `&mut mk()[0]` is the borrow's own temporary.
+        ext_borrow_place_ctx_ = extending_borrow_nodes_.count(expr.ptr()) && is_place_node(child);
         auto inner = lower_mut_place(child);
+        ext_borrow_place_ctx_ = false;
         mut_place_ctx_ = saved_mut_place;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         auto __ty_inner = make_ref(true, expr_type(inner),
@@ -1584,8 +1608,14 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             return error_expr();
         // The `&mut` mirror of the temporary-scope hoist above, extending
         // positions included (`let x = &mut 0;` is the reference's own example).
-        if (extending_borrow_nodes_.count(expr.ptr()))
+        if (extending_borrow_nodes_.count(expr.ptr())) {
+            // An extended droppable temporary needs a BLOCK owner, not an anonymous
+            // spill: row aggregate_extended_borrow_temp_never_dropped (2026-09-15g).
+            if (cur_stmt_temp_hoist_ && inner && expr_type(inner) &&
+                needs_drop(expr_type(inner)) && is_hoistable_temp_rvalue(inner))
+                return autoref_block_temp(std::move(inner), true, __ty_inner);
             return builder().addr_of_temp(std::move(inner), true, __ty_inner);
+        }
         return materialize_recv_ref(std::move(inner), true, __ty_inner);
     }
     case la::TRY_EXPR: {
@@ -2203,10 +2233,21 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // receiver is a place in the same position (`*t.0 = v` on a Box).
         bool tmut_ctx = mut_place_ctx_;
         mut_place_ctx_ = false;
+        // A fresh droppable rvalue BASE of `.N` owns its temporary (statement scope, or
+        // the block under an extending borrow) — else `mktup(p).1.v` leaks it and the
+        // backend has no slot to project from.
+        const bool ext_here = ext_borrow_place_ctx_;
+        ext_borrow_place_ctx_ = ext_here && expr.has_key(la::RECEIVER) &&
+                                is_place_node(map_of(expr.get(la::RECEIVER.code)));
         auto recv = expr.has_key(la::RECEIVER)
             ? (tmut_ctx ? lower_mut_place(map_of(expr.get(la::RECEIVER.code)))
                         : lower_expr(map_of(expr.get(la::RECEIVER.code))))
             : error_expr();
+        ext_borrow_place_ctx_ = false;
+        if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
+            is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv))
+            recv = ext_here ? hoist_block_temp(std::move(recv), tmut_ctx)
+                            : hoist_stmt_temp(std::move(recv), tmut_ctx);
         // Auto-deref: &(T) and &mut (T) -> use pointee type for index lookup
         TypeRef recv_tuple_type = expr_type(recv);
         TypeRef rrt(expr_type(recv));
@@ -3445,7 +3486,12 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 return place;
         }
         // &<expr> — temporary materialization: spill rvalue to stack
+        // An extending `&<place chain>` carries the extension DOWN the chain: the rvalue
+        // base of `&mk().f` / `&mk()[0]` is the borrow's own temporary and outlives the
+        // statement (row extended_field_base_temp_dropped_at_let_end_run).
+        ext_borrow_place_ctx_ = extending_borrow_nodes_.count(node.ptr()) && is_place_node(child);
         auto inner = lower_expr(child);
+        ext_borrow_place_ctx_ = false;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         // Rust: `&a[..]` / `&v[1..3]` — indexing by RANGE yields the slice
         // place `[T]`; taking `&` of it IS the slice value (Logos's Slice
@@ -3480,8 +3526,14 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // UNLESS this borrow sits in an EXTENDING position of a `let`
         // initializer (`let x = &temp() as &dyn Tr`), where Rust extends the
         // temporary to the enclosing block — see mark_extending_borrows.
-        if (extending_borrow_nodes_.count(node.ptr()))
+        if (extending_borrow_nodes_.count(node.ptr())) {
+            // An extended droppable temporary needs a BLOCK owner, not an anonymous
+            // spill: row aggregate_extended_borrow_temp_never_dropped (2026-09-15g).
+            if (cur_stmt_temp_hoist_ && inner && expr_type(inner) &&
+                needs_drop(expr_type(inner)) && is_hoistable_temp_rvalue(inner))
+                return autoref_block_temp(std::move(inner), false, __ty_inner);
             return builder().addr_of_temp(std::move(inner), false, __ty_inner);
+        }
         return materialize_recv_ref(std::move(inner), false, __ty_inner);
     }
 
@@ -8826,6 +8878,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     if (TypeRef(expr_type(recv)).kind() == LogosType::Kind::Array &&
         method_name == "len") {
         int64_t sz = TypeRef(expr_type(recv)).arr_size();
+        // The answer is the static length, but the RECEIVER still runs and still owns
+        // its temporary: `mkarr(p).len()` must call mkarr and drop the array at the end
+        // of the statement (row array_len_builtin_discards_receiver_run). Hoisting binds
+        // it to a statement-scope local; the yielded constant is unchanged.
+        if (cur_stmt_temp_hoist_ && recv && is_move_type(expr_type(recv)) &&
+            is_hoistable_temp_rvalue(recv))
+            (void)hoist_stmt_temp(std::move(recv), false);
         return builder().lit_int(sz, prim(LogosType::Kind::I64));
     }
 
@@ -11273,7 +11332,10 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // else the receiver contains lowers as an ordinary read.
     auto recv_node = map_of(node.get(la::RECEIVER.code));
     bool mut_ctx = mut_place_ctx_;
+    const bool ext_here = ext_borrow_place_ctx_;
+    ext_borrow_place_ctx_ = ext_here && is_place_node(recv_node);
     auto recv = mut_ctx ? lower_mut_place(recv_node) : lower_expr(recv_node);
+    ext_borrow_place_ctx_ = false;
     mut_place_ctx_ = false;
     // A DROPPABLE fresh rvalue base (`make().x`) must live to the end of the
     // statement then drop — otherwise the temporary leaks (its Drop never runs).
@@ -11283,7 +11345,11 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // a move type — a place / borrow base is left untouched.
     if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
         is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
-        recv = hoist_stmt_temp(std::move(recv), false);  // field recv = &self
+        // Under an EXTENDING borrow of this field (`let k: &D = &W { .. }.y;`) the
+        // temporary lives to the end of the BLOCK, not of the statement — otherwise `k`
+        // reads a dropped value (row extended_field_base_temp_dropped_at_let_end_run).
+        recv = ext_here ? hoist_block_temp(std::move(recv), false)
+                        : hoist_stmt_temp(std::move(recv), false);  // field recv = &self
     }
     TypeRef recv_base_t = expr_type(recv);
     // Auto-deref field access: a receiver whose own type lacks `field_name`
@@ -12759,8 +12825,19 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     // is itself a place in the same position (`*v[i] = x`, `b[i] = x` on a Box).
     bool mut_ctx = mut_place_ctx_;
     auto recv_node = map_of(node.get(la::RECEIVER.code));
+    // A fresh droppable rvalue BASE of `[i]` owns its temporary (statement scope, or the
+    // block under an extending borrow): `[D { .. }, D { .. }][1].v` must drop the array
+    // at the end of the statement (row aggregate_literal_temp_place_base_never_dropped_run),
+    // and the backend needs a SLOT to project from (row call_result_index_projection_invalid_mlir_refused).
+    const bool ext_here = ext_borrow_place_ctx_;
+    ext_borrow_place_ctx_ = ext_here && is_place_node(recv_node);
     auto recv = mut_ctx ? lower_mut_place(recv_node) : lower_expr(recv_node);
+    ext_borrow_place_ctx_ = false;
     mut_place_ctx_ = false;
+    if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
+        is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv))
+        recv = ext_here ? hoist_block_temp(std::move(recv), mut_ctx)
+                        : hoist_stmt_temp(std::move(recv), mut_ctx);
     auto arr_type = expr_type(recv);
 
     // Rust autoderef at the index position: peel `&&…` chains with REAL
@@ -13032,8 +13109,21 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     }
     auto items = arr_of(node.get(la::ITEMS.code));
     std::vector<lir::LExprPtr> elems;
-    for (uint64_t i = 0; i < items.size(); ++i)
+    // An element PLACE operand is CONSUMED by the literal, exactly as a tuple literal's
+    // is (`[a, b]` moves a and b; `[src[0]]` is E0508 — rows
+    // return_array_lit_of_moved_locals_double_drop, array_lit_index_elem_move_out_admits,
+    // generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits).
+    // ⚠ SCAFFOLD, owned by row foreach_array_rvalue_elements_never_dropped_run: the
+    // elements of a for-each ITERABLE are NOT marked, because `for d in [a, b]` drops
+    // neither the iterable nor the loop variable — marking there turns a program that is
+    // right by cancellation into a leak (measured: pass/bc_0915f_consumeland_hb_k10_admit
+    // n 11 -> 0). When that row closes, delete the exception and the carrier with it.
+    const bool in_foreach = in_foreach_iterable_;
+    in_foreach_iterable_ = false;
+    for (uint64_t i = 0; i < items.size(); ++i) {
         elems.push_back(lower_expr(map_of(items.get(i))));
+        if (!in_foreach) mark_moved_expr(expr_ref_of(elems.back()));
+    }
 
     TypeRef elem_type = expr_type(elems[0]);
     // T0-5: a CONCRETE scalar element hint (a `&[i64]` formal / annotation,
@@ -13962,6 +14052,9 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
 
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     auto val_node = map_of(node.get(la::VALUE.code));
+    // The for-each scaffold of lower_arr_lit applies here too (`for d in [a; 1]`).
+    const bool in_foreach = in_foreach_iterable_;
+    in_foreach_iterable_ = false;
     auto fill_val = lower_expr(val_node);
     TypeRef elem_type = expr_type(fill_val);
     // ONE resolver, shared with the type position — which is what makes
@@ -13993,6 +14086,11 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     elems.push_back(std::move(fill_val));
     for (int64_t i = 1; i < n; ++i)
         elems.push_back(lower_expr(val_node));  // re-lower for each slot (simple literals)
+    // `[a; 1]` MOVES its operand into the single element (legal at count 1 for a
+    // non-Copy value; above 1 the Copy bound refuses it) — row
+    // array_repeat_len1_noncopy_operand_double_drop_run.
+    if (n >= 1 && !in_foreach && elem_type && is_move_type(elem_type))
+        mark_moved_expr(expr_ref_of(elems[0]));
     return builder().arr_lit(std::move(elems), make_array(elem_type, (size_t)n));
 }
 

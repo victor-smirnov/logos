@@ -387,6 +387,11 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
         sl.name = nm; sl.type = ty; sl.is_mut = std::get<3>(h);
         sl.value = std::move(std::get<2>(h));
         blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        // An EXTENDED temporary (`__lit_temp_N`, minted by hoist_block_temp /
+        // autoref_block_temp or by lower_let) belongs to the enclosing BLOCK: it is
+        // neither dropped at the end of this statement nor erased from the frame below,
+        // so the block's own scope-exit drop runs it once.
+        if (nm.rfind("__lit_temp_", 0) == 0) continue;
         if (!moved_vars_.count(nm))
             if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))
                 drops.push_back(std::move(*d));
@@ -417,6 +422,7 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
         auto& fr = scope_.back();
         for (auto& h : hoisted) {
             const std::string& nm = std::get<0>(h);
+            if (nm.rfind("__lit_temp_", 0) == 0) continue;  // extended: the block's, see above
             fr.vars.erase(nm);
             std::erase(fr.var_order, nm);
         }
@@ -7557,7 +7563,12 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                                     // else `if (!iter)` below reads an indeterminate
                                     // value and skips lowering the iterable.
     if (node.has_key(la::ITER)) {
+        // ⚠ SCAFFOLD carrier — row foreach_array_rvalue_elements_never_dropped_run: an
+        // array literal that IS the iterable does not consume its elements, because
+        // nothing here drops the iterable or the loop variable. Delete with that row.
+        in_foreach_iterable_ = true;
         iter = lower_expr(map_of(node.get(la::ITER.code)));
+        in_foreach_iterable_ = false;
     } else {
         iter = error_expr();
     }

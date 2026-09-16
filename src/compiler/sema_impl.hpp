@@ -8735,6 +8735,14 @@ private:
     // hoist exists to fix.
     std::unordered_set<const void*> extending_borrow_nodes_;
     void mark_extending_borrows(writ::TinyMapView e);
+    // A fresh move-type rvalue in a PLACE-BASE position (index / tuple-index / field
+    // receiver, the `[T; N].len()` receiver) owns its temporary for the statement; when
+    // that place chain is the operand of an EXTENDING borrow the owner is the enclosing
+    // BLOCK instead (Rust r[destructors.scope.lifetime-extension.exprs]).
+    bool ext_borrow_place_ctx_ = false;   // an extending borrow's PLACE operand chain is being lowered
+    bool in_foreach_iterable_ = false;    // a for-each ITERABLE is being lowered
+    lir::LExprPtr hoist_block_temp(lir::LExprPtr v, bool is_mut);
+    lir::LExprPtr autoref_block_temp(lir::LExprPtr v, bool is_mut, TypeRef ref_type);
     // Lower a LAZILY- or REPEATEDLY-evaluated subexpression (a `&&`/`||` RHS, a
     // while-loop condition, a while-let scrutinee, an if-expression branch, an
     // expression-bodied closure) in its OWN temporary scope: droppable rvalue

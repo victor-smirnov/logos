@@ -1,0 +1,17 @@
+package g11;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn one<T>(x: T) -> [T; 1] { return [x]; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let arr: [D; 1] = one(D { v: 1i64, c: p });
+        if arr[0].v != 1i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

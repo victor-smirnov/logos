@@ -1,0 +1,25 @@
+package g15;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn malloc(n: u64) -> *mut u8;
+extern fn free(q: *mut u8);
+struct H { m: *mut u8, c: *mut i64, v: i64 }
+impl Drop for H {
+    fn drop(self: &mut H) {
+        unsafe { free(self.m); *self.c = *self.c + self.v; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut k: i64 = 0i64;
+    {
+        let m1: *mut u8 = unsafe { malloc(16u64) };
+        let m2: *mut u8 = unsafe { malloc(16u64) };
+        k = [H { m: m1, c: p, v: 1i64 }, H { m: m2, c: p, v: 10i64 }][1].v;
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, got); }
+    if k != 10i64 { return 3i32; }
+    if got != 11i64 { return 1i32; }
+    return 0i32;
+}

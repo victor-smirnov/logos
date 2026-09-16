@@ -2,7 +2,9 @@
 // rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15e-consume/rust/array_repeat_len2_noncopy_says_use_of_moved.rs: REFUSED error[E0277]: the trait bound `D: Copy` is not satisfied
 // with the wrong sentence: logosc says "use of moved value 'a' (moved on line 8)"; rustc says E0277 "the trait bound `D: Copy` is not
 // satisfied" (tests/ui/repeat-expr/repeat-to-run-dtor-twice.stderr: "the `Copy` trait is required because this value will be copied for
-// each element of the array"). Found beside array_repeat_len1_noncopy_operand_double_drop_run, round 2026-09-15e-consume.
+// each element of the array"). Found beside array_repeat_len1_noncopy_operand_double_drop_run, round 2026-09-15e-consume — that row
+// CLOSED in the 2026-09-15g-aggtemp landing (its program is now pass/bc_0915g_aggtemp_repeat_len1_operand_moved_admit); THIS row is
+// unmoved by it: the count-2 refusal still carries the move sentence, not E0277.
 package array_repeat_len2_noncopy_says_use_of_moved;
 struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }

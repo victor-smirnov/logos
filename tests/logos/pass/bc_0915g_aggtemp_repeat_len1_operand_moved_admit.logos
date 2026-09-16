@@ -1,0 +1,18 @@
+// soundness queue row array_repeat_len1_noncopy_operand_double_drop_run — CLOSED by round 2026-09-15g-aggtemp, commit of this fixture.
+// asserts: `[a; 1]` moves its operand into the single element: one destructor, exit 0 (base n=2, exit 1)
+// legality: rustc 1.98.1 --edition 2024, twin cited in the round's rust/ directory; measured, not read.
+package bc_0915g_aggtemp_repeat_len1_operand_moved_admit;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let a: D = D { v: 1i64, c: p };
+        let arr: [D; 1] = [a; 1];
+        if arr[0].v != 1i64 { return 7i32; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

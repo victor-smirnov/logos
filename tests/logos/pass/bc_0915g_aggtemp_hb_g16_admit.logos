@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-15g-aggtemp (landing), program g16 — caught: `let arr = [a, b]; arr[1].v` — the ordinary array-of-locals binding — double-dropped both (n 22 -> 11)
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/battery-land/rust/g16.rs: compiles, runs, stdout `k=10 n=11`
+package bc_0915g_aggtemp_hb_g16_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut k: i64 = 0i64;
+    {
+        let a: D = D { v: 1i64, c: p };
+        let b: D = D { v: 10i64, c: p };
+        let arr: [D; 2] = [a, b];
+        k = arr[1].v;
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, got); }
+    if k != 10i64 { return 3i32; }
+    if got != 11i64 { return 1i32; }
+    return 0i32;
+}

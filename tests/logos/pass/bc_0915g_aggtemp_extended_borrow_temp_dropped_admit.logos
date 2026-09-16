@@ -1,13 +1,7 @@
-// SOUNDNESS QUEUE row aggregate_extended_borrow_temp_never_dropped (tier 1). A TEMPORARY WHOSE LIFETIME IS EXTENDED THROUGH AN
-// AGGREGATE `let` INITIALISER IS NEVER DROPPED.
-//
-// `let t: (&C, i64) = (&C { v: 1000 }, 1);` extends the temporary to the end of the block (Rust
-// r[destructors.scope.lifetime-extension.exprs]); it must drop there: 1000, exit 0. TODAY 0, exit 1. mark_extending_borrows
-// marks the `&` as extending, so lower_unary keeps the anonymous addr_of_temp spill, and only a DIRECT `let p = &<rvalue>`
-// gets lower_let's named __lit_temp_N owner. Not the autoref class (an explicit `&`, owned by the block, not the statement);
-// unmoved by the 2026-09-14o landing (0 -> 0), which closed the direct `let r = &&<rvalue>` form only.
-// Found 2026-09-14o-autoreffund by hand program x05. Legality MEASURED with rustc 1.98.1 (foot of this file).
-package aggregate_extended_borrow_temp_never_dropped;
+// soundness queue row aggregate_extended_borrow_temp_never_dropped — CLOSED by round 2026-09-15g-aggtemp, commit of this fixture.
+// asserts: a temporary extended through an aggregate `let` initialiser drops at the END OF THE BLOCK: inside=0 n=1000 (base n=0, exit 1)
+// legality: rustc 1.98.1 --edition 2024, twin cited in the round's rust/ directory; measured, not read.
+package bc_0915g_aggtemp_extended_borrow_temp_dropped_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct C { v: i64, c: *mut i64 }
 impl Drop for C { fn drop(self: &mut C) { unsafe { *self.c = *self.c + self.v; } } }

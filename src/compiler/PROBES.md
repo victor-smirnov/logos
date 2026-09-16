@@ -46359,3 +46359,46 @@ fires: 6946 · arrivals: pass corpus 142 ptown.* arrivals of which the non-no-op
 ceiling: queue EXACTLY the same 7 (armed gate rc 1); battery 91 to Rust's answer, 0 broken; new rows closing with it: extended_field_base_temp_dropped_at_let_end_run, array_len_builtin_discards_receiver_run, call_result_index_projection_invalid_mlir_refused, nested_array_literal_index_initializer_lost_refused
 cost: 0 pass · 2 of 1870 fail text — bc_0915e_consume_hb_x01_refuse / x04_refuse `.expected` LOST, rc unchanged: sema's "use of moved variable 'a'" (docs/spec/ownership.md) replaces borrow_check's "use of moved value 'a' (moved on line 15)", the move 2026-09-15f re-pinned for x02 / x03 (NOT predicted) · stdlib 4 layers ok · runtime 0 of 7370 (run_oracle, cast-region-to-uint subtracted) · valgrind NEW 0 / GONE 0 of 7380 swept (unarmed 19:12:51->19:27:32 vs ptownxf 19:27:32->20:16:07, same configure; LEAK 53 / CFAIL 62 / LINKFAIL 124 / TIMEOUT 4 identical, LEAK sets equal path for path). ONE status changed and it is the REAPER's, not the arm's: tests/logos/pass/fiber_thread_basic CORRUPT -> NOVG because its valgrind.bin outlived the wrapper's 60 s timeout by 30 minutes and I killed it; RE-RUN ALONE with a 420 s timeout it reads IDENTICAL on both arms (rc 97, "ERROR SUMMARY: 134 errors from 94 contexts")
 verdict: FUNDABLE WITH ONE CONDITION AND ONE SCAFFOLD NAMED — the condition: re-pin x01 / x04 to the spec'd sentence in the landing commit, as x02 / x03 were. The scaffold: the for-each exception keeps k10 right by CANCELLATION (a, b drop at scope exit; the loop variable never does); it is a workaround for row foreach_array_rvalue_elements_never_dropped_run, which must close before the exception can be deleted, and the landing must say so at the site. Every corpus zero above is over populations whose only carriers are the 2026-09-15f fixtures; the battery (251 programs, 91 moved, 0 broken) is the population that decides.
+
+# ═══ ROUND 2026-09-15g-aggtemp (LANDING of ptownxf) — A FRESH RVALUE IN A PLACE-BASE POSITION OWNS ITS TEMPORARY, AN EXTENDING
+#     BORROW'S PLACE CHAIN OWNS IT TO THE END OF THE BLOCK, AND AN ARRAY / REPEAT LITERAL CONSUMES ITS OPERANDS —
+#     11 SOUNDNESS-QUEUE ROWS CLOSE (231 -> 220), 0 OPEN ══════
+Files: `src/compiler/probes/2026-09-15g-aggtemp/` — LANDING_PREDICTIONS.txt (the closed set and the battery, by name, written before the
+landed binary existed), battery-land/ (17 own programs in shapes the pricing did not use, with rustc 1.98.1 twins under battery-land/rust/
+and RUSTC_VERDICTS.txt), landfix.py (row -> fixture, `.expected` taken from the MEASURED run).
+
+## aggtempland
+site: src/compiler/sema_expr.cpp::lower_index_read
+(one decision at five sites: lower_index_read, lower_expr_inner TUPLE_INDEX, lower_field_read, lower_method_call's `[T; N].len()` builtin,
+lower_unary / ADDR_OF_MUT's extending arm; the consumption half at lower_arr_lit + lower_arr_fill_lit, its for-each exception carried by
+SemaChecker::lower_for_each's in_foreach_iterable_)
+build: d8d756468efca2d6 43 (base 0de99afdd5911235 43, one configure; the early verification build build-land15g was the same sources)
+measured: 2026-09-15
+fires: not a probe — landed unconditionally, no env gate, no census left in the tree
+ceiling: queue EXACTLY 11 rows close, diffed BOTH WAYS against LANDING_PREDICTIONS.txt (identical, 11/11): the pricing's 7
+  (aggregate_literal_temp_place_base_never_dropped_run, return_array_lit_of_moved_locals_double_drop,
+  generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits, array_repeat_len1_noncopy_operand_double_drop_run,
+  generic_unbounded_typevar_reuse_after_array_literal_admits, aggregate_extended_borrow_temp_never_dropped) plus the 4 the pricing named of
+  its own new rows (extended_field_base_temp_dropped_at_let_end_run, array_len_builtin_discards_receiver_run,
+  call_result_index_projection_invalid_mlir_refused, nested_array_literal_index_initializer_lost_refused)
+cost: run_oracle 7373 common, 1 changed = logos_02_semantic_core_pass_cast-region-to-uint (prints a stack address, subtracted by name)
+  -> 0 of 7373 damaged; the 21 new pass fixtures all (0, 0) · fail_text 1870 common, EXACTLY 2 changed by stderr sha —
+  bc_0915e_consume_hb_x01_refuse / x04_refuse, the sentence move the pricing predicted for the class and 2026-09-15f re-pinned for x02 / x03;
+  RE-PINNED HERE to sema's spelled sentence `[fn g]: use of moved variable 'a'` (docs/spec/ownership.md), rc and `.expected` match unchanged ·
+  valgrind sweep base 7383 / landed 7404, non-OK 246 on both, NEW 0 · GONE 0 · 0 status changes among the common non-OK, the 21 added all OK,
+  no valgrind.bin survivor · L1 rc 0 (808/808, gates tier 338) · queue gate rc 0 (220 rows, tier1=34 tier2=60 tier3=115 tier4=11)
+  · population_pin_lint rc 0 (corpus 3769 = glob 191 + nonglob 3578, by direct listing) · ctest -R the new + re-pinned fixtures 30/30
+  · L4 bc detached (LOGOS_L4_BG=1) rc 0: 1601 passed / 0 failed / 2 disabled (poll-problem-case-3, dropck-shadow-rebind, disabled
+  before this round), gate-db build 1264 · full `cmake --build build` rc 0 ("no work to do" on the committed sources)
+own counter-examples: 17 programs, NEW shapes (if / while condition, return and early-return, a block-expression base, a call-result tuple
+  index, an extended tuple-index borrow, an extended `&mut` written through, a repeat literal in a for-each, nested for-each, a generic
+  one-element array, an array of locals in a struct literal, a chained field-then-index projection, a heap payload under valgrind, a method
+  call on a temporary's element, and a PLACE-base control): 12 moved to rustc's answer EXACTLY as predicted, 5 unchanged as predicted,
+  0 broken. TWO OF THEM READ A BASE DEFECT THE PRICING NEVER REPORTED: g16 `let arr = [a, b]; arr[1].v` and g12 `W { arr: [a, b] }`
+  DOUBLE-DROP on base (n=22, rustc 11) — the plainest spelling of the class. g15 (heap payload) is the valgrind witness:
+  base "2 errors from 2 contexts", 3 allocs / 1 free -> landed 0 errors, 3 allocs / 3 frees.
+  The pricing's 251-program battery re-run on this binary: OK 99 -> 190, 91 moved to Rust's answer, 0 broken, 0 valgrind errors gained.
+verdict: LANDED. ⚠ ONE SCAFFOLD IS IN THE TREE AND IT HAS AN OWNER: the elements of an array / repeat literal that IS a for-each iterable
+  are NOT marked consumed (row foreach_array_rvalue_elements_never_dropped_run) — the exception and its carrier are deleted with that row,
+  and the site says so. Control revert on the base binary bc9467fd8056f9ba: all 23 new fixtures do the WRONG thing (20 wrong exit / stdout,
+  2 refused by the backend, and both fail fixtures COMPILE — base admits what is now refused).

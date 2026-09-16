@@ -1,0 +1,18 @@
+// soundness queue row generic_array_lit_typevar_elems_double_drop — CLOSED by round 2026-09-15g-aggtemp, commit of this fixture.
+// asserts: TypeVar elements of `[x, y]` are consumed: each destructor runs once, exit 0 (base exit 1 at n=22)
+// legality: rustc 1.98.1 --edition 2024, twin cited in the round's rust/ directory; measured, not read.
+package bc_0915g_aggtemp_generic_arrlit_typevar_elems_admit;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn two<T>(x: T, y: T) -> [T; 2] { return [x, y]; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let arr: [D; 2] = two(D { v: 1i64, c: p }, D { v: 10i64, c: p });
+        if arr[1].v != 10i64 { return 7i32; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 11i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// soundness queue row array_lit_index_elem_move_out_admits — CLOSED by round 2026-09-15g-aggtemp, commit of this fixture.
+// asserts: `[src[0]]` moves a non-Copy element out of an array by index and is REFUSED (rustc E0508); base admitted it and destroyed it twice
+// legality: rustc 1.98.1 --edition 2024, twin cited in the round's rust/ directory; measured, not read.
+package bc_0915g_aggtemp_arrlit_elem_move_out_refuse;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let src: [D; 1] = [D { v: 1i64, c: p }];
+        let arr: [D; 1] = [src[0]];
+        if arr[0].v != 1i64 { return 7i32; }
+    }
+    let got: i64 = unsafe { n };
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

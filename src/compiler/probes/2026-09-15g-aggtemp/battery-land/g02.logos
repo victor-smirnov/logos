@@ -1,0 +1,16 @@
+package g02;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut s: i64 = 0i64;
+    while [D { v: 1i64, c: p }; 1][0].v > 100i64 {
+        s = s + 1i64;
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("s=%ld n=%ld\n".as_ptr(), s, got); }
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

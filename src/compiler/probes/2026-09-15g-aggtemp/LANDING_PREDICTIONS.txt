@@ -1,0 +1,49 @@
+round 2026-09-15g-aggtemp — LANDING PREDICTIONS (funding agent). Written 2026-09-15 20:40, BEFORE the landed binary existed
+(build-land15g still compiling) and BEFORE any armed measurement. Base = 0de99afdd5911235 43 (HEAD 8a6cfc690, tree clean).
+
+WHAT IS BEING LANDED: ptownxf, de-probed. Five sites, one decision each, no env gate:
+  1 SemaChecker::lower_index_read      a fresh move-type rvalue receiver gets an owner (statement scope; BLOCK scope under an extending borrow)
+  2 lower_expr_inner TUPLE_INDEX       the same for `.N`
+  3 lower_method_call `[T; N].len()`   the receiver is hoisted (evaluated + owned) instead of discarded
+  4 lower_unary / ADDR_OF_MUT          an extending `&`/`&mut` of a droppable rvalue gets a BLOCK owner (`__lit_temp_N`), and the
+     + lower_field_read                extension is carried DOWN the place chain (ext_borrow_place_ctx_) so a projection base is the block's
+  5 lower_arr_lit / lower_arr_fill_lit every element / the repeat operand is marked CONSUMED — EXCEPT an array literal that is a
+                                       for-each ITERABLE (scaffold, owner row foreach_array_rvalue_elements_never_dropped_run)
+
+QUEUE ROWS PREDICTED TO CLOSE — EXACTLY 11 (the pricing's 7 + the 4 of this round's 10 new rows it named):
+  aggregate_literal_temp_place_base_never_dropped_run        (tier 1, run)
+  return_array_lit_of_moved_locals_double_drop               (tier 1, run)
+  generic_array_lit_typevar_elems_double_drop                (tier 1, run)
+  array_lit_index_elem_move_out_admits                       (tier 1, admits -> refused, E0508 sentence)
+  array_repeat_len1_noncopy_operand_double_drop_run          (tier 1, run)
+  generic_unbounded_typevar_reuse_after_array_literal_admits (tier 2, admits -> refused, "use of moved variable 'x'")
+  aggregate_extended_borrow_temp_never_dropped               (tier 1, run)
+  extended_field_base_temp_dropped_at_let_end_run            (tier 1, run)
+  array_len_builtin_discards_receiver_run                    (tier 1, run)
+  call_result_index_projection_invalid_mlir_refused          (tier 3, refuses)
+  nested_array_literal_index_initializer_lost_refused        (tier 3, refuses)
+PREDICTED TO STAY OPEN (named, so the diff is in both directions): foreach_array_rvalue_elements_never_dropped_run,
+  fnptr_field_call_on_temporary_never_dropped_run, fru_temporary_base_unmoved_field_never_dropped_run,
+  array_repeat_rvalue_noncopy_len3_admits, ifexpr_arm_extended_field_borrow_refused, array_temp_elem_field_store_refused,
+  loop_break_value_array_lit_uninit_drop_run, match_expr_array_pattern_segfaults_run, slice_pattern_arm_binding_extra_drops,
+  and every other row of the 231.
+  => queue # TOTAL 231 -> 220 predicted.
+
+COST PREDICTED (same configure, base vs landed): run_oracle 0 of 7370 differ (cast-region-to-uint subtracted by name) ·
+  fail_text EXACTLY 2 of 1870 (bc_0915e_consume_hb_x01_refuse / x04_refuse, stderr sha only: sema's "use of moved variable 'a'"
+  replaces borrow_check's "use of moved value 'a' (moved on line 15)"; both re-pinned in this commit as 15f did for x02 / x03) ·
+  valgrind sweep NEW 0 / GONE 0 · stdlib ok · L1 rc 0 after the population pin is re-derived.
+
+MY OWN BATTERY (17 programs, NEW shapes the pricing did not use: if / while conditions, return and early-return paths, a block
+expression base, a call-result tuple index, an extended tuple-index borrow, an extended `&mut` written through, a repeat literal in
+a for-each, nested for-each, a generic one-element array, an array of locals inside a struct literal, a chained field-then-index
+projection on a temporary, a heap payload for valgrind, a method call on a temporary's element, and a PLACE-base control).
+Base measured (build 0de99afdd5911235 43) and rustc 1.98.1 twins measured; PREDICTED landed:
+  MOVES TO RUST'S ANSWER (12): g01 n 0->11 · g02 n 0->1 · g03 n 0->11 · g04 n 0->11 · g05 REFUSED (GEP verify) -> k=10 n=11 ·
+    g06 n 0->11 (inside=0 kept) · g08 n 0->11 · g11 n 2->1 · g12 n 22->11 · g15 n 0->11 AND valgrind 2 errors -> 0 ·
+    g16 n 22->11 · g17 n 0->11
+  UNCHANGED (5): g07 (already right, inside=0 n=7) · g09 (s=1 n=1, the for-each scaffold keeps it) · g10 (s=211 n=11, row
+    foreach_array_rvalue_elements_never_dropped_run stays open) · g13 (already right) · g14 (k=1 n=1)
+  BROKEN: NONE predicted. A program that breaks condemns the landing.
+  ⚠ TWO BASE READINGS THE PRICING DID NOT REPORT: g12 (`W { arr: [a, b] }`) and g16 (`let arr = [a, b]; arr[1].v`) DOUBLE-DROP on
+    base (n=22, rustc 11) — the plainest spelling of the class, and it is the element mark that fixes them, not the door.
