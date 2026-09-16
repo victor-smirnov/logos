@@ -785,3 +785,26 @@ GATES AT THE COMMIT
                            weakened to green a buggy reader. Both are reported above; neither is edited.
                            My own two records use the one-`::` spelling, verified against the lint's
                            own regex BEFORE being written, so this round adds no second broken record.
+
+L4 `bc`, DETACHED, ON THE COMMITTED BINARY 38db1983b916d658 — READ, NOT CLAIMED
+
+    full tier   6476 / 6477 passed · the ONE failure is `logos_00_probe_log_lint`
+    bc half     1601 / 1601 passed · 0 failed
+    aggregate RC=8 (test-levels' aggregate, reflecting that single gate failure)
+
+  The bc selection — the half this arc's gate is defined on — is COMPLETELY GREEN. The only red in
+  6477 tests is the pre-existing probe-log-lint record described above: red at HEAD, with the control
+  that this change set does not touch src/compiler/PROBES.md's 16i record, and caused by the lint's
+  greedy `(\S+)::(\S+)` mis-parsing a CORRECT three-part `file::Class::method` site line. It is
+  reported and not repaired (tooling is frozen; a correct record is not weakened to green a buggy
+  reader), and my own two records use the one-`::` spelling verified against that regex beforehand.
+
+  ⚠ AND TWO RESULTS INSIDE THIS RUN CONFIRM THIS ROUND'S OWN PIN EDITS AT L4 SCOPE, NOT MERELY L1:
+    logos_09_direct_door_census   PASSED (230.15 s) — corpus 3819 = glob 191 + nonglob 3628
+    logos_00_census_pin           PASSED ( 72.18 s) — REGISTRY 10979 / 6477 / 350
+  Both were re-derived BY DIRECT LISTING and both hold under the tier that actually reads them.
+
+  ⚠ RUN ORDER MATTERS AND IS RECORDED: L4 was launched only AFTER L1 finished, because both saturate
+  the box, and on the FINAL binary — an earlier L4 was killed mid-run (by explicit PID, after a
+  pattern-kill failed) when a rebuild replaced the binary and stdlib archives underneath it. That
+  interrupted run's progress is discarded, never reported as a result.

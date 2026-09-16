@@ -47445,6 +47445,10 @@ cost: THREE COST COLUMNS, ALL ZERO, each diffed BOTH WAYS on ONE configure (base
     PRE-EXISTING — red at HEAD, with the control that `git status --short src/compiler/PROBES.md` is
     EMPTY for this change set — and is reported, not repaired (tooling is frozen, and the record it
     rejects is CORRECT while the lint's greedy site regex is wrong).
+  L4 `bc` DETACHED on the committed binary, read after L1 (both saturate the box): full tier
+    6476/6477, bc half 1601/1601 with 0 failed — the ONE red tree-wide is the same pre-existing
+    `logos_00_probe_log_lint`. Inside that run, logos_09_direct_door_census (230 s) and
+    logos_00_census_pin (72 s) both PASSED, confirming this round's population pins at L4 scope.
   soundness queue gate: rc 0, ZERO FAIL lines, 232 rows, both directions.
   ⚠ `ceiling-probe.sh` IS NOT QUOTED HERE BECAUSE IT CANNOT SEE A QUEUE ROW AT ALL: it deltas
   `logos_00_bc_admit_*` and two `-L` selections, none of which matches `logos_00_squeue_*`. A queue-row
@@ -47493,6 +47497,10 @@ cost: THREE COST COLUMNS, ALL ZERO, each diffed BOTH WAYS on ONE configure (base
     PRE-EXISTING — red at HEAD, with the control that `git status --short src/compiler/PROBES.md` is
     EMPTY for this change set — and is reported, not repaired (tooling is frozen, and the record it
     rejects is CORRECT while the lint's greedy site regex is wrong).
+  L4 `bc` DETACHED on the committed binary, read after L1 (both saturate the box): full tier
+    6476/6477, bc half 1601/1601 with 0 failed — the ONE red tree-wide is the same pre-existing
+    `logos_00_probe_log_lint`. Inside that run, logos_09_direct_door_census (230 s) and
+    logos_00_census_pin (72 s) both PASSED, confirming this round's population pins at L4 scope.
   soundness queue gate: rc 0, ZERO FAIL lines, 232 rows, both directions.
   ⚠ `ceiling-probe.sh` IS NOT QUOTED HERE BECAUSE IT CANNOT SEE A QUEUE ROW AT ALL: it deltas
   `logos_00_bc_admit_*` and two `-L` selections, none of which matches `logos_00_squeue_*`. A queue-row
