@@ -47261,8 +47261,10 @@ round's — and not rowed here, because rowing what one did not measure the caus
                               mlir_gen_stmt.cpp, `extract_arm_payload` 8 in mlir_gen_expr.cpp.
                               ⚠ Its FIRST reading was RED and correctly so: my `site:` line ended the
                               symbol with a comma and the lint said the symbol was gone. Repaired, re-run.
-  L4 bc                       launched detached (LOGOS_L4_BG=1); never `L4 imp` — the imported tier is
-                              unreviewed.
+  L4 bc                       rc 0 — gate-db build 1271: 1601 passed / 0 failed / 2 other, 1603 recorded
+                              (LOGOS_L4_BG=1; never `L4 imp` — the imported tier is unreviewed). The 2
+                              non-run tests are poll-problem-case-3 and dropck-shadow-rebind, DISABLED in
+                              CMake before this round and untouched by it.
 ⚠ ONE ARTEFACT LIE CAUGHT AND NOT BELIEVED: `build/Testing/Temporary/LastTestsFailed.log` named
 logos_00_key_identity_lint and logos_00_population_pin_lint after a ctest run whose `-R` filter could
 not select either test — a STALE file from an earlier invocation. Both were then run directly and both
