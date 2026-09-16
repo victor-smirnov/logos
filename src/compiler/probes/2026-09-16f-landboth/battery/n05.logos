@@ -1,0 +1,8 @@
+package n05;
+struct K { b: i64 }
+impl K {
+    fn st<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 where 'a: 'b { return *x + *y; }
+    fn stret<'a, 'b>(x: &'a i64, y: &'b i64) -> &'b i64 where 'a: 'b { return y; }
+}
+fn f<'p, 'q>(x: &'p i64, y: &'q i64) -> i64 { return K::st(x, y); }
+fn main() -> i32 { let n = 1i64; let m = 2i64; return f(&n, &m) as i32; }

@@ -29,6 +29,37 @@
 // and tests/logos/fail/bc_staticdemand_method_nonstatic_bound_refuse (the SAME
 // program under the caller name `g`, which the fixture audit MISSED because it
 // only read fixtures whose header said "by reading").
+// ⚠ 2026-09-16f — THE FIX IS MEASURED AND CORRECT; WHAT BLOCKS IT IS A CORPUS
+// DECISION, NOT THE COMPILER. The arm is `cooutretv` (skip the pair unless the
+// SHORT side occurs in the callee's return type or at an INVARIANT position of a
+// parameter) PLUS a strict extension found by this round's own counter-example
+// n02: a STRUCT PARAMETER can carry the invariance itself (`Inv<'a>{p:&'a mut
+// &'a i64}`), which the `&mut`-in-the-parameter-list reading misses. `cooutretv`
+// AS PRICED ADMITTED n02, an illegal program (rustc: "lifetime may not live long
+// enough"). With the extension the arm is 14 of 14 against rustc 1.98.1, every
+// legal program RUN at rustc's own exit code: n05 static-call path exit 3, n07
+// three-region transitive exit 7, n08 covariant struct exit 3, n09 Option
+// parameter exit 4, and n01/n02/n03/n04/n06 all correctly REFUSED.
+// Diff: src/compiler/probes/2026-09-16f-landboth/row1_arm_cooutretv_plus_struct_invariance.diff
+//
+// THE NUMBER THAT BLOCKS IT: fail_text_oracle over 1876 fail fixtures reports
+// CHANGED 2, and BOTH are gate-selected (`ctest -N -L bc` lists them as #8486
+// and #8647):
+//     tests/imported/fail/nll/issue-95272.logos                          rc 1 -> 0
+//     tests/imported/fail/regions/regions-bounded-...-trait-bound.logos  rc 1 -> 0
+// I re-measured both AS PORTED with my own verbatim twins (rust/p95272.rs,
+// rust/pregbound.rs): rustc 1.98.1 ACCEPTS BOTH PORTED SHAPES. They assert a
+// refusal rustc does not make, and they are green today only because B69
+// over-refuses every shape. A fail fixture that is legal Rust is a CORPUS
+// DECISION WITH AN OWNER, so they were NOT edited and the arm was NOT landed.
+// MISSING PIECE, PRECISELY: an owner's ruling on those two ports (upstream
+// carries an INVARIANT carrier — `Cell<&'a ()>` and `Inv<'a>` — which both ports
+// replaced with a covariant `&'a i64`, deleting the reason the program is
+// illegal). The moment they are re-ported or reclassified, this row closes with
+// the diff above; nothing else is missing.
+// ⚠ The two genuinely illegal programs that refuted the 2026-09-16e arm
+// (regions-lifetime-bounds-fn-c, region-multiple-...-where-clause--b) do NOT
+// move under the extension — that is what the extension was written for.
 package outlives_method_call_nonstatic_bound_refuses;
 struct K { b: i64 }
 impl K {

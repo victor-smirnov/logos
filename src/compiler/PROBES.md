@@ -47326,3 +47326,53 @@ note: `idxdie` (the LIVENESS narrowing — refuse when a conflicting holder's la
   twins ACCEPT, reproducing the 2026-09-16c decline on today's binary. It was refuted BY READING
   before it was built — w03/w04 last-use `e` in the store statement exactly as w01 does — and
   built anyway to have the number.
+
+## 2026-09-16f-landboth — A LOAN READ BY THE STORE'S INDEX CONFLICTS WHEREVER THE READ HIDES: THROUGH A CALL, INSIDE A BINOP, OR THROUGH AN ALIAS — AND THE ROW 1 ARM RECOMMENDED LAST ROUND ADMITS AN ILLEGAL PROGRAM BECAUSE A STRUCT CAN CARRY THE INVARIANCE ITSELF
+site: src/compiler/borrow_check.cpp::store_loans_die_in_stmt_
+build: 130598a0d555bd6e 43
+measured: 2026-09-16
+fires: LANDED UNCONDITIONAL. Beyond the row it closes three admissions no prior battery wrote:
+  u01 the index reads the loan through a CALL `v[idx(e)]`, u02 inside a BINOP `v[(*e+0) as u64]`,
+  u03 through an ALIAS `let e2 = e; v[*e2 as u64]` — the CO-HOLDER path, the one verdict I said
+  in advance I could not predict by reading. All three rustc-REFUSE (E0502); all three ran exit 9
+  on base.
+ceiling: 1 queue row — vec_index_store_live_shared_loan_admits, deleted this commit, its program
+  landed as an ordinary fail fixture.
+cost: 0 in fail text (0 of 1876, baseline and armed from ONE configure) / stdlib (4 of 4 unarmed,
+  4 of 4 armed, 4 of 4 under the LOGOS_PROBE_FIRE control) / L1 inertness (14 of 14) /
+  queue-wide (of 230 rows only the target row moves)
+verdict: LANDED.
+⚠ A RED I RETRACTED, AND THE INSTRUMENT WAS MINE: I first recorded "stdlib armed 0 of 4". It was
+  not a cost — I counted per-layer `.rc` files while the run was still in flight, so three did not
+  exist and A MISSING FILE READ AS A FAILED LAYER. "A zero is not an answer until the site is
+  proven live" has an inverse: a RED is not an answer until the run is proven FINISHED.
+⚠ A SWEEP DISCARDED, NOT REPORTED: an earlier queue sweep was reading a binary while a rebuild
+  OVERWROTE THAT EXACT PATH. Its rows straddle a binary swap. Re-run, not reported.
+
+## 2026-09-16f-cooutretv-struct-invariance — `cooutretv` AS PRICED ADMITS AN ILLEGAL PROGRAM: THE INVARIANCE CAN BE CARRIED BY A STRUCT'S OWN FIELD, WHERE NO `&mut` IS SPELT IN THE PARAMETER LIST AND THE REGION NEVER REACHES THE RETURN TYPE
+site: src/compiler/sema_impl.hpp::check_call_outlives
+build: 130598a0d555bd6e 43
+measured: 2026-09-16
+fires: 14 of 14 hand programs agree with rustc 1.98.1, every legal one RUN at rustc's own exit
+  code (n05 static-call path 3, n07 three-region transitive 7, n08 covariant struct 3, n09 Option
+  parameter 4; n01 n02 n03 n04 n06 correctly REFUSED).
+ceiling: 2 queue rows — outlives_method_call_nonstatic_bound_refuses, outlives_call_instantiation
+cost: fail text 2 of 1876, and BOTH ARE INSIDE THE GATE (`ctest -N -L bc` lists them, #8486 and
+  #8647): tests/imported/fail/nll/issue-95272 and tests/imported/fail/regions/regions-bounded-
+  method-type-parameters-trait-bound, each rc 1 -> 0.
+verdict: NOT LANDED — BLOCKED ON A CORPUS DECISION, NOT ON THE COMPILER. I re-measured the
+  mis-port claim MYSELF with verbatim twins of the PORTED text (rust/p95272.rs, rust/pregbound.rs):
+  rustc 1.98.1 ACCEPTS BOTH PORTED SHAPES. A fail fixture that is legal Rust is an owner's call,
+  so they were not edited and the arm was not landed. The diff is kept complete and measured at
+  src/compiler/probes/2026-09-16f-landboth/row1_arm_cooutretv_plus_struct_invariance.diff and the
+  row header carries the number; the moment those two ports are ruled on, the row closes.
+note: `region_invariantly_pinned_` guards its struct arm with `if (inv)`, and a top-level struct
+  PARAMETER is entered inv=false — so `Inv<'b>` where `Inv<'a>{p:&'a mut &'a i64}` pins nothing and
+  the pair is skipped. The extension resolves the struct's declared lifetime param with
+  get_struct_si and tests the struct's OWN FIELD TYPES, and it FAILS CLOSED: an unresolvable
+  declaration keeps the refusal, i.e. base behaviour, so its failure mode is over-refusal of what
+  base already refuses, never a hole. Controls written against that risk — n08 covariant struct,
+  n09 Option parameter — still compile and run.
+⚠ THE ROW HEADER'S DIAGNOSIS WAS INCOMPLETE, NOT WRONG: it named the return type as the carrier.
+  The return type is NECESSARY BUT NOT SUFFICIENT — n02 is refused by rustc with the short side
+  nowhere in the return type.

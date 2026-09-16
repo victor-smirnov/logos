@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-16f-landboth, program u01 — caught: the store index reads the live loan through a CALL; base ADMITTED it and ran exit 9
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0502); twin src/compiler/probes/2026-09-16f-landboth/rust/u01.rs
+package bc_0916f_landboth_hb_u01_refuse;
+fn idx(r: &i64) -> u64 { return *r as u64; }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(0i64);
+    let e: &i64 = &v[1u64];
+    v[idx(e)] = 9i64;
+    return v[0u64] as i32;
+}

@@ -1,0 +1,9 @@
+package u05;
+fn val(r: &i64) -> i64 { return *r + 1i64; }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64);
+    let e: &i64 = &v[1u64];
+    v[0u64] = val(e);
+    return v[0u64] as i32;
+}

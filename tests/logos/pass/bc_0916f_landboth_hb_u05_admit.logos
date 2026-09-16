@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-16f-landboth, program u05 — caught: cost-direction control: the VALUE reads the loan through a call while the index is constant; legal in Rust and must stay compiling
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit 3); twin src/compiler/probes/2026-09-16f-landboth/rust/u05.rs
+package bc_0916f_landboth_hb_u05_admit;
+fn val(r: &i64) -> i64 { return *r + 1i64; }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64);
+    let e: &i64 = &v[1u64];
+    v[0u64] = val(e);
+    return v[0u64] as i32;
+}

@@ -2413,7 +2413,72 @@ private:
     // A store evaluates its value and index before IndexMut's `&mut v` (Rust): true when every loan that conflicts
     // with it is a whole-`v` shared loan whose holders' last use is this statement, raised inside the innermost loop.
     // A query, not a release. PROBES.md 2026-09-14b-ptrcoerceland.
-    bool store_loans_die_in_stmt_(const std::string& root) {
+    // PROBES 2026-09-16e-idxdie: does `e` read the binding `name` anywhere
+    // inside it? Modelled on scan_uses_expr's shape — the same child set, no
+    // side effects and no liveness. Used to ask the ONE question the liveness
+    // query cannot: is the conflicting loan read by the store's INDEX.
+    bool expr_reads_name_(lir_view::ExprRef e, const std::string& name, int depth = 0) const {
+        if (!e || depth > 32) return false;
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        auto rec = [&](ExprRef c) { return expr_reads_name_(c, name, depth + 1); };
+        switch (e.kind()) {
+            case Code::VarRef:   return EVarRefView{e}.name() == name;
+            case Code::AddrOf:   return EAddrOfView{e}.var_name() == name;
+            case Code::AddrOfTemp: return rec(EAddrOfTempView{e}.inner());
+            case Code::Unary:    return rec(EUnaryView{e}.operand());
+            case Code::Deref:    return rec(EDerefView{e}.operand());
+            case Code::Cast:     return rec(ECastView{e}.operand());
+            case Code::Try:      return rec(ETryView{e}.inner());
+            case Code::FieldRead:  return rec(EFieldReadView{e}.receiver());
+            case Code::TupleIndex: return rec(ETupleIndexView{e}.receiver());
+            case Code::SliceLen:   return rec(ESliceLenView{e}.slice());
+            case Code::SlicePtr:   return rec(ESlicePtrView{e}.slice());
+            case Code::BinOp: {
+                EBinOpView v{e};
+                return rec(v.lhs()) || rec(v.rhs());
+            }
+            case Code::IndexRead: {
+                EIndexReadView v{e};
+                return rec(v.receiver()) || rec(v.index());
+            }
+            case Code::SliceIndex: {
+                ESliceIndexView v{e};
+                return rec(v.slice()) || rec(v.index());
+            }
+            case Code::IfExpr: {
+                EIfExprView v{e};
+                return rec(v.cond()) || rec(v.then_val()) || rec(v.else_val());
+            }
+            case Code::Call: {
+                bool hit = false;
+                ECallView{e}.each_arg([&](ExprRef a) { if (rec(a)) hit = true; });
+                return hit;
+            }
+            case Code::MethodCall: {
+                EMethodCallView v{e};
+                bool hit = rec(v.receiver());
+                v.each_arg([&](ExprRef a) { if (rec(a)) hit = true; });
+                return hit;
+            }
+            default: return false;
+        }
+    }
+
+    // True when `name` is read by an ARGUMENT of the store's index_mut call —
+    // i.e. by the INDEX expression, which Rust evaluates AFTER the `&mut v`
+    // autoref. A read in the assigned VALUE is NOT here: the value is
+    // evaluated BEFORE the autoref, which is why `v[0] = *e + 1` is legal.
+    bool store_index_reads_(lir_view::ExprRef store_mc, const std::string& name) const {
+        if (!store_mc || store_mc.kind() != lir_schema::expr::Code::MethodCall) return false;
+        bool hit = false;
+        lir_view::EMethodCallView{store_mc}.each_arg(
+            [&](lir_view::ExprRef a) { if (expr_reads_name_(a, name)) hit = true; });
+        return hit;
+    }
+
+    bool store_loans_die_in_stmt_(const std::string& root,
+                                  lir_view::ExprRef store_mc = {}) {
         auto* sit = var_find(NO_SLOT, root);
         if (sit == nullptr || !sit->shared_field_borrows.empty() || !sit->mut_field_borrows.empty()) return false;
         const size_t loop_lo = loop_stack_.empty() ? 0 : loop_stack_.back().outer_scope_count;
@@ -2423,6 +2488,24 @@ private:
                 if (b.holder.empty() || fi < loop_lo || holder_drops_after_last_use(b) ||
                     holders_last_use(b) > max_line_seen_)
                     return false;
+                // PROBES 2026-09-16e-idxdie: "the holder's last use is THIS
+                // statement" is not "the holder is dead before the store" — in
+                // `v[*e as u64] = 9` the loan is READ BY the store's own index
+                // expression, and rustc refuses it (E0502) while accepting the
+                // hoisted `let i = *e as u64; v[i] = 9`. The existing test
+                // cannot separate them because both compare equal-or-less.
+                // PROBES 2026-09-16e-idxdieidx: the fact stated directly. `v[i] = x`
+                // lowers to `index_mut(&mut v, i)`, so the autoref is taken BEFORE
+                // the index is evaluated and AFTER the value is: a conflicting loan
+                // read by the INDEX conflicts (rustc E0502), one read by the VALUE
+                // does not. Liveness cannot see the difference because both read in
+                // THIS statement — which is why `idxdie` above costs two landed
+                // pass fixtures and this does not.
+                if (store_mc) {
+                    if (store_index_reads_(store_mc, b.holder)) return false;
+                    for (auto& co : b.co_holders)
+                        if (store_index_reads_(store_mc, co)) return false;
+                }
             }
         return true;
     }
@@ -15610,7 +15693,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     if (rbp.root.empty() && recv.kind() == Code::AddrOf) {
                         rbp.root = std::string(EAddrOfView{recv}.var_name());
                         rbp.root_type = TypeRef(recv.type(pool)).pointee();
-                        ask_ = e.addr() != store_target_mc_ || !store_loans_die_in_stmt_(rbp.root);
+                        ask_ = e.addr() != store_target_mc_ || !store_loans_die_in_stmt_(rbp.root, e);
                     }
                     if (ask_) check_recv_conflict(rbp, /*is_mut=*/sk == 2, line);
                 }

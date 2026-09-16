@@ -1,0 +1,19 @@
+// hand battery: round 2026-09-16f-landboth, program n02 — caught: REFUTED the recommended
+// ROW 1 arm (`cooutretv` as priced ADMITTED this illegal program; the struct-invariance
+// extension returns it to REFUSED). The invariance is carried by the STRUCT's own field
+// `&'a mut &'a i64`, not by a `&mut` spelt in the parameter list.
+// ⚠ On the binary this commit ships it is refused by B69's rigid caller-graph mapping —
+// the right verdict; the row that narrows B69 (outlives_method_call_nonstatic_bound_refuses)
+// must keep it refused, and the measured extension does.
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED,
+// "lifetime may not live long enough"); twin src/compiler/probes/2026-09-16f-landboth/rust/n02.rs
+package bc_0916f_landboth_hb_n02_refuse;
+struct Inv<'a> { pub p: &'a mut &'a i64 }
+fn t<'a, 'b>(x: &'a i64, y: Inv<'b>) -> i64 where 'a: 'b { return **y.p; }
+fn f<'p, 'q>(x: &'p i64, y: Inv<'q>) -> i64 { return t(x, y); }
+fn main() -> i32 {
+    let n = 1i64;
+    let mut h: &i64 = &n;
+    let w = Inv { p: &mut h };
+    return f(&n, w) as i32;
+}

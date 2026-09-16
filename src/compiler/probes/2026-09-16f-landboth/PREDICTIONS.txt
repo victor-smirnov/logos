@@ -1,0 +1,45 @@
+2026-09-16f — PREDICTIONS FOR MY OWN COUNTER-EXAMPLES, WRITTEN BEFORE THE ARMED
+BINARY FINISHED LINKING. Derived by READING the two helpers, not by running.
+
+BASE (MEASURED, build/bin/logosc, HEAD 3efca1927) vs rustc 1.98.1:
+  n01 Option<&'b i64> ret, short side inside a GENERIC TYPE ARG  rustc REFUSES  base REFUSED  (agree)
+  n02 param `Inv<'b>`, Inv<'a>{p:&'a mut &'a i64} INVARIANT      rustc REFUSES  base REFUSED  (agree)
+  n03 param `&mut (&'b i64, i64)`, invariant via TUPLE pointee   rustc REFUSES  base REFUSED  (agree)
+  n04 METHOD call, short side in ret `&'b i64`                   rustc REFUSES  base REFUSED  (agree)
+  n05 STATIC call K::st, ret i64, both params `&`                rustc ACCEPTS 3 base REFUSED ✗ over-refusal
+  n06 STATIC call K::stret, short side in ret                    rustc REFUSES  base REFUSED  (agree)
+  n07 THREE regions, 'a:'b + 'b:'c, ret i64                      rustc ACCEPTS 7 base REFUSED ✗ over-refusal
+  u01 index reads the loan through a CALL idx(e)                 rustc REFUSES  base RUNS 9   ✗ admitted
+  u02 index reads the loan inside a BINOP                        rustc REFUSES  base RUNS 9   ✗ admitted
+  u03 index reads an ALIAS e2 of the loan                        rustc REFUSES  base RUNS 9   ✗ admitted
+  u04 loan is of a DIFFERENT vec, read by the index              rustc ACCEPTS 9 base RUNS 9  (agree)
+  u05 VALUE reads the loan through a call, index constant        rustc ACCEPTS 3 base RUNS 3  (agree)
+
+PREDICTIONS UNDER THE LANDED ARMS (probe `landboth` = cooutretv + idxdieidx):
+
+  n01 STAY REFUSED. collect_param_regions_ (sema_impl.hpp:830) walks Enum/Struct
+      type_args, so 'b inside Option<&'b i64> IS collected from the return type.
+  n02 ⚠ PREDICTED HOLE — ADMITTED, AND rustc REFUSES IT.
+      region_invariantly_pinned_ guards its Struct lifetime_args check with
+      `if (inv)`, and a top-level struct parameter is entered with inv=false.
+      `Inv<'b>` therefore pins nothing, 'b is absent from the ret type (i64), the
+      pair is skipped, and an ILLEGAL program compiles. If this measures as
+      predicted, the arm may NOT land as written: this is the same shape as the
+      fail-text refutation of `cooutret` (invariance without a return type), one
+      carrier further out — the invariance is carried by a STRUCT whose own field
+      is `&'a mut &'a i64`, not by a `&mut` in the parameter list.
+  n03 STAY REFUSED — MutRef recurses into its pointee with inv=true, Tuple keeps
+      inv, the inner Ref matches.
+  n04 STAY REFUSED — short side in the return type.
+  n05 FLIPS TO COMPILE, runs exit 3 (lower_static_call is one of the 7 sites).
+  n06 STAY REFUSED — short side in the return type, static-call path.
+  n07 FLIPS TO COMPILE, runs exit 7 — BOTH pairs skipped.
+  u01 REFUSED — expr_reads_name_ handles Code::Call by walking its args.
+  u02 REFUSED — Cast -> BinOp -> Deref -> VarRef.
+  u03 UNCERTAIN, and it is the point of the program: it depends on whether the
+      alias `e2` is recorded as a CO-HOLDER of the loan. The arm checks
+      b.holder and b.co_holders; if the alias is not in either, an illegal
+      program is admitted. I do not predict this one from reading.
+  u04 UNCHANGED, runs 9 — `v` carries no shared borrow at all.
+  u05 UNCHANGED, runs 3 — the value is not an argument of the index_mut call, so
+      store_index_reads_ cannot see it. This is the program that must not move.

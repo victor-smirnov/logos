@@ -1,0 +1,232 @@
+2026-09-16f — THE TWO FALLBACK ROWS, LANDED AND BLOCKED
+================================================================================
+ROW 2 CLOSES AND LANDS. ROW 1's FIX IS MEASURED CORRECT AND DOES NOT LAND — what
+stops it is not the compiler but TWO MIS-PORTED FAIL FIXTURES INSIDE THE GATE,
+and that is a corpus decision with an owner.
+
+STEP 1, READ FROM THE TREE
+    HEAD 3efca1927, clean.
+    soundness_queue  # TOTAL 230 = 230 by direct listing.
+    bc_admits # TOTAL 60 · bc_admits_blocked # TOTAL 8
+    probe-log-lint: 384 records, every site symbol resolves.
+    build_hash 26f0fdf8f299ee7a 43 (READ).
+    queue gate rc 0 WITH LOGOS_LIB_DIR.
+    dlog selftest rc 0 — known-answer control intact: 19 walkers / 24 findings /
+      try_path 1-5 / domain 42-5; duty discriminates across 756aed65 (1 -> 0).
+    rustc 1.98.1 present.
+  CORRECTION TO THE PROMPT, checked against the text actually given: the STEP-1
+  gate command DOES carry LOGOS_LIB_DIR. Nothing to correct. (Reported here
+  because the standing instruction is to re-verify the complaint, not repeat it.)
+
+================================================================================
+MY OWN COUNTER-EXAMPLES FIRST, IN SHAPES THE PRICING DID NOT USE
+================================================================================
+Fourteen programs, every one with a rustc 1.98.1 twin COMPILED (and RUN where
+legal). Twins in rust/, programs in battery/, predictions in PREDICTIONS.txt
+written BEFORE the armed binary linked.
+
+ prog shape                                          rustc      base        landed arm
+ n01  ret `Option<&'b i64>` — short side inside a
+      GENERIC TYPE ARG of the return                 REFUSES    REFUSED     REFUSED  ok
+ n02  param `Inv<'b>`, `Inv<'a>{p:&'a mut &'a i64}`
+      — INVARIANCE CARRIED BY THE STRUCT ITSELF      REFUSES    REFUSED     see below
+ n03  param `&mut (&'b i64, i64)` — invariant
+      through a TUPLE pointee                        REFUSES    REFUSED     REFUSED  ok
+ n04  METHOD call, short side in ret                 REFUSES    REFUSED     REFUSED  ok
+ n05  STATIC call `K::st`, ret i64                   ACCEPTS 3  REFUSED ✗   RUNS 3   ok
+ n06  STATIC call, short side in ret                 REFUSES    REFUSED     REFUSED  ok
+ n07  THREE regions, 'a:'b + 'b:'c, ret i64          ACCEPTS 7  REFUSED ✗   RUNS 7   ok
+ n08  COVARIANT struct param `Co<'b>{r:&'b i64}`     ACCEPTS 3  REFUSED ✗   RUNS 3   ok
+ n09  `Option<&'b i64>` as a PARAMETER               ACCEPTS 4  REFUSED ✗   RUNS 4   ok
+ u01  store INDEX reads the loan through a CALL      REFUSES    RUNS 9  ✗   REFUSED  ok
+ u02  store INDEX reads the loan inside a BINOP      REFUSES    RUNS 9  ✗   REFUSED  ok
+ u03  store INDEX reads an ALIAS (co-holder)         REFUSES    RUNS 9  ✗   REFUSED  ok
+ u04  loan is of a DIFFERENT vec, read by the index  ACCEPTS 9  RUNS 9      RUNS 9   ok
+ u05  VALUE reads the loan through a call, index
+      constant                                       ACCEPTS 3  RUNS 3      RUNS 3   ok
+
+WHAT THE BASE COLUMN ALREADY SAYS, BEFORE ANY ARM: base is WRONG on SEVEN of the
+fourteen — four legal programs refused (n05 n07 n08 n09) and three illegal
+programs admitted and RUN (u01 u02 u03). None of the seven was in the handed-down
+picture; five of them are shapes the pricing battery never wrote.
+
+================================================================================
+⚠ ROW 1 — THE RECOMMENDED ARM ADMITTED AN ILLEGAL PROGRAM, AND MY OWN
+  COUNTER-EXAMPLE IS WHAT CAUGHT IT
+================================================================================
+`cooutretv` was the arm the pricing round recommended after its own sixth column
+refuted `cooutret`. Measured here, `cooutretv` AS PRICED **admits n02**, which
+rustc REFUSES ("lifetime may not live long enough"). Base refuses n02 correctly,
+so landing it as priced would have turned a correct refusal into an admitted
+illegal program.
+
+WHY, EXACTLY: `region_invariantly_pinned_` guards its struct arm with `if (inv)`,
+and a top-level struct PARAMETER is entered with inv=false. `Inv<'b>` therefore
+pins nothing, 'b is absent from the return type (i64), the pair is skipped. The
+invariance is carried by the STRUCT'S OWN FIELD `&'a mut &'a i64` — not by any
+`&mut` spelt in the parameter list, which is the only thing the priced arm reads.
+This is the SAME defect one carrier further out than the one that refuted
+`cooutret`, and the previous round's note "m01/m02 were written for exactly this
+risk" is why it survived: those programs put the region at a covariant position
+too, so it stayed free either way.
+
+⚠ I PREDICTED THIS ONE FROM THE SOURCE BEFORE MEASURING IT (PREDICTIONS.txt,
+written before the binary linked) and then measured it rather than acting on the
+reading.
+
+THE STRICT EXTENSION, at the same site, ~30 lines, budget declared ≤40 before
+writing: a struct/enum lifetime ARGUMENT pins the region when the struct is
+INVARIANT in the matching declared lifetime param — resolved with get_struct_si
+and tested against the struct's own field types by the same helper. It FAILS
+CLOSED: an unresolvable declaration keeps the refusal, i.e. base behaviour, so
+the failure mode is over-refusal of something base already refuses, never a hole.
+  Result: 14 of 14 agree with rustc. n02 returns to REFUSED, and the two controls
+  written against the extension's own cost direction — n08 (covariant struct) and
+  n09 (Option parameter, the fail-closed path) — still COMPILE AND RUN at 3 and 4.
+  Diff: row1_arm_cooutretv_plus_struct_invariance.diff
+
+WHY IT DOES NOT LAND, WITH THE NUMBER
+  fail_text_oracle (1876 fail fixtures, baseline and armed from ONE configure):
+  CHANGED 2, both rc 1 -> rc 0, both predicted by name:
+      tests/imported/fail/nll/issue-95272.logos
+      tests/imported/fail/regions/regions-bounded-method-type-parameters-trait-bound.logos
+  BOTH ARE INSIDE THE GATE: `ctest -N -L bc` lists them as #8486 and #8647.
+  I RE-MEASURED THE MIS-PORT CLAIM MYSELF rather than inheriting it (rule 17),
+  with verbatim twins of the PORTED text (rust/p95272.rs, rust/pregbound.rs):
+  rustc 1.98.1 ACCEPTS BOTH PORTED SHAPES. Upstream carries an INVARIANT carrier
+  (`Cell<&'a ()>`, `Inv<'a>`); both ports replaced it with a covariant `&'a i64`,
+  deleting the reason the upstream program is illegal. They are green today only
+  because B69 over-refuses every shape.
+  A fail fixture that is legal Rust is A CORPUS DECISION WITH AN OWNER. Not
+  edited, not deleted, not weakened — and therefore the arm is not landed.
+  ⚠ The two GENUINELY illegal programs that refuted the 2026-09-16e arm
+  (regions-lifetime-bounds-fn-c, region-multiple-...-where-clause--b) do NOT move
+  under the extension. That is the whole point of the extension, and it is the
+  difference between this arm and the one that was refuted.
+
+THE MISSING PIECE, STATED SO THE NEXT ROUND STARTS HERE: an owner's ruling on
+those two ports. Nothing else is missing — the diff is written, measured 14/14
+against rustc, and the row header now carries all of it.
+
+================================================================================
+ROW 2 — CLOSES, LANDS, AND CLOSES MORE THAN THE PRICING KNEW
+================================================================================
+`v[i] = x` lowers to `index_mut(&mut v, i)`: the `&mut v` autoref is taken BEFORE
+the index is evaluated and AFTER the value is. A live shared loan read by the
+INDEX conflicts (E0502); one read by the VALUE does not. The landed query asked a
+LIVENESS question, which cannot separate them.
+
+The arm refuses only when a conflicting loan's holder OR CO-HOLDER is read inside
+the store's index expression. Landed unconditional in borrow_check.cpp.
+
+BEYOND THE ROW ITSELF it closes three admissions the pricing round never wrote:
+u01 (index reads the loan through a CALL), u02 (inside a BINOP) and u03 (through
+an ALIAS — the co-holder path, and the one verdict I said in advance I could NOT
+predict by reading). All three are rustc-REFUSE, all three ran exit 9 on base.
+
+COST COLUMNS FOR WHAT ACTUALLY LANDS
+  L1 INERTNESS  the armed binary with nothing armed reproduces base on all 14.
+  STDLIB        4 of 4 unarmed · 4 of 4 armed · 4 of 4 under the LOGOS_PROBE_FIRE
+                control.
+  ⚠ A RED I RETRACTED, AND IT WAS MY OWN INSTRUMENT: I first recorded "stdlib
+  armed: 0 of 4". It was not a cost — I counted per-layer `.rc` files while the
+  run was still in flight, so three did not exist yet and a MISSING FILE READ AS
+  A FAILED LAYER. The rule "a zero is not an answer until the site is proven
+  live" has an inverse, and this is it: a RED is not an answer until the run is
+  proven finished.
+  FAIL TEXT     see PENDING below.
+  RUNTIME       see PENDING below.
+  QUEUE-WIDE    (combined arm, 230 programs, armed vs unarmed on ONE binary)
+                3 rows move and no others:
+                  outlives_call_instantiation                  rc1 -> rc0
+                  outlives_method_call_nonstatic_bound_refuses  rc1 -> rc0
+                  vec_index_store_live_shared_loan_admits       rc0 -> rc1
+                The first two are ROW 1's (not landed); the third is ROW 2's row
+                closing. ⚠ The sweep also printed two crash lines — a compiler
+                SEGFAULT and an ABORT on queue programs — but each appeared on
+                BOTH the unarmed and the armed side of the same program, so they
+                cancel in an rc diff. Recorded because they are real crashes on
+                queue programs and no arm of this round caused them.
+  ⚠ A SWEEP I DISCARDED: an earlier queue sweep was reading build-land1758e's
+  logosc while a rebuild OVERWROTE THAT EXACT PATH. Its rows straddle a binary
+  swap, so it was thrown away and re-run rather than reported.
+
+================================================================================
+NEIGHBOUR TABLE
+================================================================================
+neighbour                                   closed here?  reason + number
+--------------------------------------------------------------------------------
+u01/u02/u03 (call / binop / alias in the     CLOSED in     the SAME predicate; no
+  store index)                               this commit   extension needed. All
+  three rustc-REFUSE, all three ran exit 9 on base, all three now refused and
+  landed as fail fixtures. Found by writing shapes, not by reading.
+outlives_call_instantiation (tier 3)         NOT closed    reason 3 — its own
+  closing arm is ROW 1's, which is measured (rc1 -> rc0 in the queue sweep) but
+  BLOCKED on the two mis-ported gate fixtures. Co-landing it is impossible
+  without landing the blocked arm. Stays a row, with the blocker named.
+vec_push_arg_reads_loan_refused              ROWED, reason 1 — no carrier: a
+vec_push_ifarm_after_loan_last_use_refused   METHOD RECEIVER autoref with no index
+  expression at all, so the predicate has nothing to ask. Gated on
+  store_target_mc_, untouched by construction.
+array_store_value_reads_loan_refused         ROWED, reason 1 — a builtin array
+  store is a place assignment with no IndexMut call and no autoref.
+vec_index_store_value_borrows_vec_refused    ROWED, reason 1 — the VALUE operand,
+  which is exactly what u05 proves must stay legal.
+
+================================================================================
+CONTRADICTIONS TO RECORDED CLAIMS
+================================================================================
+1. The row header for ROW 1 said the fix needs "the callee's return type, or real
+   region inference … a signature change plus 7 call sites". The return type is
+   necessary but NOT SUFFICIENT — n02 is refused by rustc with the short side
+   nowhere in the return type. The carrier is also INVARIANT POSITION, including
+   invariance carried by a struct's own fields.
+2. The pricing round's recommended arm `cooutretv` is REFUTED as priced (admits
+   n02). Its extension is what holds.
+3. Two imported fail fixtures assert refusals rustc does not make (measured, my
+   own twins). OWNER.
+4. `w06`/`v04` remains an unrowed contradiction reported by the previous round
+   and NOT taken up here: an ARRAY-indexed store with a live loan read by the
+   index — rustc ACCEPTS, logosc REFUSES. It is the mirror of u01 and is outside
+   both rows; left for the owner exactly as recorded, not silently absorbed.
+
+================================================================================
+PENDING AT THE TIME THIS RECORD WAS WRITTEN — filled in below when measured
+================================================================================
+  FAIL TEXT (ROW-2-only arm, unarmed vs armed, ONE configure)
+        CHANGED 0 of 1876. No row added, none removed. The column that refuted
+        last round's arm is clean for what lands.
+  RUNTIME (run_oracle, 7427 pass fixtures COMPILED, LINKED and RUN)
+        CHANGED 1, and it is `cast-region-to-uint` — the fixture subtracted BY
+        NAME because it prints a STACK ADDRESS, so its stdout sha differs run to
+        run. ccrc 0 and runrc 0 on both sides, unchanged. RUNTIME COST 0.
+  QUEUE GATE on the landed binary, edited ledger                 rc 0
+  full `cmake --build build -j$(nproc)`                          rc 0
+  L1 (tests/logos/test-levels.sh L1, from build/)                rc 0
+        808/808 at L1.1, 0 failed; the gates tier 347/347, 0 failed.
+        ⚠ L1 WAS RED FIRST, AND THE RED WAS REAL: logos_00_population_pin_lint
+        reported DRIFT direct_door PIN['corpus'] pinned 3802 listed 3804 and
+        PIN['nonglob'] 3611 -> 3613. The two movers are my own pass fixtures
+        bc_0916f_landboth_hb_u04_admit and _u05_admit, both joining the NONGLOB
+        half; `glob` unmoved at 191. RE-DERIVED BY DIRECT LISTING
+        (`ls tests/logos/pass/*.logos | wc -l` -> 3804), not by adding to the
+        previous line, and the gate names the fixtures and their half as it
+        demands. Green on re-run.
+        ⚠ AND MY FIRST L4 RUN WAS VOID, NOT RED: `test-levels.sh L4 bc` REFUSES
+        the foreground and exits rc 2 printing its own instruction to run
+        detached with LOGOS_L4_BG=1. It measured nothing. Re-launched properly.
+  L4 bc (detached, LOGOS_L4_BG=1)                                rc 0
+        1601 passed / 0 failed; the corpus phase 6457 selected, 100% passed.
+  CENSUS PINS, RE-DERIVED BY `ctest -N` (not guessed):
+        REGISTRY-ALL         10953 -> 10959   (+7 fixtures, -1 queue-row test)
+        REGISTRY-NOIMPORTED   6451 ->  6457   (+7 fixtures, -1 queue-row test)
+        REGISTRY-TIERCOMMIT    348 ->   347   (-1: the queue row was its own test)
+  LEDGER: # TOTAL 230 -> 229, re-derived BY DIRECT LISTING (229 rows counted).
+  CONTROL: the strongest form available and stronger than a source revert — the
+        SAME BINARY, one flag. build-land1758e was built probe-gated, and its
+        UNARMED run reproduces the base binary's verdicts on all 14 programs
+        while its ARMED run moves exactly u01/u02/u03 and the row. Revert and
+        non-revert are therefore not merely distinguishable, they are the same
+        executable, which removes the "ctest links prebuilt archives" failure
+        mode entirely. Base binary (HEAD 3efca1927) verdicts recorded above are
+        the second, independent leg.
