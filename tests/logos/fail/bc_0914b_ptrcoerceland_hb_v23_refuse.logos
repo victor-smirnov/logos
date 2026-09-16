@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14b-ptrcoerceland, program V23 — caught: verdict moved base -> landed — PROBES.md NEIGHBOURS "CLOSED here" (return/let/place/decay/tuple/`&mut`->`&`/Vec store) + PROBES.md "every change is an illegal program refused or ...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0502); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914b_ptrcoerceland_hb_v23_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land14a_twins3.L1yE/V23_loop_store_value_loan_illegal.logos
 package bc_0914b_ptrcoerceland_hb_v23_refuse;
 fn main() -> i32 {

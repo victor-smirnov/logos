@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14m-storeedge-land, program c21 — caught: illegal, admitted on base (index store `buffer[0] = &d` after an outer push), refused by the landing; unpredicted in 14l
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0597); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914m_storeedgeland_hb_c21_refuse.rs
 package bc_0914m_storeedgeland_hb_c21_refuse;
 fn main() -> i32 {
     let x: i64 = 5i64;

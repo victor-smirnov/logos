@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14k-fnptrbinderland, program c08 — caught: legal, refused with the for<> binder rename control-reverted (fnptrnohrtb)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:8); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914k_fnptrbinderland_hb_c08_admit.rs
 package bc_0914k_fnptrbinderland_hb_c08_admit;
 fn id(x: &i64) -> &i64 { return x; }
 fn main() -> i32 {

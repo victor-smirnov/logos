@@ -1,0 +1,17 @@
+// TWIN of tests/logos/pass/bc_0909i_cesc_hb_l3_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-09i-cesc, program L3 — caught: refuted an arm — hand_matrix.tsv "L3 admit admit REFUSED LEGAL — cost of cesccapmut"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09i-cesc/hand/L3.logos
+// LEGAL: a non-move closure capturing a `&mut i64` BY REFERENCE and calling it
+// in place. Nothing escapes. Rust accepts.
+fn bump(r: &mut i64) {
+    let mut c = || { *r = *r + 1i64; };
+    c();
+}
+fn __logos_main() -> i32 { let mut v: i64 = 0i64; bump(&mut v); return 0i32; }
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06c-patclass, program c02 — caught: refuted an arm — PROBES.md "ifletmv alone turns c02 (read-only if-let) 1 -> 0 (LEAK) ... ifletdr alone turns c02 1 -> 2 and c13 1 -> 7 (DOUBLE)"; PROBES.md "c03 2 -...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:1); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0906c_patclass_hb_c02_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06c-patclass/hand/c02_iflet_readonly.logos
 package bc_0906c_patclass_hb_c02_admit;
 

@@ -1,0 +1,17 @@
+// TWIN of tests/logos/pass/bc_0913c_staticdemand_hb_l02_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-13c-staticdemand, program l02 — caught: refuted an arm — PROBES.md "NOT `lifereg_varassign` as installed (refuses legal l01 l02)"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0913c.6YX8/ctl/l02_elided_annot.logos
+static FOO: u8 = 42u8;
+fn __logos_main() -> i32 {
+    let mut r: &u8 = &FOO;
+    let n: u8 = 1u8;
+    r = &n;
+    return *r as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-12r-escroot, program k18 — caught: refuted an arm — PROBES.md "escnd refuses LEGAL k17 k18"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:42); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0912r_escroot_hb_k18_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912r/ctl/k18_legal_escape_call_field_through_ref_local.logos
 package bc_0912r_escroot_hb_k18_admit;
 struct W { f: i64 }

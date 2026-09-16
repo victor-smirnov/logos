@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-13d-staticdemand, program e02 — caught: refuted an arm — PROBES.md "cooutsitese + x08 · REFUSES LEGAL e01 ... e02 ... e05 ... e08 ... CONDEMNED 4"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:1); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0913d_staticdemand_hb_e02_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land0913d.kjFy/hand/e02_vec_push_static.logos
 package bc_0913d_staticdemand_hb_e02_admit;
 static V: i64 = 5i64;

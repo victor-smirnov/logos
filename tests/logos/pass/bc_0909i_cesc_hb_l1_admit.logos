@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09i-cesc, program L1 — caught: refuted an arm — hand_matrix.tsv "L1 admit REFUSED admit LEGAL — cost of cescbound"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909i_cesc_hb_l1_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09i-cesc/hand/L1.logos
 // LEGAL: a `Box<dyn Fn + 'a>` whose closure captures a `&'a i64`. The bound IS
 // discharged by the capture. Rust accepts.

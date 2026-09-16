@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program d22 — caught: verdict moved base -> landed — PROBES.md "tuple / struct LOCAL holding a reference (`&t.0.a`, `&h.r.b`, nested `h.m.p.a`) CLOSED, same reader, the path-type walk (d02 d03 d16 d18...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:5); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914f_thrurefland_hb_d22_admit.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/d22_nested_struct_ref_two_levels_legal.logos
 package bc_0914f_thrurefland_hb_d22_admit;
 struct P { a: i64, b: i64 }

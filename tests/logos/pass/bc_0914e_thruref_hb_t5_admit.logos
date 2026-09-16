@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14e-thruref, program t5 — caught: refuted an arm — PROBES.md "pbdbm (15 moved): ... REFUSED LEGAL b10 k01 k05 k08 (a use of the scrutinee after the binding's LAST use) and t4 t5 t6 m14 m15 (an assig...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914e_thruref_hb_t5_admit.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/walk.ek13/t5_enum_door_mut_reassign_refvar.logos
 package bc_0914e_thruref_hb_t5_admit;
 fn main() -> i32 {

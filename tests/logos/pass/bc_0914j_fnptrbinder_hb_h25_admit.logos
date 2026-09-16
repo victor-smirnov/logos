@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14j-fnptrbinder, program h25 — caught: refuted fnptrelide/fnptrbinder: REFUSED this legal program — the join carries 'a, which the enclosing fn also declares
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:25); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914j_fnptrbinder_hb_h25_admit.rs
 package bc_0914j_fnptrbinder_hb_h25_admit;
 fn ida<'a>(x: &'a i64) -> i64 { return *x; }
 fn idb<'a>(x: &'a i64) -> i64 { return *x + 2i64; }

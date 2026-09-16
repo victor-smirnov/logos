@@ -1,0 +1,17 @@
+// TWIN of tests/logos/pass/bc_0906e_scalarcore_hb_h16_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-06e-scalarcore, program h16 — caught: predicted wrong — PREDICTION.md:105 "h16 let-else — a THIRD value door ... PREDICTED still wrong under scall"; PROBES.md "`let … else` is NOT a defect: the sema half...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06e-scalarcore/hand/h16.logos
+// same program (modulo package/comments) in round 2026-09-06f-scalarland as g11
+// int literal under & in a let-else
+fn __logos_main() -> i32 {
+    let v: i64 = 4i64;
+    let 4i64 = &v else { return 1i32; };
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

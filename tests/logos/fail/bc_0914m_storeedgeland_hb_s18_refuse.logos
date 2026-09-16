@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14m-storeedge-land, program s18 — caught: illegal, refused on base, ADMITTED by the priced arm a2elemorshr and by se_nomutelem (a generic `W<U>` field storing `&mut Vec` matches the element test); the landing keeps it refused
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0502); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914m_storeedgeland_hb_s18_refuse.rs
 package bc_0914m_storeedgeland_hb_s18_refuse;
 struct C { n: i64 }
 impl C {

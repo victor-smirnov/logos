@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-13a-selfregion, program L3 — caught: refuted an arm — PROBES.md "selfbody (D1 alone) REFUSES LEGAL L3 ... selfpair (batch 1) REFUSES LEGAL s13 L3"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:63); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0913a_selfregion_hb_l3_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ctl2/L3_anon_let_self_annot.logos
 package bc_0913a_selfregion_hb_l3_admit;
 struct Foo<'s> { r: &'s i64 }

@@ -1,0 +1,18 @@
+// TWIN of tests/logos/pass/bc_0913c_staticdemand_hb_s4_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: Option::Some/None -> prelude
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-13c-staticdemand, program s4 — caught: refuted an arm — PROBES.md "NOT `sttpempty` (refuses legal s4 s5 ...)"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0913c.6YX8/ctl/s4_let_elided_option.logos
+static S: i64 = 4i64;
+fn assert_static<T: 'static>(t: T) -> i64 { return 1i64; }
+fn __logos_main() -> i32 {
+  let o: Option<&i64> = Some(&S);
+  let a = assert_static(o);
+  return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

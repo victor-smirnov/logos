@@ -1,0 +1,25 @@
+// TWIN of tests/logos/pass/bc_0907q_dbmcarry_hb_c18_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: `use logos.std.fmt;` dropped (prelude in Rust)
+// TWIN: self: &mut T -> &mut self
+// TWIN: Option::Some/None -> prelude
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-07q-dbmcarry, program c18 — caught: verdict moved base -> landed, predicted wrong — PROBES.md "REFUSED -> 1 (one, a GAIN NOT PREDICTED): c18 ... refused ... on base, compiles and writes through the scrutinee now" | (c) PREDICTION.m...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-07q-dbmcarry/hand/c18.logos
+struct S { pub n: i64 }
+impl Drop for S { fn drop(&mut self) { println!("D{}", self.n); } }
+fn __logos_main() -> i32 {
+    let mut p: (Option<S>, i64) = (Some(S { n: 5i64 }), 9i64);
+    let mut out: i64 = 0i64;
+    match &mut p {
+        (Some(a), b) => { a.n = a.n + 1i64; out = a.n + *b; },
+        (None, _) => {}
+    }
+    if out != 15i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

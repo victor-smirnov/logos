@@ -1,0 +1,24 @@
+// TWIN of tests/logos/pass/bc_0914e_thruref_hb_m15_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: `use logos.mem.boxed;` dropped (prelude in Rust)
+// TWIN: Option::Some/None -> prelude
+// TWIN: box_new(..) -> Box::new(..)
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14e-thruref, program m15 — caught: refuted an arm — PROBES.md "pbdbm (15 moved): ... REFUSED LEGAL b10 k01 k05 k08 (a use of the scrutinee after the binding's LAST use) and t4 t5 t6 m14 m15 (an assig...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/nbr2.41T7/m15_iflet_ref_field_cursor_legal.logos
+struct N { v: i64, nx: Option<Box<N>> }
+fn __logos_main() -> i32 {
+    let n: N = N { v: 1i64, nx: Some(Box::new(N { v: 5i64, nx: None })) };
+    let mut cur: &N = &n;
+    let mut s: i64 = 0i64;
+    while let Some(b) = &cur.nx {
+        s = s + cur.v;
+        cur = &**b;
+    }
+    return (s + cur.v - 6i64) as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

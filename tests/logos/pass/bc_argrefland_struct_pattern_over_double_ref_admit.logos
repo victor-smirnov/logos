@@ -2,7 +2,7 @@
 // A `&`-pattern chain onto a struct through `&&P`: PART 1 fn tail `match p { &&P { x } => x }`, PART 2 statement match, PART 3
 // `if let &&P { x } = pp`, PART 4 `match pp { &q => q.x }`. MLIRGenImpl::ref_pat_core_scrut hands the inner pattern the chain loaded
 // to its base, and a whole-value `&Struct` binder registers its slot shape. Base b96b980fb: exit 1 (fields read from the slot holding
-// the inner reference). Rust: exit 0. Legality by reading; no rustc binary.
+// the inner reference). Rust: exit 0. MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts+runs, exit 0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard3-pass-rest-imported/bc_argrefland_struct_pattern_over_double_ref_admit.rs
 package bc_argrefland_struct_pattern_over_double_ref_admit;
 struct P { x: i32 }
 fn deref2(p: &&P) -> i32 {

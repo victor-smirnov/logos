@@ -1,0 +1,19 @@
+// TWIN of tests/logos/pass/bc_0906c_patclass_hb_a36_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-06c-patclass, program a36 — caught: refuted an arm — PROBES.md "tupledecl ... hand: a36 (LEGAL `(mut a, b)` + `&mut a`) REFUSED"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06c-patclass/hand/a36_tuple_mut_addrof.logos
+struct S { v: i64 }
+fn bump(p: &mut S) { p.v = p.v + 1i64; }
+fn __logos_main() -> i32 {
+    let t: (S, i64) = (S { v: 1i64 }, 2i64);
+    match t {
+        (mut a, b) => { bump(&mut a); if a.v + b != 4i64 { return 1i32; } }
+    }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

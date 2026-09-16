@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-12q-letregion, program e1 — caught: refuted an arm — PROBES.md "stcg alone un-refuses e1 (T1 alpha-renamed) and q6 — soundness regression, 2 programs"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0597); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0912q_letregion_hb_e1_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912q/ctl/e1_ufcs3_alpha_impl_q.logos
 package bc_0912q_letregion_hb_e1_refuse;
 struct A<'a> { x: &'a i64 }

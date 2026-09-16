@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-12r-escroot, program x2 — caught: verdict moved base -> landed — PROBES.md "Newly REFUSED, all illegal: x1 x2 k14 k19 k20 g25 (call arm) · d1 d2 e2 n4 n6 k24"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0597); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0912r_escroot_hb_x2_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912r/ctl/x2_freefn_ref_then_escape.logos
 package bc_0912r_escroot_hb_x2_refuse;
 fn id<'q>(x: &'q i64) -> &'q i64 {

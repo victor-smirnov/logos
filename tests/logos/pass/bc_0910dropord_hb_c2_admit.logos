@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-10dropord, program c2 — caught: verdict moved base -> landed — PROBES.md "c1 struct, 3 fields 321 -> 123 ... c17 nested struct + user Drop 3n921 -> n9123" (drop order, landed 1fad68657)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen4/bc_0910dropord_hb_c2_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/dropord/cex/c2.logos
 package bc_0910dropord_hb_c2_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;

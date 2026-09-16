@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06n-placedropfix, program N8 — caught: verdict moved base -> landed — PROBES.md "N8 heap `String` payload — the oracle is VALGRIND | 6 allocs / **4** frees, 20 B lost | 6 allocs / **6** frees, 0 errors"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0906n_placedropfix_hb_n8_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06n-placedropfix/hand/N8_heap_payload_valgrind.logos
 // N8 — a DIFFERENT ORACLE. The element payload is a heap `String`, so the
 // evidence is valgrind's alloc/free ledger, not an arithmetic counter: a

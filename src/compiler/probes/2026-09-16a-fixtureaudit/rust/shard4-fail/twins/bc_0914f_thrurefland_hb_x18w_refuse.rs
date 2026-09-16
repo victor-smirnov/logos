@@ -1,0 +1,13 @@
+#![allow(dead_code, unused_variables, unused_mut, unused_assignments, unused_unsafe)]
+struct P { a: i64, b: i64 }
+struct H<'x> { r: &'x P, k: i64 }
+fn lmain() -> i32 {
+    let mut s1: P = P { a: 1i64, b: 2i64 };
+    let s2: P = P { a: 3i64, b: 4i64 };
+    let mut h: H = H { r: &s1, k: 0i64 };
+    let a: &i64 = &h.r.b;
+    h = H { r: &s2, k: 1i64 };
+    s1.b = 9i64;
+    return (*a + h.r.a) as i32;
+}
+fn main() {}

@@ -1,0 +1,25 @@
+// TWIN of tests/logos/pass/bc_0914d_meetoblland_hb_l104_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: self: &T -> &self
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14d-meetoblland, program L104 — caught: verdict moved base -> landed — PROBES.md "ONE legal program, L104 (refused -> runs 6, predicted"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/landbat.gPIU/L104_generic_bound_on_meet.logos
+struct P<'a> { x: &'a i64, y: &'a i64 }
+trait Sum { fn sum(&self) -> i64; }
+impl<'a> Sum for P<'a> { fn sum(&self) -> i64 { return *self.x + *self.y; } }
+fn total<T: Sum>(t: &T, u: &T) -> i64 { return t.sum() + u.sum(); }
+fn go<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 {
+    let p = P { x: x, y: y };
+    let q = P { x: y, y: x };
+    return total(&p, &q);
+}
+fn __logos_main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    return go(&a, &b) as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

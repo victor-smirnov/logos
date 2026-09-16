@@ -1,0 +1,19 @@
+// TWIN of tests/logos/pass/bc_0914k_fnptrbinderland_hb_c39_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14k-fnptrbinderland, program c39 — caught: legal, refused by the strict extension fnptrstrictf2 and by fnptrnohrtb (a fn(&i64) local passed to a for<'x> fn pointer parameter)
+// legality: by reading, no rustc binary
+fn call_it(g: for<'x> fn(&'x i64) -> i64, v: &i64) -> i64 { return g(v); }
+fn fwd<'r>(g: for<'x> fn(&'x i64) -> i64, v: &'r i64) -> i64 {
+    let h: fn(&i64) -> i64 = g;
+    return call_it(h, v);
+}
+fn rd(x: &i64) -> i64 { return *x; }
+fn __logos_main() -> i32 {
+    let v: i64 = 39i64;
+    return fwd(rd, &v) as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

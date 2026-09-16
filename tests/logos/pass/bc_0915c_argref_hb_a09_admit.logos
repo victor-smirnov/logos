@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-15c-argref, program a09 — caught: argrefpos / argrefneg REFUTED: `let p = &rd;` (rd: &D) then inner(p) read exit 9 under both (the let arm added its own level on top of the spill); right on base and under argrefland / argreflandx
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts, exit 0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard2-hb-late/bc_0915c_argref_hb_a09_admit.rs
 package bc_0915c_argref_hb_a09_admit;
 struct D { v: i64 }
 fn inner(a: &&D) -> *const D {

@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-14a-ptrcoerce, program D01 — caught: refuted an arm — PROBES.md "`refptrco` refuses F_array_ref, F_struct_ptr_field, F_while_search ... AND D01 ... FOUR legal programs"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONTRADICTED (REFUSED, error[E0308]); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914a_ptrcoerce_hb_d01_admit.rs
+// ⚠ THE AUDIT DISPUTES THIS FIXTURE'S CLAIM — see docs/rustc-fixture-audit-2026-09.md §bc_0914a_ptrcoerce_hb_d01_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/survey14a.MrUR/bat6/D01_legal_decay_named.logos
 package bc_0914a_ptrcoerce_hb_d01_admit;
 fn f<'a>(x: &mut [&'a i64; 2]) -> *mut &'a i64 {

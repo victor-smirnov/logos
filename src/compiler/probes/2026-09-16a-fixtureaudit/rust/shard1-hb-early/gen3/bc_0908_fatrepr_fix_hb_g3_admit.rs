@@ -1,0 +1,24 @@
+// TWIN of tests/logos/pass/bc_0908_fatrepr_fix_hb_g3_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-08-fatrepr-fix, program G3 — caught: verdict moved base -> landed — RESULT.md "CLOSED (REFUSED -> rc 0, compiled + linked + RUN, answer checked): G1 ... G8"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-08-fatrepr-fix/hand/G3.logos
+// G3 LEGAL — the ctor is not on the RHS of a `let`: it is built directly at a
+// CALL ARGUMENT position, so no LetInit hint reaches the payload check.
+enum E { N, S(&[i64]) }
+fn take(e: E) -> i64 {
+    match e {
+        E::N => { return 0i64; }
+        E::S(s) => { return s[2]; }
+    }
+}
+fn __logos_main() -> i32 {
+    let a: [i64; 3] = [4i64, 5i64, 6i64];
+    if take(E::S(&a)) != 6i64 { return 10i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

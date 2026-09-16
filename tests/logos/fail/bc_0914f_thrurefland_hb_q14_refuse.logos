@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program q14 — caught: verdict moved base -> landed — PROBES.md "array / tuple / struct / fn-return under an invariant carrier (q13 q14 q15 q19 q32) CLOSED"; measured base RUN 0 -> today REFUSED
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, lifetime may not live long enough); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914f_thrurefland_hb_q14_refuse.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_r2.sFtP/q14_constptr_mutptr_depth2_illegal.logos
 package bc_0914f_thrurefland_hb_q14_refuse;
 fn f<'a, 'b>(x: *const *mut &'a i64, y: *const *mut &'b i64) -> bool {

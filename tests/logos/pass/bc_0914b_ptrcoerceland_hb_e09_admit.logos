@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14b-ptrcoerceland, program E09 — caught: refuted an arm — PROBES.md "build 3 ... M5 M10 M11 E02 E09"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:8); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914b_ptrcoerceland_hb_e09_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land14a_twins5.F7Ma/E09_outlives_where_ref_to_constptr_arg.logos
 package bc_0914b_ptrcoerceland_hb_e09_admit;
 fn take<'b>(p: *const &'b i64) -> i64 {

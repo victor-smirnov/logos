@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-09g-closureenv, program R3 — caught: refuted an arm — closureenv/RESULT.md "[capretesc] still LEAKS 16 BYTES on R3"; fatret/RESULT.md "R3 rc 0 / 1 vg, DEFINITELY LOST: 16 BYTES"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: DIVERGENCE (REFUSED, expected type, found ||); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen4/bc_0909g_closureenv_hb_r3_admit.rs
+// ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0909g_closureenv_hb_r3_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09g-closureenv/hand/R3.logos
 // THE SHAPE capretesc IS DELIBERATELY WRONG ABOUT: a closure passed as a bare
 // `Fn` ARGUMENT. The hint peels to a callable with no Struct wrapper, so the

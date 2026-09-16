@@ -1,0 +1,23 @@
+// TWIN of tests/logos/pass/bc_0913b_selfregion_land_hb_a10_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-13b-selfregion-land, program A10 — caught: verdict moved base -> landed — PROBES.md "3 refused->compiles (A10 L1 L14, legal, run 20/61/75)"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land/hb/A10_typearg_anon_let_self.logos
+struct W<T> { t: T }
+impl W<&'_ i64> {
+    fn dup(&self) -> Self {
+        let g: Self = W { t: self.t };
+        return g;
+    }
+}
+fn __logos_main() -> i32 {
+    let v: i64 = 20i64;
+    let w = W { t: &v };
+    let x = w.dup();
+    return *x.t as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

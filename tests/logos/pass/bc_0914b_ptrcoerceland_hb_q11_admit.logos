@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14b-ptrcoerceland, program Q11 — caught: refuted an arm — PROBES.md "build 1 crosskindxd + aorecvty as priced ... LEGAL REFUSED BY HAND Q01 Q11 Q15 V02 V02B V02I V20 V21 V25 V26 V27"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:1); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914b_ptrcoerceland_hb_q11_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land14a_twins2.okas/Q11_ref_vec_static_to_constptr_vec_shorter.logos
 package bc_0914b_ptrcoerceland_hb_q11_admit;
 static G: i64 = 7i64;

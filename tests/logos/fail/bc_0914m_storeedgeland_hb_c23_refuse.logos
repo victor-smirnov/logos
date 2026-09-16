@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14m-storeedge-land, program c23 — caught: illegal, admitted on base (user `Bag<T>::put` of a block local after an outer put), refused by the landing; unpredicted in 14l
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0597); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914m_storeedgeland_hb_c23_refuse.rs
 package bc_0914m_storeedgeland_hb_c23_refuse;
 struct Bag<T> { items: Vec<T> }
 impl<T> Bag<T> {

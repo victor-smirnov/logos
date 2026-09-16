@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14o-autoreffund, program h19 — caught: (round 2026-09-14n) `String == String` with temporaries: 68 bytes definitely lost on base (valgrind), 0 errors under the landing
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914o_autoreffund_hb_h19_admit.rs
 package bc_0914o_autoreffund_hb_h19_admit;
 use logos.mem.string;
 fn main() -> i32 {

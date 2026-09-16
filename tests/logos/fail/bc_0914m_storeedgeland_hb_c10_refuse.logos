@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14m-storeedge-land, program c10 — caught: illegal, admitted on base (loop push(&x), `x = 3` after the loop), refused by the landing
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0506); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914m_storeedgeland_hb_c10_refuse.rs
 package bc_0914m_storeedgeland_hb_c10_refuse;
 fn main() -> i32 {
     let mut x: i64 = 5i64;

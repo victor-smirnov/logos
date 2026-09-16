@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-12b-rpitbound, program c1 — caught: verdict moved base -> landed — rpitbound/RESULT.md "c1/c2/c3/c5 illegal, rc 0 before, refused after"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0594); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0912b_rpitbound_hb_c1_refuse.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-12b-rpitbound/hand/c1.logos
 package bc_0912b_rpitbound_hb_c1_refuse;
 // ILLEGAL: `impl Fn` whose body mutates a capture, signature has a parameter.

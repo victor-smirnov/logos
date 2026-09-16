@@ -9,7 +9,7 @@
 // with the outer reservation".
 // ⚠ NO UPSTREAM DOOR SPELLS THIS EXACT PROGRAM — the E0499 verdict is this
 // round's READING of the rule upstream annotates one indirection away, and
-// there is no rustc binary on this box to check it against.
+// MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (refuses, E0499) — the reading was right; twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard3-pass-rest-imported/two-phase-nonrecv-autoref--byvalue-fnmut-twice.rs
 // LANDED 2026-09-12g beside the closure of ledger row
 // `two-phase-nonrecv-autoref--a-fnmut-twice` (bck.D): it is the same mechanism
 // at a second spelling, and nothing in the corpus pinned it.

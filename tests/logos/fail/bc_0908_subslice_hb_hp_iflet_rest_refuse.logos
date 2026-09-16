@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-08-subslice, program hp_iflet_rest — caught: verdict moved base -> landed — PROBES.md "NINE programs of the landing compile SILENTLY, rc 0: hp_t13 hp_full_rest hp_mid_rest hp_rest_twice hp_iflet_rest ..." (base); PROBES.md ...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0382); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0908_subslice_hb_hp_iflet_rest_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ce/hp_iflet_rest.logos
 package bc_0908_subslice_hb_hp_iflet_rest_refuse;
 struct P { n: i64 }

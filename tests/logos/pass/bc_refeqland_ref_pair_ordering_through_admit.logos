@@ -9,7 +9,7 @@
 // Legal Rust (`impl PartialOrd<&B> for &A`): exit 0. The reference pair reaches mlir-gen's generic ordering compare, which
 // has no pointer form. Same class as the `==` rows of round 2026-09-15a-refeq, the ORDERING operators: arm `refagg` moves this
 // program (exit 0; battery e47), arm `refstruct` moves the partial_cmp spelling (battery e39); the union `refeq` moves both.
-// Measured on build 854d99ae9a2e2fbd 43 (base, refused) and b1a0431a68699a9c 43. Legality by reading; no rustc binary.
+// Measured on build 854d99ae9a2e2fbd 43 (base, refused) and b1a0431a68699a9c 43. MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts+runs, exit 0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard3-pass-rest-imported/bc_refeqland_ref_pair_ordering_through_admit.rs
 package bc_refeqland_ref_pair_ordering_through_admit;
 fn main() -> i32 {
     let a: (i64, i64) = (1i64, 9i64);

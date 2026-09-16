@@ -1,7 +1,7 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/regions/issue-5243.rs
 // Modifications: isize → i64; `pub fn main()` → `fn main() -> i64 { …; return 0; }`;
-//   the call's effect verified by reading the borrowed field back through `f` and
+//   the call's effect verified MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts+runs, exit 0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard3-pass-rest-imported/regions-lifetime-param-b149.rs the borrowed field back through `f` and
 //   subtracting (assert-via-return). Tests that merely having lifetime parameters on
 //   a struct (`S<'a>`) and a fn (`f<'lt>(&'lt S<'lt>)`) does not make codegen treat the
 //   item as non-monomorphic — a borrowed `&'a i64` field is read through the lifetime-

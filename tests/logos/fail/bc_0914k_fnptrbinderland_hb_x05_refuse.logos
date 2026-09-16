@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14k-fnptrbinderland, program x05 — caught: illegal, admitted on base and by the landing without the nested view (a fn(&'r) in a tuple element into fn(&i64)); refused with it
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0308); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914k_fnptrbinderland_hb_x05_refuse.rs
 package bc_0914k_fnptrbinderland_hb_x05_refuse;
 fn t<'r>(g: fn(&'r i64) -> i64) -> i32 {
     let p: (fn(&i64) -> i64, i32) = (g, 1i32);

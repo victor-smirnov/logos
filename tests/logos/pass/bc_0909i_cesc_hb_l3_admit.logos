@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09i-cesc, program L3 — caught: refuted an arm — hand_matrix.tsv "L3 admit admit REFUSED LEGAL — cost of cesccapmut"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909i_cesc_hb_l3_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09i-cesc/hand/L3.logos
 // LEGAL: a non-move closure capturing a `&mut i64` BY REFERENCE and calling it
 // in place. Nothing escapes. Rust accepts.

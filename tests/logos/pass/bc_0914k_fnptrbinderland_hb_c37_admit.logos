@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14k-fnptrbinderland, program c37 — caught: legal, refused on base (if-join of items into a for<'z> pointer); refused again by fnptrstrictf2 and by fnptrnoitembind
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:36); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914k_fnptrbinderland_hb_c37_admit.rs
 package bc_0914k_fnptrbinderland_hb_c37_admit;
 fn ida<'a>(x: &'a i64) -> i64 { return *x; }
 fn idb<'a>(x: &'a i64) -> i64 { return *x + 1i64; }

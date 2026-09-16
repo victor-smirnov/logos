@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09d-atland, program g13 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "(a) g13/g22 SEGFAULTED under the first At case" | (b) tables/hand_head.txt vs hand_final.txt: run=1 or cc=1 on HEAD -> cc=0 run=0 landed...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909d_atland_hb_g13_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09d-atland/hand/g13.logos
 // An at-binding on a struct field whose sub is a VARIANT with a BINDING inside.
 package bc_0909d_atland_hb_g13_admit;

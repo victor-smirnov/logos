@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14c-meetobl, program X14 — caught: verdict moved base -> landed — PROBES.md "build 3 vs base: moved = the illegal refusals (X01-X04 X07-X09 X11 X12 X14-X19 X50 X51 X53-X55 J01 J03 X106 X112 X114 X118 X119 X120 X12...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, lifetime may not live long enough); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914c_meetobl_hb_x14_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/battery.WM5P/X14_box_meet_ret.logos
 package bc_0914c_meetobl_hb_x14_refuse;
 struct P<'a> { x: &'a i64, y: &'a i64 }

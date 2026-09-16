@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14o-autoreffund, program n04 — caught: legal, correct on base and under the landing; REFUSED with E0507 under the priced neighbour arm fieldinplace (a field base borrowed in place), which it condemns
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914o_autoreffund_hb_n04_admit.rs
 package bc_0914o_autoreffund_hb_n04_admit;
 use logos.mem.string;
 extern fn printf(fmt: *const u8, ...) -> i32;

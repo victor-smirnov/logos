@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06-patmut, program h19 — caught: verdict moved base -> landed — PROBES.md "LEGAL, base REFUSED -> whole RUNS rc 0 (18)" + PROBES.md "The pricing's 42 hand shapes re-run on both builds: identical"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0906_patmut_hb_h19_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06-patmut/hand/h19_for_mut_reassign.logos
 package bc_0906_patmut_hb_h19_admit;
 use logos.mem.collections.vec;

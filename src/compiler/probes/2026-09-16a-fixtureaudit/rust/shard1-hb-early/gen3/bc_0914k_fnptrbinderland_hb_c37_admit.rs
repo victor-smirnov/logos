@@ -1,0 +1,19 @@
+// TWIN of tests/logos/pass/bc_0914k_fnptrbinderland_hb_c37_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14k-fnptrbinderland, program c37 — caught: legal, refused on base (if-join of items into a for<'z> pointer); refused again by fnptrstrictf2 and by fnptrnoitembind
+// legality: by reading, no rustc binary
+fn ida<'a>(x: &'a i64) -> i64 { return *x; }
+fn idb<'a>(x: &'a i64) -> i64 { return *x + 1i64; }
+fn t<'a>(q: &'a i64, c: bool) -> i64 {
+    let f: for<'z> fn(&'z i64) -> i64 = if c { ida } else { idb };
+    return f(q);
+}
+fn __logos_main() -> i32 {
+    let v: i64 = 36i64;
+    return t(&v, true) as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

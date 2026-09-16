@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program q16 — caught: refuted an arm, predicted wrong — PROBES.md "Build 1 refused q16 (`*const W<'a>` vs `*const W<'b>`, W covariant)" | "q16 needed the per-parameter variance read (build 2)"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914f_thrurefland_hb_q16_admit.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_r2.sFtP/q16_struct_under_constptr_legal.logos
 package bc_0914f_thrurefland_hb_q16_admit;
 struct W<'x> { r: &'x i64 }

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program p02 — caught: verdict moved base -> landed — PROBES.md "place RETARGET `h.r = &s2` under `&h.r.0` ... CLOSED (queue row; p02)"; measured base REFUSED -> today RUN
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:4); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914f_thrurefland_hb_p02_admit.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/p02_place_assign_ref_field_legal.logos
 package bc_0914f_thrurefland_hb_p02_admit;
 struct H<'x> { r: &'x (i64, i64) }

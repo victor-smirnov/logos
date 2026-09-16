@@ -23,7 +23,7 @@
 //   value suppresses sub-values that were moved out: a dotted path whose segment
 //   exactly matches a child skips that child's drop entirely". E0509 exists in
 //   Rust precisely because Rust has no such rule.
-// ⚠ THE CLAUSE WAS RE-VERIFIED BY RUNNING IT, 2026-09-07, not by reading it: a
+// ⚠ THE CLAUSE WAS RE-VERIFIED BY RUNNING IT, 2026-09-07, not MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (refuses, E0509); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard3-pass-rest-imported/borrowck-struct-update-with-dtor--b.rs it: a
 //   program with `struct S { f: Inner }`, `impl Drop` on BOTH, `let g = s.f;`
 //   and a static drop counter per type prints INNER_DROPS=1 S_DROPS=1 —
 //   `S::drop` runs once, the moved-out field is dropped once through `g`, and

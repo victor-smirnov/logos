@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09f-ergorefland, program my08 — caught: verdict moved base -> landed — RESULTS.md:10-17,75 "my03 ... 0 -> refused" (my04 my05 my07 my08 my12 my13 my31 same)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, cannot explicitly borrow within an implicitly-borrowing patt); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0909f_ergorefland_hb_my08_refuse.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09f-ergorefland/hand/my08_struct_sub_refmut_under_mutref.logos
 // ILLEGAL 2024: `ref mut` at a struct-field SUB-PATTERN under `&mut` — the
 // pricing set used the shared `&` spelling at this door.

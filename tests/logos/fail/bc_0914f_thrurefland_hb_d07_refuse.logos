@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program d07 — caught: verdict moved base -> landed — PROBES.md "HAND, UNCERTAIN in the predictions: ... d07 d17 d26 d27 d32 stay refused with the owner's sentence"; measured base first error "cannot a...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0499); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914f_thrurefland_hb_d07_refuse.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/d07_mutref_reassign_same_owner_illegal.logos
 package bc_0914f_thrurefland_hb_d07_refuse;
 struct P { a: i64, b: i64 }

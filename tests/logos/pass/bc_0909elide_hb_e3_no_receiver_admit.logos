@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09elide, program e3_no_receiver — caught: verdict moved base -> landed — PROBES.md "e1_param_only ... rc 1 -> rc 0, links, RUNS 0" (e2 e3 e6 same)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909elide_hb_e3_no_receiver_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ce/e3_no_receiver.logos
 // NO self receiver: a trait associated fn. Single input lifetime rule.
 package bc_0909elide_hb_e3_no_receiver_admit;

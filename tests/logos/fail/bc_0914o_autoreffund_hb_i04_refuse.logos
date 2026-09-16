@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14o-autoreffund, program i04 — caught: illegal (a struct-only-generic receiver temporary's borrow returned); base refused it with a sentence naming a compiler-internal local ('__rv_1'); under the landing it names the temporary; ⚠ it now prints TWO lines for this one defect (the temporary sentence, then "cannot return reference to temporary value: dangling reference") where rustc gives one E0515 — the pin is the first
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0515); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914o_autoreffund_hb_i04_refuse.rs
 package bc_0914o_autoreffund_hb_i04_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct D { v: i64, s: *mut i64 }

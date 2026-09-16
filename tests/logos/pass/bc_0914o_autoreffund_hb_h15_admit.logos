@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14o-autoreffund, program h15 — caught: (round 2026-09-14n) a temporary operand beside an index place operand never dropped on base (n=11); 1011 under the landing
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914o_autoreffund_hb_h15_admit.rs
 package bc_0914o_autoreffund_hb_h15_admit;
 use logos.lang.cmp;
 extern fn printf(fmt: *const u8, ...) -> i32;

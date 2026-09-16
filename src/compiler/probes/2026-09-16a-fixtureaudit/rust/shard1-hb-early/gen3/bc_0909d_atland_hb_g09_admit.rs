@@ -1,0 +1,20 @@
+// TWIN of tests/logos/pass/bc_0909d_atland_hb_g09_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-09d-atland, program g09 — caught: verdict moved base -> landed — tables/hand_head.txt vs hand_final.txt: run=1 or cc=1 on HEAD -> cc=0 run=0 landed; PROBES.md "ELEVEN of fifteen were already wrong before a line w...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09d-atland/hand/g09.logos
+// At in an ARRAY element whose sub-pattern is a wildcard, with a later element read.
+fn __logos_main() -> i32 {
+    let arr: [i64; 3] = [7i64, 2i64, 3i64];
+    let mut out: i64 = 0i64;
+    match arr {
+        [a @ _, _, c] => { out = a * 10i64 + c; }
+    }
+    if out != 73i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

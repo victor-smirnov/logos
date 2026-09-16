@@ -1,0 +1,30 @@
+fixture	kind	class	rustc_verdict	rustc_code_or_exit	expected_in_tree	note
+tests/logos/pass/bc_argrefland_closure_capture_arg_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`&rd` over a captured `&D` passes the reference's own address; rustc agrees
+tests/logos/pass/bc_argrefland_closure_param_arg_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	closure parameter `rd: &D`, `inner(&rd)` identity holds in rustc
+tests/logos/pass/bc_argrefland_foreach_elem_arg_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`for x in s` over `&[D]` yields `&D` in both; `&x` is `&&D`
+tests/logos/pass/bc_argrefland_match_binder_arg_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	match binder / if-let / `ref` binder, all three arms accepted and exit 0
+tests/logos/pass/bc_argrefland_struct_pattern_over_double_ref_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`&&P { x }` and `&q` patterns over `&&P` accepted; x: i32 is Copy in both
+tests/logos/pass/bc_argrefland_struct_ref_local_arg_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	mono + generic `inner::<D>` both preserve referent address
+tests/logos/pass/bc_d1r5_h7_param_root_admits	pass	CONFIRMED	accepts+runs	exit 7	exit: 7	`fn f(x:&i64)->(&i64,i64)` param-rooted ref returned in a tuple: legal, exit 7. Marker was incidental prose; tested anyway
+tests/logos/pass/bc_fnptrbind_hrtb_sub_to_named_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`for<'x> fn(&'x i64)->i64` coerces to `fn(&'r i64)->i64`; rustc accepts the subtyping
+tests/logos/pass/bc_fnptrbind_item_binder_hrtb_admit	pass	CONFIRMED	accepts+runs	exit 32	exit: 32	`pick<'a>` assigned to a `for<'z>` fn-ptr type; accepted, returns 32
+tests/logos/pass/bc_refeqland_aggregate_ref_pair_compares_values_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`&(i64,i64)`, `&[i64;2]`, `&&str` all compare THROUGH the reference. TWIN: Logos `impl Eq` -> Rust `impl PartialEq`
+tests/logos/pass/bc_refeqland_ref_pair_ordering_through_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`<` / `<=` over `&(i64,i64)` compare values; equal tuples give false/true
+tests/logos/pass/bc_refeqland_struct_ref_pair_calls_eq_admit	pass	CONFIRMED	accepts+runs	exit 7	exit: 7	`ra == rb` over `&D` calls D::eq. TWIN: `impl Eq` -> `impl PartialEq`
+tests/logos/pass/bc_refeqland_typevar_ref_pair_calls_eq_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`fn same<T: PartialEq>(a:&T,b:&T){a==b}` true for struct and for char. TWIN: `T: Eq` -> `T: PartialEq`
+tests/logos/pass/bc_storeedge_issue147694_twin_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`data` declared before the loop: `Vec<&i64>` push accepted by rustc NLL
+tests/logos/pass/bc_storeedge_setter_field_after_outer_set_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`h.set(&d)` with block-local `d` and `h` dead afterwards: rustc ACCEPTS (no E0597). The by-reading claim holds
+tests/logos/pass/bc_storeedge_vec_push_after_outer_push_admit	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	push of a block-local ref into a Vec that is dead after the block: rustc ACCEPTS
+tests/logos/pass/destructure_param_move_elem_no_double_free	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`fn probe((s,b):(String,i64))` accepted, exit 0. Marker was incidental prose; tested anyway
+tests/imported/pass/borrowck/two-phase-method-receiver-bc	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`a.add(a.cur())` two-phase receiver borrow accepted by rustc
+tests/imported/pass/mut/mutable-class-fields-b163	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	plain `&mut` field mutation
+tests/imported/pass/regions/regions-lifetime-param-b149	pass	CONFIRMED	accepts+runs	exit 0	exit: 0	`S<'a>` + `f<'lt>(&'lt S<'lt>)` accepted; f(&s)-42 == 0
+tests/imported/fail/borrowck/borrowck-struct-update-with-dtor--b	fail	CONFIRMED	refuses	E0509	cannot move out of 's0.b': type 'T' implements the Drop trait ... (E0509)	rustc: "cannot move out of type `T`, which implements the `Drop` trait" at `s0.b`
+tests/imported/fail/borrowck/borrowck-struct-update-with-dtor--t17	fail	CONFIRMED	refuses	E0509	same E0509 sentence	FRU form `T { a: 2, ..s0 }`; rustc points at the whole FRU expression, Logos names `s0.b` — same verdict, different span/wording
+tests/imported/fail/borrowck/borrowck-move-out-of-struct-with-dtor	fail	CONFIRMED	refuses	E0509	cannot move out of 's.f': type 'S' implements the Drop trait ... (E0509)	`let g = s.f;` with `impl Drop for S`; rustc E0509 at the same site
+tests/imported/fail/borrowck/two-phase-nonrecv-autoref--byvalue-fnmut-twice	fail	CONFIRMED	refuses	E0499	cannot use 'f' while it is mutably borrowed	rustc: "cannot borrow `f` as mutable more than once at a time". Same verdict, different sentence. The header said the E0499 call was this round's READING with no rustc on the box — now MEASURED and correct
+tests/logos/pass/deem_direct_stream_pull	pass	NOT EXPRESSIBLE	not tested	-	exit: 0	EXCLUDED: grep false positive — "by reading the emitted" is incidental prose, no legality claim; Deem/ADR-0025 stream door has no Rust twin
+tests/logos/pass/deem_incr_diff_harness	pass	NOT EXPRESSIBLE	not tested	-	exit: 0 + stdout	EXCLUDED: false positive — "derived by reading the three fold sites"; Deem incremental engine, Logos-only
+tests/logos/pass/lforge_graph_cas	pass	NOT EXPRESSIBLE	not tested	-	exit: 0	EXCLUDED: false positive — "Build inputs by reading from disk"; lforge FS-CAS, Logos-only
+tests/logos/pass/wql_domain_static_u64_sum_accumulator	pass	NOT EXPRESSIBLE	not tested	-	exit: 0	EXCLUDED: false positive — "RE-MEASURED ... by reading the static corpus"; wql/Writ static tier, Logos-only
+tests/logos/pass/generic_ref_registry_dispatch	pass	NOT EXPRESSIBLE	not tested	-	exit: 42	EXCLUDED: false positive — "by reading the marker it writes"; GENERIC_REF + wstatic_hash_of are Logos additions (A6)

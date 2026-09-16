@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06p-ergodoors, program n12 — caught: refuted an arm — PROBES.md "`ergoref` refuses r01 r02 r06 r14 (all four 2024-illegal, correct) AND n12 — a program with no `ref` anywhere"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0906p_ergodoors_hb_n12_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06p-ergodoors/hand/n12.logos
 package bc_0906p_ergodoors_hb_n12_admit;
 use logos.std.fmt;

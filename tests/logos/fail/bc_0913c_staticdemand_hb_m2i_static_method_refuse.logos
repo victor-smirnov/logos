@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-13c-staticdemand, program m2i_static_method — caught: verdict moved base -> landed — PROBES.md "HAND BATTERY, FINAL BINARY vs 86911f4e — illegal closed: ... pricing c07 c09 c10 c13 d26 m1i_{array,named_param,nested_ref,param,tuple}_...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0521); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0913c_staticdemand_hb_m2i_static_method_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0913c.6YX8/hand/m2i_static_method.logos
 package bc_0913c_staticdemand_hb_m2i_static_method_refuse;
 struct K { }

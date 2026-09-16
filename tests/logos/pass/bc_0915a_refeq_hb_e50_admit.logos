@@ -1,5 +1,5 @@
 // hand battery: round 0915a_refeq, program e50 — caught: verdict moved base (wrong answer at run time, reference pair compared by address) -> refeq landing (Rust's answer)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts, exit 0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard2-hb-late/bc_0915a_refeq_hb_e50_admit.rs
 package bc_0915a_refeq_hb_e50_admit;
 use logos.lang.cmp;
 struct D { v: i64 }

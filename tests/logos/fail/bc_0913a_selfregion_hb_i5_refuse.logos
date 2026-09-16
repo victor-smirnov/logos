@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-13a-selfregion, program I5 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "selfall (batch 1) UN-REFUSES ILLEGAL s3 I1 I3 I5" | (b) PROBES.md-42731 "illegal, admitted on base | CLOSED" (n3a e5 e6 h1 s5 s12 I5 r13...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, lifetime may not live long enough); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0913a_selfregion_hb_i5_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ctl2/I5_anon_pick_two_regions_mixed.logos
 package bc_0913a_selfregion_hb_i5_refuse;
 struct P<'a, 'b> { x: &'a i64, y: &'b i64 }

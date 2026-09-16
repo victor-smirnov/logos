@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14j-fnptrbinder, program h26 — caught: refuted fnptrelide/fnptrbinder: REFUSED this legal program — h01's closure inside a fn with its own 'a
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:26); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914j_fnptrbinder_hb_h26_admit.rs
 package bc_0914j_fnptrbinder_hb_h26_admit;
 fn t<'a>(q: &'a i64) -> i64 {
     let f: fn(&i64) -> i64 = |x: &i64| -> i64 { return *x + 1i64; };

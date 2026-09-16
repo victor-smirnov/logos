@@ -1,0 +1,250 @@
+fixture	kind	class	rustc_verdict	rustc_code_or_exit	expected_in_tree	note
+bc_0906_patmut_hb_h02_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 's' as mutable: not declared as mut	
+bc_0906_patmut_hb_h06_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 's' as mutable: not declared as mut	
+bc_0906_patmut_hb_h12_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 's' as mutable: not declared as mut	
+bc_0906_patmut_hb_h21_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 's' as mutable: not declared as mut	
+bc_0906_patmut_hb_h25_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 'bb' as mutable: not declared as mut	
+bc_0906_patmut_hb_h33_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 'bb' as mutable: not declared as mut	
+bc_0906_patmut_hb_h39_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 's' as mutable: not declared as mut	
+bc_0907a_boxmutctx_hb_h17_refuse	fail	CONFIRMED	REFUSED	E0594	[fn main]: cannot borrow 'bb' as mutable: not declared as mut	
+bc_0907a_boxmutctx_hb_h21_refuse	fail	CONFIRMED	REFUSED	E0596	[fn main]: cannot borrow 'w' as mutable: not declared as mut	
+bc_0908_subslice_hb_hp_full_rest_refuse	fail	CONFIRMED	REFUSED	E0382	[fn main]: use of partially moved value 'a'	
+bc_0908_subslice_hb_hp_iflet_rest_refuse	fail	CONFIRMED	REFUSED	E0382	[fn main]: use of moved field 'a.2'	
+bc_0908_subslice_hb_hp_rest_twice_refuse	fail	CONFIRMED	REFUSED	E0382	[fn main]: use of moved field 'a.2'	
+bc_0909f_ergorefland_hb_my03_refuse	fail	CONFIRMED	REFUSED	cannot explicitly borrow within an implicitly-borrowing patt	[fn main]: binding modifiers may only be written when the default binding mode is `move`: 	
+bc_0909f_ergorefland_hb_my04_refuse	fail	CONFIRMED	REFUSED	cannot explicitly borrow within an implicitly-borrowing patt	[fn main]: binding modifiers may only be written when the default binding mode is `move`: 	
+bc_0909f_ergorefland_hb_my05_refuse	fail	CONFIRMED	REFUSED	cannot explicitly borrow within an implicitly-borrowing patt	[fn main]: binding modifiers may only be written when the default binding mode is `move`: 	
+bc_0909f_ergorefland_hb_my07_refuse	fail	CONFIRMED	REFUSED	(no code)	[fn take]: binding modifiers may only be written when the default binding mode is `move`: 	twin v1 died on E0614 (one deref too many); v2 reaches the Rust-2024 binding-modifier verdict
+bc_0909f_ergorefland_hb_my08_refuse	fail	CONFIRMED	REFUSED	cannot explicitly borrow within an implicitly-borrowing patt	[fn main]: binding modifiers may only be written when the default binding mode is `move`: 	
+bc_0909k_selfrecv_hb_h10_refuse	fail	CONFIRMED	REFUSED	E0053	[fn S__eat]: impl Eat for S: method 'eat' does not match the trait declaration: the receiv	
+bc_0909k_selfrecv_hb_h13_refuse	fail	CONFIRMED	REFUSED	E0053	[fn S__drop]: impl Drop for S: method 'drop' does not match the trait declaration: the rec	
+bc_0909k_selfrecv_hb_h1_refuse	fail	CONFIRMED	REFUSED	E0053	[fn S__drop]: impl Drop for S: method 'drop' does not match the trait declaration: the rec	twin rewrite marked // TWIN:
+bc_0909k_selfrecv_hb_h2_refuse	fail	CONFIRMED	REFUSED	E0053	[fn S__drop]: impl Drop for S: method 'drop' does not match the trait declaration: the rec	
+bc_0909k_selfrecv_hb_h5_refuse	fail	CONFIRMED	REFUSED	E0053	[fn G__drop]: impl Drop for G: method 'drop' does not match the trait declaration: the rec	
+bc_0909k_selfrecv_hb_h9_refuse	fail	CONFIRMED	REFUSED	E0053	[fn S__tick]: impl Tick for S: method 'tick' does not match the trait declaration: the rec	
+bc_0909sigland_hb_x01_refuse	fail	CONFIRMED	REFUSED	E0053	[fn R__ask]: impl Ask for R: method 'ask' does not match the trait declaration: the return	twin rewrite marked // TWIN:
+bc_0909sigland_hb_x07_refuse	fail	CONFIRMED	REFUSED	E0053	[fn R__ask]: impl Ask for R: method 'ask' does not match the trait declaration: the return	twin rewrite marked // TWIN:
+bc_0909sigland_hb_x08_refuse	fail	CONFIRMED	REFUSED	E0053	[fn R__ask]: impl Ask for R: method 'ask' does not match the trait declaration: the return	
+bc_0910d_vecbare_hb_n2_refuse	fail	CONFIRMED	REFUSED	E0308	[fn main]: call to 'total' arg 1: expected &[i64], got &Vec<i64>	twin rewrite marked // TWIN:
+bc_0910d_vecbare_hb_n3_refuse	fail	CONFIRMED	REFUSED	E0308	[fn main]: call to 'total' arg 1: expected &[i64], got &mut Vec<i64>	
+bc_0910d_vecbare_hb_n4_refuse	fail	CONFIRMED	REFUSED	E0308	[fn main]: call to 'total' arg 1: expected &[i64], got &Vec<i64>	
+bc_0912b_rpitbound_hb_c1_refuse	fail	CONFIRMED	REFUSED	E0594	[fn mk]: closure does not implement `Fn`: its body mutates a captured variable, so it is `	
+bc_0912b_rpitbound_hb_c3_refuse	fail	CONFIRMED	REFUSED	E0507	[fn mk]: closure does not implement `FnMut`: its body moves out (consumes) a captured vari	
+bc_0912b_rpitbound_hb_c5_refuse	fail	CONFIRMED	REFUSED	E0594	[fn S__maker]: closure does not implement `Fn`: its body mutates a captured variable, so i	
+bc_0912n_bcdoor_hb_i2_refuse	fail	CONFIRMED	REFUSED	E0716	[fn main]: temporary value dropped while borrowed: this reference borrows into a temporary	twin rewrite marked // TWIN:
+bc_0912n_bcdoor_hb_i3_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn main]: temporary value dropped while borrowed: this reference borrows into a temporary	twin rewrite marked // TWIN:
+bc_0912n_bcdoor_hb_i5_refuse	fail	CONFIRMED	REFUSED	E0716	[fn main]: temporary value dropped while borrowed: this reference borrows into a temporary	twin rewrite marked // TWIN:
+bc_0912q_letregion_hb_d1_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed into 'x', whose declared type requ	
+bc_0912q_letregion_hb_d2_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed into 'x', whose declared type requ	
+bc_0912q_letregion_hb_e1_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed into 'x', whose declared type requ	
+bc_0912q_letregion_hb_e2_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed into 'x', whose declared type requ	
+bc_0912q_letregion_hb_n4_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed into 'r', whose declared type requ	
+bc_0912q_letregion_hb_n6_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'p' does not live long enough: it is borrowed into 'r', whose declared type requ	
+bc_0912q_letregion_hb_q6_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed and stored through 'out', whose st	
+bc_0912r_escroot_hb_g25_refuse	fail	CONFIRMED	REFUSED	E0597	[fn store]: 'v' does not live long enough: it is borrowed and stored through 'out', whose 	
+bc_0912r_escroot_hb_k14_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 's' does not live long enough: it is borrowed and stored through 'out', whose st	
+bc_0912r_escroot_hb_k19_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'arr' does not live long enough: it is borrowed and stored through 'out', whose 	
+bc_0912r_escroot_hb_k20_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 's' does not live long enough: it is borrowed and stored through 'out', whose st	
+bc_0912r_escroot_hb_k24_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed into 'r', whose declared type requ	
+bc_0912r_escroot_hb_x1_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed and stored through 'out', whose st	
+bc_0912r_escroot_hb_x2_refuse	fail	CONFIRMED	REFUSED	E0597	[fn foo]: 'v' does not live long enough: it is borrowed and stored through 'out', whose st	
+bc_0913a_selfregion_hb_e5_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn W__mk]: return type mismatch: variance mismatch — expected W<'_, T>, got W<T> — li	
+bc_0913a_selfregion_hb_e6_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn E__mk]: return type mismatch: variance mismatch — expected E<'_>, got E — lifetime	
+bc_0913a_selfregion_hb_h15_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn E__b]: return type mismatch: variance mismatch — expected E<'a>, got E<'q> — lifet	
+bc_0913a_selfregion_hb_h1_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn $ref_&'_ i64__mk]: return type mismatch: variance mismatch — expected &'_ i64, got &	
+bc_0913a_selfregion_hb_h2_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn E__mk]: enum literal 'Self': variance mismatch — expected E<'q>, got E<'a> — lifet	
+bc_0913a_selfregion_hb_i1_refuse	fail	CONFIRMED	REFUSED	E0621	[fn Foo__swap_in]: struct literal 'Self': variance mismatch — expected Foo<'s>, got Foo 	
+bc_0913a_selfregion_hb_i2_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn W__mk]: struct literal 'Self': variance mismatch — expected W<'q, T>, got W<'a, T> �	
+bc_0913a_selfregion_hb_i3_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn Foo__swap_in]: struct literal 'Self': variance mismatch — expected Foo<'_>, got Foo 	
+bc_0913a_selfregion_hb_i5_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn P__flip]: struct literal 'Self': variance mismatch — expected P<'_#1, '_#2>, got P<'	
+bc_0913a_selfregion_hb_r13a2_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn MyStruct__tmake]: struct literal 'Self': variance mismatch — expected MyStruct<'_>, 	
+bc_0913a_selfregion_hb_r13b_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn MyStruct__make]: struct literal 'Self': variance mismatch — expected MyStruct<'q>, g	
+bc_0913a_selfregion_hb_r13d_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn MyStruct__make]: return type mismatch: variance mismatch — expected MyStruct<'_>, go	
+bc_0913a_selfregion_hb_s12_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn P__swap]: return type mismatch: variance mismatch — expected P<'_#1, '_#2>, got P<'_	
+bc_0913a_selfregion_hb_s14_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn MyStruct__make]: struct literal 'Self': variance mismatch — expected MyStruct<'q>, g	
+bc_0913a_selfregion_hb_s1_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn MyStruct__make]: let 's': variance mismatch — expected MyStruct<'q>, got MyStruct<'a	
+bc_0913a_selfregion_hb_s3_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn MyStruct__make]: struct literal 'Self': variance mismatch — expected MyStruct<'q>, g	
+bc_0913a_selfregion_hb_s5_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn Foo__mk]: return type mismatch: variance mismatch — expected Foo<'_>, got Foo — li	
+bc_0913a_selfregion_hb_t8_refuse	fail	CONFIRMED	REFUSED	E0308	[fn E__g]: enum literal 'Self': variance mismatch — expected E<'q>, got E<'a> — lifeti	
+bc_0913b_selfregion_land_hb_b02_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn Foo__mk]: struct literal 'Self': variance mismatch — expected Foo<'q>, got Foo<'a> �	
+bc_0913b_selfregion_land_hb_b03_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn E__mk]: enum literal 'Self': variance mismatch — expected E<'q>, got E<'a> — lifet	
+bc_0913b_selfregion_land_hb_b04_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn P__swap]: struct literal 'Self': variance mismatch — expected P<'_#1, '_#2>, got P<'	
+bc_0913b_selfregion_land_hb_b06_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn E__mk]: enum literal 'Self': variance mismatch — expected E<'q>, got E<'a> — lifet	
+bc_0913b_selfregion_land_hb_b08_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn W$G1$ref_i64__mk]: return type mismatch: variance mismatch — expected W<&'_ i64>, go	
+bc_0913b_selfregion_land_hb_b09_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn W__mk]: struct literal 'Self': variance mismatch — expected W<'_, T>, got W<T> — l	
+bc_0913b_selfregion_land_hb_b10_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn E__mk]: enum literal 'Self': variance mismatch — expected E<'_>, got E — lifetime 	
+bc_0913b_selfregion_land_hb_b11_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn Foo__stash]: let 'g': variance mismatch — expected Foo<'_>, got Foo — lifetime str	
+bc_0913b_selfregion_land_hb_b12_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn E__n]: let 'e': variance mismatch — expected E<'a>, got E<'q> — lifetime structure	
+bc_0913c_staticdemand_hb_c09_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set_bar]: assignment to 'BAR': variance mismatch — expected &'static u8, got &u8 —	
+bc_0913c_staticdemand_hb_c10_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set_bar]: assignment to 'BAR': variance mismatch — expected &'static u8, got &u8 —	
+bc_0913c_staticdemand_hb_c13_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn set_bar]: assignment to 'BAR': variance mismatch — expected &'static u8, got &u8 —	
+bc_0913c_staticdemand_hb_d26_refuse	fail	CONFIRMED	REFUSED	E0521	[fn error]: call to 'static_id_indirect': borrowed data escapes — argument 1 `v` does no	
+bc_0913c_staticdemand_hb_m1i_array_elided_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set]: assignment to 'ARR[i]': variance mismatch — expected &'static u8, got &u8 — 	
+bc_0913c_staticdemand_hb_m1i_named_param_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn keep]: assignment to 'BAR': variance mismatch — expected &'static u8, got &'a u8 —	
+bc_0913c_staticdemand_hb_m1i_nested_ref_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set]: assignment to 'PP': variance mismatch — expected &'static &'static u8, got &&u	
+bc_0913c_staticdemand_hb_m1i_param_elided_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn keep]: assignment to 'BAR': variance mismatch — expected &'static u8, got &u8 — li	
+bc_0913c_staticdemand_hb_m1i_tuple_elided_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set]: assignment to 'TP': variance mismatch — expected (&'static u8, i64), got (&u8,	
+bc_0913c_staticdemand_hb_m2i_generic_t_where_static_refuse	fail	CONFIRMED	REFUSED	E0521	[fn error]: call to 'keep': borrowed data escapes — argument 1 `u` does not live for 'st	
+bc_0913c_staticdemand_hb_m2i_method_param_refuse	fail	CONFIRMED	REFUSED	E0521	[fn error]: call to 'keep': borrowed data escapes — argument 1 `u` does not live for 'st	
+bc_0913c_staticdemand_hb_m2i_mut_ref_refuse	fail	CONFIRMED	REFUSED	E0521	[fn error]: call to 'grab': borrowed data escapes — argument 1 does not live for 'static	
+bc_0913c_staticdemand_hb_m2i_named_caller_refuse	fail	CONFIRMED	REFUSED	E0521	[fn error]: call to 'static_id': borrowed data escapes — argument 1 `u` does not live fo	
+bc_0913c_staticdemand_hb_m2i_static_method_refuse	fail	CONFIRMED	REFUSED	E0521	[fn error]: call to 'K::keep': borrowed data escapes — argument 1 `u` does not live for 	
+bc_0913c_staticdemand_hb_m2i_struct_arg_refuse	fail	CONFIRMED	REFUSED	E0521	[fn error]: call to 'keep': borrowed data escapes — argument 1 does not live for 'static	
+bc_0913d_staticdemand_hb_x01_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keepo': borrowed data escapes — argument 1 does not live for 'static, w	
+bc_0913d_staticdemand_hb_x02_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keeph': borrowed data escapes — argument 1 does not live for 'static, w	
+bc_0913d_staticdemand_hb_x03_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keep': borrowed data escapes — argument 1 `u` does not live for 'static	
+bc_0913d_staticdemand_hb_x04_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'both': borrowed data escapes — argument 2 `u` does not live for 'static	
+bc_0913d_staticdemand_hb_x05_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keeph': borrowed data escapes — argument 1 `h` does not live for 'stati	
+bc_0913d_staticdemand_hb_x06_refuse	fail	CONTRADICTED	ACCEPTED	exit 0	[fn f]: call to 'two': caller does not satisfy callee's outlives bound `'a: 'b` (under arg	rustc ACCEPTS; twin is verbatim-faithful. Logos over-refuses.
+bc_0913d_staticdemand_hb_x09_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keep': borrowed data escapes — the receiver does not live for 'static, 	
+bc_0913d_staticdemand_hb_y01b_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set]: assignment to 'HS': variance mismatch — expected H<'static>, got H<'_> — lif	
+bc_0913d_staticdemand_hb_y04_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set]: assignment to 'TP': variance mismatch — expected ((&'static u8, i64), i64), go	
+bc_0913d_staticdemand_hb_y05_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set]: assignment to 'TP.0': variance mismatch — expected &'static u8, got &u8 — li	
+bc_0913d_staticdemand_hb_y06_refuse	fail	CONFIRMED	REFUSED	E0597	[fn set]: assignment to 'BAR': variance mismatch — expected &'static u8, got &u8 — lif	
+bc_0913d_staticdemand_hb_z02_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keep': borrowed data escapes — argument 1 `u` does not live for 'static	
+bc_0913d_staticdemand_hb_z03_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keep': borrowed data escapes — argument 1 `u` does not live for 'static	
+bc_0913d_staticdemand_hb_z04_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: call to 'keep': borrowed data escapes — argument 1 `u` does not live for 'static	twin rewrite marked // TWIN:
+bc_0913d_staticdemand_hb_z05_refuse	fail	CONFIRMED	REFUSED	E0521	[fn outer]: call to 'keep2': borrowed data escapes — argument 2 `u` does not live for 's	
+bc_0913e_declarrival_hb_i_w11_refuse	fail	CONFIRMED	REFUSED	E0425	[trait Q]: unknown type 'T'	
+bc_0913e_declarrival_hb_r17_e_refuse	fail	CONFIRMED	REFUSED	E0425	[fn W__m]: unknown type 'T'	
+bc_0913e_declarrival_hb_wh5_refuse	fail	CONFIRMED	REFUSED	E0425	[trait Q]: unknown type 'T'	
+bc_0913e_declarrival_hb_wh8_refuse	fail	CONFIRMED	REFUSED	E0425	[fn A__q]: unknown type 'T'	
+bc_0913f_declarrivalland_hb_x_c02_refuse	fail	CONFIRMED	REFUSED	E0107	[fn main]: 'P': expected 0 lifetime arg(s), got 1	
+bc_0913f_declarrivalland_hb_x_c03_refuse	fail	CONFIRMED	REFUSED	E0107	[fn main]: 'Color': expected 0 lifetime arg(s), got 1	
+bc_0913f_declarrivalland_hb_x_c05_refuse	fail	CONFIRMED	REFUSED	E0107	[fn E__mk]: 'E': expected 2 lifetime arg(s), got 1	
+bc_0913f_declarrivalland_hb_x_k02_refuse	fail	CONFIRMED	REFUSED	E0308	[impl T2 for S]: impl T2 for S: associated constant 'A' has type	
+bc_0913f_declarrivalland_hb_x_k04_refuse	fail	CONFIRMED	REFUSED	E0308	[fn S__get]: impl Tr for S: method 'get' does not match the trait declaration: the return 	
+bc_0913f_declarrivalland_hb_x_k05_refuse	fail	CONFIRMED	REFUSED	E0308	[impl Named for S]: impl Named for S: associated constant 'N' has type	
+bc_0913f_declarrivalland_hb_x_k06_refuse	fail	CONFIRMED	REFUSED	E0308	[impl Named for S]: impl Named for S: associated constant 'N' has type	
+bc_0913f_declarrivalland_hb_x_w01_refuse	fail	CONFIRMED	REFUSED	E0425	[impl Q for S]: unknown type 'T'	
+bc_0913f_declarrivalland_hb_x_w02_refuse	fail	CONFIRMED	REFUSED	E0425	[impl S]: unknown type 'Zed'	
+bc_0913f_declarrivalland_hb_x_w03_refuse	fail	CONFIRMED	REFUSED	E0425	[fn S__make]: unknown type 'Zed'	
+bc_0913f_declarrivalland_hb_x_w04_refuse	fail	CONFIRMED	REFUSED	E0425	[fn S__q]: unknown type 'T'	
+bc_0913f_declarrivalland_hb_x_w06_refuse	fail	CONFIRMED	REFUSED	E0425	[trait Q]: unknown type 'T'	
+bc_0913f_declarrivalland_hb_x_w07_refuse	fail	CONFIRMED	REFUSED	E0425	[struct P]: unknown type 'T'	
+bc_0913f_declarrivalland_hb_x_w10_refuse	fail	CONFIRMED	REFUSED	E0425	[trait Q]: unknown type 'T'	
+bc_0913f_declarrivalland_hb_x_w11_refuse	fail	CONFIRMED	REFUSED	E0425	[impl Q for W]: unknown type 'Zed'	
+bc_0913f_declarrivalland_hb_x_w12_refuse	fail	CONFIRMED	REFUSED	E0411	[fn f]: unknown type 'Self'	
+bc_0914a_ptrcoerce_hb_d03_refuse	fail	CONFIRMED	REFUSED	E0308	[fn f]: return type mismatch: variance mismatch — expected *mut &'b i64, got &mut [&'a i	
+bc_0914a_ptrcoerce_hb_i01_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: let 'y': variance mismatch — expected *mut &'b i64, got &mut &'a i64 — lifetim	
+bc_0914a_ptrcoerce_hb_i05_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: return type mismatch: variance mismatch — expected &'c &'b i64, got &'c mut &'a 	
+bc_0914a_ptrcoerce_hb_i08_refuse	fail	CONFIRMED	REFUSED	E0308	[fn f]: return type mismatch: variance mismatch — expected *const &'b i64, got &[&'a i64	
+bc_0914a_ptrcoerce_hb_j04_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	twin rewrite marked // TWIN:
+bc_0914a_ptrcoerce_hb_j06_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914a_ptrcoerce_hb_j08_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914a_ptrcoerce_hb_j09_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914b_ptrcoerceland_hb_v02a_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914b_ptrcoerceland_hb_v23_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914b_ptrcoerceland_hb_x01_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914b_ptrcoerceland_hb_x05_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914b_ptrcoerceland_hb_x06_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows	
+bc_0914b_ptrcoerceland_hb_y01_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn set]: assignment to 'c.p': variance mismatch — expected *const &'static i64, got &&'	
+bc_0914b_ptrcoerceland_hb_y03_refuse	fail	CONFIRMED	REFUSED	E0308	[fn f]: return type mismatch: variance mismatch — expected *const &'static i64, got &[&'	
+bc_0914b_ptrcoerceland_hb_y06_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: let 'p': variance mismatch — expected *const &'static i64, got *mut &'a i64 — 	
+bc_0914b_ptrcoerceland_hb_y07_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: return type mismatch: variance mismatch — expected *const (&'static i64, i64), g	
+bc_0914b_ptrcoerceland_hb_y08_refuse	fail	CONFIRMED	REFUSED	(no code)	[fn f]: return type mismatch: variance mismatch — expected &mut [&'a i64], got &mut Vec<	twin v1 died on E0106 (Logos elides the returned &mut's lifetime); v2 spells it and refuses on invariance
+bc_0914c_meetobl_hb_j01_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: return type mismatch: lifetime may not live long enough — a M<'_> built from 'a 	
+bc_0914c_meetobl_hb_j03_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: return type mismatch: lifetime may not live long enough — a W<'_> built from 'b 	
+bc_0914c_meetobl_hb_v5_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_, i64> built fr	
+bc_0914c_meetobl_hb_x01_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'a	
+bc_0914c_meetobl_hb_x02_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a E<'_> built from 'a	
+bc_0914c_meetobl_hb_x03_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a &i64 built from 'a 	
+bc_0914c_meetobl_hb_x04_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: let 'p': lifetime may not live long enough — a P<'_> built from 'a and 'b is us	
+bc_0914c_meetobl_hb_x05_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'a	
+bc_0914c_meetobl_hb_x07_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_> built from 's	
+bc_0914c_meetobl_hb_x08_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a (P<'_>, i64) built 	
+bc_0914c_meetobl_hb_x09_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a W<'_> built from 'a	
+bc_0914c_meetobl_hb_x10_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a E<'_> built from 'b	
+bc_0914c_meetobl_hb_x11_refuse	fail	CONFIRMED	REFUSED	E0621	[fn set_desc]: return type mismatch: lifetime may not live long enough — a Flag<'_> buil	
+bc_0914c_meetobl_hb_x12_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'a	
+bc_0914c_meetobl_hb_x13_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a &i64 built from 'a 	
+bc_0914c_meetobl_hb_x14_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a Box<P<'_>> built fr	
+bc_0914c_meetobl_hb_x15_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a Option<P<'_>> built	
+bc_0914c_meetobl_hb_x16_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn fill]: deref-write '*ptr = …': lifetime may not live long enough — a P<'_> built f	
+bc_0914c_meetobl_hb_x17_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a Flag<'_> built from	
+bc_0914c_meetobl_hb_x18_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a T<'_> built from 'a	
+bc_0914c_meetobl_hb_x19_refuse	fail	CONFIRMED	REFUSED	E0521	[fn g]: call to 'need_static' arg 1: lifetime may not live long enough — a P<'_> built f	
+bc_0914c_meetobl_hb_x50_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: method 'Vec__push' arg 1: lifetime may not live long enough — a P<'_> built from	
+bc_0914c_meetobl_hb_x51_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: deref-write '*ptr = …': lifetime may not live long enough — a Option<P<'_>> bu	
+bc_0914c_meetobl_hb_x53_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'a	
+bc_0914c_meetobl_hb_x54_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a W<'_> built from 'a	
+bc_0914c_meetobl_hb_x55_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a P2<'_, 'b> built fr	
+bc_0914d_meetoblland_hb_x106_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn H__set]: assignment to 'self.p': lifetime may not live long enough — a P<'_> built f	
+bc_0914d_meetoblland_hb_x112_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a G<'_, T> built from	
+bc_0914d_meetoblland_hb_x114_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn go]: return type mismatch: lifetime may not live long enough — a &i64 built from 'a 	
+bc_0914d_meetoblland_hb_x118_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a E<'_> built from 'a	
+bc_0914d_meetoblland_hb_x119_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a E<'_> built from 'a	
+bc_0914d_meetoblland_hb_x120_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: variance mismatch — expected E<'a>, got E<'b> — lifetim	
+bc_0914d_meetoblland_hb_x124_refuse	fail	CONFIRMED	REFUSED	E0621	[fn go]: return type mismatch: lifetime may not live long enough — a P<'_> built from 'a	
+bc_0914d_meetoblland_hb_x302_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: lifetime may not live long enough — a E<'_> built from 'a	
+bc_0914d_meetoblland_hb_x308_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: variance mismatch — expected E<'static>, got E<'a> — li	
+bc_0914d_meetoblland_hb_x410_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn mk]: return type mismatch: variance mismatch — expected S<'static>, got S<'a> — li	
+bc_0914e_thruref_hb_m12_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot assign to 's1' while 's1.a' is borrowed	
+bc_0914e_thruref_hb_m16_refuse	fail	CONFIRMED	REFUSED	E0505	[fn main]: cannot use 's1' while it is mutably borrowed	
+bc_0914e_thruref_hb_m17_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot borrow 's1.a' as mutable: 's1' has shared borrows	
+bc_0914e_thruref_hb_m18_refuse	fail	CONFIRMED	REFUSED	E0499	[fn main]: cannot borrow 'r' as mutable: field of 'r' is already borrowed	
+bc_0914e_thruref_hb_m20_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 's1' does not live long enough: it is borrowed by 'out', which is used here aft	
+bc_0914e_thruref_hb_r01_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn compare_mut]: operator '==': lifetime may not live long enough — *mut &'a i64 and *m	
+bc_0914e_thruref_hb_r05_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '!=': lifetime may not live long enough — *mut &'a i64 and *mut &'b i64	
+bc_0914e_thruref_hb_r06_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '<': lifetime may not live long enough — *mut &'a i64 and *mut &'b i64 	
+bc_0914e_thruref_hb_r09_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn compare_const]: operator '==': lifetime may not live long enough — *const &mut &'a i	
+bc_0914e_thruref_hb_r10_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn compare_fn_ptr]: operator '==': lifetime may not live long enough — fn(&'c mut &'a i	
+bc_0914e_thruref_hb_r17_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: operator '==': lifetime may not live long enough — *mut &'a i64 and *mut &'stati	
+bc_0914e_thruref_hb_r18_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '!=': lifetime may not live long enough — *mut &'a i64 and *mut &'b i64	
+bc_0914e_thruref_hb_r23_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *const *const &mut &'a i64 an	
+bc_0914f_thrurefland_hb_d07_refuse	fail	CONFIRMED	REFUSED	E0499	[fn main]: cannot borrow 's1' as mutable: already mutably borrowed	
+bc_0914f_thrurefland_hb_d08_refuse	fail	CONFIRMED	REFUSED	E0499	[fn main]: cannot borrow 's1' as mutable: already mutably borrowed	
+bc_0914f_thrurefland_hb_d14_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot borrow 's1.a': 's1' is already mutably borrowed	
+bc_0914f_thrurefland_hb_d17_refuse	fail	CONFIRMED	REFUSED	E0499	[fn main]: cannot borrow 's1' as mutable: already mutably borrowed	
+bc_0914f_thrurefland_hb_d26_refuse	fail	CONFIRMED	REFUSED	E0499	[fn main]: cannot borrow 'r' as mutable: field of 'r' is already borrowed	
+bc_0914f_thrurefland_hb_d27_refuse	fail	CONFIRMED	REFUSED	E0499	[fn main]: cannot borrow 'r' as mutable: field of 'r' is already borrowed	
+bc_0914f_thrurefland_hb_d32_refuse	fail	CONFIRMED	REFUSED	E0499	[fn main]: cannot borrow 's1' as mutable: already mutably borrowed	
+bc_0914f_thrurefland_hb_o13_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot borrow 's1.a': 's1' is already mutably borrowed	
+bc_0914f_thrurefland_hb_o14_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot borrow 's1.0': 's1' is already mutably borrowed	
+bc_0914f_thrurefland_hb_q07_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *mut fn(&'a i64) -> void and 	
+bc_0914f_thrurefland_hb_q10_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *mut &'a i64 and *mut &'b i64	
+bc_0914f_thrurefland_hb_q11_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn S__same]: operator '==': lifetime may not live long enough — *mut &'a i64 and *mut &	
+bc_0914f_thrurefland_hb_q13_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *mut [&'a i64; 2] and *mut [&	
+bc_0914f_thrurefland_hb_q14_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *const *mut &'a i64 and *cons	
+bc_0914f_thrurefland_hb_q15_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *mut W<'a> and *mut W<'b> hav	
+bc_0914f_thrurefland_hb_q17_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *const &mut &'a i64 and *cons	
+bc_0914f_thrurefland_hb_q19_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — fn() -> &'a mut &'a i64 and f	
+bc_0914f_thrurefland_hb_q24_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '>=': lifetime may not live long enough — fn(&'a mut &'a i64) -> void a	
+bc_0914f_thrurefland_hb_q25_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — &*mut &'a i64 and &*mut &'b i	
+bc_0914f_thrurefland_hb_q31_refuse	fail	CONFIRMED	REFUSED	E0521	[fn f]: operator '==': lifetime may not live long enough — *mut &'a i64 and *mut &'stati	
+bc_0914f_thrurefland_hb_q32_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *const (i64, &'a mut &'a i64)	
+bc_0914f_thrurefland_hb_q34_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: operator '==': lifetime may not live long enough — *const Inv<'a> and *const Inv	
+bc_0914f_thrurefland_hb_x11d_refuse	fail	CONFIRMED	REFUSED	E0505	[fn main]: cannot move 's1' while it is borrowed	
+bc_0914f_thrurefland_hb_x11w_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot borrow 's1.a' as mutable: 's1' has shared borrows	
+bc_0914f_thrurefland_hb_x12d_refuse	fail	CONFIRMED	REFUSED	E0505	[fn main]: cannot move 's1' while it is borrowed	
+bc_0914f_thrurefland_hb_x12w_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot borrow 's1.0' as mutable: 's1' has shared borrows	
+bc_0914f_thrurefland_hb_x15d_refuse	fail	CONFIRMED	REFUSED	E0505	[fn main]: cannot move 's1' while it is borrowed	
+bc_0914f_thrurefland_hb_x18w_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot borrow 's1.b' as mutable: 's1' has shared borrows	
+bc_0914k_fnptrbinderland_hb_x03_refuse	fail	CONFIRMED	REFUSED	E0308	[fn t]: let 'f': variance mismatch — expected fn(&i64) -> i64, got fn(&'r i64) -> i64 �	
+bc_0914k_fnptrbinderland_hb_x05_refuse	fail	CONFIRMED	REFUSED	E0308	[fn t]: let 'p': variance mismatch — expected (fn(&i64) -> i64, i32), got (fn(&'r i64) -	
+bc_0914k_fnptrbinderland_hb_x07_refuse	fail	CONFIRMED	REFUSED	E0308	[fn S__cb]: let 'f': variance mismatch — expected fn(&i64) -> i64, got fn(&'a i64) -> i6	
+bc_0914k_fnptrbinderland_hb_x09_refuse	fail	CONFIRMED	REFUSED	E0308	[fn t]: return type mismatch: variance mismatch — expected fn(&i64, &i64) -> i64, got fn	
+bc_0914k_fnptrbinderland_hb_x10_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn t]: let 'f': variance mismatch — expected fn(&i64) -> &'static i64, got fn(&'a i64) 	
+bc_0914m_storeedgeland_hb_c06_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'd' does not live long enough: it is borrowed by 'buffer', which is used here a	
+bc_0914m_storeedgeland_hb_c07_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'd' does not live long enough: it is borrowed by 'buffer', which is used here a	
+bc_0914m_storeedgeland_hb_c09_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot assign to 'x' because it is borrowed	
+bc_0914m_storeedgeland_hb_c10_refuse	fail	CONFIRMED	REFUSED	E0506	[fn main]: cannot assign to 'x' because it is borrowed	
+bc_0914m_storeedgeland_hb_c17_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'd' does not live long enough: it is borrowed by 'buffer', which is used here a	
+bc_0914m_storeedgeland_hb_c19_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'data' does not live long enough: it is borrowed by 'buffer', which is used her	
+bc_0914m_storeedgeland_hb_c21_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'd' does not live long enough: it is borrowed by 'buffer', which is used here a	
+bc_0914m_storeedgeland_hb_c23_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'd' does not live long enough: it is borrowed by 'bag', which is used here afte	
+bc_0914m_storeedgeland_hb_l05_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'data' does not live long enough: it is borrowed by 'buffer', which is used her	
+bc_0914m_storeedgeland_hb_s18_refuse	fail	CONFIRMED	REFUSED	E0502	[fn main]: cannot borrow 'c' as mutable: 'c' has shared borrows	
+bc_0914m_storeedgeland_hb_s57_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'd' does not live long enough: it is borrowed by 'v', which is used here after 	
+bc_0914o_autoreffund_hb_i03_refuse	fail	CONFIRMED	REFUSED	E0716	temporary value dropped while borrowed: this reference borrows into a temporary that is dr	twin rewrite marked // TWIN:
+bc_0914o_autoreffund_hb_i04_refuse	fail	CONFIRMED	REFUSED	E0515	temporary value dropped while borrowed: this reference borrows into a temporary that is dr	twin rewrite marked // TWIN:
+bc_0915f_rustcaudit_vec_index_store_len_in_index_refuse	fail	CONFIRMED	REFUSED	E0502	cannot borrow 'v' as shared: mutable borrow still in scope here	twin rewrite marked // TWIN:
+bc_fnptrbind_hrtb_sub_to_named_refuse	fail	CONFIRMED	REFUSED	lifetime may not live long enough	[fn f]: return type mismatch: variance mismatch — expected fn(&'r i64) -> i64, got fn(&'	
+bc_fnptrbind_item_binder_hrtb_refuse	fail	CONFIRMED	REFUSED	E0308	[fn main]: let 'f': variance mismatch — expected fn(&'z i64, &'z i64) -> &'static i64, g	
+bc_fnptrbind_let_named_as_elided_refuse	fail	CONFIRMED	REFUSED	E0308	[fn test]: let 'f': variance mismatch — expected fn(&i64) -> i64, got fn(&'a i64) -> i64	
+bc_fnptrbind_nested_option_return_refuse	fail	CONFIRMED	REFUSED	E0308	[fn t]: return type mismatch: variance mismatch — expected Option<fn(&i64) -> i64>, got 	
+bc_fnptrbind_return_named_as_elided_refuse	fail	CONFIRMED	REFUSED	E0308	[fn f]: return type mismatch: variance mismatch — expected fn(&i64) -> i64, got fn(&'r i	
+bc_lifereg_derefwrite_field_ptr_escape_fail	fail	CONFIRMED	REFUSED	E0621	lifetime mismatch: return type has lifetime 'a but 'y' has lifetime (elided)	twin rewrite marked // TWIN:
+bc_lifereg_derefwrite_param_escape_fail	fail	CONFIRMED	REFUSED	E0621	lifetime mismatch: return type has lifetime 'a but 'y' has lifetime (elided)	
+bc_storeedge_setter_field_after_outer_set_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'd' does not live long enough: it is borrowed by 'h', which is used here after 	
+bc_storeedge_vec_push_after_outer_push_refuse	fail	CONFIRMED	REFUSED	E0597	[fn main]: 'data' does not live long enough: it is borrowed by 'buffer', which is used her	

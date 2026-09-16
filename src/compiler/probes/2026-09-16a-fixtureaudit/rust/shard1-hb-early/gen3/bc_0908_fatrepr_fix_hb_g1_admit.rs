@@ -1,0 +1,22 @@
+// TWIN of tests/logos/pass/bc_0908_fatrepr_fix_hb_g1_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-08-fatrepr-fix, program G1 — caught: verdict moved base -> landed — RESULT.md "CLOSED (REFUSED -> rc 0, compiled + linked + RUN, answer checked): G1 ... G8"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-08-fatrepr-fix/hand/G1.logos
+// G1 LEGAL — GENERIC enum: the payload type is a substituted `&[T]`, so the
+// unsize is decided AFTER subst_type_sema. A shape the pricing round did not use.
+enum E<T> { N, S(&[T]) }
+fn __logos_main() -> i32 {
+    let a: [i64; 3] = [7i64, 8i64, 9i64];
+    let e: E<i64> = E::S(&a);
+    match e {
+        E::N => { return 1i32; }
+        E::S(s) => { if s[0] != 7i64 { return 10i32; } if s[2] != 9i64 { return 11i32; } }
+    }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

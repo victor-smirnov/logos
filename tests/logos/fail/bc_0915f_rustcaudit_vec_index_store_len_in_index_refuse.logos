@@ -1,5 +1,5 @@
 // CLOSED soundness-queue row vec_index_store_len_in_index_refused (tier 3, `refuses`) — CONTRADICTED by rustc, round 2026-09-15f-rustcaudit.
-// The row held `v[v.len() - 1] = x` legal because "the IndexMut autoref of `v` is a two-phase borrow" — a READING, no rustc on the box then.
+// The row held `v[v.len() - 1] = x` legal because "the IndexMut autoref of `v` is a two-phase borrow" — a READING, no rustc on the box then. MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0502); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0915f_rustcaudit_vec_index_store_len_in_index_refuse.rs
 // legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15f-rustcaudit/rust/vec_index_store_len_in_index_refused.rs: REFUSED
 //   error[E0502]: cannot borrow `v` as immutable because it is also borrowed as mutable
 // An overloaded IndexMut STORE's autoref is not two-phase (only a method-call receiver's is: `v.push(v.len())` compiles in both compilers).

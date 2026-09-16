@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-10d-vecbare, program n3 — caught: verdict moved base -> landed — PROBES.md "n2 ... rc 139 | refused ... n3 rc 139 | refused, same · n4 rc 139 | refused, same"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0308); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0910d_vecbare_hb_n3_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0910d/ce/n3_localvec_mutref_coerce.logos
 // n3 — THE OTHER HALF OF THE 2322 DISJUNCT: `&mut Vec<T>` -> `&[T]`. The queue
 // row's program takes the `Ref` arm only; this one takes `MutRef`, which is a

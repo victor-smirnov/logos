@@ -1,0 +1,23 @@
+// TWIN of tests/logos/pass/bc_0914m_storeedgeland_hb_s57b_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14m-storeedge-land, program s57b — caught: legal, refused on base (the same with a read of `x` after the block), compiles and runs under the landing; unpredicted
+// legality: by reading, no rustc binary
+trait Show { fn n(&self) -> i64; }
+struct K { v: i64 }
+impl Show for K { fn n(&self) -> i64 { return self.v; } }
+fn __logos_main() -> i32 {
+    let x: K = K { v: 1i64 };
+    let mut v: Vec<&dyn Show> = Vec::new();
+    v.push(&x);
+    {
+        let d: K = K { v: 2i64 };
+        v.push(&d);
+    }
+    let m: i64 = x.n();
+    return (m as i32) - 1i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-07a-boxmutctx, program h04 — caught: refuted an arm — PROBES.md "h04 `**bb = 6` and h33 `**bb += 6` close under NEITHER half"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0907a_boxmutctx_hb_h04_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-07a-boxmutctx/hand/h04_boxbox_write.logos
 package bc_0907a_boxmutctx_hb_h04_admit;
 fn main() -> i32 {

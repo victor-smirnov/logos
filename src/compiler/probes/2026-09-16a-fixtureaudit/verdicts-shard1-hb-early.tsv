@@ -1,0 +1,322 @@
+fixture	kind	class	rustc_verdict	rustc_code_or_exit	expected_in_tree	note
+bc_0906_patmut_hb_c05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_c06_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_c07_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_c12_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_c13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: DROP v=8 -- end	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_c14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: DROP v=1 DROP v=7 -- end	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_c16_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: DROP v=11 DROP v=12 -- end	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_c17_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h08_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h19_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h20_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h22_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h26_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h36_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h41_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906_patmut_hb_h42_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906c_patclass_hb_a14_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0906c_patclass_hb_a36_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906c_patclass_hb_c01_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0906c_patclass_hb_c02_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0906c_patclass_hb_c05_admit	pass	CONFIRMED	ACCEPTED	exit:3	exit: 3	twin compiles; exit/stdout match .expected
+bc_0906e_scalarcore_hb_h16_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906e_scalarcore_hb_h33_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906e_scalarcore_hb_h34_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906e_scalarcore_hb_h35_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g01_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g02_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g03_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g06_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g07_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g08_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g09_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g12_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g16_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g17_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g18_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g19_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906f_scalarland_hb_g20_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906g_refmode_hb_h01_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906g_refmode_hb_h05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906g_refmode_hb_h18_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906g_refmode_hb_h19_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906g_refmode_hb_h20_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0906n_placedropfix_hb_n1_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: COUNT=1011	twin compiles; exit/stdout match .expected
+bc_0906n_placedropfix_hb_n2_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: COUNT=10	twin compiles; exit/stdout match .expected
+bc_0906n_placedropfix_hb_n5_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: COUNT=1011	twin compiles; exit/stdout match .expected
+bc_0906n_placedropfix_hb_n6_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: COUNT=1011	twin compiles; exit/stdout match .expected
+bc_0906n_placedropfix_hb_n7_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: COUNT=1002	twin compiles; exit/stdout match .expected
+bc_0906n_placedropfix_hb_n8_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: COUNT=16	twin compiles; exit/stdout match .expected
+bc_0906p_ergodoors_hb_n10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0906p_ergodoors_hb_n11_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0906p_ergodoors_hb_n12_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0907a_boxmutctx_hb_h04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0907a_boxmutctx_hb_h33_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c01_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c03_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c06_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c13_admit	pass	CONTRADICTED	ACCEPTED	exit:0 stdout 'D5'	exit: 0 stdout: D5 D5	tree pins 'D5 D5' - TWO destructor runs on a by-ref match; Rust drops once
+bc_0907q_dbmcarry_hb_c14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c18_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D6	twin compiles; exit/stdout match .expected
+bc_0907q_dbmcarry_hb_c19_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: D5	twin compiles; exit/stdout match .expected
+bc_0908_fatrepr_fix_hb_d1_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0908_fatrepr_fix_hb_d2_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0908_fatrepr_fix_hb_d5_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0908_fatrepr_fix_hb_d8_admit	pass	DIVERGENCE	REFUSED	error[E0592]	exit: 0	item.fn.signature-overloading: two inherent `eat` overloads by param type
+bc_0908_fatrepr_fix_hb_g1_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0908_fatrepr_fix_hb_g2_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0908_fatrepr_fix_hb_g3_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0908_fatrepr_fix_hb_g4_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0908_fatrepr_fix_hb_g5_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0908_fatrepr_fix_hb_g6_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0908_fatrepr_fix_hb_g7_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0908_fatrepr_fix_hb_g8_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0908_fatrepr_hb_b4_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0909a_bindmut_hb_f14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909c_atbind_hb_h14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909c_atbind_hb_h18_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g02_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g08_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g09_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g11_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909d_atland_hb_g22_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909e_ergoref_hb_cx13_synth_nested_variant_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909elide_hb_e1_param_only_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909elide_hb_e2_two_elided_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909elide_hb_e3_no_receiver_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909elide_hb_e6_mut_recv_ret_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909g_closureenv_hb_f8_admit	pass	DIVERGENCE	REFUSED	expected type, found ||	exit: 0	A6 type.closure.type: Logos |..|->R closure-type syntax in param position
+bc_0909g_closureenv_hb_r3_admit	pass	DIVERGENCE	REFUSED	expected type, found ||	exit: 0	A6 type.closure.type: Logos |..|->R closure-type syntax in param position
+bc_0909i_cesc_hb_l1_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909i_cesc_hb_l3_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0909sig_hb_c14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: r=5	twin compiles; exit/stdout match .expected
+bc_0909sig_hb_c21_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: r=5	twin compiles; exit/stdout match .expected
+bc_0910dropord_hb_c10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]123	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c11_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]1234	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c12_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]123	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]123	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]12	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [1]12	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c17_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]n9123	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c1_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]123	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c2_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]1234	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c3_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]1234	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c4_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: [0]u912	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0910dropord_hb_c9_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: e22[0]13	re-measured after printf->print! fix: stdout matches exactly (fields drop in declaration order)
+bc_0911b_e0207_land_hb_n10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0911b_e0207_land_hb_n11_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0911b_e0207_land_hb_n1_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0911d_liferegb_hb_l1_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0911d_liferegb_hb_l5b_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0911d_liferegb_hb_l7_admit	pass	DIVERGENCE	REFUSED	error[E0621]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0912d_slicehop_hb_l04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0912d_slicehop_hb_l15_admit	pass	DIVERGENCE	REFUSED	error[E0106]	exit: 0	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0912i_door1point_hb_c10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_a10_admit	pass	CONFIRMED	ACCEPTED	exit:6	exit: 6	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_a6_admit	pass	CONFIRMED	ACCEPTED	exit:4	exit: 4	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_e3_admit	pass	CONFIRMED	ACCEPTED	exit:17	exit: 17	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_m1_admit	pass	CONFIRMED	ACCEPTED	exit:20	exit: 20	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_m3_admit	pass	CONFIRMED	ACCEPTED	exit:21	exit: 21	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_m4_admit	pass	CONFIRMED	ACCEPTED	exit:22	exit: 22	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_m5_admit	pass	CONFIRMED	ACCEPTED	exit:23	exit: 23	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_o3_admit	pass	CONFIRMED	ACCEPTED	exit:6	exit: 6	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_p24_admit	pass	CONFIRMED	ACCEPTED	exit:14	exit: 14	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_s1_admit	pass	CONFIRMED	ACCEPTED	exit:21	exit: 21	twin compiles; exit/stdout match .expected
+bc_0912q_letregion_hb_s2_admit	pass	CONFIRMED	ACCEPTED	exit:22	exit: 22	twin compiles; exit/stdout match .expected
+bc_0912r_escroot_hb_k17_admit	pass	CONFIRMED	ACCEPTED	exit:41	exit: 41	twin compiles; exit/stdout match .expected
+bc_0912r_escroot_hb_k18_admit	pass	CONFIRMED	ACCEPTED	exit:42	exit: 42	twin compiles; exit/stdout match .expected
+bc_0912r_escroot_hb_v8_admit	pass	CONFIRMED	ACCEPTED	exit:78	exit: 78	twin compiles; exit/stdout match .expected
+bc_0912r_escroot_hb_y1_admit	pass	CONFIRMED	ACCEPTED	exit:7	exit: 7	twin compiles; exit/stdout match .expected
+bc_0912r_escroot_hb_y2_admit	pass	CONFIRMED	ACCEPTED	exit:13	exit: 13	twin compiles; exit/stdout match .expected
+bc_0913a_selfregion_hb_l3_admit	pass	CONFIRMED	ACCEPTED	exit:63	exit: 63	twin compiles; exit/stdout match .expected
+bc_0913a_selfregion_hb_s13_admit	pass	CONFIRMED	ACCEPTED	exit:26	exit: 26	twin compiles; exit/stdout match .expected
+bc_0913b_selfregion_land_hb_a10_admit	pass	CONFIRMED	ACCEPTED	exit:20	exit: 20	twin compiles; exit/stdout match .expected
+bc_0913c_staticdemand_hb_l01_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0913c_staticdemand_hb_l02_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0913c_staticdemand_hb_s4_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0913c_staticdemand_hb_s5_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0913d_staticdemand_hb_e01_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0913d_staticdemand_hb_e02_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0913d_staticdemand_hb_e05_admit	pass	CONFIRMED	ACCEPTED	exit:7	exit: 7	twin compiles; exit/stdout match .expected
+bc_0913d_staticdemand_hb_e08_admit	pass	CONFIRMED	ACCEPTED	exit:4	exit: 4	twin compiles; exit/stdout match .expected
+bc_0913d_staticdemand_hb_r04_admit	pass	CONFIRMED	ACCEPTED	exit:9	exit: 9	twin compiles; exit/stdout match .expected
+bc_0913d_staticdemand_hb_r08_admit	pass	CONFIRMED	ACCEPTED	exit:7	exit: 7	twin compiles; exit/stdout match .expected
+bc_0913d_staticdemand_hb_r17_admit	pass	CONFIRMED	ACCEPTED	exit:2	exit: 2	twin compiles; exit/stdout match .expected
+bc_0913f_declarrivalland_hb_g_k26_admit	pass	CONFIRMED	ACCEPTED	exit:3	exit: 3	twin compiles; exit/stdout match .expected
+bc_0913f_declarrivalland_hb_g_w01_admit	pass	DIVERGENCE	REFUSED	error[E0637]	exit: 5	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0913f_declarrivalland_hb_g_w22_admit	pass	CONFIRMED	ACCEPTED	exit:6	exit: 6	twin compiles; exit/stdout match .expected
+bc_0913f_declarrivalland_hb_g_w27_admit	pass	CONFIRMED	ACCEPTED	exit:4	exit: 4	twin compiles; exit/stdout match .expected
+bc_0913f_declarrivalland_hb_g_w28_admit	pass	CONFIRMED	ACCEPTED	exit:10	exit: 10	twin compiles; exit/stdout match .expected
+bc_0914a_ptrcoerce_hb_d01_admit	pass	CONTRADICTED	REFUSED	error[E0308]	exit: 0	UNREGISTERED: &mut [T;N] -> *mut T array decay; no clause in either registry - OWNER DECISION
+bc_0914b_ptrcoerceland_hb_e02_admit	pass	CONFIRMED	ACCEPTED	exit:7	exit: 7	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_e09_admit	pass	CONFIRMED	ACCEPTED	exit:8	exit: 8	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_m10_admit	pass	CONTRADICTED	REFUSED	error[E0308]	exit: 7	UNREGISTERED: &mut [T;N] -> *mut T array decay; no clause in either registry - OWNER DECISION
+bc_0914b_ptrcoerceland_hb_m11_admit	pass	CONFIRMED	ACCEPTED	exit:7	exit: 7	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_m5_admit	pass	CONFIRMED	ACCEPTED	exit:7	exit: 7	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_q01_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_q11_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_q15_admit	pass	CONFIRMED	ACCEPTED	exit:1	exit: 1	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_v02_admit	pass	CONFIRMED	ACCEPTED	exit:3	exit: 3	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_v02b_admit	pass	CONFIRMED	ACCEPTED	exit:2	exit: 2	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_v02i_admit	pass	CONTRADICTED	REFUSED	error[E0502]	exit: 9	immutable borrow of v live across v[..]=; persists after usize cast
+bc_0914b_ptrcoerceland_hb_v20_admit	pass	CONFIRMED	ACCEPTED	exit:3	exit: 3	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_v21_admit	pass	CONFIRMED	ACCEPTED	exit:2	exit: 2	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_v25_admit	pass	CONFIRMED	ACCEPTED	exit:3	exit: 3	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_v26_admit	pass	CONFIRMED	ACCEPTED	exit:4	exit: 4	twin compiles; exit/stdout match .expected
+bc_0914b_ptrcoerceland_hb_v27_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914d_meetoblland_hb_l102_admit	pass	CONFIRMED	ACCEPTED	exit:4	exit: 4	twin compiles; exit/stdout match .expected
+bc_0914d_meetoblland_hb_l104_admit	pass	CONFIRMED	ACCEPTED	exit:6	exit: 6	twin compiles; exit/stdout match .expected
+bc_0914d_meetoblland_hb_l201_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914d_meetoblland_hb_l401_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_b10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_k01_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_k05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_k08_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_m14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_m15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_m2_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_m5_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_t1_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_t2_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_t3_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_t4_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_t5_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914e_thruref_hb_t6_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d01_admit	pass	CONFIRMED	ACCEPTED	exit:6	exit: 6	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d02_admit	pass	CONFIRMED	ACCEPTED	exit:24	exit: 24	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d03_admit	pass	CONFIRMED	ACCEPTED	exit:11	exit: 11	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d06_admit	pass	CONFIRMED	ACCEPTED	exit:14	exit: 14	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d09_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 6	index cast to usize; runs exit 6, matches
+bc_0914f_thrurefland_hb_d12_admit	pass	DIVERGENCE	REFUSED	error_other	exit: 5	lifetime-not-structural family (grammar.generic.hrtb-binder, generic.bound.lifetime-arg-not-structural, region.impl.trait-arg-lifetime-erased, type.identity.lifetime-ignored); NOTE no clause names declaration-site elision
+bc_0914f_thrurefland_hb_d15_admit	pass	DIVERGENCE	REFUSED	error[E0505]	exit: 5	A16 auto-Copy (docs/DIVERGENCES.md A16 / type.copy.structural-auto): copy-variant twin ACCEPTS; header already claims A16
+bc_0914f_thrurefland_hb_d16_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d18_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d22_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d24_admit	pass	CONFIRMED	ACCEPTED	exit:23	exit: 23	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d29_admit	pass	CONFIRMED	ACCEPTED	exit:12	exit: 12	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d30_admit	pass	CONFIRMED	ACCEPTED	exit:3	exit: 3	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_d31_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_g01_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_o11_admit	pass	DIVERGENCE	REFUSED	error[E0505]	exit: 5	A16 auto-Copy (docs/DIVERGENCES.md A16 / type.copy.structural-auto): copy-variant twin ACCEPTS; header already claims A16
+bc_0914f_thrurefland_hb_o12_admit	pass	CONFIRMED	ACCEPTED	exit:5	exit: 5	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_p02_admit	pass	CONFIRMED	ACCEPTED	exit:4	exit: 4	twin compiles; exit/stdout match .expected
+bc_0914f_thrurefland_hb_q16_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h01_admit	pass	CONFIRMED	ACCEPTED	exit:11	exit: 11	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h02_admit	pass	CONFIRMED	ACCEPTED	exit:12	exit: 12	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h03_admit	pass	CONFIRMED	ACCEPTED	exit:13	exit: 13	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h04_admit	pass	CONFIRMED	ACCEPTED	exit:14	exit: 14	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h06_admit	pass	CONFIRMED	ACCEPTED	exit:16	exit: 16	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h15_admit	pass	CONFIRMED	ACCEPTED	exit:25	exit: 25	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h16_admit	pass	CONFIRMED	ACCEPTED	exit:24	exit: 24	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h21_admit	pass	CONFIRMED	ACCEPTED	exit:31	exit: 31	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h24_admit	pass	CONFIRMED	ACCEPTED	exit:34	exit: 34	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h25_admit	pass	CONFIRMED	ACCEPTED	exit:25	exit: 25	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h26_admit	pass	CONFIRMED	ACCEPTED	exit:26	exit: 26	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h31_admit	pass	CONFIRMED	ACCEPTED	exit:31	exit: 31	twin compiles; exit/stdout match .expected
+bc_0914j_fnptrbinder_hb_h32_admit	pass	CONFIRMED	ACCEPTED	exit:32	exit: 32	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c01_admit	pass	CONFIRMED	ACCEPTED	exit:41	exit: 41	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c02_admit	pass	CONFIRMED	ACCEPTED	exit:42	exit: 42	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c08_admit	pass	CONFIRMED	ACCEPTED	exit:8	exit: 8	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c12_admit	pass	CONFIRMED	ACCEPTED	exit:12	exit: 12	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c14_admit	pass	CONFIRMED	ACCEPTED	exit:14	exit: 14	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c15_admit	pass	CONFIRMED	ACCEPTED	exit:15	exit: 15	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c30_admit	pass	CONFIRMED	ACCEPTED	exit:30	exit: 30	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c36_admit	pass	CONFIRMED	ACCEPTED	exit:36	exit: 36	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c37_admit	pass	CONFIRMED	ACCEPTED	exit:36	exit: 36	twin compiles; exit/stdout match .expected
+bc_0914k_fnptrbinderland_hb_c39_admit	pass	CONFIRMED	ACCEPTED	exit:39	exit: 39	twin compiles; exit/stdout match .expected
+bc_0914m_storeedgeland_hb_s28_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914m_storeedgeland_hb_s57b_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914m_storeedgeland_hb_v13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=26	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=26	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c06_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=2 seq=12376	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c07_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c08_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=26	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c09_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=26	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c11_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=3 seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=262626	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=4 seq=127	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=15	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c16_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=37	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c17_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: inside=2 seq=26	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c19_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=23426876	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c20_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=126	use std::cmp::Ordering added; runs, matches
+bc_0914o_autoreffund_hb_c21_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: hits=4 n=4334	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_c22_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h02_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h03_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1101 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h06_admit	pass	DIVERGENCE	REFUSED	error[E0046]	exit: 0 stdout: n=1001 r=0	trait.bounds.partialeq-via-eq: Logos PartialOrd is an empty marker; Ord/Eq carry the methods
+bc_0914o_autoreffund_hb_h09_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=3001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h11_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h15_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1011 r=0	index cast to usize; runs, stdout matches
+bc_0914o_autoreffund_hb_h16_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h17_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h18_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h19_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h24_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=2020 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h26_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h27_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h30_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=1265	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_h34_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: n=1001 r=0	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_l01_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=3 seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_l04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=137	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_l06_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=6 seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_n02_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=2 seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_n04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: len=26 n=1000	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_n05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=7 seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_r01_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=3 seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_r02_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: k=3 seq=126	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_r04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: seq=1	twin compiles; exit/stdout match .expected
+bc_0914o_autoreffund_hb_x02_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0 stdout: inside=0 n=1000	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s01_admit	pass	CONFIRMED	ACCEPTED	exit:21	exit: 21	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s02_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s03_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s04_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s05_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s06_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s07_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s08_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s09_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s10_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s11_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s12_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s13_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s14_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s16_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s17_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s18_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s21_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s22_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s23_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s24_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s26_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s27_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s29_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s30_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s31_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s32_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s33_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s34_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s35_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s36_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s37_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected
+bc_0914p_shadowslot_hb_s41_admit	pass	CONFIRMED	ACCEPTED	exit:0	exit: 0	twin compiles; exit/stdout match .expected

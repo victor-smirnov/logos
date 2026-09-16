@@ -1,5 +1,5 @@
 // hand battery: round 0915a_refeq, program e47 — caught: verdict moved base (refused: 'arith.cmpi' op operand #0 must be signless-integer-like) -> refeq landing (runs, Rust's answer)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts, exit 0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard2-hb-late/bc_0915a_refeq_hb_e47_admit.rs
 package bc_0915a_refeq_hb_e47_admit;
 fn main() -> i32 {
     let a: (i64, i64) = (1i64, 9i64);

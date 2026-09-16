@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06-patmut, program c12 — caught: predicted wrong — predictions-2026-09-06b.txt:9 "c05 c06 c07 c12 ... refused -> run 0"; PROBES.md "c05 c06 c07 ... RAN on base too"; c12 "refused" (PROBES.md)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0906_patmut_hb_c12_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06-patmut/hand2/c12_whilelet_mut_box_deref_write.logos
 package bc_0906_patmut_hb_c12_admit;
 use logos.mem.collections.vec;

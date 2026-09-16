@@ -1,5 +1,5 @@
 // STOREEDGE pair (2026-09-14m-storeedge-land): was soundness_queue vec_push_after_outer_push_store_rehomed_admits. One token apart from
-// pass/bc_storeedge_vec_push_after_outer_push_admit: the Vec is USED after the block (rustc E0597; by reading, no rustc binary).
+// pass/bc_storeedge_vec_push_after_outer_push_admit: the Vec is USED after the block (rustc E0597; MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0597); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_storeedge_vec_push_after_outer_push_refuse.rs).
 package bc_storeedge_vec_push_after_outer_push_refuse;
 fn main() -> i32 {
     let x: i64 = 5i64;

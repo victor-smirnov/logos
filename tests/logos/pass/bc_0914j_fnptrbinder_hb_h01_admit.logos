@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14j-fnptrbinder, program h01 — caught: refuted fnptrelide/fnptrbinder (priced cost 0 in pass, fail-text, stdlib): REFUSED this legal program — a closure's elided parameter is a closure-minted region the sub view kept rigid
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:11); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914j_fnptrbinder_hb_h01_admit.rs
 package bc_0914j_fnptrbinder_hb_h01_admit;
 fn main() -> i32 {
     let f: fn(&i64) -> i64 = |x: &i64| -> i64 { return *x; };

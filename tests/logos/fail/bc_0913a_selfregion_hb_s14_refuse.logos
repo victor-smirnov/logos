@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-13a-selfregion, program s14 — caught: verdict moved base -> landed, predicted wrong — PROBES.md-42731 "illegal, admitted on base | CLOSED" (n3a e5 e6 h1 s5 s12 I5 r13d r13a2; s1 s14 r13b I2 B11; h2 B06 B10 h15 B12; B03; B02 B08 B09 B...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, lifetime may not live long enough); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0913a_selfregion_hb_s14_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/ctl/s14_self_lit_let_named_ret.logos
 package bc_0913a_selfregion_hb_s14_refuse;
 struct MyStruct<'a> { field: &'a i64 }

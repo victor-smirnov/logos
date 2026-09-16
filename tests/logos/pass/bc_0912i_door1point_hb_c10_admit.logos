@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-12i-door1point, program C10 — caught: verdict moved base -> landed — PROBES.md "C10 ... base REFUSES twice, the arm **ADMITS**. An over-refusal this change REPAIRS. Landed as pass/bc_backedge_two_holders_admit"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0912i_door1point_hb_c10_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-12i-door1point/legal/C10.logos
 // C10 — TWO INDEPENDENT REFERENTS, two holders, both raised below their own
 // uses. Legal; a predicate that keys on "some loan is live in this loop"

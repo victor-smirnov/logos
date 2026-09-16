@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14d-meetoblland, program L201 — caught: refuted an arm — PROBES.md "L201 LEGAL refused by build 1"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:5); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914d_meetoblland_hb_l201_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/landbatm2.th4p/L201_swap_meet_static_member.logos
 package bc_0914d_meetoblland_hb_l201_admit;
 struct P<'a> { x: &'a i64, y: &'a i64 }

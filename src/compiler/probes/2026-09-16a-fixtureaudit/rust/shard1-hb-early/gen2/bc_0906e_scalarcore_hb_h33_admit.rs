@@ -1,0 +1,19 @@
+// TWIN of tests/logos/pass/bc_0906e_scalarcore_hb_h33_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-06e-scalarcore, program h33 — caught: refuted an arm — PROBES.md "h33 / h34 / h35 put a LITERAL or RANGE arm and a WHOLE-SCRUTINEE BINDER ... legal Rust — and under `scall` they are still refused"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06e-scalarcore/hand/h33.logos
+// ⚠ THE COUNTER-EXAMPLE THE EXEMPTION IS ABOUT: a LITERAL arm and a NAMED
+// whole-scrutinee binder in the SAME match. Legal Rust (x: &i64).
+fn __logos_main() -> i32 {
+    let v: i64 = 4i64;
+    let mut out: i64 = 0i64;
+    match &v { 4i64 => { out = 1i64; } x => { out = *x; } }
+    if out != 1i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

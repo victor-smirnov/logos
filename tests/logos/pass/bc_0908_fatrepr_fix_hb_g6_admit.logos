@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-08-fatrepr-fix, program G6 — caught: verdict moved base -> landed — RESULT.md "CLOSED (REFUSED -> rc 0, compiled + linked + RUN, answer checked): G1 ... G8"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: DIVERGENCE (REFUSED, error[E0106]); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0908_fatrepr_fix_hb_g6_admit.rs
+// ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0908_fatrepr_fix_hb_g6_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from src/compiler/probes/2026-09-08-fatrepr-fix/hand/G6.logos
 // G6 LEGAL — TWO ctors of the same variant in an ARRAY of enums, read back by
 // index; the payload is a slice of a DIFFERENT length each time.

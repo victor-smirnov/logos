@@ -1,0 +1,27 @@
+// TWIN of tests/logos/pass/bc_0909e_ergoref_hb_cx13_synth_nested_variant_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: Option::Some/None -> prelude
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-09e-ergoref, program cx13_synth_nested_variant — caught: refuted an arm — hand_cx_manifest.md:29 "cx13 ... ⚠ THE CRUDE ARM REFUSES THIS PROGRAM, blaming the synthesized name `__refut_W_0_0`"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09e-ergoref/hand/cx13_synth_nested_variant.logos
+// LEGAL: NO modifier is written anywhere. The inner `a` is a plain binder that
+// the compiler itself gives the by-ref default mode. This is the shape an
+// earlier price REFUSED — `binding_is_ref` is true for the compiler's own
+// synthesis as well as for a written `ref`.
+enum Outer { W(Option<i64>), Z }
+fn __logos_main() -> i32 {
+    let e: Outer = Outer::W(Some(5i64));
+    let mut out: i64 = 0i64;
+    match &e {
+        Outer::W(Some(a)) => { out = *a; }
+        Outer::W(None) => {}
+        Outer::Z => {}
+    }
+    if out != 5i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

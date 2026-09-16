@@ -1,5 +1,5 @@
 // FNPTRBIND pair (2026-09-14k-fnptrbinderland), one token apart from bc_fnptrbind_return_named_as_elided_admit.
-// Closes soundness queue fnptr_elided_param_return_from_named_admits (rustc E0308; legality by reading, no rustc binary).
+// Closes soundness queue fnptr_elided_param_return_from_named_admits (rustc E0308; MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0308); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_fnptrbind_return_named_as_elided_refuse.rs).
 package bc_fnptrbind_return_named_as_elided_refuse;
 fn f<'r>(g: fn(&'r i64) -> i64) -> fn(&i64) -> i64 {
     return g;

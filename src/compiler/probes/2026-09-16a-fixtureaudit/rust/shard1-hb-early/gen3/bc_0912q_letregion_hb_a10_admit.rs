@@ -1,0 +1,21 @@
+// TWIN of tests/logos/pass/bc_0912q_letregion_hb_a10_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-12q-letregion, program a10 — caught: verdict moved base -> landed — PROBES.md "Newly COMPILING, all legal, all run to their exit code: y1 y2 y3 (deref stop) · a6 a10 e3 m1 m3 m4 m5 o3"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/r0912q/ctl/a10_legal_anon_impl_explicit.logos
+struct MyStruct<'a> { field: &'a i64 }
+impl MyStruct<'_> {
+    fn make<'a>(field: &'a i64) -> MyStruct<'a> {
+        return MyStruct { field: field };
+    }
+}
+fn __logos_main() -> i32 {
+    let v: i64 = 6i64;
+    let s: MyStruct<'_> = MyStruct::make(&v);
+    return *s.field as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

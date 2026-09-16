@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09c-atbind, program h18 — caught: refuted an arm — PROBES.md "⚠ hand h20 SEGV, h18 compiles and computes 1" (atsubsema+atpatbind)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909c_atbind_hb_h18_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09c-atbind/hand/h18.logos
 // h18 LEGAL: at-binding as a tuple element whose sub is a NESTED TUPLE. Rust: 0
 package bc_0909c_atbind_hb_h18_admit;

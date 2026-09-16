@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09e-ergoref, program cx13_synth_nested_variant — caught: refuted an arm — hand_cx_manifest.md:29 "cx13 ... ⚠ THE CRUDE ARM REFUSES THIS PROGRAM, blaming the synthesized name `__refut_W_0_0`"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909e_ergoref_hb_cx13_synth_nested_variant_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09e-ergoref/hand/cx13_synth_nested_variant.logos
 // LEGAL: NO modifier is written anywhere. The inner `a` is a plain binder that
 // the compiler itself gives the by-ref default mode. This is the shape an

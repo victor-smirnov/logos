@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-14b-ptrcoerceland, program M10 — caught: refuted an arm — PROBES.md "build 3 ... M5 M10 M11 E02 E09"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONTRADICTED (REFUSED, error[E0308]); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914b_ptrcoerceland_hb_m10_admit.rs
+// ⚠ THE AUDIT DISPUTES THIS FIXTURE'S CLAIM — see docs/rustc-fixture-audit-2026-09.md §bc_0914b_ptrcoerceland_hb_m10_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land14a_twins4.YY4f/M10_let_elided_mutptr_decay_static_elems.logos
 package bc_0914b_ptrcoerceland_hb_m10_admit;
 static G: i64 = 7i64;

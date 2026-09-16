@@ -1,0 +1,43 @@
+// TWIN of tests/logos/pass/bc_0914o_autoreffund_hb_c19_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: `use logos.lang.cmp;` dropped (prelude in Rust)
+// TWIN: extern fn printf dropped; calls translated to Rust print!
+// TWIN: printf(..) -> Rust print!(..): %ld/%s -> {} (a Rust str is not NUL-terminated, so a C printf over-reads)
+// TWIN: self: &mut T -> &mut self
+// TWIN: impl Eq{fn eq} -> impl PartialEq{fn eq} + marker impl Eq (Rust splits the trait; Logos Eq carries eq)
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14o-autoreffund, program c19 — caught: four operand temporaries in `(a == b) == (c == d)`: base leaked all four (2342); construction order then reverse drop order under the landing (23426876)
+// legality: by reading, no rustc binary
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.s = *self.s * 10i64 + self.v + 4i64; } } }
+impl PartialEq for D { fn eq(&self, other: &D) -> bool { return self.v > 0i64 && other.v > 0i64; } }
+fn mk(v: i64, s: *mut i64) -> D {
+    unsafe { *s = *s * 10i64 + v; }
+    return D { v: v, s: s };
+}
+fn side(s: *mut i64) -> i64 {
+    unsafe { *s = *s * 10i64 + 1i64; }
+    return 1i64;
+}
+fn pick<'a>(d: &'a D, s: *mut i64) -> &'a D {
+    unsafe { *s = *s * 10i64 + 1i64; }
+    return d;
+}
+fn rd(s: *mut i64) -> i64 { return unsafe { *s }; }
+
+fn __logos_main() -> i32 {
+    let mut q: i64 = 0i64;
+    let s: *mut i64 = &mut q;
+    let b: bool = (mk(2i64, s) == mk(3i64, s)) == (mk(4i64, s) == mk(2i64, s));
+    let got: i64 = rd(s);
+    unsafe { print!("seq={}\n", got); }
+    if !b { return 2i32; }
+    if got != 23426876i64 { return 1i32; }
+    return 0i32;
+}
+impl Eq for D {}
+
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

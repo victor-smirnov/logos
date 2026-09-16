@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09k-selfrecv, program h9 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "h9 trait `&mut Self`, impl `&S` depth ADMITS ty REFUSES" | (b) selfrecvland/ROUND.md:130 "REFUSED after the arm (10) h1 h2 h5 h7 h9 h10 ...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0053); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0909k_selfrecv_hb_h9_refuse.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09k-selfrecv/hand/h9.logos
 // h9: non-Drop trait declares `&mut Self`; impl takes `&Self`.
 package bc_0909k_selfrecv_hb_h9_refuse;

@@ -1,0 +1,14 @@
+// TWIN of tests/logos/pass/bc_0914j_fnptrbinder_hb_h01_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14j-fnptrbinder, program h01 — caught: refuted fnptrelide/fnptrbinder (priced cost 0 in pass, fail-text, stdlib): REFUSED this legal program — a closure's elided parameter is a closure-minted region the sub view kept rigid
+// legality: by reading, no rustc binary
+fn __logos_main() -> i32 {
+    let f: fn(&i64) -> i64 = |x: &i64| -> i64 { return *x; };
+    let v: i64 = 11i64;
+    return f(&v) as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14j-fnptrbinder, program h21 — caught: refuted fnptrelidesup: REFUSED this legal program — two item binders inside a tuple parameter
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:31); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914j_fnptrbinder_hb_h21_admit.rs
 package bc_0914j_fnptrbinder_hb_h21_admit;
 fn sumt<'a, 'b>(t: (&'a i64, &'b i64)) -> i64 { return *t.0 + *t.1; }
 fn main() -> i32 {

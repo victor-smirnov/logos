@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14k-fnptrbinderland, program c12 — caught: legal, refused on base (item 'a in a W<'a> return vs fn(&i64) -> W<'_>), admitted by the landing
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:12); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914k_fnptrbinderland_hb_c12_admit.rs
 package bc_0914k_fnptrbinderland_hb_c12_admit;
 struct W<'a> { r: &'a i64 }
 fn mkw<'a>(x: &'a i64) -> W<'a> { return W { r: x }; }

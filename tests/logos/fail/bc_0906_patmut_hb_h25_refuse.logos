@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06-patmut, program h25 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "`patmutany` ADMITS h02 h03 h06 h12 h21 h25 h33 h39 and fail_issue-33819" | (b) PROBES.md "ILLEGAL, base ADMITS -> whole REFUSES `cannot ...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0596); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0906_patmut_hb_h25_refuse.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06-patmut/hand/h25_iflet_nomut_boxderef.logos
 package bc_0906_patmut_hb_h25_refuse;
 fn main() -> i32 {

@@ -1,0 +1,38 @@
+// TWIN of tests/logos/pass/bc_0914o_autoreffund_hb_r04_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: extern fn printf dropped; calls translated to Rust print!
+// TWIN: printf(..) -> Rust print!(..): %ld/%s -> {} (a Rust str is not NUL-terminated, so a C printf over-reads)
+// TWIN: self: &mut T -> &mut self
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14o-autoreffund, program r04 — caught: `add(fails(s)?, mk(2, s).get())`: base built the receiver BEFORE the `?` and never dropped it on the early return (21); Rust never builds it (1) under the landing
+// legality: by reading, no rustc binary
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.s = *self.s * 10i64 + self.v + 4i64; } } }
+impl D { fn get(&self) -> i64 { return self.v; } }
+fn mk(v: i64, s: *mut i64) -> D {
+    unsafe { *s = *s * 10i64 + v; }
+    return D { v: v, s: s };
+}
+fn fails(s: *mut i64) -> Option<i64> {
+    unsafe { *s = *s * 10i64 + 1i64; }
+    return None;
+}
+fn add(a: i64, b: i64) -> i64 { return a + b; }
+fn body(s: *mut i64) -> Option<i64> {
+    let k: i64 = add(fails(s)?, mk(2i64, s).get());
+    return Some(k);
+}
+fn __logos_main() -> i32 {
+    let mut q: i64 = 0i64;
+    let s: *mut i64 = &mut q;
+    let r: Option<i64> = body(s);
+    let got: i64 = unsafe { q };
+    unsafe { print!("seq={}\n", got); }
+    if r.is_some() { return 2i32; }
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

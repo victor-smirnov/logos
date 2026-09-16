@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-09g-closureenv, program F8 — caught: refuted an arm — closureenv/RESULT.md "`capfat` REFUSES two legal programs (F8, R6)"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: DIVERGENCE (REFUSED, expected type, found ||); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen4/bc_0909g_closureenv_hb_f8_admit.rs
+// ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0909g_closureenv_hb_f8_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09g-closureenv/hand/F8.logos
 // A CLOSURE captured by a closure — Kind::Closure, the fourth fat kind, and
 // the one the struct-field arm also inlines. Boxed so the env is heap.

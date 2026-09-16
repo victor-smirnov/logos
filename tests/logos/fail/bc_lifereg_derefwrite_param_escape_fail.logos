@@ -4,7 +4,7 @@
 // (explicit lifetime required in the type of `y`); upstream file is
 // tests/ui/lifetimes/lifetime-errors/mut-slice-struct-lifetime-transmute.rs
 // @ da5114692c9ebe46b869488c5f34f92eb10b98c1.
-// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// ⚠ LEGALITY MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0621); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_lifereg_derefwrite_param_escape_fail.rs
 // ONE TOKEN from pass/bc_lifereg_derefwrite_samelt_admit: `y` is elided here.
 package bc_lifereg_derefwrite_param_escape_fail;
 fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {

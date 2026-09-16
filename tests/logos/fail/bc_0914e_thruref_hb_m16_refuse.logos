@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14e-thruref, program m16 — caught: verdict moved base -> landed — PREDICTIONS.md "m16 m17 m18 m20 (UNCERTAIN: each passes the assignment now and must be refused by the OWNER's loan / the move / the escape)"; measu...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0505); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914e_thruref_hb_m16_refuse.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/hb3.sdHf/m16_reassign_then_move_old_owner_illegal.logos
 package bc_0914e_thruref_hb_m16_refuse;
 struct P { a: i64, b: i64 }

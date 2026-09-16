@@ -13,7 +13,7 @@
 // `expr.binop.ref-prim-autoderef-eq` implements it only for references to PRIMITIVE scalars, and
 // `expr.binop.pointer-equality` sends every other reference to the address compare. Neither registry
 // canonises address equality for references to a type with an Eq impl, so this is the same rule not
-// yet applied, not a divergence. Legality by reading; no rustc binary on this box.
+// yet applied, not a divergence. MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts+runs, exit 7); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard3-pass-rest-imported/bc_refeqland_struct_ref_pair_calls_eq_admit.rs on this box.
 //
 // Found 2026-09-14n-autoreftemp by hand program h38, written as a CONTROL (place operands) for the
 // operator auto-ref arm, on base b54c1160ae8e4066 43; unmoved by every arm of that round.

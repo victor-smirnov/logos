@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09d-atland, program g15 — caught: verdict moved base -> landed — tables/hand_head.txt vs hand_final.txt: run=1 or cc=1 on HEAD -> cc=0 run=0 landed; PROBES.md "ELEVEN of fifteen were already wrong before a line w...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909d_atland_hb_g15_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09d-atland/hand/g15.logos
 // Two at-bindings on the SAME struct, one field-level and one whole-value.
 package bc_0909d_atland_hb_g15_admit;

@@ -1,0 +1,20 @@
+// TWIN of tests/logos/pass/bc_0906_patmut_hb_h26_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-06-patmut, program h26 — caught: verdict moved base -> landed — PROBES.md "LEGAL, base REFUSED -> whole RUNS rc 0 (18)" + PROBES.md "The pricing's 42 hand shapes re-run on both builds: identical"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-06-patmut/hand/h26_match_wild_mut_var.logos
+struct S { v: i64 }
+impl S { fn get(&mut self) -> &mut i64 { return &mut self.v; } }
+fn mk() -> S { return S { v: 1i64 }; }
+fn __logos_main() -> i32 {
+    let s0: S = mk();
+    match s0 {
+        mut s => { let r: &mut i64 = s.get(); *r = 8i64; if s.v != 8i64 { return 1i32; } }
+    }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

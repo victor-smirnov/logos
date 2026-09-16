@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14o-autoreffund, program r01 — caught: a droppable method-receiver temporary after a side-effecting earlier call argument was BUILT FIRST on base (216, materialize_recv_ref prepends it); source order under the landing (126) — refutes 2026-09-14n's 'a receiver is evaluated first anyway'
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914o_autoreffund_hb_r01_admit.rs
 package bc_0914o_autoreffund_hb_r01_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct D { v: i64, s: *mut i64 }

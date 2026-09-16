@@ -1,0 +1,19 @@
+// TWIN of tests/logos/pass/bc_0914a_ptrcoerce_hb_d01_admit.logos  [A16 --copy variant]
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14a-ptrcoerce, program D01 — caught: refuted an arm — PROBES.md "`refptrco` refuses F_array_ref, F_struct_ptr_field, F_while_search ... AND D01 ... FOUR legal programs"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/survey14a.MrUR/bat6/D01_legal_decay_named.logos
+fn f<'a>(x: &mut [&'a i64; 2]) -> *mut &'a i64 {
+    return x;
+}
+fn __logos_main() -> i32 {
+    let v: i64 = 1i64;
+    let mut a: [&i64; 2] = [&v, &v];
+    let p: *mut &i64 = f(&mut a);
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

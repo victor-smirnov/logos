@@ -2,7 +2,7 @@
 // No soundness-queue row ever named this program; the arrival census found it
 // as the second spelling of the door the queue row named, and closing the door
 // closed both in one structural change.
-// ⚠ LEGALITY RESTS ON A READING: there is no rustc BINARY on this box.
+// ⚠ LEGALITY MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0621); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_lifereg_derefwrite_field_ptr_escape_fail.rs
 // ONE TOKEN from pass/bc_lifereg_derefwrite_field_ptr_samelt_admit.
 package bc_lifereg_derefwrite_field_ptr_escape_fail;
 struct H { r: &mut &i64 }

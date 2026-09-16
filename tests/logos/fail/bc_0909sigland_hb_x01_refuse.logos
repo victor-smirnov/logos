@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09sigland, program X01 — caught: verdict moved base -> landed — PROBES.md "X01 ... base rc 0, printed 1 · X02 base rc 0 · X03 base rc 139 · X05 · X06 · X08 base rc 0" (refused by the landing)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0053); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0909sigland_hb_x01_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/sig/X01_i64_vs_bool.logos
 // ILLEGAL Rust: the trait declares `-> i64`, the impl declares `-> bool`.
 // Today this compiles and the caller reads a bool's byte as an i64.

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program g01 — caught: refuted an arm, verdict moved base -> landed, predicted wrong — PROBES.md "Build 2 left g01 refused: the generic base struct is absent after mono" | "Wrong in the predictions: g01 needed a third build (monomorph...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:5); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914f_thrurefland_hb_g01_admit.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/g01_generic_struct_ref_arg_legal.logos
 package bc_0914f_thrurefland_hb_g01_admit;
 struct P { a: i64, b: i64 }

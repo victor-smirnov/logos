@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09d-atland, program g14 — caught: refuted an arm, verdict moved base -> landed — PROBES.md "(b) g14 ABORTED (134) under the first `let` delegation" | (b) tables/hand_head.txt vs hand_final.txt: run=1 or cc=1 on HEAD -> cc=0 run=...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909d_atland_hb_g14_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09d-atland/hand/g14.logos
 // A `let` at-binding over a String, then the binding is USED and DROPPED once.
 package bc_0909d_atland_hb_g14_admit;

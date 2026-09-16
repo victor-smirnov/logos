@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-13e-declarrival, program wh8 — caught: refuted an arm — PROBES.md "whundecl refuses ... and NOT the row, the inherent method (r17_e), the trait-impl method (wh8), the trait method decl (wh5), the trait d...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0425); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0913e_declarrival_hb_wh8_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/round0913e.QpSY/arm_whundecl.QfCj/wh8_where_on_trait_impl_method.logos
 package bc_0913e_declarrival_hb_wh8_refuse;
 trait Tr { fn t(self: &Self) -> i64; }

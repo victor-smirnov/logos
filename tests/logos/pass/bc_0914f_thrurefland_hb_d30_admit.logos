@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program d30 — caught: verdict moved base -> landed — PROBES.md "ref-typed LOCAL root (`&r.a`, `r = &s2`), let / match-default / written walk CLOSED (queue row; d01 d06 d09 d12 d24 d29 d30 d31, t1-t3)"...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:3); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914f_thrurefland_hb_d30_admit.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/d30_shared_ref_reassign_to_same_owner_legal.logos
 package bc_0914f_thrurefland_hb_d30_admit;
 struct P { a: i64, b: i64 }

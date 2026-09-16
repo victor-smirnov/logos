@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09d-atland, program g22 — caught: refuted an arm — PROBES.md "(a) g13/g22 SEGFAULTED under the first At case"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909d_atland_hb_g22_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-09d-atland/hand/g22.logos
 // CONTROL for g13: `@` on the enum field, sub is a bare wildcard (no variant test).
 package bc_0909d_atland_hb_g22_admit;

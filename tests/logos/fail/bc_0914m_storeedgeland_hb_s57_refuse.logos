@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14m-storeedge-land, program s57 — caught: illegal, admitted on base (`Vec<&dyn Show>` receives a block local after an outer push), refused by the landing; unpredicted
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0597); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914m_storeedgeland_hb_s57_refuse.rs
 package bc_0914m_storeedgeland_hb_s57_refuse;
 trait Show { fn n(&self) -> i64; }
 struct K { v: i64 }

@@ -1,0 +1,27 @@
+// TWIN of tests/logos/pass/bc_0907q_dbmcarry_hb_c15_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: `use logos.std.fmt;` dropped (prelude in Rust)
+// TWIN: self: &mut T -> &mut self
+// TWIN: Option::Some/None -> prelude
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-07q-dbmcarry, program c15 — caught: verdict moved base -> landed — PROBES.md "HAND MATRIX, base -> armed ... 2 -> 1 (nine): c01 ... c19" (landed)
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-07q-dbmcarry/hand/c15.logos
+struct S { pub n: i64 }
+impl Drop for S { fn drop(&mut self) { println!("D{}", self.n); } }
+fn __logos_main() -> i32 {
+    let p: (Option<S>, i64) = (Some(S { n: 5i64 }), 9i64);
+    let mut out: i64 = 0i64;
+    let mut once: bool = true;
+    while let (Some(a), b) = &p {
+        out = a.n + *b;
+        if once { once = false; } else { break; }
+        break;
+    }
+    if out != 14i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

@@ -1,0 +1,17 @@
+// TWIN of tests/logos/pass/bc_0909i_cesc_hb_l1_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: `use logos.mem.boxed;` dropped (prelude in Rust)
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-09i-cesc, program L1 — caught: refuted an arm — hand_matrix.tsv "L1 admit REFUSED admit LEGAL — cost of cescbound"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09i-cesc/hand/L1.logos
+// LEGAL: a `Box<dyn Fn + 'a>` whose closure captures a `&'a i64`. The bound IS
+// discharged by the capture. Rust accepts.
+fn mk<'a>(r: &'a i64) -> Box<dyn Fn() -> i64 + 'a> {
+    return Box::new(|| -> i64 { return *r; });
+}
+fn __logos_main() -> i32 { let v: i64 = 3i64; let b = mk(&v); return 0i32; }
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14f-thrurefland, program d14 — caught: verdict moved base -> landed — PREDICTIONS.md "HAND, ILLEGAL — must stay refused (sentence read): d04 d05 d08 d14 ..."; measured base first error "cannot assign to 'r' while 'r.a...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0506); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914f_thrurefland_hb_d14_refuse.rs
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/d14_reassign_then_write_old_owner_illegal.logos
 package bc_0914f_thrurefland_hb_d14_refuse;
 struct P { a: i64, b: i64 }

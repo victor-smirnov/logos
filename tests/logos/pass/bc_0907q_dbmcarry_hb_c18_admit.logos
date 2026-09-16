@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-07q-dbmcarry, program c18 — caught: verdict moved base -> landed, predicted wrong — PROBES.md "REFUSED -> 1 (one, a GAIN NOT PREDICTED): c18 ... refused ... on base, compiles and writes through the scrutinee now" | (c) PREDICTION.m...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0907q_dbmcarry_hb_c18_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-07q-dbmcarry/hand/c18.logos
 package bc_0907q_dbmcarry_hb_c18_admit;
 use logos.std.fmt;

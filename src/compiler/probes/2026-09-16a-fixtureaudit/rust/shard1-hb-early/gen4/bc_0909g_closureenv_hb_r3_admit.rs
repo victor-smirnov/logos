@@ -1,0 +1,24 @@
+// TWIN of tests/logos/pass/bc_0909g_closureenv_hb_r3_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-09g-closureenv, program R3 — caught: refuted an arm — closureenv/RESULT.md "[capretesc] still LEAKS 16 BYTES on R3"; fatret/RESULT.md "R3 rc 0 / 1 vg, DEFINITELY LOST: 16 BYTES"
+// legality: by reading, no rustc binary
+// harvested 2026-09-14h from src/compiler/probes/2026-09-09g-closureenv/hand/R3.logos
+// THE SHAPE capretesc IS DELIBERATELY WRONG ABOUT: a closure passed as a bare
+// `Fn` ARGUMENT. The hint peels to a callable with no Struct wrapper, so the
+// probe escapes it and heap-allocates an env that the caller's frame was the
+// right owner of. Correct answer 12 either way; what this program measures is
+// whether the crude arm LEAKS or CORRUPTS at the iterator-adapter shape.
+fn apply(g: ||->i64) -> i64 {
+    return g() + g();
+}
+fn __logos_main() -> i32 {
+    let k: i64 = 6i64;
+    let r: i64 = apply(move || -> i64 { return k; });
+    if r != 12i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

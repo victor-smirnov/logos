@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06e-scalarcore, program h34 — caught: refuted an arm — PROBES.md "h33 / h34 / h35 put a LITERAL or RANGE arm and a WHOLE-SCRUTINEE BINDER ... legal Rust — and under `scall` they are still refused"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0906e_scalarcore_hb_h34_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06e-scalarcore/hand/h34.logos
 // the same two-arm shape, taking the BINDER arm (v is out of the literal)
 package bc_0906e_scalarcore_hb_h34_admit;

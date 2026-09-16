@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-11b-e0207-land, program n10 — caught: refuted an arm — PROBES.md "THREE LEGAL PROGRAMS WERE REFUSED: n1 ... n10 ... n11" (the first landing form)
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0911b_e0207_land_hb_n10_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/e0207/n10.logos
 // LEGAL, and THE SHAPE A NAIVE ARM MISSES: 'a is constrained through a trait
 // argument's NESTED type (`Tr2<W<'a>>`), not as a bare lifetime at trait-arg

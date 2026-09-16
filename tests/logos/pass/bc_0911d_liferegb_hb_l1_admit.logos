@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-11d-liferegb, program L1 — caught: refuted an arm — PROBES.md "Legal and REFUSED (3) — none of them in any corpus column: L1 ... L7 ... L5b"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: DIVERGENCE (REFUSED, error[E0106]); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0911d_liferegb_hb_l1_admit.rs
+// ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0911d_liferegb_hb_l1_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/lb/hand/L1.logos
 package bc_0911d_liferegb_hb_l1_admit;
 struct P { a: &i64, b: &i64 }

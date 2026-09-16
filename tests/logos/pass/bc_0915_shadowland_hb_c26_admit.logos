@@ -1,5 +1,5 @@
 // hand battery: round 0915_shadowland, program c26 — caught: verdict moved base -> shadowslot landing
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (accepts, exit 0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard2-hb-late/bc_0915_shadowland_hb_c26_admit.rs
 package bc_0915_shadowland_hb_c26_admit;
 struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }

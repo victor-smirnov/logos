@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-06n-placedropfix, program N2 — caught: verdict moved base -> landed — PROBES.md table "N1 ... base 1010 armed **1011** correct 1011 · N2 4 -> **10** · N5 1010 -> **1011** · N6 1010 -> **1011** · N7 1001 -> **1002**" (...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0906n_placedropfix_hb_n2_admit.rs
 // harvested 2026-09-14h from src/compiler/probes/2026-09-06n-placedropfix/hand/N2_tuple_elem_assigned_in_loop.logos
 // N2 — the SAME tuple element assigned three times in a loop. An over-drop
 // (dropping a place that is already gone) or a missed drop both change the

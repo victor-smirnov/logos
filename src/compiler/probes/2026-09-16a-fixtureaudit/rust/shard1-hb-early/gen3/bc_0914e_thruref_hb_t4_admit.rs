@@ -1,0 +1,25 @@
+// TWIN of tests/logos/pass/bc_0914e_thruref_hb_t4_admit.logos
+// envelope translated, BODY VERBATIM
+// TWIN: package decl dropped
+// TWIN: Option::Some/None -> prelude
+// TWIN: fn main()->i32 illegal in Rust; wrapped, exit code preserved
+// hand battery: round 2026-09-14e-thruref, program t4 — caught: refuted an arm — PROBES.md "pbdbm (15 moved): ... REFUSED LEGAL b10 k01 k05 k08 (a use of the scrutinee after the binding's LAST use) and t4 t5 t6 m14 m15 (an assig...
+// legality: by reading, no rustc binary
+// harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/walk.ek13/t4_enum_door_reassign_refvar.logos
+fn __logos_main() -> i32 {
+    let s1: Option<i64> = Some(1i64);
+    let s2: Option<i64> = Some(3i64);
+    let mut r: &Option<i64> = &s1;
+    let mut t: i64 = 0i64;
+    match r {
+        Some(a) => {
+            r = &s2;
+            t = *a + 3i64;
+        }
+        None => { }
+    }
+    return (t - 4i64) as i32;
+}
+
+fn main() { std::process::exit(__logos_main() as i32); }
+

@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14k-fnptrbinderland, program c14 — caught: legal, refused on base (for<'a,'b> from first<'x,'y>), admitted by the landing
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:14); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914k_fnptrbinderland_hb_c14_admit.rs
 package bc_0914k_fnptrbinderland_hb_c14_admit;
 fn first<'x, 'y>(a: &'x i64, b: &'y i64) -> &'x i64 { return a; }
 fn main() -> i32 {

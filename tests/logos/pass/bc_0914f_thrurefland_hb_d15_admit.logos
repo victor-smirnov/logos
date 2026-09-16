@@ -1,5 +1,6 @@
 // hand battery: round 2026-09-14f-thrurefland, program d15 — caught: verdict moved base -> landed, predicted wrong — PROBES.md "I read d15 / o11 / o12 / v1-v7 as ILLEGAL programs opened by D2. They are not illegal in Logos ... auto-Copy under blessed divergence A1...
-// legality: legal in Logos under blessed divergence A16 (auto-Copy struct), by reading, no rustc binary
+// legality: legal in Logos under blessed divergence A16 (auto-Copy struct), MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: DIVERGENCE (REFUSED, error[E0505]); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914f_thrurefland_hb_d15_admit.rs
+// ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0914f_thrurefland_hb_d15_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14i from snapshot hand-harvest-2026-09-14b/land14f_d2.978t/d15_reassign_then_move_old_owner_illegal.logos
 package bc_0914f_thrurefland_hb_d15_admit;
 struct P { a: i64, b: i64 }

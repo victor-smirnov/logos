@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-09sig, program c21 — caught: refuted an arm — PROBES.md "REFUSED AND LEGAL RUST — a live over-refusal shipped by the 09-07b landing: c14 ... c21"
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:0); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0909sig_hb_c21_admit.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/census/c21_lt_trait_named_impl_elided.logos
 package bc_0909sig_hb_c21_admit;
 use logos.std.fmt;

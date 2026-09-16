@@ -1,0 +1,188 @@
+fixture	kind	class	rustc_verdict	rustc_code_or_exit	expected_in_tree	note
+bc_0915a_refeq_hb_e01_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Logos `impl Eq for D { fn eq }` -> Rust `impl PartialEq for D` (Logos's Eq carries `eq`).
+bc_0915a_refeq_hb_e02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e09_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e15_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e16_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e17_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e18_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e20_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e21_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e25_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e28_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e29_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e30_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e31_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e39_admit.logos	pass	DIVERGENCE	refuses literal twin / accepts trait twin	E0369 / exit 0	exit: 0	DIVERGENCE trait.binop.partial-ord-derive: `<=`/`<` supplied by an INHERENT `partial_cmp`; literal twin refused E0369, PartialOrd-impl twin compiles and exits 0 (the ANSWER is Rust-canonical, the SPELLING is the clause)
+bc_0915a_refeq_hb_e46_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e47_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e49_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e50_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e51_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915a_refeq_hb_e53_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915b_refeqland_hb_f03_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915b_refeqland_hb_f04s_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq (supertrait and impl)
+bc_0915b_refeqland_hb_f08r_admit.logos	pass	DIVERGENCE	refuses literal twin / accepts trait twin	E0369 / exit 0	exit: 0	DIVERGENCE trait.binop.partial-ord-derive: `<` supplied by an INHERENT `lt`; literal twin refused E0369, PartialOrd-impl twin compiles and exits 0
+bc_0915b_refeqland_hb_f08s_admit.logos	pass	DIVERGENCE	refuses literal twin / accepts trait twin	E0369 / exit 0	exit: 0	DIVERGENCE trait.binop.partial-ord-derive: `<` supplied by an INHERENT `lt`; literal twin refused E0369, PartialOrd-impl twin compiles and exits 0
+bc_0915b_refeqland_hb_f11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915b_refeqland_hb_f13_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq ; vec_new -> Vec::new
+bc_0915b_refeqland_hb_f17_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f28_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915b_refeqland_hb_f29a_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq bound -> PartialEq
+bc_0915b_refeqland_hb_f29b_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f29d_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f29f_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f30_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq bound -> PartialEq
+bc_0915b_refeqland_hb_f34_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f36_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f45_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f47_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f49_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f53_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f54_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f56_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Eq -> PartialEq
+bc_0915b_refeqland_hb_f57_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915b_refeqland_hb_g11_admit.logos	pass	CONTRADICTED	refuses	E0308	exit: 0	"rustc refuses line 7 `ra < rb` (&mut (bool,u8,f32) < &(bool,u8,f32)): E0308 ""types differ in mutability"" - core has cross-mutability PartialEq but NO cross-mutability PartialOrd. Decomposed: control eq-only compiles+exit 0; control with `&*ra < rb` compiles+exit 0. So the == half is Rust-canonical and ONLY the mixed-mutability `<` is Logos-only. No clause found: docs/DIVERGENCES.md A1-A17 and the 6 `*.binop.*` clauses in docs/spec/divergences.md cover neither mixed-mutability comparison nor an implicit &mut->& reborrow at a relational operator."
+bc_0915b_refeqland_hb_g11s_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915c_argref_hb_a09_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915c_argref_hb_a24_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915c_argref_hb_b02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915c_argref_hb_b03_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a01_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a03_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a08_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a14_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a15_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a17_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Logos `impl Eq for D { fn eq }` -> Rust `impl PartialEq`; `T: Eq` bound -> `T: PartialEq`.
+bc_0915d_argrefland_hb_a18_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a19_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a20_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a22_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a26_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_a30_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	TWIN: Logos `impl Eq` -> Rust `impl PartialEq`
+bc_0915d_argrefland_hb_b06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b08_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b09_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b13_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_b17_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c01_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c08_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c10_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c12_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c13_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c14_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c16_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_c17_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_d02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_d03_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_d05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_d06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_d07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_d08_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_d10_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h03_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h10_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h12_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h13_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_h18_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_p01_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_p02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_p03_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_p04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_p06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_p09_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q04e_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q06_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q08_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q10_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q12_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q13_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q14_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q15_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q16_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q18_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q19_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q20_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q21_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q24_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q25_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q26_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q28_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q29_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915d_argrefland_hb_q31_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c01_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c08_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c09_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c10_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c14_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c15_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c16_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c20_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c21_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c22_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c23_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c24_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c26_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c33_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c34_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c35_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c37_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c38_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_c40_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d01_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d02_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d03_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d04_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d05_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d07_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d08_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d09_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d10_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d11_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d12_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d13_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d16_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d17_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d19_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d21_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d22_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d23_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d24_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d25_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_d28_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	
+bc_0915_shadowland_hb_m13_admit.logos	pass	CONFIRMED	accepts	exit 0	exit: 0	

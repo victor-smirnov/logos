@@ -1,7 +1,7 @@
 // FNPTRBIND pair (2026-09-14k-fnptrbinderland), one token apart from bc_fnptrbind_nested_option_return_admit.
 // Closes soundness queue fnptr_elided_param_nested_option_admits: the fn pointer is a type ARGUMENT, and `Option` is
-// covariant, so `fn(&'r i64) -> i64` must still be `for<'x> fn(&'x i64) -> i64` there (rustc E0308; legality by reading,
-// no rustc binary).
+// covariant, so `fn(&'r i64) -> i64` must still be `for<'x> fn(&'x i64) -> i64` there (rustc E0308).
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0308); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_fnptrbind_nested_option_return_refuse.rs
 package bc_fnptrbind_nested_option_return_refuse;
 fn t<'r>(g: fn(&'r i64) -> i64) -> Option<fn(&i64) -> i64> {
     return Option::Some(g);

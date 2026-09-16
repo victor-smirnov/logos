@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14c-meetobl, program v5 — caught: verdict moved base -> landed — PROBES.md "meetoblinv ... a GENERIC `P<'a, T>` literal refused (v5)" — the refusal is CORRECT (y: &'b into P<'a> with no 'b: 'a); MEASURED this inv...
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, lifetime may not live long enough); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914c_meetobl_hb_v5_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/x01var.mch8/v5_generic_struct_T.logos
 package bc_0914c_meetobl_hb_v5_refuse;
 struct P<'a, T> { x: &'a T, y: &'a T }

@@ -46570,3 +46570,58 @@ ROWS THIS ROUND MEASURED AND DID NOT ADD (pricing round; the landing round adds 
   3. `boxref_param_cannot_take_amp_box_local` (tier 3, refuses) — `fn f(b: &Box<dyn Sp>)` called `f(&b)`, "expected &&dyn Sp, got &dyn Sp".
      rustc compiles and runs it 0. Caused by the SAME arm the refusal will change, and it is the reason the refusal cannot simply DELETE
      the arm: `&Box<dyn Tr>` must stay expressible while `&dyn Tr` stops being what `&b` means.
+
+## 2026-09-16a-fixtureaudit — THE "BY READING" FIXTURE HEADERS, MEASURED AGAINST rustc 1.98.1
+
+build: b6a9d46a1e606239 43 (unchanged by this round — the commit edits comments, docs and probe files only;
+no compiled source, no program, no `.expected`, no ledger row).
+
+SUBJECT. Until 2026-09-15 there was no rustc binary on this box, so every "legality: by reading, no rustc
+binary" header was a CLAIM. 786 marked fixtures were measured with twins compiled (and RUN where an exit
+code or stdout is asserted) under `--edition 2024`. Twins, the four verdict TSVs and the runners are in
+`src/compiler/probes/2026-09-16a-fixtureaudit/`; the disputed fixtures are written up in
+`docs/rustc-fixture-audit-2026-09.md`.
+
+RESULT, by direct tally of the four tables: 786 = **752 CONFIRMED · 6 CONTRADICTED · 23 DIVERGENCE ·
+5 NOT EXPRESSIBLE** (the last five are grep false positives — "by reading" as incidental prose).
+779 headers now carry the measured verdict and the twin's path; 7 were deliberately left alone (the 5
+false positives plus 2 whose matched phrase is mid-sentence prose, both measured CONFIRMED anyway).
+
+THE SIX CONTRADICTIONS, none repaired (corpus decisions with an owner):
+  c13 (`bc_0907q_dbmcarry_hb_c13_admit`) — a DOUBLE DROP pinned as correct: tree asserts stdout `D5 D5`,
+    rustc prints `D5` once. `match &p` binds by reference; nothing moves. The worst of the six.
+  d01 + m10 (`bc_0914a_ptrcoerce_hb_d01_admit`, `bc_0914b_ptrcoerceland_hb_m10_admit`) — ONE finding:
+    `&mut [T; N]` -> `*mut T` array decay, E0308 in Rust, and UNREGISTERED in both divergence registries.
+  v02i (`bc_0914b_ptrcoerceland_hb_v02i_admit`) — E0502; re-measured with a `usize` index, so it is the
+    live shared loan and not the cast.
+  g11 (`bc_0915b_refeqland_hb_g11_admit`) — E0308 at `ra < rb` only. Decomposed with two controls: the
+    `==` half is Rust-canonical (`core` has cross-mutability `PartialEq`), and `&*ra < rb` compiles, so
+    the Logos-only part is exactly the implicit `&mut` -> `&` reborrow at a RELATIONAL operator.
+  x06 (`bc_0913d_staticdemand_hb_x06_refuse`) — the expensive direction: a LEGAL program REFUSED, pinned
+    as a fail fixture. rustc ACCEPTS (exit 0, empty stderr); the callee's `'a`/`'b` are inferred at the
+    call site, so no `'p: 'q` obligation reaches the caller. 40 fixtures of that family are correct
+    around it, so it is NOT findable by pattern.
+
+⚠ A COMMENT-ONLY EDIT MOVED A DIAGNOSTIC, AND ONLY THE TEXT ORACLE SAW IT. Inserting the dispute pointer
+as its own line above x06's program shifted the program down one line; x06's diagnostic quotes a line
+number, so `fail_text_oracle` recorded sha 51a2ef5c -> 698c65ba while ctest stayed GREEN, because
+`run_test.sh` matches `.expected` as a SUBSTRING (Rule 15, and "a line number in a comment
+self-invalidates"). The 28 other disputed fixtures are `pass`, which is why exactly one row moved. The
+annotation was folded onto the existing line and the fixture carries a marker forbidding a line change.
+COST after the repair: fail_text_oracle 0 changed of 1872, run_oracle 0 changed of 7396 once
+`cast-region-to-uint` is subtracted by name (it prints a stack address).
+
+⚠ THE AUDITORS' INSTRUMENTS WERE WRONG MORE OFTEN THAN THE TREE WAS, which is what bounds this round's
+worth: a piped `$?` read rc 0 off a failing rustc; `printf` over a non-NUL-terminated Rust `&str` bled
+rodata into stdout and manufactured 38 false mismatches; a `.copy.rs` filename made an invalid crate name
+and silently disabled the whole A16 instrument; the A16 check was keyed on E0382 when A16 fires as E0505
+(enumeration by SPELLING, not property); and 58 of one shard's 93 first-round refusals were translator
+bugs. Every refused twin was hand-read before classification.
+
+⚠ AND I REPEATED THE SPELLING TRAP MYSELF while checking their clause citations: grepping `### <id>`
+without backticks false-negatived all NINE cited clause ids at once, and I nearly recorded "type.closure.type
+does not exist" as a correction. It exists (divergences.md:554, types.md:1674, and types.md:1678 names A6).
+Two real findings survived that check, both for the owner: `type.copy.structural-auto` and
+`type.copy.struct-structural-auto` are TWO clause ids stating one rule, and the four clauses that canonise
+"lifetimes are not structural" cover the 14 E0106/E0621/E0637 fixtures by their logic but NONE of them
+names declaration-site elision — `struct P { a: &i64 }` with no lifetime parameter at all.

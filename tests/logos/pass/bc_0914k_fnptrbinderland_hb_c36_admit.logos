@@ -1,5 +1,5 @@
 // hand battery: round 2026-09-14k-fnptrbinderland, program c36 — caught: legal, refused with the item-binder rename control-reverted (fnptrnoitembind): a turbofish item's 'a spelled like the scope's 'a
-// legality: by reading, no rustc binary
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (ACCEPTED, exit:36); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914k_fnptrbinderland_hb_c36_admit.rs
 package bc_0914k_fnptrbinderland_hb_c36_admit;
 fn idg<'a, T>(x: &'a T) -> &'a T { return x; }
 fn t<'a>(q: &'a i64) -> i64 {
