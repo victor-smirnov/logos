@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row foreach_array_rvalue_elements_never_dropped_run (tier 1, run 1). `for d in [D{1}, D{10}]` NEVER DESTROYS ANY ELEMENT.
+// Each iteration moves one element into `d` and drops it at the end of the body: rustc s=11 n=11. TODAY s=11 n=0, exit 1 — neither
+// the loop variable nor the iterable is destroyed. With LOCAL elements (`for d in [a, b]`, pass/bc_0915f_consumeland_hb_k10_admit)
+// the count reads 11 only by cancellation (a, b drop at scope exit).
+// Named as a shape of aggregate_literal_temp_place_base_never_dropped_run's SYMPTOM; round 2026-09-15g-aggtemp MEASURED it is not
+// that defect: no arm of the door moves it (0 under ptown / ptownx / ptownxf, hand a04 t06), and marking the elements consumed
+// (ptownx) turns k10 into this same leak. Reason 1: the fact — who owns the element an array for-each binds — has no carrier in
+// SemaChecker::lower_for_each's array path (the loop variable is defined in a scope that emits no drop).
+package foreach_array_rvalue_elements_never_dropped_run;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut s: i64 = 0i64;
+    for d in [D { v: 1i64, c: p }, D { v: 10i64, c: p }] {
+        s = s + d.v;
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("s=%ld n=%ld\n".as_ptr(), s, got); }
+    if s != 11i64 { return 3i32; }
+    if got != 11i64 { return 1i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/rust/rows/foreach_array_rvalue_elements_never_dropped_run.rs: rustc=0 run=0 out=s=11 n=11

@@ -1,0 +1,55 @@
+round 2026-09-15g-aggtemp — CLASS ENUMERATION BY tools/dlog, CROSS-CHECKED BY A PER-SITE READ.
+
+selftest.sh rc 0 FIRST (18:04): "ok 28fc7c75...: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates across 756aed65 (1 -> 0)".
+
+NEW RULE tools/dlog/place_base_owner_sites.dl (claim-free; no extractor change). Question: every call site of LirBuilder::field_read /
+index_read / tuple_index / slice_index (a PLACE PROJECTION over a lowered receiver), and whether its enclosing named context calls one of
+the owner facts (SemaChecker::hoist_stmt_temp / autoref_operand / materialize_recv_ref / is_hoistable_temp_rvalue).
+Asked of the base sources (HEAD d8d06675f): `bash tools/dlog/ask.sh place_base_owner_sites.dl src/compiler/sema_expr.cpp src/compiler/sema_stmt.cpp`,
+6.2 s, answer cache ans-f22108e4c2824907-81f45a13068aa881-1dc02f164e69907b.
+
+KNOWN ANSWER stated before the run (grep of the call spellings, definitions and comments included, so an upper bound):
+  field_read 28 (19 + 9), index_read 4 (2 + 2), tuple_index 11 (4 + 7), slice_index 3 (1 + 2) in sema_expr + sema_stmt.
+MEASURED: field_read 28, index_read 4, tuple_index 10, slice_index 3 — 45 sites. The one tuple_index difference: sema_stmt.cpp:11061 is ONE
+  call attributed to TWO contexts (build_nested_destructure and emit_tuple_lets — a lambda named for its variable inside the other), so the
+  rule's 10 distinct (site, ctx) rows hold 10 call nodes; the grep's 11th hit is the declaration-side `tuple_index(` in a comment. Not a miss.
+
+DLOG VERDICT (context level):   asks 4 contexts: lower_expr_inner, lower_method_call, lower_field_read, lower_index_read
+                                blind 17 contexts: build_nested_destructure bind_list emit_tuple_lets emit_destruct try_struct_unsize_coerce
+                                lower_intrinsic_tuple_all_eq lower_struct_lit lower_quote_item lower_quote_expr lower_closure_expr
+                                lower_let_pat_bound lower_destructure_assign build_pattern_impl emit_nested_pat_destructure
+                                emit_for_pattern_destructure try_schema_field_write lower_schema_enum_match
+
+PER-SITE READ (the site-level question: does THIS projection hand a fresh move-type rvalue receiver to an owner?):
+  site                                   dlog ctx     per-site   what the receiver is
+  sema_expr lower_field_read (6 calls)   asks         OWNS (1)   the receiver hoist at SemaChecker::lower_field_read; the other 5 calls are
+                                                                 the auto-deref / tuple-struct arms over the SAME (already hoisted) recv
+  sema_expr lower_expr_inner 2251/2266   asks         BLIND      TUPLE_INDEX: the context asks only through the ADDR_OF_MUT arm (1589,
+                                                                 materialize_recv_ref) — ctx_of COARSENING, the recorded failure mode. `(D, D).1.v`
+                                                                 leaks (a02 n=0).
+  sema_expr lower_index_read 12979/13010 asks         BLIND      the context asks for the RANGE index (12812) and the user-Index struct (12926,
+                                                                 12962); the array / slice index_read at 13010 hands its receiver to nobody —
+                                                                 coarsening again. `[D, D][1].v` leaks (a01 n=0).
+  sema_expr lower_method_call 10385      asks         BLIND      a fn-pointer FIELD CALL `Q{..}.f(p)`: the context asks at 20 other sites; this
+                                                                 receiver is read and dropped by nobody (d02 n=0, rustc 1). NEIGHBOUR (same fact).
+  sema_expr lower_struct_lit 12288/12552 blind        BLIND      functional update `..base` over a temporary: the un-moved fields of the base are
+                                                                 never dropped (d01 n=110, rustc 111). SYMPTOM-SHARER: a PARTIAL MOVE out of a
+                                                                 temporary, a different decision (which fields remain).
+  sema_expr try_struct_unsize_coerce     blind        n/a        the source is marked MOVED first (mark_coercion_source_moved) — consumed, no owner owed
+  sema_expr lower_intrinsic_tuple_all_eq blind        n/a        operands are references
+  sema_expr lower_closure_expr           blind        n/a        capture paths over named bindings
+  sema_expr lower_quote_* (7)            blind        n/a        metaprogram AST construction, not user rvalues
+  sema_stmt (18 lines, 12 contexts)      blind        n/a (13)   read on the BASE blob (`git show HEAD:`, line numbers as dlog extracted them):
+                                                                 13 of 18 project `builder().var_ref(<synth local>)` built right at the call — a
+                                                                 VarRef by construction, no fresh rvalue: 1086 1190 1257 1262 1612 1695 6340 6343
+                                                                 8467 9372 9493 11061 (11061 is one call listed under two contexts).
+                                                 UNCHECKED  5 project a receiver passed in (`recv` 2047 2063, `recv_expr` 8485, `sref` 9441
+                                                            (5)  11116, `scrut` 9550). Where those come from was NOT read; this round does not
+                                                                 claim them.
+  side by side: dlog says 4 contexts ask / 17 blind; the per-site read says 1 SITE owns / 3 user-reachable sites are blind (TUPLE_INDEX,
+  array index_read, fn-pointer field call) / 1 symptom-sharer (FRU) / the rest have no fresh rvalue receiver. THE DLOG VERDICT IS WRONG
+  IN THE PERMISSIVE DIRECTION FOR 3 OF 4 "asks" CONTEXTS — exactly the two sites this round's arms repair.
+
+WHAT DLOG CANNOT SEE HERE (an absence with no builder call): the `[T; N].len()` builtin in SemaChecker::lower_method_call returns
+`builder().lit_int(size)` and DISCARDS its receiver — no projection is built, so no rule over projection calls can list it. Found by the
+battery (a03 a27 c10: n=0, and `mkarr(p).len()`'s call never runs).

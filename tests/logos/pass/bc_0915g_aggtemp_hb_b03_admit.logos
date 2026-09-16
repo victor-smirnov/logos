@@ -1,0 +1,30 @@
+// hand battery: round 2026-09-15g-aggtemp, program b03 — caught: REFUTED arms ptext / ptown / ptmark: right on base (n=11) only by cancellation; the extended owner ALONE double-drops it (n=22), the element mark ALONE leaks it (n=0); only ptownx / ptownxf read 11 (round 2026-09-15g-aggtemp)
+// legality: rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/rust/b03_locals_let_ref.rs: compiles, runs, stdout `r=1 n=11`
+package bc_0915g_aggtemp_hb_b03_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { x: D, y: D, z: i64 }
+impl D { fn get(self: &D) -> i64 { return self.v; } }
+fn mk(v: i64, p: *mut i64) -> D { return D { v: v, c: p }; }
+fn mkarr(p: *mut i64) -> [D; 2] { return [D { v: 1i64, c: p }, D { v: 10i64, c: p }]; }
+fn mktup(p: *mut i64) -> (D, D) { return (D { v: 1i64, c: p }, D { v: 10i64, c: p }); }
+fn sumref(a: &[D; 2]) -> i64 { return a[0].v + a[1].v; }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+struct Q { f: fn(*mut i64) -> i64, d: D }
+fn seven(p: *mut i64) -> i64 { return 7i64; }
+fn g(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    let b: D = D { v: 10i64, c: p };
+    let r: &[D; 2] = &[a, b];
+    return r[0].v;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    if got != 11i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,25 @@
+// SOUNDNESS QUEUE row fnptr_field_call_on_temporary_never_dropped_run (tier 1, run 1). A FUNCTION-POINTER FIELD CALLED ON A TEMPORARY LEAKS THE TEMPORARY.
+// `Q { f: seven, d: D{1} }.f(p)` must drop the Q temporary at the end of the statement: rustc n=1. TODAY n=0, exit 1.
+// NEIGHBOUR of round 2026-09-15g-aggtemp's class (same fact: a fresh move-type rvalue receiver of a field projection), named by
+// the dlog per-site read: SemaChecker::lower_method_call's fn-pointer field-call arm builds LirBuilder::field_read over the
+// lowered receiver and hands it to no owner (the context asks the owner fact at 20 other sites — ctx_of coarsening). NOT IN the
+// priced build: reason 3, its own arm (the same hoist at that site) was not built or priced (0 under ptownxf, hand d02).
+package fnptr_field_call_on_temporary_never_dropped_run;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct Q { f: fn(*mut i64) -> i64, d: D }
+fn seven(p: *mut i64) -> i64 { return 7i64; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let k: i64 = Q { f: seven, d: D { v: 1i64, c: p } }.f(p);
+        if k != 7i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/rust/rows/fnptr_field_call_on_temporary_never_dropped_run.rs: rustc=0 run=0 out=n=1

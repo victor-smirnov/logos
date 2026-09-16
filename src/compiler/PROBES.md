@@ -46260,3 +46260,102 @@ Header codes that differ from rustc (verdict still a refusal): rpit_dyn_fn_kind_
 (blind to a leak). closure_fnonce_call_in_loop_multi_free is `run 1` while its fix is a refusal (rustc E0382).
 Fixtures NOT this round's subject: 785 .logos under tests/{logos,imported}/{pass,fail} carry a by-reading marker (logos/pass 530, logos/fail 248,
 imported/pass 3, imported/fail 4); checked only boxdyn_borrow_arg_keeps_box_drop and (the carrier shape) imported/pass/closures/closure-fn-bound-twice-cl2.
+
+# ═══ ROUND 2026-09-15g-aggtemp (PRICING of the temporary-owner DOOR and the array rows in series behind it) — THE UNION ptownxf CLOSES
+#     EXACTLY 7 QUEUE ROWS AT COST 0 IN pass / runtime / stdlib / the hand battery, 2 RE-PINNED SENTENCES (x01 x04); EACH HALF ALONE BREAKS
+#     WHAT THE OTHER HALF CARRIES — DOORS IN SERIES BOTH WAYS ══════
+
+Files: `src/compiler/probes/2026-09-15g-aggtemp/` — TARGET_ROWS.txt (before any edit), PREDICTIONS.txt (before the build), CLASS_DLOG.txt (tools/dlog
+place_base_owner_sites.dl + the per-site read), aggtemp.spec + candidate_with_probe_gates.diff (the probe build), RESULT.txt (every column),
+NEIGHBOURS.txt, T1_REMEASURE.txt, battery/ + genbat.py (57 programs), rows/ (10 new queue-row programs), fixtures/ (3 landed pass fixtures),
+rust/ (rustc 1.98.1 twins + RUSTC_VERDICTS.txt, rows/ twins), arms.sh / hrun.sh / verdict.py (the battery under every arm).
+
+WHY THIS BLOCK: 2026-09-15f-consumeland measured that the array-literal consumption mark closes five tier-1/2 rows and leaks six legal programs
+right on base only by cancellation, and named the door (an aggregate temporary in a place position has no owner). This round prices the door
+WITH the mark. The battery showed the class is a fact about RECEIVERS, not literals: `mkarr(p).len()` never calls mkarr (the builtin discards
+its receiver), `(D, 5).1` leaks, and the owner lower_field_read already has drops an extended temporary at the end of its `let`.
+
+## ptidx
+site: src/compiler/sema_expr.cpp::lower_index_read
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: not priced alone in the harness (battery only) · arrivals: pass corpus ptown.idx.stmt 6, stdlib 0 (census)
+ceiling: battery 22 to Rust's answer (a01 a06 a09 a10 a12 a13 a15 a17 a18 a20 a24 a26 a29 c04 c05 c07 c08 t04 u02 u08 + d05 d06); a09 a10 compile
+cost: battery 4 broken — b01 k09 t11 u07 double-drop (11 -> 22, 1 -> 2): the locals shape needs the element mark beside the owner
+verdict: PRICED ON THE BATTERY — a member of ptownxf; never alone.
+
+## pttup
+site: src/compiler/sema_expr.cpp::lower_expr_inner
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: not priced alone in the harness (battery only) · arrivals: ptown.tup.* 0 in pass corpus and stdlib — an UNREACHED site in both populations
+ceiling: battery 9 to Rust's answer (a02 a11 a14 a25 b05 c12 t02 t10 u03), h04 valgrind 2 errors -> 0; a11 compiles
+cost: battery 0 broken (TUPLE_LIT already marks its elements, so a tuple needs the door only)
+verdict: PRICED ON THE BATTERY ONLY — no corpus carrier; a member of ptownxf.
+
+## ptlen
+site: src/compiler/sema_expr.cpp::lower_method_call
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: not priced alone in the harness (battery only) · arrivals: pass corpus ptown.len.stmt 1, stdlib 0
+ceiling: battery 4 to Rust's answer (a03 a27 c10 t05) — `mkarr(p).len()` now CALLS mkarr (new row array_len_builtin_discards_receiver_run)
+cost: battery 1 broken — k08 `[a, b].len()` 11 -> 22 (needs the element mark)
+verdict: PRICED ON THE BATTERY — a member of ptownxf; never alone.
+
+## ptext
+site: src/compiler/sema_expr.cpp::lower_field_read
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 1 (harness) · arrivals: pass corpus ptown.addr.ext 2, ptown.{field,idx,tup}.ext 0, addrmut 0; stdlib 0
+ceiling: queue EXACTLY aggregate_extended_borrow_temp_never_dropped (armed gate rc 1); battery 9 to Rust's answer (a05 a18 a23 c01 c02 c03 c11 u01 + d03); new row extended_field_base_temp_dropped_at_let_end_run closes
+cost: 1 pass — bc_0915f_consumeland_hb_t13_admit 11 -> 22 (PREDICTED 0: a miss) · 0 of 1870 fail text · stdlib ok · battery 2 broken (b03 t13)
+verdict: PRICED — condemned ALONE (cost 1 >= its queue ceiling's corpus weight); a member of ptownxf, where t13 is right.
+
+## ptmark
+site: src/compiler/sema_expr.cpp::lower_arr_lit
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: not priced alone in the harness (battery only) · arrivals: pass corpus ptown.arrlit.place 10 + tv 1 + fill.move 1, stdlib 0 (rvalue elements 115 / 852 are no-ops for the mark)
+ceiling: battery 48 to Rust's answer; e01 f11 i07 (illegal) refused
+cost: battery 9 broken — b01 b02 b03 k08 k09 k10 t11 t13 u07 leak (-> 0): the 2026-09-15f candidate b3b9ae03's six plus this round's three, REPRODUCED
+verdict: CONTROL — the declined arm, re-built behind an env gate; condemned alone as recorded.
+
+## ptnoext
+site: src/compiler/sema_expr.cpp::lower_index_read
+(union name answered at the gates of ptidx / pttup / ptlen)
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: not priced in the harness (battery only)
+ceiling: battery 35 to Rust's answer
+cost: battery 5 broken (b01 k08 k09 t11 u07); c02 c03 read the EARLY drop (r 10 -> 21) — the door without the extension carrier
+verdict: PRICED ON THE BATTERY — shows the extension carrier is part of the door, not an optional refinement.
+
+## ptown
+site: src/compiler/sema_expr.cpp::lower_index_read
+(union name answered at the gates of ptidx / pttup / ptlen / ptext)
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 8 · arrivals: see ptidx / pttup / ptlen / ptext
+ceiling: queue EXACTLY aggregate_literal_temp_place_base_never_dropped_run + aggregate_extended_borrow_temp_never_dropped (armed gate rc 1); battery 43 (= the union of its four parts' sets; a18 in two)
+cost: 5 pass — bc_0915f_consumeland_hb_{k08,k09,t11,t13,u07}_admit (EXACTLY as predicted, all double drops) · 0 of 1870 fail text · stdlib ok
+verdict: CONDEMNED ALONE — the door without the element mark double-drops every array of locals in a place position.
+
+## ptownx
+site: src/compiler/sema_expr.cpp::lower_index_read
+(union name answered at the gates of ptown and ptmark)
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 6948
+ceiling: queue EXACTLY 7 (armed gate rc 1): aggregate_literal_temp_place_base_never_dropped_run, return_array_lit_of_moved_locals_double_drop, generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits, array_repeat_len1_noncopy_operand_double_drop_run, generic_unbounded_typevar_reuse_after_array_literal_admits, aggregate_extended_borrow_temp_never_dropped; battery 91 (= ptown u ptmark)
+cost: 1 pass — bc_0915f_consumeland_hb_k10_admit (`for d in [a, b]` 11 -> 0, EXACTLY as predicted) · 2 of 1870 fail text (x01 x04 sentence) · stdlib ok · battery 2 broken (b02 k10)
+verdict: CONDEMNED BY k10 — the for-each iterable has no owner (row foreach_array_rvalue_elements_never_dropped_run, reason 1).
+
+## ptownxf
+site: src/compiler/sema_expr.cpp::lower_index_read
+(union name answered at the gates of ptown and ptmark, the mark skipped for an array literal that is a for-each ITERABLE — SemaChecker::lower_for_each sets the carrier)
+build: 70a78549838d6b7f 43 (L1 unarmed rc 0)
+measured: 2026-09-15
+fires: 6946 · arrivals: pass corpus 142 ptown.* arrivals of which the non-no-op buckets are idx 6 / field 6 / addr.ext 2 / len 1 / fill 1 / arrlit.place 10 / tv 1; stdlib 0 outside rvalue elements
+ceiling: queue EXACTLY the same 7 (armed gate rc 1); battery 91 to Rust's answer, 0 broken; new rows closing with it: extended_field_base_temp_dropped_at_let_end_run, array_len_builtin_discards_receiver_run, call_result_index_projection_invalid_mlir_refused, nested_array_literal_index_initializer_lost_refused
+cost: 0 pass · 2 of 1870 fail text — bc_0915e_consume_hb_x01_refuse / x04_refuse `.expected` LOST, rc unchanged: sema's "use of moved variable 'a'" (docs/spec/ownership.md) replaces borrow_check's "use of moved value 'a' (moved on line 15)", the move 2026-09-15f re-pinned for x02 / x03 (NOT predicted) · stdlib 4 layers ok · runtime 0 of 7370 (run_oracle, cast-region-to-uint subtracted) · valgrind NEW 0 / GONE 0 of 7380 swept (unarmed 19:12:51->19:27:32 vs ptownxf 19:27:32->20:16:07, same configure; LEAK 53 / CFAIL 62 / LINKFAIL 124 / TIMEOUT 4 identical, LEAK sets equal path for path). ONE status changed and it is the REAPER's, not the arm's: tests/logos/pass/fiber_thread_basic CORRUPT -> NOVG because its valgrind.bin outlived the wrapper's 60 s timeout by 30 minutes and I killed it; RE-RUN ALONE with a 420 s timeout it reads IDENTICAL on both arms (rc 97, "ERROR SUMMARY: 134 errors from 94 contexts")
+verdict: FUNDABLE WITH ONE CONDITION AND ONE SCAFFOLD NAMED — the condition: re-pin x01 / x04 to the spec'd sentence in the landing commit, as x02 / x03 were. The scaffold: the for-each exception keeps k10 right by CANCELLATION (a, b drop at scope exit; the loop variable never does); it is a workaround for row foreach_array_rvalue_elements_never_dropped_run, which must close before the exception can be deleted, and the landing must say so at the site. Every corpus zero above is over populations whose only carriers are the 2026-09-15f fixtures; the battery (251 programs, 91 moved, 0 broken) is the population that decides.

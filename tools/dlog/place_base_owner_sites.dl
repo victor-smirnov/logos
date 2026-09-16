@@ -1,0 +1,37 @@
+#include "cxx_schema.dl"
+// place_base_owner_sites — round 2026-09-15g-aggtemp.
+// The class: "a site that builds a PLACE PROJECTION (LirBuilder::field_read / index_read / tuple_index / slice_index)
+// over a lowered receiver". When the receiver is a FRESH DROPPABLE rvalue (`[D{..}, D{..}][1].v`, `mk().1.v`) the
+// projection is its only consumer, and unless the site hands it to an owner (`SemaChecker::hoist_stmt_temp` /
+// `autoref_operand` / `materialize_recv_ref`, guarded by `is_hoistable_temp_rvalue`) its destructor never runs
+// (queue row aggregate_literal_temp_place_base_never_dropped_run).
+// Claim-free: the domain is every call to a declaration whose qualified name ends in one of the four builder
+// methods, keyed by call site; the question is whether the enclosing named context calls one of the owner facts.
+// ⚠ ctx_of COARSENS (recorded twice: a lambda may report its enclosing function; a site marking inside a nested
+// lambda reads as not asking) — a context that asks does not prove the SITE asks. Every row is cross-checked by a
+// per-site read in the round record.
+// KNOWN ANSWER (stated before the run, grep of `builder().<m>(` / `b.<m>(` spellings, definitions and comments
+// included, so an UPPER bound per file): field_read sema_expr 19 / sema_stmt 9; index_read 2 / 2; tuple_index 4 / 7;
+// slice_index 1 / 2; hoist_stmt_temp calls in sema_expr.cpp: 1 (lower_field_read; the other grep hit is its definition).
+.decl proj_site(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output proj_site
+proj_site(F, L, N, Q) :- decl(D, _, Q),
+    (match(".*LirBuilder::field_read", Q) ; match(".*LirBuilder::index_read", Q) ;
+     match(".*LirBuilder::tuple_index", Q) ; match(".*LirBuilder::slice_index", Q)),
+    call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl owner_fact(D: symbol, Q: symbol)
+owner_fact(D, Q) :- decl(D, _, Q),
+    (match(".*SemaChecker::hoist_stmt_temp", Q) ; match(".*SemaChecker::autoref_operand", Q) ;
+     match(".*SemaChecker::materialize_recv_ref", Q) ; match(".*SemaChecker::is_hoistable_temp_rvalue", Q)).
+.decl owner_ask(File: symbol, Line: number, Ctx: symbol, Q: symbol)
+.output owner_ask
+owner_ask(F, L, N, Q) :- owner_fact(D, Q), call(U, D), loc(U, F, L, _), ctx_of(U, C), ctx_name(C, N).
+.decl proj_ctx_asks(Ctx: symbol)
+.output proj_ctx_asks
+proj_ctx_asks(N) :- proj_site(_, _, N, _), owner_ask(_, _, N, _).
+.decl proj_ctx_blind(Ctx: symbol)
+.output proj_ctx_blind
+proj_ctx_blind(N) :- proj_site(_, _, N, _), !proj_ctx_asks(N).
+.decl proj_count(Q: symbol, N: number)
+.output proj_count
+proj_count(Q, N) :- proj_site(_, _, _, Q), N = count : { proj_site(_, _, _, Q) }.

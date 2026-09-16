@@ -1,0 +1,37 @@
+  self_call_in_return_kills_param_drops                run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  weak_local_never_dropped                             run 1    run=1/1    stdout=[]              1 errors from 1 contexts | 1 allocs, 0 frees, 12 bytes allocated | 
+  boxed_move_closure_fat_capture_env_overflow          run 134  run=134/134 stdout=[]              2 errors from 2 contexts | 2 allocs, 2 frees, 40 bytes allocated |  1 Invalid read of size 8; 1 Invalid write of size 8;
+  box_field_move                                       run 134  run=134/134 stdout=[]              1 errors from 1 contexts | 2 allocs, 3 frees, 66 bytes allocated |  1 Invalid free() / delete / delete[] / realloc();
+  closure_owned_dyn_capture                            run 1    run=1/1    stdout=[]              1 errors from 1 contexts | 3 allocs, 3 frees, 40 bytes allocated |  1 Invalid read of size 8;
+  enum_payload_partial_move_leak                       run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  variant_payload_char_literal_nomatch                 run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  letelse_or_pattern_takes_else                        run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  variant_payload_nested_struct_sub_double_drops       run 2    run=2/2    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  impl_fn_return_stack_env_dangles                     run 1    run=1/1    stdout=[]              4 errors from 4 contexts | 0 allocs, 0 frees, 0 bytes allocated |  4 Conditional jump or move depends on uninitialised value(s);
+  boxed_escaping_fnonce_capture_double_free            run 2    run=2/2    stdout=[]              0 errors from 0 contexts | 2 allocs, 2 frees, 40 bytes allocated | 
+  closure_fnonce_cond_call_untaken_leak                run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  closure_fnonce_call_in_loop_multi_free               run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  index_place_through_refmut_never_drops_old           run 1    run=1/1    stdout=[n=110|]        0 errors from 0 contexts | 1 allocs, 1 frees, 4,096 bytes allocated | 
+  tuplestruct_door_default_ref_mode_not_carried        run 2    run=2/2    stdout=[drops=2|]      0 errors from 0 contexts | 4 allocs, 2 frees, 227 bytes allocated | 
+  enum_variant_value_into_scalar_let_admits            admits   run=232/216 stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  static_array_whole_borrow_reads_garbage              run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  tuple_elem_shared_borrow_through_ref_dangles_run     run 1    run=1/1    stdout=[]              1 errors from 1 contexts | 0 allocs, 0 frees, 0 bytes allocated |  1 Conditional jump or move depends on uninitialised value(s);
+  operator_operand_owner_after_sibling_exit_leak       run 1    run=1/1    stdout=[r=5 seq=2|]    0 errors from 0 contexts | 1 allocs, 1 frees, 4,096 bytes allocated | 
+  field_base_temp_built_before_sibling_run             run 1    run=1/1    stdout=[k=3 seq=216|]  0 errors from 0 contexts | 1 allocs, 1 frees, 4,096 bytes allocated | 
+  return_array_lit_of_moved_locals_double_drop         run 1    run=1/1    stdout=[n=22|]         0 errors from 0 contexts | 1 allocs, 1 frees, 4,096 bytes allocated | 
+  aggregate_extended_borrow_temp_never_dropped         run 1    run=1/1    stdout=[inside=0 n=0|] 0 errors from 0 contexts | 1 allocs, 1 frees, 4,096 bytes allocated | 
+  closure_param_shadow_double_drop                     run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  match_arm_nested_binder_shadow_double_drop           run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  at_binding_by_value_never_dropped                    run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  slice_pattern_arm_binding_extra_drops                run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  generic_struct_impl_ref_eq_compares_addresses_run    run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  array_nonprim_elem_eq_compares_addresses_run         run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  ref_pair_nonprim_tuple_eq_compares_addresses_run     run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  param_ref_struct_cast_after_addr_of_reads_slot_run   run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  array_lit_index_elem_move_out_admits                 admits   run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  array_repeat_len1_noncopy_operand_double_drop_run    run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  generic_array_lit_typevar_elems_double_drop          run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  generic_operator_mono_redispatch_operands_double_drop run 1    run=1/1    stdout=[]              0 errors from 0 contexts | 0 allocs, 0 frees, 0 bytes allocated | 
+  loop_break_value_array_lit_uninit_drop_run           run 139  run=139/139 stdout=[]              2 errors from 2 contexts | 0 allocs, 0 frees, 0 bytes allocated |  1 Invalid read of size 8; 1 Use of uninitialised value of size 8;
+  aggregate_literal_temp_place_base_never_dropped_run  run 1    run=1/1    stdout=[k=10 n=0|]     0 errors from 0 contexts | 1 allocs, 1 frees, 4,096 bytes allocated | 
+  match_expr_array_pattern_segfaults_run               run 139  run=139/139 stdout=[]              1 errors from 1 contexts | 0 allocs, 0 frees, 0 bytes allocated |  1 Invalid read of size 8;

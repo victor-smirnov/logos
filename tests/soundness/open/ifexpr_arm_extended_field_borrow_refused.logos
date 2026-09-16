@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row ifexpr_arm_extended_field_borrow_refused (tier 3, refuses). AN EXTENDED FIELD BORROW OF A TEMPORARY IN AN `if` ARM OF A `let` INITIALISER IS REFUSED (E0597).
+// `let k: &D = if c { &W{..}.y } else { &W{..}.x };` — the arm tails are extending (mark_extending_borrows covers IF), rustc n=11.
+// TODAY "'__rtmp_0' does not live long enough ... (E0597)": the arm is lowered by SemaChecker::lower_expr_temp_scoped, whose own
+// installer owns and drops the base at the arm's end.
+// Found BESIDE round 2026-09-15g-aggtemp's extension arm (hand d04): NOT CLOSED by `ptext` (E0597 under every arm) — doors in
+// series (reason 2): the extended owner registered inside a temp-scoped arm is dropped by that scope's installer before the
+// borrow checker sees the block; lower_expr_temp_scoped must learn the extension first.
+package ifexpr_arm_extended_field_borrow_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { x: D, y: D, z: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let c: bool = true;
+    {
+        let k: &D = if c { &W { x: D { v: 1i64, c: p }, y: D { v: 10i64, c: p }, z: 3i64 }.y } else { &W { x: D { v: 100i64, c: p }, y: D { v: 1000i64, c: p }, z: 3i64 }.x };
+        if k.v != 10i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 11i64 { return 1i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/rust/rows/ifexpr_arm_extended_field_borrow_refused.rs: rustc=0 run=0 out=n=11

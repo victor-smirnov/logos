@@ -1,0 +1,15 @@
+package h03_heap_let_ref_structlit_string_field;
+use logos.mem.string;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { a: String, b: String }
+fn noise() -> i64 {
+    let t: String = String::from("zzzzzzzzzzzz");
+    return t.len();
+}
+fn main() -> i32 {
+    let k: &String = &P { a: String::from("ab"), b: String::from("xyz") }.b;
+    let z: i64 = noise();
+    let n: i64 = k.len();
+    unsafe { printf("n=%ld z=%ld\n".as_ptr(), n, z); }
+    return 0i32;
+}

@@ -1,0 +1,54 @@
+round 2026-09-15g-aggtemp — PREDICTIONS, written after the base battery and BEFORE the probe build (aggtemp.spec not yet applied).
+
+ARMS (one process arms one name; every union answers at each component's gate):
+  ptidx    SemaChecker::lower_index_read   a fresh move-type rvalue receiver -> hoist_stmt_temp (statement scope)
+  pttup    lower_expr_inner TUPLE_INDEX    the same, for `.N`
+  ptlen    lower_method_call `[T; N].len()` builtin: the receiver is hoisted (evaluated + owned) instead of DISCARDED
+  ptext    the EXTENSION carrier: under an extending borrow (extending_borrow_nodes_), the projection chain's rvalue base
+           (field / index / tuple) and an extending `&<droppable rvalue>` get a BLOCK-scoped owner (`__lit_temp_N`, not dropped at
+           the statement end). Changes the EXISTING lower_field_read owner under extension.
+  ptmark   lower_arr_lit marks every element moved (TypeVar included) + lower_arr_fill_lit marks its operand for N >= 1
+           = the declined b3b9ae03 candidate of 2026-09-15f, re-built as a control.
+  ptnoext  ptidx + pttup + ptlen                    (the door WITHOUT extension)
+  ptown    ptidx + pttup + ptlen + ptext            (the door)
+  ptownx   ptown + ptmark                           (the door + the series rows)
+  ptownxf  ptown + ptmark except an array literal that IS a for-each iterable
+
+BY NAME, BATTERY (base column = BATTERY_BASE.txt; rustc column = rust/RUSTC_VERDICTS.txt):
+  ptidx   : a01 a06 a12 a13 a15 a17 a20 a24 a26 a29 c04 c05 c08 d05 d06 n 0 -> rustc's count. a09 (mlir internal) and a10 (GEP
+            verify fail) predicted to COMPILE (the hoisted base is a slot). b01 `[a, b][1].v` 11 -> 22 (the door ALONE double-drops
+            the locals shape: nothing marks a, b moved). a18 / c02 early drop (n right at the end, r off by the early drop).
+  pttup   : a02 a11 a14 a25 h04 -> rustc. b05 `(a, b).1.v` 0 -> 11 (TUPLE_LIT already marks: tuples need the door only). c03 early drop.
+  ptlen   : a03 a27 c10 -> rustc (c10 also r: side effect restored). b-shape `[a, b].len()` (consumeland k08) 11 -> 22.
+            c09 `[D; 3].len()` is ILLEGAL (rustc E0277) — admitted on base and under every arm (not this class; found beside).
+  ptext   : c01 c11 r 21 -> 10 / 221 -> 210 (the existing field owner stops dropping early). a05 a23 d03 n 0 -> 11.
+            row aggregate_extended_borrow_temp_never_dropped closes (0 -> 1000). h02 valgrind leak -> clean. d04 (E0597 refusal,
+            if-arm extension) predicted UNMOVED (lower_expr_temp_scoped's installer drops at the arm end).
+  ptnoext : ptidx + pttup + ptlen, plus a18 c02 c03 read the early-drop r.
+  ptown   : all of the above; a18 c02 c03 -> rustc. b01 b05-like shapes with array locals double-drop (22).
+  ptmark  : reproduces 2026-09-15f's six leaks on this binary: consumeland k08 k09 k10 t11 t13 u07 11 -> 0 (1 -> 0), b01 b02 b03 -> 0;
+            b04 22 -> 11; closes the five series rows.
+  ptownx  : every a/c/h shape above -> rustc; b01 b03 b04 b05 -> 11; b02 / consumeland k10 `for d in [a, b]` 11 -> 0 (the for-each
+            iterable has no owner and the loop variable is never dropped — a DIFFERENT fact, a04 reads 0 on base); a04 unmoved 0.
+  ptownxf : ptownx except b02 / k10 stay 11 (cancellation kept), a04 unmoved 0.
+  NOT MOVED by any arm: a04 (for-each over rvalues), d01 (FRU `..base` temporary), d02 (fn-pointer field call on a temporary),
+            d04 (if-arm extension), c06 (`[..][0].v = 5` refused "too deeply nested"), a19 (`[..].iter()` receiver not a struct),
+            a28 (`for d in mkarr(p)` GEP verify fail).
+
+BY NAME, QUEUE (armed gate):
+  ptownx / ptownxf close: aggregate_literal_temp_place_base_never_dropped_run, return_array_lit_of_moved_locals_double_drop,
+    generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits (refused, E0508 sentence),
+    array_repeat_len1_noncopy_operand_double_drop_run, generic_unbounded_typevar_reuse_after_array_literal_admits,
+    aggregate_extended_borrow_temp_never_dropped. EXACTLY these 7.
+  ptown closes: aggregate_literal_temp_place_base_never_dropped_run, aggregate_extended_borrow_temp_never_dropped. EXACTLY 2.
+  ptext closes: aggregate_extended_borrow_temp_never_dropped. EXACTLY 1.
+  unmoved under all: loop_break_value_array_lit_uninit_drop_run, match_expr_array_pattern_segfaults_run,
+    slice_pattern_arm_binding_extra_drops (control).
+
+BY NAME, CORPUS COST (pass / fail text / stdlib / runtime / valgrind):
+  ptownx : cost >= 1 — pass/bc_0915f_consumeland_hb_k10_admit (`for d in [a, b]`) predicted to read n 11 -> 0 at RUN time;
+           an rc/ceiling column cannot see it (the fixture asserts the exit code: predicted to red in run_oracle and ctest).
+  ptownxf: 0 in every column. ptown: runtime >= the pinned consumeland fixtures that use array locals with the door? — no: those
+           fixtures' shapes are `[a, b][1].v` etc., which ptown alone double-drops (11 -> 22): predicted run_oracle damage = k08 k09
+           t11 t13 u07 (k10 is for-each, untouched by ptown). ptext: 0 unless a corpus program reads through an extended field borrow
+           after a counter / drop-visible effect.

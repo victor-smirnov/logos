@@ -1,0 +1,29 @@
+NEIGHBOUR TABLE — round 2026-09-15g-aggtemp (PRICING; nothing lands in src/). Probe build 70a78549838d6b7f 43 (L1 unarmed rc 0).
+Class = "a fresh move-type rvalue RECEIVER of a place projection (field / index / tuple index) or of the `[T; N].len()` builtin gets an
+OWNER in the temporary scope; under an extending borrow that owner is the enclosing BLOCK" (decision), read from cur_stmt_temp_hoist_ +
+is_move_type(recv) + is_hoistable_temp_rvalue(recv) + extending_borrow_nodes_ (fact). Enumerated by tools/dlog place_base_owner_sites.dl
+and a per-site read (CLASS_DLOG.txt); the `.len()` builtin by the battery (no projection is built there, dlog cannot list it).
+
+  neighbour / member                                        disposition                               reason / number
+  SemaChecker::lower_field_read receiver hoist (EXISTS)     priced: ptext changes it under extension  c01 seen/r 21 -> 10, c11 221 -> 210; row extended_field_base_temp_dropped_at_let_end_run (NEW, tier 1) closes under ptext/ptownxf
+  SemaChecker::lower_index_read array receiver             priced: ptidx (in ptownxf)                row aggregate_literal_temp_place_base_never_dropped_run; battery 20 to Rust's answer; ALONE double-drops b01 k09 t11 u07 (11 -> 22, 1 -> 2)
+  lower_expr_inner TUPLE_INDEX receiver                     priced: pttup (in ptownxf)                battery 9 to Rust's answer (a02 a11 a14 a25 b05 c12 t02 t10 u03), 0 broken
+  lower_method_call `[T; N].len()` builtin (DISCARDS recv)  priced: ptlen (in ptownxf)                row array_len_builtin_discards_receiver_run (NEW, tier 1) closes; ALONE double-drops k08 (11 -> 22)
+  lower_unary / ADDR_OF_MUT extending `&<droppable rvalue>` priced: ptext (in ptownxf)                row aggregate_extended_borrow_temp_never_dropped closes (0 -> 1000); ALONE double-drops b03 t13 (11 -> 22)
+  lower_arr_lit element consumption (TypeVar included)      priced: ptmark (in ptownxf)               5 series rows close; ALONE leaks b01 b02 b03 k08 k09 k10 t11 t13 u07 (the declined 2026-09-15f candidate, reproduced)
+  lower_arr_fill_lit operand consumption, N >= 1            priced: ptmark (in ptownxf)               array_repeat_len1_noncopy_operand_double_drop_run closes; ALONE leaks u07
+  call-result index / tuple-index (backend GEP refusal)     closed by ptidx / pttup                   row call_result_index_projection_invalid_mlir_refused (NEW, tier 3) closes under ptownxf (n=22, valgrind clean)
+  nested array-literal index (mlir_gen internal)            closed by ptidx                           row nested_array_literal_index_initializer_lost_refused (NEW, tier 3) closes under ptownxf (n=11)
+  lower_for_each array iterable (by value)                  ROWED, reason 1 (no carrier)              row foreach_array_rvalue_elements_never_dropped_run (NEW, tier 1): 0 under all nine arms; ptownx turns k10 into the same leak — hence ptownxf's for-each exception
+  lower_method_call fn-pointer FIELD CALL on a temporary    ROWED, reason 3 (own arm unpriced)        row fnptr_field_call_on_temporary_never_dropped_run (NEW, tier 1): same fact, dlog-named; not built this round (0 under ptownxf)
+  lower_struct_lit `..base` over a temporary                ROWED, reason 1 (by reading)              row fru_temporary_base_unmoved_field_never_dropped_run (NEW, tier 1): a partial move out of a temporary, 110 under all arms
+  lower_expr_temp_scoped extended temporary (if-arm tail)   ROWED, reason 2 (doors in series)         row ifexpr_arm_extended_field_borrow_refused (NEW, tier 3): E0597 under all arms
+  `[..][0].v = 5` store into a temporary element            ROWED, no class claim                     row array_temp_elem_field_store_refused (NEW, tier 3): "too deeply nested" under all arms (site not read)
+  `[D{..}; 3]` non-Copy repeat operand                      ROWED, not this class                     row array_repeat_rvalue_noncopy_len3_admits (NEW, tier 2): rustc E0277, admitted under all arms
+
+FOUND BESIDE, recorded only (no row):
+  a19 `[..].iter()` — "method call: receiver is not a struct (got [D; 2])", legal Rust; consumeland's t12 (`[a, b].iter()`) is the same refusal and was not rowed either.
+  a18 `let k: &D = &[..][1]; return k.v;` reads "OK" under ptidx while its temporary is dropped at the `let` (ptnoext c02/c03 show the early drop
+      once the counter is read): a WEAK ORACLE — a program that never reads a drop-visible effect after the borrow cannot see an early drop.
+  2026-09-15f-consumeland battery k16 k17 k20 print rustc's stdout and still exit 1: their own `if got != …` constants disagree with the counts
+      they print (k16 checks 1121, prints 111). Invariant under every arm; the landed fixtures of that round are unaffected (run_oracle 0 differ).

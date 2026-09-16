@@ -1,0 +1,29 @@
+// SOUNDNESS QUEUE row array_len_builtin_discards_receiver_run (tier 1, run 1). `[T; N].len()` DISCARDS ITS RECEIVER: A CALL RECEIVER NEVER RUNS AND AN RVALUE ARRAY IS NEVER BUILT OR DROPPED.
+// `mkarr(p).len()` must call mkarr (side effect +100), build the temporary array and drop it at the end of the statement: rustc
+// n=111. TODAY SemaChecker::lower_method_call's `[T; N].len()` builtin returns `lit_int(N)` and drops the lowered receiver on the
+// floor: n=0, exit 1 — the call's side effect is lost, not only the destructors.
+// NEIGHBOUR of aggregate_literal_temp_place_base_never_dropped_run (the header's `[..].len()` shape is this site), found by
+// round 2026-09-15g-aggtemp (hand a03 a27 c10). Its priced arm `ptlen` (hoist the receiver into the statement temp scope,
+// then yield N) closes it: n 0 -> 111 under ptlen / ptownxf (build 70a78549838d6b7f). ptlen ALONE double-drops the locals
+// spelling `[a, b].len()` (pass/bc_0915f_consumeland_hb_k08_admit 11 -> 22): it lands only with the element mark.
+package array_len_builtin_discards_receiver_run;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn mkarr(p: *mut i64) -> [D; 2] {
+    unsafe { *p = *p + 100i64; }
+    return [D { v: 1i64, c: p }, D { v: 10i64, c: p }];
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let k: i64 = mkarr(p).len();
+        if k != 2i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 111i64 { return 1i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/rust/rows/array_len_builtin_discards_receiver_run.rs: rustc=0 run=0 out=n=111

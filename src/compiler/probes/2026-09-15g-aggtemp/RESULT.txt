@@ -1,0 +1,152 @@
+round 2026-09-15g-aggtemp — RESULT (every column). PRICING ONLY; nothing lands in src/.
+
+STEP 1 (17:47): HEAD d8d06675f, tree clean. # TOTAL soundness_queue 221, bc_admits 60, bc_admits_blocked 8. probe-log-lint 363 records
+("every site symbol resolves" — not evidence). build_hash 5f2f5f7272a18e08 43 (logosc 17:03; `cmake --build build` "no work to do" after a
+re-glob check — the HEAD commit touched tests/docs/probes only). Queue gate (serial hand form, LOGOS_LIB_DIR set) rc 0 at 17:50:17:
+221 rows, tier1 37 tier2 60 tier3 113 tier4 11 (listing), every row reproduces. dlog selftest.sh rc 0 (18:04; "ok 28fc7c75...: 19 walkers /
+24 findings / try_path 1-5 / domain 42-5; duty discriminates across 756aed65 (1 -> 0)").
+Corrections to the prompt: none on its numbers (37 tier-1 rows at writing, 37 listed). Its STEP-1 gate command carries LOGOS_LIB_DIR (checked
+against the text given, not the journal).
+
+TIER 1 RE-MEASURED (T1_REMEASURE.txt; base 5f2f5f7272a18e08 43; LOGOS_VERIFY_LAYOUT=1, linked as the gate, run twice, valgrind
+--leak-check=full). ALL 37 REPRODUCE THE LEDGER'S RECORDED OBSERVATION; none closed. Differences from a header's text, not from the row:
+  impl_fn_return_stack_env_dangles  4 "Conditional jump" contexts (header: 2; the 2026-09-15e round already read 4)
+  enum_variant_value_into_scalar_let_admits  exit 232 / 216 / 40 (valgrind) — varies run to run, as recorded (admits row)
+  self_call_in_return_kills_param_drops  0 allocs (the program counts through a pointer; the header's "22 bytes lost" is the String spelling)
+  every counter row reads its recorded count: return_array_lit 22, aggregate_literal_temp k=10 n=0, aggregate_extended_borrow inside=0 n=0,
+  index_place_through_refmut 110, operator_operand_owner r=5 seq=2, field_base_temp k=3 seq=216, tuplestruct_door drops=2.
+
+BLOCK (TARGET_ROWS.txt, written before any edit): the temporary-owner door aggregate_literal_temp_place_base_never_dropped_run and the five
+array rows in series behind it, plus aggregate_extended_borrow_temp_never_dropped as the extension neighbour.
+
+BASE BATTERY (BATTERY_BASE.txt, 57 programs a/b/c/d/h, rustc twins rust/RUSTC_VERDICTS.txt: 56 compile+run, c09 E0277):
+  base verdicts (arms.sh unarmed on the inert probe binary; equal line for line to BATTERY_BASE.txt on the 51 programs it recorded):
+    WRONG 36: a01-a06 a12-a15 a17 a18 a20 a23-a27 a29 b04 b05 c01-c05 c07 c08 c10 c11 c12 d01 d02 d03 d05 d06
+    REFUSED-LEGAL 7: a09 a10 a11 a19 a28 c06 d04 · ADMITTED-ILLEGAL 1: c09
+    stdout-right 13: a07 a08 a16 a21 a22 a30 b01 b02 b03 h01 h02 h03 h04 — of which h01 h02 h04 carry 2 valgrind errors each (definitely
+    lost: the String temporaries), visible to no stdout or exit oracle; b01 b02 b03 are right only by cancellation (see below).
+  THE SYMPTOM IS WIDER THAN "AN AGGREGATE LITERAL": `mkarr(p).len()` never CALLS mkarr (a27 c10), `(D, 5).1` leaks (a14), and the owner
+  that already exists for a field base is wrong under an extending borrow (c01 seen 11, rustc 0).
+
+CLASS BY tools/dlog (CLASS_DLOG.txt): new claim-free rule place_base_owner_sites.dl, 45 projection call sites, known answer stated first.
+dlog "asks" 4 contexts / "blind" 17; per-site read: 1 site owns (lower_field_read), 3 user-reachable sites blind (TUPLE_INDEX, the array
+index_read, the fn-pointer field call) — ctx_of coarsening wrong in the PERMISSIVE direction for 3 of 4 "asks" contexts; 13 of 18 sema_stmt
+sites project a synth VarRef; 5 were not read to their origin. The `.len()` builtin builds no projection: dlog cannot list it; the battery did.
+
+PROBE BUILD: aggtemp.spec, 17 edits applied by hand with probe-batch.sh's own apply logic (unique-anchor check) — NOT through probe-batch.sh,
+which prices EVERY record name (17 names, ~1 h of pricing for 4 distinct questions); the lever is a smaller batch. ONE build (3m37s) ->
+build/ 70a78549838d6b7f 43 (logosc 18:05:22). L1 unarmed rc 0 at 18:11:26: smoke 1/1, gates tier 339/339, L1.1 808/808 — batch inert.
+The unarmed probe binary reproduces the base binary's battery verdicts line for line (51 recorded programs, joined); the new row programs
+were measured on the unarmed probe binary (inert by L1) and again on the rebuilt base before the commit (below).
+candidate_with_probe_gates.diff = the applied edits.
+
+ARRIVAL CENSUS (probe build, nothing armed; LOGOS_CENSUS):
+  pass corpus (run_oracle's 7370 compiles):  ptown.arrlit.rvalue 115 · ptown.arrlit.place 10 · ptown.arrlit.tv 1 · ptown.idx.stmt 6 ·
+                                             ptown.field.stmt 6 · ptown.addr.ext 2 · ptown.fill.move 1 · ptown.len.stmt 1 ·
+                                             ptown.tup.* 0 · ptown.{idx,field,tup}.ext 0 · ptown.addrmut.ext 0
+  stdlib, four layers (stdlib-cost.sh):      ptown.arrlit.rvalue 852 · every other ptown bucket 0
+  THE ZEROS, BY KIND: tup / *.ext / addrmut are UNREACHED in both populations (no carrier). idx / len / field / addr / fill are UNREACHED in
+  the stdlib. In the pass corpus the arrivals are the 2026-09-15f-consumeland fixtures that carry exactly these shapes (k08 k09 k10 t11 t13 u07),
+  which is why the harness columns below can see anything at all: every other cost 0 is over a population with no carrier.
+
+QUEUE GATE, ARMED (serial hand form, LOGOS_LIB_DIR, build 70a78549838d6b7f; each exactly as PREDICTIONS.txt named):
+  ptownx   rc 1 18:12:36  closes EXACTLY 7: aggregate_literal_temp_place_base_never_dropped_run, return_array_lit_of_moved_locals_double_drop,
+                          generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits (refused: "cannot move out of type
+                          `[D; 1]`, a non-copy array", rustc E0508), array_repeat_len1_noncopy_operand_double_drop_run,
+                          generic_unbounded_typevar_reuse_after_array_literal_admits (refused: "use of moved variable 'x'", rustc E0382),
+                          aggregate_extended_borrow_temp_never_dropped
+  ptownxf  rc 1 18:19:32  the same 7
+  ptown    rc 1 18:31:12  EXACTLY 2: aggregate_literal_temp_place_base_never_dropped_run, aggregate_extended_borrow_temp_never_dropped
+  ptext    rc 1 18:37:05  EXACTLY 1: aggregate_extended_borrow_temp_never_dropped
+  unmoved under all four: loop_break_value_array_lit_uninit_drop_run 139, match_expr_array_pattern_segfaults_run 139,
+  slice_pattern_arm_binding_extra_drops (control).
+
+HARNESS (scripts/ceiling-probe.sh, one name after another, build 70a78549838d6b7f; CEILING is bc_admits rows — none in this block by design):
+  probe     fires  ceiling  cost (pass)                                          cfail (text)                               stdlib
+  ptownxf   6946   0        0                                                    2 of 1870: x01 x04 .expected LOST (rc same) ok
+  ptownx    6948   0        1: pass/bc_0915f_consumeland_hb_k10_admit             2 of 1870: x01 x04                          ok
+  ptown     8      0        5: bc_0915f_consumeland_hb_{k08,k09,t11,t13,u07}_admit 0                                         ok
+  ptext     1      0        1: pass/bc_0915f_consumeland_hb_t13_admit             0                                          ok
+  The cfail pair is the SENTENCE MOVE 2026-09-15f recorded and re-pinned for x02 / x03: once lower_arr_lit marks `a` consumed, sema's
+  "use of moved variable 'a'" (docs/spec/ownership.md's spelled sentence) fires before borrow_check's "use of moved value 'a' (moved on line 15)".
+  Verdict and rc unchanged; a landing re-pins x01 / x04 exactly as that landing did x02 / x03. NOT PREDICTED (a prediction miss).
+  ptown's 5 and ptownx's 1 are EXACTLY PREDICTIONS.txt's names. ptext's 1 (t13) was predicted 0 — a miss: `&[a, b]` in a `let` is the
+  extended owner PLUS the locals' own drops (double, 11 -> 22) until the element mark lands beside it.
+
+RUNTIME (scripts/run_oracle.py, 7370 pass fixtures compiled + linked + RUN, same configure):
+  unarmed   18:11:40 -> 18:22:38   7370 rows (census run)
+  ptownxf   18:22:59 -> 18:36:14   7370 rows; differ 1 = logos_02_semantic_core_pass_cast-region-to-uint (prints a stack address, subtracted
+                                   by name) -> 0 of 7370.
+
+HAND BATTERY UNDER EVERY ARM (arms.sh: this round's 57 + 2026-09-15f-consumeland's 72 + 2026-09-15e-consume's 122 = 251 programs, valgrind on;
+verdict.py against the rustc twins — stdout equality for this round and 15f, the program's own exit for 15e):
+  arm       OK   WRONG  REFUSED-LEGAL  ADMITTED-ILLEGAL  REFUSED-ILLEGAL   to Rust  OK->not (by name)
+  unarmed   99   112    15             5                 20                -        -
+  ptidx     117  96     13             5                 20                22       b01 k09 t11 u07 (n 11 -> 22 / 1 -> 2)
+  pttup     108  104    14             5                 20                9        none
+  ptlen     102  109    15             5                 20                4        k08 (11 -> 22)
+  ptext     106  105    15             5                 20                9        b03 t13 (11 -> 22)
+  ptmark    138  73     15             2                 23                48       b01 b02 b03 k08 k09 k10 t11 t13 u07 (-> 0: the declined 15f candidate, reproduced)
+  ptnoext   129  85     12             5                 20                35       b01 k08 k09 t11 u07
+  ptown     135  79     12             5                 20                43       b01 b03 k08 k09 t11 t13 u07
+  ptownx    188  26     12             2                 23                91       b02 k10 (n 11 -> 0: the for-each iterable has no owner)
+  ptownxf   190  24     12             2                 23                91       NONE
+  (all columns over the full twin table, d-series included.) valgrind: h01 h02 h04 2 errors (definite
+  leaks) -> 0 under ptownxf; no program gains a valgrind error under any arm. Newly refused under ptmark/ptownx/ptownxf, all ILLEGAL (rustc):
+  e01 (E0508 sentence), f11 i07 ("use of moved variable 'x'"); i05 i06 keep their refusal with sema's sentence instead of borrow_check's.
+  ptownxf's remaining WRONG / REFUSED-LEGAL are other defects, each unmoved by every arm: a04 t06 (for-each), c19 c20 (row
+  generic_operator_mono_redispatch_operands_double_drop), m01-m13 (at-binding / slice-pattern rows), u09 w01-w05 (match array pattern rows),
+  e11 (loop_break_value row), d01 d02 d04 c06 (new rows), a19 a28 e09 e13 f01 f02 m03 t12 v03 v13 (refusals recorded before), k16 k17 k20
+  (their own exit checks disagree with the count they print; see NEIGHBOURS.txt).
+
+ADDITIVITY, MEASURED ON THE BATTERY'S SETS (not on counts): ptown's to-Rust set IS the union of its four parts (43 = |ptidx u pttup u ptlen u
+ptext|; the sum 44 double-counts a18, which moves under ptidx and ptext alike — a WEAK ORACLE, see NEIGHBOURS.txt). ptownx's to-Rust set IS
+ptown u ptmark (91). BUT THE BREAKAGE IS NOT ADDITIVE, IN THE CANCELLING DIRECTION: b01 b03 k08 k09 t11 t13 u07 are broken by a part ALONE
+(the door double-drops them, the mark leaks them) and right under the union. So neither half can be priced or landed alone: each half's cost
+is exactly the other half's missing carrier — doors in series BOTH ways. ptownxf's to-Rust set equals ptownx's (91) and breaks nothing: the
+for-each exception buys exactly b02 / k10 and moves no program toward or away from Rust's answer otherwise.
+
+VALGRIND SWEEP (tests/lattice/valgrind/sweep.sh, same configure, one after the other):
+  unarmed  19:12:51 -> 19:27:32  rc 0   swept 7380, allocated 1934, LEAK 53 CORRUPT 3 TIMEOUT 4 CFAIL 62 LINKFAIL 124 OK 7134
+  ptownxf  19:27:32 -> 20:16:07  rc 0   swept 7380, allocated 1933, LEAK 53 CORRUPT 2 NOVG 1 TIMEOUT 4 CFAIL 62 LINKFAIL 124 OK 7134
+  NEW 0 · GONE 0 (non-OK sets diffed both ways by path); the LEAK sets are equal path for path; CORRUPT on both: bc_objlt_str_literal,
+  custom_dst_smartptr_owning_drop; TIMEOUT on both: memoria_btfl_multimap, memoria_gen_fse, memoria_gen_tree, memoria_ssrle_ops.
+  ONE STATUS CHANGED AND IT IS MINE, NOT THE ARM'S: tests/logos/pass/fiber_thread_basic CORRUPT -> NOVG. The armed sweep sat at 7379 of 7380
+  rows for 36 minutes with the box at load 0.05 — `timeout 60` had killed the wrapper and `valgrind.bin` (PID 336425, 30:42 elapsed) kept
+  running, the exact hazard the prompt records. I reaped it (kill -9), the sweep finished, and that row became NOVG. RE-RUN ALONE
+  (timeout 420, nothing else on the box) it is IDENTICAL on both arms: rc 97, "ERROR SUMMARY: 134 errors from 94 contexts" — the CORRUPT
+  it has on base, unchanged by ptownxf.
+  ⚠ MY OWN SURVIVOR CHECK LIED FIRST: `pgrep -u logos -fa valgrind.bin` matched its own shell wrapper (the pattern is in the command line),
+  so it reported 2 "survivors" after the unarmed sweep when there were none. `pgrep -x` is the check; the count there was 0 / 0.
+
+ROWS OPENED (10; LEDGER_ROWS.txt, programs in tests/soundness/open/, each header carries its disposition and the measurement):
+  tier 1  extended_field_base_temp_dropped_at_let_end_run          seen=11 (rustc 0), exit 1   closes under ptext / ptownxf
+  tier 1  array_len_builtin_discards_receiver_run                  n=0 (rustc 111), exit 1     closes under ptlen / ptownxf — the CALL never runs
+  tier 1  foreach_array_rvalue_elements_never_dropped_run          s=11 n=0 (rustc 11/11)      reason 1: no arm moves it; ptownx turns k10 into it
+  tier 1  fnptr_field_call_on_temporary_never_dropped_run          n=0 (rustc 1), exit 1       reason 3: same fact, its own arm unpriced
+  tier 1  fru_temporary_base_unmoved_field_never_dropped_run       n=110 (rustc 111), exit 1   reason 1 (by reading): a partial move out of a temporary
+  tier 2  array_repeat_rvalue_noncopy_len3_admits                  admits (rustc E0277)        not this class
+  tier 3  call_result_index_projection_invalid_mlir_refused        GEP verify fail (rustc n=22) closes under ptidx+pttup / ptownxf
+  tier 3  nested_array_literal_index_initializer_lost_refused      mlir_gen internal (rustc 11) closes under ptidx / ptownxf
+  tier 3  ifexpr_arm_extended_field_borrow_refused                 E0597 (rustc n=11)          reason 2: doors in series (lower_expr_temp_scoped)
+  tier 3  array_temp_elem_field_store_refused                      "too deeply nested" (rustc n=15)  unmoved by every arm; site not read
+  soundness_queue 221 -> 231 (by listing; gate rc 0 on the committed base 20:28:38: "231 open row(s) (tier1=42 tier2=61 tier3=117 tier4=11)").
+
+FIXTURES LANDED (3 pass, the hand programs that REFUTED an arm and are right on the committed base):
+  pass/bc_0915g_aggtemp_hb_b01_admit  `[a, b][1].v`      r=10 n=11   refuted ptidx / ptnoext / ptown (22) and ptmark (0)
+  pass/bc_0915g_aggtemp_hb_b02_admit  `for d in [a, b]`  r=11 n=11   refuted ptmark / ptownx (0) — the for-each door
+  pass/bc_0915g_aggtemp_hb_b03_admit  `&[a, b]` in a let r=1  n=11   refuted ptext / ptown (22) and ptmark (0)
+  (k08 k09 k10 t11 t13 u07, which refuted arms too, are already fixtures from 2026-09-15f; the round's other 248 battery programs stay in the probe dir.)
+
+COUNTS, PREDICTED BEFORE THE RE-GLOB AND THEN MEASURED BY `ctest -N`: ALL 10878 -> 10891 (+13 = 10 squeue + 3 pass), NOIMPORTED 6376 -> 6389,
+TIERCOMMIT 339 -> 349 (+10); direct_door PIN corpus 3745 -> 3748, nonglob 3554 -> 3557, glob 191 — RE-DERIVED BY DIRECT LISTING (3748 = 191 + 3557).
+
+⚠ THE RE-GLOB RE-STAMPED THE COMPILER, AS RECORDED: reverting the probe edits and rebuilding gave back the STEP-1 base hash exactly
+(5f2f5f7272a18e08 43, `cmake --build` 3m37s), and the re-glob that registers the 13 new tests re-ran configure and relinked logosc to
+0de99afdd5911235 43 from the SAME sources. Every column above was measured on 70a78549838d6b7f (armed/unarmed) or on 5f2f5f7272a18e08
+(the base); the committed binary differs from the latter only by that stamp, and the queue gate + L1 below were run on it.
+
+WHAT DESERVES FUNDING: ptownxf, with the two things a landing must carry — (1) re-pin fail/bc_0915e_consume_hb_x01_refuse and x04_refuse to
+sema's spelled sentence, as 2026-09-15f did for x02 / x03; (2) the for-each exception is a SCAFFOLD with a named owner
+(foreach_array_rvalue_elements_never_dropped_run) and must say so at the site. Landing it closes 7 queue rows (5 of them tier 1) plus 4 of the
+10 rows this round opened, and moves 91 of 251 hand programs to rustc's answer with nothing broken.

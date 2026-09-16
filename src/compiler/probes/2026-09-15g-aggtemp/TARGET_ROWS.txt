@@ -1,0 +1,29 @@
+round 2026-09-15g-aggtemp (PRICING) — target rows, written BEFORE any compiler edit (base build/ 5f2f5f7272a18e08 43, HEAD d8d06675f).
+
+BLOCK: A DROPPABLE RVALUE TEMPORARY IN A PLACE-BASE / RECEIVER POSITION HAS NO OWNER — and the array-literal consumption rows in series behind it.
+
+DOOR (tier 1):
+  aggregate_literal_temp_place_base_never_dropped_run      run 1   `[D{1}, D{10}][1].v` n=0, rustc 11
+
+IN SERIES BEHIND THE DOOR (closed by the declined arrmove / arrmovetv / fill-lit arm of 2026-09-15f, which leaked k08 k09 k10 t11 t13 u07 by cancellation):
+  return_array_lit_of_moved_locals_double_drop             run 1   (tier 1)
+  generic_array_lit_typevar_elems_double_drop              run 1   (tier 1)
+  array_lit_index_elem_move_out_admits                     admits  (tier 1)
+  array_repeat_len1_noncopy_operand_double_drop_run        run 1   (tier 1)
+  generic_unbounded_typevar_reuse_after_array_literal_admits admits (tier 2)
+
+NEIGHBOUR CANDIDATES (same symptom family; each must be MEASURED under the arms, not assumed):
+  aggregate_extended_borrow_temp_never_dropped             run 1   (tier 1) — an extended `&` inside an aggregate let initialiser
+  loop_break_value_array_lit_uninit_drop_run               run 139 (tier 1) — predicted NOT moved (break-value path)
+  match_expr_array_pattern_segfaults_run                   run 139 (tier 1) — predicted NOT moved (pattern door)
+CONTROL (must not move): slice_pattern_arm_binding_extra_drops (the array DESTRUCTURE fact).
+
+WHY THIS BLOCK. Last round's landing named this door as the one thing standing between the queue and five array rows, measured
+(b3b9ae03 closed them and leaked six legal programs right on base only by cancellation). A door whose opening is measured to unblock
+five rows is the highest-yield tier-1 block on the shelf. The hand battery of this round (base, before any edit) already shows the
+symptom is WIDER than "an aggregate literal": `mkarr(p).len()` (a27, c10 — a CALL receiver, not a literal) reads n=0 and the call's
+side effects are lost, because the `[T; N].len()` builtin returns a constant and discards its receiver; `(D, 5).1` (a14) leaks; and the
+field-read owner that already exists (`SemaChecker::lower_field_read` -> `hoist_stmt_temp`) is itself WRONG under an extending borrow:
+`let k: &D = &W{..}.y;` drops the temporary at the end of the `let` (c01 r=21, c11 r=221; rustc 10 / 210). So the class is decided by
+the fact "a fresh move-type rvalue receiver of a projection", read at several sites, and the extension question must be carried into
+any arm that copies field_read's owner.

@@ -6062,9 +6062,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                2 more rows were reclassified tier 3 -> 4 in place (no test added or removed). Native fixtures: 2 fail (the moved programs)
 #                and 4 pass (bc_0915f_rustcaudit_*_admit), none tier_commit. So ALL 10872 -> 10878 (+6), NOIMPORTED 6370 -> 6376 (+6),
 #                TIERCOMMIT 339 -> 339 — PREDICTED before the re-glob, then measured by `ctest -N` on the re-globbed build.
-REGISTRY-ALL         10878
-REGISTRY-NOIMPORTED  6376
-REGISTRY-TIERCOMMIT  339
+# 2026-09-15i (aggtemp PRICING — the temporary-owner door for a place-base receiver and the array rows in series behind it; no compiler
+#                change, soundness_queue 221 -> 231). 10 queue rows OPENED and none closed (extended_field_base_temp_dropped_at_let_end_run,
+#                array_len_builtin_discards_receiver_run, foreach_array_rvalue_elements_never_dropped_run,
+#                fnptr_field_call_on_temporary_never_dropped_run, fru_temporary_base_unmoved_field_never_dropped_run,
+#                array_repeat_rvalue_noncopy_len3_admits, call_result_index_projection_invalid_mlir_refused,
+#                nested_array_literal_index_initializer_lost_refused, ifexpr_arm_extended_field_borrow_refused,
+#                array_temp_elem_field_store_refused): each is its own ctest test, all tier_commit, so +10 / +10 / +10. Native fixtures:
+#                3 pass (bc_0915g_aggtemp_hb_b0{1,2,3}_admit, the hand programs that REFUTED the arms), none tier_commit. So
+#                ALL 10878 -> 10891 (+13), NOIMPORTED 6376 -> 6389 (+13), TIERCOMMIT 339 -> 349 (+10) — PREDICTED before the re-glob,
+#                then measured by `ctest -N` on the re-globbed build before this pin was touched.
+REGISTRY-ALL         10891
+REGISTRY-NOIMPORTED  6389
+REGISTRY-TIERCOMMIT  349
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

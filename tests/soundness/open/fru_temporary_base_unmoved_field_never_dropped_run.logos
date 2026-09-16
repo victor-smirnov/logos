@@ -1,0 +1,25 @@
+// SOUNDNESS QUEUE row fru_temporary_base_unmoved_field_never_dropped_run (tier 1, run 1). FUNCTIONAL RECORD UPDATE FROM A TEMPORARY NEVER DROPS THE BASE'S UNUSED FIELDS.
+// `W { x: D{100}, ..W { x: D{1}, y: D{10}, z: 3 } }` moves `y` out of the temporary base; its `x` (weight 1) must drop at the end
+// of the statement: rustc n=111. TODAY n=110, exit 1 — the base temporary's un-moved field is never destroyed.
+// Found BESIDE round 2026-09-15g-aggtemp's class (hand d01), named by its dlog per-site read (SemaChecker::lower_struct_lit
+// reads `..base` fields with LirBuilder::field_read and no owner). NOT CLOSED by any of its arms (110 under ptownxf): a PARTIAL
+// MOVE out of a temporary — which fields remain to drop is a different decision from "the whole temporary gets an owner"
+// (reason 1, BY READING, not built: the fact — the set of fields the literal took — has no carrier at the projection sites the arms touch).
+package fru_temporary_base_unmoved_field_never_dropped_run;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { x: D, y: D, z: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let s: W = W { x: D { v: 100i64, c: p }, ..W { x: D { v: 1i64, c: p }, y: D { v: 10i64, c: p }, z: 3i64 } };
+        if s.y.v != 10i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 111i64 { return 1i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/rust/rows/fru_temporary_base_unmoved_field_never_dropped_run.rs: rustc=0 run=0 out=n=111

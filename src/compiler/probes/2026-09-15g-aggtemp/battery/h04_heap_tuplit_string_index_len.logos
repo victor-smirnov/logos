@@ -1,0 +1,8 @@
+package h04_heap_tuplit_string_index_len;
+use logos.mem.string;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let k: i64 = (String::from("ab"), String::from("xyz")).1.len();
+    unsafe { printf("k=%ld\n".as_ptr(), k); }
+    return 0i32;
+}

@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row call_result_index_projection_invalid_mlir_refused (tier 3, refuses). INDEXING OR TUPLE-INDEXING A CALL'S RESULT DIRECTLY IS REFUSED BY THE BACKEND.
+// `mkarr(p)[1].v` / `mktup(p).1.v` are legal Rust (rustc n=22). TODAY: "'llvm.getelementptr' op operand #0 must be LLVM pointer
+// type ..., but got '!llvm.array<2 x struct<...>>'" — the IndexRead / TupleIndex receiver is an SSA aggregate value, not a slot.
+// NEIGHBOUR of aggregate_literal_temp_place_base_never_dropped_run, found by round 2026-09-15g-aggtemp (hand a10 a11): the door's
+// arms `ptidx` / `pttup` hoist the receiver into a named local, and the same program then compiles, runs and reads n=22, valgrind
+// clean, under ptnoext / ptown / ptownx / ptownxf (build 70a78549838d6b7f). It closes with the door.
+package call_result_index_projection_invalid_mlir_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn mkarr(p: *mut i64) -> [D; 2] { return [D { v: 1i64, c: p }, D { v: 10i64, c: p }]; }
+fn mktup(p: *mut i64) -> (D, D) { return (D { v: 1i64, c: p }, D { v: 10i64, c: p }); }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let a: i64 = mkarr(p)[1].v;
+        let b: i64 = mktup(p).1.v;
+        if a + b != 20i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 22i64 { return 1i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024 on the twin src/compiler/probes/2026-09-15g-aggtemp/rust/rows/call_result_index_projection_invalid_mlir_refused.rs: rustc=0 run=0 out=n=22

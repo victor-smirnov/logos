@@ -1,0 +1,14 @@
+package h02_heap_let_ref_arrlit_string_index;
+use logos.mem.string;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn noise() -> i64 {
+    let t: String = String::from("zzzzzzzzzzzz");
+    return t.len();
+}
+fn main() -> i32 {
+    let k: &String = &[String::from("ab"), String::from("xyz")][1];
+    let z: i64 = noise();
+    let n: i64 = k.len();
+    unsafe { printf("n=%ld z=%ld\n".as_ptr(), n, z); }
+    return 0i32;
+}

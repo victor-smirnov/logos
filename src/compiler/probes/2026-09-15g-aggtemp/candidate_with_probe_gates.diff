@@ -1,0 +1,270 @@
+diff --git a/src/compiler/sema_expr.cpp b/src/compiler/sema_expr.cpp
+index 704d49822..c6d9dfc2b 100644
+--- a/src/compiler/sema_expr.cpp
++++ b/src/compiler/sema_expr.cpp
+@@ -252,6 +252,25 @@ lir::LExprPtr SemaChecker::autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef
+     return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(addr), ref_type);
+ }
+ 
++// PROBE 2026-09-15g-aggtemp (ptext) — see src/compiler/PROBES.md. An EXTENDED temporary: the owner of
++// hoist_stmt_temp / autoref_operand, named `__lit_temp_N` (lower_let's extended-temporary spelling) so that
++// SemaChecker::lower_stmt neither drops it at the end of the statement nor erases it from the frame.
++lir::LExprPtr SemaChecker::pt_hoist_ext(lir::LExprPtr v, bool is_mut) {
++    std::string nm = std::format("__lit_temp_{}", destruct_counter_++);
++    TypeRef rt = expr_type(v);
++    register_stmt_temp(nm, rt, std::move(v), is_mut);
++    return builder().var_ref(nm, rt);
++}
++lir::LExprPtr SemaChecker::pt_autoref_ext(lir::LExprPtr v, bool is_mut, TypeRef ref_type) {
++    std::string nm = std::format("__lit_temp_{}", destruct_counter_++);
++    TypeRef rt = expr_type(v);
++    register_stmt_temp(nm, rt, nullptr, is_mut);
++    std::vector<lir_view::StmtRef> blk;
++    blk.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
++    auto addr = builder().addr_of_temp(builder().var_ref(nm, rt), is_mut, ref_type);
++    return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(addr), ref_type);
++}
++
+ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
+                                                 TypeRef ref_type) {
+     // ONE chokepoint for every implicit `&mut` producer — `&mut o.f`,
+@@ -1571,7 +1590,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
+         // `b.deref_mut()`. Only a field place — `&mut f(a.b)` borrows the CALL's
+         // temporary and leaves `a.b` an ordinary read.
+         bool saved_mut_place = mut_place_ctx_;
++        // PROBE 2026-09-15g-aggtemp (ext carrier) — see src/compiler/PROBES.md.
++        pt_ext_place_ctx_ = extending_borrow_nodes_.count(expr.ptr()) && is_place_node(child);
+         auto inner = lower_mut_place(child);
++        pt_ext_place_ctx_ = false;
+         mut_place_ctx_ = saved_mut_place;
+         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
+         auto __ty_inner = make_ref(true, expr_type(inner),
+@@ -1584,8 +1606,15 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
+             return error_expr();
+         // The `&mut` mirror of the temporary-scope hoist above, extending
+         // positions included (`let x = &mut 0;` is the reference's own example).
+-        if (extending_borrow_nodes_.count(expr.ptr()))
++        if (extending_borrow_nodes_.count(expr.ptr())) {
++            // PROBE 2026-09-15g-aggtemp (census + ptext) — see src/compiler/PROBES.md.
++            if (cur_stmt_temp_hoist_ && inner && expr_type(inner) &&
++                needs_drop(expr_type(inner)) && is_hoistable_temp_rvalue(inner)) {
++                logos::probe::census("ptown.addrmut.ext");
++                if (pt_ext_arm()) return pt_autoref_ext(std::move(inner), true, __ty_inner);
++            }
+             return builder().addr_of_temp(std::move(inner), true, __ty_inner);
++        }
+         return materialize_recv_ref(std::move(inner), true, __ty_inner);
+     }
+     case la::TRY_EXPR: {
+@@ -2203,10 +2232,23 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
+         // receiver is a place in the same position (`*t.0 = v` on a Box).
+         bool tmut_ctx = mut_place_ctx_;
+         mut_place_ctx_ = false;
++        // PROBE 2026-09-15g-aggtemp (ext carrier + census + pttup / ptext) — see src/compiler/PROBES.md.
++        const bool pt_ext_here = pt_ext_place_ctx_;
++        pt_ext_place_ctx_ = pt_ext_here && expr.has_key(la::RECEIVER) &&
++                            is_place_node(map_of(expr.get(la::RECEIVER.code)));
+         auto recv = expr.has_key(la::RECEIVER)
+             ? (tmut_ctx ? lower_mut_place(map_of(expr.get(la::RECEIVER.code)))
+                         : lower_expr(map_of(expr.get(la::RECEIVER.code))))
+             : error_expr();
++        pt_ext_place_ctx_ = false;
++        if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
++            is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
++            logos::probe::census(pt_ext_here ? "ptown.tup.ext" : "ptown.tup.stmt");
++            if (pt_ext_here && pt_ext_arm())
++                recv = pt_hoist_ext(std::move(recv), tmut_ctx);
++            else if (pt_door_arm("pttup"))
++                recv = hoist_stmt_temp(std::move(recv), tmut_ctx);
++        }
+         // Auto-deref: &(T) and &mut (T) -> use pointee type for index lookup
+         TypeRef recv_tuple_type = expr_type(recv);
+         TypeRef rrt(expr_type(recv));
+@@ -3445,7 +3487,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
+                 return place;
+         }
+         // &<expr> — temporary materialization: spill rvalue to stack
++        // PROBE 2026-09-15g-aggtemp (ext carrier) — see src/compiler/PROBES.md.
++        pt_ext_place_ctx_ = extending_borrow_nodes_.count(node.ptr()) && is_place_node(child);
+         auto inner = lower_expr(child);
++        pt_ext_place_ctx_ = false;
+         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
+         // Rust: `&a[..]` / `&v[1..3]` — indexing by RANGE yields the slice
+         // place `[T]`; taking `&` of it IS the slice value (Logos's Slice
+@@ -3480,8 +3525,15 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
+         // UNLESS this borrow sits in an EXTENDING position of a `let`
+         // initializer (`let x = &temp() as &dyn Tr`), where Rust extends the
+         // temporary to the enclosing block — see mark_extending_borrows.
+-        if (extending_borrow_nodes_.count(node.ptr()))
++        if (extending_borrow_nodes_.count(node.ptr())) {
++            // PROBE 2026-09-15g-aggtemp (census + ptext) — see src/compiler/PROBES.md.
++            if (cur_stmt_temp_hoist_ && inner && expr_type(inner) &&
++                needs_drop(expr_type(inner)) && is_hoistable_temp_rvalue(inner)) {
++                logos::probe::census("ptown.addr.ext");
++                if (pt_ext_arm()) return pt_autoref_ext(std::move(inner), false, __ty_inner);
++            }
+             return builder().addr_of_temp(std::move(inner), false, __ty_inner);
++        }
+         return materialize_recv_ref(std::move(inner), false, __ty_inner);
+     }
+ 
+@@ -8826,6 +8878,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
+     if (TypeRef(expr_type(recv)).kind() == LogosType::Kind::Array &&
+         method_name == "len") {
+         int64_t sz = TypeRef(expr_type(recv)).arr_size();
++        // PROBE 2026-09-15g-aggtemp (census + ptlen) — see src/compiler/PROBES.md.
++        if (cur_stmt_temp_hoist_ && recv && is_move_type(expr_type(recv)) &&
++            is_hoistable_temp_rvalue(recv)) {
++            logos::probe::census("ptown.len.stmt");
++            if (pt_door_arm("ptlen")) (void)hoist_stmt_temp(std::move(recv), false);
++        }
+         return builder().lit_int(sz, prim(LogosType::Kind::I64));
+     }
+ 
+@@ -11273,7 +11331,11 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
+     // else the receiver contains lowers as an ordinary read.
+     auto recv_node = map_of(node.get(la::RECEIVER.code));
+     bool mut_ctx = mut_place_ctx_;
++    // PROBE 2026-09-15g-aggtemp (ext carrier) — see src/compiler/PROBES.md.
++    const bool pt_ext_here = pt_ext_place_ctx_;
++    pt_ext_place_ctx_ = pt_ext_here && is_place_node(recv_node);
+     auto recv = mut_ctx ? lower_mut_place(recv_node) : lower_expr(recv_node);
++    pt_ext_place_ctx_ = false;
+     mut_place_ctx_ = false;
+     // A DROPPABLE fresh rvalue base (`make().x`) must live to the end of the
+     // statement then drop — otherwise the temporary leaks (its Drop never runs).
+@@ -11283,6 +11345,11 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
+     // a move type — a place / borrow base is left untouched.
+     if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
+         is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
++        // PROBE 2026-09-15g-aggtemp (census + ptext) — see src/compiler/PROBES.md.
++        logos::probe::census(pt_ext_here ? "ptown.field.ext" : "ptown.field.stmt");
++        if (pt_ext_here && pt_ext_arm())
++            recv = pt_hoist_ext(std::move(recv), false);
++        else
+         recv = hoist_stmt_temp(std::move(recv), false);  // field recv = &self
+     }
+     TypeRef recv_base_t = expr_type(recv);
+@@ -12759,8 +12826,20 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
+     // is itself a place in the same position (`*v[i] = x`, `b[i] = x` on a Box).
+     bool mut_ctx = mut_place_ctx_;
+     auto recv_node = map_of(node.get(la::RECEIVER.code));
++    // PROBE 2026-09-15g-aggtemp (ext carrier + census + ptidx / ptext) — see src/compiler/PROBES.md.
++    const bool pt_ext_here = pt_ext_place_ctx_;
++    pt_ext_place_ctx_ = pt_ext_here && is_place_node(recv_node);
+     auto recv = mut_ctx ? lower_mut_place(recv_node) : lower_expr(recv_node);
++    pt_ext_place_ctx_ = false;
+     mut_place_ctx_ = false;
++    if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
++        is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
++        logos::probe::census(pt_ext_here ? "ptown.idx.ext" : "ptown.idx.stmt");
++        if (pt_ext_here && pt_ext_arm())
++            recv = pt_hoist_ext(std::move(recv), mut_ctx);
++        else if (pt_door_arm("ptidx"))
++            recv = hoist_stmt_temp(std::move(recv), mut_ctx);
++    }
+     auto arr_type = expr_type(recv);
+ 
+     // Rust autoderef at the index position: peel `&&…` chains with REAL
+@@ -13032,8 +13111,19 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
+     }
+     auto items = arr_of(node.get(la::ITEMS.code));
+     std::vector<lir::LExprPtr> elems;
+-    for (uint64_t i = 0; i < items.size(); ++i)
++    // PROBE 2026-09-15g-aggtemp (census + ptmark / ptownx / ptownxf) — see src/compiler/PROBES.md.
++    const bool pt_in_foreach = pt_foreach_iter_;
++    pt_foreach_iter_ = false;
++    for (uint64_t i = 0; i < items.size(); ++i) {
+         elems.push_back(lower_expr(map_of(items.get(i))));
++        TypeRef pt_et = expr_type(elems.back());
++        const bool pt_tv = pt_et && TypeRef(pt_et).kind() == LogosType::Kind::TypeVar;
++        if (pt_et && (pt_tv || is_move_type(pt_et)))
++            logos::probe::census(pt_tv ? "ptown.arrlit.tv"
++                                 : is_hoistable_temp_rvalue(elems.back()) ? "ptown.arrlit.rvalue"
++                                                                           : "ptown.arrlit.place");
++        if (pt_mark_arm(pt_in_foreach)) mark_moved_expr(expr_ref_of(elems.back()));
++    }
+ 
+     TypeRef elem_type = expr_type(elems[0]);
+     // T0-5: a CONCRETE scalar element hint (a `&[i64]` formal / annotation,
+@@ -13962,6 +14052,9 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
+ 
+ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
+     auto val_node = map_of(node.get(la::VALUE.code));
++    // PROBE 2026-09-15g-aggtemp (ptownxf) — see src/compiler/PROBES.md.
++    const bool pt_in_foreach = pt_foreach_iter_;
++    pt_foreach_iter_ = false;
+     auto fill_val = lower_expr(val_node);
+     TypeRef elem_type = expr_type(fill_val);
+     // ONE resolver, shared with the type position — which is what makes
+@@ -13993,6 +14086,11 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
+     elems.push_back(std::move(fill_val));
+     for (int64_t i = 1; i < n; ++i)
+         elems.push_back(lower_expr(val_node));  // re-lower for each slot (simple literals)
++    // PROBE 2026-09-15g-aggtemp (census + ptmark / ptownx / ptownxf) — see src/compiler/PROBES.md.
++    if (n >= 1 && elem_type && is_move_type(elem_type)) {
++        logos::probe::census("ptown.fill.move");
++        if (pt_mark_arm(pt_in_foreach)) mark_moved_expr(expr_ref_of(elems[0]));
++    }
+     return builder().arr_lit(std::move(elems), make_array(elem_type, (size_t)n));
+ }
+ 
+diff --git a/src/compiler/sema_impl.hpp b/src/compiler/sema_impl.hpp
+index cc697a11d..a18507e07 100644
+--- a/src/compiler/sema_impl.hpp
++++ b/src/compiler/sema_impl.hpp
+@@ -8735,6 +8735,23 @@ private:
+     // hoist exists to fix.
+     std::unordered_set<const void*> extending_borrow_nodes_;
+     void mark_extending_borrows(writ::TinyMapView e);
++    // PROBE 2026-09-15g-aggtemp (census + ptidx / pttup / ptlen / ptext / ptmark / ptnoext / ptown / ptownx / ptownxf) — see src/compiler/PROBES.md.
++    bool pt_ext_place_ctx_ = false;   // an extending borrow's PLACE operand chain is being lowered
++    bool pt_foreach_iter_ = false;    // a for-each ITERABLE is being lowered (ptownxf only)
++    static bool pt_door_arm(const char* part) {
++        return logos::probe::on(part) || logos::probe::on("ptnoext") || logos::probe::on("ptown") ||
++               logos::probe::on("ptownx") || logos::probe::on("ptownxf");
++    }
++    static bool pt_ext_arm() {
++        return logos::probe::on("ptext") || logos::probe::on("ptown") || logos::probe::on("ptownx") ||
++               logos::probe::on("ptownxf");
++    }
++    static bool pt_mark_arm(bool in_foreach_iter) {
++        return logos::probe::on("ptmark") || logos::probe::on("ptownx") ||
++               (!in_foreach_iter && logos::probe::on("ptownxf"));
++    }
++    lir::LExprPtr pt_hoist_ext(lir::LExprPtr v, bool is_mut);
++    lir::LExprPtr pt_autoref_ext(lir::LExprPtr v, bool is_mut, TypeRef ref_type);
+     // Lower a LAZILY- or REPEATEDLY-evaluated subexpression (a `&&`/`||` RHS, a
+     // while-loop condition, a while-let scrutinee, an if-expression branch, an
+     // expression-bodied closure) in its OWN temporary scope: droppable rvalue
+diff --git a/src/compiler/sema_stmt.cpp b/src/compiler/sema_stmt.cpp
+index 4d7d270cf..5e22fc679 100644
+--- a/src/compiler/sema_stmt.cpp
++++ b/src/compiler/sema_stmt.cpp
+@@ -387,6 +387,8 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
+         sl.name = nm; sl.type = ty; sl.is_mut = std::get<3>(h);
+         sl.value = std::move(std::get<2>(h));
+         blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
++        // PROBE 2026-09-15g-aggtemp (ptext: an extended temporary is the block's) — see src/compiler/PROBES.md.
++        if (nm.rfind("__lit_temp_", 0) == 0) continue;
+         if (!moved_vars_.count(nm))
+             if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))
+                 drops.push_back(std::move(*d));
+@@ -417,6 +419,7 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
+         auto& fr = scope_.back();
+         for (auto& h : hoisted) {
+             const std::string& nm = std::get<0>(h);
++            if (nm.rfind("__lit_temp_", 0) == 0) continue;  // PROBE 2026-09-15g-aggtemp (ptext) — see src/compiler/PROBES.md.
+             fr.vars.erase(nm);
+             std::erase(fr.var_order, nm);
+         }
+@@ -7557,7 +7560,9 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
+                                     // else `if (!iter)` below reads an indeterminate
+                                     // value and skips lowering the iterable.
+     if (node.has_key(la::ITER)) {
++        pt_foreach_iter_ = true;   // PROBE 2026-09-15g-aggtemp (ptownxf) — see src/compiler/PROBES.md.
+         iter = lower_expr(map_of(node.get(la::ITER.code)));
++        pt_foreach_iter_ = false;
+     } else {
+         iter = error_expr();
+     }
