@@ -1619,13 +1619,13 @@ A `'long: 'short` outlives clause may appear in a fn/struct/enum/impl generic he
 
 Source: `src/compiler/sema_impl.hpp#L3259-L3266`
 
-### `region.outlives.callee-bound-checked-at-call` — Callee `where 'a: 'b` bounds checked at the call site
+### `region.outlives.callee-bound-checked-at-call` — Callee `where 'a: 'b` bounds checked at the call site only when the short side is pinned
 
-At a call site, for each callee `where 'a: 'b` outlives bound, build a callee-lifetime→caller-lifetime substitution by walking (param_type, arg_type) pairs (through refs, struct/zoned-struct/enum lifetime+type args, tuples, slices/arrays, raw ptrs). If both 'a and 'b map to concrete caller lifetimes and differ, the caller's current outlives graph must already prove `caller_long: caller_short`, else error `call to '{callee}': caller does not satisfy callee's outlives bound ...`. If either lifetime is unmapped (internal to callee or elided at the call site), the bound is NOT enforced here — deferred to caller's region inference.
+At a call site, for each callee `where 'a: 'b` outlives bound, build a callee-lifetime→caller-lifetime substitution by walking (param_type, arg_type) pairs (through refs, struct/zoned-struct/enum lifetime+type args, tuples, slices/arrays, raw ptrs). The bound is enforced against the caller's DECLARED outlives graph ONLY when its SHORT side 'b is PINNED FROM ABOVE — that is, when the callee cannot instantiate it freely at the call point. 'b is pinned iff it occurs in the callee's RETURN type, or at an INVARIANT position of some parameter: anywhere under a `&mut` pointee, or as the lifetime argument of a struct/enum that is itself invariant in that parameter (e.g. `Inv<'a> { p: &'a mut &'a i64 }`). When 'b is NOT pinned, every occurrence of it is covariant and it is absent from the return type, so the caller may SHORTEN each argument's region and the callee instantiates 'a := 'b := the call point; the bound is then satisfiable with no relation whatever between the caller's own declared regions, and it is NOT enforced here. This is Rust-canonical — rustc accepts exactly these calls. When 'b IS pinned and both lifetimes map to distinct concrete caller lifetimes, the caller's current outlives graph must already prove `caller_long: caller_short`, else error `call to '{callee}': caller does not satisfy callee's outlives bound ...`. If either lifetime is unmapped (internal to callee or elided at the call site), the bound is NOT enforced here — deferred to caller's region inference. The pin test fails CLOSED: a struct declaration that cannot be resolved counts as pinning, preserving the refusal. ⚠ The pin test is STRUCTURAL — it walks declared field types — so a type whose invariance is a lang-item axiom rather than a structural property (`UnsafeCell`, and `Cell` over it, whose fields bottom out at a bare covariant `T`) is NOT recognised as pinning, and a bound whose short side is carried only by such a type is under-enforced.
 
 *See also:* `region.outlives.static-always-satisfies`, `region.outlives.struct-lit-bound-checked`
 
-Source: `src/compiler/sema_impl.hpp#L3382-L3462`
+Source: `src/compiler/sema_impl.hpp#L6838-L7042`, `src/compiler/sema_expr.cpp#L4426-L17223`
 
 ### `region.outlives.static-always-satisfies` — 'static trivially satisfies any outlives bound
 

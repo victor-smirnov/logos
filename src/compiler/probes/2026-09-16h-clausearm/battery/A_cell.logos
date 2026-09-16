@@ -1,0 +1,5 @@
+package issue_95272;
+use logos.lang.cell;
+fn check<'a, 'b>(x: Cell<&'a i64>, y: Cell<&'b i64>) -> i64 where 'a: 'b { return 1i64; }
+fn test<'a, 'b>(x: Cell<&'a i64>, y: Cell<&'b i64>) -> i64 { return check(x, y); }
+fn main() -> i32 { return 0i32; }

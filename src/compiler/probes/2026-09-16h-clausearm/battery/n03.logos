@@ -1,0 +1,9 @@
+package n03;
+fn t<'a, 'b>(x: &'a i64, y: &mut (&'b i64, i64)) -> i64 where 'a: 'b { return *y.0 + y.1; }
+fn f<'p, 'q>(x: &'p i64, y: &mut (&'q i64, i64)) -> i64 { return t(x, y); }
+fn main() -> i32 {
+    let n = 2i64;
+    let m = 3i64;
+    let mut tp: (&i64, i64) = (&m, 4i64);
+    return f(&n, &mut tp) as i32;
+}

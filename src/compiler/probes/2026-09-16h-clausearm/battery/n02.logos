@@ -1,0 +1,10 @@
+package n02;
+struct Inv<'a> { pub p: &'a mut &'a i64 }
+fn t<'a, 'b>(x: &'a i64, y: Inv<'b>) -> i64 where 'a: 'b { return **y.p; }
+fn f<'p, 'q>(x: &'p i64, y: Inv<'q>) -> i64 { return t(x, y); }
+fn main() -> i32 {
+    let n = 1i64;
+    let mut h: &i64 = &n;
+    let w = Inv { p: &mut h };
+    return f(&n, w) as i32;
+}

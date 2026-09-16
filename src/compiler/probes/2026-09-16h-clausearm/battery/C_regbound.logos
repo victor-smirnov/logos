@@ -1,0 +1,5 @@
+package regions_bounded_method_type_parameters_trait_bound;
+struct Inv<'a> { pub x: &'a mut &'a i64 }
+fn method<'x, 'y: 'x>(x: Inv<'x>, y: Inv<'y>) { }
+fn caller2<'a, 'b>(a: Inv<'a>, b: Inv<'b>) { method(a, b); }
+fn main() -> i32 { return 0i32; }

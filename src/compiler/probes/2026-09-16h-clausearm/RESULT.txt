@@ -1,0 +1,367 @@
+2026-09-16h — THE CLAUSE WAS WRONG ABOUT RUST; IT IS REWRITTEN AT ITS ARTIFACT,
+THE FIXTURE IS INVERTED WITH A ONE-TOKEN TWIN, AND THE ARM LANDS
+================================================================================
+16g measured this arm 14/14 against rustc and then REVERTED it, because the only
+thing still in its way was a spec fixture bound to a conformance clause, and its
+authority was "the two ports and nothing else". The standing rule decides that
+case: the answer is Rust's unless a BLESSED divergence says otherwise, and this
+clause is in neither registry. So it is a defect, not a divergence, and this
+round fixes it at the artifact, inverts the fixture, and lands the arm.
+
+STEP 1, READ FROM THE TREE
+    HEAD 1e3b9d67d, clean.
+    soundness_queue # TOTAL 230 = 230 by direct listing.
+    bc_admits # TOTAL 60 · bc_admits_blocked # TOTAL 8
+    probe-log-lint: 386 records, every site symbol resolves.
+    build_hash c883f527392897c5 43 (READ).
+    queue gate rc 0 WITH LOGOS_LIB_DIR.
+    rustc 1.98.1 present.
+  CORRECTIONS TO THE PROMPT, each checked against the text actually given:
+  1. The STEP-1 gate command DOES carry LOGOS_LIB_DIR. Nothing to correct — the
+     seventh round to check and the third to find nothing.
+  2. ⚠ THE PROMPT NAMES THE SPEC FIXTURE AS A DIRECTORY,
+     `tests/spec/fail/region_diag_1__callee-bound-at-call`. It is a FILE PAIR,
+     `.logos` + `.expected`. Minor, but `ls` on the directory form fails and a
+     round that trusted it would report the fixture missing.
+  3. ⚠ THE PROMPT'S OWN rustc RECIPE DOES NOT WORK ON THIS rustc, AND IT FAILS
+     IN THE DIRECTION THAT INVENTS REFUSALS. `--emit=metadata -o /dev/null`
+     makes rustc 1.98.1 derive its temp dir from the -o path and die
+     "couldn't create a temp dir ... /dev/rmetaXXXX", rc 1, with 2 "errors", for
+     programs it ACCEPTS. My first legality table read rc 1 for all seven legal
+     programs. Every metadata reading in this record uses a real output path.
+
+================================================================================
+STEP A — RUSTC FIRST, BEFORE THE CLAUSE AND BEFORE THE ARM
+================================================================================
+rustc 1.98.1 --edition 2024, metadata to a real path, and every accepted program
+also BUILT and RUN. Twins in rust/ beside this file.
+  program                          rustc verdict                  runs
+  t1_pass (the spec fixture's own) ACCEPTS rc 0, 0 errors         exit 0
+  t2_fail_ret (return-type pin)    REFUSES rc 1, 2 errors           —
+  t3_fail_inv (invariant carrier)  REFUSES rc 1, 2 errors           —
+  n02 (struct carries invariance)  REFUSES rc 1, 2 errors           —
+  n05 static-call path             ACCEPTS                        exit 3
+  n07 three regions transitive     ACCEPTS                        exit 7
+  n08 covariant struct Co<'b>      ACCEPTS                        exit 3
+  n09 Option<&'b i64> parameter    ACCEPTS                        exit 4
+  row_outlives_call_instantiation  ACCEPTS                        exit 0
+  row_outlives_method_call         ACCEPTS                        exit 3
+t2's sentence: "function was supposed to return data with lifetime `'q` but it
+is returning data with lifetime `'p`". t3's and n02's: "argument requires that
+`'p` must outlive `'q`". So rustc refuses exactly when the short side is pinned
+from above — by the return type, or by an invariant carrier — and accepts when
+it is free. That IS the arm's predicate, arrived at from the other side.
+
+================================================================================
+STEP B — THE CLAUSE, AT ITS ARTIFACT
+================================================================================
+Editing docs/spec/*.md alone is undone by the next extraction, so the rule text
+was rewritten in
+    tools/spec-extract/rules/sema/sema_impl_hpp/logos.part7.json
+and docs/spec/ownership.md was brought to match, rendered in the assembler's own
+format (### id — title / statement / *See also:* / Source:). No DIVERGENCES.md
+row: this was a defect, not a divergence.
+
+WHAT THE CLAUSE NOW SAYS (id unchanged, title changed):
+  `region.outlives.callee-bound-checked-at-call` — Callee `where 'a: 'b` bounds
+  checked at the call site only when the short side is pinned.
+  The bound is enforced against the caller's DECLARED outlives graph ONLY when
+  its SHORT side is PINNED FROM ABOVE: it occurs in the callee's RETURN type, or
+  at an INVARIANT position of a parameter (under a `&mut` pointee, or as the
+  lifetime argument of a struct/enum itself invariant in that parameter, e.g.
+  `Inv<'a> { p: &'a mut &'a i64 }`). Otherwise every occurrence is covariant and
+  absent from the return type, the caller may SHORTEN each argument's region,
+  the callee instantiates 'a := 'b := the call point, and the bound is satisfied
+  with no relation between the caller's own declared regions — so it is not
+  enforced. This is Rust-canonical. The unmapped-lifetime and 'static carve-outs
+  are unchanged. The pin test fails CLOSED.
+  ⚠ AND IT NOW STATES ITS OWN HOLE, which the old text could not have: the pin
+  test is STRUCTURAL, so a type whose invariance is a LANG-ITEM AXIOM rather
+  than a structural property (`UnsafeCell`, and `Cell` over it) is not seen as
+  pinning. A conformance clause that hid a known divergence from Rust would be
+  the same defect this round is repairing.
+
+⚠ A SECOND DEFECT IN THE SAME CLAUSE, FOUND WHILE EDITING IT AND NOT PREDICTED:
+  its `Source:`/evidence cited `src/compiler/sema_impl.hpp#L3382-L3462`. Those
+  lines today are the ATTRIBUTE-SPEC REGISTRY — `check_call_outlives` lives at
+  L6888. The citation had rotted silently; spec_path_lint checks that the FILE
+  exists, never the line range. Re-pointed to L6838-L7042 (the two pin helpers
+  plus the checker) and to the call sites in sema_expr.cpp.
+
+================================================================================
+STEP C — THE FIXTURE, INVERTED, WITH ITS TWIN
+================================================================================
+REMOVED  tests/spec/fail/region_diag_1__callee-bound-at-call.{logos,expected}
+         It pinned "does not satisfy callee's" on a program rustc ACCEPTS.
+ADDED    tests/spec/pass/region_4.{logos,expected}  (exit: 0)
+         The same program, now asserting what rustc gives, plus a second caller
+         with ELIDED regions — the same fact by a different route — and the call
+         actually reads through both borrows so a wrong answer shows as an exit
+         code rather than as a silent compile.
+ADDED    tests/spec/fail/region_diag_1__callee-bound-pinned-short-side.{logos,expected}
+         ONE TOKEN away: `needs` returns `&'b i32` instead of `i32`. That pins
+         the short side, and rustc refuses it (rc 1, 2 errors). Logos refuses it
+         with "call to 'needs': caller does not satisfy callee's outlives bound
+         `'a: 'b` (under arg-type substitution: `'p: 'q` required)" — READ, not
+         assumed, and the .expected substring was taken from that stderr.
+Both twins were written in Rust and compiled BEFORE either fixture was written.
+
+================================================================================
+STEP D — THE ARM
+================================================================================
+Applied from 2026-09-16f's recorded diff and DE-GATED: the
+`if (logos::probe::on("landboth"))` wrapper replaced by a bare block, so the
+code is unconditional and grep finds 0 occurrences of "landboth" in either file.
+probe-log-lint unchanged at 386 records.
+  base  build/bin/logosc (preserved copy) md5 31158f8d… build_hash c883f527392897c5
+  armed build-arm0916h                    md5 8468b97d… build_hash 822f3ad3b3ba23ef
+  landed build/ after final rebuild       md5 acda7f63… build_hash cd3bfceb2938131f
+
+THE 17-PROGRAM BATTERY, base vs armed, EVERY COLUMN RE-MEASURED HERE:
+  prog        rustc            base        landed
+  n01         REFUSES          REFUSED     REFUSED
+  n02         REFUSES          REFUSED     REFUSED   (abuse direction holds)
+  n03         REFUSES          REFUSED     REFUSED
+  n04         REFUSES          REFUSED     REFUSED
+  n05         ACCEPTS runs 3   REFUSED ✗   runs 3
+  n06         REFUSES          REFUSED     REFUSED
+  n07         ACCEPTS runs 7   REFUSED ✗   runs 7
+  n08         ACCEPTS runs 3   REFUSED ✗   runs 3
+  n09         ACCEPTS runs 4   REFUSED ✗   runs 4
+  u01 u02 u03 REFUSES          REFUSED     REFUSED
+  u04 u05     ACCEPTS          runs        runs
+  B_inv       REFUSES          REFUSED     REFUSED
+  C_regbound  REFUSES          REFUSED     REFUSED
+  A_cell      REFUSES          REFUSED     ⚠ ADMITTED — the hole, now a row
+16 of 17 agree with rustc on the landed binary; the 17th is A_cell and it is
+rowed rather than hidden. Every exit code comes from run_test.sh, not from my
+hand — see the instrument note below.
+
+⚠ THREE OF MY OWN INSTRUMENTS WERE WRONG BEFORE THEY WERE RIGHT, AND EACH FAILED
+  IN THE DIRECTION THAT WOULD HAVE BEEN BELIEVED:
+  1. `--emit=metadata -o /dev/null` — rc 1 for programs rustc accepts (above).
+  2. EVERY hand-run program reported "RUNS 126". I first guessed a noexec mount.
+     `file` said the truth: `logosc -o` emits an ELF **relocatable** — an OBJECT
+     FILE. 126 was the shell refusing to execute a .o. The run column is only
+     meaningful through run_test.sh, which links; every exit code here is the
+     harness's.
+  3. TWO queue sweeps were contaminated BY MY OWN CONCURRENT EDITS. The first
+     straddled a relink of the armed binary (its md5 moved mid-sweep) and the
+     second straddled the `git rm` of two row programs, which is why it read
+     `outlives_method_call_nonstatic_bound_refuses 4 4` — rc 4 is "file gone",
+     not a verdict. Both were discarded; the reported sweep ran on a stable tree
+     with both binaries md5-checked before and after.
+
+================================================================================
+COST COLUMNS
+================================================================================
+  FAIL TEXT   base vs landed, 1882 rows (`-L bc -L fail`), triple = rc + sha of
+              normalised stderr + .expected match, DIFFED BOTH WAYS:
+              only-in-base 0, only-in-armed 0, no population drift (name sets
+              identical). CHANGED 0.
+              ⚠ AND THIS COLUMN IS STRUCTURALLY BLIND TO WHAT 16g TRIPPED ON.
+              Its 1882 exclude the spec tier entirely, which is why it is not
+              the column this round trusts for a region change.
+  SPEC TIER, MEASURED BY NAME — the population that caught 16g:
+              logos_25_spec_fail_*  494/494 PASSED, 0 failed, on the armed binary
+              logos_25_spec_pass_*  115/115 PASSED, 0 failed
+              Both new fixtures verified REGISTERED AND RUN by name in the log
+              (#10770 the fail twin, #10366 region_4) — a fixture whose
+              `.expected` is missing is not a test at all, which this round hit
+              (see below) and the listing caught.
+  STDLIB      scripts/stdlib-cost.sh on the armed binary: rc 0, four layers.
+  RUNTIME     run_oracle.py on the armed binary: 7436 pass fixtures compiled,
+              linked and RUN. Exactly 4 at ccrc 90 ("exited 0 after
+              self-diagnosing", the 14th gate-lie kind): issue-41888-b170,
+              nested-tuple-in-variant-payload-b170, res-and-or-comb-or,
+              spec/pass/intrinsic_2 — the SAME four 16g recorded and cross-checked
+              on both binaries.
+              ⚠ LIMIT OF THIS COLUMN, STATED RATHER THAN PAPERED OVER: I took
+              run_oracle on the ARMED binary only, so this is not a both-ways
+              runtime diff. The runtime claim rests on L4 (which runs and
+              exit-code-checks every pass fixture) plus those four. A base
+              column would have needed a base build dir kept alive past the
+              final rebuild, and I did not keep one.
+  QUEUE-WIDE  229 rows, landed vs base, one program at a time, both binaries
+              md5-verified unchanged before and after: EXACTLY ONE moves —
+              cell_typearg_region_invariance_admits 1 -> 0, the new row, whose
+              movement IS its definition. No other row moves in either
+              direction. Ten rows show rc 4/134/139 IDENTICALLY on both sides
+              (pre-existing parse refusals and two compiler crashes); none is
+              attributable to this arm, and 16g recorded the same pairs.
+  CONTROL REVERT, every fixture this commit adds or moves, on the PRESERVED BASE
+              binary (md5 31158f8d…), through run_test.sh:
+                all 7 new pass fixtures  REFUSED rc 1 on base — which is exactly
+                  why they are new — and rc 0 on the landed binary
+                both fail fixtures       rc 0 on BOTH (refused by both), so
+                  neither is bought by the arm
+              Re-run on the SHIPPING binary through ctest: 9/9 passed.
+
+================================================================================
+ROWS CLOSED, AND THE NEIGHBOUR TABLE (standing rule 2026-09-12)
+================================================================================
+neighbour                                      closed here?  reason + number
+--------------------------------------------------------------------------------
+outlives_call_instantiation (the x06 shape)    CLOSED        runs exit 0; both
+  its callers — one with DECLARED caller regions, one with ELIDED — compile.
+outlives_method_call_nonstatic_bound_refuses   CLOSED in     the SAME change, no
+  (the METHOD-call half of the same fact)      this commit   extension. Same
+  decision from the same fact at a different call context (lower_method_call vs
+  lower_call), and ONE candidate change moved both — the only test the rule
+  accepts. Runs exit 3, rustc's own exit for its twin.
+cell_typearg_region_invariance_admits          ROWED         reason 3 — its own
+  cost is unpriced and points the other way. THE NUMBER: the price of leaving it
+  open is 0 on the corpus — all five fixtures carrying `Cell<&` have identical
+  verdicts on base and landed, and the queue sweep shows no other row moving.
+  It is NOT reason 1: the fact has a carrier here. It is reason 3 because
+  `UnsafeCell`'s invariance is a LANG-ITEM AXIOM (sema_auto_trait.cpp, by
+  qualified name), not a structural property — `Cell<T>{inner:UnsafeCell<T>}`
+  over `UnsafeCell<T>{value:T}` bottoms out at a bare covariant `T`, so no field
+  walk can reach it. Teaching the pin test that axiom makes the checker refuse
+  MORE, and co-landing it would smuggle an unpriced change inside a priced one.
+  ⚠ 16g measured this same hole and could NOT row it, because on the reverted
+  binary the program was still refused and the row would not have reproduced.
+  With the arm landed it reproduces, so it is rowed now — and the row names the
+  sibling that must NOT move when it is closed (bc_0916h_hb_n08_pass, the
+  covariant struct).
+regions-bounded-by-trait-requiring-static--*   NOT A NEIGHBOUR — 16g measured
+  both as correctly ported (rustc REFUSES both); untouched, unmoved.
+
+THE dlog QUESTION (named exception to the tooling freeze; selftest.sh run first
+and PASSES its known-answer control: 19 walkers / 24 findings / try_path 1-5 /
+domain 42-5, duty discriminates 1 -> 0 across 756aed65):
+  asked `static_demand_sites.dl` of sema_expr.cpp — "which contexts hold a
+  callee's parameter list at a call, and which of them ever reach
+  check_call_outlives". Answer, to fixpoint:
+    outlives_askers = lower_call, finish_generic_call, lower_method_call,
+                      try_method_on_dyn, lower_static_call   (5 contexts)
+    arg_site_blind  = expect_type, type_bounds_satisfied_quiet, lower_generic_ref,
+                      lower_invoke_expr, lower_struct_lit, lower_enum_lit_data,
+                      lower_enum_lit_data_from_static        (7 contexts)
+  CROSS-CHECKED PER SITE by reading, as the standing warning requires: grep finds
+  7 `check_call_outlives(` call sites in those same 5 contexts, and the arm's
+  diff touches all 7. The two numbers are reported side by side because a dlog
+  verdict once said 37 where a per-site read said 0. Here they agree.
+  ⚠ The 7 blind contexts are NOT a finding of this round: struct-literal bounds
+  are a different clause (`region.outlives.struct-lit-bound-checked`) with its
+  own checker. Recorded so the next round does not rediscover them as a defect.
+
+================================================================================
+FIXTURES LANDED (hand-battery rule, Victor 2026-09-14)
+================================================================================
+  tests/logos/pass/  bc_0916h_hb_n05_pass                          exit 3
+                     bc_0916h_hb_n07_pass                          exit 7
+                     bc_0916h_hb_n08_pass                          exit 3
+                     bc_0916h_hb_n09_pass                          exit 4
+                     bc_0916h_row_outlives_call_instantiation_pass exit 0
+                     bc_0916h_row_outlives_method_call_pass        exit 3
+  tests/logos/fail/  bc_0916h_hb_n02_refuse   (diagnostic READ, then pinned)
+  tests/spec/pass/   region_4                                      exit 0
+  tests/spec/fail/   region_diag_1__callee-bound-pinned-short-side
+  SEVEN "caught something" programs plus the two closed rows' programs; each of
+  the six new tests/logos/pass fixtures moved base(refused) -> landed(runs).
+  ⚠ TWO OF THEM WERE NOT TESTS WHEN I FIRST WROTE THEM. I created the two row
+  fixtures' `.logos` without `.expected`, and CMake globs `.expected` — so they
+  were registered nowhere and their control-revert rc was meaningless. The
+  `.logos`/`.expected` parity listing is what caught it, not any gate.
+  ⚠ AND MY FIRST WRITE OF THE OTHER FOUR WAS CORRUPT: a stray `ac` prefix and
+  `\x27` escapes that `printf '%s'` never expands, so the files held literal
+  backslash-x-2-7 instead of quotes. Rewritten with the editor.
+
+================================================================================
+PINS, RE-DERIVED BY LISTING — PREDICTED FIRST, THEN MEASURED
+================================================================================
+                        pinned    predicted   measured
+  REGISTRY-ALL          10960     10967       10967   (ctest -N)
+  REGISTRY-NOIMPORTED    6458      6465        6465   (ctest -N -LE imported)
+  REGISTRY-TIERCOMMIT     348       347         347   (ctest -N -L tier_commit)
+  direct_door corpus     3804      3810        3810   (ls tests/logos/pass/*.logos)
+  direct_door glob        191       191         191
+  direct_door nonglob    3613      3619        3619   partition: 3810 = 191 + 3619
+  soundness # TOTAL       230       229         229   (direct listing; 229
+                                                       programs on the shelf too)
+  ALL +7 = +6 logos pass, +1 logos fail, +1 spec pass, +1 spec fail, −1 spec
+  fail, −2 squeue rows, +1 squeue row. TIERCOMMIT −1 = −2 closed +1 opened, and
+  that it moves while the six pass fixtures do not is the independent
+  confirmation that a squeue row carries the tier_commit label and a pass
+  fixture does not. Every number above was re-derived by listing, never by
+  arithmetic on the previous line; the arithmetic is shown only as the check.
+
+================================================================================
+GATES ON THE COMMITTED TREE
+================================================================================
+  binary under every gate below: build/bin/logosc md5 acda7f6355ad1ce3d9421d8281ef56e2,
+  build_hash cd3bfceb2938131f 43 — md5 verified IDENTICAL before and after the
+  gate chain, so no gate here read a binary that was being relinked under it
+  (the failure that voided two of this round's own sweeps).
+
+  full `cmake --build build -j32`   rc 0
+  soundness queue gate              rc 0 — 229 open rows = # TOTAL 229 by direct
+                                    listing; tier1 35, tier2 63, tier3 120,
+                                    tier4 11. (tier2 62->63 is the Cell row
+                                    opened, tier3 122->120 the two closed.)
+  L1                                rc 0 — 808/808 L1.1, the enumerator's smoke
+                                    tier 12 684 generated cases, gates tier
+                                    347/347 (which includes
+                                    logos_00_population_pin_lint and
+                                    logos_00_census_pin — both pin blocks were
+                                    re-derived BEFORE this run, so unlike 16g it
+                                    was green first time).
+  L4 bc (detached, LOGOS_L4_BG=1)   rc 0 — AND BOTH PHASES READ SEPARATELY,
+                                    because `L4 bc` exits with the WORSE of the
+                                    two and its tail can read green while phase 1
+                                    is red (that is precisely how 16g's blocker
+                                    was nearly missed):
+                                      phase 1 core+spec  100% passed, 0 failed
+                                                         out of 6465
+                                      phase 2 imported bc 100% passed, 0 failed
+                                                         out of 1601
+  spec tier by name (armed)         494/494 fail, 115/115 pass, 0 failed
+  probe-log-lint                    386 records, unchanged; 0 occurrences of any
+                                    probe name in the two edited sources
+  git diff src/ include/            103 insertions, 8 deletions across exactly
+                                    two files — the arm and nothing else
+
+⚠ ONE PREDICTION OF MINE FAILED, AND IT FAILED IN THE HARMLESS DIRECTION:
+  I predicted L1 would be RED on its first run from population_pin_lint. It was
+  GREEN, because this round re-derived both pin blocks before running any gate
+  rather than after. The prediction was modelled on 16g's sequence, not on this
+  one — a handed-down expectation about my own process, and rule 17 applies to
+  that too.
+
+================================================================================
+WHAT CONTRADICTS A RECORDED CLAIM
+================================================================================
+1. THE CLAUSE `region.outlives.callee-bound-checked-at-call` WAS FALSE ABOUT
+   RUST, and it was a plain conformance clause, in NEITHER registry — confirmed
+   by grepping both with -F and by construct: not among DIVERGENCES.md's 17
+   lettered rows, not among docs/spec/divergences.md's 497 clause ids. A spec
+   fixture had been asserting an over-refusal AS THE RULE.
+2. THAT CLAUSE'S OWN `Source:` WAS ALREADY ROTTEN — `sema_impl.hpp#L3382-L3462`
+   now points at the attribute-spec registry, ~3500 lines from the checker it
+   claims to cite. spec_path_lint checks that the FILE exists and never the line
+   range, so nothing could have caught it. Re-pointed.
+3. THE PROMPT'S rustc RECIPE (`--emit=metadata -o /dev/null`) PRODUCES FALSE
+   REFUSALS on rustc 1.98.1. Every round that used it to call a program
+   "refused" should re-measure with a real output path.
+4. THE PROMPT SPELLS THE SPEC FIXTURE AS A DIRECTORY; it is a `.logos`/
+   `.expected` pair.
+5. `logosc -o` EMITS A RELOCATABLE OBJECT, not an executable. Any round that
+   hand-runs its output and reads an exit code is reading 126 from the shell.
+   Exit codes must come from run_test.sh, which links.
+
+================================================================================
+FOR THE NEXT ROUND
+================================================================================
+1. The arm is LANDED and the clause is repaired. Do not re-price either.
+2. The one open thing this round created is
+   `cell_typearg_region_invariance_admits` — teaching the pin test that
+   UnsafeCell's invariance is a lang-item axiom. It makes the checker refuse
+   MORE, so it needs its own cost column; its sibling
+   tests/logos/pass/bc_0916h_hb_n08_pass (covariant struct) must NOT move.
+3. For ANY region/outlives change, measure the SPEC FAIL TIER BY NAME
+   (`ctest -R '^logos_25_spec_fail_'`, 494 fixtures). fail_text_oracle's 1882 do
+   not include it, and that blindness is what cost 16g a whole round.
+4. Never edit the corpus while a sweep is walking it. Two of this round's sweeps
+   were voided that way, and the second produced a plausible-looking "rc 4 4"
+   row that was simply a deleted file.

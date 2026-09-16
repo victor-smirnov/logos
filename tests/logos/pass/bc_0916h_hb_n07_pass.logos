@@ -1,0 +1,8 @@
+// hand battery: round 2026-09-16h, program n07 — caught: a LEGAL program the base
+// binary REFUSED; base(refused) -> landed(runs 7). THREE regions related
+// transitively (`'a: 'b`, `'b: 'c`), none of them pinned from above.
+// legality: MEASURED with rustc 1.98.1 (twin n07.rs) — accepts, runs exit 7.
+package bc_0916h_hb_n07_pass;
+fn t3<'a, 'b, 'c>(x: &'a i64, y: &'b i64, z: &'c i64) -> i64 where 'a: 'b, 'b: 'c { return *x + *y + *z; }
+fn f<'p, 'q, 'r>(x: &'p i64, y: &'q i64, z: &'r i64) -> i64 { return t3(x, y, z); }
+fn main() -> i32 { let n = 1i64; let m = 2i64; let o = 4i64; return f(&n, &m, &o) as i32; }

@@ -1,0 +1,48 @@
+// SOUNDNESS QUEUE row cell_typearg_region_invariance_admits (tier 2, `admits`).
+// AN ILLEGAL PROGRAM COMPILES. This is the hole opened by the callee-outlives
+// pin arm landed in this same commit, and it is rowed here rather than left as
+// prose because with that arm landed it REPRODUCES on the shipping binary —
+// 2026-09-16g measured the same hole and could NOT row it, because on the
+// reverted binary the program was still (accidentally) refused and a row that
+// does not reproduce reds the queue gate.
+//
+// THE FACT. `region.outlives.callee-bound-checked-at-call` now enforces a
+// callee's `where 'a: 'b` only when the bound's SHORT side is PINNED from above
+// — in the return type, or at an INVARIANT position of a parameter. That pin
+// test is STRUCTURAL: it walks the declared FIELD TYPES of a struct to decide
+// whether the struct is invariant in a given lifetime parameter. `Cell` defeats
+// it, because Cell's invariance is not structural at all: it is a LANG-ITEM
+// AXIOM recognised by qualified name in sema_auto_trait.cpp. Structurally,
+// `Cell<T> { inner: UnsafeCell<T> }` over `UnsafeCell<T> { value: T }` bottoms
+// out at a bare, covariant `T`. So the walk answers "not invariant", the pair is
+// skipped, and the caller is never asked to prove `'a: 'b`.
+//
+// WHY THAT IS WRONG. With `Cell<&'a i64>` the caller may NOT shorten 'a — an
+// invariant type argument admits no subtyping in either direction — so 'a is
+// rigidly the caller's own region and `'a: 'b` really does demand `'a: 'b` of
+// the caller, which is not declared here.
+//
+// legality: MEASURED with rustc 1.98.1 --edition 2024. The verbatim twin
+// (src/compiler/probes/2026-09-16h-clausearm/rust/r95272.rs, using
+// std::cell::Cell) is REFUSED, rc 1, "lifetime may not live long enough".
+// Logos compiles this file rc 0 on the binary this commit ships.
+//
+// THE FIX IS NOT THE ARM'S FIX. Teaching the pin test that UnsafeCell is
+// invariant is a different change with its own cost direction (it makes the
+// checker refuse MORE), so it is not smuggled inside a priced landing. This is
+// the neighbour rule's reason 3, and the number is recorded in the round record:
+// all five corpus fixtures carrying `Cell<&` have identical verdicts on the base
+// and landed binaries, so the price of leaving it open is 0 on the corpus.
+//
+// This row closes when the program is REFUSED with a diagnostic naming the
+// unsatisfied bound — and closing it must not move the sibling fixture
+// tests/logos/pass/bc_0916h_hb_n08_pass, whose `Co<'a> { r: &'a i64 }` carries
+// the region COVARIANTLY and must keep compiling.
+package cell_typearg_region_invariance_admits;
+use logos.lang.cell;
+
+fn check<'a, 'b>(x: Cell<&'a i64>, y: Cell<&'b i64>) -> i64 where 'a: 'b { return 1i64; }
+
+fn test<'a, 'b>(x: Cell<&'a i64>, y: Cell<&'b i64>) -> i64 { return check(x, y); }
+
+fn main() -> i32 { return 0i32; }

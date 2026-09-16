@@ -1,0 +1,16 @@
+// @rule region.outlives.callee-bound-checked-at-call
+// The REFUSAL half of the rule, ONE TOKEN from tests/spec/pass/region_4.logos:
+// `needs` returns `&'b i32` instead of `i32`. That pins the bound's SHORT side
+// 'b from above — the caller can no longer shorten it, because the value it
+// gets back must live for 'q — so `'p: 'q` is genuinely required, and it is not
+// declared.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — REFUSES, rc 1, 2 errors,
+// "lifetime may not live long enough ... function was supposed to return data
+// with lifetime `'q` but it is returning data with lifetime `'p`".
+package region_diag_1_callee_bound_pinned_short_side;
+
+fn needs<'a, 'b>(x: &'a i32, y: &'b i32) -> &'b i32 where 'a: 'b { return y; }
+
+fn caller<'p, 'q>(p: &'p i32, q: &'q i32) -> &'q i32 { return needs(p, q); }
+
+fn main() -> i32 { return 0i32; }

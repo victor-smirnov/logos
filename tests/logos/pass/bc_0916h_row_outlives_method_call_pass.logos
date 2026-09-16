@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-16h, program row-method — caught: this IS the
+// closed soundness-queue row `outlives_method_call_nonstatic_bound_refuses`
+// (tier 3, `refuses`), the METHOD-call half of the same fact as the row above.
+// It makes the same decision — "is this callee region pinned from above?" — at
+// a different call context (lower_method_call rather than lower_call), and ONE
+// candidate change moved both, which is the test the neighbour rule accepts.
+// legality: MEASURED with rustc 1.98.1 (twin row_outlives_method_call.rs) —
+// accepts, runs exit 3.
+package bc_0916h_row_outlives_method_call_pass;
+struct K { b: i64 }
+impl K {
+    fn two<'a, 'b>(self: &Self, x: &'a i64, y: &'b i64) -> i64 where 'a: 'b { return *x + *y; }
+}
+fn f<'p, 'q>(k: &K, x: &'p i64, y: &'q i64) -> i64 {
+    return k.two(x, y);
+}
+fn main() -> i32 { let n = 1i64; let m = 2i64; let k = K { b: 0i64 }; return f(&k, &n, &m) as i32; }

@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-16h, program n09 — caught: a LEGAL program the base
+// binary REFUSED; base(refused) -> landed(runs 4). The region rides in an ENUM
+// lifetime argument (`Option<&'b i64>`) rather than in a bare ref parameter, so
+// the substitution has to walk the enum's lifetime args to find it at all.
+// legality: MEASURED with rustc 1.98.1 (twin n09.rs) — accepts, runs exit 4.
+package bc_0916h_hb_n09_pass;
+fn t<'a, 'b>(x: &'a i64, y: Option<&'b i64>) -> i64 where 'a: 'b {
+    match y { Option::Some(r) => { return *x + *r; } Option::None => { return *x; } }
+}
+fn f<'p, 'q>(x: &'p i64, y: Option<&'q i64>) -> i64 { return t(x, y); }
+fn main() -> i32 {
+    let n = 1i64;
+    let m = 3i64;
+    return f(&n, Option::Some(&m)) as i32;
+}

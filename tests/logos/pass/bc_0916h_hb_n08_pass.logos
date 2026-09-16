@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-16h, program n08 — caught: a LEGAL program the base
+// binary REFUSED; base(refused) -> landed(runs 3). The COVARIANT-struct
+// direction: `Co<'a> { r: &'a i64 }` carries the region but is NOT invariant in
+// it, so the bound's short side stays unpinned and the caller may shorten it.
+// This is the program that separates "a struct carries the region" from "a
+// struct PINS the region" — the distinction the arm's pin test is built on.
+// legality: MEASURED with rustc 1.98.1 (twin n08.rs) — accepts, runs exit 3.
+package bc_0916h_hb_n08_pass;
+struct Co<'a> { pub r: &'a i64 }
+fn t<'a, 'b>(x: &'a i64, y: Co<'b>) -> i64 where 'a: 'b { return *x + *y.r; }
+fn f<'p, 'q>(x: &'p i64, y: Co<'q>) -> i64 { return t(x, y); }
+fn main() -> i32 {
+    let n = 1i64;
+    let m = 2i64;
+    let w = Co { r: &m };
+    return f(&n, w) as i32;
+}

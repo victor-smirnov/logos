@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-16h, program n05 — caught: a LEGAL program the base
+// binary REFUSED; its verdict moved base(refused) -> landed(runs 3) under the
+// callee-outlives pin arm. Static-method call path (K::st), with `'a: 'b between
+// two callee regions neither of which is pinned from above.
+// legality: MEASURED with rustc 1.98.1 (twin n05.rs) — accepts, runs exit 3.
+package bc_0916h_hb_n05_pass;
+struct K { b: i64 }
+impl K {
+    fn st<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 where 'a: 'b { return *x + *y; }
+}
+fn f<'p, 'q>(x: &'p i64, y: &'q i64) -> i64 { return K::st(x, y); }
+fn main() -> i32 { let n = 1i64; let m = 2i64; return f(&n, &m) as i32; }

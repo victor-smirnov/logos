@@ -1,0 +1,104 @@
+2026-09-16h — PREDICTIONS, WRITTEN BEFORE THE ARMED BINARY (build-arm0916h) LINKED.
+Base = build/bin/logosc, HEAD 1e3b9d67d, md5 31158f8d4db5d14313cf293982dc61d7,
+build_hash c883f527392897c5 43. A copy is preserved at
+$SCRATCH/base0916h/logosc so the control revert survives rebuilding build/.
+
+The arm is 2026-09-16f/g's `cooutretv` + struct-invariance extension, applied
+from src/compiler/probes/2026-09-16f-landboth/row1_arm_cooutretv_plus_struct_
+invariance.diff and DE-GATED: the `if (logos::probe::on("landboth"))` wrapper is
+replaced by a bare block, so the code is unconditional and no probe name is left
+in either file (grep: 0 occurrences of "landboth" in sema_impl.hpp/sema_expr.cpp).
+
+A. RUSTC, ALREADY MEASURED THIS ROUND (rustc 1.98.1, --edition 2024)
+   ⚠ CORRECTION TO THE PROMPT'S OWN RECIPE, measured before anything else:
+   `--emit=metadata -o /dev/null` DOES NOT WORK on this rustc. It derives its
+   temp dir from the -o path and dies "couldn't create a temp dir ...
+   /dev/rmetaXXXX", rc 1, for programs it actually ACCEPTS. Every metadata
+   reading here uses a real output path. The first table I took with /dev/null
+   said rc 1 for all seven legal programs and it was the tool refusing, not a
+   verdict — the "refusal count is a first failure" family, one layer down.
+   t1_pass (the spec fixture's own program)   ACCEPTS rc 0, 0 errors, RUNS exit 0
+   t2_fail_ret (return-type-pinned short side) REFUSES rc 1, 2 errors
+   t3_fail_inv (invariant-carrier short side)  REFUSES rc 1, 2 errors
+   n02  REFUSES rc 1, 2 errors      n05 ACCEPTS, runs 3    n07 ACCEPTS, runs 7
+   n08  ACCEPTS, runs 3             n09 ACCEPTS, runs 4
+   row_outlives_call_instantiation ACCEPTS, runs 0
+   row_outlives_method_call        ACCEPTS, runs 3
+
+B. THE BATTERY ON THE ARMED BINARY — PREDICTED BY NAME
+   n01 REFUSED · n02 REFUSED · n03 REFUSED · n04 REFUSED · n06 REFUSED
+   n05 RUNS 3 · n07 RUNS 7 · n08 RUNS 3 · n09 RUNS 4
+   u01 u02 u03 REFUSED (row 2 landed in 26d37bd56) · u04 RUNS 9 · u05 RUNS 3
+   B_inv REFUSED · C_regbound REFUSED
+   ⚠ A_cell PREDICT ADMITTED — AND THAT IS A HOLE, NOT A PASS. rustc REFUSES its
+   twin. `Cell<T>{inner:UnsafeCell<T>}` over `UnsafeCell<T>{value:T}` bottoms out
+   at a bare covariant T, and UnsafeCell's invariance is a LANG-ITEM AXIOM
+   (sema_auto_trait.cpp, by qualified name), which the arm's STRUCTURAL pin test
+   cannot see. 16g measured this and could NOT row it, because on the reverted
+   binary the program is correctly refused and the row would not reproduce. With
+   the arm landed it reproduces, so it becomes a row this round:
+       cell_typearg_region_invariance_admits  tier 2  admits
+   If it measures REFUSED instead, the prediction is wrong and there is no row.
+
+C. THE ROWS THAT CLOSE — exactly 2, by name, both rc 1 -> rc 0
+   outlives_call_instantiation                   (the x06 shape)
+   outlives_method_call_nonstatic_bound_refuses  (its method twin)
+   PREDICT NO OTHER of the 230 rows moves in either direction.
+
+D. THE SPEC FAIL TIER — THE POPULATION THAT CAUGHT 16g, MEASURED BY NAME
+   Selection: `ctest -R logos_25_spec_fail_` (NOT fail_text_oracle, whose
+   `-L bc -L fail` selection of 1881 EXCLUDES this tier entirely — that is the
+   whole reason 16g's five green columns missed the mover).
+   Base tier = 494 fixtures. This commit removes one and adds one, so the armed
+   tier is 494 again, and PREDICT 494/494 PASS on the armed binary.
+   The one removed (region_diag_1__callee-bound-at-call) is the fixture the arm
+   un-refuses; the one added (region_diag_1__callee-bound-pinned-short-side) is
+   its one-token twin, which the arm must STILL refuse.
+
+E. THE OTHER COST COLUMNS
+   fail_text_oracle (1881, -L bc -L fail)  PREDICT CHANGED 0, both directions.
+   stdlib-cost.sh                          PREDICT rc 0, four layers.
+   run_oracle.py                           PREDICT the same 4 ccrc-90 fixtures
+     16g named (issue-41888-b170, nested-tuple-in-variant-payload-b170,
+     res-and-or-comb-or, spec/pass/intrinsic_2) and nothing else — none
+     attributable to the arm. ⚠ Subtract cast-region-to-uint by name.
+
+F. FIXTURES THIS COMMIT LANDS — every one must be CONTROL-REVERTED on the base
+   binary, where PREDICT each new pass fixture is REFUSED (that is why it is new)
+   tests/logos/pass/  bc_0916h_hb_n05_pass (3) · bc_0916h_hb_n07_pass (7)
+                      bc_0916h_hb_n08_pass (3) · bc_0916h_hb_n09_pass (4)
+                      bc_0916h_row_outlives_call_instantiation_pass (0)
+                      bc_0916h_row_outlives_method_call_pass (3)
+   tests/logos/fail/  bc_0916h_hb_n02_refuse — REFUSED on BOTH binaries (the
+                      abuse direction; its .expected is read from the armed
+                      binary's actual stderr, not guessed)
+   tests/spec/pass/   region_4 (exit 0) — REFUSED on base, RUNS 0 on armed
+   tests/spec/fail/   region_diag_1__callee-bound-pinned-short-side — REFUSED on
+                      BOTH binaries
+   removed            tests/spec/fail/region_diag_1__callee-bound-at-call
+
+G. PINS — PREDICTED, THEN RE-DERIVED BY LISTING, NEVER BY ARITHMETIC
+   census registry (ctest -N on a reconfigured build/):
+     ALL         10960 -> 10967   (+6 logos pass, +1 logos fail, +1 spec pass,
+                                   +1 spec fail, -1 spec fail, -2 squeue rows,
+                                   +1 squeue row for the Cell hole)
+     NOIMPORTED   6458 ->  6465   (same delta; none of these is imported)
+     TIERCOMMIT    348 ->   347   (-2 rows closed, +1 opened; pass fixtures
+                                   carry no tier_commit label — 16g measured
+                                   exactly that when ALL moved 6 and TIERCOMMIT
+                                   did not)
+   direct_door population (tests/logos/pass only):
+     corpus 3804 -> 3810 · glob 191 unmoved · nonglob 3613 -> 3619
+   soundness_queue # TOTAL 230 -> 229 (2 closed, 1 opened)
+   ⚠ IF THE CELL ROW DOES NOT MATERIALISE (A_cell measures REFUSED), then
+     ALL 10966 · NOIMPORTED 6464 · TIERCOMMIT 346 · # TOTAL 228.
+
+H. THE GATES
+   queue gate (LOGOS_LIB_DIR set)  PREDICT rc 0
+   L1                              PREDICT rc 1 ON THE FIRST RUN, from
+     logos_00_population_pin_lint, until the direct_door pins are re-derived —
+     that is what the six new pass fixtures do to it, and 16g hit exactly this.
+   L4 bc detached (LOGOS_L4_BG=1)  PREDICT rc 0 in BOTH phases. ⚠ `L4 bc` exits
+     with the WORSE of its two phases and its tail can read green while phase 1
+     is red; both phases' numbers are read separately or the reading is void.
+   full cmake --build                PREDICT rc 0

@@ -1,0 +1,8 @@
+package n01;
+fn t<'a, 'b>(x: &'a i64, y: &'b i64) -> Option<&'b i64> where 'a: 'b { return Option::Some(y); }
+fn f<'p, 'q>(x: &'p i64, y: &'q i64) -> Option<&'q i64> { return t(x, y); }
+fn main() -> i32 {
+    let n = 1i64;
+    let m = 2i64;
+    match f(&n, &m) { Option::Some(r) => { return *r as i32; } Option::None => { return 0i32; } }
+}

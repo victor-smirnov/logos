@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-16h, program row-x06 — caught: this IS the closed
+// soundness-queue row `outlives_call_instantiation` (tier 3, `refuses`). Two
+// callers, both legal Rust, both refused by every binary before this commit:
+// `foo` with two DECLARED caller regions and `bar` with two ELIDED ones (the
+// regression 2026-09-02w exposed when it minted distinct regions for elided
+// params). A `refuses` row closes only when the program compiles AND RUNS, so
+// both shapes are exercised here and the exit code is asserted.
+// legality: MEASURED with rustc 1.98.1 (twin row_outlives_call_instantiation.rs)
+// — accepts, runs exit 0.
+package bc_0916h_row_outlives_call_instantiation_pass;
+fn outlives_dir<'a, 'b>(x: &'a i64, y: &'b i64) -> i32 where 'a: 'b { return (*x + *y) as i32; }
+fn foo<'p, 'q>(p: &'p i64, q: &'q i64) -> i32 { return outlives_dir(p, q); }
+fn bar(k: &i64, m: &i64) -> i32 { return outlives_dir(k, m); }
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    if foo(&a, &b) != 3i32 { return 1i32; }
+    if bar(&a, &b) != 3i32 { return 2i32; }
+    return 0i32;
+}

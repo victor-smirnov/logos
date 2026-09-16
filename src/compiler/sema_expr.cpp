@@ -4424,7 +4424,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
         // B69: caller cross-check of callee's `where 'a: 'b` bounds.
         check_call_outlives(std::string(callee), exact_fi->param_types,
-                            arg_exprs, exact_fi->lifetime_outlives);
+                            arg_exprs, exact_fi->lifetime_outlives, {},
+                            /*first_arg_is_receiver=*/false, exact_fi->ret_type);
 
         track_args_moved(arg_exprs, &exact_fi->param_types);
         // ⚠ THE EXACT-MATCH OVERLOAD PATH IS A THIRD CALL SITE, and the census
@@ -4620,7 +4621,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     auto ipts_ = inst_call_params_(fi.param_types, fi.lifetime_params, arg_exprs,
                                    fi.ret_type);
     if (!has_pack_expand && n_args == fi.param_types.size())
-        check_call_outlives(std::string(callee), fi.param_types, arg_exprs, fi.lifetime_outlives);
+        check_call_outlives(std::string(callee), fi.param_types, arg_exprs, fi.lifetime_outlives, {},
+                            /*first_arg_is_receiver=*/false, fi.ret_type);
     if (has_pack_expand) {
         // Pass through — mono will expand and validate
     } else if (fi.is_vararg) {
@@ -5574,7 +5576,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         if (ta_) check_written_type_wf(ta_, std::format("turbofish type argument of '{}'", callee_diag),
                                        current_outlives_, /*decl_site=*/false);
     check_type_bounds(callee_diag, fi.type_params, type_args);
-    check_call_outlives(callee_diag, fi.param_types, arg_exprs, fi.lifetime_outlives);
+    check_call_outlives(callee_diag, fi.param_types, arg_exprs, fi.lifetime_outlives, {},
+                        /*first_arg_is_receiver=*/false, fi.ret_type);
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
@@ -8514,7 +8517,8 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                         co_all_.push_back(recv);
                         for (auto& a_ : arg_exprs) co_all_.push_back(a_);
                         check_call_outlives(std::string(method_name), m.param_types, co_all_,
-                                            m.lifetime_outlives, {}, /*first_arg_is_receiver=*/true);
+                                            m.lifetime_outlives, {}, /*first_arg_is_receiver=*/true,
+                                            m.ret_type);
                     }
                     for (uint64_t i = 0; i < explicit_args; ++i) {
                         auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
@@ -9210,7 +9214,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     for (auto& a_ : arg_exprs) co_all_.push_back(a_);
                     check_call_outlives(std::string(method_name), chosen_method->param_types, co_all_,
                                         chosen_method->lifetime_outlives, {},
-                                        /*first_arg_is_receiver=*/true);
+                                        /*first_arg_is_receiver=*/true, chosen_method->ret_type);
                 }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
@@ -10746,7 +10750,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             co_all_.push_back(recv);
             for (auto& a_ : arg_exprs) co_all_.push_back(a_);
             check_call_outlives(std::string(mangled), fi.param_types, co_all_,
-                                fi.lifetime_outlives, shown_, /*first_arg_is_receiver=*/true);
+                                fi.lifetime_outlives, shown_, /*first_arg_is_receiver=*/true,
+                                fi.ret_type);
         }
         for (uint64_t i = 0; i < explicit_args; ++i) {
             size_t pi = i + 1;
@@ -17218,7 +17223,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     if (arg_exprs.size() == fi.param_types.size()) {
         const std::string shown_ = resolved_class + "::" + std::string(method_name);
         check_call_outlives(std::string(mangled), fi.param_types, arg_exprs,
-                            fi.lifetime_outlives, shown_);
+                            fi.lifetime_outlives, shown_,
+                            /*first_arg_is_receiver=*/false, fi.ret_type);
     }
     uint64_t n_args = arg_exprs.size();
     if (n_args != fi.param_types.size()) {

@@ -6822,6 +6822,63 @@ private:
         }
         return what;
     }
+    // PROBES 2026-09-16e-cooutretv: does region `r` occur ANYWHERE in `t` at an
+    // INVARIANT position? Everything under a `&mut`'s pointee is invariant, so a
+    // callee region spelt `&mut &'a i64` is rigidly the caller's region and the
+    // caller must prove the bound. The OUTER lifetime of a `&mut` is covariant
+    // (a `&mut` argument is reborrowed), which is why k03 and m01/m02 stay legal.
+    // PROBES 2026-09-16f (hand program n02): a STRUCT PARAMETER CAN CARRY THE
+    // INVARIANCE ITSELF. `Inv<'a> { p: &'a mut &'a i64 }` is invariant in 'a, so
+    // a callee region passed as its lifetime argument is rigidly the caller's
+    // region even at a covariant position and even when it never reaches the
+    // return type. Reading only the `&mut`s spelt in the PARAMETER LIST misses
+    // it — measured: base refuses n02 (rustc REFUSES it too) and the
+    // return-type-plus-&mut reading ADMITS it. Fails CLOSED: an unresolvable
+    // declaration keeps the refusal, which is exactly base's behaviour.
+    bool struct_invariant_in_lifetime_(TypeRef t, size_t idx, int depth) {
+        if (depth > 12) return true;
+        auto* si = get_struct_si(t);
+        if (si == nullptr || idx >= si->lifetime_params.size()) return true;
+        const std::string decl = si->lifetime_params[idx];
+        for (auto& f : si->fields)
+            if (region_invariantly_pinned_(f.type, decl, false, depth + 1)) return true;
+        return false;
+    }
+
+    bool region_invariantly_pinned_(TypeRef t, const std::string& r, bool inv,
+                                    int depth = 0) {
+        if (!t || depth > 24) return false;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+        case K::Ref:
+            if (inv && !t.lifetime().empty() && outlives_norm(t.lifetime()) == r) return true;
+            return region_invariantly_pinned_(t.pointee(), r, inv, depth + 1);
+        case K::MutRef:
+            if (inv && !t.lifetime().empty() && outlives_norm(t.lifetime()) == r) return true;
+            // The POINTEE of a `&mut` is invariant.
+            return region_invariantly_pinned_(t.pointee(), r, true, depth + 1);
+        case K::Tuple:
+            for (auto e : t.tuple_elems())
+                if (region_invariantly_pinned_(e, r, inv, depth + 1)) return true;
+            return false;
+        case K::Slice: case K::Array:
+            return region_invariantly_pinned_(t.elem(), r, inv, depth + 1);
+        case K::Struct: case K::ZonedStruct: case K::Enum: {
+            size_t i_ = 0;
+            for (auto& l : t.lifetime_args()) {
+                if (!l.empty() && outlives_norm(l) == r &&
+                    (inv || struct_invariant_in_lifetime_(t, i_, depth)))
+                    return true;
+                ++i_;
+            }
+            for (auto a : t.type_args())
+                if (region_invariantly_pinned_(a, r, inv, depth + 1)) return true;
+            return false;
+        }
+        default: return false;
+        }
+    }
+
     // B69: caller cross-check of callee's `where 'a: 'b` bounds.
     // Walks param_types parallel to arg_types and extracts a callee→caller
     // lifetime substitution map. For each pair in callee_outlives,
@@ -6834,7 +6891,8 @@ private:
         const std::vector<lir::LExprPtr>& arg_exprs,
         const std::vector<std::pair<std::string, std::string>>& callee_outlives,
         std::string_view callee_display = {},
-        bool first_arg_is_receiver = false) {
+        bool first_arg_is_receiver = false,
+        TypeRef callee_ret = {}) {
         if (callee_outlives.empty()) return;
         // Build callee_lt → caller_lt substitution by walking matched
         // param/arg type pairs.
@@ -6931,6 +6989,37 @@ private:
                     break;
                 }
                 continue;
+            }
+            // PROBES 2026-09-16e-cooutret: a callee region the caller cannot
+            // observe is instantiated AT THE CALL POINT, so a bound between two
+            // such regions is satisfied trivially and B69's demand on the
+            // caller's DECLARED graph is an over-refusal. Only a region PINNED
+            // FROM ABOVE constrains the caller, and the return type is the
+            // carrier this function is never given.
+            // TWO NAMES FOR THE INNER PREDICATE (rule 9): `cooutret` pins on the
+            // SHORT side only — the side the bound constrains from below —
+            // while `cooutretls` pins on EITHER side. m03 / m05 separate them:
+            // both carry the LONG side in the return type and rustc ACCEPTS
+            // both, so the either-side reading is the cruder one.
+            // PROBES 2026-09-16e-cooutretv: the STRICT EXTENSION of `cooutret`.
+            // `cooutret` alone is REFUTED by its own fail-text column — it
+            // un-refuses regions-lifetime-bounds-fn-c and
+            // region-multiple-lifetime-bounds-on-fns-where-clause--b, whose
+            // regions sit behind a `&mut` (an INVARIANT position) and so are
+            // pinned to the caller's regions even though they never reach the
+            // return type. A region is FREE only when every occurrence is
+            // COVARIANT and it is absent from the return type.
+            {
+                std::unordered_set<std::string> retr_;
+                collect_param_regions_(callee_ret, retr_);
+                const auto cs_ = outlives_norm(c_short);
+                bool pinned_ = false;
+                for (auto& r_ : retr_)
+                    if (outlives_norm(r_) == cs_) { pinned_ = true; break; }
+                if (!pinned_)
+                    for (auto& pt_ : callee_param_types)
+                        if (region_invariantly_pinned_(pt_, cs_, false)) { pinned_ = true; break; }
+                if (!pinned_) continue;
             }
             auto it_l = subst.find(outlives_norm(c_long));
             auto it_s = subst.find(outlives_norm(c_short));

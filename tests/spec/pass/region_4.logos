@@ -1,0 +1,40 @@
+// Conformance: region_4 — a callee's `where 'a: 'b` bound at a call site whose
+// SHORT side is NOT pinned from above.
+//
+// This file replaces tests/spec/fail/region_diag_1__callee-bound-at-call, which
+// asserted a REFUSAL of this very program. rustc 1.98.1 --edition 2024 ACCEPTS
+// it (rc 0, zero errors, runs exit 0; twin in
+// src/compiler/probes/2026-09-16h-clausearm/rust/t1_pass.rs), and the clause it
+// was bound to is in NEITHER divergence registry — so it was a plain
+// conformance clause that was wrong about Rust, not a blessed divergence.
+// The refusal half of the rule is locked by the one-token twin
+// tests/spec/fail/region_diag_1__callee-bound-pinned-short-side.logos.
+package region_4;
+
+// `needs` relates two of its OWN regions. The short side 'b occurs only at a
+// COVARIANT argument position and NOT in the return type, so the caller may
+// shorten each argument's region and the callee instantiates 'a := 'b := the
+// call point. No relation between the caller's own 'p and 'q is required.
+fn needs<'a, 'b>(x: &'a i32, y: &'b i32) -> i32 where 'a: 'b { return *x + *y; }
+
+fn caller<'p, 'q>(p: &'p i32, q: &'q i32) -> i32 { return needs(p, q); }
+
+// The same fact with ELIDED caller regions, which are minted as distinct
+// regions and so ask the same question by a different route.
+fn caller_elided(p: &i32, q: &i32) -> i32 { return needs(p, q); }
+
+fn main() -> i32 {
+
+    // @rule region.outlives.callee-bound-checked-at-call
+    // The bound's short side is unpinned, so it is NOT enforced against the
+    // caller's declared graph: both callers compile, and the call actually
+    // reads through both borrows, so a wrong answer would show as an exit code.
+    {
+        let a: i32 = 1i32;
+        let b: i32 = 2i32;
+        if caller(&a, &b) != 3i32 { return 1i32; }
+        if caller_elided(&a, &b) != 3i32 { return 2i32; }
+    }
+
+    return 0i32;
+}

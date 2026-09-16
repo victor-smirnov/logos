@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-16h, program n02 — caught: it REFUTED the arm as
+// first priced. The `cooutretv` predicate read only the `&mut`s spelt in the
+// PARAMETER LIST, and so ADMITTED this illegal program; a STRUCT PARAMETER can
+// carry the invariance itself. `Inv<'a> { p: &'a mut &'a i64 }` is invariant in
+// 'a, so the callee region passed as its lifetime argument is rigidly the
+// caller's region even at a covariant argument position and even though it
+// never reaches the return type — the caller therefore cannot shorten it and
+// `'p: 'q` is genuinely required. This is the ABUSE direction of the arm: it
+// must stay REFUSED.
+// legality: MEASURED with rustc 1.98.1 (twin n02.rs) — REFUSES, rc 1, 2 errors,
+// "lifetime may not live long enough ... argument requires that `'p` must
+// outlive `'q`".
+package bc_0916h_hb_n02_refuse;
+struct Inv<'a> { pub p: &'a mut &'a i64 }
+fn t<'a, 'b>(x: &'a i64, y: Inv<'b>) -> i64 where 'a: 'b { return **y.p; }
+fn f<'p, 'q>(x: &'p i64, y: Inv<'q>) -> i64 { return t(x, y); }
+fn main() -> i32 {
+    let n = 1i64;
+    let mut h: &i64 = &n;
+    let w = Inv { p: &mut h };
+    return f(&n, w) as i32;
+}

@@ -1,0 +1,10 @@
+package n08;
+struct Co<'a> { pub r: &'a i64 }
+fn t<'a, 'b>(x: &'a i64, y: Co<'b>) -> i64 where 'a: 'b { return *x + *y.r; }
+fn f<'p, 'q>(x: &'p i64, y: Co<'q>) -> i64 { return t(x, y); }
+fn main() -> i32 {
+    let n = 1i64;
+    let m = 2i64;
+    let w = Co { r: &m };
+    return f(&n, w) as i32;
+}
