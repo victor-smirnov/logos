@@ -1,0 +1,193 @@
+ROUND 2026-09-16i-arrpath — PRICING ROUND. THE MOVE PATH UNDER AN ARRAY ELEMENT.
+No compiler source was edited. This round CENSUSES, RE-MEASURES and NAMES A BLOCK; it does not fix.
+
+STEP 1, MEASURED
+  HEAD 488a59dc7, tree CLEAN (before this probe dir).
+  build_hash READ: cd3bfceb2938131f 43.
+  # TOTAL: soundness_queue 229 · bc_admits 60 · bc_admits_blocked 8.
+  soundness_queue_gate.sh (hand form, WITH LOGOS_LIB_DIR): rc 0 —
+    "229 open row(s) (tier1=35 tier2=63 tier3=120 tier4=11)", every row still exhibits its
+    recorded wrong behaviour, every shelf program has a row.
+  probe-log-lint.py: 386 records, "every site symbol resolves". I wrote ZERO formal `site:`
+    records this round, so the count is EXPECTED to stand still at 386 and its green attests
+    nothing either way (three measured defects; the prompt's caveat carried, not repeated blindly).
+  CORRECTIONS TO THE PROMPT: none owed on the STEP-1 command — the gate line it gives DOES carry
+    LOGOS_LIB_DIR, and it was checked against the prompt text in front of me, not against the
+    journal. `LOGOS_CENSUS` did take a FILE PATH here, as the prompt says.
+  ⚠ BUILD FRESHNESS, CHECKED NOT ASSUMED. build/bin/logosc is 14:13; HEAD was COMMITTED at 14:37,
+    which looks stale and is not: the two compiled sources HEAD touches (sema_expr.cpp 13:39,
+    sema_impl.hpp 13:41) both PREDATE the binary, and `ninja -C build -n` lists no compile or link
+    step. A commit timestamp is not a build timestamp.
+  ⚠ THE BOX WAS NOT IDLE: load average 21.23 / 36.31 / 33.61 with 4 users at STEP 1 (32 cores).
+    Nothing here is a timing measurement, so no number below is affected, but it is why the
+    saturating columns were run one at a time.
+
+RE-MEASUREMENT OF ALL 35 TIER-1 ROWS ON TODAY'S BINARY (T1_REMEASURE.tsv, T1_VALGRIND.tsv)
+  Compiled + linked + RUN, one process per row, exit code AND stdout read, then valgrind
+  (--leak-check=full) over every row binary.
+  ALL 35 REPRODUCE EXACTLY AS RECORDED. 0 diverge, 0 stopped reproducing, 0 reproduce differently.
+  Every row: cc=0 diag=0 — every tier-1 row still compiles SILENTLY, which is the tier's whole
+  point. The queue gate agrees independently (rc 0, both directions, all 229 rows).
+  Destructor traces read from stdout where the program prints one:
+    field_base_temp_built_before_sibling_run           k=3 seq=216   (rustc 126)
+    operator_operand_owner_after_sibling_exit_leak     r=5 seq=2     (rustc 26)
+    index_place_through_refmut_never_drops_old         n=110
+    fru_temporary_base_unmoved_field_never_dropped_run n=110         (rustc 111)
+    match_array_nested_destructure_elem_double_drop    k=1 n=112     (rustc 12)
+    let_array_pattern_field_base_unbound_elem_leak     k=2 n=2       (rustc 21)
+    foreach_array_rvalue_elements_never_dropped_run    s=11 n=0      (rustc 11)
+    fnptr_field_call_on_temporary_never_dropped_run    n=0           (rustc 1)
+    tuplestruct_door_default_ref_mode_not_carried      drops=2       (rustc 1)
+  Valgrind, quoted, the rows where it says anything at all:
+    weak_local_never_dropped        "definitely lost: 12 bytes in 1 blocks", 1 allocs 0 frees,
+                                    ERROR SUMMARY: 1 errors  — the recorded signature exactly.
+    box_field_move                  2 allocs / 3 FREES, ERROR SUMMARY: 1 errors (the double free).
+    boxed_move_closure_fat_capture_env_overflow   ERROR SUMMARY: 2 errors from 2 contexts.
+    impl_fn_return_stack_env_dangles              ERROR SUMMARY: 4 errors from 4 contexts.
+    closure_owned_dyn_capture / match_expr_array_pattern_segfaults_run /
+    tuple_elem_shared_borrow_through_ref_dangles_run   ERROR SUMMARY: 1 errors each.
+    loop_break_value_array_lit_uninit_drop_run    ERROR SUMMARY: 2 errors from 2 contexts.
+    tuplestruct_door_default_ref_mode_not_carried 4 allocs / 2 frees, 0 errors — a LEAK-shaped
+                                    reading on a row whose defect is a DOUBLE DESTRUCTOR.
+  ⚠ AND 24 OF THE 35 READ "ERROR SUMMARY: 0 errors, 0 allocs, 0 frees" — INCLUDING BOTH TARGET
+    ROWS AND EVERY COUNTER-BASED DROP ROW. Valgrind is blind to this class by construction: a
+    destructor that runs twice over an `i64` counter performs no second free(). 16c proved this on
+    its own ten fixtures; this round re-measured it on the whole tier. THE STDOUT DESTRUCTOR TRACE
+    IS THE ENTIRE ORACLE HERE, and rc cannot tell a leak from a double free either.
+
+THE BLOCK (TARGET_ROWS.txt, written BEFORE any compiler edit — none was made)
+  T1  match_array_nested_destructure_elem_double_drop   tier 1  run 1   n=112, rustc 12
+  T2  let_array_pattern_field_base_unbound_elem_leak    tier 1  run 1   n=2,   rustc 21
+  WHY: round 2026-09-16c (b513126ea) landed the CONSUMER of a per-element move path — gen_drop_value's
+  K::Array branch splits skip_paths per index and SDrop's K::Array branch forwards the var's moved set.
+  Before it, an array was the one aggregate whose scope-exit drop could not skip a moved child, so no
+  per-element mark was EXPRESSIBLE and the door was in SERIES (rule 2). THAT DOOR IS NOW OPEN and was
+  opened for the match door only. Both targets are the same fact at the two ends left over: the PATH a
+  pattern door records for a moved array element. T1 needs `<base>.<i>.<field>`; T2 needs the per-index
+  paths the match door already computes.
+  THE CONSUMER FOR BOTH ALREADY EXISTS, READ AND QUOTED: mlir_gen_stmt.cpp:1476 —
+  "moved entries are FULL dotted paths ('i' or 'i.s')" — and split_skip_paths recurses, so `arr.0.a`
+  is honoured by the drop walk TODAY. Neither target is blocked on a missing consumer.
+
+ARRIVAL CENSUS, BY THE EXISTING BUCKET, ZERO COMPILER EDITS (census/, LOGOS_CENSUS=<path>)
+  THE TWO TARGETS HAVE DIFFERENT KINDS OF ZERO, AND THAT IS THE ROUND'S MAIN STRUCTURAL FINDING:
+    T1  armelem.slice.door  FIRES 1 · patdecl.arrive.Slice 1 → a SHORT-CIRCUITED GATE. The site is
+        REACHED and the per-index loop runs; it declines because `binds_by_value` requires a plain
+        named binder (sema_stmt.cpp:9216-9220) and the sub-pattern is a PAT_STRUCT. The fact arrives;
+        the predicate refuses it.
+    T2  armelem.slice.door  ABSENT, patdecl.arrive.Slice ABSENT → an UNREACHED SITE. The `let` array
+        destructure is a wholly different path (lower_let_pat, sema_stmt.cpp:1583-1634) that never
+        calls mark_match_scrutinee_moved at all.
+    control m05 (`match arr { [_, y] }`, the spelling 16c fixed): armelem.slice.door fires 1 and the
+        program is CORRECT — the bucket discriminates.
+  T2's DECISION SITE, READ: sema_stmt.cpp:1591 `if (rhs) mark_moved_expr(expr_ref_of(rhs));` marks the
+  WHOLE source place moved, and :1598 `mark_moved(tmp)` suppresses the spill temp's drop. So BOTH
+  owners of the unbound elements are silenced and nothing destroys them. The repair shape is the twin
+  of the match door's: mark `tmp.<j>` / `<src>.<j>` per BOUND index only.
+
+THE GROUPING TEST THE STANDING RULE OWES — ANSWERED HONESTLY, AND IT IS A SPLIT
+  Does ONE candidate change move BOTH? By census and by reading: NO, not one SITE — T1 is a predicate
+  at sema_stmt.cpp:9216 that is reached and declines; T2 is a separate door 7600 lines away that is
+  never reached. They are ONE FACT and ONE CONSUMER but TWO DOORS. A single shared recursive
+  path-computing helper CALLED AT BOTH is the arm worth building, and whether it moves both is a
+  MEASUREMENT the funding round must make, not a claim this one may hand down. Recorded as a
+  hypothesis, per rule 17 — including when it comes from me.
+
+HAND BATTERY, THE PLAINEST SPELLINGS FIRST, EVERY ONE AGAINST A MEASURED rustc 1.98.1 TWIN
+  (BATTERY.tsv; battery/*.logos; rust/*.rs; rustc --edition 2024 -O, compiled AND RUN.)
+  id   spelling                                    logos        rustc     verdict
+  m05  match [_, y]            plain elem          k=2 n=21     n=21      CORRECT (16c; inherited)
+  m04  match [w]               whole struct elem   k=1 n=12     n=12      CORRECT (inherited)
+  x02  let [a, b]              all bound           k=3 n=21     n=21      CORRECT (inherited)
+  m01  match [W{a:x,b:_}]      = ROW T1            k=1 n=112    n=12      DOUBLE DROP (row repro)
+  x03  let [_, y] = s.arr      = ROW T2            k=2 n=2      n=21      LEAK (row repro)
+  m02  match [W{a:x,b:z}]      BOTH fields bound   k=3 n=2112   n=21      *** NEW, UNROWED ***
+  m03  match [_, W{a:x,b:_}]   nested at index 1   k=3 n=31234  n=3412    *** NEW, UNROWED ***
+  x01  let [_, y] = arr        LOCAL array         k=2 n=2      n=21      *** NEW, UNROWED ***
+  x05  let [_, y, _] over 3    two unbound         k=2 n=2      n=231     *** NEW, UNROWED ***
+  x04  let [W{a:x,b:_}] = arr  nested under LET    REFUSED      n=12      *** NEW OVER-REFUSAL ***
+  t01  match (W{a:x,b:_}, _)   tuple + nested sub  REFUSED      n=12      already rowed
+                                                   (match_tuple_door_nested_struct_binds_nothing)
+  ⚠ RULE 5 BIT AGAIN, AND THROUGH THE ROW HEADERS THIS TIME. The queue rows the prompt and the 16c
+    record name are the FIELD spelling (x03) and the len-1 nested spelling (m01). The PLAINEST
+    spellings of both — `let [_, y] = arr` over a plain LOCAL array (x01), and the nested destructure
+    with BOTH fields bound (m02) — are broken too, and x02/x05 show the leak GROWS with the number of
+    unbound elements (n=2 where rustc gives 231: TWO elements lost, not one). Nobody had written them.
+    A spelling named in a row is the least likely to be the broken one, because somebody already looked.
+  x04's DIAGNOSTIC, READ (not an exit code): "let array pattern: only plain identifier bindings are
+    supported at element 0 (got non-PAT_WILD)", then a CASCADE — "undefined variable 'x'" and
+    "field read: receiver is not a struct (got <error>)". rustc compiles and runs it: n=12. So the LET
+    door does not merely mis-mark a nested sub-pattern, it cannot PARSE one — T2's door is one step
+    behind T1's, and any arm that teaches it per-index paths must decide whether to admit x04 at all.
+  VALGRIND OVER EVERY LEGAL BATTERY BINARY: all nine read "ERROR SUMMARY: 0 errors from 0 contexts",
+    1 allocs / 1 frees (that one is printf's buffer). Including m02, whose destructor runs FOUR times
+    on two values. The column is quoted here precisely because it is EMPTY on this class.
+
+WHAT DESERVES FUNDING (for the next round; this one prices and does not fix)
+  1. The shared per-leaf path helper called at BOTH doors, priced as ONE arm and then DECOMPOSED
+     (additivity is not assumed — rule 13): T1's half is a strict relaxation of `binds_by_value` at a
+     site that already fires, plus emitting `<base>.<i>.<field>` for each moved leaf of a nested sub;
+     T2's half is the per-index mark at lower_let_pat, replacing the whole-source `mark_moved_expr`.
+  2. The direction that condemns an arm is already MEASURED and must be in the table: too COARSE
+     LEAKS (x01/x03/x05, and 16c's nine), too WIDE DOUBLE-FREES (m01/m02/m03). Both are invisible to
+     rc, to valgrind, to ceiling-probe and to fail_text. The stdout trace against the rustc twin, in
+     BOTH directions, is the only admissible oracle, and `ceiling-probe.sh` CANNOT SEE A QUEUE ROW at
+     all (it deltas logos_00_bc_admit_* and two -L selections; no logos_00_squeue_* matches).
+  3. The four new defects above are OWED ROWS. They are not fixtures: the standing rule sends a hand
+     program whose verdict is still WRONG on the committed binary to the queue, not to tests/logos/.
+     This pricing round did NOT open them — opening four rows moves `# TOTAL`, the census REGISTRY-*
+     pins and the direct_door pins, three pin sets held by three different gates that 16c needed three
+     L1 runs to land — and doing that inside a round that fixes nothing would spend the landing round's
+     budget for it. They are reported with their numbers so the funding round rows them in the commit
+     that closes their class. NAMED, so the next round cannot mistake this for a complete list:
+       let_array_pattern_local_unbound_elem_leak        (x01, n=2 / rustc 21)
+       let_array_pattern_two_unbound_elems_leak         (x05, n=2 / rustc 231)
+       match_array_nested_destructure_all_fields_bound_double_drop (m02, n=2112 / rustc 21)
+       match_array_nested_destructure_at_index_double_drop         (m03, n=31234 / rustc 3412)
+       let_array_pattern_nested_subpattern_refused                 (x04, refused / rustc 12, tier 3)
+
+NEIGHBOUR TABLE (the standing rule; this round CLOSES nothing, so every entry is a reason + a number)
+  neighbour                                    verdict  reason + the number that decides it
+  -------------------------------------------- -------- --------------------------------------------
+  T1 match_array_nested_destructure_elem_dd     TARGET   reached, gate short-circuits: armelem.slice.
+                                                        door fires 1, binds_by_value declines a
+                                                        PAT_STRUCT sub. n=112 / rustc 12.
+  T2 let_array_pattern_field_base_unbound_leak  TARGET   site unreached: armelem.slice.door ABSENT;
+                                                        its own door marks the whole source (:1591).
+                                                        n=2 / rustc 21.
+  x01 x05 m02 m03 (new)                         ROWS     Reason 3 for none of them — they are the SAME
+                                                OWED     fact as T1/T2 and should CLOSE WITH THEM; they
+                                                        are unrowed only because nobody wrote the
+                                                        plainest spelling. Numbers above.
+  x04 let nested sub-pattern refused (new)      ROWED    Reason 1, no carrier: the LET door REFUSES the
+                                                tier 3   shape before any move mark exists to be wrong
+                                                        ("only plain identifier bindings", :1626).
+  match_array_field_place_verifier_error_refused ROWED   Reason 1, unchanged: an MLIR verifier error on
+                                                (tier 3) the array-typed PLACE BASE, which fails before
+                                                        any move mark is consulted (16c, re-checked:
+                                                        still reproduces, queue gate rc 0).
+  foreach_array_rvalue_elements_never_dropped   ROWED    Reason 1 (16c/15g): no carrier in
+                                                (tier 1) lower_for_each's array path. n=0 / rustc 11.
+                                                        ⚠ IT OWNS A COMPILER SCAFFOLD to delete when
+                                                        it closes (lower_arr_lit's in_foreach_iterable_).
+  match_expr_array_pattern_segfaults_run        ROWED    Reason 1: rc 139, valgrind 1 error — it
+  loop_break_value_array_lit_uninit_drop_run    (tier 1) segfaults BEFORE drop accounting happens;
+                                                        measured unmoved by 16b/16c's arms.
+  at_binding_array_sub_verifier_error_refused   ROWED    Reason 1, tier 3: the At door, measured by 16c
+                                                        as a different fact (pattern_moves_out's At arm
+                                                        already returns true).
+
+INSTRUMENT NOTES, BOTH WAYS
+  * The queue gate's HAND form needs LOGOS_LIB_DIR or it self-reports "GATE BROKEN" rc 4; supplied, and
+    the canary line printed, so the reader is proven for all 229 verdicts.
+  * My own error, recorded: the first verdict-diff call embedded a stray `awk` reading /dev/stdin and
+    blocked forever, and its output file was EMPTY. An empty output is not a zero — it was re-run.
+  * probe-log-lint 386 before and after; zero records written, so it attests nothing. Not cited as
+    evidence, not repaired (tooling frozen).
+  * tools/dlog was NOT used, and the honest reason is that this round's question was answered by a
+    CENSUS COUNTER on a running compiler, which separated a short-circuited gate from an unreached site
+    directly — the one thing a static rule could not have told me, and the recorded ctx_of coarsening
+    has twice given a confidently wrong answer on exactly this kind of per-site question. The question
+    dlog SHOULD be asked by the funding round is a real one and is named here:
+    "enumerate every site that computes a move PATH for a pattern binding, and say which of them can
+    emit more than one segment" — a question about the C++ TU, which is dlog's case.

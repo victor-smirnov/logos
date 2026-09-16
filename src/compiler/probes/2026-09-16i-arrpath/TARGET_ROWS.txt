@@ -1,0 +1,58 @@
+ROUND 2026-09-16i-arrpath — TARGET ROWS, WRITTEN BEFORE ANY COMPILER EDIT
+Base binary build_hash: cd3bfceb2938131f 43 (READ from scripts/build_hash.py).
+Tree: 488a59dc7, clean. Queue gate rc 0, 229 rows (tier1=35 tier2=63 tier3=120 tier4=11).
+
+THE BLOCK: THE MOVE PATH UNDER AN ARRAY ELEMENT IS NOT COMPUTED AT EITHER PATTERN DOOR.
+
+TARGET ROWS, BY ID
+  T1  match_array_nested_destructure_elem_double_drop   tier 1  run 1   (n=112, rustc 12)
+  T2  let_array_pattern_field_base_unbound_elem_leak    tier 1  run 1   (n=2,   rustc 21)
+
+WHY THIS BLOCK (the next round inherits this reasoning)
+  Round 2026-09-16c-armelem (b513126ea) landed the CONSUMER of a per-element move path:
+  MLIRGenImpl::gen_drop_value's K::Array branch now splits skip_paths per index
+  (mlir_gen_stmt.cpp:1204) and the SDrop K::Array branch forwards the var's moved set
+  (mlir_gen_stmt.cpp:1556+). Before that commit an array was the ONE aggregate whose
+  scope-exit drop could not skip a moved child, so NO per-element mark was expressible —
+  the door was in SERIES behind a missing consumer (rule 2). THAT DOOR IS NOW OPEN, and
+  it was opened for the match door only.
+  Both target rows are the SAME FACT at the two ends that were left: the path a pattern
+  door records for a moved array element.
+    T1 — the match door computes a WHOLE-ELEMENT path `<base>.<i>` and only for a plain
+         named binder, so a nested sub-pattern records nothing at all and the array's
+         scope-exit drop destroys the moved-out field again. It needs `<base>.<i>.<field>`.
+    T2 — the let door (SemaChecker::lower_let_pat's array path) records a WHOLE-FIELD mark
+         `s.arr`, so the container's drop skips the array entirely and the elements the
+         pattern does not bind are never destroyed. It needs the same per-index paths the
+         match door already computes.
+  In both the DEFECT IS THE PATH'S SHAPE, not the presence of a mark, and in both the
+  consumer already understands the path that is missing: split_skip_paths recurses, so
+  `arr.0.a` is honoured by the drop walk today (to be MEASURED, not assumed — see below).
+
+THE GROUPING TEST THIS ROUND OWES (the standing neighbour rule)
+  Does ONE candidate change move BOTH? The candidate is a single recursive path
+  computation in the pattern-door mark (sema_stmt.cpp mark_match_scrutinee_moved and its
+  let twin) that descends a Slice sub-pattern and emits the full path of each MOVED leaf,
+  instead of stopping at the element (T1) or at the whole source (T2). If one arm moves
+  both, they are one class and close in one commit. If not, each is rowed with ONE of the
+  three named reasons and the number that decides it.
+
+THE DIRECTION THAT CONDEMNS AN ARM (measured precedent, not a worry)
+  2026-09-16c MEASURED that a COARSER mark at this door is not merely imprecise — it
+  LEAKS: its runner-up `slicemvn` marked the whole array and nine legal programs leaked
+  silently at rc 0. A path that is too COARSE leaks (T2's defect today); a path that is
+  too WIDE double-frees (T1's defect today). So every arm here is priced on the stdout
+  DESTRUCTOR TRACE against a rustc twin, in both directions, and rc is not admissible:
+  valgrind is blind to a double destructor over a counter (16c proved this on its own ten
+  fixtures) and no compile-rc column sees any of it.
+
+NEIGHBOURS TO CENSUS (verdict owed per the standing rule: closed here, or ONE reason + number)
+  match_array_field_place_verifier_error_refused  tier 3  (`match s.arr` — mlir-gen place base)
+  foreach_array_rvalue_elements_never_dropped_run tier 1  (owns a compiler SCAFFOLD to delete)
+  match_expr_array_pattern_segfaults_run          tier 1  run 139
+  loop_break_value_array_lit_uninit_drop_run      tier 1  run 139
+  at_binding_array_sub_verifier_error_refused     tier 3
+  and the plainest spellings NOT rowed by anyone, to be written first and measured before
+  any grouping is trusted: `let [_, y] = arr;` over a LOCAL array; the nested-destructure
+  element under a LET; a TUPLE element with a nested struct sub; `let [_, y] = s.arr` where
+  the container is later used; and the legal programs each arm must not refuse.

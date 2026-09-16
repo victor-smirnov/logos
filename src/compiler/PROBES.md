@@ -47376,3 +47376,37 @@ note: `region_invariantly_pinned_` guards its struct arm with `if (inv)`, and a 
 ⚠ THE ROW HEADER'S DIAGNOSIS WAS INCOMPLETE, NOT WRONG: it named the return type as the carrier.
   The return type is NECESSARY BUT NOT SUFFICIENT — n02 is refused by rustc with the short side
   nowhere in the return type.
+
+## 2026-09-16i-arrpath — THE MOVE PATH UNDER AN ARRAY ELEMENT IS NOT COMPUTED AT EITHER PATTERN DOOR, AND THE TWO ROWS ARE ONE FACT WITH ONE ALREADY-LANDED CONSUMER BUT TWO DOORS — ONE REACHED AND DECLINING, ONE NEVER REACHED
+site: src/compiler/sema_stmt.cpp::SemaChecker::mark_match_scrutinee_moved
+build: cd3bfceb2938131f 43
+measured: 2026-09-16
+fires: armelem.slice.door 1 on match_array_nested_destructure_elem_double_drop (the site IS reached
+  and `binds_by_value` declines a PAT_STRUCT sub — a SHORT-CIRCUITED GATE, kind 2) and 1 on the
+  control m05 which is CORRECT; ABSENT on let_array_pattern_field_base_unbound_elem_leak, whose
+  door is SemaChecker::lower_let_pat and never calls this function at all (an UNREACHED SITE,
+  kind 1). Two rows, two different kinds of zero, measured with LOGOS_CENSUS on one binary.
+ceiling: 2 tier-1 queue rows targeted, 0 closed — THIS ROUND PRICES AND DOES NOT FIX. ⚠ and
+  `ceiling-probe.sh` CANNOT SEE A QUEUE ROW: it deltas logos_00_bc_admit_* and two -L selections,
+  none of which matches logos_00_squeue_*.
+cost: no compiler source was edited, so there is no cost column to report and none is claimed.
+verdict: NOT FIXED — PRICED AND HANDED ON, with the grouping test answered as a SPLIT: one fact
+  (the path a pattern door records for a moved array element), one consumer that ALREADY EXISTS
+  (mlir_gen_stmt.cpp:1476 "moved entries are FULL dotted paths ('i' or 'i.s')", split_skip_paths
+  recurses, so `arr.0.a` is honoured today), but TWO doors 7600 lines apart. The arm worth building
+  is a shared per-leaf path helper called at both; whether it moves both is a MEASUREMENT the
+  funding round owes and this one may not hand down.
+note: 11 hand programs, every one against a RUN rustc 1.98.1 twin, found FOUR defects nobody had
+  rowed — and all four are PLAINER spellings than the rows: `let [_, y] = arr` over a plain local
+  array leaks (n=2 / rustc 21), `let [_, y, _]` over three leaks TWO elements (n=2 / rustc 231),
+  the nested destructure with BOTH fields bound double-drops both (n=2112 / rustc 21), and the same
+  at index 1 of 2 reads n=31234 where rustc gives 3412. A fifth is an OVER-REFUSAL: the LET door
+  cannot parse a nested sub-pattern at all ("only plain identifier bindings are supported at
+  element 0"), a program rustc compiles and runs. Rule 5, through the row headers this time — the
+  spellings the rows and the prompt name are the ones somebody already looked at.
+⚠ VALGRIND IS EMPTY ON THIS WHOLE CLASS AND THE WHOLE TIER WAS RE-MEASURED TO SAY SO: 24 of the 35
+  tier-1 rows read "ERROR SUMMARY: 0 errors, 0 allocs, 0 frees", both target rows included, as do
+  all nine legal battery binaries — including one whose destructor runs FOUR times on two values. A
+  destructor that runs twice over an i64 counter performs no second free(). The stdout destructor
+  trace against a rustc twin is the entire oracle, in BOTH directions: too coarse LEAKS, too wide
+  DOUBLE-FREES, and rc distinguishes neither.
