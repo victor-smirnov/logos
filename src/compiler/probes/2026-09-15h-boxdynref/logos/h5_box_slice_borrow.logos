@@ -1,0 +1,9 @@
+package p;
+use logos.mem.boxed;
+fn use_sl(s: &[i64]) -> i64 { return s.len(); }
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let b: Box<[i64]> = &a as Box<[i64]>;
+    if use_sl(&b) != 3i64 { return 3i32; }
+    return 0i32;
+}

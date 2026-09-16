@@ -1,0 +1,13 @@
+package p;
+use logos.mem.boxed;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn use_ref(r: &dyn Sp) -> i64 { return r.v(); }
+fn use_mut(r: &mut dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let mut b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if use_mut(&mut b) != 42i64 { return 3i32; }
+    return 0i32;
+}

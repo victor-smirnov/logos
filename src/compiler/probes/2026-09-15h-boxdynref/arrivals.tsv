@@ -1,0 +1,6 @@
+tests/logos/pass/box_dst_owning.logos	boxdyn.arm.owning_dst	1
+tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop.logos	boxdyn.arm.owning_trait_object	1
+tests/logos/pass/box_slice_deref.logos	boxdyn.arm.owning_slice	1
+tests/spec/pass/coerce_4.logos	boxdyn.arm.owning_slice	2
+tests/spec/pass/coerce_box_dyn.logos	boxdyn.arm.owning_trait_object	1
+tests/spec/pass/layout_5.logos	boxdyn.arm.owning_slice	1

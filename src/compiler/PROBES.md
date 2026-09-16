@@ -46402,3 +46402,81 @@ verdict: LANDED. ⚠ ONE SCAFFOLD IS IN THE TREE AND IT HAS AN OWNER: the elemen
   are NOT marked consumed (row foreach_array_rvalue_elements_never_dropped_run) — the exception and its carrier are deleted with that row,
   and the site says so. Control revert on the base binary bc9467fd8056f9ba: all 23 new fixtures do the WRONG thing (20 wrong exit / stdout,
   2 refused by the backend, and both fail fixtures COMPILE — base admits what is now refused).
+
+# ═══ ROUND 2026-09-15h-boxdynref (PRICING) — `&Box<dyn Tr>` -> `&dyn Tr`: THE REFUSAL IS RIGHT AND IT IS BLOCKED,
+#     BECAUSE THE ONLY LEGAL SPELLING `&*b` IS ITSELF BROKEN IN EVERY SHAPE ══════
+Files: `src/compiler/probes/2026-09-15h-boxdynref/` — rust/ (14 rustc 1.98.1 twins, compiled AND run), logos/ (22 hand programs),
+census_drive.sh + arrivals.tsv (the arrival census at the three owning arms).
+
+## boxdynref (census only — no arm was armed; the refusal was NOT implemented, see verdict)
+site: src/compiler/sema_expr.cpp::lower_unary, the `&`/VAR_REF handler's three owning arms
+(owning_slice ~L3429, owning_dst ~L3435, owning_trait_object ~L3448 — the last is the decision site the ruling names)
+build: base d8d756468efca2d6 43 (L1 unarmed rc 0, 808/808); census binary built in build-census0915 from the same sources + 3 `probe::census`
+calls, PROVEN INERT: all 22 hand programs give byte-identical rc on base and armed.
+measured: 2026-09-15
+STEP 1: queue 220 rows (gate rc 0, with LOGOS_LIB_DIR), bc_admits 60, bc_admits_blocked 8, probe-log-lint 373 records, tree clean.
+dlog: `selftest.sh` PASSES (28fc7c75: 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty discriminates 1 -> 0). The class was
+  enumerated BY PROPERTY with the EXISTING rule `ownfact_reads.dl`, whose own header names this exact disagreement (the name-keyed
+  `VarInfo::owning_dyn` vs the type-keyed `TypeRef::owning_trait_object()`, which "disagree exactly where a deref-coercion re-types a borrow
+  of an owning `Box<dyn Tr>`"). 11 type-keyed reader contexts, `lower_unary` sema_expr.cpp:3453 among them; 3 name-keyed, 1 UNCROSSCHECKED
+  (`lookup_owning_dyn`, sema_impl.hpp:5078). No new rule was written — the question already had one.
+
+RUSTC 1.98.1 --edition 2024, EVERY spelling MEASURED (compiled and, where accepted, RUN):
+  `use_ref(&b)` Box<dyn>  -> &dyn      E0277 `Box<dyn Sp>: Sp` not satisfied, "required for the cast from `&Box<dyn Sp>` to `&dyn Sp`"
+  `use_mut(&mut b)`       -> &mut dyn  E0277, same bound, cast from `&mut Box<dyn Sp>`
+  `let r: &dyn Sp = &b;`               E0277 (SAME sentence — the let shape is not a different rule)
+  `H { r: &b }` struct field           E0277 (same)
+  `&b as &dyn Sp` cast                 E0277 (same)
+  `use_ref(&r)` Rc<dyn>   -> &dyn      E0277 `Rc<dyn Sp>: Sp` not satisfied
+  `use_ref(&*b)`                       COMPILES, RUNS 0        <- THE ONLY LEGAL SPELLING
+  `use_mut(&mut *b)`                   COMPILES, RUNS 0        <- THE ONLY LEGAL SPELLING
+  `use_ref(&**b)`                      E0614 `dyn Sp` cannot be dereferenced   <- there is NO second spelling
+  `use_mut(&mut **b)`                  E0614 (same)
+  `fn takes_boxref(b: &Box<dyn Sp>)` called `takes_boxref(&b)`  COMPILES, RUNS 0
+  `fn get(b: &Box<dyn Sp>) -> &dyn Sp { &**b }`                 COMPILES, RUNS 0
+  `b.v()` method receiver on the box   COMPILES, RUNS 0
+  `&Box<S>` custom DST -> `&S`, and `&Box<[i64]>` -> `&[i64]`   COMPILE, RUN 0   <- the halves that must stay
+
+LOGOSC d8d756468efca2d6, the same shapes:
+  ADMITTED (rustc E0277 — the over-admission, 4 shapes, ALL through the ONE owning_trait_object arm):
+    `use_ref(&b)` arg · `let r: &dyn Sp = &b` · `H { r: &b }` field · `&b as &dyn Sp` cast — all compile AND RUN exit 0.
+  REFUSED WITH A BACKEND INTERNAL ERROR (`mlir_gen: internal: no vtable for '&dyn Sp' as '&dyn Sp'`):
+    `use_mut(&mut b)` (queue row boxdyn_mutborrow_arg_no_vtable, tier 4) · `use_ref(&r)` Rc (row rcdyn_borrow_arg_no_vtable, tier 4)
+    · `use_mut(&mut *b)` (row boxdyn_mut_explicit_deref_arg_no_vtable, tier 3)
+    · `use_ref(&*b)` — **NOT A ROW. The SHARED explicit deref over a Box is equally broken and nothing records it.**
+    · `use_ref(&**b)` and `use_mut(&mut **b)` — same internal error (and these are E0614 in rustc anyway).
+  REFUSED AT SEMA, `&&dyn`: `let r: &dyn Sp = &*b` and `H { r: &*b }` both "expected &dyn Sp, got &&dyn Sp".
+  ROOT, MEASURED: `*b` over an owning `Box<dyn Tr>` is already typed `&dyn Sp` (hand program k3 prints it), so `&*b` is `&&dyn Sp`.
+    The arg shape does not diagnose that — it carries the extra indirection to mlir_gen, which self-diagnoses. ONE defect, three faces.
+  LEGAL-RUST-REFUSED, NEW: `fn takes_boxref(b: &Box<dyn Sp>)` CANNOT be called as `takes_boxref(&b)` —
+    "expected &&dyn Sp, got &dyn Sp", because the arm re-types `&b` unconditionally, without consulting the slot. rustc compiles and runs it.
+  UNCHANGED CONTROLS: `&*r` over Rc<dyn> compiles and runs (Rc is a Struct with a real deref — a DIFFERENT carrier);
+    `b.v()` receiver ok; `&Box<Buf>` custom DST and `&Box<[i64]>` owning slice compile and run.
+
+ARRIVAL CENSUS (armed binary, all 3769 pass + 1606 fail + 114 spec fixtures compiled under LOGOS_CENSUS):
+  owning_trait_object arm: 2 FILES, 2 hits — tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop, tests/spec/pass/coerce_box_dyn.
+  owning_dst arm: 1 file (tests/logos/pass/box_dst_owning) · owning_slice arm: 3 files / 4 hits
+    (tests/logos/pass/box_slice_deref, tests/spec/pass/coerce_4 (2), tests/spec/pass/layout_5).
+  STDLIB: 0 — no stdlib source carries a `&`/`&mut` of a `Box`/`Rc`/`Arc<dyn>` local at all.
+  ⚠ THE PREDICTION WAS REFUTED 78 TO 2, AND BY THE FAILURE MODE THE STANDING RULE NAMES. A grep for "a local declared
+  `Box|Rc|Arc<dyn>` that is also borrowed by name" predicted 80 fixtures (the whole memoria / ctr / deem `&snap` family). The census
+  measured 2 — both in the prediction, 0 outside it, 78 false positives. A grep-defined class certified what it could not see:
+  those `&snap` operands never reach the arm. The cost of the refusal is TWO FILES, and the two the owner already named.
+
+cost of the refusal (PREDICTED BY NAME, then diffed both ways): pass 1 (boxdyn_borrow_arg_keeps_box_drop) + spec 1 (coerce_box_dyn),
+  stdlib 0, runtime 0 beyond those two, and NOTHING ELSE IN 5489 FIXTURES. Both are the fixtures the ruling already orders rewritten to `&*b`.
+verdict: THE REFUSAL IS CORRECT, CHEAP AND NOT YET LANDABLE — DOORS IN SERIES, AND THE DOOR UPSTREAM IS NOT THE ONE THE PROMPT NAMED.
+  The ruling's own condition (3) is that `&*b` and `&mut *b` must compile and run. MEASURED: on this binary NEITHER does over a `Box<dyn>`.
+  The queue records only the `&mut *b` half (boxdyn_mut_explicit_deref_arg_no_vtable) and its header cites the SHARED deref over an **Rc**
+  as the control that works — a control that does not cover Box, which is why the shared Box half was never opened. Refusing `&b` today
+  would leave `Box<dyn Tr>` -> `&dyn Tr` UNWRITABLE: `&b` refused, `&*b` broken, `&**b` illegal in Rust (E0614). Fund the `*b`-over-owning-
+  trait-object repair FIRST (one root: `*b` yields `&dyn` instead of the unsized place, so `&*b` becomes `&&dyn`); the refusal is a small,
+  well-priced change to land on top of it, and it closes 4 admitting shapes at ONE site because the arm never consults the slot.
+ROWS THIS ROUND MEASURED AND DID NOT ADD (pricing round; the landing round adds them, with these measurements):
+  1. `boxdyn_shared_explicit_deref_arg_no_vtable` (tier 3, refuses) — `use_ref(&*b)`, `Box<dyn>`, backend internal error; rustc runs it 0.
+     The exact shared twin of the existing tier-3 row, and the blocker for the whole ruling.
+  2. `boxdyn_shared_deref_let_and_field_say_double_ref` (tier 3, refuses) — `let r: &dyn Sp = &*b` / `H { r: &*b }`, "got &&dyn Sp".
+     Same root as 1; kept separate only because the sentence differs (sema, not backend).
+  3. `boxref_param_cannot_take_amp_box_local` (tier 3, refuses) — `fn f(b: &Box<dyn Sp>)` called `f(&b)`, "expected &&dyn Sp, got &dyn Sp".
+     rustc compiles and runs it 0. Caused by the SAME arm the refusal will change, and it is the reason the refusal cannot simply DELETE
+     the arm: `&Box<dyn Tr>` must stay expressible while `&dyn Tr` stops being what `&b` means.

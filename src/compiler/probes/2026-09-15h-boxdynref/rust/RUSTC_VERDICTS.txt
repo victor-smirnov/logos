@@ -1,0 +1,64 @@
+===== t1_box_shared_borrow
+error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied
+ --> t1_box_shared_borrow.rs:7:24
+  |
+7 |     assert_eq!(use_ref(&b), 42);
+  |                        ^^ the trait `Sp` is not implemented for `Box<dyn Sp>`
+  |
+===== t2_box_mut_borrow
+error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied
+ --> t2_box_mut_borrow.rs:7:24
+  |
+7 |     assert_eq!(use_mut(&mut b), 42);
+  |                        ^^^^^^ the trait `Sp` is not implemented for `Box<dyn Sp>`
+  |
+===== t3_box_shared_deref
+===== t4_box_mut_deref
+===== t5_rc_shared_borrow
+error[E0277]: the trait bound `Rc<dyn Sp>: Sp` is not satisfied
+ --> t5_rc_shared_borrow.rs:8:24
+  |
+8 |     assert_eq!(use_ref(&r), 42);
+  |                        ^^ the trait `Sp` is not implemented for `Rc<dyn Sp>`
+  |
+===== t6_rc_shared_deref
+===== t7_box_customdst_borrow
+===== t8_box_slice_borrow
+===== u1_boxref_param
+===== u2_let_annot
+error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied
+ --> u2_let_annot.rs:6:22
+  |
+6 |     let r: &dyn Sp = &b;
+  |                      ^^ the trait `Sp` is not implemented for `Box<dyn Sp>`
+  |
+===== u3_struct_field
+error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied
+ --> u3_struct_field.rs:7:20
+  |
+7 |     let h = H { r: &b };
+  |                    ^^ the trait `Sp` is not implemented for `Box<dyn Sp>`
+  |
+===== u4_cast
+error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied
+ --> u4_cast.rs:6:22
+  |
+6 |     let r: &dyn Sp = &b as &dyn Sp;
+  |                      ^^ the trait `Sp` is not implemented for `Box<dyn Sp>`
+  |
+===== u5_return_deref
+===== u6_method_recv
+===== w1_double_deref_arg
+error[E0614]: type `dyn Sp` cannot be dereferenced
+ --> w1_double_deref_arg.rs:7:25
+  |
+7 |     assert_eq!(use_ref(&**b), 42);
+  |                         ^^^ can't be dereferenced
+
+===== w2_double_deref_mut
+error[E0614]: type `dyn Sp` cannot be dereferenced
+ --> w2_double_deref_mut.rs:7:29
+  |
+7 |     assert_eq!(use_mut(&mut **b), 42);
+  |                             ^^^ can't be dereferenced
+
