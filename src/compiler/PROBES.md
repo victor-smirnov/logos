@@ -47518,3 +47518,63 @@ note: ⚠ I REJECTED THE PRICING ROUND'S RECOMMENDED FORM FOR THIS SITE, IN WRIT
   FORMS APART: in x01 and x03 the source is a local whose own drop cancels the error. The separating
   shapes are y11/y12/y13, written for this round (A2ALT_PATCH.txt holds the alternative as an exact,
   applicable patch so the claim stays checkable).
+
+## 2026-09-16k-reftype — THE TYPE-POSITION `&` POINTEE IS A CLOSED LIST, NOT A RECURSION: ONE GRAMMAR LINE PRICES THREE TIER-3 ROWS AT ZERO IN EVERY HARNESS COLUMN AND STILL MUST NOT LAND, BECAUSE THE ARM TURNS A PARSE REFUSAL INTO A SEGFAULTING BINARY AND ADMITS A PROGRAM rustc REFUSES
+
+site: tools/peg_gen_cpp/grammars/logos.peg::ref_pointee
+fires: refptee 3 of 4 target rows parse (2 run correct, 1 segfaults); 16 of 16 predicted matrix cells moved, 0 unpredicted
+build: 53884ccdf5a135ca 43
+
+PRICING ONLY — nothing landed, the arm is reverted, the tree is clean.
+L1 rc 1 BEFORE and AFTER: 349/350, the single red is the PRE-EXISTING
+`logos_00_probe_log_lint` (record 2026-09-16i-arrpath), not this round's.
+
+THE DOOR, READ. `ref_pointee` (logos.peg, the production named above) is a
+CLOSED LIST — ref_type / arr_type / tuple_type / unit_type /
+qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type. It has no
+ptr_type, no dyn_type, no paren_type. `&dyn Tr` parses only because dyn_type
+carries its OWN AMP-led alternatives and is tried BEFORE ref_type in type_ref;
+as a POINTEE (a second layer) there is no dyn at all. The `AND` alts carry
+`AND KW_MUT ref_pointee` and `AND ref_pointee` and NO `AND LIFETIME` form,
+which is why `&&D` and `&&mut D` parse and `&&'a D` does not.
+
+GROUPING — TESTED BY MEASUREMENT, NOT ASSUMED, AND IT SPLIT 3+1.
+Arm `refptee` (one line: ptr_type / dyn_type / paren_type added to
+ref_pointee, positions chosen because PEG is ordered choice) moved, base ->
+armed, every cell predicted BY NAME and diffed BOTH ways:
+  MOVED 4->0 : rows ref_to_rawptr_type_parse_refused, ref_to_dyn_ref_type_parse_refused,
+               dyn_paren_region_bound; matrix s01 s02 s03 s04 s05 s09 s10 s11
+               u01 u02 u03 u05 u06 u10 u11 u12
+  UNMOVED    : double_amp_lifetime_ref_type_parse_refused + s06 + w09 (the AND-alt
+               door — a STRICT EXTENSION at the same production, arm `andlt`, NOT BUILT)
+               and w02 w03 w04 (impl/closure/never still absent from the list)
+  UNPREDICTED MOVEMENT: NONE, in either direction.
+
+COLUMNS (build-reftype2, ONE configure, clang-20 pinned; base 53884ccdf5a135ca 43)
+  queue gate        base rc 0 (232 rows: t1=35 t2=63 t3=123 t4=11) -> armed rc 1,
+                    3 rows NO LONGER REPRODUCE (the two real closes + dyn_paren_region_bound,
+                    which the gate caught as cc=0 diag=0 run=139)
+  fail_text_oracle  1882 fixtures -> 0 changed (rc, normalised-stderr sha, .expected match)
+  spec fail tier    494 fixtures (-R ^logos_25_spec_ -L fail) -> 0 changed
+  stdlib-cost       all four layers compile, base and armed alike
+  RUN column        THE ONLY COLUMN THAT SAW THE DAMAGE
+
+WHY IT MUST NOT LAND IN THIS FORM — RULE 5, MEASURED AGAIN.
+Cost 0 in all four harness columns, and the hand battery refutes it:
+  * dyn_paren_region_bound COMPILES AND SEGFAULTS (run 139). rustc 1.98.1 runs
+    the twin at exit 0. A row "closed" into a crashing binary is worse than the row.
+    CONTROL separating parens from dyn: plain `&dyn Tr` used through `x.m()` runs
+    exit 0 on BOTH base and armed, so the crash belongs to the PARENTHESISED pointee.
+  * `fn take(x: &(dyn Tr)) { let y: dyn Tr = *x; }` is ADMITTED (rc 0) by the armed
+    compiler. rustc REFUSES it: E0277, `dyn Tr` is unsized. An over-admission.
+  * A `&(D)` parameter mis-binds the DECLARATION: passing the wrong type reports
+    "call to unsafe function 'take' requires unsafe context" and "'take': type 'E'
+    does not implement trait 'Default' required by parameter 'T'" — my `take` has
+    neither `T` nor a `Default` bound, so the call is resolving to the stdlib's
+    generic `unsafe take`. Right verdict, wrong sentence, wrong callee.
+THE TWO ROWS THAT DO CLOSE CLEANLY (parse, link, RUN exit 0, matching their rustc
+twins) are ref_to_rawptr_type_parse_refused and ref_to_dyn_ref_type_parse_refused.
+
+WHAT DESERVES FUNDING: ptr_type as a ref_pointee alternative (both rows above, run-
+verified), SEPARATELY from paren_type, which needs the fat-pointer lowering and the
+declaration-binding defects fixed first and is a door in series, not a grammar line.
