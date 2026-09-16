@@ -46,8 +46,9 @@ let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple
 self_call_in_return_kills_param_drops 1 tests/soundness/open/self_call_in_return_kills_param_drops run 1
 weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped      run 1
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
-boxdyn_mutborrow_arg_no_vtable 4 tests/soundness/open/boxdyn_mutborrow_arg_no_vtable diag no vtable for '&dyn Sp' as '&dyn Sp'
 rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable     diag no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'
+boxref_sized_struct_deref_coercion_missing 3 tests/soundness/open/boxref_sized_struct_deref_coercion_missing refuses
+boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_wrong_error_code diag the trait bound `Box<dyn Sp>: Sp` is not satisfied
 # TOTAL 220
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
@@ -301,7 +302,6 @@ array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_
 array_repeat_len2_noncopy_says_use_of_moved 4 tests/soundness/open/array_repeat_len2_noncopy_says_use_of_moved diag use of moved value
 match_expr_array_pattern_segfaults_run 1 tests/soundness/open/match_expr_array_pattern_segfaults_run run 139
 operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses
-boxdyn_mut_explicit_deref_arg_no_vtable 3 tests/soundness/open/boxdyn_mut_explicit_deref_arg_no_vtable refuses
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 foreach_array_rvalue_elements_never_dropped_run 1 tests/soundness/open/foreach_array_rvalue_elements_never_dropped_run run 1
 fnptr_field_call_on_temporary_never_dropped_run 1 tests/soundness/open/fnptr_field_call_on_temporary_never_dropped_run run 1

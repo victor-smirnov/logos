@@ -1,0 +1,26 @@
+// hand battery: round 2026-09-15h-boxdynref, program ce06 — caught: passing
+// `&*b` (a borrowed trait object) to a generic `fn g<T: Sp>(x: &T)` binds
+// `T = dyn Sp`, an UNSIZED type, and the base binary d8d756468efca2d6 43
+// ADMITTED it (rc 0) — an illegal program accepted. Its verdict MOVED between
+// base and landed binary: the `&*b` repair gives the argument its true borrowed
+// type, the inference binds `T = dyn Sp`, and the `Sized` bound now fires.
+//
+// legality: rustc 1.98.1 --edition 2024 REFUSES the twin
+// (src/compiler/probes/2026-09-15h-boxdynref/rust/r06_generic.rs):
+//   error[E0277]: the size for values of type `dyn Sp` cannot be known at compilation time
+// and ACCEPTS it once the bound is relaxed to `T: Sp + ?Sized` (twin r06b),
+// which is exactly what this diagnostic tells the author to do.
+package boxdyn_deref_generic_arg_needs_qsized;
+use logos.mem.boxed;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn g<T: Sp>(x: &T) -> i64 { return x.v(); }
+
+fn main() -> i32 {
+    let b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if g(&*b) != 42i64 { return 3i32; }
+    return 0i32;
+}

@@ -3555,11 +3555,21 @@ Implicit reborrow applies only when the `&mut T` operand is a place expression (
 
 **Source:** `src/compiler/sema_expr.cpp#L2533-L2538`
 
-### `coerce.deref.box-struct-borrow` — `&Box<S>` / `&Box<dyn Trait>` borrows as `&S` / `&dyn Trait`
+### `coerce.deref.box-struct-borrow` — `&Box<S>` borrows as `&S` for a custom-DST `S`
 
-`&b` where `b: Box<S>` for a custom-DST struct `S` (owning DstRef) or `b: Box<dyn Trait>` (owning trait object) is a Deref-coercion borrow: the box's VALUE is already the `{data,len}` DstRef pair or the `{data,vtable}` fat pair, so borrowing it reads the var's value (var_ref load) and re-types it non-owning — it never re-addresses the local slot, which would produce the wrong indirection (e.g. a thin `&&dyn Trait` where the callee expects the 16-byte fat pair by value).
+`&b` where `b: Box<S>` for a **custom-DST** struct `S` (owning DstRef) is a Deref-coercion borrow: the box's VALUE is already the `{data,len}` DstRef pair, so borrowing it reads the var's value (var_ref load) and re-types it non-owning — it never re-addresses the local slot, which would produce the wrong indirection.
 
-**Source:** `src/compiler/sema_expr.cpp#L2539-L2565`
+**Scope — MEASURED 2026-09-15h, both limits:** this clause covers the owning **DstRef** form only. `&b` where `b: Box<S>` for an ordinary **sized** struct `S` is *not* coerced (`expected &S, got &Box<S>`), though rustc 1.98.1 accepts it — an open divergence from Rust, recorded, not closed here.
+
+### `coerce.deref.boxdyn-pointee-borrow` — `&*b` borrows `Box<dyn Trait>`'s pointee as `&dyn Trait`; bare `&b` is REFUSED
+
+`&*b` / `&mut *b` where `b: Box<dyn Trait>` is the borrow of the pointee: the owning `{data,vtable}` fat pair re-typed non-owning (`OwningKind::Borrow`). This is the **only** legal spelling.
+
+Bare `&b` / `&mut b` at a `&dyn Trait` / `&mut dyn Trait` slot is **refused** (E0277): a `dyn` target makes the coercion an *unsize of the box*, not a deref coercion, and `Box<dyn Trait>: Trait` does not hold. `&b` is instead typed `&Box<dyn Trait>` and satisfies a real `&Box<dyn Trait>` parameter. Rust-canonical (owner ruling 2026-09-15); rustc 1.98.1 refuses the same program with E0277 "required for the cast from `&Box<dyn Sp>` to `&dyn Sp`". Not a divergence — the prior acceptance was a defect, so `docs/DIVERGENCES.md` gains no row.
+
+⚠ The previous text of `coerce.deref.box-struct-borrow` claimed the `&Box<dyn Trait>` half was a conformant deref coercion. It was false about Rust.
+
+**Source:** `src/compiler/sema_expr.cpp` — `SemaChecker::lower_unary` (the `&` / `&mut` DEREF arms), `SemaChecker::ref_arg_satisfies_dyn`, `SemaChecker::expect_type`
 
 ### `coerce.deref.ref-vec-to-slice` — &`Vec<T>` / &mut `Vec<T>` deref-coerces to slice `&[T]`
 

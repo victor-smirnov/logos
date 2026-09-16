@@ -1,8 +1,17 @@
-// PAIR HALF (pass) — BORROWING an owning `Box<dyn Tr>` local for a `&dyn Tr`
-// parameter does not consume it: the local still drops at scope exit, exactly
-// once, and is still readable after the call. ONE CALL apart from
-// tests/logos/fail/boxdyn_borrow_arg_keeps_box_drop.logos, which passes the
-// same local BY VALUE to `eat` and is refused.
+// PAIR HALF (pass) — BORROWING THE POINTEE of an owning `Box<dyn Tr>` local
+// (`&*b`) for a `&dyn Tr` parameter does not consume it: the local still drops
+// at scope exit, exactly once, and is still readable after the call. ONE CALL
+// apart from tests/logos/fail/boxdyn_borrow_arg_keeps_box_drop.logos, which
+// passes the same local BY VALUE to `eat` and is refused.
+//
+// ⚠ REWRITTEN 2026-09-15h from `use_ref(&b)` to `use_ref(&*b)`, owner ruling
+// 2026-09-15 (Rust-canonical). The bare `&b` this fixture used to assert is an
+// UNSIZE of the box, not a deref coercion, and rustc 1.98.1 refuses it with
+// E0277 — it is now pinned as the refusal in
+// tests/logos/fail/boxdyn_borrow_arg_unsize_refused.logos. `&*b` was itself
+// broken on the base binary d8d756468efca2d6 43 ("mlir_gen: internal: no vtable
+// for '&dyn Sp' as '&dyn Sp'"), which is the door this round opened; the
+// destructor COUNT below is unchanged and is still the oracle.
 //
 // Closed soundness-queue row boxdyn_arg_deref_borrow_kills_box_drop (tier 1,
 // `run 1`). Base binary 19ff93338332ba46 43: `&b` marked `b` MOVED, so this
@@ -26,7 +35,7 @@ fn eat(b: Box<dyn Sp>) -> i64 { return b.v(); }
 fn main() -> i32 {
     {
         let b: Box<dyn Sp> = box_new(A { x: 42i64 });
-        if use_ref(&b) != 42i64 { return 1i32; }
+        if use_ref(&*b) != 42i64 { return 1i32; }
         if b.v() != 42i64 { return 2i32; }
     }
     say("|END");

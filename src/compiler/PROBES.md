@@ -46403,13 +46403,103 @@ verdict: LANDED. ⚠ ONE SCAFFOLD IS IN THE TREE AND IT HAS AN OWNER: the elemen
   and the site says so. Control revert on the base binary bc9467fd8056f9ba: all 23 new fixtures do the WRONG thing (20 wrong exit / stdout,
   2 refused by the backend, and both fail fixtures COMPILE — base admits what is now refused).
 
+# ═══ ROUND 2026-09-15h-boxdynref (LANDING) — `&Box<dyn Tr>` -> `&dyn Tr` IS NOW A REFUSAL, AND THE DOOR
+#     IN SERIES BEHIND IT (`&*b`, `&mut *b`) IS OPEN ══════════════════════════════════════════════════
+Files: `src/compiler/probes/2026-09-15h-boxdynref/` (the pricing round's rustc twins and hand programs, re-used as this
+round's oracle), plus 12 counter-examples written for the LANDING, kept beside the round record.
+
+## boxdynland
+site: src/compiler/sema_expr.cpp::lower_unary
+build: base d8d756468efca2d6 43 -> armed e3862735139a1a6c 43 -> landed 9e1bf6ab1d91ea72 43 (three builds, each rc 0)
+fires: 4 shapes refused that previously compiled (arg / let / struct-field / cast), 2 shapes repaired that previously
+  died in mlir-gen (`&*b`, `&mut *b`); arrivals at the retired arm were 2 files, and both were rewritten.
+measured: 2026-09-15
+
+THE RULING (owner, 2026-09-15): Rust-canonical. `&b` where `b: Box<dyn Tr>` at a `&dyn Tr` slot is an UNSIZE of the
+box, not a deref coercion, and `Box<dyn Tr>: Tr` does not hold. rustc 1.98.1 refuses with E0277; the legal spelling is `&*b`.
+
+FIVE ARMS, ONE SITE-CLUSTER:
+  1. lower_unary `&`/VAR_REF: the owning_trait_object arm DELETED. `&b` is now typed `&Box<dyn Tr>`, which both
+     satisfies a real `&Box<dyn Tr>` parameter and is refused at a `&dyn Tr` slot. The owning_dst (`&Box<S>`, custom
+     DST) and owning_slice (`&Box<[T]>`) arms are UNTOUCHED — they are Rust's genuine deref coercions.
+  2. lower_unary `&`/DEREF and 3. `&mut`/DEREF: the deref-coercion retype MOVED HERE, where Rust puts it. The owning
+     fat pair is re-typed non-owning (OwningKind::Borrow), so `&*b` / `&mut *b` are the same {data,vtable} value.
+  4. ref_arg_satisfies_dyn branch (c): an OWNING pointee is no longer an upcast source. The self-upcast
+     `reaches("Sp","Sp")` is trivially true, which is how `&mut b` reached mlir-gen and died "no vtable".
+  5. expect_type: the E0277 sentence, emitted BEFORE the `expected/got` monopoly because it is a different verdict
+     (and because type_str prints EVERY TraitObject as `&dyn Tr` regardless of owning kind, so the mismatch spelling
+     read "expected &dyn Sp, got &&dyn Sp" and named neither the box nor the cure).
+
+COUNTER-EXAMPLES, base -> landed, each with a rustc 1.98.1 twin (12 written BEFORE the landing, exactly to refute it):
+  ce01 `use_ref(&*b)`            no vtable -> rc 0, RUNS 0   rustc: accepts   <- the door, opened
+  ce02 `use_mut(&mut *b)`        no vtable -> rc 0, RUNS 0   rustc: accepts   <- the door, opened
+  ce03 `&Box<Buf>` custom DST    rc 0 -> rc 0 (PRESERVED)    rustc: accepts   <- the half that had to stay
+  ce04 `&Box<[i32]>` slice       rc 0 -> rc 0 (PRESERVED)    rustc: accepts   <- the half that had to stay
+  ce05 `eat(b)` by value         rc 0 -> rc 0                rustc: accepts
+  ce06 `g<T: Sp>(&*b)`           rc 0 (ADMITTED) -> REFUSED  rustc: REFUSES (unsized T) <- moved ONTO rustc's answer
+  ce07 `takes_boxref(&b)`        REFUSED -> rc 0, RUNS 0     rustc: accepts   <- a legal program un-refused
+  ce08 `&Box<A>` sized struct    REFUSED -> REFUSED          rustc: ACCEPTS   <- PRE-EXISTING, new queue row
+  ce09 `b.v()` receiver          rc 0 -> rc 0
+  ce10 `&*b` in let AND field    REFUSED("&&dyn") -> rc 0, RUNS 0   rustc: accepts
+  ce11 `&*r` over Rc<dyn>        rc 0 -> rc 0 (CONTROL, different carrier)
+  ce12 `use_ref(&**b)`           REFUSED -> **ADMITTED**, then REFUSED again after the guard   rustc: REFUSES (E0614)
+
+⚠ THE COUNTER-EXAMPLES CAUGHT A REGRESSION OF THIS ROUND'S OWN ARM, IN THE ILLEGAL DIRECTION. ce12 `&**b` is E0614 in
+rustc and was a refusal here too; the first armed binary (e3862735139a1a6c) ADMITTED it, because the owning arm fired on
+the INNER deref as happily as on the outer one. It cannot be guarded on the TYPE: Logos represents `&dyn Tr` and
+`dyn Tr` as the same Kind::TraitObject/Borrow, so `&**b` is type-indistinguishable from the LEGAL reborrow `&*r` with
+`r: &dyn Tr`. The guard is therefore SYNTACTIC — the arm fires only when the deref'd operand is not itself a deref —
+and `&**b` returns to a refusal. It now carries this round's E0277 sentence where rustc says E0614: queue row
+boxdyn_double_deref_wrong_error_code (tier 4, diag), opened rather than papered over.
+
+QUEUE: 220 -> 218 -> 220.
+  CLOSED (2): boxdyn_mut_explicit_deref_arg_no_vtable (tier 3 `refuses`; now rc 0, landed as
+    tests/logos/pass/boxdyn_mut_explicit_deref_arg) · boxdyn_mutborrow_arg_no_vtable (tier 4 `diag`; verdict was
+    already right, the sentence was an mlir-gen internal error — it now carries the real E0277 text, landed as
+    tests/logos/fail/boxdyn_mutborrow_arg_unsize_refused).
+  OPENED (2): boxref_sized_struct_deref_coercion_missing (tier 3 `refuses` — ce08, PRE-EXISTING: measured identical on
+    base and landed binaries, so this round neither caused nor repaired it) · boxdyn_double_deref_wrong_error_code
+    (tier 4 `diag` — ce12's sentence).
+
+NEIGHBOURS:
+  rcdyn_borrow_arg_no_vtable — ROWED, reason 1 (THE FACT HAS NO CARRIER THERE), and it is measured, not argued:
+    sema.cpp's "B3 stage-2b FLIP" means `Rc<dyn>`/`Arc<dyn>` NO LONGER collapse to an owning TraitObject — only
+    `Box<dyn>` does. `Rc<dyn Sp>` is a plain Struct (`Rc$G1$udyn_Sp`), so it never reaches the owning-pointee arm and
+    is admitted by a DIFFERENT carrier (types_compatible's Ref-over-Struct blanket, sema.cpp:2269). Still
+    `no vtable for 'Rc$G1$udyn_Sp'` on the landed binary. A repair there is a different change at a different site.
+  array_lit_box_elem_unsize_to_dyn_no_vtable / wrapper_unsize_missing_impl_backend_diag — unchanged (`Box$G1$D`,
+    `A` as `&dyn Other`): a missing IMPL, not an owning-pointee borrow. Different fact.
+
+CORPUS: 5 fixtures rewritten or added, every one RUN, not merely compiled.
+  tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop — `&b` -> `&*b`, destructor count `D|END` UNCHANGED and still the oracle.
+  tests/spec/pass/coerce_box_dyn — `&b` -> `&*b`, exit 0.
+  NEW: fail/boxdyn_borrow_arg_unsize_refused (the one-token twin pinning the refusal) · pass/boxdyn_mut_explicit_deref_arg ·
+  fail/boxdyn_mutborrow_arg_unsize_refused · pass/boxdyn_boxref_param_takes_amp_box (ce07) ·
+  fail/boxdyn_deref_generic_arg_needs_qsized (ce06).
+
+SPEC: `coerce.deref.box-struct-borrow` claimed the `&Box<dyn Trait>` half was a conformant deref coercion. It was FALSE
+about Rust. Corrected AT THE ARTIFACT (tools/spec-extract/rules/sema/sema_expr/lower_unary.part1.json — docs/spec/*.md is
+auto-assembled FROM it, so editing the markdown alone would have been undone), and docs/spec/types.md updated to match.
+New clause `coerce.deref.boxdyn-pointee-borrow`. jsonschema PASS, 0 colliding ids, 0 stray markers. NO `docs/DIVERGENCES.md`
+row — this was a defect, not a divergence.
+
+⚠ TWO PRE-EXISTING REDS FOUND, NEITHER CAUSED BY THIS ROUND, BOTH MEASURED AT HEAD:
+  probe-log-lint was ALREADY failing at 32a3e3b53: the pricing round's own record spelled `site: …::lower_unary,` and the
+  lint's regex captures the COMMA, so the symbol never resolved, and the record had no `fires:` line. `lower_unary,`
+  occurs 0 times at HEAD. REPAIRED here (374 records, every site symbol resolves).
+  logos_00_population_pin_lint is red BY CONSTRUCTION: ctest runs `population_pin_lint.py --selftest` with no REPO
+  argument, selftest() returns 0, and the empty-argv path then prints the docstring and returns 2. The script is
+  unchanged by this round. REPORTED, not touched — it is outside this subject.
+
 # ═══ ROUND 2026-09-15h-boxdynref (PRICING) — `&Box<dyn Tr>` -> `&dyn Tr`: THE REFUSAL IS RIGHT AND IT IS BLOCKED,
 #     BECAUSE THE ONLY LEGAL SPELLING `&*b` IS ITSELF BROKEN IN EVERY SHAPE ══════
 Files: `src/compiler/probes/2026-09-15h-boxdynref/` — rust/ (14 rustc 1.98.1 twins, compiled AND run), logos/ (22 hand programs),
 census_drive.sh + arrivals.tsv (the arrival census at the three owning arms).
 
 ## boxdynref (census only — no arm was armed; the refusal was NOT implemented, see verdict)
-site: src/compiler/sema_expr.cpp::lower_unary, the `&`/VAR_REF handler's three owning arms
+site: src/compiler/sema_expr.cpp::lower_unary — the `&`/VAR_REF handler's three owning arms
+fires: 0 armed arms (census only). ARRIVALS: owning_trait_object 2 files/2 hits, owning_slice 3 files/4 hits,
+  owning_dst 1 file/1 hit, stdlib 0 — over all 3769 pass + 1606 fail + 114 spec fixtures.
 (owning_slice ~L3429, owning_dst ~L3435, owning_trait_object ~L3448 — the last is the decision site the ruling names)
 build: base d8d756468efca2d6 43 (L1 unarmed rc 0, 808/808); census binary built in build-census0915 from the same sources + 3 `probe::census`
 calls, PROVEN INERT: all 22 hand programs give byte-identical rc on base and armed.

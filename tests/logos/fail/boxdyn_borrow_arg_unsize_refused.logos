@@ -1,0 +1,26 @@
+// PAIR HALF (fail) — ONE TOKEN from tests/logos/pass/boxdyn_borrow_arg_keeps_box_drop.logos:
+// that program borrows the POINTEE (`&*b`) and runs; this one borrows the BOX
+// (`&b`) for the same `&dyn Sp` parameter and is REFUSED.
+//
+// Owner ruling 2026-09-15, Rust-canonical: a `&dyn` target makes the coercion an
+// UNSIZE of the box, never a deref coercion, and `Box<dyn Sp>: Sp` does not hold.
+// legality: rustc 1.98.1 --edition 2024 refuses the twin with
+//   error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied
+//   ... "required for the cast from `&Box<dyn Sp>` to `&dyn Sp`"
+// (twin: src/compiler/probes/2026-09-15h-boxdynref/rust/t1_box_shared_borrow.rs).
+// Until this landed logosc ACCEPTED it, under the false spec clause
+// `coerce.deref.box-struct-borrow` (corrected in docs/spec/types.md).
+package boxdyn_borrow_arg_unsize_refused;
+use logos.mem.boxed;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn use_ref(r: &dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if use_ref(&b) != 42i64 { return 1i32; }
+    return 0i32;
+}

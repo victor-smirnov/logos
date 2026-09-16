@@ -1,0 +1,1 @@
+the trait bound `Box<dyn Sp>: Sp` is not satisfied — required for the cast from `&mut Box<dyn Sp>` to `&mut dyn Sp`; a `&mut dyn` target is an unsize of the Box, not a deref coercion — borrow the pointee instead: `&mut *<expr>` (E0277)

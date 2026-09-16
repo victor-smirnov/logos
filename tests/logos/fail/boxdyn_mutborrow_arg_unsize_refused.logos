@@ -1,0 +1,30 @@
+// CLOSES soundness-queue row boxdyn_mutborrow_arg_no_vtable (tier 4, `diag`),
+// landed here in the commit that fixed it (2026-09-15h).
+//
+// ONE TOKEN from tests/logos/pass/boxdyn_mut_explicit_deref_arg.logos: that
+// program borrows the POINTEE (`&mut *b`) and runs; this one borrows the BOX
+// (`&mut b`) for the same `&mut dyn Sp` parameter and is REFUSED.
+//
+// The VERDICT was already right on base binary d8d756468efca2d6 43 — the
+// SENTENCE was the defect, an mlir-gen internal error with no `error:` line:
+//   mlir_gen: internal: no vtable for '&dyn Sp' as '&dyn Sp' — …
+// It now carries the real diagnostic, modelled on rustc's E0277.
+//
+// legality: rustc 1.98.1 --edition 2024 refuses the twin with
+//   error[E0277]: the trait bound `Box<dyn Sp>: Sp` is not satisfied
+//   ... "required for the cast from `&mut Box<dyn Sp>` to `&mut dyn Sp`"
+// (twin: src/compiler/probes/2026-09-15h-boxdynref/rust/t2_box_mut_borrow.rs).
+package boxdyn_mutborrow_arg_unsize_refused;
+use logos.mem.boxed;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn use_mut(r: &mut dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let mut b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if use_mut(&mut b) != 42i64 { return 3i32; }
+    return 0i32;
+}

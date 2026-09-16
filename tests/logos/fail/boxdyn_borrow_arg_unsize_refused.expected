@@ -1,0 +1,1 @@
+the trait bound `Box<dyn Sp>: Sp` is not satisfied — required for the cast from `&Box<dyn Sp>` to `&dyn Sp`; a `&dyn` target is an unsize of the Box, not a deref coercion — borrow the pointee instead: `&*<expr>` (E0277)

@@ -1,0 +1,29 @@
+// CLOSES soundness-queue row boxdyn_mut_explicit_deref_arg_no_vtable (tier 3,
+// `refuses`), landed here in the commit that fixed it (2026-09-15h).
+//
+// `use_mut(&mut *b)` with `b: Box<dyn Sp>` for a `&mut dyn Sp` parameter is the
+// LEGAL mutable spelling and was refused by the BACKEND on base binary
+// d8d756468efca2d6 43:
+//   mlir_gen: internal: no vtable for '&dyn Sp' as '&dyn Sp' — …
+// compile rc 1, no object file. The `&`/`&mut` DEREF arms of
+// SemaChecker::lower_unary now re-type the owning fat pair non-owning, so the
+// pointee borrow is the same {data,vtable} value and dispatch is correct.
+//
+// legality: rustc 1.98.1 --edition 2024 compiles and runs the twin at exit 0
+// (src/compiler/probes/2026-09-15h-boxdynref/rust/t4_box_mut_deref.rs).
+// The one-token twin `use_mut(&mut b)` (no `*`) is ILLEGAL in Rust (E0277) and
+// is pinned as tests/logos/fail/boxdyn_mutborrow_arg_unsize_refused.logos.
+package boxdyn_mut_explicit_deref_arg;
+use logos.mem.boxed;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn use_mut(r: &mut dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let mut b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if use_mut(&mut *b) != 42i64 { return 3i32; }
+    return 0i32;
+}

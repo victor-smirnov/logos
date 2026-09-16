@@ -1553,6 +1553,24 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // steps the inner `*bb` through `deref_mut` too.
             auto operand = lower_mut_place(map_of(child.get(la::VALUE.code)));
             auto op_t = expr_type(operand);
+            // `&mut *b` over an owning `Box<dyn Trait>` — the mutable twin of
+            // the shared arm below; same root, same repair (queue row
+            // boxdyn_mut_explicit_deref_arg_no_vtable, tier 3 `refuses`).
+            // ONE `*` ONLY — see the shared arm for why the guard is syntactic.
+            bool mut_inner_is_deref =
+                code_of(map_of(child.get(la::VALUE.code))) == la::DEREF;
+            if (!mut_inner_is_deref &&
+                TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
+                TypeRef(op_t).owning_trait_object()) {
+                auto a = TypeRef(op_t).type_args();
+                builder().retype_expr(operand,
+                    make_trait_object(TypeRef(op_t).trait_name(),
+                                      std::vector<TypeRef>(a.begin(), a.end()),
+                                      TraitOwningKind::Borrow,
+                                      TypeRef(op_t).trait_requires_send(),
+                                      TypeRef(op_t).trait_requires_sync()));
+                return operand;
+            }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
                 TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
                 TypeRef(op_t).kind() == LogosType::Kind::Ref) {
@@ -3440,22 +3458,19 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                                  TypeRef(vt).mut_ptr(),
                                  std::vector<TypeRef>(a.begin(), a.end())));
             }
-            // &Box<dyn Trait> → borrowed &dyn Trait (Deref coercion). An owning
-            // trait object IS the {data,vtable} fat pair; borrowing it = the same
-            // value re-typed non-owning (Borrow). Read the var's VALUE (var_ref
-            // loads the pair) — NOT its slot address, which would be the wrong
-            // indirection (&&dyn): passing a thin ptr where the callee expects
-            // the 16-byte fat pair by value → garbage vtable → segfault.
-            if (TypeRef(vt).kind() == LogosType::Kind::TraitObject &&
-                TypeRef(vt).owning_trait_object()) {
-                auto a = TypeRef(vt).type_args();
-                return builder().var_ref(std::string(var_name),
-                    make_trait_object(TypeRef(vt).trait_name(),
-                                      std::vector<TypeRef>(a.begin(), a.end()),
-                                      TraitOwningKind::Borrow,
-                                      TypeRef(vt).trait_requires_send(),
-                                      TypeRef(vt).trait_requires_sync()));
-            }
+            // ⚠ `&b` where `b: Box<dyn Trait>` IS NOT A DEREF COERCION — owner
+            // ruling 2026-09-15, Rust-canonical. rustc refuses it with E0277
+            // (`Box<dyn Sp>: Sp` unsatisfied, "required for the cast from
+            // `&Box<dyn Sp>` to `&dyn Sp`"): a `&dyn` target makes the coercion
+            // an UNSIZE of the box, never a deref coercion. The arm that used to
+            // re-type the fat pair to Borrow HERE lived on the wrong expression;
+            // it now lives on `&*b` (the `&`/`&mut` DEREF branches below), which
+            // is the only legal spelling. `&b` therefore falls through to the
+            // ordinary `addr_of` and is typed `&Box<dyn Trait>` — which both
+            // satisfies a real `&Box<dyn Trait>` parameter and is refused at a
+            // `&dyn Trait` slot by expect_type's E0277 arm.
+            // The `&Box<S>` (owning DstRef) and `&Box<[T]>` (owning slice) arms
+            // ABOVE are Rust's genuine deref coercions and are untouched.
             return builder().addr_of(std::string(var_name), make_ref(false, vt));
         }
         // `&*ptr` — preserve the `AddrOfTemp(Deref(operand))` shape so borrow-
@@ -3463,6 +3478,39 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
             auto operand = lower_expr(map_of(child.get(la::VALUE.code)));
             auto op_t = expr_type(operand);
+            // `&*b` where `b: Box<dyn Trait>` — THE legal spelling (owner ruling
+            // 2026-09-15), and it was BROKEN in every shape: an owning trait
+            // object is not Ptr/Ref/MutRef and has no user `Deref` impl, so the
+            // operand fell through to `addr_of_temp` and was typed `&&dyn Trait`
+            // — mlir-gen then died with "no vtable for '&dyn Sp' as '&dyn Sp'".
+            // The owning fat pair IS the pointee's {data,vtable}; borrowing the
+            // pointee is that same value re-typed non-owning.
+            //
+            // ⚠ ONE `*` ONLY, AND THE GUARD IS SYNTACTIC BY NECESSITY. `&**b` is
+            // E0614 in rustc (`dyn Sp` cannot be dereferenced) and was a refusal
+            // here too; without this guard the arm below ADMITTED it (MEASURED
+            // 2026-09-15h, counter-example ce12: base rc 1 -> armed rc 0), which
+            // is a regression in the illegal direction bought by a legal-program
+            // repair. It cannot be guarded on the TYPE: Logos represents both
+            // `&dyn Tr` and `dyn Tr` as Kind::TraitObject/Borrow, so `&**b` is
+            // type-indistinguishable from the LEGAL reborrow `&*r` where
+            // `r: &dyn Tr`. Skipping the arm leaves `&**b` at exactly its base
+            // behaviour (mlir-gen internal error — right verdict, wrong sentence,
+            // queue row wrapper_unsize_missing_impl_backend_diag's class).
+            bool inner_is_deref =
+                code_of(map_of(child.get(la::VALUE.code))) == la::DEREF;
+            if (!inner_is_deref &&
+                TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
+                TypeRef(op_t).owning_trait_object()) {
+                auto a = TypeRef(op_t).type_args();
+                builder().retype_expr(operand,
+                    make_trait_object(TypeRef(op_t).trait_name(),
+                                      std::vector<TypeRef>(a.begin(), a.end()),
+                                      TraitOwningKind::Borrow,
+                                      TypeRef(op_t).trait_requires_send(),
+                                      TypeRef(op_t).trait_requires_sync()));
+                return operand;
+            }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
                 TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
                 TypeRef(op_t).kind() == LogosType::Kind::Ref) {
@@ -15322,6 +15370,16 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
     //     unchanged; codegen recovers Super's vtable from Sub's stored
     //     super-vtable-pointer slot.
     if (TypeRef(pointee).kind() == LogosType::Kind::TraitObject) {
+        // ⚠ AN OWNING POINTEE IS NOT AN UPCAST SOURCE — owner ruling
+        // 2026-09-15, Rust-canonical. `&mut b` / `&b` where `b: Box<dyn Sp>`
+        // arrives here as Ref/MutRef over an OWNING TraitObject, and the
+        // self-upcast below (`reaches("Sp","Sp")` is trivially true) waved it
+        // through to mlir-gen, which died "no vtable for '&dyn Sp' as '&dyn Sp'".
+        // rustc refuses it (E0277): a `&dyn` target unsizes the BOX, and
+        // `Box<dyn Sp>: Sp` does not hold. The legal spelling is `&*b`, whose
+        // operand is re-typed non-owning in lower_unary and never reaches here
+        // as an owning pointee. expect_type's E0277 arm supplies the sentence.
+        if (TypeRef(pointee).owning_trait_object()) return false;
         std::string sub(TypeRef(pointee).trait_name());
         if (sub.empty()) return false;
         logos::compiler::StrSet seen;
@@ -15619,6 +15677,47 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
                 t.assoc_base() ? std::string(TypeRef(t.assoc_base()).type_var_name()).c_str() : "");
         };
         dump("expected", expected); dump("got", expr_type(e));
+    }
+    // ⚠ `&Box<dyn Tr>` / `&mut Box<dyn Tr>` AT A `&dyn Tr` SLOT — owner ruling
+    // 2026-09-15, Rust-canonical. NOT spelled as the `expected/got` mismatch
+    // verdict (expect_type's monopoly, scripts/lint-mismatch-monopoly.sh): this
+    // is a DIFFERENT verdict, and `type_str` prints EVERY TraitObject as
+    // `&dyn Tr` regardless of owning kind, so the mismatch spelling read
+    // "expected &dyn Sp, got &&dyn Sp" and named neither the box nor the cure.
+    // Mirrors rustc E0277 and names the only legal spelling, `&*b`.
+    if (expected && expr_type(e) &&
+        TypeRef(expected).kind() == LogosType::Kind::TraitObject &&
+        !TypeRef(expected).owning_trait_object()) {
+        TypeRef g(expr_type(e));
+        auto gk = g.kind();
+        if ((gk == LogosType::Kind::Ref || gk == LogosType::Kind::MutRef) &&
+            g.pointee() &&
+            TypeRef(g.pointee()).kind() == LogosType::Kind::TraitObject &&
+            TypeRef(g.pointee()).owning_trait_object()) {
+            TypeRef po(g.pointee());
+            std::string owner;
+            switch (po.trait_owning_kind()) {
+            case TypeRef::OwningKind::Box: owner = "Box"; break;
+            case TypeRef::OwningKind::Rc:  owner = "Rc";  break;
+            case TypeRef::OwningKind::Arc: owner = "Arc"; break;
+            default: owner = "Box"; break;
+            }
+            std::string trait_nm(po.trait_name());
+            std::string owned = owner + "<dyn " + trait_nm + ">";
+            bool is_mut = (gk == LogosType::Kind::MutRef);
+            error(std::format(
+                "the trait bound `{}: {}` is not satisfied — required for the "
+                "cast from `&{}{}` to `{}{}`; a `{}dyn` target is an unsize of "
+                "the {}, not a deref coercion — borrow the pointee instead: "
+                "`&{}*<expr>` (E0277)",
+                owned, trait_nm,
+                is_mut ? "mut " : "", owned,
+                is_mut ? "&mut dyn " : "&dyn ", trait_nm,
+                is_mut ? "&mut " : "&",
+                owner,
+                is_mut ? "mut " : ""));
+            return false;
+        }
     }
     auto [es, gs] = type_str_pair(expected, expr_type(e));
     // ctx carries its own trailing punctuation ("let 'x': type mismatch —",

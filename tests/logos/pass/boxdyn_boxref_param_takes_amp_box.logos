@@ -1,0 +1,28 @@
+// hand battery: round 2026-09-15h-boxdynref, program ce07 — caught: `&b` over a
+// `Box<dyn Tr>` local could not satisfy a REAL `&Box<dyn Tr>` parameter, because
+// the `&`-handler re-typed the fat pair to a borrowed trait object before the
+// slot was ever consulted ("expected &&dyn Sp, got &dyn Sp", base binary
+// d8d756468efca2d6 43). Its verdict MOVED between base and landed binary.
+//
+// With the owner's 2026-09-15 ruling landed, `&b` is no longer a deref coercion:
+// it is typed `&Box<dyn Sp>`, which is exactly what this parameter wants. The
+// same expression at a `&dyn Sp` slot is refused — tests/logos/fail/
+// boxdyn_borrow_arg_unsize_refused.logos — so this fixture and that one pin the
+// two sides of one decision.
+//
+// legality: rustc 1.98.1 --edition 2024 compiles and runs the twin at exit 0
+// (src/compiler/probes/2026-09-15h-boxdynref/rust/u1_boxref_param.rs).
+package boxdyn_boxref_param_takes_amp_box;
+use logos.mem.boxed;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn takes_boxref(b: &Box<dyn Sp>) -> i64 { return b.v(); }
+
+fn main() -> i32 {
+    let b: Box<dyn Sp> = box_new(A { x: 42i64 });
+    if takes_boxref(&b) != 42i64 { return 3i32; }
+    return 0i32;
+}
