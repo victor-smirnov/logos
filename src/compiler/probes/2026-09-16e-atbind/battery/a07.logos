@@ -1,0 +1,16 @@
+// a07 — COPY CONTROL: `y @ 3i64` over a scalar. No destructor is involved at all;
+// this one must be correct on every binary, and separates "the `@` door is broken"
+// from "the `@` door is broken FOR A DROP TYPE".
+package a07;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn g() -> i64 {
+    let v: i64 = 3i64;
+    match v {
+        y @ 3i64 => { return y + 1i64; }
+        _ => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    unsafe { printf("k=%ld\n".as_ptr(), g()); }
+    return 0i32;
+}

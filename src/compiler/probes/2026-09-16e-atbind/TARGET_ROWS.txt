@@ -1,0 +1,37 @@
+ROUND 2026-09-16e-atbind — TARGET ROWS, WRITTEN BEFORE ANY COMPILER EDIT
+build (READ): 9014f16a6e21dabf 43   binary build/bin/logosc 2026-09-16 07:26:37   HEAD 403aaaa62
+
+TARGET ROWS, BY ID (both tier 1, both re-measured today, both reproduce exactly):
+  1. at_binding_aggregate_segfaults_run          run 139   (struct scrutinee; also expr-position and tuple spellings)
+  2. at_binding_by_value_never_dropped           run 1     (`y @ Option::Some(_)` never destroyed)
+
+WHY THIS BLOCK (the next round inherits this reasoning):
+The two rows are NOT grouped by symptom — one segfaults, one leaks, and a symptom grouping in this
+queue has been refuted five-for-five. They are grouped by a FACT: in both, a `name @ pattern` binder
+over a BY-VALUE scrutinee is the thing that goes wrong, and in both the existing record says the move
+MARK is already correct and the defect is downstream of it, where the binder is given its storage.
+  - at_binding_aggregate_segfaults_run's header: "pattern_moves_out's At arm already returns TRUE, so
+    the scrutinee IS marked moved; the defect is downstream of the mark, where the binding is given
+    its storage."
+  - at_binding_by_value_never_dropped's header: the arm's `return` must destroy `y` and today `y` is
+    never destroyed — i.e. the binder exists but owns nothing that the drop walk can see.
+So the hypothesis is ONE fact with two consequences: THE `@` BINDER IS NEVER GIVEN A REAL, OWNED SLOT
+— read through it and you read garbage (139), let it go out of scope and nothing drops it (leak).
+
+THE GROUPING IS A HYPOTHESIS AND MUST BE TESTED BY MEASUREMENT, NOT BY THE HEADERS:
+the test that decides it is "does ONE candidate change move BOTH rows?". If one moves and the other
+does not, they are two blocks and the second is rowed WITH ONE OF THE THREE NAMED REASONS.
+
+ORACLES (a run, not a compile; rc alone is inadmissible for the drop half):
+  row 1: exit code + stdout; today 139. rustc twins MEASURED: probes/2026-09-16b-armbind/rust/b08.rs,
+         b13.rs, b14.rs — all exit 0, k=3 n=2.
+  row 2: DESTRUCTOR COUNT through the *mut i64 counter; today 1, rustc 21, exit 0.
+         twin probes/2026-09-15f-rustcaudit/rust/at_binding_by_value_never_dropped.rs
+  Both counts are read AFTER the scrutinee's scope ends, so the wrong answer is an exit code.
+
+KNOWN NEIGHBOURS TO TEST AT LANDING (standing rule: close in the same commit or row with a reason):
+  - the expression-position spelling `let k = match w { y @ W { .. } => y.b };`   (139, same row)
+  - the TUPLE spelling `match t { y @ (_, _) => y.1 }`                            (139, same row)
+  - `at_binding_ref_mut_payload_refuses` (tier 3) and `let_at_binding_tuple_sub_unsupported` (tier 3)
+    and `let_at_binding_type_annot_syntax` (tier 3) — the `@` door at the LET spelling; check whether
+    the same change reaches them, and if not name the reason with the number.

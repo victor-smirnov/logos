@@ -47023,3 +47023,99 @@ start a run it cannot finish. Read as a verdict, rc 2 would have been reported a
 19th instance of the recorded class "a gate can lie", except here the gate is honest and the READER
 was about to be. Re-run detached, the way the barrier itself prescribes, and only after the L1 re-run
 releases the ctest scheduler: both are saturating, and ONE SCHEDULER is the standing rule.
+
+# ═══ ROUND 2026-09-16e-atbind (PRICING, soundness queue tier 1) — THE `@`-BINDER'S OWN CASE IS THE ONE
+#     THE CLASS ENUMERATION SKIPPED: `extract_payload`'s At CASE BINDS A POINTER WHERE THE VALUE BELONGS,
+#     AND EIGHT SPELLINGS FAIL BEHIND IT. NO ARM WAS ARMED — THIS ROUND STOPS AT THE MEASURED BASE. ═══
+
+site: src/compiler/mlir_gen_stmt.cpp::extract_payload, `case pc::Code::At` (the match-arm door)
+build: 9014f16a6e21dabf 43 (READ, twice: at selection and at close). ⚠ THE BINARY IN build/ WAS STALE AT
+  ROUND START — HEAD 403aaaa62 (07:22) edited sema.cpp / sema_expr.cpp / sema_stmt.cpp and build/bin/logosc
+  was 06:40, hash 348fe4193972da0a 43. Every number below is from the REBUILT binary (07:26:37). A queue
+  gate started against the stale binary was killed and discarded rather than reported.
+measured: 2026-09-16
+fires: NOT INSTRUMENTED — NO PROBE WAS ARMED AND NO COMPILER LINE WAS EDITED. This is a ZERO OF THE THIRD
+  KIND (a harness zero): there is no `probe::on` counter because there is no arm, so "fires 0" here is not
+  evidence about the program. The round's evidence is the 15-program hand battery and its 13 rustc twins.
+rustc: 1.98.1 (48a229cea 2026-09-01) --edition 2024, called by path, twins in rust/
+artifacts: src/compiler/probes/2026-09-16e-atbind/ — TARGET_ROWS.txt (written before any edit),
+  BASE_TABLE.tsv, T1_REMEASURE.tsv, battery/ (15 programs + gen.sh), rust/ (13 twins)
+
+## 1. CENSUS — THE QUEUE GATE'S rc FIRST
+`ctest -R '^logos_00_squeue_|^logos_00_soundness_queue$' -j$(nproc)`: **228/228 passed, rc 0**, 15.5 s.
+soundness_queue `# TOTAL` 227 = 227 by direct listing (tier1 36 · tier2 61 · tier3 119 · tier4 11);
+bc_admits 60; bc_admits_blocked 8; probe-log-lint 380 records; dlog selftest.sh rc 0 (19 walkers /
+24 findings / try_path 1-5 / domain 42-5, duty discriminates 1 -> 0).
+⚠ THE ctest REGISTRY IS NOT STALE, CHECKED BOTH WAYS: 227 registered `logos_00_squeue_*` = 227 ledger rows,
+and both `comm` directions are EMPTY. The dbmstruct round's recorded staleness was absorbed by 2026-09-16d's
+reconfigure. The shelf holds 227 `.logos` + 1 `.mlir` (logos-mlir-verify-fail.mlir), which the gate's
+`*.logos` glob does not claim — the 228 vs 227 is that file, not a missing row.
+⚠ THE PROMPT'S STEP-1 GATE COMMAND CARRIES `LOGOS_LIB_DIR`, checked against the text given rather than
+copied from a journal. The correction four rounds recorded is fixed; this round does not repeat it.
+
+## 2. ALL 36 TIER-1 ROWS RE-MEASURED ON TODAY'S BINARY (T1_REMEASURE.tsv)
+Compiled, linked, RUN, exit code and stdout read, through a reader that replicates the gate's `observe()`
+exactly. **All 36 reproduce EXACTLY as recorded. Zero closings, zero drift.** (The prompt says "36 at
+writing" and 36 is right; an eyeball count of 37 during STEP 1 was wrong and was corrected by listing.)
+
+## 3. THE BLOCK, AND WHY — at_binding_aggregate_segfaults_run + at_binding_by_value_never_dropped
+Named in TARGET_ROWS.txt before any compiler read. NOT grouped by symptom (one segfaults, one leaks —
+symptom groupings in this queue are 5-for-5 refuted) but by a FACT both headers already assert: the move
+MARK is correct (`pattern_moves_out`'s At arm returns true) and the defect is downstream, where the binder
+is given its storage. 2026-09-16b measured `at_binding_by_value_never_dropped` UNMOVED by both of its slice
+arms and wrote "the `@`-binding door is a different fact" — so the door is untaken and is its own block.
+
+## 4. THE ROOT, READ — AND WHY THE 2026-09-09d CLASS ENUMERATION COULD NOT SEE IT
+`extract_payload`'s At case (mlir_gen_stmt.cpp) is:
+    mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
+    auto alloca = create_entry_alloca(sv.getType());
+    builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+    scope_[aname] = alloca;
+For an AGGREGATE, `scrut_ptr` is a POINTER, so the binder's slot holds a pointer where every later reader
+expects the value — `y.b` GEPs through it (segfault) — and nothing registers the binder as an OWNER (leak).
+The sibling door, `pat_bind`'s At case, instead delegates to `bind_name_at_slot`, which for an aggregate
+binds the slot pointer directly AND sets the shape (`var_struct_` / `var_tuple_`).
+⚠ THIS SITE WAS EXPLICITLY EXCLUDED BY THE ROUND THAT CLOSED SIX `@` ROWS. 2026-09-09d's property
+enumeration ("a walker that must see every name a pattern introduces") lists, verbatim: *"Already carrying
+At and left alone: pat_test 13/13, **extract_payload's own At case**, mono_clone::walk 13/13, ..."*. The
+property it actually tested was WHETHER A CASE EXISTS, not whether the case BINDS CORRECTLY — a case that
+is present and wrong is invisible to it, and eight spellings have been failing behind that exclusion since.
+This is the enumerate-by-property rule failing on its own terms: presence of a `case` label is a SPELLING.
+
+## 5. THE BASE BATTERY — 15 SHAPES, 13 rustc TWINS, ONE BINARY (BASE_TABLE.tsv)
+Oracle = destructor COUNT through a `*mut i64` sequence counter, read after the scrutinee's scope ends.
+  DEFECT, segfault rc 139, rustc k=3 n=2 each: a01 `match w { y @ W{..} }` (the PLAIN spelling, written
+    first) · a02 expression position · a03 tuple `y @ (_,_)` · a06 arm with NO `return` · a09 nested
+    `y @ W{a:q,b:_}` · a12 in a loop · a13 with a guard
+  DEFECT, leak: a04 `y @ Option::Some(_)` — rc 0, n=1 where rustc gives n=21
+  CORRECT (the controls that say what the fact is NOT): a07 Copy scalar `y @ 3i64` · a10 reference
+    scrutinee `match &w` (k=3 n=2, = rustc) · a15 plain binder `y => y.b` (k=3 n=2, = rustc) · a14
+So the fact is A BY-VALUE `@` BINDER OVER AN AGGREGATE — not "match arm" (a15 right), not "`return`"
+(a06 wrong without one), not "aggregate" (a10 right through a reference), not "`@`" (a07 right for Copy).
+
+## 6. FIVE FINDINGS THE BATTERY CAUGHT THAT NO ROW HOLDS — EVERY ONE MEASURED AGAINST rustc
+  a05 `match d { y @ _ => y.v }` over a Drop struct — REFUSED "cannot move out of 'D' into pattern binding
+      'y' ... (E0509)". rustc COMPILES it, k=2 n=2. AN OVER-REFUSAL OF A LEGAL PROGRAM.
+  a11 `let y @ W { .. } = w;` — REFUSED "use of moved variable 'y'". rustc COMPILES it, k=3 n=2.
+      AN OVER-REFUSAL, and it is the `let` spelling of the door 2026-09-09d delegated (W5).
+  a08 `y @ Option::Some(z)` (outer AND inner by move) — we ADMIT and run (k=2 n=2); rustc REFUSES,
+      error[E0382]: use of partially moved value: `o`.
+  a09 `y @ W { a: q, b: _ }` — rustc REFUSES, error[E0382]: use of partially moved value: `w`; we do not
+      refuse, we SEGFAULT. An illegal program that crashes is still an un-refusal.
+  (a09 is therefore in two classes at once and must not be used as the segfault class's carrier.)
+These are REPORTED, not rowed by this round, because rowing them is a ledger edit and this round armed
+nothing; the next round opens them with these numbers.
+
+## 7. WHAT DESERVES FUNDING, AND WHAT THIS ROUND DID NOT BUY
+FUND: the At case at `extract_payload` delegating to `bind_name_at_slot`, exactly as `pat_bind`'s At case
+does — "this door binds the way that door binds", the one-rule shape that paid in 2026-09-16d's dbmstruct.
+It is predicted to move a01 a02 a03 a06 a12 a13 (aggregate storage) and to need a SECOND fact for a04
+(the owner, so the binder is dropped). That prediction is UNMEASURED — no arm was built.
+⚠ TWO WARNINGS FOR THE ROUND THAT BUILDS IT, both bought by 2026-09-09d's hand set:
+  (a) a tagged enum's VALUE repr is `ptr` while `slot_ptr` IS its inline storage — the first cut of the
+      sibling At case SEGFAULTED on exactly that (g13/g22). a04 and a08 are enum-shaped.
+  (b) the aggregate branch must set the shape for BOTH struct and tuple (`var_struct_` / `var_tuple_`);
+      setting one and not the other is what left `q @ (u,v)` reading the wrong element (g03/g11).
+NOT BOUGHT: no ceiling, no cost, no runtime column, no valgrind sweep — no arm existed to price. Stating
+a cost here would be a number with nothing behind it. ⚠ And `ceiling-probe.sh`'s CEILING column could not
+have seen these rows anyway: it deltas `logos_00_bc_admit_*`, which matches no `logos_00_squeue_*` test.

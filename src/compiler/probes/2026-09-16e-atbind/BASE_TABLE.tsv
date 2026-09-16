@@ -1,0 +1,29 @@
+# `@`-BINDER HAND BATTERY — BASE, build 9014f16a6e21dabf 43 (build/bin/logosc 2026-09-16 07:26:37)
+# rustc 1.98.1 (48a229cea 2026-09-01) --edition 2024, called by path, twins in ./rust/
+# Oracle: destructor COUNT through a *mut i64 sequence counter (*c = *c*10 + v), read after scope exit.
+# id   shape                                   logos_base        rustc_twin        verdict
+a01    match w { y @ W { .. } } struct, return  rc139             k=3 n=2           DEFECT (row at_binding_aggregate_segfaults_run)
+a02    expression position, let k = match w     rc139             k=3 n=2           DEFECT (same row, 2nd spelling)
+a03    tuple  y @ (_, _)                        rc139             k=3 n=2           DEFECT (same row, 3rd spelling)
+a04    enum payload y @ Option::Some(_)         rc0 k=4 n=1       k=4 n=21          DEFECT (row at_binding_by_value_never_dropped) LEAK
+a05    y @ _ over a Drop struct                 REFUSED E0509     k=2 n=2           NEW: OVER-REFUSAL of a legal program
+a06    arm with NO return (fall-through)        rc139             k=3 n=2           DEFECT — `return` is NOT the fact
+a07    Copy scalar y @ 3i64                     rc0 k=4           (trivial)         CORRECT — control
+a08    y @ Option::Some(z) outer AND inner      rc0 k=2 n=2       REFUSED E0382     NEW: ADMITS a program rustc refuses
+a09    nested y @ W { a: q, b: _ }              rc139             REFUSED E0382     NEW: illegal program, and we CRASH on it
+a10    reference scrutinee match &w             rc0 k=3 n=2       k=3 n=2           CORRECT — control (the ref door is fine)
+a11    let y @ W { .. } = w;                    REFUSED           k=3 n=2           NEW: OVER-REFUSAL ("use of moved variable 'y'")
+a12    in a while loop, 2 iterations            rc139             k=3 n=22          DEFECT
+a13    with a guard  y @ W { .. } if y.b > 1    rc139             k=3 n=2           DEFECT
+a14    `@` arm NOT taken (None)                 rc0 k=2 n=0       (no D built)      CORRECT — control
+a15    plain named binder  y => y.b  (no `@`)   rc0 k=3 n=2       k=3 n=2           CORRECT — control, separates the `@` door
+#
+# THE CLASS, BY PROPERTY (not by symptom): a BY-VALUE `@` binder over an AGGREGATE scrutinee.
+# 7 spellings segfault (a01 a02 a03 a06 a09 a12 a13), 1 leaks (a04). The three controls that are
+# CORRECT say what the fact is NOT: not "match arm" (a15 correct), not "return" (a06 wrong without
+# one), not "aggregate" alone (a10 correct through a reference), not "`@`" alone (a07 correct for Copy).
+# ROOT, READ (not guessed): MLIRGenImpl::extract_payload's `case pc::Code::At` in
+# src/compiler/mlir_gen_stmt.cpp — `mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;` then an alloca of
+# sv.getType() and a store of sv. For an aggregate scrut_ptr is a POINTER, so the binder's slot holds a
+# pointer where the rest of the code expects the value, and nothing gives the binder an owner.
+# The sibling door pat_bind's `case pc::Code::At` (same file) instead calls bind_name_at_slot().
