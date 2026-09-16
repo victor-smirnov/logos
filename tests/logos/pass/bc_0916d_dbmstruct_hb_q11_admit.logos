@@ -1,0 +1,21 @@
+// hand battery: round 2026-09-16d-landrulings, program q11 — caught: match on a PARAMETER `x: &E` — the shape the pricing round's `match &` grep census could not see (base 'D6 D6')
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 0, stdout 'D6' — twin src/compiler/probes/2026-09-16d-landrulings/rust/q11.rs
+package bc_0916d_dbmstruct_hb_q11_admit;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum E { V { f: S }, Z }
+fn get(x: &E) -> i64 {
+    match x {
+        E::V { f } => { return f.n; },
+        E::Z => { return 0i64; }
+    }
+}
+fn run() -> i64 {
+    let p: E = E::V { f: S { n: 6i64 } };
+    return get(&p);
+}
+fn main() -> i32 {
+    if run() != 6i64 { return 1i32; }
+    return 0i32;
+}

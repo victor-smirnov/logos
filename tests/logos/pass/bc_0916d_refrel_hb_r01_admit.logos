@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-16d-landrulings, program r01 — caught: UNIFORM mutability must stay legal in BOTH directions — this is the program the audit's wider wording would have condemned
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 0 — twin src/compiler/probes/2026-09-16d-landrulings/rust/r01.rs
+package bc_0916d_refrel_hb_r01_admit;
+use logos.lang.cmp;
+fn main() -> i32 {
+    let mut a: (bool, u8) = (true, 3u8);
+    let mut b: (bool, u8) = (true, 4u8);
+    let ra: &mut (bool, u8) = &mut a;
+    let rb: &mut (bool, u8) = &mut b;
+    if ra < rb { return 0i32; }
+    return 1i32;
+}

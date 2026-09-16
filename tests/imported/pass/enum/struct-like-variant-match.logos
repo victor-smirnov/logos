@@ -23,12 +23,12 @@ enum Foo {
 fn f(x: &Foo) {
     match x {
         Foo::Baz { x, y } => {
-            assert_eq!(x, 1.0f64);
-            assert_eq!(y, 2.0f64);
+            assert_eq!(*x, 1.0f64);
+            assert_eq!(*y, 2.0f64);
         }
         Foo::Bar { y, x } => {
-            assert_eq!(x, 1i64);
-            assert_eq!(y, 2i64);
+            assert_eq!(*x, 1i64);
+            assert_eq!(*y, 2i64);
         }
     }
 }

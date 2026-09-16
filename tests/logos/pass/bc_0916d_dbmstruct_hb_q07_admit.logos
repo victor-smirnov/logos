@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-16d-landrulings, program q07 — caught: a `&mut` scrutinee double-dropped exactly as the shared one did (base 'D8 D8')
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 0, stdout 'D8' — twin src/compiler/probes/2026-09-16d-landrulings/rust/q07.rs
+package bc_0916d_dbmstruct_hb_q07_admit;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum E { V { f: S }, Z }
+fn run() -> i64 {
+    let mut p: E = E::V { f: S { n: 8i64 } };
+    let mut out: i64 = 0i64;
+    match &mut p {
+        E::V { f } => { out = f.n; },
+        E::Z => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    if run() != 8i64 { return 1i32; }
+    return 0i32;
+}

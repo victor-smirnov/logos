@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-14b-ptrcoerceland, program M10 — caught: refuted an arm — PROBES.md "build 3 ... M5 M10 M11 E02 E09"
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0308] mismatched types — twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914b_ptrcoerceland_hb_m10_admit.rs
+// THE AUDIT'S RULING IS LANDED (docs/rustc-fixture-audit-2026-09.md §bc_0914a_ptrcoerce_hb_d01_admit, which covers this
+// fixture as the SAME finding). This fixture asserted `exit: 7`; it now asserts the refusal.
+package bc_0914b_ptrcoerceland_hb_m10_refuse;
+static G: i64 = 7i64;
+fn main() -> i32 {
+    let mut a: [&'static i64; 2] = [&G, &G];
+    let q: *mut &i64 = &mut a;
+    return unsafe { **q } as i32;
+}

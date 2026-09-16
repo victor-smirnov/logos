@@ -46853,3 +46853,173 @@ cost: TWO LEGAL PROGRAMS — bc_0914b_ptrcoerceland_hb_v02_admit and _v02b_admit
 verdict: DECLINED, REASON 3 — its own cost is measured non-zero. The predicate cannot tell "the loan's
   last use is this statement" from "the loan is read BY the store's own value expression". The repair is
   a narrowing at the same site (ask whether the conflicting loan is read by the INDEX or by the VALUE).
+
+## ROUND 2026-09-16d-landrulings — THE OWNER'S SIX FIXTURE-AUDIT RULINGS: FOUR LAND, TWO TAKE THE NAMED FALLBACK
+site: src/compiler/sema_stmt.cpp::build_pattern_variant_data
+build: ad30d614b7d2e6c2 43 (base, build/ — binary + stdlib preserved in scratch for the control reverts);
+  landed in build-armelem, identical cmake config (RelWithDebInfo, LLVM 20, LOGOS_LIB_OPT -O2)
+measured: 2026-09-16
+fires: not instrumented — this round LANDS three changes rather than pricing them. The population is a
+  21-program hand battery, each program with a rustc 1.98.1 twin, plus the whole registered corpus
+  through run_oracle (7396 pass fixtures compiled, linked and RUN) and fail_text_oracle (1872 fail
+  fixtures by rc + stderr sha + match). The oracle for the drop class is the destructor COUNT, not the
+  exit code — a leak and a double free are both invisible to an exit code, and valgrind is blind here.
+ceiling: 1 soundness-queue row CLOSED (arrayref_to_arrayptr_coercion_refused); 4 opened, all four with
+  a named reason and a two-binary measurement
+cost: 1 ordinary corpus fixture repaired at its own door (array_ref.logos), 2 imported fixtures
+  (one of them an EIGHTH contradicted fixture, found by an arm and not by the audit)
+verdict: LANDED — rulings 1, 3a, 3c; rulings 2 and 3b take their named fallback as queue rows
+rustc: 1.98.1 (48a229cea 2026-09-01) --edition 2024, called by path
+artifacts: src/compiler/probes/2026-09-16d-landrulings/ (PREDICTIONS.txt written BEFORE the landed
+binary existed, battery/ 21 programs + run_one.sh, rust/ 21 twins)
+
+### ⚠ THE INSTRUMENT LIED FIRST, AND A CONTROL CAUGHT IT BEFORE ANY VERDICT WAS TAKEN
+The first cut of the rust twins called `std::process::exit` with the scrutinee still alive in `main`.
+`std::process::exit` DOES NOT RUN DESTRUCTORS, so q02..q11 printed NOTHING and the twins would have
+read "rustc drops zero times" — a null result through a broken channel (rule 11), and in the
+EXPENSIVE direction: it would have made a double drop look like a leak on the other side. Rewritten
+so the scrutinee dies inside a helper `run()` in BOTH languages. Every count in this record is from
+the rewritten instrument.
+
+### dbmstruct — LANDED
+site: src/compiler/sema_stmt.cpp::build_pattern_variant_data
+fact: the `pat_is_struct_shape` branch filled `bindings` through `by_pos` and pushed NOTHING to
+  binding_is_ref / binding_is_mut / binding_from_wild — the loop that fills them is guarded
+  `!pat_is_struct_shape`. So `binding_from_wild.size() == 0`, every `k < binding_from_wild.size()`
+  test in the bind_ref_modes loop was false, and THE DEFAULT BINDING MODE WAS DEAD AT THIS DOOR.
+change: the door now fills the three vectors POSITIONALLY, the way the tuple door does — a written
+  `ref`/`mut` is honoured, a synth refutable-inner slot pushes `binding_is_ref = synth_wants_ref` and
+  `from_wild = false` (so the default-mode wrap never touches a synth), `_` pushes from_wild false.
+  ONE RULE, not a special case: "this door fills what that door fills".
+measured, base -> landed, destructor COUNT as the oracle, rustc twin for every program:
+  q02 two Drop fields   D2 D1 D1 D2 -> D1 D2   q03 `..` rest   D1 D1 D2 -> D1 D2
+  q04 unused binder     D4 D4 -> D4            q07 `&mut`      D8 D8 -> D8
+  q11 match on a PARAM  D6 D6 -> D6            q12 early return D2 D2 -> D2
+  q08 `let g: &S = f`   REFUSED -> exit 0 D3   c13             D5 D5 -> D5
+  q01 by-VALUE binder   D7 -> D7 UNMOVED (the LEAK control) · q05 q06 unmoved (Copy payload; synth slot)
+⚠ THE HEAP ORACLE IS BLIND TO THIS WHOLE CLASS. `S` owns nothing, so valgrind reads 0 errors and 0
+  definitely-lost on BOTH binaries. Only the destructor COUNT separates a double drop from a correct
+  one — and only q01 separates a fix from a LEAK. A round that priced this on valgrind would have
+  seen nothing at all.
+
+### arrdecay — LANDED
+site: src/compiler/sema.cpp::types_compatible, the array-decay branch's RAW-POINTER half, DELETED
+measured: a05 `&mut [i32;4]` -> `*mut i32` exit 6 -> REFUSED (rustc E0308) · d01, m10 -> REFUSED ·
+  a01 `&mut a[0] as *mut i32`, a02 `(&mut a) as *mut [i32;N] as *mut i32`, a04 the `&[T;N]` reference
+  half — ALL UNMOVED · a03 `&[i32;3]` -> `*const [i32;3]` REFUSED -> exit 7
+ceiling: 1 queue row CLOSED — arrayref_to_arrayptr_coercion_refused, BY DELETION NOT ADDITION. The
+  decay branch answered FIRST for every Array pointee and returned `types_compatible(elem, [T;N])` =
+  false, SHADOWING the general `&T -> *const T` branch below it. Removing the raw half unshadowed it.
+cost: exactly ONE ordinary corpus fixture, tests/logos/pass/array_ref.logos, repaired at its own door.
+registry, checked in BOTH and re-derived rather than inherited: DIVERGENCES.md A1-A17 has no row;
+  `coerce.array.to-pointer-decay`'s SOURCE object (tools/spec-extract/rules/sema/sema/types_equal.json)
+  carries id/domain/title/statement/evidence and NO `divergence` key, unlike its neighbours
+  trait.binop.partial-ord-derive and trait.binop.tuple-eq-impl, which both render a "**Divergence.**"
+  line. An extracted description of a block is not a blessing of it. docs/spec is AUTO-ASSEMBLED from
+  those rules, so the clause and its JSON were corrected TOGETHER in this commit.
+
+### refrel — LANDED
+site: src/compiler/sema_expr.cpp::lower_binop
+measured: r05 `&mut i64 < &i64` exit 0 -> REFUSED · g11's `<` line -> REFUSED · UNMOVED and each
+  measured ACCEPTED by rustc: r01 `&mut T < &mut T`, r02 `&T < &T`, r03 `&mut T == &T`,
+  r04 `&*ra < rb`, r06 `*ra < *rb`
+⚠ THE AUDIT'S STATEMENT OF THIS FINDING IS CORRECTED BY MEASUREMENT. It reads "the implicit
+  `&mut` -> `&` reborrow at a relational operator". That wording condemns `&mut T < &mut T`, which
+  RUNS in rustc (twin r01.rs). The fact is MIXED MUTABILITY. And there are TWO doors: an
+  all-primitive TUPLE reaches it through the `in_place` deref, a PRIMITIVE pointee through
+  `peel_numeric_ref` — r05 is the second door and the audit's single-fixture finding did not name it.
+
+### staticdemand / idxstore — NOT FUNDED, FALLBACK TAKEN (see the queue rows for the numbers)
+
+### ⚠ THE PRICING ROUND'S COST FOR arrdecay IS REFUTED BY THE REAL POPULATIONS: 1 -> 9
+2026-09-16c recorded `cost: 1 fixture: array_ref.logos`. Measured here base vs landed over run_oracle
+(7396 common) and fail_text_oracle (1872 common):
+  RUN_ORACLE 12 changed = 5 targets (c13, d01, m10, g11, the closed row's own program) + 1 subtracted
+    by name (cast-region-to-uint, prints a stack address) + 2 already known (struct-like-variant-match,
+    generic-recursive-list-se) + FOUR THE PRICING ROUND DID NOT SEE: array_ref (predicted),
+    bc_ptrcoerce_array_decay_admit, bc_ptrcoerce_elided_mutptr_admit, struct_ptr_field, while_search.
+  FAIL_TEXT 4 changed, EVERY ONE `.expected`-match 1 -> 0 (ctest RED) and INVISIBLE to an rc column:
+    all four are still refused, rc 1, with a DIFFERENT SENTENCE.
+WHY THE OLD NUMBER WAS WRONG: it was read off ceiling-probe's rc-based population, which is blind to a
+text-only change (rule 15) and does not reach those directories. Fourth recorded instance of the shape.
+IT DOES NOT CONDEMN THE LANDING, and the distinction is the brief's own: not one mover is a LEGAL
+program refused. Every one spells the implicit `&[T;N]`/`&mut [T;N]` -> raw-pointer decay that rustc
+refuses with E0308 and that no registry blesses. The STDLIB is proven by construction — the landed
+compiler rebuilt all 56 edges including every stdlib layer. So each is repaired at its own door with
+the legal spelling (`(&mut a) as *mut [T;N] as *mut T`), and the four fail fixtures KEEP THEIR REFUSAL
+with `.expected` re-pinned: their old "variance mismatch ... lifetime structure incompatible" wording
+was an ARTEFACT of the decay branch comparing the array's ELEMENT type against the pointee.
+⚠ A NINTH CONTRADICTED FIXTURE, OUTSIDE THE AUDIT'S SIX. bc_ptrcoerce_array_decay_admit pinned
+`exit: 7` for the SHARED half of the same coercion (`&[&'a i64;2]` -> `*const &'a i64`) — the owner's
+ruling-3a finding in a spelling the audit never listed, because the audit read only the 786 fixtures
+whose header said "by reading". Converted to a fail fixture and reported rather than quietly edited.
+
+### NEIGHBOUR TABLE — DECIDED BY MEASUREMENT (standing rule 2026-09-12)
+CLOSED IN THIS COMMIT: the tuple door x struct-shape (c13) · bare `E::V{f}` · `&mut` scrutinee · two
+  payload fields · `..` rest · if-let / while-let / let-else / or-pattern / double-ref / renamed field ·
+  match on a PARAMETER `x: &E` · an arm with an early RETURN · the binder read as `&S`.
+  AND `E::V { f: ref q }` (p18), WHICH THE PRICING ROUND ROWED WITH REASON 3. It is closed here by a
+  STRICT EXTENSION at the SAME site: filling the three vectors the way the tuple door does means
+  honouring the WRITTEN `ref`/`mut`, which routes p18 into the existing Rust-2024
+  `modifier_under_ref_scrutinee` check. It is now refused, in rustc's own terms. The measurement moved
+  it, so the standing rule says close it here rather than bank it as a row.
+ROWED, REASON 2 (doors in series): `Outer::V(W{s})` and `O3::V((s,k))` — measured still 2 drops under
+  the landed binary; existing row variant_payload_nested_struct_sub_double_drops still reproduces, and
+  its repair needs `let (a,b) = &t;` (row let_tuple_destructure_ref_scrutinee) to open first.
+  Also call_arg_deref_coercion_double_ref — PROVEN NEW by running it on BOTH binaries (compiles on
+  base, refused on landed), so the row is created by this landing and its header says so.
+ROWED, REASON 1 (no carrier): `Outer::V(Inn::S { f })` — still "undefined variable 'f'"; the failure is
+  NAME RESOLUTION on the nested-sub channel, not a binding mode, so no extension of this change reaches it.
+
+### CENSUS PIN — PREDICTED BEFORE MEASURING, HELD DIGIT FOR DIGIT
+REGISTRY-ALL 10922 -> 10939 (+17) · NOIMPORTED 6420 -> 6437 (+17) · TIERCOMMIT 342 -> 345 (+3).
++10 pass, +4 fail, +3 squeue rows, all under tests/logos. The +3 on TIERCOMMIT is exactly the three
+soundness rows — the new pass/fail fixtures do NOT carry that label, which is the half I declined to
+predict. logos_00_squeue_* = 227 = the ledger's rows = its `# TOTAL`. The pricing round's 12/12/2
+staleness in build/ is absorbed here, because this round RECONFIGURED build/.
+
+### TWO tier_commit GATES WENT RED ON THIS CHANGE, BOTH CORRECTLY, AND BOTH ARE MINE
+Recorded because a gate that goes red for a real reason is the gate working, and because the NEXT
+round should not have to rediscover which pin a fixture-moving commit must re-derive.
+  logos_00_population_pin_lint — PIN['corpus'] 3781 vs 3791 listed, PIN['nonglob'] 3590 vs 3600,
+    PIN['glob'] unmoved at 191. Exactly this commit's NET +10 pass fixtures (14 added, 4 removed).
+    Re-derived BY DIRECT LISTING in the gate that HOLDS the pin (direct_door_census_gate.sh), with the
+    fixtures NAMED and the half each joined, per that file's own convention. Its whole reason for
+    existing is that "how big is the pass corpus" had TWO statements and only one reader: 23
+    consecutive commits were red for 15 h 54 m while reporting themselves green. It caught this
+    commit on the first run.
+  logos_00_key_identity_lint — sema_stmt.cpp bare-name intercepts 22 -> 23. The new site is
+    `fname != "_"` in build_pattern_variant_data's struct-shape branch. CLASSIFIED before the pin was
+    moved, as that gate demands: it is NOT an entity-name intercept and NOT an instance of the class —
+    `fname` is a PATTERN FIELD name compared against the WILDCARD SPELLING `"_"` to decide whether the
+    slot is a real written binder, the same residual shape as the four `nm != "_"` sites the ledger
+    already files as regex-only residual. `"_"` is a grammar token, not an entity anything can
+    register twice, so it carries no package and needs none.
+    ⚠ AND THE SAME EDIT ADDED A SECOND `!= "_"` LINE THE COUNT CANNOT SEE: `bn != "_"`. SCAN_LHS's
+    hand list of LHS spellings holds `fname` and not `bn`, so the census moved by ONE where the source
+    moved by TWO. That is the scanner's own declared blind spot, measured again here rather than
+    discovered — recorded in the ledger beside the pin so the next reader is not misled by the count.
+
+### THE FINAL COLUMNS ON THE REBUILT build/ (348fe4193972da0a 43)
+run_oracle rc 0, 7416 pass fixtures compiled, linked and RUN. The population reconciles exactly:
+7396 (base) + 10 (the bc_armelem16c_* fixtures b513126ea added, which build/'s pre-reconfigure
+registry could not see) + 10 (this commit's net pass delta) = 7416.
+fail_text_oracle rc 0, 1876 fail fixtures: 1872 + 6 added - 2 deleted.
+⚠ THE UN-REFUSAL COLUMN IS CLEAN: **0 rows whose `.expected` no longer matches**. The only four
+changed rows are the ptrcoerce diagnostics this commit deliberately re-pinned, and all four read
+match=1 again — the shape that went 1 -> 0 mid-round is closed, in the one column that can see it.
+⚠ FOUR PASS FIXTURES READ ccrc 90 AND ARE **NOT THIS COMMIT'S** — issue-41888-b170,
+nested-tuple-in-variant-payload-b170, res-and-or-comb-or, logos_25_spec_pass_intrinsic_2. Measured
+BYTE-IDENTICAL ('90','-','-') in all three runs: base, landed and final. 90 is the 14th recorded gate
+lie (the compiler printed a diagnostic, wrote nothing, and exited 0). Three of the four are
+variant/pattern-shaped and therefore sit inside this change's blast radius, which is exactly why they
+were checked against the base rather than assumed: they predate it. Recorded, not fixed here.
+
+### ⚠ AN rc THAT LOOKS LIKE A VERDICT AND IS A REFUSAL TO RUN
+This round's gate chain called `test-levels.sh L4 bc` without `LOGOS_L4_BG=1` and recorded
+`L4BC_rc=2`. That is NOT a test failure: L4 takes ~708 s, a foreground tool call is capped at 600 s,
+and the script has a BARRIER that prints the detached invocation and exits 2 rather than let a caller
+start a run it cannot finish. Read as a verdict, rc 2 would have been reported as "L4 bc RED" — the
+19th instance of the recorded class "a gate can lie", except here the gate is honest and the READER
+was about to be. Re-run detached, the way the barrier itself prescribes, and only after the L1 re-run
+releases the ctest scheduler: both are saturating, and ONE SCHEDULER is the standing rule.

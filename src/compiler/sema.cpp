@@ -2287,9 +2287,21 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         from.pointee().elem()) {
         bool from_mut = from.kind() == LogosType::Kind::MutRef;
         TypeRef aelem = from.pointee().elem();
-        if (to.kind() == LogosType::Kind::Ptr && to.pointee() &&
-            (from_mut || !to.mut_ptr()))
-            return types_compatible(aelem, to.pointee());
+        // ⚠ THE RAW-POINTER HALF OF THIS DECAY IS GONE (2026-09-16d). `&[T; N]`
+        // / `&mut [T; N]` -> `*const T` / `*mut T` is NOT a Rust coercion:
+        // rustc 1.98.1 refuses it with error[E0308] (measured, hand a05 and the
+        // twins of bc_0914a_ptrcoerce_hb_d01 / bc_0914b_ptrcoerceland_hb_m10).
+        // Registered in NEITHER divergence registry — DIVERGENCES.md A1-A17 has
+        // no row, and `coerce.array.to-pointer-decay` in docs/spec/types.md is
+        // an EXTRACTED DESCRIPTION of this very block carrying no `divergence`
+        // field, so it blesses nothing. The legal spellings all still work and
+        // are pinned as fixtures: `&mut a[0] as *mut T`, and
+        // `(&mut a) as *mut [T; N] as *mut T`.
+        // ⚠ AND REMOVING IT IS NOT ONLY A REFUSAL: this branch answered FIRST
+        // for every Array pointee, so `&[T; N] -> *const [T; N]` fell into
+        // `types_compatible(elem, [T; N])` and read false, shadowing the
+        // general `&T -> *const T` branch below. That is soundness-queue row
+        // arrayref_to_arrayptr_coercion_refused, CLOSED by this deletion.
         if ((to.kind() == LogosType::Kind::Ref || to.kind() == LogosType::Kind::MutRef) &&
             to.pointee() &&
             (from_mut || to.kind() == LogosType::Kind::Ref))

@@ -1,0 +1,20 @@
+// LANDED 2026-09-16d: this program was soundness-queue row `arrayref_to_arrayptr_coercion_refused`.
+// The row is DELETED and the program lands here, per the queue's own rule that a fixed defect
+// deletes its row and lands its program as an ordinary fixture in the same commit.
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED (twin rust/a03.rs is the
+// same shape and runs, exit 7). `&[T; N]` coerces to `*const [T; N]` like any `&T -> *const T`.
+// ⚠ IT WAS CLOSED BY A DELETION, NOT AN ADDITION: the array-DECAY branch answered FIRST for every
+// Array pointee and returned `types_compatible(elem, [T;N])` = false, SHADOWING the general
+// `&T -> *const T` branch below it. Removing the raw-pointer half unshadowed it.
+package bc_0916d_arrdecay_arrayref_to_arrayptr_admit;
+fn f<'a>(x: &'a [&'a i64; 3]) -> *const [&'a i64; 3] {
+    return x;
+}
+fn main() -> i32 {
+    let v: i64 = 1i64;
+    let a: [&i64; 3] = [&v, &v, &v];
+    let p: *const [&i64; 3] = f(&a);
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let q: *const [i64; 3] = &arr;
+    return 0i32;
+}

@@ -1,0 +1,56 @@
+ROUND 2026-09-16d-landrulings — PREDICTIONS, WRITTEN BEFORE THE LANDED BINARY EXISTS
+base binary preserved at scratch base/logosc, base build_hash ad30d614b7d2e6c2 43.
+
+== MEASURED ON THE BASE BINARY AND ON rustc 1.98.1 BEFORE ANY EDIT ==
+prog  shape                                            BASE logosc        rustc 1.98.1
+q01   by-VALUE scrutinee, struct-shape binder          exit 0  D7          exit 0  D7     (control: must NOT move)
+q02   by-ref, TWO Drop payload fields                  exit 0  D2 D1 D1 D2 exit 0  D1 D2
+q03   by-ref, `..` rest skips a Drop field             exit 0  D1 D1 D2    exit 0  D1 D2
+q04   by-ref, binder UNUSED in the arm                 exit 0  D4 D4       exit 0  D4
+q05   by-ref, Copy payload, arithmetic                 exit 0  (no drops)  exit 0          (control)
+q06   by-ref, REFUTABLE INNER + plain binder (synth)   exit 0  (no drops)  exit 0          (control)
+q07   `&mut` scrutinee, Drop payload                   exit 0  D8 D8       exit 0  D8
+q08   by-ref, binder copied into `let g: &S`           REFUSED             exit 0  D3
+q11   match on a PARAMETER `x: &E` (no `&` spelling)   exit 0  D6 D6       exit 0  D6
+q12   by-ref, arm RETURNS EARLY                        exit 0  D2 D2       exit 0  D2
+a01   `&mut a[0] as *mut i32`                          exit 1              exit 1          (control)
+a02   `(&mut a) as *mut [i32;4] as *mut i32`           exit 5              exit 5          (control)
+a03   `&[i32;3]` -> `*const [i32;3]`                   REFUSED             exit 7
+a04   `&[i32;3]` indexed                               exit 2              exit 2          (control)
+a05   `&mut [i32;4]` -> `*mut i32` (implicit)          exit 6              REFUSED E0308
+r01   `&mut T < &mut T`                                exit 0              exit 0          (control)
+r02   `&T < &T`                                        exit 0              exit 0          (control)
+r03   `&mut T == &T`                                   exit 0              exit 0          (control)
+r04   `&*ra < rb`                                      exit 0              exit 0          (control)
+r05   `&mut i64 < &i64`                                exit 0              REFUSED E0308
+r06   `*ra < *rb`                                      exit 0              exit 0          (control)
+
+⚠ MY FIRST INSTRUMENT LIED AND THE CONTROL CAUGHT IT. The first cut of the rust twins called
+`std::process::exit` with the scrutinee still alive in `main`, which SKIPS every destructor:
+q02..q11 all printed NOTHING and would have read "rustc drops zero times". Rewritten so the
+scrutinee dies inside a helper `run()` in BOTH languages; only then do the counts above appear.
+
+== PREDICTIONS FOR THE LANDED BINARY ==
+RULING 1 (sema_stmt.cpp, the struct-shape door fills the three flag vectors as the tuple door does)
+  P1  q02 q03 q04 q07 q11 q12 each lose their DUPLICATE drop and match rustc exactly.
+  P2  q01 does NOT move (D7, once). A by-VALUE binder must still MOVE. If q01 goes silent the
+      change turned a double drop into a LEAK and the landing is refused.
+  P3  q05 q06 do not move (no Drop, and q06's refutable-inner synth slot must NOT be wrapped:
+      the synth pushes from_wild=false, exactly as the tuple door does).
+  P4  q08 goes REFUSED -> exit 0 D3 (the binder is now `&S`).
+  P5  c13 stdout goes "D5 D5" -> "D5".
+  P6  run_oracle over the whole pass corpus: I predict MORE than the four the pricing round saw,
+      because I honour the WRITTEN `ref`/`mut` modifiers at this door too (the tuple-door parallel),
+      which the priced probe did not. I do not predict a number. The two already known are
+      struct-like-variant-match (an EIGHTH contradicted fixture — rustc refuses it as written,
+      E0277) and generic-recursive-list-se (a real over-refusal, door in series).
+RULING 3a (sema.cpp, the array-decay branch's RAW-POINTER half removed)
+  P7  a05 exit 6 -> REFUSED; a01 a02 a04 unmoved; a03 REFUSED -> exit 7, which CLOSES queue row
+      arrayref_to_arrayptr_coercion_refused.
+  P8  pass cost: tests/logos/pass/array_ref.logos, repaired at its own door with a02's spelling.
+RULING 3c (sema_expr.cpp, mixed-mutability relational compare refused)
+  P9  r05 exit 0 -> REFUSED; r01 r02 r03 r04 r06 unmoved; pass cost g11 itself.
+RULING 2 — NO COMPILER CHANGE IS FUNDED. Fallback taken, with the number: the separating fact is
+  whether a callee region is pinned from ABOVE (k04: both params `&`, rustc REFUSES), and
+  check_call_outlives never receives the callee's RETURN type — a signature change plus 7 call
+  sites in 5 contexts. The two fixtures pinning the over-refusal move to one queue row.

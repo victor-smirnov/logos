@@ -1,0 +1,16 @@
+// TWIN of pass/bc_0915b_refeqland_hb_g11_admit, ONE TOKEN apart: `&*ra < rb` becomes `ra < rb`.
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0308] mismatched types
+//   — `core` ships a cross-mutability `PartialEq` but NO cross-mutability `PartialOrd`.
+// Twin src/compiler/probes/2026-09-16d-landrulings/rust/r05.rs is the primitive-pointee form of the
+// same door; this one is the all-primitive-TUPLE form, which reaches it through `in_place` instead.
+package bc_0916d_refrel_g11_lt_refuse;
+use logos.lang.cmp;
+fn main() -> i32 {
+    let mut a: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let b: (bool, u8, f32) = (true, 3u8, 1.5f32);
+    let ra: &mut (bool, u8, f32) = &mut a;
+    let rb: &(bool, u8, f32) = &b;
+    if !(ra == rb) { return 1i32; }
+    if ra < rb { return 2i32; }
+    return 0i32;
+}

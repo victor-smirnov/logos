@@ -1,0 +1,18 @@
+package q07;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum E { V { f: S }, Z }
+fn run() -> i64 {
+    let mut p: E = E::V { f: S { n: 8i64 } };
+    let mut out: i64 = 0i64;
+    match &mut p {
+        E::V { f } => { out = f.n; },
+        E::Z => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    if run() != 8i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-16d-landrulings, program q02 — caught: two Drop payload fields under a by-ref scrutinee double-dropped BOTH (base 'D2 D1 D1 D2', rustc 'D1 D2')
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 0, stdout 'D1 D2' — twin src/compiler/probes/2026-09-16d-landrulings/rust/q02.rs
+package bc_0916d_dbmstruct_hb_q02_admit;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum E { V { f: S, g: S }, Z }
+fn run() -> i64 {
+    let p: E = E::V { f: S { n: 1i64 }, g: S { n: 2i64 } };
+    let mut out: i64 = 0i64;
+    match &p {
+        E::V { f, g } => { out = f.n + g.n; },
+        E::Z => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    if run() != 3i64 { return 1i32; }
+    return 0i32;
+}

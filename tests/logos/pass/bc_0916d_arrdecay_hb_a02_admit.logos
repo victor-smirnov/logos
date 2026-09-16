@@ -1,0 +1,8 @@
+// hand battery: round 2026-09-16d-landrulings, program a02 — caught: the LEGAL spelling `(&mut a) as *mut [i32;N] as *mut i32` must keep working — it is the repair array_ref.logos now uses
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 5 — twin src/compiler/probes/2026-09-16d-landrulings/rust/a02.rs
+package bc_0916d_arrdecay_hb_a02_admit;
+unsafe fn main() -> i32 {
+    let mut a: [i32; 4] = [5, 2, 3, 4];
+    let p: *mut i32 = (&mut a) as *mut [i32; 4] as *mut i32;
+    return unsafe { *p };
+}

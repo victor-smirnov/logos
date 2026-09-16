@@ -342,7 +342,19 @@
 # (5253, 5574, 5630, 5921). A CARRIED DECISION, not a package-qualified lookup and not a
 # defect. Digest moves 9e2b7684 -> c8c7e744 with the count, both read from the scanner's
 # own scans() over this tree, not hand-computed.
-#SCAN sema_stmt.cpp 22 c8c7e744
+# 2026-09-16d-landrulings: 22 -> 23. The new site is `fname != "_"` in
+# build_pattern_variant_data's STRUCT-SHAPE branch, where the door now fills the
+# three binding-mode flag vectors the tuple door fills. CLASSIFIED: it is NOT an
+# entity-name intercept and NOT a defect of this class. `fname` there is a
+# PATTERN FIELD name being compared against the WILDCARD SPELLING `"_"` to decide
+# whether the slot is a real written binder — the same residual shape as the four
+# `nm != "_"` sites this ledger already files as REGEX-ONLY residual (see the
+# dlog cross-check above). It carries no package and needs none: `"_"` is a
+# grammar token, not an entity that anything could register a second time.
+# ⚠ The same edit added a SECOND `!= "_"` line (`bn != "_"`), which this count
+# does NOT see: SCAN_LHS's hand list of LHS spellings holds `fname` and not `bn`.
+# That is the header's own declared blind spot, measured again here, not a new one.
+#SCAN sema_stmt.cpp 23 be9db22c
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)

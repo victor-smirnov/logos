@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-16d-landrulings, program q08 — caught: a LEGAL program REFUSED on the base binary — `let g: &S = f` read 'expected &S, got S' because the binder was by value
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 0, stdout 'D3' — twin src/compiler/probes/2026-09-16d-landrulings/rust/q08.rs
+package bc_0916d_dbmstruct_hb_q08_admit;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum E { V { f: S }, Z }
+fn run() -> i64 {
+    let p: E = E::V { f: S { n: 3i64 } };
+    let mut out: i64 = 0i64;
+    match &p {
+        E::V { f } => { let g: &S = f; out = g.n; },
+        E::Z => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    if run() != 3i64 { return 1i32; }
+    return 0i32;
+}

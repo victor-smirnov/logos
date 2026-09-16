@@ -1,0 +1,10 @@
+package r03;
+use logos.lang.cmp;
+fn main() -> i32 {
+    let mut a: (bool, u8) = (true, 3u8);
+    let b: (bool, u8) = (true, 3u8);
+    let ra: &mut (bool, u8) = &mut a;
+    let rb: &(bool, u8) = &b;
+    if ra == rb { return 0i32; }
+    return 1i32;
+}

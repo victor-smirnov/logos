@@ -1,0 +1,19 @@
+package q11;
+use logos.std.fmt;
+struct S { pub n: i64 }
+impl Drop for S { fn drop(self: &mut S) { println!("D{}", self.n); } }
+enum E { V { f: S }, Z }
+fn get(x: &E) -> i64 {
+    match x {
+        E::V { f } => { return f.n; },
+        E::Z => { return 0i64; }
+    }
+}
+fn run() -> i64 {
+    let p: E = E::V { f: S { n: 6i64 } };
+    return get(&p);
+}
+fn main() -> i32 {
+    if run() != 6i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,1 @@
+return type mismatch — expected *mut &'a i64, got &mut [&'a i64; 2]

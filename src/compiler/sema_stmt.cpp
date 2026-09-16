@@ -4278,6 +4278,19 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         }
         return synth;
     };
+    // THE STRUCT-SHAPED PAYLOAD DOOR FILLS THE SAME THREE PARALLEL FLAG VECTORS
+    // THE TUPLE DOOR DOES. Until 2026-09-16d it filled NONE of them: the loop
+    // that fills binding_is_ref / binding_is_mut / binding_from_wild below is
+    // guarded `!pat_is_struct_shape`, so for `match &e { E::V { f } }` every
+    // `k < binding_from_wild.size()` test in the bind_ref_modes loop read FALSE
+    // and THE DEFAULT BINDING MODE WAS DEAD AT THIS DOOR — the payload bound by
+    // value out of a borrow and its destructor ran TWICE. Measured over a hand
+    // battery with a rustc 1.98.1 twin for every program: eleven spellings
+    // double-dropped, including the bare `match &e { E::V { f } }` with no
+    // container door and no nested sub. PROBES.md 2026-09-16d-landrulings.
+    // Positional, parallel to `by_pos` (which is indexed by PAYLOAD POSITION,
+    // not by source order), and appended to the three vectors below.
+    std::vector<bool> sshape_is_ref, sshape_is_mut, sshape_from_wild;
     if (pat_is_struct_shape) {
         // P4-pm-01: `E::V { x, y: pat, .. }` — read ITEMS as PAT_FIELD
         // list. Each entry carries NAME (+ optional VALUE sub-pat) or
@@ -4292,6 +4305,17 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         size_t arity = vinfo ? vinfo->payload_field_names.size() : 0;
         std::vector<std::string> by_pos(arity, "_");
         std::vector<bool> seen(arity, false);
+        // Parallel to `by_pos`, same indexing. `bp_wild` is true ONLY for a
+        // real WRITTEN plain binder — never for "_" and never for a synthesized
+        // refutable-inner slot, which is the separating fact the bind_ref_modes
+        // loop needs (a synth name is not a binder the user can be blamed for).
+        std::vector<bool> bp_is_ref(arity, false);
+        std::vector<bool> bp_is_mut(arity, false);
+        std::vector<bool> bp_from_wild(arity, false);
+        auto node_flag = [](TinyMapView n, const la::Key& k) {
+            return n.has_key(k) && n.get(k.code).is_value() &&
+                   n.get(k.code).as_value<uint8_t>() != 0;
+        };
         bool has_rest = false;
         if (pnode.has_key(la::ITEMS)) {
             AnyVal iav = pnode.get(la::ITEMS.code);
@@ -4333,6 +4357,11 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // tuple-shape PAT_VARIANT_DATA arm.
                     if (!fnode.has_key(la::VALUE)) {
                         by_pos[idx] = fname;  // shorthand
+                        // `E::V { ref f }` / `E::V { mut f }`: the modifier sits
+                        // on the PAT_FIELD node itself in the shorthand form.
+                        bp_is_ref[idx] = node_flag(fnode, la::IS_REF);
+                        bp_is_mut[idx] = node_flag(fnode, la::IS_MUT);
+                        bp_from_wild[idx] = fname != "_";
                         continue;
                     }
                     auto sub = map_of(fnode.get(la::VALUE.code));
@@ -4342,6 +4371,9 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             ? std::string(str_of(sub.get(la::NAME.code)))
                             : std::string("_");
                         by_pos[idx] = bn;
+                        bp_is_ref[idx] = node_flag(sub, la::IS_REF);
+                        bp_is_mut[idx] = node_flag(sub, la::IS_MUT);
+                        bp_from_wild[idx] = bn != "_";
                     } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
                                sc == la::PAT_BOOL || sc == la::PAT_CHAR ||
                                sc == la::PAT_RANGE || sc == la::PAT_STR ||
@@ -4365,6 +4397,14 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             by_pos[idx] = "_";
                         } else {
                             by_pos[idx] = std::move(synth);
+                            // Exactly the tuple door's treatment of a synth slot:
+                            // the nested-variant synth binds BY REFERENCE when
+                            // synth_refutable_inner says so, and is NOT a written
+                            // binder — so from_wild stays false and the
+                            // default-binding-mode wrap never touches it.
+                            bp_is_ref[idx] = synth_wants_ref;
+                            bp_is_mut[idx] = synth_wants_ref && pat_scrut_by_mut;
+                            bp_from_wild[idx] = false;
                         }
                     } else {
                         error(std::format(
@@ -4394,7 +4434,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     pename, pvname, list));
             }
         }
-        for (auto& s : by_pos) bindings.push_back(std::move(s));
+        for (size_t k = 0; k < by_pos.size(); ++k) {
+            bindings.push_back(std::move(by_pos[k]));
+            sshape_is_ref.push_back(bp_is_ref[k]);
+            sshape_is_mut.push_back(bp_is_mut[k]);
+            sshape_from_wild.push_back(bp_from_wild[k]);
+        }
     }
     // Per-binding IS_REF / IS_MUT flags from `ref v` / `ref mut v`
     // sub-patterns inside variant data — parallel to `bindings`,
@@ -4407,6 +4452,11 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // Gates the default-binding-mode ref wrap below so it never touches synth
     // slots (those are handled by-value / Stage-2).
     std::vector<bool> binding_from_wild;
+    if (pat_is_struct_shape) {
+        binding_is_ref    = std::move(sshape_is_ref);
+        binding_is_mut    = std::move(sshape_is_mut);
+        binding_from_wild = std::move(sshape_from_wild);
+    }
     if (!pat_is_struct_shape && pnode.has_key(la::ARGS)) {
         AnyVal aav = pnode.get(la::ARGS.code);
         if (!aav.is_null() && aav.is_pointer()) {

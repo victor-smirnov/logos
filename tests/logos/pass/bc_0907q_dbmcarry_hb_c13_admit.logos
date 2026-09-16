@@ -1,6 +1,18 @@
 // hand battery: round 2026-09-07q-dbmcarry, program c13 — caught: predicted wrong — PROBES.md "MY PREDICTION WAS WRONG BY ONE: c13 `(E::V { f }, b)` was predicted closed and reads 2 still"
-// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONTRADICTED (ACCEPTED, exit:0 stdout 'D5'); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0907q_dbmcarry_hb_c13_admit.rs
-// ⚠ THE AUDIT DISPUTES THIS FIXTURE'S CLAIM — see docs/rustc-fixture-audit-2026-09.md §bc_0907q_dbmcarry_hb_c13_admit. The assertion is UNCHANGED: a corpus decision with an owner.
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 0, stdout 'D5' — ONE destructor call; twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0907q_dbmcarry_hb_c13_admit.rs
+// ⚠ THE AUDIT'S RULING IS LANDED — docs/rustc-fixture-audit-2026-09.md §bc_0907q_dbmcarry_hb_c13_admit,
+//   Victor 2026-09-16: «c13 — чини двойной дроп». THIS FIXTURE ASSERTED `D5` TWICE — a DOUBLE DROP
+//   pinned as correct, which the audit called the strongest form of that claim. It now asserts `D5` once.
+//   The defect was sema_stmt.cpp::build_pattern_variant_data: the struct-shaped payload door filled NONE
+//   of binding_is_ref / binding_is_mut / binding_from_wild (the loop that fills them is guarded
+//   `!pat_is_struct_shape`), so every `k < binding_from_wild.size()` test below read false, the DEFAULT
+//   BINDING MODE WAS DEAD at that door, and the payload bound BY VALUE out of a borrow. Eleven spellings
+//   double-dropped; c13 is the tuple-door one. The door now fills them as the TUPLE door does.
+// ⚠ THE HEAP ORACLE IS BLIND TO THIS CLASS. `S` owns nothing, so valgrind reads 0 errors and
+//   0 definitely-lost on BOTH binaries. Only the destructor COUNT separates a double drop from a
+//   correct one, which is why this `.expected` pins stdout and not just the exit code. A fix that had
+//   turned the double drop into a LEAK would also exit 0 — pass/bc_0916d_dbmstruct_hb_q01_admit is the
+//   control that says it did not.
 // harvested 2026-09-14h from src/compiler/probes/2026-09-07q-dbmcarry/hand/c13.logos
 package bc_0907q_dbmcarry_hb_c13_admit;
 use logos.std.fmt;

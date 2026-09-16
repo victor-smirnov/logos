@@ -9,7 +9,9 @@ fn main() -> i32 {
     let mut r: &'static i64 = &G;
     let q: *mut &i64 = &mut r;
     let mut a: [&'static i64; 2] = [&G, &G];
-    let d: *mut &i64 = &mut a;
+    // 2026-09-16d: the ARRAY line needs the explicit cast now (rustc E0308); the `&mut r`
+    // line above is a plain `&mut T` -> `*mut T` and is untouched by that removal.
+    let d: *mut &i64 = (&mut a) as *mut [&'static i64; 2] as *mut &i64;
     let n: i64 = unsafe { **q } + unsafe { **d } + raw(&mut r);
     show("n=%lld", n);
     return n as i32;

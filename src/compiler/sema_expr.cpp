@@ -2399,6 +2399,22 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     auto is_ref_t = [](TypeRef t) {
         return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
     };
+    // MIXED MUTABILITY AT A RELATIONAL OPERATOR IS A TYPE ERROR. `core` ships a
+    // cross-mutability `PartialEq` (`&mut A == &B` is Rust-canonical, hand r03)
+    // but NO cross-mutability `PartialOrd`, so rustc 1.98.1 refuses `ra < rb`
+    // for `ra: &mut T`, `rb: &T` with error[E0308] (hand r05, measured).
+    // ⚠ THE FACT IS MIXED MUTABILITY, NOT "A `&mut` OPERAND". Uniform
+    // mutability is legal in BOTH directions — `&mut T < &mut T` (hand r01) and
+    // `&T < &T` (hand r02) both run in rustc — so a rule keyed on "one side is
+    // `&mut`" would refuse legal programs. `&*ra < rb` (hand r04) is the
+    // repair and stays legal because the reborrow makes both sides shared.
+    if (cmp_op && is_ref_t(lt) && is_ref_t(rt) &&
+        (op == "<" || op == "<=" || op == ">" || op == ">=") &&
+        (TypeRef(lt).kind() == LogosType::Kind::MutRef) !=
+        (TypeRef(rt).kind() == LogosType::Kind::MutRef))
+        error(std::format(
+            "mismatched types: `{}` compares a mutable and a shared reference; "
+            "types differ in mutability (reborrow the `&mut` operand as `&*r`)", op));
     if (cmp_op && is_ref_t(lt) && is_ref_t(rt)) {
         while (is_ref_t(TypeRef(lt).pointee()) && is_ref_t(TypeRef(rt).pointee())) {
             // A peeled layer is read, not moved: `&mut` layers load as shared references.

@@ -7,7 +7,7 @@ package se_generic_recursive_list;
 enum List<T> { Cons { head: T, tail: &List<T> }, Nil }
 fn sum(l: &List<i64>) -> i64 {
     match l {
-        List::Cons { head: h, tail: t } => { return *h + sum(t); }
+        List::Cons { head: h, tail: t } => { return *h + sum(*t); }
         List::Nil => { return 0i64; }
     }
 }

@@ -3373,7 +3373,7 @@ A reference or raw pointer to an array, `&[T;N]` / `&mut [T;N]` / `*const [T;N]`
 
 ### `coerce.array.to-pointer-decay` — Array and &array decay to raw pointer / reference without mutability widening
 
-`Array<T>` coerces to *const/T-pointee Ptr when elem==pointee. A `&[T;N]`/&mut[T;N] decays to *const/*mut T or &/&mut T over a compatible element type, but a shared (&) source may not decay to a mutable (*mut/&mut) target.
+`Array<T>` coerces to *const/T-pointee Ptr when elem==pointee. A `&[T;N]`/&mut[T;N] decays to &/&mut T over a compatible element type, but a shared (&) source may not decay to a mutable (&mut) target. The RAW-POINTER half of this decay (`&[T;N]`/&mut[T;N] -> *const/*mut T) was REMOVED 2026-09-16: rustc 1.98.1 refuses it with error[E0308] and it is registered in NEITHER divergence registry, so this clause never blessed it — it only described the block. A `&[T;N]` still reaches a `*const [T;N]` via the general &T -> *const T rule, which the removed branch used to shadow.
 
 **Source:** `src/compiler/sema.cpp#L1938-L1941`, `src/compiler/sema.cpp#L1999-L2019`
 

@@ -1,0 +1,6 @@
+package a04;
+fn main() -> i32 {
+    let a: [i32; 3] = [1, 2, 3];
+    let r: &[i32; 3] = &a;
+    return r[1i64];
+}

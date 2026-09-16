@@ -1,0 +1,6 @@
+package a03;
+unsafe fn main() -> i32 {
+    let a: [i32; 3] = [7, 8, 9];
+    let q: *const [i32; 3] = &a;
+    return unsafe { (*q)[0i64] };
+}

@@ -1,0 +1,8 @@
+// hand battery: round 2026-09-16d-landrulings, program a01 — caught: the LEGAL spelling `&mut a[0] as *mut i32` must keep working after the decay branch is removed
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 1 — twin src/compiler/probes/2026-09-16d-landrulings/rust/a01.rs
+package bc_0916d_arrdecay_hb_a01_admit;
+unsafe fn main() -> i32 {
+    let mut a: [i32; 4] = [1, 2, 3, 4];
+    let p: *mut i32 = &mut a[0i64] as *mut i32;
+    return unsafe { *p };
+}

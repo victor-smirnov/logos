@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-16d-landrulings, program r05 — caught: the SECOND door: a PRIMITIVE pointee goes through peel_numeric_ref, not the all-primitive-tuple in_place deref, and was admitted too
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0308] mismatched types — twin src/compiler/probes/2026-09-16d-landrulings/rust/r05.rs
+package bc_0916d_refrel_hb_r05_refuse;
+fn main() -> i32 {
+    let mut a: i64 = 3i64;
+    let b: i64 = 4i64;
+    let ra: &mut i64 = &mut a;
+    let rb: &i64 = &b;
+    if ra < rb { return 0i32; }
+    return 1i32;
+}

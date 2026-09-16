@@ -1,6 +1,13 @@
 // hand battery: round 0915b_refeqland, program g11 — caught: verdict moved base (refused: use of moved value 'ra', a `&mut` tuple operand moved by `==`) -> refeq landing (runs, Rust's answer)
-// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONTRADICTED (refuses, E0308); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard2-hb-late/bc_0915b_refeqland_hb_g11_admit.rs
-// ⚠ THE AUDIT DISPUTES THIS FIXTURE'S CLAIM — see docs/rustc-fixture-audit-2026-09.md §bc_0915b_refeqland_hb_g11_admit. The assertion is UNCHANGED: a corpus decision with an owner.
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024. THE AUDIT'S FINDING IS LANDED, NOT PINNED:
+//   `ra == rb` (mixed mutability) is RUST-CANONICAL — core ships `impl PartialEq<&B> for &mut A` — and is kept here.
+//   `&*ra < rb` is RUST-CANONICAL and is kept here.
+//   `ra < rb` (mixed mutability at a RELATIONAL operator) is error[E0308] in rustc — core ships no
+//   cross-mutability `PartialOrd` — and now REFUSED by logosc; it moved to the one-token twin
+//   fail/bc_0916d_refrel_g11_lt_refuse. docs/rustc-fixture-audit-2026-09.md §bc_0915b_refeqland_hb_g11_admit.
+// ⚠ THE AUDIT'S WORDING IS CORRECTED BY MEASUREMENT: the fact is MIXED mutability, not "an implicit
+//   `&mut` -> `&` reborrow at a relational operator". `&mut T < &mut T` RUNS in rustc (twin r01.rs), so the
+//   wider reading would have condemned a legal program. Pinned as pass/bc_0916d_refrel_hb_r01_admit.
 package bc_0915b_refeqland_hb_g11_admit;
 use logos.lang.cmp;
 fn main() -> i32 {
@@ -9,6 +16,6 @@ fn main() -> i32 {
     let ra: &mut (bool, u8, f32) = &mut a;
     let rb: &(bool, u8, f32) = &b;
     if !(ra == rb) { return 1i32; }
-    if ra < rb { return 2i32; }
+    if &*ra < rb { return 2i32; }
     return 0i32;
 }

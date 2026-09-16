@@ -1,0 +1,15 @@
+package q05;
+enum E { V { f: i64, g: i64 }, Z }
+fn run() -> i64 {
+    let p: E = E::V { f: 5i64, g: 6i64 };
+    let mut out: i64 = 0i64;
+    match &p {
+        E::V { f, g } => { out = f + g + 1i64; },
+        E::Z => {}
+    }
+    return out;
+}
+fn main() -> i32 {
+    if run() != 12i64 { return 1i32; }
+    return 0i32;
+}

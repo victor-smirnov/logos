@@ -1,0 +1,23 @@
+// 2026-09-16d: THIS FIXTURE PINNED THE SHARED HALF OF THE VERY COERCION RULING 3a REMOVED —
+// `&[&'a i64; 2]` -> `*const &'a i64`. It asserted `exit: 7`, stdout `k=7`; it now asserts the refusal.
+// legality: rustc 1.98.1 refuses this shape with error[E0308] (measured on the `&mut` twin, hand a05,
+// and stated for the shared half in docs/rustc-fixture-audit-2026-09.md §bc_0914a_ptrcoerce_hb_d01_admit:
+// "Rust has no implicit decay from a reference-to-array to a raw pointer-to-element").
+// ⚠ IT IS NOT ONE OF THE AUDIT'S SIX. It was found by the RUNTIME COLUMN when the arm was armed over
+// the whole corpus, not by reading headers — the audit read only the 786 fixtures marked "by reading".
+// It is the same FINDING the owner ruled on, in a spelling the audit did not list, so it is reported
+// rather than quietly converted: see PROBES.md 2026-09-16d-landrulings.
+package bc_ptrcoerce_array_decay_refuse2;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+static G: i64 = 7i64;
+fn first<'a>(x: &[&'a i64; 2]) -> *const &'a i64 {
+    return x;
+}
+fn main() -> i32 {
+    let a: [&'static i64; 2] = [&G, &G];
+    let p: *const &i64 = first(&a);
+    let k: i64 = unsafe { **p };
+    show("k=%lld", k);
+    return k as i32;
+}

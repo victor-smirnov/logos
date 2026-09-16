@@ -1,0 +1,9 @@
+package r05;
+fn main() -> i32 {
+    let mut a: i64 = 3i64;
+    let b: i64 = 4i64;
+    let ra: &mut i64 = &mut a;
+    let rb: &i64 = &b;
+    if ra < rb { return 0i32; }
+    return 1i32;
+}

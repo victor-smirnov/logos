@@ -1,0 +1,1 @@
+let 'p': type mismatch — expected *mut i32, got &mut [i32; 4]

@@ -1,0 +1,32 @@
+// SOUNDNESS QUEUE row vec_index_store_live_shared_loan_admits (tier 2).
+// ILLEGAL and ADMITTED: `e` is a live shared loan of `v`, and the indexed store
+// `v[*e as u64] = 9` needs `&mut v` while that loan is still read by the index
+// expression. rustc 1.98.1 refuses with error[E0502] ("cannot borrow `v` as
+// mutable because it is also borrowed as immutable", measured 2026-09-16 with
+// --crate-name; the first measurement read REFUSED for a reason that had
+// nothing to do with the program — the twin's FILENAME carried a dot and rustc
+// rejected it as an invalid crate name). Logos compiles it and runs exit 9.
+//
+// ⚠ THE OBVIOUS ARM IS PRICED AND DECLINED, REASON 3 (its own cost is measured
+// NON-ZERO). borrow_check.cpp::store_loans_die_in_stmt_ is the 2026-09-14b
+// landing that reads an IndexMut store's `&mut v` autoref as a two-phase
+// borrow. Disarming it refuses this program correctly — and ALSO refuses
+// bc_0914b_ptrcoerceland_hb_v02_admit and bc_0914b_ptrcoerceland_hb_v02b_admit,
+// two programs whose rustc twins were measured ACCEPTING. The query cannot tell
+// "the loan's last use is this statement" from "the loan is read BY the store's
+// own value expression", and `v.push(v.len())` — a METHOD RECEIVER's autoref,
+// which really IS two-phase — must keep compiling. The repair is a narrowing at
+// the same predicate (ask whether the conflicting loan is read by the INDEX or
+// by the VALUE), not the disarm.
+//
+// This row replaces tests/logos/pass/bc_0914b_ptrcoerceland_hb_v02i_admit,
+// which asserted `exit: 9` — a fixture may not keep asserting what rustc
+// contradicts.
+package vec_index_store_live_shared_loan_admits;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(0i64);
+    let e: &i64 = &v[1u64];
+    v[*e as u64] = 9i64;
+    return v[0u64] as i32;
+}

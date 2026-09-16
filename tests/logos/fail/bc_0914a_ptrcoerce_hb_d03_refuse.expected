@@ -1,1 +1,1 @@
-[fn f]: return type mismatch: variance mismatch — expected *mut &'b i64, got &mut [&'a i64; 2] — lifetime structure incompatible (check &mut invariance / contravariance rules)
+[fn f]: return type mismatch — expected *mut &'b i64, got &mut [&'a i64; 2]

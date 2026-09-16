@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-14a-ptrcoerce, program D01 — caught: refuted an arm — PROBES.md "`refptrco` refuses F_array_ref, F_struct_ptr_field, F_while_search ... AND D01 ... FOUR legal programs"
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0308] mismatched types — twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard1-hb-early/gen3/bc_0914a_ptrcoerce_hb_d01_admit.rs
+// THE AUDIT'S RULING IS LANDED (docs/rustc-fixture-audit-2026-09.md §bc_0914a_ptrcoerce_hb_d01_admit): Rust has no implicit
+// `&mut [T; N]` -> `*mut T` decay, and it was registered in NEITHER divergence registry. This fixture asserted `exit: 0`;
+// it now asserts the refusal. The legal spellings are pinned as pass/bc_0916d_arrdecay_hb_a01_admit and _a02_admit.
+package bc_0914a_ptrcoerce_hb_d01_refuse;
+fn f<'a>(x: &mut [&'a i64; 2]) -> *mut &'a i64 {
+    return x;
+}
+fn main() -> i32 {
+    let v: i64 = 1i64;
+    let mut a: [&i64; 2] = [&v, &v];
+    let p: *mut &i64 = f(&mut a);
+    return 0i32;
+}

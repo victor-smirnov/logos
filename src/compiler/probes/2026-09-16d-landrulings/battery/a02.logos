@@ -1,0 +1,6 @@
+package a02;
+unsafe fn main() -> i32 {
+    let mut a: [i32; 4] = [5, 2, 3, 4];
+    let p: *mut i32 = (&mut a) as *mut [i32; 4] as *mut i32;
+    return unsafe { *p };
+}

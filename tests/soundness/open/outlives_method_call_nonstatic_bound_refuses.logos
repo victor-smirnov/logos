@@ -1,0 +1,40 @@
+// SOUNDNESS QUEUE row outlives_method_call_nonstatic_bound_refuses (tier 3).
+// A LEGAL program refused — the expensive direction. `K::two` declares
+// `where 'a: 'b` between two of its OWN regions; the caller `f<'p,'q>` passes
+// two unrelated borrows. rustc 1.98.1 ACCEPTS this and runs it (exit 3,
+// measured 2026-09-16): `&'p i64` is covariant, so the caller may SHORTEN each
+// argument's region, and 'a := 'b := the call point satisfies the bound with no
+// relation between 'p and 'q. check_call_outlives (sema_impl.hpp) instead maps
+// the callee's regions rigidly onto the caller's DECLARED ones and demands
+// `'p: 'q`.
+//
+// ⚠ WHY THE CHEAP FIX IS REFUTED AND THIS IS A ROW RATHER THAN A LANDING
+// (2026-09-16d, hand battery k01-k06, every program with a rustc twin): the
+// obvious arm — "skip the check when both callee regions arrived through
+// COVARIANT (`&`) argument positions" — would also admit k04, whose params are
+// both `&` and which rustc REFUSES ("lifetime may not live long enough"),
+// because there the bound reaches the RETURN type. k03 refutes it from the
+// other side: both params `&mut` (INVARIANT) and rustc still ACCEPTS. So
+// argument variance is not the separating fact. The separating fact is whether
+// a callee region is PINNED FROM ABOVE — by the return type, or by a position
+// the caller can observe — and check_call_outlives is never given the callee's
+// return type at all. Wiring it is a signature change plus 7 call sites in 5
+// contexts (dlog tools/dlog/static_demand_sites.dl: outlives_askers =
+// lower_call, finish_generic_call, lower_method_call, try_method_on_dyn,
+// lower_static_call; cross-checked per site). The honest form is region
+// inference — see the neighbouring row outlives_call_instantiation.
+//
+// THIS ROW REPLACES TWO FIXTURES THAT PINNED THE OVER-REFUSAL AS THE RULE:
+// tests/logos/fail/bc_0913d_staticdemand_hb_x06_refuse (the audit's ruling 2)
+// and tests/logos/fail/bc_staticdemand_method_nonstatic_bound_refuse (the SAME
+// program under the caller name `g`, which the fixture audit MISSED because it
+// only read fixtures whose header said "by reading").
+package outlives_method_call_nonstatic_bound_refuses;
+struct K { b: i64 }
+impl K {
+    fn two<'a, 'b>(self: &Self, x: &'a i64, y: &'b i64) -> i64 where 'a: 'b { return *x + *y; }
+}
+fn f<'p, 'q>(k: &K, x: &'p i64, y: &'q i64) -> i64 {
+    return k.two(x, y);
+}
+fn main() -> i32 { let n = 1i64; let m = 2i64; let k = K { b: 0i64 }; return f(&k, &n, &m) as i32; }

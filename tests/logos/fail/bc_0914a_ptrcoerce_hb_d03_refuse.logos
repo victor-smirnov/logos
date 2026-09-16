@@ -1,3 +1,9 @@
+// ⚠ 2026-09-16d: THE VERDICT IS UNCHANGED (still refused); THE SENTENCE CHANGED, and only the TEXT
+// oracle saw it. The old wording said "variance mismatch ... lifetime structure incompatible" —
+// that reason was an ARTEFACT of the array-decay branch, which compared the array's ELEMENT type
+// against the pointee and failed on variance. Ruling 3a removed that branch (rustc has no such
+// coercion, E0308), so the program is now refused by the plain type mismatch instead, which is the
+// Rust-correct reason. `.expected` re-pinned to the sentence the compiler actually gives.
 // hand battery: round 2026-09-14a-ptrcoerce, program D03 — caught: verdict moved base -> landed — PROBES.md NEIGHBOURS "CLOSED here" (return/let/place/decay/tuple/`&mut`->`&`/Vec store) + PROBES.md "every change is an illegal program refused or ...
 // legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0308); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914a_ptrcoerce_hb_d03_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/survey14a.MrUR/bat6/D03_illegal_decay_region.logos

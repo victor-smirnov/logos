@@ -1,0 +1,8 @@
+// hand battery: round 2026-09-16d-landrulings, program a04 — caught: the `&[T;N]` REFERENCE half of the decay is untouched — only the raw-pointer half was removed
+// legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: ACCEPTED, exit 2 — twin src/compiler/probes/2026-09-16d-landrulings/rust/a04.rs
+package bc_0916d_arrdecay_hb_a04_admit;
+fn main() -> i32 {
+    let a: [i32; 3] = [1, 2, 3];
+    let r: &[i32; 3] = &a;
+    return r[1i64];
+}
