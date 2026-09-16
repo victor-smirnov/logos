@@ -46684,3 +46684,34 @@ also the expression-position and tuple spellings; rustc k=3 n=2) and
 `at_binding_array_sub_verifier_error_refused` (tier 3, refuses — `y @ [_]` escapes an MLIR verifier
 error as the user-visible refusal; rustc k=7 n=2). A third candidate (`y @ _` over a Drop value) was
 DISCARDED as a duplicate: its sentence is byte-identical to `at_binding_whole_struct_wild_fields_refused`.
+
+## ROUND 2026-09-16c-armelem — MARK THE ELEMENT, NOT THE ARRAY: THE MATCH-ARM ARRAY DOOR CLOSES, AND THE WHOLE-ARRAY ARM IT REPLACES IS MEASURED LEAKING NINE LEGAL PROGRAMS
+
+Full record: `src/compiler/probes/2026-09-16c-armelem/RESULT.txt`; predictions written BEFORE the
+first compiler edit in `PREDICTIONS.txt`; rustc 1.98.1 twins in `rust/` (20 programs); the three arm
+tables in `ARM_base.tsv` / `ARM_armelem.tsv` / `ARM_slicemvn.tsv`, all from ONE binary.
+
+THE CLASS, BY PROPERTY: every by-value array pattern in a match arm over an owned `[T; N]` PLACE
+double-destroys each element the arm binds — `SemaChecker::mark_match_scrutinee_moved` marked
+nothing, because `pattern_moves_out`'s `Slice` arm returns false and the whole-array alternative was
+(correctly) refused by its own comment. 14 of 21 hand programs wrong on base, each against its rustc
+twin: `[_, y]` 212/21, `[_, _, x]` 3123/312, `[first, ..]` 1123/123, `[a, .., b]` 411234/4123, a
+guarded two-arm match 212/21, a temporary scrutinee 212/21, in-loop 212212/2121.
+
+THE REPAIR IS THREE SITES AND THE THIRD IS WHY THE DOOR WAS IN SERIES. `gen_drop_value`'s `K::Array`
+branch had NO skip-path handling at all and the `SDrop` `K::Array` branch forwarded no moved set:
+an array was the ONE aggregate whose scope-exit drop could not skip a moved child, so no per-element
+mark was expressible and only a whole-array mark was. Both are now the twins of the Tuple loop that
+sat 400 lines above them, and sema marks `<base>.<i>` per bound index (prefix `j`, suffix `N-sc+j`),
+only for a PLAIN named binder — a nested sub-pattern may move only part of its element.
+
+⚠ THE RUNNER-UP ARM FROM 2026-09-16b DOES NOT MERELY COARSEN A SENTENCE — IT LEAKS. Rebuilt in the
+same binary as one variable apart, `slicemvn` suppresses the drop of every element the pattern does
+NOT bind: `[_, y]` over `[D; 2]` ran nine legal programs with a silent leak (n=2 where rustc gives
+21; in-loop n=22 where rustc gives 2121), all rc 0. The pricing round declined it for degrading three
+pinned diagnostics; **the decline was right for a much larger reason its five columns could not see,
+because the round measured only FULL binds and a leak has no exit code.** Vary the shape, not the count.
+
+⚠ AND THE PARTIAL BIND WAS THE PLAINEST SPELLING OF THE CLASS. `match arr { [_, y] => … }` is the
+first thing anyone writes, it is 14 of the round's 21 programs, and the previous round's every column
+missed it because its battery bound every element. Write the plain spelling first.

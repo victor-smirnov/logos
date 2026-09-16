@@ -1,0 +1,23 @@
+// hand battery: round 2026-09-16c-armelem, program h14_guard_two_arms — caught: a GUARD making two array arms reachable — the shape that decides whether per-arm marks accumulate (base 212).
+// legality MEASURED with rustc 1.98.1 --edition 2024; the twin is
+//   src/compiler/probes/2026-09-16c-armelem/rust/h14_guard_two_arms.rs and it prints the SAME line.
+// The stdout pinned here IS the destructor trace (each drop does n = n*10 + v), so a leak
+// reads short and a double free reads long — an exit code alone could not tell them apart.
+package bc_armelem16c_hb_h14_guard_two_arms_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn g(p: *mut i64, sel: i64) -> i64 {
+    let arr: [D; 2] = [D { v: 1i64, c: p }, D { v: 2i64, c: p }];
+    match arr {
+        [a, _] if sel == 0i64 => { return a.v; }
+        [_, b] => { return b.v; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p, 1i64);
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, n); }
+    return 0i32;
+}

@@ -1,0 +1,46 @@
+ROUND 2026-09-16c-armelem — PREDICTIONS, WRITTEN BEFORE ANY COMPILER EDIT.
+Base binary build_hash ad30d614b7d2e6c2 43 (READ). Queue gate rc 0, 222 rows, tier1=35.
+
+THE CLASS (by property, measured on the base binary against rustc 1.98.1, not guessed):
+  a BY-VALUE ARRAY PATTERN IN A MATCH ARM over an owned [T; N] place never marks ANY element
+  moved, so the scrutinee's scope-exit drop destroys every element the arm already moved out.
+  Measured base vs rustc: h01 [_,y] 212/21 · h02 [_,_,x] 3123/312 · h03 disjoint 31123/312 ·
+  h04 [first,..] 1123/123 · h05 [x,y] stmt 2112/21 · h08 [a,b,c] 321123/321 · h10 in-loop
+  212212/2121. Correct on base: h06 &arr 12=12, h11 non-Drop elements, h12 refused with
+  'a.2' = rustc E0382.
+
+THE CANDIDATE (armelem): mark the ELEMENT, not the array — the repair the Slice arm's own
+comment already describes. Three sites:
+  (1) SemaChecker::mark_match_scrutinee_moved — per-index paths <base>.<i> for each element
+      the arm binds BY VALUE (prefix j -> j, suffix j -> N-sc+j, named rest -> [pcn, N-sc)),
+      reusing pattern_moves_out per element so `ref`/`_`/non-move elements mark nothing.
+  (2) MLIRGenImpl::gen_drop_value K::Array — honour skip_paths per element index
+      (split_skip_paths on std::to_string(i)), the twin of its own Tuple loop.
+  (3) The SDrop K::Array branch — forward the var's `moved` set into (2); today it passes none.
+Sites (2)+(3) are INERT without (1): an array element path cannot enter moved_vars_ today
+(mark_moved_expr REFUSES an array index move by design), so only the sema arm is env-gated.
+
+PREDICTION 1 — armelem CLOSES exactly ONE queue row: slice_pattern_arm_binding_extra_drops
+  (run 1 -> exit 0). I predict it does NOT move: match_expr_array_pattern_segfaults_run,
+  loop_break_value_array_lit_uninit_drop_run, at_binding_by_value_never_dropped,
+  at_binding_aggregate_segfaults_run, foreach_array_rvalue_elements_never_dropped_run,
+  match_arm_nested_binder_shadow_double_drop.
+PREDICTION 2 — armelem corrects h01 h02 h03 h04 h05 h08 h10 to rustc's exact traces, and
+  leaves h06 h11 h12 UNCHANGED (h12 still refused, sentence still 'a.2').
+PREDICTION 3 — armelem costs ZERO legal programs: pass/bc_slicearr_suffix_prefix_twin still
+  compiles and runs 0, and the three fail fixtures the whole-array arms coarsened
+  (bc_slicearr_elem_moved_twice, borrowck-move-out-from-array-match,
+  borrowck-move-out-from-array-use-match--b) keep their EXACT 'a.2' sentences.
+PREDICTION 4 — the whole-array arm (slicemvn, last round's runner-up) LEAKS on a PARTIAL bind:
+  h01 -> n=2 (rustc 21) and h02 -> n=3 (rustc 312), because suppressing the array's whole drop
+  also suppresses the UNBOUND elements. This is a legal RUN program the last round's five
+  columns never had, and it condemns slicemvn independently of the diagnostic argument.
+  Both arms are built into ONE binary so this is one variable, not two builds.
+
+FOUND BESIDE IT, already measured on base, NOT part of the candidate (rowed unless the
+candidate closes them, which I predict it does not):
+  X1  `match s.arr { [_, y] => ... }` — an array-typed FIELD place as match scrutinee escapes an
+      MLIR VERIFIER ERROR as the user-visible refusal. Same at `match t.0` over a tuple element
+      (x07d). rustc compiles and runs k=2 n=21. -> tier 3, refuses.
+  X2  `let [_, y] = s.arr;` compiles, runs, and LEAKS the unbound element: n=2, rustc 21.
+      -> tier 1, run.

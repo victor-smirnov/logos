@@ -9105,6 +9105,11 @@ bool SemaChecker::pattern_moves_out(lir_view::PatRef pr, TypeRef ty) {
             // record per element (`a.2`): `[.., z]` then `[w, ..]` is legal.
             // A whole-array mark here would refuse it and coarsen the sentence
             // (measured: 1 pass + 4 fail fixtures).
+            // ⚠ AND A WHOLE-ARRAY MARK IS NOT MERELY COARSE, IT LEAKS. Measured 2026-09-16c over
+            // one binary carrying both arms: the whole-array mark suppresses the drop of every
+            // element the pattern does NOT bind — `[_, y]` over `[D; 2]` destroyed only y (n=2
+            // where rustc gives 21), and nine legal programs leaked that way. The move a match arm
+            // makes is per INDEX, and mark_match_scrutinee_moved records it per index.
             return false;
         case ps::Code::At: {
             lir_view::PatAtView v{pr};
@@ -9137,6 +9142,48 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // the parent's scope-exit Drop double-frees the moved-out payload. A bare
     // VarRef marks the var. A temporary has no owner to mark (lower_match hoists
     // it into a synth local first, so it arrives here as a VarRef).
+    // MARK THE ELEMENT, NOT THE ARRAY (2026-09-16c-armelem; see src/compiler/PROBES.md).
+    // An owned `[T; N]` place matched by an array pattern moves out exactly the indices its
+    // arm binds BY VALUE, and the per-index path is what lets the scope-exit drop skip those and
+    // still destroy the siblings. A whole-array mark LEAKS every element the pattern does not bind
+    // (measured: `[_, y]` over `[D; 2]`). Only a PLAIN named binder marks: a nested destructuring
+    // sub-pattern may move only part of its element, and marking the whole element would leak the
+    // rest. A named `rest` binds a sub-slice here, not the elements, so it marks nothing.
+    {
+        namespace ps = lir_schema::pat;
+        if (scrut && scrut_type && pat &&
+            pat.kind() == ps::Code::Slice &&
+            TypeRef(scrut_type).kind() == LogosType::Kind::Array &&
+            lir_view::is_place_expr(expr_ref_of(scrut))) {
+            std::string base =
+                expr_ref_of(scrut).kind() == ec::Code::VarRef
+                    ? std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name())
+                    : move_path_of(expr_ref_of(scrut));
+            lir_view::PatSliceView sv{pat};
+            TypeRef et = TypeRef(scrut_type).elem();
+            const uint64_t n  = TypeRef(scrut_type).arr_size();
+            const uint64_t sc = sv.suffix_count();
+            auto binds_by_value = [&](lir_view::PatRef sp) {
+                if (!sp || sp.kind() != ps::Code::Wild) return false;
+                auto nm = lir_view::PatWildView{sp}.name();
+                return !nm.empty() && nm != "_" && et && is_move_type(et);
+            };
+            if (!base.empty() && n > 0) {
+                logos::probe::census("armelem.slice.door");
+                uint64_t i = 0;
+                sv.each_prefix([&](lir_view::PatRef sp) {
+                    if (i < n && binds_by_value(sp))
+                        mark_moved(base + "." + std::to_string(i));
+                    ++i; });
+                uint64_t j = 0;
+                sv.each_suffix([&](lir_view::PatRef sp) {
+                    if (n >= sc && binds_by_value(sp))
+                        mark_moved(base + "." + std::to_string(n - sc + j));
+                    ++j; });
+                return;
+            }
+        }
+    }
     if (!(scrut && scrut_type && is_move_type(scrut_type) &&
           lir_view::is_place_expr(expr_ref_of(scrut)) && pattern_moves_out(pat, scrut_type)))
         return;

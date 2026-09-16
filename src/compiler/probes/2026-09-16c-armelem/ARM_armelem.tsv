@@ -1,0 +1,33 @@
+HB:h01_partial_bind	cc=0	diag=0	run=0	out=k=2 n=21 	msg=-
+HB:h02_partial_three	cc=0	diag=0	run=0	out=k=3 n=312 	msg=-
+HB:h03_disjoint_runs	cc=0	diag=0	run=0	out=k=4 n=312 	msg=-
+HB:h04_rest_named	cc=0	diag=0	run=0	out=k=1 n=123 	msg=-
+HB:h05_full_stmt	cc=0	diag=0	run=0	out=k=3 n=21 	msg=-
+HB:h06_ref_scrutinee	cc=0	diag=0	run=0	out=k=3 n=12 	msg=-
+HB:h07_struct_field_array	cc=1	diag=1	run=-	out=-	msg=error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type or LLVM dialect-compatible vector of LLVM pointer type, but got '!llvm.array<2 x struct<"h07_struct_field_array.
+HB:h08_all_three	cc=0	diag=0	run=0	out=k=6 n=321 	msg=-
+HB:h10_in_loop	cc=0	diag=0	run=0	out=k=4 n=2121 	msg=-
+HB:h11_nodrop_elem	cc=0	diag=0	run=0	out=k=3 n=0 	msg=-
+HB:h12_overlap_refuse	cc=1	diag=1	run=-	out=-	msg=error [fn main]: use of moved field 'a.2' (moved on line 10)
+HB:h13_two_arms	cc=0	diag=0	run=0	out=k=1 n=12 	msg=-
+HB:h14_guard_two_arms	cc=0	diag=0	run=0	out=k=2 n=21 	msg=-
+HB:h15_nested_destructure_elem	cc=0	diag=0	run=0	out=k=1 n=112 	msg=-
+HB:h16_ref_elem_mixed	cc=0	diag=0	run=0	out=k=3 n=21 	msg=-
+HB:h17_rvalue_scrutinee	cc=0	diag=0	run=0	out=k=2 n=21 	msg=-
+HB:h18_suffix_only	cc=0	diag=0	run=0	out=k=3 n=312 	msg=-
+HB:h19_prefix_and_suffix	cc=0	diag=0	run=0	out=k=14 n=4123 	msg=-
+HB:x07b_let_destructure_field	cc=0	diag=0	run=0	out=k=2 n=2 	msg=-
+HB:x07c_field_via_local	cc=0	diag=0	run=0	out=k=2 n=21 	msg=-
+HB:x07d_tuple_field_array	cc=1	diag=1	run=-	out=-	msg=error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type or LLVM dialect-compatible vector of LLVM pointer type, but got '!llvm.array<2 x struct<"x07d_tuple_field_array.
+ROW:slice_pattern_arm_binding_extra_drops	cc=0	diag=0	run=0	out=	msg=-
+ROW:match_expr_array_pattern_segfaults_run	cc=0	diag=0	run=139	out=	msg=-
+ROW:loop_break_value_array_lit_uninit_drop_run	cc=0	diag=0	run=139	out=	msg=-
+ROW:at_binding_by_value_never_dropped	cc=0	diag=0	run=1	out=	msg=-
+ROW:at_binding_aggregate_segfaults_run	cc=0	diag=0	run=139	out=	msg=-
+ROW:foreach_array_rvalue_elements_never_dropped_run	cc=0	diag=0	run=1	out=s=11 n=0 	msg=-
+ROW:match_arm_nested_binder_shadow_double_drop	cc=0	diag=0	run=1	out=	msg=-
+FIXPASS:suffix_prefix_twin	cc=0	diag=0	run=0	out=	msg=-
+FIXFAIL:bc_slicearr_suffix_moved_twice	cc=1	diag=1	run=-	out=-	msg=error [fn main]: use of moved field 'a.2' (moved on line 17)
+FIXFAIL:bc_slicearr_elem_moved_twice	cc=1	diag=1	run=-	out=-	msg=error [fn main]: use of moved field 'a.2' (moved on line 18)
+FIXFAIL:borrowck-move-out-from-array-match	cc=1	diag=1	run=-	out=-	msg=error [fn main]: use of moved field 'a.0' (moved on line 12)
+FIXFAIL:borrowck-move-out-from-array-use-match--b	cc=1	diag=1	run=-	out=-	msg=error [fn main]: use of partially moved value 'a' (field '2' moved on line 11)

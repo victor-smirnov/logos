@@ -1,0 +1,207 @@
+ROUND 2026-09-16c-armelem — MARK THE ELEMENT, NOT THE ARRAY. LANDED.
+Base binary build_hash ad30d614b7d2e6c2 43 (READ). Armed/landed build: build-armelem, rc 0.
+
+STEP 1, MEASURED, WITH TWO CORRECTIONS TO THE HANDED-DOWN REPORT
+  queue gate rc 0, 222 rows, '# TOTAL' 222 agreed. bc_admits 60, bc_admits_blocked 8.
+  probe-log-lint 375 records. build_hash ad30d614b7d2e6c2 43; 0 compiled sources newer than
+  build/bin/logosc.
+  CORRECTION 1: the handed-down report's build_hash b6a9d46a1e606239 is NOT this tree's. That
+    report says plainly it was written before its own commits landed; its hash is stale.
+  CORRECTION 2: it reports tier1=34. The ledger says 35 — its own two opened rows are in the file,
+    so the tier census it printed was pre-landing. Re-derived by direct listing.
+
+THE CLASS, ENUMERATED BY PROPERTY AND MEASURED AGAINST rustc 1.98.1 (21 programs, BASE_VS_RUSTC.txt)
+  EVERY by-value array pattern in a match arm over an owned [T; N] place double-destroys each
+  element the arm binds: the door marks NOTHING. base / rustc:
+    h01 [_,y] 212/21 · h02 [_,_,x] 3123/312 · h03 disjoint 31123/312 · h04 [first,..] 1123/123 ·
+    h05 [x,y] 2112/21 · h08 [a,b,c] 321123/321 · h10 in-loop 212212/2121 · h13 112/12 ·
+    h14 guard-2-arm 212/21 · h16 [ref r, y] 212/21 · h17 rvalue scrutinee 212/21 ·
+    h18 [..,z] 3123/312 · h19 [a,..,b] 411234/4123 · x07c 212/21
+  controls correct on base: h06 &arr 12=12 · h11 non-Drop · h12 refused 'a.2' = rustc E0382.
+  ⚠ THE PRICING ROUND MEASURED ONLY FULL BINDS ([z,b], [z]). The PARTIAL binds are the same defect
+  and they are what condemns the whole-array arm.
+
+THE REPAIR (3 sites, the one the Slice arm's own comment already described)
+  (1) SemaChecker::mark_match_scrutinee_moved — per-index paths <base>.<i>, prefix j -> j and
+      suffix j -> N-sc+j, ONLY for a plain named binder of a move-type element.
+  (2) MLIRGenImpl::gen_drop_value K::Array — honour skip_paths per element index, the twin of its
+      own Tuple loop. It had NO skip handling at all: an array was the one aggregate whose drop
+      could not skip a moved child.
+  (3) The SDrop K::Array branch — forward the var's `moved` set into (2); it passed none.
+  Sites (2)+(3) are INERT without (1): no array element path can enter moved_vars_ today, because
+  mark_moved_expr refuses an array-index move by design. That is why the door was IN SERIES, and
+  opening it is what makes the per-element mark expressible at all.
+  A named `rest` and a NESTED destructuring element are deliberately NOT marked — a sub-pattern may
+  move only part of its element, and a whole-element mark would leak the rest (row X3 below).
+
+ROW ORACLE — ONE BINARY, THREE ARMS, ONE VARIABLE (ARM_base/ARM_armelem/ARM_slicemvn.tsv)
+  row / program                         BASE    armelem   slicemvn   rustc
+  slice_pattern_arm_binding_extra_drops run 1   run 0     run 0      exit 0   CLOSED by both
+  match_expr_array_pattern_segfaults    139     139       139        k=11 n=11   unmoved
+  loop_break_value_array_lit_uninit     139     139       139        exit 0      unmoved
+  at_binding_by_value_never_dropped     run 1   run 1     run 1      n=2         unmoved
+  at_binding_aggregate_segfaults_run    139     139       139        k=3 n=2     unmoved
+  foreach_array_rvalue_elements_never   run 1   run 1     run 1                  unmoved
+  match_arm_nested_binder_shadow        run 1   run 1     run 1                  unmoved
+  armelem corrects all 14 wrong programs above to rustc's EXACT trace, digit for digit.
+
+⚠ THE FUNDING ROUND'S OWN COUNTER-EXAMPLES CONDEMNED LAST ROUND'S RUNNER-UP, slicemvn, ON A COLUMN
+  THAT ROUND DID NOT HAVE. A whole-array mark is not merely coarse — IT LEAKS. Measured:
+    h01 n=2 (rustc 21) · h02 n=3 (312) · h13 n=1 (12) · h14 n=2 (21) · h15 n=1 (12) ·
+    h16 n=2 (21) · h17 n=2 (21) · x07c n=2 (21) · h10 n=22 (2121)
+  NINE legal programs leak silently under slicemvn, all compiling rc 0. The pricing round declined
+  it for coarsening three diagnostics; the real cost is nine leaks, and no rc column can see one.
+  This is why the decline was right for a reason better than the one recorded.
+
+COST, READ NOT TALLIED
+  pass/bc_slicearr_suffix_prefix_twin — still compiles and runs 0 under armelem (slicemv refused it).
+  All FOUR pinned fail sentences BYTE-IDENTICAL to base under armelem:
+    bc_slicearr_elem_moved_twice        "use of moved field 'a.2' (moved on line 18)"
+    bc_slicearr_suffix_moved_twice      "use of moved field 'a.2' (moved on line 17)"
+    borrowck-move-out-from-array-match  "use of moved field 'a.0' (moved on line 12)"
+    borrowck-move-out-from-array-use-match--b
+                                        "use of partially moved value 'a' (field '2' moved on line 11)"
+  The per-element mark keeps the PRECISE partial-move sentence, which is exactly what the
+  whole-array arms destroyed. Sema marks "a.2", never "a", so no whole-var use is newly refused.
+
+ROWS: ONE CLOSED, THREE OPENED (222 -> 224, re-derived by direct listing)
+  CLOSED  slice_pattern_arm_binding_extra_drops — program landed as
+          tests/logos/pass/bc_armelem16c_slice_arm_elems_admit (exit 0).
+  OPENED  match_array_nested_destructure_elem_double_drop  tier 1 run 1  (X3, h15)
+          let_array_pattern_field_base_unbound_elem_leak   tier 1 run 1  (X2, x07b)
+          match_array_field_place_verifier_error_refused   tier 3 refuses (X1, h07/x07d)
+  All three verified reproducing ON THE LANDED BINARY, not on base.
+
+THE NEIGHBOUR TABLE (the standing rule: closed in THIS commit, or rowed with ONE named reason)
+  neighbour                                   verdict   reason + the number that decides it
+  ------------------------------------------- --------- ---------------------------------------------
+  h01/h02/h04/h13/h14/h16/h17/h18/h19 — every  CLOSED    Same fact, same predicate, same commit: the
+  PARTIAL / suffix / prefix+suffix / guarded   in this   per-index mark closes all 14 wrong programs at
+  / rvalue / in-loop spelling of the match-arm commit    once. Each matches its rustc twin digit for
+  array door (14 programs)                               digit. NOT a second fix — this IS the class.
+  match_array_nested_destructure_elem_double_  ROWED     Reason 3, own cost measured NON-ZERO: the arm
+  drop (h15, [W { a: x, b: _ }])               tier 1    that would close it marks the WHOLE element,
+                                                         and h15 then leaks field b (n=1 where rustc
+                                                         gives 12). Closing it needs a per-FIELD path
+                                                         under the index (`arr.0.a`) — a different
+                                                         computation at the same site, unpriced here.
+  let_array_pattern_field_base_unbound_elem_   ROWED     Reason 1, no carrier at this door: the defect
+  leak (x07b, `let [_, y] = s.arr`)            tier 1    is in lower_let_pat's WHOLE-FIELD mark, not in
+                                                         the match arm. Measured under the landed
+                                                         binary: n=2, unchanged (rustc 21).
+  match_array_field_place_verifier_error_      ROWED     Reason 1, no carrier: the fact is the array-
+  refused (h07/x07d, `match s.arr`, `match t.0`) tier 3  typed PLACE BASE in mlir-gen, which fails
+                                                         BEFORE any move mark is consulted. Measured
+                                                         under the landed binary: same MLIR verifier
+                                                         error, unchanged.
+  match_expr_array_pattern_segfaults_run       ROWED     Reason 1, no carrier — already a row. 139 on
+  loop_break_value_array_lit_uninit_drop_run   (already) base and 139 under the landed binary; these
+                                                         segfault before drop accounting happens.
+  at_binding_by_value_never_dropped            ROWED     Reason 1 — already a row, and measured NOT one
+  at_binding_aggregate_segfaults_run           (already) fact with this one: pattern_moves_out's At arm
+                                                         already returns true, so the mark is not what
+                                                         is missing there. Unchanged under the landing.
+
+CONTROL REVERT — THE OLD BINARY DOING THE WRONG THING AT RUN TIME, on the very fixtures landed
+(build/bin/logosc, untouched base, vs the pinned expectation):
+  bc_armelem16c_hb_h01_partial_bind_admit      OLD k=2 n=212     want k=2 n=21
+  bc_armelem16c_hb_h02_partial_three_admit     OLD k=3 n=3123    want k=3 n=312
+  bc_armelem16c_hb_h03_disjoint_runs_admit     OLD k=4 n=31123   want k=4 n=312
+  bc_armelem16c_hb_h10_in_loop_admit           OLD k=4 n=212212  want k=4 n=2121
+  bc_armelem16c_hb_h13_two_arms_admit          OLD k=1 n=112     want k=1 n=12
+  bc_armelem16c_hb_h14_guard_two_arms_admit    OLD k=2 n=212     want k=2 n=21
+  bc_armelem16c_hb_h16_ref_elem_mixed_admit    OLD k=3 n=212     want k=3 n=21
+  bc_armelem16c_hb_h17_rvalue_scrutinee_admit  OLD k=2 n=212     want k=2 n=21
+  bc_armelem16c_hb_h19_prefix_and_suffix_admit OLD k=14 n=411234 want k=14 n=4123
+  bc_armelem16c_slice_arm_elems_admit          OLD exit 1        want exit 0
+  10 of 10 FAIL on the old binary, 0 inherited (rule 14). Every one compiles rc 0 on BOTH binaries:
+  no compile-rc column in this repo can see any of them.
+
+INSTRUMENT NOTES, BOTH WAYS
+  probe-log-lint: 375 records before AND after — I wrote ZERO formal `site:` records this round, so
+  the count is expected to stand still; its green attests nothing either way. The census bucket was
+  grepped BY HAND instead: `armelem.slice.door` occurs once in sema_stmt.cpp and fires 1x on the
+  landed binary for h01 (read from a LOGOS_CENSUS dump).
+  ⚠ LOGOS_CENSUS TAKES A FILE PATH, NOT A FLAG. `LOGOS_CENSUS=1` writes a dump to a file literally
+  named `1` in the cwd and prints nothing — which is why a first census read looked like a zero.
+  Commit 355031f5a shows this exact file was once COMMITTED to the repo root by the same mistake.
+  Removed here before committing; the zero was an instrument artifact, not a fact about the program.
+
+THE COLUMNS
+  run_oracle (THE primary cost column here — a drop-glue change is invisible to compile rc):
+    base 7396 fixtures, armed 7406 (+10 = this round's own fixtures; NONE lost).
+    Over the 7396 SHARED fixtures exactly ONE row changed: logos_02_semantic_core_pass_
+    cast-region-to-uint, the fixture that prints a STACK ADDRESS and is subtracted by name.
+    RUNTIME COST = 0 damaged. Diffed BOTH ways (rule 6): nothing only-in-base.
+  stdlib: all four layers compile.
+  queue gate: rc 0, 224 rows, tier1=36 — green in BOTH directions on the landed binary.
+  census pins: ALL 10910 -> 10922, NOIMPORTED 6408 -> 6420, TIERCOMMIT 340 -> 342. PREDICTED as
+    +12/+12/+2 (10 pass fixtures, not tier_commit; net +2 squeue row tests, which are) and measured
+    at exactly that.
+  fail_text_oracle: base 1872 rows, armed 1872 rows, and the two tables are BYTE-IDENTICAL
+    (sha256 6c0c120eda2bb637… both). 0 changed, nothing only-in-either. Note against the recorded
+    caveat: fail_text is documented to SELF-INVALIDATE across a rebuild via an ABI-freshness warning
+    naming the build timestamp — measured here across TWO SEPARATE CONFIGURES (build/ vs
+    build-armelem/) it did not, the tables matched byte for byte.
+  ⚠ MY OWN INSTRUMENT ERROR, RECORDED. My first fail_text comparison printed "changed rows: 1872",
+    i.e. everything. The table has FIVE columns, so after `join` on the name the armed fields begin
+    at $6; I compared $2..$4 against $5..$7, which is the BASE's own path column — every row
+    "differed" by construction. The byte diff in the same output said 0 and was right. A join is a
+    column-offset claim, and a 100%-changed reading is far likelier to be the offset than the tree.
+  queue gate re-run AFTER the two comment-only edits to live row programs: rc 0, 224 rows. Both
+    edited rows re-measured individually and still reproduce (run 1 and run 139) — a comment edit
+    moves line numbers, which for a `diag` row would be a real risk.
+  valgrind sweep, base vs armed, 7416 fixtures each, DIFFED BOTH WAYS: identical in every status —
+    OK 7170/7170, LEAK 53/53, CORRUPT 3/3, TIMEOUT 4/4, CFAIL 62/62, LINKFAIL 124/124, and the
+    NEW-in-armed and GONE-from-base sets are EMPTY for every one. allocated 1967, zero-alloc 5259
+    on both.
+  ⚠ AND THE SWEEP PROVES ITS OWN BLINDNESS TO THIS CLASS. The sweep enumerates .logos files, so the
+    BASE sweep also compiled this round's ten new fixtures — with the base binary, which
+    double-destroys their elements. They read OK, invalid=0, allocs=1 frees=1. A destructor that
+    runs TWICE over a counter performs no second free(), so valgrind sees nothing; only the stdout
+    destructor trace separates 212 from 21. This is the concrete case for the prompt's rule that a
+    pass half must assert a destructor COUNT: on this class, rc, valgrind, ceiling and fail-text are
+    all silent, and the trace is the entire oracle. (bc_armelem16c_slice_arm_elems_admit reads rc=1
+    in the BASE sweep and rc=0 in the armed one — the control revert, visible in the sweep too.)
+  L1 (first run): rc 1 — 808/808 corpus tests passed and the enumerator's smoke tier passed, but the
+    GATES tier failed on logos_00_population_pin_lint: direct_door PIN['corpus'] pinned 3771 vs
+    listed 3781, PIN['nonglob'] pinned 3580 vs listed 3590, PIN['glob'] unmoved at 191. That is this
+    round's ten pass fixtures, and the lint is the gate earning its keep — the census REGISTRY-* pins
+    I had already updated are a DIFFERENT set of pins with a different reader, and updating one says
+    nothing about the other. Re-derived BY DIRECT LISTING in the gate that HOLDS it
+    (direct_door_census_gate.sh), naming the ten and the half they joined: all ten are `nonglob`
+    (none matches the wql_/deem_ glob), partition closes 3781 = 191 + 3590. Lint then OK.
+  ⚠ TWO PIN SETS MOVE WHEN A FIXTURE LANDS AND THEY ARE HELD BY DIFFERENT GATES: the census
+    REGISTRY-ALL/NOIMPORTED/TIERCOMMIT counts (ctest registrations, +12/+12/+2 here) and the
+    direct_door corpus/glob/nonglob counts (a direct file listing, +10/+0/+10 here). Neither implies
+    the other, and only the second failed L1.
+  L1 (second run): rc 1 AGAIN, a DIFFERENT gate — logos_00_key_identity_lint:
+    "sema_stmt.cpp bare-name intercepts: count 22, ledger pins 21". Mine, and exactly the class that
+    lint exists for: the per-element door tests `nm != "_"` to exclude a WILDCARD element, which is a
+    bare-name intercept. Classified at the pin move, as the ledger demands, and pinned:
+    #SCAN sema_stmt.cpp 21 9e2b7684 -> 22 c8c7e744, with a dated note — `_` is the grammar's DISCARD
+    spelling, cannot be declared, names no entity and no package can qualify it, so it is a CARRIED
+    DECISION of the same class as the four `nm != "_"` filters this file already holds at its binder
+    doors (5253, 5574, 5630, 5921). Count AND digest read from the scanner's own scans() over this
+    tree, never hand-computed. Lint then rc 0 (44 rows, 50 sites).
+  ⚠ THREE PIN SETS MOVE WHEN THIS ROUND LANDS, HELD BY THREE DIFFERENT GATES, AND FIXING ONE SAYS
+    NOTHING ABOUT THE NEXT. census REGISTRY-* (+12/+12/+2), direct_door corpus/nonglob (+10/+10),
+    key_identity #SCAN sema_stmt.cpp (21 -> 22 + digest). Each was found only by running L1 again.
+  ⚠ AND `test-levels.sh` DOES NOT TAKE ITS BUILD DIR FROM THE CWD. Its gates tier delegates to
+    scripts/gate-run.sh, whose `BUILD=${LOGOS_BUILD:-$ROOT/build}` targets the DEFAULT build/ — so an
+    L4 launched from build-armelem/ ran ctest against the BASE build (seen directly: a
+    `ctest --test-dir .../build --output-junit ...` process). A gate run that measures the wrong
+    binary is worse than none; both final runs export LOGOS_BUILD explicitly.
+  L1 (third run, LOGOS_BUILD=build-armelem): rc 0 — 808/808 corpus tests, the enumerator's smoke
+    tier (12 684 generated cases), and the GATES tier 342/342 including all three re-derived pins.
+  L4 bc: launched detached (LOGOS_L4_BG=1) against the armed build; its rc is read before the round
+    is reported.
+  origin/main unchanged at 921eb0347 through the whole round (checked twice, fresh fetch): no rebase,
+    so no gate re-run was owed on that account.
+
+WHAT THIS ROUND DID NOT DO
+  It did not touch the At-binding rows, the two 139 segfault rows, or the for-each row: measured
+  unmoved under both arms, each already carrying its own reason. It did not mark a named `rest` or a
+  nested destructuring element — deliberately, since a whole-element mark there LEAKS the part the
+  pattern does not bind, which is row X3. And it did not repair `lower_let_pat`'s whole-field mark
+  (row X2) or the array-typed place base in mlir-gen (row X1): different doors, no carrier here.

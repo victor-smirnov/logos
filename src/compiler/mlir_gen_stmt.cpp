@@ -1194,8 +1194,18 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
         if (!value_needs_drop(et)) return;
         auto atype = logos_to_mlir(ty);
         uint64_t n = TypeRef(ty).arr_size();
-        for (uint64_t i = 0; i < n; ++i)
-            gen_drop_value(child_value_ptr(value_ptr, atype, (int)i, ek), et);
+        // An element moved out by an array pattern is recorded as an index segment
+        // ("2"), exactly as a tuple element is — the twin of the Tuple loop above.
+        // Without this an array was the one aggregate whose drop could not skip a
+        // moved child, so the only sound mark at the match-arm door was a
+        // whole-array one, which leaks every element the pattern does not bind.
+        for (uint64_t i = 0; i < n; ++i) {
+            std::set<std::string> child_skips;
+            if (split_skip_paths(skip_paths, std::to_string(i), child_skips)) continue;
+            gen_drop_value(child_value_ptr(value_ptr, atype, (int)i, ek), et,
+                           /*run_user_drop=*/true,
+                           child_skips.empty() ? nullptr : &child_skips);
+        }
         return;
     }
     if (k == K::Closure) {
@@ -1546,7 +1556,12 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             gen_drop_value(it->second, st, /*run_user_drop=*/drop_fn.empty());
         } else if (k == K::Array) {
             // Inline array: it->second points at the `[T; N]` storage.
-            gen_drop_value(it->second, st);
+            // The moved set is FORWARDED: an array element moved out by a pattern
+            // is an index segment in `moved`, and the element loop in
+            // gen_drop_value skips exactly those. Passing no skip set here (as this
+            // branch did) made the whole-array drop blind to a per-element move.
+            gen_drop_value(it->second, st, /*run_user_drop=*/true,
+                           moved.empty() ? nullptr : &moved);
         } else if (k == K::Closure) {
             // Owned closure value: it->second points at the {fn, env} pair.
             // gen_drop_value runs the env's drop glue (null-guarded no-op for

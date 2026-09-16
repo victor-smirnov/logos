@@ -1,0 +1,28 @@
+// hand battery: round 2026-09-16c-armelem, program h10_in_loop — caught: the array pattern inside a LOOP body, where the per-branch move set is reverted (base 212212).
+// legality MEASURED with rustc 1.98.1 --edition 2024; the twin is
+//   src/compiler/probes/2026-09-16c-armelem/rust/h10_in_loop.rs and it prints the SAME line.
+// The stdout pinned here IS the destructor trace (each drop does n = n*10 + v), so a leak
+// reads short and a double free reads long — an exit code alone could not tell them apart.
+package bc_armelem16c_hb_h10_in_loop_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn g(p: *mut i64) -> i64 {
+    let mut t: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let arr: [D; 2] = [D { v: 1i64, c: p }, D { v: 2i64, c: p }];
+        match arr {
+            [_, y] => { t = t + y.v; }
+        }
+        i = i + 1i64;
+    }
+    return t;
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p);
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, n); }
+    return 0i32;
+}

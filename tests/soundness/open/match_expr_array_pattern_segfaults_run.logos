@@ -4,7 +4,8 @@
 // `let k = match arr { [x, y] => x.v + y.v };` over a local `[D; 2]` of droppable values: Rust binds both elements by move and
 // drops each once, k = 11, n = 11, exit 0. TODAY rc 139 — valgrind: "Invalid read of size 8 ... Address 0x1 is not stack'd" in the
 // enclosing function. The same program spelled as a STATEMENT `match arr { [x, _] => { k = x.v; } }` runs and reads n = 12 (the
-// double-drop member of slice_pattern_arm_binding_extra_drops). Measured on base 7eb6735b16576c45 43 and on the 2026-09-15f-consumeland
+// double-drop member of slice_pattern_arm_binding_extra_drops, CLOSED by round 2026-09-16c-armelem —
+// its program is now tests/logos/pass/bc_armelem16c_slice_arm_elems_admit; THIS row is unmoved by it). Measured on base 7eb6735b16576c45 43 and on the 2026-09-15f-consumeland
 // landing, identical: `[x, _]` and `[x, y]`, over a local array of rvalues, over an array literal of locals and over an array literal of
 // rvalues — rc 139 in all four. NOT the consumption-mark fact of that round (unchanged by both of its candidates). Found by that
 // round's hand programs u09 / w01-w04.

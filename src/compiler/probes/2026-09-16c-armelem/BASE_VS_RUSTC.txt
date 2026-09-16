@@ -1,0 +1,22 @@
+program                      base(logosc)      rustc 1.98.1     verdict
+h01_partial_bind             k=2 n=212         k=2 n=21         elem1 destroyed TWICE
+h02_partial_three            k=3 n=3123        k=3 n=312        elem2 destroyed TWICE
+h03_disjoint_runs            k=4 n=31123       k=4 n=312        two arms, both elems twice
+h04_rest_named               k=1 n=1123        k=1 n=123        elem0 destroyed TWICE
+h05_full_stmt                k=3 n=2112        k=3 n=21         both elems twice
+h06_ref_scrutinee            k=3 n=12          k=3 n=12         CORRECT (control, &arr)
+h07_struct_field_array       REFUSED (MLIR verifier error)      k=2 n=21   NEW DEFECT X1
+h08_all_three                k=6 n=321123      k=6 n=321        all three twice
+h10_in_loop                  k=4 n=212212      k=4 n=2121       per iteration, twice
+h11_nodrop_elem              k=3 n=0           (no Drop)        CORRECT (control)
+h12_overlap_refuse           REFUSED 'a.2'     E0382 refused    CORRECT (control)
+h13_two_arms                 k=1 n=112         k=1 n=12         elem0 twice
+h14_guard_two_arms           k=2 n=212         k=2 n=21         elem1 twice (guarded 2-arm)
+h15_nested_destructure_elem  k=1 n=112         k=1 n=12         moved FIELD of elem twice
+h16_ref_elem_mixed           k=3 n=212         k=3 n=21         by-value elem twice, ref elem ok
+h17_rvalue_scrutinee         k=2 n=212         k=2 n=21         elem1 twice (temporary scrutinee)
+h18_suffix_only              k=3 n=3123        k=3 n=312        elem2 twice
+h19_prefix_and_suffix        k=14 n=411234     k=14 n=4123      elems 0 and 3 twice; k CORRECT
+x07b_let_destructure_field   k=2 n=2           k=2 n=21         NEW DEFECT X2 — elem0 LEAKED
+x07c_field_via_local         k=2 n=212         k=2 n=21         elem1 twice (local copy first)
+x07d_tuple_field_array       REFUSED (MLIR verifier error)      k=2 n=21   X1, tuple spelling

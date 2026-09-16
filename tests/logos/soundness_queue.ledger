@@ -49,7 +49,7 @@ boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_cl
 rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable     diag no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'
 boxref_sized_struct_deref_coercion_missing 3 tests/soundness/open/boxref_sized_struct_deref_coercion_missing refuses
 boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_wrong_error_code diag the trait bound `Box<dyn Sp>: Sp` is not satisfied
-# TOTAL 222
+# TOTAL 224
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -257,7 +257,6 @@ closure_param_shadow_double_drop 1 tests/soundness/open/closure_param_shadow_dou
 # 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
 match_arm_nested_binder_shadow_double_drop 1 tests/soundness/open/match_arm_nested_binder_shadow_double_drop run 1
 at_binding_by_value_never_dropped 1 tests/soundness/open/at_binding_by_value_never_dropped run 1
-slice_pattern_arm_binding_extra_drops 1 tests/soundness/open/slice_pattern_arm_binding_extra_drops run 1
 deferred_init_after_inner_shadow_refused 3 tests/soundness/open/deferred_init_after_inner_shadow_refused refuses
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 let_double_ref_str_annotation_refused 3 tests/soundness/open/let_double_ref_str_annotation_refused refuses
@@ -311,3 +310,6 @@ ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_exten
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
 at_binding_aggregate_segfaults_run 1 tests/soundness/open/at_binding_aggregate_segfaults_run run 139
 at_binding_array_sub_verifier_error_refused 3 tests/soundness/open/at_binding_array_sub_verifier_error_refused refuses
+match_array_nested_destructure_elem_double_drop 1 tests/soundness/open/match_array_nested_destructure_elem_double_drop run 1
+let_array_pattern_field_base_unbound_elem_leak 1 tests/soundness/open/let_array_pattern_field_base_unbound_elem_leak run 1
+match_array_field_place_verifier_error_refused 3 tests/soundness/open/match_array_field_place_verifier_error_refused refuses
