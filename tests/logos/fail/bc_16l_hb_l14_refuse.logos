@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-16l-refptee, program l14 — caught: the ABUSE direction of the ptr pointee door — laundering `*const` into `*mut` behind the newly parseable `&*const i64`.
+// legality MEASURED, rustc 1.98.1 --edition 2024: REFUSED error[E0308] — twin src/compiler/probes/2026-09-16l-refptee/rust/r14_illegal_ptr_mut_launder.rs.
+package l14_illegal_ptr_mut_launder;
+unsafe fn launder(p: &*const i64) -> i64 {
+    let q: *mut i64 = *p;
+    q[0] = 99i64;
+    return q[0];
+}
+unsafe fn main() -> i32 {
+    let v: i64 = 7i64;
+    let p: *const i64 = &v;
+    return (launder(&p) - 99i64) as i32;
+}

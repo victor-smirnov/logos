@@ -1,0 +1,10 @@
+package l07_illegal_typemismatch;
+unsafe fn read(p: &*const i64) -> i64 {
+    let inner: *const i64 = *p;
+    return inner[0];
+}
+unsafe fn main() -> i32 {
+    let v: i64 = 7i64;
+    let r: &i64 = &v;
+    return read(r) as i32;
+}

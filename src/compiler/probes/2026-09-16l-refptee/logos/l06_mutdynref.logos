@@ -1,0 +1,13 @@
+package l06_mutdynref;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn inner(a: & &mut dyn Tr) -> i64 {
+    let x: &mut dyn Tr = *a;
+    return x.m();
+}
+fn main() -> i32 {
+    let mut s: S = S { v: 9i64 };
+    let rd: &mut dyn Tr = &mut s;
+    return (inner(&rd) - 9i64) as i32;
+}

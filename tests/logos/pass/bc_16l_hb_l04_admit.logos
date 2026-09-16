@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-16l-refptee, program l04 — caught: verdict MOVED base->landed (base: parse refusal of `&*const i64` in type position; landed: compiles and runs exit 0).
+// legality MEASURED, rustc 1.98.1 --edition 2024: compiles, RUNS exit 0 — twin src/compiler/probes/2026-09-16l-refptee/rust/r04_constptr.rs.
+package l04_constptr;
+unsafe fn read(p: &*const i64) -> i64 {
+    let inner: *const i64 = *p;
+    return inner[0];
+}
+unsafe fn main() -> i32 {
+    let v: i64 = 7i64;
+    let p: *const i64 = &v;
+    return (read(&p) - 7i64) as i32;
+}

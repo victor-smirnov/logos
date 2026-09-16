@@ -1,0 +1,13 @@
+// PROMOTED FROM THE SOUNDNESS QUEUE by round 2026-09-16l-refptee: row ref_to_rawptr_type_parse_refused (tier 3, `refuses`) is CLOSED.
+// `ref_pointee` now admits `ptr_type`, and `ref_type`'s `AND` alts now admit a LIFETIME.
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles and RUNS exit 0.
+// WAS: a reference to a raw pointer in TYPE position — `&*mut &'a i64`, spelled with or without a space after `&` —
+// was a SYNTAX ERROR ("error near 'fn'"), so no parameter, field or annotation could name the type; `let rx = &x;` over a `*mut` local infers it fine. Found by round 2026-09-14f-thrurefland (hands q02
+// q02b) on base baa2a38e8b650fb3 43. Rust: exit 0.
+package ref_to_rawptr_type_parse_refused;
+fn same<'a>(x: &*mut &'a i64, y: &*mut &'a i64) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    return 0i32;
+}

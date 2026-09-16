@@ -1986,6 +1986,10 @@
               // B-ty-07: `&&[mut] T` lexer-greedy collision — `AMPAMP` would
               // otherwise be tokenised as logical-AND.  Sema unwraps to
               // `& & T` / `& &mut T`.
+              / AND LIFETIME KW_MUT ref_pointee
+             => { CODE: DOUBLE_REF_MUT_TYPE, POINTEE: $4, LIFETIME: $2 }
+              / AND LIFETIME ref_pointee
+             => { CODE: DOUBLE_REF_TYPE, POINTEE: $3, LIFETIME: $2 }
               / AND KW_MUT ref_pointee
              => { CODE: DOUBLE_REF_MUT_TYPE, POINTEE: $3 }
               / AND ref_pointee
@@ -1998,7 +2002,7 @@
     // routes through the AND token.
     // G158-2: `&fn(T)->R` / `&mut fn()->R` — a reference to a fn-pointer type.
     // `fn_ptr_type` precedes `simple_type` (simple_type can't start with `fn`).
-    ref_pointee <- ref_type / arr_type / tuple_type / unit_type / qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type
+    ref_pointee <- ptr_type / ref_type / arr_type / tuple_type / unit_type / qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*

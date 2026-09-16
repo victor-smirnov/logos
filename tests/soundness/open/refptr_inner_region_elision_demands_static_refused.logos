@@ -1,0 +1,28 @@
+// SOUNDNESS QUEUE row refptr_inner_region_elision_demands_static_refused (tier 3). LEGAL RUST REFUSED.
+// A REFERENCE INSIDE A RAW POINTER, behind a reference: parameter `x: &*mut &'a i64`. The declared
+// parameter's inner region is the function's own `'a`, but the CALL SITE is checked as though the
+// callee demanded `'static`:
+//   error [fn main]: call to 'same' arg 1: variance mismatch — expected &*mut &'static i64,
+//                    got &*mut &i64 — lifetime structure incompatible
+// A local `*mut &i64` can therefore never be passed to such a parameter.
+//
+// DOORS IN SERIES: the TYPE could not even be written before round 2026-09-16l-refptee opened the
+// type-position `&` pointee list to `ptr_type` (row ref_to_rawptr_type_parse_refused, CLOSED in that
+// commit). That row's program only NAMES the type; this one CALLS through it, which is the door behind it.
+// CONTROL, same binary: `&*mut i64` with no inner reference compiles rc 0, so the refusal is specific
+// to the elided inner region, not to the ptr-behind-ref shape.
+//
+// MEASURED 2026-09-16 on the armed binary of round 2026-09-16l-refptee.
+package refptr_inner_region_elision_demands_static_refused;
+fn same<'a>(x: &*mut &'a i64, y: &*mut &'a i64) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut ra: &i64 = &a;
+    let p: *mut &i64 = &mut ra;
+    let q: *mut &i64 = p;
+    if same(&p, &q) { return 0i32; }
+    return 1i32;
+}
+// rustc 1.98.1 --edition 2024: COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-16l-refptee/rust/r01_rawptr.rs.

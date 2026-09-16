@@ -1,0 +1,13 @@
+package l03_anddyn;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn inner(a: &&dyn Tr) -> i64 {
+    let x: &dyn Tr = *a;
+    return x.m();
+}
+fn main() -> i32 {
+    let s: S = S { v: 6i64 };
+    let rd: &dyn Tr = &s;
+    return (inner(&rd) - 6i64) as i32;
+}

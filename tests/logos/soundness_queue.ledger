@@ -58,7 +58,7 @@ let_array_pattern_temp_source_remainder_late_run 1 tests/soundness/open/let_arra
 match_ref_array_nested_struct_sub_refused 3 tests/soundness/open/match_ref_array_nested_struct_sub_refused refuses
 match_array_nested_array_subpattern_mlirgen_malfunction 3 tests/soundness/open/match_array_nested_array_subpattern_mlirgen_malfunction refuses
 let_array_pattern_nested_subpattern_refused 3 tests/soundness/open/let_array_pattern_nested_subpattern_refused refuses
-# TOTAL 232
+# TOTAL 234
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -216,7 +216,6 @@ match_addrof_scrutinee_default_payload_loan_unrooted_admits 2 tests/soundness/op
 loop_second_iteration_mut_alias_through_retargeted_ref_admits 2 tests/soundness/open/loop_second_iteration_mut_alias_through_retargeted_ref_admits admits
 rawptr_int_zero_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_int_zero_compare_mlir_verifier_refused refuses
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
-ref_to_rawptr_type_parse_refused 3 tests/soundness/open/ref_to_rawptr_type_parse_refused refuses
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
@@ -285,7 +284,6 @@ ref_pair_nonprim_tuple_eq_compares_addresses_run 1 tests/soundness/open/ref_pair
 double_ref_deref_return_outer_lifetime_refused 3 tests/soundness/open/double_ref_deref_return_outer_lifetime_refused refuses
 ref_to_slice_ref_param_unsized_refused 3 tests/soundness/open/ref_to_slice_ref_param_unsized_refused refuses
 ref_to_dyn_ref_type_parse_refused 3 tests/soundness/open/ref_to_dyn_ref_type_parse_refused refuses
-double_amp_lifetime_ref_type_parse_refused 3 tests/soundness/open/double_amp_lifetime_ref_type_parse_refused refuses
 field_read_through_ref_to_box_refused 3 tests/soundness/open/field_read_through_ref_to_box_refused refuses
 let_ref_struct_pattern_irrefutable_refused 3 tests/soundness/open/let_ref_struct_pattern_irrefutable_refused refuses
 # ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
@@ -325,3 +323,7 @@ let_at_binding_struct_pattern_moved_variable_refused 3 tests/soundness/open/let_
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
 array_index_store_index_reads_loan_refused 3 tests/soundness/open/array_index_store_index_reads_loan_refused refuses
 cell_typearg_region_invariance_admits 2 tests/soundness/open/cell_typearg_region_invariance_admits admits
+unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_binds_deref_admits admits
+refptr_inner_region_elision_demands_static_refused 3 tests/soundness/open/refptr_inner_region_elision_demands_static_refused refuses
+arg_ref_primitive_for_ref_struct_admits 2 tests/soundness/open/arg_ref_primitive_for_ref_struct_admits admits
+double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_while_borrowed_admits admits

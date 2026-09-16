@@ -8167,13 +8167,19 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto inner = node.has_key(la::POINTEE)
                       ? resolve_type(map_of(node.get(la::POINTEE.code)))
                       : error_t();
-        return make_ref(false, make_ref(false, inner));
+        std::string lt;
+        if (node.has_key(la::LIFETIME))
+            lt = std::string(str_of(node.get(la::LIFETIME.code)));
+        return make_ref(false, make_ref(false, inner, std::move(lt)));
     }
     if (tc == la::DOUBLE_REF_MUT_TYPE) {
         auto inner = node.has_key(la::POINTEE)
                       ? resolve_type(map_of(node.get(la::POINTEE.code)))
                       : error_t();
-        return make_ref(false, make_ref(true, inner));
+        std::string lt;
+        if (node.has_key(la::LIFETIME))
+            lt = std::string(str_of(node.get(la::LIFETIME.code)));
+        return make_ref(false, make_ref(true, inner, std::move(lt)));
     }
 
     if (tc == la::SLICE_TYPE) {

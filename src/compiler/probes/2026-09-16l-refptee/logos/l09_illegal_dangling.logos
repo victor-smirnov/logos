@@ -1,0 +1,14 @@
+package l09_illegal_dangling;
+fn keep<'a>(x: &'a *mut i64) -> &'a *mut i64 {
+    return x;
+}
+unsafe fn main() -> i32 {
+    let outer: &*mut i64;
+    {
+        let mut v: i64 = 3i64;
+        let p: *mut i64 = &mut v;
+        outer = keep(&p);
+    }
+    let got: *mut i64 = *outer;
+    return got[0] as i32;
+}

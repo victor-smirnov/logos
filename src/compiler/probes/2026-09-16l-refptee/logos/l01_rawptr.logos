@@ -1,0 +1,12 @@
+package l01_rawptr;
+fn same<'a>(x: &*mut &'a i64, y: &*mut &'a i64) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut ra: &i64 = &a;
+    let p: *mut &i64 = &mut ra;
+    let q: *mut &i64 = p;
+    if same(&p, &q) { return 0i32; }
+    return 1i32;
+}

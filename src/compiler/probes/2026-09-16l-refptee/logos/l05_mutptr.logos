@@ -1,0 +1,11 @@
+package l05_mutptr;
+unsafe fn bump(p: &mut *mut i64) {
+    let inner: *mut i64 = *p;
+    inner[0] = inner[0] + 1i64;
+}
+unsafe fn main() -> i32 {
+    let mut v: i64 = 4i64;
+    let mut p: *mut i64 = &mut v;
+    bump(&mut p);
+    return (v - 5i64) as i32;
+}

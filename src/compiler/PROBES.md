@@ -47578,3 +47578,95 @@ twins) are ref_to_rawptr_type_parse_refused and ref_to_dyn_ref_type_parse_refuse
 WHAT DESERVES FUNDING: ptr_type as a ref_pointee alternative (both rows above, run-
 verified), SEPARATELY from paren_type, which needs the fat-pointer lowering and the
 declaration-binding defects fixed first and is a door in series, not a grammar line.
+
+## 2026-09-16l-refptee — THE POINTEE LIST AND THE `&&` ALTS ARE ONE DOOR WITH TWO HALVES: TWO TIER-3 ROWS CLOSE RUN-VERIFIED, THE `dyn` HALF OF THE PRICED ARM IS REFUTED BY ITS OWN EVIDENCE AND WITHDRAWN, AND THE OVER-ADMISSION THE PRICING BLAMED ON ITS ARM IS MEASURED INHERITED
+
+site: tools/peg_gen_cpp/grammars/logos.peg::ref_pointee
+fires: refptee 2 of 4 target rows close (cc=0 diag=0 run=0 each); tier-3 census 123 rows diffed both ways, 2 changed, 0 unpredicted; dyn_type arm built, measured, WITHDRAWN
+build: 89e5804e17f251f6 43
+
+CLASS ENUMERATED BY PROPERTY, NOT BY GREP OVER HEADER PROSE. 2026-09-16k discarded a
+keyword census of the 123 tier-3 headers ("region/lifetime = 119 of 123" — the
+grep-defined-class failure). The property that defines this block is decidable:
+compile all 123 tier-3 programs and bucket the refusals. MEASURED on base:
+  7 of 123 are PARSE refusals, splitting across TWO productions —
+    ref/pointee door (4): ref_to_rawptr_type_parse_refused, ref_to_dyn_ref_type_parse_refused,
+      double_amp_lifetime_ref_type_parse_refused, dyn_paren_region_bound
+    pattern/binder door (3): closure_param_struct_pattern_syntax,
+      let_at_binding_type_annot_syntax, slice_rest_ref_binder_syntax
+  The other 116 are refused PAST the parser and are not this door.
+
+THE HANDOFF WAS WRONG ABOUT ITS OWN TWO ROWS. It funded "`ptr_type` as a `ref_pointee`
+alternative, ALONE — it closes two rows". `ref_to_dyn_ref_type_parse_refused` is
+`& &dyn Tr`, whose OUTER `&` takes a pointee that is itself `&dyn Tr`: reaching it needs
+a DYN alternative, which ptr_type cannot supply at any depth. ptr_type alone closes ONE
+row. The second row that closes is double_amp_lifetime_ref_type_parse_refused, which that
+round rowed as "does not move" — it needs the OTHER half of the same production, an
+`AND LIFETIME` alternative, which it never built.
+
+LANDED (13 insertions, 3 deletions; declared budget 15 lines):
+  ref_pointee gains `ptr_type`; ref_type gains `AND LIFETIME [KW_MUT] ref_pointee`;
+  sema's DOUBLE_REF_TYPE/DOUBLE_REF_MUT_TYPE read the LIFETIME slot and attach it to the
+  INNER reference, since `&&'a D` is `&(&'a D)`. Sema had read no lifetime there at all.
+
+`dyn_type` WAS BUILT, MEASURED AND WITHDRAWN — it closes ZERO rows and mints a WRONG TYPE:
+  * ref_to_dyn_ref moves rc 4 -> rc 1 and dies at the backend: "mlir_gen: internal: no
+    vtable for '&dyn Tr' as '&dyn Tr'". A parse refusal became an INTERNAL-ERROR refusal.
+  * `&&dyn Tr` reports "expected &&&dyn Tr, got &&dyn Tr" — ONE REFERENCE TOO MANY, where
+    base had a parse error: a wrong type minted by the arm itself.
+  * CONTROL: `& &dyn Tr` (spaced) hits the vtable door, `&&dyn Tr` (AND) hits the
+    over-wrapping — two different failures behind one added alternative.
+
+⚠ A RECORDED CLAIM CORRECTED (rule 14 — check the old binary first). 2026-09-16k cites
+`let y: dyn Tr = *x` as an over-admission CAUSED by its arm, one of three reasons it must
+not land. On the UNARMED base binary the plain `&dyn Tr` spelling compiles rc 0, links and
+RUNS exit 0 through run_test.sh; rustc refuses it (E0277). Only the parenthesised SPELLING
+was unreachable. INHERITED, and now a row. The same control method proved the two illegal
+programs this round's battery caught through the new door (E0308, E0505) are inherited too.
+
+COLUMNS (build-reftype2, ONE configure, clang-20; base 53884ccdf5a135ca 43):
+  queue gate       rc 0 -> rc 1, naming EXACTLY the two predicted rows, each
+                   "NO LONGER REPRODUCES — compiles clean (cc=0 diag=0 run=0)"
+  fail_text_oracle 1882 -> 1882, 0 CHANGED
+  spec fail tier   494  -> 494,  0 CHANGED
+  run_oracle       7445 compiled+linked+RUN -> ONE row differs, `cast-region-to-uint`,
+                   subtracted BY NAME (prints a stack address). 0 real changes.
+  tier-3 census    123 both ways: 2 changed, 0 unpredicted, 0 appearing/disappearing
+COST 0 IN EVERY COLUMN — and that is NOT what decided the dyn half. The HAND BATTERY did,
+before run_oracle was ever read (rule 5: cost 0 is not a safety claim).
+
+NEIGHBOUR TABLE (standing rule 2026-09-12):
+  ref_to_rawptr_type_parse_refused           CLOSED  ptr_type; gate cc=0 diag=0 run=0
+  double_amp_lifetime_ref_type_parse_refused CLOSED  STRICT EXTENSION at the same
+                                                     production + 6 sema lines; cc=0 run=0
+  ref_to_dyn_ref_type_parse_refused          ROWED   (2) DOORS IN SERIES — measured rc 4->1,
+                                                     dies at mlir_gen "no vtable"
+  dyn_paren_region_bound                     ROWED   (3) OWN COST NON-ZERO — 16k measured the
+                                                     parenthesised pointee SEGFAULTING (139)
+  the 3 pattern/binder parse rows            ROWED   (1) NO CARRIER — a different production;
+                                                     rc 4 before and after, both arms
+ROWS OPENED (4), each measured on the landed binary with a rustc twin:
+  unsized_dyn_local_binds_deref_admits               2 admits  E0277 — corrects 16k's claim
+  arg_ref_primitive_for_ref_struct_admits            2 admits  E0308 — inherited
+  double_ref_move_while_borrowed_admits              2 admits  E0505 — inherited
+  refptr_inner_region_elision_demands_static_refused 3 refuses rustc runs exit 0 — the door
+                                                     IN SERIES behind the one opened here;
+                                                     control `&*mut i64` compiles rc 0
+
+POPULATION PINS RE-DERIVED IN THIS COMMIT (the gate earned its keep, and the
+prediction it caught was MINE). `logos_00_population_pin_lint` went red on the
+landed tree: direct_door PIN['corpus'] pinned 3819 / listed 3824 and
+PIN['nonglob'] pinned 3628 / listed 3633. Re-derived BY DIRECT LISTING in the
+gate that HOLDS them (tests/logos/direct_door_census_gate.sh): corpus 3824,
+glob 191 (unmoved — none of the five matches wql_/deem_), nonglob 3633, and the
+partition closes 3824 = 191 + 3633. The five that joined `nonglob` are named in
+the pin comment: the 2 promoted row programs and the 3 hand-battery programs
+whose verdict MOVED base(parse-refused) -> landed(compiles and RUNS exit 0).
+plan_ground's EXPECT_FIXTURES stays 191.
+
+⚠ MY OWN PIN PREDICTION WAS WRONG AND THE MEASUREMENT CORRECTED IT. I predicted
+the ctest registry at ALL 10986 / NOIMPORTED 6484 / TIERCOMMIT 352; measured
+10988 / 6486 / 352. The tier count was right and the other two were each 2 low,
+because I wrote "+5 fixtures" having forgotten that the two PROMOTED row programs
+are fixtures too. The true arithmetic is 11 tests added (4 squeue + 5 pass + 2
+fail) minus 2 removed squeue = +9, which is what the listing says.

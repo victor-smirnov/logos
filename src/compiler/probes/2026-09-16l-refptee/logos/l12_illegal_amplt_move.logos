@@ -1,0 +1,12 @@
+package l12_illegal_amplt_move;
+struct D { v: i64 }
+fn read<'a>(src: &&'a D) -> i64 {
+    return src.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    let hold: &&D = &rd;
+    let moved: D = d;
+    return (read(hold) - 6i64 + moved.v - 6i64) as i32;
+}

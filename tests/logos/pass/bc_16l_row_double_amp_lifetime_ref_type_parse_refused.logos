@@ -1,0 +1,17 @@
+// PROMOTED FROM THE SOUNDNESS QUEUE by round 2026-09-16l-refptee: row double_amp_lifetime_ref_type_parse_refused (tier 3, `refuses`) is CLOSED.
+// `ref_pointee` now admits `ptr_type`, and `ref_type`'s `AND` alts now admit a LIFETIME.
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles and RUNS exit 0.
+// WAS: `src: &&'a D` — the `&&` token followed by a lifetime — was a SYNTAX ERROR ("syntax error near 'fn'"), while the
+// spaced `& &'a D` and the lifetime-free `&&D` both parsed. The `AND LIFETIME` alternatives close that gap. Found by round 2026-09-15c-argref (hand b14, minimised) on build/ 98ca3fa669468808 43.
+// Rust: exit 0. Legality MEASURED with rustc 1.98.1 (foot of this file).
+package double_amp_lifetime_ref_type_parse_refused;
+struct D { v: i64 }
+fn read<'a>(src: &&'a D) -> i64 {
+    return src.v;
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &D = &d;
+    return (read(&rd) - 6i64) as i32;
+}
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 0. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/double_amp_lifetime_ref_type_parse_refused.rs.

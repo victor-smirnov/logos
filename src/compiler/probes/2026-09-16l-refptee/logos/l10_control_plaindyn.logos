@@ -1,0 +1,9 @@
+package l10_control_plaindyn;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+fn use1(x: &dyn Tr) -> i64 { return x.m(); }
+fn main() -> i32 {
+    let s: S = S { v: 2i64 };
+    return (use1(&s) - 2i64) as i32;
+}

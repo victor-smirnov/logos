@@ -1,0 +1,11 @@
+package l14_illegal_ptr_mut_launder;
+unsafe fn launder(p: &*const i64) -> i64 {
+    let q: *mut i64 = *p;
+    q[0] = 99i64;
+    return q[0];
+}
+unsafe fn main() -> i32 {
+    let v: i64 = 7i64;
+    let p: *const i64 = &v;
+    return (launder(&p) - 99i64) as i32;
+}

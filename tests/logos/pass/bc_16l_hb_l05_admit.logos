@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-16l-refptee, program l05 — caught: verdict MOVED base->landed (base: parse refusal of `&mut *mut i64`; landed: compiles and runs exit 0).
+// legality MEASURED, rustc 1.98.1 --edition 2024: compiles, RUNS exit 0 — twin src/compiler/probes/2026-09-16l-refptee/rust/r05_mutptr.rs.
+package l05_mutptr;
+unsafe fn bump(p: &mut *mut i64) {
+    let inner: *mut i64 = *p;
+    inner[0] = inner[0] + 1i64;
+}
+unsafe fn main() -> i32 {
+    let mut v: i64 = 4i64;
+    let mut p: *mut i64 = &mut v;
+    bump(&mut p);
+    return (v - 5i64) as i32;
+}
