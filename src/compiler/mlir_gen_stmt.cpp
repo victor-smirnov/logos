@@ -5198,6 +5198,11 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
+                // An array-typed PLACE scrutinee (`match s.arr`, `match t.0`)
+                // arrives as the array VALUE and every GEP below needs a base
+                // POINTER — address the place, spill only an rvalue. See
+                // MLIRGenImpl::aggregate_scrut_base.
+                if (!scrut_ptr && !collapsed_scrut) aptr = aggregate_scrut_base(v.scrut(), aptr);
                 if (aptr && elem_mlir && arr_mlir) {
                     // [UNIFY C-slice] Route the element bind through the single
                     // pat_bind foundation, as the Tuple case already does; this
@@ -5747,6 +5752,10 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
+                // Same fact as the binder site: the refutable arm's element
+                // TEST also GEPs from this base, so a literal-element arm over
+                // an array-typed place was refused by the same verifier error.
+                if (!scrut_ptr && !collapsed_scrut) aptr = aggregate_scrut_base(v.scrut(), aptr);
                 mlir::Value cond =
                     builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
                 auto chk_at = [&](lir_view::PatRef sp, int32_t idx) {

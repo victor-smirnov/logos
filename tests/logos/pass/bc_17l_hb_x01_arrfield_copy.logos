@@ -1,0 +1,18 @@
+// hand battery: round 2026-09-17k (landed by 2026-09-17l), program x01_arrfield_copy — caught: ABUSE: refuted fatslarr by address-binding an array field binder that must be a COPY (would print 100, rustc 3)
+// legality MEASURED with rustc 1.98.1 --edition 2024. Owed by round 17k, which measured it and could not land it.
+package bc_17l_hb_x01_arrfield_copy;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct R { a: [i64; 2], y: i64 }
+fn main() -> i32 {
+    let mut r: R = R { a: [3i64, 4i64], y: 2i64 };
+    let mut out: i64 = 0i64;
+    match r {
+        R { a: v, y } => {
+            r.a[0] = 100i64;
+            out = v[0];
+        }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), out); }
+    if out != 3i64 { return 1i32; }
+    return 0i32;
+}

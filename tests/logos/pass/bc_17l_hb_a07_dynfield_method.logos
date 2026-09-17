@@ -1,0 +1,19 @@
+// hand battery: round 2026-09-17k (landed by 2026-09-17l), program a07_dynfield_method — caught: the B4 control: the 2026-09-08 fatbind arm SEGV'd (139) on exactly this shape, so it pins the neighbour that condemned it
+// legality MEASURED with rustc 1.98.1 --edition 2024. Owed by round 17k, which measured it and could not land it.
+package bc_17l_hb_a07_dynfield_method;
+extern fn printf(fmt: *const u8, ...) -> i32;
+trait Tr { fn get(self: &Self) -> i64; }
+struct D { v: i64 }
+impl Tr for D { fn get(self: &D) -> i64 { return self.v; } }
+struct H { d: &dyn Tr, n: i64 }
+fn main() -> i32 {
+    let d: D = D { v: 4i64 };
+    let h: H = H { d: &d, n: 3i64 };
+    let mut out: i64 = 0i64;
+    match h {
+        H { d, n } => { out = d.get() + n; }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), out); }
+    if out != 7i64 { return 1i32; }
+    return 0i32;
+}

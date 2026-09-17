@@ -49307,3 +49307,54 @@ only instrument that separated them is the hand battery with a rustc twin and a 
    non-pointer SSA value", and it is left for the landing round.
 8. Built only in `build/`; the base binary was preserved by copy rather than by a second build
    dir. No build directory was created and none is left behind.
+
+---
+
+## matchplace_addr_2026-09-17l
+site: src/compiler/mlir_gen_expr.cpp::aggregate_scrut_base
+build: fe443d87b5fd4746 43 (base) — armed binary built in build/ from the same configure
+measured: 2026-09-17
+fires: n/a — LANDED, not probe-gated (three call sites: gen_match's binder and refutable-arm
+       test in mlir_gen_stmt.cpp, and the match-as-expression binder in mlir_gen_expr.cpp)
+ceiling: 1 queue row closed (match_array_field_place_verifier_error_refused), run-verified k=2 n=21
+cost: 0 damage rows in the queue gate both ways; 17/17 staged fixtures pass on the armed binary
+verdict: THE PRICING ROUND'S RECOMMENDED ARM WAS MEASURED WRONG IN THE DIRECTION NO COLUMN SEES.
+note:
+ ⚠ THE RECOMMENDED FIX WAS "SPILL THE ARRAY VALUE TO AN ALLOCA" (round 2026-09-17k, arm `mscrarr`,
+ "FUND"). It closes the row and it BINDS A COPY. `match s.arr` is a PLACE expression: spec clause
+ pat.refbind.binds-place-reference says a `ref`/`ref mut` binder binds the ADDRESS of the matched
+ place without copying, and rustc 1.98.1 agrees — `match s.arr { [_, ref mut y] => *y = 99 }` leaves
+ s.arr[1] == 99. Under the spill the write lands in the copy and is LOST. Measured, hand x13/x15.
+ ⚠ AND THAT DEFECT WAS ALREADY SHIPPING AT THE SIBLING DOOR. mlir_gen_expr's match-as-expression
+ binder had spilled unconditionally for some time: hand program c02 COMPILED CLEAN, RAN, exited 0
+ and printed src=2 where rustc prints src=99 — a live miscompile no exit code, no verifier error and
+ no harness column reports. The pricing round cited that very site as the model to copy ("the
+ sibling arm in the same function already performs this spill"). Copying it would have installed the
+ defect at a second door instead of removing it from the first.
+ THE LANDED FIX: ask the place for its ADDRESS (gen_lvalue_addr) and spill ONLY a genuine rvalue,
+ which has no place to address. Pure place CHAINS only (VarRef/FieldRead/TupleIndex/Deref), because
+ gen_lvalue_addr re-walks the receiver and a call or index receiver would be evaluated twice.
+ ⚠ TWO CARRIERS OF MY OWN ARM WENT FROM "REFUSED" TO "WRONG VALUE", AND THE CONTROLS PROVED THE
+ DEFECTS PRE-EXISTING. b02 (array-of-arrays field) reads a stack address; x11 (array of structs,
+ source mutated in the arm) prints 50 where rustc prints 2. The local-array spellings d01/d02
+ compile on the BASE binary and print the SAME wrong values there — so the element binder aliases
+ its source and loses array shape independently of this change, which only widens exposure. They
+ are rowed with their controls, not landed as fixtures and not silently accepted:
+ match_array_elem_struct_binder_aliases_source and match_array_elem_array_binder_shape_lost_run.
+ ⚠ dlog, and its numbers side by side. tools/dlog/gep_value_base.dl asks the question round
+ 2026-09-17k named and left ("every GEP whose base can be a non-pointer aggregate VALUE"). FIRST
+ ATTEMPT RETURNED A CLEAN EMPTY .csv AND WAS BLIND BY CONSTRUCTION: it keyed the GEP on the callee
+ NAME, but the site spells builder_.create<mlir::LLVM::GEPOp>(...) — the callee is `create` and
+ GEPOp is a TEMPLATE ARGUMENT that decl_name cannot see. Re-keyed on the call's TYPE and given
+ three known-answer controls (ctl_geps 37 contexts, ctl_asks_value 26, ctl_asks_address exactly the
+ 3 functions this round edited), it named 7 candidate contexts. THE PER-SITE READ CONFIRMED 1:
+ gen_for_each, whose GEP base is literally gen_expr(s.iter) — carrier written and MEASURED, refused
+ on base and armed alike, now row foreach_array_field_gep_verifier_refused. Four were refuted by
+ reading (gen_tuple_write, gen_index_write, gen_field_index_write GEP from a scope_ slot, i.e. an
+ address; their gen_expr call is the stored VALUE) and two are overload-set names (gen_stmt_kind,
+ gen_expr_kind) where ctx_of coarsens exactly as the 37-vs-0 incident warned. dlog said 7, the read
+ said 1 — and the 1 is a real row the round would otherwise not have found.
+ ⚠ INSTRUMENTS THAT LIED TO ME. My fixture harness passed `-I <stdlib>` to logosc, which refuses it
+ in compile mode ("-I is only available with --emit-module"), and reported 17 of 17 fixtures FAILING
+ on a binary that compiles them all — a UNIFORM failure is an instrument refusing, the same shape as
+ run_hand.sh's rc=4 for all 29 programs recorded by the previous round.

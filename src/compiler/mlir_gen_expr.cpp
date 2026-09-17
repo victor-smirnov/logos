@@ -1395,6 +1395,49 @@ mlir::Type MLIRGenImpl::place_slot_type(TypeRef t) {
 }
 
 // G163-2: recursively compute the address of an lvalue place expression.
+// ── A PLACE SCRUTINEE MUST BE ADDRESSED, NOT COPIED ─────────────────────────
+// Every aggregate pattern door GEPs from a base POINTER. When the scrutinee is
+// an aggregate-typed PLACE reached by projection (`s.arr`, `t.0`), gen_expr
+// hands back the aggregate VALUE, and a GEP on a value fails the LLVM verifier
+// — which is the user-visible refusal of a legal program (soundness queue row
+// match_array_field_place_verifier_error_refused).
+//
+// ⚠ SPILLING THAT VALUE TO A FRESH ALLOCA IS NOT THE FIX. It compiles, but it
+// binds a COPY: a `ref mut` element binder then writes into the copy and the
+// write to the original place is LOST — no verifier error, no exit-code change.
+// That is what the match-AS-EXPRESSION door shipped before this change (hand
+// program c02: rustc prints src=99, logosc printed src=2, exit 0 either way).
+// Spec pat.refbind.binds-place-reference: a `ref`/`ref mut` binder binds the
+// ADDRESS of the matched place, without copying.
+//
+// So: ask the place for its address, and spill only a genuine rvalue — which
+// has no place to address, and for which a fresh slot is the correct answer.
+// Only a pure place CHAIN is asked, because gen_lvalue_addr re-walks the
+// receiver and a call/index receiver would be evaluated a second time.
+bool MLIRGenImpl::is_place_chain(lir_view::ExprRef e) {
+    namespace ec = lir_schema::expr;
+    if (!e) return false;
+    switch (e.kind()) {
+    case ec::Code::VarRef:     return true;
+    case ec::Code::FieldRead:  return is_place_chain(lir_view::EFieldReadView{e}.receiver());
+    case ec::Code::TupleIndex: return is_place_chain(lir_view::ETupleIndexView{e}.receiver());
+    case ec::Code::Deref:      return is_place_chain(lir_view::EDerefView{e}.operand());
+    default:                   return false;
+    }
+}
+
+mlir::Value MLIRGenImpl::aggregate_scrut_base(lir_view::ExprRef e, mlir::Value v) {
+    if (!v) return v;
+    if (v.getType() == ptr_type()) return v;      // already a base pointer
+    if (is_place_chain(e)) {
+        if (auto a = gen_lvalue_addr(e))
+            if (a.getType() == ptr_type()) return a;
+    }
+    auto a = create_entry_alloca(v.getType());    // genuine rvalue: own slot
+    builder_.create<mlir::LLVM::StoreOp>(loc_, v, a);
+    return a;
+}
+
 mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
     namespace ec = lir_schema::expr;
     if (!e) return nullptr;
@@ -4717,11 +4760,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 auto elem_mlir = logos_to_mlir(atype.elem());
                 auto arr_mlir  = logos_to_mlir(atype);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : scrut;
-                if (aptr && aptr.getType() != ptr_type() && arr_mlir) {
-                    auto a = create_entry_alloca(arr_mlir);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, aptr, a);
-                    aptr = a;
-                }
+                // ⚠ THIS SITE USED TO SPILL UNCONDITIONALLY, and that is why
+                // `let z = match s.arr { [_, ref mut y] => { *y = 99; 0 } }`
+                // compiled, ran, and left `s.arr` unchanged (hand program c02).
+                // Address the place; spill only a genuine rvalue.
+                if (!scrut_ptr) aptr = aggregate_scrut_base(v.scrut(), aptr);
                 if (aptr && elem_mlir && arr_mlir) {
                     auto bind_elem = [&](lir_view::PatRef sp, int32_t idx) {
                         if (!sp) return;

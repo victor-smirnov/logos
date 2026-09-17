@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-17l, program b01_lit_arm — caught: a literal-element arm over an array place was refused by the verifier at the arm-TEST site, a second GEP-on-a-value site the pricing round never named
+// legality MEASURED with rustc 1.98.1 --edition 2024 (twin beside the round record).
+package bc_17l_hb_b01_lit_arm;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { arr: [i64; 2], tag: i64 }
+fn main() -> i32 {
+    let s: S = S { arr: [1i64, 2i64], tag: 7i64 };
+    let mut out: i64 = 0i64;
+    match s.arr {
+        [1i64, y] => { out = y; }
+        _ => { out = 99i64; }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), out); }
+    if out != 2i64 { return 1i32; }
+    return 0i32;
+}

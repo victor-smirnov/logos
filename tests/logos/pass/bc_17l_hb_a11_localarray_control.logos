@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-17k (landed by 2026-09-17l), program a11_localarray_control — caught: the row's own stated control — the same array through a LOCAL first, which must stay correct under every arm
+// legality MEASURED with rustc 1.98.1 --edition 2024. Owed by round 17k, which measured it and could not land it.
+package bc_17l_hb_a11_localarray_control;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { arr: [i64; 2], tag: i64 }
+fn main() -> i32 {
+    let s: S = S { arr: [1i64, 2i64], tag: 7i64 };
+    let a2: [i64; 2] = s.arr;
+    let mut out: i64 = 0i64;
+    match a2 {
+        [_, y] => { out = y; }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), out); }
+    if out != 2i64 { return 1i32; }
+    return 0i32;
+}

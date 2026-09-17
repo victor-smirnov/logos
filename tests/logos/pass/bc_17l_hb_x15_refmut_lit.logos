@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-17l, program x15_refmut_lit — caught: the same write-through carrier at a REFUTABLE arm, so the literal-element TEST site and the binder site are exercised in one program
+// legality MEASURED with rustc 1.98.1 --edition 2024 (twin beside the round record).
+package bc_17l_hb_x15_refmut_lit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { arr: [i64; 2], tag: i64 }
+fn main() -> i32 {
+    let mut s: S = S { arr: [1i64, 2i64], tag: 7i64 };
+    match s.arr {
+        [1i64, ref mut y] => { *y = 99i64; }
+        _ => { }
+    }
+    let src: i64 = s.arr[1];
+    unsafe { printf("src=%ld\n".as_ptr(), src); }
+    if src != 99i64 { return 1i32; }
+    return 0i32;
+}

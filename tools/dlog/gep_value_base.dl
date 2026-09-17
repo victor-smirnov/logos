@@ -1,0 +1,43 @@
+// gep_value_base.dl — round 2026-09-17l.
+// QUESTION (named by round 2026-09-17k and left for the landing round):
+//   "enumerate every site that builds an LLVM GEP whose BASE operand can be a
+//    non-pointer SSA aggregate VALUE."
+//
+// ⚠ FIRST ATTEMPT WAS BLIND BY CONSTRUCTION AND RETURNED A CLEAN ZERO. It keyed
+// the GEP on the CALLEE NAME, but the site spells `builder_.create<mlir::LLVM::
+// GEPOp>(...)`: the callee decl is `create` and `GEPOp` is a TEMPLATE ARGUMENT,
+// which decl_name cannot see. An empty .csv read exactly like "no such sites"
+// while the tree has hundreds. Hence the controls below: a rule that names no
+// site must first prove it can name the sites we KNOW are there.
+#include "cxx_schema.dl"
+
+.decl calls_named(c:symbol, callee_name:symbol)
+calls_named(C, N) :- call(Cid, Callee), decl_name(Callee, N), ctx_of(Cid, C).
+
+// CONTROL 1 — can the rule see the helper this round ADDED? If this is empty
+// the encoding is not answering and no verdict below means anything.
+.decl ctl_asks_address(name:symbol)
+.output ctl_asks_address
+ctl_asks_address(Name) :- calls_named(C, N), contains("aggregate_scrut_base", N), ctx_name(C, Name).
+
+// CONTROL 2 — can it see gen_expr at all, and how many contexts call it?
+.decl ctl_asks_value(name:symbol)
+.output ctl_asks_value
+ctl_asks_value(Name) :- calls_named(C, N), contains("gen_expr", N), ctx_name(C, Name).
+
+// THE GEP HANDLE, via the call's TYPE rather than its callee name.
+.decl geps(c:symbol)
+geps(C) :- call(Cid, _), ctx_of(Cid, C), type_of(Cid, T), contains("GEPOp", T).
+
+.decl ctl_geps(name:symbol)
+.output ctl_geps
+ctl_geps(Name) :- geps(C), ctx_name(C, Name).
+
+.decl asks_address(c:symbol)
+asks_address(C) :- calls_named(C, N), contains("gen_lvalue_addr", N).
+asks_address(C) :- calls_named(C, N), contains("aggregate_scrut_base", N).
+
+.decl value_base_site(name:symbol)
+.output value_base_site
+value_base_site(Name) :- geps(C), calls_named(C, NV), contains("gen_expr", NV),
+                         !asks_address(C), ctx_name(C, Name).

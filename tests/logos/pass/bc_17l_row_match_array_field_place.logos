@@ -1,0 +1,32 @@
+// hand battery: round 2026-09-17l, program row — caught: an array-typed PLACE scrutinee at the
+// match door was refused by an MLIR VERIFIER message instead of compiling (legal Rust).
+// Was soundness_queue row `match_array_field_place_verifier_error_refused` (tier 3, refuses), CLOSED
+// by this round. The row leaving IS the record of the fix: the queue gate went RED on this program,
+// the row was deleted, `# TOTAL` re-derived by direct listing, and the program landed here in the
+// same commit.
+// THE FIX IS "ADDRESS THE PLACE", NOT "SPILL A COPY": the pricing round recommended spilling the
+// array value to a fresh alloca, which compiles this program but binds a COPY — see the sibling
+// fixtures bc_17l_hb_x13_refmut / bc_17l_hb_c02_matchexpr_refmut, which that spill miscompiles.
+// The COUNT is the oracle: n = n*10 + v per D::drop, so a leak reads SHORT and a double destructor
+// reads LONG. rustc 1.98.1 twin MEASURED: exit 0, k=2 n=21.
+package bc_17l_row_match_array_field_place;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct S { arr: [D; 2], tag: i64 }
+fn g(p: *mut i64) -> i64 {
+    let s: S = S { arr: [D { v: 1i64, c: p }, D { v: 2i64, c: p }], tag: 7i64 };
+    match s.arr {
+        [_, y] => { return y.v; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p);
+    let got: i64 = unsafe { n };
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, got); }
+    if k != 2i64 { return 2i32; }
+    if got != 21i64 { return 1i32; }
+    return 0i32;
+}

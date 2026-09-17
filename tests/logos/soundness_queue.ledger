@@ -11,6 +11,9 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
+match_array_elem_struct_binder_aliases_source 3 tests/soundness/open/match_array_elem_struct_binder_aliases_source run 1
+match_array_elem_array_binder_shape_lost_run 3 tests/soundness/open/match_array_elem_array_binder_shape_lost_run run 1
+foreach_array_field_gep_verifier_refused 3 tests/soundness/open/foreach_array_field_gep_verifier_refused refuses
 # (delete the row, decrement `# TOTAL`, land the program as a pass/fail fixture,
 # all in the same commit) or was never real. Before this file existed the queue
 # lived in prose and failed twice in four days: one defect was recorded under an
@@ -81,7 +84,7 @@ try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_oper
 #    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
 struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
 
-# TOTAL 234
+# TOTAL 236
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -332,7 +335,6 @@ array_repeat_rvalue_noncopy_len3_admits 2 tests/soundness/open/array_repeat_rval
 ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_extended_field_borrow_refused refuses
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
 at_binding_array_sub_verifier_error_refused 3 tests/soundness/open/at_binding_array_sub_verifier_error_refused refuses
-match_array_field_place_verifier_error_refused 3 tests/soundness/open/match_array_field_place_verifier_error_refused refuses
 variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tuple_door_struct_shape_sub_unresolved refuses
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses
 at_binding_or_subpattern_enum_segfaults_run 1 tests/soundness/open/at_binding_or_subpattern_enum_segfaults_run run 139

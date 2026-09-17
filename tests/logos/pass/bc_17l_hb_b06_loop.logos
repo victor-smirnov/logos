@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-17l, program b06_loop — caught: the same match inside a LOOP, so a reused entry-block slot would read a stale value
+// legality MEASURED with rustc 1.98.1 --edition 2024 (twin beside the round record).
+package bc_17l_hb_b06_loop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { arr: [i64; 2], tag: i64 }
+fn main() -> i32 {
+    let mut s: S = S { arr: [1i64, 2i64], tag: 7i64 };
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        match s.arr {
+            [_, y] => { acc = acc + y; }
+        }
+        s.arr[1] = s.arr[1] + 1i64;
+        i = i + 1i64;
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), acc); }
+    if acc != 9i64 { return 1i32; }
+    return 0i32;
+}

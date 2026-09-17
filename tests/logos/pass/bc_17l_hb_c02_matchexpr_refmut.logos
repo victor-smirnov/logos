@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-17l, program c02_matchexpr_refmut — caught: a LIVE MISCOMPILE on the shipped binary — the match-as-expression door spilled the array place to a copy, so a ref mut element binder wrote into the copy and s.arr kept its old value (logosc src=2, rustc src=99, exit 0 both ways)
+// legality MEASURED with rustc 1.98.1 --edition 2024 (twin beside the round record).
+package bc_17l_hb_c02_matchexpr_refmut;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { arr: [i64; 2], tag: i64 }
+fn main() -> i32 {
+    let mut s: S = S { arr: [1i64, 2i64], tag: 7i64 };
+    let z: i64 = match s.arr {
+        [_, ref mut y] => { *y = 99i64; 0i64 }
+    };
+    let src: i64 = s.arr[1];
+    unsafe { printf("src=%ld z=%ld\n".as_ptr(), src, z); }
+    if src != 99i64 { return 1i32; }
+    return 0i32;
+}
