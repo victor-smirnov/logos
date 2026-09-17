@@ -1,0 +1,6 @@
+// hand battery: round 2026-09-17c-emptycand, abuse ab_array — rustc E0515, must STAY refused
+package ab_array;
+static V: i64 = 5i64;
+fn pick<'a>(x: [&'a i64; 1], y: [&'a i64; 1]) -> &'a i64 { if *x[0u64] > *y[0u64] { return x[0u64]; } return y[0u64]; }
+fn escape() -> &'static i64 { let n: i64 = 9i64; return pick([&V], [&n]); }
+fn main() -> i32 { return (*escape()) as i32; }

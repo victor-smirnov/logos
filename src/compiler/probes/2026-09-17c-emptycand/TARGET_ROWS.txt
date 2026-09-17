@@ -1,0 +1,18 @@
+# ROUND 2026-09-17c-emptycand — TARGET ROWS, NAMED BEFORE THE COMPILER WAS TOUCHED
+# DOOR: build_call_lt_subst_'s pairing walk drops a candidate whose ARGUMENT region
+# is EMPTY (`if (!p.empty() && !a.empty())`), so a callee binder offered one NAMED
+# and one ELIDED caller region is pinned rigidly at the named one and the elided
+# argument is then compared against it. Census evidence, per row:
+#   static_arg_pins  meet.call.binder 4 + subst.call.mapped 4, meet.call.multi 0
+#   vec_box          meet.call.binder 2 + subst.call.mapped 2, meet.call.multi 0
+# meet.call.multi is 0 precisely BECAUSE the elided candidate never entered cands.
+static_arg_pins_shared_callee_region_refused
+vec_box_invariant_in_t_refused
+# CONTROLS — predicted NOT to move (different branch, per the same census):
+#   mutptr_region_param_elided_let_arg_refused        subst.call.unmapped (17a door)
+#   refptr_inner_region_elision_demands_static_refused subst.call.unmapped
+#   fnptr_call_result_region_param_reads_static_refused subst.call.unmapped
+#   generic_type_param_two_regions_first_wins_refused  subst.call.mentioned, TYPE binder
+#   tuplestruct_ctor_declared_binder_name_refused      no subst builder at all
+#   let_mutref_annotation_to_meet_struct_refused       meet.structlit.applied
+#   struct_lit_invariant_binder_first_wins_covariant_region_refused meet.structlit.multi.inv

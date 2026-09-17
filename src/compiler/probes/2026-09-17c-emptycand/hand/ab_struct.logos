@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-17c-emptycand, abuse ab_struct — rustc E0515, must STAY refused
+package ab_struct;
+static V: i64 = 5i64;
+struct W<'s> { r: &'s i64 }
+fn pick<'a>(x: &W<'a>, y: &W<'a>) -> &'a i64 { if *x.r > *y.r { return x.r; } return y.r; }
+fn escape() -> &'static i64 {
+    let n: i64 = 9i64;
+    let a: W = W { r: &V };
+    let b: W = W { r: &n };
+    return pick(&a, &b);
+}
+fn main() -> i32 { return (*escape()) as i32; }

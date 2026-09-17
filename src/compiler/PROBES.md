@@ -48182,3 +48182,52 @@ reproduces on base today; the direct `p == q` spelling runs 0 correctly.
 co-landed at cost 0, have **no carrier**: a `&dyn Tr` / `&[T]` parameter reaches
 those kinds only through the Ref arm, which already inserts the region. Both
 probe programs compile and run 0 on base and are unmoved armed.
+
+## ltemptycand / ltemptycandall — THE ELIDED ARGUMENT IS NOT A CANDIDATE: BUILT, MEASURED, WITHDRAWN
+
+site: src/compiler/sema_impl.hpp::build_call_lt_subst_
+build: base 20900979284e248d 43 · armed build-emptycand2-1789626435 (clang++-20, same flags)
+fires: NOT COUNTED — no `LOGOS_CENSUS` run was taken on the armed binary, and the binary was
+deleted with its build dir before I noticed, so I cannot state a fire count and will not invent
+one. The site is PROVEN LIVE BY BEHAVIOUR instead, which is the stronger evidence here: under
+`ltemptycand` three queue rows and four hand programs change verdict, and the SAME binary with
+no `LOGOS_PROBE` reproduces all ten base hand verdicts and 0 gate FAILs (inertness control).
+A zero here would therefore be a refutation, not an unreached site — but the count is owed.
+
+`build_call_lt_subst_`'s pairing walk records a binder candidate only when BOTH regions are
+named (`if (!p.empty() && !a.empty())`), so an argument whose own region is ELIDED contributes
+nothing: a callee binder offered one NAMED and one ELIDED caller region is MAPPED rigidly at
+the named one and the elided argument is compared against it. `meet.call.multi` is 0 for these
+rows precisely BECAUSE the second candidate never entered `cands` — the meet cannot repair a
+candidate it never received.
+
+Two names (rule 9): `ltemptycand` (the `&`/`&mut` slot) · `ltemptycandall` (+ Struct/Enum region args).
+
+COLUMNS: queue gate 3 rows move (both names) · fail_text_oracle 1887 common 0 changed ·
+spec fail tier 494/494 base and armed · stdlib 4/4 · run_oracle NOT measured (withdrawn first).
+
+⛔ WITHDRAWN. The abuse battery varied the CARRIER (bare / tuple / `&mut` out-param / array /
+struct field) rather than the count. rustc refuses all five (E0515 x4, E0597). Under
+`ltemptycand` the ARRAY carrier COMPILES AND RUNS 9; under `ltemptycandall` the STRUCT-FIELD
+carrier does too — both read a dead local. On base all five are refused BY THE VERY SENTENCE
+THE ARM REMOVES, so the defect was the only thing holding them.
+
+⚠ THE REAL FINDING IS A DEFECT OF THE SHIPPED BINARY, NOT OF THE ARM. Asked all-elided so the
+variance defect cannot be what refuses, on `build/bin/logosc` with NO probe armed
+(`probes/2026-09-17c-emptycand/counterexamples/esc_*.logos`): the bare and tuple carriers are
+refused "cannot return reference to local variable 'n': dangling reference"; the ARRAY-ELEMENT
+and STRUCT-FIELD carriers COMPILE AND RUN 9. rustc refuses all four with E0515. The
+dangling-reference check has no carrier through an array element or a struct field. Two tier-1
+`admits` rows, reproducing with no arm at all — and the door that must open BEFORE this region
+door can be paid for.
+
+⚠ THE QUEUE GATE CALLED A MISCOMPILE A CLOSURE AGAIN (fifth round running):
+`refptr_inner_region_elision_demands_static_refused` reported "NO LONGER REPRODUCES … cc=0
+diag=0 run=1" while rustc answers 0.
+
+⚠ TOOL FACTS: a fresh `cmake -G Ninja -B <dir>` defaults to `/usr/bin/c++` (g++), under which
+the PEG-generated `logos_parser.cpp` does not compile (`'na_fail_0' was not declared in this
+scope`); `build/` uses clang++-20. `scripts/fail_text_oracle.py` REQUIRES an output path as
+argv[1] or dies with an IndexError traceback that reads like a tree failure.
+
+Full record, twins and counter-examples: src/compiler/probes/2026-09-17c-emptycand/.

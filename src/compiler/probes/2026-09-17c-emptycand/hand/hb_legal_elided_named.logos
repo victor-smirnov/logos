@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-17c-emptycand, program hb01 — the door's own legal shape
+package hb_legal_elided_named;
+static V: i64 = 5i64;
+fn eqr<'a>(x: &'a i64, y: &'a i64) -> bool { return *x == *y; }
+fn main() -> i32 {
+    let n: i64 = 5i64;
+    if !eqr(&V, &n) { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-17c-emptycand, abuse ab_mutref_out — rustc E0597, must STAY refused
+package ab_mutref_out;
+static V: i64 = 5i64;
+fn stash<'a>(x: &'a i64, out: &mut &'a i64) { *out = x; }
+fn main() -> i32 {
+    let mut r: &i64 = &V;
+    {
+        let n: i64 = 9i64;
+        stash(&n, &mut r);
+    }
+    return (*r) as i32;
+}

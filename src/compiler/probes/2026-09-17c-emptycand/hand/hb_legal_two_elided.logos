@@ -1,0 +1,9 @@
+// hand battery: round 2026-09-17c-emptycand, program hb04 — CONTROL: both args elided, works on base
+package hb_legal_two_elided;
+fn eqr<'a>(x: &'a i64, y: &'a i64) -> bool { return *x == *y; }
+fn main() -> i32 {
+    let a: i64 = 4i64;
+    let b: i64 = 4i64;
+    if !eqr(&a, &b) { return 1i32; }
+    return 0i32;
+}

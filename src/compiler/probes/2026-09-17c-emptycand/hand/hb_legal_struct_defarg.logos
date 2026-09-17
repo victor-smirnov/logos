@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-17c-emptycand, program hb05 — the DEFARG half (ltemptycandall only)
+package hb_legal_struct_defarg;
+static V: i64 = 6i64;
+struct W<'s> { r: &'s i64 }
+fn both<'a>(p: &W<'a>, q: &W<'a>) -> i64 { return *p.r + *q.r; }
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    let ws: W<'static> = W { r: &V };
+    let wl: W = W { r: &n };
+    return (both(&ws, &wl) - 7i64) as i32;
+}
