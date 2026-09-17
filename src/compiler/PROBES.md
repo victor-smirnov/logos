@@ -47814,3 +47814,126 @@ The query separates "the holder's last use IS this statement" from "it is used a
 | vec_index_store_value_borrows_vec_refused | unmoved | IndexMut receiver — door 1 already asks the query there (16m) |
 | vec_push_arg_reads_loan_refused | unmoved | two-phase method autoref, not a place write |
 | vec_push_ifarm_after_loan_last_use_refused | unmoved | release_dead_borrows across an if-arm frame |
+
+---
+
+## 2026-09-16p `tupdoor` — "WHICH SUB-PATTERN KINDS INTRODUCE NAMES?" IS ANSWERED BY ONE WHITELIST, AND TWO OF THE THREE MISSING KINDS HAVE NO CARRIER IN CODEGEN
+
+**LANDED.** One tier-3 soundness-queue row closed (`match_tuple_door_nested_struct_binds_nothing`),
+one row opened at the same door with REASON 1 (`match_tuple_door_nested_slice_binds_nothing`),
+`# TOTAL` 233 -> 233 re-derived BY DIRECT LISTING (233 rows, 233 programs on the shelf).
+
+site: src/compiler/sema_stmt.cpp::bind_pattern_ref
+build: 6f8d1f0e5014adda 43 (landed, at the moment the arm was measured) · 1d119548576b8a8b 43 (base) ·
+63c69b61eb30826b 43 (wide arm, BUILT, MEASURED, WITHDRAWN)
+⚠ AT COMMIT TIME `build_hash.py` READS `8f5483d04b7c49ac 43` WITH THE COMPILER BYTE-IDENTICAL — md5
+`4a6a0e2df73d` before and after, including across the base-binary swap the fail-text oracle needed and
+back. The key hashes `bin/logosc` + `lib/logos/**` + `tests/logos/*.a`, and the later re-globbing and
+examples builds re-emitted the STDLIB ARCHIVES; the compiler under test never changed. A build key that
+moves under a fixed compiler is worth saying out loud: the md5 is the identity of the thing measured here.
+fires: no probe installed this round — the ceiling instrument for a tier-3 row is the QUEUE GATE
+armed vs unarmed (`ceiling-probe.sh` cannot see a queue row at all). Wide arm: gate named 2 rows as
+no longer reproducing, of which 1 is a real close and 1 is a MISCOMPILE the gate cannot distinguish
+from a fix. Landed arm: 1 row closed, 1 opened at the same door, 121 tier-3 rows before and after.
+
+### THE CLASS, AND THE MEASUREMENT THAT SPLIT IT
+
+`bind_pattern_ref`'s Tuple case recurses into `each_sub` only for a whitelist of kinds
+{VariantData, Or, At, RefBind, Tuple}. Struct, Slice and RefPat are absent, so a nested
+`(P { x, y }, z)` / `([a, b], c)` / `(&&P { x }, j)` binds NOTHING and the arm body cannot name its
+binders — "undefined variable 'x'", one sentence for three different causes.
+
+⚠ **THE COVERAGE THAT DECIDES IT IS NOT THE SEMA WHITELIST, IT IS THE EXTRACTOR.** Kind coverage,
+read per function rather than grepped:
+
+    pat_bind (mlir_gen_stmt.cpp)   Wild At Tuple VariantData Or Struct RefBind   (Slice, RefPat ABSENT)
+    collect_pat_bindings           Wild Tuple VariantData Or At                  (Struct, Slice, RefPat ABSENT)
+    declare_pat_bindings (bc)      VariantData Wild RefBind At RefPat            (Tuple, Struct, Slice ABSENT)
+
+So the three missing kinds are NOT one class. Struct has a carrier in `pat_bind`; Slice and RefPat
+have none, and widening sema alone makes the compiler ACCEPT a program it then MISCOMPILES.
+
+### THE WIDE ARM WAS BUILT, MEASURED AND WITHDRAWN
+
+Whitelist += {Struct, Slice, RefPat}. The queue gate named exactly two rows as no longer reproducing.
+**Both were false closes for the Slice/RefPat halves**, and the exit code could not see it: when
+mlir_gen emits `warning: undefined 'a' in fn 'main' — no value emitted for this reference`, the
+guarded `if` is not emitted either, so the program falls through to `return 0` and reads as a clean
+pass. Programs h08/h09 print the bound value instead of only comparing it:
+
+    shape                     rustc 1.98.1        wide arm            landed
+    (&&P { x }, j)            got=6  exit 0       got=0  exit 1       refused (row kept)
+    ([a, b], c)               got=12 exit 0       got=0  exit 1       refused (row opened)
+    (P { x, y }, z)           got=7  exit 0       got=7  exit 0       got=7 exit 0
+
+⚠ **AND THE WIDE ARM ADMITTED TWO ILLEGAL PROGRAMS.** x02 `&(H { d }, k)` over `&(H,i64)` and x03
+`(&&P { d }, j)` with a move-typed field are E0507 in rustc; the wide arm compiled both rc 0. An
+over-refusal was being traded for an admission, which is the expensive direction.
+
+### WHAT LANDED, AND THE NEIGHBOUR CO-LANDED WITH IT
+
+  1. `ps::Code::Struct` added to the Tuple `each_sub` whitelist.
+  2. **The same commit extends the `byval_` walker** in `bind_pattern_ref`'s RefPat case with Tuple and
+     Struct cases. It had only {Wild, VariantData, Or, At} and `default: return false`, so the E0507
+     check could not see a move through the door the first hunk widens. This is a STRICT EXTENSION at
+     the same site, and without it the landing admits x02. Measured on the landed binary:
+     `cannot move out of a value behind a reference / out of an index (E0507): the pattern binds 'd' by value`.
+
+### NEIGHBOUR TABLE — every kind the class enumeration names
+
+| neighbour | closed here? | reason, with the number |
+|---|---|---|
+| `(P { x, y }, z)` Struct sub — row `match_tuple_door_nested_struct_binds_nothing` | **CLOSED** | one whitelist entry; runs `got=7` exit 0, was `undefined variable 'x'` |
+| E0507 through the widened door (x02) | **CLOSED, same commit** | strict extension of `byval_` at the same function; without it the landing ADMITS an E0507 program (measured rc 0) |
+| `([a, b], c)` Slice sub — row OPENED | rowed | **REASON 1, no carrier**: `pat_bind` has no Slice case; the whitelist half alone compiles and prints `got=0` (exit 1) vs rustc's `got=12`. Closing it means building the nested-slice GEP in the tuple extractor — a different change at a different site. Matches DIVERGENCES.md **B5**, which calls it a GAP (not a blessed divergence) and prescribes exactly this two-part fix |
+| `(&&P { x }, j)` RefPat sub — row `ref_pattern_nested_in_tuple_binding_undefined_refused` KEPT | rowed | **REASON 1, no carrier**: `pat_bind` has no RefPat case; wide arm printed `got=0` exit 1 vs rustc `got=6`. The row's own header already recorded a pat_bind RefPat case measured at zero — doors in series, confirmed from the other side |
+| or-alt join `(P{x,y},9)|(P{x,y},8)` | **CLOSED** (no row existed) | `collect_pat_bindings` lacks a Struct arm, so a shared alloca was in doubt; measured correct, `got=3`, landed as a fixture |
+
+### THE ABUSE DIRECTION, WRITTEN FIRST
+
+Every twin's legality MEASURED with rustc 1.98.1 --edition 2024 (`--emit=metadata --out-dir`, never
+`-o /dev/null`); twins in `probes/2026-09-16p-tupdoor/rust/`.
+
+    x01 use-after-move through the door      E0382   refused both binaries ("use of moved variable 'sv'") — INHERITED, rule 14
+    x02 &(H { d }, k), move out of &         E0507   base: refused BY ACCIDENT ("undefined variable 'd'") · wide arm: ADMITTED rc 0 · landed: real E0507
+    x03 (&&P { d }, j), move out of &&       E0507   refused all three; on the landed binary still by the undefined-variable accident, since RefPat stays out
+
+⚠ x03 is refused for the WRONG REASON on the landed binary and that is recorded, not scored: it is
+held by the same accident its row describes, and it becomes a real refusal only when the RefPat row
+is closed.
+
+### CONTRADICTIONS OF A RECORDED CLAIM
+
+  * **2026-09-07u condemned this row as "doors in SERIES across four walkers" and it is wrong for the
+    Struct half.** `pat_bind` HAS a Struct case and its Tuple case GEPs into the element before
+    recursing, so one sema whitelist entry closes the row, run-verified. That census read the switch
+    labels of four functions; what decides the question is whether the EXTRACTOR has a carrier, and
+    for Struct it does. The same census is RIGHT about Slice and RefPat.
+  * The handoff reported the wide arm's two closes as two rows closed. Measured here: **one is a real
+    close, the other is a miscompile that the queue gate cannot distinguish** — the gate asks "does the
+    program still exhibit its recorded wrong behaviour", and a program that compiles clean and prints
+    garbage has stopped exhibiting a REFUSAL. The gate is right; the reading was wrong.
+  * `ceiling-probe.sh` cannot see a queue row; the ceiling here is the queue gate armed vs unarmed,
+    read in both directions.
+
+### ⚠ A GATE LIED TO ME, AND THE LIE WAS A GREEN ONE (add to the `bug_exit_code_gate_lies` family)
+
+`L4 bc` returned **rc 0** after the pin repairs and it was NOT a pass. The log says it plainly:
+
+    gate-run: all 6499 tests in this filter are ALREADY MEASURED under this build.
+    build 1280: 8102 recorded, 2 failed
+      failed    logos_00_population_pin_lint
+      failed    logos_09_direct_door_census
+    Nothing has changed that a test run could see.
+
+rc 0 meant "nothing to do", while the store still held the two FAILING rows from before the repair.
+**The cause is the KEY.** `gate-run` is keyed on `build_hash.py` = `bin/logosc` + `lib/logos/**` +
+`tests/logos/*.a`, and the repair was an edit to `tests/logos/direct_door_census_gate.sh` — a SHELL
+SCRIPT the key does not hash. A gate whose cache key cannot see the file that decides its verdict
+reports the stale verdict with a clean exit code. Re-measured with `FORCE=1`; the reason the record was
+not enough is written here rather than left for the next round to rediscover.
+
+⚠ The same key is why `build_hash` moved (`6f8d1f0e5014adda` -> `8f5483d04b7c49ac`) while the compiler
+stayed byte-identical: the stdlib archives were re-emitted by later builds. **The key moves when the
+compiler does not, and fails to move when a gate's own script does.** Both directions have now been
+measured in one round.

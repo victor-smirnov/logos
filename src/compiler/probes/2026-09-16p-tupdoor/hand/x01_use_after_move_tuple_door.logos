@@ -1,0 +1,21 @@
+// hand battery: round 2026-09-16p-tupdoor, program x01 — ABUSE twin. The tuple door moves a
+// move-typed field out; using the scrutinee afterwards is E0382 in Rust. borrow_check's
+// declare_pat_bindings has no Tuple/Struct arm, so this binder may be invisible to move tracking.
+// legality: rustc 1.98.1 --edition 2024 REFUSES (E0382), twin rust/x01_use_after_move_tuple_door.rs
+package x01_use_after_move_tuple_door;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct H { d: D }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut t: i64 = 0i64;
+    let h: H = H { d: D { v: 7i64, c: p } };
+    let sv: (H, i64) = (h, 1i64);
+    match sv {
+        (H { d }, k) => { t = d.v + k; }
+    }
+    t = t + sv.0.d.v;
+    if t != 15i64 { return 1i32; }
+    return 0i32;
+}

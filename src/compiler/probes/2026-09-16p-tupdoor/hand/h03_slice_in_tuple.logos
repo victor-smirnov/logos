@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-16p-tupdoor, program h03 — slice pattern nested in a tuple pattern
+// legality: rustc 1.98.1 --edition 2024, twin rust/h03_slice_in_tuple.rs
+package h03_slice_in_tuple;
+fn main() -> i32 {
+    let arr: [i64; 2] = [3i64, 4i64];
+    let sv: ([i64; 2], i64) = (arr, 5i64);
+    match sv {
+        ([a, b], c) => { if a + b + c != 12i64 { return 1i32; } }
+    }
+    return 0i32;
+}

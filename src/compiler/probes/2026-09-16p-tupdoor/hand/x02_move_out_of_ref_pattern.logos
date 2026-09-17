@@ -1,0 +1,21 @@
+// hand battery: round 2026-09-16p-tupdoor, program x02 — ABUSE twin for the RefPat half. An
+// EXPLICIT `&` pattern defeats match ergonomics, so the struct field is bound BY VALUE out of a
+// shared reference: E0507 in Rust. (Without the `&` the default binding mode is ref and it is legal.)
+// legality: rustc 1.98.1 --edition 2024 REFUSES (E0507), twin rust/x02_move_out_of_ref_pattern.rs
+package x02_move_out_of_ref_pattern;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct H { d: D }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut t: i64 = 0i64;
+    let h: H = H { d: D { v: 7i64, c: p } };
+    let sv: (H, i64) = (h, 1i64);
+    let r: &(H, i64) = &sv;
+    match r {
+        &(H { d }, k) => { t = d.v + k; }
+    }
+    if t != 8i64 { return 1i32; }
+    return 0i32;
+}

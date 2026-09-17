@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-16p-tupdoor, program h08 — THE NON-VACUOUS ORACLE for the RefPat half.
+// Same shape as queue row ref_pattern_nested_in_tuple_binding_undefined_refused, but the bound value is
+// PRINTED. An exit code cannot see this defect: when mlir_gen emits "no value emitted for this
+// reference" the guarded `if` is never emitted either, so the program falls through to `return 0` and
+// reads as a clean pass. stdout is the column that separates "bound correctly" from "never bound".
+// legality: rustc 1.98.1 --edition 2024, twin rust/h08_refpat_value_printed.rs prints got=6, exit 0
+package h08_refpat_value_printed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p: P = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let k: i32 = 1i32;
+    let mut got: i32 = 0i32;
+    match (pp, k) {
+        (&&P { x }, j) => { got = x + j; }
+    }
+    unsafe { printf("got=%d\n".as_ptr(), got); }
+    if got != 6i32 { return 1i32; }
+    return 0i32;
+}

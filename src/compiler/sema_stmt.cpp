@@ -6956,10 +6956,14 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         v.each_sub([&](lir_view::PatRef sp) {
             // ⚠ RefBind for the same reason: a `ref` element's name is in the
             // SUB, not in `each_binding`, so without this arm it never defines.
+            // ⚠ Struct introduces names too; Slice/RefPat are NOT here because
+            // pat_bind has no case for either — sema would define a name codegen
+            // never binds (measured: prints 0, PROBES.md 2026-09-16p).
             if (sp && (sp.kind() == ps::Code::VariantData ||
                        sp.kind() == ps::Code::Or ||
                        sp.kind() == ps::Code::At ||
                        sp.kind() == ps::Code::RefBind ||
+                       sp.kind() == ps::Code::Struct ||
                        sp.kind() == ps::Code::Tuple)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);
@@ -7050,6 +7054,50 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                         // and `b @ …` are the same node — only the SUB-pattern,
                         // whose own node may carry a mode, is walked.
                         return byval_(lir_view::PatAtView{p}.sub(), false);
+                    // `&(P { d }, k)` moves `d` out of a shared ref: E0507. The
+                    // tuple door recurses into Struct subs, so this walk must too
+                    // or the deref'd move is admitted (measured, PROBES.md 2026-09-16p).
+                    case ps::Code::Tuple: {
+                        lir_view::PatTupleView tv{p};
+                        std::vector<std::string_view> ns;
+                        std::vector<TypeRef> tys;
+                        tv.each_binding([&](std::string_view s){ ns.push_back(s); });
+                        tv.each_binding_type(tp_, [&](TypeRef t){ tys.push_back(t); });
+                        for (size_t i = 0; i < ns.size() && i < tys.size(); ++i)
+                            if (ns[i] != "_" && tys[i] && is_move_type(tys[i])) {
+                                bn_ = std::string(ns[i]);
+                                return true;
+                            }
+                        bool any = false;
+                        tv.each_sub([&](lir_view::PatRef sp){
+                            if (!any && byval_(sp, false)) any = true; });
+                        return any;
+                    }
+                    case ps::Code::Struct: {
+                        lir_view::PatStructView sv{p};
+                        std::string sn_(sv.struct_name());
+                        const SemaStructInfo* si_ = find_struct_by_name(sn_).second;
+                        if (!si_) si_ = find_datatype_by_name(sn_).second;
+                        bool any = false;
+                        sv.each_field([&](lir_view::PatFieldBindingView fv){
+                            if (any) return;
+                            if (auto fsub = fv.sub()) {
+                                if (byval_(fsub, false)) any = true;
+                                return;
+                            }
+                            auto fn_ = fv.field_name();
+                            if (fn_ == "_" || !si_) return;
+                            for (auto& f : si_->fields)
+                                if (f.name == fn_) {
+                                    if (f.type && is_move_type(f.type)) {
+                                        bn_ = std::string(fn_);
+                                        any = true;
+                                    }
+                                    break;
+                                }
+                        });
+                        return any;
+                    }
                     default: return false;
                 }
             };

@@ -1,0 +1,17 @@
+// hand battery: round 2026-09-16p-tupdoor, program h09 — THE NON-VACUOUS ORACLE for the Slice half.
+// The array/slice twin named in match_tuple_door_nested_struct_binds_nothing's own header, with the
+// bound values PRINTED rather than only compared, for the reason given in h08.
+// legality: rustc 1.98.1 --edition 2024, twin rust/h09_slice_value_printed.rs prints got=12, exit 0
+package h09_slice_value_printed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let arr: [i64; 2] = [3i64, 4i64];
+    let sv: ([i64; 2], i64) = (arr, 5i64);
+    let mut got: i64 = 0i64;
+    match sv {
+        ([a, b], c) => { got = a + b + c; }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), got); }
+    if got != 12i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-16p-tupdoor, program h07 — CONTROL. The pre-existing tuple door with no
+// nested struct/slice/ref sub-pattern. Compiles and runs 0 on the BASE binary; its job is to prove the
+// arm did not perturb the door it widens.
+// legality: rustc 1.98.1 --edition 2024, trivially legal
+package h07_plain_tuple_control;
+fn main() -> i32 {
+    let sv: (i64, i64) = (1i64, 2i64);
+    match sv {
+        (a, b) => { if a + b != 3i64 { return 1i32; } }
+    }
+    return 0i32;
+}

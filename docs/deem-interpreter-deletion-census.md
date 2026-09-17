@@ -6099,8 +6099,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 10988 -> 10996 (+9 -1), NOIMPORTED 6486 -> 6494 (+9 -1), TIERCOMMIT 352 -> 351 (-1) — PREDICTED
 #                here from the row/fixture counts, then MEASURED by `ctest -N` on the re-globbed build before this pin
 #                was touched.
-REGISTRY-ALL         10996
-REGISTRY-NOIMPORTED  6494
+# 2026-09-16p-tupdoor: one tier-3 squeue row CLOSED (match_tuple_door_nested_struct_binds_nothing) and
+#                ONE OPENED at the same door (match_tuple_door_nested_slice_binds_nothing, REASON 1, no
+#                carrier in pat_bind), so logos_00_squeue_* stays 233 and tier_commit is UNCHANGED.
+#                Native fixtures: 4 pass (the closed row's program + 3 hand-battery programs whose
+#                verdict MOVED base(refused "undefined variable") -> landed(compiles and RUNS with the
+#                right stdout)) and 1 fail (the abuse twin x02, rustc E0507, which the wide arm ADMITTED
+#                and the landed byval_ extension refuses). So ALL 10996 -> 11001 (+5), NOIMPORTED
+#                6494 -> 6499 (+5), TIERCOMMIT 351 -> 351 (0) — MEASURED by `ctest -N` on the re-globbed
+#                build before this pin was touched.
+REGISTRY-ALL         11001
+REGISTRY-NOIMPORTED  6499
 REGISTRY-TIERCOMMIT  351
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
