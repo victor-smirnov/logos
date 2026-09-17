@@ -359,4 +359,29 @@ localvec_homonym_listcomp_vec_leak valgrind 1 src/compiler/probes/2026-09-14i-ha
     # re-filed 2026-09-14 after the owner ruled the A6 question: the element type is the value's type). When that
     # row closes, run p2v: a count below 3 makes this a tier-1 `run` row.
 
-# TOTAL 16
+typeof_proj_second_fn_round_order  defect  1  probes /home/logos/sandbox/deem-measure-2026-09-17-2zKwKf/logos/{m3_run_byvalue,v5_inline_keys}
+    # 2026-09-17 — TWO projection-typed fns in ONE module make the FIRST one fail sema:
+    # `method call: receiver is not a struct (got <error>::LeafBatch)`. Measured on the 2026-09-17q
+    # binary (f74704316): m3_run_byvalue — ONE by-value `<typeof(Ked) as CtrLeafFamily>::LeafBatch`
+    # param, called — compiles rc 0, links and RUNS 0; the SAME file plus a second inline-projection
+    # fn refuses at the FIRST fn, not the second. Round-order, in SEMA, upstream of the mlir_gen slot
+    # elision that f74704316 closed — and PREVIOUSLY MASKED by that SIGSEGV, which is why it has no
+    # older row. pass/typeof_container_byvalue_param_{admit,inline_admit} each hold exactly ONE such
+    # fn for this reason, and say so.
+    # THE ONE MEASUREMENT THAT MAKES IT A ROW: is the refusal ORDER or CARRIER? Compile (a) the two
+    # projection-typed fns SWAPPED, (b) the second fn naming a DIFFERENT container, (c) both fns
+    # spelled INLINE and both spelled through an ALIAS. If the first fn fails regardless of order and
+    # carrier, it is one round-order door -> tier-3 row; if only the alias-typed one fails, the alias
+    # is the carrier and it is a different row.
+
+proj_ref_param_call_infer  defect  1  probe v4_ref_len in the same directory
+    # 2026-09-17 — calling a `&<typeof-projection>`-param fn with an INFERRED argument reports
+    # `call to 'take_ref': could not infer all type arguments — use explicit f::<T>(...) syntax`,
+    # while the by-value twin one token away calls fine. ⚠ NOT ESTABLISHED AS A COMPILER DEFECT: the
+    # probe builds the argument as `let bb = ob2.unwrap();` and may simply be malformed.
+    # THE ONE MEASUREMENT THAT MAKES IT A ROW — OR THROWS IT AWAY: annotate the binding
+    # (`let bb: KedBatch = ob2.unwrap();` then `take_ref(&bb)`) and, separately, try an explicit
+    # turbofish. If both still refuse, it is a real inference defect at a `&`-projection parameter;
+    # if either compiles, delete this entry.
+
+# TOTAL 18
