@@ -1,0 +1,121 @@
+match_array_elem_struct_binder_aliases_source	0	<no error line>
+match_array_elem_array_binder_shape_lost_run	0	<no error line>
+foreach_array_field_gep_verifier_refused	1	error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type or LLVM dialect-compatible vector of LLVM pointer ty
+array_typed_field_binding_shape_lost	1	error: 'arith.addi' op operand #0 must be signless-integer-like, but got '!llvm.array<2 x i64>'
+let_at_binding_tuple_sub_unsupported	1	error [fn main]: 'let <pattern> = expr;' currently supports struct patterns only (other shapes are refutable; use 'match
+boxref_sized_struct_deref_coercion_missing	1	error [fn main]: call to 'rd' arg 1: expected &A, got &Box<A>
+match_ref_array_nested_struct_sub_refused	1	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+match_array_nested_array_subpattern_mlirgen_malfunction	1	<no error line>
+let_array_pattern_nested_subpattern_refused	1	error [fn g]: let array pattern: only plain identifier bindings are supported at element 0 (got non-PAT_WILD)
+struct_binder_result	1	error [fn main]: cannot borrow 'w' as mutable: 'w' has shared borrows
+dangle_join_diverging_arm	1	error [fn temp_arm]: temporary value dropped while borrowed: 'x' borrows into a temporary that is dropped at the end of 
+closure_in_generic_two_insts	1	error: redefinition of symbol named '__closure_0'
+dyn_paren_region_bound	4	error near 'fn' at line 8 col 1
+box_vec_new_infer	1	error [fn main]: let 'b': type mismatch — expected Box<Vec<i64>>, got Box<Vec<T>>
+layout_verify_recursive_ref	139	<no error line>
+match_tmp_wild_mut_addrof	1	error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type or LLVM dialect-compatible vector of LLVM pointer ty
+box_mutref_payload_write_immut_box	1	error [fn main]: cannot borrow 'y' as mutable: not declared as mut
+labeled_foreach_label_lost	1	error [fn main]: 'break 'l': label not in scope
+let_tuple_destructure_ref_scrutinee	1	error [fn main]: let (...) = ...: right-hand side must be a tuple, got &(i64, i64)
+paren_var_assign_target	1	error [fn main]: destructuring assignment: right-hand side must be a tuple, got i64
+at_binding_ref_mut_payload_refuses	1	error [fn main]: write through raw pointer requires unsafe context
+let_at_binding_type_annot_syntax	4	error near '_' at line 11 col 13
+fnparam_struct_ref_mut_field_binds_byvalue	1	error [fn probe]: parameter pattern '#0': field 'x': `ref` / `ref mut` binding modes are not supported at a function par
+closure_param_struct_pattern_syntax	4	error near 'P' at line 19 col 14
+for_header_pattern_tuple_only	1	error [fn main]: for-loop pattern: only tuple patterns `for (a, b) in …` are supported here; bind a name and destructu
+match_tuple_door_nested_slice_binds_nothing	1	error [fn main]: undefined variable 'a'
+letstruct_partial_destructure_moves_whole_source	1	error [fn main]: use of moved variable 'p'
+let_tuplestruct_generic_elem_type_unsubstituted	1	error [fn main]: operator '+': type mismatch (T vs i64)
+arrayelem_default_ref_mode_not_minted	1	error [fn main]: assignment to immutable variable 'xs'
+let_underscore_defers_drop_to_block_end	0	<no error line>
+box_deref_move_refused_outside_let	1	error [fn main]: cannot move out of a value behind a reference / out of an index (E0507)
+nested_tuple_field_assign_unimplemented	1	error [fn main]: assignment target too deeply nested to assign in place yet; bind an intermediate (e.g. `let r = &mut <i
+self_assign_refused_as_moved	1	error [fn main]: use of moved variable 'x'
+boxed_closure_to_dyn_fn_cast_internal	1	<no error line>
+tuple_elem_reinit_after_move_refused	1	error [fn main]: use of moved field 't.0' (moved on line 45)
+str_annot_loses_static_for_dyn_fn	1	error [fn mk]: coercion to `dyn Fn` requires `|| -> i64: 'static` — lifetime `'_` may not live long enough (object lif
+boxed_closure_struct_field_not_callable	1	error [fn main]: expression-as-callee: receiver type 'Box<|| -> i64>' is not callable
+box_dyn_fn_shared_ref_arg_refused	1	error [fn main]: call to 'call_dyn' arg 1: expected || -> i64, got &Box<|| -> i64>
+slice_rest_ref_binder_syntax	4	error near '..' at line 15 col 24
+zonemut_fat_ref_struct_field_layout_abort	134	<no error line>
+fatslice_field_match_binder_invalid_mlir	1	error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type or LLVM dialect-compatible vector of LLVM pointer ty
+arraylit_closure_elem_fnptr_refused	1	error [fn main]: let 'fs': type mismatch — expected [fn(i64) -> i64; 2], got [|i64| -> i64; 2]
+two_traits_same_method_diff_arity_refused	1	error: 'func.call' op incorrect number of operands for callee
+inherent_clash_bound_dispatch_refused	1	error: 'func.call' op incorrect number of operands for callee
+fnparam_tuple_with_unit_elem_segv	139	<no error line>
+stdlib_drop_uninhabited_enum_byvalue_consumer	1	error: 'func.call' op operand type mismatch: expected operand type '!llvm.ptr', but provided 'i32' for operand number 0
+localvec_mangled_collision_listcomp_internal	1	error: 'func.call' op 'Vec$G1$i64__push' does not reference a valid function
+sliceref_read_of_local_array_says_dangling	1	error [fn f]: cannot return reference to local variable 'out': dangling reference
+loop_holder_realias_alternating_refuses	1	error [fn main]: cannot borrow 'b' as mutable: already mutably borrowed
+loop_holder_realias_referent_read_after_refuses	1	error [fn main]: cannot use 'a' while it is mutably borrowed
+loop_init_before_break_refuses	1	error [fn main]: use of possibly uninitialised binding 'x'
+anon_region_let_annotation_refuses_named_region	1	error [fn f]: let 'r': variance mismatch — expected &'_ i64, got &'q i64 — lifetime structure incompatible (check &m
+dyn_method_fn_binder_argument_refuses	1	error [fn store]: method 'pick' arg 1: variance mismatch — expected &'q i64, got &'a i64 — lifetime structure incomp
+index_through_ref_to_vec_let_refuses	1	error [fn foo]: let 'r': type mismatch — expected &'a i64, got &'a Vec<i64>
+self_tuple_struct_ctor_refused	1	error [fn T__mk]: call to undefined function 'Self'
+closure_elided_param_called_with_field_ref_refuses	1	error [fn Foo__remake]: closure call arg 1: the elided lifetime of closure parameter 'q' is a region distinct from the a
+trait_impl_for_ref_method_call_receiver_refused	1	error [fn main]: method call: receiver is not a struct (got &i64)
+enum_payload_rewrap_carries_declared_region_refuses	1	error [fn keep]: return type mismatch: variance mismatch — expected E<'a>, got E<'s> — lifetime structure incompatib
+struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses	1	error [fn again]: return type mismatch: variance mismatch — expected E<'a>, got E<'s> — lifetime structure incompati
+promoted_literal_call_arg_refused	1	error [fn main]: temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the 
+vec_new_uninferred_push_dropped	134	<no error line>
+static_arg_pins_shared_callee_region_refused	1	error [fn by_param]: call to 'eqr' arg 2: variance mismatch — expected &'static i64, got &i64 — lifetime structure i
+where_impl_region_static_bound_unused_refused	1	error [fn W__keep]: lifetime mismatch: return type has lifetime 'static but 'self' has lifetime (elided)
+impl_method_ret_renamed_header_binder_refused	1	error [fn H__get]: impl Get for H: method 'get' does not match the trait declaration: the return type is declared '&'a i
+impl_method_ret_longer_region_under_header_bound_refused	1	error [fn H__get]: impl Get for H: method 'get' does not match the trait declaration: the return type is declared '&'b i
+trait_impl_header_where_bound_dropped_refused	1	error [fn P__sum]: type parameter 'X' has no trait bound providing method 't'
+trait_default_body_self_assoc_const_refused	1	error [fn S__name]: unknown enum 'Self'
+enum_ctor_partial_turbofish_underscore_internal	1	<no error line>
+method_where_fn_bound_on_impl_param_refused	1	error [fn Run__go]: expression-as-callee: receiver type 'F' is not callable
+struct_named_like_type_param_refused	1	error [fn main]: struct literal: unknown struct 'W'
+enum_tuple_ctor_as_fn_value_refused	1	error [fn main]: call to undefined function 'f'
+vec_index_store_through_mutref_param_refused	1	error [fn set]: assignment to 'v[i]': type mismatch — expected Vec<i64>, got i64
+static_ref_nested_borrow_region_not_static_refused	1	error [fn main]: let 'r': variance mismatch — expected &&'static i64, got &&i64 — lifetime structure incompatible (c
+struct_lit_field_vec_new_infer_refused	1	error [fn main]: struct literal 'S' field 'v': expected Vec<i64>, got Vec<T>
+vec_index_store_value_borrows_vec_refused	1	error [fn main]: cannot borrow 'v' as shared: mutable borrow still in scope here (first borrowed at line 9, conflicting 
+vec_box_invariant_in_t_refused	1	error [fn shorter]: return type mismatch: variance mismatch — expected &'a Vec<&'a i64>, got &'a Vec<&'static i64> —
+vec_push_arg_reads_loan_refused	1	error [fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows
+vec_push_ifarm_after_loan_last_use_refused	1	error [fn main]: cannot borrow 'v' as mutable: 'v' has shared borrows
+generic_user_indexmut_store_refused	1	error [fn main]: index read: receiver is not an array, slice, or pointer (got G2<i64>)
+let_mutref_annotation_to_meet_struct_refused	1	error [fn go]: let 'r': variance mismatch — expected &mut P, got &mut P — lifetime structure incompatible (check &mu
+generic_type_param_two_regions_first_wins_refused	1	error [fn go]: call to 'first' arg 2: variance mismatch — expected &'a i64, got &'b i64 — lifetime structure incompa
+tuplestruct_ctor_declared_binder_name_refused	1	error [fn mk]: tuple-struct 'P' field 0: variance mismatch — expected &'s i64, got &'a i64 — lifetime structure inco
+where_struct_literal_instantiation_rigid_refused	1	error [fn go]: struct literal 'W': caller does not satisfy declared outlives bound `'b: 'a` (under lifetime substitution
+struct_lit_invariant_binder_first_wins_covariant_region_refused	1	error [fn mk]: struct literal 'C' field 'm': variance mismatch — expected &'b mut &'b i64, got &'a mut &'a i64 — lif
+refvar_reborrow_whole_then_assign_counter_refused	1	error [fn main]: cannot assign to 'r' because it is borrowed
+rawptr_ordering_compare_mlir_verifier_refused	1	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+pattern_ref_binding_loan_outlives_last_use_refused	1	error [fn main]: cannot borrow 'bar' as mutable: field of 'bar' is already borrowed
+rawptr_int_zero_compare_mlir_verifier_refused	1	error: 'llvm.icmp' op requires all operands to have the same type
+rawptr_tuple_eq_no_eq_impl_refused	1	error [fn main]: 'variadic__eq': type '*mut i64' does not implement trait 'Eq' required by parameter 'A'
+listcomp_value_elem_type_refused	1	error: 'func.call' op operand type mismatch: expected operand type 'i64', but provided '!llvm.ptr' for operand number 1
+user_type_alias_shadows_stdlib_type_param_refused	1	error [fn swap (specialization)]: index read through raw pointer requires unsafe context
+vec_mutref_elem_push_store_rehomed_refused	1	error [fn main]: cannot use 'y' while it is mutably borrowed
+aggregate_param_ref_field_borrow_returned_says_dangling_refused	1	error [fn refs]: cannot return reference to local variable 'r': dangling reference
+setter_mutref_field_store_after_outer_set_rehomed_refused	1	error [fn main]: 'd' does not live long enough: it is borrowed by 'x', which is used here after 'd' goes out of scope (E
+let_ref_bind_annotated_refused	1	error [fn main]: let 'y': type mismatch — expected i64, got &i64
+deferred_init_after_inner_shadow_refused	1	error [fn main]: assignment to immutable variable 'x'
+let_double_ref_str_annotation_refused	1	error [fn main]: let 'x': type mismatch — expected &&&[u8], got &&[u8]
+ref_typearg_eq_impl_missing_refused	1	error: 'func.call' op '&D__eq' does not reference a valid function
+generic_ref_typevar_ordering_mlir_verifier_refused	1	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+tuple_enum_elem_eq_variadic_impl_return_lost_refused	1	<no error line>
+double_ref_deref_return_outer_lifetime_refused	1	error [fn pick]: lifetime mismatch: return type has lifetime 'a but 'a' has lifetime 'b
+ref_to_slice_ref_param_unsized_refused	1	error [fn inner]: the type `[i64]` is unsized: it cannot be used by value. Wrap it in a reference (`&[i64]`) or pointer 
+ref_to_dyn_ref_type_parse_refused	4	error near 'fn' at line 9 col 1
+field_read_through_ref_to_box_refused	1	error [fn main]: field read: struct 'Box$G1$D' has no field 'v'
+let_ref_struct_pattern_irrefutable_refused	1	error [fn deref2]: 'let <pattern> = expr;' currently supports struct patterns only (other shapes are refutable; use 'mat
+letelse_ref_pattern_binding_undefined_refused	1	error [fn get]: undefined variable 'x'
+method_autoderef_double_ref_option_infer_refused	1	error [fn get]: could not infer type arguments for generic method 'Option__is_some'
+at_binding_whole_struct_wild_fields_refused	1	error [fn g]: cannot move out of 'D' into pattern binding 'y': type 'D' implements the Drop trait, so its destructor mus
+array_lit_box_elem_unsize_to_dyn_no_vtable	1	<no error line>
+operator_trait_rhs_type_param_refused	1	error [fn D__add]: impl Add for D: method 'add' does not match the trait declaration: parameter 1 is declared 'D' and th
+struct_lit_mutref_field_unannotated_static_borrow_refused	1	error [fn main]: struct literal 'HM' field 'm': variance mismatch — expected &static mut &static i64, got &mut &static
+ifexpr_arm_extended_field_borrow_refused	1	error [fn main]: '__rtmp_0' does not live long enough: it is borrowed by 'k', which is used here after '__rtmp_0' goes o
+array_temp_elem_field_store_refused	1	error [fn main]: assignment target too deeply nested to assign in place yet; bind an intermediate (e.g. `let r = &mut <i
+at_binding_array_sub_verifier_error_refused	1	error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+variant_tuple_door_struct_shape_sub_unresolved	1	error [fn inner]: undefined variable 'f'
+call_arg_deref_coercion_double_ref	1	error [fn sum]: call to 'sum' arg 1: expected &List, got &&List
+let_at_binding_struct_pattern_moved_variable_refused	1	error [fn g]: use of moved variable 'y'
+variant_payload_nested_at_pattern_refused	1	error [fn g]: pattern E::V: nested patterns inside enum-variant payloads are not yet supported; bind to a name and match
+refptr_inner_region_elision_demands_static_refused	0	<no error line>
+array_field_store_value_reads_field_loan_refused	1	error [fn main]: cannot borrow 's.xs' as mutable: 's.xs' is already borrowed
+ptr_array_in_tuple_param_gep_verifier_refused	1	error: 'llvm.getelementptr' op operand #0 must be LLVM pointer type or LLVM dialect-compatible vector of LLVM pointer ty

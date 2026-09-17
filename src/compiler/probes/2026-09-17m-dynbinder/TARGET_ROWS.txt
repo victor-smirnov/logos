@@ -1,0 +1,22 @@
+# 2026-09-17m-dynbinder — TARGET ROWS, written BEFORE the compiler is touched.
+# DOOR (a FACT, not a sentence): an argument-comparison site that hands a callee
+# LIFETIME BINDER to check_variance without instantiating it from the arguments.
+# The three shipped instantiating sites call inst_call_params_ (sema_expr.cpp
+# 4322, 4621, 10730). The &dyn dispatch arm (sema_expr.cpp ~8523) builds
+# self_subst = {"Self"} only -- the Self TYPE is substituted, the callee's
+# lifetime binders are not -- then calls check_variance(at, pt, "method 'X' arg N").
+#
+# PRIMARY TARGET
+dyn_method_fn_binder_argument_refuses
+#
+# CONTROLS -- predicted NOT to move (different fact, same sentence). 17c already
+# measured three of these unmoved under its own arm; re-measured here.
+anon_region_let_annotation_refuses_named_region   # '_' as a rigid region, let annotation
+generic_type_param_two_regions_first_wins_refused # TYPE-param first-wins, no meet
+tuplestruct_ctor_declared_binder_name_refused     # ctor builds NO lt substitution at all
+static_ref_nested_borrow_region_not_static_refused# static item's elided region at a READ
+#
+# GROUPING CLAIM UNDER TEST: "variance mismatch" is ONE SENTENCE from ONE emitter
+# (sema_impl.hpp check_variance) and is NOT a door -- 17a/17c recorded the same.
+# 17c's finer census branch `subst.call.mentioned only` (4 rows) is ALSO not one
+# door: it contains the ctor row, which builds no substitution at all.
