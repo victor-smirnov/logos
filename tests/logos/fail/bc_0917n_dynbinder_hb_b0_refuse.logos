@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-17n-dynbinder, program b0 — caught: bare-&local twin, refused on BASE too — the one-token control that isolated the hole
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — REFUSED, error[E0597].
+package bc_0917n_dynbinder_hb_b0_refuse;
+fn pid<'q>(x: &'q i64) -> &'q i64 { return x; }
+fn store<'a>(out: &mut &'a i64) {
+    let l: i64 = 5i64;
+    *out = pid(&l);
+}
+fn main() -> i32 {
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    store(&mut r);
+    return *r as i32;
+}

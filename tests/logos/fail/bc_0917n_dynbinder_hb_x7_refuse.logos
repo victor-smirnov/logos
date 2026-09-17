@@ -1,0 +1,23 @@
+// hand battery: round 2026-09-17n-dynbinder, program x7 — caught: STRUCT-literal carrier — ADMITTED and ran exit 5 under the dyn arm before the hole fix
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — REFUSED, error[E0597].
+package bc_0917n_dynbinder_hb_x7_refuse;
+struct H<'q> { p: &'q i64 }
+trait T7 { fn ph<'q>(&self, h: H<'q>) -> &'q i64; }
+struct S { k: i64 }
+impl T7 for S {
+    fn ph<'q>(&self, h: H<'q>) -> &'q i64 {
+        let _u: i64 = self.k;
+        return h.p;
+    }
+}
+fn store<'a>(d: &dyn T7, out: &mut &'a i64) {
+    let l: i64 = 5i64;
+    *out = d.ph(H { p: &l });
+}
+fn main() -> i32 {
+    let s: S = S { k: 0i64 };
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    store(&s, &mut r);
+    return *r as i32;
+}

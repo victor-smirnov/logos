@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-17n-dynbinder, program b2 — caught: STRUCT-literal arg, no dyn: COMPILED AND RAN exit 5 on the SHIPPED binary
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — REFUSED, error[E0597].
+package bc_0917n_dynbinder_hb_b2_refuse;
+struct H<'q> { p: &'q i64 }
+fn ph2<'q>(h: H<'q>) -> &'q i64 { return h.p; }
+fn store<'a>(out: &mut &'a i64) {
+    let l: i64 = 5i64;
+    *out = ph2(H { p: &l });
+}
+fn main() -> i32 {
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    store(&mut r);
+    return *r as i32;
+}

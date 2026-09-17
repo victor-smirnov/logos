@@ -8520,8 +8520,18 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                                             m.lifetime_outlives, {}, /*first_arg_is_receiver=*/true,
                                             m.ret_type);
                     }
+                    std::vector<TypeRef> ipts_;
+                    {
+                        std::vector<lir::LExprPtr> ia_;
+                        ia_.push_back(recv);
+                        for (auto& a_ : arg_exprs) ia_.push_back(a_);
+                        ipts_ = inst_call_params_(m.param_types, m.lifetime_params,
+                                                  ia_, m.ret_type);
+                    }
                     for (uint64_t i = 0; i < explicit_args; ++i) {
-                        auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
+                        auto pt = subst_type_sema(
+                            (ipts_.size() > i + 1 ? ipts_[i + 1] : m.param_types[i + 1]),
+                            self_subst);
                         // Canonical-order coercion: arg_to_dyn → reborrow →
                         // widen (logos-core 1.2). Was hand-rolled with the
                         // arg_to_dyn moved AFTER widen — equivalent here
@@ -8628,7 +8638,16 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                     for (size_t ti = 0; ti < tparams.size() && ti < trait_args.size(); ++ti)
                         trait_subst[tparams[ti].name] = trait_args[ti];
                 }
-                auto ret_type = subst_type_sema(m.ret_type, trait_subst);
+                TypeRef ret_src_ = m.ret_type;
+                {
+                    std::vector<lir::LExprPtr> ra_;
+                    ra_.push_back(recv);
+                    for (auto& a_ : arg_exprs) ra_.push_back(a_);
+                    if (auto r_ = subst_call_ret_lts_(m.param_types, m.lifetime_params,
+                                                      ra_, m.ret_type))
+                        ret_src_ = r_;
+                }
+                auto ret_type = subst_type_sema(ret_src_, trait_subst);
                 track_args_moved(arg_exprs, &m.param_types, /*formal_off=*/1);
                 lir::EMethodCall mc;
                 mc.receiver     = std::move(recv);

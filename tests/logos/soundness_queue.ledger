@@ -84,7 +84,7 @@ try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_oper
 #    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
 struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
 
-# TOTAL 236
+# TOTAL 235
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -169,7 +169,6 @@ loop_holder_realias_alternating_refuses 3 tests/soundness/open/loop_holder_reali
 loop_holder_realias_referent_read_after_refuses 3 tests/soundness/open/loop_holder_realias_referent_read_after_refuses refuses
 loop_init_before_break_refuses 3 tests/soundness/open/loop_init_before_break_refuses refuses
 anon_region_let_annotation_refuses_named_region 3 tests/soundness/open/anon_region_let_annotation_refuses_named_region refuses
-dyn_method_fn_binder_argument_refuses 3 tests/soundness/open/dyn_method_fn_binder_argument_refuses refuses
 box_local_deref_escape_through_out_param_admits 2 tests/soundness/open/box_local_deref_escape_through_out_param_admits admits
 field_write_through_param_local_escape_admits 2 tests/soundness/open/field_write_through_param_local_escape_admits admits
 assign_local_borrow_into_annotated_binder_admits 2 tests/soundness/open/assign_local_borrow_into_annotated_binder_admits admits

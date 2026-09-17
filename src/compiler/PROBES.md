@@ -49358,3 +49358,51 @@ note:
  in compile mode ("-I is only available with --emit-module"), and reported 17 of 17 fixtures FAILING
  on a binary that compiles them all — a UNIFORM failure is an instrument refusing, the same shape as
  run_hand.sh's rc=4 for all 29 programs recorded by the previous round.
+
+## 2026-09-17n-dynbinder — A TIER-3 ARM PAID BY CLOSING THE TIER-1 HOLE THAT HELD IT
+
+TARGET: soundness-queue row `dyn_method_fn_binder_argument_refuses` (tier 3). `try_method_on_dyn`
+is a FOURTH argument-comparison site: it substitutes `Self` and the trait's type params, but never
+instantiates the callee's LIFETIME binders — so `d.pick(p)` compared the caller's `&'a i64` against
+the literal binder `&'q i64` (rule 12), and carried `'q` into the return type as well. Two errors,
+argument and return: the arm is the PAIR or it is nothing. dlog `callret_subst.dl` named
+`try_method_on_dyn` three times under `reads_never_substs`, with its known-answer control
+`subst_site` returning exactly the four landed sites (4441, 4754, 5587, 17251).
+
+THE ARM: build the one map from `m.param_types`/`m.lifetime_params`/args (receiver included) and
+hand it to BOTH consumers — `inst_call_params_` for the arguments, `subst_call_ret_lts_` for the
+return, exactly as `lower_call` does.
+
+⚠ THE ARM ALONE ADMITTED TWO USE-AFTER-SCOPE PROGRAMS, AND ONLY A VARIED CARRIER FOUND THEM.
+Six abuse carriers were written and measured ON BASE FIRST (bare, inner-scope, `&mut dyn`, two
+binders, tuple, struct field). ALL SIX are refused on the shipped binary by ONE sentence —
+`deref-write '*ptr = …': variance mismatch` — i.e. by the very defect the arm deletes, with NO
+escape check anywhere: `check_call_outlives` returns immediately because `pick<'q>` declares no
+outlives clauses. Under the arm alone, four became CORRECT E0597 refusals but the TUPLE and
+STRUCT-FIELD carriers COMPILED AND RAN, exit 5, reading the dead local.
+
+⚠ THE DOOR WAS A TIER-1 `admits` HOLE ON THE SHIPPED BINARY, NOT A COST OF THE ARM. Isolated with
+three controls that use NO `dyn` and NO arm — ordinary free-fn calls, base binary:
+`f(&l)` REFUSED (E0597), `f((&l,1))`, `f(H{p:&l})` and `f([&l])` COMPILE AND RUN exit 5. rustc
+1.98.1 refuses all four with E0597. In `collect_borrowed_local_roots`, the Call/MethodCall arm's
+`one()` dropped every argument that is not a bare `AddrOf`/`AddrOfTemp` — while the function's own
+arms already walk `TupleLit`/`StructLit`/`ArrLit`/`EnumLitData`/`Cast`. The borrow was dropped at
+the CALL boundary. Same shape as 17c/d's missing `ArrLit` arm in `prov_of_raw`.
+
+LANDED: the aggregate-literal kinds recurse in `one()` (borrow_check.cpp), plus the dyn-arm pair
+(sema_expr.cpp). With the hole closed the arm is paid: the row closes run-verified at exit 0
+against its rustc twin, and all ten illegal programs are refused with the READ E0597 sentence.
+
+⚠ NEIGHBOURS, TESTED RATHER THAN ASSUMED. The armed queue gate named exactly ONE row. The ~20
+escape-related tier-2 `admits` rows did NOT move: they are a different door (the field-write
+spelling, the MethodCall `stored_ref_elem` arm, struct-literal region pairing), and the gate's own
+row list is the measurement. The pricing handoff's predicted neighbour
+`generic_type_param_two_regions_first_wins_refused` is REFUTED — unmoved, armed and base alike;
+it dies at a TYPE parameter's first-wins unification, not at a lifetime binder.
+
+⚠ INSTRUMENTS THAT LIED THIS ROUND. `inst_call_params_`'s probe-shaped guard reads
+`arm_inst() || arm_subst()`, and I briefly concluded the argument half was not shipping at all —
+`probe.hpp:119` says `inline bool arm_inst() { return true; }`, "no longer a probe". Read the
+definition, not the call. `fail_text_oracle.py` run with no argv[1] exits 1 on an IndexError, which
+is the instrument refusing, not a red corpus. And a background chain reported "exit 0" while its
+marker was never written — the marker, not the notification, is the evidence.

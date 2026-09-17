@@ -1,0 +1,26 @@
+// hand battery: round 2026-09-17n-dynbinder, program x2 — caught: same escape from an INNER scope; BASE sentence was the variance accident
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — REFUSED, error[E0597].
+package bc_0917n_dynbinder_hb_x2_refuse;
+trait P { fn pick<'q>(&self, x: &'q i64) -> &'q i64; }
+struct S { k: i64 }
+impl P for S {
+    fn pick<'q>(&self, x: &'q i64) -> &'q i64 {
+        let _u: i64 = self.k;
+        return x;
+    }
+}
+fn store<'a>(d: &dyn P, p: &'a i64, out: &mut &'a i64) {
+    {
+        let local: i64 = 9i64;
+        *out = d.pick(&local);
+    }
+    let _q: i64 = *p;
+}
+fn main() -> i32 {
+    let s: S = S { k: 0i64 };
+    let w: i64 = 70i64;
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    store(&s, &w, &mut r);
+    return *r as i32;
+}

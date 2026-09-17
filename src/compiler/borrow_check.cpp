@@ -3507,7 +3507,22 @@ private:
                 auto one = [&](lir_view::ExprRef a, unsigned pi) {
                     if (!a || pi >= fs->nparams) return;
                     if ((fs->to_result & (1ull << pi)) == 0) return;
-                    if (a.kind() != EC::AddrOf && a.kind() != EC::AddrOfTemp) return;
+                    // ⚠ AN AGGREGATE LITERAL ARGUMENT CARRIES THE BORROW TOO.
+                    // `f((&l,1))`, `f(H{p:&l})`, `f([&l])` reach the result
+                    // through the SAME `to_result` bit as `f(&l)`, and this
+                    // function already walks TupleLit/StructLit/ArrLit/
+                    // EnumLitData/Cast in its own arms. The kind test dropped
+                    // them at the CALL boundary, so three use-after-scope
+                    // spellings compiled and RAN (exit 5, the dead local's
+                    // value) where rustc gives E0597, while the bare `f(&l)`
+                    // twin one token away was refused.
+                    switch (a.kind()) {
+                        case EC::AddrOf: case EC::AddrOfTemp:
+                        case EC::TupleLit: case EC::StructLit:
+                        case EC::ArrLit: case EC::EnumLitData: case EC::Cast:
+                            break;
+                        default: return;
+                    }
                     collect_borrowed_local_roots(a, out);
                 };
                 // ⚠ receiver tied only when Self holds no borrow — PROBES.md 2026-09-03n §6.

@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-17n-dynbinder, program x3 — caught: carrier &mut dyn receiver; BASE sentence was the variance accident
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — REFUSED, error[E0597].
+package bc_0917n_dynbinder_hb_x3_refuse;
+trait P { fn pick<'q>(&self, x: &'q i64) -> &'q i64; }
+struct S { k: i64 }
+impl P for S {
+    fn pick<'q>(&self, x: &'q i64) -> &'q i64 {
+        let _u: i64 = self.k;
+        return x;
+    }
+}
+fn store<'a>(d: &mut dyn P, out: &mut &'a i64) {
+    let l: i64 = 5i64;
+    *out = d.pick(&l);
+}
+fn main() -> i32 {
+    let mut s: S = S { k: 0i64 };
+    let z: i64 = 0i64;
+    let mut r: &i64 = &z;
+    store(&mut s, &mut r);
+    return *r as i32;
+}
