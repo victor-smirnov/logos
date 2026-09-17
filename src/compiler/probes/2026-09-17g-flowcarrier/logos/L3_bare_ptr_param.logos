@@ -1,0 +1,10 @@
+package L3_bare_ptr_param;
+fn raw<'a>(q: *const &'a i64) -> i64 {
+    return unsafe { **q };
+}
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    let r: &i64 = &v;
+    let q: *const &i64 = &r;
+    return (raw(q) - 3i64) as i32;
+}

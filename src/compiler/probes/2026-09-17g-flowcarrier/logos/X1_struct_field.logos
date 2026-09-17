@@ -1,0 +1,15 @@
+package X1_struct_field;
+struct Holder<'a> { q: *const &'a i64 }
+fn first<'a>(h: Holder<'a>) -> &'a i64 {
+    return unsafe { *h.q };
+}
+fn escape() -> &'static i64 {
+    let v: i64 = 7i64;
+    let r: &i64 = &v;
+    let h: Holder = Holder { q: &r };
+    return first(h);
+}
+fn main() -> i32 {
+    let out: &i64 = escape();
+    return *out as i32;
+}

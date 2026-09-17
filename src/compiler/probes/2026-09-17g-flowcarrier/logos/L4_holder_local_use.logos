@@ -1,0 +1,9 @@
+package L4_holder_local_use;
+struct Holder<'a> { q: *const &'a i64 }
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let r: &i64 = &v;
+    let h: Holder = Holder { q: &r };
+    let out: &i64 = unsafe { *h.q };
+    return (*out - 5i64) as i32;
+}

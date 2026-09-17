@@ -1,0 +1,10 @@
+package c5_array;
+fn pick<'a>(x: [&'a i64; 2]) -> &'a i64 {
+    return x[0];
+}
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    let a: [&i64; 2] = [&n, &n];
+    let r: &i64 = pick(a);
+    return (*r - 4i64) as i32;
+}

@@ -48549,3 +48549,177 @@ it lands as `bc_17f_hb_refbind_admit`.
     **Not a blessed divergence.**
   * ⚠ REPORTED, NOT REPAIRED: that clause cites `src/compiler/sema_stmt.cpp#L1079-L1136`, but the
     whitelist it describes is at **L1421**. The spec's source range has drifted.
+
+## 2026-09-17g `flowcarrier` — THE FLOW SUMMARY'S TAINT MASK HAS NO `Ptr` ARM, SO A RAW POINTER TO A REFERENCE LAUNDERS A BORROW: ONE TIER-1 `admits` ROW CLOSES RUN-VERIFIED AGAINST ITS rustc TWIN AT ZERO IN EVERY COLUMN, TWO UNROWED CARRIERS OF THE SAME HOLE ARE FOUND, AND THE SYMPTOM-GROUPING IS REFUTED BY ONE ARMED CHANGE
+
+site: src/compiler/borrow_check.cpp::build_type_sets (the `type_is_ha` fixpoint lambda)
+also: src/compiler/borrow_check.cpp::bc_holds_any_ref_type
+build: base 8c1d44e10b8ad7a3 43; armed dir build-flowcarrier (BUILD_RC 0), deleted by literal path at close.
+fires: n/a — this is a PRICING round; no `probe::on` site is installed. Arm preserved as
+       src/compiler/probes/2026-09-17g-flowcarrier/probe.diff (4 added lines).
+
+### THE CENSUS — TIER 3 BY WHERE THE REFUSAL COMES FROM, RE-DERIVED BY COMPILING ALL 120
+
+120 tier-3 rows compiled on the shipped binary. Buckets BY EXIT CODE, stated as mine:
+110 rc=1 (ordinary refusal) · 5 rc=4 (parse/syntax) · 2 rc=139 (compiler SEGV) ·
+2 rc=134 (compiler abort) · 1 rc=0 (`let_underscore_defers_drop_to_block_end`, a `run` row).
+Earlier rounds reported 5/92/20/4/1 and 91/13/8/5/2/1/1; the split differs because "backend"
+divides into MLIR-verifier vs mlir_gen-internal. Re-derive it; do not inherit it.
+
+⚠ THE LARGEST SYMPTOM GROUP IS NOT A DEFECT GROUP. 15 rows share the sentence
+"variance mismatch — lifetime structure incompatible". That sentence has ONE emitter
+(`sema_impl.hpp:7541`) reached from ~28 `check_variance` CALL SITES, and the wrong region is
+minted upstream in different places. A grep-defined class here certifies what it cannot see.
+
+### THE GROUPING, AND HOW IT WAS TESTED — REFUTED, WITH ONE-VARIABLE CONTROLS
+
+Two tier-1 `admits` rows summarise IDENTICALLY on the shipped binary (LOGOS_DUMP_FLOWS):
+    pick__f__ref_W : result<-0  EXACT      (struct_ref_param_field_return_exact_summary_escape_admitted)
+    first__f__Holder: result<-0  EXACT     (ptr_under_struct_field_region_escape_admitted)
+Same mask, same EXACT tag, same false claim that parameter 0 never reaches the result — while in
+BOTH the returned value is a field projection out of that parameter. The headers assert they are
+different defects; that assertion was a hypothesis, so it was MEASURED, not inherited.
+
+A six-program carrier battery, one variable at a time (summaries on the shipped binary):
+    c1 bare `&'a i64`                      result<-0x1   carries
+    c2 struct BY REF `&W<'a>`, field `&'s i64`   result<-0     ZERO
+    c3 struct BY VALUE `W<'a>`, same field       result<-0x1   carries
+    c4 tuple `(&'a i64, i64)`              result<-0x1   carries
+    c5 array `[&'a i64; 2]`                result<-0x1   carries
+    c6 struct BY VALUE, field `*const &'a i64`   result<-0     ZERO
+c2 vs c3 differ ONLY in by-ref/by-value -> c2's door is `stored_shared_extract` (its spine root is
+a `Ref`, so it cancels). c3 vs c6 differ ONLY in `&'s i64` vs `*const &'a i64` -> c6's door is
+`bc_holds_any_ref_type`, which has no `Ptr` arm, so `Holder` never enters the `holds_any_ref`
+fixpoint and a by-value aggregate param is never seeded.
+
+TESTED WITH ONE ARMED CHANGE, which is the only test that decides a grouping: the `Ptr` arm moves
+`ptr_under_struct_field_region_escape_admitted` and leaves
+`struct_ref_param_field_return_exact_summary_escape_admitted` UNMOVED on both sides. The grouping
+SPLITS. That is now seven-for-seven refuted in this queue when actually tested.
+
+### THE FACT
+
+`type_is_ha` (the `holds_any_ref` fixpoint) and `bc_holds_any_ref_type` (its per-type read) both
+recurse through type_args, Tuple and Array and STOP at a raw pointer. So `struct Holder<'a> {
+q: *const &'a i64 }` is not borrow-carrying, `can_carry(Holder)` is false, the by-value parameter
+is never seeded, the summary reports `result<-0` and — because nothing was MISSED by its own
+reckoning — labels it EXACT. The #77 return-escape door (borrow_check.cpp:9061) trusts only EXACT
+masks, so it trusts this one and merges nothing.
+
+### THE ARM, AND THE COLUMNS — EVERY SET DIFFED BOTH WAYS, ONE CONFIGURE PER SIDE
+
+Four added lines: a `Ptr` arm recursing into the pointee, at BOTH sites (they ask one question).
+
+    ARRIVAL CENSUS   holds_any_ref: 11 names base -> 12 armed. Exactly one type enters.
+    queue gate (the ONLY instrument that can see a queue row; ceiling-probe.sh cannot)
+        base  rc 0 — 236 rows hold
+        armed rc 1 — EXACTLY ONE row named: ptr_under_struct_field_region_escape_admitted
+        set diff BOTH ways: only-in-armed 1, only-in-base 0 — no row re-opened
+    fail_text_oracle.py  1896 fail fixtures — tables BYTE-IDENTICAL (sha 727e4ded64d25c15
+                         both sides), 0 changed, 0 set diff either way
+    spec fail tier BY NAME `logos_25_spec_fail_*`   494/494 both ways
+    run_oracle.py  7468 pass fixtures compiled+linked+RUN; set diff 0/0; ONE changed row =
+                   cast-region-to-uint (prints a stack address), subtracted BY NAME -> 0
+    stdlib  all four layers compiled BY THE ARMED COMPILER during its own build, 0 errors
+    valgrind (three legal raw-pointer programs)  0 errors, 0 leaks each
+
+### THE ABUSE DIRECTION IS INVERTED HERE, AND THE BATTERY IS WEIGHTED FOR IT
+
+This arm RELAXES nothing — it makes the checker more conservative, so the expensive direction is
+refusing LEGAL programs. Battery of 8, every legality MEASURED with rustc 1.98.1 --edition 2024,
+every legal one RUN on both binaries:
+
+    LEGAL, must stay accepted            rustc   base        armed
+    L1 Holder in scope                   rc0 run0  cc0 run0    cc0 run0   UNMOVED
+    L2 `*const i64` (ptr to NON-ref)     rc0 run0  cc0 run0    cc0 run0   UNMOVED
+    L4 Holder, deref in caller           rc0 run0  cc0 run0    cc0 run0   UNMOVED
+    L3 bare `*const &'a i64` param       rc0 run0  cc1 REFUSED cc1 REFUSED UNMOVED
+
+    ILLEGAL, must become refused         rustc   base        armed
+    X1 struct field   (the queue row)    E0515    cc0 RAN 7   REFUSED, "cannot return reference
+                                                              to local variable 'r'"
+    X2 tuple field                       E0515    cc0 RAN 8   REFUSED, same sentence
+    X3 array field                       E0515    cc0 RAN 6   REFUSED, same sentence
+    X4 bare ptr returning `&'a i64`      E0515    cc1 refused cc1 refused UNMOVED
+
+⚠ TWO CARRIERS OF THIS HOLE HAVE NO ROW. X2 (tuple field) and X3 (array field) compile clean and
+RUN on the SHIPPED binary at exits 8 and 6, reading dead locals, and rustc refuses both with
+E0515. The queue row covers only the struct-field carrier. They are not new rows opened here
+(this round lands no ledger change) but they are the same hole and the landing round should
+either close them with the row or open them.
+
+⚠ L3 IS A LEGAL PROGRAM THE SHIPPED BINARY REFUSES, found as a negative control. rustc compiles
+and runs it at 0; logosc refuses with "expected *const &'static i64". It is the `*const` spelling
+already NAMED inside `mutptr_region_param_elided_let_arg_refused`'s header, so it is that row's
+carrier, not a new one. Unmoved by this arm, as predicted.
+
+⚠ X4 STAYS REFUSED ONLY BY THE VARIANCE ACCIDENT, not by this arm — the same "refused by a
+different defect" that 2026-09-17b recorded. Stated rather than counted as a win.
+
+### ROWS PREDICTED BY NAME BEFORE THE BUILD, THEN MEASURED
+
+    ptr_under_struct_field_region_escape_admitted        CLOSES    -> closed, E0597, run-verified
+    struct_ref_param_field_return_exact_summary_...      unmoved   -> unmoved (grouping refuted)
+    mutptr_region_param_elided_let_arg_refused           unmoved   -> unmoved
+    refptr_inner_region_elision_demands_static_refused   unmoved   -> unmoved
+    refptr_param_eq_compares_outer_ref                   unmoved   -> unmoved
+    try_operator_result_local_borrow_escape_admitted     unmoved   -> unmoved
+Six of six as predicted.
+
+### NEIGHBOUR TABLE — every row the class enumeration names (standing rule 2026-09-12)
+
+| neighbour | closed by this arm? | reason, with the number |
+|---|---|---|
+| `ptr_under_struct_field_region_escape_admitted` | **YES** | gate names it and only it; refused E0597; X1 base ran 7 -> refused |
+| X2 tuple-field / X3 array-field carriers (unrowed) | **YES, same arm** | base ran 8 and 6 -> both refused by the same sentence; same fact, same change |
+| `struct_ref_param_field_return_exact_summary_escape_admitted` | **NO — REASON 1, no carrier at this site** | its zero comes from `stored_shared_extract` cancelling, not from the seed; measured unmoved both ways. Its own door is named below |
+| `mutptr_region_param_elided_let_arg_refused`, `refptr_inner_region_elision_demands_static_refused` | **NO — REASON 2, doors in series** | these are the `'static` FILL at `sema_impl.hpp:943`, a different site; they need 17a/b's withdrawn `K::Ptr` region arm, which this round did not install |
+| `refptr_param_eq_compares_outer_ref` | **NO — REASON 1** | a codegen equality defect, not a flow-summary fact; cc0 both ways |
+| `try_operator_result_local_borrow_escape_admitted` | **NO — REASON 1** | `prov_of_raw` has no `Try` arm; a different walker entirely |
+
+### REGISTRY CHECK, BOTH SCHEMES, READ BY ME
+
+`docs/spec/ownership.md` carries three raw-pointer clauses that LOOK like they forbid this arm:
+`borrow.move.no-flow-through-raw-ptr`, `borrow.scoped.raw-pointer-root-unchecked`,
+`borrow.place.raw-ptr-no-borrow`. Read in full, each is scoped to a DIFFERENT question — move
+tracking through `(*p).field`; a self-borrowing METHOD RECEIVER rooted at a pointer; a tracked
+borrow OF THE BASE. None is marked `> **Divergence**` (that file does mark them —
+`borrow.scoped.rc-arc-root-exempt` and `borrow.union.field-borrow-borrows-all` both carry it) and
+two explicitly claim "Rust parity". This arm tracks none of those three things: it says a
+`*const &'a i64` PARAMETER can carry a caller's borrow to the result, i.e. the lifetime of the
+REFERENT reference — which is why rustc gives E0515 on X1-X4. NOT a blessed divergence; no
+conflict. `docs/DIVERGENCES.md` has no row for it either. This is my reading, stated as mine.
+
+### MISTAKES OF MY OWN
+
+* `fail_text_oracle.py` and `run_oracle.py` take the OUTPUT PATH as argv[1]; I drove both with a
+  `>` redirect and got rc 1 / rc 2 and no tables. run_oracle REFUSED rather than producing one —
+  its own comment records three false measurements from this exact argument. Re-run correctly.
+  Rule 18: a twin instrument needs its own control twin, and mine caught me.
+* `build_hash.py` printed the SAME identity (8c1d44e10b8ad7a3 43) with the arm installed and after
+  the revert. It did not discriminate armed from base here, so it cannot be used as that
+  discriminator; the armed side is identified by its build dir, not its hash.
+* The first carrier-battery grep matched no `[flow]` lines because stdout and stderr were split;
+  the summaries were on disk the whole time. Re-grepped, nothing recompiled.
+
+### WHAT DESERVES FUNDING
+
+**Land the `Ptr` arm.** One tier-1 `admits` row closes, run-verified against its rustc twin
+(E0515 -> E0597), at cost 0 in EVERY column the harness owns, with the arrival census showing
+exactly one type entering the set and no row re-opened in either direction. It also refuses two
+unrowed carriers of the same hole that run on the shipped binary today. It is the door
+2026-09-17b named as blocking the tier-3 `'static` rows, so landing it is the prerequisite that
+makes 17a/b's withdrawn `K::Ptr` region arm a paid two-row tier-3 closure — that is the next
+round, and it must re-price the region arm's abuse direction with the carrier varied.
+
+**Specified but NOT priced here:** `stored_shared_extract` cancels a flow whenever the projection
+spine's root is a `Ref`, on the stated premise "Logos has no lifetime parameters". That premise is
+false for `pick<'a>(x: &W<'a>) -> &'a i64`, which DECLARES and RETURNS `'a`. Narrowing the cancel
+to the no-declared-region case is the second row's door. It is NOT free — the same widening's
+recorded red list was 6 legal programs in `wql/plan_walker.logos` — so it needs its own round.
+
+### GATES AT CLOSE — base 8c1d44e10b8ad7a3 43, probe REVERTED, tree clean
+  L1 rc 0 · probe-log-lint rc 0 (399 records) · queue gate rc 0 unarmed, 236 rows hold ·
+  NOTHING LANDED IN THE COMPILER — pricing round; src/compiler/borrow_check.cpp is at its base
+  content and the arm is preserved as src/compiler/probes/2026-09-17g-flowcarrier/probe.diff ·
+  build-flowcarrier (655M) deleted by literal path.

@@ -1,0 +1,15 @@
+package X2_tuple_field;
+struct TH<'a> { t: (*const &'a i64, i64) }
+fn first<'a>(h: TH<'a>) -> &'a i64 {
+    return unsafe { *h.t.0 };
+}
+fn escape() -> &'static i64 {
+    let v: i64 = 8i64;
+    let r: &i64 = &v;
+    let h: TH = TH { t: (&r, 1i64) };
+    return first(h);
+}
+fn main() -> i32 {
+    let out: &i64 = escape();
+    return *out as i32;
+}

@@ -1,0 +1,14 @@
+# ROUND 2026-09-17g `flowcarrier` — TARGET ROWS, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+# Block chosen by a SHARED DOOR (the borrow-flow summarizer's taint mask), then
+# SPLIT by measurement into two doors with one-variable controls.
+#
+# PRIMARY (tier 1, admits) — the door 2026-09-17b named as blocking the tier-3 ptr rows:
+ptr_under_struct_field_region_escape_admitted
+# SECONDARY (tier 1, admits) — same symptom `result<-0 EXACT`, DIFFERENT door (measured):
+struct_ref_param_field_return_exact_summary_escape_admitted
+#
+# TIER-3 ROWS HELD BEHIND THE PRIMARY (the `'static` fill at sema_impl.hpp:943;
+# 17a/b built the K::Ptr arm, measured it cost 0, and WITHDREW it because it
+# admits use-after-scope while the primary row above is open):
+mutptr_region_param_elided_let_arg_refused
+refptr_inner_region_elision_demands_static_refused

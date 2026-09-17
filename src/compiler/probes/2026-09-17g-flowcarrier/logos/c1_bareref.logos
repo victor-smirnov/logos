@@ -1,0 +1,9 @@
+package c1_bareref;
+fn pick<'a>(x: &'a i64) -> &'a i64 {
+    return x;
+}
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    let r: &i64 = pick(&n);
+    return (*r - 4i64) as i32;
+}

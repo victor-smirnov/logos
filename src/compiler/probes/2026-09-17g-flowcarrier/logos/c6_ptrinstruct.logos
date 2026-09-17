@@ -1,0 +1,12 @@
+package c6_ptrinstruct;
+struct Holder<'a> { q: *const &'a i64 }
+fn pick<'a>(h: Holder<'a>) -> &'a i64 {
+    return unsafe { *h.q };
+}
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    let rr: &i64 = &n;
+    let h: Holder = Holder { q: &rr };
+    let r: &i64 = pick(h);
+    return (*r - 4i64) as i32;
+}

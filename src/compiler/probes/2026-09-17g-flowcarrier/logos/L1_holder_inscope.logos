@@ -1,0 +1,12 @@
+package L1_holder_inscope;
+struct Holder<'a> { q: *const &'a i64 }
+fn first<'a>(h: Holder<'a>) -> &'a i64 {
+    return unsafe { *h.q };
+}
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let r: &i64 = &v;
+    let h: Holder = Holder { q: &r };
+    let out: &i64 = first(h);
+    return (*out - 4i64) as i32;
+}

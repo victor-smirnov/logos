@@ -1,0 +1,22 @@
+diff --git a/src/compiler/borrow_check.cpp b/src/compiler/borrow_check.cpp
+index 8cb14b10a..45149a2d8 100644
+--- a/src/compiler/borrow_check.cpp
++++ b/src/compiler/borrow_check.cpp
+@@ -490,6 +490,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
+                 auto an = type_bc_name(a);
+                 if (!an.empty() && ts.holds_any_ref.count(an) > 0) return true;
+             }
++            // PROBE 2026-09-17g flowcarrier: a raw pointer TO a ref carries one.
++            if (t.kind() == LogosType::Kind::Ptr) return type_is_ha(t.pointee());
+             // holds_mut_ref's set builder inspects ONLY type_args, so
+             // `struct H { t: (&i64, i64) }` reopens the hole one level down.
+             if (t.kind() == LogosType::Kind::Tuple)
+@@ -1625,6 +1627,8 @@ static bool bc_holds_any_ref_type(const TypeSets& ts_, TypeRef t) {
+     if (!nm.empty() && ts_.holds_any_ref.count(nm) > 0) return true;
+     for (auto a : t.type_args())
+         if (bc_holds_any_ref_type(ts_, a)) return true;
++    // PROBE 2026-09-17g flowcarrier: a raw pointer TO a ref carries one.
++    if (k == LogosType::Kind::Ptr) return bc_holds_any_ref_type(ts_, t.pointee());
+     if (k == LogosType::Kind::Tuple) {
+         for (auto e : t.tuple_elems())
+             if (bc_holds_any_ref_type(ts_, TypeRef(e))) return true;

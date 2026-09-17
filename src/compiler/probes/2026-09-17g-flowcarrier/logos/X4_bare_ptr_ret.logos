@@ -1,0 +1,14 @@
+package X4_bare_ptr_ret;
+fn raw<'a>(q: *const &'a i64) -> &'a i64 {
+    return unsafe { *q };
+}
+fn escape() -> &'static i64 {
+    let v: i64 = 9i64;
+    let r: &i64 = &v;
+    let q: *const &i64 = &r;
+    return raw(q);
+}
+fn main() -> i32 {
+    let out: &i64 = escape();
+    return *out as i32;
+}

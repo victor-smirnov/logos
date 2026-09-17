@@ -1,0 +1,11 @@
+package c2_structbyref;
+struct W<'s> { r: &'s i64 }
+fn pick<'a>(x: &W<'a>) -> &'a i64 {
+    return x.r;
+}
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    let w: W = W { r: &n };
+    let r: &i64 = pick(&w);
+    return (*r - 4i64) as i32;
+}

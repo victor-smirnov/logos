@@ -1,0 +1,10 @@
+package L2_ptr_to_plain;
+struct PBox { p: *const i64 }
+fn read(b: PBox) -> i64 {
+    return unsafe { *b.p };
+}
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    let b: PBox = PBox { p: &v };
+    return (read(b) - 6i64) as i32;
+}

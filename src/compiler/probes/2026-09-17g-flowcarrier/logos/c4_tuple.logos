@@ -1,0 +1,10 @@
+package c4_tuple;
+fn pick<'a>(x: (&'a i64, i64)) -> &'a i64 {
+    return x.0;
+}
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    let t: (&i64, i64) = (&n, 1i64);
+    let r: &i64 = pick(t);
+    return (*r - 4i64) as i32;
+}
