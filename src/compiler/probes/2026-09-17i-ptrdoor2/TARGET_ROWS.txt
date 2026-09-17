@@ -1,0 +1,27 @@
+# 2026-09-17i-ptrdoor2 — TARGET ROWS, written BEFORE the compiler was touched.
+#
+# THE DOOR: sema_impl.hpp::collect_param_regions_ answers MENTIONED-vs-FREE for a
+# callee's region binders; FREE is instantiated at 'static. It has no K::Ptr and no
+# K::FnPtr arm, so a region mentioned ONLY under a raw pointer or a fn pointer is
+# called FREE and pinned to 'static, and the call site then reads
+# "variance mismatch — expected *mut &'static i64".
+#
+# Round 2026-09-17b BUILT this arm, measured it, and WITHDREW it: it admitted two
+# use-after-scope programs (B02 array param, X04 tuple param) that rustc refuses
+# with E0597. It named the blocking door: ptr_under_struct_field_region_escape_admitted.
+# That row was CLOSED 2026-09-17h. This round re-prices the arm against that.
+#
+# TARGET ROWS (tier 3, `refuses`):
+mutptr_region_param_elided_let_arg_refused
+refptr_inner_region_elision_demands_static_refused
+fnptr_call_result_region_param_reads_static_refused
+#
+# PREDICTED BY NAME, to be diffed BOTH WAYS against the armed queue gate:
+#   ptrmention    (K::Ptr only)   -> closes mutptr_..., refptr_... ; NOT fnptr_...
+#   ptrmentionfn  (K::FnPtr only) -> closes fnptr_... only
+#   ptrmentionall (all arms)      -> closes all three
+# CONTROLS predicted UNMOVED: static_arg_pins_shared_callee_region_refused,
+#   generic_type_param_two_regions_first_wins_refused.
+# ABUSE (must STAY refused, and for a REAL reason, not the variance accident):
+#   X01 X02 (bare param) · B01 (fn-ptr) · B02 (array param) · X04 (tuple param)
+#   · X05 (struct field, closed by 17h) — carrier VARIED, which is what condemned 17b.
