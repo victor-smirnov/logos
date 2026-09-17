@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-17h-ptrland, program l2 — caught: the arm's recursion boundary; a raw pointer to a NON-reference must not enter `holds_any_ref` at all.
+// legality: MEASURED 2026-09-17 vs rustc 1.98.1 --edition 2024: ACCEPTED, built and RUN, exit 0; twin src/compiler/probes/2026-09-17g-flowcarrier/rust/L2_ptr_to_plain.rs
+// `*const i64` points at no reference, so the new Ptr arm recurses once and answers
+// false. If it answered true, every raw pointer in the tree would become borrow-carrying.
+package bc_0917h_ptrland_hb_l2_pass;
+struct PBox { p: *const i64 }
+fn read(b: PBox) -> i64 {
+    return unsafe { *b.p };
+}
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    let b: PBox = PBox { p: &v };
+    return (read(b) - 6i64) as i32;
+}

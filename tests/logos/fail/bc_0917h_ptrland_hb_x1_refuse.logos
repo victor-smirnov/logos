@@ -1,0 +1,34 @@
+// hand battery: round 2026-09-17h-ptrland, program x1 — caught: this IS the program of the
+// soundness_queue row `ptr_under_struct_field_region_escape_admitted` (tier 1, `admits`), CLOSED in
+// this commit; its verdict MOVED base(cc=0, no diagnostic, RAN 7 reading a dead stack slot) ->
+// landed(REFUSED, E0597). The row leaving the ledger IS the record of the fix.
+//
+// THE DEFECT, for the fixture that now pins its repair: a raw pointer carried in a STRUCT FIELD
+// laundered the region it points through. `type_is_ha` (the `holds_any_ref` fixpoint) and
+// `bc_holds_any_ref_type` (its per-type read) both recursed through type_args, Tuple and Array and
+// STOPPED at a raw pointer, so `Holder { q: *const &'a i64 }` never entered `holds_any_ref`, the
+// by-value parameter was never seeded, the flow summary reported `result<-0` and labelled it EXACT,
+// and the #77 return-escape door — which trusts only EXACT masks — trusted it and merged nothing.
+//
+// `v` is dropped at the end of the inner block and `out` is read after it.
+// rustc 1.98.1 --edition 2024 MEASURED 2026-09-17 (my own run, twin in
+// src/compiler/probes/2026-09-17g-flowcarrier/rust/): REFUSES with
+//   error[E0597]: `v` does not live long enough
+// FIX = the program is REFUSED with a diagnostic naming the escaping borrow, NOT the
+// `variance mismatch — expected *const &'static i64` sentence that refuses the bare, array and
+// tuple PARAMETER carriers by a different defect. The pinned text below is that diagnostic.
+package bc_0917h_ptrland_hb_x1_refuse;
+struct Holder<'a> { q: *const &'a i64 }
+fn first<'a>(h: Holder<'a>) -> &'a i64 {
+    return unsafe { *h.q };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 7i64;
+        let r: &i64 = &v;
+        let p: *const &i64 = &r;
+        out = first(Holder { q: p });
+    }
+    return *out as i32;
+}

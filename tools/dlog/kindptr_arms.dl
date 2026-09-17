@@ -1,0 +1,27 @@
+// ROUND 2026-09-17h ptrland — enumerate BY PROPERTY the functions that dispatch
+// on LogosType::Kind and STEP an aggregate (Tuple/Array/Slice) while having NO
+// `Ptr` arm at all. That absence is the defect class this round landed: a raw
+// pointer TO a reference launders a borrow, and a grep cannot find it because
+// AN ABSENCE HAS NO SPELLING.
+// ⚠ ctx_of COARSENS to the enclosing function (the 2026-08-27 37-vs-0 finding),
+// so this answers "which FUNCTIONS", and every row is read PER-SITE before it is
+// believed. Cross-check reported beside the verdict.
+// ⚠ CONTROL BUILT IN: this runs against the ARMED tree, where `type_is_ha` and
+// `bc_holds_any_ref_type` HAVE gained a Ptr arm. If the rule is sound they must
+// be ABSENT from no_ptr_arm while their unarmed siblings remain.
+#include "cxx_schema.dl"
+#include "lir_dispatch.dl"
+target_enum(E) :- decl(E, "Enum", "logos::compiler::LogosType::Kind").
+
+.decl steps_aggregate(fn: symbol)
+.output steps_aggregate
+steps_aggregate(F) :- tests(F, "Tuple", _).
+steps_aggregate(F) :- tests(F, "Array", _).
+
+.decl has_ptr_arm(fn: symbol)
+.output has_ptr_arm
+has_ptr_arm(F) :- tests(F, "Ptr", _).
+
+.decl no_ptr_arm(fn: symbol)
+.output no_ptr_arm
+no_ptr_arm(F) :- steps_aggregate(F), !has_ptr_arm(F).

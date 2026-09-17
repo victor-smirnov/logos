@@ -1,0 +1,19 @@
+// hand battery: round 2026-09-17h-ptrland, program x3 — caught: verdict MOVED base -> landed; an unrowed carrier of the same hole that compiled clean and RAN 6 on the shipped binary, reading a dead local.
+// legality: MEASURED 2026-09-17 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0515] cannot return value referencing local variable `v`; twin src/compiler/probes/2026-09-17g-flowcarrier/rust/X3_array_field.rs
+// The raw pointer is carried in an ARRAY inside the struct field — the Array arm of
+// `bc_holds_any_ref_type` recursed into the element and stopped at the raw pointer.
+package bc_0917h_ptrland_hb_x3_refuse;
+struct AH<'a> { a: [*const &'a i64; 2] }
+fn first<'a>(h: AH<'a>) -> &'a i64 {
+    return unsafe { *h.a[0] };
+}
+fn escape() -> &'static i64 {
+    let v: i64 = 6i64;
+    let r: &i64 = &v;
+    let h: AH = AH { a: [&r, &r] };
+    return first(h);
+}
+fn main() -> i32 {
+    let out: &i64 = escape();
+    return *out as i32;
+}

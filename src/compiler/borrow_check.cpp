@@ -492,6 +492,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             }
             // holds_mut_ref's set builder inspects ONLY type_args, so
             // `struct H { t: (&i64, i64) }` reopens the hole one level down.
+            // A raw pointer TO a reference carries one: `*const &'a i64`.
+            if (t.kind() == LogosType::Kind::Ptr) return type_is_ha(t.pointee());
             if (t.kind() == LogosType::Kind::Tuple)
                 for (auto e : t.tuple_elems())
                     if (type_is_ha(TypeRef(e))) return true;
@@ -1625,6 +1627,8 @@ static bool bc_holds_any_ref_type(const TypeSets& ts_, TypeRef t) {
     if (!nm.empty() && ts_.holds_any_ref.count(nm) > 0) return true;
     for (auto a : t.type_args())
         if (bc_holds_any_ref_type(ts_, a)) return true;
+    // A raw pointer TO a reference carries one: `*const &'a i64`.
+    if (k == LogosType::Kind::Ptr) return bc_holds_any_ref_type(ts_, t.pointee());
     if (k == LogosType::Kind::Tuple) {
         for (auto e : t.tuple_elems())
             if (bc_holds_any_ref_type(ts_, TypeRef(e))) return true;

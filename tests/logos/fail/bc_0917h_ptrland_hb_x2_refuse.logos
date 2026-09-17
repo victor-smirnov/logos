@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-17h-ptrland, program x2 — caught: verdict MOVED base -> landed; an unrowed carrier of the same hole that compiled clean and RAN 8 on the shipped binary, reading a dead local.
+// legality: MEASURED 2026-09-17 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0515] cannot return value referencing local variable `v`; twin src/compiler/probes/2026-09-17g-flowcarrier/rust/X2_tuple_field.rs
+// The raw pointer is carried in a TUPLE inside the struct field. `bc_holds_any_ref_type`
+// recursed through Tuple but STOPPED at the raw pointer, so `TH` never entered
+// `holds_any_ref` and the by-value parameter was never seeded.
+package bc_0917h_ptrland_hb_x2_refuse;
+struct TH<'a> { t: (*const &'a i64, i64) }
+fn first<'a>(h: TH<'a>) -> &'a i64 {
+    return unsafe { *h.t.0 };
+}
+fn escape() -> &'static i64 {
+    let v: i64 = 8i64;
+    let r: &i64 = &v;
+    let h: TH = TH { t: (&r, 1i64) };
+    return first(h);
+}
+fn main() -> i32 {
+    let out: &i64 = escape();
+    return *out as i32;
+}

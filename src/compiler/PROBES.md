@@ -48723,3 +48723,155 @@ recorded red list was 6 legal programs in `wql/plan_walker.logos` — so it need
   NOTHING LANDED IN THE COMPILER — pricing round; src/compiler/borrow_check.cpp is at its base
   content and the arm is preserved as src/compiler/probes/2026-09-17g-flowcarrier/probe.diff ·
   build-flowcarrier (655M) deleted by literal path.
+
+## 2026-09-17h `ptrland` — THE `Ptr` ARM IS LANDED: A TIER-1 `admits` ROW CLOSES RUN-VERIFIED AGAINST ITS rustc TWIN, TWO UNROWED CARRIERS AND TWO NEIGHBOURS FOUND BY A dlog CLASS ENUMERATION CLOSE WITH IT IN THE SAME COMMIT, AND THE `&mut` WALKER PREDICTED TO NEED ITS OWN ARM IS MEASURED MOVED BY THIS ONE
+
+site: src/compiler/borrow_check.cpp::build_type_sets (the `type_is_ha` fixpoint lambda)
+also: src/compiler/borrow_check.cpp::bc_holds_any_ref_type
+build: base 8c1d44e10b8ad7a3 43 -> armed 1e6aad437c040c7f 43 -> after re-glob acb9a2715b1ac390 43
+fires: n/a — a LANDING, not a probe. Four added lines, no `probe::on` site installed.
+
+### WHAT LANDED, AND WHY BOTH SITES
+A `Ptr` arm recursing into the pointee at BOTH places that ask "does this type carry a
+reference?". They ask ONE question and had ONE hole: `type_is_ha` (the `holds_any_ref` fixpoint)
+and `bc_holds_any_ref_type` (its per-type read) each recursed through type_args, Tuple and Array
+and STOPPED at a raw pointer. So `Holder<'a> { q: *const &'a i64 }` never entered `holds_any_ref`,
+the by-value parameter was never seeded, the flow summary reported `result<-0` and — nothing having
+been missed by its own reckoning — labelled it EXACT. The #77 return-escape door trusts only EXACT
+masks, so it trusted that one and merged nothing.
+
+### THE COLUMNS — base and armed from ONE configure each, EVERY set diffed BOTH ways
+  queue gate       base rc 0 / 236 hold. Armed rc 1 naming EXACTLY ONE row
+                   (ptr_under_struct_field_region_escape_admitted): 1 NO-LONGER-REPRODUCES line,
+                   no GATE BROKEN, no other row named — nothing re-opened in either direction.
+                   After the row is deleted and its program landed: rc 0 / 235 hold.
+  fail_text_oracle 1896 -> 1901 rows. only-in-armed = EXACTLY the 5 new fail fixtures;
+                   only-in-base = 0; rows present in BOTH with a changed rc/sha/match = 0.
+  run_oracle       7468 -> 7471 compiled+linked+RUN. only-in-armed = EXACTLY the 3 new pass
+                   fixtures; only-in-base = 0; ONE changed row = cast-region-to-uint (ccrc 0 and
+                   runrc 0 identical on both sides, only the stdout sha moved — it prints a stack
+                   address), subtracted BY NAME -> 0.
+  spec fail tier   `logos_25_spec_fail_*` BY NAME: 494/494, rc 0 — the tier fail_text_oracle does
+                   NOT cover.
+  L1               rc 0, 808/808.
+  L4 bc            rc 0 (run DETACHED: the script exits 2 refusing to run in the
+                   foreground, which is the gate DECLINING, not a verdict — a foreground rc 2 here
+                   must never be read as a pass or a fail).
+  stdlib           all four layers compiled BY the armed compiler during its own build, 0 errors.
+  valgrind         0 errors / 0 contexts on all three legal programs.
+  control revert   on the PRESERVED base binary: all 5 fail fixtures FAIL (the defect was live in
+                   each); all 3 pass fixtures PASS (legal and unmoved).
+
+### THE ORACLE IS A RUN, AND IT WAS RUN — every legality MEASURED with rustc 1.98.1 --edition 2024
+    ILLEGAL, must become refused        rustc     base            armed
+    x1 struct field (THE QUEUE ROW)     E0597     cc0 RAN 7       REFUSED "'r' does not live long
+                                                                  enough ... (E0597)"
+    x2 tuple field   (was UNROWED)      E0515     cc0 RAN 8       REFUSED "cannot return reference
+                                                                  to local variable 'r'"
+    x3 array field   (was UNROWED)      E0515     cc0 RAN 6       REFUSED, same sentence
+    n1 `*mut &'a mut i64` (NEIGHBOUR)   E0515     cc0 RAN 11      REFUSED, same sentence
+    n2 struct itself escapes (NEIGHBOUR)E0515     cc0 RAN 21      REFUSED, "[fn mk]" same sentence
+
+    LEGAL, must stay accepted           rustc     base            armed
+    l1 Holder in scope                  rc0 run0  cc0 run0        cc0 run0   UNMOVED
+    l2 `*const i64` (ptr to NON-ref)    rc0 run0  cc0 run0        cc0 run0   UNMOVED
+    l4 Holder, deref in caller          rc0 run0  cc0 run0        cc0 run0   UNMOVED
+    n3 loan through `*mut &'a mut i64`  rc0 run0  cc0 run0        cc0 run0   UNMOVED (a negative
+                                        control that came out CLEAN — rustc accepts it too)
+
+⚠ THE DIAGNOSTIC WAS READ, not inferred from an exit code. The queue row is refused by a sentence
+naming the ESCAPING BORROW, not by the `variance mismatch — expected *const &'static i64` accident
+that refuses the bare/array/tuple PARAMETER carriers by a different defect.
+
+### THE GROUPING WAS TESTED WITH ONE ARMED CHANGE — AND IT SPLIT, EIGHT-FOR-EIGHT
+`struct_ref_param_field_return_exact_summary_escape_admitted` summarises IDENTICALLY
+(`result<-0 EXACT`) and was MEASURED UNMOVED by this arm (cc=0, still RUNS 9). Its door is
+`stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`. Groupings
+in this queue are now refuted EIGHT-for-eight when actually tested.
+
+### THE NEIGHBOUR CLASS, ENUMERATED WITH tools/dlog — NOT WITH GREP
+`selftest.sh` rc 0 first (19 walkers / 24 findings / duty 1->0 intact). New rule
+`tools/dlog/kindptr_arms.dl`: which functions dispatch on `LogosType::Kind`, STEP an aggregate
+(Tuple/Array), and have NO `Ptr` arm — an ABSENCE, which has no spelling, so a grep cannot find it.
+⚠ CONTROL BUILT INTO THE RULE: it was run against the ARMED tree, where the two armed sites HAVE a
+Ptr arm, so a sound rule must DROP THEM from `no_ptr_arm` while their siblings remain. It did —
+`type_is_ha` and `bc_holds_any_ref_type` appear under `steps_aggregate` and `has_ptr_arm` and are
+absent from `no_ptr_arm`. (dlog therefore described the LANDED tree, which is the tree that ships.)
+
+  THE TWO NUMBERS SIDE BY SIDE, as required: dlog said 12 · a PER-SITE READ confirms 4 ask this
+  arm's actual fact — bc_is_borrow_carrying_type, bc_loan_carrying_type, bc_holds_mut_ref_type,
+  tmcb_walk. The other 8 are FALSE POSITIVES FOR THIS QUESTION: elem_arr/arr_n are array-shape
+  helpers; is_move_type asks move-ness (a raw pointer is correctly Copy); is_reborrow_store_value
+  asks a reborrow kind; type_hides_borrow_ is deliberately ERASED-PAYLOADS-ONLY (TraitObject/
+  Closure/ImplTrait, and its own comment says a bare `&T` type-arg is excluded on purpose);
+  region_slots is where 2026-09-17a/b's arm was MEASURED and WITHDRAWN for admitting two E0597
+  programs — a Ptr arm there is the thing that round proved dangerous, not this one.
+
+### NEIGHBOUR TABLE — every row the class enumeration names (standing rule 2026-09-12)
+
+| neighbour | closed in THIS commit? | the reason, with the number |
+|---|---|---|
+| `ptr_under_struct_field_region_escape_admitted` (the row) | **YES** | gate names it and only it; base RAN 7 -> refused E0597, run-verified |
+| x2 tuple-field / x3 array-field carriers (were UNROWED) | **YES, same arm** | base RAN 8 and 6 -> both refused; same fact, same change |
+| `bc_holds_mut_ref_type` — the `&mut` half (n1) | **YES, same arm** | PREDICTED to need its own arm; MEASURED otherwise — base RAN 11 -> refused. The seed arrives through the `holds_any_ref` fixpoint, so ONE arm moves both. This is the standing rule's own test ("does one candidate change move both?") answering YES |
+| the struct-escapes-itself carrier (n2) | **YES, same arm** | base RAN 21 -> refused |
+| `struct_ref_param_field_return_exact_summary_escape_admitted` | **NO — REASON 1, no carrier at this site** | its zero comes from `stored_shared_extract` cancelling, not from the seed; MEASURED unmoved, cc=0 RUNS 9 |
+| `bc_is_borrow_carrying_type`, `bc_loan_carrying_type`, `tmcb_walk` | **NO — REASON 3, own cost unpriced** | in the class by per-site read, but I built no carrier that reaches them independently of the two armed sites; arming them is a separate change needing its own abuse battery |
+| `mutptr_region_param_elided_let_arg_refused`, `refptr_inner_region_elision_demands_static_refused` | **NO — REASON 2, doors in series** | the `'static` FILL at a different site; MEASURED unmoved (both still refused) |
+| `refptr_param_eq_compares_outer_ref` | **NO — REASON 1** | a codegen equality defect, not a flow-summary fact; MEASURED unmoved, still RUNS 1 |
+| `try_operator_result_local_borrow_escape_admitted` | **NO — REASON 1** | `prov_of_raw` has no `Try` arm, a different walker; MEASURED unmoved, cc0 run 0 |
+
+### REGISTRY CHECK, BOTH SCHEMES, READ BY ME AND NOT INHERITED
+`docs/spec/ownership.md` carries three raw-pointer clauses that LOOK like they forbid this arm.
+Read in full, each is scoped to a DIFFERENT question: `borrow.move.no-flow-through-raw-ptr` is
+MOVE TRACKING through a raw-rooted field chain; `borrow.scoped.raw-pointer-root-unchecked` is a
+self-borrowing METHOD RECEIVER rooted at a pointer; `borrow.place.raw-ptr-no-borrow` is a tracked
+borrow OF THE BASE on index/deref. This arm does none of the three — it says a `*const &'a i64`
+PARAMETER can carry a caller's borrow to the RESULT, i.e. the lifetime of the REFERENT reference.
+None of the three is marked `> **Divergence**`, and that file DOES mark others
+(`borrow.scoped.rc-arc-root-exempt`, `borrow.union.field-borrow-borrows-all`), so the absence is
+meaningful; two of the three explicitly claim "Rust parity", which E0515/E0597 confirm.
+`docs/DIVERGENCES.md` (17 lettered rows) has none for it either. NOT a blessed divergence, no
+conflict — my reading, stated as mine.
+
+### FIXTURES LANDED — 8, by id
+  fail/ bc_0917h_ptrland_hb_x1_refuse (the CLOSED row's own program, git mv'd off the shelf),
+        hb_x2_refuse, hb_x3_refuse, hb_n1_refuse, hb_n2_refuse
+  pass/ bc_0917h_ptrland_hb_l1_pass, hb_l2_pass, hb_l4_pass (exit: 0 each)
+All eight verified through the REAL `run_test.sh` contract, and every one control-reverted on the
+preserved base binary.
+
+### PINS, BEFORE -> AFTER, RE-DERIVED BY DIRECT LISTING
+  direct_door  corpus 3842 -> 3845 · nonglob 3651 -> 3654 · glob 191 UNMOVED ·
+               plan_ground EXPECT_FIXTURES 191 UNMOVED. population_pin_lint rc 1 -> rc 0.
+  census       REGISTRY-ALL 11020 -> 11027 · NOIMPORTED 6518 -> 6525 · TIERCOMMIT 354 -> 353.
+               ⚠ TIERCOMMIT goes DOWN: +3 pass +5 fail = +8 registered, -1 retired squeue row
+               = +7 for ALL and NOIMPORTED, while the retired row CARRIED tier_commit and the
+               eight new fixtures do not. L1's own line ("353 tests declaring tier_commit")
+               confirms it independently.
+  ledger       `# TOTAL` 236 -> 235, re-derived BY DIRECT LISTING (235 rows, 235 programs on the
+               shelf); tier 1 39 -> 38, tiers 2/3/4 unmoved at 66/120/11.
+
+### THINGS THAT CONTRADICT A RECORDED CLAIM
+* `build_hash.py` DID discriminate armed from base here: 8c1d44e10b8ad7a3 -> 1e6aad437c040c7f.
+  The 17g record states it printed the SAME identity on both sides and "cannot be used as that
+  discriminator". It also moved AGAIN (-> acb9a2715b1ac390) on a re-glob with the compiler sources
+  BYTE-IDENTICAL, so it is not a pure source identity either. Both directions are now on record.
+* A FRESH `cmake -G Ninja` configure of this tree produces a compiler that DOES NOT BUILD: the
+  GENERATED `src/compiler/logos_parser.cpp` fails with `'na_fail_0' was not declared in this scope`
+  (4 errors). Nothing to do with this arm — the existing `build/` builds the same sources rc 0.
+  Reported, not chased.
+* An in-source `CMakeCache.txt` (2026-09-02, git-ignored, generator "Unix Makefiles") sits in the
+  repo root and makes `cmake -B <new dir> .` fail with a generator mismatch. Left in place; it is
+  not mine to delete.
+* `population_pin_lint.py` piped into `tail` reports rc 0 WHILE PRINTING "FAIL: a population pin no
+  longer describes the corpus". Its true rc is 1. Read its text, not the pipeline's status.
+* `test-levels.sh L4 bc` exits 2 in the foreground as a REFUSAL to run, printing how to run it
+  detached. An rc 2 there is the gate declining and is neither a pass nor a fail.
+
+### WHAT IS OWED NEXT
+The three remaining class members (`bc_is_borrow_carrying_type`, `bc_loan_carrying_type`,
+`tmcb_walk`) are rowed REASON 3 above: in the class by per-site read, unpriced because I built no
+carrier reaching them independently of the two armed sites. That is the next round's enumeration
+job, and `tools/dlog/kindptr_arms.dl` is the instrument for it — re-run it AFTER any further arm so
+its built-in drop-out control still discriminates.

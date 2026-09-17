@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-17h-ptrland, program n2 — caught: verdict MOVED base(cc0, RAN 21, reading a dead local) -> landed(refused); the STRUCT ITSELF escapes carrying the laundered pointer, rather than the reference being returned out of it.
+// legality: MEASURED 2026-09-17 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0515] cannot return value referencing local variable `v`.
+package bc_0917h_ptrland_hb_n2_refuse;
+struct Holder<'a> { q: *const &'a i64 }
+fn mk() -> Holder<'static> {
+    let v: i64 = 21i64;
+    let r: &i64 = &v;
+    return Holder { q: &r };
+}
+fn main() -> i32 {
+    let h: Holder = mk();
+    return unsafe { **h.q } as i32;
+}

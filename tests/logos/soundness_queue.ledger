@@ -74,10 +74,14 @@ try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_oper
 #    returns `x.r` — and being EXACT it also cancels elision. So no arm in `prov_of_raw`
 #    can see it; the repair is in the summary's taint mask. Armed binary: cc=0, RUNS 9,
 #    reading a dead local. rustc 1.98.1 REFUSES (E0515). ⚠ NOT the same row as
-#    ptr_under_struct_field_region_escape_admitted (raw pointer + region collection).
+#    ptr_under_struct_field_region_escape_admitted (raw pointer + region collection) — that row
+#    was CLOSED 2026-09-17h-ptrland by a `Ptr` arm in the holds_any_ref walkers, and THIS row was
+#    MEASURED UNMOVED by that same change (cc=0, still RUNS 9): the grouping that paired them on
+#    an identical `result<-0 EXACT` summary is refuted by one armed change. Its own door is
+#    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
 struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
 
-# TOTAL 236
+# TOTAL 235
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -359,13 +363,14 @@ array_field_store_value_reads_field_loan_refused 3 tests/soundness/open/array_fi
 # gaining a K::Ptr arm; that arm was MEASURED, REFUTED and NOT landed (it admits two programs
 # rustc refuses, E0597 each). These two rows need no arm and are independent of it.
 #
-# ptr_under_struct_field_region_escape_admitted — the raw pointer is carried in a STRUCT FIELD, and
-#    the region it points through is never checked, so a reference to a dead local escapes its scope
-#    and the program RUNS (exit 7). The SAME escape through a BARE pointer parameter, an ARRAY
-#    parameter and a TUPLE parameter is refused on this binary — but by the `variance mismatch —
-#    expected *const &'static i64` sentence, i.e. by a DIFFERENT defect, not by an escape check.
-#    The struct carrier reaches the binder by another route, so nothing refuses it at all.
-ptr_under_struct_field_region_escape_admitted 1 tests/soundness/open/ptr_under_struct_field_region_escape_admitted admits
+# ptr_under_struct_field_region_escape_admitted — CLOSED 2026-09-17h-ptrland, run-verified.
+#    `type_is_ha` and `bc_holds_any_ref_type` gained a `Ptr` arm recursing into the pointee, so a
+#    raw pointer TO a reference now carries one: `Holder` enters `holds_any_ref`, the by-value
+#    parameter is seeded, the summary no longer claims `result<-0 EXACT`, and the program is
+#    REFUSED — "'r' does not live long enough … (E0597)", the escaping borrow named rather than the
+#    variance accident. Landed as tests/logos/fail/bc_0917h_ptrland_hb_x1_refuse; the TUPLE-field
+#    and ARRAY-field carriers, which were unrowed and ran 8 and 6 on the shipped binary, are closed
+#    by the SAME change and landed beside it as hb_x2/hb_x3.
 #
 # refptr_param_eq_compares_outer_ref — `==` on a `&*mut T` PARAMETER compares the OUTER REFERENCE
 #    instead of the pointer, so two copies of one pointer compare unequal: exit 1 where rustc gives 0.

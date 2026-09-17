@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-17h-ptrland, program l1 — caught: the expensive direction of this arm; a LEGAL raw-pointer-to-reference program that must stay accepted when the checker is made more conservative.
+// legality: MEASURED 2026-09-17 vs rustc 1.98.1 --edition 2024: ACCEPTED, built and RUN, exit 0; twin src/compiler/probes/2026-09-17g-flowcarrier/rust/L1_holder_inscope.rs
+// `Holder` carries `*const &'a i64` and the referent OUTLIVES the use. The arm that
+// refuses the escaping carriers must not refuse this one.
+package bc_0917h_ptrland_hb_l1_pass;
+struct Holder<'a> { q: *const &'a i64 }
+fn first<'a>(h: Holder<'a>) -> &'a i64 {
+    return unsafe { *h.q };
+}
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let r: &i64 = &v;
+    let h: Holder = Holder { q: &r };
+    let out: &i64 = first(h);
+    return (*out - 4i64) as i32;
+}
