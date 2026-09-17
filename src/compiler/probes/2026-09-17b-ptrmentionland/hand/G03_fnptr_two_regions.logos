@@ -1,0 +1,13 @@
+// LEGAL. A fn-pointer parameter mentioning TWO distinct regions. The FnPtr arm
+// walks closure_params(); with two binders, a walk that stops after the first
+// parameter pins the second at 'static and this stays refused.
+package G03_fnptr_two_regions;
+fn apply<'a, 'b>(g: fn(&'a i64, &'b i64) -> i64, x: &'a i64, y: &'b i64) -> i64 {
+    return g(x, y);
+}
+fn add(x: &i64, y: &i64) -> i64 { return *x + *y; }
+fn main() -> i32 {
+    let m: i64 = 4i64;
+    let n: i64 = 6i64;
+    return (apply(add, &m, &n) - 10i64) as i32;
+}

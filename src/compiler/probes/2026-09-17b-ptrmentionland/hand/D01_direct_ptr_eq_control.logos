@@ -1,0 +1,13 @@
+// CONTROL for the SECOND DEFECT. 17a claims a DIRECT `p == q` on two copies of
+// one raw pointer runs 0 correctly on base, so the wrong answer belongs to the
+// `&*mut T` PARAMETER and not to raw-pointer equality itself. Re-measured here
+// rather than inherited (rule 17: a handed-down list is a hypothesis).
+package D01_direct_ptr_eq_control;
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let mut ra: &i64 = &a;
+    let p: *mut &i64 = &mut ra;
+    let q: *mut &i64 = p;
+    if p == q { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,12 @@
+// LEGAL. The region appears ONLY in the fn-pointer's RETURN type, never in its
+// parameter list. This is the half of the FnPtr arm that closure_ret() covers;
+// a walk of closure_params() alone leaves this binder FREE and pins it 'static.
+package G04_fnptr_region_in_return_only;
+fn pick<'a>(g: fn(i64) -> &'a i64, k: i64) -> i64 {
+    return *g(k);
+}
+static GLOB: i64 = 11i64;
+fn getg(k: i64) -> &'static i64 { return &GLOB; }
+fn main() -> i32 {
+    return (pick(getg, 1i64) - 11i64) as i32;
+}

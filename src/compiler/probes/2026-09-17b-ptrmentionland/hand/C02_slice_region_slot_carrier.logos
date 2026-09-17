@@ -1,0 +1,12 @@
+// CARRIER PROBE for the Slice-lifetime-slot half of `ptrmentionall`. A slice
+// parameter's region normally lives on the enclosing Ref (`&'a [i64]`), which
+// the Ref arm already inserts. If the Slice kind never carries a non-empty
+// lifetime() of its own, that half of the arm is dead code and must not land.
+package C02_slice_region_slot_carrier;
+fn sum<'a>(s: &'a [i64]) -> i64 {
+    return s[0] + s[1];
+}
+fn main() -> i32 {
+    let a: [i64; 2] = [4i64, 6i64];
+    return (sum(&a) - 10i64) as i32;
+}

@@ -1,0 +1,14 @@
+// CARRIER PROBE for the TraitObject/DstRef arm, which the pricing round
+// co-landed with ZERO rows of its own and therefore zero exercise. Question:
+// is there any program at all whose verdict that arm changes? A `&dyn Tr`
+// parameter reaches TraitObject only THROUGH the Ref arm, which already
+// inserts the region — so the prediction is "no carrier" (reason 1).
+package C01_dyn_ref_param_carrier;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take<'a>(d: &'a dyn Shape) -> i64 { return d.area(); }
+fn main() -> i32 {
+    let q: Sq = Sq { s: 3i64 };
+    return (take(&q) - 9i64) as i32;
+}

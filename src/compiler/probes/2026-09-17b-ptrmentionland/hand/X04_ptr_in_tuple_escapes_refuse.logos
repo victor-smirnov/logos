@@ -1,0 +1,17 @@
+// ILLEGAL. Raw pointer carried inside a TUPLE parameter, region escapes scope.
+// Carrier variation on B02: does the hole belong to the Array arm alone, or to
+// every composite carrier that reaches the new Ptr arm?
+package X04_ptr_in_tuple_escapes_refuse;
+fn first<'a>(t: (*const &'a i64, i64)) -> &'a i64 {
+    return unsafe { *t.0 };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 6i64;
+        let r: &i64 = &v;
+        let p: *const &i64 = &r;
+        out = first((p, 1i64));
+    }
+    return *out as i32;
+}

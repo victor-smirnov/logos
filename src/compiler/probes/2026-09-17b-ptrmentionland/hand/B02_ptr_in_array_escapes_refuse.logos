@@ -1,0 +1,18 @@
+// ILLEGAL — the abuse twin of G02. The region under the raw pointer inside the
+// ARRAY parameter is tied to a local and escapes through the return. rustc
+// REFUSES (E0597). One token from G02's shape; if the Ptr arm reached through
+// the Array arm in the permissive direction only, this is what it admits.
+package B02_ptr_in_array_escapes_refuse;
+fn first<'a>(t: [*const &'a i64; 2]) -> &'a i64 {
+    return unsafe { *t[0] };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 5i64;
+        let r: &i64 = &v;
+        let p: *const &i64 = &r;
+        out = first([p, p]);
+    }
+    return *out as i32;
+}

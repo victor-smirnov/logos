@@ -1,0 +1,38 @@
+// SOUNDNESS QUEUE row refptr_param_eq_compares_outer_ref (tier 1, `run 1`).
+// LEGAL PROGRAM, COMPILES CLEAN, COMPUTES THE WRONG ANSWER: `==` on a `&*mut T`
+// PARAMETER compares the OUTER REFERENCE instead of the raw pointer it points to.
+//
+//   fn same(x: &*mut i64, y: &*mut i64) -> bool { x == y }
+//
+// `p` and `q` are two copies of ONE pointer held in two distinct locals, so `&p` and
+// `&q` are different addresses while `*(&p) == *(&q)` is true. logosc compiles this
+// clean and the binary exits 1 (the `false` arm). rustc exits 0.
+//
+// rustc 1.98.1 --edition 2024 MEASURED 2026-09-17: COMPILES and RUNS exit 0.
+// Twin: src/compiler/probes/2026-09-17b-ptrmentionland/rust/D02_refptr_no_inner_ref_control.rs
+//
+// ⚠ CONTROL, SAME BINARY: the DIRECT comparison `p == q` with no `&*mut` parameter in
+// sight runs 0 — correctly (D01_direct_ptr_eq_control). So the defect is the reference
+// LAYER over the pointer at a parameter, not raw-pointer equality.
+//
+// ⚠ THIS ROW CORRECTS A RECORDED CLAIM. Round 2026-09-17a found this wrong answer only
+// through `&*mut &'a i64` (an INNER reference under the pointer), where the shape is
+// refused on base by an unrelated region defect, and concluded the miscompile was
+// "unreachable until this round's region door opens — doors in series". MEASURED here:
+// with NO inner reference the very same wrong answer is reachable on the SHIPPED
+// compiler today, with no arm installed (build_hash 8f5483d04b7c49ac 43). The row
+// `refptr_inner_region_elision_demands_static_refused` is the region-door spelling of
+// the same shape and stays as it is; this row is the defect itself, in its minimal form.
+//
+// FIX = exit 0, and the direct/parameter spellings agree.
+package refptr_param_eq_compares_outer_ref;
+fn same(x: &*mut i64, y: &*mut i64) -> bool {
+    return x == y;
+}
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let p: *mut i64 = &mut a;
+    let q: *mut i64 = p;
+    if same(&p, &q) { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,13 @@
+// LEGAL. Region mentioned under a raw pointer INSIDE AN ARRAY parameter.
+// The Array arm already walks its element; the question is whether the Ptr
+// arm is reached THROUGH it. A different carrier from the bare-param shape.
+package G02_ptr_in_array_param;
+fn both<'a>(t: [*const &'a i64; 2]) -> i64 {
+    return unsafe { **t[0] + **t[1] };
+}
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let r: &i64 = &v;
+    let p: *const &i64 = &r;
+    return (both([p, p]) - 10i64) as i32;
+}

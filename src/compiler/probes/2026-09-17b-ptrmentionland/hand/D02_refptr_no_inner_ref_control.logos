@@ -1,0 +1,12 @@
+// CONTROL: the same `&*mut T` PARAMETER shape with NO inner reference, so no
+// region is mentioned under the pointer and this round's door is not involved.
+// The refptr row's header claims this compiles rc 0 on base. Re-measured.
+package D02_refptr_no_inner_ref_control;
+fn same(x: &*mut i64, y: &*mut i64) -> bool { return x == y; }
+fn main() -> i32 {
+    let mut a: i64 = 1i64;
+    let p: *mut i64 = &mut a;
+    let q: *mut i64 = p;
+    if same(&p, &q) { return 0i32; }
+    return 1i32;
+}

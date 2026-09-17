@@ -1,0 +1,18 @@
+// ILLEGAL. Raw pointer carried inside a STRUCT FIELD parameter, region escapes.
+// Third carrier. L06 showed the struct route already compiles on base, so this
+// one also asks whether the struct carrier was ALREADY permissive before the arm.
+package X05_ptr_in_struct_escapes_refuse;
+struct Holder<'a> { q: *const &'a i64 }
+fn first<'a>(h: Holder<'a>) -> &'a i64 {
+    return unsafe { *h.q };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 7i64;
+        let r: &i64 = &v;
+        let p: *const &i64 = &r;
+        out = first(Holder { q: p });
+    }
+    return *out as i32;
+}

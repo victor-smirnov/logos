@@ -58,7 +58,7 @@ let_array_pattern_temp_source_remainder_late_run 1 tests/soundness/open/let_arra
 match_ref_array_nested_struct_sub_refused 3 tests/soundness/open/match_ref_array_nested_struct_sub_refused refuses
 match_array_nested_array_subpattern_mlirgen_malfunction 3 tests/soundness/open/match_array_nested_array_subpattern_mlirgen_malfunction refuses
 let_array_pattern_nested_subpattern_refused 3 tests/soundness/open/let_array_pattern_nested_subpattern_refused refuses
-# TOTAL 233
+# TOTAL 235
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -335,3 +335,24 @@ double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_whi
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 array_field_store_value_reads_field_loan_refused 3 tests/soundness/open/array_field_store_value_reads_field_loan_refused refuses
+# ── 2026-09-17b-ptrmentionland: TWO DEFECTS FOUND BY THE ABUSE DIRECTION OF A CONDEMNED ARM ──
+# Both reproduce on the SHIPPED compiler with NO probe installed (build_hash 8f5483d04b7c49ac 43).
+# They were found by carrier-varied counter-examples written to price `collect_param_regions_`
+# gaining a K::Ptr arm; that arm was MEASURED, REFUTED and NOT landed (it admits two programs
+# rustc refuses, E0597 each). These two rows need no arm and are independent of it.
+#
+# ptr_under_struct_field_region_escape_admitted — the raw pointer is carried in a STRUCT FIELD, and
+#    the region it points through is never checked, so a reference to a dead local escapes its scope
+#    and the program RUNS (exit 7). The SAME escape through a BARE pointer parameter, an ARRAY
+#    parameter and a TUPLE parameter is refused on this binary — but by the `variance mismatch —
+#    expected *const &'static i64` sentence, i.e. by a DIFFERENT defect, not by an escape check.
+#    The struct carrier reaches the binder by another route, so nothing refuses it at all.
+ptr_under_struct_field_region_escape_admitted 1 tests/soundness/open/ptr_under_struct_field_region_escape_admitted admits
+#
+# refptr_param_eq_compares_outer_ref — `==` on a `&*mut T` PARAMETER compares the OUTER REFERENCE
+#    instead of the pointer, so two copies of one pointer compare unequal: exit 1 where rustc gives 0.
+#    ⚠ It CORRECTS a recorded claim: round 2026-09-17a saw this only through `&*mut &'a i64`, whose
+#    shape is refused on base by an unrelated region defect, and recorded it as "unreachable until
+#    the region door opens — doors in series". With no inner reference it is reachable TODAY.
+#    Control on the same binary: the direct `p == q` spelling runs 0, correctly.
+refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compares_outer_ref run 1

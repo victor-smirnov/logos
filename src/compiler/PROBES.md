@@ -48141,3 +48141,44 @@ defect it exposed is a new row this round did not have the budget to price.
   probe-log-lint rc 0 · both build dirs (build-ptrmention, build-ptrmention2) deleted by literal path ·
   NOTHING LANDED IN THE COMPILER — this is a pricing round; src/compiler/sema_impl.hpp is at its base content
   and the arm is preserved as src/compiler/probes/2026-09-17a-ptrmention/probe.diff.
+
+## 2026-09-17b-ptrmentionland — A COST-0 ARM THAT ADMITS USE-AFTER-SCOPE, AND THE TWO BASE DEFECTS ITS COUNTER-EXAMPLES FOUND
+
+`sema_impl.hpp::collect_param_regions_` answers MENTIONED-vs-FREE for a callee
+binder, and FREE is instantiated at `'static`. It has no `K::Ptr` arm, so a
+region mentioned only under a raw pointer is called FREE — the diagnosis round
+2026-09-17a made, correctly. Adding the arm closes two tier-3 rows, run-verified
+against rustc twins, at **cost 0 in every harness column**.
+
+⚠ **IT ALSO ADMITS TWO PROGRAMS rustc REFUSES (E0597 each), AND NO COLUMN SEES
+IT.** `MENTIONED` is the permissive answer; the arm's premise is that the
+comparators still check the caller's constraint afterwards. Measured: for a
+**bare** `*mut &'a i64` parameter something downstream does refuse an escaping
+region — for the **array** (`[*const &'a i64; 2]`) and **tuple**
+(`(*const &'a i64, i64)`) carriers nothing does. Both programs compile and RUN,
+exiting with the dead local's own value (5 and 6). The arm was built, measured
+and REVERTED; nothing of it is in the tree.
+
+The previous round's abuse battery was two programs, both the bare-parameter
+shape, and it read "both illegal twins still refused". **Rule 5 exactly: cost 0
+is not a safety claim, and neither are hand programs all of one shape.**
+
+⚠ **THE ACCIDENTAL REFUSAL IS WHAT HAS BEEN HOLDING THE ABUSE DIRECTION.** The
+bare/array/tuple carriers are refused on base by the `variance mismatch —
+expected *const &'static i64` sentence — i.e. by the very defect the arm
+removes, not by an escape check. The STRUCT-field carrier reaches the binder by
+another route, so it is not refused at all: `tests/soundness/open/
+ptr_under_struct_field_region_escape_admitted.logos` compiles clean and runs
+(exit 7) on the shipped compiler. That row is the missing check, reachable with
+no arm, and it is the door that must open before this one.
+
+⚠ A second row opened here, `refptr_param_eq_compares_outer_ref`: `==` on a
+`&*mut T` PARAMETER compares the outer reference, not the pointer. It corrects a
+recorded claim — 17a saw it only through `&*mut &'a i64` and recorded it as
+unreachable until the region door opens. Remove the inner reference and it
+reproduces on base today; the direct `p == q` spelling runs 0 correctly.
+
+⚠ The `TraitObject`/`DstRef` arm and the `Slice` lifetime slot, which 17a
+co-landed at cost 0, have **no carrier**: a `&dyn Tr` / `&[T]` parameter reaches
+those kinds only through the Ref arm, which already inserts the region. Both
+probe programs compile and run 0 on base and are unmoved armed.

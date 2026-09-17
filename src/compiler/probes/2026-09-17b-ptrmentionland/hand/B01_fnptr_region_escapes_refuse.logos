@@ -1,0 +1,18 @@
+// ILLEGAL — THE ABUSE DIRECTION FOR THE FnPtr ARM. The region the fn pointer
+// carries is tied to a LOCAL, and the reference obtained through it outlives
+// the scope. rustc REFUSES (E0597). Relaxing MENTIONED-vs-FREE must not admit
+// this: the arm makes the binder elided-permissive, and if "permissive" means
+// "unchecked" rather than "constrained by the caller", this compiles.
+package B01_fnptr_region_escapes_refuse;
+fn thru<'r>(g: fn(&'r i64) -> &'r i64, x: &'r i64) -> &'r i64 {
+    return g(x);
+}
+fn id(x: &i64) -> &i64 { return x; }
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 3i64;
+        out = thru(id, &v);
+    }
+    return *out as i32;
+}

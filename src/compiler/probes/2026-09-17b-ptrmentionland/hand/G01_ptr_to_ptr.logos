@@ -1,0 +1,14 @@
+// LEGAL. Region mentioned under TWO raw pointers: `*mut *mut &'a i64`.
+// Varies the SHAPE (rule 5), not the count: the Ptr arm must RECURSE, not
+// merely look one level down. If it recursed only once this stays refused.
+package G01_ptr_to_ptr;
+fn deep<'a>(q: *mut *mut &'a i64) -> i64 {
+    return unsafe { ***q };
+}
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let mut r: &i64 = &v;
+    let mut p: *mut &i64 = &mut r;
+    let qq: *mut *mut &i64 = &mut p;
+    return (deep(qq) - 7i64) as i32;
+}
