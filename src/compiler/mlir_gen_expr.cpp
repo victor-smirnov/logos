@@ -1252,6 +1252,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne,  lhs, rhs);
     }
     {
+        // A raw / fn POINTER pair orders by UNSIGNED address (Rust `impl Ord for
+        // *const T`). Gate = the LOGOS type and TYPE IDENTITY, never `is_ptr_cmp`
+        // alone: that is the MLIR type, true for Ref/MutRef/TraitObject too, and
+        // for `*mut` vs `*const`. PROBES.md 2026-09-17p-ordcmpland.
+        using OK_ = LogosType::Kind;
+        if (is_ptr_cmp && lhs_ty && rhs_ty && TypeRef(lhs_ty) == TypeRef(rhs_ty) &&
+            (TypeRef(lhs_ty).kind() == OK_::Ptr ||
+             LogosType::is_fn_value_kind(TypeRef(lhs_ty).kind())) &&
+            (op == "<" || op == ">" || op == "<=" || op == ">=")) {
+            auto p = op == "<"  ? mlir::LLVM::ICmpPredicate::ult
+                   : op == ">"  ? mlir::LLVM::ICmpPredicate::ugt
+                   : op == "<=" ? mlir::LLVM::ICmpPredicate::ule
+                                : mlir::LLVM::ICmpPredicate::uge;
+            return builder_.create<mlir::LLVM::ICmpOp>(loc_, p, lhs, rhs);
+        }
         bool is_unsigned_cmp = lhs_ty &&
             LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
         if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_,

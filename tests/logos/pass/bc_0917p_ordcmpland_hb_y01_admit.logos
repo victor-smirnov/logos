@@ -1,0 +1,24 @@
+// hand battery: round 2026-09-17p-ordcmpland, program y01 — caught: legal `*const u8` ordering (all six forms) was REFUSED by the MLIR verifier on the base binary; rustc 1.98.1 compiles and runs it at exit 0.
+// legality: MEASURED, rustc 1.98.1 --edition 2024, twin src/compiler/probes/2026-09-17p-ordcmpland/rust/y01_constptr_allops.rs (exit 0, lt=1 gt=0 le=1 ge=0 selfle=1 selflt=0).
+package bc_0917p_ordcmpland_hb_y01_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let a: [u8; 4] = [1u8, 2u8, 3u8, 4u8];
+    let p: *const u8 = &a[0u64] as *const u8;
+    let q: *const u8 = &a[3u64] as *const u8;
+    let lt: bool = p < q;
+    let gt: bool = p > q;
+    let le: bool = p <= q;
+    let ge: bool = p >= q;
+    let selfle: bool = p <= p;
+    let selflt: bool = p < p;
+    unsafe { printf("lt=%d gt=%d le=%d ge=%d selfle=%d selflt=%d\n".as_ptr(),
+        lt as i32, gt as i32, le as i32, ge as i32, selfle as i32, selflt as i32); }
+    if !lt { return 1i32; }
+    if gt { return 2i32; }
+    if !le { return 3i32; }
+    if ge { return 4i32; }
+    if !selfle { return 5i32; }
+    if selflt { return 6i32; }
+    return 0i32;
+}

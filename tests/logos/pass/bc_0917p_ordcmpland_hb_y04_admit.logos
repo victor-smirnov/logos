@@ -1,0 +1,21 @@
+// hand battery: round 2026-09-17p-ordcmpland, program y04 — caught: fn-POINTER ordering, a tier-3 shape the queue did not know about; refused on base, legal in Rust. Address order is not portable, so only the antisymmetry laws are asserted.
+// legality: MEASURED, rustc 1.98.1 --edition 2024, twin src/compiler/probes/2026-09-17p-ordcmpland/rust/y04_fnptr_ord.rs (exit 0).
+// asserts only the ANTISYMMETRY laws, which hold under any total order.
+package bc_0917p_ordcmpland_hb_y04_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn f1() -> i64 { return 1i64; }
+fn f2() -> i64 { return 2i64; }
+fn main() -> i32 {
+    let a: fn() -> i64 = f1;
+    let b: fn() -> i64 = f2;
+    let lt: bool = a < b;
+    let gt: bool = a > b;
+    let selfle: bool = a <= a;
+    let selflt: bool = a < a;
+    unsafe { printf("lt=%d gt=%d selfle=%d selflt=%d\n".as_ptr(),
+        lt as i32, gt as i32, selfle as i32, selflt as i32); }
+    if lt == gt { return 1i32; }
+    if !selfle { return 2i32; }
+    if selflt { return 3i32; }
+    return 0i32;
+}

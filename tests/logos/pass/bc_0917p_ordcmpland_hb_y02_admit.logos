@@ -1,0 +1,35 @@
+// hand battery: round 2026-09-17p-ordcmpland, program y02 — caught: raw-pointer ordering through FIVE carriers (struct field, tuple element, array element, fn parameter, fn return) was refused on base; the carrier is what condemned an earlier arm, so it is varied here, not counted.
+// legality: MEASURED, rustc 1.98.1 --edition 2024, twin src/compiler/probes/2026-09-17p-ordcmpland/rust/y02_ptr_carriers.rs (exit 0, field=1 tuple=1 arr=1 param=1 ret=1).
+// array element, function parameter, function return.
+package bc_0917p_ordcmpland_hb_y02_admit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct H { p: *const i64 }
+fn cmp_param(a: *const i64, b: *const i64) -> bool {
+    return a < b;
+}
+fn mk(a: *const i64) -> *const i64 {
+    return a;
+}
+fn main() -> i32 {
+    let arr: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let lo: *const i64 = &arr[0u64] as *const i64;
+    let hi: *const i64 = &arr[3u64] as *const i64;
+    let h1: H = H { p: lo };
+    let h2: H = H { p: hi };
+    let f_field: bool = h1.p < h2.p;
+    let t1: (*const i64, i64) = (lo, 1i64);
+    let t2: (*const i64, i64) = (hi, 1i64);
+    let f_tuple: bool = t1.0 < t2.0;
+    let pa: [*const i64; 2] = [lo, hi];
+    let f_arr: bool = pa[0u64] < pa[1u64];
+    let f_param: bool = cmp_param(lo, hi);
+    let f_ret: bool = mk(lo) < mk(hi);
+    unsafe { printf("field=%d tuple=%d arr=%d param=%d ret=%d\n".as_ptr(),
+        f_field as i32, f_tuple as i32, f_arr as i32, f_param as i32, f_ret as i32); }
+    if !f_field { return 1i32; }
+    if !f_tuple { return 2i32; }
+    if !f_arr { return 3i32; }
+    if !f_param { return 4i32; }
+    if !f_ret { return 5i32; }
+    return 0i32;
+}

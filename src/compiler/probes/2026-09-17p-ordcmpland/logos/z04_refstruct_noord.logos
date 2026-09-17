@@ -1,0 +1,11 @@
+// abuse: &Struct ordering, no PartialOrd. rustc E0369. MUST stay refused.
+package z04_refstruct_noord;
+struct P { a: i64 }
+fn main() -> i32 {
+    let x: P = P { a: 1i64 };
+    let y: P = P { a: 2i64 };
+    let rx: &P = &x;
+    let ry: &P = &y;
+    if rx < ry { return 1i32; }
+    return 0i32;
+}

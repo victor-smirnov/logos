@@ -1,0 +1,9 @@
+// control: the `==` SIBLING with mixed *mut / *const. rustc: E0308.
+package w01_mixedmut_eq;
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let p: *mut i64 = &mut v as *mut i64;
+    let q: *const i64 = &v as *const i64;
+    if p == q { return 1i32; }
+    return 0i32;
+}

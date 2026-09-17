@@ -49406,3 +49406,122 @@ it dies at a TYPE parameter's first-wins unification, not at a lifetime binder.
 definition, not the call. `fail_text_oracle.py` run with no argv[1] exits 1 on an IndexError, which
 is the instrument refusing, not a red corpus. And a background chain reported "exit 0" while its
 marker was never written — the marker, not the notification, is the evidence.
+
+## 2026-09-17p-ordcmpland — THE TIER-3 ORDERING ARM IS LANDED WITH A TYPE-IDENTITY GATE THE PRICING ROUND DID NOT HAVE, BECAUSE THE ROUND'S OWN ABUSE BATTERY FOUND `*mut` vs `*const` REFUSED ONLY BY THE VERIFIER ERROR THE ARM REMOVES — AND THE SAME PAIR AT `==` IS A SHIPPED ADMISSION
+
+build: base = the shipped `build/bin/logosc` of HEAD 4ff170406 (Sep 17 13:15), copied aside by path
+       before anything was touched; one-configure pair = `build-ordcmp2/` (clang++-20), base link
+       15:00 -> armed link 15:22, every oracle baseline read from THAT pair so `fail_text_oracle.py`
+       does not self-invalidate across a configure. Binaries identified by PATH + MTIME and by
+       behaviour (y01 refused on one, runs on the other); `build_hash.py` reported `abf6bfdbdd6a0ff0 43`
+       and NOTHING rests on it — it has disagreed with itself on one commit.
+
+### THE LANDED CHANGE — ONE SITE, 15 LINES, `src/compiler/mlir_gen_expr.cpp`
+
+The ordering branch of the binop comparison emitter (below the `==` / `!=` branches that already
+return `LLVM::ICmpOp`) now emits an UNSIGNED `llvm.icmp` when the operand pair is a raw or fn
+pointer. Three things in the gate, each bought with a measurement:
+
+  * **the LOGOS type, not `is_ptr_cmp`.** `is_ptr_cmp` is the MLIR type, `!llvm.ptr` for Ref/MutRef/
+    TraitObject too. The pricing round measured the crude form: it ADMITS `fn less<T>(a:&T,b:&T){a<b}`
+    (rustc E0369) and MISCOMPILES the legal `T: Ord` twin (run 1 where rustc runs 0).
+  * **TYPE IDENTITY, which the pricing round's arm did not have.** `types_compatible` lets `*mut i64`
+    meet `*const i64`, and rustc refuses that pair with E0308 (measured, hand z02/w01). It is refused
+    TODAY ONLY BY THE VERIFIER ERROR THIS BLOCK REMOVES — the 17a/b shape exactly. With `lt == rt`
+    required, z02 stays refused; without it the arm would have inherited a fresh admission.
+  * **UNSIGNED.** `is_unsigned_repr_kind` is "unsigned int kinds | Bool | Char" and `Kind::Ptr` is not
+    in it, so the shipped predicate would have picked SIGNED `slt` for an address compare. ⚠ NO
+    RUNNABLE CARRIER DISCRIMINATES THIS — Linux userspace hands out no address above 2^63 — so it
+    rests on the standing Rust rule, not on a measurement. Said plainly rather than implied.
+
+### THE COLUMNS — ONE CONFIGURE, DIFFED BOTH WAYS
+
+| column | base | armed | cost |
+|---|---|---|---|
+| soundness queue gate | rc 0, 235 rows | rc 0, **236 rows** after the row edits | −1 tier-3 row CLOSED, +1 tier-1 and +1 tier-3 OPENED (w01, n01) — net +1, re-derived by DIRECT LISTING, `# TOTAL 236`, tier1=39 tier2=66 tier3=120 tier4=11 |
+| `fail_text_oracle.py` | 1913 rows | 1913 rows | **0 differing lines** |
+| `run_oracle.py` | 7495 rows | 7499 rows | 6 diff lines = 4 NEW rows (this round's own pass fixtures, `0 0`) + `cast-region-to-uint` (prints a stack address, subtracted by name) ⇒ **0 damaged** |
+| spec fail tier (494 by name) | — | 494/494, rc 0 | 0 |
+| stdlib | built | rebuilt rc 0 | 0 |
+
+### THE ROW CLOSES ON A RUN, NOT ON THE GATE
+
+`rawptr_ordering_compare_mlir_verifier_refused`: base REFUSED (`arith.cmpi ... !llvm.ptr`), landed
+**run 0**, rustc 1.98.1 twin **run 0** (measured here, not inherited), valgrind clean. Its program is
+now `tests/logos/pass/bc_0917p_ordcmpland_rawptr_ordering_compare` with `exit: 0`.
+⚠ The gate's `refuses` oracle is satisfied by MERE COMPILATION, so it is not the evidence; every legal
+program in the battery was RUN and compared against its rustc twin's exit code AND stdout.
+
+### THE BATTERY — 17 PROGRAMS, BASE AND LANDED, EVERY LEGAL ONE AGAINST ITS rustc TWIN
+
+| program | rustc 1.98.1 | base | landed |
+|---|---|---|---|
+| row `rawptr_ordering_compare` | run 0 | refused | **run 0 ✓ CLOSES** |
+| y01 `*const u8`, all 6 forms | run 0 `lt=1 gt=0 le=1 ge=0 selfle=1 selflt=0` | refused | **identical ✓** |
+| y02 five CARRIERS (struct field, tuple elem, array elem, param, return) | run 0 `field=1 tuple=1 arr=1 param=1 ret=1` | refused | **identical ✓** |
+| y04 fn-pointer ordering | run 0 | refused | **run 0 ✓** (unrowed tier-3 shape) |
+| y03 `&u64`/`&f64`/`&i64`/`&bool` ordering, values DESCENDING | run 0 `lt_u=0 lt_f=0 lt_i=0 lt_b=0` | run 0, same | **unchanged ✓** |
+| z01 `&T` no bound | **E0369** | refused | refused ✓ |
+| z02 `*mut` vs `*const` ordering | **E0308** | refused (verifier) | refused ✓ — **the type-identity gate is why** |
+| z03 `p < 0` | **E0308** | refused | refused ✓ |
+| z04 `&Struct` no PartialOrd | **E0369** | refused | refused ✓ |
+| z05 `*mut i64` vs `*mut u8` | **E0308** | refused (sema sentence) | refused ✓ |
+| z06 fn ptrs, different signature | **E0308** | refused (sema sentence) | refused ✓ |
+| z07 `&dyn Tr` ordering | **E0369** | refused | refused ✓ |
+| z08 `*mut i64` vs `&i64` | **E0308** | refused (sema sentence) | refused ✓ |
+| w01 `*mut` vs `*const` at `==` | **E0308** | **run 1 — ADMITTED on the SHIPPED binary** | run 1, unchanged — NEW TIER-1 ROW |
+| n01 tuple of raw pointers, `<` | run 0 `lt=1` | refused | refused — NEW TIER-3 ROW |
+
+⚠ **EIGHT ABUSE PROGRAMS, WRITTEN THIS ROUND AND MEASURED ON BASE FIRST.** Two of them (z02, z03)
+were held on base ONLY by the error the change deletes — which is the condition that condemned the
+17a/b arm — and both are still refused because the gate asks for type identity, not for `!llvm.ptr`.
+
+### NEIGHBOUR TABLE (standing rule) — five tested, one closed by the landed change, three rowed with a named reason, two measured NOT to be neighbours
+
+| neighbour | closed here / rowed | reason + the number |
+|---|---|---|
+| `generic_ref_typevar_ordering_mlir_verifier_refused` (byte-identical sentence) | ROWED (already a row) | **reason 2, doors in series.** Its `&T` pair needs sema to route `<` to an `Ord` bound; the emitter cannot tell a bounded `&T` from an unbounded one, and the arm that does admits z01 (E0369) and miscompiles the `T: Ord` twin. MEASURED: refused on base AND on the landed binary. |
+| n01 tuple of raw pointers | ROWED, NEW (`tuple_of_rawptr_ordering_mlir_verifier_refused`) | **reason 1, the fact has no carrier there.** The operands are TUPLES; the tuple-lexicographic block's `is_prim_ord` is a per-ELEMENT shape whitelist with no `Ptr` case, so it declines and the pair reaches the scalar path as two slot pointers. rustc runs it at 0 printing `lt=1`; landed binary refuses. The repair is a different change at a different predicate. |
+| w01 `*mut` vs `*const` at `==` | ROWED, NEW (`rawptr_mixed_mutability_eq_admitted`, tier 1) | **reason 1, no carrier at the landed site.** The emitter cannot refuse a program; the admission is sema's `types_compatible`. MEASURED on the SHIPPED binary: compiles and RUNS at exit 1 where rustc gives E0308. |
+| `rawptr_int_zero_compare_mlir_verifier_refused` (same emitter block) | ROWED (already a row) | **reason 1.** A strict extension was considered and NOT taken: its operands are a pointer and an IntLit, so it needs a null constant / ptrtoint, not a predicate choice; and Logos's own `ptr_null_cmp` admits `p < 0`, which rustc refuses — closing it at the emitter alone would turn an internal error into an ADMISSION. Unchanged, measured on both binaries. |
+| `at_binding_array_sub_verifier_error_refused`, `match_ref_array_nested_struct_sub_refused` | NOT NEIGHBOURS | byte-identical sentence, different door (array-pattern lowering); unmoved on the landed binary — measured, the gate names neither. |
+
+### `tools/dlog` — USED, WITH ITS KNOWN-ANSWER CONTROL AND ITS CROSS-CHECK
+
+`selftest.sh` rc 0 on `28fc7c75`: 19 walkers / 24 findings / try_path 1-5 / domain 42-5, duty
+discriminates across `756aed65` (1 -> 0). New rule `tools/dlog/cmp_pred_ptr_arm.dl`: enumerate BY
+PROPERTY the functions that decide a comparison predicate (they reference `is_unsigned_repr_kind`)
+and have NO `Kind::Ptr` arm — an ABSENCE, which has no spelling and which a grep therefore cannot
+find. It carries its own control: the armed `gen_expr_kind` must appear in `has_ptr_arm`, and it does.
+**dlog named 3 functions; the per-site read confirmed 1.** `is_unsigned` (the tuple block's
+per-element lambda) is the real one and became the n01 row; `coerce_int` / `coerce_numeric` decide a
+WIDENING, not a comparison predicate — they are the rule's two false positives, reported beside the
+verdict as the standing instruction requires.
+
+### INSTRUMENTS THAT LIED, OR THAT I DROVE WRONG, THIS ROUND
+
+  * **I spoiled my own armed queue-gate run** by `git mv`-ing a row's program while the gate was
+    mid-flight: it reported `FAIL: row '…' names '…' but the file does not exist`, which is the reader
+    refusing, not a closure. Re-run against the final ledger: OK. Never edit the shelf under a gate.
+  * `fail_text_oracle.py` and `run_oracle.py` both REFUSE without an output-path argv[1] (rc 1 / rc 2);
+    driven with a `>` redirect they produce no table. Their own comments record three false
+    measurements from exactly that.
+  * **A directory literally named `--help/` appeared in the repo root during the base `run_oracle.py`
+    run** (928 KB of `a_move_consume_*.logos`, mtime 15:12, inside that run's window). `run_oracle.py`
+    line 103 records this as having happened twice before. It is UNTRACKED and was left in place: an
+    `rm` of a directory under the working dir stalls at the approval breaker. **Coordinator: delete
+    `/home/logos/devel/logos/--help/` by literal path.**
+  * REGISTRY PINS re-derived BY `ctest -N` THREE WAYS on the rebuilt tree, not by arithmetic:
+    ALL 11063 -> 11072, NOIMPORTED 6561 -> 6570, TIERCOMMIT 353 -> 354. Eight fixtures move the first
+    two; the three row edits (one closed, two opened) net +1 in all three, since each row is its own
+    `logos_00_squeue_<id>` test and those ARE in tier_commit while the new fixtures are not.
+  * **L1 RED ON THE FIRST FINAL RUN, AND IT WAS A REAL PIN, NOT NOISE**: `logos_00_population_pin_lint`
+    reported DRIFT on `direct_door_census_gate.sh` PIN['corpus'] 3869 -> listed 3874 and PIN['nonglob']
+    3678 -> 3683 — the FIVE new pass fixtures. `PIN['glob']` (wql_*/deem_*) and plan_ground's
+    EXPECT_FIXTURES are both unmoved at 191, and the THREE new FAIL fixtures are not in that population
+    at all. Re-derived BY DIRECT LISTING in the gate that holds it, with the five fixtures named and the
+    partition checked (3874 = 191 + 3683). This is the pin the CMakeLists comment says went 23 commits
+    red while every one of them reported itself green: FACT 5 (the registry counts) and this one are two
+    statements of one fact, and moving only the first is the recorded failure mode.
+  * Left behind for the coordinator, same reason: `build-ordcmp` (935 M, from the previous round) and
+    `build-ordcmp2` (654 M, the one-configure pair this round measured in).

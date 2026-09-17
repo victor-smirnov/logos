@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-17p-ordcmpland, program z06 — caught: the ABUSE direction of the raw-pointer ordering arm; differing fn SIGNATURES must stay REFUSED, and this one is refused by a READ sema sentence rather than by the MLIR verifier the arm removes.
+// legality: MEASURED, rustc 1.98.1 --edition 2024 refuses the twin with error[E0308]: mismatched types (src/compiler/probes/2026-09-17p-ordcmpland/rust/z06_fnptr_sigmismatch.rs).
+package bc_0917p_ordcmpland_hb_z06_refuse;
+fn f1() -> i64 { return 1i64; }
+fn f2(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let a: fn() -> i64 = f1;
+    let b: fn(i64) -> i64 = f2;
+    if a < b { return 1i32; }
+    return 0i32;
+}

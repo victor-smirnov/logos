@@ -1,0 +1,2 @@
+exit: 0
+stdout: lt=1 gt=0 le=1 ge=0 selfle=1 selflt=0

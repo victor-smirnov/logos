@@ -6118,9 +6118,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                THREE AND TIERCOMMIT REFUTED IT: the new pass/fail fixtures are NOT in tier_commit, while the removed row's
 #                logos_00_squeue_<id> test WAS, so tier_commit moves by -1 alone. RE-DERIVED BY `ctest -N` THREE WAYS after a
 #                reconfigure, not by adding to the previous line.
-REGISTRY-ALL         11063
-REGISTRY-NOIMPORTED  6561
-REGISTRY-TIERCOMMIT  353
+#                ALL 11063 -> 11072 (+9), NOIMPORTED 6561 -> 6570 (+9), TIERCOMMIT 353 -> 354 (+1) — 2026-09-17p-ordcmpland
+#                lands EIGHT fixtures (5 pass, 3 fail), DELETES one soundness_queue row (tier 3) and OPENS one (tier 1), so the
+#                closed row's logos_00_squeue_<id> test cancels against ONE of the two opened, so the net of the three row edits is +1 in all three registries and the eight fixtures move ALL / NOIMPORTED only. The
+#                new pass/fail fixtures are NOT in tier_commit (17f measured that), which is why TIERCOMMIT is unmoved at 353
+#                even though a row opened and a row closed. RE-DERIVED BY `ctest -N` THREE WAYS on the rebuilt tree, not by
+#                adding to the previous line.
+REGISTRY-ALL         11072
+REGISTRY-NOIMPORTED  6570
+REGISTRY-TIERCOMMIT  354
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

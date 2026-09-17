@@ -1,0 +1,34 @@
+// regression guard: &T ordering over PRIMITIVE pointees must keep comparing
+// POINTEES, not addresses. All four declared in DESCENDING value order so a
+// switch to address order would flip every answer.
+package y03_refprim_regress;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let bigu: u64 = 100u64;
+    let smallu: u64 = 1u64;
+    let ru1: &u64 = &bigu;
+    let ru2: &u64 = &smallu;
+    let lt_u: bool = ru1 < ru2;
+    let bigf: f64 = 100.0f64;
+    let smallf: f64 = 1.0f64;
+    let rf1: &f64 = &bigf;
+    let rf2: &f64 = &smallf;
+    let lt_f: bool = rf1 < rf2;
+    let bigi: i64 = 100i64;
+    let smalli: i64 = 1i64;
+    let ri1: &i64 = &bigi;
+    let ri2: &i64 = &smalli;
+    let lt_i: bool = ri1 < ri2;
+    let tb: bool = true;
+    let fb: bool = false;
+    let rb1: &bool = &tb;
+    let rb2: &bool = &fb;
+    let lt_b: bool = rb1 < rb2;
+    unsafe { printf("lt_u=%d lt_f=%d lt_i=%d lt_b=%d\n".as_ptr(),
+        lt_u as i32, lt_f as i32, lt_i as i32, lt_b as i32); }
+    if lt_u { return 1i32; }
+    if lt_f { return 2i32; }
+    if lt_i { return 3i32; }
+    if lt_b { return 4i32; }
+    return 0i32;
+}

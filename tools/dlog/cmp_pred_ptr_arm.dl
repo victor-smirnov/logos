@@ -1,0 +1,36 @@
+// ROUND 2026-09-17p-ordcmpland — enumerate BY PROPERTY the functions that pick a
+// COMPARISON PREDICATE from a Logos kind (they read `is_unsigned_repr_kind`, the
+// one place signedness is decided) and that have NO `Kind::Ptr` arm at all.
+//
+// That absence IS the defect this round landed: the ordering branch of the binop
+// emitter asked `is_unsigned_repr_kind` and never asked whether the operand was a
+// POINTER, so every `!llvm.ptr` operand died in the MLIR verifier — while the
+// `==` / `!=` branches four lines above already consulted the pointer fact.
+// A grep cannot find this: AN ABSENCE HAS NO SPELLING.
+//
+// ⚠ `ctx_of` COARSENS to the enclosing function (the 2026-08-27 37-vs-0 finding),
+// so this answers "which FUNCTIONS", never "which sites". Every row is read
+// PER-SITE before it is believed, and both numbers are reported side by side.
+// ⚠ CONTROL BUILT IN: this runs against the LANDED tree, where the binop
+// comparison emitter HAS gained a Ptr arm. If the rule is sound, the function
+// holding that emitter must be ABSENT from `no_ptr_arm` while its unarmed
+// siblings remain — a known-answer control the rule carries itself.
+#include "cxx_schema.dl"
+#include "lir_dispatch.dl"
+target_enum(E) :- decl(E, "Enum", "logos::compiler::LogosType::Kind").
+
+// A function that DECIDES a predicate's signedness: it names the one helper that
+// owns that decision. Keyed on the DECLARATION, not on the spelling.
+.decl picks_predicate(fn: symbol)
+.output picks_predicate
+picks_predicate(F) :- ref(N, D), decl_name(D, "is_unsigned_repr_kind"),
+                      ctx_of(N, X), ctx_name(X, F).
+
+.decl has_ptr_arm(fn: symbol)
+.output has_ptr_arm
+has_ptr_arm(F) :- tests(F, "Ptr", _).
+
+// THE FINDING: decides a predicate from a kind, never asks about Ptr.
+.decl no_ptr_arm(fn: symbol)
+.output no_ptr_arm
+no_ptr_arm(F) :- picks_predicate(F), !has_ptr_arm(F).

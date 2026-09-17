@@ -1,0 +1,13 @@
+// abuse: ordering on &dyn Trait. rustc E0369. MUST stay refused.
+package z07_dynord;
+trait Tr { fn v(&self) -> i64; }
+struct S { a: i64 }
+impl Tr for S { fn v(&self) -> i64 { return self.a; } }
+fn main() -> i32 {
+    let x: S = S { a: 1i64 };
+    let y: S = S { a: 2i64 };
+    let p: &dyn Tr = &x;
+    let q: &dyn Tr = &y;
+    if p < q { return 1i32; }
+    return 0i32;
+}

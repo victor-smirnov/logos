@@ -1,0 +1,17 @@
+// CLOSED SOUNDNESS-QUEUE ROW rawptr_ordering_compare_mlir_verifier_refused (was tier 3),
+// closed by round 2026-09-17p-ordcmpland. Raw pointers implement PartialOrd (address order);
+// `p < q` on two `*mut i64` passed sema and died in the MLIR verifier —
+//   error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'
+// because the ordering branch of the binop emitter never consulted the pointer fact that the
+// `==` / `!=` branches four lines above already read. It now emits an UNSIGNED `llvm.icmp`,
+// gated on the LOGOS type (Kind::Ptr / fn-value) AND on the two operand types being IDENTICAL.
+// legality: MEASURED, rustc 1.98.1 --edition 2024 compiles and runs the twin at exit 0
+// (src/compiler/probes/2026-09-17p-ordcmpland/rust/row_rawptr_ordering_compare.rs).
+package bc_0917p_ordcmpland_rawptr_ordering_compare;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let p: *mut i64 = &mut a[0] as *mut i64;
+    let q: *mut i64 = &mut a[0] as *mut i64;
+    if p < q { return 1i32; }
+    return 0i32;
+}

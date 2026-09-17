@@ -84,7 +84,7 @@ try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_oper
 #    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
 struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
 
-# TOTAL 235
+# TOTAL 236
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -230,7 +230,6 @@ generic_mutref_pair_local_borrow_escape_admits 2 tests/soundness/open/generic_mu
 # pointer-comparison arm, each reproducing on base baa2a38e8b650fb3 43 (read) before any edit; reason and hands in each header.
 explicit_deref_field_borrow_through_refvar_unkeyed_admits 2 tests/soundness/open/explicit_deref_field_borrow_through_refvar_unkeyed_admits admits
 refvar_reborrow_whole_then_assign_counter_refused 3 tests/soundness/open/refvar_reborrow_whole_then_assign_counter_refused refuses
-rawptr_ordering_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_ordering_compare_mlir_verifier_refused refuses
 pattern_ref_binding_loan_outlives_last_use_refused 3 tests/soundness/open/pattern_ref_binding_loan_outlives_last_use_refused refuses
 pattern_enum_payload_ref_owner_move_admits 2 tests/soundness/open/pattern_enum_payload_ref_owner_move_admits admits
 match_addrof_scrutinee_default_payload_loan_unrooted_admits 2 tests/soundness/open/match_addrof_scrutinee_default_payload_loan_unrooted_admits admits
@@ -239,6 +238,8 @@ match_addrof_scrutinee_default_payload_loan_unrooted_admits 2 tests/soundness/op
 loop_second_iteration_mut_alias_through_retargeted_ref_admits 2 tests/soundness/open/loop_second_iteration_mut_alias_through_retargeted_ref_admits admits
 rawptr_int_zero_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_int_zero_compare_mlir_verifier_refused refuses
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
+rawptr_mixed_mutability_eq_admitted 1 tests/soundness/open/rawptr_mixed_mutability_eq_admitted admits
+tuple_of_rawptr_ordering_mlir_verifier_refused 3 tests/soundness/open/tuple_of_rawptr_ordering_mlir_verifier_refused refuses
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.

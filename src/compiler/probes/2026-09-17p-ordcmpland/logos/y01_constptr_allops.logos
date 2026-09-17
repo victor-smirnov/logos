@@ -1,0 +1,23 @@
+// legal: *const u8 ordering, all four ops, values printed.
+package y01_constptr_allops;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let a: [u8; 4] = [1u8, 2u8, 3u8, 4u8];
+    let p: *const u8 = &a[0u64] as *const u8;
+    let q: *const u8 = &a[3u64] as *const u8;
+    let lt: bool = p < q;
+    let gt: bool = p > q;
+    let le: bool = p <= q;
+    let ge: bool = p >= q;
+    let selfle: bool = p <= p;
+    let selflt: bool = p < p;
+    unsafe { printf("lt=%d gt=%d le=%d ge=%d selfle=%d selflt=%d\n".as_ptr(),
+        lt as i32, gt as i32, le as i32, ge as i32, selfle as i32, selflt as i32); }
+    if !lt { return 1i32; }
+    if gt { return 2i32; }
+    if !le { return 3i32; }
+    if ge { return 4i32; }
+    if !selfle { return 5i32; }
+    if selflt { return 6i32; }
+    return 0i32;
+}

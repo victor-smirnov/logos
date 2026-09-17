@@ -1,0 +1,10 @@
+// abuse: fn pointers of DIFFERENT signature ordered. rustc E0308. MUST stay refused.
+package z06_fnptr_sigmismatch;
+fn f1() -> i64 { return 1i64; }
+fn f2(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let a: fn() -> i64 = f1;
+    let b: fn(i64) -> i64 = f2;
+    if a < b { return 1i32; }
+    return 0i32;
+}
