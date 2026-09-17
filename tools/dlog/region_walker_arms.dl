@@ -1,0 +1,99 @@
+// region_walker_arms — WHICH LogosType::Kind ARMS DOES EACH REGION WALKER HAVE?
+//
+// THE QUESTION, AND WHY GREP CANNOT ANSWER IT. The region machinery asks one
+// question at several sites — "which regions does this type mention / pair /
+// vary in?" — and each site answers with its OWN `switch (t.kind())`. A site
+// whose arm set is NARROWER than the domain does not report an error: it
+// silently returns "no region here", and the caller then classifies a mentioned
+// binder as FREE (which `build_call_lt_subst_` instantiates at 'static). That
+// is a MISSING CASE, and a missing case has no spelling — `grep 'case K::Ptr'`
+// finds the walkers that HAVE the arm and can never enumerate those that lack
+// it. A rule over (Kind enumerators) x (walker set) DERIVES the absence.
+//
+// ⚠ THE DOMAIN IS A PARAMETER, exactly as lir_dispatch.dl intends: that file's
+// rules are written against `target_enum`, so pointing it at LogosType::Kind
+// reuses `tests/3` — the case-arm projection, including fall-through groups and
+// `if (t.kind() == K::X)` chains — instead of a second, drifting copy of it.
+//
+// ⚠ "RECURSES" IS DERIVED, NOT CLAIMED. An earlier draft of this file invented a
+// `recurses` relation and souffle rejected it; the honest definition is already
+// available — an arm that CALLS THE WALKER ITSELF (`arm_call(F, K, F)`) is an
+// arm that descends. That also keeps the selector and the predicate from
+// sharing a term, which place_walkers.dl records as the mistake that hid its
+// own headline finding.
+//
+// KNOWN-ANSWER CONTROL (per-site read of src/compiler/sema_impl.hpp on base
+// 8f5483d04b7c49ac 43, recorded BEFORE this rule ran — cross-check the rule
+// against it, per the standing "dlog has been wrong once, in the expensive
+// direction" rule):
+//   type_mentions_lt_        Ref MutRef Slice TraitObject DstRef Struct
+//                            ZonedStruct Enum Tuple Array Ptr      (NO FnPtr)
+//   collect_param_regions_   Ref MutRef Struct ZonedStruct Enum Tuple
+//                            Slice Array          (NO Ptr, FnPtr, TraitObject,
+//                                                  DstRef)
+//   collect_input_regions_   same set as collect_param_regions_    (NO Ptr)
+//   fill_elided_regions_     Ref MutRef Tuple Struct ZonedStruct Enum
+//                                                  (NO Ptr, NO Slice/Array)
+//   type_region_opaque_      HAS Ptr and FnPtr
+//   region_loss_noncov_      HAS Ptr and FnPtr
+// A run that does not reproduce those rows is reporting on a different tree, or
+// the extractor is lying. Report the rule's number and the per-site number side
+// by side; do not fund the difference.
+
+#include "cxx_schema.dl"
+#include "lir_dispatch.dl"
+
+// THE DOMAIN: the type-kind enum, not an LIR schema enum.
+target_enum(E) :- decl(E, "Enum", "logos::compiler::LogosType::Kind").
+
+.decl kind_code2(k: symbol)
+.output kind_code2
+kind_code2(K) :- expr_code(K).
+
+// ── WHO SWITCHES ON A Kind ──────────────────────────────────────────────────
+.decl tests_kind(f: symbol, k: symbol)
+tests_kind(F, K) :- tests(F, K, "case_live").
+tests_kind(F, K) :- tests(F, K, "cond").
+
+// ── WHO IS A REGION WALKER: derived from behaviour ──────────────────────────
+// It switches on a Kind AND at least one of its arms descends into a component
+// by calling itself. Nominating a list by hand would reproduce the blind spot.
+.decl self_recursive_arm(f: symbol, k: symbol)
+self_recursive_arm(F, K) :- arm_call(F, K, F).
+
+.decl region_walker(f: symbol)
+.output region_walker
+region_walker(F) :- self_recursive_arm(F, _).
+
+// ── THE STRUCTURAL KINDS: a kind that can CONTAIN a region ──────────────────
+// Derived, not listed: a kind some walker descends through. Omitting a LEAF
+// kind (I64, Bool) omits nothing, so leaves must not be reported as holes.
+.decl structural_kind(k: symbol)
+.output structural_kind
+structural_kind(K) :- self_recursive_arm(_, K).
+
+// ── THE FINDING ─────────────────────────────────────────────────────────────
+// Reported WITH the number of other walkers that do have the arm, so a kind
+// exactly one walker handles (its own subject) is distinguishable from a kind
+// every sibling but one handles (a hole).
+.decl siblings_with(k: symbol, n: number)
+siblings_with(K, N) :- structural_kind(K),
+                       N = count : { tests_kind(_F, K), region_walker(_F) }.
+
+.decl missing_arm(f: symbol, k: symbol, siblings: number)
+.output missing_arm
+missing_arm(F, K, N) :- region_walker(F), structural_kind(K),
+                        !tests_kind(F, K), siblings_with(K, N).
+
+.decl coverage(f: symbol, have: number, want: number)
+.output coverage
+coverage(F, H, W) :- region_walker(F),
+    H = count : { structural_kind(K), tests_kind(F, K) },
+    W = count : { structural_kind(_K2) }.
+
+// ⚠ A DEAD ARM IS NOT A PRESENT ARM — an arm that exists and does nothing is
+// invisible to missing_arm (the case IS named). Reported separately, as
+// place_walkers.dl learned to.
+.decl dead_arm(f: symbol, k: symbol)
+.output dead_arm
+dead_arm(F, K) :- tests(F, K, "case_empty"), region_walker(F).

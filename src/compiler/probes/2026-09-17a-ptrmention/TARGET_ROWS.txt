@@ -1,0 +1,19 @@
+# ROUND 2026-09-17a-ptrmention — TARGET ROWS, written BEFORE touching the compiler
+# base build_hash 8f5483d04b7c49ac 43 · queue # TOTAL 233 · tier3 = 121
+#
+# SHARED FACT (the door): "which regions does this PARAMETER TYPE mention?"
+#   asked by sema_impl.hpp::collect_param_regions_, whose answer splits a callee
+#   binder MENTIONED (-> elided, permissive) from FREE (-> 'static).
+#   Its arm set is NARROWER than the pairing walk in build_call_lt_subst_:
+#   the walk has a K::Ptr arm, collect_param_regions_ does not.
+#   A region mentioned ONLY under a raw pointer is therefore classified FREE
+#   and instantiated at 'static -> "expected *mut &'static i64, got *mut &i64".
+#
+# PRIMARY (predicted to move):
+mutptr_region_param_elided_let_arg_refused
+refptr_inner_region_elision_demands_static_refused
+#
+# SAME SENTENCE, DIFFERENT FACT — predicted NOT to move by this arm (controls):
+static_arg_pins_shared_callee_region_refused      # first-wins at a MAPPED binder, not FREE
+fnptr_call_result_region_param_reads_static_refused  # FnPtr param kind, separate arm
+generic_type_param_two_regions_first_wins_refused  # TYPE binder, 14d reason 1

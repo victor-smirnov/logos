@@ -1,0 +1,8 @@
+package L04_fnptr_param_region;
+fn f<'r>(g: fn(&'r i64) -> i64) -> fn(&'r i64) -> i64 { return g; }
+fn rd(x: &i64) -> i64 { return *x; }
+fn main() -> i32 {
+    let h = f(rd);
+    let v: i64 = 18i64;
+    return (h(&v) - 18i64) as i32;
+}

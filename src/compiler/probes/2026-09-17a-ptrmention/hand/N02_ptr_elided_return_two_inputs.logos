@@ -1,0 +1,8 @@
+package N02_ptr_elided_return_two_inputs;
+fn pick(q: *mut &i64, n: i64) -> &i64 { return unsafe { *q }; }
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let mut r: &i64 = &v;
+    let q: *mut &i64 = &mut r;
+    return (*pick(q, 1i64) - 4i64) as i32;
+}

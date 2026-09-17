@@ -1,0 +1,9 @@
+package L06_ptr_in_struct_field;
+struct Holder<'a> { q: *mut &'a i64 }
+fn read<'a>(h: Holder<'a>) -> i64 { return unsafe { **h.q }; }
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    let mut r: &i64 = &v;
+    let q: *mut &i64 = &mut r;
+    return (read(Holder { q: q }) - 6i64) as i32;
+}

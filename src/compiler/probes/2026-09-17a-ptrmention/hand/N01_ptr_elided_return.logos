@@ -1,0 +1,12 @@
+// NEIGHBOUR PROBE: collect_input_regions_ has the SAME missing K::Ptr arm and
+// feeds RETURN ELISION (fill_elided_ret_). If the elided output region is
+// sourced from an input region that lives under a raw pointer, that walker
+// finds nothing. Does the collect_param_regions_ arm move this? MEASURED.
+package N01_ptr_elided_return;
+fn get(q: *mut &i64) -> &i64 { return unsafe { *q }; }
+fn main() -> i32 {
+    let v: i64 = 9i64;
+    let mut r: &i64 = &v;
+    let q: *mut &i64 = &mut r;
+    return (*get(q) - 9i64) as i32;
+}

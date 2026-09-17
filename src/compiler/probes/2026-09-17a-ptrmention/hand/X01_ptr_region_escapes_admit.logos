@@ -1,0 +1,12 @@
+package X01_ptr_region_escapes_admit;
+fn raw<'a>(q: *mut &'a i64) -> &'a i64 { return unsafe { *q }; }
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 3i64;
+        let mut r: &i64 = &v;
+        let q: *mut &i64 = &mut r;
+        out = raw(q);
+    }
+    return *out as i32;
+}

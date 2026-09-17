@@ -1,0 +1,39 @@
+diff --git a/src/compiler/sema_impl.hpp b/src/compiler/sema_impl.hpp
+index 0f4f8a53b..7deb6ab91 100644
+--- a/src/compiler/sema_impl.hpp
++++ b/src/compiler/sema_impl.hpp
+@@ -835,8 +835,34 @@ private:
+             for (auto e : t.tuple_elems()) collect_param_regions_(e, out, depth + 1);
+             return;
+         case K::Slice: case K::Array:
++            if (logos::probe::on("ptrmentionall") && t.kind() == K::Slice &&
++                !t.lifetime().empty())
++                out.insert(std::string(t.lifetime()));
+             collect_param_regions_(t.elem(), out, depth + 1);
+             return;
++        // ── THE MISSING ARMS (probe ptrmention / ptrmentionall, 2026-09-17a) ──
++        // This walker answers MENTIONED-vs-FREE, and FREE is instantiated at
++        // 'static. A region mentioned ONLY under a raw pointer, a fat pointer
++        // or a fn pointer is invisible here, so the callee's binder is called
++        // FREE and pinned to 'static. The PAIRING walk in the same function
++        // already has a K::Ptr arm, and type_mentions_lt_ has Ptr plus the
++        // fat-pointer kinds — this walk is the narrow one of the three.
++        case K::Ptr:
++            if (logos::probe::on("ptrmention") || logos::probe::on("ptrmentionall"))
++                collect_param_regions_(t.pointee(), out, depth + 1);
++            return;
++        case K::TraitObject: case K::DstRef:
++            if (logos::probe::on("ptrmentionall")) {
++                if (!t.lifetime().empty()) out.insert(std::string(t.lifetime()));
++                for (auto a : t.type_args()) collect_param_regions_(a, out, depth + 1);
++            }
++            return;
++        case K::FnPtr: case K::Closure: case K::FnItem:
++            if (logos::probe::on("ptrmentionall")) {
++                for (auto p : t.closure_params()) collect_param_regions_(p, out, depth + 1);
++                collect_param_regions_(t.closure_ret(), out, depth + 1);
++            }
++            return;
+         default: return;
+         }
+     }

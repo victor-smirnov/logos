@@ -1,0 +1,8 @@
+package L02_constptr_param_named;
+fn take<'b>(p: *const &'b i64) -> i64 { return unsafe { **p }; }
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let r: &i64 = &v;
+    let p: *const &i64 = &r;
+    return (take(p) - 4i64) as i32;
+}

@@ -1,0 +1,8 @@
+package L05_ptr_in_tuple;
+fn two<'a>(t: (*mut &'a i64, i64)) -> i64 { return unsafe { **t.0 } + t.1; }
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let mut r: &i64 = &v;
+    let q: *mut &i64 = &mut r;
+    return (two((q, 2i64)) - 7i64) as i32;
+}
