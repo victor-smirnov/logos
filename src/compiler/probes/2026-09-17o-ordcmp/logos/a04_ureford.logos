@@ -1,0 +1,12 @@
+package a04_ureford;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let x: u64 = 18446744073709551615u64;
+    let y: u64 = 1u64;
+    let rx: &u64 = &x;
+    let ry: &u64 = &y;
+    let lt: bool = rx < ry;
+    unsafe { printf("lt=%d\n".as_ptr(), lt as i32); }
+    if lt { return 1i32; }
+    return 0i32;
+}

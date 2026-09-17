@@ -1,0 +1,14 @@
+package eqsib;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let p: *mut i64 = &mut a[0] as *mut i64;
+    let q: *mut i64 = &mut a[1] as *mut i64;
+    let r: *mut i64 = &mut a[0] as *mut i64;
+    let e1: bool = p == q;
+    let e2: bool = p == r;
+    unsafe { printf("e1=%d e2=%d\n".as_ptr(), e1 as i32, e2 as i32); }
+    if e1 { return 1i32; }
+    if !e2 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+package a08_sliceord;
+fn main() -> i32 {
+    let a: [i64; 2] = [1i64, 2i64];
+    let b: [i64; 2] = [1i64, 3i64];
+    let sa: &[i64] = &a;
+    let sb: &[i64] = &b;
+    if sa < sb { return 0i32; }
+    return 1i32;
+}

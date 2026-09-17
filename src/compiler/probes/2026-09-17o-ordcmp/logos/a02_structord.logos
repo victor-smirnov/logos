@@ -1,0 +1,8 @@
+package a02_structord;
+struct Q { v: i64 }
+fn main() -> i32 {
+    let a: Q = Q { v: 1i64 };
+    let b: Q = Q { v: 2i64 };
+    if a < b { return 1i32; }
+    return 0i32;
+}

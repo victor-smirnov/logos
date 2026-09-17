@@ -1,0 +1,9 @@
+package c03_fnptr_ord;
+fn f1() -> i64 { return 1i64; }
+fn f2() -> i64 { return 2i64; }
+fn main() -> i32 {
+    let a: fn() -> i64 = f1;
+    let b: fn() -> i64 = f2;
+    if a < b { return 0i32; }
+    return 0i32;
+}

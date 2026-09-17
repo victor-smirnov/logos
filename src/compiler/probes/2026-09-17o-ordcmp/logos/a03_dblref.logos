@@ -1,0 +1,14 @@
+package a03_dblref;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let x: i64 = 9i64;
+    let y: i64 = 2i64;
+    let rx: &i64 = &x;
+    let ry: &i64 = &y;
+    let px: &&i64 = &rx;
+    let py: &&i64 = &ry;
+    let lt: bool = px < py;
+    unsafe { printf("lt=%d\n".as_ptr(), lt as i32); }
+    if lt { return 1i32; }
+    return 0i32;
+}

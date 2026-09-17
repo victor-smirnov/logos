@@ -1,0 +1,14 @@
+package c02_ptr_high_addr;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn malloc(n: u64) -> *mut u8;
+fn main() -> i32 {
+    let lo: *mut u8 = unsafe { malloc(16u64) };
+    let hi: *mut u8 = unsafe { malloc(16u64) };
+    let a: u64 = lo as u64;
+    let b: u64 = hi as u64;
+    let by_addr: bool = a < b;
+    let by_ptr: bool = lo < hi;
+    unsafe { printf("by_addr=%d by_ptr=%d\n".as_ptr(), by_addr as i32, by_ptr as i32); }
+    if by_addr != by_ptr { return 1i32; }
+    return 0i32;
+}

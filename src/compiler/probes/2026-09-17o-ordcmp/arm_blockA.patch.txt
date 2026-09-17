@@ -1,0 +1,41 @@
+ROUND 2026-09-17o-ordcmp — BLOCK A ARM, as it will be applied to
+src/compiler/mlir_gen_expr.cpp (ONE site, the ordering branch of the binop
+comparison emitter, immediately below the `==` / `!=` branches that already
+consult `is_ptr_cmp`).
+
+BEFORE (shipped):
+    {
+        bool is_unsigned_cmp = lhs_ty &&
+            LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
+        if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_,
+            is_unsigned_cmp ? ult : slt, lhs, rhs);
+        ... > <= >= identically ...
+    }
+
+AFTER (the arm):
+    {
+        // A raw or fn POINTER operand orders by ADDRESS, and addresses are
+        // UNSIGNED (Rust: `impl Ord for *const T` / `*mut T` is address order).
+        // `is_unsigned_cmp` below reads lhs_ty's KIND, and Kind::Ptr is not an
+        // unsigned repr kind, so the shipped predicate would pick SIGNED slt
+        // here — the reason this is not a one-token widening of the `==`
+        // condition four lines above.
+        if (is_ptr_cmp) {
+            mlir::LLVM::ICmpPredicate p;
+            if      (op == "<")  p = mlir::LLVM::ICmpPredicate::ult;
+            else if (op == ">")  p = mlir::LLVM::ICmpPredicate::ugt;
+            else if (op == "<=") p = mlir::LLVM::ICmpPredicate::ule;
+            else                 p = mlir::LLVM::ICmpPredicate::uge;
+            return builder_.create<mlir::LLVM::ICmpOp>(loc_, p, lhs, rhs);
+        }
+        bool is_unsigned_cmp = ... unchanged ...
+    }
+
+WHAT IT DOES NOT DO, DELIBERATELY:
+  * It does NOT extend the `is_ref_to_prim` deref (the `==`/`!=` guard above) to
+    the ordering ops. That would be BLOCK B, and the base battery measured that
+    doing so ADMITS a01_nobound — `fn less<T>(a:&T,b:&T)->bool{a<b}` with no
+    bound — which rustc refuses with E0369 and which is refused TODAY ONLY by
+    the verifier error this arm removes. `is_ptr_cmp` remains true for a `&T`
+    pair whose pointee sema could not peel, so the arm's own reach over that
+    shape is the measurement that must be read on the armed binary, not assumed.

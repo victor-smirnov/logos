@@ -1,0 +1,9 @@
+package c05_mixedmut_illegal;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let y: i64 = 2i64;
+    let ra: &mut i64 = &mut x;
+    let rb: &i64 = &y;
+    if ra < rb { return 1i32; }
+    return 0i32;
+}

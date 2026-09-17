@@ -1,0 +1,11 @@
+package c04_generic_ordbound;
+use logos.lang.cmp;
+fn less<T: Ord>(a: &T, b: &T) -> bool {
+    return a < b;
+}
+fn main() -> i32 {
+    let x: u64 = 18446744073709551615u64;
+    let y: u64 = 1u64;
+    if less::<u64>(&x, &y) { return 1i32; }
+    return 0i32;
+}

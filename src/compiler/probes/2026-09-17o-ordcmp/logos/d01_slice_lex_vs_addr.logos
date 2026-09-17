@@ -1,0 +1,12 @@
+package d01_slice_lex_vs_addr;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let hi: [i64; 2] = [9i64, 9i64];
+    let lo: [i64; 2] = [1i64, 1i64];
+    let a: &[i64] = &hi;
+    let b: &[i64] = &lo;
+    let lt: bool = a < b;
+    unsafe { printf("lt=%d\n".as_ptr(), lt as i32); }
+    if lt { return 1i32; }
+    return 0i32;
+}

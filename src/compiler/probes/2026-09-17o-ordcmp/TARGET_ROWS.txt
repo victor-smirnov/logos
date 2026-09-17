@@ -1,0 +1,44 @@
+# ROUND 2026-09-17o-ordcmp — TARGET ROWS. Written before touching the compiler,
+# AMENDED after the base battery (amendment kept: a hypothesis and its refutation).
+#
+# ORIGINAL HYPOTHESIS (from READING mlir_gen_expr.cpp): `is_ptr_cmp` is computed
+# once and consulted ONLY under `op == "==" || op == "!="`; the ordering branch
+# below emits arith.cmpi unconditionally. One strict extension at that one site
+# was predicted to move BOTH rows:
+#     rawptr_ordering_compare_mlir_verifier_refused
+#     generic_ref_typevar_ordering_mlir_verifier_refused
+#
+# REFUTED BY MEASUREMENT ON THE BASE BINARY (build/bin/logosc, 13:15, HEAD 11bb91f02).
+# The byte-identical sentence hides two different upstream facts, and the eighth
+# consecutive symptom-grouping in this queue to split when tested:
+#   * sema_expr.cpp ALREADY peels reference layers pairwise for the ORDERING ops
+#     (the `cmp_op` block, ~line 2417), so a CONCRETE ref pointee never reaches
+#     the emitter as a pointer. Measured, base, all correct against rustc:
+#       &u64  (a04)  lt=0 run=0   rustc lt=0 run=0
+#       &bool (a06)  lt=1 run=0   rustc lt=1 run=0
+#       &f64  (a07)  lt=1 run=0   rustc lt=1 run=0
+#       &&i64 (a03)  lt=0 run=0   rustc lt=0 run=0
+#     So the "ordering has no ref path" reading was wrong: it has one, in sema.
+#   * What actually reaches the emitter as `!llvm.ptr` is (i) a RAW pointer and
+#     (ii) a ref whose pointee is a TYPE VARIABLE, which sema cannot peel.
+#
+# BLOCK A — FUNDABLE, one site, illegal twin easy to state:
+rawptr_ordering_compare_mlir_verifier_refused
+#   door: mlir_gen_expr.cpp ordering branch has no `is_ptr_cmp` arm; the `==`/`!=`
+#   branch four lines above returns LLVM::ICmpOp. Rust orders raw pointers by
+#   ADDRESS, UNSIGNED — `is_unsigned_cmp` reads lhs_ty's kind (Ptr is not an
+#   unsigned repr kind), so a naive widening would emit SIGNED slt on addresses.
+#   New unrowed carrier at the same door: a05 `*const u8 <` (rustc lt=1 run=0).
+#
+# BLOCK B — NOT CO-LANDABLE, rowed REASON 2 (doors in series):
+generic_ref_typevar_ordering_mlir_verifier_refused
+#   Its `&T` operands are refused TODAY ONLY BY THIS VERIFIER ERROR, and so is
+#   a01_nobound — `fn less<T>(a:&T,b:&T)->bool{a<b}` with NO bound, which rustc
+#   REFUSES (E0369, measured). Giving the ordering branch a deref path without a
+#   sema bound check first ADMITS a01_nobound. The upstream door is sema's
+#   Ord/`lt` routing (sema_expr.cpp ~2697), not the emitter.
+#
+# NOT IN THE BLOCK — same sentence, different door (array-pattern lowering):
+#   match_ref_array_nested_struct_sub_refused
+#   at_binding_array_sub_verifier_error_refused
+#   array_typed_field_binding_shape_lost   (arith.addi, !llvm.array<2 x i64>)

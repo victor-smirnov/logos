@@ -1,0 +1,12 @@
+package a07_floatreford;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let x: f64 = 1.5f64;
+    let y: f64 = 2.5f64;
+    let rx: &f64 = &x;
+    let ry: &f64 = &y;
+    let lt: bool = rx < ry;
+    unsafe { printf("lt=%d\n".as_ptr(), lt as i32); }
+    if !lt { return 1i32; }
+    return 0i32;
+}
