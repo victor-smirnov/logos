@@ -2410,6 +2410,9 @@ private:
     uint64_t max_line_seen_ = 0;   // #75: a PROGRAM POINT, see stmt_point
     // The MethodCall a DerefWrite statement writes through (a Vec's `v[i] = x`), while it is visited.
     const uint8_t* store_target_mc_ = nullptr;
+    // 2026-09-16n-arrstore2: the root of the INDEXED place a DerefWrite is
+    // storing into, live only while its LHS is being visited.
+    std::string store_lhs_root_;
     // A store evaluates its value and index before IndexMut's `&mut v` (Rust): true when every loan that conflicts
     // with it is a whole-`v` shared loan whose holders' last use is this statement, raised inside the innermost loop.
     // A query, not a release. PROBES.md 2026-09-14b-ptrcoerceland.
@@ -2508,6 +2511,18 @@ private:
                 }
             }
         return true;
+    }
+
+    // 2026-09-16n-arrstore2. A SYNTHETIC holder (`__idx_base`, `__dwbase`,
+    // `__loop_val_N`) is not a user binding, and this file's liveness is keyed
+    // on a holder's last USE — a name no source line mentions has none, so the
+    // query above cannot speak about it.
+    bool loan_holder_is_synthetic_(const std::string& root) {
+        for (auto& sc : scopes_)
+            for (auto& b : sc.borrows)
+                if (!b.is_mut && b.target == root &&
+                    b.holder.rfind("__", 0) == 0) return true;
+        return false;
     }
 
     // ── #75: (line, ordinal) program points ────────────────────────────────
@@ -13741,7 +13756,11 @@ private:
                         std::string root(EVarRefView{cur}.name());
                         uint32_t root_slot = EVarRefView{cur}.var_slot();  // Phase-1
                         if (auto it = var_find(root_slot, root); it != nullptr) {
-                            if (it->shared_borrows > 0)
+                            // DOOR 1 of 2 — PROBES.md 2026-09-16n-arrstore2.
+                            const bool store_loans_dead_ =
+                                !loan_holder_is_synthetic_(root) &&
+                                store_loans_die_in_stmt_(root);
+                            if (it->shared_borrows > 0 && !store_loans_dead_)
                                 report(ln, std::format(
                                     "cannot assign through '{}[..]' because '{}' is borrowed",
                                     root, root));
@@ -14007,6 +14026,13 @@ private:
                             note_reborrow_place(wplace, v.value());
                         }
                     }
+                    // DOOR 2's store-LHS scope — PROBES.md 2026-09-16n-arrstore2.
+                    const std::string saved_slr_ = store_lhs_root_;
+                    if (!retarget) {
+                        BorrowPlace sbp_ = extract_borrow_place(atv.inner(), pool);
+                        if (!sbp_.root.empty() && sbp_.index_in_chain)
+                            store_lhs_root_ = sbp_.root;
+                    }
                     // CEILING PROBE `dwbaseloan` — ⛔ see PROBES.md 2026-08-31q.
                     if (logos::probe::on("dwbaseloan")) {
                         BorrowPlace dwp = extract_borrow_place(atv.inner(), pool);
@@ -14026,6 +14052,7 @@ private:
                         visit(v.ptr(),   /*consuming=*/false, ln);
                         retarget_dest_ = false;
                     }
+                    store_lhs_root_ = saved_slr_;   // 2026-09-16n-arrstore2
                     visit(v.value(), /*consuming=*/true,  ln);
                     if (!wroot.empty())
                         place_write_loans(wroot, v.value(), ln,
@@ -15375,7 +15402,12 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             self_disp));
                         break;
                     }
-                    if (is_mut && sit->shared_borrows > 0) {
+                    // DOOR 2 of 2 — PROBES.md 2026-09-16n-arrstore2.
+                    const bool store_lhs_loans_dead_ =
+                        !store_lhs_root_.empty() && root == store_lhs_root_ &&
+                        !loan_holder_is_synthetic_(root) &&
+                        store_loans_die_in_stmt_(root);
+                    if (is_mut && sit->shared_borrows > 0 && !store_lhs_loans_dead_) {
                         report(line, std::format(
                             "cannot borrow '{}' as mutable: '{}' has shared borrows",
                             self_disp, root));

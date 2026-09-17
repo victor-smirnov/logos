@@ -1,0 +1,8 @@
+package h04_fieldarr;
+struct S { xs: [i64; 2] }
+fn main() -> i32 {
+    let mut s: S = S { xs: [1i64, 2i64] };
+    let e: &i64 = &s.xs[1u64];
+    s.xs[0u64] = *e + 1i64;
+    return (s.xs[0u64] - 3i64) as i32;
+}

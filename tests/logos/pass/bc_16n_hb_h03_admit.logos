@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-16n-arrstore2, program h03_both — caught: the INDEX and the VALUE of one store both read the same live loan — base refused it with two lines, the landed binary compiles and runs exit 0
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles rc 0 and RUNS exit 0.
+// Twin src/compiler/probes/2026-09-16n-arrstore2/rust/h03_both.rs
+package bc_16n_hb_h03_admit;
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 0i64, 5i64];
+    let e: &i64 = &a[1u64];
+    a[*e as u64] = *e + 4i64;
+    return (a[0u64] - 4i64) as i32;
+}

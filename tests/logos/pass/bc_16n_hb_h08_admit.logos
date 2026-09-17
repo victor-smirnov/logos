@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-16n-arrstore2, program h08_loop — caught: loan minted and store executed inside a WHILE body — the query's loop_lo guard declines an OUTER loan, and this one is inner
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles rc 0 and RUNS exit 0.
+// Twin src/compiler/probes/2026-09-16n-arrstore2/rust/h08_loop.rs
+package bc_16n_hb_h08_admit;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let mut i: i64 = 0i64;
+    while i < 2i64 {
+        let e: &i64 = &a[1u64];
+        a[0u64] = *e + 1i64;
+        i = i + 1i64;
+    }
+    return (a[0u64] - 3i64) as i32;
+}

@@ -1,0 +1,62 @@
+// store_liveness_doors — HOW MANY DOORS IN SERIES REFUSE A STORE ON `shared_borrows`,
+// AND WHICH OF THEM EVER ASK THE STORE-LIVENESS QUERY?
+// (round 2026-09-16n-arrstore2; the question round 2026-09-16m answered with a probe-gated
+// stderr marker on four hand-picked sites — a list made by READING, which had already been
+// wrong once that round: its author guessed `check_place_mut_use` and the marker said
+// otherwise.)
+//
+// Property: a place write under a live shared loan is refused by whichever guard reads
+// VarState::shared_borrows FIRST; opening one such guard moves the refusal to the next one
+// (doors in series). The decidable form: every context that READS the field `shared_borrows`,
+// which of those contexts hold a refusal sentence ("cannot …"), and which of them ever consult
+// `store_loans_die_in_stmt_` — the query that separates "the loan's last use is this statement"
+// from "it is used after it". A context that decides on the field and never asks the query is a
+// door that cannot tell the two apart.
+//
+// A grep for "shared_borrows" cannot answer this: it cannot tell a DECREMENT at a release site
+// from a READ in a refusal arm, and it keys on a name where identity here is the canonical
+// FieldDecl.
+//
+// ⚠ COARSENING (the 2026-08-27 lesson, 37-vs-0): `ctx_of` keys on the enclosing named context,
+// so "this context reports" is not "this READ reports". Cross-check per site by line against the
+// source, and against the armed binary's own remaining error lines.
+#include "cxx_schema.dl"
+
+.decl sharedfact(did: symbol)
+sharedfact(D) :- decl(D, "Field", _), decl_name(D, "shared_borrows").
+
+// Every read of the field, by enclosing named context.
+.decl shared_read(ctx: symbol, file: symbol, line: number)
+shared_read(C, F, L) :- sharedfact(D), ref(U, D), ctx_of(U, X), ctx_name(X, C), loc(U, F, L, _).
+.output shared_read
+
+// Every refusal sentence, by context.
+.decl reports_cannot(ctx: symbol, line: number, text: symbol)
+reports_cannot(C, L, T) :- str_lit(S, T), match("cannot.*", T),
+                           ctx_of(S, X), ctx_name(X, C), loc(S, _, L, _).
+.output reports_cannot
+
+// Every consultation of the store-liveness query — as a DeclRef and as a call.
+.decl asks_query(ctx: symbol, line: number)
+asks_query(C, L) :- decl(D, _, _), decl_name(D, "store_loans_die_in_stmt_"), ref(U, D),
+                    ctx_of(U, X), ctx_name(X, C), loc(U, _, L, _).
+asks_query(C, L) :- call(K, D), decl_name(D, "store_loans_die_in_stmt_"),
+                    ctx_of(K, X), ctx_name(X, C), loc(K, _, L, _).
+.output asks_query
+
+.decl ctx_asks(ctx: symbol)
+ctx_asks(C) :- asks_query(C, _).
+
+.decl ctx_reports(ctx: symbol)
+ctx_reports(C) :- reports_cannot(C, _, _).
+
+// THE CLASS: a context that reads the field, carries a refusal sentence, and never asks the
+// query — every one of these is a candidate next door in the series.
+.decl door_blind(ctx: symbol, file: symbol, line: number)
+door_blind(C, F, L) :- shared_read(C, F, L), ctx_reports(C), !ctx_asks(C).
+.output door_blind
+
+// …and the ones that DO ask, for the control direction.
+.decl door_asks(ctx: symbol, file: symbol, line: number)
+door_asks(C, F, L) :- shared_read(C, F, L), ctx_asks(C).
+.output door_asks

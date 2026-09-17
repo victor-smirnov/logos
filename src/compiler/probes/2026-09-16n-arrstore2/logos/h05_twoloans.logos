@@ -1,0 +1,8 @@
+package h05_twoloans;
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: &i64 = &a[1u64];
+    let f: &i64 = &a[2u64];
+    a[0u64] = *e + *f;
+    return (a[0u64] - 5i64) as i32;
+}

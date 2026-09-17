@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-16n-arrstore2, program x02 — caught: the ABUSE twin of the index door — the store's index reads the loan AND the holder is used AFTER the store, so the store-liveness query must still refuse (rustc 1.98.1 --edition 2024: error[E0506]).
+// legality: MEASURED, not by reading — twin src/compiler/probes/2026-09-16n-arrstore2/rust/x02_index_after.rs, rustc rc 1 E0506.
+package bc_16n_hb_x02_refuse;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [7i64, 1i64];
+    let e: &i64 = &a[1u64];
+    a[*e as u64] = 9i64;
+    let z: i64 = *e;
+    return (z - 1i64) as i32;
+}

@@ -1,0 +1,13 @@
+// PROMOTED FROM THE SOUNDNESS QUEUE by round 2026-09-16n-arrstore2: row array_index_store_index_reads_loan_refused (tier 3, `refuses`) is CLOSED.
+// The array place-write door now asks the store-liveness query the Vec door already asks, and so does the
+// SECOND guard of the same `AddrOfTemp` arm while the store's own LHS is being walked — the two are doors in
+// series, and opening one alone closes nothing (round 2026-09-16m measured exactly that).
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles rc 0 and RUNS exit 0.
+// Twin src/compiler/probes/2026-09-16n-arrstore2/rust/h02_index.rs
+package bc_16n_row_array_index_store_index_reads_loan_refused;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [7i64, 0i64];
+    let e: &i64 = &a[1u64];
+    a[*e as u64] = 9i64;
+    return (a[0u64] - 9i64) as i32;
+}

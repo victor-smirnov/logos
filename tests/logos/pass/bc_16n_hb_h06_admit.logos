@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-16n-arrstore2, program h06_nested — caught: a NESTED array: the loan is on a[1][0] and the store writes a[0][1] — the walk must reach the outer root
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles rc 0 and RUNS exit 0.
+// Twin src/compiler/probes/2026-09-16n-arrstore2/rust/h06_nested.rs
+package bc_16n_hb_h06_admit;
+fn main() -> i32 {
+    let mut a: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    let e: &i64 = &a[1u64][0u64];
+    a[0u64][1u64] = *e + 1i64;
+    return (a[0u64][1u64] - 4i64) as i32;
+}

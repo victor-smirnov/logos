@@ -58,7 +58,7 @@ let_array_pattern_temp_source_remainder_late_run 1 tests/soundness/open/let_arra
 match_ref_array_nested_struct_sub_refused 3 tests/soundness/open/match_ref_array_nested_struct_sub_refused refuses
 match_array_nested_array_subpattern_mlirgen_malfunction 3 tests/soundness/open/match_array_nested_array_subpattern_mlirgen_malfunction refuses
 let_array_pattern_nested_subpattern_refused 3 tests/soundness/open/let_array_pattern_nested_subpattern_refused refuses
-# TOTAL 234
+# TOTAL 233
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -192,7 +192,6 @@ mutptr_region_param_elided_let_arg_refused 3 tests/soundness/open/mutptr_region_
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 vec_push_arg_reads_loan_refused 3 tests/soundness/open/vec_push_arg_reads_loan_refused refuses
 vec_push_ifarm_after_loan_last_use_refused 3 tests/soundness/open/vec_push_ifarm_after_loan_last_use_refused refuses
-array_store_value_reads_loan_refused 3 tests/soundness/open/array_store_value_reads_loan_refused refuses
 generic_user_indexmut_store_refused 3 tests/soundness/open/generic_user_indexmut_store_refused refuses
 enum_payload_binding_declared_binder_name_collision_admits 2 tests/soundness/open/enum_payload_binding_declared_binder_name_collision_admits admits
 tuplestruct_ctor_declared_binder_name_admits 2 tests/soundness/open/tuplestruct_ctor_declared_binder_name_admits admits
@@ -321,9 +320,18 @@ at_binding_outer_and_inner_partial_move_admits 2 tests/soundness/open/at_binding
 at_binding_nested_field_partial_move_admits 2 tests/soundness/open/at_binding_nested_field_partial_move_admits admits
 let_at_binding_struct_pattern_moved_variable_refused 3 tests/soundness/open/let_at_binding_struct_pattern_moved_variable_refused refuses
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
-array_index_store_index_reads_loan_refused 3 tests/soundness/open/array_index_store_index_reads_loan_refused refuses
 cell_typearg_region_invariance_admits 2 tests/soundness/open/cell_typearg_region_invariance_admits admits
 unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_binds_deref_admits admits
 refptr_inner_region_elision_demands_static_refused 3 tests/soundness/open/refptr_inner_region_elision_demands_static_refused refuses
 arg_ref_primitive_for_ref_struct_admits 2 tests/soundness/open/arg_ref_primitive_for_ref_struct_admits admits
 double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_while_borrowed_admits admits
+# ── 2026-09-16n-arrstore2 (LANDING, tier 3: the array place write's TWO guards are doors in SERIES) ── Two rows CLOSE
+#    (array_store_value_reads_loan_refused, array_index_store_index_reads_loan_refused): borrow_check.cpp's place-write
+#    exclusivity report AND the second guard of the same `AddrOfTemp` arm both ask store_loans_die_in_stmt_ now, the
+#    second one scoped to the store's own LHS. 16m opened the first alone and measured CEILING 0 — doors in series.
+#    Both programs are now pass fixtures, each COMPILING and RUNNING exit 0 against its rustc 1.98.1 twin.
+#    ONE row OPENS: the same shape with the array as a STRUCT FIELD. Neighbour rowed with its reason (no carrier):
+#    it is refused by take_field_borrow_path_'s FIELD-PATH guard, and the store-liveness query returns false by its
+#    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
+#    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
+array_field_store_value_reads_field_loan_refused 3 tests/soundness/open/array_field_store_value_reads_field_loan_refused refuses

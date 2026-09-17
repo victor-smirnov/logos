@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-16n-arrstore2, program h05_twoloans — caught: TWO live shared loans of the array read by one store's value — the query must clear BOTH, not the first
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles rc 0 and RUNS exit 0.
+// Twin src/compiler/probes/2026-09-16n-arrstore2/rust/h05_twoloans.rs
+package bc_16n_hb_h05_admit;
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let e: &i64 = &a[1u64];
+    let f: &i64 = &a[2u64];
+    a[0u64] = *e + *f;
+    return (a[0u64] - 5i64) as i32;
+}

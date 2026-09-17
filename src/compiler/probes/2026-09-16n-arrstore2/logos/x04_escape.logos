@@ -1,0 +1,8 @@
+package x04_escape;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let e: &i64 = &a[1u64];
+    a[0u64] = *e + 1i64;
+    let k: &i64 = e;
+    return (*k - 2i64) as i32;
+}

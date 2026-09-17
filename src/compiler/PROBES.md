@@ -47745,3 +47745,72 @@ verdict: **DECLINED AS PRICED — reason 2, doors in series.** The query is RIGH
   ⚠ PRICE IT, DO NOT ASSUME IT: door 2 is reached by far more than array stores (it is the generic
   AddrOfTemp receiver guard), so its own cost is unmeasured and is NOT this round's 0. Rule 13 —
   a per-site measurement is not additive, and 4 + 0 has been 6 before.
+
+## 2026-09-16n-arrstore2 — THE ARRAY PLACE WRITE HAS TWO GUARDS IN SERIES AND ASKING THE STORE-LIVENESS QUERY AT BOTH CLOSES BOTH TIER-3 ROWS, RUN-VERIFIED; THE ONE FIXTURE THE WIDE ARM UN-REFUSED IS HELD BY A SYNTHETIC-HOLDER EXCLUSION, SO THE OWNER'S PENDING CORPUS DECISION IS NEITHER PRE-EMPTED NOR NEEDED
+site: src/compiler/borrow_check.cpp::visit_stmt
+site: src/compiler/borrow_check.cpp::visit
+build: 89e5804e17f251f6 43 (base, READ) · 194ebe43576e3d42 43 (armed A, wide) · 01ebd4d6d0f05ef0 43 (armed B, narrowed) · 1d119548576b8a8b 43 (landed, unconditional)
+measured: 2026-09-16
+fires: NOT counted — tooling is frozen. The EFFECT SET was measured directly, unarmed vs armed on ONE
+  binary (probe::on is env-gated), over 14 hand programs + all 234 queue rows + 1884 fail fixtures +
+  7450 run fixtures + the four stdlib layers.
+ceiling: **2 ROWS, BOTH CLOSED** — array_store_value_reads_loan_refused and
+  array_index_store_index_reads_loan_refused, rc 1 nerr 2 -> rc 0, and each COMPILES, LINKS and RUNS
+  exit 0 (rustc 1.98.1 twins: rc 0, run exit 0). The other 232 rows are byte-identical both ways.
+cost: fail_text 1884 common · 0 added · 0 removed · **0 CHANGED**
+  run_oracle 7450 common · 0 added · 0 removed · 1 changed = `cast-region-to-uint`, subtracted BY NAME
+    (it prints a stack address) — so ZERO in the run column.
+  stdlib 4 of 4 layers compile under the arm.
+  queue-wide (all 234 rows, both ways): ONLY the two target rows differ.
+verdict: **LANDED** (variant B). Variant A — the same arm without the synthetic-holder exclusion — was
+  built, measured and WITHDRAWN: same ceiling, but it un-refuses one pinned fail fixture (below).
+
+### WHAT 16m LEFT, AND THE ONE THING IT DID NOT PREDICT
+16m opened DOOR 1 alone (the place-write exclusivity report) and measured CEILING 0: both rows lost one
+error line and stayed refused by DOOR 2, the second guard of the same `AddrOfTemp` arm. Its recommendation
+— gate door 2 the same way — is what this round built, with a correction it did not state: door 2 is the
+GENERIC AddrOfTemp receiver guard, reached by far more than array stores, so it is scoped to the store's
+own LHS by a new member (`store_lhs_root_`, set only while an INDEXED place's LHS is walked and restored
+immediately after), mirroring the existing `store_target_mc_` idiom one door over. Ungated, door 2 would
+have been an unpriced relaxation of every auto-ref receiver in the file.
+
+### THE CLASS, ENUMERATED WITH dlog AND CROSS-CHECKED PER SITE
+`tools/dlog/store_liveness_doors.dl` (NEW; `selftest.sh` run first, rc 0, known answer reproduced: 19
+walkers / 24 findings / try_path 1-5 / domain 42-5, duty discriminates 1 -> 0). The question: every
+context that READS `VarState::shared_borrows`, which of them carry a refusal sentence, and which ever
+consult `store_loans_die_in_stmt_`.
+  door_asks (after the arm): visit 15396 · visit_stmt 13750 — the two this round gates.
+  door_blind (13 sites / 7 contexts): field_borrow_conflicts 4542 · take_field_borrow_path_ 4596 ·
+    take_borrow_whole_ 4879/4886/4894/4905/4908/4936 · consume 5539 · check_recv_conflict 7158 ·
+    check_place_mut_use 7290 · visit_args 15184/15189.
+  ⚠ CROSS-CHECKED PER SITE (the 2026-08-27 37-vs-0 lesson, where a ctx-level guard answered a site-level
+  question): of those 13, only SIX are refusal decisions on a shared loan — 4542, 4596, 4894, 4908, 7158,
+  7290. 4879/4886/4936 are counter reads and the increment; 15184/15189 are the probe-gated `argresvact`
+  arm; 5539 is one conjunct of check_live's compound test. The coarsening is real and visible, and the
+  class is SIX further candidate doors, not thirteen. 16m's four-site list was made by READING and its
+  author had already guessed one site wrong; this is the same list derived, and it is larger.
+
+### THE ONE FIXTURE VARIANT A MOVED, AND WHY B DOES NOT
+Under A, `logos_06_diagnostics_fail_bc_idxbase_elem_write_in_index_fail` went rc 1 -> rc 0, match 1 -> 0:
+`let z = a[{ a[0u64] = 9i64; 2u64 }]` un-refused. Its loan is the compiler's own `__idx_base` record — a
+SYNTHETIC holder no source line mentions — and this file's liveness is keyed on a holder's last USE, which
+such a name does not have. B therefore excludes synthetic holders (`loan_holder_is_synthetic_`), and the
+fixture is refused exactly as before, both lines, rc 1.
+⚠ THIS IS NOT A RULING ON THAT FIXTURE. 16m measured rustc 1.98.1 COMPILING that program (rc 0, RUNS exit
+3), and the imported twin its header cites is a different shape (a whole-array assignment, genuinely
+E0510). That corpus decision is still the owner's. B neither edits it nor depends on it — and if the owner
+rules the fixture wrong, the exclusion is the one line to delete.
+
+### ABUSE DIRECTION — WRITTEN FIRST, rustc-MEASURED, ALL UNMOVED
+x01 value-after · x02 index-after · x03 mut loan · x04 loan escapes · x06 block-store after · x07 nested
+after — six illegal twins, all rustc 1.98.1 E0506, all six still refused with BOTH lines under the arm.
+The query separates "the holder's last use IS this statement" from "it is used after it" at both doors.
+
+### NEIGHBOURS — TESTED, NOT ASSUMED
+| neighbour | disposition | the number |
+|---|---|---|
+| array_index_store_index_reads_loan_refused | CLOSED in this commit | one change moves both; rc 1 -> 0, RUNS exit 0 |
+| h04 struct-FIELD array store (new row) | ROWED — reason 1, no carrier | refused by take_field_borrow_path_'s FIELD-PATH guard; `store_loans_die_in_stmt_` returns false on its first line whenever the root has any `shared_field_borrows`, which is this program exactly. nerr 1, unmoved by the arm. |
+| vec_index_store_value_borrows_vec_refused | unmoved | IndexMut receiver — door 1 already asks the query there (16m) |
+| vec_push_arg_reads_loan_refused | unmoved | two-phase method autoref, not a place write |
+| vec_push_ifarm_after_loan_last_use_refused | unmoved | release_dead_borrows across an if-arm frame |

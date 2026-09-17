@@ -1,0 +1,8 @@
+package x02_index_after;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [7i64, 1i64];
+    let e: &i64 = &a[1u64];
+    a[*e as u64] = 9i64;
+    let z: i64 = *e;
+    return (z - 1i64) as i32;
+}

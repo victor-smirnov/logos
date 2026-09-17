@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-16n-arrstore2, program h07_ifarm — caught: loan and store inside an if-arm frame — the shape release_dead_borrows does NOT sweep, so the query answers where liveness cannot
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles rc 0 and RUNS exit 0.
+// Twin src/compiler/probes/2026-09-16n-arrstore2/rust/h07_ifarm.rs
+package bc_16n_hb_h07_admit;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let c: bool = true;
+    if c {
+        let e: &i64 = &a[1u64];
+        a[0u64] = *e + 1i64;
+    }
+    return (a[0u64] - 3i64) as i32;
+}

@@ -1,0 +1,10 @@
+// hand battery: round 2026-09-16n-arrstore2, program x04 — caught: the ABUSE twin where the loan ESCAPES the store statement into another binding, so its last use is NOT this statement and the door must stay shut (rustc 1.98.1 --edition 2024: error[E0506]).
+// legality: MEASURED, not by reading — twin src/compiler/probes/2026-09-16n-arrstore2/rust/x04_escape.rs, rustc rc 1 E0506.
+package bc_16n_hb_x04_refuse;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let e: &i64 = &a[1u64];
+    a[0u64] = *e + 1i64;
+    let k: &i64 = e;
+    return (*k - 2i64) as i32;
+}

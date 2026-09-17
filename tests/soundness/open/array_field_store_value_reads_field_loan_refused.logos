@@ -1,0 +1,22 @@
+package array_field_store_value_reads_field_loan_refused;
+struct S { xs: [i64; 2] }
+fn main() -> i32 {
+    let mut s: S = S { xs: [1i64, 2i64] };
+    let e: &i64 = &s.xs[1u64];
+    s.xs[0u64] = *e + 1i64;
+    return (s.xs[0u64] - 3i64) as i32;
+}
+// SOUNDNESS QUEUE row array_field_store_value_reads_field_loan_refused (tier 3, refuses).
+// LEGAL: the same shape as the two rows CLOSED by round 2026-09-16n-arrstore2
+// (array_store_value_reads_loan_refused / array_index_store_index_reads_loan_refused), but the
+// array is a STRUCT FIELD: an assignment evaluates its value before its place, so `e` is dead
+// when `s.xs[0]` is written. rustc 1.98.1 --edition 2024 MEASURED 2026-09-16: compiles rc 0,
+// RUNS exit 0. Twin src/compiler/probes/2026-09-16n-arrstore2/rust/h04_fieldarr.rs.
+// TODAY refused by logosc with ONE error (not the two the whole-local spelling printed):
+//   error [fn main]: cannot borrow 's.xs' as mutable: 's.xs' is already borrowed
+// NEIGHBOUR ROWED WITH ITS REASON (reason 1, the fact has no carrier there): that sentence is
+// take_field_borrow_path_'s FIELD-PATH guard, and `store_loans_die_in_stmt_` — the query both
+// doors of the closed arm now ask — returns false by its FIRST line whenever the root has any
+// shared_field_borrows, which is exactly this program. The repair is a different change (a
+// field-path form of the store-liveness query), not a strict extension of the landed one.
+// MEASURED on the landed binary of that round, armed: still refused, nerr 1 (unmoved).

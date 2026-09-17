@@ -1,0 +1,7 @@
+package h02_index;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [7i64, 0i64];
+    let e: &i64 = &a[1u64];
+    a[*e as u64] = 9i64;
+    return (a[0u64] - 9i64) as i32;
+}
