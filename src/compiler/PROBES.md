@@ -48308,3 +48308,151 @@ moves REGISTRY-ALL before the row exists — and the gate reds on a shelf progra
 (4) The prompt's "~6270 run_test.sh pass fixtures" is stale: measured 7461.
 
 Full record, twins, counter-examples and the dlog rule: src/compiler/probes/2026-09-17d-arrlit/.
+
+
+## 2026-09-17e `refpatpair` — TWO ROUNDS EACH MEASURED ONE HALF OF A DOOR IN SERIES AT ZERO AND ROWED IT AS "NO CARRIER"; ARMED TOGETHER THE HALVES CLOSE A TIER-3 ROW RUN-VERIFIED AGAINST ITS rustc TWIN, AT ZERO IN EVERY COLUMN, WHILE THE THIRD PREDICTED ROW IS REFUTED BY ITS OWN COMPILER SELF-DIAGNOSIS
+
+**PRICED, NOT LANDED** — this is a pricing round; nothing shipped in the compiler. Probes
+built, measured, and REVERTED; `build_hash.py` reads `068a4dab393e7aae 43` before the arm and
+`068a4dab393e7aae 43` after the restoring rebuild — the control revert is proven by the build key.
+
+site: src/compiler/mlir_gen_stmt.cpp::MLIRGenImpl::pat_bind
+also: src/compiler/sema_stmt.cpp::SemaChecker::bind_pattern_ref (the Tuple each_sub whitelist) and
+      src/compiler/sema_stmt.cpp::SemaChecker::lower_let_else (define_bindings). The pat_bind
+      RefPat case is ABSENT, and that absence is the door in series.
+probes: `refpatcg` (codegen half) · `refpatsema` (sema half) · `refpatpair` (both)
+build: `068a4dab393e7aae 43` (base, and restored) · armed binary env-gated from the same build
+fires: refpatcg **NEVER FIRED** (0 hits over the whole hand battery — the site is UNREACHABLE until
+       sema defines the name, so its "ceiling 0" is not a refutation; this is the doors-in-series
+       signature and the correction to two rounds' "measured at zero") · refpatsema 1 hit per
+       program (4 programs, 4 hits) · refpatpair 3 hits on h_tuple and 1 on each of the other three.
+       ⚠ The ceiling instrument for a tier-3 row is the QUEUE GATE armed vs unarmed, diffed both
+       ways — `ceiling-probe.sh` cannot see a queue row at all. Armed: rc 1, exactly one row named.
+
+### THE FINDING — A DOOR IN SERIES THAT TWO ROUNDS EACH PRICED FROM ONE SIDE
+
+`pat_bind` has no `RefPat` case; the sema binder whitelists exclude `RefPat`. Each half was
+measured ALONE, by a DIFFERENT round, and rowed:
+
+  * 2026-09-16p armed the SEMA half (as part of `+{Struct,Slice,RefPat}`): a MISCOMPILE
+    (`got=0` vs rustc `got=6`) plus two E0507 ADMISSIONS, and rowed RefPat "REASON 1, no carrier".
+  * The row headers of `ref_pattern_nested_in_tuple_binding_undefined_refused` and
+    `letelse_ref_pattern_binding_undefined_refused` record the CODEGEN half "built and measured at zero".
+
+NEITHER ROUND ARMED BOTH. Rules 2 and 13: half a mechanism is not one, and 4 + 0 = 6.
+
+    arm          h_tuple  (legal; rustc 1.98.1 got=6 exit 0)        fires
+    none         REFUSED  "undefined variable 'x'"                  —
+    refpatcg     REFUSED  "undefined variable 'x'"                  NEVER FIRED   <- not ceiling 0
+    refpatsema   mlir_gen: undefined 'x' — no value emitted          1 per program
+    refpatpair   COMPILED warn=0 run_rc=0 got=6                      3
+
+⚠ `refpatcg` reads **NEVER FIRED**, not ceiling 0 — the site is unreachable until sema defines the
+name. That is the doors-in-series signature, and it is exactly what "measured at zero" concealed.
+
+### COLUMNS — `refpatpair`, every one diffed BOTH WAYS
+
+    queue gate (the ONLY ceiling instrument for a tier-3 row; ceiling-probe.sh cannot see one)
+        unarmed  rc 0 — 237 rows hold (tier1=39 tier2=66 tier3=121 tier4=11)
+        armed    rc 1 — EXACTLY ONE row named: ref_pattern_nested_in_tuple_binding_undefined_refused
+                       "NO LONGER REPRODUCES — compiles clean (cc=0 diag=0 run=0)"
+    fail_text_oracle.py   1892 fail fixtures — tables BYTE-IDENTICAL, 0 changed
+    spec fail tier BY NAME  logos_25_spec_fail_*  494/494 passed, both ways
+    stdlib-cost.sh        4/4 layers compile under refpatpair AND under refpatsema
+    run_oracle.py         7465 pass fixtures compiled+linked+RUN; 1 row differs and it is
+                          `cast-region-to-uint`, subtracted BY NAME (prints a stack address) -> 0
+    valgrind (armed closed-row binary)  0 errors, 0 leaks, 1 alloc / 1 free
+
+⚠ THE EXIT CODE IS BLIND AT THIS DOOR, so the close is read off the PRINTED VALUE: the armed
+binary prints `got=6` and exits 0, which is what rustc's twin prints and exits. The row program
+itself compiles warn=0 and runs 0 on the armed binary.
+
+### THE ABUSE DIRECTION, WRITTEN FIRST AND MEASURED
+
+rustc 1.98.1 --edition 2024, `--emit=metadata --out-dir` (never `-o /dev/null`):
+
+    x_tuple_e0507     E0507 "cannot move out of a shared reference"                    MUST STAY REFUSED
+    x_letelse_e0507   E0507 "cannot move out of `r` as enum variant `Some` ..."        MUST STAY REFUSED
+
+⚠ ON THE BASE BINARY BOTH ARE REFUSED ONLY BY THE "undefined variable" ACCIDENT — the same accident
+the rows describe, so the base's refusal is worth nothing as a safety claim (rule 14: inherited).
+Under `refpatpair` the TUPLE twin becomes a REAL refusal, read:
+
+    error [fn main]: cannot move out of a value behind a reference / out of an index (E0507):
+    the pattern binds 'd' by value
+
+That is `bind_pattern_ref`'s own `byval_` walker — the E0507 guard 2026-09-16p co-landed — firing
+through the door this arm widens. The guard was already in place; the arm did not have to buy it.
+
+### NEIGHBOUR TABLE — every row the class enumeration names
+
+| neighbour | closed by this arm? | reason, with the number |
+|---|---|---|
+| `ref_pattern_nested_in_tuple_binding_undefined_refused` | **CLOSES** (priced) | the PAIR only. `got=6` exit 0, warn=0, valgrind clean, gate names it and only it; E0507 twin holds with a real sentence |
+| `letelse_ref_pattern_binding_undefined_refused` | **NO — REASON 1, no carrier at that site** | sema now defines `x`, and the LET-ELSE codegen route emits no value for it: `mlir_gen: internal: 'return' value lowered to no value ... the RETURN was silently discarded`, COMPILE FAILED (rc 1). `pat_bind` is NOT the extractor for `SLetElse`; closing it is a different change at a different site |
+| `let_ref_struct_pattern_irrefutable_refused` | **NO — REASON 1, a different production** | refused at the `let`-door whitelist (`sema_stmt.cpp:1421`, `pc != PAT_STRUCT && !tuple_struct && !array_slice && !single_variant`) BEFORE any binder runs; identical text on base and armed. A top-level `PAT_REF` has no lowering route at that door, so it is not a whitelist entry |
+
+⚠ The predicted let-else close was REFUTED by measurement, and refuted in the SAFE direction: the
+backend self-diagnosed rather than miscompiling. 2026-09-16p's equivalent half produced a silent
+`got=0`; this one refuses. Record the difference — the self-diagnosis is what makes this row cheap
+to leave open.
+
+### REGISTRY CHECK (standing rule: grep BOTH, they use different naming schemes)
+
+  * `docs/DIVERGENCES.md` — 17 letter-keyed rows. The `let`-door restriction belongs to **B4**,
+    whose Rust column reads **"as Rust"** and whose note calls these "plain GAPS ... Work them in
+    the grind; this row is the pointer, not the list." So B4 is NOT a licence for the refusal.
+  * `docs/spec/divergences.md` — `stmt.let-pat.struct-shapes-only` registers the restriction as a
+    rule ("only pattern shapes this lowering can prove irrefutable"), citing B4. Its own criterion
+    is about what THIS LOWERING can prove, not about legality: `&&P { x }` over `&&P` is
+    irrefutable, and rustc accepts it (MEASURED: compiles, `got=5`, exit 0).
+    **Not a blessed divergence — a gap, by its own registry row.**
+
+### dlog — RUN AFTER THE REVERT, ON THE CLEAN TREE (never in between; 17a/b described an armed source)
+
+`selftest.sh` rc 0, known-answer control intact (19 walkers / 24 findings / try_path 1-5 /
+domain 42-5; duty discriminates across `756aed65` 1 -> 0). Then the EXISTING rule
+`refpat_scrut_deciders.dl` over `mlir_gen_stmt.cpp` + `sema_stmt.cpp`: 11 `PatRefPatView::inner()`
+recursion sites in 9 named contexts.
+
+    refpat_recursor        is_irrefutable_pattern · shadow_register_pattern · ref_pat_core_scrut ·
+                           pat_test · gen_match (x2) · bind_pattern_ref (x2) · extract_payload (x2) ·
+                           collect_names@sema_stmt.cpp:4974
+    refpat_recursor_loads  gen_match/scalar_core_scrut · extract_payload/{scalar_core_scrut,ref_pat_core_scrut}
+    refpat_recursor_no_load  6 contexts, bind_pattern_ref among them
+
+**`pat_bind` IS ABSENT FROM THE DOMAIN** — the door stated as an ABSENCE, which is precisely what a
+grep cannot spell. CROSS-CHECKED against a per-site read, as the standing rule requires, and the two
+numbers agree: dlog 0 recursions inside `pat_bind`; per-site read of `pat_bind`'s switch 0 RefPat
+cases (labels: Wild, At, Tuple, VariantData, Or, Struct, RefBind, default).
+⚠ It also names `collect_names@sema_stmt.cpp:4974`, a RefPat recursor NEITHER 2026-09-16p's
+four-function census NOR this round's reading listed. Unread at its line; not a claim, a pointer.
+
+### TIER-3 CENSUS, RE-DERIVED BY COMPILING ALL 121 ROWS (buckets differ per round — these are mine)
+
+    90  SEMA diagnostic            14  MLIR verifier            5  PARSE
+     4  mlir_gen internal           3  mlir_gen warning         2  compiles clean
+     1  duplicate symbol            1  segv                     1  abort
+
+The grouping I TESTED (one change, both members) is the `&`-pattern binder family. It SPLIT
+3-for-3: one member closes on the pair, one is refuted at a different extractor, one at a
+different production. That is five-for-five becoming six-for-six on groupings refuted when tested.
+
+### WHAT DESERVES FUNDING
+
+The `pat_bind` RefPat case + the `bind_pattern_ref` Tuple whitelist entry, AS ONE COMMIT — 1
+tier-3 row, run-verified, zero in every column, abuse direction held by a guard already in the
+tree. Neither half may be landed alone: the sema half alone miscompiles (16p measured it), and
+the codegen half alone never executes.
+
+### CONTROL REVERT, PROVEN BEFORE THIS RECORD WAS COMMITTED
+
+    git checkout -- src/compiler/{mlir_gen_stmt,sema_stmt}.cpp   (the whole arm: 2 files, +30 lines, 5 probe::on sites)
+    cmake --build build -j32                                     rc 0
+    build_hash.py            068a4dab393e7aae 43   — IDENTICAL to the pre-arm read
+    test-levels.sh L1        rc 0
+    soundness_queue_gate.sh  rc 0 — 237 rows hold (tier1=39 tier2=66 tier3=121 tier4=11)
+    hand battery, restored binary, LOGOS_PROBE unset: all four programs REFUSED with the base
+        sentences ("undefined variable"), probe fire log EMPTY — the sites are gone, not merely disarmed.
+
+Full record, twins, hand programs, target-row list and prediction: src/compiler/probes/2026-09-17e-refpatpair/.

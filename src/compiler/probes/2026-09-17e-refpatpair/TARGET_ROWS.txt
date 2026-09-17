@@ -1,0 +1,8 @@
+# ROUND 2026-09-17e — TARGET TIER-3 ROWS, written BEFORE touching the compiler.
+# BLOCK: the `&`-pattern (RefPat) binder door. Hypothesis: ONE fact —
+# "a RefPat may introduce names" — is asked at THREE DIFFERENT SITES, and the
+# grouping is expected to SPLIT (16o/p measured a four-site split on this exact
+# question). The split is the thing to TEST, not to assume.
+let_ref_struct_pattern_irrefutable_refused          # site A: sema_stmt.cpp:1421 `let` door whitelist (PAT_STRUCT|tuple-struct|slice|single-variant)
+letelse_ref_pattern_binding_undefined_refused       # site B: lower_let_else's define_bindings (sema_stmt.cpp:2195)
+ref_pattern_nested_in_tuple_binding_undefined_refused # site C: bind_pattern_ref Tuple recursion (sema_stmt.cpp:6969/7109)

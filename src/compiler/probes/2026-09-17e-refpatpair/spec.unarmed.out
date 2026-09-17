@@ -1,0 +1,999 @@
+Test project /home/logos/devel/logos/build
+        Start 10755: logos_25_spec_fail_mono_diag_1__depth-limit
+        Start 10756: logos_25_spec_fail_mono_diag_1__splicepack-unrecognized-producer
+        Start 10665: logos_25_spec_fail_intrinsic_diag_1__type-apply-args-not-array
+        Start 10666: logos_25_spec_fail_intrinsic_diag_1__type-apply-name-not-literal
+        Start 10822: logos_25_spec_fail_region_diag_1__return-temp-ref
+        Start 10821: logos_25_spec_fail_region_diag_1__return-local-ref
+        Start 10486: logos_25_spec_fail_borrow_diag_3__borrow-carrying-escape
+        Start 10450: logos_25_spec_fail_borrow_diag_1__prov-call-ties-to-ref-inputs
+        Start 10820: logos_25_spec_fail_region_diag_1__return-dyn-trait-local
+        Start 10475: logos_25_spec_fail_borrow_diag_2__recv-self-conflict
+        Start 10464: logos_25_spec_fail_borrow_diag_2__dropck-assign-borrow
+        Start 10478: logos_25_spec_fail_borrow_diag_2__stored-borrow-outlives
+        Start 10476: logos_25_spec_fail_borrow_diag_2__ref-from-temp
+        Start 10477: logos_25_spec_fail_borrow_diag_2__region-contains-origin
+        Start 10458: logos_25_spec_fail_borrow_diag_1__use-moved-or-mut-borrowed
+        Start 10468: logos_25_spec_fail_borrow_diag_2__nll-liveness-extent
+        Start 10451: logos_25_spec_fail_borrow_diag_1__ref-copy-propagates-sources
+        Start 10474: logos_25_spec_fail_borrow_diag_2__read-vs-mut-borrow
+        Start 10440: logos_25_spec_fail_borrow_diag_1__borrowed-cannot-move
+        Start 10452: logos_25_spec_fail_borrow_diag_1__take-call-arg-mut-reservation
+        Start 10453: logos_25_spec_fail_borrow_diag_1__take-field-borrow-blocks-whole-mut
+        Start 10455: logos_25_spec_fail_borrow_diag_1__take-mut-exclusive
+        Start 10446: logos_25_spec_fail_borrow_diag_1__field-whole-borrow-blocks-field
+        Start 10465: logos_25_spec_fail_borrow_diag_2__index-reborrow
+        Start 10443: logos_25_spec_fail_borrow_diag_1__field-mut-binding-required
+        Start 10456: logos_25_spec_fail_borrow_diag_1__take-mut-requires-mut-binding
+        Start 10445: logos_25_spec_fail_borrow_diag_1__field-overlapping-path-conflict
+        Start 10457: logos_25_spec_fail_borrow_diag_1__take-shared-vs-mut
+        Start 10461: logos_25_spec_fail_borrow_diag_2__call-result-aliases-args
+        Start 10448: logos_25_spec_fail_borrow_diag_1__nll-dangling-ref-first-use
+        Start 10467: logos_25_spec_fail_borrow_diag_2__method-result-holds-recv
+        Start 10442: logos_25_spec_fail_borrow_diag_1__dropck-binding-outlive
+  1/494 Test #10475: logos_25_spec_fail_borrow_diag_2__recv-self-conflict .........................   Passed    1.84 sec
+        Start 10454: logos_25_spec_fail_borrow_diag_1__take-moved-cannot-borrow
+  2/494 Test #10474: logos_25_spec_fail_borrow_diag_2__read-vs-mut-borrow .........................   Passed    1.85 sec
+        Start 10444: logos_25_spec_fail_borrow_diag_1__field-mutability-through-shared-ref-root
+  3/494 Test #10464: logos_25_spec_fail_borrow_diag_2__dropck-assign-borrow .......................   Passed    1.90 sec
+        Start 10438: logos_25_spec_fail_borrow_diag_1__access-vs-field-borrow
+  4/494 Test #10450: logos_25_spec_fail_borrow_diag_1__prov-call-ties-to-ref-inputs ...............   Passed    1.93 sec
+        Start 10462: logos_25_spec_fail_borrow_diag_2__closure-mut-capture
+  5/494 Test #10820: logos_25_spec_fail_region_diag_1__return-dyn-trait-local .....................   Passed    1.96 sec
+        Start 10449: logos_25_spec_fail_borrow_diag_1__partial-move-blocks-use
+  6/494 Test #10821: logos_25_spec_fail_region_diag_1__return-local-ref ...........................   Passed    1.99 sec
+        Start 10472: logos_25_spec_fail_borrow_diag_2__partial-field-path
+  7/494 Test #10478: logos_25_spec_fail_borrow_diag_2__stored-borrow-outlives .....................   Passed    1.98 sec
+  8/494 Test #10477: logos_25_spec_fail_borrow_diag_2__region-contains-origin .....................   Passed    1.98 sec
+        Start 10459: logos_25_spec_fail_borrow_diag_2__assign-borrowed-lhs
+        Start 10466: logos_25_spec_fail_borrow_diag_2__indexwrite-borrowed
+  9/494 Test #10822: logos_25_spec_fail_region_diag_1__return-temp-ref ............................   Passed    2.00 sec
+        Start 10757: logos_25_spec_fail_mono_diag_1__struct-spec-ambiguous
+ 10/494 Test #10451: logos_25_spec_fail_borrow_diag_1__ref-copy-propagates-sources ................   Passed    2.00 sec
+        Start 10816: logos_25_spec_fail_region_diag_1__callee-bound-pinned-short-side
+ 11/494 Test #10458: logos_25_spec_fail_borrow_diag_1__use-moved-or-mut-borrowed ..................   Passed    2.01 sec
+        Start 10654: logos_25_spec_fail_intrinsic_diag_1__has-trait-of-arity
+ 12/494 Test #10455: logos_25_spec_fail_borrow_diag_1__take-mut-exclusive .........................   Passed    1.99 sec
+        Start 10604: logos_25_spec_fail_expr_diag_5__fmt-unmatched-close-brace
+ 13/494 Test #10440: logos_25_spec_fail_borrow_diag_1__borrowed-cannot-move .......................   Passed    2.01 sec
+ 14/494 Test #10457: logos_25_spec_fail_borrow_diag_1__take-shared-vs-mut .........................   Passed    1.94 sec
+        Start 10605: logos_25_spec_fail_expr_diag_5__fmt-unmatched-open-brace
+        Start 10603: logos_25_spec_fail_expr_diag_5__fmt-unknown-type-char
+ 15/494 Test #10476: logos_25_spec_fail_borrow_diag_2__ref-from-temp ..............................   Passed    2.05 sec
+        Start 10668: logos_25_spec_fail_intrinsic_diag_2__reify-type-arity
+ 16/494 Test #10468: logos_25_spec_fail_borrow_diag_2__nll-liveness-extent ........................   Passed    2.08 sec
+        Start 10661: logos_25_spec_fail_intrinsic_diag_1__template-of-unknown
+ 17/494 Test #10486: logos_25_spec_fail_borrow_diag_3__borrow-carrying-escape .....................   Passed    2.10 sec
+        Start 10720: logos_25_spec_fail_metaprog_diag_1__format-arity
+ 18/494 Test #10452: logos_25_spec_fail_borrow_diag_1__take-call-arg-mut-reservation ..............   Passed    2.08 sec
+ 19/494 Test #10453: logos_25_spec_fail_borrow_diag_1__take-field-borrow-blocks-whole-mut .........   Passed    2.08 sec
+        Start 10748: logos_25_spec_fail_metaprog_diag_2__quote-ty-lifetime-arg
+        Start 10742: logos_25_spec_fail_metaprog_diag_2__quote-expr-repeat-no-cursor
+ 20/494 Test #10465: logos_25_spec_fail_borrow_diag_2__index-reborrow .............................   Passed    2.07 sec
+ 21/494 Test #10443: logos_25_spec_fail_borrow_diag_1__field-mut-binding-required .................   Passed    2.06 sec
+ 22/494 Test #10456: logos_25_spec_fail_borrow_diag_1__take-mut-requires-mut-binding ..............   Passed    2.06 sec
+        Start 10670: logos_25_spec_fail_intrinsic_diag_2__type-apply-arity
+        Start 10739: logos_25_spec_fail_metaprog_diag_2__quote-expr-cursor-length
+        Start 10743: logos_25_spec_fail_metaprog_diag_2__quote-expr-scalar-type
+ 23/494 Test #10448: logos_25_spec_fail_borrow_diag_1__nll-dangling-ref-first-use .................   Passed    2.03 sec
+        Start 10719: logos_25_spec_fail_metaprog_diag_1__fnmacro-single-arg-arity
+ 24/494 Test #10467: logos_25_spec_fail_borrow_diag_2__method-result-holds-recv ...................   Passed    2.05 sec
+        Start 10602: logos_25_spec_fail_expr_diag_5__fmt-precision-requires-number
+ 25/494 Test #10446: logos_25_spec_fail_borrow_diag_1__field-whole-borrow-blocks-field ............   Passed    2.16 sec
+        Start 10650: logos_25_spec_fail_intrinsic_diag_1__generic-of-unknown
+ 26/494 Test #10461: logos_25_spec_fail_borrow_diag_2__call-result-aliases-args ...................   Passed    2.11 sec
+        Start 10741: logos_25_spec_fail_metaprog_diag_2__quote-expr-repeat-cursor-type
+ 27/494 Test #10442: logos_25_spec_fail_borrow_diag_1__dropck-binding-outlive .....................   Passed    2.07 sec
+        Start 10740: logos_25_spec_fail_metaprog_diag_2__quote-expr-not-in-scope
+ 28/494 Test #10445: logos_25_spec_fail_borrow_diag_1__field-overlapping-path-conflict ............   Passed    2.16 sec
+        Start 10747: logos_25_spec_fail_metaprog_diag_2__quote-ty-array-size
+ 29/494 Test #10665: logos_25_spec_fail_intrinsic_diag_1__type-apply-args-not-array ...............   Passed    2.86 sec
+        Start 10796: logos_25_spec_fail_pat_diag_2__writ-typed-map-keyval
+ 30/494 Test #10816: logos_25_spec_fail_region_diag_1__callee-bound-pinned-short-side .............   Passed    1.36 sec
+        Start 10716: logos_25_spec_fail_metaprog_diag_1__fnmacro-args-not-expr
+ 31/494 Test #10654: logos_25_spec_fail_intrinsic_diag_1__has-trait-of-arity ......................   Passed    1.39 sec
+        Start 10749: logos_25_spec_fail_metaprog_diag_2__quote-ty-pack-mixed
+ 32/494 Test #10604: logos_25_spec_fail_expr_diag_5__fmt-unmatched-close-brace ....................   Passed    1.39 sec
+ 33/494 Test #10603: logos_25_spec_fail_expr_diag_5__fmt-unknown-type-char ........................   Passed    1.37 sec
+        Start 10667: logos_25_spec_fail_intrinsic_diag_1__vtable-of-unknown-trait
+        Start 10793: logos_25_spec_fail_pat_diag_2__writ-int-i24-range
+ 34/494 Test #10668: logos_25_spec_fail_intrinsic_diag_2__reify-type-arity ........................   Passed    1.38 sec
+        Start 10660: logos_25_spec_fail_intrinsic_diag_1__slice-from-raw-argc
+ 35/494 Test #10739: logos_25_spec_fail_metaprog_diag_2__quote-expr-cursor-length .................   Passed    1.30 sec
+        Start 10809: logos_25_spec_fail_pat_diag_3__tuple-struct-arity
+ 36/494 Test #10661: logos_25_spec_fail_intrinsic_diag_1__template-of-unknown .....................   Passed    1.36 sec
+        Start 10584: logos_25_spec_fail_expr_diag_4__writ-capture-capturable-types
+ 37/494 Test #10605: logos_25_spec_fail_expr_diag_5__fmt-unmatched-open-brace .....................   Passed    1.41 sec
+        Start 10710: logos_25_spec_fail_lex_diag_1__int-overflow-i64
+ 38/494 Test #10743: logos_25_spec_fail_metaprog_diag_2__quote-expr-scalar-type ...................   Passed    1.31 sec
+        Start 10765: logos_25_spec_fail_pat_diag_1__char-scrutinee
+ 39/494 Test #10742: logos_25_spec_fail_metaprog_diag_2__quote-expr-repeat-no-cursor ..............   Passed    1.35 sec
+        Start 10804: logos_25_spec_fail_pat_diag_3__or-alt-binding-consistency
+ 40/494 Test #10748: logos_25_spec_fail_metaprog_diag_2__quote-ty-lifetime-arg ....................   Passed    1.39 sec
+        Start 10826: logos_25_spec_fail_stmt_diag_1__break-value-consistency
+ 41/494 Test #10720: logos_25_spec_fail_metaprog_diag_1__format-arity .............................   Passed    1.41 sec
+        Start 10585: logos_25_spec_fail_expr_diag_4__writ-capture-ident-lookup
+ 42/494 Test #10740: logos_25_spec_fail_metaprog_diag_2__quote-expr-not-in-scope ..................   Passed    1.29 sec
+        Start 10814: logos_25_spec_fail_region_diag_1__bounds-tie-injectivity
+ 43/494 Test #10670: logos_25_spec_fail_intrinsic_diag_2__type-apply-arity ........................   Passed    1.41 sec
+        Start 10787: logos_25_spec_fail_pat_diag_2__struct-exhaustive-fields
+ 44/494 Test #10747: logos_25_spec_fail_metaprog_diag_2__quote-ty-array-size ......................   Passed    1.29 sec
+        Start 10571: logos_25_spec_fail_expr_diag_3__writ-comp-guard-not-bool
+ 45/494 Test #10650: logos_25_spec_fail_intrinsic_diag_1__generic-of-unknown ......................   Passed    1.34 sec
+        Start 10883: logos_25_spec_fail_trait_diag_2__bound-region-mismatch
+ 46/494 Test #10719: logos_25_spec_fail_metaprog_diag_1__fnmacro-single-arg-arity .................   Passed    1.39 sec
+        Start 10789: logos_25_spec_fail_pat_diag_2__struct-name-mismatch
+ 47/494 Test #10602: logos_25_spec_fail_expr_diag_5__fmt-precision-requires-number ................   Passed    1.37 sec
+        Start 10795: logos_25_spec_fail_pat_diag_2__writ-typed-array-element
+ 48/494 Test #10741: logos_25_spec_fail_metaprog_diag_2__quote-expr-repeat-cursor-type ............   Passed    1.39 sec
+        Start 10594: logos_25_spec_fail_expr_diag_5__assign-place-only
+ 49/494 Test #10796: logos_25_spec_fail_pat_diag_2__writ-typed-map-keyval .........................   Passed    0.92 sec
+        Start 10653: logos_25_spec_fail_intrinsic_diag_1__has-trait-arity
+ 50/494 Test #10438: logos_25_spec_fail_borrow_diag_1__access-vs-field-borrow .....................   Passed    1.90 sec
+        Start 10562: logos_25_spec_fail_expr_diag_3__method-intlit-overflow
+ 51/494 Test #10454: logos_25_spec_fail_borrow_diag_1__take-moved-cannot-borrow ...................   Passed    1.98 sec
+        Start 10802: logos_25_spec_fail_pat_diag_3__guarded-not-exhaustive
+ 52/494 Test #10462: logos_25_spec_fail_borrow_diag_2__closure-mut-capture ........................   Passed    1.98 sec
+        Start 10645: logos_25_spec_fail_grammar_diag_1__method-turbofish-arity
+ 53/494 Test #10757: logos_25_spec_fail_mono_diag_1__struct-spec-ambiguous ........................   Passed    1.95 sec
+        Start 10837: logos_25_spec_fail_stmt_diag_1__let-destruct-binding-uniqueness
+ 54/494 Test #10756: logos_25_spec_fail_mono_diag_1__splicepack-unrecognized-producer .............   Passed    4.02 sec
+        Start 10635: logos_25_spec_fail_generic_diag_1__ref-type-arg-arity
+ 55/494 Test #10444: logos_25_spec_fail_borrow_diag_1__field-mutability-through-shared-ref-root ...   Passed    2.16 sec
+ 56/494 Test #10466: logos_25_spec_fail_borrow_diag_2__indexwrite-borrowed ........................   Passed    2.04 sec
+        Start 10663: logos_25_spec_fail_intrinsic_diag_1__tuple-all-eq-not-tuple
+        Start 10694: logos_25_spec_fail_item_diag_2__impl-trait-return-infer
+ 57/494 Test #10449: logos_25_spec_fail_borrow_diag_1__partial-move-blocks-use ....................   Passed    2.15 sec
+        Start 10794: logos_25_spec_fail_pat_diag_2__writ-match-only
+ 58/494 Test #10459: logos_25_spec_fail_borrow_diag_2__assign-borrowed-lhs ........................   Passed    2.21 sec
+        Start 10671: logos_25_spec_fail_intrinsic_diag_2__u64-bit-op-arity
+ 59/494 Test #10472: logos_25_spec_fail_borrow_diag_2__partial-field-path .........................   Passed    2.36 sec
+        Start 10589: logos_25_spec_fail_expr_diag_4__writ-typed-array-no-captures
+ 60/494 Test #10793: logos_25_spec_fail_pat_diag_2__writ-int-i24-range ............................   Passed    1.28 sec
+        Start 10616: logos_25_spec_fail_expr_diag_6__compound-type-mismatch
+ 61/494 Test #10809: logos_25_spec_fail_pat_diag_3__tuple-struct-arity ............................   Passed    1.31 sec
+        Start 10612: logos_25_spec_fail_expr_diag_6__assign-type-mismatch
+ 62/494 Test #10749: logos_25_spec_fail_metaprog_diag_2__quote-ty-pack-mixed ......................   Passed    1.34 sec
+        Start 10760: logos_25_spec_fail_pat_diag_1__bytes-length
+ 63/494 Test #10667: logos_25_spec_fail_intrinsic_diag_1__vtable-of-unknown-trait .................   Passed    1.34 sec
+        Start 10614: logos_25_spec_fail_expr_diag_6__compound-index-mut-dispatch
+ 64/494 Test #10826: logos_25_spec_fail_stmt_diag_1__break-value-consistency ......................   Passed    1.27 sec
+        Start 10717: logos_25_spec_fail_metaprog_diag_1__fnmacro-bad-signature
+ 65/494 Test #10804: logos_25_spec_fail_pat_diag_3__or-alt-binding-consistency ....................   Passed    1.31 sec
+        Start 10812: logos_25_spec_fail_pat_diag_3__writ-view-scrutinee
+ 66/494 Test #10716: logos_25_spec_fail_metaprog_diag_1__fnmacro-args-not-expr ....................   Passed    1.42 sec
+        Start 10555: logos_25_spec_fail_expr_diag_2__struct-outlives-check
+ 67/494 Test #10584: logos_25_spec_fail_expr_diag_4__writ-capture-capturable-types ................   Passed    1.34 sec
+        Start 10810: logos_25_spec_fail_pat_diag_3__unknown-enum
+ 68/494 Test #10765: logos_25_spec_fail_pat_diag_1__char-scrutinee ................................   Passed    1.35 sec
+        Start 10813: logos_25_spec_fail_region_diag_1__bounds-hrtb-outlives-unsat
+ 69/494 Test #10660: logos_25_spec_fail_intrinsic_diag_1__slice-from-raw-argc .....................   Passed    1.39 sec
+        Start 10853: logos_25_spec_fail_stmt_diag_2__let-pat-nested-field-not-struct
+ 70/494 Test #10710: logos_25_spec_fail_lex_diag_1__int-overflow-i64 ..............................   Passed    1.42 sec
+        Start 10736: logos_25_spec_fail_metaprog_diag_2__metacall-return-type
+ 71/494 Test #10883: logos_25_spec_fail_trait_diag_2__bound-region-mismatch .......................   Passed    1.36 sec
+        Start 10890: logos_25_spec_fail_trait_diag_2__multi-trait-method
+ 72/494 Test #10585: logos_25_spec_fail_expr_diag_4__writ-capture-ident-lookup ....................   Passed    1.41 sec
+        Start 10773: logos_25_spec_fail_pat_diag_1__or-binding-set
+ 73/494 Test #10789: logos_25_spec_fail_pat_diag_2__struct-name-mismatch ..........................   Passed    1.39 sec
+ 74/494 Test #10795: logos_25_spec_fail_pat_diag_2__writ-typed-array-element ......................   Passed    1.38 sec
+        Start 10780: logos_25_spec_fail_pat_diag_2__range-bounds-fit-type
+        Start 10737: logos_25_spec_fail_metaprog_diag_2__metacall-runtime-capture
+ 75/494 Test #10787: logos_25_spec_fail_pat_diag_2__struct-exhaustive-fields ......................   Passed    1.43 sec
+        Start 10779: logos_25_spec_fail_pat_diag_2__ident-variant-alias
+ 76/494 Test #10571: logos_25_spec_fail_expr_diag_3__writ-comp-guard-not-bool .....................   Passed    1.43 sec
+        Start 10785: logos_25_spec_fail_pat_diag_2__slice-rest-once
+ 77/494 Test #10666: logos_25_spec_fail_intrinsic_diag_1__type-apply-name-not-literal .............   Passed    5.06 sec
+        Start 10569: logos_25_spec_fail_expr_diag_3__unsafe-trait-method-requires-unsafe
+ 78/494 Test #10594: logos_25_spec_fail_expr_diag_5__assign-place-only ............................   Passed    1.48 sec
+        Start 10823: logos_25_spec_fail_region_diag_1__struct-lit-bound
+ 79/494 Test #10562: logos_25_spec_fail_expr_diag_3__method-intlit-overflow .......................   Passed    1.32 sec
+        Start 10712: logos_25_spec_fail_lex_diag_1__writ-float-literal
+ 80/494 Test #10814: logos_25_spec_fail_region_diag_1__bounds-tie-injectivity .....................   Passed    1.61 sec
+        Start 10572: logos_25_spec_fail_expr_diag_3__writ-map-comp-key-not-str
+ 81/494 Test #10802: logos_25_spec_fail_pat_diag_3__guarded-not-exhaustive ........................   Passed    1.36 sec
+        Start 10619: logos_25_spec_fail_expr_diag_6__match-exhaustive-bool
+ 82/494 Test #10645: logos_25_spec_fail_grammar_diag_1__method-turbofish-arity ....................   Passed    1.34 sec
+        Start 10869: logos_25_spec_fail_trait_diag_1__auto-rawptr-not-send
+ 83/494 Test #10653: logos_25_spec_fail_intrinsic_diag_1__has-trait-arity .........................   Passed    1.50 sec
+        Start 10769: logos_25_spec_fail_pat_diag_1__int-value-must-fit
+ 84/494 Test #10837: logos_25_spec_fail_stmt_diag_1__let-destruct-binding-uniqueness ..............   Passed    1.35 sec
+        Start 10899: logos_25_spec_fail_trait_diag_3__negative-carveout-first
+ 85/494 Test #10635: logos_25_spec_fail_generic_diag_1__ref-type-arg-arity ........................   Passed    1.32 sec
+        Start 10672: logos_25_spec_fail_intrinsic_diag_2__zone-of-arity
+ 86/494 Test #10671: logos_25_spec_fail_intrinsic_diag_2__u64-bit-op-arity ........................   Passed    1.15 sec
+        Start 10592: logos_25_spec_fail_expr_diag_5__assign-index-mut-immutable
+ 87/494 Test #10663: logos_25_spec_fail_intrinsic_diag_1__tuple-all-eq-not-tuple ..................   Passed    1.33 sec
+        Start 10664: logos_25_spec_fail_intrinsic_diag_1__tuple-each-field-debug-not-tuple
+ 88/494 Test #10794: logos_25_spec_fail_pat_diag_2__writ-match-only ...............................   Passed    1.30 sec
+        Start 10879: logos_25_spec_fail_trait_diag_2__ambiguous-supertrait-method
+ 89/494 Test #10694: logos_25_spec_fail_item_diag_2__impl-trait-return-infer ......................   Passed    1.38 sec
+ 90/494 Test #10589: logos_25_spec_fail_expr_diag_4__writ-typed-array-no-captures .................   Passed    1.09 sec
+        Start 10843: logos_25_spec_fail_stmt_diag_1__tail-return-type-mismatch
+        Start 10770: logos_25_spec_fail_pat_diag_1__lit-float-rejected
+ 91/494 Test #10810: logos_25_spec_fail_pat_diag_3__unknown-enum ..................................   Passed    1.34 sec
+        Start 10524: logos_25_spec_fail_expr_diag_1__char-bad-escape
+ 92/494 Test #10616: logos_25_spec_fail_expr_diag_6__compound-type-mismatch .......................   Passed    1.45 sec
+        Start 10811: logos_25_spec_fail_pat_diag_3__variant-binding-arity
+ 93/494 Test #10612: logos_25_spec_fail_expr_diag_6__assign-type-mismatch .........................   Passed    1.45 sec
+        Start 10501: logos_25_spec_fail_coerce_diag_1__writ-anyval-scalar-helpers
+ 94/494 Test #10760: logos_25_spec_fail_pat_diag_1__bytes-length ..................................   Passed    1.44 sec
+ 95/494 Test #10614: logos_25_spec_fail_expr_diag_6__compound-index-mut-dispatch ..................   Passed    1.44 sec
+        Start 10707: logos_25_spec_fail_layout_diag_1__zoned2-non-movable
+        Start 10759: logos_25_spec_fail_pat_diag_1__bytes-dynamic-slice-rejected
+ 96/494 Test #10555: logos_25_spec_fail_expr_diag_2__struct-outlives-check ........................   Passed    1.42 sec
+        Start 10623: logos_25_spec_fail_expr_diag__neg-unsigned-rejected
+ 97/494 Test #10812: logos_25_spec_fail_pat_diag_3__writ-view-scrutinee ...........................   Passed    1.44 sec
+        Start 10892: logos_25_spec_fail_trait_diag_2__slice-no-method
+ 98/494 Test #10890: logos_25_spec_fail_trait_diag_2__multi-trait-method ..........................   Passed    1.33 sec
+        Start 10577: logos_25_spec_fail_expr_diag_4__raw-ptr-arith-unsafe
+ 99/494 Test #10717: logos_25_spec_fail_metaprog_diag_1__fnmacro-bad-signature ....................   Passed    1.48 sec
+        Start 10502: logos_25_spec_fail_coerce_diag_1__writ-anyval-wide-int
+100/494 Test #10813: logos_25_spec_fail_region_diag_1__bounds-hrtb-outlives-unsat .................   Passed    1.45 sec
+        Start 10711: logos_25_spec_fail_lex_diag_1__int128-magnitude
+101/494 Test #10736: logos_25_spec_fail_metaprog_diag_2__metacall-return-type .....................   Passed    1.46 sec
+        Start 10727: logos_25_spec_fail_metaprog_diag_1__metacall-bad-return
+102/494 Test #10853: logos_25_spec_fail_stmt_diag_2__let-pat-nested-field-not-struct ..............   Passed    1.53 sec
+        Start 10576: logos_25_spec_fail_expr_diag_4__intlit-fit-scalar
+103/494 Test #10780: logos_25_spec_fail_pat_diag_2__range-bounds-fit-type .........................   Passed    1.41 sec
+        Start 10764: logos_25_spec_fail_pat_diag_1__char-range-order
+104/494 Test #10785: logos_25_spec_fail_pat_diag_2__slice-rest-once ...............................   Passed    1.39 sec
+        Start 10586: logos_25_spec_fail_expr_diag_4__writ-cfg-slot-type-literal
+105/494 Test #10773: logos_25_spec_fail_pat_diag_1__or-binding-set ................................   Passed    1.53 sec
+        Start 10597: logos_25_spec_fail_expr_diag_5__call-arg-type
+106/494 Test #10569: logos_25_spec_fail_expr_diag_3__unsafe-trait-method-requires-unsafe ..........   Passed    1.42 sec
+        Start 10891: logos_25_spec_fail_trait_diag_2__no-bound-method
+107/494 Test #10712: logos_25_spec_fail_lex_diag_1__writ-float-literal ............................   Passed    1.36 sec
+        Start 10718: logos_25_spec_fail_metaprog_diag_1__fnmacro-callee-unmarked
+108/494 Test #10779: logos_25_spec_fail_pat_diag_2__ident-variant-alias ...........................   Passed    1.53 sec
+        Start 10803: logos_25_spec_fail_pat_diag_3__let-else-or-uniform
+109/494 Test #10737: logos_25_spec_fail_metaprog_diag_2__metacall-runtime-capture .................   Passed    1.58 sec
+        Start 10783: logos_25_spec_fail_pat_diag_2__ref-scrutinee-reference
+110/494 Test #10823: logos_25_spec_fail_region_diag_1__struct-lit-bound ...........................   Passed    1.46 sec
+        Start 10860: logos_25_spec_fail_stmt_diag_2__return-without-value
+111/494 Test #10619: logos_25_spec_fail_expr_diag_6__match-exhaustive-bool ........................   Passed    1.42 sec
+        Start 10722: logos_25_spec_fail_metaprog_diag_1__item-bad-return-type
+112/494 Test #10869: logos_25_spec_fail_trait_diag_1__auto-rawptr-not-send ........................   Passed    1.45 sec
+        Start 10734: logos_25_spec_fail_metaprog_diag_2__metacall-block-tail
+113/494 Test #10899: logos_25_spec_fail_trait_diag_3__negative-carveout-first .....................   Passed    1.43 sec
+        Start 10762: logos_25_spec_fail_pat_diag_1__bytes-unknown-escape
+114/494 Test #10572: logos_25_spec_fail_expr_diag_3__writ-map-comp-key-not-str ....................   Passed    1.62 sec
+115/494 Test #10672: logos_25_spec_fail_intrinsic_diag_2__zone-of-arity ...........................   Passed    1.43 sec
+        Start 10835: logos_25_spec_fail_stmt_diag_1__if-let-chain-cond-not-bool
+        Start 10615: logos_25_spec_fail_expr_diag_6__compound-place-nested
+116/494 Test #10769: logos_25_spec_fail_pat_diag_1__int-value-must-fit ............................   Passed    1.52 sec
+117/494 Test #10664: logos_25_spec_fail_intrinsic_diag_1__tuple-each-field-debug-not-tuple ........   Passed    1.44 sec
+118/494 Test #10879: logos_25_spec_fail_trait_diag_2__ambiguous-supertrait-method .................   Passed    1.39 sec
+        Start 10836: logos_25_spec_fail_stmt_diag_1__let-declare-read-before-init
+        Start 10834: logos_25_spec_fail_stmt_diag_1__if-cond-not-bool
+        Start 10806: logos_25_spec_fail_pat_diag_3__scrutinee-enum-match
+119/494 Test #10592: logos_25_spec_fail_expr_diag_5__assign-index-mut-immutable ...................   Passed    1.50 sec
+        Start 10738: logos_25_spec_fail_metaprog_diag_2__metacall-writ-autofreeze-blockform
+120/494 Test #10843: logos_25_spec_fail_stmt_diag_1__tail-return-type-mismatch ....................   Passed    1.43 sec
+        Start 10726: logos_25_spec_fail_metaprog_diag_1__item-zero-arg-arity
+121/494 Test #10770: logos_25_spec_fail_pat_diag_1__lit-float-rejected ............................   Passed    1.44 sec
+        Start 10851: logos_25_spec_fail_stmt_diag_2__let-else-nondiverging
+122/494 Test #10755: logos_25_spec_fail_mono_diag_1__depth-limit ..................................   Passed    7.14 sec
+        Start 10556: logos_25_spec_fail_expr_diag_3__arr-fill-metacall-no-int
+123/494 Test #10811: logos_25_spec_fail_pat_diag_3__variant-binding-arity .........................   Passed    1.23 sec
+        Start 10845: logos_25_spec_fail_stmt_diag_2__assign-enum-typearg-mismatch
+124/494 Test #10707: logos_25_spec_fail_layout_diag_1__zoned2-non-movable .........................   Passed    1.22 sec
+        Start 10761: logos_25_spec_fail_pat_diag_1__bytes-scrutinee
+125/494 Test #10524: logos_25_spec_fail_expr_diag_1__char-bad-escape ..............................   Passed    1.32 sec
+        Start 10815: logos_25_spec_fail_region_diag_1__bounds-universal-position
+126/494 Test #10759: logos_25_spec_fail_pat_diag_1__bytes-dynamic-slice-rejected ..................   Passed    1.29 sec
+        Start 10617: logos_25_spec_fail_expr_diag_6__compound-undefined
+127/494 Test #10623: logos_25_spec_fail_expr_diag__neg-unsigned-rejected ..........................   Passed    1.30 sec
+        Start 10657: logos_25_spec_fail_intrinsic_diag_1__is-same-arity
+128/494 Test #10501: logos_25_spec_fail_coerce_diag_1__writ-anyval-scalar-helpers .................   Passed    1.33 sec
+        Start 10566: logos_25_spec_fail_expr_diag_3__no-such-method
+129/494 Test #10577: logos_25_spec_fail_expr_diag_4__raw-ptr-arith-unsafe .........................   Passed    1.30 sec
+        Start 10882: logos_25_spec_fail_trait_diag_2__bound-ref-subject
+130/494 Test #10892: logos_25_spec_fail_trait_diag_2__slice-no-method .............................   Passed    1.39 sec
+        Start 10763: logos_25_spec_fail_pat_diag_1__char-bad-unicode-scalar
+131/494 Test #10711: logos_25_spec_fail_lex_diag_1__int128-magnitude ..............................   Passed    1.38 sec
+        Start 10862: logos_25_spec_fail_stmt_diag_2__while-let-chain-cond-not-bool
+132/494 Test #10764: logos_25_spec_fail_pat_diag_1__char-range-order ..............................   Passed    1.41 sec
+        Start 10541: logos_25_spec_fail_expr_diag_2__enum-unknown-variant
+133/494 Test #10586: logos_25_spec_fail_expr_diag_4__writ-cfg-slot-type-literal ...................   Passed    1.48 sec
+        Start 10831: logos_25_spec_fail_stmt_diag_1__deref-write-variance-invariant
+134/494 Test #10783: logos_25_spec_fail_pat_diag_2__ref-scrutinee-reference .......................   Passed    1.38 sec
+        Start 10613: logos_25_spec_fail_expr_diag_6__compound-immutable
+135/494 Test #10502: logos_25_spec_fail_coerce_diag_1__writ-anyval-wide-int .......................   Passed    1.75 sec
+        Start 10798: logos_25_spec_fail_pat_diag_3__bool-exhaustive
+136/494 Test #10803: logos_25_spec_fail_pat_diag_3__let-else-or-uniform ...........................   Passed    1.52 sec
+        Start 10873: logos_25_spec_fail_trait_diag_1__hrtb-universal-bijective
+137/494 Test #10576: logos_25_spec_fail_expr_diag_4__intlit-fit-scalar ............................   Passed    1.68 sec
+        Start 10532: logos_25_spec_fail_expr_diag_1__not-non-integer
+138/494 Test #10734: logos_25_spec_fail_metaprog_diag_2__metacall-block-tail ......................   Passed    1.35 sec
+        Start 10925: logos_25_spec_fail_type_diag_2__intlit-fit-comparison
+139/494 Test #10597: logos_25_spec_fail_expr_diag_5__call-arg-type ................................   Passed    1.61 sec
+140/494 Test #10762: logos_25_spec_fail_pat_diag_1__bytes-unknown-escape ..........................   Passed    1.34 sec
+        Start 10609: logos_25_spec_fail_expr_diag_5__try-heterogeneous-error-from
+        Start 10721: logos_25_spec_fail_metaprog_diag_1__item-bad-param-sig
+141/494 Test #10835: logos_25_spec_fail_stmt_diag_1__if-let-chain-cond-not-bool ...................   Passed    1.31 sec
+        Start 10669: logos_25_spec_fail_intrinsic_diag_2__str-from-raw-arity
+142/494 Test #10727: logos_25_spec_fail_metaprog_diag_1__metacall-bad-return ......................   Passed    1.75 sec
+        Start 10856: logos_25_spec_fail_stmt_diag_2__let-pat-tuple-struct-too-many
+143/494 Test #10718: logos_25_spec_fail_metaprog_diag_1__fnmacro-callee-unmarked ..................   Passed    1.65 sec
+        Start 10545: logos_25_spec_fail_expr_diag_2__if-branch-type
+144/494 Test #10738: logos_25_spec_fail_metaprog_diag_2__metacall-writ-autofreeze-blockform .......   Passed    1.32 sec
+        Start 10777: logos_25_spec_fail_pat_diag_2__ident-const-nonscalar
+145/494 Test #10891: logos_25_spec_fail_trait_diag_2__no-bound-method .............................   Passed    1.70 sec
+        Start 10797: logos_25_spec_fail_pat_diag_3__arm-after-catchall
+146/494 Test #10860: logos_25_spec_fail_stmt_diag_2__return-without-value .........................   Passed    1.69 sec
+        Start 10746: logos_25_spec_fail_metaprog_diag_2__quote-item-nesting-limit
+147/494 Test #10722: logos_25_spec_fail_metaprog_diag_1__item-bad-return-type .....................   Passed    1.67 sec
+        Start 10771: logos_25_spec_fail_pat_diag_1__or-alt-binding-consistency
+148/494 Test #10834: logos_25_spec_fail_stmt_diag_1__if-cond-not-bool .............................   Passed    1.48 sec
+        Start 10744: logos_25_spec_fail_metaprog_diag_2__quote-item-cursor-depth
+149/494 Test #10615: logos_25_spec_fail_expr_diag_6__compound-place-nested ........................   Passed    1.55 sec
+        Start 10599: logos_25_spec_fail_expr_diag_5__call-unsafe-context
+150/494 Test #10836: logos_25_spec_fail_stmt_diag_1__let-declare-read-before-init .................   Passed    1.56 sec
+        Start 10519: logos_25_spec_fail_const_diag_1__method-arg-range
+151/494 Test #10806: logos_25_spec_fail_pat_diag_3__scrutinee-enum-match ..........................   Passed    1.54 sec
+        Start 10662: logos_25_spec_fail_intrinsic_diag_1__tuple-all-eq-no-eq-impl
+152/494 Test #10851: logos_25_spec_fail_stmt_diag_2__let-else-nondiverging ........................   Passed    1.51 sec
+        Start 10504: logos_25_spec_fail_coerce_diag_1__writ-slice-to-typed-array
+153/494 Test #10726: logos_25_spec_fail_metaprog_diag_1__item-zero-arg-arity ......................   Passed    1.58 sec
+        Start 10530: logos_25_spec_fail_expr_diag_1__int-overflow
+154/494 Test #10556: logos_25_spec_fail_expr_diag_3__arr-fill-metacall-no-int .....................   Passed    1.48 sec
+        Start 10557: logos_25_spec_fail_expr_diag_3__arr-fill-sizeof-undefined-param
+155/494 Test #10845: logos_25_spec_fail_stmt_diag_2__assign-enum-typearg-mismatch .................   Passed    1.35 sec
+        Start 10656: logos_25_spec_fail_intrinsic_diag_1__is-kind-arity
+156/494 Test #10761: logos_25_spec_fail_pat_diag_1__bytes-scrutinee ...............................   Passed    1.38 sec
+        Start 10565: logos_25_spec_fail_expr_diag_3__method-typearg-infer-fail
+157/494 Test #10617: logos_25_spec_fail_expr_diag_6__compound-undefined ...........................   Passed    1.32 sec
+        Start 10774: logos_25_spec_fail_pat_diag_1__str-position
+158/494 Test #10815: logos_25_spec_fail_region_diag_1__bounds-universal-position ..................   Passed    1.40 sec
+        Start 10593: logos_25_spec_fail_expr_diag_5__assign-place-nesting-bound
+159/494 Test #10566: logos_25_spec_fail_expr_diag_3__no-such-method ...............................   Passed    1.46 sec
+        Start 10637: logos_25_spec_fail_generic_diag_1__tuple-struct-arity
+160/494 Test #10882: logos_25_spec_fail_trait_diag_2__bound-ref-subject ...........................   Passed    1.46 sec
+        Start 10482: logos_25_spec_fail_borrow_diag_3__assign-raw-const-ptr
+161/494 Test #10657: logos_25_spec_fail_intrinsic_diag_1__is-same-arity ...........................   Passed    1.51 sec
+        Start 10745: logos_25_spec_fail_metaprog_diag_2__quote-item-name-antiquot-form
+162/494 Test #10862: logos_25_spec_fail_stmt_diag_2__while-let-chain-cond-not-bool ................   Passed    1.44 sec
+        Start 10832: logos_25_spec_fail_stmt_diag_1__destructure-assign-immutable
+163/494 Test #10763: logos_25_spec_fail_pat_diag_1__char-bad-unicode-scalar .......................   Passed    1.54 sec
+        Start 10850: logos_25_spec_fail_stmt_diag_2__destructure-assign-two-rests
+164/494 Test #10541: logos_25_spec_fail_expr_diag_2__enum-unknown-variant .........................   Passed    1.49 sec
+        Start 10776: logos_25_spec_fail_pat_diag_1__tuple-scrutinee
+165/494 Test #10613: logos_25_spec_fail_expr_diag_6__compound-immutable ...........................   Passed    1.40 sec
+        Start 10782: logos_25_spec_fail_pat_diag_2__range-scrutinee-integer
+166/494 Test #10831: logos_25_spec_fail_stmt_diag_1__deref-write-variance-invariant ...............   Passed    1.48 sec
+        Start 10778: logos_25_spec_fail_pat_diag_2__ident-const-not-ctfe
+167/494 Test #10925: logos_25_spec_fail_type_diag_2__intlit-fit-comparison ........................   Passed    1.33 sec
+        Start 10791: logos_25_spec_fail_pat_diag_2__tuple-arity-match
+168/494 Test #10798: logos_25_spec_fail_pat_diag_3__bool-exhaustive ...............................   Passed    1.44 sec
+        Start 10607: logos_25_spec_fail_expr_diag_5__sizeof-pack-spelling
+169/494 Test #10532: logos_25_spec_fail_expr_diag_1__not-non-integer ..............................   Passed    1.42 sec
+        Start 10733: logos_25_spec_fail_metaprog_diag_2__metacall-args-ctfe
+170/494 Test #10873: logos_25_spec_fail_trait_diag_1__hrtb-universal-bijective ....................   Passed    1.47 sec
+        Start 10627: logos_25_spec_fail_generic_diag_1__call-sized-enforcement
+171/494 Test #10609: logos_25_spec_fail_expr_diag_5__try-heterogeneous-error-from .................   Passed    1.44 sec
+        Start 10549: logos_25_spec_fail_expr_diag_2__invoke-arity
+172/494 Test #10856: logos_25_spec_fail_stmt_diag_2__let-pat-tuple-struct-too-many ................   Passed    1.43 sec
+        Start 10588: logos_25_spec_fail_expr_diag_4__writ-typed-array-elem-types
+173/494 Test #10669: logos_25_spec_fail_intrinsic_diag_2__str-from-raw-arity ......................   Passed    1.46 sec
+        Start 10829: logos_25_spec_fail_stmt_diag_1__deref-write-pointer-or-mutref
+174/494 Test #10721: logos_25_spec_fail_metaprog_diag_1__item-bad-param-sig .......................   Passed    1.55 sec
+        Start 10689: logos_25_spec_fail_item_diag_2__all-paths-return
+175/494 Test #10545: logos_25_spec_fail_expr_diag_2__if-branch-type ...............................   Passed    1.52 sec
+176/494 Test #10797: logos_25_spec_fail_pat_diag_3__arm-after-catchall ............................   Passed    1.49 sec
+        Start 10591: logos_25_spec_fail_expr_diag_4__writ-typed-map-types
+        Start 10728: logos_25_spec_fail_metaprog_diag_1__metacall-nonconst-arg
+177/494 Test #10777: logos_25_spec_fail_pat_diag_2__ident-const-nonscalar .........................   Passed    1.53 sec
+178/494 Test #10744: logos_25_spec_fail_metaprog_diag_2__quote-item-cursor-depth ..................   Passed    1.41 sec
+179/494 Test #10599: logos_25_spec_fail_expr_diag_5__call-unsafe-context ..........................   Passed    1.36 sec
+        Start 10508: logos_25_spec_fail_const_diag_1__div-by-literal-zero
+        Start 10801: logos_25_spec_fail_pat_diag_3__guard-bool
+        Start 10560: logos_25_spec_fail_expr_diag_3__method-arg-type-mismatch
+180/494 Test #10771: logos_25_spec_fail_pat_diag_1__or-alt-binding-consistency ....................   Passed    1.47 sec
+        Start 10621: logos_25_spec_fail_expr_diag_6__match-guard-bool
+181/494 Test #10519: logos_25_spec_fail_const_diag_1__method-arg-range ............................   Passed    1.42 sec
+        Start 10632: logos_25_spec_fail_generic_diag_1__never-fallback-ambiguous
+182/494 Test #10530: logos_25_spec_fail_expr_diag_1__int-overflow .................................   Passed    1.38 sec
+        Start 10644: logos_25_spec_fail_generic_diag_2__type-args-on-non-generic
+183/494 Test #10746: logos_25_spec_fail_metaprog_diag_2__quote-item-nesting-limit .................   Passed    1.61 sec
+        Start 10600: logos_25_spec_fail_expr_diag_5__enum-intlit-payload-overflow
+184/494 Test #10557: logos_25_spec_fail_expr_diag_3__arr-fill-sizeof-undefined-param ..............   Passed    1.29 sec
+        Start 10551: logos_25_spec_fail_expr_diag_2__struct-field-type-mismatch
+185/494 Test #10504: logos_25_spec_fail_coerce_diag_1__writ-slice-to-typed-array ..................   Passed    1.51 sec
+        Start 10548: logos_25_spec_fail_expr_diag_2__index-raw-ptr-unsafe
+186/494 Test #10662: logos_25_spec_fail_intrinsic_diag_1__tuple-all-eq-no-eq-impl .................   Passed    1.58 sec
+        Start 10595: logos_25_spec_fail_expr_diag_5__break-label-out-of-scope
+187/494 Test #10656: logos_25_spec_fail_intrinsic_diag_1__is-kind-arity ...........................   Passed    1.29 sec
+        Start 10546: logos_25_spec_fail_expr_diag_2__index-integer-required
+188/494 Test #10565: logos_25_spec_fail_expr_diag_3__method-typearg-infer-fail ....................   Passed    1.43 sec
+        Start 10807: logos_25_spec_fail_pat_diag_3__struct-shape-fields
+189/494 Test #10745: logos_25_spec_fail_metaprog_diag_2__quote-item-name-antiquot-form ............   Passed    1.25 sec
+        Start 10790: logos_25_spec_fail_pat_diag_2__struct-unknown-name
+190/494 Test #10637: logos_25_spec_fail_generic_diag_1__tuple-struct-arity ........................   Passed    1.30 sec
+        Start 10608: logos_25_spec_fail_expr_diag_5__try-dispatch-undeterminable-return
+191/494 Test #10774: logos_25_spec_fail_pat_diag_1__str-position ..................................   Passed    1.48 sec
+        Start 10685: logos_25_spec_fail_item_diag_1__static-immutable-write
+192/494 Test #10593: logos_25_spec_fail_expr_diag_5__assign-place-nesting-bound ...................   Passed    1.49 sec
+        Start 10525: logos_25_spec_fail_expr_diag_1__char-bad-unicode
+193/494 Test #10482: logos_25_spec_fail_borrow_diag_3__assign-raw-const-ptr .......................   Passed    1.40 sec
+        Start 10725: logos_25_spec_fail_metaprog_diag_1__item-raw-not-expr
+194/494 Test #10832: logos_25_spec_fail_stmt_diag_1__destructure-assign-immutable .................   Passed    1.34 sec
+        Start 10567: logos_25_spec_fail_expr_diag_3__unsafe-inherent-method
+195/494 Test #10850: logos_25_spec_fail_stmt_diag_2__destructure-assign-two-rests .................   Passed    1.32 sec
+        Start 10581: logos_25_spec_fail_expr_diag_4__undefined-function
+196/494 Test #10776: logos_25_spec_fail_pat_diag_1__tuple-scrutinee ...............................   Passed    1.36 sec
+197/494 Test #10778: logos_25_spec_fail_pat_diag_2__ident-const-not-ctfe ..........................   Passed    1.29 sec
+        Start 10859: logos_25_spec_fail_stmt_diag_2__return-intlit-overflow
+        Start 10516: logos_25_spec_fail_const_diag_1__logical-non-bool
+198/494 Test #10791: logos_25_spec_fail_pat_diag_2__tuple-arity-match .............................   Passed    1.39 sec
+        Start 10840: logos_25_spec_fail_stmt_diag_1__let-else-must-diverge
+199/494 Test #10782: logos_25_spec_fail_pat_diag_2__range-scrutinee-integer .......................   Passed    1.47 sec
+        Start 10799: logos_25_spec_fail_pat_diag_3__exhaustive-required
+200/494 Test #10627: logos_25_spec_fail_generic_diag_1__call-sized-enforcement ....................   Passed    1.33 sec
+        Start 10772: logos_25_spec_fail_pat_diag_1__or-alternative-binding-uniformity
+201/494 Test #10607: logos_25_spec_fail_expr_diag_5__sizeof-pack-spelling .........................   Passed    1.39 sec
+202/494 Test #10733: logos_25_spec_fail_metaprog_diag_2__metacall-args-ctfe .......................   Passed    1.38 sec
+        Start 10838: logos_25_spec_fail_stmt_diag_1__let-destruct-rest-and-arity
+        Start 10574: logos_25_spec_fail_expr_diag_4__callable-arity
+203/494 Test #10549: logos_25_spec_fail_expr_diag_2__invoke-arity .................................   Passed    1.49 sec
+        Start 10641: logos_25_spec_fail_generic_diag_1__undefined-callee
+204/494 Test #10829: logos_25_spec_fail_stmt_diag_1__deref-write-pointer-or-mutref ................   Passed    1.48 sec
+        Start 10582: logos_25_spec_fail_expr_diag_4__unsafe-context-required
+205/494 Test #10621: logos_25_spec_fail_expr_diag_6__match-guard-bool .............................   Passed    1.35 sec
+        Start 10580: logos_25_spec_fail_expr_diag_4__tuple-struct-ctor-arity
+206/494 Test #10588: logos_25_spec_fail_expr_diag_4__writ-typed-array-elem-types ..................   Passed    1.59 sec
+        Start 10622: logos_25_spec_fail_expr_diag__chained-comparison-forbidden
+207/494 Test #10689: logos_25_spec_fail_item_diag_2__all-paths-return .............................   Passed    1.51 sec
+        Start 10652: logos_25_spec_fail_intrinsic_diag_1__has-annotation-not-annotation
+208/494 Test #10591: logos_25_spec_fail_expr_diag_4__writ-typed-map-types .........................   Passed    1.51 sec
+        Start 10439: logos_25_spec_fail_borrow_diag_1__binding-mut-required
+209/494 Test #10508: logos_25_spec_fail_const_diag_1__div-by-literal-zero .........................   Passed    1.49 sec
+        Start 10610: logos_25_spec_fail_expr_diag_5__tuple-index-out-of-range
+210/494 Test #10560: logos_25_spec_fail_expr_diag_3__method-arg-type-mismatch .....................   Passed    1.49 sec
+        Start 10775: logos_25_spec_fail_pat_diag_1__tuple-double-rest
+211/494 Test #10728: logos_25_spec_fail_metaprog_diag_1__metacall-nonconst-arg ....................   Passed    1.55 sec
+        Start 10708: logos_25_spec_fail_lex_diag_1__digit-separator-placement
+212/494 Test #10801: logos_25_spec_fail_pat_diag_3__guard-bool ....................................   Passed    1.54 sec
+        Start 10842: logos_25_spec_fail_stmt_diag_1__return-fallthrough-nonvoid
+213/494 Test #10632: logos_25_spec_fail_generic_diag_1__never-fallback-ambiguous ..................   Passed    1.50 sec
+        Start 10561: logos_25_spec_fail_expr_diag_3__method-arity-mismatch
+214/494 Test #10551: logos_25_spec_fail_expr_diag_2__struct-field-type-mismatch ...................   Passed    1.40 sec
+        Start 10844: logos_25_spec_fail_stmt_diag_2__assign-deferred-init-twice
+215/494 Test #10548: logos_25_spec_fail_expr_diag_2__index-raw-ptr-unsafe .........................   Passed    1.39 sec
+        Start 10596: logos_25_spec_fail_expr_diag_5__call-arg-count
+216/494 Test #10644: logos_25_spec_fail_generic_diag_2__type-args-on-non-generic ..................   Passed    1.58 sec
+        Start 10481: logos_25_spec_fail_borrow_diag_3__assign-immutable-var
+217/494 Test #10546: logos_25_spec_fail_expr_diag_2__index-integer-required .......................   Passed    1.42 sec
+        Start 10540: logos_25_spec_fail_expr_diag_2__enum-arity
+218/494 Test #10600: logos_25_spec_fail_expr_diag_5__enum-intlit-payload-overflow .................   Passed    1.68 sec
+        Start 10544: logos_25_spec_fail_expr_diag_2__field-unknown
+219/494 Test #10595: logos_25_spec_fail_expr_diag_5__break-label-out-of-scope .....................   Passed    1.67 sec
+        Start 10554: logos_25_spec_fail_expr_diag_2__struct-missing-field
+220/494 Test #10685: logos_25_spec_fail_item_diag_1__static-immutable-write .......................   Passed    1.37 sec
+        Start 10503: logos_25_spec_fail_coerce_diag_1__writ-mapslice-to-typed-map
+221/494 Test #10790: logos_25_spec_fail_pat_diag_2__struct-unknown-name ...........................   Passed    1.43 sec
+        Start 10648: logos_25_spec_fail_intrinsic_diag_1__dyn-from-parts-argc
+222/494 Test #10807: logos_25_spec_fail_pat_diag_3__struct-shape-fields ...........................   Passed    1.49 sec
+223/494 Test #10608: logos_25_spec_fail_expr_diag_5__try-dispatch-undeterminable-return ...........   Passed    1.44 sec
+        Start 10848: logos_25_spec_fail_stmt_diag_2__assign-static-mut-unsafe
+        Start 10618: logos_25_spec_fail_expr_diag_6__match-block-arm-tail
+224/494 Test #10581: logos_25_spec_fail_expr_diag_4__undefined-function ...........................   Passed    1.35 sec
+        Start 10575: logos_25_spec_fail_expr_diag_4__intlit-fit-aggregate
+225/494 Test #10525: logos_25_spec_fail_expr_diag_1__char-bad-unicode .............................   Passed    1.49 sec
+        Start 10658: logos_25_spec_fail_intrinsic_diag_1__offset-of-not-struct
+226/494 Test #10859: logos_25_spec_fail_stmt_diag_2__return-intlit-overflow .......................   Passed    1.24 sec
+        Start 10781: logos_25_spec_fail_pat_diag_2__range-empty-exclusive
+227/494 Test #10516: logos_25_spec_fail_const_diag_1__logical-non-bool ............................   Passed    1.25 sec
+        Start 10833: logos_25_spec_fail_stmt_diag_1__destructure-assign-struct-rhs
+228/494 Test #10567: logos_25_spec_fail_expr_diag_3__unsafe-inherent-method .......................   Passed    1.49 sec
+        Start 10841: logos_25_spec_fail_stmt_diag_1__let-else-or-pattern-disjunction
+229/494 Test #10725: logos_25_spec_fail_metaprog_diag_1__item-raw-not-expr ........................   Passed    1.56 sec
+        Start 10471: logos_25_spec_fail_borrow_diag_2__non-movable-by-value
+230/494 Test #10799: logos_25_spec_fail_pat_diag_3__exhaustive-required ...........................   Passed    1.34 sec
+        Start 10517: logos_25_spec_fail_const_diag_1__malformed-float-lit
+231/494 Test #10840: logos_25_spec_fail_stmt_diag_1__let-else-must-diverge ........................   Passed    1.37 sec
+        Start 10808: logos_25_spec_fail_pat_diag_3__tuple-shape-needs-parens
+232/494 Test #10574: logos_25_spec_fail_expr_diag_4__callable-arity ...............................   Passed    1.44 sec
+        Start 10828: logos_25_spec_fail_stmt_diag_1__deref-write-const-ptr-readonly
+233/494 Test #10838: logos_25_spec_fail_stmt_diag_1__let-destruct-rest-and-arity ..................   Passed    1.47 sec
+        Start 10651: logos_25_spec_fail_intrinsic_diag_1__get-annotation-not-annotation
+234/494 Test #10772: logos_25_spec_fail_pat_diag_1__or-alternative-binding-uniformity .............   Passed    1.52 sec
+        Start 10847: logos_25_spec_fail_stmt_diag_2__assign-intlit-overflow
+235/494 Test #10439: logos_25_spec_fail_borrow_diag_1__binding-mut-required .......................   Passed    1.32 sec
+        Start 10535: logos_25_spec_fail_expr_diag_1__undefined-var
+236/494 Test #10582: logos_25_spec_fail_expr_diag_4__unsafe-context-required ......................   Passed    1.48 sec
+        Start 10766: logos_25_spec_fail_pat_diag_1__float-literal-rejected
+237/494 Test #10641: logos_25_spec_fail_generic_diag_1__undefined-callee ..........................   Passed    1.53 sec
+        Start 10916: logos_25_spec_fail_type_diag_1__self-describing-fat-ref-impl
+238/494 Test #10775: logos_25_spec_fail_pat_diag_1__tuple-double-rest .............................   Passed    1.33 sec
+        Start 10800: logos_25_spec_fail_pat_diag_3__for-loop-tuple-only
+239/494 Test #10622: logos_25_spec_fail_expr_diag__chained-comparison-forbidden ...................   Passed    1.45 sec
+        Start 10880: logos_25_spec_fail_trait_diag_2__blanket-unbound-into
+240/494 Test #10842: logos_25_spec_fail_stmt_diag_1__return-fallthrough-nonvoid ...................   Passed    1.33 sec
+        Start 10497: logos_25_spec_fail_coerce_diag_1__never-subtype-of-all
+241/494 Test #10580: logos_25_spec_fail_expr_diag_4__tuple-struct-ctor-arity ......................   Passed    1.53 sec
+        Start 10489: logos_25_spec_fail_coerce_diag_1__aggregate-scalar-forbidden
+242/494 Test #10708: logos_25_spec_fail_lex_diag_1__digit-separator-placement .....................   Passed    1.38 sec
+        Start 10553: logos_25_spec_fail_expr_diag_2__struct-intlit-fits
+243/494 Test #10844: logos_25_spec_fail_stmt_diag_2__assign-deferred-init-twice ...................   Passed    1.42 sec
+        Start 10924: logos_25_spec_fail_type_diag_2__intlit-fit-arith
+244/494 Test #10652: logos_25_spec_fail_intrinsic_diag_1__has-annotation-not-annotation ...........   Passed    1.62 sec
+        Start 10534: logos_25_spec_fail_expr_diag_1__static-mut-read
+245/494 Test #10481: logos_25_spec_fail_borrow_diag_3__assign-immutable-var .......................   Passed    1.38 sec
+        Start 10463: logos_25_spec_fail_borrow_diag_2__definite-assignment
+246/494 Test #10596: logos_25_spec_fail_expr_diag_5__call-arg-count ...............................   Passed    1.49 sec
+        Start 10620: logos_25_spec_fail_expr_diag_6__match-exhaustive-enum
+247/494 Test #10610: logos_25_spec_fail_expr_diag_5__tuple-index-out-of-range .....................   Passed    1.63 sec
+248/494 Test #10561: logos_25_spec_fail_expr_diag_3__method-arity-mismatch ........................   Passed    1.54 sec
+        Start 10552: logos_25_spec_fail_expr_diag_2__struct-functional-update
+        Start 10839: logos_25_spec_fail_stmt_diag_1__let-destruct-tuple-required
+249/494 Test #10544: logos_25_spec_fail_expr_diag_2__field-unknown ................................   Passed    1.47 sec
+        Start 10488: logos_25_spec_fail_borrow_diag_3__return-move-out-of-ref
+250/494 Test #10540: logos_25_spec_fail_expr_diag_2__enum-arity ...................................   Passed    1.61 sec
+        Start 10537: logos_25_spec_fail_expr_diag_2__arr-homogeneous
+251/494 Test #10554: logos_25_spec_fail_expr_diag_2__struct-missing-field .........................   Passed    1.45 sec
+        Start 10889: logos_25_spec_fail_trait_diag_2__enum-eq-no-impl
+252/494 Test #10618: logos_25_spec_fail_expr_diag_6__match-block-arm-tail .........................   Passed    1.34 sec
+        Start 10543: logos_25_spec_fail_expr_diag_2__field-raw-ptr-unsafe
+253/494 Test #10648: logos_25_spec_fail_intrinsic_diag_1__dyn-from-parts-argc .....................   Passed    1.41 sec
+        Start 10568: logos_25_spec_fail_expr_diag_3__unsafe-primitive-method
+254/494 Test #10848: logos_25_spec_fail_stmt_diag_2__assign-static-mut-unsafe .....................   Passed    1.40 sec
+        Start 10630: logos_25_spec_fail_generic_diag_1__method-bounds-check
+255/494 Test #10781: logos_25_spec_fail_pat_diag_2__range-empty-exclusive .........................   Passed    1.28 sec
+        Start 10768: logos_25_spec_fail_pat_diag_1__int-scrutinee-must-be-integer
+256/494 Test #10833: logos_25_spec_fail_stmt_diag_1__destructure-assign-struct-rhs ................   Passed    1.28 sec
+        Start 10852: logos_25_spec_fail_stmt_diag_2__let-pat-array-len-mismatch
+257/494 Test #10575: logos_25_spec_fail_expr_diag_4__intlit-fit-aggregate .........................   Passed    1.38 sec
+        Start 10827: logos_25_spec_fail_stmt_diag_1__continue-outside-loop
+258/494 Test #10503: logos_25_spec_fail_coerce_diag_1__writ-mapslice-to-typed-map .................   Passed    1.57 sec
+        Start 10514: logos_25_spec_fail_const_diag_1__intlit-fold-overflow
+259/494 Test #10658: logos_25_spec_fail_intrinsic_diag_1__offset-of-not-struct ....................   Passed    1.48 sec
+        Start 10897: logos_25_spec_fail_trait_diag_2__tagged-ptr-no-method
+260/494 Test #10471: logos_25_spec_fail_borrow_diag_2__non-movable-by-value .......................   Passed    1.42 sec
+        Start 10898: logos_25_spec_fail_trait_diag_2__unsafe-method-context
+261/494 Test #10841: logos_25_spec_fail_stmt_diag_1__let-else-or-pattern-disjunction ..............   Passed    1.55 sec
+        Start 10507: logos_25_spec_fail_const_diag_1__ctfe-non-const-call
+262/494 Test #10808: logos_25_spec_fail_pat_diag_3__tuple-shape-needs-parens ......................   Passed    1.35 sec
+        Start 10542: logos_25_spec_fail_expr_diag_2__field-not-struct
+263/494 Test #10517: logos_25_spec_fail_const_diag_1__malformed-float-lit .........................   Passed    1.45 sec
+        Start 10527: logos_25_spec_fail_expr_diag_1__extern-static
+264/494 Test #10847: logos_25_spec_fail_stmt_diag_2__assign-intlit-overflow .......................   Passed    1.27 sec
+        Start 10639: logos_25_spec_fail_generic_diag_1__turbofish-arity
+265/494 Test #10828: logos_25_spec_fail_stmt_diag_1__deref-write-const-ptr-readonly ...............   Passed    1.33 sec
+        Start 10558: logos_25_spec_fail_expr_diag_3__deref-raw-ptr-unsafe
+266/494 Test #10651: logos_25_spec_fail_intrinsic_diag_1__get-annotation-not-annotation ...........   Passed    1.47 sec
+        Start 10590: logos_25_spec_fail_expr_diag_4__writ-typed-map-key-discipline
+267/494 Test #10800: logos_25_spec_fail_pat_diag_3__for-loop-tuple-only ...........................   Passed    1.37 sec
+        Start 10529: logos_25_spec_fail_expr_diag_1__if-needs-else
+268/494 Test #10535: logos_25_spec_fail_expr_diag_1__undefined-var ................................   Passed    1.53 sec
+        Start 10528: logos_25_spec_fail_expr_diag_1__if-cond-not-bool
+269/494 Test #10766: logos_25_spec_fail_pat_diag_1__float-literal-rejected ........................   Passed    1.52 sec
+        Start 10601: logos_25_spec_fail_expr_diag_5__enum-payload-arity
+270/494 Test #10916: logos_25_spec_fail_type_diag_1__self-describing-fat-ref-impl .................   Passed    1.51 sec
+        Start 10531: logos_25_spec_fail_expr_diag_1__malformed-int
+271/494 Test #10489: logos_25_spec_fail_coerce_diag_1__aggregate-scalar-forbidden .................   Passed    1.50 sec
+        Start 10550: logos_25_spec_fail_expr_diag_2__struct-dyn-auto-bounds
+272/494 Test #10553: logos_25_spec_fail_expr_diag_2__struct-intlit-fits ...........................   Passed    1.50 sec
+        Start 10505: logos_25_spec_fail_const_diag_1__assign-intlit-overflow
+273/494 Test #10880: logos_25_spec_fail_trait_diag_2__blanket-unbound-into ........................   Passed    1.57 sec
+        Start 10483: logos_25_spec_fail_borrow_diag_3__assign-shared-ref
+274/494 Test #10497: logos_25_spec_fail_coerce_diag_1__never-subtype-of-all .......................   Passed    1.56 sec
+        Start 10767: logos_25_spec_fail_pat_diag_1__float-rejected-at-sema
+275/494 Test #10924: logos_25_spec_fail_type_diag_2__intlit-fit-arith .............................   Passed    1.47 sec
+        Start 10849: logos_25_spec_fail_stmt_diag_2__assign-undefined-var
+276/494 Test #10463: logos_25_spec_fail_borrow_diag_2__definite-assignment ........................   Passed    1.45 sec
+        Start 10857: logos_25_spec_fail_stmt_diag_2__let-pat-union-requires-unsafe
+277/494 Test #10839: logos_25_spec_fail_stmt_diag_1__let-destruct-tuple-required ..................   Passed    1.42 sec
+        Start 10758: logos_25_spec_fail_pat_diag_1__bool-scrutinee
+278/494 Test #10620: logos_25_spec_fail_expr_diag_6__match-exhaustive-enum ........................   Passed    1.50 sec
+        Start 10868: logos_25_spec_fail_trait_diag_1__auto-generic-impl-bound
+279/494 Test #10534: logos_25_spec_fail_expr_diag_1__static-mut-read ..............................   Passed    1.57 sec
+        Start 10510: logos_25_spec_fail_const_diag_1__expr-forms-array
+280/494 Test #10552: logos_25_spec_fail_expr_diag_2__struct-functional-update .....................   Passed    1.51 sec
+        Start 10500: logos_25_spec_fail_coerce_diag_1__variance-gate-on-compatible
+281/494 Test #10537: logos_25_spec_fail_expr_diag_2__arr-homogeneous ..............................   Passed    1.38 sec
+        Start 10533: logos_25_spec_fail_expr_diag_1__ptr-nonzero-compare
+282/494 Test #10488: logos_25_spec_fail_borrow_diag_3__return-move-out-of-ref .....................   Passed    1.44 sec
+        Start 10659: logos_25_spec_fail_intrinsic_diag_1__reflect-not-datatype
+283/494 Test #10543: logos_25_spec_fail_expr_diag_2__field-raw-ptr-unsafe .........................   Passed    1.43 sec
+        Start 10538: logos_25_spec_fail_expr_diag_2__arr-scalar-hint-adopt
+284/494 Test #10568: logos_25_spec_fail_expr_diag_3__unsafe-primitive-method ......................   Passed    1.43 sec
+        Start 10638: logos_25_spec_fail_generic_diag_1__tuple-struct-field-type-check
+285/494 Test #10630: logos_25_spec_fail_generic_diag_1__method-bounds-check .......................   Passed    1.46 sec
+        Start 10539: logos_25_spec_fail_expr_diag_2__enum-arg-type
+286/494 Test #10889: logos_25_spec_fail_trait_diag_2__enum-eq-no-impl .............................   Passed    1.54 sec
+        Start 10563: logos_25_spec_fail_expr_diag_3__method-raw-ptr-unsafe
+287/494 Test #10897: logos_25_spec_fail_trait_diag_2__tagged-ptr-no-method ........................   Passed    1.31 sec
+        Start 10498: logos_25_spec_fail_coerce_diag_1__slice-exact-scalar-no-mut-widen
+288/494 Test #10514: logos_25_spec_fail_const_diag_1__intlit-fold-overflow ........................   Passed    1.40 sec
+        Start 10526: logos_25_spec_fail_expr_diag_1__cmp-non-chainable
+289/494 Test #10768: logos_25_spec_fail_pat_diag_1__int-scrutinee-must-be-integer .................   Passed    1.53 sec
+        Start 10825: logos_25_spec_fail_stmt_diag_1__break-outside-loop
+290/494 Test #10827: logos_25_spec_fail_stmt_diag_1__continue-outside-loop ........................   Passed    1.50 sec
+        Start 10578: logos_25_spec_fail_expr_diag_4__static-array-default
+291/494 Test #10852: logos_25_spec_fail_stmt_diag_2__let-pat-array-len-mismatch ...................   Passed    1.61 sec
+        Start 10887: logos_25_spec_fail_trait_diag_2__dstref-no-method
+292/494 Test #10527: logos_25_spec_fail_expr_diag_1__extern-static ................................   Passed    1.25 sec
+        Start 10579: logos_25_spec_fail_expr_diag_4__static-unsafe-context
+293/494 Test #10507: logos_25_spec_fail_const_diag_1__ctfe-non-const-call .........................   Passed    1.39 sec
+        Start 10496: logos_25_spec_fail_coerce_diag_1__intlit-dispatch-unsuffixed-fits-narrower
+294/494 Test #10898: logos_25_spec_fail_trait_diag_2__unsafe-method-context .......................   Passed    1.56 sec
+295/494 Test #10558: logos_25_spec_fail_expr_diag_3__deref-raw-ptr-unsafe .........................   Passed    1.34 sec
+        Start 10805: logos_25_spec_fail_pat_diag_3__raw-pointer-rejected
+        Start 10854: logos_25_spec_fail_stmt_diag_2__let-pat-refutable-shape
+296/494 Test #10542: logos_25_spec_fail_expr_diag_2__field-not-struct .............................   Passed    1.53 sec
+        Start 10494: logos_25_spec_fail_coerce_diag_1__enum-to-integer-discriminant
+297/494 Test #10639: logos_25_spec_fail_generic_diag_1__turbofish-arity ...........................   Passed    1.44 sec
+        Start 10484: logos_25_spec_fail_borrow_diag_3__assign-shared-slice-elem
+298/494 Test #10590: logos_25_spec_fail_expr_diag_4__writ-typed-map-key-discipline ................   Passed    1.45 sec
+        Start 10703: logos_25_spec_fail_layout_diag_1__pinned-non-movable
+299/494 Test #10550: logos_25_spec_fail_expr_diag_2__struct-dyn-auto-bounds .......................   Passed    1.32 sec
+        Start 10487: logos_25_spec_fail_borrow_diag_3__let-move-behind-ref
+300/494 Test #10529: logos_25_spec_fail_expr_diag_1__if-needs-else ................................   Passed    1.52 sec
+        Start 10515: logos_25_spec_fail_const_diag_1__let-intlit-overflow
+301/494 Test #10601: logos_25_spec_fail_expr_diag_5__enum-payload-arity ...........................   Passed    1.43 sec
+        Start 10492: logos_25_spec_fail_coerce_diag_1__enum-bare-literal-retype-to-param
+302/494 Test #10531: logos_25_spec_fail_expr_diag_1__malformed-int ................................   Passed    1.44 sec
+        Start 10493: logos_25_spec_fail_coerce_diag_1__enum-elementwise-typeargs-no-widen
+303/494 Test #10528: logos_25_spec_fail_expr_diag_1__if-cond-not-bool .............................   Passed    1.49 sec
+        Start 10447: logos_25_spec_fail_borrow_diag_1__move-consume-once
+304/494 Test #10767: logos_25_spec_fail_pat_diag_1__float-rejected-at-sema ........................   Passed    1.37 sec
+        Start 10902: logos_25_spec_fail_type_diag_1__antiquot-quote-ty-only
+305/494 Test #10483: logos_25_spec_fail_borrow_diag_3__assign-shared-ref ..........................   Passed    1.40 sec
+        Start 10830: logos_25_spec_fail_stmt_diag_1__deref-write-raw-ptr-unsafe
+306/494 Test #10849: logos_25_spec_fail_stmt_diag_2__assign-undefined-var .........................   Passed    1.41 sec
+        Start 10490: logos_25_spec_fail_coerce_diag_1__as-bool-forbidden
+307/494 Test #10868: logos_25_spec_fail_trait_diag_1__auto-generic-impl-bound .....................   Passed    1.36 sec
+        Start 10473: logos_25_spec_fail_borrow_diag_2__pin-no-by-value-slot
+308/494 Test #10505: logos_25_spec_fail_const_diag_1__assign-intlit-overflow ......................   Passed    1.57 sec
+        Start 10792: logos_25_spec_fail_pat_diag_2__union-one-field-unsafe
+309/494 Test #10857: logos_25_spec_fail_stmt_diag_2__let-pat-union-requires-unsafe ................   Passed    1.49 sec
+        Start 10631: logos_25_spec_fail_generic_diag_1__method-inference-complete
+310/494 Test #10758: logos_25_spec_fail_pat_diag_1__bool-scrutinee ................................   Passed    1.49 sec
+        Start 10885: logos_25_spec_fail_trait_diag_2__bound-unsatisfied
+311/494 Test #10500: logos_25_spec_fail_coerce_diag_1__variance-gate-on-compatible ................   Passed    1.45 sec
+        Start 10520: logos_25_spec_fail_const_diag_1__neg-non-numeric
+312/494 Test #10510: logos_25_spec_fail_const_diag_1__expr-forms-array ............................   Passed    1.55 sec
+313/494 Test #10533: logos_25_spec_fail_expr_diag_1__ptr-nonzero-compare ..........................   Passed    1.44 sec
+        Start 10547: logos_25_spec_fail_expr_diag_2__index-range-slice
+        Start 10491: logos_25_spec_fail_coerce_diag_1__dyn-auto-trait-bound-gate
+314/494 Test #10539: logos_25_spec_fail_expr_diag_2__enum-arg-type ................................   Passed    1.36 sec
+        Start 10495: logos_25_spec_fail_coerce_diag_1__fnitem-to-fnptr
+315/494 Test #10526: logos_25_spec_fail_expr_diag_1__cmp-non-chainable ............................   Passed    1.33 sec
+        Start 10786: logos_25_spec_fail_pat_diag_2__slice-scrutinee-array
+316/494 Test #10659: logos_25_spec_fail_intrinsic_diag_1__reflect-not-datatype ....................   Passed    1.53 sec
+317/494 Test #10538: logos_25_spec_fail_expr_diag_2__arr-scalar-hint-adopt ........................   Passed    1.47 sec
+318/494 Test #10638: logos_25_spec_fail_generic_diag_1__tuple-struct-field-type-check .............   Passed    1.44 sec
+        Start 10858: logos_25_spec_fail_stmt_diag_2__let-pat-unknown-field
+        Start 10855: logos_25_spec_fail_stmt_diag_2__let-pat-struct-name-mismatch
+        Start 10888: logos_25_spec_fail_trait_diag_2__dyn-unknown-method
+319/494 Test #10498: logos_25_spec_fail_coerce_diag_1__slice-exact-scalar-no-mut-widen ............   Passed    1.39 sec
+        Start 10470: logos_25_spec_fail_borrow_diag_2__no-move-out-borrowed
+320/494 Test #10579: logos_25_spec_fail_expr_diag_4__static-unsafe-context ........................   Passed    1.26 sec
+        Start 10559: logos_25_spec_fail_expr_diag_3__list-comp-iter-not-array
+321/494 Test #10825: logos_25_spec_fail_stmt_diag_1__break-outside-loop ...........................   Passed    1.45 sec
+        Start 10918: logos_25_spec_fail_type_diag_1__unknown-generic-type
+322/494 Test #10578: logos_25_spec_fail_expr_diag_4__static-array-default .........................   Passed    1.44 sec
+        Start 10441: logos_25_spec_fail_borrow_diag_1__classify-move-vs-copy
+323/494 Test #10887: logos_25_spec_fail_trait_diag_2__dstref-no-method ............................   Passed    1.40 sec
+        Start 10460: logos_25_spec_fail_borrow_diag_2__box-dyn-owning
+324/494 Test #10563: logos_25_spec_fail_expr_diag_3__method-raw-ptr-unsafe ........................   Passed    1.57 sec
+        Start 10521: logos_25_spec_fail_const_diag_1__not-non-bool
+325/494 Test #10496: logos_25_spec_fail_coerce_diag_1__intlit-dispatch-unsuffixed-fits-narrower ...   Passed    1.36 sec
+        Start 10633: logos_25_spec_fail_generic_diag_1__ref-no-variadic-packs
+326/494 Test #10494: logos_25_spec_fail_coerce_diag_1__enum-to-integer-discriminant ...............   Passed    1.23 sec
+        Start 10735: logos_25_spec_fail_metaprog_diag_2__metacall-nested
+327/494 Test #10854: logos_25_spec_fail_stmt_diag_2__let-pat-refutable-shape ......................   Passed    1.31 sec
+        Start 10628: logos_25_spec_fail_generic_diag_1__infer-from-args
+328/494 Test #10805: logos_25_spec_fail_pat_diag_3__raw-pointer-rejected ..........................   Passed    1.45 sec
+        Start 10536: logos_25_spec_fail_expr_diag_1__unsigned-negative
+329/494 Test #10484: logos_25_spec_fail_borrow_diag_3__assign-shared-slice-elem ...................   Passed    1.38 sec
+        Start 10788: logos_25_spec_fail_pat_diag_2__struct-field-exists
+330/494 Test #10703: logos_25_spec_fail_layout_diag_1__pinned-non-movable .........................   Passed    1.29 sec
+        Start 10723: logos_25_spec_fail_metaprog_diag_1__item-callee-not-fnmacro
+331/494 Test #10487: logos_25_spec_fail_borrow_diag_3__let-move-behind-ref ........................   Passed    1.49 sec
+        Start 10715: logos_25_spec_fail_metaprog_diag_1__annot-unknown-field
+332/494 Test #10515: logos_25_spec_fail_const_diag_1__let-intlit-overflow .........................   Passed    1.50 sec
+        Start 10564: logos_25_spec_fail_expr_diag_3__method-receiver-not-struct
+333/494 Test #10493: logos_25_spec_fail_coerce_diag_1__enum-elementwise-typeargs-no-widen .........   Passed    1.52 sec
+        Start 10714: logos_25_spec_fail_metaprog_diag_1__annot-too-many-positional
+334/494 Test #10830: logos_25_spec_fail_stmt_diag_1__deref-write-raw-ptr-unsafe ...................   Passed    1.47 sec
+335/494 Test #10490: logos_25_spec_fail_coerce_diag_1__as-bool-forbidden ..........................   Passed    1.41 sec
+        Start 10655: logos_25_spec_fail_intrinsic_diag_1__include-item-position
+        Start 10861: logos_25_spec_fail_stmt_diag_2__while-cond-not-bool
+336/494 Test #10902: logos_25_spec_fail_type_diag_1__antiquot-quote-ty-only .......................   Passed    1.49 sec
+        Start 10624: logos_25_spec_fail_expr_diag__no-chained-comparisons
+337/494 Test #10492: logos_25_spec_fail_coerce_diag_1__enum-bare-literal-retype-to-param ..........   Passed    1.56 sec
+        Start 10499: logos_25_spec_fail_coerce_diag_1__str-to-mut-ptr-forbidden
+338/494 Test #10447: logos_25_spec_fail_borrow_diag_1__move-consume-once ..........................   Passed    1.54 sec
+        Start 10649: logos_25_spec_fail_intrinsic_diag_1__env-unset
+339/494 Test #10473: logos_25_spec_fail_borrow_diag_2__pin-no-by-value-slot .......................   Passed    1.39 sec
+        Start 10598: logos_25_spec_fail_expr_diag_5__call-intlit-overflow
+340/494 Test #10631: logos_25_spec_fail_generic_diag_1__method-inference-complete .................   Passed    1.37 sec
+        Start 10634: logos_25_spec_fail_generic_diag_1__ref-sized-enforcement
+341/494 Test #10792: logos_25_spec_fail_pat_diag_2__union-one-field-unsafe ........................   Passed    1.52 sec
+        Start 10611: logos_25_spec_fail_expr_diag_5__unknown-enum
+342/494 Test #10885: logos_25_spec_fail_trait_diag_2__bound-unsatisfied ...........................   Passed    1.55 sec
+        Start 10846: logos_25_spec_fail_stmt_diag_2__assign-immutable-var
+343/494 Test #10520: logos_25_spec_fail_const_diag_1__neg-non-numeric .............................   Passed    1.55 sec
+        Start 10784: logos_25_spec_fail_pat_diag_2__slice-array-length
+344/494 Test #10786: logos_25_spec_fail_pat_diag_2__slice-scrutinee-array .........................   Passed    1.38 sec
+        Start 10625: logos_25_spec_fail_generic_diag_1__arity-exact
+345/494 Test #10491: logos_25_spec_fail_coerce_diag_1__dyn-auto-trait-bound-gate ..................   Passed    1.49 sec
+346/494 Test #10470: logos_25_spec_fail_borrow_diag_2__no-move-out-borrowed .......................   Passed    1.35 sec
+        Start 10583: logos_25_spec_fail_expr_diag_4__vararg-minimum
+        Start 10485: logos_25_spec_fail_borrow_diag_3__assign-static-mut-needs-unsafe
+347/494 Test #10547: logos_25_spec_fail_expr_diag_2__index-range-slice ............................   Passed    1.55 sec
+        Start 10469: logos_25_spec_fail_borrow_diag_2__no-move-out-array-index
+348/494 Test #10855: logos_25_spec_fail_stmt_diag_2__let-pat-struct-name-mismatch .................   Passed    1.43 sec
+349/494 Test #10888: logos_25_spec_fail_trait_diag_2__dyn-unknown-method ..........................   Passed    1.41 sec
+        Start 10606: logos_25_spec_fail_expr_diag_5__malformed-float
+        Start 10713: logos_25_spec_fail_metaprog_diag_1__annot-eq-no-fields
+350/494 Test #10495: logos_25_spec_fail_coerce_diag_1__fnitem-to-fnptr ............................   Passed    1.49 sec
+351/494 Test #10858: logos_25_spec_fail_stmt_diag_2__let-pat-unknown-field ........................   Passed    1.45 sec
+        Start 10518: logos_25_spec_fail_const_diag_1__malformed-int-lit
+        Start 10506: logos_25_spec_fail_const_diag_1__ctfe-int-div-zero
+352/494 Test #10559: logos_25_spec_fail_expr_diag_3__list-comp-iter-not-array .....................   Passed    1.38 sec
+        Start 10692: logos_25_spec_fail_item_diag_2__enum-variant-name-unique
+353/494 Test #10918: logos_25_spec_fail_type_diag_1__unknown-generic-type .........................   Passed    1.37 sec
+        Start 10679: logos_25_spec_fail_item_diag_1__explicit-inst-unbound
+354/494 Test #10441: logos_25_spec_fail_borrow_diag_1__classify-move-vs-copy ......................   Passed    1.37 sec
+        Start 10698: logos_25_spec_fail_item_diag_2__param-unique-names
+355/494 Test #10735: logos_25_spec_fail_metaprog_diag_2__metacall-nested ..........................   Passed    1.27 sec
+        Start 10573: logos_25_spec_fail_expr_diag_4__arity-exact
+356/494 Test #10460: logos_25_spec_fail_borrow_diag_2__box-dyn-owning .............................   Passed    1.38 sec
+        Start 10701: logos_25_spec_fail_item_diag_2__struct-lifetime-param-unique
+357/494 Test #10521: logos_25_spec_fail_const_diag_1__not-non-bool ................................   Passed    1.48 sec
+        Start 10700: logos_25_spec_fail_item_diag_2__struct-field-name-unique
+358/494 Test #10628: logos_25_spec_fail_generic_diag_1__infer-from-args ...........................   Passed    1.40 sec
+359/494 Test #10723: logos_25_spec_fail_metaprog_diag_1__item-callee-not-fnmacro ..................   Passed    1.15 sec
+        Start 10570: logos_25_spec_fail_expr_diag_3__vec-get-move-out
+        Start 10697: logos_25_spec_fail_item_diag_2__param-self-reserved
+360/494 Test #10633: logos_25_spec_fail_generic_diag_1__ref-no-variadic-packs .....................   Passed    1.49 sec
+        Start 10695: logos_25_spec_fail_item_diag_2__param-datanode-by-value
+361/494 Test #10536: logos_25_spec_fail_expr_diag_1__unsigned-negative ............................   Passed    1.38 sec
+        Start 10480: logos_25_spec_fail_borrow_diag_2__var-consume
+362/494 Test #10788: logos_25_spec_fail_pat_diag_2__struct-field-exists ...........................   Passed    1.40 sec
+        Start 10691: logos_25_spec_fail_item_diag_2__enum-type-param-unique
+363/494 Test #10499: logos_25_spec_fail_coerce_diag_1__str-to-mut-ptr-forbidden ...................   Passed    1.24 sec
+        Start 10640: logos_25_spec_fail_generic_diag_1__type-param-unique
+364/494 Test #10714: logos_25_spec_fail_metaprog_diag_1__annot-too-many-positional ................   Passed    1.29 sec
+        Start 10479: logos_25_spec_fail_borrow_diag_2__use-after-move
+365/494 Test #10649: logos_25_spec_fail_intrinsic_diag_1__env-unset ...............................   Passed    1.28 sec
+        Start 10681: logos_25_spec_fail_item_diag_1__instantiate-non-generic
+366/494 Test #10564: logos_25_spec_fail_expr_diag_3__method-receiver-not-struct ...................   Passed    1.44 sec
+        Start 10629: logos_25_spec_fail_generic_diag_1__lifetime-param-unique
+367/494 Test #10715: logos_25_spec_fail_metaprog_diag_1__annot-unknown-field ......................   Passed    1.47 sec
+368/494 Test #10861: logos_25_spec_fail_stmt_diag_2__while-cond-not-bool ..........................   Passed    1.38 sec
+        Start 10819: logos_25_spec_fail_region_diag_1__impl-undeclared-lifetime
+        Start 10693: logos_25_spec_fail_item_diag_2__fn-name-underscore
+369/494 Test #10655: logos_25_spec_fail_intrinsic_diag_1__include-item-position ...................   Passed    1.40 sec
+        Start 10824: logos_25_spec_fail_region_diag_1__struct-undeclared-lifetime
+370/494 Test #10598: logos_25_spec_fail_expr_diag_5__call-intlit-overflow .........................   Passed    1.47 sec
+        Start 10702: logos_25_spec_fail_item_diag_2__struct-type-param-unique
+371/494 Test #10634: logos_25_spec_fail_generic_diag_1__ref-sized-enforcement .....................   Passed    1.44 sec
+        Start 10818: logos_25_spec_fail_region_diag_1__fn-undeclared-lifetime
+372/494 Test #10624: logos_25_spec_fail_expr_diag__no-chained-comparisons .........................   Passed    1.57 sec
+        Start 10817: logos_25_spec_fail_region_diag_1__elision-ambiguous-output
+373/494 Test #10846: logos_25_spec_fail_stmt_diag_2__assign-immutable-var .........................   Passed    1.37 sec
+        Start 10513: logos_25_spec_fail_const_diag_1__init-type-mismatch
+374/494 Test #10625: logos_25_spec_fail_generic_diag_1__arity-exact ...............................   Passed    1.34 sec
+        Start 10923: logos_25_spec_fail_type_diag_2__datanode-return-by-value
+375/494 Test #10611: logos_25_spec_fail_expr_diag_5__unknown-enum .................................   Passed    1.55 sec
+        Start 10926: logos_25_spec_fail_type_diag_2__never-param-uninhabited
+376/494 Test #10713: logos_25_spec_fail_metaprog_diag_1__annot-eq-no-fields .......................   Passed    1.40 sec
+        Start 10636: logos_25_spec_fail_generic_diag_1__relaxed-only-sized
+377/494 Test #10784: logos_25_spec_fail_pat_diag_2__slice-array-length ............................   Passed    1.50 sec
+        Start 10511: logos_25_spec_fail_const_diag_1__inferred-type-e0121
+378/494 Test #10469: logos_25_spec_fail_borrow_diag_2__no-move-out-array-index ....................   Passed    1.43 sec
+379/494 Test #10692: logos_25_spec_fail_item_diag_2__enum-variant-name-unique .....................   Passed    1.38 sec
+        Start 10678: logos_25_spec_fail_item_diag_1__enum-repr-noninteger
+        Start 10674: logos_25_spec_fail_item_diag_1__enum-disc-metacall-empty
+380/494 Test #10583: logos_25_spec_fail_expr_diag_4__vararg-minimum ...............................   Passed    1.49 sec
+381/494 Test #10606: logos_25_spec_fail_expr_diag_5__malformed-float ..............................   Passed    1.44 sec
+382/494 Test #10518: logos_25_spec_fail_const_diag_1__malformed-int-lit ...........................   Passed    1.42 sec
+        Start 10684: logos_25_spec_fail_item_diag_1__repr-transparent-multifield
+        Start 10927: logos_25_spec_fail_type_diag_2__no-underscore-in-signature
+        Start 10863: logos_25_spec_fail_trait_diag_1__assoc-const-completeness
+383/494 Test #10698: logos_25_spec_fail_item_diag_2__param-unique-names ...........................   Passed    1.40 sec
+        Start 10920: logos_25_spec_fail_type_diag_1__unsized-by-value
+384/494 Test #10485: logos_25_spec_fail_borrow_diag_3__assign-static-mut-needs-unsafe .............   Passed    1.52 sec
+        Start 10881: logos_25_spec_fail_trait_diag_2__bound-arity
+385/494 Test #10506: logos_25_spec_fail_const_diag_1__ctfe-int-div-zero ...........................   Passed    1.48 sec
+        Start 10884: logos_25_spec_fail_trait_diag_2__bound-unknown-trait
+386/494 Test #10679: logos_25_spec_fail_item_diag_1__explicit-inst-unbound ........................   Passed    1.50 sec
+        Start 10930: logos_25_spec_fail_type_diag_2__recursive-struct-by-value
+387/494 Test #10700: logos_25_spec_fail_item_diag_2__struct-field-name-unique .....................   Passed    1.35 sec
+        Start 10911: logos_25_spec_fail_type_diag_1__generic-alias-arity
+388/494 Test #10573: logos_25_spec_fail_expr_diag_4__arity-exact ..................................   Passed    1.49 sec
+        Start 10877: logos_25_spec_fail_trait_diag_1__impl-unsafe-trait-parity
+389/494 Test #10701: logos_25_spec_fail_item_diag_2__struct-lifetime-param-unique .................   Passed    1.50 sec
+        Start 10677: logos_25_spec_fail_item_diag_1__enum-payload-placeholder
+390/494 Test #10697: logos_25_spec_fail_item_diag_2__param-self-reserved ..........................   Passed    1.36 sec
+        Start 10690: logos_25_spec_fail_item_diag_2__attr-target-kind
+391/494 Test #10695: logos_25_spec_fail_item_diag_2__param-datanode-by-value ......................   Passed    1.35 sec
+        Start 10626: logos_25_spec_fail_generic_diag_1__bound-well-formed
+392/494 Test #10570: logos_25_spec_fail_expr_diag_3__vec-get-move-out .............................   Passed    1.43 sec
+        Start 10875: logos_25_spec_fail_trait_diag_1__impl-missing-method
+393/494 Test #10480: logos_25_spec_fail_borrow_diag_2__var-consume ................................   Passed    1.33 sec
+        Start 10901: logos_25_spec_fail_trait_diag_3__supertrait-missing-impl
+394/494 Test #10691: logos_25_spec_fail_item_diag_2__enum-type-param-unique .......................   Passed    1.31 sec
+        Start 10680: logos_25_spec_fail_item_diag_1__extern-abi-unknown
+395/494 Test #10640: logos_25_spec_fail_generic_diag_1__type-param-unique .........................   Passed    1.27 sec
+        Start 10864: logos_25_spec_fail_trait_diag_1__assoc-const-type-match
+396/494 Test #10479: logos_25_spec_fail_borrow_diag_2__use-after-move .............................   Passed    1.29 sec
+        Start 10642: logos_25_spec_fail_generic_diag_1__variadic-last
+397/494 Test #10681: logos_25_spec_fail_item_diag_1__instantiate-non-generic ......................   Passed    1.30 sec
+        Start 10910: logos_25_spec_fail_type_diag_1__field-placeholder
+398/494 Test #10824: logos_25_spec_fail_region_diag_1__struct-undeclared-lifetime .................   Passed    1.27 sec
+        Start 10909: logos_25_spec_fail_type_diag_1__enum-backing-integer
+399/494 Test #10693: logos_25_spec_fail_item_diag_2__fn-name-underscore ...........................   Passed    1.31 sec
+        Start 10895: logos_25_spec_fail_trait_diag_2__supertrait-impl-required
+400/494 Test #10702: logos_25_spec_fail_item_diag_2__struct-type-param-unique .....................   Passed    1.32 sec
+        Start 10683: logos_25_spec_fail_item_diag_1__repr-other-struct
+401/494 Test #10629: logos_25_spec_fail_generic_diag_1__lifetime-param-unique .....................   Passed    1.48 sec
+        Start 10928: logos_25_spec_fail_type_diag_2__recursion-enum-finite-size
+402/494 Test #10819: logos_25_spec_fail_region_diag_1__impl-undeclared-lifetime ...................   Passed    1.48 sec
+        Start 10509: logos_25_spec_fail_const_diag_1__duplicate-name
+403/494 Test #10818: logos_25_spec_fail_region_diag_1__fn-undeclared-lifetime .....................   Passed    1.36 sec
+        Start 10643: logos_25_spec_fail_generic_diag_2__relaxed-only-sized
+404/494 Test #10817: logos_25_spec_fail_region_diag_1__elision-ambiguous-output ...................   Passed    1.33 sec
+        Start 10705: logos_25_spec_fail_layout_diag_1__repr-mode-rejected
+405/494 Test #10674: logos_25_spec_fail_item_diag_1__enum-disc-metacall-empty .....................   Passed    1.07 sec
+        Start 10752: logos_25_spec_fail_module_diag_1__pub-marker-only-module
+406/494 Test #10636: logos_25_spec_fail_generic_diag_1__relaxed-only-sized ........................   Passed    1.18 sec
+        Start 10919: logos_25_spec_fail_type_diag_1__unsized-arg-gating
+407/494 Test #10511: logos_25_spec_fail_const_diag_1__inferred-type-e0121 .........................   Passed    1.21 sec
+        Start 10704: logos_25_spec_fail_layout_diag_1__recursive-value-enum
+408/494 Test #10923: logos_25_spec_fail_type_diag_2__datanode-return-by-value .....................   Passed    1.36 sec
+        Start 10865: logos_25_spec_fail_trait_diag_1__assoc-type-completeness
+409/494 Test #10684: logos_25_spec_fail_item_diag_1__repr-transparent-multifield ..................   Passed    1.21 sec
+        Start 10894: logos_25_spec_fail_trait_diag_2__supertrait-impl-completeness
+410/494 Test #10911: logos_25_spec_fail_type_diag_1__generic-alias-arity ..........................   Passed    1.09 sec
+        Start 10872: logos_25_spec_fail_trait_diag_1__gat-no-shadow
+411/494 Test #10884: logos_25_spec_fail_trait_diag_2__bound-unknown-trait .........................   Passed    1.18 sec
+        Start 10706: logos_25_spec_fail_layout_diag_1__repr-transparent-multifield
+412/494 Test #10877: logos_25_spec_fail_trait_diag_1__impl-unsafe-trait-parity ....................   Passed    1.12 sec
+        Start 10907: logos_25_spec_fail_type_diag_1__dst-tail-not-last
+413/494 Test #10513: logos_25_spec_fail_const_diag_1__init-type-mismatch ..........................   Passed    1.49 sec
+        Start 10696: logos_25_spec_fail_item_diag_2__param-infer-placeholder
+414/494 Test #10927: logos_25_spec_fail_type_diag_2__no-underscore-in-signature ...................   Passed    1.32 sec
+        Start 10675: logos_25_spec_fail_item_diag_1__enum-disc-too-big
+415/494 Test #10930: logos_25_spec_fail_type_diag_2__recursive-struct-by-value ....................   Passed    1.22 sec
+        Start 10931: logos_25_spec_fail_type_diag_2__unsized-slice-value
+416/494 Test #10678: logos_25_spec_fail_item_diag_1__enum-repr-noninteger .........................   Passed    1.40 sec
+        Start 10903: logos_25_spec_fail_type_diag_1__assoc-ref-gat-args
+417/494 Test #10926: logos_25_spec_fail_type_diag_2__never-param-uninhabited ......................   Passed    1.50 sec
+        Start 10753: logos_25_spec_fail_module_diag_1__use-from-no-such-module
+418/494 Test #10920: logos_25_spec_fail_type_diag_1__unsized-by-value .............................   Passed    1.39 sec
+        Start 10913: logos_25_spec_fail_type_diag_1__generic-const-arity
+419/494 Test #10863: logos_25_spec_fail_trait_diag_1__assoc-const-completeness ....................   Passed    1.43 sec
+420/494 Test #10901: logos_25_spec_fail_trait_diag_3__supertrait-missing-impl .....................   Passed    1.20 sec
+        Start 10673: logos_25_spec_fail_item_diag_1__datatype-dup-type-code
+        Start 10874: logos_25_spec_fail_trait_diag_1__impl-method-unsafe-parity
+421/494 Test #10680: logos_25_spec_fail_item_diag_1__extern-abi-unknown ...........................   Passed    1.29 sec
+        Start 10646: logos_25_spec_fail_grammar_diag_1__relaxed-bound-non-sized
+422/494 Test #10875: logos_25_spec_fail_trait_diag_1__impl-missing-method .........................   Passed    1.35 sec
+        Start 10886: logos_25_spec_fail_trait_diag_2__copy-unsafe-impl
+423/494 Test #10626: logos_25_spec_fail_generic_diag_1__bound-well-formed .........................   Passed    1.43 sec
+        Start 10871: logos_25_spec_fail_trait_diag_1__gat-arity-match
+424/494 Test #10690: logos_25_spec_fail_item_diag_2__attr-target-kind .............................   Passed    1.49 sec
+        Start 10912: logos_25_spec_fail_type_diag_1__generic-arity-and-bounds
+425/494 Test #10881: logos_25_spec_fail_trait_diag_2__bound-arity .................................   Passed    1.69 sec
+        Start 10687: logos_25_spec_fail_item_diag_1__union-empty
+426/494 Test #10677: logos_25_spec_fail_item_diag_1__enum-payload-placeholder .....................   Passed    1.62 sec
+        Start 10676: logos_25_spec_fail_item_diag_1__enum-disc-unknown-enum
+427/494 Test #10864: logos_25_spec_fail_trait_diag_1__assoc-const-type-match ......................   Passed    1.18 sec
+        Start 10876: logos_25_spec_fail_trait_diag_1__impl-unknown-trait
+428/494 Test #10910: logos_25_spec_fail_type_diag_1__field-placeholder ............................   Passed    1.32 sec
+        Start 10893: logos_25_spec_fail_trait_diag_2__standalone-unsafe-impl
+429/494 Test #10642: logos_25_spec_fail_generic_diag_1__variadic-last .............................   Passed    1.45 sec
+        Start 10915: logos_25_spec_fail_type_diag_1__self-describing-dst-len-required
+430/494 Test #10683: logos_25_spec_fail_item_diag_1__repr-other-struct ............................   Passed    1.30 sec
+431/494 Test #10705: logos_25_spec_fail_layout_diag_1__repr-mode-rejected .........................   Passed    1.23 sec
+        Start 10522: logos_25_spec_fail_const_diag_1__self-reference
+        Start 10878: logos_25_spec_fail_trait_diag_1__impl-variadic-pack
+432/494 Test #10895: logos_25_spec_fail_trait_diag_2__supertrait-impl-required ....................   Passed    1.47 sec
+        Start 10906: logos_25_spec_fail_type_diag_1__datatype-pod-field
+433/494 Test #10509: logos_25_spec_fail_const_diag_1__duplicate-name ..............................   Passed    1.32 sec
+        Start 10929: logos_25_spec_fail_type_diag_2__recursion-struct-finite-size
+434/494 Test #10643: logos_25_spec_fail_generic_diag_2__relaxed-only-sized ........................   Passed    1.32 sec
+        Start 10870: logos_25_spec_fail_trait_diag_1__dyn-object-safety
+435/494 Test #10919: logos_25_spec_fail_type_diag_1__unsized-arg-gating ...........................   Passed    1.21 sec
+        Start 10866: logos_25_spec_fail_trait_diag_1__assoc-type-duplicate
+436/494 Test #10909: logos_25_spec_fail_type_diag_1__enum-backing-integer .........................   Passed    1.56 sec
+        Start 10914: logos_25_spec_fail_type_diag_1__rec-by-value-cycle
+437/494 Test #10928: logos_25_spec_fail_type_diag_2__recursion-enum-finite-size ...................   Passed    1.47 sec
+        Start 10905: logos_25_spec_fail_type_diag_1__copy-drop-exclusive
+438/494 Test #10752: logos_25_spec_fail_module_diag_1__pub-marker-only-module .....................   Passed    1.47 sec
+        Start 10900: logos_25_spec_fail_trait_diag_3__object-safety-required
+439/494 Test #10907: logos_25_spec_fail_type_diag_1__dst-tail-not-last ............................   Passed    1.28 sec
+        Start 10688: logos_25_spec_fail_item_diag_1__union-move-field
+440/494 Test #10704: logos_25_spec_fail_layout_diag_1__recursive-value-enum .......................   Passed    1.40 sec
+        Start 10523: logos_25_spec_fail_const_diag_1__static-addr-of-mut
+441/494 Test #10865: logos_25_spec_fail_trait_diag_1__assoc-type-completeness .....................   Passed    1.46 sec
+        Start 10686: logos_25_spec_fail_item_diag_1__type-alias-inferred
+442/494 Test #10872: logos_25_spec_fail_trait_diag_1__gat-no-shadow ...............................   Passed    1.44 sec
+        Start 10730: logos_25_spec_fail_metaprog_diag_2__annot-builtin-target
+443/494 Test #10913: logos_25_spec_fail_type_diag_1__generic-const-arity ..........................   Passed    1.26 sec
+        Start 10867: logos_25_spec_fail_trait_diag_1__auto-empty-body
+444/494 Test #10894: logos_25_spec_fail_trait_diag_2__supertrait-impl-completeness ................   Passed    1.49 sec
+        Start 10699: logos_25_spec_fail_item_diag_2__repr-recognized-modes
+445/494 Test #10931: logos_25_spec_fail_type_diag_2__unsized-slice-value ..........................   Passed    1.36 sec
+        Start 10917: logos_25_spec_fail_type_diag_1__tagged-unknown-trait
+446/494 Test #10706: logos_25_spec_fail_layout_diag_1__repr-transparent-multifield ................   Passed    1.49 sec
+        Start 10896: logos_25_spec_fail_trait_diag_2__supertrait-unknown
+447/494 Test #10696: logos_25_spec_fail_item_diag_2__param-infer-placeholder ......................   Passed    1.46 sec
+448/494 Test #10753: logos_25_spec_fail_module_diag_1__use-from-no-such-module ....................   Passed    1.35 sec
+        Start 10908: logos_25_spec_fail_type_diag_1__dyn-object-safety
+        Start 10512: logos_25_spec_fail_const_diag_1__init-bare-call
+449/494 Test #10903: logos_25_spec_fail_type_diag_1__assoc-ref-gat-args ...........................   Passed    1.39 sec
+        Start 10729: logos_25_spec_fail_metaprog_diag_1__type-code-template-genos
+450/494 Test #10675: logos_25_spec_fail_item_diag_1__enum-disc-too-big ............................   Passed    1.46 sec
+        Start 10732: logos_25_spec_fail_metaprog_diag_2__derive-no-rust-syntax
+451/494 Test #10673: logos_25_spec_fail_item_diag_1__datatype-dup-type-code .......................   Passed    1.37 sec
+        Start 10587: logos_25_spec_fail_expr_diag_4__writ-type-literal-unknown-bare
+452/494 Test #10874: logos_25_spec_fail_trait_diag_1__impl-method-unsafe-parity ...................   Passed    1.48 sec
+        Start 10904: logos_25_spec_fail_type_diag_1__cfg-slot-const-writstatic
+453/494 Test #10886: logos_25_spec_fail_trait_diag_2__copy-unsafe-impl ............................   Passed    1.38 sec
+        Start 10750: logos_25_spec_fail_metaprog_diag_2__type-code-on-generic
+454/494 Test #10646: logos_25_spec_fail_grammar_diag_1__relaxed-bound-non-sized ...................   Passed    1.43 sec
+        Start 10922: logos_25_spec_fail_type_diag_1__writ-map-key-val-set
+455/494 Test #10676: logos_25_spec_fail_item_diag_1__enum-disc-unknown-enum .......................   Passed    1.20 sec
+        Start 10921: logos_25_spec_fail_type_diag_1__writ-arr-elem-set
+456/494 Test #10871: logos_25_spec_fail_trait_diag_1__gat-arity-match .............................   Passed    1.38 sec
+        Start 10731: logos_25_spec_fail_metaprog_diag_2__annot-value-int-or-enum
+457/494 Test #10687: logos_25_spec_fail_item_diag_1__union-empty ..................................   Passed    1.38 sec
+        Start 10751: logos_25_spec_fail_module_diag_1__cannot-find-package-text-first
+458/494 Test #10912: logos_25_spec_fail_type_diag_1__generic-arity-and-bounds .....................   Passed    1.46 sec
+        Start 10754: logos_25_spec_fail_module_diag_1__use-unresolved-on-search-paths
+459/494 Test #10876: logos_25_spec_fail_trait_diag_1__impl-unknown-trait ..........................   Passed    1.32 sec
+        Start 10724: logos_25_spec_fail_metaprog_diag_1__item-position-needs-braces
+460/494 Test #10724: logos_25_spec_fail_metaprog_diag_1__item-position-needs-braces ...............   Passed    0.14 sec
+        Start 10647: logos_25_spec_fail_grammar_diag_1__writ-datatype-empty-args
+461/494 Test #10893: logos_25_spec_fail_trait_diag_2__standalone-unsafe-impl ......................   Passed    1.27 sec
+        Start 10682: logos_25_spec_fail_item_diag_1__negative-impl-nonempty
+462/494 Test #10647: logos_25_spec_fail_grammar_diag_1__writ-datatype-empty-args ..................   Passed    0.15 sec
+        Start 10709: logos_25_spec_fail_lex_diag_1__ident-ascii-only
+463/494 Test #10682: logos_25_spec_fail_item_diag_1__negative-impl-nonempty .......................   Passed    0.15 sec
+464/494 Test #10906: logos_25_spec_fail_type_diag_1__datatype-pod-field ...........................   Passed    1.25 sec
+465/494 Test #10929: logos_25_spec_fail_type_diag_2__recursion-struct-finite-size .................   Passed    1.26 sec
+466/494 Test #10878: logos_25_spec_fail_trait_diag_1__impl-variadic-pack ..........................   Passed    1.29 sec
+467/494 Test #10751: logos_25_spec_fail_module_diag_1__cannot-find-package-text-first .............   Passed    0.49 sec
+468/494 Test #10522: logos_25_spec_fail_const_diag_1__self-reference ..............................   Passed    1.34 sec
+469/494 Test #10709: logos_25_spec_fail_lex_diag_1__ident-ascii-only ..............................   Passed    0.14 sec
+470/494 Test #10915: logos_25_spec_fail_type_diag_1__self-describing-dst-len-required .............   Passed    1.47 sec
+471/494 Test #10870: logos_25_spec_fail_trait_diag_1__dyn-object-safety ...........................   Passed    1.32 sec
+472/494 Test #10754: logos_25_spec_fail_module_diag_1__use-unresolved-on-search-paths .............   Passed    0.55 sec
+473/494 Test #10914: logos_25_spec_fail_type_diag_1__rec-by-value-cycle ...........................   Passed    1.35 sec
+474/494 Test #10905: logos_25_spec_fail_type_diag_1__copy-drop-exclusive ..........................   Passed    1.27 sec
+475/494 Test #10866: logos_25_spec_fail_trait_diag_1__assoc-type-duplicate ........................   Passed    1.38 sec
+476/494 Test #10688: logos_25_spec_fail_item_diag_1__union-move-field .............................   Passed    1.21 sec
+477/494 Test #10686: logos_25_spec_fail_item_diag_1__type-alias-inferred ..........................   Passed    1.13 sec
+478/494 Test #10917: logos_25_spec_fail_type_diag_1__tagged-unknown-trait .........................   Passed    1.08 sec
+479/494 Test #10908: logos_25_spec_fail_type_diag_1__dyn-object-safety ............................   Passed    1.04 sec
+480/494 Test #10523: logos_25_spec_fail_const_diag_1__static-addr-of-mut ..........................   Passed    1.24 sec
+481/494 Test #10512: logos_25_spec_fail_const_diag_1__init-bare-call ..............................   Passed    1.05 sec
+482/494 Test #10699: logos_25_spec_fail_item_diag_2__repr-recognized-modes ........................   Passed    1.12 sec
+483/494 Test #10896: logos_25_spec_fail_trait_diag_2__supertrait-unknown ..........................   Passed    1.10 sec
+484/494 Test #10900: logos_25_spec_fail_trait_diag_3__object-safety-required ......................   Passed    1.31 sec
+485/494 Test #10867: logos_25_spec_fail_trait_diag_1__auto-empty-body .............................   Passed    1.17 sec
+486/494 Test #10729: logos_25_spec_fail_metaprog_diag_1__type-code-template-genos .................   Passed    1.09 sec
+487/494 Test #10587: logos_25_spec_fail_expr_diag_4__writ-type-literal-unknown-bare ...............   Passed    1.04 sec
+488/494 Test #10750: logos_25_spec_fail_metaprog_diag_2__type-code-on-generic .....................   Passed    0.90 sec
+489/494 Test #10904: logos_25_spec_fail_type_diag_1__cfg-slot-const-writstatic ....................   Passed    0.94 sec
+490/494 Test #10730: logos_25_spec_fail_metaprog_diag_2__annot-builtin-target .....................   Passed    1.21 sec
+491/494 Test #10732: logos_25_spec_fail_metaprog_diag_2__derive-no-rust-syntax ....................   Passed    1.11 sec
+492/494 Test #10921: logos_25_spec_fail_type_diag_1__writ-arr-elem-set ............................   Passed    0.89 sec
+493/494 Test #10922: logos_25_spec_fail_type_diag_1__writ-map-key-val-set .........................   Passed    0.90 sec
+494/494 Test #10731: logos_25_spec_fail_metaprog_diag_2__annot-value-int-or-enum ..................   Passed    0.90 sec
+
+100% tests passed, 0 tests failed out of 494
+
+Label Time Summary:
+corpus        = 722.09 sec*proc (494 tests)
+fail          = 722.09 sec*proc (494 tests)
+logos         = 722.09 sec*proc (494 tests)
+suite_spec    = 722.09 sec*proc (494 tests)
+
+Total Test time (real) =  23.72 sec

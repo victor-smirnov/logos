@@ -1,0 +1,18 @@
+// hand battery: round 2026-09-17e, program h_tuple — RefPat sub nested in a tuple pattern.
+// legality: rustc 1.98.1 --edition 2024 MEASURED: compiles, prints got=6, exit 0.
+package h_tuple;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let k: i32 = 1i32;
+    match (pp, k) {
+        (&&P { x }, j) => {
+            unsafe { printf("got=%d\n".as_ptr(), x + j); }
+            if x + j != 6i32 { return 1i32; }
+        }
+    }
+    return 0i32;
+}

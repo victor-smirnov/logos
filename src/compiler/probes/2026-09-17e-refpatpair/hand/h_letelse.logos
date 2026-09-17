@@ -1,0 +1,16 @@
+// hand battery: round 2026-09-17e, program h_letelse — RefPat at the let-else door.
+// legality: rustc 1.98.1 --edition 2024 MEASURED: compiles, prints got=5 77, exit 0.
+package h_letelse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn get(r: &Option<i64>) -> i64 {
+    let &Option::Some(x) = r else { return 77i64; };
+    return x;
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(5i64);
+    let n: Option<i64> = Option::None;
+    unsafe { printf("got=%ld %ld\n".as_ptr(), get(&o), get(&n)); }
+    if get(&o) != 5i64 { return 1i32; }
+    if get(&n) != 77i64 { return 2i32; }
+    return 0i32;
+}
