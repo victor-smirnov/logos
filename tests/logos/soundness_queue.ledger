@@ -77,7 +77,7 @@ try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_oper
 #    ptr_under_struct_field_region_escape_admitted (raw pointer + region collection).
 struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
 
-# TOTAL 237
+# TOTAL 236
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -310,7 +310,6 @@ let_ref_struct_pattern_irrefutable_refused 3 tests/soundness/open/let_ref_struct
 # OPENED by the landing's hand battery, each measured on base b96b980fb AND the candidate; the reason is in each program's header.
 param_ref_struct_cast_after_addr_of_reads_slot_run 1 tests/soundness/open/param_ref_struct_cast_after_addr_of_reads_slot_run run 1
 letelse_ref_pattern_binding_undefined_refused 3 tests/soundness/open/letelse_ref_pattern_binding_undefined_refused refuses
-ref_pattern_nested_in_tuple_binding_undefined_refused 3 tests/soundness/open/ref_pattern_nested_in_tuple_binding_undefined_refused refuses
 method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_autoderef_double_ref_option_infer_refused refuses
 # ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
 #    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each

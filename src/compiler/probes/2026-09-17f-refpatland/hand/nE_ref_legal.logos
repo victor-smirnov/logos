@@ -1,0 +1,19 @@
+// round 2026-09-17f, legal control nE — the `ref` repair of xA. Must COMPILE and RUN.
+// rustc 1.98.1 twin: compiles, prints got=2 1, exit 0.
+package nE_ref_legal;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct H { d: D }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let h: H = H { d: D { v: 2i64, c: p } };
+    let r: &H = &h;
+    let rr: &&H = &r;
+    let k: i32 = 1i32;
+    match (rr, k) {
+        (&&H { d: ref q }, j) => { unsafe { printf("got=%ld %d\n".as_ptr(), q.v, j); } }
+    }
+    return 0i32;
+}

@@ -4766,6 +4766,22 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         }
         break;
     }
+    case pc::Code::RefPat: {
+        // `&P` / `&mut P` against a `&T` slot: the slot holds the reference, so
+        // load it and bind the inner pattern against the POINTEE. Same arithmetic
+        // as pat_test's RefPat case, so the test and the bind agree on the place;
+        // without this case sema's binder whitelist may not admit RefPat at all
+        // (the two are a door in SERIES — PROBES.md 2026-09-17f).
+        lir_view::PatRefPatView rp{pat};
+        auto inner = rp.inner();
+        if (!inner) break;
+        TypeRef pointee = (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                                  TypeRef(ty).kind() == LogosType::Kind::MutRef))
+                          ? TypeRef(ty).pointee() : ty;
+        auto ref_val = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        pat_bind(inner, ref_val, pointee, shared);
+        break;
+    }
     default: break;
     }
 }

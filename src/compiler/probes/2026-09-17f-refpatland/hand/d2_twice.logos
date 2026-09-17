@@ -1,0 +1,19 @@
+// d2: print x and j separately, then AGAIN after the call.
+package d2_twice;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let k: i32 = 1i32;
+    match (pp, k) {
+        (&&P { x }, j) => {
+            unsafe { printf("A x=%d j=%d\n".as_ptr(), x, j); }
+            unsafe { printf("B x=%d j=%d\n".as_ptr(), x, j); }
+            if x != 5i32 { return 3i32; }
+            if j != 1i32 { return 4i32; }
+        }
+    }
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// d1: the IF comes BEFORE the printf. If this exits 0, the call is what clobbers.
+package d1_if_first;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let k: i32 = 1i32;
+    match (pp, k) {
+        (&&P { x }, j) => {
+            if x + j != 6i32 { return 1i32; }
+            unsafe { printf("got=%d\n".as_ptr(), x + j); }
+        }
+    }
+    return 0i32;
+}

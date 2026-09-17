@@ -6956,14 +6956,17 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         v.each_sub([&](lir_view::PatRef sp) {
             // ⚠ RefBind for the same reason: a `ref` element's name is in the
             // SUB, not in `each_binding`, so without this arm it never defines.
-            // ⚠ Struct introduces names too; Slice/RefPat are NOT here because
-            // pat_bind has no case for either — sema would define a name codegen
-            // never binds (measured: prints 0, PROBES.md 2026-09-16p).
+            // ⚠ Struct introduces names too; Slice is NOT here because pat_bind
+            // has no case for it — sema would define a name codegen never binds
+            // (measured: prints 0, PROBES.md 2026-09-16p). RefPat IS here since
+            // pat_bind gained its RefPat case; the two halves are a door in
+            // SERIES and neither may be armed alone (PROBES.md 2026-09-17f).
             if (sp && (sp.kind() == ps::Code::VariantData ||
                        sp.kind() == ps::Code::Or ||
                        sp.kind() == ps::Code::At ||
                        sp.kind() == ps::Code::RefBind ||
                        sp.kind() == ps::Code::Struct ||
+                       sp.kind() == ps::Code::RefPat ||
                        sp.kind() == ps::Code::Tuple)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);

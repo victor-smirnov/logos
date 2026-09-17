@@ -48456,3 +48456,96 @@ the codegen half alone never executes.
         sentences ("undefined variable"), probe fire log EMPTY — the sites are gone, not merely disarmed.
 
 Full record, twins, hand programs, target-row list and prediction: src/compiler/probes/2026-09-17e-refpatpair/.
+
+
+## 2026-09-17f `refpatland` — THE DOOR IN SERIES IS LANDED: `pat_bind` GAINS ITS `RefPat` CASE AND THE SEMA BINDER WHITELIST ADMITS `RefPat`, CLOSING A TIER-3 ROW RUN-VERIFIED AGAINST ITS rustc TWIN AT ZERO IN EVERY COLUMN, WITH FOUR CARRIERS OF THE ABUSE DIRECTION NEWLY REFUSED FOR A REAL REASON AND A LEGAL `ref` SPELLING FOUND TO HAVE BEEN REFUSED ALL ALONG
+
+site: src/compiler/mlir_gen_stmt.cpp::MLIRGenImpl::pat_bind
+also: src/compiler/sema_stmt.cpp::SemaChecker::bind_pattern_ref (the Tuple each_sub whitelist)
+build: 1d898d8dbc37f4a5 43   (base before the landing: 068a4dab393e7aae 43)
+fires: n/a — this is a LANDING, not a probe; no `probe::on` site is installed.
+
+### WHAT LANDED, AND WHY NEITHER HALF COULD LAND ALONE
+
+`pat_bind` had no `RefPat` case, and `bind_pattern_ref`'s Tuple `each_sub` whitelist excluded
+`RefPat` *because* `pat_bind` had none — the exclusion's own comment said so. Two earlier rounds
+each armed ONE half and priced it at zero:
+
+  * 2026-09-16p armed the SEMA half alone: a MISCOMPILE (`got=0` where rustc gives 6) plus two
+    E0507 admissions, and rowed `RefPat` "REASON 1, no carrier".
+  * The row headers record the CODEGEN half "built and measured at zero".
+
+2026-09-17e armed BOTH and measured the row closing; it priced, did not land. This round lands it.
+The codegen half alone reads **NEVER FIRED**, not ceiling 0 — the site is unreachable until sema
+defines the name. Rules 2 and 13: half a mechanism is not one, and 4 + 0 = 6.
+
+### COLUMNS, ONE CONFIGURE, EVERY ONE DIFFED BOTH WAYS
+
+    queue gate (the ONLY instrument that can see a queue row)
+        base   rc 0 — 237 rows hold        armed  rc 1 — EXACTLY ONE row named, the target row
+    fail_text_oracle.py   1892 fail fixtures, tables BYTE-IDENTICAL, 0 changed either way
+    spec fail tier BY NAME `logos_25_spec_fail_*`   494/494 both ways
+    run_oracle.py   7465 pass fixtures compiled+linked+RUN; ONE row differs and it is
+                    cast-region-to-uint (rc columns identical, stdout sha only — it prints a
+                    stack address), subtracted BY NAME -> 0
+    stdlib-cost.sh  4/4 layers, both ways
+    valgrind (closed row + the legal `ref` control)  0 errors, 0 leaks
+
+### THE ORACLE IS A RUN, AND THE EXIT CODE IS BLIND AT THIS DOOR
+
+The row program prints nothing, so its exit 0 alone cannot tell a fix from the
+"no value emitted -> fall through to return 0" miscompile this door is known for. The VALUE
+oracle is the printing twin: `got=6`, exit 0, warn=0 — digit for digit what rustc 1.98.1 prints
+and exits. That twin is landed as a fixture (`bc_17f_hb_tuple_admit`) precisely so the next
+round cannot lose it.
+
+⚠ A MEASUREMENT DEFECT OF MY OWN, RECORDED BECAUSE IT NEARLY STOPPED THE LANDING: one reading
+reported `h_tuple run_rc=1` while `got=6` printed. The compiler was innocent — the harness line
+was `warn=$(grep -c warning …) run_rc=$?`, and bash expands the command substitution first, so
+`$?` captured **grep's** status (1, zero matches), not the program's. Rule 18: a twin instrument
+needs its own control twin. Re-measured with the status captured immediately: run_rc=0.
+
+### THE ABUSE DIRECTION — THE CARRIER VARIED, NOT THE COUNT
+
+rustc 1.98.1 --edition 2024, measured 2026-09-17; all four are E0507 "cannot move out of a
+shared reference", and all four MUST STAY REFUSED:
+
+    carrier = struct field under `&&`      bc_17f_hb_structfield_refuse
+    carrier = enum variant payload         bc_17f_hb_variantpayload_refuse
+    carrier = nested tuple element         bc_17f_hb_nestedtuple_refuse
+    carrier = whole value under the `&`    bc_17f_hb_atunderref_refuse
+
+⚠ ON THE BASE BINARY ALL FOUR WERE REFUSED ONLY BY THE "undefined variable" ACCIDENT — the very
+defect this landing removes — so the base refusal was worth NOTHING as a safety claim (rule 14,
+inherited). Under the landing each is refused by a REAL sentence, read:
+
+    cannot move out of a value behind a reference / out of an index (E0507):
+    the pattern binds 'd' by value
+
+That is `bind_pattern_ref`'s own `byval_` walker, the E0507 guard 2026-09-16p co-landed, firing
+through the door this change widens. The landing did not have to buy its own guard.
+
+### A LEGAL PROGRAM THE BASE BINARY REFUSED, FOUND BY THE CONTROL TWIN
+
+The `ref` repair of the abuse program — `(&&H { d: ref q }, j)` — is LEGAL (rustc rc 0) and was
+REFUSED by the base binary with "undefined variable 'q'". It compiles and runs `got=2 1` only
+with both halves armed. It was written as a negative control and caught a second over-refusal;
+it lands as `bc_17f_hb_refbind_admit`.
+
+### NEIGHBOUR TABLE — every row the class enumeration names
+
+| neighbour | closed in THIS commit? | reason, with the number |
+|---|---|---|
+| `ref_pattern_nested_in_tuple_binding_undefined_refused` | **CLOSED** | compiles warn=0, exit 0, valgrind 0 errors/0 leaks; printing twin `got=6` = rustc's; gate names it and only it |
+| `letelse_ref_pattern_binding_undefined_refused` | **NO — REASON 1, no carrier at that site** | sema defines `x`; the SLetElse codegen route is a DIFFERENT extractor and emits no value. Re-measured on the landed binary: still `undefined variable 'x'`, cc=1 |
+| `let_ref_struct_pattern_irrefutable_refused` | **NO — REASON 1, a different production** | refused at the `let`-door whitelist BEFORE any binder runs; identical text on base and landed |
+
+### REGISTRY CHECK, BOTH SCHEMES, READ BY ME
+
+  * `docs/DIVERGENCES.md` **B4** — Rust column reads **"as Rust"**; its note calls these "plain
+    GAPS … this row is the pointer, not the list". Not a licence.
+  * `docs/spec/divergences.md` + `docs/spec/statements.md` `stmt.let-pat.struct-shapes-only` —
+    registered UNDER B4; its criterion is what THIS LOWERING can prove, not legality.
+    **Not a blessed divergence.**
+  * ⚠ REPORTED, NOT REPAIRED: that clause cites `src/compiler/sema_stmt.cpp#L1079-L1136`, but the
+    whitelist it describes is at **L1421**. The spec's source range has drifted.

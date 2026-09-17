@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-17f, program bc_17f_hb_variantpayload_refuse — caught: carrier = ENUM VARIANT PAYLOAD with Drop under & in a tuple pattern
+// On the BASE binary this was refused only by the "undefined variable" ACCIDENT (rule 14, inherited);
+// with the door armed it is refused for a REAL reason, by the byval_ E0507 walker.
+// legality: rustc 1.98.1 --edition 2024 MEASURED 2026-09-17: E0507 cannot move out of a shared reference.
+package bc_17f_hb_variantpayload_refuse;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let o: Option<D> = Option::Some(D { v: 3i64, c: p });
+    let r: &Option<D> = &o;
+    let k: i32 = 1i32;
+    match (r, k) {
+        (&Option::Some(d), j) => { unsafe { printf("got=%ld %d\n".as_ptr(), d.v, j); } }
+        (&Option::None, j) => { unsafe { printf("none %d\n".as_ptr(), j); } }
+    }
+    return 0i32;
+}

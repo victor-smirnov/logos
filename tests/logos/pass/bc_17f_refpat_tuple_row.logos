@@ -1,0 +1,16 @@
+// Closed soundness_queue row ref_pattern_nested_in_tuple_binding_undefined_refused (tier 3), 2026-09-17f.
+// A `&`-pattern chain nested in a tuple pattern binds its names: pat_bind gained a RefPat case and the
+// sema binder whitelist admits RefPat. The two are a door in SERIES; neither half binds anything alone.
+// legality: rustc 1.98.1 --edition 2024 MEASURED 2026-09-17: compiles, runs, exit 0.
+package bc_17f_refpat_tuple_row;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let k: i32 = 1i32;
+    match (pp, k) {
+        (&&P { x }, j) => { if x + j != 6i32 { return 1i32; } }
+    }
+    return 0i32;
+}
