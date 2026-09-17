@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-17d-arrlit, program L1 — caught: the same array-literal shape over a PARAMETER borrow is LEGAL and must keep compiling — the over-refusal this arm must not cause.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (ACCEPTS, runs exit 0).
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/L1_*.rs
+package bc_esc_arrlit_param_elem_admit;
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn thru<'a>(p: &'a i64) -> &'a i64 {
+    return pick([p]);
+}
+fn main() -> i32 {
+    let n: i64 = 7i64;
+    let r: &i64 = thru(&n);
+    return (*r) as i32 - 7i32;
+}

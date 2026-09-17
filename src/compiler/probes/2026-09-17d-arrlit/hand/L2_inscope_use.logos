@@ -1,0 +1,9 @@
+package L2_inscope_use;
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    let r: &i64 = pick([&n]);
+    return (*r) as i32 - 4i32;
+}

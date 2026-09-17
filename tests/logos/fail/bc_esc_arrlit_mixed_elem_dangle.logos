@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-17d-arrlit, program X2 — caught: same hole with TWO elements, one static one local — the local still escapes; base ran exit 8.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (REFUSES, error[E0515]).
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/X2_*.rs
+package bc_esc_arrlit_mixed_elem_dangle;
+static V: i64 = 5i64;
+fn pick2<'a>(x: [&'a i64; 2]) -> &'a i64 {
+    return x[1u64];
+}
+fn escape() -> &'static i64 {
+    let n: i64 = 8i64;
+    return pick2([&V, &n]);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

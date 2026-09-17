@@ -1,0 +1,15 @@
+// hand battery: round 2026-09-17d-arrlit, program X4 — caught: element is a FIELD borrow &s.f, so the named root is the struct local; base ran exit 3.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (REFUSES, error[E0515]).
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/X4_*.rs
+package bc_esc_arrlit_field_elem_dangle;
+struct S { f: i64 }
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn escape() -> &'static i64 {
+    let s: S = S { f: 3i64 };
+    return pick([&s.f]);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

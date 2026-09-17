@@ -1,0 +1,47 @@
+# ROUND 2026-09-17d-arrlit — PREDICTIONS, WRITTEN BEFORE THE COMPILER WAS TOUCHED
+# base build_hash 20900979284e248d 43 · HEAD 563552f35 · tree clean
+#
+# THE DOOR: prov_of_raw (src/compiler/borrow_check.cpp) has arms for StructLit,
+# TupleLit and EnumLitData and NO arm for ArrLit, so an array literal passed
+# by value as a call argument contributes NO provenance and the dangling-return
+# gate (which reads prov_of) admits a borrow of a dead local. The callee's flow
+# summary is CORRECT (result<-0x1 EXACT) and the argument IS merged; prov_of
+# simply has nothing to say about an ArrLit.
+# THE ARM: one case label mirroring TupleLit's, element-wise merge_prov.
+#
+# PREDICTED — X (illegal, rustc E0515 MEASURED on all five):
+#   X1_local_elem        [&n]         base cc0 run 9 -> REFUSED, dangling sentence
+#   X2_mixed_elems       [&V,&n]      base cc0 run 8 -> REFUSED
+#   X3_nested_arrlit     [[&n]]       base cc0 run 6 -> REFUSED (needs recursion)
+#   X4_field_borrow_elem [&s.f]       base cc0 run 3 -> REFUSED
+#   X5_arr_repeat        [&n; 2]      base cc0 run 2 -> ??? SEPARATE NODE KIND.
+#       Predicted NOT closed by this arm if array-repeat is its own Code; this
+#       is the neighbour test and the answer is a measurement, not a guess.
+#
+# PREDICTED — L (legal, rustc ACCEPTS and runs 0, MEASURED):
+#   L1_param_elems  L2_inscope_use  L3_scalar_elems  L4_static_elems
+#       all four: still compile, still run 0. A refusal here is a legal-program
+#       refusal and CONDEMNS the arm outright — tier 3 is made of these.
+#
+# PREDICTED — the queue (235 rows, tier1=37 tier2=66 tier3=121 tier4=11):
+#   ZERO rows move. The arm only ADDS refusals; every tier-3 row is an
+#   OVER-refusal, so none can be closed by refusing more, and the five shapes
+#   above have NO row (the 17c round priced them but did not open any). So this
+#   lands as FAIL FIXTURES with '# TOTAL' holding at 235, not as row deletions.
+#   Named specifically, both at the SAME dangling sentence, predicted UNMOVED:
+#     sliceref_read_of_local_array_says_dangling            (tier 3, refuses)
+#     aggregate_param_ref_field_borrow_returned_says_dangling_refused (tier 3)
+#
+# PREDICTED — the other columns:
+#   fail_text_oracle  1887 common, 0 changed   (an un-refusal or an added line
+#                     is the only thing that sees this arm; rc columns are blind)
+#   spec fail tier    494/494 base and armed
+#   stdlib            4 of 4 layers compile
+#   run_oracle        0 newly damaged
+#
+# NEIGHBOUR B — PREDICTED NOT MOVED BY THIS ARM, and it is a DIFFERENT FACT:
+#   esc_struct / c5_struct_ref_ml: `pick(&w)` where `w: W{r:&n}` is admitted
+#   because the callee summary reads `result<-0 EXACT` — it claims param 0 never
+#   reaches the result although `pick` returns `x.r`. Being EXACT it also cancels
+#   elision, so the argument is never merged. That is a summary/taint defect at
+#   a different site; this arm cannot touch it. If it moves, my account is wrong.

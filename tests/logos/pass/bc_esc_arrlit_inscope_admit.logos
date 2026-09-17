@@ -1,0 +1,12 @@
+// hand battery: round 2026-09-17d-arrlit, program L2 — caught: array literal of a local borrow used IN SCOPE, never returned — legal, must keep compiling.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (ACCEPTS, runs exit 0).
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/L2_*.rs
+package bc_esc_arrlit_inscope_admit;
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    let r: &i64 = pick([&n]);
+    return (*r) as i32 - 4i32;
+}

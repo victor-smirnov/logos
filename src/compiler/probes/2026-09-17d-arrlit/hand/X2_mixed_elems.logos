@@ -1,0 +1,12 @@
+package X2_mixed_elems;
+static V: i64 = 5i64;
+fn pick2<'a>(x: [&'a i64; 2]) -> &'a i64 {
+    return x[1u64];
+}
+fn escape() -> &'static i64 {
+    let n: i64 = 8i64;
+    return pick2([&V, &n]);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

@@ -1,0 +1,12 @@
+package X4_field_borrow_elem;
+struct S { f: i64 }
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn escape() -> &'static i64 {
+    let s: S = S { f: 3i64 };
+    return pick([&s.f]);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

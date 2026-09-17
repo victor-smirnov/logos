@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-17d-arrlit, program L4 — caught: array literal over a STATIC borrow returned as 'static — legal, must keep compiling.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (ACCEPTS, runs exit 0).
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/L4_*.rs
+package bc_esc_arrlit_static_elem_admit;
+static V: i64 = 5i64;
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn get() -> &'static i64 {
+    return pick([&V]);
+}
+fn main() -> i32 {
+    return (*get()) as i32 - 5i32;
+}

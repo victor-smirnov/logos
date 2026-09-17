@@ -1,0 +1,11 @@
+package L4_static_elems;
+static V: i64 = 5i64;
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn get() -> &'static i64 {
+    return pick([&V]);
+}
+fn main() -> i32 {
+    return (*get()) as i32 - 5i32;
+}

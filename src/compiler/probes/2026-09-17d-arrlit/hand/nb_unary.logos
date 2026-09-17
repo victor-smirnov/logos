@@ -1,0 +1,8 @@
+package nb_unary;
+fn escape() -> &'static i64 {
+    let a: i64 = 7i64;
+    return &(-a);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

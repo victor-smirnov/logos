@@ -1,0 +1,11 @@
+// hand battery: round 2026-09-17d-arrlit, program L3 — caught: array literal of SCALARS — the control that shares no borrow at all.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (ACCEPTS, runs exit 0).
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/L3_*.rs
+package bc_esc_arrlit_scalar_elem_admit;
+fn first(x: [i64; 2]) -> i64 {
+    return x[0u64];
+}
+fn main() -> i32 {
+    let v: i64 = first([5i64, 6i64]);
+    return v as i32 - 5i32;
+}

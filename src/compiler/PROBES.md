@@ -48231,3 +48231,80 @@ scope`); `build/` uses clang++-20. `scripts/fail_text_oracle.py` REQUIRES an out
 argv[1] or dies with an IndexError traceback that reads like a tree failure.
 
 Full record, twins and counter-examples: src/compiler/probes/2026-09-17c-emptycand/.
+
+## 2026-09-17d-arrlit — AN AGGREGATE LITERAL THAT CARRIED NO PROVENANCE: FIVE USE-AFTER-SCOPE PROGRAMS CLOSED, TWO CARRIERS ROWED
+site: src/compiler/borrow_check.cpp::prov_of_raw — one `case Code::ArrLit` arm, 10 lines
+build: 20900979284e248d 43 (base, READ) · build-arrlit (armed, clang++-20 RelWithDebInfo,
+  same flags as build/, deleted by literal path at the end of the round) · the landed tree
+  was then rebuilt into build/ and the gates run against THAT binary
+measured: 2026-09-17
+fires: no probe installed this round — the arm is UNCONDITIONAL, so `probe::on` counts
+  nothing and a fire count would be an invention. The EFFECT SET was measured directly
+  instead, base vs armed on two separate binaries: 15 hand programs + all 235 pre-existing
+  queue rows + 1887 fail fixtures + 7461 run fixtures + 494 spec-fail tests + the four
+  stdlib layers. For a refusal-ADDING arm the ceiling instrument is the queue gate armed vs
+  unarmed plus the legal half of the hand battery; `ceiling-probe.sh` cannot see either.
+
+**THE DEFECT.** `prov_of_raw` answers "where does this borrow come from?" and had arms for
+`StructLit`, `TupleLit` and `EnumLitData` — and none for `ArrLit`. An array literal passed
+by value as a call argument therefore contributed `{}`, and the dangling-RETURN gate (which
+reads `prov_of`, not the §B6 source walk) never saw the local. MEASURED on the SHIPPED
+binary with no probe armed: `fn escape() -> &'static i64 { let n: i64 = 9i64; return
+pick([&n]); }` COMPILES and RUNS, exit 9 — the dead local read back. rustc 1.98.1 refuses
+all five spellings with E0515.
+
+⚠ **THE `[retgate]` PRINT SPLIT IT; READING WOULD NOT HAVE.** bare `&n` and a TUPLE literal
+print `prov{loc=1} srcs=[n,]` and are refused; the ARRAY literal prints
+`prov{loc=0 tmp=0 np=0}` **beside its own `srcs=[n,]`**. Same signature as the recorded D-c
+slice-spellings miss: one walker names the local, the walker the gate reads says nothing.
+The callee's summary was CORRECT here (`result<-0x1 EXACT`) and the argument WAS merged.
+
+**WHAT THE ARM CLOSED — run-verified, five programs, each an illegal program that was
+COMPILING AND RUNNING:** `[&n]` (9), `[&V,&n]` (8), nested `[[&n]]` (6), `[&s.f]` (3), and
+array-REPEAT `[&n; 2]` (2). All five now refused, each with a sentence I read. Four LEGAL
+programs (param elements, in-scope use, scalar elements, static elements) still compile AND
+RUN 0 — rustc accepts all four and runs them 0.
+
+**COLUMNS** (base -> armed): queue gate rc 0 235 rows -> **rc 0 237 rows, ZERO rows moved**;
+`fail_text_oracle` 1887 -> 1887 **0 changed**; `run_oracle` 7461 -> 7461, **1 changed and it
+is `cast-region-to-uint`, the named stack-address exclusion** (rc and exit identical, stdout
+sha only); spec fail tier 494/494 -> 494/494; stdlib 4/4 -> 4/4.
+GATES on the landed tree (build/ rebuilt WITH the arm): **L1 rc 0** — 808/808 at L1.1, enumerator smoke 12 684 cases, gates tier 355/355; **`L4 bc` rc 0 — BOTH phases: 6512/6512 and 1601/1601**; soundness queue gate rc 0 at 237 rows. ⚠ The FIRST L1 run was rc 1 on two gates I red MYSELF — `probe_log_lint` (this record had no `build:`/`fires:` line) and `population_pin_lint` (`direct_door` PIN['corpus'] 3835 vs listed 3839: a SECOND pin family over `pass/*.logos` only, which is why the drift is +4 and not +9). Both re-derived BY DIRECT LISTING and green.
+
+**THE CLASS WAS ENUMERATED WITH `tools/dlog`, AND THE FIRST RULE WAS WRONG — PERMISSIVELY.**
+New rule `tools/dlog/prov_arms.dl` (developing dlog is the named exception to the freeze).
+v1 defined a walker as `arm_call(F,K,F)` — descending by calling ITSELF BY NAME — and
+returned 14 walkers, all of which self-name. `prov_of_raw` recurses through its WRAPPER
+`prov_of`, so it was not in the set at all and `prov_missing` came back EMPTY while the
+per-site read said `ArrLit`. A missing ARM and a missing WALKER are both silence. v2 admits
+mutual recursion and agrees with the per-site read term for term: `prov_of_raw` handles 21
+kinds, lacks `ArrLit`, **9 sibling walkers have that arm**; domain guard 42 enumerators; 15
+walkers. Both numbers are reported side by side in the round record, per the standing rule —
+and the tool erred on the PERMISSIVE side, the same failure class as the defect being fixed.
+
+**THE RESIDUE THE ENUMERATION NAMED, DISPOSED BY MEASUREMENT NOT ASSERTION.** `BinOp`,
+`Unary`, `SliceLen`, `FormatCall`: probed on base, ALREADY REFUSED — not holes.
+`PtrArith`/`PtrDiff`: compiles, and **rustc ACCEPTS the same program** — deliberate
+raw-pointer parity, not a defect. `Try` (6 siblings): a REAL hole — base and armed both
+compile it clean while rustc refuses E0515 — ROWED, not closed.
+
+**NEIGHBOURS — TESTED AGAINST THE LANDED CHANGE.** Closed in this commit: nested literal,
+field-borrow element, and array REPEAT (⚠ my written prediction said repeat might be a
+separate node kind and be UNMOVED — REFUTED by measurement, in the safe direction).
+Rowed with reason 1 (no carrier in this arm), each MEASURED unmoved on the armed binary:
+`try_operator_result_local_borrow_escape_admitted` (a different node kind entirely) and
+`struct_ref_param_field_return_exact_summary_escape_admitted` — the latter is an **EXACT
+summary that is WRONG**: `pick__f__ref_W: result<-0 EXACT` claims param 0 never reaches the
+result though `pick` returns `x.r`, and being EXACT it also CANCELS elision, so the argument
+is never merged at all. Its repair is in the taint mask, not in any `prov_of_raw` arm.
+
+**TOOL FACTS PAID FOR THIS ROUND.** (1) An armed binary whose stdlib is still building
+answers `cc=4 diag=0` to EVERY program — `module_loader: cannot find package
+'logos.std.prelude'` — a uniform answer that reads as "the arm changes nothing". (2)
+`LOGOS_BUILD` must be ABSOLUTE for `fail_text_oracle.py` / `run_oracle.py`; relative dies
+`FileNotFoundError` in the workers and looks like a tree failure. (3) The soundness-queue
+per-row ctest tests are globbed from the SHELF, not the ledger, so writing a row's program
+moves REGISTRY-ALL before the row exists — and the gate reds on a shelf program with no row.
+(4) The prompt's "~6270 run_test.sh pass fixtures" is stale: measured 7461.
+
+Full record, twins, counter-examples and the dlog rule: src/compiler/probes/2026-09-17d-arrlit/.

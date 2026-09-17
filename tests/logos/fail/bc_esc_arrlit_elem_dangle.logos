@@ -1,0 +1,14 @@
+// hand battery: round 2026-09-17d-arrlit, program X1 — caught: an array LITERAL argument carried a borrow of a local into a returned reference; base compiled it and it RAN, exit 9, reading a dead local.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (REFUSES, error[E0515]).
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/X1_*.rs
+package bc_esc_arrlit_elem_dangle;
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn escape() -> &'static i64 {
+    let n: i64 = 9i64;
+    return pick([&n]);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

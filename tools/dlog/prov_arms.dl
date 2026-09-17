@@ -1,0 +1,95 @@
+// prov_arms — WHICH expr::Code ARMS DOES EACH PROVENANCE WALKER HAVE?
+//
+// THE QUESTION, AND WHY GREP CANNOT ANSWER IT. "Where does this borrow come
+// from?" is answered at several sites in borrow_check.cpp, each with its own
+// `switch (e.kind())`. A site whose arm set is NARROWER than its siblings' does
+// not report an error: it falls to `default: return {}` — "no provenance" —
+// and the RETURN gate then admits a borrow of a dead local. A missing case has
+// no spelling, so `grep 'case Code::ArrLit'` finds the walkers that HAVE the
+// arm and can never enumerate those that LACK it. A rule over
+// (expr::Code enumerators) x (walker set) DERIVES the absence.
+//
+// KNOWN-ANSWER CONTROL (per-site read of src/compiler/borrow_check.cpp on base
+// 20900979284e248d 43, recorded BEFORE this rule ran):
+//   prov_of_raw HANDLES: VarRef AddrOf AddrOfTemp FieldRead Deref TupleIndex
+//     Cast IndexRead SliceLit SlicePtr SliceIndex IfExpr BlockExpr MatchExpr
+//     Call MethodCall ClosureCall FnPtrCall StructLit TupleLit EnumLitData
+//   prov_of_raw LACKS: ArrLit   <- the finding this rule must reproduce
+// A run that does not reproduce those rows is reporting on a different tree, or
+// the extractor is lying. Report the rule's number and the per-site number side
+// by side; do not fund the difference.
+#include "cxx_schema.dl"
+#include "lir_dispatch.dl"
+target_enum(E) :- decl(E, "Enum", "logos::compiler::lir_schema::expr::Code").
+
+// ⚠ DOMAIN GUARD. A mis-spelled qualified enum name yields an EMPTY domain,
+// and every "missing arm" question then answers "nothing is missing" — the
+// authoritative-looking zero this tool has already produced once. Print the
+// domain size so an empty one is visible rather than silent.
+.decl domain_size(n: number)
+.output domain_size
+domain_size(N) :- N = count : { expr_code(_K) }.
+
+.decl handles(f: symbol, k: symbol)
+handles(F, K) :- tests(F, K, "case_live").
+handles(F, K) :- tests(F, K, "cond").
+
+// WHO IS A PROVENANCE WALKER: derived from behaviour, not nominated by hand —
+// it switches on expr::Code and at least one arm DESCENDS by calling itself.
+.decl self_rec(f: symbol, k: symbol)
+self_rec(F, K) :- arm_call(F, K, F).
+
+// ⚠ MEASURED WRONG, IN THE PERMISSIVE DIRECTION, AND THIS IS THE CORRECTION.
+// The first version of this rule defined a walker as `arm_call(F, K, F)` — a
+// function that DESCENDS BY CALLING ITSELF BY NAME. It returned 14 walkers, all
+// of which happen to self-name, and `prov_of_raw` was NOT among them: it
+// descends through its WRAPPER, `prov_of`, which calls it straight back. So the
+// rule answered "nothing missing" for the one walker the round was about, while
+// its own `prov_handles` projection reproduced the per-site read exactly. A
+// missing arm and a missing WALKER look identical in the output — both are
+// silence — and the silence was on the permissive side, which is the same
+// failure class as the compiler defect this round is fixing.
+// A wrapper is not an implementation detail here: `prov_of` exists precisely so
+// every consumer gets the holder-path merge, so the recursive clique, not the
+// name, is what makes something a walker.
+// ⚠ LIMITATION, STATED: this admits 1-hop and 2-hop cliques (F->F, F->G->F). A
+// walker recursing through a THREE-name chain is still invisible, and
+// `decl_name` collapses overloads, so identity here is by NAME and not by the
+// canonical declaration location the README prefers.
+.decl calls(f: symbol, g: symbol)
+calls(F, G) :- call(N, D), decl_name(D, G), ctx_of(N, X), ctx_name(X, F).
+
+.decl walker(f: symbol)
+.output walker
+walker(F) :- self_rec(F, _).
+walker(F) :- arm_call(F, _K, G), calls(G, F).
+
+// A kind some walker descends THROUGH: omitting a leaf kind omits nothing, so
+// leaves must not be reported as holes.
+.decl structural_kind(k: symbol)
+.output structural_kind
+structural_kind(K) :- self_rec(_, K).
+
+.decl siblings_with(k: symbol, n: number)
+siblings_with(K, N) :- structural_kind(K),
+                       N = count : { handles(_F, K), walker(_F) }.
+
+.decl missing_arm(f: symbol, k: symbol, siblings: number)
+.output missing_arm
+missing_arm(F, K, N) :- walker(F), structural_kind(K),
+                        !handles(F, K), siblings_with(K, N).
+
+// The focused question, so the headline is not buried in every walker's row.
+.decl prov_handles(k: symbol)
+.output prov_handles
+prov_handles(K) :- handles("prov_of_raw", K).
+
+.decl prov_missing(k: symbol, siblings: number)
+.output prov_missing
+prov_missing(K, N) :- missing_arm("prov_of_raw", K, N).
+
+// An arm that exists and does NOTHING is invisible to missing_arm — the case
+// IS named. Reported separately, as place_walkers.dl learned to.
+.decl dead_arm(f: symbol, k: symbol)
+.output dead_arm
+dead_arm(F, K) :- tests(F, K, "case_empty"), walker(F).

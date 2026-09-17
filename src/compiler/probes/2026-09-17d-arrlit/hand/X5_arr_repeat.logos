@@ -1,0 +1,11 @@
+package X5_arr_repeat;
+fn pick2<'a>(x: [&'a i64; 2]) -> &'a i64 {
+    return x[0u64];
+}
+fn escape() -> &'static i64 {
+    let n: i64 = 2i64;
+    return pick2([&n; 2]);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

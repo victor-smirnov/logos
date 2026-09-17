@@ -1,0 +1,12 @@
+package L1_param_elems;
+fn pick<'a>(x: [&'a i64; 1]) -> &'a i64 {
+    return x[0u64];
+}
+fn thru<'a>(p: &'a i64) -> &'a i64 {
+    return pick([p]);
+}
+fn main() -> i32 {
+    let n: i64 = 7i64;
+    let r: &i64 = thru(&n);
+    return (*r) as i32 - 7i32;
+}

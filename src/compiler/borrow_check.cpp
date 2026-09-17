@@ -9294,6 +9294,16 @@ private:
                 });
                 return merged;
             }
+            // Same claim as TupleLit one arm up: an aggregate literal borrows
+            // through its elements. Its absence here admitted a RETURNED borrow
+            // of a dead local. PROBES.md 2026-09-17d-arrlit.
+            case Code::ArrLit: {
+                RefProv merged = {};
+                EArrLitView{e}.each_elem([&](ExprRef el){
+                    merged = merge_prov(merged, prov_of(el));
+                });
+                return merged;
+            }
             case Code::EnumLitData: {
                 RefProv merged = {};
                 EEnumLitDataView{e}.each_payload([&](ExprRef pl){

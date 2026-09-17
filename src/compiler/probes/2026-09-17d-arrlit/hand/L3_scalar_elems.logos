@@ -1,0 +1,8 @@
+package L3_scalar_elems;
+fn first(x: [i64; 2]) -> i64 {
+    return x[0u64];
+}
+fn main() -> i32 {
+    let v: i64 = first([5i64, 6i64]);
+    return v as i32 - 5i32;
+}

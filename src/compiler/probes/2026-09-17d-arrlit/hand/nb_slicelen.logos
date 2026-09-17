@@ -1,0 +1,9 @@
+package nb_slicelen;
+fn escape() -> &'static i64 {
+    let a: [i64; 2] = [1i64, 2i64];
+    let s: &[i64] = &a;
+    return &s[0u64];
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

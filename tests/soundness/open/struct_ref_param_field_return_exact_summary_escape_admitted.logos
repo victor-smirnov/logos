@@ -1,0 +1,42 @@
+// SOUNDNESS QUEUE row struct_ref_param_field_return_exact_summary_escape_admitted
+// (tier 1, `admits`).
+// ILLEGAL PROGRAM ADMITTED: a struct local holds a borrow of another local; a reference to
+// that struct is passed to a function returning the struct's FIELD, and the result escapes.
+//
+//   struct W<'s> { r: &'s i64 }
+//   fn pick<'a>(x: &W<'a>) -> &'a i64 { return x.r; }
+//   fn escape() -> &'static i64 { let n: i64 = 9i64; let w: W = W { r: &n }; return pick(&w); }
+//
+// logosc compiles this CLEAN and the binary RUNS, exiting 9 — it reads the dead stack slot.
+//
+// rustc 1.98.1 --edition 2024 MEASURED 2026-09-17: REFUSES,
+//   error[E0515]: cannot return value referencing local variable `n`
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/esc_struct.rs
+//
+// ⚠ THE MECHANISM IS AN **EXACT** SUMMARY THAT IS WRONG, and that is why no arm reaches it.
+// `LOGOS_DUMP_FLOWS=pick` prints `esc_struct$pick__f__ref_W: result<-0  EXACT`: the mask
+// claims parameter 0 never reaches the result, although `pick` returns `x.r`, a field
+// projection out of that very parameter. Because the summary is EXACT it also CANCELS the
+// elision rule ("an exact summary outranks elision"), so prov_of's Call arm never merges
+// the argument and the return gate sees `prov{loc=0}` beside its own `srcs=[w,]`.
+// The same shape passed BY VALUE (`pick(w)`) is REFUSED, which is the one-variable control.
+//
+// ⚠ NOT the same row as ptr_under_struct_field_region_escape_admitted: that one carries a
+// RAW POINTER in the field and is about region collection; this one is a plain reference
+// field and is about the flow summary's taint mask missing a field projection.
+//
+// FOUND 2026-09-17d-arrlit as defect B, beside the ArrLit arm landed in the same commit.
+// MEASURED UNMOVED by that arm. FIX = refused, with a diagnostic naming the escaping borrow.
+package struct_ref_param_field_return_exact_summary_escape_admitted;
+struct W<'s> { r: &'s i64 }
+fn pick<'a>(x: &W<'a>) -> &'a i64 {
+    return x.r;
+}
+fn escape() -> &'static i64 {
+    let n: i64 = 9i64;
+    let w: W = W { r: &n };
+    return pick(&w);
+}
+fn main() -> i32 {
+    return (*escape()) as i32;
+}

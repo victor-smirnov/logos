@@ -58,7 +58,26 @@ let_array_pattern_temp_source_remainder_late_run 1 tests/soundness/open/let_arra
 match_ref_array_nested_struct_sub_refused 3 tests/soundness/open/match_ref_array_nested_struct_sub_refused refuses
 match_array_nested_array_subpattern_mlirgen_malfunction 3 tests/soundness/open/match_array_nested_array_subpattern_mlirgen_malfunction refuses
 let_array_pattern_nested_subpattern_refused 3 tests/soundness/open/let_array_pattern_nested_subpattern_refused refuses
-# TOTAL 235
+# ── 2026-09-17d-arrlit: TWO ESCAPE CARRIERS THE ArrLit ARM DOES NOT REACH ──
+# Both reproduce on the binary this commit ships (the ArrLit arm INSTALLED) and both were
+# MEASURED unmoved by it — they are rowed, not deferred, each with its reason:
+#
+# try_operator_result_local_borrow_escape_admitted — reason 1, NO CARRIER IN THAT ARM. The
+#    borrow leaves through the `?` operator, a DIFFERENT node kind: `prov_of_raw` has no
+#    `Try` arm at all. tools/dlog (`prov_arms.dl`) names `Try` with SIX sibling walkers that
+#    do have it. Armed binary: cc=0, runs 0. rustc 1.98.1 REFUSES (E0515).
+try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_operator_result_local_borrow_escape_admitted admits
+#
+# struct_ref_param_field_return_exact_summary_escape_admitted — reason 1, the fact has no
+#    carrier at this site: the argument is never merged AT ALL, because the callee's flow
+#    summary reads `result<-0 EXACT` (param 0 "does not reach the result") although `pick`
+#    returns `x.r` — and being EXACT it also cancels elision. So no arm in `prov_of_raw`
+#    can see it; the repair is in the summary's taint mask. Armed binary: cc=0, RUNS 9,
+#    reading a dead local. rustc 1.98.1 REFUSES (E0515). ⚠ NOT the same row as
+#    ptr_under_struct_field_region_escape_admitted (raw pointer + region collection).
+struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
+
+# TOTAL 237
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits

@@ -1,0 +1,38 @@
+// SOUNDNESS QUEUE row try_operator_result_local_borrow_escape_admitted (tier 1, `admits`).
+// ILLEGAL PROGRAM ADMITTED: a borrow of a LOCAL is carried out of a function through the
+// `?` operator, and the reference obtained from it outlives the scope it borrowed.
+//
+//   fn get<'a>(x: &'a i64) -> Option<&'a i64> { return Option::Some(x); }
+//   fn escape() -> Option<&'static i64> { let n: i64 = 9i64; let r: &i64 = get(&n)?; ... }
+//
+// logosc compiles this CLEAN (cc=0, no diagnostic) and the binary RUNS. `n` is dead at
+// the return, so the reference handed back points into the dead frame.
+//
+// rustc 1.98.1 --edition 2024 MEASURED 2026-09-17: REFUSES,
+//   error[E0515]: cannot return value referencing local variable `n`
+// Twin: src/compiler/probes/2026-09-17d-arrlit/rust/nb_try.rs
+//
+// ⚠ IT IS THE CARRIER, NOT THE BORROW. The SAME escape through a bare `&n`, a tuple
+// literal, an array literal, an array repeat and a nested array literal is REFUSED on the
+// binary this row is opened against — the array spellings by the `ArrLit` arm landed in
+// the same commit as this row. `Try` is a DIFFERENT node kind and `prov_of_raw` has no
+// arm for it, so nothing catches this one.
+//
+// FOUND 2026-09-17d-arrlit, enumerating prov_of_raw's missing arms with tools/dlog
+// (`prov_arms.dl`): `Try` is named there with SIX sibling walkers that do have the arm.
+// MEASURED UNMOVED by this round's ArrLit arm (armed binary, cc=0) — rowed, not closed,
+// because it is a different fact and its own legal direction is unpriced.
+// FIX = the program is REFUSED, with a diagnostic naming the escaping borrow.
+package try_operator_result_local_borrow_escape_admitted;
+fn get<'a>(x: &'a i64) -> Option<&'a i64> {
+    return Option::Some(x);
+}
+fn escape() -> Option<&'static i64> {
+    let n: i64 = 9i64;
+    let r: &i64 = get(&n)?;
+    return Option::Some(r);
+}
+fn main() -> i32 {
+    let o: Option<&i64> = escape();
+    return 0i32;
+}
