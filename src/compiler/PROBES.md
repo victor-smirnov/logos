@@ -49185,3 +49185,125 @@ half "the salvageable one"; it is salvageable only ON TOP of the Ptr arm.
    remaining four are the rowed neighbours above — each with a measured carrier program rather
    than a rule's say-so.
 5. Built only in `build/`. No new build directory was created and none is left behind.
+
+## ROUND 2026-09-17k-gepvalue — THE "GEP ON A VALUE" BLOCK OF TIER 3, PRICED: FOUR ARMS, ONE FUNDABLE, THREE TURN A REFUSAL INTO A SILENT WRONG VALUE — AND THE NARROWING 2026-09-08 RECOMMENDED IS ONE OF THE THREE
+
+PRICING ROUND. Nothing landed in the compiler; every probe reverted; the tree is clean.
+
+### STEP 1, RE-DERIVED
+HEAD `46fd328ab` clean. `# TOTAL`: soundness 234 (t1=38 t2=66 t3=119 t4=11) · bc_admits 60 ·
+bc_admits_blocked 8. probe-log-lint 402 records, "every site symbol resolves";
+`logos_00_probe_log_lint` and `logos_00_soundness_queue` both PASS under ctest.
+⚠ The binary in `build/` was 45 min OLDER than HEAD, so it was rebuilt before anything was
+measured; base = `build/bin/logosc` 10:31:27, `build_hash.py` fe443d87b5fd4746 43, and the
+queue gate re-run on THAT binary reads rc 0 / 234 rows. The prompt's gate line now carries
+`LOGOS_LIB_DIR` and is correct as given — verified against the text, not the journal.
+⚠ `logosc --version` reports `g8e8d4f0e-dirty`, naming the PREVIOUS commit, so the version
+stamp does not identify HEAD. Binaries here are named by PATH + TIMESTAMP.
+
+### TIER-3 CENSUS — 119 ROWS COMPILED, BUCKETED BY WHERE THE REFUSAL COMES FROM
+    86  a source-located sema diagnostic   (58 + 26 + 2 whose first line is a path)
+    16  BACKEND VERIFIER as the verdict    (MLIR op error, no source location, no sentence)
+     7  mlir_gen: internal
+     5  PARSE (syntax error, rc 4)
+     3  COMPILES CLEAN (the row's defect is not a refusal at all)
+     2  COMPILER CRASH (1x segv 139, 1x abort 134)
+Re-derive it; my first bucketing called 60 rows "OTHER" because the regex was anchored `^error`
+and 58 of them print `path.logos:N: error …`. State your buckets.
+
+### THE BLOCK, AND HOW THE GROUPING WAS TESTED RATHER THAN ASSUMED
+Of the 16 backend rows, FIVE name an aggregate VALUE as the offending operand. Fact:
+**a projection whose base operand is an SSA aggregate VALUE rather than its address.**
+The SENTENCE is not the class — `arith.cmpi … got '!llvm.ptr'` is printed byte-identically by
+two rows at unrelated doors whose own headers forbid merger.
+FOUR SITES, FOUR ARMS, ONE BINARY, armed ONE NAME PER PROCESS. The armed binary is PROVEN
+INERT unarmed: its battery column is byte-identical to the preserved base binary's.
+
+| arm | site | row it closes | abuse verdict |
+|---|---|---|---|
+| `fatsl` | `bind_struct_field` (Slice) | fatslice_field_match_binder_invalid_mlir | ❌ x02 `got=7`, rustc `got=1` |
+| `fatslarr` | same site (Slice+Array) | the SAME one only | ❌ x01 stack addr; a03 REGRESSED 7→2 |
+| `mscrarr` | `extract_payload` array case | match_array_field_place_verifier_error_refused | ✅ x04 `got=2` = rustc |
+| `idxtup` | `EIndexReadView` receiver switch | ptr_array_in_tuple_param_gep_verifier_refused | ❌ x05 `got=99`, rustc `got=4` |
+
+GROUPING RESULT: **refuted as one fix, confirmed as one fact.** 16 of 16 off-diagonal cells
+unmoved — no arm moves a row at another arm's site, and the queue gate agrees with the battery
+arm for arm. The one strict extension at a SINGLE site (`fatsl`→`fatslarr`, Slice→Slice+Array)
+does NOT close the second row there: it only rewords the sentence,
+`!llvm.array<2 x i64>` → `!llvm.ptr` (rule 14).
+
+### THE ABUSE BATTERY IS THE WHOLE RESULT
+Five abuse programs written THIS round, each with a MEASURED rustc 1.98.1 twin, each testing
+COPY SEMANTICS — the property every one of these arms puts at risk, because each replaces a
+loaded VALUE with an ADDRESS. All four miscompiles were re-confirmed BY HAND outside the runner.
+`fatsl`/`fatslarr` bind the FIELD'S ADDRESS where a by-value struct-pattern binder must bind a
+COPY, so mutating the source after the bind is visible through the binder. `idxtup` takes the
+tuple element's ADDRESS for a BY-VALUE parameter, and that address is the CALLER's storage, so
+a callee write escapes to the caller.
+
+⚠ **THE 2026-09-08 RECOMMENDATION IS MEASURED UNSAFE.** That round priced this exact site
+(`fatbind`) at 0 in all five columns and declined it for a SEGV in a `&dyn` neighbour (hand B4),
+recommending "FatSlice only, or a FatDyn case that also carries the method-receiver
+convention". "FatSlice only" IS `fatsl`. Measured here: it does avoid the SEGV (a07 stays
+rc 0 got=7) and introduces a SILENT WRONG VALUE in its place. A narrowing that removes the
+symptom a round condemned is not thereby safe; it needs its own abuse direction.
+
+⚠ **THE QUEUE GATE CALLS ALL FOUR "CLOSED".** For each arm it reports exactly one row
+"NO LONGER REPRODUCES — compiles clean (cc=0 diag=0 run=0)", including the three that
+miscompile. A `refuses` row's gate oracle is satisfied by mere COMPILATION; only the rustc
+twin's VALUE separates a fix from a wrong answer.
+
+### FULL COST LINE — measured on ONE binary, probe on/off
+                        queue gate (both ways)   fail_text(1903)   spec_fail(494)   stdlib   valgrind
+    fatsl       1 row closed / 0 damage rows     0 rc/0 sha/0 match   494/494       4/4 ok      —
+    fatslarr    1 row closed / 0 damage rows            —                —            —        —
+    mscrarr     1 row closed / 0 damage rows     0 rc/0 sha/0 match   494/494       4/4 ok    0 errors, no leaks
+    idxtup      1 row closed / 0 damage rows     0 rc/0 sha/0 match   494/494       4/4 ok      —
+EVERY HARNESS COLUMN READS ZERO FOR ALL FOUR ARMS, INCLUDING THE THREE THAT MISCOMPILE. The
+only instrument that separated them is the hand battery with a rustc twin and a printed value.
+
+### WHAT DESERVES FUNDING
+1. **`mscrarr` — FUND.** Closes `match_array_field_place_verifier_error_refused` run-verified
+   against its rustc twin: `k=2 n=21`, exactly the values the row header records, destructor
+   accumulator included, valgrind 0 errors / no leaks. Also closes TWO UNROWED carriers (a08
+   field spelling, a09 tuple-element spelling, both `got=2` = rustc). Abuse x04 correct. Zero
+   in every damage column. It is a 4-line spill that the SIBLING Struct arm in the same
+   function already performs — the array case simply never had it.
+2. **`idxtup` — DO NOT FUND AS PRICED.** The row is real and the missing `TupleIndex` case is
+   real, but the address it hands back belongs to the caller. A correct fix must materialise
+   the by-value parameter into a local copy first; that is a different change and unpriced.
+3. **`fatsl`/`fatslarr` — DO NOT FUND. Record as a second withdrawal at this site.** The site
+   needs the BINDER to own a copy, not to alias the field; binding an address can never be
+   right there.
+
+### ROWS AND NEIGHBOURS
+| neighbour | closed here / rowed | reason and number |
+|---|---|---|
+| `array_typed_field_binding_shape_lost` | rowed — **reason 3, own cost non-zero** | the strict extension at its own site rewords its sentence and REGRESSES legal a03 7→2 |
+| `match_tmp_wild_mut_addrof` | rowed — **reason 2, doors in series** | unmoved by all four arms; its own first door is a borrow-check refusal |
+| a08 / a09 carriers | **would close WITH `mscrarr`** | unrowed; land as pass fixtures in the landing commit |
+
+### INSTRUMENTS THAT LIED, AND MY OWN SLIPS
+1. `run_hand.sh` (2026-09-08) returned **CCFAIL rc=4 for all 29 programs**. It exports
+   `LOGOS_VERIFY_LAYOUT=1`; by hand the same program gives the real refusal. The runner has
+   DECAYED — a uniform failure is an instrument refusing, not a corpus result.
+2. **My own battery glob read a FIVE-DAY-OLD directory.** `$D/../hb` resolved to a previous
+   round's `scratchpad/hb` (dated 2026-09-12) and I measured ITS programs, reporting h01…i03.
+   Caught only because the names were not mine.
+3. **`fail_text_oracle.py` takes `<outfile>` as argv[1].** Run without it, all three conditions
+   died with `IndexError` and the diff of three identical STACK TRACES read "IDENTICAL — zero
+   text movement". A null result through a broken channel; re-run correctly, 1903 fixtures.
+4. **`stdlib-cost.sh` takes the probe name as ARGV[1], not `LOGOS_PROBE`.** My first run
+   reported "all four layers compile under 'nothing armed'" for every arm — the unarmed
+   compiler measured four times. Re-run correctly.
+5. `ceiling-probe.sh` was not used: it cannot see a queue row. The ceiling column for this
+   tier is the queue gate armed vs unarmed, diffed both ways.
+6. The spec fail tier the prompt names is `ctest -R spec_fail` = **494** (`logos_25_spec_fail_*`);
+   `^logos_06_diagnostics_fail_` is a DIFFERENT, larger population (2488). Both were run.
+7. dlog was NOT used this round. `selftest.sh` was run and PASSES (19 walkers / 24 findings /
+   try_path 1-5 / domain 42-5; duty discriminates 1→0). The census question here — "where does
+   each refusal come from" — is answered by COMPILING all 119, which is decidable and cheap;
+   the question that would have suited dlog is "enumerate every GEP whose base operand can be a
+   non-pointer SSA value", and it is left for the landing round.
+8. Built only in `build/`; the base binary was preserved by copy rather than by a second build
+   dir. No build directory was created and none is left behind.
