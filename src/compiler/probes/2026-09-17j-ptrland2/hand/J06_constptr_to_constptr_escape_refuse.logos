@@ -1,0 +1,18 @@
+// ILLEGAL — rustc REFUSES E0597 (MEASURED). Abuse twin of J01: the same
+// two-level *const carrier, but the reference obtained through it outlives the
+// scope of the local it borrows. MUST STAY REFUSED, and for a REAL reason.
+package J06_constptr_to_constptr_escape_refuse;
+fn deep<'a>(q: *const *const &'a i64) -> &'a i64 {
+    return unsafe { **q };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 7i64;
+        let r: &i64 = &v;
+        let p: *const &i64 = &r;
+        let qq: *const *const &i64 = &p;
+        out = deep(qq);
+    }
+    return *out as i32;
+}

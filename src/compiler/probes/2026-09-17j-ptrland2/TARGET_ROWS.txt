@@ -1,0 +1,33 @@
+# 2026-09-17j-ptrland2 — TARGET ROWS, written BEFORE the compiler was touched.
+#
+# THE DOOR: sema_impl.hpp::collect_param_regions_ answers MENTIONED-vs-FREE for a
+# callee's region binders; FREE is instantiated at 'static. It has no K::Ptr and
+# no K::FnPtr arm, so a region mentioned ONLY under a raw pointer or a fn pointer
+# is called FREE and pinned to 'static, and the call site reads
+# "variance mismatch — expected *mut &'static i64".
+#
+# 2026-09-17b built the arm and WITHDREW it (it admitted B02/X04, rustc E0597).
+# 2026-09-17h closed the blocking tier-1 hole. 2026-09-17i re-priced and
+# recommended funding — but 17i was a PRICING round and landed nothing.
+# THIS ROUND LANDS IT, with a carrier-varied abuse battery of its own.
+#
+# TARGET ROWS (tier 3, `refuses`) — to be CLOSED, run-verified against rustc:
+mutptr_region_param_elided_let_arg_refused          # rustc: COMPILES, run 0
+fnptr_call_result_region_param_reads_static_refused # rustc: COMPILES, run 18
+#
+# EXPLICITLY NOT CLAIMED, though the gate will report it closed:
+#   refptr_inner_region_elision_demands_static_refused — under the arm it
+#   compiles and answers 1 where rustc answers 0. A MISCOMPILE, not a closure.
+#   Second door: tier-1 row refptr_param_eq_compares_outer_ref.
+#
+# CONTROLS predicted UNMOVED:
+#   static_arg_pins_shared_callee_region_refused
+#   generic_type_param_two_regions_first_wins_refused
+#
+# ABUSE — must STAY refused, and for a REAL reason (E0597), not the variance
+# accident the arm deletes. Carrier VARIED, which is what condemned 17b:
+#   X01 X02 (bare) · B01 (fn-ptr) · B02 (array) · X04 (tuple) · X05 (struct field)
+#   J06 (two-level *const) · J07 (fn-ptr in struct field) · J08 (fn-ptr in array)
+#   J09 (tuple of ptr+fn-ptr) · J10 (array-in-tuple *mut)
+# ⚠ J06 and J10 are held on BASE by the ACCIDENT, not by an escape check.
+#   They are the two that decide this round.

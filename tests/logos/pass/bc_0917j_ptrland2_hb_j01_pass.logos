@@ -1,0 +1,19 @@
+// hand battery: round 2026-09-17j, program J01 — caught: a LEGAL program refused by the
+// base binary that no earlier round's carrier list contained. The region is mentioned
+// under TWO *const levels, so the Ptr arm must RECURSE, not look one level down.
+// Verdict MOVED: base "variance mismatch — expected *const *const &'static i64" ->
+// this commit compiles and runs 0.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (twin
+// src/compiler/probes/2026-09-17j-ptrland2/rust/J01_constptr_to_constptr_legal.rs)
+// — accepts, runs exit 0.
+package bc_0917j_ptrland2_hb_j01_pass;
+fn deep<'a>(q: *const *const &'a i64) -> i64 {
+    return unsafe { ***q };
+}
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let r: &i64 = &v;
+    let p: *const &i64 = &r;
+    let qq: *const *const &i64 = &p;
+    return (deep(qq) - 7i64) as i32;
+}

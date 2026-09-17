@@ -1,0 +1,13 @@
+// LEGAL (rustc MEASURED). The region is carried by a fn pointer in a STRUCT FIELD.
+// Struct-field carrier for the FnPtr arm — never tested by any earlier round.
+package J03_fnptr_in_struct_field_legal;
+struct H<'r> { f: fn(&'r i64) -> i64 }
+fn run<'r>(h: H<'r>, x: &'r i64) -> i64 {
+    let g: fn(&'r i64) -> i64 = h.f;
+    return g(x);
+}
+fn rd(x: &i64) -> i64 { return *x; }
+fn main() -> i32 {
+    let v: i64 = 6i64;
+    return (run(H { f: rd }, &v) - 6i64) as i32;
+}

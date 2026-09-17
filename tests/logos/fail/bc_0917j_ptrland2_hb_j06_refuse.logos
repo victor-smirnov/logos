@@ -1,0 +1,25 @@
+// hand battery: round 2026-09-17j, program J06 — caught: ONE OF THE TWO PROGRAMS THAT
+// DECIDED THIS ROUND. An illegal use-after-scope escape through a TWO-LEVEL `*const`
+// carrier. On the BASE binary it was refused ONLY by the variance accident this commit
+// deletes ("expected *const *const &'static i64") — i.e. by the defect, not by a check.
+// 2026-09-17b withdrew this same arm because two such carriers went from refused-by-
+// accident to ADMITTED (running at exits 5 and 6). Measured on this commit's binary it
+// is refused with a REAL escape diagnostic, which is what makes the arm payable.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (twin
+// src/compiler/probes/2026-09-17j-ptrland2/rust/J06_constptr_to_constptr_escape_refuse.rs)
+// — REFUSED, error[E0597].
+package bc_0917j_ptrland2_hb_j06_refuse;
+fn deep<'a>(q: *const *const &'a i64) -> &'a i64 {
+    return unsafe { **q };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 7i64;
+        let r: &i64 = &v;
+        let p: *const &i64 = &r;
+        let qq: *const *const &i64 = &p;
+        out = deep(qq);
+    }
+    return *out as i32;
+}

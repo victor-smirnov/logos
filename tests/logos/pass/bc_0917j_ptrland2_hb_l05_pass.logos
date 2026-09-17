@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-17j, program L05 — caught: a LEGAL program the base binary
+// refused. TUPLE carrier for the raw pointer, so the walk must reach the Ptr arm THROUGH
+// the Tuple arm. Verdict MOVED: base "variance mismatch — expected (*mut &'static i64,
+// i64)" -> this commit compiles and runs 0.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — accepts, runs exit 0.
+package bc_0917j_ptrland2_hb_l05_pass;
+fn two<'a>(t: (*mut &'a i64, i64)) -> i64 { return unsafe { **t.0 } + t.1; }
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let mut r: &i64 = &v;
+    let q: *mut &i64 = &mut r;
+    return (two((q, 2i64)) - 7i64) as i32;
+}

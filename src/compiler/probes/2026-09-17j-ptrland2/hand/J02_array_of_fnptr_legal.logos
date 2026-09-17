@@ -1,0 +1,13 @@
+// LEGAL (rustc MEASURED). The region is carried by fn pointers inside an ARRAY.
+// ⚠ THE FnPtr ARM'S CARRIER WAS NEVER VARIED: 17b/17i priced it with exactly one
+// program (B01, a bare fn-ptr param). This is the array carrier.
+package J02_array_of_fnptr_legal;
+fn apply<'r>(gs: [fn(&'r i64) -> i64; 2], x: &'r i64) -> i64 {
+    return gs[0](x) + gs[1](x);
+}
+fn rd(x: &i64) -> i64 { return *x; }
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    let gs: [fn(&i64) -> i64; 2] = [rd, rd];
+    return (apply(gs, &v) - 10i64) as i32;
+}

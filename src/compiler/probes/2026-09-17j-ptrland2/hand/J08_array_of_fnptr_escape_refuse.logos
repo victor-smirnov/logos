@@ -1,0 +1,16 @@
+// ILLEGAL — rustc REFUSES E0597 (MEASURED). Abuse twin of J02: the ARRAY carrier
+// for the FnPtr arm.
+package J08_array_of_fnptr_escape_refuse;
+fn apply<'r>(gs: [fn(&'r i64) -> &'r i64; 1], x: &'r i64) -> &'r i64 {
+    return gs[0](x);
+}
+fn id(x: &i64) -> &i64 { return x; }
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 3i64;
+        let gs: [fn(&i64) -> &i64; 1] = [id];
+        out = apply(gs, &v);
+    }
+    return *out as i32;
+}

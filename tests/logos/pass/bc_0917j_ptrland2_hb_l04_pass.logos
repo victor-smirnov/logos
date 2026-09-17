@@ -1,0 +1,13 @@
+// hand battery: round 2026-09-17j, program L04 — caught: THE ONLY PROGRAM IN A
+// 23-PROGRAM BATTERY THAT SEPARATES THE FnPtr HALF FROM THE Ptr HALF. Measured this
+// round: unmoved under the Ptr arm alone (1/1/-), compiles and runs 0 with FnPtr armed.
+// It is the over-refusal control for the fn-pointer half of this commit.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 — accepts, runs exit 0.
+package bc_0917j_ptrland2_hb_l04_pass;
+fn f<'r>(g: fn(&'r i64) -> i64) -> fn(&'r i64) -> i64 { return g; }
+fn rd(x: &i64) -> i64 { return *x; }
+fn main() -> i32 {
+    let h = f(rd);
+    let v: i64 = 18i64;
+    return (h(&v) - 18i64) as i32;
+}

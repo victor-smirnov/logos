@@ -1,0 +1,13 @@
+// LEGAL (rustc 1.98.1 MEASURED). Region under TWO *const levels. Varies the
+// SHAPE of the Ptr carrier: 17b/17i tested *mut two-level (G01) only.
+package J01_constptr_to_constptr_legal;
+fn deep<'a>(q: *const *const &'a i64) -> i64 {
+    return unsafe { ***q };
+}
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    let r: &i64 = &v;
+    let p: *const &i64 = &r;
+    let qq: *const *const &i64 = &p;
+    return (deep(qq) - 7i64) as i32;
+}

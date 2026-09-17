@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-17j, program row-fnptr — caught: this IS the closed
+// soundness-queue row `fnptr_call_result_region_param_reads_static_refused` (tier 3,
+// `refuses`). The region of a fn-pointer parameter/return was invisible to
+// `collect_param_regions_` (no K::FnPtr arm), so calling the returned pointer demanded
+// a 'static argument: "fn-ptr call arg 1: variance mismatch — expected &'static i64".
+// ⚠ THIS ROW NEEDS THE FnPtr HALF: measured this round, the K::Ptr arm ALONE leaves it
+// refused (1/1/-). It closes only with Ptr and FnPtr armed together — doors in series.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (twin
+// src/compiler/probes/2026-09-15f-rustcaudit/rust/fnptr_call_result_region_param_reads_static_refused.rs)
+// — accepts, runs exit 18. The exit code IS the value, so it is asserted.
+package bc_0917j_ptrland2_row_fnptr_pass;
+fn f<'r>(g: fn(&'r i64) -> i64) -> fn(&'r i64) -> i64 {
+    return g;
+}
+fn rd(x: &i64) -> i64 { return *x; }
+fn main() -> i32 {
+    let h = f(rd);
+    let v: i64 = 18i64;
+    return h(&v) as i32;
+}

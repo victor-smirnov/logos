@@ -837,6 +837,22 @@ private:
         case K::Slice: case K::Array:
             collect_param_regions_(t.elem(), out, depth + 1);
             return;
+        // A region mentioned ONLY under a raw pointer or a fn pointer is still
+        // MENTIONED. Without these two arms it was invisible here, the callee's
+        // binder was called FREE, and FREE is instantiated at 'static — so the
+        // call site read "variance mismatch — expected *mut &'static i64" and a
+        // local borrow could never be passed. The PAIRING walk in this file
+        // already has a K::Ptr arm and type_mentions_lt_ has Ptr plus the
+        // fat-pointer kinds; this walk was the narrow one of the three.
+        // ⚠ THE TWO ARMS ARE IN SERIES, MEASURED: the FnPtr half armed alone
+        // moves no row and no hand program. See PROBES.md 2026-09-17j-ptrland2.
+        case K::Ptr:
+            collect_param_regions_(t.pointee(), out, depth + 1);
+            return;
+        case K::FnPtr: case K::Closure: case K::FnItem:
+            for (auto p : t.closure_params()) collect_param_regions_(p, out, depth + 1);
+            collect_param_regions_(t.closure_ret(), out, depth + 1);
+            return;
         default: return;
         }
     }

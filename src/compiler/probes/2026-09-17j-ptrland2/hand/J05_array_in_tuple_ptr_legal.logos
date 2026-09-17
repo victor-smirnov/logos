@@ -1,0 +1,12 @@
+// LEGAL (rustc MEASURED). Raw pointer nested ARRAY-inside-TUPLE — two container
+// hops before the Ptr arm is reached, so the walk must recurse through both.
+package J05_array_in_tuple_ptr_legal;
+fn first<'a>(t: ([*mut &'a i64; 1], i64)) -> i64 {
+    return unsafe { **(t.0[0]) };
+}
+fn main() -> i32 {
+    let v: i64 = 9i64;
+    let mut r: &i64 = &v;
+    let p: *mut &i64 = &mut r;
+    return (first(([p], 1i64)) - 9i64) as i32;
+}

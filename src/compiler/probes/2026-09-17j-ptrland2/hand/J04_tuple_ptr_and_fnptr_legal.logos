@@ -1,0 +1,16 @@
+// LEGAL (rustc MEASURED). ONE parameter mentions the region through BOTH arms at
+// once: a raw pointer and a fn pointer in the same tuple. If either arm is
+// missing the binder is still called FREE, so this separates "both landed" from
+// "one landed".
+package J04_tuple_ptr_and_fnptr_legal;
+fn both<'a>(t: (*const &'a i64, fn(&'a i64) -> i64), x: &'a i64) -> i64 {
+    let g: fn(&'a i64) -> i64 = t.1;
+    return g(x) + unsafe { **t.0 };
+}
+fn rd(x: &i64) -> i64 { return *x; }
+fn main() -> i32 {
+    let v: i64 = 4i64;
+    let r: &i64 = &v;
+    let p: *const &i64 = &r;
+    return (both((p, rd), &v) - 8i64) as i32;
+}

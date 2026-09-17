@@ -1,0 +1,20 @@
+// hand battery: round 2026-09-17j, program row-mutptr — caught: this IS the closed
+// soundness-queue row `mutptr_region_param_elided_let_arg_refused` (tier 3, `refuses`).
+// `collect_param_regions_` answers MENTIONED-vs-FREE for a callee's region binders and
+// FREE is instantiated at 'static; with no K::Ptr arm a region mentioned only under a
+// raw pointer was called FREE, so this call read "variance mismatch — expected
+// *mut &'static i64". Refused by every binary before this commit; a `refuses` row closes
+// only when the program COMPILES AND RUNS, so the exit code is asserted.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (twin
+// src/compiler/probes/2026-09-15f-rustcaudit/rust/mutptr_region_param_elided_let_arg_refused.rs)
+// — accepts, runs exit 0.
+package bc_0917j_ptrland2_row_mutptr_pass;
+fn raw<'a>(q: *mut &'a i64) -> i64 {
+    return unsafe { **q };
+}
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    let mut r: &i64 = &v;
+    let q: *mut &i64 = &mut r;
+    return (raw(q) - 3i64) as i32;
+}

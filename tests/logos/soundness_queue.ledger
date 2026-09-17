@@ -81,7 +81,7 @@ try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_oper
 #    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
 struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
 
-# TOTAL 235
+# TOTAL 234
 box_field_move                1 tests/soundness/open/box_field_move                run 134
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
@@ -211,7 +211,6 @@ ptr_coercion_tail_return_region_admits 2 tests/soundness/open/ptr_coercion_tail_
 ptr_coercion_generic_struct_pointee_region_admits 2 tests/soundness/open/ptr_coercion_generic_struct_pointee_region_admits admits
 enum_variant_pattern_on_integer_scrutinee_admits 2 tests/soundness/open/enum_variant_pattern_on_integer_scrutinee_admits admits
 vec_index_store_value_borrows_vec_refused 3 tests/soundness/open/vec_index_store_value_borrows_vec_refused refuses
-mutptr_region_param_elided_let_arg_refused 3 tests/soundness/open/mutptr_region_param_elided_let_arg_refused refuses
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 vec_push_arg_reads_loan_refused 3 tests/soundness/open/vec_push_arg_reads_loan_refused refuses
 vec_push_ifarm_after_loan_last_use_refused 3 tests/soundness/open/vec_push_ifarm_after_loan_last_use_refused refuses
@@ -252,7 +251,6 @@ elided_param_regions_invariant_compare_admits 2 tests/soundness/open/elided_para
 fnptr_elided_param_struct_literal_admits 2 tests/soundness/open/fnptr_elided_param_struct_literal_admits admits
 fnptr_elided_param_call_arg_admits 2 tests/soundness/open/fnptr_elided_param_call_arg_admits admits
 fnptr_assign_named_to_elided_admits 2 tests/soundness/open/fnptr_assign_named_to_elided_admits admits
-fnptr_call_result_region_param_reads_static_refused 3 tests/soundness/open/fnptr_call_result_region_param_reads_static_refused refuses
 user_type_alias_shadows_stdlib_type_param_refused 3 tests/soundness/open/user_type_alias_shadows_stdlib_type_param_refused refuses
 # ── 2026-09-14l-storeedge: defects the pricing round's hand battery found around apply_flow_outparams' A2 alias edge (a
 # container that STORES a reference recorded as an alias of its referent) and its neighbours, each reproducing on build
@@ -344,7 +342,15 @@ let_at_binding_struct_pattern_moved_variable_refused 3 tests/soundness/open/let_
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
 cell_typearg_region_invariance_admits 2 tests/soundness/open/cell_typearg_region_invariance_admits admits
 unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_binds_deref_admits admits
-refptr_inner_region_elision_demands_static_refused 3 tests/soundness/open/refptr_inner_region_elision_demands_static_refused refuses
+# ⚠ RE-OBSERVED 2026-09-17j-ptrland2, NOT FIXED AND NOT CLOSED. The collect_param_regions_ Ptr arm landed in that
+# commit opens this program's FIRST door, so it no longer reads 'variance mismatch — expected &*mut &'static i64'.
+# It now COMPILES and ANSWERS 1 where rustc 1.98.1 answers 0 (MEASURED, twin 2026-09-16l-refptee/rust/r01_rawptr.rs).
+# The `refuses` oracle would call that a closure; it is a MISCOMPILE, so the row is re-observed as `run 1` — a
+# stricter oracle than before (it now pins the wrong VALUE, not merely the refusal). Its second door is the tier-1
+# row refptr_param_eq_compares_outer_ref: control D02, which has no inner reference at all, runs 1 on the BASE
+# binary with nothing armed while its rustc twin runs 0. Carriers L03 and X03 of the same hand battery behave
+# identically and are covered by that tier-1 row rather than opening duplicates.
+refptr_inner_region_elision_demands_static_refused 3 tests/soundness/open/refptr_inner_region_elision_demands_static_refused run 1
 arg_ref_primitive_for_ref_struct_admits 2 tests/soundness/open/arg_ref_primitive_for_ref_struct_admits admits
 double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_while_borrowed_admits admits
 # ── 2026-09-16n-arrstore2 (LANDING, tier 3: the array place write's TWO guards are doors in SERIES) ── Two rows CLOSE
@@ -379,3 +385,9 @@ array_field_store_value_reads_field_loan_refused 3 tests/soundness/open/array_fi
 #    the region door opens — doors in series". With no inner reference it is reachable TODAY.
 #    Control on the same binary: the direct `p == q` spelling runs 0, correctly.
 refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compares_outer_ref run 1
+
+# ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
+# array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
+# moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
+# MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
+ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses

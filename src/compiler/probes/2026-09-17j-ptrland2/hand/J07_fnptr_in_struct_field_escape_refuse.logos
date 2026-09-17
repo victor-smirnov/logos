@@ -1,0 +1,18 @@
+// ILLEGAL — rustc REFUSES E0597 (MEASURED). Abuse twin of J03: fn pointer in a
+// STRUCT FIELD. This is the FnPtr arm's abuse direction through a carrier no
+// earlier round tested — 17b/17i had exactly one fn-ptr abuse program (B01).
+package J07_fnptr_in_struct_field_escape_refuse;
+struct H<'r> { f: fn(&'r i64) -> &'r i64 }
+fn run<'r>(h: H<'r>, x: &'r i64) -> &'r i64 {
+    let g: fn(&'r i64) -> &'r i64 = h.f;
+    return g(x);
+}
+fn id(x: &i64) -> &i64 { return x; }
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 3i64;
+        out = run(H { f: id }, &v);
+    }
+    return *out as i32;
+}

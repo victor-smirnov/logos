@@ -1,0 +1,22 @@
+// hand battery: round 2026-09-17j, program J10 — caught: THE SECOND PROGRAM THAT DECIDED
+// THIS ROUND. Illegal use-after-scope escape through a raw pointer nested ARRAY-inside-
+// TUPLE. Like J06 it was held on the BASE binary only by the variance accident this
+// commit deletes ("expected ([*mut &'static i64; 1], i64)"), and it is the carrier shape
+// no earlier round varied. Refused on this commit's binary with a real escape diagnostic.
+// legality: MEASURED with rustc 1.98.1 --edition 2024 (twin
+// src/compiler/probes/2026-09-17j-ptrland2/rust/J10_array_in_tuple_ptr_escape_refuse.rs)
+// — REFUSED, error[E0597].
+package bc_0917j_ptrland2_hb_j10_refuse;
+fn first<'a>(t: ([*mut &'a i64; 1], i64)) -> &'a i64 {
+    return unsafe { *(t.0[0]) };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 9i64;
+        let mut r: &i64 = &v;
+        let p: *mut &i64 = &mut r;
+        out = first(([p], 1i64));
+    }
+    return *out as i32;
+}

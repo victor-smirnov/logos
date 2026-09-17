@@ -49051,3 +49051,137 @@ round's recommendation.
 ## L1
 
 Stated in the commit message as measured after the clean rebuild.
+
+## 2026-09-17j-ptrland2 — THE ARM THREE ROUNDS PRICED IS LANDED: `collect_param_regions_` GAINS `K::Ptr` AND `K::FnPtr`, TWO TIER-3 ROWS CLOSE RUN-VERIFIED AGAINST rustc TWINS, AND THE ABUSE DIRECTION IS PAID ON FIVE CARRIERS THE PRICING ROUNDS NEVER TESTED — WHILE THE ROUND'S OWN BATTERY OPENS A NEW ROW AND RE-OBSERVES A THIRD AS A MISCOMPILE
+
+site: src/compiler/sema_impl.hpp::collect_param_regions_
+build: base `8e8d4f0e0`, shipped `build/bin/logosc` size **142221112** (09:09); measurement
+  binary (arms behind `probe::on`, so base and armed share one configure) size **142231976**;
+  landed binary size **142221856**. The identity is the SIZE and the fire behaviour —
+  `build_hash.py` read `acb9a2715b1ac390 43` and 2026-09-17g measured it NOT discriminating.
+fires: n/a for the LANDED code — the two arms are UNCONDITIONAL, so no `probe::on` site is
+  installed and `probe::on` counts do not apply. For the MEASUREMENT window the arms were
+  guarded by `j17ptr` / `j17all` and they are proven LIVE rather than assumed: the whole-queue
+  gate moves 2 rows under `j17ptr` and 3 under `j17all` while the same binary with no probe
+  armed moves 0, and 8 of 38 hand programs change verdict. The ceiling instrument for a tier-3
+  row is the QUEUE GATE armed vs unarmed, diffed both ways — `ceiling-probe.sh` cannot see a
+  queue row at all (measured 2026-09-16m).
+measured: 2026-09-17
+verdict: **LANDED.** Two tier-3 rows closed run-verified; one new tier-3 row opened; one row
+  re-observed `refuses` -> `run 1`. Queue 235 -> **234**, tier3 120 -> **119**.
+
+⚠ **A CORRECTION TO THE HANDOFF I WAS GIVEN.** It reported 2026-09-17i as finished ("nothing
+remains"). 17i is a PRICING round — its own commit message says *"nothing landed in the
+compiler; the probe is reverted"* — and both target rows were still in the ledger (lines 214,
+255) when this round started. A handed-down "done" is a hypothesis exactly like any other.
+
+### THE CHANGE
+
+```
+case K::Ptr:                                    // recurse into pointee()
+case K::FnPtr: case K::Closure: case K::FnItem: // walk closure_params() + closure_ret()
+```
+
+`collect_param_regions_` answers MENTIONED-vs-FREE for a callee's region binders and FREE is
+instantiated at `'static`, so a region mentioned only under a raw or fn pointer was called
+FREE and the call site read *"variance mismatch — expected `*mut &'static i64`"*.
+
+NOT landed, deliberately: the `K::TraitObject`/`DstRef` arm and the Slice `lifetime()` slot
+that 17a's `ptrmentionall` also carried. C01/C02 compile and run 0 on BASE (re-measured; rustc
+agrees both are legal, run 0), so those halves have no carrier.
+
+### THE DECISIVE COLUMN — THE ABUSE DIRECTION, ON THIS ROUND'S OWN CARRIERS
+
+17b withdrew this identical arm for ADMITTING two use-after-scope programs; 17i re-priced it
+against the six inherited carriers. Six programs is an argument about six programs, so this
+round wrote five NEW ones and measured them on base FIRST. **Two were held on base by exactly
+the sentence the arm deletes** — the condition that condemned the arm in 17b:
+
+| abuse | carrier | rustc | BASE sentence | LANDED sentence |
+|---|---|---|---|---|
+| **J06** | `*const *const &'a i64` | E0597 | ⚠ variance ACCIDENT | ✅ `'p' does not live long enough (E0597)` |
+| **J10** | `([*mut &'a i64; 1], i64)` | E0597 | ⚠ variance ACCIDENT | ✅ `'r' does not live long enough (E0597)` |
+| J07 J08 J09 | fn ptr in struct field / array / tuple | E0597 | real E0597 | real E0597 |
+| X01 X02 B01 B02 X04 X05 | the inherited six | E0597 | 4 accident / 2 real | all REFUSED |
+
+Eleven abuse programs, eleven still refused. X02 stays on the variance sentence because it
+demands `'static` explicitly — there the accident and the right answer coincide.
+
+⚠ J07/J08/J09 also record a gap in BOTH pricing rounds: the FnPtr arm's abuse direction had
+been priced by exactly ONE program (B01, a bare fn-ptr param). Rule 5, all of one shape.
+
+### THE ROWS, AGAINST rustc TWINS — THE GATE CANNOT TELL A FIX FROM A MISCOMPILE
+
+| row | landed | rustc twin | closed? |
+|---|---|---|---|
+| `mutptr_region_param_elided_let_arg_refused` | `0/0/0` | ACCEPTS, runs 0 | ✅ |
+| `fnptr_call_result_region_param_reads_static_refused` | `0/0/18` | ACCEPTS, runs 18 | ✅ |
+| `refptr_inner_region_elision_demands_static_refused` | `0/0/1` | ACCEPTS, runs **0** | ❌ MISCOMPILE |
+
+### WHOLE-QUEUE DIFF, BOTH WAYS
+
+| condition | rc | rows moved | which |
+|---|---|---|---|
+| none (control) | 0 | 0 | 235 hold, tier3=120 |
+| `j17ptr` | 1 | 2 | mutptr, refptr |
+| `j17all` | 1 | 3 | + fnptr |
+
+Every mover named in PREDICTIONS.md before the armed binary existed; nothing unpredicted,
+nothing in the other direction.
+
+### THE TWO HALVES ARE IN SERIES — RE-MEASURED
+
+`fnptr_call_result` is unmoved under `j17ptr` (`1/1/-`), and **L04 is the only program of 38
+that separates the halves**. It is landed as a fixture for that reason. 17b called the FnPtr
+half "the salvageable one"; it is salvageable only ON TOP of the Ptr arm.
+
+### TWO FINDINGS NOBODY PREDICTED — INCLUDING ME
+
+1. **NEW ROW `ptr_array_in_tuple_param_gep_verifier_refused` (tier 3).** J05, the
+   array-nested-in-tuple carrier, is legal (rustc ACCEPTS, runs 0), was refused on base by the
+   variance accident, and **the arm opens that door onto a SECOND one in the backend**:
+   `'llvm.getelementptr' op operand #0 must be LLVM pointer type … but got '!llvm.array<1 x ptr>'`.
+   Doors in series — reason 2, not "no carrier": J05 is unmoved between `j17ptr` and `j17all`
+   while its siblings L05 (tuple) and G02 (array) both close. **My own prediction P8 said it
+   would close with them; it is refuted and recorded as a row, not repaired.**
+2. **`refptr_…` is RE-OBSERVED, not closed.** The gate calls it closed; the landed binary
+   answers **1** where rustc answers 0. Its `observed` moves `refuses` -> `run 1`, a STRICTER
+   oracle (it now pins the wrong VALUE, not merely the refusal). Second door: the tier-1 row
+   `refptr_param_eq_compares_outer_ref`, confirmed independently — control **D02**, with no
+   inner reference at all, runs **1** on the BASE binary with nothing armed, rustc twin 0.
+   Carriers L03 and X03 behave identically and are covered by that row, not duplicated.
+
+### NEIGHBOURS (standing rule 2026-09-12)
+
+| neighbour | closed here / rowed | reason and number |
+|---|---|---|
+| `K::FnPtr`/`Closure`/`FnItem` | ✅ **CLOSED IN THIS COMMIT** | not separable — alone it moves 0 rows and 0 of 38 programs; co-landed it closes a second row at 18 |
+| `K::TraitObject`/`DstRef` | rowed — reason 1, no carrier | C01 runs 0 on base and landed, unmoved; rustc: legal, 0 |
+| Slice `lifetime()` slot | rowed — reason 1, no carrier | C02 unmoved both ways |
+| `collect_input_regions_` | rowed — reason 1, no carrier | N01/N02 run 0 on base, unmoved |
+| `fill_elided_regions_` | rowed — reason 1, no carrier | no program of the 38 moves on it |
+| J05's backend GEP door | rowed — **reason 2, in series** | NEW ROW, opened by this commit |
+| `refptr`'s `==` receiver | rowed — **reason 2, in series** | tier-1 `refptr_param_eq_compares_outer_ref`; D02 runs 1 unarmed |
+
+### INSTRUMENTS THAT LIED TO ME, AND MY OWN SLIPS
+
+1. **A `nohup … &` chain launched from a tool call was KILLED mid-run.** The first whole-queue
+   diff left a truncated output and no rc marker for two of three conditions. Re-run under
+   `setsid` with a per-condition rc marker. **The missing marker is the only reason I noticed**
+   — reading the truncated file would have reported a 1-row diff as the whole answer.
+2. **A brace expansion with a single element does not expand**, so one verdict line in my abuse
+   sweep read a literal filename `…hb_j0{6}_refuse.logos` and returned `4/0/-`
+   ("cannot read"). An rc-4 file-not-found rendered in the same column as a compile verdict is
+   exactly the "assert state where the refusal is expensive" shape. Both fail fixtures were
+   re-read by LITERAL path afterwards and their `.expected` confirmed to occur in the output.
+3. **The ctest roster was STALE against my own edit** — I edited the ledger after the build's
+   configure step, so `ctest -N -R '^logos_00_squeue_'` still said 235 with the closed rows
+   present and the new row absent. A `cmake -S . -B build` regenerated it to 234. A roster read
+   before a reconfigure is a reading of the previous tree.
+4. dlog was NOT run during the armed window, on purpose: 17b's recorded mistake was extracting
+   the ARMED tree so its rule described a compiler in no commit. 17i's owed base-tree run gives
+   `missing_arm` for this walker = Ptr, Closure, TraitObject, AssocType, FnPtr, UnsizedSlice,
+   DstRef, FnItem; this landing removes Ptr, FnPtr, Closure, FnItem from that set and the
+   remaining four are the rowed neighbours above — each with a measured carrier program rather
+   than a rule's say-so.
+5. Built only in `build/`. No new build directory was created and none is left behind.

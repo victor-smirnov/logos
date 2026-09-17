@@ -1,0 +1,16 @@
+// ILLEGAL — rustc REFUSES E0597 (MEASURED). Abuse twin of J05: raw pointer
+// nested ARRAY-inside-TUPLE, region escaping.
+package J10_array_in_tuple_ptr_escape_refuse;
+fn first<'a>(t: ([*mut &'a i64; 1], i64)) -> &'a i64 {
+    return unsafe { *(t.0[0]) };
+}
+fn main() -> i32 {
+    let out: &i64;
+    {
+        let v: i64 = 9i64;
+        let mut r: &i64 = &v;
+        let p: *mut &i64 = &mut r;
+        out = first(([p], 1i64));
+    }
+    return *out as i32;
+}
