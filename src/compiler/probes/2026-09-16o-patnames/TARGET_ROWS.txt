@@ -1,0 +1,59 @@
+ROUND 2026-09-16o-patnames — TARGET ROWS, written BEFORE any compiler edit.
+base: HEAD 31b2c934b, build/ 1d119548576b8a8b 43, queue 233 rows (tier3=121), queue gate rc 0.
+
+THE DOOR (one fact, asked at three sites): "which names does this pattern introduce?"
+  SITE A  SemaChecker::bind_pattern_ref            sema_stmt.cpp:6910  — the GENERAL walk.
+          Its Tuple each_sub filter admits ONLY {VariantData, Or, At, RefBind, Tuple}
+          (sema_stmt.cpp ~6963). Struct, Slice and RefPat subs are dropped: they never define.
+  SITE B  lower_let_else's local define_bindings    sema_stmt.cpp:2192  — a NARROW COPY:
+          {VariantData, Tuple, Wild, Or} only. No RefPat, no Struct, no Slice, no At.
+  SITE C  emit_nested_variant_lets' define_binds    sema_stmt.cpp:9370  — a THIRD COPY:
+          {VariantData, Tuple, Wild} only.
+  SITE A is a superset of B and C by construction, so the candidate change is a DELEGATION
+  (B and C call bind_pattern_ref) plus widening A's each_sub filter by the three missing kinds.
+
+TARGET ROWS, by name:
+  T1 match_tuple_door_nested_struct_binds_nothing              SITE A, Struct sub  (hand h01)
+  T2 ref_pattern_nested_in_tuple_binding_undefined_refused     SITE A, RefPat sub  (hand h03)
+  T3 letelse_ref_pattern_binding_undefined_refused             SITE B, RefPat      (hand h04)
+  T4 variant_tuple_door_struct_shape_sub_unresolved            SITE C              (hand h10)
+
+GROUPING TEST (the only thing that decides the block): does ONE change move T1 and T2?
+  They share SITE A's single each_sub filter, so widening that one filter must move both or
+  the grouping is refuted. T3/T4 are the DELEGATION half and are tested separately.
+
+ALSO TO BE TESTED AGAINST THE ARM (rowed or new, not assumed members):
+  match_ref_array_nested_struct_sub_refused          (backend-verifier refusal, may be SITE A Slice)
+  match_array_nested_array_subpattern_mlirgen_malfunction  (same)
+  let_ref_struct_pattern_irrefutable_refused         (lower_let whitelist, sema_stmt.cpp:1423 — a
+                                                      FOURTH site; predicted NOT moved)
+
+NEW SHAPES THIS ROUND'S BATTERY CAUGHT THAT HAVE NO ROW (rustc 1.98.1: all legal, exit 0):
+  h02 ([a, b], z)          Slice sub under Tuple, SITE A
+  h05 let Some(P{x,y}) = o else   Struct sub in payload under let-else, SITE B
+  h11 let Some([a,b]) = o else    Slice sub in payload under let-else, SITE B
+  h12 ((&P{x}, j), q)      RefPat under nested Tuple, SITE A
+
+── MEASURED CORRECTIONS TO THE ABOVE (base binary 1d119548576b8a8b 43, hand battery) ──
+The battery refuted part of the site assignment written above. Measured first error lines:
+  h01 (P { x, y }, z)            SITE A Struct sub  error [fn main]: undefined variable 'x'
+  h02 ([a, b], z)                SITE A Slice sub   error [fn main]: undefined variable 'a'
+  h03 (&P { x }, j)              SITE A RefPat sub  error [fn main]: undefined variable 'x'
+  h12 ((&P { x }, j), q)         SITE A, nested     error [fn main]: undefined variable 'x'
+  h04 let &Some(x) = r else      SITE B RefPat      error [fn get]:  undefined variable 'x'
+  h10 Outer::V(Inn::S { f })     SITE C             error [fn main]: undefined variable 'f'
+  h05 let Some(P{x,y}) = o else  ⚠ NOT SITE B — "pattern Option::Some: nested patterns inside
+  h11 let Some([a,b]) = o else     enum-variant payloads are not yet supported". That is a
+                                   FOURTH site: the variant-payload arg whitelist at
+                                   sema_stmt.cpp:4545 (`sub_is_irrefutable = PAT_STRUCT ||
+                                   PAT_TUPLE`), reached before any binder walk runs. h05/h11 are
+                                   NEIGHBOURS OF ROW variant_payload_nested_at_pattern_refused,
+                                   the only open row citing that sentence — not of T3.
+  controls that already compile on the base binary: h07 ((a,b),z) Tuple sub, h08 (Some(a),z)
+  VariantData sub, h09 P { x } over &P, h06 Some(w @ 1..=9) in let-else.
+rustc 1.98.1 --edition 2024 on all twelve twins: COMPILES, exit 0 (h01-h12).
+
+ABUSE DIRECTION (measured with rustc BEFORE the arm; these must STAY refused):
+  x01 (&P { s }, _j) with s: String   rustc REFUSES error[E0507] cannot move out of a shared reference
+  x03 (E::A(x), _z) | (E::B(_y), _z)  rustc REFUSES error[E0408] variable `_y` is not bound in all patterns
+  x02 (P{x,y},_z) then sv.0.x         rustc ACCEPTS rc 0 (Copy fields — a control, not an abuse twin)

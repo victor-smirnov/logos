@@ -1,0 +1,92 @@
+ROUND 2026-09-16o-patnames (PRICING, soundness queue tier 3) — "WHICH NAMES DOES THIS PATTERN INTRODUCE?" IS ASKED AT FOUR
+SITES AND ANSWERED BY FOUR DIFFERENT PARTIAL WALKS. WIDENING THE GENERAL ONE CLOSES TWO ROWS AND ADMITS TWO PROGRAMS
+rustc REFUSES, SO THE ARM AS BUILT MUST NOT LAND.
+
+base: HEAD 31b2c934b clean, build/ 1d119548576b8a8b 43. queue 233 (# TOTAL 233), tier1 35 tier2 66 tier3 121 tier4 11.
+  bc_admits 60, bc_admits_blocked 8. probe-log-lint rc 0, 393 records, every site symbol resolves. queue gate rc 0 UNARMED.
+  dlog selftest rc 0 (known-answer control on 28fc7c75 reads 19 walkers / 24 findings / try_path 1-5 / domain 42-5; duty
+  discriminates across 756aed65 1 -> 0).
+armed: build/ rebuilt in place after snapshotting the base artifacts; ARM1 = SITE A each_sub filter + Struct + Slice + RefPat.
+
+TIER-3 CENSUS (121 rows, BY COMPILING ALL OF THEM — not by keyword over the headers):
+  91 sema · 13 backend MLIR-verifier · 8 backend mlir_gen-internal · 5 parse · 2 compile clean · 1 segv · 1 LLVM-ERROR abort.
+  ⚠ DIFFERS from the handoff's 122-row census (5 parser · 92 sema · 20 backend · 4 crashes · 1 clean): the queue is 121 tier-3
+  rows today, and my bucketing splits verifier from mlir_gen-internal (21 backend total vs its 20) and reads 2 crashes, not 4.
+  Both are mechanical; the difference is the bucketing rule and one row's departure, not a disagreement about any row.
+
+THE DOOR (the grouping, stated as a FACT and not a symptom):
+  "which names does this pattern introduce?" is asked at FOUR sites, each with its own admitted-kind set:
+    SITE A  bind_pattern_ref                      sema_stmt.cpp:6910   general walk; its Tuple each_sub filter admitted only
+                                                                       {VariantData, Or, At, RefBind, Tuple} — Struct/Slice/RefPat dropped
+    SITE B  lower_let_else's define_bindings       sema_stmt.cpp:2192   narrow copy {VariantData, Tuple, Wild, Or}
+    SITE C  emit_nested_variant_lets' define_binds sema_stmt.cpp:9370   narrower copy {VariantData, Tuple, Wild}
+    SITE D  variant-payload arg whitelist          sema_stmt.cpp:4545   sub_is_irrefutable = PAT_STRUCT || PAT_TUPLE, refuses before any walk
+  A is a superset of B and C by construction, so the natural repair is DELEGATION (B and C call A) plus widening A's filter.
+
+GROUPING TEST — TESTED, NOT ASSUMED (the prompt's requirement, and groupings here were refuted 5-for-5 before):
+  ONE change (ARM1, widening SITE A's single each_sub filter) moved BOTH target rows. The queue gate armed reports exactly two
+  rows NO LONGER REPRODUCING:
+      match_tuple_door_nested_struct_binds_nothing          (Struct sub under Tuple)
+      ref_pattern_nested_in_tuple_binding_undefined_refused (RefPat sub under Tuple)
+  and no others. T3/T4 (SITE B / SITE C) are unmoved by it — the grouping SPLITS exactly along the site boundary, confirming
+  the sites are the class and the shared "undefined variable" sentence is NOT.
+
+HAND BATTERY, base vs armed (compile / link / run; rustc 1.98.1 --edition 2024 on every twin):
+  id   shape                              rustc      base                                    armed
+  h01  (P { x, y }, z)                    ok exit 0  refused "undefined variable 'x'"        compiles, RUN 0   <- row T1
+  h02  ([a, b], z)                        ok exit 0  refused "undefined variable 'a'"        compiles, RUN 0   <- no row, Slice
+  h03  (&P { x }, j)                      ok exit 0  refused "undefined variable 'x'"        compiles, RUN 0   <- row T2
+  h12  ((&P { x }, j), q)                 ok exit 0  refused "undefined variable 'x'"        compiles, RUN 0   <- no row, nested
+  h04  let &Some(x) = r else              ok exit 0  refused "undefined variable 'x'"        UNCHANGED (SITE B)
+  h10  Outer::V(Inn::S { f })             ok exit 0  refused "undefined variable 'f'"        UNCHANGED (SITE C)
+  h05  let Some(P{x,y}) = o else          ok exit 0  refused "nested patterns ... payloads"  UNCHANGED (SITE D)
+  h11  let Some([a,b]) = o else           ok exit 0  refused "nested patterns ... payloads"  UNCHANGED (SITE D)
+  h06 h07 h08 h09  controls               ok exit 0  compile, RUN 0                          compile, RUN 0 (unchanged)
+
+⚠⚠ ABUSE DIRECTION — CORRECTED BY THE CONTROL REVERT. MY FIRST READING OF THIS COLUMN WAS WRONG, AND THE REVERT CAUGHT IT.
+  I first recorded x01b/x05b as "programs ARM1 newly admits". THE RESTORED BASE BINARY ADMITS THEM TOO, unchanged. Rule 14's
+  shape exactly: an over-admission the base ALREADY has is INHERITED, and I nearly priced it against the arm.
+  id    shape                        rustc 1.98.1                                    BASE (restored)      ARMED
+  x01b  (&P { s }, j), s: String     REFUSES error[E0507] move out of shared ref     compiles, RUN 0      compiles, RUN 0
+  x05b  (&[Q { s }], j), s: String   REFUSES error[E0508] move out of non-copy array compiles, RUN 0      compiles, RUN 0
+  x06   (E::A(x), z) | (E::B(w), z)  REFUSES error[E0408] `w` not bound in all pats  refused E0408        refused E0408
+  So ARM1's measured cost on these twins is ZERO CHANGE IN VERDICT, and the E0507/E0508 over-admission is a PRE-EXISTING
+  defect of the base compiler that no queue row covers (grep of the shelf for E0507/E0508/"move out of a shared" returns
+  three unrelated rows). It is a tier-1 `admits` finding this round OPENED BY MEASUREMENT and did not fix.
+
+⚠ BUT THE EXIT CODE IS NOT THE ORACLE HERE, AND THE DISTINGUISHING MEASUREMENT IS OWED.
+  On the BASE binary the binder is never created, so NO MOVE HAPPENS: x01b/x05b are admitted but harmless — valgrind on the
+  restored base binary reads ERROR SUMMARY 0 errors for both. Under ARM1 the binder EXISTS, so the move out of the shared
+  reference is REAL, and a double-free or use-after-free there is invisible to an exit code (both read 0). The valgrind +
+  destructor-count comparison on the ARMED binary is therefore the measurement that decides whether ARM1 is merely
+  inheriting an over-admission or CONVERTING a harmless one into a memory error. I DID NOT MAKE IT: the armed binary was
+  reverted and rebuilt before I understood the distinction, and re-arming costs another full build. IT IS OWED, and it is
+  the first thing the funding round must measure.
+
+COLUMNS NOT MEASURED, AND WHY (stated rather than left blank):
+  fail_text_oracle.py   NOT MEASURED. It takes an output path as argv[1]; my bare invocation raised IndexError and wrote
+                        nothing (it also left a stray file named `--help` in the repo root, which I removed). Because it
+                        SELF-INVALIDATES across a rebuild, a meaningful reading needs base and armed baselines from ONE
+                        configure — neither exists. This is the only oracle that sees an un-refusal, so for an arm that
+                        RELAXES a refusal it is the column that matters most, and it is missing.
+  spec fail tier by name, stdlib-cost.sh, run_oracle.py   NOT MEASURED, same reason: they price a landing, and ARM1 is a
+                        pricing arm whose own abuse column came back ambiguous. Funding must run all four.
+  ⚠ ceiling-probe.sh was NOT used: it cannot see a queue row. The queue gate armed-vs-unarmed IS the ceiling for this tier,
+    and it read exactly 2 (see above).
+
+RESTORATION (the green checkpoint, proved and not assumed):
+  source reverted from the pre-arm copy; build/ rebuilt rc 0; build_hash back to 1d119548576b8a8b 43 (the base value).
+  queue gate UNARMED rc 0 — 233 rows, tier1 35 tier2 66 tier3 121 tier4 11, '# TOTAL' says 233.
+  program-level control revert on the restored binary: h01 h02 h03 h12 all refused again with their original sentences;
+  h07 control still compiles and runs 0. build-pat16o (935 MB) and every temp dir under build/ deleted by literal path.
+
+WHAT DESERVES FUNDING:
+  1. THE DOOR IS REAL AND THE GROUPING IS PROVED BY MEASUREMENT — one filter line closed T1 and T2 and nothing else. The four
+     sites are the class; the shared "undefined variable" sentence is not. Fund the SITE A widening.
+  2. IT MUST LAND WITH THE E0507/E0508 ASK AT THE SAME SITE. bind_pattern_ref's RefPat case already carries that check, but
+     its byval_ walker switches only on Wild / VariantData / Or / At and defaults to false — Struct and Slice inners walk
+     past it. That is a strict extension at the same function, so the standing neighbour rule puts it in the SAME commit.
+  3. BEFORE EITHER: the owed valgrind/destructor-count comparison on an armed binary, and a real fail_text_oracle pair.
+  4. SITE B (T3), SITE C (T4) and SITE D (h05/h11) are NOT closed by this arm — MEASURED, not assumed. They are the
+     delegation half and each needs its own arm; h02/h12 (Slice sub, nested RefPat) closed with no row of their own and
+     should become fixtures when the door lands.
