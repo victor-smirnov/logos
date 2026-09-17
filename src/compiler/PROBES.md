@@ -47670,3 +47670,78 @@ the ctest registry at ALL 10986 / NOIMPORTED 6484 / TIERCOMMIT 352; measured
 because I wrote "+5 fixtures" having forgotten that the two PROMOTED row programs
 are fixtures too. The true arithmetic is 11 tests added (4 squeue + 5 pass + 2
 fail) minus 2 removed squeue = +9, which is what the listing says.
+
+## 2026-09-16m-arrstoredie — THE ARRAY PLACE-WRITE DOOR NEVER ASKS THE STORE-LIVENESS QUERY THE VEC DOOR ALREADY ASKS, AND OPENING IT CLOSES NOTHING: THE SECOND GUARD OF THE SAME `AddrOfTemp` ARM REFUSES THE SAME PROGRAMS, AND THE ONE FAIL FIXTURE THE ARM MOVES PINS A REFUSAL rustc DOES NOT MAKE
+site: src/compiler/borrow_check.cpp::visit
+build: 89e5804e17f251f6 43 (base, READ) · c59075deed9c5491 43 (armed, `arrstoredie`) · 705526bfc59a2ce5 43 (the `sbsite` site-marker build, diagnostic only)
+measured: 2026-09-16
+fires: NOT counted — tooling is frozen, no counter was added. The EFFECT SET was measured
+  directly instead, unarmed vs armed on ONE binary (probe::on is env-gated), over 13 hand
+  programs + all 234 queue rows + 1884 fail fixtures + 7450 run fixtures.
+ceiling: **0 ROWS.** Both target rows MOVE and NEITHER CLOSES — `array_store_value_reads_loan_refused`
+  and `array_index_store_index_reads_loan_refused` go nerr 2 -> 1 and stay cc=1. DOORS IN SERIES.
+cost: fail_text 1884 common · 0 added · 0 removed · **1 CHANGED** —
+    logos_06_diagnostics_fail_bc_idxbase_elem_write_in_index_fail, .expected match 1 -> 0. The program
+    is STILL REFUSED (the second door); only the pinned FIRST sentence went. ⚠ AND rustc 1.98.1 ACCEPTS
+    THAT PROGRAM (rc 0, RUNS exit 3) — see the corpus-decision note below.
+  run_oracle 7450 common · 0 added · 0 removed · 1 changed = `cast-region-to-uint`, subtracted BY NAME
+    (it prints a stack address).
+  stdlib 4 of 4 layers compile under the probe.
+  queue-wide (all 234 rows, both ways): ONLY the two target rows differ.
+L1 on the restored binary 89e5804e17f251f6 43: rc 0, 808/808 passed, 0 failed; gates tier 352; enumerator smoke 12 684 cases.
+verdict: **DECLINED AS PRICED — reason 2, doors in series.** The query is RIGHT and the door behind it
+  is shut. Not withdrawn as wrong: the abuse direction is clean (below).
+
+### THE TWO DOORS, BOTH IN THE SAME `AddrOfTemp` ARM — MEASURED, NOT READ
+  DOOR 1 (armed): the place-write exclusivity report, gated on `saw_index`, reads `it->shared_borrows > 0`.
+  DOOR 2 (shut):  the SAME arm's later guard `if (is_mut && sit->shared_borrows > 0)` (the take_borrow-style
+                  whole-root refusal, "cannot borrow '{}' as mutable: '{}' has shared borrows").
+  Named by MEASUREMENT, not by reading: a probe-gated stderr marker on all FOUR sites that emit that
+  sentence (take_field_borrow_path_ / check_recv_conflict / check_place_mut_use / the AddrOfTemp arm)
+  printed `SITE4` on both row programs AND on the fail fixture. ⚠ MY READING HAD GUESSED
+  check_place_mut_use AND WAS WRONG — the marker build corrected it.
+  CONSEQUENCE: door 2 is not another subsystem, it is the same arm's second guard, so the follow-up is a
+  STRICT EXTENSION at the same site rather than a new mechanism.
+
+### THE ABUSE DIRECTION IS CLEAN — THE QUERY DISCRIMINATES
+  Every illegal twin written FIRST, rustc 1.98.1 --edition 2024 measured, and every one UNMOVED by the arm:
+    x01_value_after   `let e=&a[1]; a[0]=5; let z=*e;`      rustc E0506 · logosc nerr 2 -> 2 (unmoved)
+    x02_index_after   `a[*e as u64]=9; let z=*e;`           rustc E0506 · unmoved
+    x03_mut_loan      `let e=&mut a[1]; a[0]=5; *e=7;`      rustc E0506 · unmoved (arm never touches mut_borrowed)
+    x04_loan_escapes  `a[0]=*e+1; let k=e;`                 rustc E0506 · unmoved
+  So `store_loans_die_in_stmt_` separates "last use IS this statement" from "used after it" correctly
+  at this door: 4 of 4 illegal shapes stay refused while 8 legal ones lose their first refusal.
+
+### THE GROUPING WAS TESTED IN BOTH DIRECTIONS (not assumed)
+  PREDICTED TOGETHER, MOVED TOGETHER: array_store_value_reads_loan_refused (VALUE reads the loan) +
+    array_index_store_index_reads_loan_refused (INDEX reads the loan). One change, both members.
+  PREDICTED IMMOBILE, MEASURED IMMOBILE (3 of 3), each for a NAMED different door:
+    vec_index_store_value_borrows_vec_refused     — IndexMut receiver, door 1 already asks the query there
+    vec_push_arg_reads_loan_refused               — two-phase method autoref, not a place write
+    vec_push_ifarm_after_loan_last_use_refused    — release_dead_borrows across an if-arm frame
+  NON-MEMBER found by the battery: h04 (a store into a STRUCT-FIELD array) is refused by a THIRD sentence
+    ("cannot borrow 's.xs' as mutable: 's.xs' is already borrowed") and is unmoved — a different door again.
+  ⚠ x05_loop_backedge is LEGAL (rustc rc 0, MEASURED — I had predicted illegal) and the arm does NOT fix it:
+    `store_loans_die_in_stmt_`'s `loop_lo` guard declines inside a loop body. A second, separate defect.
+
+### CORPUS DECISION WITH AN OWNER — REPORTED, NOT EDITED
+  tests/logos/fail/bc_idxbase_elem_write_in_index_fail pins `cannot assign through 'a[..]' because 'a' is
+  borrowed` on
+      let z: i64 = a[{ a[0u64] = 9i64; 2u64 }];
+  Its header says "rustc rejects it (E0510) ... Element granularity is deliberately NOT claimed here:
+  `a[0]` and `a[2]` are disjoint in fact, and rustc refuses anyway." MEASURED with rustc 1.98.1
+  --edition 2024: it COMPILES (rc 0) and RUNS exit 3. The clause is FALSE about Rust.
+  The imported twin the header cites, tests/imported/fail/borrowck/slice-index-bounds-check-invalidation--min,
+  is a DIFFERENT shape — a WHOLE-ARRAY assignment `arr = [4,5,6]` inside the index — which IS E0510.
+  The citation supports the whole-array case only; the element case was extrapolated and is wrong.
+  A fail fixture asserting a refusal rustc does not make is the owner's call: NOT edited by this round.
+
+### WHAT DESERVES FUNDING
+  The same query at DOOR 2, in the same `AddrOfTemp` arm — `if (is_mut && sit->shared_borrows > 0)` gated on
+  `!store_loans_die_in_stmt_(root)` the way door 1 now is. Evidence it is the whole remaining distance:
+  with door 1 open, the ONLY line left on all 8 legal programs is door 2's, and door 2's own guard is the
+  same `shared_borrows` counter over the same root. Ceiling if it opens: the 2 tier-3 rows, RUN-verified
+  (both legal twins run exit 0 under rustc).
+  ⚠ PRICE IT, DO NOT ASSUME IT: door 2 is reached by far more than array stores (it is the generic
+  AddrOfTemp receiver guard), so its own cost is unmeasured and is NOT this round's 0. Rule 13 —
+  a per-site measurement is not additive, and 4 + 0 has been 6 before.
