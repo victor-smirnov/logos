@@ -635,6 +635,31 @@ bool MLIRGenImpl::type_has_unresolved_residue(TypeRef t, int depth) {
     return false;
 }
 
+// A FAILED PROJECTION: an AssocType that never normalised, or an Error a
+// resolution already reported. Distinct from `type_has_unresolved_residue`,
+// which is also true of a QUANTIFIED TypeVar/ConstVar/ImplTrait — template
+// residue whose instance simply does not exist here (the `hrtb-*` signatures),
+// which is not a malfunction and whose bodies are emitted as before.
+bool MLIRGenImpl::type_has_failed_projection(TypeRef t, int depth) {
+    using K = LogosType::Kind;
+    if (!t || depth > 16) return false;
+    TypeRef tv{t};
+    switch (tv.kind()) {
+    case K::Error: case K::AssocType:
+        return true;
+    default: break;
+    }
+    for (auto a : tv.type_args())
+        if (type_has_failed_projection(a, depth + 1)) return true;
+    if (auto p = tv.pointee(); p && p != t)
+        if (type_has_failed_projection(p, depth + 1)) return true;
+    if (auto e = tv.elem(); e && e != t)
+        if (type_has_failed_projection(e, depth + 1)) return true;
+    for (auto e : tv.tuple_elems())
+        if (type_has_failed_projection(e, depth + 1)) return true;
+    return false;
+}
+
 MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
                                            std::unordered_set<std::string>& seen) {
     using K = LogosType::Kind;

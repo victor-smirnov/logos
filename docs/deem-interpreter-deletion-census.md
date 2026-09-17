@@ -6124,8 +6124,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                new pass/fail fixtures are NOT in tier_commit (17f measured that), which is why TIERCOMMIT is unmoved at 353
 #                even though a row opened and a row closed. RE-DERIVED BY `ctest -N` THREE WAYS on the rebuilt tree, not by
 #                adding to the previous line.
-REGISTRY-ALL         11072
-REGISTRY-NOIMPORTED  6570
+#                ALL 11072 -> 11075 (+3), NOIMPORTED 6570 -> 6573 (+3), TIERCOMMIT 354 -> 354 (0) — 2026-09-17q-byvalparam lands
+#                THREE fixtures (2 pass, 1 fail) and edits NO soundness_queue row, so all three move together and TIERCOMMIT is
+#                unmoved: the new pass/fail fixtures are not in tier_commit. RE-DERIVED BY `ctest -N` THREE WAYS after a
+#                reconfigure, not by adding to the previous line.
+REGISTRY-ALL         11075
+REGISTRY-NOIMPORTED  6573
 REGISTRY-TIERCOMMIT  354
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

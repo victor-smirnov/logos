@@ -1,0 +1,86 @@
+// R-E / COMPILER — A BY-VALUE PARAMETER TYPED BY A `typeof(<container>)`
+// PROJECTION, THROUGH AN ALIAS. THE ADMIT HALF.
+//
+// Before this fixture the program below did not fail to compile: logosc DIED,
+// SIGSEGV (rc 139), deterministically, in the metaprog fixpoint round.
+//
+// THE MECHANISM, measured rather than read. `make_fn_type` pushes NO MLIR
+// argument slot for a param whose `logos_to_mlir` is null, and in a metaprog
+// round the container family does not exist yet, so the projection is still an
+// unresolved `AssocType` and the param is ELIDED from the signature. The body
+// binder then indexed the entry block by the raw LOGOS param index, so this
+// one-parameter function asked for argument 0 of a block that had none. The
+// binder now takes the SSA index from the slot map `make_fn_type` records, and
+// a function whose parameter never resolved is deferred in a metaprog round and
+// REPORTED in the final one — see the fail twin.
+//
+// THE `&` TWIN IS WHY THE CRASH LOOKED LIKE A BY-VALUE DEFECT AND IS NOT ONE:
+// `&<projection>` maps to `ptr` whatever its pointee, so it keeps its slot, is
+// bound correctly, and compiled clean throughout. The predicting property is not
+// the by-value position but a param whose type still carries UNRESOLVED RESIDUE
+// at gen time; by-value is merely the carrier that elides a slot. A PLAIN USER
+// TRAIT'S projection in the same position never crashed either — sema resolves
+// `V::Assoc = B` before gen, so nothing is elided.
+//
+// THIS FIXTURE ASSERTS BEHAVIOUR, NOT MERELY THAT THE FILE COMPILES: a crash
+// replaced by a wrong answer would be a regression, not a repair. Every batch is
+// passed BY VALUE, and the row count it reports is checked against the
+// container's own per-row cursor, which knows nothing about the batch plane.
+//
+// ⚠ ONE PROJECTION-TYPED FUNCTION, DELIBERATELY. A second one in the same
+// module makes the FIRST fail sema with `method call: receiver is not a struct
+// (got <error>::LeafBatch)` — a round-order defect upstream of this one, which
+// the segfault used to mask. It is rowed, not pinned here.
+package typeof_container_byvalue_param_admit;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Ked {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 200u64;
+
+pub type KedBatch = <typeof(Ked) as CtrLeafFamily>::LeafBatch;
+
+// THE MEASURED POSITION: by-value, through the alias, and CALLED.
+fn rows_of(b: KedBatch) -> u64 { return b.len(); }
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Ked)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    // ── ORACLE: the per-row cursor, independent of the batch plane ──────
+    let mut rows_w: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() { rows_w = rows_w + 1u64; cu = c.next(&cu); }
+    }
+
+    // ── every batch handed to the by-value parameter ────────────────────
+    let mut rows_v: u64 = 0u64;
+    {
+        let mut w = c.leaf_batches();
+        loop {
+            let ob = w.next_batch();
+            if ob.is_some() { rows_v = rows_v + rows_of(ob.unwrap()); } else { break; }
+        }
+    }
+
+    if rows_w != N { return 1i32; }
+    if rows_v != rows_w { return 2i32; }
+    return 0i32;
+}

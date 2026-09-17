@@ -93,20 +93,27 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
     const auto* mft_pool = pool_impl();
     TypeRef fn_ret = fn.ret_type(mft_pool);
     llvm::SmallVector<mlir::Type> param_types;
+    // Record each param's MLIR argument index (-1 = no slot pushed) so the body
+    // binder cannot re-derive it and drift. See gen_function_body.
+    std::vector<int> arg_of_param;
     for (auto& p : fn.params()) {
         TypeRef pt = p.type(mft_pool);
         if (is_anyval(pt)) {
+            arg_of_param.push_back((int)param_types.size());
             param_types.push_back(builder_.getI32Type());
             continue;
         }
         // Arrays (like structs) are passed by pointer.
-        if (pt && pt.kind() == LogosType::Kind::Array)
+        if (pt && pt.kind() == LogosType::Kind::Array) {
+            arg_of_param.push_back((int)param_types.size());
             param_types.push_back(ptr_type());
-        else {
+        } else {
             auto t = logos_to_mlir(pt);
+            arg_of_param.push_back(t ? (int)param_types.size() : -1);
             if (t) param_types.push_back(t);
         }
     }
+    fn_param_arg_index_[link_name(fn)] = std::move(arg_of_param);
     llvm::SmallVector<mlir::Type> ret_types;
     if (fn_ret) {
         TypeRef rv{fn_ret};
@@ -474,6 +481,37 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
             std::string(fn.name()).c_str());
         return false;
     }
+    // make_fn_type's recorded slot map for this fn: -1 = the param pushed no
+    // MLIR argument, so its SSA index is NOT its Logos param index.
+    const std::string fn_link = link_name(fn);
+    const std::vector<int>* arg_of_param = nullptr;
+    if (auto ai = fn_param_arg_index_.find(fn_link);
+        ai != fn_param_arg_index_.end() && ai->second.size() == fn_params.size())
+        arg_of_param = &ai->second;
+
+    // A param whose projection FAILED to resolve takes no argument at all, so no
+    // body can be lowered for it. #61/#120 precedent: a metaprog round sees a
+    // SNAPSHOT, so defer with a trap body; the FINAL gen reports through the R2
+    // sink. Gated on a failed projection, NOT on `type_has_unresolved_residue`:
+    // that is also true of a quantified TypeVar, and an HRTB template signature
+    // is not a malfunction — measured, it refused `hrtb-impl-extra-param`.
+    for (size_t i = 0; i < fn_params.size(); ++i) {
+        TypeRef pt = fn_params[i].type(gfb_pool);
+        bool slotless = arg_of_param ? ((*arg_of_param)[i] < 0) : !logos_to_mlir(pt);
+        if (!slotless || !type_has_failed_projection(pt)) continue;
+        if (!metaprog_round_)
+            return bug_false("function '{}': parameter '{}' has an unresolved type "
+                             "'{}' — it takes no argument, so no body can be "
+                             "emitted", fn_link, std::string(fn_params[i].name()),
+                             type_str(pt));
+        auto* trap_entry = func.addEntryBlock();
+        mlir::OpBuilder::InsertionGuard trap_guard(builder_);
+        builder_.setInsertionPointToStart(trap_entry);
+        builder_.create<mlir::LLVM::Trap>(loc_);
+        builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        return true;
+    }
+
     auto* entry = func.addEntryBlock();
     builder_.setInsertionPointToStart(entry);
     cur_entry_block_ = entry;
@@ -510,12 +548,16 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     ptr_family_param_.clear();
     loop_stack_.clear();
 
-    // Bind parameters.
+    // Bind parameters. The SSA index comes from make_fn_type's recorded map, not
+    // from the Logos param index: a slotless param must bind NOTHING rather than
+    // take the next param's argument (or index past the end of the entry block).
     for (size_t i = 0; i < fn_params.size(); ++i) {
         auto& p = fn_params[i];
         std::string pname(p.name());
         TypeRef ptype = p.type(gfb_pool);
-        scope_[pname] = entry->getArgument(i);
+        int arg_i = arg_of_param ? (*arg_of_param)[i] : (int)i;
+        if (arg_i < 0 || (unsigned)arg_i >= entry->getNumArguments()) continue;
+        scope_[pname] = entry->getArgument((unsigned)arg_i);
         shadow_register_slot(p.slot(), pname);
         // Pointer-family params (`*mut`/`*const`/`&`/`&mut`): their SSA arg IS a
         // pointer VALUE, so `&p` is the address of the param's own slot — record

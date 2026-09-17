@@ -1,0 +1,40 @@
+// R-E / COMPILER — THE REFUSE HALF OF THE BY-VALUE PARAMETER PAIR.
+//
+// `pass/typeof_container_byvalue_param_admit` stopped a SIGSEGV by teaching the
+// body binder that a param with no MLIR argument slot binds NOTHING. That is
+// permissive by shape — it removes a crash — so it needs a program that must
+// still be REFUSED, and refused with a DIAGNOSTIC rather than a signal.
+//
+// Here the container family is NEVER DEMANDED: the family is generated on
+// demand and only a VALUE use (`create_ctr::<typeof(Xed)>`) records that
+// demand, so the projection is unresolvable in EVERY round, not only the first
+// — the same reason `fail/typeof_container_field_no_family_fail` pins for a
+// struct field. The param therefore takes no argument in the FINAL gen too, and
+// a function whose parameter never resolved cannot have a body emitted.
+//
+// THE BOUNDARY THIS PINS: no demand, no type, and the compile is REFUSED at the
+// last gen — never a crash, and never a silently argument-less function whose
+// body reads whatever SSA value sat at that index.
+package typeof_container_byvalue_param_no_family_fail;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Xed {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+pub type XedBatch = <typeof(Xed) as CtrLeafFamily>::LeafBatch;
+
+fn take_bare(b: XedBatch) -> u64 { return 0u64; }
+
+fn main() -> i32 { return 0i32; }

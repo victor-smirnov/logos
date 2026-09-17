@@ -1,0 +1,76 @@
+// R-E / COMPILER — THE SAME BY-VALUE POSITION WITH THE OTHER CARRIER: THE
+// INLINE PROJECTION, NOT AN ALIAS.
+//
+// `pass/typeof_container_byvalue_param_admit` holds the alias spelling. This one
+// writes `<typeof(Ked) as CtrLeafFamily>::LeafBatch` directly in the parameter,
+// and it is a SEPARATE fixture because the carrier was varied deliberately when
+// the crashing set was enumerated by property: BOTH spellings segfaulted (rc
+// 139) and both do so for the same reason — the alias is transparent here, so
+// what predicts the crash is the unresolved projection in a slot-eliding
+// position, not the way it is spelled.
+//
+// It also varies the family member: the alias fixture drives `LeafBatch` via
+// `len()`, this one reads the key column, so the value checked is a KEY SUM
+// rather than a row count. Both are checked against the container's own per-row
+// cursor, which knows nothing about the batch plane.
+//
+// ⚠ ONE PROJECTION-TYPED FUNCTION, DELIBERATELY — see the alias fixture's note.
+package typeof_container_byvalue_param_inline_admit;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Ned {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 200u64;
+
+// THE MEASURED POSITION: by-value, spelled INLINE, and CALLED.
+fn ksum_of(b: <typeof(Ned) as CtrLeafFamily>::LeafBatch) -> u64 {
+    let n: u64 = b.len();
+    let kc: PdtCol = b.keys();
+    let mut s: u64 = 0u64;
+    let mut j: u64 = 0u64;
+    while j < n { s = s + kc.at(j); j = j + 1u64; }
+    return s;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Ned)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    // ── ORACLE: the per-row cursor, independent of the batch plane ──────
+    let mut rows_w: u64 = 0u64;
+    let mut ksum_w: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() { ksum_w = ksum_w + cu.key(); rows_w = rows_w + 1u64; cu = c.next(&cu); }
+    }
+
+    // ── every batch handed to the by-value parameter ────────────────────
+    let mut ksum_v: u64 = 0u64;
+    {
+        let mut w = c.leaf_batches();
+        loop {
+            let ob = w.next_batch();
+            if ob.is_some() { ksum_v = ksum_v + ksum_of(ob.unwrap()); } else { break; }
+        }
+    }
+
+    if rows_w != N { return 1i32; }
+    if ksum_v != ksum_w { return 2i32; }
+    return 0i32;
+}

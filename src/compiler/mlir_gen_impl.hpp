@@ -725,6 +725,9 @@ private:
                                               std::string_view trait_name);
     // Function name → Logos-level parameter types (for dyn coercion at call sites).
     std::unordered_map<std::string, std::vector<TypeRef>> fn_param_types_;
+    // Per-fn MLIR argument index of each Logos param, recorded by make_fn_type;
+    // -1 = the param pushed NO slot. The single copy of that contract.
+    std::unordered_map<std::string, std::vector<int>> fn_param_arg_index_;
     // Function name → per-param owning-Box<dyn> flag: the param collapsed to a
     // bare TraitObject but the callee owns+frees the heap handle, so the call
     // site must coerce the arg to a HEAP fat handle (heap=true).
@@ -1593,6 +1596,7 @@ private:
     // by construction, so "no definition registered" means something different
     // about it than it does about a concrete one — see `layout_of`'s Struct case.
     bool type_has_unresolved_residue(TypeRef t, int depth = 0);
+    bool type_has_failed_projection(TypeRef t, int depth = 0);
     bool type_mentions_never(TypeRef t, int depth = 0);
     // True while lowering a body whose own signature carries unresolved
     // residue (TypeVar / Error / AssocType) — see gen_fn_body. Template

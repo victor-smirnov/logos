@@ -28,7 +28,12 @@
 # deliberate ledger edit in the same commit, so the count can only move on
 # purpose. A number that drifts down on its own is a measurement nobody reads.
 #
-# 42 rows / 46 sites. Cells: O 21, B#98 8, D 7, B#88 3, B#90 2, Q 2.
+# 43 rows / 47 sites. Cells: O 21, B#98 8, D 7, B#88 3, B#90 2, Q 3.
+# (+1 Q row 2026-09-17q: mlir_gen_fn.cpp `fn_param_arg_index_`, make_fn_type's
+#  record of each param's MLIR argument index — keyed by `link_name(fn)`, the
+#  mangled link symbol, so it is qualified by construction, exactly as mono's
+#  `poisoned_fns_` rows beside it are. It exists so the body binder cannot
+#  re-derive the slot contract and drift from the signature builder.)
 # (+1 D row 2026-09-12g: borrow_check.cpp `fnfam_tvs_`, the Fn-family CALL
 #  MODE of each type param — keyed by TYPE-PARAMETER name exactly as
 #  `copy_tvs_` beside it and sema's `current_type_bounds_` are, and cleared
@@ -360,6 +365,7 @@ mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_expr.cpp	struct_types_	O	1	std::string(TypeRef(ret_type).struct_name())
+mlir_gen_fn.cpp	fn_param_arg_index_	Q	1	link_name(fn)
 mlir_gen_impl.hpp	all_struct_defs_	O	1	concrete_struct_name(t)
 mlir_gen_impl.hpp	struct_types_	O	1	concrete_struct_name(t)
 mlir_gen_impl.hpp	struct_types_	O	1	std::string(rt.struct_name())
