@@ -25,8 +25,10 @@ these has bitten this project in some other instrument:
     a half-written build input behind.
 """
 import argparse
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -101,21 +103,97 @@ def current_ids(body: list[str]) -> list[str]:
     return ids
 
 
-def render(which: str, header: list[str], rows: list[dict], old_order: list[str]) -> str:
+def rows_digest(row_lines: list[str]) -> str:
+    """A digest over the ROW REGION only, so the gate can catch a hand edit OFFLINE.
+
+    The drift check against the issues needs the network and therefore cannot be a
+    build gate: `cmake` and every gate must work without a token, and an API outage
+    must never read as a red test. This digest is the offline half — it does not know
+    what the issues say, but it knows whether anyone edited the file after the
+    generator wrote it, which is exactly the "these files are read-only" rule."""
+    return hashlib.sha256("\n".join(row_lines).encode()).hexdigest()[:32]
+
+
+def inter_row_blocks(body: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """Column-0 `#` blocks standing BETWEEN rows, keyed by the row they precede.
+
+    ⚠ THESE BELONG TO THE FILE, NOT TO ANY ISSUE, AND REGENERATION MUST CARRY THEM
+    FORWARD. They are the arc's record of why rows left — dated blocks like
+    "FOUR OF THE SIX CLOSED THE SAME DAY THEY RETURNED … 97 -> 93", written by the
+    round that closed them. Nothing on GitHub holds them.
+
+    Measured the hard way: an earlier `render` rebuilt the file as header + rows +
+    tail and silently dropped every one of them — `bc_admits` 740 inter-row lines
+    to 2, `soundness_queue` 142 to 2. It went unnoticed through two verification
+    passes because those passes compared ROW LINES ONLY ("60 of 60, zero differ"),
+    a property chosen so that it could not see the loss. The backlog survived only
+    because its prose is INDENTED and therefore attaches to its row.
+
+    A row's own indented prose is NOT collected here — it travels with the row.
+    """
+    blocks: dict[str, list[str]] = {}
+    pending: list[str] = []
+    for l in body:
+        if l.strip() and not l.startswith(("#", " ", "\t")):
+            rid = l.split()[0]
+            while pending and not pending[-1].strip():
+                pending.pop()
+            if pending:
+                blocks[rid] = pending
+            pending = []
+        elif l.startswith(("# TOTAL", "# SYNC-HASH")):
+            # ⚠ THE GENERATOR'S OWN TAIL IS NOT THE FILE'S RECORD. These two lines sit
+            # at column 0 after the last row, so they look exactly like trailing
+            # commentary — and collecting them made every write ABSORB the previous
+            # run's tail into the row region and then append a fresh one. The region
+            # grew by two lines per write, the digest covered a stale tail, and
+            # `--verify` (which strips them) could never agree. Measured as three
+            # different digests for one file: recorded 56f34a13, verify-side 5a67ee10,
+            # render-side 9cda729d.
+            continue
+        elif l.startswith("#") or (pending and not l.strip()):
+            pending.append(l)
+    while pending and not pending[-1].strip():
+        pending.pop()
+    return blocks, pending
+
+
+def render(which: str, header: list[str], rows: list[dict], old_order: list[str],
+           blocks: dict[str, list[str]] | None = None,
+           trailing: list[str] | None = None) -> str:
     """Keep the existing row order for rows that survive; append new ones by issue
-    number. A stable order keeps the diff to what actually changed."""
+    number. A stable order keeps the diff to what actually changed.
+
+    `blocks`/`trailing` carry the file's own inter-row commentary through the round
+    trip; a block whose row is gone is kept in place (attached to the next surviving
+    row) rather than deleted, because it usually records why an EARLIER row left."""
     by_id = {r["id"]: r for r in rows}
     order = [i for i in old_order if i in by_id] + [r["id"] for r in rows if r["id"] not in old_order]
-    out = list(header)
+    blocks = blocks or {}
+    head = list(header)
     if not any("GENERATED FROM THE GITHUB ISSUES" in l for l in header):
-        out = [l for l in GENERATED_NOTE.format(which=which).splitlines()] + [""] + out
+        head = [l for l in GENERATED_NOTE.format(which=which).splitlines()] + [""] + head
+    orphaned: list[str] = []          # blocks whose row no longer exists
+    for rid, blk in blocks.items():
+        if rid not in by_id:
+            orphaned.extend(blk)
+    row_lines: list[str] = []
     for rid in order:
-        out.extend(by_id[rid]["lines"])
-        out.append("")
-    while out and not out[-1].strip():
-        out.pop()
-    out += ["", f"# TOTAL {len(order)}", ""]
-    return "\n".join(out)
+        blk = blocks.get(rid)
+        if blk:
+            row_lines.extend(blk)
+        row_lines.extend(by_id[rid]["lines"])
+        row_lines.append("")
+    if orphaned:
+        row_lines.extend(orphaned)
+        row_lines.append("")
+    if trailing:
+        row_lines.extend(trailing)
+        row_lines.append("")
+    while row_lines and not row_lines[-1].strip():
+        row_lines.pop()
+    tail = ["", f"# TOTAL {len(order)}", f"# SYNC-HASH {rows_digest(row_lines)}", ""]
+    return "\n".join(head + row_lines + tail)
 
 
 def main() -> int:
@@ -127,12 +205,51 @@ def main() -> int:
     ap.add_argument("--from-json", dest="from_json", metavar="PATH",
                     help="read a saved `gh issue list --json` payload instead of the API "
                          "(for exercising the safety rails offline)")
+    ap.add_argument("--verify", action="store_true",
+                    help="OFFLINE: recompute the row digest and compare it with the file's "
+                         "own `# SYNC-HASH`. Catches a hand edit without touching the network.")
+    ap.add_argument("--file", dest="file_override", metavar="PATH",
+                    help="verify THIS file instead of the list's own ledger. Exists so a "
+                         "gate's canary can feed a deliberately corrupted copy through the "
+                         "SAME checker: a canary that does not ride the real code path "
+                         "reports 'caught' even when every real check crashed.")
     a = ap.parse_args()
 
-    path = LEDGER_FILE[a.which]
+    path = a.file_override or LEDGER_FILE[a.which]
     header, body = split_file(path)
     old = current_ids(body)
+
+    if a.verify:
+        # Deliberately BEFORE any API call: a build gate must work with no token and
+        # no network, and an API outage must never read as a red test.
+        recorded = next((l.split()[2] for l in body if l.startswith("# SYNC-HASH ")), None)
+        rows_region = list(body)
+        while rows_region and (not rows_region[-1].strip()
+                               or rows_region[-1].startswith(("# TOTAL", "# SYNC-HASH"))):
+            rows_region.pop()
+        actual = rows_digest(rows_region)
+        if recorded is None:
+            print(f"{path}: no `# SYNC-HASH` line — regenerate with --write", file=sys.stderr)
+            return 1
+        if recorded != actual:
+            print(f"{path}: HAND-EDITED — recorded {recorded}, actual {actual}. This file is "
+                  "generated from the GitHub issues; edit the issue, then --write.",
+                  file=sys.stderr)
+            return 1
+        print(f"{path}: digest OK ({len(old)} rows, {actual})")
+        return 0
+
     rows = issue_rows(a.which, a.from_json)
+
+    # ⚠ A RAIL TEST MUST NOT BE ABLE TO DAMAGE A BUILD INPUT. `--from-json` exists to
+    # exercise the refusals against a faked channel; when I used it that way it wrote
+    # the real ledger down to 17 rows, and the digest check could not see it because a
+    # generated write recomputes the digest over the damage. Simulated input is now
+    # read-only unless the operator says otherwise in as many words.
+    if a.from_json and a.write and not a.force:
+        sys.exit("REFUSED: --write with --from-json would rewrite a real ledger from a "
+                 "SIMULATED channel. Drop --write to see what it would do, or add --force "
+                 "if you genuinely mean to write from that payload.")
 
     if not rows and old:
         sys.exit(f"REFUSED: the issue list came back EMPTY while {path} holds {len(old)} rows. "
@@ -142,7 +259,41 @@ def main() -> int:
         sys.exit(f"REFUSED: this pull would remove {len(lost)} of {len(old)} rows "
                  f"({', '.join(lost[:5])}…). Pass --force if that is really intended.")
 
-    text = render(a.which, header, rows, old)
+    # ── THE CLOSURE GUARD ───────────────────────────────────────────────────────
+    # Under "issues are the truth" the dangerous direction INVERTED. It used to be
+    # conservative: a stale row kept a gate red for a defect already fixed. Now a
+    # closed issue DELETES a row, so closing one by mistake silently stops a gate
+    # watching a live defect — permissive drift, the kind a green corpus cannot see.
+    # So a removal must be justified by evidence in the tree, not by the click alone.
+    if lost and not a.force:
+        unjustified = []
+        for rid in lost:
+            rc, out, _ = run(["git", "log", "--format=%H", "-1", f"--grep={rid}", "--fixed-strings"])
+            if rc == 0 and out.strip():
+                continue                      # a commit names the row — it was worked
+            # ⚠ THE PATH FALLBACK IS LIST-SPECIFIC AND ASSUMING OTHERWISE MADE THIS
+            # GUARD DEAD CODE. Field 2 is a program path for `squeue` and `bc-admits`,
+            # but for `backlog` it is the CARRIERS COUNT ("1"), so `exists("1")` was
+            # false and every removal took the "program is gone" branch. Measured: a
+            # row nothing had touched was waved through and the file was written.
+            if a.which != "backlog":
+                prog = next((r for r in body if r.startswith(rid)), "")
+                parts_ = prog.split("#", 1)[0].split()
+                path_ = parts_[2] if len(parts_) > 2 else None
+                if path_ and path_.startswith("tests/") and not (
+                        os.path.exists(path_) or os.path.exists(path_ + ".logos")):
+                    continue                  # the program is gone — the row went with it
+            unjustified.append(rid)
+        if unjustified:
+            sys.exit(
+                f"REFUSED: {len(unjustified)} row(s) would be removed with no landed evidence: "
+                + ", ".join(unjustified[:5]) + ("…" if len(unjustified) > 5 else "")
+                + "\nA closed issue deletes a counted row. Land the fix (a commit naming the id, "
+                  "or the program removed), or pass --force if the row is being discarded on "
+                  "purpose — and say so in the commit that carries this pull.")
+
+    blocks, trailing = inter_row_blocks(body)
+    text = render(a.which, header, rows, old, blocks, trailing)
     with open(path) as fh:
         before = fh.read()
 

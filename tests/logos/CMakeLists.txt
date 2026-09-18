@@ -1511,6 +1511,33 @@ set_tests_properties(logos_00_bc_admits_ledger PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# THE LEDGERS ARE GENERATED FROM THE GITHUB ISSUES (2026-09-17) AND MUST NOT BE
+# HAND-EDITED. Each carries `# SYNC-HASH <digest>` over its row region, written by
+# `scripts/issues-to-ledger.py`; this gate recomputes it and fails if anyone edited
+# a file after the generator wrote it. `chmod 444` was considered and rejected: it
+# fights `git checkout` and guarantees nothing.
+#
+# ⚠ DELIBERATELY OFFLINE. It never asks GitHub anything. A build gate that needs a
+# token is a gate that reddens when the API has a bad day, and `cmake` must work
+# without a network — the drift check against the issues (`--check`) stays a step you
+# run when picking up work, not a test. This one answers only "was this file edited
+# by hand", which is exactly the read-only rule and is answerable locally.
+#
+# ⚠ It CANNOT see a bad generated write — a rewrite recomputes the digest over
+# whatever it produced. That direction is guarded in the generator itself (the
+# empty-channel, large-shrink and closure rails, each exercised offline).
+#
+# `tier_commit` on purpose: a gate outside the tier that is actually selected drifts
+# unwatched, which is how `abi-check` sat red today while a round reported green.
+add_test(
+    NAME logos_00_ledger_sync
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/ledger_sync_gate.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_ledger_sync PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 # ── THE SOUNDNESS QUEUE — OPEN DEFECTS THAT COMPILE CLEAN, HELD LIKE THE BC LEDGER ──
 # `tests/logos/soundness_queue.ledger` names every open soundness defect — a
 # program that compiles and double-frees, reads freed memory, is checked by
