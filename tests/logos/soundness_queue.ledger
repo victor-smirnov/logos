@@ -484,8 +484,6 @@ generic_struct_impl_ref_eq_compares_addresses_run 1 tests/soundness/open/generic
 
 ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_missing_refused refuses
 
-ref_pair_eq_without_impl_admits 2 tests/soundness/open/ref_pair_eq_without_impl_admits admits
-
 # ── 2026-09-15b-refeqland (tier 1: a comparison of two references compares THROUGH them, sema lower_binop) ──
 # Five rows CLOSED (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq, generic_ref_typevar_eq, ref_pair_ordering). Five rows
 # OPENED by the landing's hand battery (ref_pair_nonprim_tuple is ref_pair_aggregate's PART 4, re-rowed), each measured on base 854d99ae9a2e2fbd AND the landed binary; reason in each header.
@@ -629,5 +627,5 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 # MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
-# TOTAL 236
-# SYNC-HASH fc349496cea929a7889b9ff574a6e9ad
+# TOTAL 235
+# SYNC-HASH 5bf1e480f0924092f2a397f165eb002e

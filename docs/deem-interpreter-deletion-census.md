@@ -6165,7 +6165,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                (it printed measured 11086/6584/355), never by adding 2 to the previous pin.
 REGISTRY-ALL         11086
 REGISTRY-NOIMPORTED  6584
-REGISTRY-TIERCOMMIT  355
+#                TIERCOMMIT 355 -> 354 (-1), ALL and NOIMPORTED UNMOVED at 11086/6584 — 2026-09-18-squeue-271-retire.
+#                SOUNDNESS ROW ref_pair_eq_without_impl_admits RETIRED (#271, closed by #427's refusal): its program left
+#                tests/soundness/open/ (a tier_commit test, hence the -1) and its successor landed as
+#                fail/struct_ref_pair_eq_without_impl_refused, which registers in the DIAGNOSTICS tier — so the two outer
+#                columns cancel to zero and only the tier_commit column moves. RE-DERIVED FROM THE GATE'S OWN PRINTED
+#                MEASUREMENT (it printed measured 11086/6584/354). ⚠ MY ARITHMETIC PREDICTION (+1 to ALL) WAS WRONG and the
+#                gate said so; the earlier green on this pin was read BEFORE the glob reconfigure and was measured over a
+#                stale ctest registration, so it was not a verdict at all.
+REGISTRY-TIERCOMMIT  354
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

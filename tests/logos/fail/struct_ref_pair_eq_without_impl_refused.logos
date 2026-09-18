@@ -1,3 +1,18 @@
+// CLOSED soundness_queue row ref_pair_eq_without_impl_admits (tier 2), round 2026-09-18-struct-operator (#427).
+// `==` over two references to a struct with no `eq` is now REFUSED by sema, where before it compiled clean and
+// compared the two ADDRESSES (exit 1). rustc 1.98.1 refuses the same program: E0369 binary operation `==` cannot
+// be applied to type `&N`. Control revert on the pre-fix binary 613615634: compiled, ran, exit 1 — the address
+// answer; on this binary: refused at sema with `operator '==': 'N' has no 'eq' implementation`.
+//
+// WHAT CLOSED IT, and it is not what the row predicted. The row expected the fix at the mono site (arm `refmono`
+// of round 2026-09-15a-refeq), refusing with an internal verifier sentence — «a right verdict with the wrong
+// diagnostic», and priced non-zero because that arm re-routes every post-mono `&Struct` pair. The fix that landed
+// is in SEMA instead: the struct-operator arm resolves `<Type>__<method>`, and where both that lookup and the
+// `partial_cmp` fallback fail it now refuses by name instead of falling through to let mono_clone's BinOp case
+// fabricate a call to a symbol nothing defines. So the verdict is right AND the diagnostic is, and the mono arm's
+// measured cost is not paid.
+//
+// The original row header follows.
 // SOUNDNESS QUEUE row ref_pair_eq_without_impl_admits (tier 2). `==` OVER TWO REFERENCES TO A STRUCT WITH NO EQ IMPL COMPILES
 // and compares the addresses (exit 1 here). Rust refuses: E0369 binary operation `==` cannot be applied to type `&N`.
 // NEIGHBOUR of the reference-equality class, ROWED WITH REASON 3 (its own cost is measured non-zero in its SENTENCE): the
@@ -10,8 +25,8 @@
 // Battery e23. Measured on builds 854d99ae9a2e2fbd 43, b1a0431a68699a9c 43, build-land0913d sha256 8850a5acc469809f.
 // 2026-09-15b-refeqland member g03: `&(E, i64) == &(E, i64)` with E a C-like enum with NO Eq impl (E0369, rustc 1.98.1 MEASURED) is admitted
 // on base and on the landed binary (the tuple arm does not route a tuple holding an enum); its by-value spelling is refused.
-// Legality MEASURED with rustc 1.98.1 (foot of this file).
-package ref_pair_eq_without_impl_admits;
+// Legality MEASURED with rustc 1.98.1.
+package struct_ref_pair_eq_without_impl_refused;
 struct N { v: i64 }
 fn main() -> i32 {
     let a: N = N { v: 4i64 };
@@ -23,4 +38,3 @@ fn main() -> i32 {
     }
     return 1i32;
 }
-// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: invalid character '.' in crate name: `ref_pair_eq_without_impl_admits.g03`. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ref_pair_eq_without_impl_admits.rs. Variants: ref_pair_eq_without_impl_admits__derivecopy.rs REFUSED E0369; ref_pair_eq_without_impl_admits__g03.rs REFUSED E0369. Audit note: same E0369 with #[derive(Clone,Copy)]; member g03 &(E,i64)==&(E,i64) also E0369.
