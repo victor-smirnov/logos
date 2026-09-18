@@ -140,6 +140,8 @@ sym	logos.lang.writ.dview.DViewStore__type_id__g__ref_T
 sym	logos.lang.writ.dview.DView__type_id__g__ref_T
 sym	logos.lang.writ.objdata.WritObjectData__type_id__g__ref_T
 sym	logos.lang.writ.parameter.WParameter__type_id__g__ref_T
+sym	logos.lang.writ.row.WRowBuilder__type_id__g__ref_T
+sym	logos.lang.writ.row.WRow__type_id__g__ref_T
 sym	logos.lang.writ.static_view.SView2__type_id__g__ref_T
 sym	logos.lang.writ.static_view.WView2__type_id__g__ref_T
 sym	logos.lang.writ.typed_arr.MapSliceI32__type_id__g__ref_T
@@ -9399,6 +9401,25 @@ sym	logos_lang..logos.lang.writ.parameter.WParameter__name__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WParameter__name_str__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WParameter__value__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.Writ__parameter__f__ref_Writ__slice_u8__WAny
+sym	logos_lang..logos.lang.writ.row.WAny__as_row__f__ref_WAny
+sym	logos_lang..logos.lang.writ.row.WAny__from__f__ref_WRow
+sym	logos_lang..logos.lang.writ.row.WAny__is_row__f__ref_WAny
+sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__WAny
+sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__bool
+sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__f64
+sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__i64
+sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__slice_u8
+sym	logos_lang..logos.lang.writ.row.WRowBuilder__span__f__ref_WRowBuilder
+sym	logos_lang..logos.lang.writ.row.WRow__atoms__f__ref_WRow
+sym	logos_lang..logos.lang.writ.row.WRow__byte_len__f__ref_WRow
+sym	logos_lang..logos.lang.writ.row.WRow__contains__f__ref_WRow__i64
+sym	logos_lang..logos.lang.writ.row.WRow__count__f__ref_WRow
+sym	logos_lang..logos.lang.writ.row.WRow__get__f__ref_WRow__i64
+sym	logos_lang..logos.lang.writ.row.WRow__slot_of__f__ref_WRow__i64
+sym	logos_lang..logos.lang.writ.row.WRow__span__f__ref_WRow
+sym	logos_lang..logos.lang.writ.row.Writ__row_builder__f__ref_Writ__i64
+sym	logos_lang..logos.lang.writ.row.Writ__row_finish__f__ref_Writ__ref_WRowBuilder
+sym	logos_lang..logos.lang.writ.row.Writ__row_of__f__ref_Writ__WAny
 sym	logos_lang..logos.lang.writ.static_view.WView2__array_get__f__WView2__WAny__u64
 sym	logos_lang..logos.lang.writ.static_view.WView2__array_len__f__WView2__WAny
 sym	logos_lang..logos.lang.writ.static_view.WView2__get_bool__f__WView2__WAny
@@ -9726,6 +9747,8 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__WDecimal
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WMap$G2$WString$WAny
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WMapEntry
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WParameter
+sym	logos_lang.logos.lang.any$type_id_of__g__void__WRow
+sym	logos_lang.logos.lang.any$type_id_of__g__void__WRowBuilder
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WSchemaH
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WString
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WTypedValue
@@ -10464,6 +10487,7 @@ sym	logos_lang.logos.lang.writ.pat$writ_pat_is_present__f__pcst_WAny
 sym	logos_lang.logos.lang.writ.pat$writ_pat_map_slot__f__pcst_WAny__slice_u8
 sym	logos_lang.logos.lang.writ.pat$writ_pat_root__f__ref_WritStatic
 sym	logos_lang.logos.lang.writ.pat$writ_pat_root_rc__f__ref_Rc$G1$Writ
+sym	logos_lang.logos.lang.writ.row$row_atoms_for_span__f__i64
 sym	logos_lang.logos.lang.writ.static_view$wany_from_word__f__i64
 sym	logos_lang.logos.lang.writ.static_view$wview2_from_ptr__f__pcst_u8
 sym	logos_lang.logos.lang.writ.tmpl$writ_build_from_template__f__pcst_u8__i64__pcst_u32__i64__pcst_u64__i64
@@ -12757,6 +12781,8 @@ type	logos.lang.writ.dview.DView	fields=[obj:*const u8,len:u64,tag:u64,meta:u64]
 type	logos.lang.writ.dview.DViewStore	fields=[tag:u64,meta:u64,data:PrimVec<u8>,offsets:PrimVec<u64>]
 type	logos.lang.writ.objdata.WritObjectData	fields=[doc:Writ,off:i64,len:i64,tag:u64]
 type	logos.lang.writ.parameter.WParameter	fields=[name:i64,value:i64]
+type	logos.lang.writ.row.WRow	fields=[atom0:u64]
+type	logos.lang.writ.row.WRowBuilder	fields=[atoms:*mut u64,vals:*mut WAny,max_span:i64,span:i64,alloc:*mut Allocator]
 type	logos.lang.writ.static_view.SView2	fields=[ptr:*const u8,len:u64]
 type	logos.lang.writ.static_view.WView2	fields=[base:*const u8]
 type	logos.lang.writ.typed_arr.MapSliceI32	fields=[keys:&[i32],vals:&[WAny]]
