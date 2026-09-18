@@ -133,6 +133,51 @@ struct Body {
 
 } // namespace bir
 
+// ── Loan-carrying types ──────────────────────────────────────────────────────
+//
+// A type whose values may hold a loan: a reference, a struct that holds a
+// reference or is `#[borrow_carrying]` (the loan channel's closure, which
+// includes arena handles), an enum with such a payload, or an aggregate of
+// them. A struct or enum like that with no declared lifetime parameter still
+// needs one origin, or the loan it carries is lost at the first copy.
+static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
+                                   int depth = 0) {
+    if (!t || depth > 16) return false;
+    switch (t.kind()) {
+        case LogosType::Kind::Ref: case LogosType::Kind::MutRef: case LogosType::Kind::Closure:
+            return true;
+        case LogosType::Kind::Slice: return !t.owning_slice() || bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
+        case LogosType::Kind::TraitObject: return !t.owning_trait_object();
+        case LogosType::Kind::DstRef: return !t.owning_dst();
+        case LogosType::Kind::Array: return bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
+        case LogosType::Kind::Tuple:
+            for (auto& e : t.tuple_elems()) if (bir_type_carries_loans(e, prog, ts, depth + 1)) return true;
+            return false;
+        case LogosType::Kind::Struct:
+            if (!t.lifetime_args().empty()) return true;
+            if (bc_holds_any_ref_type(ts, t) || bc_loan_carrying_type(ts, t)) return true;
+            for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1)) return true;
+            return false;
+        case LogosType::Kind::Enum: {
+            if (!t.lifetime_args().empty()) return true;
+            for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1)) return true;
+            auto eit = ts.enum_by_name.end();
+            if (!t.type_args().empty()) eit = ts.enum_by_name.find(Mono::enum_instance_name(t));
+            if (eit == ts.enum_by_name.end()) eit = ts.enum_by_name.find(std::string(t.enum_name()));
+            if (eit == ts.enum_by_name.end()) return false;
+            bool carries = false;
+            eit->second.each_variant([&](lir_view::EnumVariantView v) {
+                v.each_payload_type(prog.type_pool.impl(), [&](TypeRef pt) {
+                    if (!carries && bir_type_carries_loans(pt, prog, ts, depth + 1)) carries = true;
+                });
+            });
+            return carries;
+        }
+        default:
+            return false;
+    }
+}
+
 // ── Lowering ─────────────────────────────────────────────────────────────────
 
 class BirBuilder {
@@ -214,6 +259,25 @@ private:
         terminate(std::move(t));
     }
     void assign(bir::Place dest, bir::Rvalue rv) {
+        // `x = h(move x)` as one statement would move and initialise x at the
+        // same point; route the value through a temporary so the move comes
+        // first.
+        bool self_move = false;
+        for (auto& op : rv.ops)
+            if (op.k == bir::Operand::K::Move && op.place.local == dest.local) self_move = true;
+        if (self_move) {
+            bir::LocalId t = temp(dest.proj.empty() ? body_.locals[dest.local].type : TypeRef{});
+            bir::Stmt s1(bir::Stmt::K::Assign);
+            s1.dest = {t, {}};
+            s1.rv   = std::move(rv);
+            emit(std::move(s1));
+            bir::Rvalue mv(bir::Rvalue::K::Use);
+            bir::Operand o;
+            o.k = bir::Operand::K::Move;
+            o.place = {t, {}};
+            mv.ops.push_back(std::move(o));
+            rv = std::move(mv);
+        }
         bir::Stmt s(bir::Stmt::K::Assign);
         s.dest = std::move(dest);
         s.rv   = std::move(rv);
@@ -615,6 +679,27 @@ private:
         terminate(std::move(t));
     }
 
+    // A `&mut T` place handed to a reference parameter is reborrowed
+    // (`&*p` / `&mut *p`), never moved: Rust's implicit reborrow at a
+    // coercion site. Returns false when `a` is not such a place.
+    bool reborrow_arg(lir_view::ExprRef a, TypeRef param, bir::Term& t,
+                      std::vector<std::pair<bir::BlockId, uint32_t>>& reservations) {
+        if (!a) return false;
+        TypeRef at = a.type(pool_);
+        if (!at || at.kind() != LogosType::Kind::MutRef) return false;
+        bool to_ref = !param || param.kind() == LogosType::Kind::Ref ||
+                      param.kind() == LogosType::Kind::MutRef;
+        if (!to_ref) return false;
+        auto p = place_of(a);
+        if (!p) return false;
+        bool m = !param || param.kind() == LogosType::Kind::MutRef;
+        bir::LocalId tmp = synth_ref_temp(at.pointee());
+        assign({tmp, {}}, ref_of(p->with(bir::Proj(bir::Proj::K::Deref)), m, m));
+        if (m) reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
+        t.args.push_back(read_place({tmp, {}}, {}));
+        return true;
+    }
+
     // ── calls ──
     // Receiver first, then arguments left to right, then the call. An
     // implicit `&mut` receiver (sema's AddrOfTemp autoref, or a bare place
@@ -658,6 +743,7 @@ private:
                 v.each_arg([&](lir_view::ExprRef a) {
                     TypeRef pt = ai < ptypes.size() ? ptypes[ai] : TypeRef{};
                     ++ai;
+                    if (reborrow_arg(a, pt, t, reservations)) return;
                     // A reference parameter given a non-reference place: the
                     // autoref codegen inserts is a borrow of that place.
                     if (pt && (pt.kind() == LogosType::Kind::Ref || pt.kind() == LogosType::Kind::MutRef) &&
@@ -713,9 +799,22 @@ private:
                         reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
                     t.args.push_back(read_place({tmp, {}}, {}));
                 } else if (rcv) {
-                    arg_value(rcv);
+                    TypeRef p0;
+                    if (auto f = resolve_method(v); f && !f.params_empty()) p0 = f.params()[0].type(pool_);
+                    if (!reborrow_arg(rcv, p0, t, reservations)) arg_value(rcv);
                 }
-                v.each_arg(arg_value);
+                {
+                    std::vector<TypeRef> ptypes;
+                    if (auto f = resolve_method(v))
+                        for (auto& pv : f.params()) ptypes.push_back(pv.type(pool_));
+                    size_t ai = 1;
+                    v.each_arg([&](lir_view::ExprRef a) {
+                        TypeRef pt = ai < ptypes.size() ? ptypes[ai] : TypeRef{};
+                        ++ai;
+                        if (reborrow_arg(a, pt, t, reservations)) return;
+                        arg_value(a);
+                    });
+                }
                 break;
             }
             case ECode::ClosureCall: {
@@ -743,13 +842,24 @@ private:
             default:
                 break;
         }
-        t.dest = std::move(dest);
+        // The call writes a fresh temporary; the continuation block stores it
+        // into `dest`. Arguments leave at the call, the result arrives after,
+        // so `x = f(x)` moves x and then initialises it at DIFFERENT points.
+        bir::LocalId res = temp({});
+        body_.locals[res].type = dest.valid() && dest.proj.empty() ? body_.locals[dest.local].type
+                                                                   : e.type(pool_);
+        t.dest = {res, {}};
         bir::BlockId next = new_block();
         t.targets = {next};
         terminate(std::move(t));
         bir::BlockId call_block = cur_;   // terminate() acted on cur_
         for (auto [b, st] : reservations) body_.two_phase.push_back({b, st, call_block});
         cur_ = next;
+        if (dest.valid()) {
+            bir::Rvalue rv(bir::Rvalue::K::Use);
+            rv.ops.push_back(read_place({res, {}}, body_.locals[res].type));
+            assign(std::move(dest), std::move(rv));
+        }
     }
     // Lifetime names a type mentions, and whether it holds an elided one.
     void lifetimes_in(TypeRef t, std::set<std::string>& names, bool& elided, int depth = 0) const {
@@ -785,7 +895,7 @@ private:
                     else if (lt != "'static" && lt != "static") names.insert(lt[0] == '\'' ? lt : "'" + lt);
                 }
                 for (auto& a : t.type_args()) lifetimes_in(a, names, elided, depth + 1);
-                if (lts.empty() && t.kind() == LogosType::Kind::Struct && bc_holds_any_ref_type(ts_, t))
+                if (lts.empty() && names.empty() && bir_type_carries_loans(t, prog_, ts_))
                     elided = true;
                 return;
             }
@@ -1126,15 +1236,25 @@ private:
             }
             case SCode::ForEach: {
                 lir_view::SForEachView v{s};
-                // Iterating an array or slice: the sequence is evaluated once
-                // into a place; each iteration binds the element by value.
-                bir::Place seq = place_or_temp(v.iter());
+                // Iterating an array or slice. The sequence is evaluated once
+                // into a place; the index starts at 0 and steps each
+                // iteration. Over a borrowed sequence (`&xs`, `&mut xs`, a
+                // slice) the variable is a reference to the element, as in
+                // Rust's IntoIterator for &[T] / &mut [T]; otherwise the
+                // element itself.
                 TypeRef st = v.iter().type(pool_);
-                if (is_pointer_kind(st) || (st && st.kind() == LogosType::Kind::Slice))
-                    seq = seq.with(bir::Proj(bir::Proj::K::Deref));
+                bool by_ref = st && (st.kind() == LogosType::Kind::Ref ||
+                                     st.kind() == LogosType::Kind::MutRef ||
+                                     (st.kind() == LogosType::Kind::Slice && !st.owning_slice()));
+                bool mut_ref = st && (st.kind() == LogosType::Kind::MutRef ||
+                                      (st.kind() == LogosType::Kind::Slice && st.mut_ptr()));
+                bir::Place seq = place_or_temp(v.iter());
+                if (by_ref || is_pointer_kind(st)) seq = seq.with(bir::Proj(bir::Proj::K::Deref));
                 push_scope();
                 bir::LocalId ix = temp({});
-                bir::BlockId head = new_block(), body = new_block(), exit = new_block();
+                assign({ix, {}}, bir::Rvalue(bir::Rvalue::K::Use));   // ix = 0
+                bir::BlockId head = new_block(), body = new_block(), step = new_block(),
+                             exit = new_block();
                 goto_(head);
                 cur_ = head;
                 bir::Rvalue more(bir::Rvalue::K::Op);
@@ -1143,22 +1263,35 @@ private:
                 bir::LocalId c = temp({});
                 assign({c, {}}, std::move(more));
                 branch(read_place({c, {}}, {}), {body, exit});
-                loops_.push_back({"", head, exit, scopes_.size()});
+                loops_.push_back({"", step, exit, scopes_.size()});
                 cur_ = body;
                 push_scope();
                 TypeRef et = v.elem_type(pool_);
-                bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User, et,
-                                             v.var_mut(), v.var_slot(), line_);
+                bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User,
+                                             by_ref ? TypeRef{} : et, v.var_mut(), v.var_slot(), line_);
                 bir::Proj pj(bir::Proj::K::Index);
                 pj.index = ix;
-                bir::Rvalue get(bir::Rvalue::K::Use);
-                get.ops.push_back(read_place(seq.with(std::move(pj)), et));
-                assign({var, {}}, std::move(get));
+                bir::Place elem = seq.with(std::move(pj));
+                if (by_ref) {
+                    body_.locals[var].synth_ref = true;
+                    body_.locals[var].synth_pointee = et;
+                    assign({var, {}}, ref_of(std::move(elem), mut_ref, false));
+                } else {
+                    bir::Rvalue get(bir::Rvalue::K::Use);
+                    get.ops.push_back(read_place(std::move(elem), et));
+                    assign({var, {}}, std::move(get));
+                }
                 declare(var);
                 if (auto b = v.body()) lower_block_stmts(b);
                 pop_scope();
-                goto_(head);
+                goto_(step);
                 loops_.pop_back();
+                cur_ = step;
+                bir::Rvalue inc(bir::Rvalue::K::Op);
+                inc.what = "+1";
+                inc.ops.push_back(read_place({ix, {}}, {}));
+                assign({ix, {}}, std::move(inc));
+                goto_(head);
                 cur_ = exit;
                 pop_scope();
                 return;
@@ -1364,7 +1497,12 @@ private:
         pattern_test(sp, stype, {});
         std::vector<bir::BlockId> arm_blocks;
         for (size_t i = 0; i < arms.size(); ++i) arm_blocks.push_back(new_block());
-        arm_blocks.push_back(join);   // no arm matched (exhaustive in practice)
+        // "No arm matched": a match is exhaustive, so this edge is never
+        // taken. It must not reach `join`, where the result is assumed set.
+        bir::BlockId nomatch = new_block();
+        body_.blocks[nomatch].term = bir::Term(bir::Term::K::Unreachable);
+        body_.blocks[nomatch].terminated = true;
+        arm_blocks.push_back(nomatch);
         branch(read_place(sp, {}), arm_blocks);
         for (size_t i = 0; i < arms.size(); ++i) {
             cur_ = arm_blocks[i];
@@ -1373,7 +1511,7 @@ private:
             if (auto g = arms[i].guard()) {
                 bir::Operand c = operand(g);
                 bir::BlockId yes = new_block();
-                branch(std::move(c), {yes, i + 1 < arms.size() ? arm_blocks[i + 1] : join});
+                branch(std::move(c), {yes, i + 1 < arms.size() ? arm_blocks[i + 1] : nomatch});
                 cur_ = yes;
             }
             if (dest && arms[i].value()) lower_into(*dest, arms[i].value());
@@ -1473,8 +1611,7 @@ private:
                     out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
                 }
                 for (auto& a : t.type_args()) walk_type(a, invariant, out, depth + 1);
-                if (out.os.size() == before && t.kind() == LogosType::Kind::Struct &&
-                    bc_holds_any_ref_type(ts_, t)) {
+                if (out.os.size() == before && bir_type_carries_loans(t, prog_, ts_)) {
                     out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
                 }
                 return;
