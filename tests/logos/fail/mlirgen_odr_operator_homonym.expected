@@ -1,1 +1,1 @@
-'test.Ident__eq' does not reference a valid function
+operator '==': 'Ident' has no 'eq' implementation

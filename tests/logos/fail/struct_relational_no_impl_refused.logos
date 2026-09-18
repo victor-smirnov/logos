@@ -1,0 +1,15 @@
+package struct_relational_no_impl_refused;
+
+// #427: ordering two structs whose type implements neither the direct
+// comparison method nor `partial_cmp`. Sema resolved the method name,
+// found nothing, and fell through — mono then fabricated a call to
+// `S__lt`, a symbol nothing defines, and the MLIR verifier was the
+// first stage to notice. rustc 1.98.1 refuses the same program with
+// E0369 "binary operation `<` cannot be applied to type `S`".
+struct S { a: i32 }
+
+fn main() -> i32 {
+    let a: S = S{a:1i32};
+    let b: S = S{a:2i32};
+    return if a < b { 0i32 } else { 1i32 };
+}

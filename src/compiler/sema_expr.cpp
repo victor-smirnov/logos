@@ -2815,6 +2815,100 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     return builder().call(is_sym, {}, std::move(isargs), bool_t());
                 }
             }
+            // ── #427: AN OPERATOR METHOD THAT WAS NEVER IMPLEMENTED ────────
+            //
+            // Both lookups above have failed: no `<Type>__<method>` matching
+            // the operand signature, and — for the four relational ops — no
+            // `<Type>__partial_cmp` either.
+            //
+            // For `+ - * / %` and the bitwise family the fall-through below
+            // lands in the numeric/integer branch, which refuses with
+            // "left must be numeric, got S". The six COMPARISON operators
+            // have no such guard: their branch ends at `result_type =
+            // bool_t()`, so the raw binop survives sema. mono_clone's BinOp
+            // case — which carries ITS OWN copy of this operator table —
+            // then fabricates a call to `pkg.Type__method` with no existence
+            // check at all, and the MLIR verifier is the first stage to see
+            // that nothing defines it:
+            //
+            //     error: 'func.call' op 'k_struct.S__lt' does not reference
+            //            a valid function
+            //
+            // MEASURED 2026-09-18, one program per row, struct with no impl:
+            //
+            //     <  <=  >  >=  ==  !=    verifier failure   <- refused here
+            //     +  -  *  /  %           "must be numeric"
+            //     &  |  ^  <<  >>         "must be integer or bool"
+            //     -x   !x                 "operand must be numeric"
+            //     struct WITH the method  ok — returned above
+            //     struct WITH partial_cmp ok — returned above
+            //
+            // rustc 1.98.1 refuses the same program with E0369 ("binary
+            // operation `<` cannot be applied to type `S`") and ACCEPTS the
+            // partial_cmp-only form, which is why this fires only after the
+            // partial_cmp lookup has failed too.
+            //
+            // ⚠ WHAT THIS DOES NOT CLOSE, measured and rowed rather than
+            // silently left: the same fabrication is reachable for EVERY
+            // operator in mono's table through an unbounded generic —
+            // `fn f<T>(x: T, y: T) { x + y }` at `T = S` yields `S__add` —
+            // because `is_numeric` admits TypeVar deliberately, deferring to
+            // "a precise error in mono" that does not exist (mono has no
+            // diagnostic channel). Requiring the bound is what rustc does and
+            // is a language-level decision, not this refusal's to take.
+            // ⚠ A GENERIC IMPL IS INVISIBLE TO THE LOOKUP ABOVE, AND REFUSING
+            // OVER IT TURNED A TIER-1 ROW INTO A TIER-3 ONE. `impl<T: Eq> Eq
+            // for W<T>` registers under the BARE struct key (`W__eq`, via
+            // generic_overloads_), while `mangled` above is the CONCRETE name
+            // `W$G1$i64__eq` — they can never match, so the exact-signature
+            // lookup reports "no impl" for a type that plainly has one. The
+            // first spelling of this refusal refused
+            // tests/soundness/open/generic_struct_impl_ref_eq_compares_addresses_run
+            // (rustc 1.98.1: compiles, exit 0) and its by-value twin.
+            //
+            // So ask the bare key too, exactly the way the enum-`Eq` arm below
+            // does (candidates by name + arity, NOT by signature — a template's
+            // params are `&W<T>`, never `&W<i64>`). Only a type with no
+            // candidate under either key is refused. The error direction is the
+            // safe one: a false positive here merely restores the historic
+            // fall-through, it does not invent a refusal.
+            // ⚠ AND THE BARE KEY MUST NOT BE PACKAGE-BLIND. The first spelling
+            // of this lookup asked for `<Bare>__<method>` and took ANY hit —
+            // which is the exact blindness `fail/mlirgen_odr_operator_homonym`
+            // exists to pin: `test.Ident` found `logos.std.compiler.metaprog`'s
+            // `Ident__eq` (ast.logos declares `pub struct Ident` with a `pub fn
+            // eq`), suppressed the refusal, and let the homonym fall through to
+            // mono while its collision-free twin `Idnt9x` was refused. That
+            // fixture's whole assertion is that the two behave IDENTICALLY, so
+            // it went red — correctly, and the defect was mine.
+            //
+            // Filter the candidates by the OPERAND TYPE'S package instead of
+            // composing a module-suffixed key by hand: the registration side
+            // builds its keys through machinery this arm does not own, and
+            // guessing that formula is what produced the previous over-refusal.
+            // An EMPTY package (prelude / extern) is allowed through — those
+            // are genuinely global, and the error direction there is the safe
+            // one: at worst the historic fall-through returns, never a new
+            // refusal over a legal program.
+            bool generic_cand_427_ = false;
+            {
+                std::string bare_key_427 =
+                    std::string(TypeRef(lt_sv).struct_name()) + "__" + method_name;
+                std::string ty_pkg_427{TypeRef(lt_sv).pkg_name()};
+                for (auto* c : find_func_candidates(bare_key_427))
+                    if (c && c->param_types.size() == 2 &&
+                        (c->package.empty() || c->package == ty_pkg_427)) {
+                        generic_cand_427_ = true; break;
+                    }
+            }
+            const bool rel_427_ = (op == "<" || op == "<=" ||
+                                   op == ">" || op == ">=");
+            if (!generic_cand_427_ && (rel_427_ || op == "==" || op == "!="))
+                error(std::format(
+                    "operator '{}': '{}' has no '{}' implementation{} — the "
+                    "operation is not defined for it",
+                    op, type_str(lt_sv), method_name,
+                    rel_427_ ? " (and no 'partial_cmp')" : ""));
             // No impl found — fall through to normal type checking
         }
     }

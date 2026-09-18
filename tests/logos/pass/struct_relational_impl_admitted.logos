@@ -1,0 +1,37 @@
+package struct_relational_impl_admitted;
+
+// #427 ADMIT TWIN. Every shape the refusal must NOT catch. Measured
+// 2026-09-18: each of these compiled and ran before the refusal landed
+// and must keep doing so, because the refusal fires at the point where
+// BOTH the direct-method lookup and the `partial_cmp` lookup have
+// already failed. If someone widens the predicate, this fixture is
+// what turns red.
+struct WithLt { a: i32 }
+impl WithLt {
+    fn lt(self: &WithLt, o: &WithLt) -> bool { return self.a < o.a; }
+}
+
+struct WithAdd { a: i32 }
+impl WithAdd {
+    fn add(self: WithAdd, o: WithAdd) -> WithAdd { return WithAdd{a: self.a + o.a}; }
+}
+
+fn main() -> i32 {
+    // a struct that DOES implement the direct method: the trait route returns
+    let p: WithLt = WithLt{a:1i32};
+    let q: WithLt = WithLt{a:2i32};
+    if !(p < q) { return 1i32; }
+
+    // arithmetic on a struct with an impl: a different operator family,
+    // reached through the same fall-through point
+    let r: WithAdd = WithAdd{a:1i32};
+    let s: WithAdd = WithAdd{a:2i32};
+    let t: WithAdd = r + s;
+    if t.a != 3i32 { return 2i32; }
+
+    // primitives keep their ordinary lowering, untouched by the refusal
+    if !(1i32 < 2i32) { return 3i32; }
+    if !(1.5f64 < 2.5f64) { return 4i32; }
+
+    return 0i32;
+}

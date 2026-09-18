@@ -6158,8 +6158,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                working — scalars, array `==`/`!=`, all-primitive tuples, `&i32`, C-like enums, `str`, a struct with
 #                `lt`). TIERCOMMIT does not move — neither is tier_commit.
 #                RE-DERIVED FROM THE GATE'S OWN MEASUREMENT (it printed measured 11084/6582/355), never by adding 2.
-REGISTRY-ALL         11084
-REGISTRY-NOIMPORTED  6582
+#                ALL 11084 -> 11086 (+2), NOIMPORTED 6582 -> 6584 (+2), TIERCOMMIT 355 -> 355 (0) — 2026-09-18-struct-operator
+#                TWO FIXTURES ADDED for #427: fail/struct_relational_no_impl_refused (sema now refuses an operator whose
+#                method the type never implements, instead of letting mono fabricate a call the MLIR verifier rejects) and
+#                pass/struct_relational_impl_admitted (the ADMIT twin). RE-DERIVED FROM THE GATE'S OWN PRINTED MEASUREMENT
+#                (it printed measured 11086/6584/355), never by adding 2 to the previous pin.
+REGISTRY-ALL         11086
+REGISTRY-NOIMPORTED  6584
 REGISTRY-TIERCOMMIT  355
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
