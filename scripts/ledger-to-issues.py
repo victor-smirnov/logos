@@ -154,7 +154,13 @@ def body_for(row: str, r: dict, head: str) -> str:
     # one digit apiece. At 236 rows that is a mass update per renumbering, and a diff
     # full of noise hides the one change that matters. The id is the key; it locates
     # the row without depending on where it sits.
-    parts.append(f"\n<sub>Projected from `{r['file']}` at `{head}`. The ledger is the source of "
+    # ⚠ AND NO COMMIT SHA EITHER. Embedding HEAD made every one of the 314 issues
+    # report "changed" after any commit — caught when a commit landed WHILE the 236
+    # were being published, so freshly generated bodies already disagreed with
+    # freshly created ones. Same fragile-field lesson as the line number a few edits
+    # ago: I removed that one and left a field beside it that moves even more often.
+    # `head` stays in the signature (callers pass it) but must not reach the body.
+    parts.append(f"\n<sub>Projected from `{r['file']}`. The ledger is the source of "
                  "truth; this issue is a mirror. ⚠ Paths under `/home/` or `sandbox/` name "
                  "scratch probes on the development box and will not exist in a clone — the "
                  "entry's own measurement is the reproducible part.</sub>\n")
