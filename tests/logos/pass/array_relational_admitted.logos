@@ -1,0 +1,64 @@
+// #377 TWIN — every comparison shape that MUST keep working while the array
+// relational refusal stands. Measured one at a time against the same compiler;
+// each line below was rc 0 before the refusal landed and must stay rc 0 after.
+//
+// The refusal is structural (Array / Slice / UnsizedSlice / a Tuple with a
+// non-primitive element), so the risk it carries is over-refusal. These are the
+// neighbours it must not touch:
+//
+//   scalars                     the ordinary path
+//   arrays under == / !=        a DIFFERENT lowering branch (mlir_gen_expr.cpp)
+//                               handles primitive-element array equality
+//   all-primitive tuples        the lexicographic fast path (G144-5)
+//   references to scalars       &i32 < &i32 lowers through the scalar path
+//   C-like enums                lower to their discriminant integer
+//   str                         routed to `str_cmp` by the sema patch above
+//   a struct with `lt`          routed to the trait method
+package test;
+
+use logos.lang.str;
+
+struct T { v: i32 }
+impl T { pub fn lt(self: &T, o: &T) -> bool { return self.v < o.v; } }
+
+enum E { A, B }
+
+fn main() -> i32 {
+    // scalars
+    if !(1i32 < 2i32) { return 1i32; }
+
+    // array EQUALITY keeps its own branch — only ORDER is refused
+    let a: [i32; 2] = [1i32, 2i32];
+    let b: [i32; 2] = [1i32, 3i32];
+    if a == b { return 2i32; }
+    if !(a != b) { return 3i32; }
+
+    // all-primitive tuple: lexicographic fast path
+    let t1: (i32, i32) = (1i32, 2i32);
+    let t2: (i32, i32) = (1i32, 3i32);
+    if !(t1 < t2) { return 4i32; }
+    if !(t2 > t1) { return 5i32; }
+    if !(t1 <= t1) { return 6i32; }
+
+    // reference to a scalar
+    let x: i32 = 1i32;
+    let y: i32 = 2i32;
+    let rx: &i32 = &x;
+    let ry: &i32 = &y;
+    if !(rx < ry) { return 7i32; }
+
+    // C-like enum lowers to its discriminant
+    let e1: E = E::A;
+    let e2: E = E::B;
+    if !(e1 < e2) { return 8i32; }
+
+    // str keeps the str_cmp route
+    if !("abc" < "abd") { return 9i32; }
+
+    // a struct that implements `lt` keeps the trait route
+    let s1: T = T { v: 1i32 };
+    let s2: T = T { v: 2i32 };
+    if !(s1 < s2) { return 10i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,26 @@
+// #377 — RELATIONAL OPERATORS ON AN AGGREGATE THE LOWERING CANNOT ORDER.
+//
+// Before this refusal, `a < b` on two arrays reached mlir-gen as a raw binop,
+// the aggregate lowered to its slot POINTER (the by-pointer ABI), and the
+// generic tail fed that pointer to `arith.cmpi`:
+//
+//     error: 'arith.cmpi' op operand #0 must be signless-integer-like,
+//            but got '!llvm.ptr'
+//     mlir_gen: module verification failed
+//
+// An internal compiler error for an ordinary source-level mistake. The
+// refusal names the operator and the type instead.
+//
+// ⚠ WHAT THIS FIXTURE DOES NOT CLAIM. It does not say arrays CANNOT be
+// ordered — `impl Ord for [T; N]` does not exist in the stdlib today (20 `impl
+// Ord` rows, all scalars and refs to scalars), so there is nothing to route to.
+// If someone implements lexicographic ordering for arrays, this refusal is the
+// thing to relax, and the twin `array_relational_admitted` records exactly
+// which shapes must keep working while it stands.
+package array_relational_refused;
+
+fn main() -> i32 {
+    let a: [i32; 2] = [1i32, 2i32];
+    let b: [i32; 2] = [1i32, 3i32];
+    return if a < b { 0i32 } else { 1i32 };
+}

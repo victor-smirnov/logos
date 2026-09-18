@@ -3216,6 +3216,103 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     error(std::format("operator '{}': literal value {} does not fit in {}",
                           op, *v, type_str(lt)));
         }
+        // ── #377: ORDER ON AN AGGREGATE THE LOWERING CANNOT ORDER ──────────
+        //
+        // `a < b` on two arrays used to reach mlir-gen as a raw binop. An
+        // aggregate lowers to its slot POINTER (the by-pointer ABI), and the
+        // generic tail of gen_binop feeds that pointer to `arith.cmpi`:
+        //
+        //     error: 'arith.cmpi' op operand #0 must be signless-integer-like,
+        //            but got '!llvm.ptr'
+        //     mlir_gen: module verification failed
+        //
+        // An internal compiler error for an ordinary source-level mistake.
+        //
+        // THE CONDITION MIRRORS THE LOWERING, SHAPE FOR SHAPE. mlir_gen_expr
+        // carries three comparison fast-paths and one pointer arm, and each
+        // states its own limit; this refusal covers exactly what none of them
+        // reaches. MEASURED 2026-09-18, one program per row:
+        //
+        //     [i32;2] < <= > >=        crash      <- refused here
+        //     [i32;2] == !=            ok         (array `==` branch)
+        //     &[i32] <                 crash      <- refused here
+        //     [[i32;2];2] <            crash      <- refused here
+        //     ([i32;2],i32) <          crash      <- refused here
+        //     ((i32,i32),i32) <        crash      <- refused here (non-prim elem)
+        //     (i32,i32) <              ok         (tuple lexicographic, G144-5)
+        //     enum{V([i32;2])} <       crash      <- refused here (has payload)
+        //     enum{A,B} <              ok         (lowers to its discriminant)
+        //     str <                    ok         (str_cmp patch above returns)
+        //     &i32 <                   ok         (scalar path)
+        //     struct with `lt` <       ok         (trait route above returns)
+        //
+        // ⚠ WHAT THIS MUST NOT CATCH, and why each exclusion is load-bearing:
+        //
+        //   TypeVar — `fn less<T: Ord>(a: &T, b: &T) { a < b }` ALSO crashes the
+        //     verifier, but that is soundness-queue row
+        //     `generic_ref_typevar_ordering_mlir_verifier_refused` (tier 3: a
+        //     LEGAL program refused). `i64` HAS an order; only the route is
+        //     missing, because Logos `Ord` carries `cmp` alone — there is no
+        //     `lt` method for sema's TypeVar arm to dispatch to. Refusing it
+        //     here would pin that defect as correct behaviour.
+        //   Struct — either routes through the trait above, or fails as
+        //     "`S__lt` does not reference a valid function", filed separately.
+        //   Ptr / fn values — their own arm orders them by unsigned address.
+        //
+        // This does NOT say arrays cannot be ordered: `impl Ord for [T; N]`
+        // simply does not exist (20 `impl Ord` rows in stdlib, all scalars and
+        // refs to scalars), so there is nothing to route to. Implementing
+        // lexicographic order is the other half of #377 and this is the line to
+        // relax when it lands.
+        if (op == "<" || op == "<=" || op == ">" || op == ">=") {
+            using RK_ = LogosType::Kind;
+            // The lowering's own element list (mlir_gen_expr's `is_prim_ord`).
+            auto prim_ord_ = [](TypeRef t) {
+                if (!t) return false;
+                switch (TypeRef(t).kind()) {
+                case RK_::I8:  case RK_::I16: case RK_::I24: case RK_::I32:
+                case RK_::I56: case RK_::I64: case RK_::I128:
+                case RK_::U8:  case RK_::U16: case RK_::U24: case RK_::U32:
+                case RK_::U56: case RK_::U64: case RK_::U128:
+                case RK_::F32: case RK_::F64: case RK_::Bool: case RK_::Char:
+                case RK_::Usize: case RK_::Isize:
+                case RK_::IntLit: case RK_::FloatLit: return true;
+                default: return false;
+                }
+            };
+            // A payload-carrying enum lowers to a struct; a C-like one lowers to
+            // its discriminant integer. Same walk sema uses for the cast rule.
+            auto enum_has_payload_ = [&](TypeRef t) {
+                if (!t || TypeRef(t).kind() != RK_::Enum) return false;
+                auto en = TypeRef(t).enum_name();
+                auto [epkg, esi] = find_enum_by_name(en);
+                auto eit = esi ? enums_.find(sema_key(epkg, en)) : enums_.end();
+                if (eit == enums_.end()) eit = enums_.find(std::string(en));
+                if (eit == enums_.end()) return false;
+                for (auto& vv : eit->second.variants)
+                    if (!vv.payload_types.empty()) return true;
+                return false;
+            };
+            auto unordered_ = [&](TypeRef t) {
+                if (!t) return false;
+                switch (TypeRef(t).kind()) {
+                case RK_::Array: case RK_::Slice: case RK_::UnsizedSlice:
+                    return true;
+                case RK_::Tuple: {
+                    auto es = TypeRef(t).tuple_elems();
+                    if (es.empty()) return false;
+                    for (auto e : es) if (!prim_ord_(e)) return true;
+                    return false;
+                }
+                case RK_::Enum: return enum_has_payload_(t);
+                default: return false;
+                }
+            };
+            if (unordered_(lt) || unordered_(rt))
+                error(std::format(
+                    "operator '{}': '{}' has no ordering — only equality "
+                    "('==' / '!=') is defined for it", op, type_str(lt)));
+        }
         result_type = bool_t();
     } else if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%") {
         if (!is_numeric(lt))
