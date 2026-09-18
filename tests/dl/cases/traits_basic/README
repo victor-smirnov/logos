@@ -1,0 +1,5 @@
+Trait resolution rules (src/compiler/dl/rules/traits.dl) on hand-written facts.
+Blankets: 1 ToString <- [Display]; 2 Show <- [Display, Debug]; 3 Any <- [];
+4 A <- [B] and 5 B <- [A] (mutually recursive, least fixpoint: neither holds
+without a direct impl); 6 C <- [ToString] (a chain). Fn is answered by a
+predicate; pred_ok holds the answer for the closure type only.

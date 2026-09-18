@@ -14,6 +14,7 @@
 #include "layout_law.hpp"
 #include "mangled_name.hpp"
 #include "trait_engine.hpp"
+#include "trait_rules.hpp"
 
 #include <cstdlib>
 #include <format>
@@ -502,6 +503,13 @@ private:
     // validated, mono_has_impl_recursive collapses into a thin wrapper.
     trait_engine::TraitEngine trait_engine_;
     bool                      trait_engine_dirty_ = true;
+
+    // ADR 0028 S2 (#421): the same facts as trait_engine_, answered by
+    // dl/rules/traits.dl. Built only under LOGOS_DL_SHADOW=traits, where every
+    // query is asked of both and a disagreement is logged; mono still acts on
+    // trait_engine_'s answer until the switch (S3, #422).
+    std::unique_ptr<TraitRules> trait_rules_;
+    bool engine_satisfies_(const std::string& trait, const std::string& type_name);
 
     // Populate trait_engine_ from concrete_impls_ + blanket_impls_.
     // Cheap: a few hundred entries even for medium codebases.

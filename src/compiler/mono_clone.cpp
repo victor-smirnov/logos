@@ -5473,8 +5473,19 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
 // Sprint 5.4: populate the trait_engine from current mono tables.
 // Cheap; called on demand. Invalidated by trait_engine_dirty_ when
 // new impls or blankets land mid-pass.
+namespace {
+bool dl_shadow_traits() {
+    static const bool on = [] {
+        const char* v = std::getenv("LOGOS_DL_SHADOW");
+        return v && std::string_view(v).find("traits") != std::string_view::npos;
+    }();
+    return on;
+}
+} // namespace
+
 void Mono::populate_trait_engine_() {
     trait_engine_ = trait_engine::TraitEngine{};   // fresh
+    if (dl_shadow_traits()) trait_rules_ = std::make_unique<TraitRules>();
     // (D) direct impls — concrete_impls_ is keyed by the PAIR
     // (trait identity, target type). It used to be a composed "trait::type"
     // string that this loop split back apart at the first "::"; the trait side
@@ -5482,8 +5493,10 @@ void Mono::populate_trait_engine_() {
     // separator that could be split correctly. See the concrete_impls_
     // declaration in mono_impl.hpp for why the pair (and not another
     // separator) is the fix.
-    for (auto& [k_trait, k_target] : concrete_impls_)
+    for (auto& [k_trait, k_target] : concrete_impls_) {
         trait_engine_.add_impl(k_trait, k_target);
+        if (trait_rules_) trait_rules_->add_impl(k_trait, k_target);
+    }
     // (B) blanket impls — preserve "all bounds in one AND" semantics:
     // primary bound first, then extras. Empty primary bound +
     // empty extras is the "unconditional impl-for-all" case, which
@@ -5542,6 +5555,7 @@ void Mono::populate_trait_engine_() {
             bi.identity_trait.empty()
                 ? (bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait)
                 : bi.identity_trait;
+        if (trait_rules_) trait_rules_->add_blanket(b_canon, bounds);
         trait_engine_.add_blanket(b_canon, std::move(bounds));
     }
     // (S) shape-auto: closure types satisfy Fn / FnMut / FnOnce.
@@ -5553,9 +5567,10 @@ void Mono::populate_trait_engine_() {
     auto is_closure_typename = [](std::string_view n) {
         return !n.empty() && n.front() == '|';
     };
-    trait_engine_.add_shape_auto_impl("Fn",     "closure", is_closure_typename);
-    trait_engine_.add_shape_auto_impl("FnMut",  "closure", is_closure_typename);
-    trait_engine_.add_shape_auto_impl("FnOnce", "closure", is_closure_typename);
+    for (const char* fnt : {"Fn", "FnMut", "FnOnce"}) {
+        trait_engine_.add_shape_auto_impl(fnt, "closure", is_closure_typename);
+        if (trait_rules_) trait_rules_->add_predicate(fnt, is_closure_typename);
+    }
     // Slice-target impls (`impl<E> Trait for [E]` → key "$slice$T";
     // concrete-elem form → "$slice$<elem>"): the engine's name-based facts
     // can't match a query for "[u8]" against those keys, so register a
@@ -5565,11 +5580,12 @@ void Mono::populate_trait_engine_() {
         StrSet slice_traits;
         for (auto& [k_trait, k_target] : concrete_impls_)
             if (k_target.starts_with("$slice$")) slice_traits.insert(k_trait);
+        auto is_slice_typename = [](std::string_view n) {
+            return !n.empty() && n.front() == '[';
+        };
         for (auto& tn : slice_traits) {
-            trait_engine_.add_shape_auto_impl(tn, "slice",
-                [](std::string_view n) {
-                    return !n.empty() && n.front() == '[';
-                });
+            trait_engine_.add_shape_auto_impl(tn, "slice", is_slice_typename);
+            if (trait_rules_) trait_rules_->add_predicate(tn, is_slice_typename);
         }
     }
     // AUTO traits (Fst/Send/Sync/Unpin) as shape-autos: satisfaction is
@@ -5580,13 +5596,14 @@ void Mono::populate_trait_engine_() {
     // `satisfies("PkdElem", "u64")` (the unified-PkdArray path).
     for (const char* at : {"Fst", "Send", "Sync", "Unpin"}) {
         std::string atn(at);
-        trait_engine_.add_shape_auto_impl(atn, "auto",
-            [this, atn](std::string_view n) -> bool {
-                TypeRef t = mono_typeref_by_name_(std::string(n));
-                if (!t) return false;   // unknown name — conservative
-                StrSet v;
-                return is_auto_satisfied(t, atn, v);
-            });
+        auto is_auto = [this, atn](std::string_view n) -> bool {
+            TypeRef t = mono_typeref_by_name_(std::string(n));
+            if (!t) return false;   // unknown name — conservative
+            StrSet v;
+            return is_auto_satisfied(t, atn, v);
+        };
+        trait_engine_.add_shape_auto_impl(atn, "auto", is_auto);
+        if (trait_rules_) trait_rules_->add_predicate(atn, is_auto);
     }
     trait_engine_dirty_ = false;
 }
@@ -5679,13 +5696,82 @@ bool Mono::mono_has_impl_recursive(const TraitQuery& q,
                                    StrSet& /*seen*/) {
     if (trait_engine_dirty_) populate_trait_engine_();
     // A query that KNOWS which trait it means asks for exactly that one.
-    if (q.has_identity) return trait_engine_.satisfies(q.identity, concrete_name);
+    if (q.has_identity) return engine_satisfies_(q.identity, concrete_name);
     // A bare compiler probe means "some trait spelled this" — its pre-existing
     // meaning. Ask every identity declared under the spelling instead of
     // relying on a bare-keyed duplicate of every fact.
     for (auto& id : bare_trait_identities_(q.spelling))
-        if (trait_engine_.satisfies(id, concrete_name)) return true;
+        if (engine_satisfies_(id, concrete_name)) return true;
     return false;
+}
+
+// Under LOGOS_DL_SHADOW=traits both engines answer and a disagreement is
+// logged once per (trait, type) per process, with the compile's input file
+// and the rules' derivation. The old engine's answer is the one returned.
+namespace {
+// One line per process at exit: how many queries both engines answered and
+// how many disagreed. Without it, "no disagreement logged" cannot be told
+// apart from "the shadow never ran".
+struct TraitShadowCensus {
+    size_t queries = 0, yes = 0, disagree = 0;
+    ~TraitShadowCensus() {
+        if (!queries) return;
+        std::string cmd, arg, input = "?";
+        if (FILE* f = std::fopen("/proc/self/cmdline", "rb")) {
+            int ch;
+            while ((ch = std::fgetc(f)) != EOF) {
+                if (ch == 0) {
+                    if (arg.ends_with(".logos") || arg.ends_with(".module")) input = arg;
+                    arg.clear();
+                } else arg.push_back(static_cast<char>(ch));
+            }
+            std::fclose(f);
+        }
+        const char* path = std::getenv("LOGOS_DL_SHADOW_LOG");
+        FILE* out = path ? std::fopen(path, "a") : nullptr;
+        std::fprintf(out ? out : stderr, "traits-census\t%s\tqueries=%zu\tyes=%zu\tdisagree=%zu\n",
+                     input.c_str(), queries, yes, disagree);
+        if (out) std::fclose(out);
+    }
+};
+TraitShadowCensus g_trait_shadow_census;
+} // namespace
+
+bool Mono::engine_satisfies_(const std::string& trait, const std::string& type_name) {
+    bool old_answer = trait_engine_.satisfies(trait, type_name);
+    if (!trait_rules_) return old_answer;
+    bool new_answer = trait_rules_->satisfies(trait, type_name);
+    ++g_trait_shadow_census.queries;
+    g_trait_shadow_census.yes += old_answer;
+    if (new_answer == old_answer) return old_answer;
+    ++g_trait_shadow_census.disagree;
+    static std::unordered_set<std::string> reported;
+    if (!reported.insert(trait + '\x1f' + type_name).second) return old_answer;
+    static const std::string input = [] {
+        std::string cmd, arg;
+        if (FILE* f = std::fopen("/proc/self/cmdline", "rb")) {
+            int ch;
+            while ((ch = std::fgetc(f)) != EOF) {
+                if (ch == 0) {
+                    if (arg.ends_with(".logos") || arg.ends_with(".module")) cmd = arg;
+                    arg.clear();
+                } else arg.push_back(static_cast<char>(ch));
+            }
+            std::fclose(f);
+        }
+        return cmd.empty() ? std::string("?") : cmd;
+    }();
+    std::string line = std::format("traits\t{}\t{}\told={}\tnew={}\t{}\n", trait, type_name,
+                                   old_answer ? 1 : 0, new_answer ? 1 : 0, input);
+    std::string why = trait_rules_->explain(trait, type_name);
+    for (size_t p = 0; (p = why.find('\n', p)) != std::string::npos && p + 1 < why.size(); p += 2)
+        why.replace(p, 1, "\n  ");
+    line += "  " + why;
+    const char* path = std::getenv("LOGOS_DL_SHADOW_LOG");
+    FILE* out = path ? std::fopen(path, "a") : nullptr;
+    std::fputs(line.c_str(), out ? out : stderr);
+    if (out) std::fclose(out);
+    return old_answer;
 }
 
 // `impl Trait for &T` / `&mut T` registers under collect_impl's

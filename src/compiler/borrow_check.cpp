@@ -31,6 +31,11 @@
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/const_promote.hpp>
 #include <map>
+#include <cctype>
+#include <cstdio>
+#include <filesystem>
+#include "dl/dl.hpp"
+#include "dl/dl_rules.hpp"
 #include <algorithm>
 #include <cassert>
 #include <logos/compiler/region_infer.hpp>
@@ -2093,6 +2098,7 @@ static void each_nested_ref_store(const std::string& dest, lir_view::ExprRef val
 }
 
 #include "borrow_flow_summary.inc"
+#include "borrow_bir.inc"
 
 // ── BorrowChecker ───────────────────────────────────────────────────────────
 
@@ -16793,6 +16799,33 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         }
     }
 
+    // ADR 0028 S5 (#424): under LOGOS_DL_SHADOW=bc the Polonius rules check
+    // every post-mono function beside this checker; the verdicts are compared
+    // and logged, and the compile acts on this checker's verdict.
+    BcShadowCensus census;
+    auto shadow_compare = [&](lir_view::FunctionView fn, size_t diags_before) {
+        std::vector<std::string> old_errs;
+        for (size_t i = diags_before; i < prog.diags.diags.size(); ++i)
+            if (prog.diags.diags[i].level == Diag::Level::Error)
+                old_errs.push_back(std::format("line {}: {}", prog.diags.diags[i].line,
+                                               prog.diags.diags[i].message));
+        BirVerdict v = bir_check(fn, prog, ts, fn_index, &flows);
+        if (!v.unsupported.empty()) {
+            ++census.skipped[v.unsupported.front()];
+            return;
+        }
+        ++census.compared;
+        bool o = !old_errs.empty(), n = !v.errors.empty();
+        if (o == n) { ++census.agree; return; }
+        (o ? census.old_only : census.new_only)++;
+        std::string text = std::format("bc\t{}\t{}\told={}\tnew={}\n",
+                                       o ? "old_only" : "new_only", fn.name(), o ? 1 : 0, n ? 1 : 0);
+        text += "  input: " + shadow_input_name() + "\n";
+        for (auto& e : old_errs) text += "  old: " + e + "\n";
+        for (auto& e : v.errors) text += "  new: " + e + "\n";
+        shadow_log(text);
+    };
+
     auto check = [&](lir_view::FunctionView fn) {
         if (fn.is_extern())           return;
         // Skip functions loaded from a precompiled binary module (.writ0 in a
@@ -16817,6 +16850,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         // risk that the audit's #1 cross-category finding called out
         // (region_infer scaffolding-only). Generic templates skip
         // region inference (imprecise on TypeVars).
+        const size_t diags_before = prog.diags.diags.size();
         RegionInferer ri;
         if (!generic_templates_only)
             ri.analyze(fn, prog);
@@ -16853,10 +16887,21 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
             d.line = second->origin_line;
             prog.diags.diags.push_back(std::move(d));
         }
+        if (dl_shadow_bc()) shadow_compare(fn, diags_before);
     };
 
     for (auto& fn : prog.functions)       check(fn);
     for (auto& fn : prog.specializations) check(fn);
+    if (dl_shadow_bc() && !generic_templates_only) {
+        std::string line = std::format("bc-census\t{}\tcompared={}\tagree={}\told_only={}\tnew_only={}",
+                                       shadow_input_name(), census.compared, census.agree,
+                                       census.old_only, census.new_only);
+        size_t skipped = 0;
+        for (auto& [why, n] : census.skipped) skipped += n;
+        line += std::format("\tskipped={}\n", skipped);
+        for (auto& [why, n] : census.skipped) line += std::format("bc-skip\t{}\t{}\n", why, n);
+        shadow_log(line);
+    }
     for (auto& sd : prog.structs)
         sd.each_method([&](lir_view::FunctionView m) { check(m); });
 

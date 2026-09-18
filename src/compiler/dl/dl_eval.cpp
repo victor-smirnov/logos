@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <format>
 #include <functional>
 
@@ -96,19 +98,16 @@ std::optional<uint32_t> Relation::insert(std::span<const Value> r) {
 
 // ── Database ────────────────────────────────────────────────────────────
 
-Database::Database(const Program& prog, Symbols& syms, bool provenance)
-    : prog_(prog), syms_(syms), provenance_(provenance) {
-    for (auto& d : prog_.relations())
-        rels_.push_back(std::make_unique<Relation>(static_cast<uint32_t>(d.types.size())));
-    prov_rule_.resize(rels_.size());
-    prov_off_.resize(rels_.size());
-    for (auto& f : prog_.facts()) insert(f.rel, f.row);
+// Adding rows after run() can retract a conclusion drawn from a negation, which
+// an append-only evaluator cannot do. Refused in every build type, not asserted.
+static void require_monotone(const Program& p, const char* what) {
+    if (!p.has_negation()) return;
+    std::fprintf(stderr, "logos::dl: %s after run() on a program with negation\n", what);
+    std::abort();
 }
 
-Database::~Database() = default;
-
 bool Database::insert(uint32_t rel, std::span<const Value> row) {
-    assert(!ran_ && "insert after run()");
+    if (ran_) require_monotone(prog_, "insert()");
     auto id = rels_[rel]->insert(row);
     if (!id) return false;
     if (provenance_) {
@@ -269,9 +268,17 @@ struct Database::Impl {
         return added;
     }
 
-    void run() {
+    // Built once per Database: plans, stratum of each relation, rules per
+    // stratum, and per stratum the relation sizes it has already consumed.
+    std::vector<CompiledRule>                   compiled;
+    std::vector<int32_t>                        stratum_of;
+    std::vector<std::vector<const CompiledRule*>> rules_of;
+    std::vector<std::vector<size_t>>            consumed;   // [stratum][rel]
+    std::vector<bool>                           evaluated;  // [stratum]
+
+    void setup() {
         const auto& rules = db.prog_.rules();
-        std::vector<CompiledRule> compiled(rules.size());
+        compiled.resize(rules.size());
         n_pos.resize(rules.size());
         for (uint32_t i = 0; i < rules.size(); ++i) {
             compiled[i].id = i;
@@ -281,20 +288,45 @@ struct Database::Impl {
             assert(ok && "the parser accepted a rule the planner rejects");
             (void)ok;
         }
-        std::vector<int32_t> stratum_of(db.rels_.size(), -1);
-        for (size_t s = 0; s < db.prog_.strata().size(); ++s)
+        const size_t ns = db.prog_.strata().size();
+        stratum_of.assign(db.rels_.size(), -1);
+        for (size_t s = 0; s < ns; ++s)
             for (uint32_t r : db.prog_.strata()[s]) stratum_of[r] = static_cast<int32_t>(s);
+        rules_of.assign(ns, {});
+        for (auto& c : compiled) rules_of[stratum_of[rules[c.id].head.rel]].push_back(&c);
+        consumed.assign(ns, std::vector<size_t>(db.rels_.size(), 0));
+        evaluated.assign(ns, false);
+    }
 
+    // The first call evaluates every stratum from scratch. A later call (only
+    // for a program without negation, where adding rows never retracts one)
+    // continues semi-naively from the rows each stratum has not consumed yet.
+    void run() {
+        const auto& rules = db.prog_.rules();
         for (size_t s = 0; s < db.prog_.strata().size(); ++s) {
-            const auto& scc = db.prog_.strata()[s];
-            std::vector<const CompiledRule*> mine;
-            for (auto& c : compiled)
-                if (stratum_of[rules[c.id].head.rel] == static_cast<int32_t>(s)) mine.push_back(&c);
+            const auto& scc  = db.prog_.strata()[s];
+            const auto& mine = rules_of[s];
             if (mine.empty()) continue;
+            const int32_t si = static_cast<int32_t>(s);
+            auto& seen = consumed[s];
 
             std::vector<size_t> before(db.rels_.size());
             for (uint32_t r : scc) before[r] = db.rels_[r]->size();
-            for (auto* c : mine) eval(*c, -1, 0, 0);
+            if (!evaluated[s]) {
+                for (auto* c : mine) eval(*c, -1, 0, 0);
+                evaluated[s] = true;
+            } else {
+                // Every new derivation uses at least one row this stratum has
+                // not consumed; take each such atom in turn as the delta.
+                std::vector<size_t> now(db.rels_.size());
+                for (size_t r = 0; r < now.size(); ++r) now[r] = db.rels_[r]->size();
+                for (auto* c : mine)
+                    for (uint32_t li : c->plan.pos_lits) {
+                        uint32_t br = rules[c->id].body[li].atom.rel;
+                        if (seen[br] < now[br])
+                            eval(*c, static_cast<int32_t>(li), seen[br], now[br]);
+                    }
+            }
             flush();
             ++db.stats_.rounds;
 
@@ -302,38 +334,45 @@ struct Database::Impl {
             std::vector<std::pair<size_t, size_t>> delta(db.rels_.size(), {0, 0});
             for (uint32_t r : scc) delta[r] = {before[r], db.rels_[r]->size()};
 
-            auto recursive = [&](const CompiledRule& c) {
-                for (uint32_t li : c.plan.pos_lits)
-                    if (stratum_of[rules[c.id].body[li].atom.rel] == static_cast<int32_t>(s))
-                        return true;
-                return false;
-            };
             for (;;) {
                 bool any = false;
                 for (uint32_t r : scc) any = any || delta[r].first < delta[r].second;
                 if (!any) break;
                 for (uint32_t r : scc) before[r] = db.rels_[r]->size();
-                for (auto* c : mine) {
-                    if (!recursive(*c)) continue;
+                for (auto* c : mine)
                     for (uint32_t li : c->plan.pos_lits) {
                         uint32_t br = rules[c->id].body[li].atom.rel;
-                        if (stratum_of[br] != static_cast<int32_t>(s)) continue;
+                        if (stratum_of[br] != si) continue;
                         if (delta[br].first == delta[br].second) continue;
                         eval(*c, static_cast<int32_t>(li), delta[br].first, delta[br].second);
                     }
-                }
                 flush();
                 ++db.stats_.rounds;
                 for (uint32_t r : scc) delta[r] = {before[r], db.rels_[r]->size()};
             }
+            for (size_t r = 0; r < seen.size(); ++r) seen[r] = db.rels_[r]->size();
         }
     }
 };
 
+Database::Database(const Program& prog, Symbols& syms, bool provenance)
+    : prog_(prog), syms_(syms), provenance_(provenance) {
+    for (auto& d : prog_.relations())
+        rels_.push_back(std::make_unique<Relation>(static_cast<uint32_t>(d.types.size())));
+    prov_rule_.resize(rels_.size());
+    prov_off_.resize(rels_.size());
+    for (auto& f : prog_.facts()) insert(f.rel, f.row);
+}
+
+Database::~Database() = default;
+
 void Database::run() {
-    assert(!ran_ && "run() twice");
-    Impl impl(*this);
-    impl.run();
+    if (ran_) require_monotone(prog_, "run()");
+    if (!impl_) {
+        impl_ = std::make_unique<Impl>(*this);
+        impl_->setup();
+    }
+    impl_->run();
     ran_ = true;
 }
 

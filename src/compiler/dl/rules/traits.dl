@@ -1,0 +1,47 @@
+// Trait resolution for mono (ADR 0028 S2, #421).
+//
+// Same semantics as trait_engine.cpp, as rules: a type satisfies a trait by a
+// direct impl, by a blanket impl whose bounds all hold for the same type, or
+// by a predicate the compiler answers in C++ (closure, slice, auto traits).
+// Types are flat canonical strings, pre-substituted by the caller.
+//
+// The program has no negation, so the database is driven incrementally:
+// queries arrive one at a time, and predicate answers are added for exactly
+// the (trait, type) pairs the rules demand (pred_need).
+
+// ── inputs ──────────────────────────────────────────────────────────────
+.decl impl_direct(t: symbol, x: symbol)
+// Blanket impl I implements trait T for every type that satisfies its bounds.
+.decl blanket(i: number, t: symbol)
+// Bound number K of blanket I is trait B; KN is K + 1 (no arithmetic here).
+.decl blanket_bound(i: number, k: number, b: symbol, kn: number)
+.decl blanket_nbounds(i: number, n: number)
+// Traits some of whose answers come from a C++ predicate.
+.decl pred_backed(t: symbol)
+// Predicate answers, computed by the caller for pairs in pred_need.
+.decl pred_ok(t: symbol, x: symbol)
+// The questions asked.
+.decl query(t: symbol, x: symbol)
+.input impl_direct, blanket, blanket_bound, blanket_nbounds
+.input pred_backed, pred_ok, query
+
+// ── demand ──────────────────────────────────────────────────────────────
+.decl need(t: symbol, x: symbol)
+need(T, X) :- query(T, X).
+need(B, X) :- need(T, X), blanket(I, T), blanket_bound(I, _, B, _).
+
+.decl pred_need(t: symbol, x: symbol)
+.output pred_need
+pred_need(T, X) :- need(T, X), pred_backed(T).
+
+// ── resolution ──────────────────────────────────────────────────────────
+// ok_upto(I, X, K): the first K bounds of blanket I hold for X.
+.decl ok_upto(i: number, x: symbol, k: number)
+ok_upto(I, X, 0) :- blanket(I, T), need(T, X).
+ok_upto(I, X, KN) :- ok_upto(I, X, K), blanket_bound(I, K, B, KN), impls(B, X).
+
+.decl impls(t: symbol, x: symbol)
+.output impls
+impls(T, X) :- impl_direct(T, X).
+impls(T, X) :- blanket(I, T), ok_upto(I, X, N), blanket_nbounds(I, N).
+impls(T, X) :- pred_ok(T, X).

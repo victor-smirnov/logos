@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The Souffle oracle for the logosc Datalog engine (ADR 0028 S1, #420).
 #
-#   oracle.sh LOGOS_DL CASES_DIR RULES_DIR
+#   oracle.sh LOGOS_DL CASES_DIR RULES_DIRS
 #
+# RULES_DIRS is a colon-separated list of include directories.
 # Every CASES_DIR/<case>/ holds prog.dl and its .facts files. Souffle and
 # logos-dl both run on them; they must write the same set of .csv files and
 # every relation must be equal as a set. A case with an expect/ directory is
@@ -16,6 +17,9 @@ set -u
 DL=$1
 CASES=$2
 RULES=$3
+inc=()
+IFS=: read -ra rule_dirs <<<"$RULES"
+for d in "${rule_dirs[@]}"; do inc+=(-I "$d"); done
 
 if ! command -v souffle >/dev/null 2>&1; then
     echo "SKIPPED: souffle not found on PATH; the oracle did not run"
@@ -35,10 +39,10 @@ for dir in "$CASES"/*/; do
     l="$tmp/$name/logos-dl"
     mkdir -p "$s" "$l"
 
-    if ! souffle -F "$dir" -D "$s" -I "$RULES" "$dir/prog.dl" >"$tmp/$name/s.log" 2>&1; then
+    if ! souffle -F "$dir" -D "$s" "${inc[@]}" "$dir/prog.dl" >"$tmp/$name/s.log" 2>&1; then
         echo "FAIL $name: souffle failed"; sed 's/^/  /' "$tmp/$name/s.log"; fail=1; continue
     fi
-    if ! "$DL" "$dir/prog.dl" -F "$dir" -D "$l" -I "$RULES" >"$tmp/$name/l.log" 2>&1; then
+    if ! "$DL" "$dir/prog.dl" -F "$dir" -D "$l" "${inc[@]}" >"$tmp/$name/l.log" 2>&1; then
         echo "FAIL $name: logos-dl failed"; sed 's/^/  /' "$tmp/$name/l.log"; fail=1; continue
     fi
 
@@ -82,5 +86,9 @@ if [ "$n" = 0 ]; then
     echo "FAIL: no cases under $CASES"
     exit 1
 fi
-echo "oracle: $n case(s), $([ $fail = 0 ] && echo 'all agree' || echo 'FAILURES')"
-exit $fail
+if [ "$fail" = 0 ]; then
+    echo "oracle: $n case(s), all agree"
+    exit 0
+fi
+echo "oracle: $n case(s), FAILURES"
+exit 1

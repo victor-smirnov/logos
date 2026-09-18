@@ -1,0 +1,9 @@
+Display	i32
+Clone	i32
+Clone	String
+Debug	String
+Hash	i32
+ToString	i32
+Any	Foo
+C	i32
+Fn	|i32| -> i32

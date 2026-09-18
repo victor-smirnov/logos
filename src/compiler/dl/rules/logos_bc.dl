@@ -1,0 +1,26 @@
+// The borrow checker's rule set (ADR 0028 S5, #424): Polonius plus the
+// initialisation-based mutability rule rustc applies in the same pass.
+
+#include "polonius.dl"
+
+.decl var_mut(v: Variable)
+.input var_mut
+
+// E0384: an immutable binding assigned while it may already hold a value.
+// The first assignment of a deferred `let x; x = ...;` is not an error: on
+// that path the binding is not yet initialised.
+.decl assign_twice(x: Path, p: Point)
+.output assign_twice
+assign_twice(X, P) :-
+    path_assigned_at_base(X, P), path_is_var(X, V), !var_mut(V),
+    path_maybe_initialized_on_exit(X, Q), cfg_edge(Q, P).
+
+// E0596 / E0594: a `&mut` of, or a write into, a place rooted at an immutable
+// binding without passing through a reference. Not a flow property, so the
+// extractor computes it; it is carried here so every verdict comes from one
+// run and one explanation mechanism.
+.decl immutable_write(v: Variable, p: Point)
+.input immutable_write
+.decl mut_errors(v: Variable, p: Point)
+.output mut_errors
+mut_errors(V, P) :- immutable_write(V, P).

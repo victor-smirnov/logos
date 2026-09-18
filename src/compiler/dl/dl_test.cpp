@@ -147,7 +147,37 @@ static void test_include_and_types() {
     CHECK(has(e, "bad.dl:3:"));
 }
 
+// Driving a negation-free program incrementally must reach the same fixpoint
+// as one run over all the rows.
+static void test_incremental() {
+    const char* src = R"(
+.decl edge(a: number, b: number)
+.input edge
+.decl path(a: number, b: number)
+path(X, Y) :- edge(X, Y).
+path(X, Z) :- path(X, Y), edge(Y, Z).
+)";
+    const Value edges[][2] = {{1, 2}, {2, 3}, {5, 6}, {3, 4}, {4, 1}, {6, 7}, {7, 5}, {4, 5}};
+    Symbols s1, s2;
+    auto p1 = Program::parse(src, "inc.dl", s1);
+    auto p2 = Program::parse(src, "inc.dl", s2);
+    CHECK(p1 && p2 && !p1->has_negation());
+    if (!p1 || !p2) return;
+    uint32_t edge = *p1->relation("edge"), path = *p1->relation("path");
+    Database once(*p1, s1), inc(*p2, s2);
+    for (auto& e : edges) once.insert(edge, e);
+    once.run();
+    for (auto& e : edges) { inc.insert(edge, e); inc.run(); }
+    CHECK(once.relation(path).size() == inc.relation(path).size());
+    for (size_t i = 0; i < once.relation(path).size(); ++i)
+        CHECK(inc.relation(path).contains(once.relation(path).row(i)));
+    // 7 nodes, all mutually reachable after edge (4,5) joins the two cycles
+    // one way: 4 nodes {1..4} reach all 7, 3 nodes {5,6,7} reach only {5,6,7}.
+    CHECK(once.relation(path).size() == 4 * 7 + 3 * 3);
+}
+
 int main() {
+    test_incremental();
     test_closure_and_provenance();
     test_negation_and_comparisons();
     test_errors();

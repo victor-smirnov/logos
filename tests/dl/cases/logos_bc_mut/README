@@ -1,0 +1,4 @@
+The Logos additions to Polonius (logos_bc.dl). a is immutable and assigned at
+p1 and p2: E0384 at p2. b is immutable with deferred initialisation, assigned
+once at p2: fine. c is mutable and assigned twice: fine. d carries an
+immutable_write fact from the extractor, which surfaces as a mut_error.

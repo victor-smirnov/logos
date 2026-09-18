@@ -1,0 +1,5 @@
+Display	i32
+Clone	i32
+Clone	String
+Debug	String
+Hash	i32

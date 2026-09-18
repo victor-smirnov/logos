@@ -110,6 +110,7 @@ add_executable(logosc
     sema_stmt.cpp
     sema_decl.cpp
     trait_engine.cpp
+    trait_rules.cpp
     ctfe.cpp
     rule_ir.cpp
     ${LOGOS_PARSER_CPP}
@@ -144,6 +145,21 @@ add_library(logos_dl STATIC
 )
 target_include_directories(logos_dl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/dl)
 
+# Rule files ship inside logosc: DlEmbed.cmake turns dl/rules/*.dl into a
+# source defining logos::dl::embedded_rule_file(name). Editing a rule file
+# regenerates it.
+file(GLOB LOGOS_DL_RULE_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dl/rules/*.dl)
+string(REPLACE ";" "|" LOGOS_DL_RULE_FILES_ARG "${LOGOS_DL_RULE_FILES}")
+set(DL_RULES_CPP ${CMAKE_CURRENT_BINARY_DIR}/dl_rules_embedded.cpp)
+add_custom_command(
+    OUTPUT  ${DL_RULES_CPP}
+    COMMAND ${CMAKE_COMMAND} -DOUT=${DL_RULES_CPP} -DFILES=${LOGOS_DL_RULE_FILES_ARG}
+            -P ${CMAKE_SOURCE_DIR}/cmake/DlEmbed.cmake
+    DEPENDS ${LOGOS_DL_RULE_FILES} ${CMAKE_SOURCE_DIR}/cmake/DlEmbed.cmake
+    COMMENT "Embedding Datalog rule files"
+    VERBATIM)
+add_library(logos_dl_rules STATIC ${DL_RULES_CPP})
+
 add_executable(logos-dl dl/dl_cli.cpp)
 target_link_libraries(logos-dl PRIVATE logos_dl)
 
@@ -159,7 +175,7 @@ add_test(NAME dl_souffle_oracle
          COMMAND bash ${CMAKE_SOURCE_DIR}/tests/dl/oracle.sh
                  $<TARGET_FILE:logos-dl>
                  ${CMAKE_SOURCE_DIR}/tests/dl/cases
-                 ${CMAKE_SOURCE_DIR}/tests/dl/rules)
+                 ${CMAKE_CURRENT_SOURCE_DIR}/dl/rules)
 set_tests_properties(dl_souffle_oracle PROPERTIES
     LABELS "dl;cpp;tier_commit"
     SKIP_RETURN_CODE 77)
@@ -219,6 +235,8 @@ else()
 endif()
 
 target_link_libraries(logosc PRIVATE
+    logos_dl
+    logos_dl_rules
     logos_writ
     logos_jit
     ${LOGOS_MLIR_LLVM_LIBS}

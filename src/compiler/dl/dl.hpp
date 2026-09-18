@@ -118,6 +118,9 @@ public:
     const std::vector<Fact>& facts() const { return facts_; }
     // Relation ids grouped into SCCs, dependencies first.
     const std::vector<std::vector<uint32_t>>& strata() const { return strata_; }
+    // A program without negation is monotone: adding input rows after run()
+    // and running again is sound, so a Database may be driven incrementally.
+    bool has_negation() const { return has_negation_; }
 
 private:
     friend class Parser;
@@ -126,6 +129,7 @@ private:
     std::vector<Rule>                         rules_;
     std::vector<Fact>                         facts_;
     std::vector<std::vector<uint32_t>>        strata_;
+    bool                                      has_negation_ = false;
 };
 
 // An append-only set of fixed-arity rows. Row ids are dense and stable.
@@ -177,7 +181,10 @@ public:
 
     // Adds an input row (the relation need not be declared .input; Souffle
     // semantics only restrict where facts come from, not what may hold them).
+    // After run(), only a program without negation accepts more rows.
     bool insert(uint32_t rel, std::span<const Value> row);
+    // Evaluates to fixpoint. May be called again after more insert()s when
+    // the program has no negation; it then continues from the new rows.
     void run();
 
     const Relation& relation(uint32_t rel) const { return *rels_[rel]; }
@@ -215,6 +222,7 @@ private:
     std::vector<std::pair<uint32_t, uint32_t>> prov_pool_;   // (rel, row)
     Stats                                  stats_;
     bool                                   ran_ = false;
+    std::unique_ptr<Impl>                  impl_;
     friend struct Impl;
 };
 

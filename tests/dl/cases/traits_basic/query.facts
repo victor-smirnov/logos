@@ -1,0 +1,10 @@
+ToString	i32
+ToString	String
+Show	i32
+Show	String
+Any	Foo
+A	i32
+C	i32
+C	String
+Fn	|i32| -> i32
+Fn	i32

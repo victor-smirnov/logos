@@ -592,6 +592,7 @@ private:
                 if (!term(rl.lhs, ty, c.line, l.lhs)) return false;
                 if (!term(rl.rhs, ty, c.line, l.rhs)) return false;
             }
+            if (l.kind == Literal::Kind::Neg) p.has_negation_ = true;
             r.body.push_back(std::move(l));
         }
         if (!atom(c.head, r.head, true)) return false;

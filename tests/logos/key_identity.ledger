@@ -212,6 +212,11 @@
 #SCAN mlir_gen_debug.cpp 2 c5f7c386
 #SCAN mlir_gen_dyn.cpp 1 fad58de7
 #SCAN mlir_gen_expr.cpp 3 86ae8aa2
+# 2026-09-18, ADR 0028 S4 (#423): borrow_bir.inc enters the roster at 1 and
+# the literal is `_` (b14a7b80, the same roster as mlir_gen_stmt.cpp's), the
+# wildcard token: BirBuilder::bind_to does not create a binding for a pattern
+# name that is `_` or empty. A sentinel, not an entity name.
+#SCAN borrow_bir.inc 1 b14a7b80
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
 # 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
 # (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is
@@ -430,7 +435,13 @@ sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()
 #ARGSCAN add_blanket 3 fea4701d
 #ARGSCAN add_impl 5 81db077d
 #ARGSCAN add_negative 1 94966d90
-#ARGSCAN add_shape_auto_impl 6 a5242d3e
+# 2026-09-18, ADR 0028 S2 (#421): add_shape_auto_impl 6 -> 3, roster a5242d3e ->
+# 956cbf5c. The three `"Fn"` / `"FnMut"` / `"FnOnce"` calls in
+# Mono::populate_trait_engine_ became one call in a loop over those literals so
+# the same three registrations reach TraitRules too. Same traits, same names,
+# no new site: the literals moved into the loop's array, where this ARGSCAN
+# does not look. The three that remain are trait_engine_test.cpp.
+#ARGSCAN add_shape_auto_impl 3 956cbf5c
 #ARGSCAN at 3 7a506430
 #ARGSCAN count 9 507529e7
 #ARGSCAN enum_lit 3 d49e815d

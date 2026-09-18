@@ -1,7 +1,8 @@
 // Naive Polonius: loan analysis and initialisation analysis, in the Souffle
-// subset of ADR 0028. Relation names follow polonius-engine's facts so an
-// extractor (ADR 0028 S4) targets a known schema. This copy is the S1 oracle
-// fixture; S5 promotes it to src/compiler/dl/rules/.
+// subset of ADR 0028. Relation names follow polonius-engine's facts so the
+// extractor (borrow_bir.inc, ADR 0028 S4) targets a known schema. The same
+// file is the Souffle oracle's fixture (tests/dl/cases/polonius_*) and the
+// borrow checker's rules.
 
 .type Origin   <: symbol
 .type Loan     <: symbol
