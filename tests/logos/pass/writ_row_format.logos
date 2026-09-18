@@ -17,7 +17,9 @@
 //     an unmasked popcount would answer 5 present columns where there are 2);
 //   • the in-band tag is W_ROW = 97 and lives BEFORE the object, so byte 0 of the
 //     object is the bitmap, not the tag.
-// Case 6 pins the S5 SEAM: a row cannot be serialized today and refuses LOUDLY.
+// Case 6 pins the ASSEMBLY PATH (ADR 0027 S3): a row survives serialize →
+// materialize into a DIFFERENT arena, Ref column included. It used to pin the
+// refusal instead; the W_ROW arm in compactify_obj re-priced it.
 package writ_row_format;
 use logos.lang.writ.row;
 use logos.lang.writ.container;
@@ -185,18 +187,52 @@ unsafe fn main() -> i32 {
     if r5.get(47i64).as_i64() != 470i64 { return 81; }
     if r5.get(48i64).as_i64() != 480i64 { return 82; }
 
-    // ── 6. THE S5 SEAM: a row cannot be frozen yet, and it REFUSES LOUDLY ────
-    // `compactify` has no W_ROW arm, so the tagless-run serializer refuses with
-    // CLONE_REFUSED_UNKNOWN_TAG naming code 97 rather than copying a row shallowly
-    // or planting a source-arena pointer. Pinning the refusal marks the seam:
-    // when this stops being an error, the slice has become S5.
-    match wod_serialize(WAny::from(r1)) {
-        Result::Ok(_)  => { return 83; }
-        Result::Err(e) => {
-            if !e.is_unknown_tag() { return 84; }
-            if e.tag != 97u64 { return 85; }
-        }
-    }
+    // ── 6. THE ASSEMBLY PATH (ADR 0027 S3): a row survives a FULL ROUND TRIP ──
+    // This case used to pin the refusal — `compactify` had no W_ROW arm, so the
+    // tagless-run serializer answered CLONE_REFUSED_UNKNOWN_TAG naming code 97.
+    // The arm landed, so the pin is RE-PRICED here rather than deleted: what was
+    // an asserted error is now an asserted round trip.
+    //
+    // THE REF COLUMN IS THE WITNESS. A Ref at rest is a self-relative delta from
+    // its own slot (`wc_at`: slot+w, `store_at_rest`: w-slot), so a walker that
+    // copied the object's bytes without re-anchoring would leave the Pod columns
+    // (0, 50, 130) reading back PERFECTLY while column 3 resolved into unrelated
+    // memory. Checking only the primitives would therefore prove nothing.
+    let d6: WritObjectData = match wod_serialize(WAny::from(r1)) {
+        Result::Ok(d)  => d,
+        Result::Err(_) => { return 83; }
+    };
+    if d6.tag() != 97u64 { return 84; }
+
+    // Materialize into a DIFFERENT arena: every Ref must be re-anchored there.
+    let w6: Rc<Writ> = writ_rc(4096);
+    let m6: WAny = match d6.materialize(w6.deref()) {
+        Result::Ok(m)  => m,
+        Result::Err(_) => { return 85; }
+    };
+    if !m6.is_row() { return 86; }
+    let r6: &WRow = m6.as_row();
+
+    // The shape survives.
+    if r6.span()  != 131i64 { return 87; }
+    if r6.atoms() != 3i64   { return 88; }
+    if r6.count() != 4i64   { return 89; }
+
+    // Presence survives — including a column that is absent by bounds.
+    if !r6.contains(0i64)   { return 90; }
+    if !r6.contains(3i64)   { return 91; }
+    if !r6.contains(50i64)  { return 92; }
+    if !r6.contains(130i64) { return 93; }
+    if r6.contains(1i64)    { return 94; }
+
+    // The values survive, the Ref column first.
+    if !str_eq(r6.get(3i64).as_wstr(), "beta") { return 95; }
+    if r6.get(0i64).as_i64()   != 7i64          { return 96; }
+    if r6.get(50i64).as_f64()  != 2.5f64        { return 97; }
+    if r6.get(130i64).as_i64() != 0i64 - 9i64   { return 98; }
+
+    // The copy is independent: it lives in w6, not in the source arena.
+    if (r6 as *const WRow as i64) == (r1 as *const WRow as i64) { return 99; }
 
     return 0;
 }

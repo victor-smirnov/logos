@@ -45,11 +45,17 @@
 // So a row is decodable WITHOUT its metadata; metadata carries names, order,
 // declared types and liveness — not decodability.
 //
-// NOT YET SERIALIZABLE — the S5 seam. `compactify` has no W_ROW arm, so
-// `try_compactify` / `wod_serialize` REFUSE a row with CLONE_REFUSED_UNKNOWN_TAG
-// (tag 97), which is the loud direction. A row is a Writ structure in a live
-// arena today; freezing one into a container is ADR 0027 S5 and needs the
-// mutation protocol (D11) that S1 deliberately does not touch.
+// SERIALIZABLE SINCE THE S3 ASSEMBLY ARM. `compactify_obj` carries a W_ROW arm,
+// so `try_compactify` / `wod_serialize` deep-copy a row: the M presence atoms are
+// plain bits and travel verbatim, and every value slot is RE-ANCHORED to its new
+// address. That re-anchoring is the whole of it — a Ref at rest is a self-relative
+// delta from its own slot, so a raw byte copy would leave the Pod columns reading
+// back perfectly while every Ref column resolved into unrelated memory.
+// Pinned by case 6 of tests/logos/pass/writ_row_format, which round-trips a
+// Ref-bearing row through a DIFFERENT arena.
+//
+// What remains S5 is freezing a row into a CONTAINER, which needs the mutation
+// protocol (D11) that S1 and S3 deliberately do not touch.
 //
 // BUILD IS TWO-PHASE, because the values are INLINE and COMPACTED: the object's
 // size is a function of the bitmap, so the bitmap must be complete before the

@@ -51,6 +51,7 @@ use logos.lang.writ.anyval;      // WAny, w_type_code, W_* codes
 use logos.lang.writ.array;       // WArray<WAny>
 use logos.lang.writ.wmap;        // WMap<WString, WAny>
 use logos.lang.writ.wstring;     // WString
+use logos.lang.writ.row;         // WRow — atoms()/count() for the W_ROW arm
 use logos.lang.result;           // Result
 use logos.lang.str;                 // str
 use logos.lang.ptr;
@@ -315,6 +316,42 @@ pub unsafe fn compactify_obj(dst: &Writ, p: *const u8, tc: u64, depth: i64) -> R
                 Result::Err(e) => { return Result::Err(e); }
             }
             f = f + 1i64;
+        }
+        return Result::Ok(WAny::ref_to(obj as *const u8));
+    }
+
+    // WRow (97, ADR 0027 D3): M presence atoms followed by `count()` at-rest WAny
+    // slots, compacted in column-ID order. The atoms are PLAIN BITS and are copied
+    // verbatim; every value slot is deep-copied and RE-ANCHORED to its new address.
+    //
+    // Re-anchoring is the whole point. A Ref at rest is a self-relative delta from
+    // its own slot (`wc_at`: slot_addr + w; `store_at_rest`: w - slot_addr), so a raw
+    // byte copy of the object would move each slot without fixing its delta and every
+    // Ref column would resolve into unrelated memory — while the Pod columns read back
+    // perfectly, which is exactly what makes that failure quiet.
+    //
+    // The row object is allocated FIRST, before any recursion allocates, because
+    // `wod_serialize` asserts the root is the arena's first allocation.
+    if tc == W_ROW {
+        let r: &WRow = &*(p as *const WRow);
+        let natoms: i64 = r.atoms();
+        let nvals: i64 = r.count();
+        let obj: *mut u8 = alloc_tagged(ap, 8i64 * (natoms + nvals), tc);
+        if obj.is_null() { return refuse_oom(); }
+        let mut k: i64 = 0i64;
+        while k < natoms {
+            *(((obj as i64) + k * 8i64) as *mut u64) = *(((p as i64) + k * 8i64) as *const u64);
+            k = k + 1i64;
+        }
+        let sv: i64 = (p as i64) + natoms * 8i64;
+        let dv: i64 = (obj as i64) + natoms * 8i64;
+        let mut i: i64 = 0i64;
+        while i < nvals {
+            match compactify_d(dst, wc_at(sv + i * 8i64), depth + 1i64) {
+                Result::Ok(c)  => { store_at_rest(dv + i * 8i64, c); }
+                Result::Err(e) => { return Result::Err(e); }
+            }
+            i = i + 1i64;
         }
         return Result::Ok(WAny::ref_to(obj as *const u8));
     }
