@@ -875,6 +875,16 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra "")
     endif()
 
+    # `_O2` SUFFIX: the optimisation level IS the test (#343). A static-typed
+    # aggregate global was declared `ptr` (8 bytes) while its initializer
+    # memcpy'd the real size into it; at -O0 the bytes past the global survived
+    # and the program passed WITH the defect present, so an -O0-only fixture
+    # pins nothing. Matched by SUFFIX for the reason the memoria prefix rule
+    # gives: a test joins by being named, not by being added to a list.
+    if (BASE MATCHES "_O2$")
+        list(APPEND _extra -O2)
+    endif()
+
     # `--test` harness tests: file name prefix `test_harness_` triggers
     # logosc's --test mode, which synthesises a main() that runs every
     # #[test] fn under panic-recovery.

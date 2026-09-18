@@ -1,0 +1,67 @@
+// A STATIC IS STORAGE, AND ITS DECLARED TYPE HAS TO SAY SO (#343).
+//
+// `emit_static_globals` used to take the global's type from `logos_to_mlir`,
+// which answers `ptr` for Struct / ZonedStruct / Tuple / tagged Enum — the
+// "passed by pointer" shorthand used at param/field/scope positions. A global
+// is STORAGE: declared `ptr` it reserves 8 bytes, while `__logos_static_init`
+// memcpy's `layout_of(type).size` into it. MEASURED in the emitted IR before
+// the fix: `@pscalar$TBL : !llvm.ptr` taking a 32-byte `llvm.intr.memcpy` — an
+// out-of-bounds write past an 8-byte object, at EVERY optimisation level.
+//
+// THE ARRAY ARM WAS ALWAYS CORRECT AND IS THE BUILT-IN CONTROL: `logos_to_mlir`
+// does build a real `!llvm.array<4 x i64>`, and an array static read back
+// correctly at -O0 and -O2 both before and after. Same memcpy, same code path,
+// correct declared type — which is what identifies the declared type as the
+// variable rather than the optimiser.
+//
+// ⚠ THIS FILE IS THE -O2 HALF, AND IT IS THE ONE THAT BITES. It is compiled
+// with `-O2` (dispatched by name in `logos_pass_extra_args`, the same way the
+// memoria corpus picks up its archives). Before the fix it exited 1 on the
+// struct, 2 on the struct-with-array-field and 1 on the tuple — the -O0 twin
+// passed throughout, which is exactly why one level alone pins nothing.
+//
+// ⚠ AND THE -O0 TWIN BITES AS WELL, on a DIFFERENT shape: control revert has
+// this file exit 1 (scalar-field struct) and `static_aggregate_storage_O0`
+// exit 2 (struct with an array field). Neither half subsumes the other. At -O0 the bytes past the 8-byte global happened
+// to survive, so this file PASSED even with the defect present: it pins that
+// the fix did not break the level that already worked. The half that bites is
+// the -O2 twin, `static_aggregate_storage_O2`, which is the same program
+// compiled with `-O2` (dispatched by name in logos_pass_extra_args) and which
+// exited 1 / 2 / 1 on the three aggregate shapes before this fix.
+package test;
+
+struct P { a: i64, b: i64, c: i64, d: i64 }
+struct Q { xs: [i64; 3], n: i64 }
+
+static SP: P            = P { a: 7i64, b: 8i64, c: 9i64, d: 10i64 };
+static SQ: Q            = Q { xs: [11i64, 12i64, 13i64], n: 3i64 };
+static ST: (i64, i64)   = (14i64, 15i64);
+static SA: [i64; 4]     = [16i64, 17i64, 18i64, 19i64];   // control: was always right
+static SN: i64          = 20i64;                          // control: scalar
+static SS: &str         = "abcde";                        // fat ref: 8 -> 16 bytes
+
+fn main() -> i32 {
+    // struct with scalar fields — exited 1 at -O2 before the fix
+    if SP.a != 7i64  { return 1i32; }
+    if SP.b != 8i64  { return 2i32; }
+    if SP.c != 9i64  { return 3i32; }
+    if SP.d != 10i64 { return 4i32; }
+
+    // struct with an ARRAY field — exited 2 at -O2 before the fix
+    if SQ.xs[0] != 11i64 { return 5i32; }
+    if SQ.xs[1] != 12i64 { return 6i32; }
+    if SQ.xs[2] != 13i64 { return 7i32; }
+    if SQ.n != 3i64      { return 8i32; }
+
+    // tuple — exited 1 at -O2 before the fix
+    if ST.0 != 14i64 { return 9i32; }
+    if ST.1 != 15i64 { return 10i32; }
+
+    // controls: these must not move
+    if SA[0] != 16i64 { return 11i32; }
+    if SA[3] != 19i64 { return 12i32; }
+    if SN != 20i64    { return 13i32; }
+    if SS.len() != 5i64 { return 14i32; }
+
+    return 0i32;
+}

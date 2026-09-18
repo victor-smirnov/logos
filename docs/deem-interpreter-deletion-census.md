@@ -6145,8 +6145,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ⚠ The gate was run TWICE: the first run measured 11079/6577 because `writ_row_view` was created in the
 #                same call that launched the rebuild, so the CONFIGURE_DEPENDS glob had not yet seen it and ctest did not
 #                register it. Pinning that first triple would have pinned a corpus MISSING one of this round's own tests.
-REGISTRY-ALL         11080
-REGISTRY-NOIMPORTED  6578
+#                ALL 11080 -> 11082 (+2), NOIMPORTED 6578 -> 6580 (+2), TIERCOMMIT 355 -> 355 (0) — 2026-09-18-static-storage lands
+#                TWO PASS FIXTURES ADDED: pass/static_aggregate_storage_O0 and pass/static_aggregate_storage_O2 — the
+#                -O0 and -O2 halves of #343 (a struct/tuple `static` was declared `ptr` and memcpy'd its real size into
+#                that 8-byte global). They are ONE program at two optimisation levels; the `_O2` suffix dispatches the
+#                flag in logos_pass_extra_args. TIERCOMMIT does not move — neither is tier_commit.
+#                RE-DERIVED FROM THE GATE'S OWN MEASUREMENT (it printed measured 11082/6580/355), never by adding 2.
+REGISTRY-ALL         11082
+REGISTRY-NOIMPORTED  6580
 REGISTRY-TIERCOMMIT  355
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

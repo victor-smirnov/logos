@@ -681,7 +681,35 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
         if (!c.is_static()) continue;
         std::string c_sym(c.sym());
         if (mod.lookupSymbol(c_sym)) continue;
-        auto llty = logos_to_mlir(c.type(pool_impl()));
+        // ⚠ STORAGE TYPE, NOT THE REGISTER-POSITION SHORTHAND. `logos_to_mlir`
+        // answers `ptr` for Struct/ZonedStruct/Tuple/tagged-Enum — the "passed
+        // by pointer" convention used at param/field/scope positions. A GLOBAL
+        // is STORAGE: declaring it `ptr` reserves 8 bytes, while Pass B below
+        // memcpy's `layout_of(type).size` into it. MEASURED 2026-09-18 in the
+        // emitted IR: `@pscalar$TBL : !llvm.ptr` receiving a 32-byte
+        // `llvm.intr.memcpy` — an out-of-bounds write past an 8-byte object.
+        // At -O0 the neighbouring bytes survive by luck; at -O2 the optimiser
+        // is entitled to assume nothing follows, and the reads come back wrong
+        // (struct exit 1, struct-with-array-field exit 2, tuple exit 1).
+        //
+        // THE ARRAY CASE IS THE BUILT-IN CONTROL: `logos_to_mlir` DOES build a
+        // real `!llvm.array<4 x i64>` for an array static, and `static TBL:
+        // [i64;4]` reads back correctly at BOTH -O0 and -O2. Same code, same
+        // memcpy, correct declared type — so the declared type is the variable.
+        //
+        // `llvm_fn_ret_type` is the existing answer to this exact class in the
+        // RETURN position (its comment: "the call gets typed `() -> ptr` while
+        // the callee writes the full aggregate — silent corruption"). The
+        // defect here is that the class was never applied to STATICS. Tuples
+        // are added on top because that helper does not cover them.
+        auto c_ty = c.type(pool_impl());
+        mlir::Type llty;
+        if (c_ty && TypeRef(c_ty).kind() == LogosType::Kind::Tuple) {
+            llty = tuple_llvm_type(c_ty);
+        } else {
+            llty = llvm_fn_ret_type(c_ty);
+        }
+        if (!llty) llty = logos_to_mlir(c_ty);
         if (!llty) llty = builder_.getI32Type();
         set_end();
         if (c.is_extern() || is_library) {
