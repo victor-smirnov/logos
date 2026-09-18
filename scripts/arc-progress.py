@@ -47,21 +47,56 @@ def declared_total(path: str) -> int | None:
 
 def soundness_rows(path: str = "tests/logos/soundness_queue.ledger") -> dict:
     """The OFF-ledger soundness queue, read the way its gate reads it — by direct
-    listing of `<id> <tier> <path> <observed...>` rows, never the `# TOTAL` line."""
+    listing of `<id> <tier> <path> <observed...>` rows, never the `# TOTAL` line.
+
+    `rows` carries the SAME lines the count is derived from — one parse, so a
+    projection built on it can never disagree with the number reported here."""
     by_tier: dict[str, int] = {}
+    rows: list[dict] = []
     total = 0
     try:
         with open(path) as fh:
-            for ln in fh:
+            for lineno, ln in enumerate(fh, 1):
                 body = ln.split("#", 1)[0].split()
                 if len(body) < 4:
                     continue
                 total += 1
                 by_tier[body[1]] = by_tier.get(body[1], 0) + 1
+                rows.append({
+                    "list": "squeue", "id": body[0], "tier": body[1],
+                    "program": body[2], "observed": " ".join(body[3:]),
+                    "raw": ln.rstrip(),  # see the note on `raw` in backlog_rows
+                    "file": path, "line": lineno, "prose": [],
+                })
     except FileNotFoundError:
         pass
     return {"total": total, "declared": declared_total(path),
-            "by_tier": {k: by_tier[k] for k in sorted(by_tier)}}
+            "by_tier": {k: by_tier[k] for k in sorted(by_tier)}, "rows": rows}
+
+
+def admit_rows(path: str, which: str) -> list[dict]:
+    """`bc_admits` / `bc_admits_blocked` shape: `<id> <class> <path>  # note`.
+    Counted elsewhere by `count_rows` (any non-comment line); this parser must
+    agree with it, so a line too short to split still yields a row."""
+    rows: list[dict] = []
+    try:
+        with open(path) as fh:
+            for lineno, ln in enumerate(fh, 1):
+                if not ln.strip() or ln.lstrip().startswith("#"):
+                    continue
+                head, _, note = ln.partition("#")
+                body = head.split()
+                rows.append({
+                    "list": which, "id": body[0] if body else ln.strip(),
+                    "class": body[1] if len(body) > 1 else None,
+                    "program": body[2] if len(body) > 2 else None,
+                    "observed": "admits", "note": note.strip(),
+                    "raw": ln.rstrip(),  # see the note on `raw` in backlog_rows
+                    "file": path, "line": lineno, "prose": [],
+                })
+    except FileNotFoundError:
+        pass
+    return rows
 
 
 def landings() -> list[dict]:
@@ -119,19 +154,37 @@ def backlog_rows(path: str = "tests/logos/unrowed_backlog.ledger") -> dict:
     a row and is never priced as one — it names the one measurement that would turn
     it into a row, or throw it away. Counted the same way: direct listing."""
     by_kind: dict[str, int] = {}
+    rows: list[dict] = []
     total = 0
     try:
         with open(path) as fh:
-            for ln in fh:
+            for lineno, ln in enumerate(fh, 1):
                 body = ln.split("#", 1)[0].split()
                 if len(body) < 4:
+                    # An INDENTED comment continues the entry above it — that block
+                    # is the entry's whole content. A column-0 comment (the header,
+                    # `# TOTAL`) belongs to the file, not to any entry, and ends it.
+                    if rows and ln.startswith((" ", "\t")) and ln.lstrip().startswith("#"):
+                        rows[-1]["prose"].append(ln.rstrip())
+                    elif ln.lstrip().startswith("#") or not ln.strip():
+                        pass
                     continue
                 total += 1
                 by_kind[body[1]] = by_kind.get(body[1], 0) + 1
+                rows.append({
+                    "list": "backlog", "id": body[0], "kind": body[1],
+                    "carriers": body[2], "evidence": " ".join(body[3:]),
+                    # `raw` is the line AS IT STANDS. A consumer that promises
+                    # "verbatim" must print this, never re-assemble the columns:
+                    # a rebuilt line silently drops whatever field the rebuilder
+                    # forgot, while still reading as a quotation.
+                    "raw": ln.rstrip(),
+                    "observed": None, "file": path, "line": lineno, "prose": [],
+                })
     except FileNotFoundError:
         pass
     return {"total": total, "declared": declared_total(path),
-            "by_kind": {k: by_kind[k] for k in sorted(by_kind)}}
+            "by_kind": {k: by_kind[k] for k in sorted(by_kind)}, "rows": rows}
 
 
 def main() -> int:
@@ -152,6 +205,31 @@ def main() -> int:
         "soundness": soundness_rows(),
         "backlog": backlog_rows(),
     }
+
+    if "--rows" in sys.argv:
+        # One row per countable item, for a PROJECTION (e.g. a GitHub issue mirror).
+        # The ledger files stay the source of truth: this only reads them.
+        rows = (data["soundness"]["rows"] + data["backlog"]["rows"]
+                + admit_rows("tests/logos/bc_admits.ledger", "bc-admits")
+                + admit_rows("tests/logos/bc_admits_blocked.ledger", "bc-admits-blocked"))
+        emitted = {k: 0 for k in ("squeue", "backlog", "bc-admits", "bc-admits-blocked")}
+        for r in rows:
+            emitted[r["list"]] += 1
+        # ⚠ A projection that disagrees with the count is worse than no projection:
+        # it drifts silently, and it drifts reassuringly. Refuse to be quoted.
+        expect = {"squeue": data["soundness"]["total"], "backlog": data["backlog"]["total"],
+                  "bc-admits": actionable, "bc-admits-blocked": blocked}
+        disagree = {k: {"emitted": emitted[k], "counted": expect[k]}
+                    for k in expect if emitted[k] != expect[k]}
+        print(json.dumps({
+            "head": data["head"], "emitted": emitted, "counted": expect,
+            "disagree": disagree, "rows": rows,
+        }, indent=2))
+        if disagree:
+            print("arc-progress --rows: EMITTED ROWS DISAGREE WITH THE COUNTS "
+                  f"({disagree}) — do not build a projection on this.", file=sys.stderr)
+            return 1
+        return 0
 
     if "--json" in sys.argv:
         print(json.dumps(data, indent=2))
