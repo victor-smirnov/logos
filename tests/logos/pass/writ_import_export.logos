@@ -47,7 +47,7 @@ unsafe fn main() -> i32 {
     let dm: &mut WMap<WString, WAny> = dst_h.map(8);
     dm.set("import", imported);
     let dmp: *const WMap<WString, WAny> = dm as *const WMap<WString, WAny>;
-    dst_h.set_root(WAny::ref_to(dmp as *const u8));
+    dst_h.set_root(unsafe { WAny::ref_to(dmp as *const u8) });
     if sm.get("x").as_i64() != 10i64 { return 12; }
 
     return 0;

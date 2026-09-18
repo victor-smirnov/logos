@@ -44,7 +44,7 @@ fn parse_entry(src: str, h: &Writ) -> WAny {
     // targets the entry's TOM in the arena (outlives this frame), not the
     // local view — keeps the borrow checker off the local `prog`.
     let w: i64 = prog.entry_any().raw();
-    return WAny::ref_to(w as *const u8);
+    return unsafe { WAny::ref_to(w as *const u8) };
 }
 
 fn main() -> i32 {

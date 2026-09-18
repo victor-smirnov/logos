@@ -92,8 +92,23 @@ impl WAny {
     }
     // Reference to a tagged zone object — absolute in the value form, self-relative
     // at-rest (the #[zoned] Ref arm; the compiler bridges).
+    //
+    // ⚠ `unsafe`, and the contract is the whole reason (#327, ADR 0027): this
+    // accepts ANY pointer and hands back a value the Writ layer will later treat
+    // as a tagged arena object — `w_type_code` reads the tag at `obj[-1]`, so a
+    // pointer that is not an arena object's base reads FOREIGN MEMORY one byte
+    // before it. Nothing about that is checkable from the pointer alone (the
+    // invariant names the arena, not the address), which is why this is an
+    // `unsafe` primitive rather than a checked constructor in the
+    // `NonNull::new` / `AsciiChar::from_u8` style used elsewhere in this tree.
+    //
+    // CALLER MUST GUARANTEE: `obj` is null, or the base of a tagged object
+    // inside a live Writ arena (tag byte at `obj[-1]`).
     /// Creates a `WAny` referencing the tagged zone object `obj` (absolute value form).
-    pub fn ref_to(obj: *const u8) -> WAny { return WAny::Ref(obj); }
+    ///
+    /// # Safety
+    /// `obj` must be null or the base of a tagged object in a live Writ arena.
+    pub unsafe fn ref_to(obj: *const u8) -> WAny { return WAny::Ref(obj); }
 
     // ── accessors ─ pure reads of the value form: safe `&self` (no `unsafe` at
     //   call sites). `resolve` returns a raw pointer (safe to OBTAIN, like Rust's

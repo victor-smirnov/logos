@@ -311,7 +311,7 @@ impl WAnyMut {
 
 impl WAny {
     /// Wraps a map as a heterogeneous `WAny` value (a Ref to its header).
-    pub fn from(m: &WMap<WString, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<WString, WAny> as *const u8); }
+    pub fn from(m: &WMap<WString, WAny>) -> WAny { return unsafe { WAny::ref_to(m as *const WMap<WString, WAny> as *const u8) }; }
 
     /// Resolves a Ref `WAny` to a borrowed read-only `&WMap<WString, WAny>`.
     /// Check `is_map()` first; encapsulates the resolve()+cast so callers stay unsafe-free.
@@ -387,10 +387,10 @@ impl WMap<Wu6, WAny> {
 
     /// Returns the value at `key`, or a null `WAny` if absent or `key >= 52`.
     pub fn get(self: &WMap<Wu6, WAny>, key: u8) -> WAny {
-        if key >= 52u8 { return WAny::ref_to(0i64 as *const u8); }
+        if key >= 52u8 { return unsafe { WAny::ref_to(0i64 as *const u8) }; }
         let bitmap: u64 = self.header & WTV_BITMAP_MASK;
         let kb: u64 = 1u64 << (key as u64);
-        if (bitmap & kb) == 0u64 { return WAny::ref_to(0i64 as *const u8); }
+        if (bitmap & kb) == 0u64 { return unsafe { WAny::ref_to(0i64 as *const u8) }; }
         let pos: i64 = popcount_u64(bitmap & (kb - 1u64)) as i64;
         return unsafe { *(self.data.add(pos)) };
     }
@@ -523,7 +523,7 @@ impl WritField for f64   { fn from_wany(v: WAny) -> f64   { return v.as_f64();  
 
 impl WAny {
     /// Wraps a tiny map as a heterogeneous `WAny` value (a Ref to its header).
-    pub fn from(m: &WMap<Wu6, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<Wu6, WAny> as *const u8); }
+    pub fn from(m: &WMap<Wu6, WAny>) -> WAny { return unsafe { WAny::ref_to(m as *const WMap<Wu6, WAny> as *const u8) }; }
 }
 
 // ── Dense spec: scalar integer keys (WMap<K, WAny>) — legacy Map<K, AnyVal> ───

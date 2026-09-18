@@ -8,7 +8,7 @@ use logos.lang.str;
 
 fn main() -> i32 {
     let h: Writ = writ_new(64i64);
-    let nullv: WAny = WAny::ref_to(0i64 as *const u8);
+    let nullv: WAny = unsafe { WAny::ref_to(0i64 as *const u8) };
 
     // ?limit  (unbound)
     let p: WAny = h.parameter("limit", nullv);

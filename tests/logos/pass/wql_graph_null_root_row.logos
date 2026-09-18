@@ -421,7 +421,7 @@ fn main() -> i32 {
     let r3: &mut WMap<WString, WAny> = d3.map(8i64);
     r3.set("left", WAny::from(&*left));
     r3.set("right", WAny::from(&*right));
-    r3.set("meta", WAny::ref_to((meta.m as i64) as *const u8));
+    r3.set("meta", unsafe { WAny::ref_to((meta.m as i64) as *const u8) });
     r3.set("arr", WAny::from(&*arr));
     right.set("back", WAny::from(&*r3));            // closes the cycle
     let rv3: WAny = WAny::from(&*r3);
@@ -561,7 +561,7 @@ fn main() -> i32 {
     let m5: Meta = d5.make::<Meta>();
     m5.alpha = 11i64;
     m5.beta = 22i64;
-    let rv5: WAny = WAny::ref_to((m5.m as i64) as *const u8);
+    let rv5: WAny = unsafe { WAny::ref_to((m5.m as i64) as *const u8) };
     if !rv5.is_tinymap() { return 95i32; }              // setup, not the subject
     d5.set_root(rv5);
 

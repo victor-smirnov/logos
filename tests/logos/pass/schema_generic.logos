@@ -23,7 +23,7 @@ fn main() -> i32 {
     if !get_val::<bool>(&bb) { return 4i32; }
 
     // G4 distinct per-instance codes: a Wrap<i64> TOM binds as Wrap<i64>, NOT Wrap<u64>.
-    let any_i: WAny = WAny::ref_to(bi.m as *const u8);
+    let any_i: WAny = unsafe { WAny::ref_to(bi.m as *const u8) };
     match any_i.view_checked::<Wrap<i64>>() {
         Option::Some(w) => { if w.val != 1152921504606846976i64 { return 5i32; } }
         Option::None => { return 6i32; }

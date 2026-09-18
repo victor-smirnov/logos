@@ -94,7 +94,7 @@ pub schema Cell : code(0x0A02_0000_0000_0041) {
     sb:  bool = 1,
 }
 
-impl Cell { pub fn as_any(self: &Cell) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl Cell { pub fn as_any(self: &Cell) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 resource cat = schema_catalog!{ Cell };
 

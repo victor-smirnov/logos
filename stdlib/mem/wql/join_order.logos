@@ -483,7 +483,7 @@ fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
 fn refs_var(w: i64, v: str) -> bool {
     if w == 0i64 { return false; }
     if v.len() == 0i64 { return false; }
-    let e: SExpr = WAny::ref_to(w as *const u8).view::<SExpr>();
+    let e: SExpr = unsafe { WAny::ref_to(w as *const u8) }.view::<SExpr>();
     return (refs_mask(e, v) & 1i32) != 0i32;
 }
 
@@ -737,7 +737,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     // module does not model and no order is offered.
                     if slotpred[sj] != c.onw[sl2] { rej = RJ_SHAPE(); }
                 } else {
-                    let pw: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(slotpred[sj] as *const u8));
+                    let pw: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(slotpred[sj] as *const u8) });
                     let ss: StepSel = decide_join_step(pw, c.var[sl2], t, h);
                     cst[sj] = ss.strat;
                     cky[sj] = ss.key_ty;

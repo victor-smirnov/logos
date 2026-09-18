@@ -29,7 +29,7 @@ fn main() -> i32 {
         let pair_at: *mut u8 = pobj.byte_add(8i64);
         write_tag(pair_at, type_code_of::<Pair>());
         let p: *mut Pair = pair_at as *mut Pair;  p.a = 30i64;  p.b = 12i64;
-        arr.push(WAny::ref_to(pair_at as *const u8));   // forces grow
+        arr.push(unsafe { WAny::ref_to(pair_at as *const u8) });   // forces grow
         arr.push(WAny::from(99i64));
 
         if arr.len() != 4i64 { return 1; }

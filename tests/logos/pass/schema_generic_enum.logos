@@ -17,12 +17,12 @@ fn main() -> i32 {
     let h: Writ = writ_new(256i64);
     let lit: Lit<i64> = h.make::<Lit<i64>>();
     lit.v = 7i64;
-    let el: Expr<i64> = WAny::ref_to(lit.m as *const u8).view::<Expr<i64>>();
+    let el: Expr<i64> = unsafe { WAny::ref_to(lit.m as *const u8) }.view::<Expr<i64>>();
     if eval(&el) != 7i64 { return 1i32; }
 
     let bin: Bin<i64> = h.make::<Bin<i64>>();
     bin.lhs = 10i64; bin.rhs = 20i64;
-    let eb: Expr<i64> = WAny::ref_to(bin.m as *const u8).view::<Expr<i64>>();
+    let eb: Expr<i64> = unsafe { WAny::ref_to(bin.m as *const u8) }.view::<Expr<i64>>();
     if eval(&eb) != 30i64 { return 2i32; }
     return 0i32;
 }

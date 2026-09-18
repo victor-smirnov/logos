@@ -12,7 +12,7 @@ fn main() -> i32 {
     let h: Writ = writ_new(64i64);
 
     // @Date = 1717948800  (no params)
-    let nullv: WAny = WAny::ref_to(0i64 as *const u8);
+    let nullv: WAny = unsafe { WAny::ref_to(0i64 as *const u8) };
     let tv: WAny = h.typed_value("Date", nullv, h.int(1717948800i64));
 
     if !tv.is_typed_value() { return 1; }

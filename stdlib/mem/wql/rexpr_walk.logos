@@ -3672,7 +3672,7 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
 }
 
 // Rebuild an SExpr view from a raw arena word (the provenance-laundering idiom).
-fn sexpr_of_word(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
+fn sexpr_of_word(w: i64) -> SExpr { return unsafe { WAny::ref_to(w as *const u8) }.view::<SExpr>(); }
 
 // Compose ONE step's emitted TEXT from the decision the plan already made.
 // This function no longer CHOOSES anything: `sel` is the index, in the split of
@@ -3775,7 +3775,7 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
                 st_pred[i].push_str("true");
             }
         } else {
-            let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[i] as *const u8));
+            let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[i] as *const u8) });
             let mut strat: i32 = ch.jstrat[i];
             let mut kty: i32   = ch.jkey[i];
             let mut sel: i64   = ch.jsel[i];
@@ -4813,7 +4813,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut ci0: i64 = 0i64;
     while ci0 < ch.n {
         if ch.onw[ci0] != 0i64 {
-            let on_e: SExpr = WAny::ref_to(ch.onw[ci0] as *const u8).view::<SExpr>();
+            let on_e: SExpr = unsafe { WAny::ref_to(ch.onw[ci0] as *const u8) }.view::<SExpr>();
             if !reject_tuple(on_e, "wql!: `on`") { return false; }
             if !check_calls(on_e, &ty, "wql!: `on`") { return false; }
         }
@@ -7497,7 +7497,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             let var1:   Ident    = Ident::new(ch.var[0]);
             let mut ptxt: String = String::new();
             if ch.onw[0] != 0i64 {
-                let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[0] as *const u8));
+                let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[0] as *const u8) });
                 let stt: StepTerms = step_terms(onr, h);
                 emit_sexpr(&mut ptxt, stt.opt.any().view::<SExpr>(), ty, ch.base_var);
             } else {

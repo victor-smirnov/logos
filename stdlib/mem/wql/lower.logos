@@ -423,14 +423,14 @@ fn gp_reach_rel(prog_root: WAny, src: str, h: &Writ) -> str {
     rel.name = lw_str(&nm);
     let cols: RQRelColArr = h.make::<RQRelColArr>();
     let mut colsm: RQRelColArr = cols;
-    colsm.set_col(0i64, WAny::ref_to(gp_mk_col(h, "a") as *const u8));
-    colsm.set_col(1i64, WAny::ref_to(gp_mk_col(h, "b") as *const u8));
+    colsm.set_col(0i64, unsafe { WAny::ref_to(gp_mk_col(h, "a") as *const u8) });
+    colsm.set_col(1i64, unsafe { WAny::ref_to(gp_mk_col(h, "b") as *const u8) });
     colsm.set_len(2i64);
     rel.cols = WRef::<RQRelColArr>::from_any(colsm.as_ref());
     let bodies: RQBodyArr = h.make::<RQBodyArr>();
     let mut bm: RQBodyArr = bodies;
-    bm.set_body(0i64, WAny::ref_to(gp_mk_self_body(h, src, "parent", "parent") as *const u8));
-    bm.set_body(1i64, WAny::ref_to(gp_mk_self_body(h, src, "child", "child") as *const u8));
+    bm.set_body(0i64, unsafe { WAny::ref_to(gp_mk_self_body(h, src, "parent", "parent") as *const u8) });
+    bm.set_body(1i64, unsafe { WAny::ref_to(gp_mk_self_body(h, src, "child", "child") as *const u8) });
     // the transitive step body
     let b3: RQJoin = h.make::<RQJoin>();
     b3.a_name = rel.name;
@@ -708,7 +708,7 @@ pub fn desugar_program_gpaths(root: WAny, h: &Writ, err: &mut String) -> bool {
                 if err.len() > 0i64 { return false; }
                 if nq != 0i64 {
                     let mut fb: RQBodyArr = rq_fat_bodies(rel.bodies.any(), h);
-                    fb.set_body(b, WAny::ref_to(nq as *const u8));
+                    fb.set_body(b, unsafe { WAny::ref_to(nq as *const u8) });
                 }
                 b = b + 1i64;
             }
@@ -719,7 +719,7 @@ pub fn desugar_program_gpaths(root: WAny, h: &Writ, err: &mut String) -> bool {
     if err.len() > 0i64 { return false; }
     if ne != 0i64 {
         let mut fp: RQProgram = rq_fat_program(root, h);
-        fp.entry = WRef::<RQuery>::from_any(WAny::ref_to(ne as *const u8));
+        fp.entry = WRef::<RQuery>::from_any(unsafe { WAny::ref_to(ne as *const u8) });
     }
     return true;
 }

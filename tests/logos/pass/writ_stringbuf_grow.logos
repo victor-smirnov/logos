@@ -20,7 +20,7 @@ unsafe fn main() -> i32 {
         i = i + 1;
     }
     let ap: *const WArray<WAny> = arr as *const WArray<WAny>;
-    let text: String = stringify(WAny::ref_to(ap as *const u8));
+    let text: String = stringify(unsafe { WAny::ref_to(ap as *const u8) });
     // 100 * ("growing-element-payload"+quotes=25) + 99*", " + "[]" = 2500+198+2.
     if text.len() != 2700i64 { return 1; }
     let tp: *const u8 = text.as_str().as_ptr();

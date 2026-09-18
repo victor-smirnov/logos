@@ -39,7 +39,7 @@ fn main() -> i32 {
         let filler: *mut u8 = writ_alloc_bytes(&mut hh, 24i64);   // fills seg
         let za_slot: *zoned mut WAny = writ_alloc::<WAny>(&mut hh) as *zoned mut WAny;  // new segment
         // store an absolute Ref (lowers to a self-relative delta across segments)
-        *za_slot = WAny::ref_to(pair_at as *const u8);
+        *za_slot = unsafe { WAny::ref_to(pair_at as *const u8) };
         // materialise back (slot + delta resolves across the segment boundary)
         let za: WAny = *za_slot;
         if !za.is_ref() { return 4; }

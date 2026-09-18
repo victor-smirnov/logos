@@ -149,7 +149,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // program itself lives in the compiler's arena; malformed input never gets
     // this far, since the compiler's parse is what failed.
     let h: Writ = writ_new(4096i64);
-    let root: WAny = WAny::ref_to(ir);
+    let root: WAny = unsafe { WAny::ref_to(ir) };
     // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ────────────
     // The compiler prepended the mapping's rels to this program and encoded
     // `old=new@lo-hi;` per mapping param — rename each mapping's own source

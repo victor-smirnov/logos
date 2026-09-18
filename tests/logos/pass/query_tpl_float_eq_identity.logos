@@ -46,7 +46,7 @@ pub schema Pair : code(0x0A02_0000_0000_0031) {
     n: i64 = 2,
 }
 
-impl Pair { pub fn as_any(self: &Pair) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl Pair { pub fn as_any(self: &Pair) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 resource cat = schema_catalog!{ Pair };
 

@@ -94,5 +94,5 @@ impl WAny {
         return unsafe { &*(self.resolve() as *const WTypedValue) };
     }
     /// Creates a heterogeneous value holding a `Ref` to `tv`.
-    pub fn from(tv: &WTypedValue) -> WAny { return WAny::ref_to(tv as *const WTypedValue as *const u8); }
+    pub fn from(tv: &WTypedValue) -> WAny { return unsafe { WAny::ref_to(tv as *const WTypedValue as *const u8) }; }
 }

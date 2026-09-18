@@ -32,7 +32,7 @@ unsafe fn main() -> i32 {
     m.set("k", WAny::from(&*(h.wstring("live") as *const WString)));   // overwrite -> garbage
     m.set("n", 7i64);
     let mp: *const WMap<WString, WAny> = m as *const WMap<WString, WAny>;
-    h.set_root(WAny::ref_to(mp as *const u8));
+    h.set_root(unsafe { WAny::ref_to(mp as *const u8) });
 
     let packed: Rc<Writ> = writ_clone(h.root());
     let ph: &Writ = packed.deref();

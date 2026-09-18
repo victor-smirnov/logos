@@ -15,7 +15,7 @@ fn eq(v: WAny, want: str) -> bool { let s: String = stringify(v); return str_eq(
 fn main() -> i32 {
     if !eq(WAny::from(42i56), "42") { return 1; }
     if !eq(WAny::from(true), "true") { return 2; }
-    if !eq(WAny::ref_to(0i64 as *const u8), "null") { return 3; }
+    if !eq(unsafe { WAny::ref_to(0i64 as *const u8) }, "null") { return 3; }
     let h: Writ = writ_new(1024i64);
     // scalar array — deterministic order
     let a: &mut WArray<WAny> = h.array(4i64);

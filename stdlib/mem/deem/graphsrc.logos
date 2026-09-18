@@ -268,7 +268,7 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
         c = c + 1i64;
     }
     out.nvars = TS_NCOLS;
-    let root: WAny = WAny::ref_to(root_w as *const u8);
+    let root: WAny = unsafe { WAny::ref_to(root_w as *const u8) };
     // The VIRTUAL ROOT EDGE (parent = 0 → the root node): makes the root
     // itself queryable (it has no real incoming edge) and anchors graph
     // paths (`parent == 0`) with no root-handle plumbing. 0 is reserved: no

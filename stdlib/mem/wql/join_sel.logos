@@ -205,11 +205,11 @@ pub fn equi_term_sides(te: SExpr, new_var: str) -> EquiSides {
 pub fn step_equi_key(tl: &TermList, new_var: str, t: &ElTypes) -> StepKey {
     let mut i: i64 = 0i64;
     while i < tl.n {
-        let te: SExpr = WAny::ref_to(tl.w[i] as *const u8).view::<SExpr>();
+        let te: SExpr = unsafe { WAny::ref_to(tl.w[i] as *const u8) }.view::<SExpr>();
         let sd: EquiSides = equi_term_sides(te, new_var);
         if sd.bw != 0i64 {
-            let be: SExpr = WAny::ref_to(sd.bw as *const u8).view::<SExpr>();
-            let pe: SExpr = WAny::ref_to(sd.pw as *const u8).view::<SExpr>();
+            let be: SExpr = unsafe { WAny::ref_to(sd.bw as *const u8) }.view::<SExpr>();
+            let pe: SExpr = unsafe { WAny::ref_to(sd.pw as *const u8) }.view::<SExpr>();
             let kb: i32 = infer_ty(be, t);
             let kp: i32 = infer_ty(pe, t);
             if kb == kp {

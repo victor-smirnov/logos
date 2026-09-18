@@ -30,7 +30,7 @@ schema enum WFNode : category(0x0057_0000_0000_0000) {
 // no archive.
 schema WFHolder : code(0x0058_0000_0000_0000) { edge: WRef<WFNode> = 0 }
 
-impl WFLeaf { fn as_ref(self: &WFLeaf) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl WFLeaf { fn as_ref(self: &WFLeaf) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // READ-ONLY consumer: reads the `WRef<WFNode>` field, binds the target view,
 // constructs NO `WRef<WFNode>`.
@@ -52,7 +52,7 @@ pub fn wref_field_pkg_run(v: i56) -> i64 {
     let leaf_word: i64 = n.as_ref().raw();
     let m: &mut WMap<Wu6, WAny> = h.tinymap(2i64);
     m.set_schema_type_code(0x0058_0000_0000_0000u64);   // WFHolder's code
-    m.set(0u8, WAny::ref_to(leaf_word as *const u8));    // edge = key 0 (raw WAny)
+    m.set(0u8, unsafe { WAny::ref_to(leaf_word as *const u8) });    // edge = key 0 (raw WAny)
     let hd: WFHolder = (&*m).view::<WFHolder>();
     return wf_edge_val(&hd);
 }

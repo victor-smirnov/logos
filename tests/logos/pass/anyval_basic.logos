@@ -7,7 +7,7 @@ unsafe fn main() -> i32 {
     // --- Ref mode (absolute pointer in the value form) ---
     let buf: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
     let p: *const u8 = &buf[0] as *const u8;
-    let av: WAny = WAny::ref_to(p);
+    let av: WAny = unsafe { WAny::ref_to(p) };
     if !av.is_ref()                       { return 1; }
     if av.is_null()                       { return 2; }
     if av.resolve() != p                  { return 3; }

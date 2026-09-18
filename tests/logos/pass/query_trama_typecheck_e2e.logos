@@ -24,7 +24,7 @@ pub schema Emp : code(0x0A03_0000_0000_0001) {
     age:  i64 = 1,
 }
 
-impl Emp { pub fn as_any(self: &Emp) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl Emp { pub fn as_any(self: &Emp) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 resource cat = schema_catalog!{ Emp };
 

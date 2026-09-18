@@ -74,11 +74,11 @@ pub schema enum TStmt : category(0x0013_0000_0000_0000) {
 
 // Node → erased edge handle (same provenance-laundering as ir.logos `as_ref`):
 // the WAny ref targets the node's TOM in the arena, which outlives the view.
-impl TText { pub fn as_ref(self: &TText) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
-impl TVar  { pub fn as_ref(self: &TVar)  -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
-impl TFor  { pub fn as_ref(self: &TFor)  -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
-impl TIf   { pub fn as_ref(self: &TIf)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
-impl TSet  { pub fn as_ref(self: &TSet)  -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl TText { pub fn as_ref(self: &TText) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl TVar  { pub fn as_ref(self: &TVar)  -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl TFor  { pub fn as_ref(self: &TFor)  -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl TIf   { pub fn as_ref(self: &TIf)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl TSet  { pub fn as_ref(self: &TSet)  -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── Typed edge RESOLVERS (the Trama-AST-walking API for consumers) ─────────
 // Read an edge field → resolve the handle → bind the target view. These live in
@@ -124,7 +124,7 @@ pub fn alt_word(r: &WRef<TStmt>)  -> i64 { return r.any().raw(); }
 
 // The `next`-chain successor word of any TStmt node (post-T3 stitch).
 pub fn next_of_stmt(node_w: i64) -> i64 {
-    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    let e: TStmt = unsafe { WAny::ref_to(node_w as *const u8) }.view::<TStmt>();
     match e {
         TStmt::Text(t) => { return next_word(&t.next); }
         TStmt::Var(v)  => { return next_word(&v.next); }
@@ -154,8 +154,8 @@ pub fn ttext_str(t: &TText) -> str {
 
 // Rebind a TStmt node's `next` edge to a raw chain-word.
 fn set_next_w(next_of: i64, next: i64) {
-    let e: TStmt = WAny::ref_to(next_of as *const u8).view::<TStmt>();
-    let nref: WRef<TStmt> = WRef::<TStmt>::from_any(WAny::ref_to(next as *const u8));
+    let e: TStmt = unsafe { WAny::ref_to(next_of as *const u8) }.view::<TStmt>();
+    let nref: WRef<TStmt> = WRef::<TStmt>::from_any(unsafe { WAny::ref_to(next as *const u8) });
     match e {
         TStmt::Text(t) => { t.next = nref; }
         TStmt::Var(v)  => { v.next = nref; }
@@ -167,18 +167,18 @@ fn set_next_w(next_of: i64, next: i64) {
 
 // Rebind a TFor's `body` edge (WArray → chain head).
 fn set_for_body(node_w: i64, head: i64) {
-    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
-    match e { TStmt::For(f) => { f.body = WRef::<TStmt>::from_any(WAny::ref_to(head as *const u8)); } _ => { } }
+    let e: TStmt = unsafe { WAny::ref_to(node_w as *const u8) }.view::<TStmt>();
+    match e { TStmt::For(f) => { f.body = WRef::<TStmt>::from_any(unsafe { WAny::ref_to(head as *const u8) }); } _ => { } }
 }
 // Rebind a TIf's `body` edge.
 fn set_if_body(node_w: i64, head: i64) {
-    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
-    match e { TStmt::If(i) => { i.body = WRef::<TStmt>::from_any(WAny::ref_to(head as *const u8)); } _ => { } }
+    let e: TStmt = unsafe { WAny::ref_to(node_w as *const u8) }.view::<TStmt>();
+    match e { TStmt::If(i) => { i.body = WRef::<TStmt>::from_any(unsafe { WAny::ref_to(head as *const u8) }); } _ => { } }
 }
 // Rebind a TIf's `alt` edge.
 fn set_if_alt(node_w: i64, head: i64) {
-    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
-    match e { TStmt::If(i) => { i.alt = WRef::<TStmt>::from_any(WAny::ref_to(head as *const u8)); } _ => { } }
+    let e: TStmt = unsafe { WAny::ref_to(node_w as *const u8) }.view::<TStmt>();
+    match e { TStmt::If(i) => { i.alt = WRef::<TStmt>::from_any(unsafe { WAny::ref_to(head as *const u8) }); } _ => { } }
 }
 
 // Convert a body/alt edge word into a `next`-linked chain HEAD word. The edge is
@@ -186,7 +186,7 @@ fn set_if_alt(node_w: i64, head: i64) {
 // TStmt node (an elif TIf → treat as a one-element chain: recurse its bodies).
 pub fn chain_edge(edge_w: i64) -> i64 {
     if edge_w == 0i64 { return 0i64; }
-    let a: WAny = WAny::ref_to(edge_w as *const u8);
+    let a: WAny = unsafe { WAny::ref_to(edge_w as *const u8) };
     if a.is_array() {
         let arr: &WArray<WAny> = a.as_array();
         return chain_array(arr);
@@ -199,7 +199,7 @@ pub fn chain_edge(edge_w: i64) -> i64 {
 
 // Recurse into a node's for/if bodies + else edge, rewriting them to chain heads.
 pub fn chain_node(node_w: i64) {
-    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    let e: TStmt = unsafe { WAny::ref_to(node_w as *const u8) }.view::<TStmt>();
     match e {
         TStmt::For(f) => {
             let b: i64 = f.body.any().raw();

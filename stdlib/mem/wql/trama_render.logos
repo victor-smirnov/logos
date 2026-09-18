@@ -315,7 +315,7 @@ fn resolve_for_element_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
 fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, env: &StructEnv) {
     let mut cur: i64 = head;
     while cur != 0i64 {
-        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        let e: TStmt = unsafe { WAny::ref_to(cur as *const u8) }.view::<TStmt>();
         match e {
             TStmt::For(f) => {
                 let se: SExpr = f.expr_expr();
@@ -404,7 +404,7 @@ fn copy_env(dst: &mut StructEnv, src: &StructEnv) {
 fn emit_stmts(em: &mut Emitter, head: i64, ty: &ElTypes, vtys: &TVarTys, ctx: str, depth: i64, h: &Writ) {
     let mut cur: i64 = head;
     while cur != 0i64 {
-        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        let e: TStmt = unsafe { WAny::ref_to(cur as *const u8) }.view::<TStmt>();
         let nxt: i64 = emit_one(em, e, ty, vtys, ctx, depth, h);
         cur = nxt;
     }

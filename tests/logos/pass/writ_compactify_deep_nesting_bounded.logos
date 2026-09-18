@@ -20,12 +20,12 @@ use logos.lang.writ.equal;
 fn build_deep(h: &Writ, depth: i64) -> WAny {
     let bottom: &mut WArray<WAny> = h.array(1i64);
     bottom.push(42i64);
-    let mut cur: WAny = WAny::ref_to(&*bottom as *const WArray<WAny> as *const u8);
+    let mut cur: WAny = unsafe { WAny::ref_to(&*bottom as *const WArray<WAny> as *const u8) };
     let mut i: i64 = 0i64;
     while i < depth {
         let outer: &mut WArray<WAny> = h.array(1i64);
         outer.push(cur);
-        cur = WAny::ref_to(&*outer as *const WArray<WAny> as *const u8);
+        cur = unsafe { WAny::ref_to(&*outer as *const WArray<WAny> as *const u8) };
         i = i + 1i64;
     }
     return cur;

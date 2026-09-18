@@ -20,7 +20,7 @@ unsafe fn main() -> i32 {
     arr.push(hdec_from_str(h, "-300"));
     let m: &mut WMap<WString, WAny> = h.map(8);
     let ap2: *const WArray<WAny> = arr as *const WArray<WAny>;
-    m.set("prices", WAny::ref_to(ap2 as *const u8));
+    m.set("prices", unsafe { WAny::ref_to(ap2 as *const u8) });
 
     let got: WAny = m.get("prices");
     if !got.is_array() { return 1; }

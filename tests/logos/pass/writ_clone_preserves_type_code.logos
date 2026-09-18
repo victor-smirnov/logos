@@ -217,7 +217,7 @@ unsafe fn main() -> i32 {
         let d: Writ = writ_new(4096i64);
         let obj: *mut u8 = alloc_tagged(ap, 8i64, 7301u64);
         *(obj as *mut u64) = 0xDEADBEEFu64;
-        let v: WAny = WAny::ref_to(obj as *const u8);
+        let v: WAny = unsafe { WAny::ref_to(obj as *const u8) };
         if v.type_code() != 7301u64 { return 63; }
         let c: WAny = clone(&d, v);
         if c.raw() == v.raw() { return 64; }   // the alias — the whole point

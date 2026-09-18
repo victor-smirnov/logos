@@ -41,7 +41,7 @@ fn make_leaf(h: &Writ, v: i56) -> i64 {
     return n.as_ref().raw();
 }
 
-impl Leaf { pub fn as_ref(self: &Leaf) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl Leaf { pub fn as_ref(self: &Leaf) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // Build a Holder whose `edge` points at `target_word`. The edge is wired by
 // writing the WAny ref directly into the map slot (key 0) — NO `WRef<MyNode>` is
@@ -49,7 +49,7 @@ impl Leaf { pub fn as_ref(self: &Leaf) -> WAny { return WAny::ref_to((self.m as 
 fn make_holder(h: &Writ, target_word: i64) -> Holder {
     let m: &mut WMap<Wu6, WAny> = h.tinymap(2i64);
     m.set_schema_type_code(0x0044_0000_0000_0000u64);   // Holder's code
-    m.set(0u8, WAny::ref_to(target_word as *const u8));  // edge = key 0 (raw WAny)
+    m.set(0u8, unsafe { WAny::ref_to(target_word as *const u8) });  // edge = key 0 (raw WAny)
     return (&*m).view::<Holder>();
 }
 

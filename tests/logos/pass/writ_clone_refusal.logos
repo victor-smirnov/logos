@@ -1,7 +1,7 @@
 // A DEEP COPY THAT CANNOT SAY "I DID NOT COPY IT" IS NOT A DEEP COPY.
 //
 // `logos.lang.writ.compactify` used to answer every failure with the same word:
-// `WAny::ref_to(0)`. Past COMPACTIFY_MAX_DEPTH — null. Unknown arena tag — the
+// `unsafe { WAny::ref_to(0) }`. Past COMPACTIFY_MAX_DEPTH — null. Unknown arena tag — the
 // SOURCE pointer (worse: a cross-arena alias). Neither is distinguishable by a
 // caller from a value that genuinely WAS null, and the whole contract of a
 // container built on this (`logos.lang.any.anybox`) is "this holds the value you
@@ -29,12 +29,12 @@ use logos.lang.result;
 fn build_deep(h: &Writ, depth: i64) -> WAny {
     let bottom: &mut WArray<WAny> = h.array(1i64);
     bottom.push(42i64);
-    let mut cur: WAny = WAny::ref_to(&*bottom as *const WArray<WAny> as *const u8);
+    let mut cur: WAny = unsafe { WAny::ref_to(&*bottom as *const WArray<WAny> as *const u8) };
     let mut i: i64 = 0i64;
     while i < depth {
         let outer: &mut WArray<WAny> = h.array(1i64);
         outer.push(cur);
-        cur = WAny::ref_to(&*outer as *const WArray<WAny> as *const u8);
+        cur = unsafe { WAny::ref_to(&*outer as *const WArray<WAny> as *const u8) };
         i = i + 1i64;
     }
     return cur;
@@ -76,7 +76,7 @@ unsafe fn main() -> i32 {
         let d: Writ = writ_new(4096i64);
         let obj: *mut u8 = alloc_tagged(ap, 8i64, 7301u64);
         *(obj as *mut u64) = 0xDEADBEEFu64;
-        let v: WAny = WAny::ref_to(obj as *const u8);
+        let v: WAny = unsafe { WAny::ref_to(obj as *const u8) };
         match try_clone(&d, v) {
             Result::Ok(_)  => { return 8; }
             Result::Err(e) => {
@@ -97,7 +97,7 @@ unsafe fn main() -> i32 {
         let obj: *mut u8 = alloc_tagged(ap, 8i64, 7302u64);
         let a: &mut WArray<WAny> = src.array(4i64);
         a.push(1i64);
-        a.push(WAny::ref_to(obj as *const u8));
+        a.push(unsafe { WAny::ref_to(obj as *const u8) });
         match try_clone(&d, WAny::from(&*a)) {
             Result::Ok(_)  => { return 14; }
             Result::Err(e) => {

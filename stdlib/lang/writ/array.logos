@@ -274,7 +274,7 @@ impl WAnyMut {
 
 impl WAny {
     /// Wraps a nested array as a heterogeneous value: a Ref to the child's header (no copy).
-    pub fn from(a: &WArray<WAny>) -> WAny { return WAny::ref_to(a as *const WArray<WAny> as *const u8); }
+    pub fn from(a: &WArray<WAny>) -> WAny { return unsafe { WAny::ref_to(a as *const WArray<WAny> as *const u8) }; }
 
     /// Resolves a Ref to a borrowed read-only `&WArray<WAny>`; check `is_array()` first.
     /// Encapsulates the `resolve()`+cast so callers stay safe.

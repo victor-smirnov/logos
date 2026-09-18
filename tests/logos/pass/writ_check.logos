@@ -47,7 +47,7 @@ unsafe fn main() -> i32 {
     let mp: *const WMap<WString, WAny> = m as *const WMap<WString, WAny>;
     let obj: *mut u8 = mp as *mut u8;
     *((obj as i64 - 1) as *mut u8) = 0 as u8;        // clobber the vlen tag
-    if writ_check(WAny::ref_to(obj as *const u8)) { return 8; }
+    if writ_check(unsafe { WAny::ref_to(obj as *const u8) }) { return 8; }
 
     return 0;
 }

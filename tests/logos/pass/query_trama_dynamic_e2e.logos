@@ -30,8 +30,8 @@ pub schema Team : code(0x0A02_0000_0000_0002) {
     emps:  WRef<Emp> = 1,
 }
 
-impl Emp  { pub fn as_any(self: &Emp)  -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
-impl Team { pub fn as_any(self: &Team) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl Emp  { pub fn as_any(self: &Emp)  -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl Team { pub fn as_any(self: &Team) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 resource cat = schema_catalog!{ Emp, Team };
 
@@ -55,7 +55,7 @@ fn main() -> i32 {
     arr.push(e2.as_any());
     // NB: pack the array ref via the raw-pointer cast (the generated parsers'
     // idiom) — `WAny::from(arr as &WArray<WAny>)` on a FAT &mut mis-packs.
-    t1.emps = WRef::<Emp>::from_any(WAny::ref_to(arr as *const WArray<WAny> as *const u8));
+    t1.emps = WRef::<Emp>::from_any(unsafe { WAny::ref_to(arr as *const WArray<WAny> as *const u8) });
 
     let c: SchemaCatalog = cat();
 

@@ -336,7 +336,7 @@ impl WRowBuilder {
 
 impl WAny {
     /// Wraps a row as a heterogeneous `WAny` value (a Ref to the row object).
-    pub fn from(r: &WRow) -> WAny { return WAny::ref_to(r as *const WRow as *const u8); }
+    pub fn from(r: &WRow) -> WAny { return unsafe { WAny::ref_to(r as *const WRow as *const u8) }; }
 
     /// Returns `true` iff a Ref to a `W_ROW` arena object.
     pub fn is_row(self: &WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_ROW; }

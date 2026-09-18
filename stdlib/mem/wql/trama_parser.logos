@@ -276,7 +276,7 @@ fn wstr_p(doc: &Writ, s: str) -> *const u8 {
     return ws as *const WString as *const u8;
 }
 // Schema-view handle currency: node.as_ref() word ↔ *const u8 / WAny.
-fn hand_any(w: *const u8) -> WAny { return WAny::ref_to(w); }
+fn hand_any(w: *const u8) -> WAny { return unsafe { WAny::ref_to(w) }; }
 // A captured WString ptr (from wstr_p) → &str for a schema `str` field write.
 fn wstr_as_str<'a>(p: *const u8) -> &'a str {
     if (p as i64) == 0i64 { return ""; }
@@ -378,7 +378,7 @@ fn alt_tpl_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
         let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();
         let rep0: *const u8 = rule_stmt(lex, doc);
         if rep0 == TrNULLP { lex.reset(rsp, rsln); break; }
-        if rep0 != TrNULLP { arr0.push(WAny::ref_to(rep0)); }
+        if rep0 != TrNULLP { arr0.push(unsafe { WAny::ref_to(rep0) }); }
         if lex.save_pos() == rsp { break; }
         cnt0 = cnt0 + 1i64;
     }
@@ -835,14 +835,14 @@ fn rule_expr(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 pub fn parse_tpl(src: str, doc: &Writ) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_tpl(&mut lex, doc);
-    if !lex.at_eof() { return WAny::ref_to(TrNULLP); }
-    return WAny::ref_to(root);
+    if !lex.at_eof() { return unsafe { WAny::ref_to(TrNULLP) }; }
+    return unsafe { WAny::ref_to(root) };
 }
 pub fn parse_tpl_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_tpl(&mut lex, doc);
-    if !lex.at_eof() { *out_root = WAny::ref_to(TrNULLP); return lex.far.line; }
-    *out_root = WAny::ref_to(root);
+    if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(TrNULLP) }; return lex.far.line; }
+    *out_root = unsafe { WAny::ref_to(root) };
     return lex.far.line;
 }
 

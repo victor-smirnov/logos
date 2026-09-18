@@ -90,7 +90,7 @@ impl RBinds {
         if k == QB_F64  { return RtVal::F(self.fvals[i]); }
         if k == QB_BOOL { return RtVal::B(self.bvals[i]); }
         if k == QB_STR  { return RtVal::S(self.svals[i]); }
-        if k == QB_NODE { return RtVal::Node(WAny::ref_to(self.words[i] as *const u8)); }
+        if k == QB_NODE { return RtVal::Node(unsafe { WAny::ref_to(self.words[i] as *const u8) }); }
         return RtVal::Null;
     }
     // Push a binding holding `v` (scoping is the caller's mark/rollback).
@@ -121,8 +121,8 @@ fn env_val(env: &QEnv, i: i64) -> RtVal {
     if k == QB_F64   { return RtVal::F(env.fvals[i]); }
     if k == QB_BOOL  { return RtVal::B(env.bvals[i]); }
     if k == QB_STR   { return RtVal::S(env.svals[i]); }
-    if k == QB_NODE  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
-    if k == QB_SRC   { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_NODE  { return RtVal::Node(unsafe { WAny::ref_to(env.words[i] as *const u8) }); }
+    if k == QB_SRC   { return RtVal::Node(unsafe { WAny::ref_to(env.words[i] as *const u8) }); }
     // QB_ENODE / QB_ESRC had arms here. Nothing writes those codes any more —
     // `QEnv::bind_node_erased` / `bind_source_erased` are removed (deem.logos).
     return RtVal::Null;
@@ -480,7 +480,7 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
     let mut cur: i64 = head;
     while cur != 0i64 {
         if chk_bad(chk) { return; }   // a math error in a prior {{…}} aborts the render
-        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        let e: TStmt = unsafe { WAny::ref_to(cur as *const u8) }.view::<TStmt>();
         match e {
             TStmt::Text(t) => { push_deescaped(out, ttext_str(&t)); }
             TStmt::Var(v) => {
@@ -694,7 +694,7 @@ impl CBinds {
 // for schema'd rows, CT_SARR{elem tag} for scalar elements, CT_UNKNOWN for an
 // EMPTY array (nothing to type — and nothing will be evaluated over it).
 fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy {
-    let av: WAny = WAny::ref_to(word as *const u8);
+    let av: WAny = unsafe { WAny::ref_to(word as *const u8) };
     if !av.is_array() {
         chk_fail(chk, "source '", name, "' is not bound to a Writ array", "", "");
         return ct(CT_UNKNOWN);
@@ -1204,7 +1204,7 @@ fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                lb: &mut CBinds, chk: &mut Chk, reg: &QRelReg) {
     let mut cur: i64 = head;
     while cur != 0i64 && !chk.failed {
-        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        let e: TStmt = unsafe { WAny::ref_to(cur as *const u8) }.view::<TStmt>();
         match e {
             TStmt::Text(_t) => { }
             TStmt::Var(v) => {
@@ -1278,7 +1278,7 @@ fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
 fn simplify_all(head: i64, h: &Writ) {
     let mut cur: i64 = head;
     while cur != 0i64 {
-        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        let e: TStmt = unsafe { WAny::ref_to(cur as *const u8) }.view::<TStmt>();
         match e {
             TStmt::Text(_t) => { }
             TStmt::Var(v) => { v.expr = simplify_sexpr(v.expr_expr(), h); }
@@ -1317,7 +1317,7 @@ fn chk_fail_p(chk: *mut Chk, a: str, b: str, d: str, e: str, f: str) {
 }
 
 // An SExpr view from a raw arena word (the provenance-laundering idiom).
-fn sx_of(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
+fn sx_of(w: i64) -> SExpr { return unsafe { WAny::ref_to(w as *const u8) }.view::<SExpr>(); }
 
 // Evaluate an EL expression at a query BOUNDARY (filter predicate, projection
 // cell, join/group key, aggregate arg). If the evaluation produced a math error

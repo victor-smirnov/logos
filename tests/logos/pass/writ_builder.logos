@@ -19,7 +19,7 @@ unsafe fn main() -> i32 {
     m.set("greet", WAny::from(&*(h.wstring("hello") as *const WString)));
     m.set("n", 42i64);
     let mp: *const WMap<WString, WAny> = m as *const WMap<WString, WAny>;
-    h.set_root(WAny::ref_to(mp as *const u8));
+    h.set_root(unsafe { WAny::ref_to(mp as *const u8) });
 
     let root: WAny = h.root();
     if root.is_null() { return 1; }

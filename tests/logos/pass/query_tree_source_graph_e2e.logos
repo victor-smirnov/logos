@@ -177,7 +177,7 @@ fn main() -> i32 {
     let root: &mut WMap<WString, WAny> = d.map(8i64);
     root.set("left", WAny::from(&*left));
     root.set("right", WAny::from(&*right));
-    root.set("meta", WAny::ref_to((meta.m as i64) as *const u8));
+    root.set("meta", unsafe { WAny::ref_to((meta.m as i64) as *const u8) });
     right.set("back", WAny::from(&*root));      // the cycle
     let rootv: WAny = WAny::from(&*root);
     d.set_root(rootv);

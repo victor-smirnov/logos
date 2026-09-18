@@ -85,5 +85,5 @@ impl WAny {
         return unsafe { &*(self.resolve() as *const WParameter) };
     }
     /// Returns a `WAny` Ref to the given `WParameter`.
-    pub fn from(p: &WParameter) -> WAny { return WAny::ref_to(p as *const WParameter as *const u8); }
+    pub fn from(p: &WParameter) -> WAny { return unsafe { WAny::ref_to(p as *const WParameter as *const u8) }; }
 }

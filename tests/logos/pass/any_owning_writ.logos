@@ -321,7 +321,7 @@ unsafe fn main() -> i32 {
         let obj: *mut u8 = alloc_tagged(ap, 16i64, W_DECIMAL);
         *(obj as *mut u64) = 2u64;
         *(((obj as i64) + 8i64) as *mut u64) = 12345u64;
-        match of_writ(WAny::ref_to(obj as *const u8)) {
+        match of_writ(unsafe { WAny::ref_to(obj as *const u8) }) {
             Result::Ok(w) => {
                 if !w.holds::<WritOpaque>() { return 82; }
                 if w.holds::<WArray<WAny>>() { return 83; }
@@ -342,7 +342,7 @@ unsafe fn main() -> i32 {
         let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
         // unknown tag
         let obj: *mut u8 = alloc_tagged(ap, 8i64, 7301u64);
-        match of_writ(WAny::ref_to(obj as *const u8)) {
+        match of_writ(unsafe { WAny::ref_to(obj as *const u8) }) {
             Result::Ok(_)  => { return 88; }
             Result::Err(e) => {
                 if !e.is_unknown_tag() { return 89; }
@@ -355,7 +355,7 @@ unsafe fn main() -> i32 {
         while i < 100000i64 {
             let outer: &mut WArray<WAny> = src.array(1i64);
             outer.push(cur);
-            cur = WAny::ref_to(&*outer as *const WArray<WAny> as *const u8);
+            cur = unsafe { WAny::ref_to(&*outer as *const WArray<WAny> as *const u8) };
             i = i + 1i64;
         }
         match of_writ(cur) {

@@ -27,7 +27,7 @@ unsafe fn main() -> i32 {
 
     // ── WAny wire format — Ref mode ─────────────────────────────────────────
     // Value form: the word IS the absolute pointer; bit 0 = 0.
-    let p: WAny = WAny::ref_to(na as *const u8);
+    let p: WAny = unsafe { WAny::ref_to(na as *const u8) };
     if (p.raw() & 1i64) != 0i64                                 { return 4; }
     if p.resolve() as i64 != na as i64                          { return 5; }
     if p.is_pod()                                               { return 6; }

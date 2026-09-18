@@ -373,7 +373,7 @@ pub fn simplify_sexpr(e: SExpr, h: &Writ) -> WRef<SExpr> {
             na.set_len(n);
             let mut k: i64 = 0i64;
             while k < n {
-                if k < 8i64 { na.set_arg(k, WAny::ref_to(w[k] as *const u8)); }
+                if k < 8i64 { na.set_arg(k, unsafe { WAny::ref_to(w[k] as *const u8) }); }
                 k = k + 1i64;
             }
             let nt: STuple = h.make::<STuple>();

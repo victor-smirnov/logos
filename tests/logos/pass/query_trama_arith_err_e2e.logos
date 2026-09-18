@@ -31,7 +31,7 @@ fn main() -> i32 {
     let d: Writ = writ_new(4096i64);
     let e0: E = d.make::<E>(); e0.x = 4000000000i64;   // 4e9: 4e9*4e9 overflows i64
     let mut env: QEnv = QEnv::new();
-    env.bind_node("e", WAny::ref_to((e0.m as i64) as *const u8));
+    env.bind_node("e", unsafe { WAny::ref_to((e0.m as i64) as *const u8) });
 
     // math errors → render-time QError (outcome 1)
     if outcome("v = {{ e.x / 0 }}", &c, &env) != 1i32 { return 1i32; }              // div-zero

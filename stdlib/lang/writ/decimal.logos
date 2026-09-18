@@ -64,7 +64,7 @@ impl Writ {
     /// Builds a `WDecimal` in this arena and returns a Ref `WAny` to it.
     /// Returns a null `WAny` if `scale > 4095` (the `spec` field ceiling).
     pub fn decimal(self: &Writ, coeff: u64, scale: u32, neg: bool) -> WAny {
-        if scale > 4095u32 { return WAny::ref_to(0i64 as *const u8); }   // spec field ceiling
+        if scale > 4095u32 { return unsafe { WAny::ref_to(0i64 as *const u8) }; }   // spec field ceiling
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
             return WAny::ref_to(decimal_new(h, coeff, scale, neg) as *const u8);
@@ -85,7 +85,7 @@ impl WAny {
         return unsafe { &*(self.resolve() as *const WDecimal) };
     }
     /// Wraps a `WDecimal` as a heterogeneous value (Ref `WAny` to it).
-    pub fn from(d: &WDecimal) -> WAny { return WAny::ref_to(d as *const WDecimal as *const u8); }
+    pub fn from(d: &WDecimal) -> WAny { return unsafe { WAny::ref_to(d as *const WDecimal as *const u8) }; }
 }
 
 // ── parse / arithmetic / compare (the dec_* surface) ──────────────────────────

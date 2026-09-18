@@ -36,7 +36,7 @@ unsafe fn main() -> i32 {
     // --- ObjectMap: string keys; container values ---
     let m: &mut WMap<WString, WAny> = h.map(8);
     let ap: *const WArray<WAny> = arr as *const WArray<WAny>;
-    m.set("arr", WAny::ref_to(ap as *const u8));
+    m.set("arr", unsafe { WAny::ref_to(ap as *const u8) });
     m.set("n", 42i64);
     let got: WAny = (&*(m as *const WMap<WString, WAny>)).get("arr");
     if !got.is_array() { return 7; }

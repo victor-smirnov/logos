@@ -45,7 +45,7 @@ fn main() -> i32 {
     e.name = "Ann";
     e.age = 42i64;
     let ew: i64 = e.m as i64;
-    let eany: WAny = WAny::ref_to(ew as *const u8);
+    let eany: WAny = unsafe { WAny::ref_to(ew as *const u8) };
 
     // COMPILES with `twice` unregistered — deferred to render (unification).
     let t: Tpl = match Tpl::compile("{{ twice(e.age) }}/{{ upper(e.name) }}", &c) {
