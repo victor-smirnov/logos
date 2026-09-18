@@ -2,7 +2,8 @@
 
 Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-09-18). D1-D3 below
 are TAKEN; O1-O3 are OPEN. The MIR-like linearisation (slice S4) is accepted as
-work to do; only its placement (O2) is open. Scope: a small bottom-up Datalog engine in C++ inside
+work to do; only its placement (O2) is open. Tracking: #419, slices S1-S7 are
+sub-issues #420-#426. Scope: a small bottom-up Datalog engine in C++ inside
 logosc; trait resolution and borrow checking re-expressed as rule sets over
 facts extracted from the compiler's IR. Deem replaces the engine once logosc is
 rewritten in Logos ([project_logosc_rewrite]); the rule files are the part that
