@@ -1,0 +1,326 @@
+// Logos Writ stdlib — writ.row
+//
+// WRow (ADR 0027 D3, slice S1): a fixed-schema table ROW as a Writ object type —
+// a presence bitmap plus the present values compacted inline in column-ID order.
+// The SAME IDEA as the bitmap-indexed tiny map (`WMap<Wu6, WAny>`, W_TINYMAP) and
+// a SEPARATE OBJECT TYPE, not a generalisation of it: a TOM's `schema_code` word
+// discriminates the 60+ node classes built over a TOM, and a row needs no
+// discriminator — it has ONE schema and that schema is EXTERNAL (table metadata).
+//
+// LAYOUT (the object is 8-aligned; `alloc_tagged` puts the W_ROW tag at obj[-1]):
+//
+//     atom 0        : bits[0:47] presence bitmap | bits[48:63] SPAN
+//     atoms 1..M-1  : bits[0:63] presence bitmap
+//     AnyVal[]      : inline, compacted in column-ID order, PRESENT columns only
+//
+// SPAN is this row's own column span — highest present column ID + 1, 0 for an
+// empty row — and M derives from it, NOT from the table's maximum column ID.
+// Column IDs only grow and are never reused, so a long-lived table's ID space is
+// sparse and high; sizing M from the table would make every row pay for the
+// schema's whole history. Reading a column at or above SPAN is ABSENT BY BOUNDS.
+// (The 16-bit field is why a row spans at most 65535 column IDs. The number of
+// PRESENT columns is not stored: it is a popcount over the atoms, so storing it
+// would be a second copy of a fact the bitmap already holds.)
+//
+// ACCESS IS POPCOUNT, NOT DECODE. Column i's value slot is the popcount of every
+// presence bit BELOW i — the full atoms under i plus one masked atom, i.e.
+// ceil(i/64) popcounts, never a walk of columns 0..i-1. That is what makes
+// PROJECTION meaningful: reading two columns of a fifty-column row does not cost
+// reading fifty.
+//
+// NO version_tag, NO discriminator. Monotone column IDs plus absent-as-NULL give
+// schema evolution directly: a row predating a column has no bit for it, and a
+// dropped column is marked dead in the metadata while its stale bits are ignored.
+// This holds under one rule that is part of the FORMAT: a column's type change
+// allocates a NEW column ID.
+//
+// A PRESENT NULL IS NOT AN ABSENT COLUMN. Bit clear = the column is not in this
+// row and occupies nothing (NULL is free). Bit set with a null `WAny` = the
+// column IS in this row and its value is null. Which of the two means SQL NULL is
+// a semantic decision for the metadata, not for the format — so the format keeps
+// both and `contains` answers the bit while `get` answers the word.
+//
+// SELF-DESCRIPTION SURVIVES. Every value is one 8-byte `WAny`: a Pod carries its
+// own 7-bit type code inline, a Ref points at a tagged object in the same arena.
+// So a row is decodable WITHOUT its metadata; metadata carries names, order,
+// declared types and liveness — not decodability.
+//
+// NOT YET SERIALIZABLE — the S5 seam. `compactify` has no W_ROW arm, so
+// `try_compactify` / `wod_serialize` REFUSE a row with CLONE_REFUSED_UNKNOWN_TAG
+// (tag 97), which is the loud direction. A row is a Writ structure in a live
+// arena today; freezing one into a container is ADR 0027 S5 and needs the
+// mutation protocol (D11) that S1 deliberately does not touch.
+//
+// BUILD IS TWO-PHASE, because the values are INLINE and COMPACTED: the object's
+// size is a function of the bitmap, so the bitmap must be complete before the
+// object exists. `WRowBuilder` accumulates into arena scratch indexed BY COLUMN
+// ID and `row_finish` emits the compacted object. The scratch is left dead in the
+// arena (writ-design §3 — no per-object reclaim), like every other dead buffer a
+// grow leaves behind.
+
+package logos.lang.writ.row;
+
+use logos.lang.writ.container;   // Writ, alloc_tagged, make_int, box_f64
+use logos.lang.writ.allocator;   // Allocator, allocator_alloc
+use logos.lang.writ.anyval;      // WAny, W_ROW, w_type_code
+use logos.lang.writ.wstring;     // WString, wstring_in_alloc — for the str column
+use logos.lang.str;              // str
+use logos.lang.panic;            // panic — a wrong-type resolve is a type violation
+
+// Atom 0's low 48 bits are the presence bitmap; bits[48:63] are the span.
+const WROW_BITMAP0_MASK: u64 = 0x0000FFFFFFFFFFFFu64;
+
+/// Number of presence bits carried by atom 0 (the rest of the word is the span).
+pub const WROW_ATOM0_BITS: i64 = 48i64;
+/// Largest column span a row can record (the span field is 16 bits), so the
+/// highest usable column ID is `WROW_MAX_SPAN - 1`.
+pub const WROW_MAX_SPAN: i64 = 65535i64;
+
+/// A fixed-schema table row: a presence bitmap followed by the present values
+/// compacted inline in column-ID order (ADR 0027 D3). The declared struct is atom
+/// 0 only — atoms 1..M-1 and the value array trail it in the arena, sized from
+/// this row's own span.
+#[pinned]
+pub struct WRow {
+    /// `bits[0:47]` presence bitmap | `bits[48:63]` the row's column span.
+    pub atom0: u64,
+}
+
+// ── geometry ─────────────────────────────────────────────────────────────────
+
+/// Returns the number of presence atoms a row of `span` columns carries (always
+/// at least 1 — atom 0 exists even in an empty row).
+pub fn row_atoms_for_span(span: i64) -> i64 {
+    if span <= WROW_ATOM0_BITS { return 1i64; }
+    return 1i64 + (((span - WROW_ATOM0_BITS) + 63i64) / 64i64);
+}
+
+// Which atom carries column `col`'s presence bit. Atom 0 holds columns 0..47;
+// every later atom holds 64. THE SINGLE PLACE that knows the 48/64 split.
+fn row_atom_of(col: i64) -> i64 {
+    if col < WROW_ATOM0_BITS { return 0i64; }
+    return 1i64 + ((col - WROW_ATOM0_BITS) / 64i64);
+}
+
+// Column `col`'s bit WITHIN its atom.
+fn row_bit_of(col: i64) -> u64 {
+    if col < WROW_ATOM0_BITS { return 1u64 << (col as u64); }
+    return 1u64 << (((col - WROW_ATOM0_BITS) % 64i64) as u64);
+}
+
+// Atom `k`'s raw word.
+unsafe fn row_atom(r: *const WRow, k: i64) -> u64 {
+    return *(((r as i64) + k * 8i64) as *const u64);
+}
+
+// Atom `k`'s PRESENCE bits — atom 0 with the span field masked off, so a
+// popcount over it can never count span bits as present columns.
+unsafe fn row_bits(r: *const WRow, k: i64) -> u64 {
+    let a: u64 = row_atom(r, k);
+    if k == 0i64 { return a & WROW_BITMAP0_MASK; }
+    return a;
+}
+
+unsafe fn row_span_of(r: *const WRow) -> i64 { return ((row_atom(r, 0i64) >> 48u64) & 0xFFFFu64) as i64; }
+
+// Address of the inline value array: the atoms end it, and M is a function of the
+// span, so the values' position is derived from the row's own header word.
+unsafe fn row_vals(r: *const WRow) -> i64 {
+    return (r as i64) + 8i64 * row_atoms_for_span(row_span_of(r));
+}
+
+// The at-rest value slot for compacted position `pos`. `*zoned mut WAny`: reading
+// it materialises a Ref's self-relative delta to an absolute pointer and writing
+// lowers it — so a row's inline Ref values are relocatable with the row.
+unsafe fn row_slot(r: *const WRow, pos: i64) -> *zoned mut WAny {
+    return ((row_vals(r) + pos * 8i64) as *mut u8) as *zoned mut WAny;
+}
+
+impl WRow {
+    /// Returns this row's own column span (highest present column ID + 1; 0 when
+    /// empty). Columns at or above it are absent BY BOUNDS.
+    pub fn span(self: &WRow) -> i64 { return unsafe { row_span_of(self as *const WRow) }; }
+
+    /// Returns the number of presence atoms, derived from this row's span.
+    pub fn atoms(self: &WRow) -> i64 { return row_atoms_for_span(self.span()); }
+
+    /// Returns the number of PRESENT columns (a popcount over the atoms — the
+    /// count is not stored).
+    pub fn count(self: &WRow) -> i64 {
+        unsafe {
+            let r: *const WRow = self as *const WRow;
+            let m: i64 = row_atoms_for_span(row_span_of(r));
+            let mut n: i64 = 0i64;
+            let mut k: i64 = 0i64;
+            while k < m { n = n + (popcount_u64(row_bits(r, k)) as i64); k = k + 1i64; }
+            return n;
+        }
+    }
+
+    /// Returns this row object's byte length: the atoms plus one slot per present
+    /// column. (The W_ROW tag sits BEFORE the object and is not counted.)
+    pub fn byte_len(self: &WRow) -> i64 { return 8i64 * (self.atoms() + self.count()); }
+
+    /// Returns `true` iff column `col` is present in this row. A column at or
+    /// above the span — or negative — is absent by bounds, never a wild read.
+    pub fn contains(self: &WRow, col: i64) -> bool {
+        if col < 0i64 { return false; }
+        let r: *const WRow = self as *const WRow;
+        unsafe {
+            if col >= row_span_of(r) { return false; }
+            return (row_bits(r, row_atom_of(col)) & row_bit_of(col)) != 0u64;
+        }
+    }
+
+    /// Returns column `col`'s position in the inline value array: the popcount of
+    /// every presence bit below `col`. Costs `ceil(col/64)` popcounts — NOT a
+    /// decode of columns `0..col-1`, which is what makes projection meaningful.
+    /// Meaningful only when `contains(col)`; for an absent column it answers where
+    /// that column's value WOULD sit.
+    pub fn slot_of(self: &WRow, col: i64) -> i64 {
+        unsafe {
+            let r: *const WRow = self as *const WRow;
+            let k: i64 = row_atom_of(col);
+            let mut n: i64 = 0i64;
+            let mut j: i64 = 0i64;
+            while j < k { n = n + (popcount_u64(row_bits(r, j)) as i64); j = j + 1i64; }
+            // Bits strictly below `col` within its own atom.
+            return n + (popcount_u64(row_bits(r, k) & (row_bit_of(col) - 1u64)) as i64);
+        }
+    }
+
+    /// Returns column `col`'s value, or a null `WAny` when the column is absent
+    /// (bit clear, or above this row's span). A PRESENT column whose stored value
+    /// is null also reads null — `contains` is what distinguishes the two.
+    pub fn get(self: &WRow, col: i64) -> WAny {
+        if !self.contains(col) { return WAny::null(); }
+        unsafe { return *(row_slot(self as *const WRow, self.slot_of(col))); }
+    }
+}
+
+// ── the two-phase builder ────────────────────────────────────────────────────
+
+/// Accumulates a row's columns in ANY order, then emits the compacted object.
+/// Scratch lives in the target arena and is indexed BY COLUMN ID; `row_finish`
+/// compacts it. Values are held in VALUE form (absolute Refs) and are lowered to
+/// at-rest form when they land in the row.
+pub struct WRowBuilder {
+    // Presence atoms in the row's OWN bit layout (48 in atom 0, 64 after), so
+    // emitting them is a copy rather than a re-mapping.
+    atoms: *mut u64,
+    // One value-form WAny per possible column ID (sparse; only bits that are set
+    // are ever read back).
+    vals: *mut WAny,
+    max_span: i64,
+    span: i64,
+    alloc: *mut Allocator,
+}
+
+impl Writ {
+    /// Creates a row builder able to hold column IDs `0..max_span-1`. The scratch
+    /// it allocates is proportional to `max_span`, not to the number of columns
+    /// actually set, and is left dead in the arena once the row is emitted.
+    /// PANICS if `max_span` exceeds the 16-bit span field.
+    pub fn row_builder(self: &Writ, max_span: i64) -> WRowBuilder {
+        if max_span < 0i64 || max_span > WROW_MAX_SPAN { panic("WRowBuilder: max_span outside the 16-bit column span a row can record"); }
+        unsafe {
+            let a: *mut Allocator = self.allocator.get();
+            let na: i64 = row_atoms_for_span(max_span);
+            let atoms: *mut u64 = allocator_alloc(a, na * 8i64, 8i64) as *mut u64;
+            let vals: *mut WAny = allocator_alloc(a, max_span * (sizeof::<WAny>() as i64), 8i64) as *mut WAny;
+            let mut k: i64 = 0i64;
+            while k < na { *(atoms.add(k)) = 0u64; k = k + 1i64; }
+            return WRowBuilder { atoms: atoms, vals: vals, max_span: max_span, span: 0i64, alloc: a };
+        }
+    }
+
+    /// Emits the accumulated row as a tagged `W_ROW` object in this container:
+    /// the atoms, then the present values compacted in column-ID order. The
+    /// returned row lives in the never-move arena and is tied to the container.
+    pub fn row_finish<'a>(self: &'a Writ, b: &WRowBuilder) -> &'a mut WRow {
+        unsafe {
+            let m: i64 = row_atoms_for_span(b.span);
+            // Count before allocating: the object's size IS a function of the bitmap.
+            let mut n: i64 = 0i64;
+            let mut k: i64 = 0i64;
+            while k < m { n = n + (popcount_u64(*(b.atoms.add(k))) as i64); k = k + 1i64; }
+            let r: *mut WRow =
+                alloc_tagged(self.allocator.get(), 8i64 * (m + n), W_ROW) as *mut WRow;
+            // Atoms, with the span folded into atom 0's high 16 bits.
+            k = 0i64;
+            while k < m {
+                let w: u64 = *(b.atoms.add(k));
+                *(((r as i64) + k * 8i64) as *mut u64) =
+                    if k == 0i64 { (w & WROW_BITMAP0_MASK) | ((b.span as u64) << 48u64) } else { w };
+                k = k + 1i64;
+            }
+            // Values, compacted: walk the column IDs ascending and append each
+            // present one. The WALK is O(span) and happens once, at build time;
+            // the READ path never walks (see `slot_of`).
+            let mut pos: i64 = 0i64;
+            let mut col: i64 = 0i64;
+            while col < b.span {
+                if (*(b.atoms.add(row_atom_of(col))) & row_bit_of(col)) != 0u64 {
+                    *(row_slot(r as *const WRow, pos)) = *(b.vals.add(col));
+                    pos = pos + 1i64;
+                }
+                col = col + 1i64;
+            }
+            return &mut *r;
+        }
+    }
+
+    /// Resolves a Ref `WAny` to the row it points at, tied to this container.
+    /// PANICS if `e` is not a Ref to a `W_ROW` object (the resolver-guard class —
+    /// see the note at the top of `writ/array.logos`).
+    pub fn row_of<'a>(self: &'a Writ, e: WAny) -> &'a WRow {
+        if !e.is_row() { panic("Writ::row_of: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
+        return unsafe { &*(e.resolve() as *const WRow) };
+    }
+}
+
+impl WRowBuilder {
+    /// Sets column `col` to `v`, extending the row's span when `col` is its new
+    /// maximum. Setting the same column twice keeps the last value. A null `v` is
+    /// stored as a PRESENT null — use it deliberately; simply not setting a
+    /// column is what makes it absent, and absent costs nothing.
+    /// PANICS when `col` is outside the builder's declared span.
+    pub fn set(self: &mut WRowBuilder, col: i64, v: WAny) {
+        if col < 0i64 || col >= self.max_span { panic("WRowBuilder::set: column ID outside the builder's declared max_span"); }
+        unsafe {
+            let k: i64 = row_atom_of(col);
+            *(self.atoms.add(k)) = *(self.atoms.add(k)) | row_bit_of(col);
+            *(self.vals.add(col)) = v;
+        }
+        if col + 1i64 > self.span { self.span = col + 1i64; }
+    }
+
+    /// Sets column `col` to an integer (inline Pod when it fits i56, else boxed).
+    pub fn set(self: &mut WRowBuilder, col: i64, v: i64) { unsafe { let z: *mut Allocator = self.alloc; self.set(col, make_int(z, v)); } }
+    /// Sets column `col` to a boolean (inline Pod).
+    pub fn set(self: &mut WRowBuilder, col: i64, v: bool) { self.set(col, WAny::from(v)); }
+    /// Sets column `col` to an `f64`, boxed into the row's arena.
+    pub fn set(self: &mut WRowBuilder, col: i64, v: f64) { unsafe { let z: *mut Allocator = self.alloc; self.set(col, box_f64(z, v)); } }
+    /// Sets column `col` to a string, interned into the row's arena.
+    pub fn set(self: &mut WRowBuilder, col: i64, v: str) {
+        unsafe { let z: *mut Allocator = self.alloc; self.set(col, WAny::ref_to(wstring_in_alloc(z, v) as *const u8)); }
+    }
+
+    /// Returns the span accumulated so far (highest column set + 1).
+    pub fn span(self: &WRowBuilder) -> i64 { return self.span; }
+}
+
+impl WAny {
+    /// Wraps a row as a heterogeneous `WAny` value (a Ref to the row object).
+    pub fn from(r: &WRow) -> WAny { return WAny::ref_to(r as *const WRow as *const u8); }
+
+    /// Returns `true` iff a Ref to a `W_ROW` arena object.
+    pub fn is_row(self: &WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_ROW; }
+
+    /// Resolves a Ref `WAny` to a borrowed `&WRow`. Check `is_row()` first.
+    /// PANICS if this is not a Ref to a `W_ROW` object.
+    pub fn as_row(self: &WAny) -> &WRow {
+        if !self.is_row() { panic("WAny::as_row: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
+        return unsafe { &*(self.resolve() as *const WRow) };
+    }
+}

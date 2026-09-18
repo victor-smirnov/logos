@@ -32,6 +32,7 @@ inline constexpr uint64_t STRING     = 130;   // WString  (Logos W_STRING; legac
 inline constexpr uint64_t ARRAY      = 100;   // WArray<WAny>      (ObjectArray)
 inline constexpr uint64_t MAP        = 101;   // WMap<WString,WAny> (ObjectMap)
 inline constexpr uint64_t TINYMAP    = 98;    // WMap<Wu6,WAny>     (TinyObjectMap)
+inline constexpr uint64_t ROW        = 97;    // WRow               (ADR 0027 D3 row)
 inline constexpr uint64_t DECIMAL    = 102;   // WDecimal
 inline constexpr uint64_t PARAMETER  = 127;   // WParameter
 inline constexpr uint64_t TYPEDVALUE = 4115;  // WTypedValue

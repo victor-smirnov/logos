@@ -157,6 +157,8 @@ pub const W_ARRAY:   u64 = 100u64;
 pub const W_MAP:     u64 = 101u64;
 /// Ref type code: bitmap-indexed tiny map (legacy TinyObjectMap).
 pub const W_TINYMAP: u64 = 98u64;   // bitmap-indexed tiny map (legacy TinyObjectMap)
+/// Ref type code: fixed-schema table row (ADR 0027 D3; presence bitmap + inline values).
+pub const W_ROW:     u64 = 97u64;   // bitmap-indexed fixed-schema row (ADR 0027)
 /// Ref type code: fixed-precision signed decimal.
 pub const W_DECIMAL: u64 = 102u64;  // fixed-precision signed decimal
 /// Ref type code: query-parameter capture slot (`?name` / `@`-literal).

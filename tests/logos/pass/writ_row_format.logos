@@ -1,0 +1,202 @@
+// WRow (ADR 0027 D3, slice S1) — the row FORMAT and its popcount access.
+//
+// What is under test is the BYTE LAYOUT and the addressing law, not an API:
+//   • atom 0 carries 48 presence bits in bits[0:47] and the SPAN in bits[48:63],
+//     atoms 1..M-1 carry 64 presence bits, and the present values follow inline,
+//     compacted in column-ID order — asserted by reading the raw words back out
+//     of the arena at their computed offsets;
+//   • M derives from the ROW's own highest set bit: a row holding only column 200
+//     carries 4 atoms, and an empty row is 8 bytes total;
+//   • reading at or above the span is ABSENT BY BOUNDS, not a wild read;
+//   • a present NULL is not an absent column (`contains` vs `get`);
+//   • the value position is a POPCOUNT of the bits below the column — checked
+//     against an INDEPENDENT oracle that counts `contains` over 0..col and never
+//     touches the popcount path;
+//   • the span field must not corrupt the adjacent presence bit 47 nor be counted
+//     as present columns (case 5 is the control: its span, 49, has popcount 3, so
+//     an unmasked popcount would answer 5 present columns where there are 2);
+//   • the in-band tag is W_ROW = 97 and lives BEFORE the object, so byte 0 of the
+//     object is the bitmap, not the tag.
+// Case 6 pins the S5 SEAM: a row cannot be serialized today and refuses LOUDLY.
+package writ_row_format;
+use logos.lang.writ.row;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.objdata;
+use logos.lang.writ.compactify;
+use logos.lang.rc;
+use logos.lang.str;
+use logos.lang.result;
+
+// INDEPENDENT ORACLE for the popcount addressing: count the present columns
+// below `col` one at a time. `contains` reads a single bit and never popcounts,
+// so agreeing with `slot_of` is evidence about the popcount arithmetic rather
+// than a restatement of it.
+fn present_below(r: &WRow, col: i64) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < col { if r.contains(j) { n = n + 1i64; } j = j + 1i64; }
+    return n;
+}
+
+unsafe fn main() -> i32 {
+    let src: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = src.deref();
+
+    // ── 1. The cross-atom row: columns 0, 3, 50, 130 ─────────────────────────
+    // span 131 ⇒ M = 1 + ceil((131-48)/64) = 3 atoms; 4 values; 56 bytes.
+    let mut b1: WRowBuilder = h.row_builder(256i64);
+    b1.set(0i64, 7i64);
+    b1.set(3i64, "beta");
+    b1.set(50i64, 2.5f64);
+    b1.set(130i64, 0i64 - 9i64);
+    let r1: &WRow = h.row_finish(&b1);
+
+    if r1.span() != 131i64 { return 1; }
+    if r1.atoms() != 3i64 { return 2; }
+    if r1.count() != 4i64 { return 3; }
+    if r1.byte_len() != 56i64 { return 4; }
+
+    // The RAW words, read back at their computed offsets — this is the layout.
+    let p1: i64 = r1 as *const WRow as i64;
+    let a0: u64 = *(p1 as *const u64);
+    if (a0 & 0x0000FFFFFFFFFFFFu64) != 9u64 { return 5; }        // bits 0 and 3
+    if (a0 >> 48u64) != 131u64 { return 6; }                     // the span field
+    if *((p1 + 8i64) as *const u64) != 4u64 { return 7; }        // atom 1: bit 2  (col 50)
+    if *((p1 + 16i64) as *const u64) != 262144u64 { return 8; }  // atom 2: bit 18 (col 130)
+    // Value 0 sits immediately after the atoms: the inline Pod word for 7.
+    if *((p1 + 24i64) as *const i64) != 1795i64 { return 9; }    // (7<<8)|(1<<1)|1
+
+    // The tag is BEFORE the object: byte 0 of the object is the bitmap, not 97.
+    if w_type_code(p1 as *const u8) != W_ROW { return 10; }
+    if W_ROW != 97u64 { return 11; }
+    if *(p1 as *const u8) == 97u8 { return 12; }                 // the tag leaked IN
+    if *(p1 as *const u8) != 9u8 { return 13; }                  // it is atom 0's low byte
+
+    // Presence: set bits, clear bits, and above the span.
+    if !r1.contains(0i64) { return 14; }
+    if !r1.contains(3i64) { return 15; }
+    if !r1.contains(50i64) { return 16; }
+    if !r1.contains(130i64) { return 17; }
+    if r1.contains(1i64) { return 18; }
+    if r1.contains(49i64) { return 19; }
+    if r1.contains(51i64) { return 20; }
+    if r1.contains(131i64) { return 21; }        // absent BY BOUNDS (== span)
+    if r1.contains(4000i64) { return 22; }       // absent by bounds, no wild read
+    if r1.contains(0i64 - 1i64) { return 23; }
+
+    // Popcount addressing, against the independent oracle.
+    if r1.slot_of(0i64) != 0i64 { return 24; }
+    if r1.slot_of(3i64) != 1i64 { return 25; }
+    if r1.slot_of(50i64) != 2i64 { return 26; }
+    if r1.slot_of(130i64) != 3i64 { return 27; }
+    if r1.slot_of(0i64) != present_below(r1, 0i64) { return 28; }
+    if r1.slot_of(3i64) != present_below(r1, 3i64) { return 29; }
+    if r1.slot_of(50i64) != present_below(r1, 50i64) { return 30; }
+    if r1.slot_of(130i64) != present_below(r1, 130i64) { return 31; }
+    if r1.slot_of(49i64) != present_below(r1, 49i64) { return 32; }   // an ABSENT column too
+    if r1.slot_of(64i64) != present_below(r1, 64i64) { return 33; }   // and an atom boundary
+
+    // The values themselves, each self-describing.
+    if r1.get(0i64).as_i64() != 7i64 { return 34; }
+    if !str_eq(r1.get(3i64).as_wstr(), "beta") { return 35; }
+    if r1.get(50i64).as_f64() != 2.5f64 { return 36; }
+    if r1.get(130i64).as_i64() != (0i64 - 9i64) { return 37; }
+    if !r1.get(1i64).is_null() { return 38; }        // absent reads null
+    if !r1.get(4000i64).is_null() { return 39; }     // out of bounds reads null
+
+    // Round trip through a WAny Ref.
+    let w1: WAny = WAny::from(r1);
+    if !w1.is_row() { return 40; }
+    if w1.is_map() { return 41; }
+    if w1.type_code() != W_ROW { return 42; }
+    if w1.as_row().count() != 4i64 { return 43; }
+    if h.row_of(w1).span() != 131i64 { return 44; }
+
+    // ── 2. The EMPTY row: one atom, no values, 8 bytes ───────────────────────
+    let mut b2: WRowBuilder = h.row_builder(16i64);
+    let r2: &WRow = h.row_finish(&b2);
+    if r2.span() != 0i64 { return 45; }
+    if r2.atoms() != 1i64 { return 46; }
+    if r2.count() != 0i64 { return 47; }
+    if r2.byte_len() != 8i64 { return 48; }
+    if r2.contains(0i64) { return 49; }
+    if !r2.get(0i64).is_null() { return 50; }
+
+    // ── 3. A DENSE row with a PRESENT NULL at column 2 ───────────────────────
+    // Bit clear = the column is not in this row. Bit set + null word = the column
+    // IS in this row and its value is null. The format keeps both apart.
+    let mut b3: WRowBuilder = h.row_builder(16i64);
+    b3.set(0i64, 10i64);
+    b3.set(1i64, 11i64);
+    b3.set(2i64, WAny::null());
+    b3.set(3i64, 13i64);
+    b3.set(4i64, 14i64);
+    b3.set(5i64, 15i64);
+    let r3: &WRow = h.row_finish(&b3);
+    if r3.span() != 6i64 { return 51; }
+    if r3.atoms() != 1i64 { return 52; }
+    if r3.count() != 6i64 { return 53; }             // the present null IS counted
+    if r3.byte_len() != 56i64 { return 54; }
+    if !r3.contains(2i64) { return 55; }             // present …
+    if !r3.get(2i64).is_null() { return 56; }        // … and null
+    if r3.contains(6i64) { return 57; }              // absent by bounds
+    if r3.slot_of(5i64) != 5i64 { return 58; }
+    if r3.get(5i64).as_i64() != 15i64 { return 59; }
+    if r3.get(3i64).as_i64() != 13i64 { return 60; }
+
+    // ── 4. M FROM THE ROW'S OWN HIGHEST BIT, not the table's column space ────
+    // One column, ID 200: span 201 ⇒ 4 atoms, 1 value, 40 bytes. The row pays for
+    // its own span only, and its single value sits at slot 0.
+    let mut b4: WRowBuilder = h.row_builder(256i64);
+    b4.set(200i64, 42i64);
+    let r4: &WRow = h.row_finish(&b4);
+    if r4.span() != 201i64 { return 61; }
+    if r4.atoms() != 4i64 { return 62; }
+    if r4.count() != 1i64 { return 63; }
+    if r4.byte_len() != 40i64 { return 64; }
+    if r4.slot_of(200i64) != 0i64 { return 65; }
+    if r4.get(200i64).as_i64() != 42i64 { return 66; }
+    if r4.contains(199i64) { return 67; }
+    if r4.contains(201i64) { return 68; }
+    let p4: i64 = r4 as *const WRow as i64;
+    if (*(p4 as *const u64) & 0x0000FFFFFFFFFFFFu64) != 0u64 { return 69; }  // atom 0 empty
+    if *((p4 + 24i64) as *const u64) != 16777216u64 { return 70; }           // atom 3: bit 24
+
+    // ── 5. THE ATOM-0 BOUNDARY, and the span-field control ───────────────────
+    // Columns 47 (atom 0's LAST presence bit, adjacent to the span field) and 48
+    // (atom 1's first). Span 49 has popcount 3, so a popcount that failed to mask
+    // the span field off atom 0 would answer 5 present columns here, not 2 — and
+    // bit 47 is where a span write would bleed first.
+    let mut b5: WRowBuilder = h.row_builder(64i64);
+    b5.set(47i64, 470i64);
+    b5.set(48i64, 480i64);
+    let r5: &WRow = h.row_finish(&b5);
+    if r5.span() != 49i64 { return 71; }
+    if r5.atoms() != 2i64 { return 72; }
+    if r5.count() != 2i64 { return 73; }             // NOT 5 — the span is masked off
+    if r5.byte_len() != 32i64 { return 74; }
+    if !r5.contains(47i64) { return 75; }            // the span did not eat bit 47
+    if !r5.contains(48i64) { return 76; }
+    if r5.contains(46i64) { return 77; }
+    if r5.slot_of(47i64) != 0i64 { return 78; }
+    if r5.slot_of(48i64) != 1i64 { return 79; }
+    if r5.slot_of(48i64) != present_below(r5, 48i64) { return 80; }
+    if r5.get(47i64).as_i64() != 470i64 { return 81; }
+    if r5.get(48i64).as_i64() != 480i64 { return 82; }
+
+    // ── 6. THE S5 SEAM: a row cannot be frozen yet, and it REFUSES LOUDLY ────
+    // `compactify` has no W_ROW arm, so the tagless-run serializer refuses with
+    // CLONE_REFUSED_UNKNOWN_TAG naming code 97 rather than copying a row shallowly
+    // or planting a source-arena pointer. Pinning the refusal marks the seam:
+    // when this stops being an error, the slice has become S5.
+    match wod_serialize(WAny::from(r1)) {
+        Result::Ok(_)  => { return 83; }
+        Result::Err(e) => {
+            if !e.is_unknown_tag() { return 84; }
+            if e.tag != 97u64 { return 85; }
+        }
+    }
+
+    return 0;
+}

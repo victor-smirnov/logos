@@ -6128,8 +6128,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                THREE fixtures (2 pass, 1 fail) and edits NO soundness_queue row, so all three move together and TIERCOMMIT is
 #                unmoved: the new pass/fail fixtures are not in tier_commit. RE-DERIVED BY `ctest -N` THREE WAYS after a
 #                reconfigure, not by adding to the previous line.
-REGISTRY-ALL         11075
-REGISTRY-NOIMPORTED  6573
+#                ALL 11075 -> 11076 (+1), NOIMPORTED 6573 -> 6574 (+1), TIERCOMMIT 354 -> 354 (0) — 2026-09-17-adr0027s1 lands
+#                ONE pass fixture (writ_row_format, the ADR 0027 S1 WRow format+popcount fixture) and NO fail fixture, and edits
+#                no soundness_queue row, so ALL and NOIMPORTED move together by one and TIERCOMMIT is unmoved: a new pass fixture
+#                is not in tier_commit. RE-DERIVED BY the gate's own three-way `ctest -N` measurement on the reconfigured tree,
+#                not by adding to the previous line.
+REGISTRY-ALL         11076
+REGISTRY-NOIMPORTED  6574
 REGISTRY-TIERCOMMIT  354
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
