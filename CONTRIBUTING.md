@@ -51,8 +51,13 @@ git config --global user.email "your.email@example.com"
 * **Issues**: open a GitHub issue describing the bug or proposal
   before sending a large change.
 * **Pull requests**: small, focused commits with clear messages.
-  Group unrelated changes into separate PRs. Run the full test
-  suite locally (`cd build && ctest -j`) before opening.
+  Group unrelated changes into separate PRs. Run the tests locally
+  before opening: `cd build && ../tests/logos/test-levels.sh L2`
+  for a quick broad pass, and
+  `cd build && LOGOS_L4_BG=1 ../tests/logos/test-levels.sh L4` for
+  the full suite (11,000+ tests — it takes a while, and the
+  `LOGOS_L4_BG=1` is required, not optional). Plain `ctest` runs
+  single-threaded; pass `-j"$(nproc)"` if you invoke it directly.
 * **Commit messages**: present-tense imperative summary line ("fix
   X"), blank line, then optional explanation. Keep summary under
   72 characters where reasonable.

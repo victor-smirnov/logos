@@ -62,14 +62,19 @@ printf '%s\n' "canary_planted_row canary 1 tests/logos/NOT_A_REAL_ROW" >> "$cana
 
 "$PY" "$SCRIPT" --list backlog --verify --file "$canary_dir/clean.ledger" >/dev/null 2>&1
 clean_rc=$?
-dirty_out="$("$PY" "$SCRIPT" --list backlog --verify --file "$canary_dir/dirty.ledger" 2>&1)"
+"$PY" "$SCRIPT" --list backlog --verify --file "$canary_dir/dirty.ledger" >"$canary_dir/dirty.out" 2>&1
 dirty_rc=$?
+# ⚠ Read into a file, then match it. `… | grep -q` under `set -o pipefail` reports a
+# MATCH as a failed pipeline: grep exits at the first hit, the writer takes SIGPIPE
+# 141, and pipefail hands that up. In a canary that would invert the verdict.
+dirty_says_hand_edited=0
+grep -q 'HAND-EDITED' "$canary_dir/dirty.out" && dirty_says_hand_edited=1
 
 if [ "$clean_rc" -ne 0 ]; then
     echo "ledger-sync: CANARY INCONCLUSIVE — the checker rejected a CLEAN copy (rc $clean_rc);"
     echo "             it is not discriminating, so treat every OK above as unproven"
     fail=1
-elif [ "$dirty_rc" -eq 0 ] || ! printf '%s' "$dirty_out" | grep -q 'HAND-EDITED'; then
+elif [ "$dirty_rc" -eq 0 ] || [ "$dirty_says_hand_edited" -eq 0 ]; then
     echo "ledger-sync: CANARY DID NOT CATCH a planted row (rc $dirty_rc, no HAND-EDITED verdict)"
     echo "             treat every OK above as unproven"
     fail=1
@@ -78,4 +83,4 @@ else
 fi
 
 [ "$fail" -eq 0 ] && echo "ledger-sync: OK (3 ledgers match their digests)"
-exit "$fail"
+exit "$fail"  # lint:exit-ok — `fail` only ever holds the literals 0 or 1, never a status or arithmetic

@@ -25,24 +25,44 @@ Logos inherits surface syntax, affine types, generics, and the ownership/borrowi
 
 ## Getting Started
 
-Build the compiler:
+Build the compiler. The compiler **must** be clang 20 — the generated parser does
+not build with GCC, and CMake picks `c++` (often GCC) unless you say otherwise:
 
 ```bash
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER=clang++-20
 cmake --build build
 ```
 
-Compile and run a program:
+Compile and run a program. `logosc` emits a **native object file**, not an
+executable — you link it against the stdlib archives yourself:
 
 ```bash
-build/src/compiler/logosc examples/writ_round_trip.logos -o round_trip
+build/bin/logosc examples/writ_round_trip.logos -o round_trip.o
+cc round_trip.o -Wl,--start-group build/lib/logos/*.a -Wl,--end-group \
+   -lpthread -lm -lstdc++ -Wl,--gc-sections -Wl,--allow-multiple-definition \
+   -o round_trip
 ./round_trip
 ```
 
-Run the test suite:
+(That is the same link line `tests/logos/run_test.sh` uses. Skipping it and
+running `logosc`'s output directly gives "Permission denied" — the file is an
+ELF relocatable, and the 126 you see is the shell's, not the program's.)
+
+Run the tests. The full suite is over 11,000 tests and `ctest` is single-threaded
+unless told otherwise, so start with a tier instead — one test per group (L1) or
+ten per group (L2) give broad coverage in minutes:
 
 ```bash
-cd build && ctest --output-on-failure
+cd build
+../tests/logos/test-levels.sh L1        # one test per group
+../tests/logos/test-levels.sh L2        # ten per group
+LOGOS_L4_BG=1 ../tests/logos/test-levels.sh L4    # everything; needs the flag
+```
+
+Or drive `ctest` yourself, but pass the job count — the default is 1:
+
+```bash
+cd build && ctest -j"$(nproc)" --output-on-failure
 ```
 
 See the [Getting Started guide](https://logos-lang.dev/docs/getting-started/) for prerequisites and details.

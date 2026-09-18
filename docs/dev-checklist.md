@@ -2,15 +2,15 @@
 
 **Definition-of-Done** for new features and bug fixes in the Logos compiler. Run through this before opening a PR. Reviewers verify it.
 
-The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs that all fall into ~12 systemic patterns. Each item below either prevents one of those patterns or applies a specific invariant from [memory/invariants.md](../../.claude/projects/-home-victor-devel-logos/memory/invariants.md).
+The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs that all fall into ~12 systemic patterns. Each item below prevents one of those patterns.
 
 ## Always
 
 - [ ] **Existing tests still pass.** Run `ninja -C build && ctest --test-dir build -j12`. 1132/1132 baseline as of 2026-05-07.
 - [ ] **No new compiler warnings.** Treat warnings as errors during local build.
-- [ ] **No `LOGOS_ASSERT` reachable from user input.** `LOGOS_ASSERT` is for internal invariants only — see [antipat_assertion_as_diagnostic](../../.claude/projects/-home-victor-devel-logos/memory/antipat_assertion_as_diagnostic.md).
-- [ ] **No new inline `LogosTypeBuilder t; t.kind = K::Struct/Enum/...`.** Route through `make_*_type` helpers in [sema_impl.hpp](../src/compiler/sema_impl.hpp). See [antipat_inline_typebuilder](../../.claude/projects/-home-victor-devel-logos/memory/antipat_inline_typebuilder.md).
-- [ ] **Diagnostics on malformed input are clear.** No cryptic `mlir_gen: ...` errors that user can't trace to source. See [antipat_validation_at_codegen](../../.claude/projects/-home-victor-devel-logos/memory/antipat_validation_at_codegen.md).
+- [ ] **No `LOGOS_ASSERT` reachable from user input.** `LOGOS_ASSERT` is for internal invariants only —
+- [ ] **No new inline `LogosTypeBuilder t; t.kind = K::Struct/Enum/...`.** Route through `make_*_type` helpers in [sema_impl.hpp](../src/compiler/sema_impl.hpp).
+- [ ] **Diagnostics on malformed input are clear.** No cryptic `mlir_gen: ...` errors that user can't trace to source.
 
 ## When adding a new feature
 
@@ -26,18 +26,12 @@ The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs t
 
 ### Validation
 
-- [ ] **List-of-named-items?** Run `validate_unique_names` (when M0.1 lands) at the registration site. See [antipat_list_no_dup_check](../../.claude/projects/-home-victor-devel-logos/memory/antipat_list_no_dup_check.md).
+- [ ] **List-of-named-items?** Run `validate_unique_names` (when M0.1 lands) at the registration site.
 - [ ] **Generic instantiation?** Run `check_type_arg_arity` at the resolution site.
 - [ ] **Recursion into definitions?** Has the recursion got a visited-set / depth-limit guard?
 - [ ] **Numeric literal parse?** Does it bounds-check?
 - [ ] **New attribute?** Registered in `attr_registry` (when M0.3 lands).
 - [ ] **Cast / coerce?** Pair-compatibility validated.
-
-### Invariants
-
-- [ ] Identified which invariants from [memory/invariants.md](../../.claude/projects/-home-victor-devel-logos/memory/invariants.md) this change touches.
-- [ ] Verified each touched invariant is preserved.
-- [ ] If a NEW invariant emerges, added it to invariants.md.
 
 ### Documentation
 
@@ -167,7 +161,6 @@ literal. None of that came from re-running tests that were already green.
 
 - [ ] **Bag-hunt entry referenced.** If this fixes a `B-XX-NN` bug, reference it in the commit message.
 - [ ] **Regression test added.** The minimal repro from `/tmp/baghunt/` (or wherever) becomes a permanent test in `tests/logos/`.
-- [ ] **Cluster check.** Does this bug fit a cluster from [cluster_index.md](../../.claude/projects/-home-victor-devel-logos/memory/cluster_index.md)? If yes, **also fix the other instances** in the same PR or note them as follow-ups.
 - [ ] **Anti-pattern memo updated.** If this bug was an instance of an anti-pattern, the memo's "historical violations" list should be updated.
 
 ## When changing the parser / grammar
@@ -182,7 +175,6 @@ literal. None of that came from re-running tests that were already green.
 
 - [ ] **TypeUID hash inputs** ([compute_type_uid in sema.cpp](../src/compiler/sema.cpp)) — if you add a new type field, ensure it's hashed if it's identity-relevant.
 - [ ] **TypeRef construction** routes through `make_*_type` helpers.
-- [ ] **`pkg_name` propagation** through clone / subst / mlir-gen — see [I-1, I-2, I-3, I-4](../../.claude/projects/-home-victor-devel-logos/memory/invariants.md).
 - [ ] **`type_str` output** — if it's used in user-facing diagnostics, qualify with pkg when relevant.
 
 ## When changing mlir-gen
@@ -245,7 +237,6 @@ literal. None of that came from re-running tests that were already green.
 
 When reviewing someone else's PR:
 
-- [ ] **Check the catalog**: does the change look like a known pattern in [cluster_index.md](../../.claude/projects/-home-victor-devel-logos/memory/cluster_index.md)?
 - [ ] **Run adversarial cases**: pick 2-3 corner cases the author might've missed.
 - [ ] **Verify the diff is small** for "applied helper" PRs and large for "new feature" PRs (suspicious ratios → audit).
 
@@ -265,6 +256,3 @@ The checklist starts at ~50 items as of Phase 4 of the bag-hunt. Future items wi
 - [docs/baghunt/categorization.md](baghunt/categorization.md) — cluster analysis
 - [docs/baghunt/strategy.md](baghunt/strategy.md) — sequencing
 - [docs/baghunt/meta-strategy.md](baghunt/meta-strategy.md) — infra-first plan
-- [memory/invariants.md](../../.claude/projects/-home-victor-devel-logos/memory/invariants.md) — formal invariants
-- [memory/cluster_index.md](../../.claude/projects/-home-victor-devel-logos/memory/cluster_index.md) — operational pattern→bug index
-- [memory/antipat_*.md](../../.claude/projects/-home-victor-devel-logos/memory/antipat_inline_typebuilder.md) — anti-pattern memos
