@@ -1,0 +1,6 @@
+Hand-written facts for #316 (regions-adjusted-lvalue-op--c26): (*v).oh_no(&*v).
+p0 v = Box::new(inner); p1 t1 = &mut *v (loan L0, origin O1, two-phase
+reservation: reads of *v before activation invalidate nothing); p2 t2 = &*v
+(loan L1, origin O2); p3 call oh_no(t1, t2), the activation of L0, a write
+to *v that invalidates L1. L1 is live at p3 because t2 is used there, so
+rustc's E0502 is errors(L1, p3).

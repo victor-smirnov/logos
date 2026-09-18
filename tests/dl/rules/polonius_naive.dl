@@ -1,0 +1,125 @@
+// Naive Polonius: loan analysis and initialisation analysis, in the Souffle
+// subset of ADR 0028. Relation names follow polonius-engine's facts so an
+// extractor (ADR 0028 S4) targets a known schema. This copy is the S1 oracle
+// fixture; S5 promotes it to src/compiler/dl/rules/.
+
+.type Origin   <: symbol
+.type Loan     <: symbol
+.type Point    <: symbol
+.type Variable <: symbol
+.type Path     <: symbol
+
+// ── inputs ──────────────────────────────────────────────────────────────
+.decl cfg_edge(p: Point, q: Point)
+.decl loan_issued_at(o: Origin, l: Loan, p: Point)
+.decl loan_killed_at(l: Loan, p: Point)
+.decl loan_invalidated_at(l: Loan, p: Point)
+.decl subset_base(o1: Origin, o2: Origin, p: Point)
+.decl universal_region(o: Origin)
+.decl placeholder(o: Origin, l: Loan)
+.decl known_placeholder_subset(o1: Origin, o2: Origin)
+.decl var_used_at(v: Variable, p: Point)
+.decl var_defined_at(v: Variable, p: Point)
+.decl var_dropped_at(v: Variable, p: Point)
+.decl use_of_var_derefs_origin(v: Variable, o: Origin)
+.decl drop_of_var_derefs_origin(v: Variable, o: Origin)
+.decl child_path(c: Path, p: Path)
+.decl path_is_var(x: Path, v: Variable)
+.decl path_assigned_at_base(x: Path, p: Point)
+.decl path_moved_at_base(x: Path, p: Point)
+.decl path_accessed_at_base(x: Path, p: Point)
+.input cfg_edge, loan_issued_at, loan_killed_at, loan_invalidated_at, subset_base
+.input universal_region, placeholder, known_placeholder_subset
+.input var_used_at, var_defined_at, var_dropped_at
+.input use_of_var_derefs_origin, drop_of_var_derefs_origin
+.input child_path, path_is_var, path_assigned_at_base, path_moved_at_base, path_accessed_at_base
+
+// ── initialisation ──────────────────────────────────────────────────────
+.decl ancestor_path(a: Path, c: Path)
+ancestor_path(P, C) :- child_path(C, P).
+ancestor_path(G, C) :- ancestor_path(P, C), child_path(P, G).
+
+.decl path_moved_at(x: Path, p: Point)
+path_moved_at(X, P) :- path_moved_at_base(X, P).
+path_moved_at(C, P) :- path_moved_at(X, P), ancestor_path(X, C).
+.decl path_assigned_at(x: Path, p: Point)
+path_assigned_at(X, P) :- path_assigned_at_base(X, P).
+path_assigned_at(C, P) :- path_assigned_at(X, P), ancestor_path(X, C).
+.decl path_accessed_at(x: Path, p: Point)
+path_accessed_at(X, P) :- path_accessed_at_base(X, P).
+path_accessed_at(C, P) :- path_accessed_at(X, P), ancestor_path(X, C).
+.decl path_begins_with_var(x: Path, v: Variable)
+path_begins_with_var(X, V) :- path_is_var(X, V).
+path_begins_with_var(C, V) :- path_begins_with_var(X, V), ancestor_path(X, C).
+
+.decl path_maybe_initialized_on_exit(x: Path, p: Point)
+path_maybe_initialized_on_exit(X, P) :- path_assigned_at(X, P).
+path_maybe_initialized_on_exit(X, Q) :-
+    path_maybe_initialized_on_exit(X, P), cfg_edge(P, Q), !path_moved_at(X, Q).
+.decl path_maybe_uninitialized_on_exit(x: Path, p: Point)
+path_maybe_uninitialized_on_exit(X, P) :- path_moved_at(X, P).
+path_maybe_uninitialized_on_exit(X, Q) :-
+    path_maybe_uninitialized_on_exit(X, P), cfg_edge(P, Q), !path_assigned_at(X, Q).
+.decl var_maybe_partly_initialized_on_exit(v: Variable, p: Point)
+var_maybe_partly_initialized_on_exit(V, P) :-
+    path_maybe_initialized_on_exit(X, P), path_begins_with_var(X, V).
+
+.decl move_errors(x: Path, p: Point)
+.output move_errors
+move_errors(X, Q) :-
+    path_accessed_at(X, Q), path_maybe_uninitialized_on_exit(X, P), cfg_edge(P, Q).
+
+// ── liveness ────────────────────────────────────────────────────────────
+.decl cfg_node(p: Point)
+cfg_node(P) :- cfg_edge(P, _).
+cfg_node(Q) :- cfg_edge(_, Q).
+
+.decl var_live_on_entry(v: Variable, p: Point)
+var_live_on_entry(V, P) :- var_used_at(V, P).
+var_live_on_entry(V, P) :- var_live_on_entry(V, Q), cfg_edge(P, Q), !var_defined_at(V, P).
+.decl var_drop_live_on_entry(v: Variable, p: Point)
+var_drop_live_on_entry(V, P) :- var_dropped_at(V, P).
+var_drop_live_on_entry(V, P) :-
+    var_drop_live_on_entry(V, Q), cfg_edge(P, Q), !var_defined_at(V, P),
+    var_maybe_partly_initialized_on_exit(V, P).
+
+.decl origin_live_on_entry(o: Origin, p: Point)
+.output origin_live_on_entry
+origin_live_on_entry(O, P) :- var_live_on_entry(V, P), use_of_var_derefs_origin(V, O).
+origin_live_on_entry(O, P) :- var_drop_live_on_entry(V, P), drop_of_var_derefs_origin(V, O).
+origin_live_on_entry(O, P) :- universal_region(O), cfg_node(P).
+
+// ── loans ───────────────────────────────────────────────────────────────
+.decl subset(o1: Origin, o2: Origin, p: Point)
+subset(O1, O2, P) :- subset_base(O1, O2, P).
+subset(O1, O3, P) :- subset(O1, O2, P), subset(O2, O3, P).
+subset(O1, O2, Q) :-
+    subset(O1, O2, P), cfg_edge(P, Q), origin_live_on_entry(O1, Q), origin_live_on_entry(O2, Q).
+
+.decl origin_contains_loan_on_entry(o: Origin, l: Loan, p: Point)
+origin_contains_loan_on_entry(O, L, P) :- loan_issued_at(O, L, P).
+origin_contains_loan_on_entry(O, L, P) :- placeholder(O, L), cfg_node(P).
+origin_contains_loan_on_entry(O2, L, P) :-
+    origin_contains_loan_on_entry(O1, L, P), subset(O1, O2, P).
+origin_contains_loan_on_entry(O, L, Q) :-
+    origin_contains_loan_on_entry(O, L, P), !loan_killed_at(L, P), cfg_edge(P, Q),
+    origin_live_on_entry(O, Q).
+
+.decl loan_live_at(l: Loan, p: Point)
+.output loan_live_at
+loan_live_at(L, P) :- origin_contains_loan_on_entry(O, L, P), origin_live_on_entry(O, P).
+
+.decl errors(l: Loan, p: Point)
+.output errors
+errors(L, P) :- loan_invalidated_at(L, P), loan_live_at(L, P).
+
+// ── placeholders (named lifetimes) ──────────────────────────────────────
+.decl known_subset(o1: Origin, o2: Origin)
+known_subset(O1, O2) :- known_placeholder_subset(O1, O2).
+known_subset(O1, O3) :- known_subset(O1, O2), known_placeholder_subset(O2, O3).
+
+.decl subset_errors(o1: Origin, o2: Origin, p: Point)
+.output subset_errors
+subset_errors(O1, O2, P) :-
+    origin_contains_loan_on_entry(O2, L1, P), placeholder(O1, L1), placeholder(O2, _),
+    O1 != O2, !known_subset(O1, O2).

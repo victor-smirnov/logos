@@ -1,0 +1,29 @@
+// Three strata of negation, a wildcard under negation, comparisons, a binding
+// equality, numbers, and a nullary relation.
+.decl node(x: number)
+.input node
+.decl edge(a: number, b: number)
+.input edge
+.decl root(x: number)
+.input root
+.decl reach(x: number)
+.decl unreached(x: number)
+.output unreached
+.decl sink(x: number)
+.output sink
+.decl reached_sink_free(x: number)
+.output reached_sink_free
+.decl pair_distinct_sinks(a: number, b: number)
+.output pair_distinct_sinks
+.decl twice(x: number, y: number)
+.output twice
+.decl has_unreached()
+.output has_unreached
+reach(X) :- root(X).
+reach(Y) :- reach(X), edge(X, Y).
+unreached(X) :- node(X), !reach(X).
+sink(X) :- node(X), !edge(X, _).
+reached_sink_free(X) :- reach(X), !sink(X), !unreached(X).
+pair_distinct_sinks(X, Y) :- sink(X), sink(Y), X != Y.
+twice(X, Y) :- node(X), Y = X, X != 3.
+has_unreached() :- unreached(_).

@@ -1,0 +1,4 @@
+Hand-written facts for v.push(v.len()), legal Rust two-phase borrowing.
+p0 v = Vec::new(); p1 t1 = &mut v (loan L0, origin O1, reservation); p2 t3 = &v
+(loan L1, origin O3); p3 n = len(t3); p4 push(t1, n), the activation, which
+invalidates L1. L1 is dead at p4 (t3 is not used after p3), so no error.

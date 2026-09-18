@@ -1,0 +1,4 @@
+Hand-written initialisation facts. x and y assigned at p0 and moved at p1; y is
+reassigned at p2. x is accessed at p2 (use after move), y at p3 (fine, it was
+reassigned), x.f (child of x) at p3. Accessing x at p2 also accesses x.f, so
+the errors are (x, p2), (xf, p2) and (xf, p3).

@@ -1,0 +1,10 @@
+// Same-generation: a non-linear recursive rule joining two atoms of its own relation's inputs.
+.decl parent(p: symbol, c: symbol)
+.input parent
+.decl person(x: symbol)
+.decl sg(a: symbol, b: symbol)
+.output sg
+person(X) :- parent(X, _).
+person(X) :- parent(_, X).
+sg(X, X) :- person(X).
+sg(X, Y) :- parent(PX, X), sg(PX, PY), parent(PY, Y).

@@ -133,6 +133,37 @@ add_test(NAME trait_engine_test COMMAND trait_engine_test
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp;tier_full")
 
+# ---------------------------------------------------------------------------
+# logos_dl — the Datalog engine of ADR 0028 (#419). No dependency on the rest
+# of the compiler. `logos-dl` runs a rule file like Souffle's interpreter so
+# tests/dl/oracle.sh can compare the two on the same inputs.
+# ---------------------------------------------------------------------------
+add_library(logos_dl STATIC
+    dl/dl_parse.cpp
+    dl/dl_eval.cpp
+)
+target_include_directories(logos_dl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/dl)
+
+add_executable(logos-dl dl/dl_cli.cpp)
+target_link_libraries(logos-dl PRIVATE logos_dl)
+
+add_executable(dl_test dl/dl_test.cpp)
+target_link_libraries(dl_test PRIVATE logos_dl)
+
+add_test(NAME dl_test COMMAND dl_test)
+set_tests_properties(dl_test PROPERTIES LABELS "dl;cpp;tier_commit")
+
+# Souffle is the oracle; without it the test reports SKIPPED (rc 77), never
+# passed.
+add_test(NAME dl_souffle_oracle
+         COMMAND bash ${CMAKE_SOURCE_DIR}/tests/dl/oracle.sh
+                 $<TARGET_FILE:logos-dl>
+                 ${CMAKE_SOURCE_DIR}/tests/dl/cases
+                 ${CMAKE_SOURCE_DIR}/tests/dl/rules)
+set_tests_properties(dl_souffle_oracle PROPERTIES
+    LABELS "dl;cpp;tier_commit"
+    SKIP_RETURN_CODE 77)
+
 # Verifies TypeRef/lir_view cross-arena dispatch (ExternalRef detection +
 # ArenaPool resolution end-to-end). See docs/internals/multi-arena-ir.md.
 

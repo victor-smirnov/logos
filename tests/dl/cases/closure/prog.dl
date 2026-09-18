@@ -1,0 +1,10 @@
+// Transitive closure over a graph with a cycle, a self-loop and a disconnected part.
+.decl edge(a: symbol, b: symbol)
+.input edge
+.decl path(a: symbol, b: symbol)
+.output path
+.decl on_cycle(a: symbol)
+.output on_cycle
+path(X, Y) :- edge(X, Y).
+path(X, Z) :- path(X, Y), edge(Y, Z).
+on_cycle(X) :- path(X, X).
