@@ -1,0 +1,59 @@
+// ADR 0027 S3 (D11) — ADMIT half of fail/bc_row_ref_return_dangle.
+//
+// THE ONE VARIABLE: the container the row is taken from is a PARAMETER, so the
+// borrow the `RowRef` carries is rooted in the caller and outlives the call.
+// Logos has no lifetime parameters, so this is the whole elision model.
+//
+// Two more shapes that must not start refusing, in the same file because they are
+// the same question asked of a different root:
+//   `ok_owned`  — a `RowBuf` returned BY VALUE out of a function whose `Writ` is a
+//                 fn-LOCAL. `RowBuf` OWNS its assembled document (D11's owning
+//                 provenance), so ownership must not be mistaken for a carried
+//                 borrow. This is the case that prices the promotion.
+//   `ok_reborrow` — `RowBuf::as_ref` hands a `RowRef` back out of an owned buffer;
+//                 borrowing from something OWNED by the caller's frame is legal.
+//
+// The uses assert VALUES, not just that the file compiles.
+package bc_row_ref_return_admit;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.row;
+use logos.lang.result;
+
+pub fn ok(w: &Writ) -> RowRef {
+    let mut b: WRowBuilder = w.row_builder(4i64);
+    b.set(0i64, 7i64);
+    b.set(2i64, 9i64);
+    let r: &mut WRow = w.row_finish(&b);
+    return w.row_ref(WAny::from(&*r));
+}
+
+pub fn ok_owned() -> RowBuf {
+    let w: Writ = writ_new(4096i64);
+    let mut b: WRowBuilder = w.row_builder(4i64);
+    b.set(0i64, 41i64);
+    let r: &mut WRow = w.row_finish(&b);
+    let v: RowRef = w.row_ref(WAny::from(&*r));
+    match v.to_buf() {
+        Result::Ok(o)  => { return o; }        // owned: `w` may die, `o` may not
+        Result::Err(_) => { panic("ok_owned: the S3 assembly arm refused a scalar row"); }
+    }
+}
+
+fn main() -> i32 {
+    let w: Writ = writ_new(4096i64);
+    let v: RowRef = ok(&w);
+    if v.span() != 3i64 { return 1i32; }
+    if v.count() != 2i64 { return 2i32; }
+    if v.get(0i64).as_i56() != 7i64 { return 3i32; }
+    if v.get(2i64).as_i56() != 9i64 { return 4i32; }
+
+    let o: RowBuf = ok_owned();               // its source container is long gone
+    if o.span() != 1i64 { return 5i32; }
+    if o.get(0i64).as_i56() != 41i64 { return 6i32; }
+
+    let back: RowRef = o.as_ref();            // ok_reborrow, from the owned buffer
+    if back.get(0i64).as_i56() != 41i64 { return 7i32; }
+    return 0i32;
+}

@@ -140,6 +140,8 @@ sym	logos.lang.writ.dview.DViewStore__type_id__g__ref_T
 sym	logos.lang.writ.dview.DView__type_id__g__ref_T
 sym	logos.lang.writ.objdata.WritObjectData__type_id__g__ref_T
 sym	logos.lang.writ.parameter.WParameter__type_id__g__ref_T
+sym	logos.lang.writ.row.RowBuf__type_id__g__ref_T
+sym	logos.lang.writ.row.RowRef__type_id__g__ref_T
 sym	logos.lang.writ.row.WRowBuilder__type_id__g__ref_T
 sym	logos.lang.writ.row.WRow__type_id__g__ref_T
 sym	logos.lang.writ.static_view.SView2__type_id__g__ref_T
@@ -2556,6 +2558,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$Response__skip_while__g__OptionIte
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Response__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Response__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Response__take_while__g__OptionIter$G1$T__fn(&T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__filter__g__OptionIter$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__inspect__g__OptionIter$G1$T__fn(&T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__max_by__g__OptionIter$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__min_by__g__OptionIter$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__skip_while__g__OptionIter$G1$T__fn(&T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$RowBuf__take_while__g__OptionIter$G1$T__fn(&T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$String__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$String__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$String__filter__g__OptionIter$G1$T__fn(&T) -> bool
@@ -3181,6 +3201,7 @@ sym	logos_lang..logos.lang.iter.Option__QuoteItemBlob__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ReadDir__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Request__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Response__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__RowBuf__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__String__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Url__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Utf8Chunk__into_iter__g__Option
@@ -3246,6 +3267,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__QuoteItemBlob
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ReadDir
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Request
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Response
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__RowBuf
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__String
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Url
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Utf8Chunk
@@ -3796,6 +3818,21 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$Response__skip_while__g__ResultIte
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Response__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Response__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Response__take_while__g__ResultIter$G1$T__fn(&T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__filter__g__ResultIter$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__inspect__g__ResultIter$G1$T__fn(&T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__max_by__g__ResultIter$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__min_by__g__ResultIter$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__skip_while__g__ResultIter$G1$T__fn(&T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$RowBuf__take_while__g__ResultIter$G1$T__fn(&T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$String__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$String__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$String__filter__g__ResultIter$G1$T__fn(&T) -> bool
@@ -4200,6 +4237,7 @@ sym	logos_lang..logos.lang.iter.Result__PkdSsrle__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__ReadDir__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__Request__HttpError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__Response__HttpError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__RowBuf__CloneRefusal__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__String__HttpError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__String__JsonError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__String__QError__into_iter__g__Result
@@ -4234,6 +4272,7 @@ sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Response__HttpError
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__String__HttpError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__String__JsonError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__String__QError
@@ -6428,6 +6467,20 @@ sym	logos_lang..logos.lang.option.Option__Response__unwrap__g__Option
 sym	logos_lang..logos.lang.option.Option__Response__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__Response__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__Response__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__RowBuf__default__g__void
+sym	logos_lang..logos.lang.option.Option__RowBuf__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__RowBuf__filter__g__Option__fn(&T) -> bool
+sym	logos_lang..logos.lang.option.Option__RowBuf__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__RowBuf__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__RowBuf__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__RowBuf__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__RowBuf__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__RowBuf__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__RowBuf__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__RowBuf__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__RowBuf__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__RowBuf__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__RowBuf__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__String__default__g__void
 sym	logos_lang..logos.lang.option.Option__String__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__String__filter__g__Option__fn(&T) -> bool
@@ -6669,6 +6722,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__default__g__void__ReadDir
 sym	logos_lang..logos.lang.option.Option__default__g__void__Request
 sym	logos_lang..logos.lang.option.Option__default__g__void__Response
+sym	logos_lang..logos.lang.option.Option__default__g__void__RowBuf
 sym	logos_lang..logos.lang.option.Option__default__g__void__String
 sym	logos_lang..logos.lang.option.Option__default__g__void__Url
 sym	logos_lang..logos.lang.option.Option__default__g__void__Utf8Chunk
@@ -6743,6 +6797,7 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__QuoteItem
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ReadDir
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Request
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Response
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__RowBuf
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__String
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Url
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Utf8Chunk
@@ -6845,6 +6900,7 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__Quo
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__ReadDir
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__Request
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__Response
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__RowBuf
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__String
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__Url
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(&T) -> bool__Utf8Chunk
@@ -6975,6 +7031,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Request
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Response
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__RowBuf
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__String
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Url
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Utf8Chunk
@@ -7049,6 +7106,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Request
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Response
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__RowBuf
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__String
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Url
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Utf8Chunk
@@ -7123,6 +7181,7 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ReadDir
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Request
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Response
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__RowBuf
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__String
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Url
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Utf8Chunk
@@ -7197,6 +7256,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Request
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Response
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__RowBuf
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__String
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Url
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Utf8Chunk
@@ -7271,6 +7331,7 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Qu
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Request
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Response
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__RowBuf
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__String
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Url
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Utf8Chunk
@@ -7415,6 +7476,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__QuoteIte
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ReadDir
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Request
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Response
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__RowBuf
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__String
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Url
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Utf8Chunk
@@ -7489,6 +7551,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Request
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Response
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__RowBuf
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__String
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Url
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Utf8Chunk
@@ -7619,6 +7682,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Request
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Response
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__RowBuf
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__String
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Url
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Utf8Chunk
@@ -7693,6 +7757,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ReadDir
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Request
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Response
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__RowBuf
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__String
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Url
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Utf8Chunk
@@ -7767,6 +7832,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ReadDir
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Request
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Response
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__RowBuf
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__String
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Url
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Utf8Chunk
@@ -7841,6 +7907,7 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__QuoteItemBlob
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Request
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Response
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__RowBuf
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__String
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Url
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Utf8Chunk
@@ -8187,6 +8254,18 @@ sym	logos_lang..logos.lang.result.Result__Response__HttpError__unwrap__g__Result
 sym	logos_lang..logos.lang.result.Result__Response__HttpError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__Response__HttpError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__Response__HttpError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__err__g__Result
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__RowBuf__CloneRefusal__unwrap_or_else__g__Result__fn(E) -> T
 sym	logos_lang..logos.lang.result.Result__String__HttpError__err__g__Result
 sym	logos_lang..logos.lang.result.Result__String__HttpError__expect__g__Result__slice_u8
 sym	logos_lang..logos.lang.result.Result__String__HttpError__expect_err__g__Result__slice_u8
@@ -8306,6 +8385,7 @@ sym	logos_lang..logos.lang.result.Result__err__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__err__g__Result__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__err__g__Result__String__HttpError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__String__QError
@@ -8350,6 +8430,7 @@ sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__PkdSsrle_
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__String__HttpError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__String__JsonError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__String__QError
@@ -8394,6 +8475,7 @@ sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__PkdSs
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__String__HttpError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__String__JsonError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__String__QError
@@ -8606,6 +8688,7 @@ sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__PkdSsrle__PkdEr
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__String__HttpError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__String__QError
@@ -8650,6 +8733,7 @@ sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__String__HttpError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__String__JsonError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__String__QError
@@ -8694,6 +8778,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__PkdSsrle__PkdErr
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__String__HttpError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__String__QError
@@ -8738,6 +8823,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__P
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__String__HttpError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__String__JsonError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__String__QError
@@ -8782,6 +8868,7 @@ sym	logos_lang..logos.lang.result.Result__ok__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__String__HttpError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__String__QError
@@ -8946,6 +9033,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__String__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__String__QError
@@ -8990,6 +9078,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__PkdSsrle__PkdEr
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__String__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__String__QError
@@ -9034,6 +9123,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__PkdSsrle__Pkd
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__String__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__String__JsonError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__String__QError
@@ -9078,6 +9168,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T_
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Response__HttpError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__RowBuf__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__String__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__String__JsonError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__String__QError
@@ -9401,6 +9492,18 @@ sym	logos_lang..logos.lang.writ.parameter.WParameter__name__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WParameter__name_str__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WParameter__value__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.Writ__parameter__f__ref_Writ__slice_u8__WAny
+sym	logos_lang..logos.lang.writ.row.RowBuf__as_ref__f__ref_RowBuf
+sym	logos_lang..logos.lang.writ.row.RowBuf__contains__f__ref_RowBuf__i64
+sym	logos_lang..logos.lang.writ.row.RowBuf__count__f__ref_RowBuf
+sym	logos_lang..logos.lang.writ.row.RowBuf__get__f__ref_RowBuf__i64
+sym	logos_lang..logos.lang.writ.row.RowBuf__row__f__ref_RowBuf
+sym	logos_lang..logos.lang.writ.row.RowBuf__span__f__ref_RowBuf
+sym	logos_lang..logos.lang.writ.row.RowRef__contains__f__ref_RowRef__i64
+sym	logos_lang..logos.lang.writ.row.RowRef__count__f__ref_RowRef
+sym	logos_lang..logos.lang.writ.row.RowRef__get__f__ref_RowRef__i64
+sym	logos_lang..logos.lang.writ.row.RowRef__row__f__ref_RowRef
+sym	logos_lang..logos.lang.writ.row.RowRef__span__f__ref_RowRef
+sym	logos_lang..logos.lang.writ.row.RowRef__to_buf__f__ref_RowRef
 sym	logos_lang..logos.lang.writ.row.WAny__as_row__f__ref_WAny
 sym	logos_lang..logos.lang.writ.row.WAny__from__f__ref_WRow
 sym	logos_lang..logos.lang.writ.row.WAny__is_row__f__ref_WAny
@@ -9420,6 +9523,7 @@ sym	logos_lang..logos.lang.writ.row.WRow__span__f__ref_WRow
 sym	logos_lang..logos.lang.writ.row.Writ__row_builder__f__ref_Writ__i64
 sym	logos_lang..logos.lang.writ.row.Writ__row_finish__f__ref_Writ__ref_WRowBuilder
 sym	logos_lang..logos.lang.writ.row.Writ__row_of__f__ref_Writ__WAny
+sym	logos_lang..logos.lang.writ.row.Writ__row_ref__f__ref_Writ__WAny
 sym	logos_lang..logos.lang.writ.static_view.WView2__array_get__f__WView2__WAny__u64
 sym	logos_lang..logos.lang.writ.static_view.WView2__array_len__f__WView2__WAny
 sym	logos_lang..logos.lang.writ.static_view.WView2__get_bool__f__WView2__WAny
@@ -9695,6 +9799,8 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Response
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Rng
+sym	logos_lang.logos.lang.any$type_id_of__g__void__RowBuf
+sym	logos_lang.logos.lang.any$type_id_of__g__void__RowRef
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RtVal
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView2
@@ -10157,6 +10263,7 @@ sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__QuoteItemBlo
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__ReadDir
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__Request
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__Response
+sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__RowBuf
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__String
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__Url
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option__Utf8Chunk
@@ -10289,6 +10396,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__QuoteItemBlob
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ReadDir
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Request
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Response
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__RowBuf
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__String
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Url
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Utf8Chunk
@@ -12781,6 +12889,8 @@ type	logos.lang.writ.dview.DView	fields=[obj:*const u8,len:u64,tag:u64,meta:u64]
 type	logos.lang.writ.dview.DViewStore	fields=[tag:u64,meta:u64,data:PrimVec<u8>,offsets:PrimVec<u64>]
 type	logos.lang.writ.objdata.WritObjectData	fields=[doc:Writ,off:i64,len:i64,tag:u64]
 type	logos.lang.writ.parameter.WParameter	fields=[name:i64,value:i64]
+type	logos.lang.writ.row.RowBuf	fields=[doc:Writ,off:i64]
+type	logos.lang.writ.row.RowRef	fields=[r:&WRow]
 type	logos.lang.writ.row.WRow	fields=[atom0:u64]
 type	logos.lang.writ.row.WRowBuilder	fields=[atoms:*mut u64,vals:*mut WAny,max_span:i64,span:i64,alloc:*mut Allocator]
 type	logos.lang.writ.static_view.SView2	fields=[ptr:*const u8,len:u64]

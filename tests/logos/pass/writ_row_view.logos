@@ -1,0 +1,104 @@
+// ADR 0027 S3 (D10/D11) — THE TWO ROW VIEWS AND THE PROMOTION BETWEEN THEM.
+//
+// D11: "two types — `RowRef` (holder borrows the leaf, residency applies) and
+// `RowBuf` (holder owns the assembled arena) — with an explicit constructor from
+// the first to the second." This file prices all three: the borrow, the owner,
+// and the constructor.
+//
+// THE WITNESS IS THE Ref COLUMN, and that is the whole point of case 4. A `Ref`
+// at rest is a self-relative delta from its own slot address, so a row copied as
+// raw bytes reads back PERFECTLY in every Pod column while every Ref column
+// resolves into unrelated memory. Column 3 holds a string; if the promotion did
+// not re-anchor, `get(3)` would not be "beta" — and nothing else in this file
+// would notice.
+//
+// THE BORROW-CARRYING half is NOT here: whether the checker refuses a `RowRef`
+// that outlives its container is a REFUSAL, and refusals live in fail/ with an
+// admit twin. See fail/bc_row_ref_return_dangle + pass/bc_row_ref_return_admit.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.row;
+use logos.lang.writ.wstring;
+use logos.lang.str;
+use logos.lang.result;
+
+// Case 5's carrier: a `RowBuf` built inside a function whose container is a
+// fn-LOCAL, then MOVED OUT. The owning form must survive the death of the arena
+// it was assembled FROM — that is what "owns" means and it is not what `RowRef`
+// does.
+fn make_owned() -> RowBuf {
+    let w: Writ = writ_new(4096i64);
+    let mut b: WRowBuilder = w.row_builder(8i64);
+    b.set(0i64, 11i64);
+    b.set(3i64, "gamma");
+    let r: &mut WRow = w.row_finish(&b);
+    let v: RowRef = w.row_ref(WAny::from(&*r));
+    match v.to_buf() {
+        Result::Ok(o)  => { return o; }
+        Result::Err(_) => { panic("make_owned: the S3 assembly arm refused a two-column row"); }
+    }
+}
+
+fn main() -> i32 {
+    let w: Writ = writ_new(4096i64);
+    let mut b: WRowBuilder = w.row_builder(8i64);
+    b.set(0i64, 7i64);
+    b.set(3i64, "beta");
+    b.set(5i64, 2.5f64);
+    let r: &mut WRow = w.row_finish(&b);
+
+    // ── case 1 — THE BORROW FORM reads exactly what the row holds.
+    let v: RowRef = w.row_ref(WAny::from(&*r));
+    if v.span()  != 6i64 { return 1i32; }
+    if v.count() != 3i64 { return 2i32; }
+    if !v.contains(0i64) { return 3i32; }
+    if !v.contains(3i64) { return 4i32; }
+    if !v.contains(5i64) { return 5i32; }
+    if v.contains(1i64)  { return 6i32; }        // absent by bit, not by bounds
+    if v.contains(6i64)  { return 7i32; }        // absent by BOUNDS (== span)
+    if v.get(0i64).as_i56() != 7i64 { return 8i32; }
+    if !str_eq(v.get(3i64).as_wstr(), "beta") { return 9i32; }
+    if v.get(5i64).as_f64() != 2.5f64 { return 10i32; }
+
+    // The borrow form is a VIEW, not a copy: it addresses the very same object.
+    if (v.row() as *const WRow) != (r as *const WRow) { return 11i32; }
+
+    // ── case 3 — THE PROMOTION: one explicit call, never implicit.
+    let o: RowBuf = match v.to_buf() {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 12i32; }
+    };
+
+    // ── case 2 — THE OWNING FORM answers every question the borrow does.
+    if o.span()  != 6i64 { return 13i32; }
+    if o.count() != 3i64 { return 14i32; }
+    if !o.contains(0i64) { return 15i32; }
+    if !o.contains(3i64) { return 16i32; }
+    if !o.contains(5i64) { return 17i32; }
+    if o.contains(1i64)  { return 18i32; }
+    if o.get(0i64).as_i56() != 7i64 { return 19i32; }
+    if o.get(5i64).as_f64() != 2.5f64 { return 20i32; }
+
+    // ── case 4 — THE Ref COLUMN SURVIVED ASSEMBLY, in a DIFFERENT arena.
+    if !str_eq(o.get(3i64).as_wstr(), "beta") { return 21i32; }
+    // …and it really is a different arena: the owned row is not the borrowed one.
+    if (o.row() as *const WRow) == (r as *const WRow) { return 22i32; }
+    // The source row is untouched by the promotion.
+    if !str_eq(v.get(3i64).as_wstr(), "beta") { return 23i32; }
+
+    // Re-borrowing the owned buffer costs nothing and addresses the owned copy.
+    let back: RowRef = o.as_ref();
+    if (back.row() as *const WRow) != (o.row() as *const WRow) { return 24i32; }
+    if !str_eq(back.get(3i64).as_wstr(), "beta") { return 25i32; }
+
+    // ── case 5 — MOVE OUT OF SCOPE: the owner outlived the arena it came from.
+    let m: RowBuf = make_owned();
+    if m.span()  != 4i64 { return 26i32; }
+    if m.count() != 2i64 { return 27i32; }
+    if m.get(0i64).as_i56() != 11i64 { return 28i32; }
+    if !str_eq(m.get(3i64).as_wstr(), "gamma") { return 29i32; }
+
+    return 0i32;
+}

@@ -128,12 +128,30 @@ stdlib/lcm/sync/sync.logos	RwLock	axis_rwlock
 # noalias+readonly would be the wrong answer while `as_ptr()` hands out a
 # pointer into that arena.
 #
+#
+# 2026-09-18 — `RowBuf` (logos.lang.writ.row) APPEARS here for the same reason
+# `WritObjectData` and `AnyBox` do: it owns a `Writ` BY VALUE — the assembled
+# document a spanning row is materialised into (ADR 0027 D10/D11, slice S3) —
+# and `Writ` is an INTERIOR root, so the field recursion reaches a root and
+# `RowBuf` is correctly non-Freeze. REVIEWED and intended: owning that arena is
+# what "owns" MEANS for the owning half of the RowRef/RowBuf split; the `doc`
+# field is private so nobody gets a mutable arena out of a `&RowBuf`; and a
+# `&RowBuf` earning noalias+readonly would be the wrong answer while `row()`
+# hands out a `&WRow` pointing INTO that arena.
+#
+# ⚠ `RowRef` IS DELIBERATELY NOT HERE, and that is a claim rather than an
+# omission: it holds `r: &WRow`, and a reference is the indirection stop this
+# section's predicate uses, so it never reaches the root. What ties a `RowRef`
+# to its container is `#[borrow_carrying]` — a borrow-checker fact, pinned by
+# fail/bc_row_ref_return_dangle and its admit twin. Freeze-ness and borrow
+# carrying are different questions; this ledger answers only the first.
 # FORMAT: `<repo-relative path>\t<Name>\t<axis id | ->`  (TAB-separated)
 TRANSITIVE
 stdlib/lang/cell/cell.logos	LazyCell	axis_lazycell
 stdlib/lang/cell/cell.logos	OnceCellTakeGuard	-
 stdlib/lang/fabric/fabric.logos	Buffer	-
 stdlib/lang/writ/objdata.logos	WritObjectData	-
+stdlib/lang/writ/row.logos	RowBuf	-
 stdlib/lcm/deem/data/bt/cow.logos	LeafDirNode	-
 stdlib/lcm/deem/data/bt/cow.logos	LeafNode	-
 stdlib/lcm/deem/data/bt/cow.logos	LeafNodeForBranch	-

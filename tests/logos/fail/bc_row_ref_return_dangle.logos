@@ -1,0 +1,32 @@
+// ADR 0027 S3 (D11) — A `RowRef` CARRIES THE BORROW OF THE CONTAINER IT WAS
+// TAKEN FROM, so returning one over a fn-LOCAL `Writ` is a dangling reference.
+//
+// This is the refusal `RowRef`'s residency guarantee actually rests on. D11 says
+// "residency applies" to `RowRef` and ADR 0025 §7 describes a pin ladder for it,
+// but that ladder is four defaulted no-ops with ZERO callers
+// (`snap_pin`/`snap_unpin`/`leaf_pin`/`leaf_unpin`, stdlib/mem/bt/map.logos),
+// re-measured 2026-09-18. So what keeps a `RowRef`'s row alive is the borrow of
+// its container — enforced here, by the borrow-checker, and nowhere else.
+//
+// THE ONE VARIABLE against pass/bc_row_ref_return_admit: the container the row is
+// taken from is a fn-LOCAL here and a PARAMETER there. Same door, same view, same
+// return. Neither half stands alone: this refusal message is byte-identical to
+// what an over-refusing checker prints for the admitted spelling too.
+package bc_row_ref_return_dangle;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.row;
+
+pub fn bad() -> RowRef {
+    let w: Writ = writ_new(4096i64);
+    let mut b: WRowBuilder = w.row_builder(4i64);
+    b.set(0i64, 7i64);
+    let r: &mut WRow = w.row_finish(&b);
+    return w.row_ref(WAny::from(&*r));     // the view borrows `w`, which dies here
+}
+
+fn main() -> i32 {
+    let v: RowRef = bad();
+    return v.span() as i32;
+}

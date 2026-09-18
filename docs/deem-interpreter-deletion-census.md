@@ -6138,8 +6138,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                tier_commit, so unlike the S1 pass fixture above — which moved ALL and NOIMPORTED but left TIERCOMMIT alone — all
 #                THREE move together by one. RE-DERIVED FROM THE GATE'S OWN MEASUREMENT (it printed measured 11077/6575/355 on the
 #                reconfigured tree), not by adding one to the previous line.
-REGISTRY-ALL         11077
-REGISTRY-NOIMPORTED  6575
+#                ALL 11077 -> 11080 (+3), NOIMPORTED 6575 -> 6578 (+3), TIERCOMMIT 355 -> 355 (0) — 2026-09-18-adr0027s3 lands
+#                THREE FIXTURES ADDED, NOT EDITED: pass/writ_row_view, pass/bc_row_ref_return_admit,
+#                fail/bc_row_ref_return_dangle. TIERCOMMIT does not move — none of the three is tier_commit.
+#                RE-DERIVED FROM THE GATE'S OWN MEASUREMENT (it printed measured 11080/6578/355), never by adding 3.
+#                ⚠ The gate was run TWICE: the first run measured 11079/6577 because `writ_row_view` was created in the
+#                same call that launched the rebuild, so the CONFIGURE_DEPENDS glob had not yet seen it and ctest did not
+#                register it. Pinning that first triple would have pinned a corpus MISSING one of this round's own tests.
+REGISTRY-ALL         11080
+REGISTRY-NOIMPORTED  6578
 REGISTRY-TIERCOMMIT  355
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

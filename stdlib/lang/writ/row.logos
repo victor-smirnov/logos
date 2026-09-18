@@ -54,6 +54,12 @@
 // Pinned by case 6 of tests/logos/pass/writ_row_format, which round-trips a
 // Ref-bearing row through a DIFFERENT arena.
 //
+// TWO VIEWS SINCE S3, AT THE END OF THIS FILE. `RowRef` borrows the container it
+// was read from (D10's "fits a block"); `RowBuf` owns an assembled document of
+// its own (D10's "spans blocks"); `RowRef::to_buf` is D11's explicit promotion
+// and `Writ::row_ref` the door. What keeps a `RowRef` alive is its BORROW, not a
+// store pin — see the note above the types.
+//
 // What remains S5 is freezing a row into a CONTAINER, which needs the mutation
 // protocol (D11) that S1 and S3 deliberately do not touch.
 //
@@ -72,6 +78,9 @@ use logos.lang.writ.anyval;      // WAny, W_ROW, w_type_code
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc — for the str column
 use logos.lang.str;              // str
 use logos.lang.panic;            // panic — a wrong-type resolve is a type violation
+use logos.lang.writ.objdata;     // wod_serialize / materialize — the assembly path (S3)
+use logos.lang.writ.compactify;  // CloneRefusal — named in to_buf's signature
+use logos.lang.result;           // Result
 
 // Atom 0's low 48 bits are the presence bitmap; bits[48:63] are the span.
 const WROW_BITMAP0_MASK: u64 = 0x0000FFFFFFFFFFFFu64;
@@ -283,6 +292,15 @@ impl Writ {
         if !e.is_row() { panic("Writ::row_of: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
         return unsafe { &*(e.resolve() as *const WRow) };
     }
+
+    /// Borrows `e`'s row as a `RowRef` tied to this container — the D11 fast path.
+    /// PANICS if `e` is not a Ref to a `W_ROW` object (the resolver-guard class),
+    /// exactly as `row_of` does; `row_of` hands back the bare `&WRow`, `row_ref`
+    /// hands back the view that SAYS it borrows.
+    pub fn row_ref<'a>(self: &'a Writ, e: WAny) -> RowRef {
+        if !e.is_row() { panic("Writ::row_ref: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
+        return RowRef { r: unsafe { &*(e.resolve() as *const WRow) } };
+    }
 }
 
 impl WRowBuilder {
@@ -329,4 +347,144 @@ impl WAny {
         if !self.is_row() { panic("WAny::as_row: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
         return unsafe { &*(self.resolve() as *const WRow) };
     }
+}
+
+// Base of a container's head-segment data region — the address every offset in
+// a `RowBuf` is measured from. Mirrors `WritObjectData::as_ptr`'s computation;
+// the head segment is where an exact-fit assembled document puts its one run.
+unsafe fn row_arena_base(d: &Writ) -> i64 {
+    let seg: *mut Segment = (*d.allocator.get()).head;
+    return (seg as i64) + (sizeof::<Segment>() as i64);
+}
+
+// ── S3: the two row views (ADR 0027 D11) ─────────────────────────────────────
+//
+// D11 gives ONE row behind TWO ownerships and makes them two types rather than
+// one type with a provenance flag: "`RowRef` (holder borrows the leaf, residency
+// applies) and `RowBuf` (holder owns the assembled arena) — with an explicit
+// constructor from the first to the second. The fast path stays a borrow and says
+// so in the type."
+//
+// D10 is why there are two at all: a row that FITS a block is read in place, and
+// a row that SPANS blocks "is read into a memory buffer first, and only then is
+// it a document". `RowBuf` owns that document — a live `Writ`, not a tagless
+// `WritObjectData` run — which is why promotion goes through the pair the ADR
+// names, `wod_serialize` then `materialize`.
+//
+// ⚠ RESIDENCY IS THE HOLDER'S OWN BORROW, NOT A STORE PIN. D11 says "residency
+// applies" to `RowRef` and ADR 0025 §7 describes a pin ladder for it. That ladder
+// is four defaulted no-ops with ZERO callers anywhere in the repository
+// (`snap_pin` / `snap_unpin` / `leaf_pin` / `leaf_unpin`, `stdlib/mem/bt/map.logos`),
+// re-measured while writing this. So `RowRef` does NOT claim a store-enforced
+// residency: what keeps its row alive is the borrow of the container it was taken
+// from, which the borrow-checker enforces and a fixture pins. Stated here rather
+// than assumed, because a guarantee nothing implements is worse than none.
+
+/// A row READ IN PLACE: borrows the container it lives in (D10's "fits a block").
+///
+/// `#[borrow_carrying]`, so the borrow of the source container rides the view:
+/// returning a `RowRef` over a container that dies at the end of the function is
+/// refused (`fail/bc_row_ref_return_dangle`), while the same construction rooted
+/// at a caller's container is admitted (`pass/bc_row_ref_return_admit`).
+#[borrow_carrying]
+pub struct RowRef {
+    /// The row, borrowed for as long as this view lives.
+    r: &WRow,
+}
+
+/// A row that OWNS its arena: the assembled form (D10's "spans blocks").
+///
+/// Holds the document by value and the row's BYTE OFFSET inside it — never a
+/// `WAny` and never a pointer. `WAny` is itself `#[borrow_carrying]`
+/// (`anyval.logos:38`), so a root `WAny` obtained from `&doc` keeps that borrow
+/// alive and the arena could not then be moved into this struct at all
+/// ("cannot move 'd' while it is borrowed" — measured, and the reason this field
+/// is an `i64`). `WritObjectData` carries the same `{ doc, off }` shape for the
+/// same reason and recomputes its pointer in `as_ptr`; this follows it.
+///
+/// The offset is stable: segments are heap blocks reached through the
+/// `Allocator`, so moving the `Writ` VALUE does not move the bytes. Dropping a
+/// `RowBuf` drops its `Writ`, whose `Allocator` frees every segment (measured
+/// under valgrind: an arena built and dropped with no explicit free leaks
+/// nothing, while a deliberate leak in the same build IS reported, so the
+/// instrument was not merely silent).
+pub struct RowBuf {
+    /// The assembled document this view owns.
+    doc: Writ,
+    /// The row object's byte offset within the head segment's data region.
+    off: i64,
+}
+
+impl RowRef {
+    /// The borrowed row. Valid while this view — hence the container — lives.
+    pub fn row(self: &RowRef) -> &WRow { return self.r; }
+
+    /// The row's column span (highest present column ID + 1).
+    pub fn span(self: &RowRef) -> i64 { return self.r.span(); }
+    /// Number of PRESENT columns (a popcount over the presence atoms).
+    pub fn count(self: &RowRef) -> i64 { return self.r.count(); }
+    /// True iff column `col` is present in this row.
+    pub fn contains(self: &RowRef, col: i64) -> bool { return self.r.contains(col); }
+    /// The value at column `col`; null when absent.
+    pub fn get(self: &RowRef, col: i64) -> WAny { return self.r.get(col); }
+
+    /// THE PROMOTION (D11's "explicit constructor"): assembles this borrowed row
+    /// into a document of its own and hands back the owning form.
+    ///
+    /// Never implicit — D11 says the fast path "says so in the type", so a caller
+    /// that wants ownership pays for it in one visible call. The copy is the
+    /// S3 assembly arm's: presence atoms travel verbatim, every value slot is
+    /// RE-ANCHORED, so a `Ref` column resolves inside the NEW arena.
+    ///
+    /// Refuses exactly as the walker refuses (too deep, unknown tag, OOM).
+    pub fn to_buf(self: &RowRef) -> Result<RowBuf, CloneRefusal> {
+        match wod_serialize(WAny::from(self.r)) {
+            Result::Err(e) => { return Result::Err(e); }
+            Result::Ok(od) => {
+                // Sized from the measured run: the assembled document holds this
+                // row and nothing else, plus the arena's own header slack.
+                let d: Writ = writ_new(od.len() + 64i64);
+                // The borrow of `d` must be DEAD before `d` moves into the result,
+                // so the root is reduced to an i64 offset here and the `WAny` is
+                // not carried past this statement.
+                let off: i64 = match od.materialize(&d) {
+                    Result::Err(e) => { return Result::Err(e); }
+                    Result::Ok(v)  => { (v.resolve() as i64) - unsafe { row_arena_base(&d) } }
+                };
+                // SINGLE-SEGMENT INVARIANT, the same one `wod_serialize` asserts
+                // for its exact-fit arena. `off` is measured from the HEAD
+                // segment, so a materialisation that grew past it would leave the
+                // offset pointing at unrelated bytes INSIDE a live arena — a read
+                // that returns plausible values instead of faulting. The sizing
+                // (`od.len() + 64`) is meant to make this unreachable; the check
+                // is here because "meant to" is not a measurement.
+                unsafe {
+                    let a: *mut Allocator = d.allocator.get();
+                    if (*a).head != (*a).current { panic("RowBuf::to_buf: the assembled row did not fit one segment — the offset would not address it"); }
+                }
+                return Result::Ok(RowBuf { doc: d, off: off });
+            }
+        }
+    }
+}
+
+impl RowBuf {
+    /// The owned row, resolved from the arena base and this buffer's offset —
+    /// recomputed, never cached, exactly as `WritObjectData::as_ptr` does it.
+    pub fn row(self: &RowBuf) -> &WRow {
+        return unsafe { &*(((row_arena_base(&self.doc)) + self.off) as *const WRow) };
+    }
+
+    /// The row's column span (highest present column ID + 1).
+    pub fn span(self: &RowBuf) -> i64 { return self.row().span(); }
+    /// Number of PRESENT columns (a popcount over the presence atoms).
+    pub fn count(self: &RowBuf) -> i64 { return self.row().count(); }
+    /// True iff column `col` is present in this row.
+    pub fn contains(self: &RowBuf, col: i64) -> bool { return self.row().contains(col); }
+    /// The value at column `col`; null when absent.
+    pub fn get(self: &RowBuf, col: i64) -> WAny { return self.row().get(col); }
+
+    /// Borrows this owned row back as a `RowRef` — the direction that costs
+    /// nothing, and the reason the two types share every accessor name.
+    pub fn as_ref(self: &RowBuf) -> RowRef { return RowRef { r: self.row() }; }
 }

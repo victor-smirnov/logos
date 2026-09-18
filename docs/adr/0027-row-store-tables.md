@@ -541,7 +541,7 @@ groups marked ∥ are independent of each other.
 |---|---|---|---|
 | S1 | `Row` object type + popcount access | — | format only; no container |
 | S2 | `TableMetadata` as a Writ container | — ∥ | ordinary document; column IDs monotone |
-| S3 | `RowRef` / `RowBuf` + the assembly path | S1 | D11; borrow-carrying |
+| S3 | `RowRef` / `RowBuf` + the assembly path | S1 | ✅ LANDED — D11; borrow-carrying; residency is the holder's own borrow (the §7 pin ladder still has no caller) |
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
 | S4.5 | `WritObjectData` (tagless run + external tag) | — | ✅ LANDED with OPEN-1's resolution |
 | S5 | base arm: `Map<K,V>` over BTFL, K/V = `WritObjectData` | S1, S4, S4.5 | Memoria-level; no table kind; u16 key framing |
