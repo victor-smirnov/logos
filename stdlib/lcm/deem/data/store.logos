@@ -11,8 +11,8 @@
 // `SnpId<STORE_CFG>` type — store_open seeds the genesis
 // commit at id 0; subsequent commits get fresh ids from
 // alloc_snapshot_id and live in the dag at that index. Multi-parent
-// (merge) commits are NOT yet exposed; the on-disk CommitEntry
-// already supports arbitrary parent counts.
+// (merge) commits are exposed through register_merge_commit; the on-disk
+// CommitEntry also supports arbitrary parent counts.
 
 package logos.lcm.deem.data.store;
 
