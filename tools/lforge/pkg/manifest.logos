@@ -108,7 +108,7 @@ fn parse_target(t_av: WAny) -> Result<Target, ManifestError> {
 }
 
 fn wio_get(root: WAny, key: str) -> WAny {
-    if !root.is_map() { return WAny::ref_to(0i64 as *const u8); }
+    if !root.is_map() { return unsafe { WAny::ref_to(0i64 as *const u8) }; }
     let m: &WMap<WString, WAny> = root.as_map();
     return m.get(key);
 }

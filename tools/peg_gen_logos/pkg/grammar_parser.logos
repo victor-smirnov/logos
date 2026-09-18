@@ -86,7 +86,7 @@ fn is_hex(c: u8) -> bool {                                                      
 }
 
 // The null WAny (`null` is a reserved word, so `WAny::null()` cannot be named).
-fn wnull() -> WAny { return WAny::ref_to(0i64 as *const u8); }
+fn wnull() -> WAny { return unsafe { WAny::ref_to(0i64 as *const u8) }; }
 
 // ── value-construction helpers ────────────────────────────────────────────
 // `WAny::from(str)` does not exist (a bare `str` is a `&[u8]` slice, not interned),
@@ -96,7 +96,7 @@ fn wnull() -> WAny { return WAny::ref_to(0i64 as *const u8); }
 
 fn wstr(doc: &Writ, s: str) -> WAny {
     let ws: &WString = doc.wstring(s);
-    return WAny::ref_to(ws as *const WString as *const u8);
+    return unsafe { WAny::ref_to(ws as *const WString as *const u8) };
 }
 // `WAny` is `#[borrow_carrying]`: a WAny BUILT FROM A REFERENCE carries that
 // reference's borrow (so a node wrapped via `WAny::from(&child)` is tied to the
@@ -106,9 +106,9 @@ fn wstr(doc: &Writ, s: str) -> WAny {
 // carries no borrow (sound: the object lives in the never-move arena for the
 // whole document, not for the reference's scope). The `wn_*` casters keep call
 // sites terse: `wn_node(node)` = `wnode(node as *const WMap<Wu6, WAny>)`.
-fn wnode(m: *const WMap<Wu6, WAny>) -> WAny { return WAny::ref_to(m as *const u8); }
-fn warr(a: *const WArray<WAny>)        -> WAny { return WAny::ref_to(a as *const u8); }
-fn wsmap(m: *const WMap<WString, WAny>) -> WAny { return WAny::ref_to(m as *const u8); }
+fn wnode(m: *const WMap<Wu6, WAny>) -> WAny { return unsafe { WAny::ref_to(m as *const u8) }; }
+fn warr(a: *const WArray<WAny>)        -> WAny { return unsafe { WAny::ref_to(a as *const u8) }; }
+fn wsmap(m: *const WMap<WString, WAny>) -> WAny { return unsafe { WAny::ref_to(m as *const u8) }; }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Lexer

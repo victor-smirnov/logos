@@ -27,9 +27,9 @@ pub schema enum EExpr : category(0x0020_0000_0000_0000) {
     Lit(ELit), Bin(EBin),
 }
 
-impl ELit { pub fn as_ref(self: &ELit) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl ELit { pub fn as_ref(self: &ELit) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl EBin {
-    pub fn as_ref(self: &EBin) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+    pub fn as_ref(self: &EBin) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
     pub fn lhs_expr(self: &EBin) -> EExpr { return self.lhs.any().view::<EExpr>(); }
     pub fn rhs_expr(self: &EBin) -> EExpr { return self.rhs.any().view::<EExpr>(); }
 }
