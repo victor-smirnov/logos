@@ -46,6 +46,7 @@ struct Proj {
     K           k = K::Deref;
     std::string field;              // Field: name, tuple index or `Variant#i`
     LocalId     index = kNoLocal;   // Index: the index operand's local, if any
+    TypeRef     ty;                 // type of the place AFTER this projection, when known
 };
 
 struct Place {
@@ -363,6 +364,11 @@ private:
     // of the place is `e.type()`. Auto-deref: a field or index read through a
     // pointer-typed receiver goes through `*`.
     std::optional<bir::Place> place_of(lir_view::ExprRef e) {
+        auto p = place_of_(e);
+        if (p && !p->proj.empty() && e) p->proj.back().ty = e.type(pool_);
+        return p;
+    }
+    std::optional<bir::Place> place_of_(lir_view::ExprRef e) {
         if (!e) return std::nullopt;
         switch (e.kind()) {
             case ECode::VarRef: {
@@ -379,21 +385,30 @@ private:
             case ECode::FieldRead: {
                 lir_view::EFieldReadView v{e};
                 bir::Place p = place_or_temp(v.receiver());
-                if (is_pointer_kind(v.receiver().type(pool_))) p = p.with(bir::Proj(bir::Proj::K::Deref));
+                if (TypeRef rt = v.receiver().type(pool_); is_pointer_kind(rt)) {
+                    bir::Proj d(bir::Proj::K::Deref); d.ty = rt.pointee();
+                    p = p.with(std::move(d));
+                }
                 return p.with(bir::Proj(bir::Proj::K::Field, std::string(v.field())));
             }
             case ECode::TupleIndex: {
                 lir_view::ETupleIndexView v{e};
                 bir::Place p = place_or_temp(v.receiver());
-                if (is_pointer_kind(v.receiver().type(pool_))) p = p.with(bir::Proj(bir::Proj::K::Deref));
+                if (TypeRef rt = v.receiver().type(pool_); is_pointer_kind(rt)) {
+                    bir::Proj d(bir::Proj::K::Deref); d.ty = rt.pointee();
+                    p = p.with(std::move(d));
+                }
                 return p.with(bir::Proj(bir::Proj::K::Field, std::to_string(v.index())));
             }
             case ECode::IndexRead: {
                 lir_view::EIndexReadView v{e};
                 TypeRef rt = v.receiver().type(pool_);
                 bir::Place p = place_or_temp(v.receiver());
-                if (is_pointer_kind(rt) || (rt && rt.kind() == LogosType::Kind::Slice))
-                    p = p.with(bir::Proj(bir::Proj::K::Deref));
+                if (is_pointer_kind(rt) || (rt && rt.kind() == LogosType::Kind::Slice)) {
+                    bir::Proj d(bir::Proj::K::Deref);
+                    d.ty = is_pointer_kind(rt) ? rt.pointee() : TypeRef{};
+                    p = p.with(std::move(d));
+                }
                 bir::Proj ix(bir::Proj::K::Index);
                 ix.index = operand_local(v.index());
                 return p.with(std::move(ix));
@@ -1187,10 +1202,14 @@ private:
     // `recv.field` for a statement that names its receiver, auto-derefing
     // through a pointer-typed receiver.
     bir::Place field_of(bir::Place p, TypeRef& t, std::string_view field) {
-        if (is_pointer_kind(t)) { p = p.with(bir::Proj(bir::Proj::K::Deref)); t = t.pointee(); }
-        p = p.with(bir::Proj(bir::Proj::K::Field, std::string(field)));
+        if (is_pointer_kind(t)) {
+            bir::Proj d(bir::Proj::K::Deref); d.ty = t.pointee();
+            p = p.with(std::move(d)); t = t.pointee();
+        }
+        bir::Proj f(bir::Proj::K::Field, std::string(field));
         t = field_type(t, field);
-        return p;
+        f.ty = t;
+        return p.with(std::move(f));
     }
 
     void lower_stmt(lir_view::StmtRef s) {
@@ -2155,6 +2174,46 @@ private:
         }
     }
 
+    // ── places behind raw pointers ──
+    TypeRef field_type_(TypeRef st, std::string_view field) const {
+        if (!st) return {};
+        if (st.kind() == LogosType::Kind::Tuple) {
+            auto elems = st.tuple_elems();
+            uint32_t i = 0;
+            for (char c : field) { if (c < '0' || c > '9') return {}; i = i * 10 + uint32_t(c - '0'); }
+            return i < elems.size() ? elems[i] : TypeRef{};
+        }
+        if (st.kind() != LogosType::Kind::Struct) return {};
+        std::string want = concrete_struct_name(st);
+        auto look = [&](const auto& map) -> TypeRef {
+            auto it = map.find(want);
+            if (it == map.end()) return {};
+            for (auto& f : it->second.fields())
+                if (f.name() == field) return f.type(pool_);
+            return {};
+        };
+        if (TypeRef t = look(ts_.struct_by_name)) return t;
+        return look(ts_.spec_by_name);
+    }
+    // A place reached through `*p` with p a raw pointer: rustc does not check
+    // loans there (the raw pointer took the place out of the borrow system).
+    bool through_raw_pointer(const bir::Place& p) const {
+        TypeRef t = b_.locals[p.local].type;
+        bool synth = b_.locals[p.local].synth_ref;
+        for (auto& pj : p.proj) {
+            if (pj.k == bir::Proj::K::Deref) {
+                if (synth) { synth = false; t = pj.ty ? pj.ty : b_.locals[p.local].synth_pointee; continue; }
+                if (t && t.kind() == LogosType::Kind::Ptr) return true;
+                t = pj.ty ? pj.ty : (t && t.kind() != LogosType::Kind::Slice ? t.pointee() : TypeRef{});
+            } else if (pj.k == bir::Proj::K::Field) {
+                t = pj.ty ? pj.ty : field_type_(t, pj.field);
+            } else {
+                t = pj.ty ? pj.ty : (t && t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
+            }
+        }
+        return false;
+    }
+
     // ── row helpers ──
     void row(const char* rel, std::initializer_list<std::string> vals) {
         rows_.emplace_back(rel, std::vector<std::string>(vals));
@@ -2235,6 +2294,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         for (size_t si = 0; si < b_.blocks[bi].stmts.size(); ++si) {
             const auto& s = b_.blocks[bi].stmts[si];
             if (s.k != bir::Stmt::K::Assign || s.rv.k != bir::Rvalue::K::Ref) continue;
+            if (through_raw_pointer(s.rv.place)) continue;
             Loan L;
             L.place = s.rv.place;
             L.mut_ = s.rv.mut_;
@@ -2259,7 +2319,11 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             switch (s.k) {
                 case bir::Stmt::K::Assign: {
                     OList dst = place_origins(s.dest);
-                    if (s.rv.k == bir::Rvalue::K::Ref) {
+                    if (s.rv.k == bir::Rvalue::K::Ref && loan_at[bi][si] < 0) {
+                        // A borrow through a raw pointer: no loan, but still a
+                        // use of the pointer and a value flowing into dest.
+                        use_place(s.rv.place, p);
+                    } else if (s.rv.k == bir::Rvalue::K::Ref) {
                         const Loan& L = loans_[loan_at[bi][si]];
                         row("loan_issued_at", {o(L.origin), l(uint32_t(loan_at[bi][si])), pt(p)});
                         use_place(s.rv.place, p);
