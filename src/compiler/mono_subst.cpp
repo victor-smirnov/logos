@@ -257,6 +257,10 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (elem == tv.elem()) return tv;
         LogosTypeBuilder nt; nt.kind = LogosType::Kind::Slice;
         nt.elem = elem;
+        if (tv.raw_fat()) {   // ADR 0028: a raw slice pointer stays raw
+            nt.mut_ptr = tv.mut_ptr();
+            nt.const_val = int64_t(TypeRef::RAW_FAT_BIT);
+        }
         return out_.type_pool.alloc(std::move(nt));
     }
     case LogosType::Kind::UnsizedSlice: {
@@ -304,6 +308,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         dn.pkg_name = std::string(tv.pkg_name());
         dn.mut_ptr = tv.mut_ptr();
         dn.type_args = std::move(new_args);
+        if (tv.raw_fat()) dn.const_val = int64_t(TypeRef::RAW_FAT_BIT);
         return out_.type_pool.alloc(std::move(dn));
     }
     case LogosType::Kind::TraitObject: {

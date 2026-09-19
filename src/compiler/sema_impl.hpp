@@ -731,7 +731,8 @@ private:
         case K::Slice: {
             // A borrowed fat pointer has a region slot (arm_regslot); an
             // elided one is minted like a `&`'s. LANDED 2026-09-02w.
-            if (t.slice_owning_kind() == TypeRef::OwningKind::Borrow) {
+            // ADR 0028: a raw fat pointer (`*const [T]`) has no region slot.
+            if (t.slice_owning_kind() == TypeRef::OwningKind::Borrow && !t.raw_fat()) {
                 std::string slt(t.lifetime());
                 if (slt == "'_" || slt == "_") slt.clear();
                 if (slt.empty()) { slt = fresh(); logos::probe::census("mint.slice.elided"); }
@@ -741,7 +742,9 @@ private:
                 return make_slice_type(ne, t.mut_ptr(), TypeRef::OwningKind::Borrow, slt);
             }
             auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
-            return ne == t.elem() ? t : make_slice_type(ne, t.mut_ptr());
+            if (ne == t.elem()) return t;
+            if (t.raw_fat()) return make_raw_fat(make_slice_type(ne, t.mut_ptr()));
+            return make_slice_type(ne, t.mut_ptr());
         }
         case K::Array: {
             auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
@@ -749,7 +752,7 @@ private:
                                   : make_array(ne, t.arr_size(), t.arr_size_var());
         }
         case K::DstRef: {
-            if (t.dst_owning_kind() == TypeRef::OwningKind::Borrow) {
+            if (t.dst_owning_kind() == TypeRef::OwningKind::Borrow && !t.raw_fat()) {
                 std::string dlt(t.lifetime());
                 if (dlt == "'_" || dlt == "_") dlt.clear();
                 if (dlt.empty()) { dlt = fresh(); logos::probe::census("mint.dstref.elided"); }
@@ -763,7 +766,7 @@ private:
             return t;
         }
         case K::TraitObject: {
-            if (t.trait_owning_kind() == TypeRef::OwningKind::Borrow) {
+            if (t.trait_owning_kind() == TypeRef::OwningKind::Borrow && !t.raw_fat()) {
                 std::string dlt(t.lifetime());
                 if (dlt == "'_" || dlt == "_") dlt.clear();
                 if (dlt.empty()) { dlt = fresh(); logos::probe::census("mint.traitobject.elided"); }
@@ -6716,7 +6719,7 @@ private:
             for (auto e : TypeRef(t).tuple_elems()) es.push_back(static_item_regions_(e, through_adts));
             return make_tuple_type(std::move(es));
         }
-        if (k == K::Slice && TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow)
+        if (k == K::Slice && TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow && !TypeRef(t).raw_fat())
             return make_slice_type(static_item_regions_(TypeRef(t).elem(), through_adts), TypeRef(t).mut_ptr(),
                                    TypeRef::OwningKind::Borrow, fill(TypeRef(t).lifetime()));
         if (through_adts && (k == K::Struct || k == K::ZonedStruct || k == K::Enum)) {
@@ -6810,7 +6813,7 @@ private:
             switch (t.kind()) {
             case K::Ref: case K::MutRef: seen.emplace_back(t.lifetime()); walk(t.pointee(), d + 1); return;
             case K::Slice:
-                if (t.slice_owning_kind() == TypeRef::OwningKind::Borrow) seen.emplace_back(t.lifetime());
+                if (t.slice_owning_kind() == TypeRef::OwningKind::Borrow && !t.raw_fat()) seen.emplace_back(t.lifetime());
                 walk(t.elem(), d + 1);
                 return;
             case K::Array: walk(t.elem(), d + 1); return;
@@ -7190,7 +7193,7 @@ private:
             for (auto e : TypeRef(t).tuple_elems()) es_.push_back(fpv_walk_(e, f, d + 1));
             return make_tuple_type(std::move(es_));
         }
-        if (k == K::Slice && TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow) {
+        if (k == K::Slice && TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow && !TypeRef(t).raw_fat()) {
             std::string lt_ = f(std::string_view(TypeRef(t).lifetime()));
             return make_slice_type(fpv_walk_(TypeRef(t).elem(), f, d + 1), TypeRef(t).mut_ptr(),
                                    TypeRef::OwningKind::Borrow, lt_);

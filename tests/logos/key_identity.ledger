@@ -221,7 +221,11 @@
 # signature_mask and BirFacts::relate_call ask whether parameter 0 is the
 # receiver, for Rust's `&self` elision rule). `self` is the receiver keyword;
 # no declaration can own it, so it is a sentinel like `_`, not an entity name.
-#SCAN borrow_bir.inc 3 be9898ff
+# 2026-09-18, ADR 0028: borrow_bir.inc 3 -> 4, roster be9898ff -> c9f7d0d1.
+# BirBuilder::instance_for_receiver keeps only candidates whose parameter 0 is
+# named `self`, then matches the receiver type against that parameter's type.
+# Same receiver-keyword sentinel as the two sites above.
+#SCAN borrow_bir.inc 4 c9f7d0d1
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
 # 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
 # (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is

@@ -6594,7 +6594,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         std::string slt{t.lifetime()};
         if (!slt.empty()) { auto it = ls.find(slt); if (it != ls.end()) slt = it->second; }
         if (elem == t.elem() && slt == t.lifetime()) return t;
-        return make_slice_type(elem, t.mut_ptr(), t.slice_owning_kind(), slt);
+        TypeRef rs = make_slice_type(elem, t.mut_ptr(), t.slice_owning_kind(), slt);
+        return t.raw_fat() ? make_raw_fat(rs) : rs;   // ADR 0028: keep raw
     }
     case LogosType::Kind::UnsizedSlice: {
         auto elem = subst_type_sema(t.elem(), s, ls);
@@ -6629,8 +6630,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!dlt.empty()) { auto it = ls.find(dlt); if (it != ls.end()) dlt = it->second; }
         changed |= (dlt != t.lifetime());
         if (!changed) return t;
-        return make_dst_ref(t.struct_name(), t.pkg_name(), t.mut_ptr(),
-                            std::move(new_args), t.dst_owning_kind(), dlt);
+        TypeRef rd = make_dst_ref(t.struct_name(), t.pkg_name(), t.mut_ptr(),
+                                  std::move(new_args), t.dst_owning_kind(), dlt);
+        return t.raw_fat() ? make_raw_fat(rd) : rd;   // ADR 0028: keep raw
     }
     case LogosType::Kind::TraitObject: {
         if (t.type_args().empty() && t.lifetime().empty()) return t;
@@ -6645,11 +6647,12 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!olt.empty()) { auto it = ls.find(olt); if (it != ls.end()) olt = it->second; }
         changed |= (olt != t.lifetime());
         if (!changed) return t;
-        return make_trait_object(t.trait_name(), std::move(new_args),
-                                 /*owning=*/t.trait_owning_kind(),
-                                 /*req_send=*/t.trait_requires_send(),
-                                 /*req_sync=*/t.trait_requires_sync(),
-                                 olt);
+        TypeRef ro = make_trait_object(t.trait_name(), std::move(new_args),
+                                       /*owning=*/t.trait_owning_kind(),
+                                       /*req_send=*/t.trait_requires_send(),
+                                       /*req_sync=*/t.trait_requires_sync(),
+                                       olt);
+        return t.raw_fat() ? make_raw_fat(ro) : ro;   // ADR 0028: keep raw
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnItem:
