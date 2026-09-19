@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <format>
 #include <string>
+#include "logos/compiler/def_table.hpp"
 #include <string_view>
 
 #include <logos/writ/compat.hpp>
@@ -748,6 +749,10 @@ struct TraitBound {
     // and the auto-trait probe are keyed by THAT. Empty ⇒ never captured;
     // consumers fall back to `trait_name`.
     std::string                   identity_trait;
+    // #438: the trait this bound denotes, resolved where the bound is written
+    // (read_trait_bound_args). Sema-local: a DefId indexes this compilation's
+    // DefTable. Empty when the name denotes no collected trait.
+    DefId                         trait_def;
     std::vector<TypeRef> type_args;   // e.g. Into<i32> -> [i32]
     // L1: lifetime args at trait-bound position (e.g. `Foo<'a>` → ["a"]).
     // Parsed but not enforced (no region inference); needed so the

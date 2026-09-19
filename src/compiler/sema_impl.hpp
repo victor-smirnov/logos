@@ -5444,6 +5444,8 @@ private:
         // collect_trait sees the predeclared entry and overwrites it with
         // the real body (vs treating it as a duplicate-trait error).
         bool predeclared = false;
+        // #438: this trait's identity; defs_[def] is (package, name).
+        DefId def;
     };
     struct SemaImplInfo {
         std::string trait_name;
@@ -5475,6 +5477,8 @@ private:
         // impl actually targets, instead of whatever same-name trait holds the
         // bare slot. Empty ⇒ fall back to bare trait_name (non-colliding).
         std::string canonical_trait;
+        // #438: the implemented trait, resolved in the impl's own scope.
+        DefId trait_def;
         // ── A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (#88) ───────
         // The impls_ key is `Trait::Target` with a BARE target, so the stdlib's
         // `Copy::TypeId` and a user package's `Drop::TypeId` land on one key.
@@ -5946,6 +5950,35 @@ private:
     // one per use site.
     std::unordered_set<uint64_t> parametric_reported_;
     logos::compiler::StrMap<SemaTraitInfo>    traits_;
+    // #438: every declaration's identity. Moves with the SemaCache snapshot, so
+    // ids recorded on cached records stay valid across metaprog rounds.
+    DefTable defs_;
+    // Mints (or finds) the DefId of a trait record and stamps it.
+    DefId stamp_trait_def_(SemaTraitInfo& info) {
+        info.def = defs_.intern(DefKind::Trait, info.package, info.name);
+        return info.def;
+    }
+    // The trait record of a DefId. The registry still stores a trait under its
+    // bare name when it owns the bare slot and under `pkg::Name` otherwise; the
+    // record whose own (package, name) matches is the one.
+    SemaTraitInfo* trait_info(DefId id) {
+        if (!id) return nullptr;
+        const auto& e = defs_[id];
+        if (auto it = traits_.find(sema_key(e.package, e.name)); it != traits_.end() && it->second.def == id)
+            return &it->second;
+        if (auto it = traits_.find(e.name); it != traits_.end() && it->second.def == id)
+            return &it->second;
+        return nullptr;
+    }
+    // The DefId of the trait stored under a registry key (empty if none).
+    DefId trait_def_of_key(std::string_view regkey) const {
+        auto it = traits_.find(std::string(regkey));
+        return it == traits_.end() ? DefId{} : it->second.def;
+    }
+    // Always-on: the DefTable and the string registry agree. Every trait record
+    // has an id naming its own (package, name), and every impl whose trait
+    // resolved names the same trait by id as by its canonical key.
+    void check_trait_def_identity();
     // "TraitName::TypeName" → impl info
     logos::compiler::StrMap<SemaImplInfo>     impls_;
     // Same key, but ALL impls (impls_ is single-valued / last-wins, so two
@@ -9746,6 +9779,7 @@ public:
     StrMap<writ::TinyMapView>            module_const_values;
     StrMap<SemaChecker::GenericConstEntry> generic_consts;
     StrMap<SemaChecker::SemaTraitInfo>    traits;
+    DefTable                               defs;
     StrMap<SemaChecker::SemaImplInfo>     impls;
     StrMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
     StrSet                                 coherence_keys;

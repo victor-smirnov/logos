@@ -596,6 +596,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->module_const_values  = std::move(module_const_values_);
     s->generic_consts       = std::move(generic_consts_);
     s->traits               = std::move(traits_);
+    s->defs                 = std::move(defs_);
     s->impls                = std::move(impls_);
     s->impls_all            = std::move(impls_all_);
     s->coherence_keys       = std::move(coherence_keys_);
@@ -785,6 +786,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     }
     generic_consts_       = std::move(s->generic_consts);
     traits_               = std::move(s->traits);
+    defs_                 = std::move(s->defs);
     impls_                = std::move(s->impls);
     impls_all_            = std::move(s->impls_all);
     coherence_keys_       = std::move(s->coherence_keys);
@@ -2758,6 +2760,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // install_snapshot, whose const-index rebuild is another one).
     check_symbol_key_separators();
     check_impl_registry_key_identity();
+    check_trait_def_identity();
 
     {
         auto bare_of = [](const std::string& key) -> std::string_view {
@@ -5533,6 +5536,7 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
         // same moment — so the two can never disagree about which trait the
         // written name denoted.
         tb.identity_trait  = impl_key_trait(tb.canonical_trait);
+        tb.trait_def       = trait_def_of_key(tb.canonical_trait);
     }
     // Phase 1: `?Trait` relaxed-bound marker. Grammar emits RELAXED=true
     // for the `?IDENT` form. Only `?Sized` is semantically valid; other

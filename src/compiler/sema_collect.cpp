@@ -518,6 +518,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                             placeholder.is_pub = !pv.is_null() && pv.is_value() &&
                                                  pv.as_value<uint8_t>() != 0;
                         }
+                        stamp_trait_def_(placeholder);
                         traits_[key] = std::move(placeholder);
                     }
                 }
@@ -3312,6 +3313,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_type_params_.erase("Self");
     current_trait_name_.clear();
     info.package = cur_package_;  // record so cross-pkg resolution can pick scope
+    stamp_trait_def_(info);
     // B-mv-02 fix: by default a trait keeps its legacy BARE-name slot (single
     // entry — preserves the per-trait iterations over traits_). When a user
     // trait collides with an already-registered trait of the SAME bare name
@@ -3356,6 +3358,31 @@ void SemaChecker::inject_implicit_prelude_(TinyMapView root) {
     }
     auto& w = cur_imports_.wildcard_packages;
     if (std::find(w.begin(), w.end(), pre) == w.end()) w.push_back(pre);
+}
+
+void SemaChecker::check_trait_def_identity() {
+    auto fail = [](const std::string& what) {
+        std::fprintf(stderr, "logosc INTERNAL: #438 DefTable/registry disagreement: %s\n",
+                     what.c_str());
+        std::abort();
+    };
+    for (auto& [key, ti] : traits_) {
+        if (!ti.def)
+            fail(std::format("trait '{}' (registry key '{}') has no DefId", ti.name, key));
+        const auto& e = defs_[ti.def];
+        if (e.kind != DefKind::Trait || e.package != ti.package || e.name != ti.name)
+            fail(std::format("trait '{}::{}' (key '{}') carries the DefId of '{}'",
+                             ti.package, ti.name, key, defs_.path(ti.def)));
+        if (trait_info(ti.def) != &ti)
+            fail(std::format("DefId of '{}' does not lead back to its record", key));
+    }
+    for (auto& [key, ii] : impls_) {
+        if (ii.canonical_trait.empty()) continue;
+        if (ii.trait_def != trait_def_of_key(ii.canonical_trait))
+            fail(std::format("impl '{}': trait_def names '{}', canonical key '{}'", key,
+                             ii.trait_def ? defs_.path(ii.trait_def) : std::string("nothing"),
+                             ii.canonical_trait));
+    }
 }
 
 void SemaChecker::collect_impl(TinyMapView node) {
@@ -5283,6 +5310,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         std::string coh_key = coh_trait + trait_args_key + "::" + coh_target;
         std::string key = trait_name + "::" + target;
         info.canonical_trait = coh_trait;  // for global supertrait verification
+        info.trait_def = trait_def_of_key(coh_trait);
         bool is_generic_impl = !impl_tps.empty() || !impl_lt_params.empty();
         if (!impl_is_negative && !is_generic_impl && coherence_keys_.count(coh_key)) {
             error(std::format("conflicting implementations of trait '{}' for type '{}'",
