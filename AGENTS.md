@@ -35,6 +35,24 @@ L0, L1 and L2 are disjoint and together are the whole suite. Groups live in
 `scripts/lt run --failed`. `ctest` and `tests/logos/test-levels.sh` are
 deprecated (CMake still describes the tests; `lt` imports and runs them).
 
+**Work of one kind goes in a series** (e.g. ten borrow-checker defects from the
+tracker). A series is a branch; while it is open, each task runs only its L0
+and a rotating 10% of L2; the whole suite runs when the series closes, and the
+series merges only from a green whole-suite run of the commit being merged:
+
+    scripts/lt series new NAME [--pct 10]   # branch series/NAME off main
+    scripts/lt task new TASK TEST...        # per task; joins the series
+    scripts/lt run --plus                   # L0 + 10% of L2; commit when green
+    scripts/lt series close                 # build + whole suite; reds -> task NAME-fixN
+    scripts/lt run --plus                   # fix NAME-fixN the same way, commit, close again
+    scripts/lt series merge                 # into main, once a close of this HEAD is green
+
+`close` needs a clean tree with main already merged into the branch, so what
+merges is what was tested. A repeated `close` reruns the previous reds first
+and stops if any is still red. A red the series did not cause is waived by
+name with a reason (`lt series waive TEST --why ...`), and the merge commit
+lists it. On a series branch `lt run --all` and `--level 2` refuse.
+
 ## Where work comes from
 
 Open work lives in **GitHub issues**, not in files. Labels carry the structure:

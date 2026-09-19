@@ -30,6 +30,24 @@ tests/groups.rules (committed) and may overlap; levels never do.
   lt last [--failed]                   the last run's summary
   lt groups [G]                        groups and their sizes (or members of G)
 
+A SERIES is a run of like tasks on one branch (e.g. ten BC defects). While it
+is open, each task runs its L0 plus a sample of L2 (`lt run --plus`); the
+whole suite runs only when the series closes, and the series merges into main
+only from a green whole-suite run of the very commit being merged:
+  lt series new NAME [--pct P]         branch series/NAME off HEAD; the series is
+                                       the one whose branch is checked out
+  lt task new ...                      on a series branch: the task joins the series
+  lt run --plus [PCT]                  L0 + PCT% (default: the series' --pct, 10)
+  lt series close                      build, rerun the last close's reds, then
+                                       the whole suite; reds become task NAME-fixN
+                                       (fix it with --plus, commit, close again)
+  lt series waive TEST... --why TEXT   a red the series did not cause (named in
+                                       the merge commit)
+  lt series merge                      merge into main: needs a green close of
+                                       this clean HEAD, main an ancestor of it
+  lt series show [NAME] | lt series list
+On a series branch `run --all` and `run --level 2` refuse: that is `series close`.
+
 Options for run: -j N (default $CTEST_PARALLEL_LEVEL, else 12), --build DIR,
 --env K=V (extra environment for every test, repeatable).
 """
@@ -72,6 +90,11 @@ CREATE TABLE IF NOT EXISTS runs(id INTEGER PRIMARY KEY, started TEXT, finished T
 CREATE TABLE IF NOT EXISTS results(run INTEGER, test TEXT, status TEXT, rc INTEGER,
   seconds REAL, output BLOB, PRIMARY KEY(run, test));
 CREATE INDEX IF NOT EXISTS results_test ON results(test, run);
+CREATE TABLE IF NOT EXISTS series(name TEXT PRIMARY KEY, branch TEXT, base TEXT, pct REAL,
+  state TEXT, created TEXT, green_run INTEGER, green_head TEXT);
+CREATE TABLE IF NOT EXISTS series_tasks(series TEXT, task TEXT, PRIMARY KEY(series, task));
+CREATE TABLE IF NOT EXISTS series_closes(series TEXT, run INTEGER, head TEXT, reds INTEGER);
+CREATE TABLE IF NOT EXISTS series_waivers(series TEXT, test TEXT, why TEXT, PRIMARY KEY(series, test));
 """
 
 def db_open(build):
@@ -407,10 +430,160 @@ def sample_rest(con, pool, pct):
         out |= set(names[:alloc[k]])
     return out
 
+# ── series ───────────────────────────────────────────────────────────────────
+
+def git(*a, check=True):
+    r = subprocess.run(["git", "-C", ROOT, *a], capture_output=True, text=True)
+    if check and r.returncode:
+        sys.exit(f"lt: git {' '.join(a)}: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+def git_branch():
+    return git("rev-parse", "--abbrev-ref", "HEAD")
+
+def git_clean():
+    return not git("status", "--porcelain", "--untracked-files=no")
+
+def main_is_ancestor():
+    """bors' rule: what merges is what was tested, so main must already be in HEAD."""
+    return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", "main", "HEAD"]).returncode == 0
+
+def current_series(con):
+    r = con.execute("SELECT name, branch, base, pct, state, green_run, green_head FROM series "
+                    "WHERE branch=? AND state != 'merged'", (git_branch(),)).fetchone()
+    return r
+
+def red_names(con, run_id):
+    return sorted(r[0] for r in con.execute(
+        "SELECT test FROM results WHERE run=? AND status IN ('failed','timeout','notrun')", (run_id,)))
+
+def cmd_series(con, build, args):
+    if args.op == "list":
+        for n, b, base, pct, st, c in con.execute(
+                "SELECT name, branch, base, pct, state, created FROM series ORDER BY created"):
+            k = con.execute("SELECT COUNT(*) FROM series_tasks WHERE series=?", (n,)).fetchone()[0]
+            print(f"  {n:24s} {st:8s} tasks {k:3d}  +{pct:g}%  base {base}  {b}  {c}")
+        return 0
+    if args.op == "new":
+        if not args.name:
+            sys.exit("lt series new: NAME required")
+        if not git_clean():
+            sys.exit("lt series new: commit first (the base must be a commit)")
+        branch = f"series/{args.name}"
+        base = git("rev-parse", "--short", "HEAD")
+        git("switch", "-c", branch)
+        con.execute("INSERT INTO series VALUES(?,?,?,?,?,?,NULL,NULL)",
+                    (args.name, branch, base, args.pct, "open", datetime.datetime.now().isoformat(timespec="seconds")))
+        con.commit()
+        print(f"lt: series {args.name} on {branch} from {base}; each task: `lt task new`, `lt run --plus`")
+        return 0
+    if args.op == "show":
+        r = (con.execute("SELECT name, branch, base, pct, state, green_run, green_head FROM series WHERE name=?",
+                         (args.name,)).fetchone() if args.name else current_series(con))
+        if not r:
+            sys.exit("lt: no such series (or not on a series branch)")
+        name, branch, base, pct, st, grun, ghead = r
+        print(f"series {name}: {st}  {branch} from {base}  +{pct:g}%"
+              + (f"  green close: run {grun} at {ghead}" if grun else ""))
+        for (t,) in con.execute("SELECT task FROM series_tasks WHERE series=? ORDER BY rowid", (name,)):
+            last = con.execute("SELECT id, head, failed FROM runs WHERE task=? AND args LIKE '%--plus%' "
+                               "ORDER BY id DESC LIMIT 1", (t,)).fetchone()
+            print(f"  {t:30s} " + (f"last --plus run {last[0]} at {last[1]}: {'green' if not last[2] else 'RED'}"
+                                   if last else "not run"))
+        for run, head, reds in con.execute("SELECT run, head, reds FROM series_closes WHERE series=?", (name,)):
+            print(f"  close: run {run} at {head}: {reds} red")
+        for t, why in con.execute("SELECT test, why FROM series_waivers WHERE series=?", (name,)):
+            print(f"  waived {t}: {why}")
+        return 0
+    s = current_series(con)
+    if not s:
+        sys.exit(f"lt series {args.op}: not on a series branch (`lt series list`)")
+    name, branch, base, pct, st, grun, ghead = s
+    if args.op == "waive":
+        if not args.why or not args.name:
+            sys.exit("lt series waive TEST... --why TEXT")
+        for t in [args.name] + args.tests:
+            con.execute("INSERT OR REPLACE INTO series_waivers VALUES(?,?,?)", (name, t, args.why))
+        con.commit()
+        return 0
+    if args.op == "close":
+        if not git_clean():
+            sys.exit("lt series close: commit first; a close verifies a commit")
+        if not main_is_ancestor():
+            sys.exit("lt series close: main has moved; `git merge main` into the series first, "
+                     "so the whole-suite run covers what will be merged")
+        jobs = args.jobs or int(os.environ.get("CTEST_PARALLEL_LEVEL", "12"))
+        print(f"lt: building ({build}, -j{jobs})")
+        if subprocess.run(["cmake", "--build", build, f"-j{jobs}"]).returncode:
+            sys.exit("lt series close: the build failed")
+        sync(build, con, quiet=True)
+        head = git("rev-parse", "--short", "HEAD")
+        waived = {r[0] for r in con.execute("SELECT test FROM series_waivers WHERE series=?", (name,))}
+        prev = con.execute("SELECT run FROM series_closes WHERE series=? AND reds > 0 ORDER BY rowid DESC LIMIT 1",
+                           (name,)).fetchone()
+        if prev:
+            again = set(red_names(con, prev[0])) - waived
+            if again:
+                run_set(con, build, again, args, None, f"series {name}: reds of close run {prev[0]}")
+                still = set(red_names(con, con.execute("SELECT MAX(id) FROM runs").fetchone()[0])) - waived
+                if still:
+                    print(f"lt: {len(still)} of the last close's reds are still red; not running the suite")
+                    return 1
+        run_set(con, build, set(all_tests(con)), args, None, f"series {name}: close")
+        rid = con.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+        reds = [t for t in red_names(con, rid) if t not in waived]
+        con.execute("INSERT INTO series_closes VALUES(?,?,?,?)", (name, rid, head, len(reds)))
+        if not reds:
+            con.execute("UPDATE series SET state='green', green_run=?, green_head=? WHERE name=?", (rid, head, name))
+            con.commit()
+            print(f"lt: series {name} is green at {head} (run {rid}); `lt series merge`")
+            return 0
+        k = con.execute("SELECT COUNT(*) FROM series_closes WHERE series=?", (name,)).fetchone()[0]
+        fix = f"{name}-fix{k}"
+        con.execute("INSERT OR IGNORE INTO tasks VALUES(?,?)", (fix, datetime.datetime.now().isoformat(timespec="seconds")))
+        for t in reds:
+            con.execute("INSERT OR IGNORE INTO task_tests VALUES(?,?,?)", (fix, t, f"red in close run {rid}"))
+        con.execute("INSERT OR IGNORE INTO series_tasks VALUES(?,?)", (name, fix))
+        con.execute("UPDATE series SET state='fixing' WHERE name=?", (name,))
+        meta_set(con, "task", fix)
+        con.commit()
+        print(f"lt: {len(reds)} red; task {fix} holds them (current). Fix with `lt run --plus`, "
+              f"commit, `lt series close` again. A red the series did not cause: `lt series waive`.")
+        for t in reds[:40]:
+            print("  " + t)
+        return 1
+    if args.op == "merge":
+        head = git("rev-parse", "--short", "HEAD")
+        if st != "green" or ghead != head or not git_clean():
+            sys.exit(f"lt series merge: no green close of this clean HEAD ({head}); `lt series close`")
+        if not main_is_ancestor():
+            sys.exit("lt series merge: main has moved since the close; `git merge main`, `lt series close`")
+        waivers = con.execute("SELECT test, why FROM series_waivers WHERE series=?", (name,)).fetchall()
+        tasks = [r[0] for r in con.execute("SELECT task FROM series_tasks WHERE series=? ORDER BY rowid", (name,))]
+        msg = (f"Merge series {name}\n\nTasks: {', '.join(tasks) or '-'}.\n"
+               f"Whole suite green at {head} (lt run {grun}).\n")
+        if waivers:
+            msg += "Red and waived:\n" + "".join(f"  {t}: {w}\n" for t, w in waivers)
+        git("switch", "main")
+        git("merge", "--no-ff", "-m", msg, branch)
+        con.execute("UPDATE series SET state='merged' WHERE name=?", (name,))
+        con.commit()
+        print(f"lt: series {name} merged into main; branch {branch} kept")
+        return 0
+    sys.exit(f"lt series: unknown op {args.op}")
+
 def cmd_run(con, build, args):
     ensure_synced(build, con)
     everything = set(all_tests(con))
     task = None
+    ser = current_series(con)
+    if ser and (args.all or args.level == 2) and not args.force:
+        sys.exit(f"lt run: on series {ser[0]} the whole suite runs at `lt series close` "
+                 "(--force to run it anyway)")
+    if args.plus is not None and args.plus < 0:
+        if not ser:
+            sys.exit("lt run --plus: give PCT (not on a series branch)")
+        args.plus = ser[3]
     if args.plus is not None:
         task = current_task(con, args.task)
         l0, _, l2, _ = levels(con, task)
@@ -478,6 +651,10 @@ def cmd_task(con, build, args):
         con.execute("INSERT OR IGNORE INTO tasks VALUES(?,?)",
                     (args.name, datetime.datetime.now().isoformat(timespec="seconds")))
         meta_set(con, "task", args.name)
+        ser = current_series(con)
+        if ser:
+            con.execute("INSERT OR IGNORE INTO series_tasks VALUES(?,?)", (ser[0], args.name))
+            print(f"lt: task {args.name} joins series {ser[0]}")
     if args.op in ("new", "add"):
         if not con.execute("SELECT 1 FROM tasks WHERE name=?", (args.name,)).fetchone():
             sys.exit(f"lt: no such task: {args.name}")
@@ -570,8 +747,10 @@ def main():
     r = sub.add_parser("run")
     r.add_argument("names", nargs="*"); r.add_argument("--level", type=int, choices=[0, 1, 2])
     r.add_argument("--upto", action="store_true"); r.add_argument("--task")
-    r.add_argument("--plus", type=float, metavar="PCT",
-                   help="run L0, then PCT%% of L2 (stratified, least recently run first)")
+    r.add_argument("--plus", type=float, metavar="PCT", nargs="?", const=-1.0,
+                   help="run L0, then PCT%% of L2 (stratified, least recently run first); "
+                        "no PCT: the series' percentage")
+    r.add_argument("--force", action="store_true", help="on a series branch: allow --all / --level 2")
     r.add_argument("--keep-going", action="store_true", help="with --plus: run the sample even if L0 is red")
     r.add_argument("--env", action="append", metavar="K=V",
                    help="extra environment for every test (e.g. LOGOS_DL_SHADOW=bc); repeatable")
@@ -584,6 +763,12 @@ def main():
     s.add_argument("-n", type=int, default=10)
     la = sub.add_parser("last"); la.add_argument("--failed", action="store_true")
     g = sub.add_parser("groups"); g.add_argument("group", nargs="?")
+    se = sub.add_parser("series")
+    se.add_argument("op", choices=["new", "show", "list", "close", "waive", "merge"])
+    se.add_argument("name", nargs="?"); se.add_argument("tests", nargs="*")
+    se.add_argument("--pct", type=float, default=10.0); se.add_argument("--why")
+    se.add_argument("-j", "--jobs", type=int); se.add_argument("-v", "--verbose", action="store_true")
+    se.add_argument("--env", action="append", metavar="K=V")
     args = ap.parse_args()
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
@@ -592,7 +777,8 @@ def main():
     if args.cmd == "sync":
         sync(build, con); return 0
     return {"run": cmd_run, "task": cmd_task, "levels": cmd_levels, "show": cmd_show,
-            "last": cmd_last, "groups": cmd_groups}[args.cmd](con, build, args)
+            "last": cmd_last, "groups": cmd_groups,
+            "series": cmd_series}[args.cmd](con, build, args)
 
 if __name__ == "__main__":
     sys.exit(main())
