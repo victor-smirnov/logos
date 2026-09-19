@@ -216,7 +216,12 @@
 # the literal is `_` (b14a7b80, the same roster as mlir_gen_stmt.cpp's), the
 # wildcard token: BirBuilder::bind_to does not create a binding for a pattern
 # name that is `_` or empty. A sentinel, not an entity name.
-#SCAN borrow_bir.inc 1 b14a7b80
+# 2026-09-18, ADR 0028: borrow_bir.inc 1 -> 3, roster b14a7b80 -> be9898ff. The
+# two new sites compare a PARAMETER name with `self` (BirBuilder::
+# signature_mask and BirFacts::relate_call ask whether parameter 0 is the
+# receiver, for Rust's `&self` elision rule). `self` is the receiver keyword;
+# no declaration can own it, so it is a sentinel like `_`, not an entity name.
+#SCAN borrow_bir.inc 3 be9898ff
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
 # 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
 # (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is

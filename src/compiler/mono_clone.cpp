@@ -5316,6 +5316,9 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     // filter that mlir_gen applies to the originals.
     if (fn.from_lazy_module()) nf.flag(dk::FROM_LAZY_MODULE, true);
     nf.type(dk::RET_TYPE, subst_type(fn.ret_type(pool), s));
+    // ADR 0028: keep the signature as DECLARED (before substitution) for the
+    // borrow checker's elision; a clone of a clone keeps the first one.
+    if (!s.empty()) nf.type(dk::DECL_RET_TYPE, localize_type(fn.decl_ret_type(pool)));
     // B65: lifetime params + outlives bounds are preserved verbatim through
     // mono. Lifetime substitution is identity (lifetimes are not in the
     // SubstMap), so the original pairs remain valid on the cloned signature.
@@ -5356,7 +5359,8 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
                 }
             } else {
                 pa.push_param({std::string(p.name()), subst_type(p.type(pool), s),
-                               p.is_variadic(), p.owning_box_dyn(), p.slot()});
+                               p.is_variadic(), p.owning_box_dyn(), p.slot(),
+                               s.empty() ? TypeRef{} : localize_type(p.decl_type(pool))});
             }
         }
     }
@@ -5429,6 +5433,7 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
     if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
     if (fn.from_lazy_module()) nf.flag(dk::FROM_LAZY_MODULE, true);  // Phase 6 — see clone_fn.
     nf.type(dk::RET_TYPE, subst_type(fn.ret_type(pool), s));
+    if (!s.empty()) nf.type(dk::DECL_RET_TYPE, localize_type(fn.decl_ret_type(pool)));
     {
         auto lps = fn.lifetime_params();
         if (!lps.empty()) {
@@ -5460,7 +5465,8 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
                 }
             } else {
                 pa.push_param({std::string(p.name()), subst_type(p.type(pool), s),
-                               p.is_variadic(), p.owning_box_dyn(), p.slot()});
+                               p.is_variadic(), p.owning_box_dyn(), p.slot(),
+                               s.empty() ? TypeRef{} : localize_type(p.decl_type(pool))});
             }
         }
     }

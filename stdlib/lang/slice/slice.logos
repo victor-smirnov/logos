@@ -138,7 +138,8 @@ pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
 // if `len % size != 0`. Empty input yields no chunks.
 
 /// Iterator over non-overlapping chunks of a slice, created by `slice_chunks`.
-pub struct Chunks<T> {
+// `'a` is the slice's lifetime: chunks borrow the slice, not the iterator.
+pub struct Chunks<'a, T: 'a> {
     /// Base pointer of the underlying slice.
     pub data: *const T,
     /// Total element count of the underlying slice.
@@ -153,7 +154,7 @@ pub struct Chunks<T> {
 /// The last chunk is shorter when `s.len() % size != 0`; empty input yields no chunks.
 /// `size` must be positive: non-positive `size` is unchecked, and `size == 0` makes `next`
 /// yield empty chunks forever on a non-empty slice.
-pub fn slice_chunks<T>(s: &[T], size: i64) -> Chunks<T> {
+pub fn slice_chunks<'a, T: 'a>(s: &'a [T], size: i64) -> Chunks<'a, T> {
     return Chunks {
         data: s.as_ptr() as *const T,
         len:  s.len() as i64,
@@ -162,8 +163,8 @@ pub fn slice_chunks<T>(s: &[T], size: i64) -> Chunks<T> {
     };
 }
 
-impl<T> Iterator<&[T]> for Chunks<T> {
-    fn next(self: &mut Chunks<T>) -> Option<&[T]> {
+impl<'a, T: 'a> Iterator<&'a [T]> for Chunks<'a, T> {
+    fn next(self: &mut Chunks<'a, T>) -> Option<&'a [T]> {
         if self.pos >= self.len { return Option::None; }
         let take: i64 = if self.pos + self.step > self.len
                         { self.len - self.pos }
@@ -183,7 +184,8 @@ impl<T> Iterator<&[T]> for Chunks<T> {
 // `size == 0`.
 
 /// Iterator over overlapping `size`-element windows of a slice, created by `slice_windows`.
-pub struct Windows<T> {
+// `'a` is the slice's lifetime: windows borrow the slice, not the iterator.
+pub struct Windows<'a, T: 'a> {
     /// Base pointer of the underlying slice.
     pub data: *const T,
     /// Total element count of the underlying slice.
@@ -196,7 +198,7 @@ pub struct Windows<T> {
 
 /// Returns an iterator over overlapping `size`-element windows of `s`, advancing by 1.
 /// Yields nothing if `size <= 0` or `size > s.len()` (unlike Rust, `size == 0` does not panic).
-pub fn slice_windows<T>(s: &[T], size: i64) -> Windows<T> {
+pub fn slice_windows<'a, T: 'a>(s: &'a [T], size: i64) -> Windows<'a, T> {
     return Windows {
         data: s.as_ptr() as *const T,
         len:  s.len() as i64,
@@ -205,8 +207,8 @@ pub fn slice_windows<T>(s: &[T], size: i64) -> Windows<T> {
     };
 }
 
-impl<T> Iterator<&[T]> for Windows<T> {
-    fn next(self: &mut Windows<T>) -> Option<&[T]> {
+impl<'a, T: 'a> Iterator<&'a [T]> for Windows<'a, T> {
+    fn next(self: &mut Windows<'a, T>) -> Option<&'a [T]> {
         if self.size <= 0i64 { return Option::None; }
         if self.pos + self.size > self.len { return Option::None; }
         unsafe {

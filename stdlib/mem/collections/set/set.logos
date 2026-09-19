@@ -57,7 +57,7 @@ impl<K: Hash + Eq> HashSet<K> {
     }
 
     /// Returns an iterator over the set's elements, yielding `&K`.
-    pub unsafe fn iter(self: *const HashSet<K>) -> HashSetIter<K> {
+    pub unsafe fn iter<'a>(self: *const HashSet<K>) -> HashSetIter<'a, K> {
         return HashSetIter { inner: self.inner.keys() };
     }
 }
@@ -65,14 +65,14 @@ impl<K: Hash + Eq> HashSet<K> {
 // ── HashSetIter<K> ────────────────────────────────────────────────────────────
 
 /// Iterator over a `HashSet`'s elements, yielding `&K`.
-pub struct HashSetIter<K> {
-    inner: HashMapKeys<K, u8>,
+pub struct HashSetIter<'a, K> {
+    inner: HashMapKeys<'a, K, u8>,
 }
 
 // Yields `&K` (Rust-conformant: `HashSet::iter()` borrows) — follows the
 // underlying `HashMapKeys` which now yields `&K`.
-impl<K: Hash + Eq> Iterator<&K> for HashSetIter<K> {
-    fn next(self: &mut HashSetIter<K>) -> Option<&K> {
+impl<'a, K: Hash + Eq> Iterator<&'a K> for HashSetIter<'a, K> {
+    fn next(self: &mut HashSetIter<'a, K>) -> Option<&'a K> {
         return self.inner.next();
     }
 }

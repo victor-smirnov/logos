@@ -110,6 +110,9 @@ struct Term {
     // the body-derived `flow` is only a fallback for unresolved callees.
     bool                 has_sig = false;
     uint64_t             sig_to_result = 0;
+    // The resolved callee, whose DECLARED signature (decl_ret_type /
+    // decl_type) says which argument positions the result borrows from.
+    lir_view::FunctionView callee_fn;
     uint32_t             line = 0;
 };
 
@@ -683,7 +686,8 @@ private:
     // (`&*p` / `&mut *p`), never moved: Rust's implicit reborrow at a
     // coercion site. Returns false when `a` is not such a place.
     bool reborrow_arg(lir_view::ExprRef a, TypeRef param, bir::Term& t,
-                      std::vector<std::pair<bir::BlockId, uint32_t>>& reservations) {
+                      std::vector<std::pair<bir::BlockId, uint32_t>>& reservations,
+                      int kind_hint = 0) {
         if (!a) return false;
         TypeRef at = a.type(pool_);
         if (!at || at.kind() != LogosType::Kind::MutRef) return false;
@@ -692,7 +696,9 @@ private:
         if (!to_ref) return false;
         auto p = place_of(a);
         if (!p) return false;
-        bool m = !param || param.kind() == LogosType::Kind::MutRef;
+        // Unknown parameter: the receiver kind from the key when there is one,
+        // else a mutable reborrow (what a `&mut` argument most often meets).
+        bool m = param ? param.kind() == LogosType::Kind::MutRef : kind_hint != 1;
         bir::LocalId tmp = synth_ref_temp(at.pointee());
         assign({tmp, {}}, ref_of(p->with(bir::Proj(bir::Proj::K::Deref)), m, m));
         if (m) reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
@@ -738,12 +744,14 @@ private:
                     for (auto& pv : it->second.params()) ptypes.push_back(pv.type(pool_));
                     t.has_sig = true;
                     t.sig_to_result = signature_mask(it->second);
+                    t.callee_fn = it->second;
                 }
                 size_t ai = 0;
                 v.each_arg([&](lir_view::ExprRef a) {
                     TypeRef pt = ai < ptypes.size() ? ptypes[ai] : TypeRef{};
                     ++ai;
                     if (reborrow_arg(a, pt, t, reservations)) return;
+                    if (raw_addr_arg(a, pt, t)) return;
                     // A reference parameter given a non-reference place: the
                     // autoref codegen inserts is a borrow of that place.
                     if (pt && (pt.kind() == LogosType::Kind::Ref || pt.kind() == LogosType::Kind::MutRef) &&
@@ -768,6 +776,7 @@ private:
                 if (auto f = resolve_method(v)) {
                     t.has_sig = true;
                     t.sig_to_result = signature_mask(f);
+                    t.callee_fn = f;
                 } else if (is_deref_method(v)) {
                     // Deref::deref(&'a self) -> &'a Target.
                     t.has_sig = true;
@@ -790,6 +799,10 @@ private:
                     if (m)
                         reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
                     t.args.push_back(read_place({tmp, {}}, rcv.type(pool_)));
+                } else if (rcv && sk == 3) {
+                    auto f = resolve_method(v);
+                    TypeRef p0 = f && !f.params_empty() ? f.params()[0].type(pool_) : TypeRef{};
+                    if (p0 ? !raw_addr_arg(rcv, p0, t) : !raw_addr_place(rcv, t)) arg_value(rcv);
                 } else if (rcv && sk >= 1 && !is_pointer_kind(rcv.type(pool_))) {
                     // A bare place passed to `&self` / `&mut self`.
                     bir::Place p = place_or_temp(rcv);
@@ -801,7 +814,7 @@ private:
                 } else if (rcv) {
                     TypeRef p0;
                     if (auto f = resolve_method(v); f && !f.params_empty()) p0 = f.params()[0].type(pool_);
-                    if (!reborrow_arg(rcv, p0, t, reservations)) arg_value(rcv);
+                    if (!reborrow_arg(rcv, p0, t, reservations, sk)) arg_value(rcv);
                 }
                 {
                     std::vector<TypeRef> ptypes;
@@ -812,6 +825,7 @@ private:
                         TypeRef pt = ai < ptypes.size() ? ptypes[ai] : TypeRef{};
                         ++ai;
                         if (reborrow_arg(a, pt, t, reservations)) return;
+                        if (raw_addr_arg(a, pt, t)) return;
                         arg_value(a);
                     });
                 }
@@ -947,6 +961,25 @@ private:
     lir_view::FunctionView resolve_method(lir_view::EMethodCallView v) const {
         if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end())
             return it->second;
+        // The instance for THIS receiver: mono names a method instance
+        // `<pkg>.<ConcreteType>__<method>__…`, so the receiver's concrete type
+        // picks it out of the same-named candidates.
+        if (auto rcv = v.receiver()) {
+            TypeRef rt = rcv.type(pool_);
+            while (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef ||
+                          rt.kind() == LogosType::Kind::Ptr))
+                rt = rt.pointee();
+            std::string cname;
+            if (rt && rt.kind() == LogosType::Kind::Struct) cname = concrete_struct_name(rt);
+            else if (rt && rt.kind() == LogosType::Kind::Enum)
+                cname = rt.type_args().empty() ? std::string(rt.enum_name()) : Mono::enum_instance_name(rt);
+            if (!cname.empty())
+                if (auto it = idx_.by_base.find(std::string(v.method())); it != idx_.by_base.end()) {
+                    std::string needle = "." + cname + "__" + std::string(v.method()) + "__";
+                    for (auto& f : it->second)
+                        if (std::string(f.name()).find(needle) != std::string::npos) return f;
+                }
+        }
         auto agree = [&](const std::vector<lir_view::FunctionView>& cands) -> lir_view::FunctionView {
             if (cands.empty()) return {};
             auto kind0 = [&](lir_view::FunctionView f) {
@@ -965,8 +998,27 @@ private:
             return agree(it->second);
         return {};
     }
+    // The receiver form spelled in a mono template key: the first parameter
+    // after `__g__` / `__f__` is `ref_…`, `refmut_…`, `pmut_…` / `pconst_…`,
+    // or a by-value type. -1 when the key carries no signature.
+    static int self_kind_from_key(std::string_view key) {
+        size_t at = key.rfind("__g__");
+        size_t af = key.rfind("__f__");
+        size_t pos = at == std::string_view::npos ? af
+                   : af == std::string_view::npos ? at : std::max(at, af);
+        if (pos == std::string_view::npos) return -1;
+        std::string_view sig = key.substr(pos + 5);
+        if (sig.starts_with("refmut_")) return 2;
+        if (sig.starts_with("ref_"))    return 1;
+        if (sig.starts_with("pmut_") || sig.starts_with("pconst_")) return 3;
+        return 0;
+    }
     int self_kind(lir_view::EMethodCallView v) const {
         lir_view::FunctionView f = resolve_method(v);
+        if (!f && !v.resolved_symbol().empty() && !is_deref_method(v)) {
+            int k = self_kind_from_key(v.resolved_symbol());
+            if (k >= 0) return k;
+        }
         // Sema's overloaded-deref step (`*box`, method autoderef) is a call of
         // Deref::deref(&self) / DerefMut::deref_mut(&mut self) that mono may
         // leave unresolved: the receiver is borrowed, never moved.
@@ -979,7 +1031,33 @@ private:
         if (p0.kind() == LogosType::Kind::MutRef) return 2;
         if (p0.kind() == LogosType::Kind::Ref) return 1;
         if (p0.kind() == LogosType::Kind::DstRef && !p0.owning_dst()) return p0.mut_ptr() ? 2 : 1;
+        if (p0.kind() == LogosType::Kind::Ptr) return 3;   // `self: *mut Self`
         return 0;
+    }
+    // A non-pointer place handed to a raw-pointer parameter: codegen takes its
+    // address. That is neither a move nor a tracked loan.
+    bool raw_addr_place(lir_view::ExprRef a, bir::Term& t) {
+        if (!a || is_pointer_kind(a.type(pool_))) return false;
+        auto p = place_of(a);
+        if (!p) return false;
+        bir::LocalId tmp = temp({});
+        bir::Rvalue rv(bir::Rvalue::K::RawAddr);
+        rv.place = *p;
+        assign({tmp, {}}, std::move(rv));
+        t.args.push_back(read_place({tmp, {}}, {}));
+        return true;
+    }
+    bool raw_addr_arg(lir_view::ExprRef a, TypeRef param, bir::Term& t) {
+        if (!a || !param || param.kind() != LogosType::Kind::Ptr) return false;
+        if (is_pointer_kind(a.type(pool_))) return false;
+        auto p = place_of(a);
+        if (!p) return false;
+        bir::LocalId tmp = temp(param);
+        bir::Rvalue rv(bir::Rvalue::K::RawAddr);
+        rv.place = *p;
+        assign({tmp, {}}, std::move(rv));
+        t.args.push_back(read_place({tmp, {}}, param));
+        return true;
     }
 
     // ── statements ──
@@ -1204,8 +1282,10 @@ private:
                 bir::Operand hi = operand(v.hi());
                 push_scope();   // the counter lives across iterations
                 TypeRef it = v.lo() ? v.lo().type(pool_) : TypeRef{};
+                // The step below reassigns the counter; in Rust each iteration
+                // binds a fresh `i`, so the step is not a user assignment.
                 bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User, it,
-                                             v.var_mut(), v.var_slot(), line_);
+                                             true, v.var_slot(), line_);
                 declare(var);
                 bir::Rvalue init(bir::Rvalue::K::Use);
                 init.ops.push_back(lo);
@@ -1707,6 +1787,136 @@ private:
         row("subset_base", {o(a), o(d), pt(p)});
     }
 
+    // ── signatures ──
+    // One label per origin `walk_type(actual)` produces, read off the DECLARED
+    // type: a written lifetime's name, "" for an elided one, "T:<name>:<k>"
+    // for the k-th origin a type parameter T brought in, "?" when the two
+    // types do not line up.
+    void count_only(TypeRef t, size_t& n) {
+        OList tmp;
+        uint32_t saved = n_origins_;
+        walk_type(t, false, tmp);
+        n_origins_ = saved;
+        n = tmp.os.size();
+    }
+    void labels(TypeRef decl, TypeRef actual, std::vector<std::string>& out, int depth = 0) {
+        if (!actual || depth > 16) return;
+        size_t n = 0;
+        count_only(actual, n);
+        if (!n) return;
+        if (!decl) { out.insert(out.end(), n, "?"); return; }
+        auto dk = decl.kind();
+        if (dk == LogosType::Kind::TypeVar || dk == LogosType::Kind::AssocType) {
+            std::string nm = dk == LogosType::Kind::TypeVar ? std::string(decl.type_var_name())
+                                                            : std::string(decl.assoc_type_name());
+            for (size_t k = 0; k < n; ++k) out.push_back("T:" + nm + ":" + std::to_string(k));
+            return;
+        }
+        auto ak = actual.kind();
+        auto same = [&](LogosType::Kind a, LogosType::Kind b) { return a == b; };
+        switch (ak) {
+            case LogosType::Kind::Ref: case LogosType::Kind::MutRef: {
+                if (dk != LogosType::Kind::Ref && dk != LogosType::Kind::MutRef) break;
+                std::string lt(decl.lifetime());
+                out.push_back(lt.empty() || lt == "'_" ? "" : lt);
+                labels(decl.pointee(), actual.pointee(), out, depth + 1);
+                return;
+            }
+            case LogosType::Kind::Slice:
+                if (!same(dk, ak)) break;
+                if (!actual.owning_slice()) out.push_back("");
+                labels(decl.elem(), actual.elem(), out, depth + 1);
+                return;
+            case LogosType::Kind::Array:
+                if (!same(dk, ak)) break;
+                labels(decl.elem(), actual.elem(), out, depth + 1);
+                return;
+            case LogosType::Kind::Tuple: {
+                if (!same(dk, ak)) break;
+                auto de = decl.tuple_elems(), ae = actual.tuple_elems();
+                if (de.size() != ae.size()) break;
+                for (size_t i = 0; i < ae.size(); ++i) labels(de[i], ae[i], out, depth + 1);
+                return;
+            }
+            case LogosType::Kind::Struct: case LogosType::Kind::Enum: {
+                if (!same(dk, ak)) break;
+                auto alts = actual.lifetime_args(), dlts = decl.lifetime_args();
+                size_t before = out.size();
+                for (size_t i = 0; i < alts.size(); ++i) {
+                    std::string lt = i < dlts.size() ? dlts[i] : std::string();
+                    if (!lt.empty() && lt[0] != '\'') lt = "'" + lt;
+                    out.push_back(lt == "'_" ? "" : lt);
+                }
+                auto aa = actual.type_args(), da = decl.type_args();
+                for (size_t i = 0; i < aa.size(); ++i)
+                    labels(i < da.size() ? da[i] : TypeRef{}, aa[i], out, depth + 1);
+                // The implicit origin of a loan-carrying type that declares no
+                // lifetime: an unknown lifetime, labelled "~".
+                if (out.size() == before && n == 1) { out.push_back("~"); return; }
+                if (out.size() - before != n) { out.resize(before); break; }
+                return;
+            }
+            default:
+                break;
+        }
+        // Shapes differ (or a kind with no parts): every origin is unknown.
+        size_t have = 0;
+        (void)have;
+        out.insert(out.end(), n, "?");
+    }
+    // Loans in the arguments flow into the call's result where the callee's
+    // declared signature says so (Rust: written lifetimes by name, elided
+    // result lifetime from `&self` or the single input lifetime, type
+    // parameters position by position).
+    bool relate_call(const bir::Term& t, const OList& dst, uint32_t p) {
+        if (!t.callee_fn || !dst.exact) return false;
+        std::vector<std::string> lret;
+        labels(t.callee_fn.decl_ret_type(pool_), t.callee_fn.ret_type(pool_), lret);
+        if (lret.size() != dst.os.size()) return false;
+        auto ps = t.callee_fn.params();
+        struct Src { uint32_t origin; std::string label; bool outer_self; };
+        std::vector<Src> srcs;
+        std::vector<size_t> elided_positions;
+        bool self_ref = false;
+        for (size_t i = 0; i < t.args.size(); ++i) {
+            const auto& a = t.args[i];
+            if (a.k == bir::Operand::K::Const || !a.place.valid()) continue;
+            OList ao = place_origins(a.place);
+            std::vector<std::string> pl;
+            if (i < ps.size()) labels(ps[i].decl_type(pool_), ps[i].type(pool_), pl);
+            if (!ao.exact || pl.size() != ao.os.size()) pl.assign(ao.os.size(), "?");
+            bool is_self = i == 0 && !ps.empty() && ps[0].name() == "self";
+            TypeRef d0 = is_self ? ps[0].decl_type(pool_) : TypeRef{};
+            if (is_self && d0 && (d0.kind() == LogosType::Kind::Ref || d0.kind() == LogosType::Kind::MutRef ||
+                                  (d0.kind() == LogosType::Kind::DstRef && !d0.owning_dst())))
+                self_ref = true;
+            for (size_t k = 0; k < ao.os.size(); ++k) {
+                srcs.push_back({ao.os[k], pl[k], is_self && k == 0});
+                if (pl[k].empty() || (pl[k][0] == '\'' && pl[k] != "'static")) elided_positions.push_back(srcs.size() - 1);
+            }
+        }
+        for (size_t j = 0; j < dst.os.size(); ++j) {
+            const std::string& L = lret[j];
+            if (L == "'static") continue;
+            for (size_t si = 0; si < srcs.size(); ++si) {
+                const Src& sr = srcs[si];
+                bool from = false;
+                if (L == "?" || sr.label == "?" || L == "~") from = true;
+                else if (L.empty()) {
+                    // Elided result lifetime: from `&self`'s own lifetime,
+                    // else from the one input lifetime, else from all.
+                    if (self_ref) from = sr.outer_self;
+                    else from = std::find(elided_positions.begin(), elided_positions.end(), si) !=
+                                elided_positions.end();
+                } else {
+                    from = sr.label == L;
+                }
+                if (from) subset(sr.origin, dst.os[j], p);
+            }
+        }
+        return true;
+    }
+
     // ── paths (moves / initialisation) ──
     // A move path is a local plus field projections, up to the first deref
     // or index. Returns ~0u when the place has no path (a temp-free const).
@@ -2045,6 +2255,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                     if (loans_[i].activation == p) access(p, loans_[i].place, Access::WriteDeep, int32_t(i));
                 if (t.dest.valid()) {
                     OList dst = place_origins(t.dest);
+                    if (!relate_call(t, dst, p))
                     for (size_t ai = 0; ai < t.args.size(); ++ai) {
                         const auto& a = t.args[ai];
                         if (a.k == bir::Operand::K::Const || !a.place.valid()) continue;

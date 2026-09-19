@@ -2393,7 +2393,9 @@ impl<A: ExactSizeIterator<T>, B: ExactSizeIterator<U>, T, U>
 // ── SliceIter<T> — iterator over a slice &[T] ────────────────────────────────
 
 /// Borrowing iterator over a slice, yielding `&T`; double-ended via distinct front/back cursors.
-pub struct SliceIter<T> {
+// `'a` is the slice's lifetime: the items borrow the slice, not the iterator
+// (Rust's `slice::Iter<'a, T>`), so an item may outlive the next `next()`.
+pub struct SliceIter<'a, T> {
     data: *const T,
     len: i64,
     idx: i64,
@@ -2402,23 +2404,26 @@ pub struct SliceIter<T> {
 
 // Yields `&T` (Rust-conformant: `[T]::iter()` borrows). A slice is borrowed
 // storage, so there is no owning `into_iter` — the only form is by-ref.
-impl<T> Iterator<&T> for SliceIter<T> {
-    fn next(self: &mut SliceIter<T>) -> Option<&T> {
+impl<'a, T> Iterator<&'a T> for SliceIter<'a, T> {
+    fn next(self: &mut SliceIter<'a, T>) -> Option<&'a T> {
         unsafe {
             if self.idx >= self.back_idx { return Option::None; }
-            let r: &T = &self.data[self.idx];
+            // Through a raw pointer the reference is unbounded, so it takes 'a.
+            let q: *const T = &self.data[self.idx] as *const T;
+            let r: &'a T = &*q;
             self.idx = self.idx + 1 as i64;
             return Option::Some(r);
         }
     }
 }
 
-impl<T> DoubleEndedIterator<&T> for SliceIter<T> {
-    fn next_back(self: &mut SliceIter<T>) -> Option<&T> {
+impl<'a, T> DoubleEndedIterator<&'a T> for SliceIter<'a, T> {
+    fn next_back(self: &mut SliceIter<'a, T>) -> Option<&'a T> {
         unsafe {
             if self.idx >= self.back_idx { return Option::None; }
             self.back_idx = self.back_idx - 1 as i64;
-            let r: &T = &self.data[self.back_idx];
+            let q: *const T = &self.data[self.back_idx] as *const T;
+            let r: &'a T = &*q;
             return Option::Some(r);
         }
     }
@@ -2426,13 +2431,13 @@ impl<T> DoubleEndedIterator<&T> for SliceIter<T> {
 
 /// Creates a `SliceIter` borrowing `s`.
 /// Holds a raw pointer into the slice — the iterator must not outlive `s`.
-pub unsafe fn iter_over_slice<T>(s: &[T]) -> SliceIter<T> {
+pub unsafe fn iter_over_slice<'a, T>(s: &'a [T]) -> SliceIter<'a, T> {
     let p: *const T = s.as_ptr() as *const T;
     let n: i64 = s.len() as i64;
     return SliceIter { data: p, len: n, idx: 0 as i64, back_idx: n };
 }
 
-impl<T> ExactSizeIterator<&T> for SliceIter<T> {
+impl<'a, T> ExactSizeIterator<&'a T> for SliceIter<'a, T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 

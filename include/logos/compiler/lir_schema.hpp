@@ -544,6 +544,12 @@ inline constexpr Key IS_MACRO_HOOK      {"IS_MACRO_HOOK",      38}; // bool (spa
 // a declared function is told apart from a synthesized instance without parsing
 // a mangled name. See unit_graph.hpp.
 inline constexpr Key UNIT_KEY           {"UNIT_KEY",           39}; // Varchar (sparse)
+// ADR 0028 (#423): the DECLARED return type of a monomorphised function, before
+// type-parameter substitution. The borrow checker relates a call's result to
+// its arguments by the signature as written (Rust's elision applies to the
+// lifetimes written in the signature, never to ones a type argument brings).
+// Absent on functions that were never generic.
+inline constexpr Key DECL_RET_TYPE      {"DECL_RET_TYPE",      40}; // RelPtr<LogosType> (sparse)
 } // namespace decl_keys
 
 // Function PARAM sub-map keys (own small key space — distinct map schema).
@@ -553,6 +559,7 @@ inline constexpr Key P_TYPE          {"P_TYPE",          2};  // RelPtr<LogosTyp
 inline constexpr Key P_IS_VARIADIC   {"P_IS_VARIADIC",   3};  // bool (sparse)
 inline constexpr Key P_OWNING_BOX_DYN{"P_OWNING_BOX_DYN",4};  // bool (sparse)
 inline constexpr Key P_SLOT          {"P_SLOT",          5};  // i64 (sparse: omit when 0xFFFFFFFF)
+inline constexpr Key P_DECL_TYPE     {"P_DECL_TYPE",     6};  // RelPtr<LogosType> (sparse) — see DECL_RET_TYPE
 } // namespace param_keys
 
 // Function TYPE_PARAM sub-map keys (own space; richer than enum's — carries

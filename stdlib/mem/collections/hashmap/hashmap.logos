@@ -226,7 +226,8 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
 /// Iterator over `(&K, &V)` entries of a `HashMap`; created by `iter()`.
 /// Holds raw pointers into the table — inserting during iteration may resize and dangle them.
-pub struct HashMapIter<K, V> {
+// `'a` is the map's borrow: items borrow the map, not the iterator.
+pub struct HashMapIter<'a, K, V> {
     states:  *const u8,
     entries: *const Entry<K, V>,
     cap:     i64,
@@ -236,15 +237,20 @@ pub struct HashMapIter<K, V> {
 // Yields `(&K, &V)` (Rust-conformant: `HashMap::iter()` borrows). The entries
 // array is stable during iteration (resize only on insert), so `next()` returns
 // references into the occupied slot rather than copying.
-impl<K: Hash + Eq, V> Iterator<ZipPair<&K, &V>> for HashMapIter<K, V> {
-    fn next(self: &mut HashMapIter<K, V>) -> Option<ZipPair<&K, &V>> {
+impl<'a, K: Hash + Eq, V> Iterator<ZipPair<&'a K, &'a V>> for HashMapIter<'a, K, V> {
+    fn next(self: &mut HashMapIter<'a, K, V>) -> Option<ZipPair<&'a K, &'a V>> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
                     let e: *const Entry<K, V> = &self.entries[i];
-                    return Option::Some(ZipPair { first: &e.key, second: &e.val });
+                    // Through a raw pointer the references are unbounded: 'a.
+                    let kp: *const K = &e.key as *const K;
+                    let vp: *const V = &e.val as *const V;
+                    let k: &'a K = &*kp;
+                    let v: &'a V = &*vp;
+                    return Option::Some(ZipPair { first: k, second: v });
                 }
             }
             return Option::None;
@@ -253,22 +259,24 @@ impl<K: Hash + Eq, V> Iterator<ZipPair<&K, &V>> for HashMapIter<K, V> {
 }
 
 /// Iterator over `&K` keys of a `HashMap`; created by `keys()`.
-pub struct HashMapKeys<K, V> {
+pub struct HashMapKeys<'a, K, V> {
     states:  *const u8,
     entries: *const Entry<K, V>,
     cap:     i64,
     idx:     i64,
 }
 
-impl<K: Hash + Eq, V> Iterator<&K> for HashMapKeys<K, V> {
-    fn next(self: &mut HashMapKeys<K, V>) -> Option<&K> {
+impl<'a, K: Hash + Eq, V> Iterator<&'a K> for HashMapKeys<'a, K, V> {
+    fn next(self: &mut HashMapKeys<'a, K, V>) -> Option<&'a K> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
                     let e: *const Entry<K, V> = &self.entries[i];
-                    return Option::Some(&e.key);
+                    let kp: *const K = &e.key as *const K;
+                    let k: &'a K = &*kp;
+                    return Option::Some(k);
                 }
             }
             return Option::None;
@@ -277,22 +285,24 @@ impl<K: Hash + Eq, V> Iterator<&K> for HashMapKeys<K, V> {
 }
 
 /// Iterator over `&V` values of a `HashMap`; created by `values()`.
-pub struct HashMapValues<K, V> {
+pub struct HashMapValues<'a, K, V> {
     states:  *const u8,
     entries: *const Entry<K, V>,
     cap:     i64,
     idx:     i64,
 }
 
-impl<K: Hash + Eq, V> Iterator<&V> for HashMapValues<K, V> {
-    fn next(self: &mut HashMapValues<K, V>) -> Option<&V> {
+impl<'a, K: Hash + Eq, V> Iterator<&'a V> for HashMapValues<'a, K, V> {
+    fn next(self: &mut HashMapValues<'a, K, V>) -> Option<&'a V> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
                     let e: *const Entry<K, V> = &self.entries[i];
-                    return Option::Some(&e.val);
+                    let vp: *const V = &e.val as *const V;
+                    let v: &'a V = &*vp;
+                    return Option::Some(v);
                 }
             }
             return Option::None;
@@ -303,7 +313,7 @@ impl<K: Hash + Eq, V> Iterator<&V> for HashMapValues<K, V> {
 impl<K: Hash + Eq, V> HashMap<K, V> {
     /// Returns an iterator yielding `ZipPair<&K, &V>` for each occupied entry.
     /// Order is arbitrary (table order). Do not insert while iterating.
-    pub unsafe fn iter(self: *const HashMap<K, V>) -> HashMapIter<K, V> {
+    pub unsafe fn iter<'a>(self: *const HashMap<K, V>) -> HashMapIter<'a, K, V> {
         return HashMapIter {
             states:  self.states as *const u8,
             entries: self.entries as *const Entry<K, V>,
@@ -313,7 +323,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     /// Returns an iterator over the map's keys, in arbitrary order.
-    pub unsafe fn keys(self: *const HashMap<K, V>) -> HashMapKeys<K, V> {
+    pub unsafe fn keys<'a>(self: *const HashMap<K, V>) -> HashMapKeys<'a, K, V> {
         return HashMapKeys {
             states:  self.states as *const u8,
             entries: self.entries as *const Entry<K, V>,
@@ -323,7 +333,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     /// Returns an iterator over the map's values, in arbitrary order.
-    pub unsafe fn values(self: *const HashMap<K, V>) -> HashMapValues<K, V> {
+    pub unsafe fn values<'a>(self: *const HashMap<K, V>) -> HashMapValues<'a, K, V> {
         return HashMapValues {
             states:  self.states as *const u8,
             entries: self.entries as *const Entry<K, V>,

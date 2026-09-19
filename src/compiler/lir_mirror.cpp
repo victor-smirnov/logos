@@ -165,6 +165,7 @@ public:
         if (p.is_variadic)    put(map_off, pmk::P_IS_VARIADIC,    put_bool(true));
         if (p.owning_box_dyn) put(map_off, pmk::P_OWNING_BOX_DYN, put_bool(true));
         if (p.slot != 0xFFFFFFFFu) put(map_off, pmk::P_SLOT, put_i64((int64_t)p.slot));
+        if (p.decl_type)      put(map_off, pmk::P_DECL_TYPE,      type_av(p.decl_type));
         return mref_addr(map_off);
     }
     // FTP_BOUNDS array element (TraitBound sub-map). Own key space.

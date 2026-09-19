@@ -245,7 +245,7 @@ impl<T> Vec<T> {
     }
 
     /// Returns a borrowing iterator yielding `&T`.
-    pub fn iter(&self) -> VecIter<T> {
+    pub fn iter<'a>(self: &'a Vec<T>) -> VecIter<'a, T> {
         return VecIter {
             data: self.ptr as *const T, len: self.len,
             idx: 0i64, back_idx: self.len,
@@ -253,7 +253,7 @@ impl<T> Vec<T> {
     }
 
     /// Returns a mutable iterator yielding `&mut T`.
-    pub fn iter_mut(&mut self) -> VecIterMut<T> {
+    pub fn iter_mut<'a>(self: &'a mut Vec<T>) -> VecIterMut<'a, T> {
         return VecIterMut { data: self.ptr, len: self.len, idx: 0 };
     }
 }
@@ -272,41 +272,46 @@ impl<T> IndexMut<i64, T> for Vec<T> {
 
 /// Borrowing iterator over a `Vec<T>` (`Vec::iter()` / `for x in &v`); yields `&T`.
 /// Owns nothing; `Drop` is a no-op. Mirrors Rust's `slice::Iter`.
+// `'a` is the Vec's borrow: items borrow the Vec, not the iterator (Rust's
+// `slice::Iter<'a, T>`).
 #[borrow_carrying]
-pub struct VecIter<T> {
+pub struct VecIter<'a, T> {
     data: *const T,
     len:  i64,
     idx:  i64,
     back_idx: i64,
 }
 
-impl<T> Iterator<&T> for VecIter<T> {
-    fn next(self: &mut VecIter<T>) -> Option<&T> {
+impl<'a, T> Iterator<&'a T> for VecIter<'a, T> {
+    fn next(self: &mut VecIter<'a, T>) -> Option<&'a T> {
         if self.idx >= self.back_idx {
             return Option::None;
         }
         unsafe {
-            let r: &T = &self.data[self.idx];
+            // Through a raw pointer the reference is unbounded, so it takes 'a.
+            let q: *const T = &self.data[self.idx] as *const T;
+            let r: &'a T = &*q;
             self.idx = self.idx + 1;
             return Option::Some(r);
         }
     }
 }
 
-impl<T> DoubleEndedIterator<&T> for VecIter<T> {
-    fn next_back(self: &mut VecIter<T>) -> Option<&T> {
+impl<'a, T> DoubleEndedIterator<&'a T> for VecIter<'a, T> {
+    fn next_back(self: &mut VecIter<'a, T>) -> Option<&'a T> {
         if self.idx >= self.back_idx {
             return Option::None;
         }
         unsafe {
             self.back_idx = self.back_idx - 1;
-            let r: &T = &self.data[self.back_idx];
+            let q: *const T = &self.data[self.back_idx] as *const T;
+            let r: &'a T = &*q;
             return Option::Some(r);
         }
     }
 }
 
-impl<T> ExactSizeIterator<&T> for VecIter<T> {
+impl<'a, T> ExactSizeIterator<&'a T> for VecIter<'a, T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 
@@ -373,19 +378,20 @@ impl<T> Drop for VecIntoIter<T> {
 
 /// Mutable borrowing iterator over a `Vec<T>` (`Vec::iter_mut()`); yields `&mut T`.
 #[borrow_carrying]
-pub struct VecIterMut<T> {
+pub struct VecIterMut<'a, T> {
     data: *mut T,
     len:  i64,
     idx:  i64,
 }
 
-impl<T> Iterator<&mut T> for VecIterMut<T> {
-    fn next(self: &mut VecIterMut<T>) -> Option<&mut T> {
+impl<'a, T> Iterator<&'a mut T> for VecIterMut<'a, T> {
+    fn next(self: &mut VecIterMut<'a, T>) -> Option<&'a mut T> {
         if self.idx >= self.len {
             return Option::None;
         }
         unsafe {
-            let r: &mut T = &mut self.data[self.idx];
+            let q: *mut T = &mut self.data[self.idx] as *mut T;
+            let r: &'a mut T = &mut *q;
             self.idx = self.idx + 1;
             return Option::Some(r);
         }
@@ -415,9 +421,9 @@ impl<T> IntoIterator<T> for Vec<T> {
 }
 
 // `for x in &v` — borrows, yields &T by reference (Rust parity).
-impl<T> IntoIterator<&T> for &Vec<T> {
-    type Iter = VecIter<T>;
-    fn into_iter(self: &Vec<T>) -> VecIter<T> {
+impl<'a, T> IntoIterator<&'a T> for &'a Vec<T> {
+    type Iter = VecIter<'a, T>;
+    fn into_iter(self: &'a Vec<T>) -> VecIter<'a, T> {
         return VecIter {
             data: self.ptr as *const T, len: self.len,
             idx: 0i64, back_idx: self.len,

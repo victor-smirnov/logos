@@ -645,6 +645,7 @@ struct LParam {
     // (not a stack fat pair) so the callee's free() is valid.
     bool             owning_box_dyn = false;
     uint32_t         slot = 0xFFFFFFFFu;   // Phase-1: dense var slot (sema-assigned)
+    TypeRef          decl_type;            // declared type before mono substitution (sparse)
 };
 
 // EClosure — defined after LParam and LBlock (both needed).

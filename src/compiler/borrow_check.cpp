@@ -6915,6 +6915,32 @@ private:
     // `&self`)? A method with explicit lifetimes MAY tie its result to an arg
     // (`fn pick<'a>(&self, x:&'a T)->&'a T`) → NOT self-borrowing (avoids the
     // over-borrow that broke persistent_showcase). See escape-analysis §4(a).
+    // Lifetime names a type writes: reference lifetimes and struct/enum
+    // lifetime arguments, recursively.
+    static void names_in_type_(TypeRef t, std::set<std::string>& out, int depth = 0) {
+        if (!t || depth > 16) return;
+        switch (t.kind()) {
+            case LogosType::Kind::Ref: case LogosType::Kind::MutRef: {
+                std::string lt(t.lifetime());
+                if (!lt.empty() && lt != "'_") out.insert(lt);
+                names_in_type_(t.pointee(), out, depth + 1);
+                return;
+            }
+            case LogosType::Kind::Struct: case LogosType::Kind::Enum:
+                for (auto& lt : t.lifetime_args())
+                    if (!lt.empty() && lt != "'_" && lt != "_") out.insert(lt[0] == '\'' ? lt : "'" + lt);
+                for (auto& a : t.type_args()) names_in_type_(a, out, depth + 1);
+                return;
+            case LogosType::Kind::Slice: case LogosType::Kind::Array:
+                names_in_type_(t.elem(), out, depth + 1);
+                return;
+            case LogosType::Kind::Tuple:
+                for (auto& e : t.tuple_elems()) names_in_type_(e, out, depth + 1);
+                return;
+            default:
+                return;
+        }
+    }
     bool is_self_borrowing(lir_view::FunctionView f) const {
         // Elision: `&self -> &T` borrows self. SO DOES `&self -> <BC type>`
         // (iter()/iter_mut() returning a borrowing iterator, WAny views):
@@ -6934,6 +6960,15 @@ private:
         if (lt_exit) {
             const FlowSummary* sfs = flow_of_call(f.name());
             if (sfs && sfs->available && (sfs->to_result & 1ull)) lt_exit = false;
+        }
+        // ADR 0028: the SIGNATURE ties them when a lifetime named in the result
+        // is also named in the receiver (`fn iter<'a>(self: &'a Vec<T>) ->
+        // VecIter<'a, T>`), whatever the body does through raw pointers.
+        if (lt_exit && !params.empty()) {
+            std::set<std::string> rn, sn;
+            names_in_type_(f.ret_type(pool), rn);
+            names_in_type_(params[0].type(pool), sn);
+            for (auto& n : rn) if (n != "'static" && sn.count(n)) { lt_exit = false; break; }
         }
         if (lt_exit && logos::probe::on("selfltany")) lt_exit = false;
         if (params.empty() || !is_ref_kind(params[0].type(pool)) || lt_exit)

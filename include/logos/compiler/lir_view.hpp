@@ -618,6 +618,11 @@ struct LParamView {
     TypeRef type(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::param_keys::P_TYPE.code, pool);
     }
+    // As declared, before mono substitution; type() when never generic.
+    TypeRef decl_type(const TypePoolImpl* pool) const noexcept {
+        TypeRef t = self.decl_type(lir_schema::param_keys::P_DECL_TYPE.code, pool);
+        return t ? t : type(pool);
+    }
     bool is_variadic() const noexcept {
         return detail::read_bool(self, lir_schema::param_keys::P_IS_VARIADIC.code);
     }
@@ -740,6 +745,12 @@ struct FunctionView {
     }
     TypeRef ret_type(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::decl_keys::RET_TYPE.code, pool);
+    }
+    // The return type as declared, before mono substitution; ret_type() when
+    // the function was never generic.
+    TypeRef decl_ret_type(const TypePoolImpl* pool) const noexcept {
+        TypeRef t = self.decl_type(lir_schema::decl_keys::DECL_RET_TYPE.code, pool);
+        return t ? t : ret_type(pool);
     }
     TypeRef impl_target_pattern(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::decl_keys::IMPL_TARGET_PATTERN.code, pool);

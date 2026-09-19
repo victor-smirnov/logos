@@ -161,7 +161,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
     }
 
     /// Returns an iterator over `(&K, &V)` pairs in ascending key order.
-    pub unsafe fn iter(self: *const BTreeMap<K, V>) -> BTreeMapIter<K, V> {
+    pub unsafe fn iter<'a>(self: *const BTreeMap<K, V>) -> BTreeMapIter<'a, K, V> {
         return BTreeMapIter {
             keys: self.keys as *const K,
             vals: self.vals as *const V,
@@ -174,7 +174,8 @@ impl<K: Ord, V> BTreeMap<K, V> {
 // ── Iterator ─────────────────────────────────────────────────────────────────
 
 /// Iterator over a `BTreeMap`'s entries in ascending key order, yielding `(&K, &V)`.
-pub struct BTreeMapIter<K, V> {
+// `'a` is the map's borrow: items borrow the map, not the iterator.
+pub struct BTreeMapIter<'a, K, V> {
     keys: *const K,
     vals: *const V,
     len:  i64,
@@ -184,12 +185,15 @@ pub struct BTreeMapIter<K, V> {
 // Yields `(&K, &V)` (Rust-conformant: `BTreeMap::iter()` borrows entries). The
 // keys/vals parallel arrays are stable during iteration, so `next()` returns
 // references into them rather than copying.
-impl<K: Ord, V> Iterator<ZipPair<&K, &V>> for BTreeMapIter<K, V> {
-    fn next(self: &mut BTreeMapIter<K, V>) -> Option<ZipPair<&K, &V>> {
+impl<'a, K: Ord, V> Iterator<ZipPair<&'a K, &'a V>> for BTreeMapIter<'a, K, V> {
+    fn next(self: &mut BTreeMapIter<'a, K, V>) -> Option<ZipPair<&'a K, &'a V>> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
-            let k: &K = &self.keys[self.idx];
-            let v: &V = &self.vals[self.idx];
+            // Through a raw pointer the references are unbounded: 'a.
+            let kp: *const K = &self.keys[self.idx] as *const K;
+            let vp: *const V = &self.vals[self.idx] as *const V;
+            let k: &'a K = &*kp;
+            let v: &'a V = &*vp;
             self.idx = self.idx + 1 as i64;
             return Option::Some(ZipPair { first: k, second: v });
         }
