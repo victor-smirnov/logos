@@ -492,6 +492,17 @@ private:
             case ECode::AddrOfTemp: {
                 lir_view::EAddrOfTempView v{e};
                 TypeRef t = e.type(pool_);
+                // `&*fat` where the inner expression already IS the fat
+                // reference (a borrow of an unsized place: `&self.inner.val`
+                // for `T = dyn`, `&v[..]`): same type in and out, no new loan.
+                if (TypeRef it = v.inner() ? v.inner().type(pool_) : TypeRef{};
+                    it && t && it.kind() == t.kind() &&
+                    ((it.kind() == LogosType::Kind::Slice && !it.owning_slice()) ||
+                     (it.kind() == LogosType::Kind::TraitObject && !it.owning_trait_object()) ||
+                     (it.kind() == LogosType::Kind::DstRef && !it.owning_dst()))) {
+                    lower_into(std::move(dest), v.inner());
+                    return;
+                }
                 // `&mut *x.deref()`: the deref feeding a mutable borrow is a
                 // `deref_mut`, whatever the L-IR spelled (sema may emit the
                 // shared one for a mutable receiver).
@@ -531,7 +542,12 @@ private:
             case ECode::Cast: {
                 bir::Rvalue rv(bir::Rvalue::K::Op);
                 rv.what = "cast";
-                rv.ops.push_back(operand(lir_view::ECastView{e}.operand()));
+                // `r as *mut T` with r: &mut T reborrows r (Rust); r stays usable.
+                lir_view::ExprRef op = lir_view::ECastView{e}.operand();
+                bir::Operand o = operand(op);
+                if (op && op.type(pool_) && op.type(pool_).kind() == LogosType::Kind::MutRef)
+                    o = as_read(std::move(o));
+                rv.ops.push_back(std::move(o));
                 assign(dest, std::move(rv));
                 return;
             }
@@ -740,11 +756,11 @@ private:
                 t.callee = std::string(v.callee());
                 if (flows_) t.flow = resolve_call_flow(*flows_, v.callee(), &idx_);
                 std::vector<TypeRef> ptypes;
-                if (auto it = idx_.by_name.find(std::string(v.callee())); it != idx_.by_name.end()) {
-                    for (auto& pv : it->second.params()) ptypes.push_back(pv.type(pool_));
+                if (auto cf = resolve_call(v.callee())) {
+                    for (auto& pv : cf.params()) ptypes.push_back(pv.type(pool_));
                     t.has_sig = true;
-                    t.sig_to_result = signature_mask(it->second);
-                    t.callee_fn = it->second;
+                    t.sig_to_result = signature_mask(cf);
+                    t.callee_fn = cf;
                 }
                 size_t ai = 0;
                 v.each_arg([&](lir_view::ExprRef a) {
@@ -953,6 +969,17 @@ private:
     static bool is_deref_method(lir_view::EMethodCallView v) {
         auto m = v.method();
         return m == "deref" || m == "deref_mut" || m == "index" || m == "index_mut";
+    }
+    // The callee of a plain call: by name, else by the mono worklist key's
+    // bare spelling (#83: a devirtualised generic method call names
+    // `<Type>__<method>`, not any function's full name).
+    lir_view::FunctionView resolve_call(std::string_view callee) const {
+        if (auto it = idx_.by_name.find(std::string(callee)); it != idx_.by_name.end())
+            return it->second;
+        if (auto it = idx_.by_bare.find(std::string(bare_fn_name(callee))); it != idx_.by_bare.end() &&
+            it->second.size() == 1)
+            return it->second.front();
+        return {};
     }
     // The callee of a method call: by its resolved symbol, else by the mono
     // template key's bare spelling, else by the method's base name when every
@@ -2324,8 +2351,14 @@ static std::string bir_dump(const bir::Body& b) {
         const auto& l = b.locals[i];
         const char* k = l.kind == bir::LocalKind::Return ? "ret" : l.kind == bir::LocalKind::Param ? "param"
                       : l.kind == bir::LocalKind::User ? "let" : "tmp";
-        out += std::format("  {} {}{}: {}\n", k, l.is_mut ? "mut " : "", l.name,
-                           l.type ? std::string(type_str(l.type)) : std::string("?"));
+        std::string extra;
+        if (l.type && (l.type.kind() == LogosType::Kind::Enum || l.type.kind() == LogosType::Kind::Struct))
+            extra = std::format("  [targs={} lts={} name={}]", l.type.type_args().size(),
+                                l.type.lifetime_args().size(),
+                                l.type.kind() == LogosType::Kind::Enum ? std::string(l.type.enum_name())
+                                                                       : std::string(l.type.struct_name()));
+        out += std::format("  {} {}{}: {}{}\n", k, l.is_mut ? "mut " : "", l.name,
+                           l.type ? std::string(type_str(l.type)) : std::string("?"), extra);
     }
     for (size_t bi = 0; bi < b.blocks.size(); ++bi) {
         out += std::format("  bb{}:\n", bi);
@@ -2365,7 +2398,11 @@ static std::string bir_dump(const bir::Body& b) {
             case bir::Term::K::Call: {
                 std::string as;
                 for (size_t i = 0; i < t.args.size(); ++i) as += (i ? ", " : "") + opnd(t.args[i]);
-                out += std::format("    {} = call {}({}) ->{}    @{}\n", place(t.dest), t.callee, as, tg, t.line);
+                std::string rs = t.callee_fn ? std::string(t.callee_fn.name()) : std::string("-");
+                bool decl = t.callee_fn && t.callee_fn.decl_ret_type(nullptr).addr() !=
+                                               t.callee_fn.ret_type(nullptr).addr();
+                out += std::format("    {} = call {}({}) ->{}    @{}   [resolved={} decl={}]\n", place(t.dest),
+                                   t.callee, as, tg, t.line, rs, decl ? "yes" : "no");
                 break;
             }
         }
