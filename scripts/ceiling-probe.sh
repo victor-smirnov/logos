@@ -109,12 +109,12 @@ LOGOS_PROBE="$NAME" LOGOS_PROBE_FIRE="$FIRELOG" _measure "$A"; BID_ARMED=$(_bid 
 
 # ── POPULATION 2: THE `fail` HALF, READ BY TEXT ──────────────────────────────
 # ⚠ THE BASELINE IS A PROPERTY OF THE BINARY, NOT OF THE PROBE, so it is keyed
-# on `build_hash.py` and paid ONCE PER BUILD. Batching N probes into one build
+# on `hash-build.py` and paid ONCE PER BUILD. Batching N probes into one build
 # is the whole point of `probe-batch.sh`; re-measuring the same 1028 unarmed
 # compiles N times would throw that away.
 FAIL_RC=0; FAIL_TXT=0; FAIL_MATCH=0; FAIL_LINES=""
 if [ "$SKIP_FAIL" != "1" ]; then
-    read -r BH _ < <(python3 scripts/build_hash.py build) || BH=unknown
+    read -r BH _ < <(python3 scripts/hash-build.py build) || BH=unknown
     FB="$WORK/failtext-$BH.tsv"
     if [ ! -s "$FB" ]; then
         echo "ceiling-probe: fail-text baseline for build $BH not yet measured"

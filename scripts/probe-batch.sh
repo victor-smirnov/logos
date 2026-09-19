@@ -40,7 +40,7 @@ _n=$(grep -c '^name:' "$SPEC" 2>/dev/null || echo 1)
 # guess: the pass half through the store is 128 s (measured on a fresh armed
 # identity), the `-L bc -L fail` text oracle adds 54 s armed, and the four
 # stdlib layers add 49 s. Plus 55 s once per build for the fail baseline, which
-# is keyed on `build_hash.py` and shared by every probe in the batch. That
+# is keyed on `hash-build.py` and shared by every probe in the batch. That
 # buys the two damage shapes the old price could not see at all.
 _est=$(( 150 + 55 + 230 * _n ))
 # ⚠ THE THRESHOLD IS REAL, NOT A ROUND NUMBER. Refusing a batch that WOULD fit

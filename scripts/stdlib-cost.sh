@@ -18,7 +18,7 @@
 #   · 141 s for the four archives at the build's own `-O2` — MORE than the
 #     whole rest of a per-mechanism price (128 s), and serialised by the layer
 #     dependency chain lang -> lcm -> mem -> std;
-#   · and it MOVES `scripts/build_hash.py`. A stdlib rebuild changes the archive
+#   · and it MOVES `scripts/hash-build.py`. A stdlib rebuild changes the archive
 #     bytes with no source changed (the module's version string carries a
 #     timestamp), 63678a4d6a5f87d9 -> e3eed1c6515e4486 measured — and that hash
 #     is the STORE'S BUILD IDENTITY. Rebuilding the stdlib inside a price
