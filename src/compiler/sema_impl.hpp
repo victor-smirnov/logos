@@ -3005,11 +3005,25 @@ private:
     std::string bound_lookup_ground(const TraitBound& b) const {
         if (b.canonical_trait.empty() || b.canonical_trait == b.trait_name)
             return {};
-        return std::format(
-            " — here '{}' denotes the trait registered as '{}', and the impl "
-            "registry was searched under that identity; a different same-named "
-            "trait owns the bare name '{}' and its impls do NOT satisfy this bound",
-            b.trait_name, b.canonical_trait, b.trait_name);
+        // #438: say WHICH trait the written name denotes, and name the others
+        // only when there are others — the registry has no bare slot for one of
+        // them to "own", so claiming that was a message outliving its mechanism.
+        std::string others;
+        for (auto& [id, ti] : traits_) {
+            if (ti.name != b.trait_name || id == b.trait_def) continue;
+            others += others.empty() ? "" : ", ";
+            others += defs_.path(id);
+        }
+        return others.empty()
+            ? std::format(
+                " — here '{}' denotes the trait registered as '{}', and the impl "
+                "registry was searched under that identity",
+                b.trait_name, b.canonical_trait)
+            : std::format(
+                " — here '{}' denotes the trait registered as '{}', and the impl "
+                "registry was searched under that identity; the same name also "
+                "names {} and its impls do NOT satisfy this bound",
+                b.trait_name, b.canonical_trait, others);
     }
 
     // #114 — A TYPEVAR ARGUMENT IS A MOVE UNLESS ITS PARAMETER IS `Copy`-BOUND.

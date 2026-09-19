@@ -1,0 +1,1 @@
+impl Tagged for i64: missing impl Hash for i64 (required by supertrait)

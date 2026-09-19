@@ -1,0 +1,28 @@
+// A SUPERTRAIT IS THE TRAIT THE DECLARATION NAMED, NOT ITS SPELLING.
+//
+// This package declares its own `trait Hash`, a homonym of the stdlib's
+// `logos.lang.hash::Hash`. `trait Tagged: Hash` is written HERE, so its
+// supertrait is THIS package's `Hash` — and `impl Tagged for i64` therefore
+// requires `impl Hash for i64` of THIS trait. `i64` implements the STDLIB
+// `Hash` (stdlib/lang/hash/hash.logos) and not this one, so the impl must be
+// REFUSED.
+//
+// ⚠ THIS PINS BEHAVIOUR THAT ALREADY HELD, AND SAYS SO. Measured against the
+// pre-#438 compiler (14c36a77f): it refuses this program with the same
+// message, because the supertrait check already asked with the identity
+// captured at the declaration (SemaImplInfo::canonical_trait). #438 step 3
+// replaced that string with the DefId; the fixture exists so the equivalence
+// is held by a program, not by a reading of the diff. What it would catch is a
+// future step resolving `Hash` HERE, in whatever scope the check runs in.
+//
+// ⚠ NOT AN ARITY OR A SPELLING TEST. `Tagged` is implemented in full and
+// `tag()` is a real method; the ONLY thing missing is the supertrait impl.
+package trait_ident_supertrait_identity;
+
+pub trait Hash { fn hash_of(self: &Self) -> i64; }
+
+pub trait Tagged: Hash { fn tag(self: &Self) -> i64; }
+
+impl Tagged for i64 { fn tag(self: &Self) -> i64 { return *self; } }
+
+fn main() -> i32 { return 0i32; }
