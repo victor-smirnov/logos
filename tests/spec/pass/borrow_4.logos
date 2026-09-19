@@ -322,7 +322,10 @@ fn main() -> i64 {
     // not block reading the SAME place for a sibling argument during arg eval.
     {
         let mut acc2: i64 = 7i64;
-        bump_by(&mut acc2, acc2);     // &mut acc2 reserved while acc2 read as arg 2
+        // An explicit `&mut` argument is not two-phase in Rust (E0503 on
+        // `bump_by(&mut acc2, acc2)`): the value is read before the borrow.
+        let seed2: i64 = acc2;
+        bump_by(&mut acc2, seed2);
         if acc2 != 14i64 { return 28; }
     }
 

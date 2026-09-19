@@ -76,6 +76,15 @@ struct BorrowSite {
     // with concurrent shared reads of the same target.
     bool        is_tpb_reservation = false;
     uint32_t    origin_line = 0;  // B73: source line for diagnostics
+    // Evaluation order inside ONE statement (Rust's, left to right, a call's
+    // arguments before the call returns, an assignment's value before its
+    // place). A borrow lives from `seq_start` to `seq_end`: a transient borrow
+    // taken while evaluating a call's operands (its receiver or an argument)
+    // ends when that call returns; any other borrow lives to the statement's
+    // end. Two borrows of one statement whose intervals are disjoint never
+    // conflict: `f(&w) + g(&mut w)` is legal.
+    uint32_t    seq_start = 0;
+    uint32_t    seq_end   = UINT32_MAX;
 };
 
 // A region constraint. The solver propagates region-membership across

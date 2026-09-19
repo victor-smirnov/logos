@@ -343,8 +343,6 @@ ptr_coercion_generic_struct_pointee_region_admits 2 tests/soundness/open/ptr_coe
 
 enum_variant_pattern_on_integer_scrutinee_admits 2 tests/soundness/open/enum_variant_pattern_on_integer_scrutinee_admits admits
 
-vec_index_store_value_borrows_vec_refused 3 tests/soundness/open/vec_index_store_value_borrows_vec_refused refuses
-
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
 vec_push_arg_reads_loan_refused 3 tests/soundness/open/vec_push_arg_reads_loan_refused refuses
@@ -427,8 +425,6 @@ vec_mutref_elem_push_store_rehomed_refused 3 tests/soundness/open/vec_mutref_ele
 loop_push_no_later_use_dangle_not_carried_admits 2 tests/soundness/open/loop_push_no_later_use_dangle_not_carried_admits admits
 
 arraylit_ref_elem_store_after_init_admits 2 tests/soundness/open/arraylit_ref_elem_store_after_init_admits admits
-
-free_fn_outparam_ref_store_no_dangle_deposit_admits 2 tests/soundness/open/free_fn_outparam_ref_store_no_dangle_deposit_admits admits
 
 vec_of_mutref_elem_receiver_store_loan_unheld_admits 2 tests/soundness/open/vec_of_mutref_elem_receiver_store_loan_unheld_admits admits
 
@@ -617,5 +613,5 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 # MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
-# TOTAL 230
+# TOTAL 228
 # SYNC-HASH c74b307c1f3575565523ee3b8142a631

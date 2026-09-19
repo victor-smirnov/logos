@@ -1,4 +1,6 @@
-package vec_index_store_value_borrows_vec_refused;
+// CLOSED 2026-09-19 (ADR 0028, #218): soundness-queue row vec_index_store_value_borrows_vec_refused, now admitted as rustc admits it.
+// Borrow facts come from sema (BorrowOrigin, declared signatures, exact callee instances).
+package vec_index_store_value_borrows_vec_admitted;
 fn total(v: &[i64]) -> i64 {
     return v[0u64] + v[1u64];
 }

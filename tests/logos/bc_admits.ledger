@@ -1941,10 +1941,6 @@ two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-l
 
 borrowck-unboxed-closures bck.A-FNMUT tests/imported/admit/borrowck/borrowck-unboxed-closures  #  ⚠ BLOCKED ON THREE PINS, 2026-09-12g — NOT a missing mechanism. The arm that closes this row is ONE CALL, `check_recv_conflict(callee_place, is_mut=true)` at borrow_check.cpp Code::ClosureCall, on top of the Fn-family CALL MODE (`fn_call_mode` / `fnfam_tvs_`) landed in that round for the E0499 half. Armed, it prints exactly upstream's verdict ("cannot borrow 'f' as mutable: not declared as mut"; rustc .stderr on the box at borrowck-unboxed-closures.rs:7 says E0596 "cannot borrow `f` as mutable, as it is not declared as mutable") and it REFUSES THREE GREEN PASS FIXTURES that spell this row's own construct: tests/logos/pass/closure_call_moves_string (`fn g<Ty, F: FnMut(String)->Ty>(s: String, f: F)`), tests/logos/pass/closure_mut_param (`fn apply<F>(f: F, x: i64) where F: FnMut(i64)->i64` — and the SAME FILE spells `fn run<F>(mut f: F)` correctly one line below), and tests/imported/pass/closures/hrtb-fnmut-via-Fn-family. POPULATION MEASURED, not sampled: all 101 non-fail corpus programs mentioning `FnMut` were compiled under the armed binary and exactly those three refuse, no others. All three are pass fixtures asserting a program rustc refuses, so closing this row means editing them — the same wall and the same rule as `--c-mut-and-shared-args` four rows down: A LEDGER ROW MAY NOT BE BOUGHT BY EDITING A PIN. CORPUS DECISION WITH AN OWNER.
 
-two-phase-nonrecv-autoref--c-mut-and-shared-args bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args  #  ⚠ BLOCKED ON A PIN, 2026-09-09: the arm that closes this row (`argresvact` + the receiver reservation, ceiling 3, cost 0 elsewhere) refuses `tests/imported/pass/nll/tpb-mut-with-shared-ref-arg` — a GREEN pass fixture whose program is THIS ROW'S CONSTRUCT one shelf over, and which upstream marks `//~ ERROR [E0502]` (read on the box at `tests/ui/borrowck/two-phase-nonrecv-autoref.rs:104-112`). A second, `tests/imported/pass/cmp/test_harness_coretest_cmp:125`, replaced upstream's temporaries with a named local and so made the program illegal. A LEDGER ROW MAY NOT BE BOUGHT BY EDITING A PIN: both are corpus decisions with an owner.
-
-two-phase-nonrecv-autoref--d-index-two-phase bck.D tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase
-
 # ── tests/ui/drop ─────────────────────────────────────────
 
 
@@ -2600,5 +2596,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 60
+# TOTAL 58
 # SYNC-HASH c3b97bad211ab5932f5095bb704c2f2c

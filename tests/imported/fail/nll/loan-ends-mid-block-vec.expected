@@ -1,1 +1,1 @@
-cannot use 'data' while it is mutably borrowed
+cannot borrow 'data': 'data' is already mutably borrowed

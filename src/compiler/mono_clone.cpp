@@ -4658,6 +4658,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // const-want param index directly. No-op unless the callee
                 // body is available to clone.
                 if (!nm.resolved_symbol.empty() && nm.receiver) {
+                    if (auto inst = exact_method_instance(
+                            nm.receiver.type(out_.type_pool.impl()), nm.method,
+                            nm.resolved_symbol); !inst.empty())
+                        nm.resolved_symbol = std::move(inst);
                     std::vector<lir::LExprPtr> combined;
                     combined.reserve(nm.args.size() + 1);
                     combined.push_back(nm.receiver);

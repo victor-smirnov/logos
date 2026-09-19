@@ -372,6 +372,33 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
     // B82: depth of nested fn-call arg evaluation. Borrows taken with
     // depth > 0 are flagged as two-phase reservations.
     int in_call_args_depth = 0;
+    // Statement-local evaluation order (BorrowSite::seq_start). `open_calls`
+    // holds, per call being evaluated, the transient borrows taken for it.
+    uint32_t seq = 0;
+    std::vector<std::vector<size_t>> open_calls;
+    auto note_borrow = [&](size_t idx) {
+        borrows_[idx].seq_start = seq++;
+        if (!open_calls.empty() && borrows_[idx].holder.empty())
+            open_calls.back().push_back(idx);
+    };
+    auto open_call  = [&]() { open_calls.emplace_back(); };
+    auto close_call = [&]() {
+        for (size_t idx : open_calls.back()) borrows_[idx].seq_end = seq;
+        open_calls.pop_back();
+        ++seq;
+    };
+    // Rust makes only an autoref, an implicit reborrow and a compound
+    // assignment's borrow two-phase; an explicit `&mut`, an operator's autoref
+    // (IndexMut) and a desugar borrow at once.
+    // A `&mut` is a reservation when its origin is two-phase wherever it
+    // stands (a method receiver's autoref sits outside the argument list), and,
+    // for an unknown origin, when it is a call argument (the pre-ADR-0028 rule).
+    auto reservation = [&](bool is_mut, lir_schema::expr::BorrowOrigin o) {
+        using BO = lir_schema::expr::BorrowOrigin;
+        if (!is_mut) return false;
+        if (o == BO::Autoref || o == BO::Reborrow || o == BO::CompoundAssign) return true;
+        return o == BO::Unknown && in_call_args_depth > 0;
+    };
     std::function<void(ExprRef, const std::string&)> walk_expr;
     walk_expr = [&](ExprRef e, const std::string& holder) {
         if (!e) return;
@@ -384,9 +411,10 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                 bs.holder = holder;
                 bs.target = std::string(v.var_name());
                 bs.is_mut = is_mut_ref_type(e.type(pool));
-                bs.is_tpb_reservation = bs.is_mut && in_call_args_depth > 0;
+                bs.is_tpb_reservation = reservation(bs.is_mut, v.origin());
                 bs.origin_line = lir_view::stmt_line(sr);
                 borrows_.push_back(std::move(bs));
+                note_borrow(borrows_.size() - 1);
                 RegionConstraint c;
                 c.kind    = RegionConstraint::Kind::Contains;
                 c.longer  = borrows_.back().region;
@@ -407,10 +435,17 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                 // target strings and would otherwise collapse all
                 // temp-borrows into a single phantom variable.
                 bs.target = "<temp#" + std::to_string(bs.region.value) + ">";
+                // A borrow of a WHOLE variable (the autoref of `v` in `v.len()`,
+                // explicit in the L-IR since ADR 0028) is a borrow of that
+                // variable, exactly as `AddrOf` is; projections keep their own
+                // temporary, since targets are compared as whole names.
+                if (v.inner() && v.inner().kind() == ECode::VarRef)
+                    bs.target = std::string(EVarRefView{v.inner()}.name());
                 bs.is_mut = v.is_mut();
-                bs.is_tpb_reservation = bs.is_mut && in_call_args_depth > 0;
+                bs.is_tpb_reservation = reservation(bs.is_mut, v.origin());
                 bs.origin_line = lir_view::stmt_line(sr);
                 borrows_.push_back(std::move(bs));
+                note_borrow(borrows_.size() - 1);
                 RegionConstraint c;
                 c.kind    = RegionConstraint::Kind::Contains;
                 c.longer  = borrows_.back().region;
@@ -455,12 +490,15 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                 return;
             }
             case ECode::Call:
+                open_call();
                 in_call_args_depth++;
                 ECallView{e}.each_arg([&](ExprRef a){ walk_expr(a, ""); });
                 in_call_args_depth--;
+                close_call();
                 return;
             case ECode::MethodCall: {
                 EMethodCallView v{e};
+                open_call();   // the receiver's autoref lives until the call returns
                 // probe: the SHARED half of a `&self` receiver (no mint today).
                 if (auto rcv = v.receiver(); rcv) {
                     if (logos::probe::census_armed()) {
@@ -486,6 +524,7 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                         bs.is_tpb_reservation = false;
                         bs.origin_line = lir_view::stmt_line(sr);
                         borrows_.push_back(std::move(bs));
+                        note_borrow(borrows_.size() - 1);
                         RegionConstraint c;
                         c.kind    = RegionConstraint::Kind::Contains;
                         c.longer  = borrows_.back().region;
@@ -498,30 +537,37 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                 in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
                 in_call_args_depth--;
+                close_call();
                 return;
             }
             case ECode::ClosureCall: {
                 EClosureCallView v{e};
                 walk_expr(v.callee(), "");
+                open_call();
                 in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
                 in_call_args_depth--;
+                close_call();
                 return;
             }
             case ECode::FnPtrCall: {
                 EFnPtrCallView v{e};
                 walk_expr(v.callee(), "");
+                open_call();
                 in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
                 in_call_args_depth--;
+                close_call();
                 return;
             }
             case ECode::FormatCall: {
                 EFormatCallView v{e};
                 walk_expr(v.fmt(), "");
+                open_call();
                 in_call_args_depth++;
                 v.each_arg([&](ExprRef a){ walk_expr(a, ""); });
                 in_call_args_depth--;
+                close_call();
                 return;
             }
             case ECode::StructLit:
@@ -565,7 +611,11 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
             // Holder key is slot-qualified — the binding identity, so two
             // same-named sibling holders don't merge live ranges.
             SLetView v{sr};
-            walk_expr(v.value(), live_key(v.name(), v.var_slot()));
+            // A borrow coerced into a RAW pointer (`let p: *mut T = &mut x;`)
+            // ends at the coercion (Rust): the pointer holds no loan.
+            TypeRef lt = v.type(pool);
+            const bool raw = lt && (lt.kind() == LogosType::Kind::Ptr || lt.raw_fat());
+            walk_expr(v.value(), raw ? std::string() : live_key(v.name(), v.var_slot()));
             break;
         }
         case SCode::Assign: {
@@ -603,9 +653,12 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
             walk_expr(SDerefFieldWriteView{sr}.value(), "");
             break;
         case SCode::DerefWrite: {
+            // Rust evaluates the value before the place: `v[0] = v.len()` is
+            // legal, `v[v.len() - 1] = x` is not (E0502, the len borrow is inside
+            // the IndexMut call). The walk follows that order; see seq_start.
             SDerefWriteView v{sr};
-            walk_expr(v.ptr(),   "");
             walk_expr(v.value(), "");
+            walk_expr(v.ptr(),   "");
             break;
         }
         case SCode::TupleWrite:
@@ -951,6 +1004,10 @@ RegionInferer::find_conflicts() const {
             // A reservation still conflicts with another mut or reservation.
             if ((a.is_tpb_reservation && !b.is_mut) ||
                 (b.is_tpb_reservation && !a.is_mut))
+                continue;
+            // Inside one statement: disjoint lifetimes (see seq_start) never meet.
+            if (a.origin == b.origin &&
+                (a.seq_end <= b.seq_start || b.seq_end <= a.seq_start))
                 continue;
             auto ait = region_points_.find(a.region.value);
             auto bit = region_points_.find(b.region.value);

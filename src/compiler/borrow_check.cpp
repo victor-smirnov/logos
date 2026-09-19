@@ -2257,6 +2257,12 @@ class BorrowChecker {
     // are taken as reservations (don't conflict with shared reads of the
     // same target during the remaining arg evaluation).
     int                                  in_call_args_ = 0;
+    // Set while visiting one call ARGUMENT whose own borrow sema tagged with a
+    // BorrowOrigin that Rust never makes two-phase (an explicit `&mut`, an
+    // operator's autoref like IndexMut's, a desugar). Such a `&mut` is a full
+    // borrow at once, not a B82 reservation (ADR 0028; rustc E0502 on
+    // `v[v.len() - 1] = x`). Unknown origin keeps the reservation.
+    bool                                 arg_borrow_not_two_phase_ = false;
     // Set while visiting a PLACE-FORMING sub-expression: the inner of an
     // AddrOfTemp (`&place`) or the receiver/base of a projection (`x.f`, `x[i]`,
     // `recv.method()` — see visit_place_base). A VarRef/FieldRead reached here
@@ -3523,7 +3529,7 @@ private:
         if (!pt || !rt || !is_ref_kind(pt)) return false;
         std::set<std::string> rn;
         names_in_type_(rt, rn);
-        if (rn.empty() || elided_in_type_(rt)) return false;
+        if (elided_in_type_(rt)) return false;
         return !rn.count(std::string(pt.lifetime()));
     }
     void collect_borrowed_local_roots(lir_view::ExprRef e,
@@ -4060,8 +4066,28 @@ private:
                 if (plain || bc || (fat && result_borrows_self(v)) || by_flow) {
                     // param 0 is the receiver, matching FlowSummary's order.
                     if (plain || bc || (fat && result_borrows_self(v)) ||
-                        arg_retained_by_callee(fs, 0))
-                        collect_ref_sources_paths(v.receiver(), path, out);
+                        arg_retained_by_callee(fs, 0)) {
+                        // ADR 0028: when the callee's DECLARED signature keeps
+                        // the receiver reference's own lifetime out of the result
+                        // (`fn next(&mut self) -> Option<&'a T>` on
+                        // `SliceIter<'a, T>`), the result carries what the
+                        // receiver HOLDS, not a borrow of it: the place under the
+                        // autoref contributes its own sources, and no loan on it
+                        // outlives the call.
+                        lir_view::ExprRef recv = v.receiver();
+                        if (recv && sig_result_excludes_param_ref(exact_callee(e), 0) &&
+                            recv.kind() == EC::AddrOfTemp) {
+                            collect_ref_sources_paths(
+                                lir_view::EAddrOfTempView{recv}.inner(), path, out);
+                        } else if (recv && recv.kind() == EC::AddrOf &&
+                                   sig_result_excludes_param_ref(exact_callee(e), 0)) {
+                            for (auto& src : ref_sources_under(
+                                     std::string(lir_view::EAddrOfView{recv}.var_name())))
+                                emit_src(src);
+                        } else {
+                            collect_ref_sources_paths(recv, path, out);
+                        }
+                    }
                     size_t idx = 1;
                     v.each_arg([&](lir_view::ExprRef a) {
                         size_t i = idx++;
@@ -4975,7 +5001,7 @@ private:
             // args remain legal; the reservation is activated at call entry
             // (logically — we just leave it as reservation since the scope
             // pops after the call returns).
-            if (in_call_args_ > 0) {
+            if (in_call_args_ > 0 && !arg_borrow_not_two_phase_) {
                 // B82+: TPB reservation is compatible with shared borrows
                 // taken *during* the same arg evaluation but NOT with
                 // shared borrows pre-existing from outer scope. Detect
@@ -5204,7 +5230,8 @@ private:
     // the elision half can speak. Extracted verbatim; `ops` is the argument
     // list in order.
     void apply_call_outparam_rules(const std::vector<lir_view::ExprRef>& ops,
-                                   const FlowSummary* fs, uint32_t line) {
+                                   const FlowSummary* fs, uint32_t line,
+                                   lir_view::FunctionView callee = {}) {
         using namespace lir_view;
         using Code = lir_schema::expr::Code;
         const auto* pool = prog_.type_pool.impl();
@@ -5244,15 +5271,33 @@ private:
                 take_ref_borrows(a, line, mut_roots.front().first,
                                  /*record_only=*/true);
             }
-        apply_flow_outparams(fs, ops, line);   // D1 round 3 / F3
+        apply_flow_outparams(fs, ops, line, callee);   // D1 round 3 / F3
     }
     void apply_flow_outparams(const FlowSummary* fs,
                               const std::vector<lir_view::ExprRef>& ops,
-                              uint32_t line) {
+                              uint32_t line, lir_view::FunctionView callee = {}) {
         if (!fs) return;                       // documented (a)-(d) hole
         const auto* pool = prog_.type_pool.impl();
+        // ADR 0028: only a parameter whose DECLARED type can be written
+        // through is an out-parameter: a `&mut`, or a value that holds one
+        // (`h: H` with `H { r: &mut Vec<B> }`). A generic by-value `v: T`
+        // (Vec::push with T = &mut X) is moved in; the generic body cannot
+        // write through it, so the caller sees nothing written.
+        auto declared_outparam = [&](size_t j) {
+            if (!callee) return true;
+            auto ps = callee.params();
+            if (j >= ps.size()) return true;
+            TypeRef pt = ps[j].decl_type(pool) ? ps[j].decl_type(pool) : ps[j].type(pool);
+            if (!pt) return true;
+            if (pt.raw_fat()) return false;
+            if ((pt.kind() == LogosType::Kind::Slice || pt.kind() == LogosType::Kind::DstRef) &&
+                pt.mut_ptr())
+                return true;
+            return bc_holds_mut_ref_type(ts_, pt);
+        };
         for (size_t j = 0; j < ops.size() && j < fs->nparams; ++j) {
             if (!fs->is_outparam[j] || !fs->to_outparam[j]) continue;
+            if (!declared_outparam(j)) continue;
             std::string dst = flow_operand_root(ops[j]);
             if (dst.empty() || !var_has(NO_SLOT, dst)) continue;
             // ── D1 round 13 / P2: A DEPOSIT MUST FOLLOW THE REBORROW EDGE ──
@@ -5536,6 +5581,10 @@ private:
         uint32_t to_slot = slot_of_binding(to);   // F5
         auto add_to = [&](auto& rec) {
             if (rec.holder == to) return;
+            // A binding never holds a loan of ITSELF (that state is
+            // self-referential, and Rust has no way to reach it); inheriting one
+            // would re-home the loan past its real holder's scope.
+            if (rec.target == to) return;
             if (std::find(rec.co_holders.begin(), rec.co_holders.end(), to)
                 != rec.co_holders.end()) return;
             rec.co_holders.push_back(to);
@@ -6996,11 +7045,20 @@ private:
                 names_in_type_(t.pointee(), out, depth + 1);
                 return;
             }
-            case LogosType::Kind::Struct: case LogosType::Kind::Enum:
+            case LogosType::Kind::Struct: case LogosType::Kind::ZonedStruct:
+            case LogosType::Kind::Enum:
                 for (auto& lt : t.lifetime_args())
                     if (!lt.empty() && lt != "'_" && lt != "_") out.insert(lt[0] == '\'' ? lt : "'" + lt);
                 for (auto& a : t.type_args()) names_in_type_(a, out, depth + 1);
                 return;
+            // `dyn Tr + 'a` (borrowed or owning: `Box<dyn Tr + 'a>`) and a
+            // borrowed DST name their region in the region slot.
+            case LogosType::Kind::TraitObject: case LogosType::Kind::DstRef: {
+                std::string lt(t.lifetime());
+                if (!t.raw_fat() && !lt.empty() && lt != "'_") out.insert(lt);
+                for (auto& a : t.type_args()) names_in_type_(a, out, depth + 1);
+                return;
+            }
             case LogosType::Kind::Slice: {
                 std::string lt(t.lifetime());
                 if (!t.owning_slice() && !t.raw_fat() && !lt.empty() && lt != "'_") out.insert(lt);
@@ -7018,7 +7076,13 @@ private:
         }
     }
     // Does a type hold a reference position whose lifetime is elided?
-    static bool elided_in_type_(TypeRef t, int depth = 0) {
+    // Does a DECLARED type have a region the programmer did not name — the
+    // positions Rust's elision fills? A reference or borrowed fat pointer
+    // without a lifetime, a `'_`, and a borrow-carrying struct/enum written
+    // with no lifetime arguments (its region is hidden, as `Bat` for
+    // `Bat<'_>`). A type PARAMETER is not elided: the regions inside `T` are
+    // the caller's type argument's, never the fresh borrow of a parameter.
+    bool elided_in_type_(TypeRef t, int depth = 0) const {
         if (!t || depth > 16) return false;
         auto elided = [](std::string_view lt) { return lt.empty() || lt == "'_" || lt == "_"; };
         switch (t.kind()) {
@@ -7027,10 +7091,24 @@ private:
             case LogosType::Kind::Slice:
                 if (!t.owning_slice() && !t.raw_fat() && elided(t.lifetime())) return true;
                 return elided_in_type_(t.elem(), depth + 1);
-            case LogosType::Kind::Struct: case LogosType::Kind::Enum:
+            case LogosType::Kind::TraitObject:
+                return !t.owning_trait_object() && !t.raw_fat() && elided(t.lifetime());
+            case LogosType::Kind::DstRef:
+                return !t.owning_dst() && !t.raw_fat() && elided(t.lifetime());
+            case LogosType::Kind::Struct: case LogosType::Kind::ZonedStruct:
+            case LogosType::Kind::Enum: {
                 for (auto& lt : t.lifetime_args()) if (elided(lt)) return true;
-                for (auto& a : t.type_args()) if (elided_in_type_(a, depth + 1)) return true;
-                return false;
+                bool arg_carries = false;
+                for (auto& a : t.type_args()) {
+                    if (elided_in_type_(a, depth + 1)) return true;
+                    if (type_may_carry_borrow(a)) arg_carries = true;
+                }
+                // A hidden region: the type holds a borrow by its own fields
+                // (`struct W { p: &mut i64 }` is Rust's `W<'_>`), not through a
+                // type argument, and no lifetime argument is written.
+                return t.lifetime_args().empty() && !arg_carries &&
+                       type_may_carry_borrow(t);
+            }
             case LogosType::Kind::Array:
                 return elided_in_type_(t.elem(), depth + 1);
             case LogosType::Kind::Tuple:
@@ -7041,10 +7119,11 @@ private:
         }
     }
     bool is_self_borrowing(lir_view::FunctionView f) const {
-        // Rust elision (ADR 0028): a result that writes every lifetime it has,
-        // none of them the receiver reference's own, does not borrow the
-        // receiver: `fn next(&mut self) -> Option<&'a T>` in `impl<'a, T>
-        // Iterator for SliceIter<'a, T>` returns what self holds.
+        // Rust elision (ADR 0028): a result with no elided region that does not
+        // name the receiver reference's own lifetime does not borrow the
+        // receiver: `-> T`, `-> i64`, and `fn next(&mut self) -> Option<&'a T>`
+        // in `impl<'a, T> Iterator for SliceIter<'a, T>`, which returns what
+        // self holds.
         if (f) {
             auto* pool0 = prog_.type_pool.impl();
             auto ps = f.params();
@@ -7054,7 +7133,7 @@ private:
                 std::set<std::string> rn;
                 names_in_type_(dret, rn);
                 std::string self_lt(dself.lifetime());
-                if (!rn.empty() && !elided_in_type_(dret) && !rn.count(self_lt)) return false;
+                if (!elided_in_type_(dret) && !rn.count(self_lt)) return false;
             }
         }
         // Elision: `&self -> &T` borrows self. SO DOES `&self -> <BC type>`
@@ -9734,6 +9813,18 @@ private:
             }
             merged = merge_prov(merged, prov_of_retained(a));
         };
+        // ADR 0028: a fresh borrow passed to a parameter whose reference
+        // lifetime the callee's DECLARED result cannot name does not reach the
+        // result; what the borrowed place HOLDS still may (`t.get(i) -> T` copies
+        // an element whose borrows are `t`'s, not a borrow of `t`).
+        auto one_param = [&](ExprRef a, FunctionView callee, unsigned pi) {
+            if (a && (a.kind() == Code::AddrOf || a.kind() == Code::AddrOfTemp) &&
+                sig_result_excludes_param_ref(callee, pi)) {
+                merged = merge_prov(merged, carried_prov_of_recv(a));
+                return;
+            }
+            one(a);
+        };
         switch (e.kind()) {
             // A CALL's retained operands are exactly the ones its borrow-flow
             // summary says reach the result. MEASURED: without this, the
@@ -9746,10 +9837,11 @@ private:
                 ECallView cv{e};
                 const FlowSummary* fs = flow_of_call(cv.callee());
                 if (fs) {
+                    const FunctionView callee = exact_callee(e);
                     size_t i = 0;
                     cv.each_arg([&](ExprRef a) {
                         if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
-                            one(a);
+                            one_param(a, callee, unsigned(i));
                         ++i;
                     });
                 } else {
@@ -9778,11 +9870,12 @@ private:
             case Code::MethodCall: {
                 EMethodCallView v{e};
                 if (const FlowSummary* fs = flow_of_method(v)) {
+                    const FunctionView callee = exact_callee(e);
                     std::vector<ExprRef> ops;
                     ops.push_back(v.receiver());
                     v.each_arg([&](ExprRef a){ ops.push_back(a); });
                     for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i)
-                        if (fs->to_result & (1ull << i)) one(ops[i]);
+                        if (fs->to_result & (1ull << i)) one_param(ops[i], callee, unsigned(i));
                 } else {
                     one(v.receiver());
                     v.each_arg(one);
@@ -15045,9 +15138,17 @@ public:
             fs = flow_of_method(mv); base = 1; recv = mv.receiver();
         } else return;
         if (!fs || !fs->available) return;
+        // ADR 0028: the callee's DECLARED signature decides what the result may
+        // borrow, as in collect_borrowed_local_roots: a fresh borrow passed to a
+        // parameter whose reference lifetime the result cannot name does not
+        // reach the result, whatever the body's flow does through raw pointers.
+        const FunctionView callee = exact_callee(val);
         auto rec1 = [&](ExprRef a, unsigned pi) {
             if (!a || pi >= fs->nparams) return;
             if ((fs->to_result & (1ull << pi)) == 0) return;
+            if ((a.kind() == Code::AddrOf || a.kind() == Code::AddrOfTemp) &&
+                sig_result_excludes_param_ref(callee, pi))
+                return;
             logos::probe::census("argretlet.sel");
             BorrowPlace bp; bool m = false;
             if (a.kind() == Code::AddrOfTemp) {
@@ -15369,7 +15470,17 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         view.each_arg([&](ExprRef a) {
             size_t b0 = scopes_.back().borrows.size();
             size_t f0 = scopes_.back().field_borrows.size();
-            argret_one(a);
+            {
+                using BO = lir_schema::expr::BorrowOrigin;
+                BO o = BO::Unknown;
+                if (a && a.kind() == Code::AddrOfTemp) o = EAddrOfTempView{a}.origin();
+                else if (a && a.kind() == Code::AddrOf) o = EAddrOfView{a}.origin();
+                const bool saved = arg_borrow_not_two_phase_;
+                arg_borrow_not_two_phase_ = o == BO::Explicit || o == BO::OperatorAutoref ||
+                                            o == BO::Desugar;
+                argret_one(a);
+                arg_borrow_not_two_phase_ = saved;
+            }
             unsigned pi = argret_i++ + argret_base;
             bool sel = argret_fs && argret_fs->available &&
                        pi < argret_fs->nparams &&
@@ -16465,7 +16576,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 std::vector<ExprRef> ops;
                 ops.push_back(v.receiver());
                 v.each_arg([&](ExprRef a){ ops.push_back(a); });
-                apply_flow_outparams(flow_of_method(v), ops, line);
+                apply_flow_outparams(flow_of_method(v), ops, line, exact_callee(e));
             }
             break;
         }
@@ -16531,7 +16642,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             {
                 std::vector<ExprRef> ops;
                 cv.each_arg([&](ExprRef a){ ops.push_back(a); });
-                apply_call_outparam_rules(ops, flow_of_call(cv.callee()), line);
+                apply_call_outparam_rules(ops, flow_of_call(cv.callee()), line, exact_callee(e));
             }
             break;
         }

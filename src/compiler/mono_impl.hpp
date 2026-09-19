@@ -1224,6 +1224,11 @@ private:
     // Structure-aware `$ref_`/`$mut_ref_` impl key for a reference target
     // (`impl Trait for &T`). "" for non-ref types. See definition.
     std::string ref_target_key(TypeRef t);
+    static std::string method_instance_name(std::string_view concrete, std::string_view pkg,
+                                            std::string_view base, std::string_view method,
+                                            std::string_view tmpl_name);
+    std::string exact_method_instance(TypeRef recv_t, std::string_view method,
+                                      std::string_view tmpl_name);
 
     // Stronger sibling of mono_has_impl_recursive that takes a full
     // TypeRef instead of a stripped name. For a blanket impl

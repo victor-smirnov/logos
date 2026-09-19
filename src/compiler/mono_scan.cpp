@@ -972,6 +972,12 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     auto kind = TypeRef(concrete_struct_t).kind();
     if (kind != LogosType::Kind::Struct && kind != LogosType::Kind::ZonedStruct)
         return;
+    // A NON-generic struct's methods are concrete functions sema already
+    // emitted; there is no template to instantiate. Looking one up by the bare
+    // name would reach a same-named generic struct of another package (a local
+    // `struct Cell` against the stdlib's `Cell<T>`) and clone ITS methods onto
+    // this struct.
+    if (TypeRef(concrete_struct_t).type_args().empty()) return;
     std::string concrete = concrete_struct_name(concrete_struct_t);
     ++stats_.enqueue_calls;
     // The target struct instance must already be materialized in out_.structs
@@ -1170,6 +1176,66 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     }
 }
 
+// The symbol of the instance a concrete struct gets for one of its method
+// templates: `[pkg.]<Concrete>__<method><sig>`, where `<sig>` is the
+// template's own signature tail. ONE composition, used where the instance is
+// created (drain_method_worklist) and where a call names it
+// (exact_method_instance), so the two cannot drift.
+std::string Mono::method_instance_name(std::string_view concrete, std::string_view pkg,
+                                       std::string_view base, std::string_view method,
+                                       std::string_view tmpl_name) {
+    std::string sig;
+    std::string tn(tmpl_name);
+    // Recompose-and-compare instead of cutting `tn` at a `__` — that cut lands
+    // inside any method name containing `__` and produced a DOUBLED signature
+    // (`…a__f__b` + `__f__b__f__sig`), nm-verified.
+    if (auto tail = mname::sig_of(tn, base, method)) {
+        sig = std::string(*tail);
+    } else {
+        // Legacy anchored scan — reached when the template's name is not that
+        // composition (blanket/spec re-hosting). It is a GUESS; keep it only as
+        // the fallback.
+        if (auto dot = tn.rfind('.'); dot != std::string::npos)
+            tn = tn.substr(dot + 1);
+        auto sep1 = tn.find("__");
+        if (sep1 != std::string::npos) {
+            auto sep2 = mname::sig_boundary(tn, sep1 + 2);
+            if (sep2 == std::string::npos) sep2 = tn.find("__", sep1 + 2);
+            if (sep2 != std::string::npos) sig = tn.substr(sep2);
+        }
+    }
+    std::string bare = std::string(concrete) + "__" + std::string(method) + sig;
+    return pkg.empty() ? bare : std::string(pkg) + "." + bare;
+}
+
+// The exact instance a method call on a concrete struct receiver calls, when
+// `tmpl_name` (the call's resolved symbol) IS one of that struct's method
+// templates — answered by the owner's template registry, never by the name's
+// shape. Empty otherwise (a trait-object call, a free fn, an abstract receiver).
+// Slice 2 of ADR 0028: codegen and both borrow checkers read the callee by
+// name, so the name must be the instance, not the template.
+std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,
+                                        std::string_view tmpl_name) {
+    TypeRef rt = recv_t;
+    while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                  TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee())
+        rt = TypeRef(rt).pointee();
+    if (!rt || (TypeRef(rt).kind() != LogosType::Kind::Struct &&
+                TypeRef(rt).kind() != LogosType::Kind::ZonedStruct))
+        return {};
+    if (TypeRef(rt).type_args().empty() || contains_typevar(rt)) return {};
+    std::string base{TypeRef(rt).struct_name()};
+    if (auto p = base.find("$G"); p != std::string::npos) base = base.substr(0, p);
+    std::string pkg{TypeRef(rt).pkg_name()};
+    auto* smt = find_struct_method_templates_guarded(pkg, base);
+    if (!smt) return {};
+    bool is_template = false;
+    for (auto& [sn, fp] : *smt)
+        if (fp.name() == tmpl_name) { is_template = true; break; }
+    if (!is_template) return {};
+    return method_instance_name(concrete_struct_name(rt), pkg, base, method, tmpl_name);
+}
+
 void Mono::drain_method_worklist() {
     while (!method_worklist_.empty()) {
         auto item = std::move(method_worklist_.back());
@@ -1195,34 +1261,9 @@ void Mono::drain_method_worklist() {
         // (`__f__sig` / `__g__sig`). With unification, the method template's
         // name is `[pkg.]Base__method__[fg]__sig`; the cloned method should
         // be `[pkg.]Concrete__method__[fg]__sig`.
-        std::string sig;
-        {
-            std::string tn = std::string(tmpl.name());
-            // BOTH parts are carried by the worklist item: the template's
-            // owner (`base_struct`) and the method key (`method_name`).
-            // Recompose-and-compare instead of cutting `tn` at a `__` — that
-            // cut lands inside any method name containing `__` and produced a
-            // DOUBLED signature (`…a__f__b` + `__f__b__f__sig`), nm-verified.
-            if (auto tail = mname::sig_of(tn, item.base_struct, item.method_name)) {
-                sig = std::string(*tail);
-            } else {
-                // Legacy anchored scan — reached when the template's name is
-                // not that composition (blanket/spec re-hosting). It is a
-                // GUESS; keep it only as the fallback.
-                if (auto dot = tn.rfind('.'); dot != std::string::npos)
-                    tn = tn.substr(dot + 1);
-                auto sep1 = tn.find("__");
-                if (sep1 != std::string::npos) {
-                    auto sep2 = mname::sig_boundary(tn, sep1 + 2);
-                    if (sep2 == std::string::npos) sep2 = tn.find("__", sep1 + 2);
-                    if (sep2 != std::string::npos) sig = tn.substr(sep2);
-                }
-            }
-        }
-        std::string bare_dest = item.concrete_struct + "__" + item.method_name + sig;
-        std::string dest_name = item.struct_pkg.empty()
-                                ? bare_dest
-                                : item.struct_pkg + "." + bare_dest;
+        std::string dest_name = method_instance_name(item.concrete_struct, item.struct_pkg,
+                                                     item.base_struct, item.method_name,
+                                                     tmpl.name());
         bool exists = false;
         target->each_method([&](lir_view::FunctionView m) {
             if (m.name() == dest_name) exists = true;

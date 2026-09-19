@@ -1,3 +1,5 @@
+// CLOSED 2026-09-19 (ADR 0028, #253): soundness-queue row free_fn_outparam_ref_store_no_dangle_deposit_admits, now refused as rustc refuses it.
+// Borrow facts come from sema (BorrowOrigin, declared signatures, exact callee instances).
 // SOUNDNESS QUEUE row free_fn_outparam_ref_store_no_dangle_deposit_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: `fn stash<'a>(v: &mut Vec<&'a i64>, x: &'a i64) { v.push(x); }` CALLED WITH A BLOCK LOCAL.
 //
@@ -7,7 +9,7 @@
 // unmoved by a2elem, a2elemshr, a2skipall (and c22, the same call after an outer stash, likewise).
 // Member, unmoved by the storeedge landing's se_nomut (2026-09-14m): s37 (`v.push(&x)`, then `fill(&mut v, &d)` of a block local).
 // Found: hand c22b, round 2026-09-14l-storeedge.
-package free_fn_outparam_ref_store_no_dangle_deposit_admits;
+package free_fn_outparam_ref_store_no_dangle_deposit_refused;
 fn stash<'a>(v: &mut Vec<&'a i64>, x: &'a i64) {
     v.push(x);
 }

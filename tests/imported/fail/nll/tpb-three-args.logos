@@ -1,0 +1,14 @@
+// MOVED pass -> fail 2026-09-19 (ADR 0028): an explicit `&mut` call argument is not a
+// two-phase borrow in Rust (only a method receiver's autoref, an implicit reborrow and a
+// compound assignment's borrow are), so using the same place in a later argument is
+// refused (rustc E0503). The old checker admitted it through a reservation it gave every
+// `&mut` argument; sema now tags each borrow with its BorrowOrigin.
+// B82: three args; one &mut, two shared reads of same target.
+package tpb_three_args;
+
+fn use3(m: &mut i32, a: i32, b: i32) -> i32 { *m = a + b; return *m; }
+
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    return use3(&mut x, x, x) - 10i32;
+}

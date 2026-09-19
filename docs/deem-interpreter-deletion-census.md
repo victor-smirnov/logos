@@ -6207,9 +6207,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                Rust-compatible `hold`. ONE FIXTURE ADDED: fail/writ_hold_projection_captures_local (a capturing closure
 #                is not the `for<'a> fn(&'a Writ) -> &'a T` projection `hold` now takes). The gate printed measured
 #                11096/6593/351; ALL there carries the one git-ignored imported fixture noted above.
+#                ALL 11095 -> 11095 (0), NOIMPORTED 6593 -> 6591 (-2), TIERCOMMIT 351 -> 347 (-4) — 2026-09-19 ADR 0028
+#                slice 2 (exact callee instances, explicit autoref, Rust's two-phase set). Two soundness-queue rows closed
+#                (#218, #253): their tier_commit gates leave (-2 everywhere) and the programs land as pass/fail fixtures
+#                (+2 to ALL and NOIMPORTED). Two bc_admits rows closed (#38, #39): their tier_commit gates leave (-2
+#                everywhere) and the programs move to tests/imported/fail/borrowck (+2 to ALL only). Six imported
+#                tpb-* pass fixtures move to imported fail (0). The gate printed measured 11096/6591/347; ALL there
+#                carries the one git-ignored imported fixture noted above.
 REGISTRY-ALL         11095
-REGISTRY-NOIMPORTED  6593
-REGISTRY-TIERCOMMIT  351
+REGISTRY-NOIMPORTED  6591
+REGISTRY-TIERCOMMIT  347
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
@@ -9403,6 +9410,14 @@ RENAMED-FIXTURE  tests/logos/pass/wql_value_domain_tiers_measured.logos  tests/l
 RENAMED-FIXTURE  tests/imported/admit/nll/issue-54124.logos  tests/imported/fail/nll/issue-54124.logos  2026-09-14k: the bc_admits row it carried (nllmoves.NEW-L1) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
 RENAMED-FIXTURE  tests/imported/admit/regions/issue-101280.logos  tests/imported/fail/regions/issue-101280.logos  2026-09-14k: the bc_admits row it carried (lifereg.NEW-N4) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
 RENAMED-FIXTURE  tests/imported/admit/borrowck/buffer-reuse-pattern-issue-147694.logos  tests/imported/fail/borrowck/buffer-reuse-pattern-issue-147694.logos  2026-09-14m: the bc_admits row it carried (bck.NEW-L) was CLOSED, so the program leaves the admit shelf and is held as an imported fail fixture with its diagnostic pinned
+RENAMED-FIXTURE  tests/imported/pass/nll/tpb-fn-call-no-conflict.logos  tests/imported/fail/nll/tpb-fn-call-no-conflict.logos  2026-09-19 ADR 0028: an explicit `&mut` argument is not two-phase in Rust (E0503); the program is held as an imported fail
+RENAMED-FIXTURE  tests/imported/pass/nll/tpb-mut-with-copy-read.logos  tests/imported/fail/nll/tpb-mut-with-copy-read.logos  2026-09-19 ADR 0028: an explicit `&mut` argument is not two-phase in Rust (E0503); the program is held as an imported fail
+RENAMED-FIXTURE  tests/imported/pass/nll/tpb-mut-with-shared-ref-arg.logos  tests/imported/fail/nll/tpb-mut-with-shared-ref-arg.logos  2026-09-19 ADR 0028: an explicit `&mut` argument is not two-phase in Rust (E0502); the program is held as an imported fail
+RENAMED-FIXTURE  tests/imported/pass/nll/tpb-nested-call.logos  tests/imported/fail/nll/tpb-nested-call.logos  2026-09-19 ADR 0028: an explicit `&mut` argument is not two-phase in Rust (E0503); the program is held as an imported fail
+RENAMED-FIXTURE  tests/imported/pass/nll/tpb-three-args.logos  tests/imported/fail/nll/tpb-three-args.logos  2026-09-19 ADR 0028: an explicit `&mut` argument is not two-phase in Rust (E0503); the program is held as an imported fail
+RENAMED-FIXTURE  tests/imported/pass/nll/tpb-with-field-args.logos  tests/imported/fail/nll/tpb-with-field-args.logos  2026-09-19 ADR 0028: an explicit `&mut` argument is not two-phase in Rust (E0503); the program is held as an imported fail
+RENAMED-FIXTURE  tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args.logos  tests/imported/fail/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args.logos  2026-09-19 ADR 0028: the bc_admits row it carried (bck.D, #38) was CLOSED, so the program leaves the admit shelf and is held as an imported fail
+RENAMED-FIXTURE  tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase.logos  tests/imported/fail/borrowck/two-phase-nonrecv-autoref--d-index-two-phase.logos  2026-09-19 ADR 0028: the bc_admits row it carried (bck.D, #39) was CLOSED, so the program leaves the admit shelf and is held as an imported fail
 
 # The population rule, executable, in the form FACT 6 now uses. ⚠ THIS LIST WAS
 # CORRECTED BEFORE THE FACT WAS RE-AIMED, because its own comment used to assert

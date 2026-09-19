@@ -1,1 +1,1 @@
-cannot use 'vs2' while it is mutably borrowed
+cannot borrow 'vs2': 'vs2' is already mutably borrowed

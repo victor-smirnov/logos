@@ -11339,39 +11339,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     // Auto-ref receiver if method expects `&Self` / `&mut Self` and recv
     // came in by value (common for method-chain temporaries:
-    // `iter_over_slice(&v).find(p)`). Narrowly gated to methods with
-    // *method-level* type-params: a struct-only-generic method keeps its
-    // by-value receiver and codegen takes the address. ⚠ ADR 0028: that
-    // autoref is then NOT in the L-IR, and the Polonius extractor marks such
-    // a function unsupported. Making it explicit needs the exact callee
-    // instance on the call (mono writes a template key today, #83), so the
-    // old checker can read the callee's declared signature; that is the
-    // callee-exactness slice. Method-level = declared BEYOND the receiver
-    // struct's own type params (not read off struct_subst, which this path
-    // seeds with every resolved param).
-    bool fi_has_method_level_tparam = false;
-    if (!fi.type_params.empty()) {
-        std::set<std::string> struct_tps;
-        if (TypeRef rst = expr_type(recv)) {
-            TypeRef r2 = rst;
-            if (is_ref_like(r2.kind()) && r2.pointee()) r2 = TypeRef(r2.pointee());
-            std::string_view sn;
-            if (r2.kind() == LogosType::Kind::Struct ||
-                r2.kind() == LogosType::Kind::ZonedStruct)
-                sn = r2.struct_name();
-            else if (r2.kind() == LogosType::Kind::Enum)
-                sn = r2.enum_name();
-            if (!sn.empty()) {
-                if (auto [_, si] = find_struct_by_name(std::string(sn)); si)
-                    for (auto& tp : si->type_params) struct_tps.insert(tp.name);
-                else if (auto [_e, ei] = find_enum_by_name(std::string(sn)); ei)
-                    for (auto& tp : ei->type_params) struct_tps.insert(tp.name);
-            }
-        }
-        for (auto& tp : fi.type_params)
-            if (!struct_tps.count(tp.name)) { fi_has_method_level_tparam = true; break; }
-    }
-    if (fi_has_method_level_tparam && !fi.param_types.empty()) {
+    // `iter_over_slice(&v).find(p)`). EVERY such receiver is borrowed here,
+    // in the L-IR, as Rust's autoref (ADR 0028): the borrow checkers read the
+    // loan instead of codegen taking the address behind their back. This
+    // needed the exact callee on the call: mono now writes the method
+    // INSTANCE symbol (Mono::exact_method_instance), so the old checker reads
+    // the instance's declared signature and a result that does not name the
+    // receiver reference's lifetime does not hold the loan.
+    if (!fi.param_types.empty()) {
         auto formal0 = subst_type_sema(fi.param_types[0], struct_subst);
         if (formal0 && is_ref_like(TypeRef(formal0).kind()) && expr_type(recv) &&
             !is_ref_like(TypeRef(expr_type(recv)).kind()) &&
@@ -11379,21 +11354,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
             auto ref_ty = make_ref(is_mut, expr_type(recv));
             recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty, BorrowOrigin::Autoref);
-        }
-    } else if (cur_stmt_temp_hoist_ && !fi.param_types.empty() && recv &&
-               expr_type(recv) &&
-               !is_ref_like(TypeRef(expr_type(recv)).kind()) &&
-               TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
-               is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
-        // Temp-receiver drop for the STRUCT-only-generic path: hoist a fresh
-        // droppable temporary into the statement temp-scope so it is dropped.
-        auto formal0 = struct_subst.empty()
-            ? fi.param_types[0]
-            : subst_type_sema(fi.param_types[0], struct_subst);
-        if (formal0 && is_ref_like(TypeRef(formal0).kind())) {
-            bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-            TypeRef rt0 = expr_type(recv);
-            recv = autoref_operand(std::move(recv), is_mut, make_ref(is_mut, rt0), BorrowOrigin::Autoref);
         }
     }
     track_args_moved(arg_exprs, &fi.param_types, /*formal_off=*/1);
