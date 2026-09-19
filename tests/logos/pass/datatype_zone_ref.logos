@@ -7,13 +7,13 @@ use logos.lang.rc;
 struct Point { x: i32, y: i32 }
 
 unsafe fn main() -> i32 {
-    let mut rc: Rc<Writ> = writ_rc(4096);
+    let rc: Rc<Writ> = writ_rc(4096);
     let h: &Writ = rc.deref();
     let hp: *mut Writ = h as *const Writ as *mut Writ;
     let p: *mut Point = writ_alloc::<Point>(hp);
     p.x = 19;
     p.y = 23;
-    let held: Held<Point> = hold::<Point>(&mut rc, &*p);
+    let held: Held<Point> = hold_raw::<Point>(&rc, p as *const Point);
     let r: &Point = held.get();
     return r.x + r.y;   // 42
 }

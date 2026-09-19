@@ -12,14 +12,14 @@ unsafe fn read_pt(held: &Held<Point>) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let mut rc: Rc<Writ> = writ_rc(4096);
+    let rc: Rc<Writ> = writ_rc(4096);
     let h: &Writ = rc.deref();
     let hp: *mut Writ = h as *const Writ as *mut Writ;
     let p: *mut Point = writ_alloc::<Point>(hp);
     p.x = 11;
     p.y = 22;
     // The own-handle: holder Rc + typed pointer travel together.
-    let own: Held<Point> = hold::<Point>(&mut rc, &*p);
+    let own: Held<Point> = hold_raw::<Point>(&rc, p as *const Point);
     let v1: i32 = read_pt(&own);
     if v1 != 33 { return 1; }
     // Move the handle; the never-move object stays put.

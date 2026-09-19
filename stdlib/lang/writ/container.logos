@@ -244,10 +244,10 @@ impl Writ {
 // alive. For an in-scope reference the borrow checker keeps the owning `Writ`
 // alive; a reference that ESCAPES that scope must carry a residency *holder* — an
 // `Rc<Writ>` whose clone keeps the segments alive. `writ_rc` creates the
-// refcounted (held) container; `hold(&mut h, r)` pairs a reference with a holder
+// refcounted (held) container; `hold(&h, f)` pairs a projection of it with a holder
 // clone into a `Held<T>` that can be returned/stored. When the last holder drops,
-// the container drops (Drop frees all segments). (`dyn Resident` type-erasure of
-// the holder + the enforced ref ≤ holder borrow-tie are the next steps.)
+// the container drops (Drop frees all segments). The holder is type-erased
+// behind `dyn Resident`; the ref-within-holder tie is `hold`'s projection type.
 /// Creates a refcounted (held) container; when the last holder drops, all segments free.
 pub fn writ_rc(seg_size: i64) -> Rc<Writ> { return rc_new(writ_new(seg_size)); }
 
@@ -265,14 +265,35 @@ impl Resident for Writ { }
 /// An escaped reference paired with a residency holder that keeps its arena alive.
 pub struct Held<T> { holder: Rc<dyn Resident>, ptr: *const T }
 
-// Pair a reference with a holder clone — the escape form of the reference. The
-// `Rc<Writ>` clone unsize-coerces to the opaque `Rc<dyn Resident>` holder at
+// Pair a reference with a holder clone — the escape form of the reference.
+// SOUND BY CONSTRUCTION (the `yoke` pattern): `hold` does not take a reference,
+// it takes a PROJECTION `for<'a> fn(&'a Writ) -> &'a T` and applies it to the
+// held container itself. The binder makes the result either borrowed from that
+// `&'a Writ` or `'static`, so it lives as long as the holder; a reference to a
+// stack local, or into another container's `&Writ`, cannot be produced by it. A
+// fn POINTER, not a closure: it captures nothing, so nothing else can leak in.
+// The `Rc<Writ>` clone unsize-coerces to the opaque `Rc<dyn Resident>` holder at
 // the type-annotated let (Logos coerces Rc<T>→Rc<dyn> at an annotated let / call
 // arg, not yet at a struct-literal field).
-/// Pairs `r` with a clone of the container's residency holder — the escape form of a reference.
-pub fn hold<T>(h: &mut Rc<Writ>, r: &T) -> Held<T> {
+/// Projects `f` over the held container and pairs the result with a holder clone —
+/// the escape form of a reference into the container. Example:
+/// `hold(&h, root_array)` with `fn root_array(w: &Writ) -> &WArray<WAny> { return w.array_of(w.root()); }`.
+pub fn hold<T>(h: &Rc<Writ>, f: for<'a> fn(&'a Writ) -> &'a T) -> Held<T> {
     let holder: Rc<dyn Resident> = h.clone_ref();
+    let w: &Writ = &**h;
+    let r: &T = f(w);
     return Held { holder: holder, ptr: r as *const T };
+}
+
+/// Pairs a raw pointer into the held container with a holder clone.
+///
+/// # Safety
+/// `p` must point to a `T` placed in `*h`'s own arena (for example by
+/// `writ_alloc`), so that it stays valid while the holder lives. The safe form is
+/// `hold`, whose projection type proves this instead.
+pub unsafe fn hold_raw<T>(h: &Rc<Writ>, p: *const T) -> Held<T> {
+    let holder: Rc<dyn Resident> = h.clone_ref();
+    return Held { holder: holder, ptr: p };
 }
 
 impl<T> Held<T> {

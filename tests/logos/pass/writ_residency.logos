@@ -8,13 +8,18 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.array;
 use logos.lang.rc;
 
+// The projection `hold` applies to the held container: the document root, read
+// back from the container itself.
+fn root_array(w: &Writ) -> &WArray<WAny> { return w.array_of(w.root()); }
+
 fn make_doc() -> Held<WArray<WAny>> {
-    let mut h: Rc<Writ> = writ_rc(48i64);
+    let h: Rc<Writ> = writ_rc(48i64);
     let root: &mut WArray<WAny> = h.array(2i64);     // build via Rc (auto-deref)
     root.push(WAny::from(10i64));
     root.push(WAny::from(20i64));
     root.push(WAny::from(30i64));             // forces a grow too
-    return hold(&mut h, root);                    // escape: carry the holder
+    h.set_root(WAny::from(&*root));
+    return hold(&h, root_array);              // escape: carry the holder
     // local `h` drops here (-1); the Held's holder keeps the container alive
 }
 

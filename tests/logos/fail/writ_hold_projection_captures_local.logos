@@ -1,0 +1,15 @@
+// `hold` takes a PROJECTION `for<'a> fn(&'a Writ) -> &'a T` of the held
+// container, never a reference, so the Held it returns cannot point outside the
+// container's arena. A closure that captures a local cannot be that projection:
+// it is not a fn pointer, and the reference it would return is the local's, which
+// dies with `escape`. Rust refuses the same shape (no coercion of a capturing
+// closure to `fn`, E0308).
+package writ_hold_projection_captures_local;
+use logos.lang.writ.container;
+use logos.lang.rc;
+fn escape() -> Held<i64> {
+    let h: Rc<Writ> = writ_rc(48i64);
+    let local: i64 = 7i64;
+    return hold(&h, |w: &Writ| -> &i64 { return &local; });
+}
+fn main() -> i32 { let d: Held<i64> = escape(); return *d.get() as i32; }

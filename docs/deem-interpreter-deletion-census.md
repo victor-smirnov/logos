@@ -6203,8 +6203,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                squeue gate leaves (-1 everywhere) and its program lands as pass/trait_impl_for_ref_method_call_receiver
 #                (+1 to ALL and NOIMPORTED), so only TIERCOMMIT moves. The gate printed measured 11095/6592/351; ALL
 #                there carries the one git-ignored imported fixture noted above.
-REGISTRY-ALL         11094
-REGISTRY-NOIMPORTED  6592
+#                ALL 11094 -> 11095 (+1), NOIMPORTED 6592 -> 6593 (+1), TIERCOMMIT 351 -> 351 (0) — 2026-09-19 ADR 0028
+#                Rust-compatible `hold`. ONE FIXTURE ADDED: fail/writ_hold_projection_captures_local (a capturing closure
+#                is not the `for<'a> fn(&'a Writ) -> &'a T` projection `hold` now takes). The gate printed measured
+#                11096/6593/351; ALL there carries the one git-ignored imported fixture noted above.
+REGISTRY-ALL         11095
+REGISTRY-NOIMPORTED  6593
 REGISTRY-TIERCOMMIT  351
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
