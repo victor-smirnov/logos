@@ -1863,8 +1863,10 @@ private:
     // position that forgets to route through expect_type cannot reject an
     // expression at all, so a new syntax node fails loudly in review, not
     // silently in a user's build.
+    // `shown`, when set, is what the message names as expected (see
+    // call_param_shown_); the check always uses `expected`.
     bool expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
-                     std::string_view ctx);
+                     std::string_view ctx, TypeRef shown = {});
 
     void coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                               uint32_t flags = CFLAG_STANDARD);
@@ -6692,6 +6694,23 @@ private:
     // ── Sema-side type substitution (TypeVar → concrete) ────────────
 
     using SemaSubst = logos::compiler::StrMap<TypeRef>;
+
+    // The expected type an ARGUMENT mismatch names. The callee's region binders
+    // are instantiated at the call (Rust: fresh region variables), so the caller
+    // never sees the callee's `'a`: rustc prints `&Vec<i64>` for a formal
+    // declared by `impl<'a, T> IntoIterator for &'a Vec<T>`. They print elided.
+    // Erased on the DECLARED formal, before the type substitution, so a region
+    // the caller wrote inside a type argument keeps its name. Display only; the
+    // check keeps the formal it was given.
+    TypeRef call_param_shown_(TypeRef declared, const std::vector<std::string>& lifetime_params,
+                              const std::vector<TypeRef>& param_types, TypeRef ret,
+                              const SemaSubst& s = {}) {
+        if (!declared) return declared;
+        SemaLifetimeSubst ls;
+        for (auto& r : call_region_binders_(lifetime_params, param_types, ret)) ls[r] = "";
+        TypeRef t = ls.empty() ? declared : subst_type_sema(declared, {}, ls);
+        return s.empty() ? t : subst_type_sema(t, s);
+    }
 
     TypeRef subst_type_sema(TypeRef t, const SemaSubst& s,
                                       const SemaLifetimeSubst& ls = {});

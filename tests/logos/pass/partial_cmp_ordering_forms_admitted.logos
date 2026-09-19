@@ -1,0 +1,58 @@
+package partial_cmp_ordering_forms_admitted;
+
+// ADMIT TWIN for #430 / #432. Every shape the refusal must NOT catch, each
+// measured green before the refusal landed and required to stay green: the
+// refusal fires only where the lookup that would justify the emitted call has
+// already failed. Widening the predicate turns this fixture red.
+use logos.lang.cmp;
+use logos.lang.option;
+
+// (1) canonical Rust shape: partial_cmp -> Option<Ordering>, routed through the
+//     concrete cmp_opt_is_<op> helper.
+struct WithOpt { a: i32 }
+impl WithOpt {
+    fn partial_cmp(self: &WithOpt, o: &WithOpt) -> Option<Ordering> {
+        if self.a < o.a { return Option::Some(Ordering::Less); }
+        if self.a > o.a { return Option::Some(Ordering::Greater); }
+        return Option::Some(Ordering::Equal);
+    }
+}
+
+// (2) the non-standard bare-Ordering form, routed through Ordering::is_<op>.
+struct WithOrd { a: i32 }
+impl WithOrd {
+    fn partial_cmp(self: &WithOrd, o: &WithOrd) -> Ordering {
+        if self.a < o.a { return Ordering::Less; }
+        if self.a > o.a { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
+// (3) a direct comparison method: the trait route returns before partial_cmp is
+//     ever consulted.
+struct WithLt { a: i32 }
+impl WithLt {
+    fn lt(self: &WithLt, o: &WithLt) -> bool { return self.a < o.a; }
+}
+
+fn main() -> i32 {
+    let p: WithOpt = WithOpt{a:1i32};
+    let q: WithOpt = WithOpt{a:2i32};
+    if !(p < q) { return 1i32; }
+    if q < p { return 2i32; }
+
+    let r: WithOrd = WithOrd{a:1i32};
+    let s: WithOrd = WithOrd{a:2i32};
+    if !(r < s) { return 3i32; }
+    if s < r { return 4i32; }
+
+    let u: WithLt = WithLt{a:1i32};
+    let v: WithLt = WithLt{a:2i32};
+    if !(u < v) { return 5i32; }
+
+    // primitives keep their ordinary lowering
+    if !(1i32 < 2i32) { return 6i32; }
+    if !(1.5f64 < 2.5f64) { return 7i32; }
+
+    return 0i32;
+}

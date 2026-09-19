@@ -2829,6 +2829,26 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                             op == "<=" ? "cmp_opt_is_le" :
                             op == ">"  ? "cmp_opt_is_gt" : "cmp_opt_is_ge";
                         auto hfit = find_func_by_base_and_signature(helper, {ord_t}, false);
+                        // ── #432: DO NOT EMIT A NAME THE LOOKUP DID NOT RESOLVE ──
+                        //
+                        // `hfit` is null whenever the payload is not `Ordering`
+                        // (`types_equal` distinguishes `Option<Verdict>` from
+                        // `Option<Ordering>` — MEASURED: a local helper taking the
+                        // foreign payload IS found and called, one taking
+                        // `Option<Ordering>` is NOT). Emitting `helper` anyway hands
+                        // mlir-gen a BARE name, and find_func_op's `ffo_canonical`
+                        // strips package and `__f__` suffix, so it binds stdlib's
+                        // `cmp_opt_is_lt(Option<Ordering>)` — which then reads the
+                        // foreign payload as an Ordering and compares discriminants.
+                        // The result is a WRONG ANSWER, not a failure: with
+                        // `enum Verdict { Lo, Hi }` the answer is accidentally right
+                        // (Lo coincides with Less), with `{ Pad0, Pad1, Lo, Hi }` both
+                        // directions answer false. Same "emit and hope" shape as #427.
+                        if (!hfit)
+                            error(std::format(
+                                "operator '{}': '{}::partial_cmp' returns '{}', which "
+                                "carries no ordering — expected an 'Ordering' (or an "
+                                "'Option' of one)", op, type_name, type_str(ord_t, true)));
                         std::string hsym = (hfit && !hfit->symbol_name.empty())
                                            ? hfit->symbol_name : helper;
                         std::vector<lir::LExprPtr> hargs;
@@ -2842,6 +2862,33 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     std::string ord_name(TypeRef(ord_t).enum_name());
                     std::string is_mangled = ord_name + "__" + is_method;
                     auto isfit = find_func_by_base_and_signature(is_mangled, {ord_t}, false);
+                    // ── #430: THE SAME HOLE, THE LOUD HALF ───────────────────
+                    //
+                    // Everything the `Option` arm above does not claim arrives
+                    // here, and `ord_name` comes from `enum_name()` — EMPTY for a
+                    // non-enum. MEASURED 2026-09-18, one program per row, struct
+                    // whose `partial_cmp` returns:
+                    //
+                    //     Ordering                  ok (Ordering::is_lt resolves)
+                    //     Option<Ordering>          ok (the arm above)
+                    //     i32 / bool / a struct     callee `__is_lt` — EMPTY prefix
+                    //     a foreign enum `Verdict`  callee `Verdict__is_lt`
+                    //
+                    // Both bad rows reached the MLIR verifier as a call to a symbol
+                    // nothing defines. Keyed on the LOOKUP, not on the spelling of
+                    // the return type, so one condition covers the empty-name and
+                    // the named-but-absent forms together.
+                    //
+                    // ⚠ NOT WIDENED HERE, and named rather than left silent: the
+                    // arm above tests `enum_name() == "Option"`, a SPELLING — a
+                    // foreign package's `Option` enters it too. That blindness is
+                    // the same class as #427's package-blind lookup; it is not this
+                    // refusal's to fix, and this arm cannot see it.
+                    if (!isfit)
+                        error(std::format(
+                            "operator '{}': '{}::partial_cmp' returns '{}', which "
+                            "carries no ordering — expected an 'Ordering' (or an "
+                            "'Option' of one)", op, type_name, type_str(ord_t, true)));
                     std::string is_sym = (isfit && !isfit->symbol_name.empty())
                                          ? isfit->symbol_name : is_mangled;
                     // `is_<op>(self: Ordering)` takes self by VALUE — emit a
@@ -4563,7 +4610,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     auto at = expr_type(arg_exprs[i]);
                     auto pt = exact_fi->param_types[i];
                     expect_type(arg_exprs[i], pt, CoercePos::CallArg,
-                                std::format("call to '{}' arg {}:", callee, i + 1));
+                                std::format("call to '{}' arg {}:", callee, i + 1),
+                                call_param_shown_(pt,
+                                                  exact_fi->lifetime_params, exact_fi->param_types, exact_fi->ret_type));
                     check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                         if (auto v = get_intlit_value(arg_exprs[i]))
@@ -4581,7 +4630,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 auto at = expr_type(arg_exprs[i]);
                 auto pt = exact_fi->param_types[i];
                 expect_type(arg_exprs[i], pt, CoercePos::CallArg,
-                            std::format("call to '{}' arg {}:", callee, i + 1));
+                            std::format("call to '{}' arg {}:", callee, i + 1),
+                            call_param_shown_(pt,
+                                              exact_fi->lifetime_params, exact_fi->param_types, exact_fi->ret_type));
                 check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
@@ -4865,7 +4916,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 auto at = expr_type(arg_exprs[i]);
                 auto pt = fi.param_types[i];
                 expect_type(arg_exprs[i], pt, CoercePos::CallArg,
-                            std::format("call to '{}' arg {}:", callee, i + 1));
+                            std::format("call to '{}' arg {}:", callee, i + 1),
+                            call_param_shown_(pt,
+                                              fi.lifetime_params, fi.param_types, fi.ret_type));
                 check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
@@ -4883,7 +4936,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             auto at = expr_type(arg_exprs[i]);
             auto pt = fi.param_types[i];
             expect_type(arg_exprs[i], pt, CoercePos::CallArg,
-                        std::format("call to '{}' arg {}:", callee, i + 1));
+                        std::format("call to '{}' arg {}:", callee, i + 1),
+                        call_param_shown_(pt,
+                                          fi.lifetime_params, fi.param_types, fi.ret_type));
             check_variance(at, ipts_.empty() ? pt : ipts_[i], std::format("call to '{}' arg {}", callee, i + 1));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                 if (auto v = get_intlit_value(arg_exprs[i]))
@@ -5908,7 +5963,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             widen_int_expr(arg_exprs[i], pt, builder());
             auto at = expr_type(arg_exprs[i]);
             expect_type(arg_exprs[i], pt, CoercePos::CallArg,
-                        std::format("call to '{}' arg {}:", callee_diag, i + 1));
+                        std::format("call to '{}' arg {}:", callee_diag, i + 1),
+                        call_param_shown_(fi.param_types[i],
+                                          fi.lifetime_params, fi.param_types, fi.ret_type, subst));
             if (TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                 check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -5968,7 +6025,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = expr_type(arg_exprs[i]);
                 expect_type(arg_exprs[i], pt, CoercePos::CallArg,
-                                std::format("call to '{}' arg {}:", callee_diag, i + 1));
+                                std::format("call to '{}' arg {}:", callee_diag, i + 1),
+                                call_param_shown_(fi.param_types[i],
+                                                  fi.lifetime_params, fi.param_types, fi.ret_type, subst));
                 if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                     TypeRef(pt).kind() != LogosType::Kind::AssocType)
                     check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
@@ -8772,7 +8831,9 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                         auto at = expr_type(arg_exprs[i]);
                         expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
                                     std::format("method '{}' arg {}:",
-                                                std::string(method_name), i + 1));
+                                                std::string(method_name), i + 1),
+                                                call_param_shown_(m.param_types[i + 1],
+                                                                  m.lifetime_params, m.param_types, m.ret_type, self_subst));
                         if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                             TypeRef(pt).kind() != LogosType::Kind::AssocType)
                             check_variance(at, pt, std::format("method '{}' arg {}",
@@ -9474,7 +9535,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     auto at = expr_type(arg_exprs[i]);
                         expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
                                     std::format("method '{}' arg {}:",
-                                                std::string(method_name), i + 1));
+                                                std::string(method_name), i + 1),
+                                                call_param_shown_(chosen_method->param_types[i + 1],
+                                                                  chosen_method->lifetime_params, chosen_method->param_types, chosen_method->ret_type, self_subst));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
                         TypeRef(pt).kind() != LogosType::Kind::Error &&
                         TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
@@ -11023,7 +11086,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 auto pt = fi.param_types[pi];
                 if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
                 expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
-                            std::format("method '{}' arg {}:", mangled, i + 1));
+                            std::format("method '{}' arg {}:", mangled, i + 1),
+                            call_param_shown_(fi.param_types[pi],
+                                              fi.lifetime_params, fi.param_types, fi.ret_type, struct_subst));
                 logos::probe::census("mcall.A.var");
                 check_variance(at, (ipts_.empty() || pi >= ipts_.size()) ? pt : ipts_[pi],
                                std::format("method '{}' arg {}", mangled, i + 1));
@@ -15821,7 +15886,7 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
 }
 
 bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
-                              std::string_view ctx) {
+                              std::string_view ctx, TypeRef shown) {
     if (!e || !expected) return true;
     if (TypeRef(expected).kind() == LogosType::Kind::Error) return true;
     // An unresolved formal (a type parameter or an un-normalized projection)
@@ -15982,7 +16047,37 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
             return false;
         }
     }
-    auto [es, gs] = type_str_pair(expected, expr_type(e));
+    const TypeRef named = shown ? shown : expected;
+    auto [es, gs] = type_str_pair(named, expr_type(e));
+    // ── #433: TWO DIFFERENT TYPES THAT PRINT THE SAME STRING ────────────────
+    //
+    // `expect_type` reaches here only on a MISMATCH, so `es == gs` means the
+    // rendering lost exactly what distinguishes them. MEASURED: `expected
+    // Option, got Option` for `Option<bool>` against `Option<i64>`, because
+    // `type_str`'s Enum arm returns the bare `enum_name()` unless `source_form`
+    // is set, while its Struct arm always carries the arguments — the same call
+    // site prints `expected Box3<bool>, got Box3<i64>` legibly.
+    //
+    // KEYED ON THE SYMPTOM, not on a list of carriers: "the two renderings
+    // collided" covers Option, Result, a user's own generic enum and anything
+    // added later, without an arm per type. Cost measured over the whole corpus
+    // before landing: 10 643 `.expected` files hold 30 pins of the form
+    // `expected X, got Y`, and exactly ONE is illegible.
+    //
+    // ⚠ WHY NOT IN `type_str_pair`, AND WHY NOT IN `type_str`. `type_str_pair`
+    // feeds seven sites, five of which word the mismatch differently (the array
+    // literal's "element N has type X, expected Y", the variance arm, the walk's
+    // exhaustion arm) and two of which say in comments that `expected {}, got {}`
+    // is this function's monopoly, guarded by scripts/lint-mismatch-monopoly.sh —
+    // widening there would churn seven message forms to fix one. And `type_str`'s
+    // Enum arm is reached from `mangle_type_for_name`, which composes SYMBOL
+    // names: widening it would change the ABI. This re-renders for the
+    // diagnostic alone.
+    if (es == gs) {
+        auto es_sf = type_str(named, true);
+        auto gs_sf = type_str(expr_type(e), true);
+        if (es_sf != gs_sf) { es = std::move(es_sf); gs = std::move(gs_sf); }
+    }
     // ctx carries its own trailing punctuation ("let 'x': type mismatch —",
     // "field write 'a.b':"), so converted sites stay byte-identical to their
     // historical messages and no .expected files churn.
@@ -17481,7 +17576,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 TypeRef(pt).kind() != LogosType::Kind::Error &&
                 !types_compatible(at, pt))
                 expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
-                            std::format("static call '{}' arg {}:", mangled, i + 1));
+                            std::format("static call '{}' arg {}:", mangled, i + 1),
+                            call_param_shown_(pt,
+                                              fi.lifetime_params, fi.param_types, fi.ret_type));
         }
     }
 

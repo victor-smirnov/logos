@@ -6163,6 +6163,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                method the type never implements, instead of letting mono fabricate a call the MLIR verifier rejects) and
 #                pass/struct_relational_impl_admitted (the ADMIT twin). RE-DERIVED FROM THE GATE'S OWN PRINTED MEASUREMENT
 #                (it printed measured 11086/6584/355), never by adding 2 to the previous pin.
+#                ALL 11086 -> 11089 (+3), NOIMPORTED 6584 -> 6587 (+3), TIERCOMMIT 354 -> 354 (0) — 2026-09-18-partial-cmp-return
+#                THREE FIXTURES ADDED for #430 + #432 (one refusal closes both halves of one hole): 
+#                fail/partial_cmp_non_ordering_return_refused (the LOUD half — `partial_cmp -> i32` derived the comparison
+#                method name from an empty `enum_name()` and emitted `__is_lt`, a callee with no type prefix, which the MLIR
+#                verifier rejected), fail/partial_cmp_option_foreign_payload_refused (the SILENT half — `-> Option<Verdict>`
+#                compiled clean and ANSWERED WRONG, because the unresolved bare helper name was bound by ffo_canonical to
+#                stdlib's `cmp_opt_is_lt(Option<Ordering>)`), and pass/partial_cmp_ordering_forms_admitted (the ADMIT twin).
+#                RE-DERIVED FROM THE GATE'S OWN PRINTED MEASUREMENT (it printed measured 11089/6587/354), never by adding 3.
 #                TIERCOMMIT 355 -> 354 (-1), ALL and NOIMPORTED UNMOVED at 11086/6584 — 2026-09-18-squeue-271-retire.
 #                SOUNDNESS ROW ref_pair_eq_without_impl_admits RETIRED (#271, closed by #427's refusal): its program left
 #                tests/soundness/open/ (a tier_commit test, hence the -1) and its successor landed as
@@ -6171,22 +6179,28 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                MEASUREMENT (it printed measured 11086/6584/354). ⚠ MY ARITHMETIC PREDICTION (+1 to ALL) WAS WRONG and the
 #                gate said so; the earlier green on this pin was read BEFORE the glob reconfigure and was measured over a
 #                stale ctest registration, so it was not a verdict at all.
-#                ALL 11086 -> 11088 (+2), NOIMPORTED 6584 -> 6586 (+2), TIERCOMMIT 354 -> 356 (+2) — 2026-09-18 ADR 0028 S1
+#                TIERCOMMIT 354 -> 353 (-1), ALL and NOIMPORTED UNMOVED at 11089/6587 — 2026-09-19-diag-legibility.
+#                SOUNDNESS ROW generic_enum_type_printed_without_args RETIRED (#151, closed by #433's legibility fix):
+#                its program left tests/soundness/open/ (a tier_commit test, hence the -1) and its successor landed as
+#                fail/generic_enum_type_printed_with_args, which registers in the DIAGNOSTICS tier — so the two outer
+#                columns cancel to zero and only tier_commit moves, exactly as in the 2026-09-18 #271 retirement.
+#                RE-DERIVED FROM THE GATE'S OWN PRINTED MEASUREMENT (it printed measured 11089/6587/353).
+#                ALL 11089 -> 11091 (+2), NOIMPORTED 6587 -> 6589 (+2), TIERCOMMIT 353 -> 355 (+2) — 2026-09-18 ADR 0028 S1
 #                TWO C++ TESTS in src/compiler: `dl_test` and `dl_souffle_oracle`, labelled "dl;cpp;tier_commit", so all
-#                three move by two (rebased onto 2026-09-18-squeue-271-retire). ⚠ The author's tree carries one IMPORTED
+#                three move by two (merged onto 2026-09-19-diag-legibility). ⚠ The author's tree carries one IMPORTED
 #                test more, tests/imported/pass/methods/builder-returning-self-b163.logos, which exists there but is
 #                IGNORED by git (the `build*` pattern in .gitignore matches its name) while the CONFIGURE_DEPENDS glob
 #                registers it; the pin is the committed tree's count.
-#                ALL 11088 -> 11091 (+3), NOIMPORTED 6586 -> 6589 (+3), TIERCOMMIT 356 -> 353 (-3) — 2026-09-19 ADR 0028
+#                ALL 11091 -> 11094 (+3), NOIMPORTED 6589 -> 6592 (+3), TIERCOMMIT 355 -> 352 (-3) — 2026-09-19 ADR 0028
 #                DerefMove + declared-signature elision. Three soundness-queue rows closed (box_field_move, struct_binder_result,
 #                box_mutref_payload_write_immut_box): their three tier_commit squeue gates leave (-3 everywhere) and the
 #                programs land as pass fixtures (+3 to ALL and NOIMPORTED). Three new fixtures join: pass/
 #                box_field_move_siblings, pass/trait_default_next_item_binder, fail/box_field_move_twice (+3 to ALL and
-#                NOIMPORTED). The gate printed measured 11092/6589/353 on the author's tree; ALL there carries the one
-#                git-ignored imported fixture noted above, so the committed tree's ALL is 11091.
-REGISTRY-ALL         11091
-REGISTRY-NOIMPORTED  6589
-REGISTRY-TIERCOMMIT  353
+#                NOIMPORTED). Pins re-derived from the gate's printed measurement after the merge; ALL on the author's tree
+#                carries the one git-ignored imported fixture noted above, so the committed tree's ALL is one less.
+REGISTRY-ALL         11094
+REGISTRY-NOIMPORTED  6592
+REGISTRY-TIERCOMMIT  352
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

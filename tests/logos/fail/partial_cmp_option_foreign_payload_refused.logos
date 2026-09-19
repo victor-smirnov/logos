@@ -1,0 +1,30 @@
+package partial_cmp_option_foreign_payload_refused;
+
+// #432, and it is the SILENT half of #430's hole. `partial_cmp -> Option<Verdict>`
+// compiled clean and ANSWERED WRONG: `hfit` is null (types_equal distinguishes the
+// payload), yet the bare helper name `cmp_opt_is_lt` was emitted anyway, and
+// find_func_op's `ffo_canonical` — which strips package and `__f__` suffix — bound
+// it to stdlib's `cmp_opt_is_lt(Option<Ordering>)`. That read a `Verdict` as an
+// `Ordering` and compared discriminants.
+//
+// ⚠ THE LAYOUT IS LOAD-BEARING. With `enum Verdict { Lo, Hi }` the wrong call
+// answers CORRECTLY by coincidence — Lo's discriminant equals Ordering::Less's —
+// so an aligned-layout fixture would have passed before the fix and pinned
+// nothing. The padding variants below move Lo to 2, where the measured answer was
+// false in BOTH directions.
+enum Verdict { Pad0, Pad1, Lo, Hi }
+
+struct S { a: i32 }
+
+impl S {
+    fn partial_cmp(self: &S, o: &S) -> Option<Verdict> {
+        if self.a < o.a { return Option::Some(Verdict::Lo); }
+        return Option::Some(Verdict::Hi);
+    }
+}
+
+fn main() -> i32 {
+    let a: S = S{a:1i32};
+    let b: S = S{a:2i32};
+    return if a < b { 0i32 } else { 1i32 };
+}

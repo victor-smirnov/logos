@@ -1,0 +1,20 @@
+package partial_cmp_non_ordering_return_refused;
+
+// #430: `partial_cmp` is picked up BY NAME (Logos `trait PartialOrd` is declared
+// empty, so nothing constrains its return type). With a non-enum return, sema
+// derived the comparison method name from `enum_name()` — empty — and emitted a
+// call to `__is_lt`, a symbol with no type prefix that nothing defines; the MLIR
+// verifier was the first stage to notice. rustc 1.98.1 refuses the same shape as
+// E0053 ("method `partial_cmp` has an incompatible type for trait") when the
+// impl is a trait impl, and E0369 when it is inherent.
+struct S { a: i32 }
+
+impl S {
+    fn partial_cmp(self: &S, o: &S) -> i32 { return self.a - o.a; }
+}
+
+fn main() -> i32 {
+    let a: S = S{a:1i32};
+    let b: S = S{a:2i32};
+    return if a < b { 0i32 } else { 1i32 };
+}
