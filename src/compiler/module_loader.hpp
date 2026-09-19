@@ -35,6 +35,11 @@ struct ParsedModule {
     // because the lazy archive ships only the parsed AST, no .o text, no
     // LIR blob. Default false (eager — current behaviour).
     bool           is_lazy = false;
+
+    // The prelude the module's files were resolved in (its manifest's
+    // `prelude`), read from the archive's `@prelude` .pkgi line. A name in an
+    // archived file must resolve in the scope it was compiled in.
+    std::string    prelude;
 };
 
 // M3: stdlib exports payload carried in the .writ0 v3 trailer.

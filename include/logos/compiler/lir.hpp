@@ -1285,6 +1285,9 @@ struct SemaOptions {
     // the id `find_func_candidates` filters by. Empty → no module is known by
     // name, so a `from` clause cannot resolve (sema errors at the use site).
     std::unordered_map<std::string, std::string> module_name_to_id;
+    // Module id -> the prelude its archived files were resolved in (the
+    // archive's `@prelude`). Files compiled in this run use implicit_prelude.
+    std::unordered_map<std::string, std::string> module_prelude;
 
     // G156-1 (trailer v3): nominal type decls (pkg, name) exported by dependency
     // archives — loaded from their .writ0 all-struct/enum-decls trailer even for

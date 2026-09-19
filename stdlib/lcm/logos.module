@@ -3,5 +3,6 @@ id logos-lcm
 version 0.1
 root stdlib/lcm/
 tier lcm
+prelude logos.mem.prelude
 depends logos-mem
 depends logos-lang

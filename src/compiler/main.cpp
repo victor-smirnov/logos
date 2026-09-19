@@ -3842,6 +3842,7 @@ int run_metaprog_dispatch(
     // but metaprog handlers may reference Option/Result/String/etc.).
     meta_opts.implicit_prelude = opts.implicit_prelude;
     meta_opts.module_name_to_id = opts.module_name_to_id;  // §B-coex: `use … from` in discovery
+    meta_opts.module_prelude = opts.module_prelude;
 
     // M6.1: enable incremental dispatch. Cache preserves user-AST state
     // across iters; each iter's sema_lower is given a delta_start_idx so
@@ -5652,6 +5653,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> module_ids;   // parallel to asts (owning-module mangle key)
     // §3: module canonical NAME → mangle id, for resolving `use pkg from <name>`.
     std::unordered_map<std::string, std::string> module_name_to_id;
+    std::unordered_map<std::string, std::string> module_prelude;   // archive's @prelude, by module id
     logos::compiler::StrSet binary_archives_seen;
     logos::compiler::StrSet binary_symbols;
     for (auto& m : modules) {
@@ -5667,6 +5669,8 @@ int main(int argc, char** argv) {
         module_ids.push_back(m.module_id);   // empty for the user program's own files; set for binary modules
         if (!m.module_name.empty() && !m.module_id.empty())
             module_name_to_id.emplace(m.module_name, m.module_id);  // §3: name→id
+        if (m.from_binary_module && !m.module_id.empty())
+            module_prelude.emplace(m.module_id, m.prelude);
         asts.push_back(std::move(m.ast));
     }
     // Collect symbol tables from binary archives on the search path.
@@ -6036,6 +6040,7 @@ int main(int argc, char** argv) {
         o.order_facts    = &unit_order_facts; // §1.4: edge source, per round
         o.self_module_id = "";           // a plain user program is in the global module (no id)
         o.module_name_to_id = module_name_to_id;      // §B-coex: `use … from` in discovery
+        o.module_prelude = module_prelude;
         return o;
     };
 
@@ -6221,6 +6226,7 @@ int main(int argc, char** argv) {
     default_opts.dep_nominal_decls = dep_nominal_decls;  // G156-1 ambiguity universe
     default_opts.implicit_prelude = implicit_prelude_pkg;  // default-on prelude
     default_opts.module_name_to_id = module_name_to_id;    // §3: resolve `use … from <name>`
+    default_opts.module_prelude = module_prelude;
     default_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
     // UnitGraph §1.4 — every program the driver lowers is noted, because

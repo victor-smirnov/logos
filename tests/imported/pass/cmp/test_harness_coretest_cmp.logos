@@ -122,7 +122,10 @@ fn test_mut_int_totalord() {
     let mut d: i32 = 12i32;
     assert_eq!((&mut a).cmp(&b),         Ordering::Less);
     assert_eq!((&mut b).cmp(&a),         Ordering::Greater);
-    assert_eq!((&mut a).cmp(&a),         Ordering::Equal);
+    // `(&mut a).cmp(&a)` is E0502 in Rust: the receiver reborrows the `&mut a`
+    // loan for the call, and `&a` conflicts with it. Compare with an equal copy.
+    let a2: i32 = a;
+    assert_eq!((&mut a).cmp(&a2),        Ordering::Equal);
     assert_eq!((&mut c).cmp(&d),         Ordering::Less);
     assert_eq!((&mut d).cmp(&c),         Ordering::Greater);
 }

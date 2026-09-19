@@ -244,27 +244,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
     // `#![no_implicit_prelude]` or is loaded from a binary archive (its
     // producer already applied its own prelude when the archive was built).
     // Self-imports are skipped (own package symbols always resolve first).
-    auto maybe_inject_implicit_prelude = [&](TinyMapView root, bool is_bin) {
-        if (implicit_prelude_.empty() || is_bin) return;
-        if (cur_package_ == implicit_prelude_) return;
-        // Scan ITEMS for INNER_ANNOTATION{NAME="no_implicit_prelude"} opt-out.
-        if (root.has_key(la::ITEMS)) {
-            auto items = arr_of(root.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto it = map_of(items.get(i));
-                if (code_of(it) != la::INNER_ANNOTATION.code) continue;
-                if (!it.has_key(la::NAME)) continue;
-                if (str_of(it.get(la::NAME.code)) == "no_implicit_prelude")
-                    return;
-            }
-        }
-        // Dedup against any explicit `use <prelude>;` already in scope.
-        if (std::find(cur_imports_.wildcard_packages.begin(),
-                      cur_imports_.wildcard_packages.end(),
-                      implicit_prelude_)
-            == cur_imports_.wildcard_packages.end()) {
-            cur_imports_.wildcard_packages.push_back(implicit_prelude_);
-        }
+    auto maybe_inject_implicit_prelude = [&](TinyMapView root, bool) {
+        inject_implicit_prelude_(root);
     };
     // MC2.5: per-name first-seen item record for ODR dedup. On a name
     // collision we deep-compare the new item's AST sub-tree against the
@@ -342,6 +323,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
         holder_ = ast.holder();
         auto root = ast.root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        cur_module_id_ = (module_ids_ && pass0_ai < module_ids_->size())
+                             ? (*module_ids_)[pass0_ai] : std::string{};
         cur_imports_ = build_import_scope(root);
         maybe_inject_implicit_prelude(root, is_bin);
         // M5 step 5c: record user-pkgs so take_snapshot can filter
@@ -3357,6 +3340,22 @@ void SemaChecker::collect_trait(TinyMapView node) {
         traits_[tname] = std::move(info);  // legacy bare slot (canonical)
         if (!cur_from_binary_) user_trait_keys_.insert(tname);
     }
+}
+
+void SemaChecker::inject_implicit_prelude_(TinyMapView root) {
+    const std::string& pre = current_prelude_();
+    if (pre.empty() || cur_package_ == pre) return;
+    if (root.has_key(la::ITEMS)) {
+        auto items = arr_of(root.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto it = map_of(items.get(i));
+            if (code_of(it) != la::INNER_ANNOTATION.code) continue;
+            if (it.has_key(la::NAME) && str_of(it.get(la::NAME.code)) == "no_implicit_prelude")
+                return;
+        }
+    }
+    auto& w = cur_imports_.wildcard_packages;
+    if (std::find(w.begin(), w.end(), pre) == w.end()) w.push_back(pre);
 }
 
 void SemaChecker::collect_impl(TinyMapView node) {

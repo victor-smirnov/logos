@@ -3,6 +3,7 @@ id logos-mem
 version 0.1
 root stdlib/mem/
 tier mem
+prelude logos.mem.prelude
 depends logos-lang
 
 # Metaprog plumbing references host externs defined inside logosc for JIT'd

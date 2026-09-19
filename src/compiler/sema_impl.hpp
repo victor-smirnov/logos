@@ -2318,6 +2318,23 @@ public:
     void set_implicit_prelude(std::string p) { implicit_prelude_ = std::move(p); }
 private:
     std::string implicit_prelude_;
+    // Module id -> the prelude an archived module's files were resolved in.
+    const std::unordered_map<std::string, std::string>* module_prelude_ = nullptr;
+public:
+    void set_module_prelude(const std::unordered_map<std::string, std::string>* m) { module_prelude_ = m; }
+private:
+    // The prelude the current file resolves names in: an archived file's is
+    // its module's (recorded in the archive; a name must resolve as it did
+    // when the archive was built), a file compiled in this run gets the run's.
+    const std::string& current_prelude_() const {
+        if (module_prelude_ && !cur_module_id_.empty())
+            if (auto it = module_prelude_->find(cur_module_id_); it != module_prelude_->end())
+                return it->second;
+        return implicit_prelude_;
+    }
+    // Appends the current file's prelude to its wildcard imports unless the
+    // file opts out, the file IS that prelude, or it is already imported.
+    void inject_implicit_prelude_(sema_detail::TinyMapView root);
 
     // Phase 1B-15: returns true when the struct type `t` is custom-DST
     // either directly (template flagged is_dst at decl time) or after
@@ -6210,6 +6227,24 @@ private:
         // a DIFFERENT package than `cur_package_` (own-package bare
         // entries — e.g. primitives, builtins — are always permitted).
         auto it = m.find(std::string(name));
+        // The bare slot is storage, not scope: an entry answers only where its
+        // package is in scope (own package, an import, the prelude), as Rust
+        // resolves a path in the scope it is written in. Otherwise the stdlib
+        // looking up a type parameter `T` finds a user's trait `T`.
+        if (it != m.end() && !cur_package_.empty()) {
+            const std::string& owner = it->second.package;
+            bool in_scope = owner.empty() || owner == cur_package_;
+            if (!in_scope) {
+                auto imp = effective_import_pkgs();
+                in_scope = std::find(imp.begin(), imp.end(), owner) != imp.end();
+            }
+            if (!in_scope) {
+                if (std::getenv("LOGOS_TRACE_BARE"))
+                    std::fprintf(stderr, "BARE-OUT-OF-SCOPE cur=%s name=%.*s owner=%s\n",
+                                 cur_package_.c_str(), (int)name.size(), name.data(), owner.c_str());
+                return {"", nullptr};
+            }
+        }
         if (it != m.end()) {
             if constexpr (PubCheck) {
                 if (!it->second.package.empty() &&

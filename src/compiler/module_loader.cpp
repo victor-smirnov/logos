@@ -1110,7 +1110,8 @@ static std::vector<std::string>
 parse_pkgi_member(const std::vector<uint8_t>& data,
                   std::string* out_module_name = nullptr,
                   std::string* out_module_id   = nullptr,
-                  std::string* out_abi_version = nullptr) {
+                  std::string* out_abi_version = nullptr,
+                  std::string* out_prelude     = nullptr) {
     std::vector<std::string> out;
     std::string line;
     auto handle = [&](std::string& ln) {
@@ -1121,6 +1122,10 @@ parse_pkgi_member(const std::vector<uint8_t>& data,
             iss >> nm >> id;
             if (out_module_name) *out_module_name = nm;
             if (out_module_id)   *out_module_id   = id;
+            return;
+        }
+        if (ln.rfind("@prelude ", 0) == 0) {   // the prelude its files were resolved in
+            if (out_prelude) *out_prelude = ln.substr(9);
             return;
         }
         if (ln.rfind("@abi ", 0) == 0) {   // builder's version stamp
@@ -1586,15 +1591,16 @@ std::vector<ParsedModule> load_modules(
             // `@module` .pkgi header. Downstream sema uses module_id to qualify
             // these items' symbols (one module per archive).
             {
-                std::string mod_name, mod_id;
+                std::string mod_name, mod_id, prelude;
                 for (auto& pm : ar_read_members_streaming(archive_path, ".pkgi")) {
                     auto unwrapped = unwrap_elf_section(pm, ".lpkgindex");
-                    parse_pkgi_member(unwrapped, &mod_name, &mod_id);
+                    parse_pkgi_member(unwrapped, &mod_name, &mod_id, nullptr, &prelude);
                     if (!mod_id.empty() || !mod_name.empty()) break;
                 }
                 for (auto& pm : decoded) {
                     pm.module_id   = mod_id;
                     pm.module_name = mod_name;
+                    pm.prelude     = prelude;
                 }
             }
             if (trace)
@@ -1637,7 +1643,8 @@ std::vector<ParsedModule> load_modules(
                                /*from_binary_module=*/true,
                                /*module_id=*/pm.module_id,
                                /*module_name=*/pm.module_name,
-                               /*is_lazy=*/pm.is_lazy});
+                               /*is_lazy=*/pm.is_lazy,
+                               /*prelude=*/pm.prelude});
         }
     };
 

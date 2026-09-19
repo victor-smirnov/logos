@@ -748,6 +748,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                                const std::vector<std::string>& dep_archives = {},
                                const std::vector<std::string>& per_ast_module_ids = {},
                                const std::unordered_map<std::string, std::string>& module_name_to_id = {},
+                               const std::unordered_map<std::string, std::string>& module_prelude = {},
                                const std::string& abi_layout_path = "",
                                const std::string& docs_path = "",
                                int opt_level = 0,
@@ -862,6 +863,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         mopts.order_facts    = &unit_order_facts; // §1.4: edge source, per round
         mopts.self_module_id = module_id;    // hook-appended asts belong to THIS module
         mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
+        mopts.module_prelude = module_prelude;
         mopts.provenance_out = provenance_out;  // synth-chunk → source-file attribution
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
         // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
@@ -991,6 +993,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
     sema_opts.ast_unit_key   = ast_unit_key; // UnitGraph §1.2 — stamped onto every lowered fn
     sema_opts.module_name_to_id = module_name_to_id;  // §3/§B-coex: resolve `use … from`
+    sema_opts.module_prelude = module_prelude;
     // G156-1: load ALL nominal decls (struct+enum) exported by the dependency
     // archives' v3 trailer — including packages whose ASTs are loaded lazily (or
     // not at all) in this build — so a higher tier's ambiguity universe sees a
@@ -2235,6 +2238,7 @@ bool emit_module(const ModuleManifest& manifest,
     std::vector<bool>        from_binary_module_flags;  // parallel to asts
     std::vector<std::string> per_ast_module_ids;    // parallel to asts (owning-module mangle key)
     std::unordered_map<std::string, std::string> module_name_to_id;  // §B-coex: NAME→id for `from`
+    std::unordered_map<std::string, std::string> module_prelude;     // archive's @prelude, by module id
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
         modules_for_h0.push_back({m.path, m.package, m.ast, false, {}, {}});  // Writ is copy-on-write safe
@@ -2245,6 +2249,8 @@ bool emit_module(const ModuleManifest& manifest,
         per_ast_module_ids.push_back(m.module_id);  // own files: self_id (stamped above); deps: archive id
         if (!m.module_name.empty() && !m.module_id.empty())
             module_name_to_id.emplace(m.module_name, m.module_id);
+        if (m.from_binary_module && !m.module_id.empty())
+            module_prelude.emplace(m.module_id, m.prelude);
         asts.push_back(std::move(m.ast));
     }
     // Trigger-site file per modules_for_h0 entry, parallel to it (real files:
@@ -2301,6 +2307,7 @@ bool emit_module(const ModuleManifest& manifest,
                                /*dep_archives=*/all_lib_files,
                                /*per_ast_module_ids=*/per_ast_module_ids,
                                /*module_name_to_id=*/module_name_to_id,
+                               /*module_prelude=*/module_prelude,
                                /*abi_layout_path=*/output_path + ".abi-layout",
                                /*docs_path=*/opts.emit_docs
                                    ? (std::string(output_path) + ".docwr")
@@ -2572,6 +2579,10 @@ bool emit_module(const ModuleManifest& manifest,
         // matches pre-release/snapshot builds. `@`-sigil keeps it out of the
         // package list (parse_pkgi_member skips @-lines).
         f << "@abi " << logos::compiler::logos_version_full() << "\n";
+        // The prelude this module's files were resolved in: a consumer
+        // resolves a name in an archived file in the same scope.
+        if (!manifest.prelude.empty())
+            f << "@prelude " << manifest.prelude << "\n";
         for (size_t i = 0; i < modules_for_h0.size(); ++i) {
             auto& m = modules_for_h0[i];
             // Skip dependency modules embedded from a lower-layer archive.

@@ -103,6 +103,9 @@ struct MetaprogDispatchOpts {
     // §3/§B-coex: module canonical-NAME → id, for resolving `use pkg from <name>`
     // during the discovery passes (else cross-module same-name types mis-resolve).
     std::unordered_map<std::string, std::string> module_name_to_id;
+    // Module id -> the prelude its archived files were resolved in (the
+    // archive's `@prelude`). Files compiled in this run use implicit_prelude.
+    std::unordered_map<std::string, std::string> module_prelude;
     // G156-1: dependency-archive nominal decls (pkg,name) from the v3 exports
     // trailer, for the ambiguity universe. Threaded into every sema_lower so a
     // user compile folds a cross-module same-name type (fs.DirEntry) identically
