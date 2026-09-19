@@ -4945,7 +4945,7 @@ bool SemaChecker::ptr_rel_compatible(TypeRef a, TypeRef b) {
         TypeRef pointee = TypeRef(pt).pointee();
         // (a) Concrete #[rel_ptr] struct `RP<U>` ↔ `*U` (post-mono / non-generic).
         if (TypeRef(rp).kind() == LogosType::Kind::Struct) {
-            auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(rp).struct_name()));
+            auto [pkg, ssi] = struct_of(TypeRef(rp));
             if (!ssi || !ssi->rel_ptr) return false;
             auto ta = TypeRef(rp).type_args();
             // Type-erased rel_ptr (NO type arg) — an `any_object_ptr` into a
@@ -6287,7 +6287,7 @@ bool SemaChecker::is_type_uninhabited(TypeRef t, int depth) {
     // dangling addr in unsafe). Rust treats `&!` as uninhabited; we stay
     // conservative and only mark value-carrying composites.
     if (k == K::Enum) {
-        auto [pkg, esi] = find_enum_by_name(TypeRef(t).enum_name());
+        auto [pkg, esi] = enum_of(TypeRef(t));
         if (!esi) return false;
         if (esi->variants.empty()) return true;
         // Inhabited iff at least one variant is constructable (all its
@@ -6301,7 +6301,7 @@ bool SemaChecker::is_type_uninhabited(TypeRef t, int depth) {
         return true;   // every variant has an uninhabited payload
     }
     if (k == K::Struct || k == K::ZonedStruct) {
-        auto [pkg, ssi] = find_struct_by_name(TypeRef(t).struct_name());
+        auto [pkg, ssi] = struct_of(TypeRef(t));
         if (!ssi) return false;
         for (auto& f : ssi->fields)
             if (is_type_uninhabited(f.type, depth + 1)) return true;
@@ -7612,8 +7612,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 if (inner && sp_kind == TypeRef::OwningKind::Box &&
                     (TypeRef(inner).kind() == LogosType::Kind::Struct ||
                      TypeRef(inner).kind() == LogosType::Kind::ZonedStruct)) {
-                    auto [ipkg, issi] = find_struct_by_name(
-                        std::string(TypeRef(inner).struct_name()));
+                    auto [ipkg, issi] = struct_of(TypeRef(inner));
                     if (issi && issi->is_dst) {
                         auto ia = TypeRef(inner).type_args();
                         return make_dst_ref(TypeRef(inner).struct_name(),
@@ -9294,8 +9293,8 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
     // If it's a variadic expansion (name_N), we need to resolve it against the type arguments.
     if (fname.find('_') != std::string::npos) {
         SemaStructInfo* si2 = nullptr;
-        { auto [pkg, ssi] = find_struct_by_name(TypeRef(struct_t).struct_name()); si2 = ssi; }
-        if (!si2) { auto [pkg, dsi] = find_datatype_by_name(TypeRef(struct_t).struct_name()); si2 = dsi; }
+        { auto [pkg, ssi] = struct_of(TypeRef(struct_t)); si2 = ssi; }
+        if (!si2) { auto [pkg, dsi] = datatype_of(TypeRef(struct_t)); si2 = dsi; }
         if (si2) {
             for (auto& f : si2->fields) {
                 if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_') {

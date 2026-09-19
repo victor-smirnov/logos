@@ -571,13 +571,13 @@ private:
     size_t decl_lt_arity_(TypeRef t) {
         using K = LogosType::Kind;
         if (t.kind() == K::Enum) {
-            auto [p, ei] = find_enum_by_name(t.enum_name());
+            auto [p, ei] = enum_of(t);
             (void)p; return ei ? ei->lifetime_params.size() : 0;
         }
-        auto [sp, si] = find_struct_by_name(t.struct_name());
+        auto [sp, si] = struct_of(t);
         (void)sp;
         if (si) return si->lifetime_params.size();
-        auto [dp, di] = find_datatype_by_name(t.struct_name());
+        auto [dp, di] = datatype_of(t);
         (void)dp;
         return di ? di->lifetime_params.size() : 0;
     }
@@ -1903,7 +1903,7 @@ private:
         if (k == LogosType::Kind::Error || k == LogosType::Kind::TypeVar) return true;
         if (k == LogosType::Kind::Enum) {
             auto args = tr.type_args();
-            auto [pkg, esi] = find_enum_by_name(tr.enum_name());
+            auto [pkg, esi] = enum_of(tr);
             (void)pkg;
             // A generic enum carrying fewer type-args than its declared params
             // (notably ZERO, e.g. a bare `Option`) is incomplete — the inner
@@ -1914,7 +1914,7 @@ private:
         }
         if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
             auto args = tr.type_args();
-            auto [pkg, ssi] = find_struct_by_name(tr.struct_name());
+            auto [pkg, ssi] = struct_of(tr);
             (void)pkg;
             if (ssi && args.size() < ssi->type_params.size()) return true;
             for (auto ta : args)
@@ -4589,7 +4589,7 @@ private:
         }
         if (k == K::Array) return is_non_movable_type(TypeRef(t).elem(), depth + 1);
         if (k == K::Struct || k == K::ZonedStruct) {
-            auto [pkg, ssi] = find_struct_by_name(TypeRef(t).struct_name());
+            auto [pkg, ssi] = struct_of(TypeRef(t));
             if (!ssi) return false;
             // SEMANTICALLY both `#[rel_ptr]` and `#[pinned]` are non-movable (a
             // memcpy-move of the location-anchored relative bits breaks the
@@ -4617,7 +4617,7 @@ private:
                 TypeRef ft = f.type;
                 auto fk = TypeRef(ft).kind();
                 if (fk == K::Struct || fk == K::ZonedStruct) {
-                    auto [fp, fssi] = find_struct_by_name(TypeRef(ft).struct_name());
+                    auto [fp, fssi] = struct_of(TypeRef(ft));
                     if (fssi && (fssi->rel_ptr || fssi->pinned)) return true;  // (1) rel_ptr / (2) pinned field
                     if (is_non_movable_type(ft, depth + 1)) return true;       // nested inline
                 } else if (fk == K::Tuple || fk == K::Array) {
@@ -6081,6 +6081,22 @@ private:
     // ── Package-qualified symbol lookup helpers ───────────────────
 
     // Look up struct/datatype/enum by LogosType (uses pkg_name if set, else unqualified fallback)
+    // ── TYPE → DECLARATION, by the type's own identity (#438) ─────────────
+    // A resolved type already names its declaration: (package, name). Going
+    // back to the declaration must not RE-RESOLVE the spelled name in the
+    // current package's scope (find_*_by_name does that, with a bare
+    // fallback), or a `Vec` of package A reached from package B finds B's `Vec`.
+    // Same pair shape as find_*_by_name; no visibility check (the type was
+    // checked where it was written).
+    std::pair<std::string, SemaStructInfo*> struct_of(TypeRef tr) {
+        return {tr ? std::string(tr.pkg_name()) : std::string{}, get_struct_si(tr)};
+    }
+    std::pair<std::string, SemaStructInfo*> datatype_of(TypeRef tr) {
+        return {tr ? std::string(tr.pkg_name()) : std::string{}, get_datatype_si(tr)};
+    }
+    std::pair<std::string, SemaEnumInfo*> enum_of(TypeRef tr) {
+        return {tr ? std::string(tr.pkg_name()) : std::string{}, get_enum_si(tr)};
+    }
     SemaStructInfo* get_struct_si(TypeRef tr) {
         if (!tr) return nullptr;
         if (!tr.pkg_name().empty()) {

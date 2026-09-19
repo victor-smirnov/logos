@@ -2030,8 +2030,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                             // any Struct-kind type here).
                             if (TypeRef(f.type).kind() ==
                                 LogosType::Kind::Struct) {
-                                auto [fpkg, fsi] = find_struct_by_name(
-                                    std::string(TypeRef(f.type).struct_name()));
+                                auto [fpkg, fsi] = struct_of(TypeRef(f.type));
                                 (void)fpkg;
                                 if (fsi && fsi->is_union) continue;
                             }
@@ -5515,7 +5514,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                         // self-relatively, the never-move-arena analog of legacy's
                         // base-relative inner pointer. Other plain structs stay
                         // disallowed (may carry heap/abs pointers).
-                        auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(t).struct_name()));
+                        auto [pkg, ssi] = struct_of(TypeRef(t));
                         return ssi && ssi->rel_ptr;
                     }
                     case LogosType::Kind::TypeVar:

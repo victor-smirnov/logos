@@ -1730,7 +1730,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         int32_t ok_disc = 0, err_disc = 1;
         const char* ok_name  = is_option ? "Some" : "Ok";
         const char* err_name = is_option ? "None" : "Err";
-        auto [epkg_res, esi_res] = find_enum_by_name(TypeRef(inner_t).enum_name());
+        auto [epkg_res, esi_res] = enum_of(TypeRef(inner_t));
         auto eit = esi_res ? enums_.find(sema_key(epkg_res, TypeRef(inner_t).enum_name())) : enums_.end();
         if (eit == enums_.end()) eit = enums_.find(TypeRef(inner_t).enum_name());
         if (eit != enums_.end()) {
@@ -3121,7 +3121,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // No Eq impl. C-like enums compare correctly by discriminant — allow
         // the fall-through. Payload enums would silently miscompile — error.
         bool c_like = true;
-        auto [epkg, einfo] = find_enum_by_name(TypeRef(lt).enum_name());
+        auto [epkg, einfo] = enum_of(TypeRef(lt));
         (void)epkg;
         if (einfo)
             for (auto& v : einfo->variants)
@@ -6408,8 +6408,8 @@ lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
             pkg = TypeRef(elem).pkg_name();
         } else {
             SemaStructInfo* found = nullptr;
-            { auto [dp, dsi] = find_datatype_by_name(TypeRef(elem).struct_name()); found = dsi; }
-            if (!found) { auto [sp, ssi] = find_struct_by_name(TypeRef(elem).struct_name()); found = ssi; }
+            { auto [dp, dsi] = datatype_of(TypeRef(elem)); found = dsi; }
+            if (!found) { auto [sp, ssi] = struct_of(TypeRef(elem)); found = ssi; }
             if (found) pkg = found->package;
             // If still not found, fall back to current package.
             else pkg = cur_package_;
@@ -6445,7 +6445,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
             pkg = TypeRef(elem).pkg_name();
         } else {
             SemaStructInfo* gsi = nullptr;
-            { auto [dp, dsi] = find_datatype_by_name(TypeRef(elem).struct_name()); gsi = dsi; }
+            { auto [dp, dsi] = datatype_of(TypeRef(elem)); gsi = dsi; }
             // KEY-IDENTITY: OPEN #98 — bare struct name into datatypes_, with no
             // qualified probe ahead (find_datatype_by_name is a scan over the
             // same bare spelling, not a qualified lookup). The value read out is
@@ -6672,7 +6672,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
     std::string a_fqn, a_pkg;
     SemaStructInfo* a_info = nullptr;
     {
-        auto [apkg, asi] = find_datatype_by_name(TypeRef(A).struct_name());
+        auto [apkg, asi] = datatype_of(TypeRef(A));
         if (!asi || !asi->is_annotation_type) {
             error(std::format("get_annotation: '{}' is not an annotation type", TypeRef(A).struct_name()));
             return error_expr();
@@ -7569,8 +7569,8 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             // Use import-aware helpers so same-package types (stored under qualified keys
             // after M1) and cross-package types are both found.
             SemaStructInfo* found_si = nullptr;
-            { auto [dp, dsi] = find_datatype_by_name(TypeRef(check).struct_name()); found_si = dsi; }
-            if (!found_si) { auto [sp, ssi] = find_struct_by_name(TypeRef(check).struct_name()); found_si = ssi; }
+            { auto [dp, dsi] = datatype_of(TypeRef(check)); found_si = dsi; }
+            if (!found_si) { auto [sp, ssi] = struct_of(TypeRef(check)); found_si = ssi; }
             // Package-qualified fallback using pkg_name on the type itself.
             if (!found_si && !TypeRef(check).pkg_name().empty()) {
                 auto qkey = sema_key(TypeRef(check).pkg_name(), TypeRef(check).struct_name());
@@ -7608,7 +7608,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         }
         std::string a_fqn;
         {
-            auto [apkg, asi] = find_datatype_by_name(TypeRef(A).struct_name());
+            auto [apkg, asi] = datatype_of(TypeRef(A));
             if (!asi || !asi->is_annotation_type) {
                 error(std::format("has_annotation: '{}' is not an annotation type", TypeRef(A).struct_name()));
                 return error_expr();
@@ -9889,7 +9889,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (rst && (TypeRef(rst).kind() == LogosType::Kind::Struct ||
                     TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) &&
             !TypeRef(rst).type_args().empty()) {
-            auto [_, si] = find_struct_by_name(TypeRef(rst).struct_name());
+            auto [_, si] = struct_of(TypeRef(rst));
             if (si) {
                 auto& tps = si->type_params;
                 for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
@@ -9897,7 +9897,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
         } else if (rst && TypeRef(rst).kind() == LogosType::Kind::Enum
                    && !TypeRef(rst).type_args().empty()) {
-            auto [_, esi] = find_enum_by_name(TypeRef(rst).enum_name());
+            auto [_, esi] = enum_of(TypeRef(rst));
             if (esi) {
                 auto& tps = esi->type_params;
                 for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
@@ -10483,8 +10483,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             SemaSubst ref_subst;
             if (pointee && !TypeRef(pointee).type_args().empty()) {
                 SemaStructInfo* si2 = nullptr;
-                { auto [p, si] = find_struct_by_name(TypeRef(pointee).struct_name()); si2 = si; }
-                if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(pointee).struct_name()); si2 = di; }
+                { auto [p, si] = struct_of(TypeRef(pointee)); si2 = si; }
+                if (!si2) { auto [p, di] = datatype_of(TypeRef(pointee)); si2 = di; }
                 if (si2) {
                     auto& tps = si2->type_params;
                     for (size_t i = 0; i < tps.size() && i < TypeRef(pointee).type_args().size(); ++i)
@@ -10528,8 +10528,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) &&
             !TypeRef(rst).type_args().empty()) {
             SemaStructInfo* si2 = nullptr;
-            { auto [p, si] = find_struct_by_name(TypeRef(rst).struct_name()); si2 = si; }
-            if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(rst).struct_name()); si2 = di; }
+            { auto [p, si] = struct_of(TypeRef(rst)); si2 = si; }
+            if (!si2) { auto [p, di] = datatype_of(TypeRef(rst)); si2 = di; }
             if (si2) {
                 auto& tps = si2->type_params;
                 for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
@@ -10885,8 +10885,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
         if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(rst).type_args().empty()) {
             SemaStructInfo* si2 = nullptr;
-            { auto [p, si] = find_struct_by_name(TypeRef(rst).struct_name()); si2 = si; }
-            if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(rst).struct_name()); si2 = di; }
+            { auto [p, si] = struct_of(TypeRef(rst)); si2 = si; }
+            if (!si2) { auto [p, di] = datatype_of(TypeRef(rst)); si2 = di; }
             if (si2) {
                 auto& tps = si2->type_params;
                 for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
@@ -10903,7 +10903,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // and link errors.
         else if (TypeRef(rst).kind() == LogosType::Kind::Enum &&
                  !TypeRef(rst).type_args().empty()) {
-            auto [p, esi] = find_enum_by_name(TypeRef(rst).enum_name());
+            auto [p, esi] = enum_of(TypeRef(rst));
             if (esi) {
                 auto& tps = esi->type_params;
                 for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
@@ -10960,8 +10960,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (rst2 && (TypeRef(rst2).kind() == LogosType::Kind::Struct ||
                          TypeRef(rst2).kind() == LogosType::Kind::ZonedStruct)) {
                 SemaStructInfo* si3 = nullptr;
-                { auto [p, si] = find_struct_by_name(TypeRef(rst2).struct_name()); si3 = si; }
-                if (!si3) { auto [p, di] = find_datatype_by_name(TypeRef(rst2).struct_name()); si3 = di; }
+                { auto [p, si] = struct_of(TypeRef(rst2)); si3 = si; }
+                if (!si3) { auto [p, di] = datatype_of(TypeRef(rst2)); si3 = di; }
                 if (si3) {
                     StrSet struct_names;
                     for (auto& tp : si3->type_params) struct_names.insert(tp.name);
@@ -10972,7 +10972,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             break;
                 }
             } else if (rst2 && TypeRef(rst2).kind() == LogosType::Kind::Enum) {
-                auto [_, esi] = find_enum_by_name(TypeRef(rst2).enum_name());
+                auto [_, esi] = enum_of(TypeRef(rst2));
                 if (esi) {
                     StrSet enum_names;
                     for (auto& tp : esi->type_params) enum_names.insert(tp.name);
@@ -11188,8 +11188,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 rst = TypeRef(rst).pointee();
             if (rst && (TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct)) {
                 SemaStructInfo* si2 = nullptr;
-                { auto [p, si] = find_struct_by_name(TypeRef(rst).struct_name()); si2 = si; }
-                if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(rst).struct_name()); si2 = di; }
+                { auto [p, si] = struct_of(TypeRef(rst)); si2 = si; }
+                if (!si2) { auto [p, di] = datatype_of(TypeRef(rst)); si2 = di; }
                 if (si2) {
                     auto& tps = si2->type_params;
                     StrSet struct_names;
@@ -11199,7 +11199,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             } else if (rst && TypeRef(rst).kind() == LogosType::Kind::Enum) {
                 // Enum receiver: type-params bound by the enum are struct-level.
-                auto [_, esi] = find_enum_by_name(TypeRef(rst).enum_name());
+                auto [_, esi] = enum_of(TypeRef(rst));
                 if (esi) {
                     StrSet enum_tparam_names;
                     for (auto& tp : esi->type_params) enum_tparam_names.insert(tp.name);
@@ -18611,7 +18611,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         while (!rem.empty()) {
             // Walk through plain Struct only (ZonedStruct has its own ABI).
             if (TypeRef(cur).kind() != LogosType::Kind::Struct) return TypeRef{};
-            auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(cur).struct_name()));
+            auto [pkg, ssi] = struct_of(TypeRef(cur));
             if (!ssi) return TypeRef{};
             auto dot = rem.find('.');
             std::string_view fname = (dot == std::string_view::npos)

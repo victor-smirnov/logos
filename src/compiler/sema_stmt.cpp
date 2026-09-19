@@ -2049,7 +2049,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             }
             // Substitute generic type-args.
             {
-                auto [pkg, si] = find_struct_by_name(TypeRef(recv_type).struct_name());
+                auto [pkg, si] = struct_of(TypeRef(recv_type));
                 (void)pkg;
                 if (si && !si->type_params.empty()) {
                     SemaSubst subst;
@@ -7974,8 +7974,8 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                                         ? TypeRef(iter_type).pointee() : iter_type;
                 if (target_ty && !TypeRef(target_ty).type_args().empty()) {
                     SemaStructInfo* si2 = nullptr;
-                    { auto [p, si] = find_struct_by_name(TypeRef(target_ty).struct_name()); si2 = si; }
-                    if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(target_ty).struct_name()); si2 = di; }
+                    { auto [p, si] = struct_of(TypeRef(target_ty)); si2 = si; }
+                    if (!si2) { auto [p, di] = datatype_of(TypeRef(target_ty)); si2 = di; }
                     if (si2) {
                         auto& tps = si2->type_params;
                         for (size_t i = 0; i < tps.size() && i < TypeRef(target_ty).type_args().size(); ++i)
@@ -8061,7 +8061,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
 
         // Find the payload variant (Some-like: first variant with payload)
         const SemaVariantInfo* some_variant = nullptr;
-        auto [epkg_forin, esi_forin] = find_enum_by_name(TypeRef(next_ret).enum_name());
+        auto [epkg_forin, esi_forin] = enum_of(TypeRef(next_ret));
         auto eit = esi_forin ? enums_.find(sema_key(epkg_forin, TypeRef(next_ret).enum_name())) : enums_.end();
         if (eit == enums_.end()) eit = enums_.find(TypeRef(next_ret).enum_name());
         if (eit == enums_.end()) {
@@ -9067,7 +9067,7 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
     // an empty match arms's body is correctly typed.
     if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Never) return;
     if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
-        auto [epkg_e, esi_e] = find_enum_by_name(TypeRef(scrut_type).enum_name());
+        auto [epkg_e, esi_e] = enum_of(TypeRef(scrut_type));
         if (esi_e && esi_e->variants.empty()) return;
     }
     bool has_wild = false;
@@ -9078,7 +9078,7 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
         }
     }
     if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
-        auto [epkg_match, esi_match] = find_enum_by_name(TypeRef(scrut_type).enum_name());
+        auto [epkg_match, esi_match] = enum_of(TypeRef(scrut_type));
         auto eit = esi_match ? enums_.find(sema_key(epkg_match, TypeRef(scrut_type).enum_name())) : enums_.end();
         if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
         if (eit != enums_.end()) {
@@ -9541,7 +9541,7 @@ bool SemaChecker::ast_patterns_exhaustive(
         return out;
     };
     if (TypeRef(t).kind() == K::Enum) {
-        auto [pkg, esi] = find_enum_by_name(TypeRef(t).enum_name());
+        auto [pkg, esi] = enum_of(TypeRef(t));
         (void)pkg;
         if (!esi) return false;
         SemaSubst subst;
@@ -9791,7 +9791,7 @@ bool SemaChecker::emit_for_pattern_destructure(
 lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
                                                        lir::LExprPtr scrut,
                                                        TypeRef scrut_type) {
-    auto [epkg, esi] = find_struct_by_name(std::string(TypeRef(scrut_type).struct_name()));
+    auto [epkg, esi] = struct_of(TypeRef(scrut_type));
     TypeRef wmap      = make_synth_generic_struct("WMap", {make_synth_struct("Wu6"),
                                                      make_synth_enum("WAny")});
     TypeRef wmap_cptr = make_ptr(false, wmap);
@@ -9880,7 +9880,7 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
                             sub[esi->type_params[ti].name] = enum_args[ti];
                         vty = subst_type_sema(vty, sub);
                     }
-                    auto [vpkg, vsi] = find_struct_by_name(std::string(TypeRef(vty).struct_name()));
+                    auto [vpkg, vsi] = struct_of(TypeRef(vty));
                     if (vsi) vcode = schema_instance_code(vty, vsi->schema_type_code, vpkg);
                     found = true; break;
                 }
@@ -9958,7 +9958,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         while (se_base && is_ref_like(TypeRef(se_base).kind()) && TypeRef(se_base).pointee())
             se_base = TypeRef(se_base).pointee();
         if (se_base && TypeRef(se_base).kind() == LogosType::Kind::Struct) {
-            auto [se_pkg, se_si] = find_struct_by_name(std::string(TypeRef(se_base).struct_name()));
+            auto [se_pkg, se_si] = struct_of(TypeRef(se_base));
             if (se_si && se_si->is_schema_enum)
                 return lower_schema_enum_match(node, std::move(scrut), se_base);
         }
@@ -11756,7 +11756,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
         }
         if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
-            auto [epkg_match2, esi_match2] = find_enum_by_name(TypeRef(scrut_type).enum_name());
+            auto [epkg_match2, esi_match2] = enum_of(TypeRef(scrut_type));
             auto eit = esi_match2 ? enums_.find(sema_key(epkg_match2, TypeRef(scrut_type).enum_name())) : enums_.end();
             if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
             if (eit != enums_.end()) {
