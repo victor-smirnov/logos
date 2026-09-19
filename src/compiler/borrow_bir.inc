@@ -2543,9 +2543,10 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                 case bir::Stmt::K::StorageDead:
                     access(p, {s.local, {}}, Access::StorageDead);
                     row("var_defined_at", {var(s.local), pt(p)});
-                    // A dead local is uninitialised again (a loop body's
-                    // `let` is a first assignment on every iteration).
-                    row("path_moved_at_base", {pa(path_of({s.local, {}})), pt(p)});
+                    // A dead local stops existing: its initialisation state ends
+                    // here (a loop body's `let` is a first assignment on every
+                    // iteration). See var_dead_at in polonius.dl.
+                    row("var_dead_at", {var(s.local), pt(p)});
                     break;
                 case bir::Stmt::K::Drop:
                     access(p, s.dest, Access::WriteDeep);

@@ -29,11 +29,16 @@
 .decl path_assigned_at_base(x: Path, p: Point)
 .decl path_moved_at_base(x: Path, p: Point)
 .decl path_accessed_at_base(x: Path, p: Point)
+// StorageDead of a local (Logos extension to Polonius' inputs): the local stops
+// existing. Its paths are neither maybe-initialised nor maybe-uninitialised
+// past this point; a later `let` of the same local (a loop body) assigns anew.
+.decl var_dead_at(v: Variable, p: Point)
 .input cfg_edge, loan_issued_at, loan_killed_at, loan_invalidated_at, subset_base
 .input universal_region, placeholder, known_placeholder_subset
 .input var_used_at, var_defined_at, var_dropped_at
 .input use_of_var_derefs_origin, drop_of_var_derefs_origin
 .input child_path, path_is_var, path_assigned_at_base, path_moved_at_base, path_accessed_at_base
+.input var_dead_at
 
 // ── initialisation ──────────────────────────────────────────────────────
 .decl ancestor_path(a: Path, c: Path)
@@ -53,14 +58,21 @@ path_accessed_at(C, P) :- path_accessed_at(X, P), ancestor_path(X, C).
 path_begins_with_var(X, V) :- path_is_var(X, V).
 path_begins_with_var(C, V) :- path_begins_with_var(X, V), ancestor_path(X, C).
 
+.decl path_dead_at(x: Path, p: Point)
+path_dead_at(X, P) :- var_dead_at(V, P), path_begins_with_var(X, V).
+
 .decl path_maybe_initialized_on_exit(x: Path, p: Point)
 path_maybe_initialized_on_exit(X, P) :- path_assigned_at(X, P).
 path_maybe_initialized_on_exit(X, Q) :-
-    path_maybe_initialized_on_exit(X, P), cfg_edge(P, Q), !path_moved_at(X, Q).
+    path_maybe_initialized_on_exit(X, P), cfg_edge(P, Q), !path_moved_at(X, Q), !path_dead_at(X, Q).
+// A StorageDead ends the tracking instead of seeding uninitialisation: a dead
+// local cannot be accessed before it is assigned again, and seeding it made
+// every temporary "maybe uninitialised" to the end of the function (paths x
+// points; 25 M rows on a 48 k-point body).
 .decl path_maybe_uninitialized_on_exit(x: Path, p: Point)
 path_maybe_uninitialized_on_exit(X, P) :- path_moved_at(X, P).
 path_maybe_uninitialized_on_exit(X, Q) :-
-    path_maybe_uninitialized_on_exit(X, P), cfg_edge(P, Q), !path_assigned_at(X, Q).
+    path_maybe_uninitialized_on_exit(X, P), cfg_edge(P, Q), !path_assigned_at(X, Q), !path_dead_at(X, Q).
 .decl var_maybe_partly_initialized_on_exit(v: Variable, p: Point)
 var_maybe_partly_initialized_on_exit(V, P) :-
     path_maybe_initialized_on_exit(X, P), path_begins_with_var(X, V).

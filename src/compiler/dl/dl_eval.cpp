@@ -107,7 +107,12 @@ void Relation::clear() {
     data_.clear();
     nullary_ = 0;
     for (auto& ix : indexes_) {
-        std::fill(ix->heads.begin(), ix->heads.end(), ~0u);
+        // The head array keeps the size the LARGEST use gave it; filling all of
+        // it on every clear made each later (small) body pay for one big one.
+        // A large array is shrunk back (index_ regrows it on demand), so a
+        // clear costs what the relation held, not what it once held.
+        if (ix->heads.size() > 1024) ix->heads.assign(16, ~0u);
+        else std::fill(ix->heads.begin(), ix->heads.end(), ~0u);
         ix->next.clear();
         ix->built = 0;
     }
