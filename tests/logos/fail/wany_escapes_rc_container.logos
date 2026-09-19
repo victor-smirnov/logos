@@ -2,7 +2,7 @@
 // can't escape a bare `return` either — the local Rc drops at scope end → refcount
 // 0 → arena freed → the Ref dangles. Caught because `value_local_root` roots a
 // method receiver through the Rc's `deref` (a value-local Rc, NOT a raw-ptr deref)
-// back to the local `h`. (The safe escape is `hold_any(&mut h, e) -> HeldAny`.)
+// back to the local `h`. (The safe escape is `hold_any(&h, e) -> HeldAny`.)
 //
 // The `.expected` pins `'e'`. It read `'__ret_tmp_0'` until #86 MISS-E — sema
 // rewrites this return through make_return_with_drops, and the name recovery

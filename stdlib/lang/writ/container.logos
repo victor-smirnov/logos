@@ -294,7 +294,7 @@ impl<T> Held<T> {
 pub struct HeldAny { holder: Rc<dyn Resident>, val: WAny }
 
 /// Pairs `v` with a clone of the container's residency holder — the escape form of a `WAny`.
-pub fn hold_any(h: &mut Rc<Writ>, v: WAny) -> HeldAny {
+pub fn hold_any(h: &Rc<Writ>, v: WAny) -> HeldAny {
     let holder: Rc<dyn Resident> = h.clone_ref();
     return HeldAny { holder: holder, val: v };
 }

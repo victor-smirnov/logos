@@ -26,7 +26,7 @@ fn make_held_doc() -> HeldAny {
     doc.push(WAny::from(202i64));
     doc.push(WAny::from(303i64));                 // grows past cap 2
     let e: WAny = WAny::from(&*doc);              // a Ref to the doc array
-    return hold_any(&mut h, e);                   // escape via the Writ holder
+    return hold_any(&h, e);                   // escape via the Writ holder
     // the local `h` (Rc) drops here; the HeldAny's holder keeps the arena alive
 }
 

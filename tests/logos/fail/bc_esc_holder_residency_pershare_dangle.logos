@@ -10,7 +10,7 @@
 // deeper.
 //
 // ⚠ WHY THE PRECISE TEST IS NOT IMPLEMENTABLE HERE, MEASURED:
-//   collect_ref_sources(hold_any(&mut h2, e)) = [h2]   — the by-VALUE arg `e`,
+//   collect_ref_sources(hold_any(&h2, e)) = [h2]   — the by-VALUE arg `e`,
 //     the half that carries the foreign borrow, is invisible to that channel;
 //   bc_hop_roots DOES reach it (hops=[h2,e]) and the chase then dies: with
 //     both graphs dumped at the check, ref_borrow_sources_ holds exactly ONE
@@ -23,8 +23,8 @@
 // function declares. Two shares ⇒ cannot prove ⇒ refuse.
 //
 // THE ONE VARIABLE against pass/bc_esc_holder_residency_pershare_admit: the
-// held value is built from a SECOND arena here (`hold_any(&mut h2, e)`), and
-// from the arena `e` actually points into there (`hold_any(&mut h, e)`).
+// held value is built from a SECOND arena here (`hold_any(&h2, e)`), and
+// from the arena `e` actually points into there (`hold_any(&h, e)`).
 package bc_esc_holder_residency_pershare_dangle;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
@@ -37,7 +37,7 @@ fn bad() -> HeldAny {
     doc.push(WAny::from(101i64));
     doc.push(WAny::from(303i64));
     let e: WAny = WAny::from(&*doc);
-    return hold_any(&mut h2, e);          // h2's share; e points into h
+    return hold_any(&h2, e);          // h2's share; e points into h
 }
 
 fn main() -> i32 {
