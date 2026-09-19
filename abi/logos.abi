@@ -10555,7 +10555,7 @@ sym	logos_lang.logos.lang.writ.container$box_f32__f__pmut_Allocator__f32
 sym	logos_lang.logos.lang.writ.container$box_f64__f__pmut_Allocator__f64
 sym	logos_lang.logos.lang.writ.container$box_i64__f__pmut_Allocator__i64
 sym	logos_lang.logos.lang.writ.container$box_u64__f__pmut_Allocator__u64
-sym	logos_lang.logos.lang.writ.container$hold_any__f__refmut_Rc$G1$Writ__WAny
+sym	logos_lang.logos.lang.writ.container$hold_any__f__ref_Rc$G1$Writ__WAny
 sym	logos_lang.logos.lang.writ.container$make_int__f__pmut_Allocator__i64
 sym	logos_lang.logos.lang.writ.container$w_write_tag__f__pmut_u8__u64
 sym	logos_lang.logos.lang.writ.container$writ_alloc_bytes__f__pmut_Writ__i64
@@ -12977,7 +12977,7 @@ type	logos.mem.collections.hashmap.HashMapIter	fields=[states:*const u8,entries:
 type	logos.mem.collections.hashmap.HashMapKeys	fields=[states:*const u8,entries:*const Entry<K, V>,cap:i64,idx:i64]
 type	logos.mem.collections.hashmap.HashMapValues	fields=[states:*const u8,entries:*const Entry<K, V>,cap:i64,idx:i64]
 type	logos.mem.collections.set.HashSet	fields=[inner:HashMap<K, u8>]
-type	logos.mem.collections.set.HashSetIter	fields=[inner:HashMapKeys<K, u8>]
+type	logos.mem.collections.set.HashSetIter	fields=[inner:HashMapKeys<'a, K, u8>]
 type	logos.mem.collections.vec.Vec	fields=[ptr:*mut T,len:i64,cap:i64]
 type	logos.mem.collections.vec.VecIntoIter	fields=[data:*const T,len:i64,idx:i64,back_idx:i64]
 type	logos.mem.collections.vec.VecIter	fields=[data:*const T,len:i64,idx:i64,back_idx:i64]
@@ -12999,7 +12999,7 @@ type	logos.mem.fmt.DebugSet	fields=[f:*mut Formatter,result:Result,has_any:bool]
 type	logos.mem.fmt.DebugStruct	fields=[f:*mut Formatter,result:Result,has_fields:bool]
 type	logos.mem.fmt.DebugTuple	fields=[f:*mut Formatter,result:Result,fields:i64]
 type	logos.mem.fmt.Error	fields=[]
-type	logos.mem.fmt.Formatter	fields=[w:&dyn FmtWrite,fill:u8,align_code:u8,sign_plus:bool,alternate:bool,zero_pad:bool,width:i64,precision:i64,indent:i64]
+type	logos.mem.fmt.Formatter	fields=[w:*mut dyn FmtWrite,fill:u8,align_code:u8,sign_plus:bool,alternate:bool,zero_pad:bool,width:i64,precision:i64,indent:i64]
 type	logos.mem.manually_drop.Alignment	fields=[bytes:u64]
 type	logos.mem.manually_drop.DropGuard	fields=[f:ManuallyDrop<F>,armed:bool]
 type	logos.mem.manually_drop.ManuallyDrop	fields=[value:T]
