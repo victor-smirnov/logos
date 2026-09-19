@@ -1,0 +1,15 @@
+Add	add
+Sub	sub
+Mul	mul
+Div	div
+Rem	rem
+BitAnd	bitand
+BitOr	bitor
+BitXor	bitxor
+Shl	shl
+Shr	shr
+Eq	eq
+Eq	ne
+Ord	cmp
+Neg	neg
+Not	not

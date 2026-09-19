@@ -1,0 +1,10 @@
+i32	cmp
+i64	cmp
+bool	cmp
+str	cmp
+str	eq
+str	ne
+TypeId	eq
+Wrapping_i32	add
+Wrapping_i32	sub
+Wrapping_i32	mul

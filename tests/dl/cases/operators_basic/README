@@ -1,0 +1,30 @@
+Operator resolution as rules, on facts EXTRACTED FROM THE TREE (2026-09-19), not invented:
+
+  op_trait      18 rows — sema_expr.cpp's table, 16 binary + 2 unary (located by content;
+                the numbers were verified against an independent reading before extraction).
+  trait_method  15 rows — the stdlib trait DECLARATIONS. Ord declares only `cmp`; Eq declares
+                eq and ne; PartialOrd is `pub trait PartialOrd {}` — EMPTY — so it has NO row.
+  impl_method   10 rows — a subset of the 50 measured stdlib (type, method) pairs. Note what is
+                absent and cannot be added: NO type in stdlib impls lt/le/gt/ge, and
+                `fn partial_cmp` does not exist in stdlib at all.
+  mono_desugars 13 rows — mono_clone.cpp's SECOND copy of the same table. It has no bitwise
+                entries, which is the divergence the rules must DERIVE rather than be told.
+
+The unary operators are spelled `neg-` / `not!` because `-` is both binary Sub and unary Neg:
+one symbol, two facts, and a Datalog constant cannot disambiguate them by position here.
+
+WHAT THE RULES ARE ASKED TO DERIVE, and why each answer is checkable by hand:
+
+  covered(Op)        an operator whose trait declares a method — the healthy case.
+  uncovered(Op)      sema routes the operator to a trait that declares NO such method.
+                     Expected: the four order operators (Ord declares cmp, not lt/le/gt/ge).
+  mono_gap(Op)       sema has a desugaring for the operator and mono does not.
+                     Expected: the bitwise five.
+  unresolvable(Op,T) NARROWED, and the narrowing is the point: only pairs where the type
+                     already implements ANOTHER method of the SAME trait, so the question
+                     "why not this one" is meaningful. The unnarrowed form was a cartesian
+                     product — 78 rows over 6 types — which no reader can check by hand, and
+                     an expect/ nobody can check is not a check. What the facts yield is ONE
+                     row: `!= TypeId` — TypeId impls Eq::eq and NOT Eq::ne, so the question
+                     stands. `str` impls both and is correctly absent; `i32` impls neither
+                     eq nor ne and so never enters (its trait is untouched).

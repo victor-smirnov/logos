@@ -1,0 +1,14 @@
+!=	Eq
+%	Rem
+&	BitAnd
+*	Mul
++	Add
+-	Sub
+/	Div
+<<	Shl
+==	Eq
+>>	Shr
+^	BitXor
+neg-	Neg
+not!	Not
+|	BitOr

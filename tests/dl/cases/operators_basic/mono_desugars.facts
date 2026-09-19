@@ -1,0 +1,13 @@
++	add
+-	sub
+*	mul
+/	div
+%	rem
+==	eq
+!=	ne
+<	lt
+<=	le
+>	gt
+>=	ge
+neg-	neg
+not!	not

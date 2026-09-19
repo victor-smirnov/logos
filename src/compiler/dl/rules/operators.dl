@@ -1,0 +1,63 @@
+// Operator resolution as rules (my slice off ADR 0028's engine, 2026-09-19).
+//
+// ONE knowledge, one place. Today the same table is written three times: sema's
+// `op_trait` map (16 binary + 2 unary), mono_clone's own copy (11 + 2, no
+// bitwise), and mlir_gen's comparison fast paths with their own element lists.
+// The copies HAVE diverged, measured; these rules derive the divergence instead
+// of leaving it to be noticed.
+//
+// Types are flat canonical strings, pre-substituted by the caller — the same
+// convention traits.dl states, so the two rule sets can share a fact universe.
+//
+// Facts come from the tree, not from this file: op_trait from sema_expr.cpp's
+// table, trait_method from the stdlib trait DECLARATIONS, impl_method from the
+// collected impls, mono_desugars from mono_clone.cpp's copy.
+
+// ── inputs ──────────────────────────────────────────────────────────────
+// The operator token and the trait sema routes it to.
+.decl op_trait(op: symbol, t: symbol)
+// A method the trait DECLARES. A trait with no methods has no row here:
+// `pub trait PartialOrd {}` is exactly that case.
+.decl trait_method(t: symbol, m: symbol)
+// The method sema derives from the operator token (`<` -> lt), carried as a
+// fact because it is a naming convention, not a property of the trait.
+.decl op_method(op: symbol, m: symbol)
+// A type that implements a method.
+.decl impl_method(ty: symbol, m: symbol)
+// mono_clone's SECOND copy of the operator table.
+.decl mono_desugars(op: symbol, m: symbol)
+.input op_trait, trait_method, op_method, impl_method, mono_desugars
+
+// ── what the trait actually offers ──────────────────────────────────────
+// The operator's own method is declared by the trait it is routed to.
+.decl covered(op: symbol, t: symbol)
+.output covered
+covered(Op, T) :- op_trait(Op, T), op_method(Op, M), trait_method(T, M).
+
+// Sema routes the operator to a trait that declares no such method. Measured:
+// the four order operators — `Ord` declares `cmp` alone, and no type in stdlib
+// implements lt/le/gt/ge.
+.decl uncovered(op: symbol, t: symbol)
+.output uncovered
+uncovered(Op, T) :- op_trait(Op, T), !covered(Op, T).
+
+// ── the second copy, and where it disagrees ─────────────────────────────
+// Sema desugars the operator and mono does not. Measured: the bitwise five.
+.decl mono_gap(op: symbol, t: symbol)
+.output mono_gap
+mono_gap(Op, T) :- op_trait(Op, T), !mono_has(Op).
+.decl mono_has(op: symbol)
+mono_has(Op) :- mono_desugars(Op, _).
+
+// ── reachability for a concrete type ────────────────────────────────────
+// The type implements some other method of the same trait, so asking about
+// this one is meaningful rather than a cartesian product.
+.decl trait_touched(ty: symbol, t: symbol)
+trait_touched(Ty, T) :- trait_method(T, Om), impl_method(Ty, Om).
+
+// The operator is covered by its trait, the type has that trait in play, and
+// the specific method is missing.
+.decl unresolvable(op: symbol, ty: symbol)
+.output unresolvable
+unresolvable(Op, Ty) :-
+    covered(Op, T), trait_touched(Ty, T), op_method(Op, M), !impl_method(Ty, M).

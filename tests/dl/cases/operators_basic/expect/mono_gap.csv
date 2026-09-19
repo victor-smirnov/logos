@@ -1,0 +1,5 @@
+&	BitAnd
+^	BitXor
+<<	Shl
+>>	Shr
+|	BitOr
