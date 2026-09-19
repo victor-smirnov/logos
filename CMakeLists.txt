@@ -75,6 +75,16 @@ else()
             set(_disc "${_git_branch}-g${_git_sha}")
             if(_git_dirty)
                 set(_disc "${_disc}-dirty")
+                # The CONTENT of the uncommitted change identifies a dirty build:
+                # the same tree always gets the same version (and the same binary
+                # bytes), a different edit a different one. A timestamp did
+                # neither: every reconfigure minted a new version, rebuilt the
+                # compiler, and gave the verdict store a new build key.
+                execute_process(COMMAND ${GIT_EXECUTABLE} diff HEAD
+                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_diff
+                    ERROR_QUIET)
+                string(SHA256 _git_diff_hash "${_git_diff}")
+                string(SUBSTRING "${_git_diff_hash}" 0 12 _git_diff_id)
             else()
                 set(_clean_commit ON)   # commit id alone identifies this build
             endif()
@@ -86,10 +96,14 @@ else()
     # FULL (semver build-metadata, what `--version` reports + the @abi stamp + the
     # lforge rebuild-on-toolchain-change check) must DISTINGUISH otherwise-identical
     # builds: a clean commit is already unique (sha), but a dirty tree or a no-git
-    # snapshot (e.g. the Docker .deb, which excludes .git) is not — append a build
-    # timestamp so each such toolchain build gets a distinct version.
+    # snapshot (e.g. the Docker .deb, which excludes .git) is not — append the
+    # content hash of the uncommitted change, or a timestamp when there is no git.
     set(_full_disc "${_disc}")
-    if(NOT _clean_commit)
+    if(_git_diff_id)
+        set(_full_disc "${_disc}.${_git_diff_id}")      # dirty tree: its content
+    elseif(NOT _clean_commit)
+        # No git at all (a tarball, the Docker .deb): nothing identifies the
+        # source, so a timestamp is the only distinguishing mark left.
         string(TIMESTAMP _build_ts "%Y%m%dT%H%M%SZ" UTC)
         set(_full_disc "${_disc}.${_build_ts}")
     endif()

@@ -280,7 +280,10 @@ endif()
 # resolver tries `<reldir>/<SLOT>` first (versioned install tree) then
 # `<reldir>` (flat build tree), so one binary serves both layouts.
 target_compile_definitions(logosc PRIVATE
-    LOGOS_LIB_RELDIR="../${LOGOS_LIB_RELDIR}"
-    LOGOS_VERSION_FULL="${LOGOS_VERSION_FULL}"
-    LOGOS_VERSION_SLOT="${LOGOS_VERSION_SLOT}")
+    LOGOS_LIB_RELDIR="../${LOGOS_LIB_RELDIR}")
+# The version lives in ONE generated source: configure_file rewrites it only
+# when the text changes, so a new version recompiles this file alone (it used
+# to be a -D on every logosc source, and a reconfigure rebuilt the compiler).
+configure_file(version.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/version.cpp @ONLY)
+target_sources(logosc PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
 

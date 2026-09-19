@@ -5,6 +5,7 @@
 //   NAME.o       — compiled non-generic code for the whole module
 //   NAME.writ0 — binary AST dump (for sema on client side)
 
+#include "logos/compiler/version.hpp"
 #include <algorithm>
 #include <map>
 #include <llvm/Support/TargetSelect.h>
@@ -2570,9 +2571,7 @@ bool emit_module(const ModuleManifest& manifest,
         // library built by a newer minor (one-directional compat) and exact-
         // matches pre-release/snapshot builds. `@`-sigil keeps it out of the
         // package list (parse_pkgi_member skips @-lines).
-#ifdef LOGOS_VERSION_FULL
-        f << "@abi " << LOGOS_VERSION_FULL << "\n";
-#endif
+        f << "@abi " << logos::compiler::logos_version_full() << "\n";
         for (size_t i = 0; i < modules_for_h0.size(); ++i) {
             auto& m = modules_for_h0[i];
             // Skip dependency modules embedded from a lower-layer archive.

@@ -1,5 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
+#include "logos/compiler/version.hpp"
 #include "module_loader.hpp"
 #include "logos_parser.hpp"
 #include <chrono>
@@ -1144,12 +1145,9 @@ parse_pkgi_member(const std::vector<uint8_t>& data,
 // version match, else just warn. Returns 0 OK / 1 warned / 2 incompatible
 // (caller should not use the archive). Disable with LOGOS_NO_ABI_CHECK=1.
 static int check_abi_reuse(std::string_view lib_ver, const std::string& archive) {
-#ifndef LOGOS_VERSION_FULL
-    (void)lib_ver; (void)archive; return 0;
-#else
     if (std::getenv("LOGOS_NO_ABI_CHECK")) return 0;
     if (lib_ver.empty()) return 0;              // legacy archive (no stamp) — don't enforce
-    const std::string self = LOGOS_VERSION_FULL;
+    const std::string self = logos::compiler::logos_version_full();
     if (lib_ver == self) return 0;              // identical build — always fine
     auto parse = [](std::string_view v, int& maj, int& min, bool& stable) {
         stable = v.find('-') == std::string_view::npos && v.find('+') == std::string_view::npos;
@@ -1180,7 +1178,6 @@ static int check_abi_reuse(std::string_view lib_ver, const std::string& archive)
         "%s — pre-release/snapshot builds offer no ABI guarantee; result may be unstable\n",
         archive.c_str(), lv.c_str(), self.c_str());
     return 1;
-#endif
 }
 
 // Scan search paths for lib*.a files. Returns map: package_name → archive_path.

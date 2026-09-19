@@ -4,6 +4,7 @@
 //
 // Pipeline: .logos file → PEG parser → Writ AST → MLIR → LLVM IR → .o file.
 
+#include "logos/compiler/version.hpp"
 #include "emit_module.hpp"
 #include "metaprog_dispatch.hpp"
 #include "mlir_gen.hpp"
@@ -5518,11 +5519,8 @@ int main(int argc, char** argv) {
         auto esc = [](const std::string& s) {
             std::string o; for (char c : s) { if (c == '"' || c == '\\') o += '\\'; o += c; } return o;
         };
-#ifdef LOGOS_VERSION_FULL
-        const char* ver = LOGOS_VERSION_FULL; const char* slot = LOGOS_VERSION_SLOT;
-#else
-        const char* ver = "0.1.0"; const char* slot = "0.1";
-#endif
+        const char* ver = logos::compiler::logos_version_full();
+        const char* slot = logos::compiler::logos_version_slot();
         std::printf("{\n");
         std::printf("    version: \"%s\",\n", esc(ver).c_str());
         std::printf("    slot:    \"%s\",\n", esc(slot).c_str());
@@ -5533,15 +5531,11 @@ int main(int argc, char** argv) {
     }
 
     if (print_version) {
-        // Version is baked from CMake (LOGOS_VERSION_FULL = X.Y.Z[-pre]),
+        // Version is baked from CMake (version.cpp.in = X.Y.Z[-pre][+disc]),
         // the single source of truth. lforge's `requires_logos` floor (B5)
         // compares against this segment-by-segment (the -pre tail is ignored
         // by its numeric cmp_tags).
-#ifdef LOGOS_VERSION_FULL
-        std::printf("logosc %s\n", LOGOS_VERSION_FULL);
-#else
-        std::printf("logosc 0.1.0\n");
-#endif
+        std::printf("logosc %s\n", logos::compiler::logos_version_full());
         return 0;
     }
 
