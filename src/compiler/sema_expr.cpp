@@ -7172,7 +7172,8 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         // the canonical `*mut dyn`/`&dyn` representation, so it passes through.
         // ADR 0028: `*mut dyn Trait` is the RAW twin of `&dyn Trait`.
         TypeRef tobj = make_raw_fat(make_trait_object(trait_name, std::move(trait_args),
-                                                      TraitOwningKind::Borrow, false, false));
+                                                      TraitOwningKind::Borrow, false, false),
+                                    /*is_mut=*/true);
         return builder().call("__dyn_from_parts__", {}, std::move(rargs), tobj);
     }
 
@@ -10097,7 +10098,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     *fi_ptr, std::move(m_type_args), std::move(pargs));
             }
         }
-        auto tname = type_str(expr_type(recv));
+        auto tname = type_str_regions_erased(expr_type(recv))   /* impl keys carry no regions */;
         auto mangled_prim = tname + "__" + std::string(method_name);
         const SemaFuncInfo* fi_ptr = nullptr;
         {
@@ -10433,7 +10434,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // mangling convention `target = prefix + type_str(resolved)` —
             // the receiver TYPE for the impl, not the pointee. E.g.
             // `impl Show for &i32` registers methods under "$ref_&i32__show".
-            ref_keys.push_back(prefix + type_str(expr_type(recv))
+            ref_keys.push_back(prefix + type_str_regions_erased(expr_type(recv))
                                + "__" + std::string(method_name));
         }
         // Phase 1B-7: an `impl<T> Trait for &T` method's `fn show(self: &Self)`

@@ -1126,7 +1126,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         if (cv.kind() == LogosType::Kind::AssocType) continue; // deferred (bounds checked via trait decl)
         if (cv.kind() == LogosType::Kind::CfgSlotType) continue; // deferred — concrete type known after CFG substitution
 
-        std::string concrete_str = type_str(concrete);
+        std::string concrete_str = type_str_regions_erased(concrete);   // impl keys carry no regions
         std::string unwrapped_name;
         if ((cv.kind() == LogosType::Kind::Ptr || cv.kind() == LogosType::Kind::Ref || cv.kind() == LogosType::Kind::MutRef) && cv.pointee()) {
             TypeRef iv = cv.pointee();
@@ -1317,6 +1317,11 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     return false;
                 };
                 auto unify = [&](const std::string& blt, const std::string& ilt) -> bool {
+                    // A region ELIDED in the impl header (`impl Sum<&i32> for
+                    // i32`) is a fresh impl-level parameter of its own (Rust
+                    // elision in impl headers), so it takes any bound region and
+                    // ties to no other slot.
+                    if (ilt.empty() || lt_is_minted(ilt)) return true;
                     // LIFETIME terminal includes the leading apostrophe; check
                     // both forms defensively.
                     if (blt.empty() || blt == "static" || blt == "'static") {
@@ -3549,7 +3554,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 TypeRef selem = TypeRef(resolved).elem();
                 target = (selem && TypeRef(selem).kind() == LogosType::Kind::TypeVar)
                          ? std::string("$slice$T")
-                         : "$slice$" + (selem ? type_str(selem) : std::string("?"));
+                         : "$slice$" + (selem ? type_str_regions_erased(selem) : std::string("?"));
                 // Treat `impl Trait for &[T]` exactly like `impl Trait for [T]`:
                 // bind Self to the UnsizedSlice form so `&Self` canonicalises to
                 // Slice and the method body emits under the same `$slice$` symbol
@@ -3574,7 +3579,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // (one such impl per trait/ref-shape) keep this unambiguous.
                 target = prefix + "$T";
             } else {
-                target = prefix + type_str(resolved);
+                // Impl keys ignore regions (Rust erases them before selection).
+                target = prefix + type_str_regions_erased(resolved);
             }
         } else if (code_of(tnode) == la::GENERIC_INST) {
             // Concrete generic (e.g. Pair<i32>) → use mangled name; generic (Pair<T>) → base name.

@@ -2245,6 +2245,7 @@ private:
     // A GEP base for an aggregate scrutinee: the PLACE's address when the
     // scrutinee is one, a spilled copy only for a genuine rvalue.
     bool        is_place_chain(lir_view::ExprRef e);
+    mlir::Value box_heap_ptr(mlir::Value box);
     mlir::Value aggregate_scrut_base(lir_view::ExprRef e, mlir::Value v);
     // MLIR slot type for one element/field of a place (struct/tuple inline
     // aggregate type, else logos_to_mlir) — the GEP stride into an aggregate.

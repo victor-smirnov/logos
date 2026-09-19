@@ -1486,9 +1486,8 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         auto op = lir_view::EDerefView{e}.operand();
         if (!op) return nullptr;
         if (is_stdlib_box(op.type(pool_impl()))) {
-            auto box_addr = is_place_chain(op) ? gen_lvalue_addr(op) : gen_expr(op);
-            return box_addr ? builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), box_addr).getResult()
-                            : mlir::Value{};
+            auto box_v = is_place_chain(op) ? gen_lvalue_addr(op) : gen_expr(op);
+            return box_v ? box_heap_ptr(box_v) : mlir::Value{};
         }
         return gen_expr(op);
     }
@@ -1862,6 +1861,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                     return thin;
                 }
             }
+            // `&*b` / `&mut *b` / `(*b) = v` over a built-in Box deref (ADR 0028):
+            // the place is the heap block, never a copy of its value.
+            if (dt && is_stdlib_box(dt))
+                if (auto addr = gen_lvalue_addr(inner_ref)) return addr;
         }
     }
 
@@ -2108,14 +2111,28 @@ bool MLIRGenImpl::deref_operand_is_ptr_to_dyn_handle(lir_view::ExprRef operand) 
     return false;
 }
 
+// The heap pointer a stdlib `Box<T>` holds. A box arrives either as the
+// address of its `{ptr}` slot (a place) or as the `{ptr}` value itself (a call
+// result, a loaded field); both name the same block.
+mlir::Value MLIRGenImpl::box_heap_ptr(mlir::Value box) {
+    if (mlir::isa<mlir::LLVM::LLVMStructType>(box.getType()))
+        return builder_.create<mlir::LLVM::ExtractValueOp>(loc_, box, llvm::ArrayRef<int64_t>{0});
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), box);
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     if (!v.operand()) return nullptr;
     auto ptr = gen_expr(v.operand());
     if (!ptr) return nullptr;
     // Built-in `*b` over a `Box<T>` (ADR 0028): the box is a pointer-represented
     // `{ptr}`; the place is at the heap pointer it holds.
-    if (is_stdlib_box(v.operand().type(pool_impl())))
-        ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), ptr);
+    if (is_stdlib_box(v.operand().type(pool_impl()))) {
+        ptr = box_heap_ptr(ptr);
+        // The block holds a closure INLINE as its `{fn, env}` pair (the box's
+        // drop reads it so), and a closure value is the address of that pair:
+        // no handle to load, unlike `*p` over a `&Closure` slot below.
+        if (type && TypeRef(type).kind() == LogosType::Kind::Closure) return ptr;
+    }
     // Structs/datatypes are always pointer-represented in MLIR/LLVM; the
     // logical *-deref just yields the same pointer.  Subsequent field
     // access or the return-by-value wrap handles the byte-level copy.

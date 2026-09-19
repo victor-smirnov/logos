@@ -69,7 +69,10 @@ fn main() -> i32 {
     //      tests/logos/fail/aggregate_unsize_needs_cast_tuple.logos.
     if sizeof::<*const dyn Shape>() != 16i64 { return 14i32; }
     if sizeof::<(*const dyn Shape, i64)>() != 24i64 { return 15i32; }
-    if takeraw((&a as &dyn Shape, 7i64)) != 7i64 { return 16i32; }
+    //      A `&dyn` element is not a `*const dyn` (ADR 0028: the raw pointer is
+    //      its own type, and a tuple slot is not a coercion site: rustc E0308),
+    //      so the element is cast to the raw pointer where it is built.
+    if takeraw((&a as &dyn Shape as *const dyn Shape, 7i64)) != 7i64 { return 16i32; }
     // (8) ALREADY-FAT siblings: a fat element in a literal is not coerced twice,
     //     and a thin CONCRETE aggregate keeps its thin layout.
     if take((d, 5i64)) != 21i64 { return 10i32; }

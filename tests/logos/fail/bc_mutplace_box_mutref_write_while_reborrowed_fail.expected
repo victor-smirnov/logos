@@ -1,1 +1,1 @@
-cannot borrow 'y' as mutable: 'y' has shared borrows
+cannot assign through '*y' while '*y' is borrowed

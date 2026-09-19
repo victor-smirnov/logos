@@ -228,9 +228,12 @@ public:
         // &[T] (Slice — B6/P2-11). (TraitObject's owning kind rides in const_val
         // instead — persisted below.) Persist whenever set so the read-back
         // matches the builder value when interning.
+        // A RAW TraitObject (ADR 0028) carries `*mut` vs `*const` here too.
+        const bool raw_dyn_ = t.kind == LogosType::Kind::TraitObject &&
+            (uint64_t(t.const_val.value_or(0)) & TypeRef::RAW_FAT_BIT);
         if ((t.kind == LogosType::Kind::Ptr ||
              t.kind == LogosType::Kind::DstRef ||
-             t.kind == LogosType::Kind::Slice) && t.mut_ptr) {
+             t.kind == LogosType::Kind::Slice || raw_dyn_) && t.mut_ptr) {
             v_mut_ptr = writ::AnyVal::from_value<uint8_t>(1, writ::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
@@ -925,6 +928,9 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // auto-trait bounds. Hash the FULL u64 so `&dyn T` and `&dyn T + Send`
         // get distinct TypeUIDs.
         put_u64(buf, uint64_t(t.const_val.value_or(0)));
+        // ADR 0028: `*const dyn T` and `*mut dyn T` are distinct types; the
+        // byte only for a raw one, so every existing type keeps its UID.
+        if (uint64_t(t.const_val.value_or(0)) & TypeRef::RAW_FAT_BIT) put_byte(buf, t.mut_ptr ? 1 : 0);
         put_str(buf, t.trait_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
@@ -1433,6 +1439,16 @@ static std::string mangle_type_for_name(TypeRef t);
 // is stable across the impl's TypeVars A,B,C. Toggled by function_signature_key.
 static bool g_mangle_erase_fnptr = false;
 
+// Set only inside type_str_regions_erased / TypeStrRegionsErased: every FREE
+// region prints elided. A fn pointer's bound region stays (Rust's erasure keeps
+// late-bound regions: `for<'a> fn(&'a T)` is not `fn(&'static T)`).
+static thread_local bool g_type_str_erase_regions = false;
+
+TypeStrRegionsErased::TypeStrRegionsErased() : saved_(g_type_str_erase_regions) {
+    g_type_str_erase_regions = true;
+}
+TypeStrRegionsErased::~TypeStrRegionsErased() { g_type_str_erase_regions = saved_; }
+
 // ── Type module-qualification (same-pkg-same-name coexistence) ───────────────
 //
 // Two modules can each declare the same `pkg::Type` (one per module — unique
@@ -1668,7 +1684,7 @@ static std::string mangle_type_for_name(TypeRef t) {
     case LogosType::Kind::Enum:
         // Coexistence + G156-1: fold module_id (and package, for ambiguous names)
         // into the enum's mangled identity so two same-named enums stay distinct.
-        return type_str(t) + type_module_suffix(TypeRef(t).enum_name(), TypeRef(t).pkg_name());
+        return type_str_regions_erased(t) + type_module_suffix(TypeRef(t).enum_name(), TypeRef(t).pkg_name());
     case LogosType::Kind::Tuple: {
         std::string r = "tup$" + std::to_string(TypeRef(t).tuple_elems().size());
         for (auto e : TypeRef(t).tuple_elems()) { r += "$"; r += mangle_type_for_name(e); }
@@ -1730,7 +1746,7 @@ static std::string mangle_type_for_name(TypeRef t) {
         // positions, so symbol-level identity follows the FnPtr signature.
         if (g_mangle_erase_fnptr)
             return "$fnptr$" + std::to_string(TypeRef(t).closure_params().size());
-        return type_str(t);
+        return type_str_regions_erased(t);
     case LogosType::Kind::TraitObject:
         // Distinguish an OWNING Box<dyn T> from a borrowed &dyn T in the
         // mangled type name so a generic struct instance like Vec<Box<dyn T>>
@@ -1743,9 +1759,9 @@ static std::string mangle_type_for_name(TypeRef t) {
             for (auto a : TypeRef(t).type_args()) { r += "$"; r += mangle_type_for_name(a); }
             return r;
         }
-        return type_str(t);
+        return type_str_regions_erased(t);
     default:
-        return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
+        return type_str_regions_erased(t);  // primitives / TypeVar / Enum already valid identifiers
     }
 }
 
@@ -2354,6 +2370,24 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         TypeRef(from).mut_ptr() && !TypeRef(to).mut_ptr() &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
         return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+    // The same for a RAW fat pointer (ADR 0028): `*mut dyn T` → `*const dyn T`,
+    // `*mut Dst` → `*const Dst`. (A raw slice takes the Slice arm above.)
+    if (TypeRef(from).raw_fat() && TypeRef(to).raw_fat() &&
+        TypeRef(from).kind() == TypeRef(to).kind() &&
+        TypeRef(from).mut_ptr() && !TypeRef(to).mut_ptr()) {
+        TypeRef f(from), t(to);
+        auto same_args = [](const std::vector<TypeRef>& a, const std::vector<TypeRef>& b) {
+            if (a.size() != b.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i)
+                if (!types_equal(a[i], b[i])) return false;
+            return true;
+        };
+        if (f.kind() == LogosType::Kind::TraitObject)
+            return f.trait_name() == t.trait_name() && same_args(f.type_args(), t.type_args());
+        if (f.kind() == LogosType::Kind::DstRef)
+            return f.struct_name() == t.struct_name() && f.pkg_name() == t.pkg_name() &&
+                   same_args(f.type_args(), t.type_args());
+    }
     // *const u8 (or any *T) → &tagged<TS> Trait coercion.
     // &tagged<TS> Trait is a thin pointer to a tagged object.  The caller passes
     // a raw *const u8 and the compiler reads the tag at dispatch time.
@@ -2436,13 +2470,13 @@ std::string type_str(TypeRef t, bool source_form) {
         // A MINTED region prints as ELIDED: the user wrote no name there, and a
         // diagnostic that invents one describes a type nobody wrote (and moves
         // every pinned `.expected`). See outlives.hpp::lt_is_minted.
-        if (!TypeRef(t).lifetime().empty() && (!lt_is_minted(TypeRef(t).lifetime()) || lt_is_fnptr_binder(TypeRef(t).lifetime())))
+        if (!TypeRef(t).lifetime().empty() && ((!g_type_str_erase_regions && !lt_is_minted(TypeRef(t).lifetime())) || lt_is_fnptr_binder(TypeRef(t).lifetime())))
             { std::string l_ = lt_written(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
         return s + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::MutRef: {
         std::string s = "&";
-        if (!TypeRef(t).lifetime().empty() && (!lt_is_minted(TypeRef(t).lifetime()) || lt_is_fnptr_binder(TypeRef(t).lifetime())))
+        if (!TypeRef(t).lifetime().empty() && ((!g_type_str_erase_regions && !lt_is_minted(TypeRef(t).lifetime())) || lt_is_fnptr_binder(TypeRef(t).lifetime())))
             { std::string l_ = lt_written(TypeRef(t).lifetime()); s.append(lt_is_impl_anon(l_) ? std::string("'_") : l_); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee(), source_form);
     }
@@ -2466,7 +2500,7 @@ std::string type_str(TypeRef t, bool source_form) {
         // lifetime args were elided at the use site.
         std::vector<std::string> vis_lts;
         for (auto& lt : TypeRef(t).lifetime_args())
-            if (!lt_is_minted(lt) || lt_is_fnptr_binder(lt)) vis_lts.push_back(lt_written(lt));
+            if ((!g_type_str_erase_regions && !lt_is_minted(lt)) || lt_is_fnptr_binder(lt)) vis_lts.push_back(lt_written(lt));
         if (TypeRef(t).type_args().empty() && vis_lts.empty()) return std::string(TypeRef(t).struct_name());
         { std::string r = std::string(TypeRef(t).struct_name()) + "<";
           bool first = true;
@@ -2578,7 +2612,7 @@ std::string type_str(TypeRef t, bool source_form) {
     case LogosType::Kind::Enum: {
         std::vector<std::string> vis_lts;
         for (auto& lt : TypeRef(t).lifetime_args())
-            if (!lt_is_minted(lt) || lt_is_fnptr_binder(lt)) vis_lts.push_back(lt_written(lt));
+            if ((!g_type_str_erase_regions && !lt_is_minted(lt)) || lt_is_fnptr_binder(lt)) vis_lts.push_back(lt_written(lt));
         if (!source_form ||
             (TypeRef(t).type_args().empty() && vis_lts.empty()))
             return std::string(TypeRef(t).enum_name());
@@ -2594,7 +2628,8 @@ std::string type_str(TypeRef t, bool source_form) {
         }
         return r + ">"; }
     case LogosType::Kind::TraitObject: {
-        std::string r = (TypeRef(t).raw_fat() ? "*mut dyn " : "&dyn ") + std::string(TypeRef(t).trait_name());
+        std::string r = (TypeRef(t).raw_fat() ? (TypeRef(t).mut_ptr() ? "*mut dyn " : "*const dyn ") : "&dyn ")
+                        + std::string(TypeRef(t).trait_name());
         auto ta = TypeRef(t).type_args();
         if (!ta.empty()) {
             r += "<";
@@ -3767,12 +3802,20 @@ void SemaChecker::compute_auto_copy_types() {
     }
 }
 
+std::string type_str_regions_erased(TypeRef t) {
+    const bool saved = g_type_str_erase_regions;
+    g_type_str_erase_regions = true;
+    std::string s = type_str(t);
+    g_type_str_erase_regions = saved;
+    return s;
+}
+
 std::string SemaChecker::trait_targ_suffix(const std::vector<TypeRef>& args) const {
     if (args.empty()) return {};
     std::string s = "$G" + std::to_string(args.size());
     for (auto a : args) {
         s += "$";
-        std::string ts = a ? type_str(a) : std::string("?");
+        std::string ts = a ? type_str_regions_erased(a) : std::string("?");
         for (char& c : ts) if (!(std::isalnum((unsigned char)c) || c == '_')) c = '_';
         s += ts;
     }
@@ -6432,11 +6475,11 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // `*const [T]` directly to Slice).
         // ADR 0028: each canonical form here is the RAW twin of the reference.
         if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
-            return make_raw_fat(make_slice_type(inner.elem(), t.mut_ptr()));
+            return make_raw_fat(make_slice_type(inner.elem(), t.mut_ptr()), t.mut_ptr());
         // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_raw_fat(make_trait_object(inner.trait_name(), std::move(args_vec)));
+            return make_raw_fat(make_trait_object(inner.trait_name(), std::move(args_vec)), t.mut_ptr());
         }
         // Phase 1B-14/15: `*const DstStruct` / `*mut DstStruct` → DstRef —
         // UNLESS the DST is #[self_describing], in which case a raw pointer
@@ -6460,7 +6503,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 return make_ptr(t.mut_ptr(), inner, t.zoned_ptr());
             }
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_raw_fat(make_dst_ref(sn, spkg, t.mut_ptr(), std::move(args_vec)));
+            return make_raw_fat(make_dst_ref(sn, spkg, t.mut_ptr(), std::move(args_vec)), t.mut_ptr());
         }
         if (inner == t.pointee()) return t;
         return make_ptr(t.mut_ptr(), inner, t.zoned_ptr());   // F3: preserve *zoned
@@ -6595,7 +6638,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!slt.empty()) { auto it = ls.find(slt); if (it != ls.end()) slt = it->second; }
         if (elem == t.elem() && slt == t.lifetime()) return t;
         TypeRef rs = make_slice_type(elem, t.mut_ptr(), t.slice_owning_kind(), slt);
-        return t.raw_fat() ? make_raw_fat(rs) : rs;   // ADR 0028: keep raw
+        return t.raw_fat() ? make_raw_fat(rs, t.mut_ptr()) : rs;   // ADR 0028: keep raw
     }
     case LogosType::Kind::UnsizedSlice: {
         auto elem = subst_type_sema(t.elem(), s, ls);
@@ -6632,7 +6675,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!changed) return t;
         TypeRef rd = make_dst_ref(t.struct_name(), t.pkg_name(), t.mut_ptr(),
                                   std::move(new_args), t.dst_owning_kind(), dlt);
-        return t.raw_fat() ? make_raw_fat(rd) : rd;   // ADR 0028: keep raw
+        return t.raw_fat() ? make_raw_fat(rd, t.mut_ptr()) : rd;   // ADR 0028: keep raw
     }
     case LogosType::Kind::TraitObject: {
         if (t.type_args().empty() && t.lifetime().empty()) return t;
@@ -6652,7 +6695,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                        /*req_send=*/t.trait_requires_send(),
                                        /*req_sync=*/t.trait_requires_sync(),
                                        olt);
-        return t.raw_fat() ? make_raw_fat(ro) : ro;   // ADR 0028: keep raw
+        return t.raw_fat() ? make_raw_fat(ro, t.mut_ptr()) : ro;   // ADR 0028: keep raw
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnItem:
@@ -8005,7 +8048,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (node.has_key(la::POINTEE) &&
             code_of(map_of(node.get(la::POINTEE.code))) == la::DYN_TYPE &&
             inner && inner.kind() == LogosType::Kind::TraitObject)
-            return make_raw_fat(inner);   // ADR 0028: raw, not `&dyn`
+            return make_raw_fat(inner, mut);   // ADR 0028: raw, not `&dyn`
         // Phase 1B-14: `*const DstStruct` / `*mut DstStruct` → DstRef
         // (fat pointer). Same canonicalisation as REF_TYPE for DST. Use
         // is_effective_dst (not the raw template `is_dst` flag) so a generic
@@ -8031,7 +8074,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             if (rssi && rssi->self_describing)
                 return make_ptr(mut, inner, zoned);
             std::vector<TypeRef> targs = inner.type_args();
-            return make_raw_fat(make_dst_ref(sn, spkg, mut, std::move(targs)));
+            return make_raw_fat(make_dst_ref(sn, spkg, mut, std::move(targs)), mut);
         }
         return make_ptr(mut, inner, zoned);
     }
@@ -8211,7 +8254,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                          : "regslot.slicetype.written");
         // `*const [T]` / `*mut [T]` (ADR 0028): the raw twin of `&[T]`.
         if (node.has_key(la::RAW_PTR))
-            return make_raw_fat(make_slice_type(elem, is_mut));
+            return make_raw_fat(make_slice_type(elem, is_mut), is_mut);
         return make_slice_type(elem, is_mut, TypeRef::OwningKind::Borrow,
                                logos::probe::arm_regslot() ? slt : std::string{});
     }

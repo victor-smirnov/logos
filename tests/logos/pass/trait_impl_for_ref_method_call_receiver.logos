@@ -1,3 +1,8 @@
+// CLOSED 2026-09-19 (ADR 0028 branch, #188): soundness-queue row
+// trait_impl_for_ref_method_call_receiver_refused, moved here as a pass fixture.
+// Root: impl keys were built from type_str with regions, so `impl<'a> Get for &'a i64`
+// registered as `$ref_&'a i64` and the call looked up `$ref_&i64`. Impl keys and
+// names now erase regions (Rust erases them before selection). Original header below.
 // OVER-REFUSAL, tier 3 — legal Rust, refused. A trait implemented FOR A REFERENCE type,
 // `impl<'a> Get for &'a i64 { fn get(self: Self) -> i64 }`, called with method syntax on a
 // `&i64` local: `r.get()`. Rust: legal (the receiver `r: &'x i64` IS `Self`). logosc refuses
@@ -7,7 +12,7 @@
 // type has regions; it reproduces with a NAMED impl binder on the base binary a5088a6875e092aa, so
 // it is not about `'_` or `Self`. The same impl called as a static trait fn (`fn read(x: Self)`)
 // compiles. Root NOT read. Legality MEASURED with rustc 1.98.1: verdict at the foot of this file.
-package trait_impl_for_ref_method_call_receiver_refused;
+package trait_impl_for_ref_method_call_receiver;
 trait Get { fn get(self: Self) -> i64; }
 impl<'a> Get for &'a i64 {
     fn get(self: Self) -> i64 {

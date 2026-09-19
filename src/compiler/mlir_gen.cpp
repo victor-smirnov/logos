@@ -104,6 +104,9 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Coexistence: module-qualify type-keyed symbol names (drop glue, vtables,
     // mono insts) consistently with sema/mono so emitted defs match their uses.
     TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
+    // Codegen names no region either (Rust erases them before codegen); every
+    // name here must match the one mono built. See TypeStrRegionsErased.
+    TypeStrRegionsErased _regions_erased;
 
     // G156-1: consume the carried ambiguous-type-name set (computed ONCE in
     // sema from the full unpruned universe, preserved by mono). Recomputing from

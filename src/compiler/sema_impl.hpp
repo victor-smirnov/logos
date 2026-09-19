@@ -746,7 +746,7 @@ private:
             }
             auto ne = mint_type_lts_(t.elem(), out, fixed, depth + 1);
             if (ne == t.elem()) return t;
-            if (t.raw_fat()) return make_raw_fat(make_slice_type(ne, t.mut_ptr()));
+            if (t.raw_fat()) return make_raw_fat(make_slice_type(ne, t.mut_ptr()), t.mut_ptr());
             return make_slice_type(ne, t.mut_ptr());
         }
         case K::Array: {
@@ -2406,15 +2406,17 @@ private:
         return pool_->alloc(std::move(t));
     }
     // ADR 0028: the raw-pointer twin of a fat reference type (Slice /
-    // TraitObject / DstRef). Anything else is returned unchanged.
-    TypeRef make_raw_fat(TypeRef fat) {
+    // TraitObject / DstRef), `*mut` when `is_mut`, else `*const`. Anything else
+    // is returned unchanged.
+    TypeRef make_raw_fat(TypeRef fat, bool is_mut) {
         if (!fat) return fat;
         auto k = fat.kind();
         if (k != LogosType::Kind::Slice && k != LogosType::Kind::TraitObject &&
             k != LogosType::Kind::DstRef)
             return fat;
-        if (fat.raw_fat()) return fat;
+        if (fat.raw_fat() && fat.mut_ptr() == is_mut) return fat;
         LogosTypeBuilder b = fat.to_builder();
+        b.mut_ptr = is_mut;
         b.const_val = int64_t(uint64_t(b.const_val.value_or(0)) | TypeRef::RAW_FAT_BIT);
         b.lifetime.clear();   // a raw pointer carries no region
         return pool_->alloc(std::move(b));

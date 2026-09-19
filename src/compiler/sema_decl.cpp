@@ -2623,7 +2623,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 TypeRef selem = TypeRef(resolved).elem();
                 target = (selem && TypeRef(selem).kind() == LogosType::Kind::TypeVar)
                          ? std::string("$slice$T")
-                         : "$slice$" + (selem ? type_str(selem) : std::string("?"));
+                         : "$slice$" + (selem ? type_str_regions_erased(selem) : std::string("?"));
                 target_resolved = make_unsized_slice_type(selem);
             } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
@@ -2641,7 +2641,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // emits the same mangled name as collection.
                 target = prefix + "$T";
             } else {
-                target = prefix + type_str(resolved);
+                target = prefix + type_str_regions_erased(resolved);   // mirror sema_collect
             }
         } else if (code_of(tnode) == la::GENERIC_INST) {
             target = std::string(str_of(tnode.get(la::NAME.code)));
@@ -3465,7 +3465,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             // Not fully concrete (any nested TypeVar/Error):
                             // defer to mono.
                             if (mentions_tv(cv)) continue;
-                            std::string cstr = type_str(concrete);
+                            std::string cstr = type_str_regions_erased(concrete);
                             logos::compiler::StrSet seen;
                             if (!sema_has_impl_recursive(wb.trait_name, cstr, /*alt=*/"", seen)) {
                                 gate_skip = true;

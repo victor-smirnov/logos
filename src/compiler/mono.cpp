@@ -135,6 +135,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Coexistence: module-qualify type-keyed names consistently with sema/mlir.
     TypeModuleScope _type_module_scope(&in_.pkg_module_ids);
 
+    // Regions are erased before monomorphisation (Rust): no name or impl key
+    // built here may carry one. See TypeStrRegionsErased.
+    TypeStrRegionsErased _regions_erased;
+
     // G156-1: consume sema's carried ambiguous-type-name set (computed ONCE
     // from the full unpruned universe). Materialise the ObjectMapRef into a
     // local set for the thread_local; install for the whole run(). Reading the

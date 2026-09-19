@@ -483,7 +483,7 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                          t.kind() == LogosType::Kind::Slice ||
                          (t.kind() == LogosType::Kind::DstRef && !t.owning_dst()) ||
                          (t.kind() == LogosType::Kind::TraitObject &&
-                          !t.owning_trait_object()));
+                          !t.owning_trait_object())) && !t.raw_fat();   // ADR 0028
         };
         std::function<bool(TypeRef)> type_is_ha = [&](TypeRef t) -> bool {
             if (has_any(t)) return true;
@@ -1095,6 +1095,26 @@ struct ScopeFrame {
 // not on the binding's declared mutness, and that is expressed by a TEMPORARY
 // param_names_ insertion that must be undone on every exit path. One copy, one
 // owner — `record_borrow` arms it, the destructor disarms it.
+// A place as rustc names it. The move/borrow path text keeps a built-in Box
+// deref as the segment `*` (`b.*.f`, ADR 0028); a user sees `b.f` when a
+// projection follows the deref and `*b` when the deref is the last step.
+static std::string place_display(const std::string& root, const std::string& path) {
+    if (path.empty()) return root;
+    std::vector<std::string> segs;
+    for (size_t i = 0;;) {
+        size_t j = path.find('.', i);
+        segs.push_back(path.substr(i, j == std::string::npos ? std::string::npos : j - i));
+        if (j == std::string::npos) break;
+        i = j + 1;
+    }
+    size_t trailing = 0;
+    while (trailing < segs.size() && segs[segs.size() - 1 - trailing] == "*") ++trailing;
+    std::string out = root;
+    for (auto& seg : segs)
+        if (seg != "*") out += "." + seg;
+    return std::string(trailing, '*') + out;
+}
+
 // The two escapes `record_borrow` still honours, named rather than spelled as
 // a pair of bare bools at a call. FILE SCOPE, not a member: a nested class
 // with NSDMIs cannot be used as a DEFAULT ARGUMENT of a member function of its
@@ -4506,8 +4526,7 @@ private:
     }
     static std::string fmt_path(const std::string& target,
                                 const std::string& path) {
-        if (path.empty()) return target;
-        return target + "." + path;
+        return place_display(target, path);
     }
     // True (and reports) if ACCESSING `target`(.`path`) collides with a tracked
     // FIELD borrow. The field-borrow records (mut_field_borrows /
@@ -6765,8 +6784,8 @@ private:
                         const std::string mpath = place.substr(mroot.size() + 1);
                         if (auto* hit = find_moved_overlap(vs->moved_fields, mpath))
                             report(ln, std::format(
-                                "use of moved field '{}.{}' (moved on line {})",
-                                mroot, hit->first, hit->second));
+                                "use of moved field '{}' (moved on line {})",
+                                place_display(mroot, hit->first), hit->second));
                         vs->moved_fields[mpath] = ln;
                     }
                 }
@@ -7153,7 +7172,7 @@ private:
         // Without this, `&mut self` methods on DST structs (resize_block_at)
         // skipped the receiver conflict check and a live slot view survived
         // the resize (the pkd invalidation contract).
-        if (k == LogosType::Kind::DstRef && !p0.owning_dst())
+        if (k == LogosType::Kind::DstRef && !p0.owning_dst() && !p0.raw_fat())   // raw: no loan (ADR 0028)
             return p0.mut_ptr() ? 2 : 1;
         return 0;
     }
@@ -10565,8 +10584,8 @@ private:
                         if (auto* hit = find_moved_overlap(
                                 sit->moved_fields, path)) {
                             report(line, std::format(
-                                "use of moved field '{}.{}' (moved on line {})",
-                                root, hit->first, hit->second));
+                                "use of moved field '{}' (moved on line {})",
+                                place_display(root, hit->first), hit->second));
                             break;
                         }
                     }
@@ -10724,7 +10743,7 @@ private:
                     bool p0_ref = p0 && (p0.kind() == LogosType::Kind::Ref ||
                                          p0.kind() == LogosType::Kind::MutRef);
                     if ((p0 && p0.kind() == LogosType::Kind::DstRef &&
-                        !p0.owning_dst()) || p0_ref) {
+                        !p0.owning_dst() && !p0.raw_fat()) || p0_ref) {   // raw: no loan (ADR 0028)
                         ExprRef a0; uint64_t ai0 = 0;
                         v.each_arg([&](ExprRef a){ if (ai0++ == 0) a0 = a; });
                         // extract_borrow_place does NOT peel a top-level
@@ -15524,8 +15543,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     if (auto* hit = find_moved_overlap(
                             sit->moved_fields, path)) {
                         report(line, std::format(
-                            "use of moved field '{}.{}' (moved on line {})",
-                            root, hit->first, hit->second));
+                            "use of moved field '{}' (moved on line {})",
+                            place_display(root, hit->first), hit->second));
                         break;
                     }
                 }
@@ -15757,8 +15776,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         bool into_moved = path_prefix_or_eq(hit->first, path);
                         if (into_moved || !in_addr_source_) {
                             report(line, std::format(
-                                "use of moved field '{}.{}' (moved on line {})",
-                                root, hit->first, hit->second));
+                                "use of moved field '{}' (moved on line {})",
+                                place_display(root, hit->first), hit->second));
                             break;
                         }
                     }
@@ -16480,7 +16499,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 bool p0_ref = p0 && (p0.kind() == LogosType::Kind::Ref ||
                                      p0.kind() == LogosType::Kind::MutRef);
                 if ((p0 && p0.kind() == LogosType::Kind::DstRef &&
-                    !p0.owning_dst()) || (gcf && p0_ref)) {
+                    !p0.owning_dst() && !p0.raw_fat()) || (gcf && p0_ref)) {   // raw: no loan (ADR 0028)
                     ExprRef a0; uint64_t ai0 = 0;
                     cv.each_arg([&](ExprRef a){ if (ai0++ == 0) a0 = a; });
                     if (gcf && a0 && a0.kind() == Code::AddrOfTemp)

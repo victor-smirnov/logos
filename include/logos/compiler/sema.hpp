@@ -833,6 +833,26 @@ bool types_equal(TypeRef a, TypeRef b) noexcept;
 // generic enum nested inside a type argument is rendered too.
 std::string type_str(TypeRef t, bool source_form = false);
 
+// type_str with every region elided. The trait-argument token that names and
+// selects an impl among `Trait<A> for T` siblings is built from it: impl
+// selection ignores regions (Rust erases them before selection), so `&'a i32`
+// and the impl's `&i32` must give one token.
+std::string type_str_regions_erased(TypeRef t);
+
+// While alive, every type_str on this thread prints regions elided. Mono holds
+// one for its whole run: regions are erased before monomorphisation in Rust,
+// so no symbol or impl key mono builds may depend on a region's name. The
+// types themselves keep their regions (the borrow checkers read them after
+// mono).
+struct TypeStrRegionsErased {
+    TypeStrRegionsErased();
+    ~TypeStrRegionsErased();
+    TypeStrRegionsErased(const TypeStrRegionsErased&) = delete;
+    TypeStrRegionsErased& operator=(const TypeStrRegionsErased&) = delete;
+private:
+    bool saved_;
+};
+
 // Render an entire Writ AST document back as Logos source. Used by
 // `logosc --dump-metaprog` to display metafn-generated ASTs without
 // needing a populated type pool — type-position renders are syntactic

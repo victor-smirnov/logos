@@ -283,8 +283,6 @@ enum_variant_value_into_scalar_let_admits 1 tests/soundness/open/enum_variant_va
 
 closure_elided_param_called_with_field_ref_refuses 3 tests/soundness/open/closure_elided_param_called_with_field_ref_refuses refuses
 
-trait_impl_for_ref_method_call_receiver_refused 3 tests/soundness/open/trait_impl_for_ref_method_call_receiver_refused refuses
-
 enum_payload_rewrap_carries_declared_region_refuses 3 tests/soundness/open/enum_payload_rewrap_carries_declared_region_refuses refuses
 
 struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses 3 tests/soundness/open/struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses refuses
@@ -619,5 +617,5 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 # MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
-# TOTAL 231
+# TOTAL 230
 # SYNC-HASH c74b307c1f3575565523ee3b8142a631
