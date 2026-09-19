@@ -21,6 +21,12 @@ namespace logos::compiler {
 
 using Kind = LogosType::Kind;
 
+// #438: the four markers this engine special-cases are LANG ITEMS
+// (logos.lang.marker::{Send,Sync,Unpin,Fst}); `impl_trait_id` resolves each to
+// the one identity the impl registry is keyed by (and, in a build with no
+// stdlib, to a root id the same call produces for the bound's spelling), so a
+// user's own `auto trait Send` gets the structural rule and none of the
+// reference/pointer rules written for the marker.
 bool SemaChecker::is_auto_trait_satisfied(
     TypeRef tv,
     std::string_view trait_name,
@@ -29,12 +35,16 @@ bool SemaChecker::is_auto_trait_satisfied(
     if (!tv) return true;
     if (tv.kind() == Kind::Error) return true;
 
+    const DefId auto_trait_id = impl_trait_id(trait_name);
+    const DefId kSend  = impl_trait_id("Send");
+    const DefId kSync  = impl_trait_id("Sync");
+    const DefId kUnpin = impl_trait_id("Unpin");
+    const DefId kFst   = impl_trait_id("Fst");
+
     // Cycle guard — prevents infinite recursion on recursive types.
-    auto cycle_key = type_str(tv) + "::" + std::string(trait_name);
+    auto cycle_key = type_str(tv) + "::" + std::to_string(auto_trait_id.v);
     if (visited.count(cycle_key)) return true;
     visited.insert(cycle_key);
-
-    const DefId auto_trait_id = impl_trait_id(trait_name);
     auto find_impl = [&](const std::string& name) -> const SemaImplInfo* {
         auto it = impls_.find(ImplKey{auto_trait_id, name});
         return it == impls_.end() ? nullptr : &it->second;
@@ -102,7 +112,7 @@ bool SemaChecker::is_auto_trait_satisfied(
     // meaningless in another address space).
     case Kind::FnItem:
     case Kind::FnPtr:
-        return trait_name != "Fst";
+        return auto_trait_id != kFst;
 
     // ── Unpin: default-TRUE world (Rust semantics) ──────────────────────────
     // Everything is Unpin unless it (transitively) stores a PhantomPinned,
@@ -111,7 +121,7 @@ bool SemaChecker::is_auto_trait_satisfied(
     // doesn't infect the pointer — Rust's rule). Handled before the
     // Send/Sync-shaped cases below.
     case Kind::Ptr: {
-        if (trait_name == "Unpin") {
+        if (auto_trait_id == kUnpin) {
             auto* info0 = find_impl(type_str(tv));
             if (info0 && info0->is_negative) return false;
             return true;
@@ -124,16 +134,16 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Shared reference &T: Send iff T:Sync; Sync iff T:Sync ──────────────
     case Kind::Ref:
-        if (trait_name == "Unpin") return true;   // &T is always Unpin
-        if (trait_name == "Fst") return false;    // references are never
+        if (auto_trait_id == kUnpin) return true;   // &T is always Unpin
+        if (auto_trait_id == kFst) return false;    // references are never
                                                   // relocation-safe (no opt-in)
         return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
 
     // ── Mutable reference &mut T: Send iff T:Send; Sync iff T:Sync ─────────
     case Kind::MutRef:
-        if (trait_name == "Unpin") return true;   // &mut T is always Unpin
-        if (trait_name == "Fst") return false;    // never relocation-safe
-        if (trait_name == "Send")
+        if (auto_trait_id == kUnpin) return true;   // &mut T is always Unpin
+        if (auto_trait_id == kFst) return false;    // never relocation-safe
+        if (auto_trait_id == kSend)
             return is_auto_trait_satisfied(tv.pointee(), "Send", visited);
         else
             return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
@@ -144,8 +154,12 @@ bool SemaChecker::is_auto_trait_satisfied(
         // checked — see SemaChecker::normalize_assoc_eq for the full ground.
         auto it = current_type_bounds_.find(std::string(tv.type_var_name()));
         if (it != current_type_bounds_.end()) {
-            for (auto& b : it->second)
-                if (b.trait_name == trait_name) return true;
+            for (auto& b : it->second) {
+                // #438: the bound's own identity, captured where it was
+                // written — a spelling match would accept a homonym's bound.
+                DefId bid = b.trait_def ? b.trait_def : impl_trait_id(b.trait_name);
+                if (bid == auto_trait_id) return true;
+            }
         }
         return false;
     }
@@ -157,7 +171,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         // fields recurse below and catch their own) is NOT relocation-safe:
         // bitwise duplication into a dumpable block would double its drop
         // obligation. Explicit impls (positive/negative) still win below.
-        if (trait_name == "Fst" && !drop_fn_for(tv).empty()) {
+        if (auto_trait_id == kFst && !drop_fn_for(tv).empty()) {
             int expl0 = check_impl_for_struct(tv);
             if (expl0 == 1) return true;
             return false;
@@ -172,7 +186,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         // package.
         if (tv.struct_name() == "UnsafeCell" &&
             tv.pkg_name() == "logos.lang.cell") {
-            if (trait_name == "Sync") return false;
+            if (auto_trait_id == kSync) return false;
             // Send: defer to the wrapped T (the single field `value: T`).
             if (!tv.type_args().empty())
                 return is_auto_trait_satisfied(tv.type_args()[0], "Send", visited);
@@ -181,7 +195,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         // Unpin structural opt-outs: PhantomPinned is the canonical !Unpin
         // marker; #[pinned] arena residents have no value form, so pin-ness
         // is moot for them — treat as !Unpin for parity with their intent.
-        if (trait_name == "Unpin") {
+        if (auto_trait_id == kUnpin) {
             if (tv.struct_name() == "PhantomPinned" &&
                 tv.pkg_name() == "logos.lang.marker") return false;
         }
@@ -193,7 +207,7 @@ bool SemaChecker::is_auto_trait_satisfied(
             si = get_datatype_si(tv);
             if (!si) return true; // unknown struct — be lenient
         }
-        if (trait_name == "Unpin" && si->pinned) return false;   // #[pinned] => !Unpin
+        if (auto_trait_id == kUnpin && si->pinned) return false;   // #[pinned] => !Unpin
         // Bug 3 fix: build substitution map from generic type args so that
         // TypeVar fields in generic struct instantiations (e.g. Vec<i32>
         // has field `data: TypeVar("T")`) are replaced with concrete types.
@@ -223,12 +237,12 @@ bool SemaChecker::is_auto_trait_satisfied(
         // Bare `[E]` (the VALUE, not the fat &[E] carrier): its bytes are the
         // elements' bytes — Fst iff E is Fst. Other auto traits keep the
         // conservative default (fall through to the bottom).
-        if (trait_name == "Fst")
+        if (auto_trait_id == kFst)
             return tv.elem() ? is_auto_trait_satisfied(tv.elem(), "Fst", visited) : true;
         return false;
 
     case Kind::Enum: {
-        if (trait_name == "Fst" && !drop_fn_for(tv).empty()) return false;
+        if (auto_trait_id == kFst && !drop_fn_for(tv).empty()) return false;
         int verdict = check_impl_for_struct(tv);
         if (verdict == 1) return true;
         if (verdict == -1) return false;
@@ -253,7 +267,7 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Slice &[T]: like &T, both Send and Sync require the element to be Sync ─
     // Bug 2 fix: &[T] is a shared reference; must check T: Sync, not T: trait_name.
     case Kind::Slice:
-        if (trait_name == "Fst") return false;    // a fat reference — never
+        if (auto_trait_id == kFst) return false;    // a fat reference — never
         return tv.elem() ? is_auto_trait_satisfied(tv.elem(), "Sync", visited) : true;
 
     // ── Tuple: every element must satisfy ───────────────────────────────────
