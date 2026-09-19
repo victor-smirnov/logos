@@ -20,11 +20,20 @@ the stdlib archives, then run — the exact line is in the README and in
 `tests/logos/run_test.sh`. Running `logosc`'s output directly gives exit 126;
 that is the shell refusing a relocatable, not your program failing.
 
-**Do not run the bare full suite to check yourself.** It is 11,000+ tests and
-`ctest` defaults to one job. Use the tiers from `build/`:
-`../tests/logos/test-levels.sh L1` (one test per group) or `L2` (ten per group).
-`L4` is the whole suite and requires `LOGOS_L4_BG=1` — without it the harness
-refuses and reports zero tests run, which reads like a result but is not one.
+**Run tests with `scripts/lt`, not `ctest`.** The suite is 11,000+ tests;
+`lt` runs the part a task touches first. Describe the task's direct coverage
+once, then run its levels:
+
+    scripts/lt task new NAME TEST... /regex/...   # L0: the task's own tests
+    scripts/lt run --level 0                      # L0
+    scripts/lt run --level 1 --upto               # L0, then L1 (the groups of L0)
+    scripts/lt run --level 2 --upto               # everything, stopping at a red level
+
+L0, L1 and L2 are disjoint and together are the whole suite. Groups live in
+`tests/groups.rules`. Every result, with its duration and output, is kept in
+`build/testdb.sqlite`: `scripts/lt show TEST --output`, `scripts/lt last --failed`,
+`scripts/lt run --failed`. `ctest` and `tests/logos/test-levels.sh` are
+deprecated (CMake still describes the tests; `lt` imports and runs them).
 
 ## Where work comes from
 

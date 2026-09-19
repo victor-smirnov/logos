@@ -48,21 +48,16 @@ cc round_trip.o -Wl,--start-group build/lib/logos/*.a -Wl,--end-group \
 running `logosc`'s output directly gives "Permission denied" — the file is an
 ELF relocatable, and the 126 you see is the shell's, not the program's.)
 
-Run the tests. The full suite is over 11,000 tests and `ctest` is single-threaded
-unless told otherwise, so start with a tier instead — one test per group (L1) or
-ten per group (L2) give broad coverage in minutes:
+Run the tests with `scripts/lt`. The full suite is over 11,000 tests, so `lt`
+runs the part a task touches first: L0 is the task's own tests, L1 the groups
+they belong to (`tests/groups.rules`), L2 everything else.
 
 ```bash
-cd build
-../tests/logos/test-levels.sh L1        # one test per group
-../tests/logos/test-levels.sh L2        # ten per group
-LOGOS_L4_BG=1 ../tests/logos/test-levels.sh L4    # everything; needs the flag
-```
-
-Or drive `ctest` yourself, but pass the job count — the default is 1:
-
-```bash
-cd build && ctest -j"$(nproc)" --output-on-failure
+scripts/lt task new mytask /bc_/ tests_name   # L0: names or /regexes/
+scripts/lt run --level 1 --upto               # L0, then L1
+scripts/lt run --all                          # everything
+scripts/lt run --group borrow_checker         # one group
+scripts/lt show TEST --output                 # a test's history and output
 ```
 
 See the [Getting Started guide](https://logos-lang.dev/docs/getting-started/) for prerequisites and details.

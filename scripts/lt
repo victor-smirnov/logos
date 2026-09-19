@@ -1,0 +1,534 @@
+#!/usr/bin/env python3
+"""lt — the Logos test runner (replaces ctest as the runner).
+
+CMake still DESCRIBES the tests (command, environment, timeout, fixtures); `lt`
+imports those descriptions once (`ctest --show-only=json-v1`) and does
+everything else itself: selection, levels, parallel execution, and a run
+database that keeps every result with its duration and output.
+
+Levels are computed for a TASK:
+  L0  the task's own tests: its direct coverage (named tests, patterns).
+  L1  every test of every persistent GROUP an L0 test belongs to, minus L0.
+  L2  every other test.
+The three are disjoint and together are the whole suite. Groups are defined by
+tests/groups.rules (committed) and may overlap; levels never do.
+
+  lt sync                              import test descriptions from CMake
+  lt task new NAME [SEL...]            create a task; SEL = test name or /regex/
+  lt task add NAME SEL...              add tests to a task's L0
+  lt task use NAME                     make NAME the current task
+  lt task show [NAME] | lt task list
+  lt levels [--task NAME]              sizes of L0 / L1 / L2
+  lt run --level 0|1|2 [--upto]        run a level (--upto: L0..level, stop at a red level)
+  lt run --group G... [--except G...]  run groups (or --all [--except G...])
+  lt run --failed                      rerun what failed in the last run
+  lt run NAME... | -k REGEX            run named tests / a name regex
+  lt show TEST [--output] [-n N]       history of one test (status, seconds, output)
+  lt last [--failed]                   the last run's summary
+  lt groups [G]                        groups and their sizes (or members of G)
+
+Options for run: -j N (default $CTEST_PARALLEL_LEVEL, else 12), --build DIR.
+"""
+import argparse, datetime, json, os, re, signal, sqlite3, subprocess, sys, threading, time, zlib
+from concurrent.futures import ThreadPoolExecutor
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Process groups of running tests: an interrupted `lt` kills them, so a stopped
+# run leaves nothing behind (each test runs in its own session).
+ACTIVE = set()
+ACTIVE_LOCK = threading.Lock()
+STOPPING = threading.Event()
+
+def _on_signal(signum, frame):
+    STOPPING.set()
+    with ACTIVE_LOCK:
+        for pgid in list(ACTIVE):
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    print(f"\nlt: interrupted (signal {signum}); running tests killed", file=sys.stderr)
+    os._exit(130)
+RULES = os.path.join(ROOT, "tests", "groups.rules")
+DEFAULT_TIMEOUT = 1500.0
+
+# ── database ─────────────────────────────────────────────────────────────────
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS tests(
+  name TEXT PRIMARY KEY, command TEXT, env TEXT, workdir TEXT, timeout REAL,
+  labels TEXT, source TEXT, disabled INTEGER, processors INTEGER, skip_rc INTEGER,
+  fixtures_setup TEXT, fixtures_required TEXT, depends TEXT, present INTEGER);
+CREATE TABLE IF NOT EXISTS groups(grp TEXT, test TEXT, PRIMARY KEY(grp, test));
+CREATE TABLE IF NOT EXISTS tasks(name TEXT PRIMARY KEY, created TEXT);
+CREATE TABLE IF NOT EXISTS task_tests(task TEXT, test TEXT, why TEXT, PRIMARY KEY(task, test));
+CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS runs(id INTEGER PRIMARY KEY, started TEXT, finished TEXT,
+  build_key TEXT, head TEXT, args TEXT, task TEXT, total INTEGER, failed INTEGER, seconds REAL);
+CREATE TABLE IF NOT EXISTS results(run INTEGER, test TEXT, status TEXT, rc INTEGER,
+  seconds REAL, output BLOB, PRIMARY KEY(run, test));
+CREATE INDEX IF NOT EXISTS results_test ON results(test, run);
+"""
+
+def db_open(build):
+    con = sqlite3.connect(os.path.join(build, "testdb.sqlite"), check_same_thread=False)
+    con.executescript(SCHEMA)
+    return con
+
+def meta_get(con, k, default=None):
+    r = con.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+    return r[0] if r else default
+
+def meta_set(con, k, v):
+    con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", (k, v))
+
+# ── sync: CMake descriptions -> tests, rules -> groups ──────────────────────
+
+def test_source(cmd):
+    for a in cmd:
+        if a.endswith(".logos"):
+            return os.path.relpath(a, ROOT) if a.startswith(ROOT) else a
+    for a in cmd[1:] if len(cmd) > 1 else cmd:
+        if a.startswith(ROOT) and (a.endswith(".sh") or a.endswith(".py")):
+            return os.path.relpath(a, ROOT)
+    return ""
+
+def load_rules():
+    rules = []
+    if not os.path.exists(RULES):
+        return rules
+    for ln, line in enumerate(open(RULES), 1):
+        line = line.rstrip("\n")
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) != 2:
+            sys.exit(f"lt: {RULES}:{ln}: expected `group<TAB>pattern`")
+        grp, pat = parts[0].strip(), parts[1].strip()
+        if pat.startswith("="):
+            rules.append((grp, "exact", pat[1:]))
+        elif pat.startswith("label:"):
+            rules.append((grp, "label", pat[6:]))
+        else:
+            rules.append((grp, "re", re.compile(pat)))
+    return rules
+
+def sync(build, con, quiet=False):
+    out = subprocess.run(["ctest", "--show-only=json-v1"], cwd=build,
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        sys.exit("lt: `ctest --show-only=json-v1` failed; is the build configured?\n" + out.stderr)
+    data = json.loads(out.stdout)
+    seen = set()
+    con.execute("UPDATE tests SET present=0")
+    for t in data["tests"]:
+        props = {p["name"]: p["value"] for p in t.get("properties", [])}
+        cmd = t.get("command") or []
+        name = t["name"]
+        seen.add(name)
+        con.execute("""INSERT OR REPLACE INTO tests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)""", (
+            name, json.dumps(cmd), json.dumps(props.get("ENVIRONMENT", [])),
+            props.get("WORKING_DIRECTORY", build), float(props.get("TIMEOUT", DEFAULT_TIMEOUT)),
+            json.dumps(props.get("LABELS", [])), test_source(cmd),
+            1 if props.get("DISABLED") else 0, int(props.get("PROCESSORS", 1)),
+            props.get("SKIP_RETURN_CODE"), json.dumps(props.get("FIXTURES_SETUP", [])),
+            json.dumps(props.get("FIXTURES_REQUIRED", [])), json.dumps(props.get("DEPENDS", []))))
+    gone = [r[0] for r in con.execute("SELECT name FROM tests WHERE present=0")]
+    # groups are recomputed from the rules every sync
+    rules = load_rules()
+    con.execute("DELETE FROM groups")
+    rows = con.execute("SELECT name, source, labels FROM tests WHERE present=1").fetchall()
+    for name, source, labels in rows:
+        labs = set(json.loads(labels))
+        for grp, kind, pat in rules:
+            hit = (kind == "exact" and name == pat) or \
+                  (kind == "label" and pat in labs) or \
+                  (kind == "re" and (pat.search(name) or pat.search(source)))
+            if hit:
+                con.execute("INSERT OR IGNORE INTO groups VALUES(?,?)", (grp, name))
+    meta_set(con, "synced", datetime.datetime.now().isoformat(timespec="seconds"))
+    con.commit()
+    if not quiet:
+        print(f"lt: {len(seen)} tests, {len(gone)} no longer registered"
+              + (": " + ", ".join(gone[:10]) + (" …" if len(gone) > 10 else "") if gone else ""))
+
+def ensure_synced(build, con):
+    # Re-import whenever CMake's registration (any CTestTestfile.cmake) is newer
+    # than the last import.
+    newest = 0.0
+    for dp, dns, fs in os.walk(build):
+        if dp.count(os.sep) - build.count(os.sep) >= 3:
+            dns[:] = []
+        if "CTestTestfile.cmake" in fs:
+            newest = max(newest, os.path.getmtime(os.path.join(dp, "CTestTestfile.cmake")))
+    if meta_get(con, "synced_mtime") != repr(newest):
+        sync(build, con, quiet=True)
+        meta_set(con, "synced_mtime", repr(newest))
+        con.commit()
+
+# ── selection ────────────────────────────────────────────────────────────────
+
+def all_tests(con):
+    return [r[0] for r in con.execute("SELECT name FROM tests WHERE present=1")]
+
+def resolve_sel(con, sels):
+    names = set(all_tests(con))
+    out = []
+    for s in sels:
+        if s.startswith("/") and s.endswith("/") and len(s) > 2:
+            rx = re.compile(s[1:-1])
+            out += sorted(n for n in names if rx.search(n))
+        elif s in names:
+            out.append(s)
+        else:
+            sys.exit(f"lt: no such test: {s}  (use /regex/ for a pattern)")
+    return out
+
+def current_task(con, name=None):
+    t = name or meta_get(con, "task")
+    if not t:
+        sys.exit("lt: no task; `lt task new NAME SEL...` or pass --task NAME")
+    if not con.execute("SELECT 1 FROM tasks WHERE name=?", (t,)).fetchone():
+        sys.exit(f"lt: no such task: {t}")
+    return t
+
+def levels(con, task):
+    everything = set(all_tests(con))
+    l0 = {r[0] for r in con.execute("SELECT test FROM task_tests WHERE task=?", (task,))} & everything
+    grps = {r[0] for r in con.execute(
+        "SELECT DISTINCT grp FROM groups WHERE test IN (SELECT test FROM task_tests WHERE task=?)", (task,))}
+    l1 = set()
+    for g in grps:
+        l1 |= {r[0] for r in con.execute("SELECT test FROM groups WHERE grp=?", (g,))}
+    l1 = (l1 & everything) - l0
+    l2 = everything - l0 - l1
+    return l0, l1, l2, sorted(grps)
+
+# ── execution ────────────────────────────────────────────────────────────────
+
+def build_key(build):
+    try:
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "hash-build.py"), build],
+                             capture_output=True, text=True, timeout=120)
+        return out.stdout.split()[0] if out.returncode == 0 and out.stdout.strip() else "unknown"
+    except Exception:
+        return "unknown"
+
+def git_head():
+    r = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+    dirty = subprocess.run(["git", "-C", ROOT, "status", "--porcelain", "--untracked-files=no"],
+                           capture_output=True, text=True).stdout.strip()
+    return r.stdout.strip() + ("-dirty" if dirty else "")
+
+def add_fixture_setups(con, names):
+    """ctest's rule: a test that REQUIRES a fixture pulls in that fixture's
+    setup tests, and runs after them; if one of them fails it does not run."""
+    sel = set(names)
+    req = {}
+    for n in list(sel):
+        r = con.execute("SELECT fixtures_required, depends FROM tests WHERE name=?", (n,)).fetchone()
+        fx, dep = json.loads(r[0]), json.loads(r[1])
+        req[n] = (fx, dep)
+    need = {f for fx, _ in req.values() for f in fx}
+    setups = {}
+    if need:
+        for name, fs in con.execute("SELECT name, fixtures_setup FROM tests WHERE present=1"):
+            for f in json.loads(fs):
+                if f in need:
+                    setups.setdefault(f, []).append(name)
+    pulled = set()
+    for f in need:
+        for s in setups.get(f, []):
+            if s not in sel:
+                pulled.add(s)
+    return sel | pulled, setups, req, pulled
+
+class Runner:
+    def __init__(self, con, build, jobs, run_id, verbose):
+        self.con, self.build, self.jobs, self.run_id, self.verbose = con, build, jobs, run_id, verbose
+        self.lock = threading.Lock()
+        self.slots = threading.Semaphore(jobs)
+        self.done = 0
+        self.failed = []
+        self.status = {}
+        self.stop = False
+
+    def one(self, name, total):
+        t = self.con_local().execute(
+            "SELECT command, env, workdir, timeout, disabled, processors, skip_rc FROM tests WHERE name=?",
+            (name,)).fetchone()
+        cmd, env, wd, tmo, disabled, procs, skip_rc = t
+        procs = max(1, min(int(procs or 1), self.jobs))
+        if disabled:
+            return self.record(name, "disabled", None, 0.0, b"", total)
+        for _ in range(procs):
+            self.slots.acquire()
+        try:
+            if self.stop:
+                return self.record(name, "notrun", None, 0.0, b"", total)
+            e = dict(os.environ)
+            for kv in json.loads(env):
+                k, _, v = kv.partition("=")
+                e[k] = v
+            t0 = time.monotonic()
+            try:
+                if STOPPING.is_set():
+                    return self.record(name, "notrun", None, 0.0, b"", total)
+                p = subprocess.Popen(json.loads(cmd), cwd=wd, env=e, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, start_new_session=True)
+                with ACTIVE_LOCK:
+                    ACTIVE.add(p.pid)
+                try:
+                    out, _ = p.communicate(timeout=tmo)
+                    rc = p.returncode
+                    st = "passed" if rc == 0 else ("skipped" if skip_rc is not None and rc == int(skip_rc) else "failed")
+                except subprocess.TimeoutExpired:
+                    os.killpg(p.pid, signal.SIGKILL)
+                    out, _ = p.communicate()
+                    rc, st = None, "timeout"
+                finally:
+                    with ACTIVE_LOCK:
+                        ACTIVE.discard(p.pid)
+            except OSError as ex:
+                out, rc, st = str(ex).encode(), None, "failed"
+            return self.record(name, st, rc, time.monotonic() - t0, out, total)
+        finally:
+            for _ in range(procs):
+                self.slots.release()
+
+    _tls = threading.local()
+    def con_local(self):
+        c = getattr(self._tls, "con", None)
+        if c is None:
+            c = sqlite3.connect(os.path.join(self.build, "testdb.sqlite"), check_same_thread=False)
+            self._tls.con = c
+        return c
+
+    def record(self, name, st, rc, secs, out, total):
+        with self.lock:
+            self.con.execute("INSERT OR REPLACE INTO results VALUES(?,?,?,?,?,?)",
+                             (self.run_id, name, st, rc, secs, zlib.compress(out or b"")))
+            self.done += 1
+            self.status[name] = st
+            if st in ("failed", "timeout"):
+                self.failed.append(name)
+                tail = (out or b"").decode("utf-8", "replace").strip().splitlines()[-6:]
+                print(f"  FAIL {name} ({st}, {secs:.1f}s)")
+                for l in tail:
+                    print(f"       {l[:200]}")
+            elif self.verbose:
+                print(f"  {st:8s} {name} {secs:.1f}s")
+            if self.done % 200 == 0 or self.done == total:
+                print(f"  … {self.done}/{total} done, {len(self.failed)} failed", flush=True)
+                self.con.commit()
+
+def run_set(con, build, names, args, task, label):
+    names = sorted(set(names))
+    if not names:
+        print(f"lt: {label}: nothing to run")
+        return 0
+    sel, setups, req, pulled = add_fixture_setups(con, names)
+    if pulled:
+        print(f"lt: {len(pulled)} fixture setup tests pulled in (required by {sum(1 for n in req if req[n][0])} tests)")
+    jobs = args.jobs or int(os.environ.get("CTEST_PARALLEL_LEVEL", "12"))
+    started = datetime.datetime.now().isoformat(timespec="seconds")
+    cur = con.execute("INSERT INTO runs(started, build_key, head, args, task, total) VALUES(?,?,?,?,?,?)",
+                      (started, build_key(build), git_head(), " ".join(sys.argv[1:]), task, len(sel)))
+    run_id = cur.lastrowid
+    con.commit()
+    print(f"lt: run {run_id} — {label}: {len(sel)} tests, -j{jobs}")
+    r = Runner(con, build, jobs, run_id, args.verbose)
+    # history-informed order: longest first, so the tail does not wait on one slow test
+    dur = dict(con.execute("SELECT test, AVG(seconds) FROM results WHERE status IN ('passed','failed') GROUP BY test"))
+    ready = [n for n in sel if not req.get(n, ([], []))[0] and not req.get(n, ([], []))[1]]
+    later = [n for n in sel if n not in ready]
+    ready.sort(key=lambda n: -(dur.get(n) or 1.0))
+    t0 = time.monotonic()
+    with ThreadPoolExecutor(max_workers=jobs) as ex:
+        list(ex.map(lambda n: r.one(n, len(sel)), ready))
+    for n in later:   # fixture / DEPENDS consumers: after everything they could need
+        fx, dep = req[n]
+        blocked = [s for f in fx for s in setups.get(f, []) if r.status.get(s) not in ("passed", "skipped", "disabled")]
+        blocked += [d for d in dep if d in r.status and r.status[d] not in ("passed", "skipped", "disabled")]
+        if blocked:
+            r.record(n, "notrun", None, 0.0, ("required setup failed: " + ", ".join(blocked[:5])).encode(), len(sel))
+        else:
+            r.one(n, len(sel))
+    secs = time.monotonic() - t0
+    con.execute("UPDATE runs SET finished=?, failed=?, seconds=? WHERE id=?",
+                (datetime.datetime.now().isoformat(timespec="seconds"), len(r.failed), secs, run_id))
+    con.commit()
+    counts = {}
+    for st in r.status.values():
+        counts[st] = counts.get(st, 0) + 1
+    print(f"lt: run {run_id} — {label}: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+          + f" in {secs:.0f}s")
+    return 1 if r.failed or counts.get("notrun") else 0
+
+# ── commands ─────────────────────────────────────────────────────────────────
+
+def cmd_run(con, build, args):
+    ensure_synced(build, con)
+    everything = set(all_tests(con))
+    task = None
+    if args.level is not None:
+        task = current_task(con, args.task)
+        l = levels(con, task)
+        todo = [0, 1, 2][:args.level + 1] if args.upto else [args.level]
+        rc = 0
+        for lv in todo:
+            rc = run_set(con, build, l[lv], args, task, f"task {task} L{lv}")
+            if rc and args.upto and lv != todo[-1]:
+                print(f"lt: L{lv} is red; not running further levels")
+                return rc
+        return rc
+    if args.failed:
+        last = con.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+        names = [r[0] for r in con.execute(
+            "SELECT test FROM results WHERE run=? AND status IN ('failed','timeout','notrun')", (last,))]
+        return run_set(con, build, names, args, None, f"failed in run {last}")
+    names = set()
+    if args.all:
+        names = set(everything)
+    for g in args.group or []:
+        mem = {r[0] for r in con.execute("SELECT test FROM groups WHERE grp=?", (g,))}
+        if not mem:
+            sys.exit(f"lt: no such group (or empty): {g}")
+        names |= mem
+    if args.k:
+        rx = re.compile(args.k)
+        names |= {n for n in everything if rx.search(n)}
+    if args.names:
+        names |= set(resolve_sel(con, args.names))
+    if args.ungrouped:
+        grouped = {r[0] for r in con.execute("SELECT DISTINCT test FROM groups")}
+        names |= everything - grouped
+    for g in args.except_ or []:
+        names -= {r[0] for r in con.execute("SELECT test FROM groups WHERE grp=?", (g,))}
+    if not names:
+        sys.exit("lt run: nothing selected (see `lt --help`)")
+    return run_set(con, build, names & everything, args, None, "selection")
+
+def cmd_task(con, build, args):
+    ensure_synced(build, con)
+    if args.op == "list":
+        for n, c in con.execute("SELECT name, created FROM tasks ORDER BY created"):
+            k = con.execute("SELECT COUNT(*) FROM task_tests WHERE task=?", (n,)).fetchone()[0]
+            mark = "*" if n == meta_get(con, "task") else " "
+            print(f"{mark} {n:30s} L0={k:5d}  {c}")
+        return 0
+    if args.op in ("new", "add", "use"):
+        if not args.name:
+            sys.exit(f"lt task {args.op}: NAME required")
+    if args.op == "new":
+        con.execute("INSERT OR IGNORE INTO tasks VALUES(?,?)",
+                    (args.name, datetime.datetime.now().isoformat(timespec="seconds")))
+        meta_set(con, "task", args.name)
+    if args.op in ("new", "add"):
+        if not con.execute("SELECT 1 FROM tasks WHERE name=?", (args.name,)).fetchone():
+            sys.exit(f"lt: no such task: {args.name}")
+        for t in resolve_sel(con, args.sel):
+            con.execute("INSERT OR IGNORE INTO task_tests VALUES(?,?,?)", (args.name, t, "manual"))
+    if args.op == "use":
+        current_task(con, args.name)
+        meta_set(con, "task", args.name)
+    con.commit()
+    if args.op == "rm":
+        con.execute("DELETE FROM task_tests WHERE task=?", (args.name,))
+        con.execute("DELETE FROM tasks WHERE name=?", (args.name,))
+        con.commit()
+        return 0
+    task = current_task(con, args.name if args.op != "list" else None)
+    l0, l1, l2, grps = levels(con, task)
+    print(f"task {task}: L0 {len(l0)}  L1 {len(l1)}  L2 {len(l2)}   groups: {', '.join(grps) or '—'}")
+    if args.op == "show":
+        for n in sorted(l0):
+            print("  " + n)
+    return 0
+
+def cmd_levels(con, build, args):
+    ensure_synced(build, con)
+    task = current_task(con, args.task)
+    l0, l1, l2, grps = levels(con, task)
+    dur = dict(con.execute("SELECT test, AVG(seconds) FROM results WHERE status IN ('passed','failed') GROUP BY test"))
+    for i, s in enumerate((l0, l1, l2)):
+        cpu = sum(dur.get(n, 1.0) for n in s)
+        print(f"L{i}: {len(s):6d} tests  ~{cpu/60:6.1f} CPU-min")
+    print("groups of L0: " + (", ".join(grps) or "—"))
+    return 0
+
+def cmd_show(con, build, args):
+    rows = con.execute("""SELECT r.id, r.started, r.head, res.status, res.seconds, res.rc, res.output
+                          FROM results res JOIN runs r ON r.id = res.run WHERE res.test=?
+                          ORDER BY r.id DESC LIMIT ?""", (args.test, args.n)).fetchall()
+    if not rows:
+        sys.exit(f"lt: no results for {args.test}")
+    t = con.execute("SELECT source, labels, timeout FROM tests WHERE name=?", (args.test,)).fetchone()
+    grps = [r[0] for r in con.execute("SELECT grp FROM groups WHERE test=? ORDER BY grp", (args.test,))]
+    if t:
+        print(f"{args.test}\n  source {t[0] or '—'}  groups {', '.join(grps) or '—'}  timeout {t[2]:.0f}s")
+    for rid, started, head, st, secs, rc, out in rows:
+        print(f"  run {rid:5d} {started} {head:14s} {st:8s} {secs:7.2f}s rc={rc}")
+        if args.output:
+            text = zlib.decompress(out).decode("utf-8", "replace") if out else ""
+            for l in text.splitlines():
+                print("    | " + l)
+    return 0
+
+def cmd_last(con, build, args):
+    r = con.execute("SELECT id, started, finished, head, args, task, total, failed, seconds FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+    if not r:
+        sys.exit("lt: no runs yet")
+    rid = r[0]
+    print(f"run {rid}: {r[1]} → {r[2] or 'INTERRUPTED'}  head {r[3]}  task {r[5] or '—'}  `lt {r[4]}`")
+    for st, c in con.execute("SELECT status, COUNT(*) FROM results WHERE run=? GROUP BY status", (rid,)):
+        print(f"  {st:8s} {c}")
+    if args.failed:
+        for (n,) in con.execute("SELECT test FROM results WHERE run=? AND status IN ('failed','timeout','notrun') ORDER BY test", (rid,)):
+            print("  " + n)
+    return 0
+
+def cmd_groups(con, build, args):
+    ensure_synced(build, con)
+    if args.group:
+        for (n,) in con.execute("SELECT test FROM groups WHERE grp=? ORDER BY test", (args.group,)):
+            print(n)
+        return 0
+    total = len(all_tests(con))
+    grouped = con.execute("SELECT COUNT(DISTINCT test) FROM groups").fetchone()[0]
+    for g, c in con.execute("SELECT grp, COUNT(*) FROM groups GROUP BY grp ORDER BY grp"):
+        print(f"  {g:24s} {c:6d}")
+    print(f"  {'(in no group)':24s} {total - grouped:6d}   of {total}")
+    return 0
+
+def main():
+    ap = argparse.ArgumentParser(prog="lt", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--build", default=os.path.join(ROOT, "build"))
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("sync")
+    t = sub.add_parser("task"); t.add_argument("op", choices=["new", "add", "use", "show", "list", "rm"])
+    t.add_argument("name", nargs="?"); t.add_argument("sel", nargs="*")
+    lv = sub.add_parser("levels"); lv.add_argument("--task")
+    r = sub.add_parser("run")
+    r.add_argument("names", nargs="*"); r.add_argument("--level", type=int, choices=[0, 1, 2])
+    r.add_argument("--upto", action="store_true"); r.add_argument("--task")
+    r.add_argument("--group", nargs="+"); r.add_argument("--except", dest="except_", nargs="+")
+    r.add_argument("--all", action="store_true"); r.add_argument("--failed", action="store_true")
+    r.add_argument("--ungrouped", action="store_true")
+    r.add_argument("-k"); r.add_argument("-j", "--jobs", type=int); r.add_argument("-v", "--verbose", action="store_true")
+    s = sub.add_parser("show"); s.add_argument("test"); s.add_argument("--output", action="store_true")
+    s.add_argument("-n", type=int, default=10)
+    la = sub.add_parser("last"); la.add_argument("--failed", action="store_true")
+    g = sub.add_parser("groups"); g.add_argument("group", nargs="?")
+    args = ap.parse_args()
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+    build = os.path.abspath(args.build)
+    con = db_open(build)
+    if args.cmd == "sync":
+        sync(build, con); return 0
+    return {"run": cmd_run, "task": cmd_task, "levels": cmd_levels, "show": cmd_show,
+            "last": cmd_last, "groups": cmd_groups}[args.cmd](con, build, args)
+
+if __name__ == "__main__":
+    sys.exit(main())

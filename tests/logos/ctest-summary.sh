@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+
+echo "$(basename "$0") is deprecated: ctest is no longer the test runner." >&2
+echo "Use scripts/lt (from the repository root):" >&2
+echo "  scripts/lt task new NAME TEST... /regex/...   # the task's own tests (L0)" >&2
+echo "  scripts/lt run --level 1 --upto               # L0, then its groups (L1)" >&2
+echo "  scripts/lt run --level 2 --upto               # everything, stopping at a red level" >&2
+echo "  scripts/lt run --all | --group G | --failed | -k REGEX" >&2
+echo "  scripts/lt show TEST --output                 # history, duration, output" >&2
+echo "See scripts/lt --help." >&2
+exit 2
+
 # ctest-summary.sh — run full ctest once and emit a fixed-size, agent-friendly
 # summary so a single invocation gives both the pass/fail count and the
 # offending tests with their output. Use from the build directory:

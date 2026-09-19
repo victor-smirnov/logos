@@ -1,0 +1,63 @@
+# Persistent test groups for `scripts/lt` (see its header).
+#
+# ROW: <group> <TAB> <pattern>
+#   pattern  = a Python regex, searched in the test NAME and in its SOURCE path
+#              (the .logos file, or the gate script, relative to the repo root)
+#   =NAME    = exactly this test
+#   label:L  = every test carrying the CMake label L
+#
+# A test may belong to several groups; `lt` levels are disjoint regardless
+# (L1 = the groups of the task's L0 tests, minus L0; L2 = the rest). A test in
+# no group only ever runs in L2. Keep groups NARROW: a broad group turns L1
+# into the whole suite. `lt groups` prints the sizes.
+
+# ── gates: lints, pins, ledgers ─────────────────────────────────────────────
+gates	label:tier_commit
+gates	label:lint
+soundness	^logos_00_squeue_
+soundness	^logos_00_bc_admit_
+
+# ── borrow checking ─────────────────────────────────────────────────────────
+borrow_checker	label:bc
+borrow_checker	tests/imported/[a-z]+/(borrowck|nll|regions|lifetimes|moves|variance|mir)/
+borrow_checker	tests/logos/(pass|fail)/bc_
+borrow_checker	tests/spec/(pass|fail)/(borrow|region)
+borrow_checker	^dl_
+
+# ── types, traits, generics ─────────────────────────────────────────────────
+traits	tests/imported/[a-z]+/(traits|methods|self|dyn|object)[a-z-]*/
+traits	tests/(logos|spec)/(pass|fail)/[^/]*(trait|impl_|dyn_|_dyn|coheren)
+traits	^trait_engine
+generics	tests/imported/[a-z]+/(generics|associated)[a-z-]*/
+generics	tests/(logos|spec)/(pass|fail)/[^/]*(generic|mono|spec_|assoc|turbofish)
+types	tests/imported/[a-z]+/(coercion|casts|numbers-arithmetic|intops|type)[a-z-]*/
+types	tests/(logos|spec)/(pass|fail)/[^/]*(coerce|cast|unsize|layout|sizeof|usize|int_)
+
+# ── language features ───────────────────────────────────────────────────────
+closures	tests/imported/[a-z]+/(closures|unboxed-closures|functions-closures|closures-extra)/
+closures	tests/(logos|spec)/(pass|fail)/[^/]*closure
+patterns	tests/imported/[a-z]+/(match|pattern|patterns|binding)/
+patterns	tests/(logos|spec)/(pass|fail)/[^/]*(match|pattern|binding|let_else)
+drop	tests/imported/[a-z]+/(drop|dropck)[a-z-]*/
+drop	tests/(logos|spec)/(pass|fail)/[^/]*(drop|dtor)
+iterators	tests/imported/[a-z]+/(iterators|for-loop-while)/
+iterators	tests/(logos|spec)/(pass|fail)/[^/]*(iter|for_each|foreach)
+enums	tests/imported/[a-z]+/(enum|structs-enums|option-result)/
+enums	tests/(logos|spec)/(pass|fail)/[^/]*(enum|option|result)
+box_rc	tests/(logos|spec)/(pass|fail)/[^/]*(box|_rc|rc_|arc)
+
+# ── stdlib subsystems ───────────────────────────────────────────────────────
+writ	tests/(logos|spec)/(pass|fail)/[^/]*(writ|wmap|warray|wany|datatype)
+deem	tests/(logos|spec)/(pass|fail)/[^/]*(deem|wql|query|plan_)
+deem	^logos_09_(plan|incr|order|group|ctr|el_|layout)
+memoria	tests/(logos|spec)/(pass|fail)/[^/]*(memoria|btree|bt_|pdt|ssrle|btfl)
+vec_collections	tests/(logos|spec)/(pass|fail)/[^/]*(vec|hashmap|hash_|slice|array)
+
+# ── compiler back end and tools ─────────────────────────────────────────────
+codegen	label:ir_snapshot
+codegen	tests/(logos|spec)/(pass|fail)/[^/]*(mlirgen|abi|zone|ptr_|raw_)
+metaprog	tests/(logos|spec)/(pass|fail)/[^/]*(quote|metaprog|macro|metacall)
+lforge	label:lforge
+diagnostics	label:suite_diagnostics
+spec	^tests/spec/
+exhaustive	label:exhaustive
