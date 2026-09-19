@@ -6163,8 +6163,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                method the type never implements, instead of letting mono fabricate a call the MLIR verifier rejects) and
 #                pass/struct_relational_impl_admitted (the ADMIT twin). RE-DERIVED FROM THE GATE'S OWN PRINTED MEASUREMENT
 #                (it printed measured 11086/6584/355), never by adding 2 to the previous pin.
-REGISTRY-ALL         11086
-REGISTRY-NOIMPORTED  6584
+#                ALL 11086 -> 11089 (+3), NOIMPORTED 6584 -> 6587 (+3), TIERCOMMIT 354 -> 354 (0) — 2026-09-18-partial-cmp-return
+#                THREE FIXTURES ADDED for #430 + #432 (one refusal closes both halves of one hole): 
+#                fail/partial_cmp_non_ordering_return_refused (the LOUD half — `partial_cmp -> i32` derived the comparison
+#                method name from an empty `enum_name()` and emitted `__is_lt`, a callee with no type prefix, which the MLIR
+#                verifier rejected), fail/partial_cmp_option_foreign_payload_refused (the SILENT half — `-> Option<Verdict>`
+#                compiled clean and ANSWERED WRONG, because the unresolved bare helper name was bound by ffo_canonical to
+#                stdlib's `cmp_opt_is_lt(Option<Ordering>)`), and pass/partial_cmp_ordering_forms_admitted (the ADMIT twin).
+#                RE-DERIVED FROM THE GATE'S OWN PRINTED MEASUREMENT (it printed measured 11089/6587/354), never by adding 3.
+REGISTRY-ALL         11089
+REGISTRY-NOIMPORTED  6587
 #                TIERCOMMIT 355 -> 354 (-1), ALL and NOIMPORTED UNMOVED at 11086/6584 — 2026-09-18-squeue-271-retire.
 #                SOUNDNESS ROW ref_pair_eq_without_impl_admits RETIRED (#271, closed by #427's refusal): its program left
 #                tests/soundness/open/ (a tier_commit test, hence the -1) and its successor landed as

@@ -2791,6 +2791,26 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                             op == "<=" ? "cmp_opt_is_le" :
                             op == ">"  ? "cmp_opt_is_gt" : "cmp_opt_is_ge";
                         auto hfit = find_func_by_base_and_signature(helper, {ord_t}, false);
+                        // ── #432: DO NOT EMIT A NAME THE LOOKUP DID NOT RESOLVE ──
+                        //
+                        // `hfit` is null whenever the payload is not `Ordering`
+                        // (`types_equal` distinguishes `Option<Verdict>` from
+                        // `Option<Ordering>` — MEASURED: a local helper taking the
+                        // foreign payload IS found and called, one taking
+                        // `Option<Ordering>` is NOT). Emitting `helper` anyway hands
+                        // mlir-gen a BARE name, and find_func_op's `ffo_canonical`
+                        // strips package and `__f__` suffix, so it binds stdlib's
+                        // `cmp_opt_is_lt(Option<Ordering>)` — which then reads the
+                        // foreign payload as an Ordering and compares discriminants.
+                        // The result is a WRONG ANSWER, not a failure: with
+                        // `enum Verdict { Lo, Hi }` the answer is accidentally right
+                        // (Lo coincides with Less), with `{ Pad0, Pad1, Lo, Hi }` both
+                        // directions answer false. Same "emit and hope" shape as #427.
+                        if (!hfit)
+                            error(std::format(
+                                "operator '{}': '{}::partial_cmp' returns '{}', which "
+                                "carries no ordering — expected an 'Ordering' (or an "
+                                "'Option' of one)", op, type_name, type_str(ord_t, true)));
                         std::string hsym = (hfit && !hfit->symbol_name.empty())
                                            ? hfit->symbol_name : helper;
                         std::vector<lir::LExprPtr> hargs;
@@ -2804,6 +2824,33 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     std::string ord_name(TypeRef(ord_t).enum_name());
                     std::string is_mangled = ord_name + "__" + is_method;
                     auto isfit = find_func_by_base_and_signature(is_mangled, {ord_t}, false);
+                    // ── #430: THE SAME HOLE, THE LOUD HALF ───────────────────
+                    //
+                    // Everything the `Option` arm above does not claim arrives
+                    // here, and `ord_name` comes from `enum_name()` — EMPTY for a
+                    // non-enum. MEASURED 2026-09-18, one program per row, struct
+                    // whose `partial_cmp` returns:
+                    //
+                    //     Ordering                  ok (Ordering::is_lt resolves)
+                    //     Option<Ordering>          ok (the arm above)
+                    //     i32 / bool / a struct     callee `__is_lt` — EMPTY prefix
+                    //     a foreign enum `Verdict`  callee `Verdict__is_lt`
+                    //
+                    // Both bad rows reached the MLIR verifier as a call to a symbol
+                    // nothing defines. Keyed on the LOOKUP, not on the spelling of
+                    // the return type, so one condition covers the empty-name and
+                    // the named-but-absent forms together.
+                    //
+                    // ⚠ NOT WIDENED HERE, and named rather than left silent: the
+                    // arm above tests `enum_name() == "Option"`, a SPELLING — a
+                    // foreign package's `Option` enters it too. That blindness is
+                    // the same class as #427's package-blind lookup; it is not this
+                    // refusal's to fix, and this arm cannot see it.
+                    if (!isfit)
+                        error(std::format(
+                            "operator '{}': '{}::partial_cmp' returns '{}', which "
+                            "carries no ordering — expected an 'Ordering' (or an "
+                            "'Option' of one)", op, type_name, type_str(ord_t, true)));
                     std::string is_sym = (isfit && !isfit->symbol_name.empty())
                                          ? isfit->symbol_name : is_mangled;
                     // `is_<op>(self: Ordering)` takes self by VALUE — emit a
