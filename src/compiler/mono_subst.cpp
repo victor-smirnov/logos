@@ -108,6 +108,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             LogosTypeBuilder tnt; tnt.kind = LogosType::Kind::TraitObject;
             tnt.trait_name = std::string(inner.trait_name());
+            tnt.pkg_name   = std::string(inner.pkg_name());   // #438: the trait's package
             tnt.type_args = inner.type_args();
             if (raw_ptr) { tnt.mut_ptr = tv.mut_ptr(); tnt.const_val = int64_t(TypeRef::RAW_FAT_BIT); }
             return out_.type_pool.alloc(std::move(tnt));

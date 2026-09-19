@@ -846,6 +846,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // = vtable), mirroring sema's dyn-tail projection.
                         LogosTypeBuilder tb; tb.kind = LogosType::Kind::TraitObject;
                         tb.trait_name = std::string(TypeRef(ftype).trait_name());
+                        tb.pkg_name   = std::string(TypeRef(ftype).pkg_name());   // #438
                         // Materialise the type-args ONCE: `type_args()` returns a
                         // fresh std::vector each call, so begin()/end() across two
                         // calls are iterators into DIFFERENT temporaries — a garbage
@@ -3852,6 +3853,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         LogosTypeBuilder tob;
                         tob.kind = LogosType::Kind::TraitObject;
                         tob.trait_name = tname;
+                        tob.pkg_name   = std::string(TypeRef(nrt).pkg_name());   // #438
                         tob.type_args = TypeRef(nrt).type_args();
                         LirBuilder(out_).retype_expr(new_recv, out_.type_pool.alloc(std::move(tob)));
                         std::vector<lir_view::ExprRef> mc_args;

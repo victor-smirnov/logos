@@ -933,6 +933,11 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // ADR 0028: `*const dyn T` and `*mut dyn T` are distinct types; the
         // byte only for a raw one, so every existing type keeps its UID.
         if (uint64_t(t.const_val.value_or(0)) & TypeRef::RAW_FAT_BIT) put_byte(buf, t.mut_ptr ? 1 : 0);
+        // #438: the trait's IDENTITY, not its spelling — `dyn Hash` of two
+        // packages are two types, with two vtables (#15). Empty for a type
+        // built before its trait resolved, which keeps such a type's UID as it
+        // was rather than aliasing it onto a packaged one.
+        put_str(buf, t.pkg_name);
         put_str(buf, t.trait_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
@@ -6469,7 +6474,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_raw_fat(make_trait_object(inner.trait_name(), std::move(args_vec)), t.mut_ptr());
+            return make_raw_fat(make_trait_object(inner.trait_name(), std::move(args_vec),
+                                                  TraitOwningKind::Borrow, false, false, {},
+                                                  inner.pkg_name()), t.mut_ptr());
         }
         // Phase 1B-14/15: `*const DstStruct` / `*mut DstStruct` → DstRef —
         // UNLESS the DST is #[self_describing], in which case a raw pointer
@@ -6519,7 +6526,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             std::vector<TypeRef> args_vec = inner.type_args();
             return make_trait_object(inner.trait_name(), std::move(args_vec),
                                      TraitOwningKind::Borrow, false, false,
-                                     regslot_s_ ? lt : std::string{});
+                                     regslot_s_ ? lt : std::string{}, inner.pkg_name());
         }
         // Phase 1B-14/15: `&DstStruct` / `&mut DstStruct` → DstRef.
         if (inner && is_effective_dst(inner)) {
@@ -6684,7 +6691,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                        /*owning=*/t.trait_owning_kind(),
                                        /*req_send=*/t.trait_requires_send(),
                                        /*req_sync=*/t.trait_requires_sync(),
-                                       olt);
+                                       olt, t.pkg_name());
         return t.raw_fat() ? make_raw_fat(ro, t.mut_ptr()) : ro;   // ADR 0028: keep raw
     }
     case LogosType::Kind::Closure:
@@ -7593,7 +7600,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                     return make_trait_object(ti.trait_name(), std::move(targs), sp_kind,
                                              /*req_send=*/ti.trait_requires_send(),
                                              /*req_sync=*/ti.trait_requires_sync(),
-                                             std::string(ti.lifetime()));
+                                             std::string(ti.lifetime()), ti.pkg_name());
                 }
                 // `Box<[T]>` (and Rc/Arc<[T]>) — heap unsized slice. Collapse to
                 // an OWNING fat slice {data,len}: same layout as `&[T]`, move-only,
@@ -8138,7 +8145,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                             : "regslot.ref.dyn.written");
             return make_trait_object(inner.trait_name(), std::move(args_vec),
                                      TraitOwningKind::Borrow, false, false,
-                                     regslot_ ? lt : std::string{});
+                                     regslot_ ? lt : std::string{}, inner.pkg_name());
         }
         // Phase 1B-14: `&DstStruct` → Kind::DstRef (fat pointer to the
         // custom-DST struct). is_dst is on SemaStructInfo, looked up
@@ -8193,7 +8200,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                             : "regslot.mutref.dyn.written");
             return make_trait_object(inner.trait_name(), std::move(args_vec),
                                      TraitOwningKind::Borrow, false, false,
-                                     regslot_m_ ? lt : std::string{});
+                                     regslot_m_ ? lt : std::string{}, inner.pkg_name());
         }
         // Phase 1B-14/15: `&mut DstStruct` → Kind::DstRef. Includes
         // post-substitution DST (generic `?Sized` instantiation).

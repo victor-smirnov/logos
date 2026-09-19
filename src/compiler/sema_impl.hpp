@@ -296,7 +296,9 @@ private:
             return make_slice_type(pointee.elem());
         if (pointee && pointee.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = pointee.type_args();
-            return make_trait_object(pointee.trait_name(), std::move(args_vec));
+            return make_trait_object(pointee.trait_name(), std::move(args_vec),
+                                     TraitOwningKind::Borrow, false, false, {},
+                                     pointee.pkg_name());
         }
         LogosTypeBuilder t;
         t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
@@ -779,7 +781,8 @@ private:
                 std::vector<TypeRef> as;
                 for (auto a : t.type_args()) as.push_back(mint_type_lts_(a, out, fixed, depth + 1));
                 return make_trait_object(t.trait_name(), std::move(as), TraitOwningKind::Borrow,
-                                         t.trait_requires_send(), t.trait_requires_sync(), dlt);
+                                         t.trait_requires_send(), t.trait_requires_sync(), dlt,
+                                         t.pkg_name());
             }
             return t;
         }
@@ -2406,14 +2409,24 @@ private:
     using TraitOwningKind = TypeRef::OwningKind;
     static constexpr uint64_t TRAIT_BOUND_SEND_BIT = 1ull << 8;
     static constexpr uint64_t TRAIT_BOUND_SYNC_BIT = 1ull << 9;
+    // #438: `pkg` is the package of the trait this object dispatches — the
+    // half that makes `dyn Hash` of two packages two types (compute_type_uid
+    // hashes it). A caller REBUILDING an existing trait object passes the
+    // source's package; one resolving a written `dyn Name` leaves it empty and
+    // the name is resolved here, in the scope it was written in. ⚠ EVERY
+    // rebuild must carry it — the same rule the raw-fat bit needed, and for the
+    // same reason: a walker that drops it mints a different type.
     TypeRef make_trait_object(std::string_view tname,
                               std::vector<TypeRef> args = {},
                               TraitOwningKind owning = TraitOwningKind::Borrow,
                               bool req_send = false,
                               bool req_sync = false,
-                              std::string lt = {}) {
+                              std::string lt = {},
+                              std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
+        if (!pkg.empty()) t.pkg_name = std::string(pkg);
+        else if (auto* ti = resolve_trait(tname)) t.pkg_name = ti->package;
         t.type_args = std::move(args);
         t.lifetime = std::move(lt);   // THE REGION SLOT — see make_slice_type
         uint64_t packed = uint8_t(owning);

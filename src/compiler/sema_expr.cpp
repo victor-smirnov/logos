@@ -548,7 +548,9 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
         // begin()/end() across two calls (different temporaries → garbage
         // range). Pass the materialised vector directly.
         ref_t = make_trait_object(std::string(TypeRef(target).trait_name()),
-                                  TypeRef(target).type_args());
+                                  TypeRef(target).type_args(),
+                                  TraitOwningKind::Borrow, false, false, {},
+                                  TypeRef(target).pkg_name());
     else if (tgt_kind == LogosType::Kind::UnsizedSlice)
         ref_t = make_slice_type(TypeRef(target).elem(), want_mut);
     else
@@ -1605,7 +1607,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                                       std::vector<TypeRef>(a.begin(), a.end()),
                                       TraitOwningKind::Borrow,
                                       TypeRef(op_t).trait_requires_send(),
-                                      TypeRef(op_t).trait_requires_sync()));
+                                      TypeRef(op_t).trait_requires_sync(), {},
+                                      TypeRef(op_t).pkg_name()));
                 return operand;
             }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
@@ -3802,7 +3805,8 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                                       std::vector<TypeRef>(a.begin(), a.end()),
                                       TraitOwningKind::Borrow,
                                       TypeRef(op_t).trait_requires_send(),
-                                      TypeRef(op_t).trait_requires_sync()));
+                                      TypeRef(op_t).trait_requires_sync(), {},
+                                      TypeRef(op_t).pkg_name()));
                 return operand;
             }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
@@ -11916,7 +11920,9 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
             // type_args() is a fresh vector per call — pass it directly (no
             // begin()/end() across two temporaries).
             auto to_t = make_trait_object(std::string(TypeRef(tail_post_).trait_name()),
-                                          TypeRef(tail_post_).type_args());
+                                          TypeRef(tail_post_).type_args(),
+                                          TraitOwningKind::Borrow, false, false, {},
+                                          TypeRef(tail_post_).pkg_name());
             return builder().slice_lit(std::move(tail_ptr), std::move(vtable), to_t);
         }
         if (is_tail_access) {
