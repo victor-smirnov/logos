@@ -246,3 +246,25 @@ O3. Generic templates. The pre-mono pass checks generic bodies in
 exclusivity-only mode today. Placeholders (`universal_region`,
 `known_placeholder_subset`) are Polonius's answer for named lifetimes; whether
 TypeVar bodies get the full analysis is decided at S5.
+
+O4. E0106 is not enforced. A signature with several input lifetimes, no
+`&self`, and an elided lifetime in the result (`fn f(p: &Plan, g: &Writ) ->
+Vec<&[u8]>`) is an error in Rust and accepted by Logos; WQL generates such
+signatures. Until sema refuses them and the generators name the lifetime,
+the Polonius extractor narrows the result's sources by the callee's flow
+summary (a superset even when over-approximate) and otherwise ties the result
+to every input. Found by the S5 shadow run, 2026-09-18.
+
+## Decisions taken during S4/S5 (2026-09-18)
+
+- Signatures are read as DECLARED. Mono records the pre-substitution types
+  of every instance (`DECL_RET_TYPE`, `P_DECL_TYPE`), and the extractor labels
+  each origin with a written lifetime, an elided one, a type parameter's
+  position, or `~` for the implicit origin of a loan-carrying type that
+  declares no lifetime.
+- The stdlib's reference-yielding iterators carry lifetimes as in Rust
+  (Victor: "делай как в Rust"): `SliceIter<'a, T>`, `VecIter<'a, T>`,
+  `VecIterMut<'a, T>`, `HashMapIter/Keys/Values<'a, K, V>`,
+  `HashSetIter<'a, K>`, `BTreeMapIter<'a, K, V>`, `Chunks<'a, T: 'a>`,
+  `Windows<'a, T: 'a>`.
+

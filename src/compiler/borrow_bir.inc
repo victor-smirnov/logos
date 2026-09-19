@@ -789,7 +789,7 @@ private:
                 lir_view::EMethodCallView v{e};
                 t.callee = std::string(v.resolved_symbol().empty() ? v.method() : v.resolved_symbol());
                 if (flows_) t.flow = resolve_method_flow(*flows_, idx_, pool_, v);
-                if (auto f = resolve_method(v)) {
+                if (auto f = resolve_method_exact(v)) {
                     t.has_sig = true;
                     t.sig_to_result = signature_mask(f);
                     t.callee_fn = f;
@@ -985,6 +985,51 @@ private:
     // template key's bare spelling, else by the method's base name when every
     // candidate agrees on the receiver's reference kind (the same fallbacks
     // the counter-based checker's method_self_kind uses).
+    // Exact resolution only: the resolved symbol, or the instance for this
+    // receiver's concrete type. What the declared signature is read from.
+    lir_view::FunctionView resolve_method_exact(lir_view::EMethodCallView v) const {
+        if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end())
+            return it->second;
+        return instance_for_receiver(v);
+    }
+    lir_view::FunctionView instance_for_receiver(lir_view::EMethodCallView v) const {
+        auto rcv = v.receiver();
+        if (!rcv) return {};
+        TypeRef rt = rcv.type(pool_);
+        while (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef ||
+                      rt.kind() == LogosType::Kind::Ptr))
+            rt = rt.pointee();
+        std::string cname;
+        if (rt && rt.kind() == LogosType::Kind::Struct) cname = concrete_struct_name(rt);
+        else if (rt && rt.kind() == LogosType::Kind::Enum)
+            cname = rt.type_args().empty() ? std::string(rt.enum_name()) : Mono::enum_instance_name(rt);
+        if (cname.empty()) return {};
+        auto it = idx_.by_base.find(std::string(v.method()));
+        if (it == idx_.by_base.end()) return {};
+        std::string needle = "." + cname + "__" + std::string(v.method()) + "__";
+        std::string needle2 = cname + "__" + std::string(v.method()) + "__";
+        for (auto& f : it->second) {
+            std::string n(f.name());
+            if (n.find(needle) != std::string::npos || n.starts_with(needle2)) return f;
+        }
+        // Instance names can carry a module hash the type's name does not
+        // (`Buffer$M<hash>$G1$…`): match the receiver TYPE against each
+        // candidate's `self` type instead.
+        std::string want = type_str(rt, true);
+        for (auto& f : it->second) {
+            auto ps = f.params();
+            if (ps.empty() || ps[0].name() != "self") continue;
+            TypeRef p0 = ps[0].type(pool_);
+            while (p0 && (p0.kind() == LogosType::Kind::Ref || p0.kind() == LogosType::Kind::MutRef ||
+                          p0.kind() == LogosType::Kind::Ptr))
+                p0 = p0.pointee();
+            if (p0 && type_str(p0, true) == want) return f;
+        }
+        if (std::getenv("LOGOS_BIR_RESOLVE_DEBUG"))
+            std::fprintf(stderr, "[bir-resolve] no instance for %s among %zu (%s)\n", needle.c_str(),
+                         it->second.size(), std::string(it->second.front().name()).c_str());
+        return {};
+    }
     lir_view::FunctionView resolve_method(lir_view::EMethodCallView v) const {
         if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end())
             return it->second;
@@ -1922,6 +1967,38 @@ private:
                 if (pl[k].empty() || (pl[k][0] == '\'' && pl[k] != "'static")) elided_positions.push_back(srcs.size() - 1);
             }
         }
+        // Several input lifetimes, no `&self`, and an elided result: Rust
+        // refuses the signature (E0106), Logos accepts it. Narrow by the body
+        // by its flow summary when there is one; otherwise every input stays a
+        // source. An over-approximate summary only ever adds bits, so it is a
+        // safe superset to narrow by. (A divergence to close by enforcing
+        // E0106; ADR 0028.)
+        std::set<size_t> ambiguous_args;
+        bool narrow = false;
+        if (!self_ref && t.flow && t.flow->available) {
+            std::set<size_t> args_with_lt;
+            for (size_t i = 0, si = 0; i < t.args.size(); ++i) {
+                const auto& a = t.args[i];
+                if (a.k == bir::Operand::K::Const || !a.place.valid()) continue;
+                size_t n = place_origins(a.place).os.size();
+                for (size_t k = 0; k < n; ++k, ++si)
+                    if (std::find(elided_positions.begin(), elided_positions.end(), si) != elided_positions.end())
+                        args_with_lt.insert(i);
+            }
+            if (args_with_lt.size() > 1) {
+                narrow = true;
+                for (size_t i : args_with_lt)
+                    if (i < 64 && ((t.flow->to_result >> i) & 1u)) ambiguous_args.insert(i);
+            }
+        }
+        // Map each source origin back to its argument index for the narrowing.
+        std::vector<size_t> src_arg;
+        for (size_t i = 0; i < t.args.size(); ++i) {
+            const auto& a = t.args[i];
+            if (a.k == bir::Operand::K::Const || !a.place.valid()) continue;
+            size_t n = place_origins(a.place).os.size();
+            for (size_t k = 0; k < n; ++k) src_arg.push_back(i);
+        }
         for (size_t j = 0; j < dst.os.size(); ++j) {
             const std::string& L = lret[j];
             if (L == "'static") continue;
@@ -1934,7 +2011,8 @@ private:
                     // else from the one input lifetime, else from all.
                     if (self_ref) from = sr.outer_self;
                     else from = std::find(elided_positions.begin(), elided_positions.end(), si) !=
-                                elided_positions.end();
+                                elided_positions.end() &&
+                                (!narrow || ambiguous_args.count(src_arg[si]));
                 } else {
                     from = sr.label == L;
                 }
