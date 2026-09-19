@@ -1142,7 +1142,10 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                    t.struct_name() == "UnsafeCell" && t.pkg_name() == "logos.lang.cell" &&
                    !t.type_args().empty())
                 t = TypeRef(t.type_args()[0]);
-            return type_str(t);
+            // Regions are not ABI: they are erased before codegen and change no
+            // layout, so a field written `HashMapKeys<'a, K, u8>` and one written
+            // `HashMapKeys<K, u8>` are the same contract.
+            return type_str_regions_erased(t);
         };
         std::ofstream af(abi_layout_path);
         // ── ABI-closure sidecar (`.abi-closure`) ────────────────────────────
