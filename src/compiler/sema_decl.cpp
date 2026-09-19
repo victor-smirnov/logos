@@ -1219,6 +1219,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                         if (code_of(inode) != la::TRAIT_BOUND) continue;
                         TraitBound tb;
                         tb.trait_name = std::string(str_of(inode.get(la::NAME.code)));
+                        resolve_bound_trait_(tb);
                         where_scope_bounds.emplace_back(tname, std::move(tb));
                     }
                 }
@@ -3618,7 +3619,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                     if (b.trait_name == wb.trait_name) { dup = true; break; }
                                 if (!dup) {
                                     TraitBound tb;
-                                    tb.trait_name = wb.trait_name;
+                                    tb.trait_name      = wb.trait_name;
+                                    tb.canonical_trait = wb.canonical_trait;
+                                    tb.identity_trait  = wb.identity_trait;
+                                    tb.trait_def       = wb.trait_def;
                                     tp.bounds.push_back(std::move(tb));
                                 }
                                 break;

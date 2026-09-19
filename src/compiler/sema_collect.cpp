@@ -3080,6 +3080,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         if (code_of(bnode) == la::TRAIT_BOUND) {
                             TraitBound tb;
                             tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                            resolve_bound_trait_(tb);
                             at.bounds.push_back(std::move(tb));
                         }
                     }
@@ -3266,7 +3267,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
                                     // §8.5: a where-bound whose subject is a
                                     // TRAIT type-param (Item, K, …) — captured
                                     // for per-impl default synthesis gating.
-                                    mi.where_param_bounds.push_back({subject, bound_trait});
+                                    TraitBound rb;
+                                    rb.trait_name = bound_trait;
+                                    resolve_bound_trait_(rb);
+                                    mi.where_param_bounds.push_back({subject, bound_trait,
+                                        rb.canonical_trait, rb.identity_trait, rb.trait_def});
                                 }
                             }
                         }

@@ -5530,14 +5530,10 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     // What the fallback still covers is a name that denotes NO collected trait
     // at all — and a permissive answer there is what the pre-existing bound
     // check already gave.
-    if (!tb.trait_name.empty()) {
-        tb.canonical_trait = canonical_trait_name(tb.trait_name);
-        // The always-qualified identity, captured in the SAME scope and at the
-        // same moment — so the two can never disagree about which trait the
-        // written name denoted.
-        tb.identity_trait  = impl_key_trait(tb.canonical_trait);
-        tb.trait_def       = trait_def_of_key(tb.canonical_trait);
-    }
+    // The registry key, the always-qualified identity and the DefId, captured
+    // in the SAME scope and at the same moment, so they can never disagree
+    // about which trait the written name denoted.
+    resolve_bound_trait_(tb);
     // Phase 1: `?Trait` relaxed-bound marker. Grammar emits RELAXED=true
     // for the `?IDENT` form. Only `?Sized` is semantically valid; other
     // relaxed names are rejected when bound list is finalized on the
@@ -10971,6 +10967,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             current_type_params_[_self_key] = _self;
                             auto _saved_bounds = current_type_bounds_[_self_key];
                             TraitBound _tb; _tb.trait_name = _tn;
+                            _tb.canonical_trait = _tn;   // the registry key itself
+                            _tb.identity_trait  = impl_key_trait(_tn);
+                            _tb.trait_def       = _tit->second.def;
                             current_type_bounds_[_self_key] = {_tb};
                             auto* _saved_holder = holder_;
                             if (m.default_holder) holder_ = m.default_holder;

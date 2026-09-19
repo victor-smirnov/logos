@@ -5396,7 +5396,12 @@ private:
         // (`where Self: Sized`) live in `requires_sized_self` above.
         struct ParamBound {
             std::string param_name;   // the trait type-param being bounded (Item)
-            std::string trait_name;   // the required trait (Ord)
+            std::string trait_name;   // the required trait (Ord), as written
+            // What `trait_name` denotes in the TRAIT's scope (resolve_bound_trait_);
+            // the impls that consume this bound live in other scopes.
+            std::string canonical_trait;
+            std::string identity_trait;
+            DefId       trait_def;
         };
         std::vector<ParamBound> where_param_bounds;
         writ::AnyVal default_ast{};    // AST node for default method (valid when has_default)
@@ -5703,6 +5708,7 @@ private:
                         rv.as_value<uint8_t>() != 0) continue;
                     TraitBound tb;
                     tb.trait_name = std::string(str_of(bn.get(sema_detail::la::NAME.code)));
+                    resolve_bound_trait_(tb);
                     tp.bounds.push_back(std::move(tb));
                 }
             }
@@ -5969,6 +5975,16 @@ private:
         if (auto it = traits_.find(e.name); it != traits_.end() && it->second.def == id)
             return &it->second;
         return nullptr;
+    }
+    // Resolves a bound's written trait name in the current scope and records
+    // what it denotes: the registry key, the impl-registry identity and the
+    // DefId. Every TraitBound whose name was written in this scope goes through
+    // here, so later passes never re-resolve the spelling in another scope.
+    void resolve_bound_trait_(TraitBound& tb) {
+        if (tb.trait_name.empty()) return;
+        tb.canonical_trait = canonical_trait_name(tb.trait_name);
+        tb.identity_trait  = impl_key_trait(tb.canonical_trait);
+        tb.trait_def       = trait_def_of_key(tb.canonical_trait);
     }
     // The DefId of the trait stored under a registry key (empty if none).
     DefId trait_def_of_key(std::string_view regkey) const {
