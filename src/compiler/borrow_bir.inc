@@ -2364,6 +2364,128 @@ private:
     }
 
     // ── row helpers ──
+    // ── initialisation as bitset dataflow (ADR 0028) ──────────────────────
+    //
+    // Maybe-initialised and maybe-uninitialised paths are forward "may"
+    // dataflows over points x paths. As Datalog relations they cost a row per
+    // (path, point): 14.8 M + 8.2 M rows on one 48 k-point body. rustc computes
+    // them as bitset dataflow (MaybeInitializedPlaces / MaybeUninitializedPlaces)
+    // and runs Polonius for loans only; this does the same, and hands the rules
+    // exactly the three restrictions they consume:
+    //   path_maybe_uninitialized_on_entry(X, Q)   X accessed at Q (move_errors)
+    //   path_maybe_initialized_on_entry(X, P)     a variable's root path assigned
+    //                                             at P (assign_twice, E0384)
+    //   var_maybe_partly_initialized_on_exit(V, P) V's drop touches an origin
+    //                                             (drop-liveness)
+    // Transfer at a point q:
+    //   init_exit   = assigned(q) U (init_in - moved(q) - dead(q))
+    //   uninit_exit = moved(q)    U (uninit_in - assigned(q) - dead(q))
+    // where assigned / moved reach every descendant path, a StorageDead every
+    // path of its variable, and *_in(q) is the union over q's predecessors.
+    void initialization() {
+        auto num = [](const std::string& s) { return uint32_t(std::stoul(s.substr(1))); };
+        const uint32_t npath = uint32_t(paths_.size());
+        uint32_t npt = 0;
+        std::vector<std::pair<uint32_t, uint32_t>> edges;
+        std::vector<std::pair<uint32_t, uint32_t>> assigned, moved, accessed;
+        std::vector<std::pair<uint32_t, uint32_t>> dead_var;   // (var, point)
+        std::set<uint32_t> drop_vars;
+        std::vector<uint32_t> var_of_root;                      // root path -> var
+        var_of_root.assign(npath, ~0u);
+        for (auto& [rel, vs] : rows_) {
+            if (rel == "cfg_edge") {
+                uint32_t a = num(vs[0]), b = num(vs[1]);
+                edges.emplace_back(a, b);
+                npt = std::max(npt, std::max(a, b) + 1);
+            } else if (rel == "path_assigned_at_base") assigned.emplace_back(num(vs[0]), num(vs[1]));
+            else if (rel == "path_moved_at_base") moved.emplace_back(num(vs[0]), num(vs[1]));
+            else if (rel == "path_accessed_at_base") accessed.emplace_back(num(vs[0]), num(vs[1]));
+            else if (rel == "var_dead_at") dead_var.emplace_back(num(vs[0]), num(vs[1]));
+            else if (rel == "drop_of_var_derefs_origin") drop_vars.insert(num(vs[0]));
+            else if (rel == "path_is_var") var_of_root[num(vs[0])] = num(vs[1]);
+        }
+        if (npath == 0 || npt == 0) return;
+        // Path tree: descendants of each path, paths of each variable.
+        std::vector<std::vector<uint32_t>> kids(npath);
+        std::vector<uint32_t> root(npath);
+        for (uint32_t i = 0; i < npath; ++i) {
+            if (paths_[i].second != ~0u) kids[paths_[i].second].push_back(i);
+        }
+        for (uint32_t i = 0; i < npath; ++i) {
+            uint32_t r = i;
+            while (paths_[r].second != ~0u) r = paths_[r].second;
+            root[i] = r;
+        }
+        std::map<uint32_t, std::vector<uint32_t>> var_paths;   // var -> its paths
+        for (uint32_t i = 0; i < npath; ++i)
+            if (var_of_root[root[i]] != ~0u) var_paths[var_of_root[root[i]]].push_back(i);
+        auto subtree = [&](uint32_t x, auto&& f) {
+            std::vector<uint32_t> st{x};
+            while (!st.empty()) {
+                uint32_t y = st.back(); st.pop_back();
+                f(y);
+                for (uint32_t k : kids[y]) st.push_back(k);
+            }
+        };
+        const size_t W = (npath + 63) / 64;
+        auto bit_set = [&](std::vector<uint64_t>& v, size_t pt, uint32_t x) { v[pt * W + x / 64] |= 1ull << (x % 64); };
+        auto bit_get = [&](const std::vector<uint64_t>& v, size_t pt, uint32_t x) {
+            return (v[pt * W + x / 64] >> (x % 64)) & 1ull; };
+        std::vector<uint64_t> g_asg(npt * W, 0), g_mov(npt * W, 0), g_dead(npt * W, 0);
+        for (auto& [x, q] : assigned) subtree(x, [&](uint32_t y) { bit_set(g_asg, q, y); });
+        for (auto& [x, q] : moved)    subtree(x, [&](uint32_t y) { bit_set(g_mov, q, y); });
+        for (auto& [v, q] : dead_var)
+            if (auto it = var_paths.find(v); it != var_paths.end())
+                for (uint32_t y : it->second) bit_set(g_dead, q, y);
+        std::vector<std::vector<uint32_t>> preds(npt), succs(npt);
+        for (auto& [a, b] : edges) { preds[b].push_back(a); succs[a].push_back(b); }
+        // Two forward may-dataflows, one worklist each.
+        auto solve = [&](const std::vector<uint64_t>& gen, const std::vector<uint64_t>& kill1,
+                         const std::vector<uint64_t>& kill2, std::vector<uint64_t>& exit) {
+            exit.assign(npt * W, 0);
+            std::vector<uint64_t> in(W);
+            std::vector<char> queued(npt, 1);
+            std::vector<uint32_t> work(npt);
+            for (uint32_t i = 0; i < npt; ++i) work[i] = npt - 1 - i;
+            while (!work.empty()) {
+                uint32_t q = work.back(); work.pop_back(); queued[q] = 0;
+                std::fill(in.begin(), in.end(), 0);
+                for (uint32_t p : preds[q])
+                    for (size_t w = 0; w < W; ++w) in[w] |= exit[p * W + w];
+                bool changed = false;
+                for (size_t w = 0; w < W; ++w) {
+                    uint64_t nv = gen[q * W + w] | (in[w] & ~kill1[q * W + w] & ~kill2[q * W + w]);
+                    if (nv != exit[q * W + w]) { exit[q * W + w] = nv; changed = true; }
+                }
+                if (changed)
+                    for (uint32_t s2 : succs[q]) if (!queued[s2]) { queued[s2] = 1; work.push_back(s2); }
+            }
+        };
+        std::vector<uint64_t> init_exit, uninit_exit;
+        solve(g_asg, g_mov, g_dead, init_exit);
+        solve(g_mov, g_asg, g_dead, uninit_exit);
+        auto on_entry = [&](const std::vector<uint64_t>& exit, uint32_t q, uint32_t x) {
+            for (uint32_t p : preds[q]) if (bit_get(exit, p, x)) return true;
+            return false;
+        };
+        std::set<std::pair<uint32_t, uint32_t>> seen;
+        for (auto& [xb, q] : accessed)
+            subtree(xb, [&](uint32_t y) {
+                if (on_entry(uninit_exit, q, y) && seen.emplace(y, q).second)
+                    row("path_maybe_uninitialized_on_entry", {pa(y), pt(q)});
+            });
+        for (auto& [x, q] : assigned)
+            if (paths_[x].second == ~0u && on_entry(init_exit, q, x))
+                row("path_maybe_initialized_on_entry", {pa(x), pt(q)});
+        for (uint32_t v : drop_vars) {
+            auto it = var_paths.find(v);
+            if (it == var_paths.end()) continue;
+            for (uint32_t q = 0; q < npt; ++q)
+                for (uint32_t y : it->second)
+                    if (bit_get(init_exit, q, y)) { row("var_maybe_partly_initialized_on_exit", {var(v), pt(q)}); break; }
+        }
+    }
+
     void row(const char* rel, std::initializer_list<std::string> vals) {
         rows_.emplace_back(rel, std::vector<std::string>(vals));
     }
@@ -2645,6 +2767,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         }
     }
     invalidations();
+    initialization();
 
     // Into the database.
     const dl::Program& prog = db.program();

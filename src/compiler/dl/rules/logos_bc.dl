@@ -13,7 +13,7 @@
 .output assign_twice
 assign_twice(X, P) :-
     path_assigned_at_base(X, P), path_is_var(X, V), !var_mut(V),
-    path_maybe_initialized_on_exit(X, Q), cfg_edge(Q, P).
+    path_maybe_initialized_on_entry(X, P).
 
 // E0596 / E0594: a `&mut` of, or a write into, a place rooted at an immutable
 // binding without passing through a reference. Not a flow property, so the

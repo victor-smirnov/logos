@@ -29,58 +29,36 @@
 .decl path_assigned_at_base(x: Path, p: Point)
 .decl path_moved_at_base(x: Path, p: Point)
 .decl path_accessed_at_base(x: Path, p: Point)
-// StorageDead of a local (Logos extension to Polonius' inputs): the local stops
-// existing. Its paths are neither maybe-initialised nor maybe-uninitialised
-// past this point; a later `let` of the same local (a loop body) assigns anew.
-.decl var_dead_at(v: Variable, p: Point)
 .input cfg_edge, loan_issued_at, loan_killed_at, loan_invalidated_at, subset_base
 .input universal_region, placeholder, known_placeholder_subset
 .input var_used_at, var_defined_at, var_dropped_at
 .input use_of_var_derefs_origin, drop_of_var_derefs_origin
 .input child_path, path_is_var, path_assigned_at_base, path_moved_at_base, path_accessed_at_base
-.input var_dead_at
 
 // ── initialisation ──────────────────────────────────────────────────────
 .decl ancestor_path(a: Path, c: Path)
 ancestor_path(P, C) :- child_path(C, P).
 ancestor_path(G, C) :- ancestor_path(P, C), child_path(P, G).
 
-.decl path_moved_at(x: Path, p: Point)
-path_moved_at(X, P) :- path_moved_at_base(X, P).
-path_moved_at(C, P) :- path_moved_at(X, P), ancestor_path(X, C).
-.decl path_assigned_at(x: Path, p: Point)
-path_assigned_at(X, P) :- path_assigned_at_base(X, P).
-path_assigned_at(C, P) :- path_assigned_at(X, P), ancestor_path(X, C).
 .decl path_accessed_at(x: Path, p: Point)
 path_accessed_at(X, P) :- path_accessed_at_base(X, P).
 path_accessed_at(C, P) :- path_accessed_at(X, P), ancestor_path(X, C).
-.decl path_begins_with_var(x: Path, v: Variable)
-path_begins_with_var(X, V) :- path_is_var(X, V).
-path_begins_with_var(C, V) :- path_begins_with_var(X, V), ancestor_path(X, C).
 
-.decl path_dead_at(x: Path, p: Point)
-path_dead_at(X, P) :- var_dead_at(V, P), path_begins_with_var(X, V).
-
-.decl path_maybe_initialized_on_exit(x: Path, p: Point)
-path_maybe_initialized_on_exit(X, P) :- path_assigned_at(X, P).
-path_maybe_initialized_on_exit(X, Q) :-
-    path_maybe_initialized_on_exit(X, P), cfg_edge(P, Q), !path_moved_at(X, Q), !path_dead_at(X, Q).
-// A StorageDead ends the tracking instead of seeding uninitialisation: a dead
-// local cannot be accessed before it is assigned again, and seeding it made
-// every temporary "maybe uninitialised" to the end of the function (paths x
-// points; 25 M rows on a 48 k-point body).
-.decl path_maybe_uninitialized_on_exit(x: Path, p: Point)
-path_maybe_uninitialized_on_exit(X, P) :- path_moved_at(X, P).
-path_maybe_uninitialized_on_exit(X, Q) :-
-    path_maybe_uninitialized_on_exit(X, P), cfg_edge(P, Q), !path_assigned_at(X, Q), !path_dead_at(X, Q).
+// Maybe-(un)initialised paths are computed OUTSIDE the rules, as bitset
+// dataflow over points x paths (borrow_bir.inc, BirFacts::initialization;
+// rustc does the same with MaybeInitializedPlaces / MaybeUninitializedPlaces
+// and runs Polonius for loans only). As relations they cost a row per
+// (path, point). The extractor hands the rules the three restrictions they
+// consume, each only where it is consumed.
+.decl path_maybe_uninitialized_on_entry(x: Path, p: Point)
+.decl path_maybe_initialized_on_entry(x: Path, p: Point)
 .decl var_maybe_partly_initialized_on_exit(v: Variable, p: Point)
-var_maybe_partly_initialized_on_exit(V, P) :-
-    path_maybe_initialized_on_exit(X, P), path_begins_with_var(X, V).
+.input path_maybe_uninitialized_on_entry, path_maybe_initialized_on_entry
+.input var_maybe_partly_initialized_on_exit
 
 .decl move_errors(x: Path, p: Point)
 .output move_errors
-move_errors(X, Q) :-
-    path_accessed_at(X, Q), path_maybe_uninitialized_on_exit(X, P), cfg_edge(P, Q).
+move_errors(X, Q) :- path_accessed_at(X, Q), path_maybe_uninitialized_on_entry(X, Q).
 
 // ── liveness ────────────────────────────────────────────────────────────
 .decl cfg_node(p: Point)
