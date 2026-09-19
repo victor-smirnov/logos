@@ -24,12 +24,14 @@ tests/groups.rules (committed) and may overlap; levels never do.
                                        least recently run first (successive runs rotate L2)
   lt run --group G... [--except G...]  run groups (or --all [--except G...])
   lt run --failed                      rerun what failed in the last run
+  lt run --same-as RUN                 rerun exactly the tests of run RUN (before/after)
   lt run NAME... | -k REGEX            run named tests / a name regex
   lt show TEST [--output] [-n N]       history of one test (status, seconds, output)
   lt last [--failed]                   the last run's summary
   lt groups [G]                        groups and their sizes (or members of G)
 
-Options for run: -j N (default $CTEST_PARALLEL_LEVEL, else 12), --build DIR.
+Options for run: -j N (default $CTEST_PARALLEL_LEVEL, else 12), --build DIR,
+--env K=V (extra environment for every test, repeatable).
 """
 import argparse, datetime, json, os, re, signal, sqlite3, subprocess, sys, threading, time, zlib
 from concurrent.futures import ThreadPoolExecutor
@@ -254,6 +256,7 @@ class Runner:
         self.failed = []
         self.status = {}
         self.stop = False
+        self.extra_env = []
 
     def one(self, name, total):
         t = self.con_local().execute(
@@ -269,7 +272,7 @@ class Runner:
             if self.stop:
                 return self.record(name, "notrun", None, 0.0, b"", total)
             e = dict(os.environ)
-            for kv in json.loads(env):
+            for kv in json.loads(env) + list(self.extra_env):
                 k, _, v = kv.partition("=")
                 e[k] = v
             t0 = time.monotonic()
@@ -340,6 +343,7 @@ def run_set(con, build, names, args, task, label):
     con.commit()
     print(f"lt: run {run_id} — {label}: {len(sel)} tests, -j{jobs}")
     r = Runner(con, build, jobs, run_id, args.verbose)
+    r.extra_env = list(args.env or [])
     # history-informed order: longest first, so the tail does not wait on one slow test
     dur = dict(con.execute("SELECT test, AVG(seconds) FROM results WHERE status IN ('passed','failed') GROUP BY test"))
     ready = [n for n in sel if not req.get(n, ([], []))[0] and not req.get(n, ([], []))[1]]
@@ -427,6 +431,11 @@ def cmd_run(con, build, args):
                 print(f"lt: L{lv} is red; not running further levels")
                 return rc
         return rc
+    if args.same_as is not None:
+        names = [r[0] for r in con.execute("SELECT test FROM results WHERE run=?", (args.same_as,))]
+        if not names:
+            sys.exit(f"lt: run {args.same_as} has no results")
+        return run_set(con, build, names, args, None, f"same tests as run {args.same_as}")
     if args.failed:
         last = con.execute("SELECT MAX(id) FROM runs").fetchone()[0]
         names = [r[0] for r in con.execute(
@@ -564,9 +573,12 @@ def main():
     r.add_argument("--plus", type=float, metavar="PCT",
                    help="run L0, then PCT%% of L2 (stratified, least recently run first)")
     r.add_argument("--keep-going", action="store_true", help="with --plus: run the sample even if L0 is red")
+    r.add_argument("--env", action="append", metavar="K=V",
+                   help="extra environment for every test (e.g. LOGOS_DL_SHADOW=bc); repeatable")
     r.add_argument("--group", nargs="+"); r.add_argument("--except", dest="except_", nargs="+")
     r.add_argument("--all", action="store_true"); r.add_argument("--failed", action="store_true")
     r.add_argument("--ungrouped", action="store_true")
+    r.add_argument("--same-as", type=int, metavar="RUN", help="rerun exactly the tests of run RUN")
     r.add_argument("-k"); r.add_argument("-j", "--jobs", type=int); r.add_argument("-v", "--verbose", action="store_true")
     s = sub.add_parser("show"); s.add_argument("test"); s.add_argument("--output", action="store_true")
     s.add_argument("-n", type=int, default=10)

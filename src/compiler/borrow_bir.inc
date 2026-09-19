@@ -1901,6 +1901,71 @@ private:
         }
         return cur;
     }
+    // Two types that differ at most in their regions: the unit a value is
+    // stored as (`T` in `Vec<T>`) whatever regions the two spellings carry.
+    static bool same_type_modulo_regions(TypeRef a, TypeRef b, int depth = 0) {
+        if (!a || !b || depth > 16) return a == b;
+        if (a.kind() != b.kind()) return false;
+        using K = LogosType::Kind;
+        switch (a.kind()) {
+            case K::Ref: case K::MutRef:
+                return same_type_modulo_regions(a.pointee(), b.pointee(), depth + 1);
+            case K::Slice:
+                return a.mut_ptr() == b.mut_ptr() && a.raw_fat() == b.raw_fat() &&
+                       a.owning_slice() == b.owning_slice() &&
+                       same_type_modulo_regions(a.elem(), b.elem(), depth + 1);
+            case K::Array:
+                return a.arr_size() == b.arr_size() && same_type_modulo_regions(a.elem(), b.elem(), depth + 1);
+            case K::Tuple: {
+                auto ea = a.tuple_elems(), eb = b.tuple_elems();
+                if (ea.size() != eb.size()) return false;
+                for (size_t i = 0; i < ea.size(); ++i)
+                    if (!same_type_modulo_regions(ea[i], eb[i], depth + 1)) return false;
+                return true;
+            }
+            case K::Struct: case K::ZonedStruct: case K::Enum: case K::TraitObject: {
+                if (a.kind() == K::Enum ? a.enum_name() != b.enum_name()
+                    : a.kind() == K::TraitObject ? a.trait_name() != b.trait_name()
+                    : a.struct_name() != b.struct_name()) return false;
+                if (a.pkg_name() != b.pkg_name()) return false;
+                auto ta = a.type_args(), tb = b.type_args();
+                if (ta.size() != tb.size()) return false;
+                for (size_t i = 0; i < ta.size(); ++i)
+                    if (!same_type_modulo_regions(ta[i], tb[i], depth + 1)) return false;
+                return true;
+            }
+            default:
+                return types_equal(a, b);
+        }
+    }
+    // Out-parameter store: argument `src` (of type `st`) is stored behind a
+    // `&mut` whose pointee is `pointee` (origins `into`). When the pointee is a
+    // generic container one of whose type arguments IS the value's type (a
+    // `Vec<T>` receiving a `T`), the value's origins land PAIRWISE on that
+    // argument's origins, invariant (behind `&mut`). Returns false when the
+    // pointee has no such argument; the caller then relates every-to-every.
+    bool relate_into_type_arg(const OList& src, TypeRef st, const OList& into,
+                              TypeRef pointee, uint32_t p) {
+        if (!pointee || !st || !src.exact || !into.exact) return false;
+        auto k = pointee.kind();
+        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct &&
+            k != LogosType::Kind::Enum)
+            return false;
+        size_t off = pointee.lifetime_args().size();
+        for (auto& ta : pointee.type_args()) {
+            OList tmp; walk_type(ta, false, tmp); n_origins_ -= uint32_t(tmp.os.size());
+            size_t n = tmp.os.size();
+            if (same_type_modulo_regions(ta, st) && n == src.os.size() && off + n <= into.os.size()) {
+                for (size_t i = 0; i < n; ++i) {
+                    subset(src.os[i], into.os[off + i], p);
+                    subset(into.os[off + i], src.os[i], p);
+                }
+                return true;
+            }
+            off += n;
+        }
+        return false;
+    }
     // Loans in `src` flow into `dst` at point p. Pairwise when both shapes
     // are known and agree; every-to-every otherwise.
     void relate(const OList& src, const OList& dst, uint32_t p) {
@@ -2075,7 +2140,18 @@ private:
                 } else {
                     from = sr.label == L;
                 }
-                if (from) subset(sr.origin, dst.os[j], p);
+                if (from) {
+                    subset(sr.origin, dst.os[j], p);
+                    // A position behind `&mut` is invariant: the result's region
+                    // IS the argument's (`index(&vs) -> &T` with T = `&mut
+                    // Vec<&'y C>`: a store through the result lands in vs's 'y).
+                    // Only where the match is an IDENTITY (the same type
+                    // parameter's position, or the same named lifetime); the
+                    // elided-result fallback relates every elided input and
+                    // is an approximation, which must stay one-way.
+                    if (dst.inv[j] && !L.empty() && L != "?" && L != "~" && sr.label == L)
+                        subset(dst.os[j], sr.origin, p);
+                }
             }
         }
         return true;
@@ -2511,12 +2587,52 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         for (size_t j = 0; j < t.flow->to_outparam.size() && j < t.args.size(); ++j) {
                             uint64_t mask = t.flow->to_outparam[j];
                             if (!mask || !t.args[j].place.valid()) continue;
-                            OList into = place_origins(t.args[j].place.with(bir::Proj(bir::Proj::K::Deref)));
-                            into.exact = false;
+                            // Only a parameter whose DECLARED type can be written
+                            // through is an out-parameter (a `&mut`, or a value
+                            // holding one). A generic `value: T` is moved in, and
+                            // the generic body cannot write through it, whatever
+                            // `T` is at this call (Vec::push with T = &mut X).
+                            if (t.callee_fn) {
+                                auto ps = t.callee_fn.params();
+                                if (j < ps.size()) {
+                                    TypeRef dt = ps[j].decl_type(pool_) ? ps[j].decl_type(pool_) : ps[j].type(pool_);
+                                    bool writable = dt && !dt.raw_fat() &&
+                                        (((dt.kind() == LogosType::Kind::Slice || dt.kind() == LogosType::Kind::DstRef) &&
+                                          dt.mut_ptr()) || bc_holds_mut_ref_type(ts_, dt));
+                                    if (!writable) continue;
+                                }
+                            }
+                            const bir::Place& jp = t.args[j].place;
+                            OList into = place_origins(jp.with(bir::Proj(bir::Proj::K::Deref)));
+                            TypeRef pointee;
+                            if (jp.proj.empty()) {
+                                if (b_.locals[jp.local].synth_ref) pointee = b_.locals[jp.local].synth_pointee;
+                                else if (TypeRef jt = b_.locals[jp.local].type;
+                                         jt && (jt.kind() == LogosType::Kind::MutRef || jt.kind() == LogosType::Kind::Ref))
+                                    pointee = jt.pointee();
+                            }
                             for (size_t ai = 0; ai < t.args.size() && ai < 64; ++ai) {
                                 if (!((mask >> ai) & 1u) || !t.args[ai].place.valid()) continue;
-                                OList src = place_origins(t.args[ai].place); src.exact = false;
-                                relate(src, into, p);
+                                // An argument is never stored behind ITS OWN
+                                // reference: `&'s mut v` flowing into `*v` would
+                                // make `v` hold a loan of itself, which Rust's
+                                // region check rejects in the callee.
+                                if (ai == j) continue;
+                                const bir::Place& ap = t.args[ai].place;
+                                OList src = place_origins(ap);
+                                TypeRef st;
+                                if (ap.proj.empty()) {
+                                    if (b_.locals[ap.local].synth_ref) {
+                                        auto sp = b_.locals[ap.local].synth_pointee;
+                                        (void)sp;   // a synthetic reference: its own type is not recorded
+                                    } else {
+                                        st = b_.locals[ap.local].type;
+                                    }
+                                }
+                                if (relate_into_type_arg(src, st, into, pointee, p)) continue;
+                                OList srcx = src; srcx.exact = false;
+                                OList intox = into; intox.exact = false;
+                                relate(srcx, intox, p);
                             }
                         }
                     write_place(t.dest, p);
