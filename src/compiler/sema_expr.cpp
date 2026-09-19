@@ -7073,8 +7073,9 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         // site RE-WRAP the fat pair as a data pointer (vtable slot left
         // uninitialised) → garbage-vtable segfault. The bare TraitObject matches
         // the canonical `*mut dyn`/`&dyn` representation, so it passes through.
-        TypeRef tobj = make_trait_object(trait_name, std::move(trait_args),
-                                         TraitOwningKind::Borrow, false, false);
+        // ADR 0028: `*mut dyn Trait` is the RAW twin of `&dyn Trait`.
+        TypeRef tobj = make_raw_fat(make_trait_object(trait_name, std::move(trait_args),
+                                                      TraitOwningKind::Borrow, false, false));
         return builder().call("__dyn_from_parts__", {}, std::move(rargs), tobj);
     }
 
@@ -23234,17 +23235,15 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
                     for (auto& seg : fmt_result.segments) {
                         if (seg.is_literal) {
                             if (seg.lit_text.empty()) continue;
-                            // write!/writeln! stream literals straight to the
-                            // sink Formatter; format!/etc. push into __buf.
-                            if (is_write_family) {
-                                blk += "let _ = __f.write_str(";
-                                blk += emit_str_lit(seg.lit_text);
-                                blk += "); ";
-                            } else {
-                                blk += "__buf.push_str(";
-                                blk += emit_str_lit(seg.lit_text);
-                                blk += "); ";
-                            }
+                            // Literals go through the Formatter for every
+                            // family. format!/etc. used to push straight into
+                            // __buf while __f held `&mut __buf` — two live
+                            // mutable paths to one String, which Rust's
+                            // format_args! never makes and the borrow checker
+                            // refuses (ADR 0028).
+                            blk += "let _ = __f.write_str(";
+                            blk += emit_str_lit(seg.lit_text);
+                            blk += "); ";
                             continue;
                         }
                         int32_t idx = (seg.arg_idx >= 0) ? seg.arg_idx : auto_idx++;

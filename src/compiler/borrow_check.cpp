@@ -956,6 +956,9 @@ static bool is_ref_kind(TypeRef t) {
     // reference (non-owning DstRef). Without these, a method returning a
     // slice VIEW of its receiver (`fn offs(&self) -> &[u32]`) did not extend
     // the receiver's borrow — resize-after-view compiled and dangled.
+    // A RAW fat pointer (`*const [T]`, `*mut dyn T`, `*const Dst`) shares the
+    // representation and is not a reference (ADR 0028).
+    if (t && t.raw_fat()) return false;
     return t && (t.kind() == LogosType::Kind::Ref ||
                  t.kind() == LogosType::Kind::MutRef ||
                  t.kind() == LogosType::Kind::Slice ||

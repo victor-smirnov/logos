@@ -2397,6 +2397,20 @@ private:
             t.const_val = int64_t(packed);
         return pool_->alloc(std::move(t));
     }
+    // ADR 0028: the raw-pointer twin of a fat reference type (Slice /
+    // TraitObject / DstRef). Anything else is returned unchanged.
+    TypeRef make_raw_fat(TypeRef fat) {
+        if (!fat) return fat;
+        auto k = fat.kind();
+        if (k != LogosType::Kind::Slice && k != LogosType::Kind::TraitObject &&
+            k != LogosType::Kind::DstRef)
+            return fat;
+        if (fat.raw_fat()) return fat;
+        LogosTypeBuilder b = fat.to_builder();
+        b.const_val = int64_t(uint64_t(b.const_val.value_or(0)) | TypeRef::RAW_FAT_BIT);
+        b.lifetime.clear();   // a raw pointer carries no region
+        return pool_->alloc(std::move(b));
+    }
     TypeRef make_typevar(std::string_view name) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TypeVar;
         t.type_var_name = std::string(name);

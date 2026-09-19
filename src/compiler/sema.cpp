@@ -875,6 +875,9 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // const_val carries the owning kind (Borrow vs Box) — an owning
         // `Box<[T]>` slice interns distinctly from a borrowed `&[T]`.
         put_byte(buf, (uint8_t)(t.const_val.value_or(0)));
+        // ADR 0028: a raw fat pointer is a distinct type; the extra byte only
+        // when set, so every existing type keeps its UID.
+        if (uint64_t(t.const_val.value_or(0)) & TypeRef::RAW_FAT_BIT) put_byte(buf, 0x52);
         put_sub(buf, impl, t.elem);
         break;
     case K::UnsizedSlice:
@@ -891,6 +894,9 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // const_val = owning kind (Borrow vs Box) — an owning `Box<Foo>` custom-
         // DST interns distinctly from a borrowed `&Foo`.
         put_byte(buf, (uint8_t)(t.const_val.value_or(0)));
+        // ADR 0028: a raw fat pointer is a distinct type; the extra byte only
+        // when set, so every existing type keeps its UID.
+        if (uint64_t(t.const_val.value_or(0)) & TypeRef::RAW_FAT_BIT) put_byte(buf, 0x52);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
     case K::FnPtr:
@@ -2481,6 +2487,9 @@ std::string type_str(TypeRef t, bool source_form) {
         }
         return r + ")"; }
     case LogosType::Kind::Slice: {
+        if (TypeRef(t).raw_fat())   // ADR 0028
+            return std::format("*{} [{}]", TypeRef(t).mut_ptr() ? "mut" : "const",
+                               type_str(TypeRef(t).elem(), source_form));
         // Source form names a borrowed slice's region, as the Ref arm does. PROBES.md 2026-09-13f-declarrivalland.
         std::string l_ = lt_written(TypeRef(t).lifetime());
         const bool named_ = source_form && !l_.empty() && !lt_is_minted(l_) &&
@@ -2493,7 +2502,8 @@ std::string type_str(TypeRef t, bool source_form) {
     case LogosType::Kind::UnsizedDyn:
         return std::format("dyn {}", TypeRef(t).trait_name());
     case LogosType::Kind::DstRef: {
-        std::string s = TypeRef(t).mut_ptr() ? "&mut " : "&";
+        std::string s = TypeRef(t).raw_fat() ? (TypeRef(t).mut_ptr() ? "*mut " : "*const ")
+                                             : (TypeRef(t).mut_ptr() ? "&mut " : "&");
         s += TypeRef(t).struct_name();
         auto args = TypeRef(t).type_args();
         if (!args.empty()) {
@@ -2584,7 +2594,7 @@ std::string type_str(TypeRef t, bool source_form) {
         }
         return r + ">"; }
     case LogosType::Kind::TraitObject: {
-        std::string r = "&dyn " + std::string(TypeRef(t).trait_name());
+        std::string r = (TypeRef(t).raw_fat() ? "*mut dyn " : "&dyn ") + std::string(TypeRef(t).trait_name());
         auto ta = TypeRef(t).type_args();
         if (!ta.empty()) {
             r += "<";
@@ -6420,12 +6430,13 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // raw pointer, canonicalise to the existing Kind::Slice so the
         // type matches the SLICE_TYPE grammar route (which also lowers
         // `*const [T]` directly to Slice).
+        // ADR 0028: each canonical form here is the RAW twin of the reference.
         if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(inner.elem());
+            return make_raw_fat(make_slice_type(inner.elem(), t.mut_ptr()));
         // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_trait_object(inner.trait_name(), std::move(args_vec));
+            return make_raw_fat(make_trait_object(inner.trait_name(), std::move(args_vec)));
         }
         // Phase 1B-14/15: `*const DstStruct` / `*mut DstStruct` → DstRef —
         // UNLESS the DST is #[self_describing], in which case a raw pointer
@@ -6449,7 +6460,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 return make_ptr(t.mut_ptr(), inner, t.zoned_ptr());
             }
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_dst_ref(sn, spkg, t.mut_ptr(), std::move(args_vec));
+            return make_raw_fat(make_dst_ref(sn, spkg, t.mut_ptr(), std::move(args_vec)));
         }
         if (inner == t.pointee()) return t;
         return make_ptr(t.mut_ptr(), inner, t.zoned_ptr());   // F3: preserve *zoned
@@ -7991,7 +8002,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (node.has_key(la::POINTEE) &&
             code_of(map_of(node.get(la::POINTEE.code))) == la::DYN_TYPE &&
             inner && inner.kind() == LogosType::Kind::TraitObject)
-            return inner;
+            return make_raw_fat(inner);   // ADR 0028: raw, not `&dyn`
         // Phase 1B-14: `*const DstStruct` / `*mut DstStruct` → DstRef
         // (fat pointer). Same canonicalisation as REF_TYPE for DST. Use
         // is_effective_dst (not the raw template `is_dst` flag) so a generic
@@ -8017,7 +8028,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             if (rssi && rssi->self_describing)
                 return make_ptr(mut, inner, zoned);
             std::vector<TypeRef> targs = inner.type_args();
-            return make_dst_ref(sn, spkg, mut, std::move(targs));
+            return make_raw_fat(make_dst_ref(sn, spkg, mut, std::move(targs)));
         }
         return make_ptr(mut, inner, zoned);
     }
@@ -8195,6 +8206,9 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             slt = std::string(str_of(node.get(la::LIFETIME.code)));
         logos::probe::census(slt.empty() ? "regslot.slicetype.elided"
                                          : "regslot.slicetype.written");
+        // `*const [T]` / `*mut [T]` (ADR 0028): the raw twin of `&[T]`.
+        if (node.has_key(la::RAW_PTR))
+            return make_raw_fat(make_slice_type(elem, is_mut));
         return make_slice_type(elem, is_mut, TypeRef::OwningKind::Borrow,
                                logos::probe::arm_regslot() ? slt : std::string{});
     }

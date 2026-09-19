@@ -70,6 +70,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in WRIT_ENTRY
+    RAW_PTR        = 9     // ADR 0028: SLICE_TYPE came from `*const/*mut [T]`, not `&[T]`. Reuses THEN — a type node never carries a then-branch.
     CODE_EXPR      = 6     // ADR 0011: `code(expr)` clause sub-node on SCHEMA_DEF/SCHEMA_ENUM_DEF (NAME="code", VALUE=expr). Reuses RET_TYPE slot — schemas have no return type. (AST TinyObjectMap keys are 0..51; 52 is out of range.)
     IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
     HRTB_BINDERS   = 41    // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node with ITEMS=[LIFETIME_PARAM...].
@@ -2089,10 +2090,12 @@
     // the borrow-check guarantees. Must precede the plain `ptr_type`
     // alts since arr_type requires `[T; N]` (with size); a bare
     // `[T]` would otherwise fail to parse.
+    // `*const [T]` / `*mut [T]`: the fat slice representation, marked RAW_PTR so
+    // sema keeps it a raw pointer and not a `&[T]` (ADR 0028).
     ptr_type <- STAR KW_CONST LBRACKET type_ref RBRACKET
-             => { CODE: SLICE_TYPE, TYPE: $4 }
+             => { CODE: SLICE_TYPE, TYPE: $4, RAW_PTR: true }
               / STAR KW_MUT LBRACKET type_ref RBRACKET
-             => { CODE: SLICE_TYPE, TYPE: $4, MUTPTR: true }
+             => { CODE: SLICE_TYPE, TYPE: $4, MUTPTR: true, RAW_PTR: true }
               / STAR KW_CONST type_ref
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false }
               / STAR KW_MUT type_ref

@@ -482,6 +482,20 @@ public:
     bool owning_trait_object() const noexcept {
         return trait_owning_kind() != OwningKind::Borrow;
     }
+    // ADR 0028: a RAW fat pointer — `*const/*mut [T]`, `*const/*mut dyn T`,
+    // `*const/*mut DstStruct` — shares its representation with `&[T]` /
+    // `&dyn T` / `&DstStruct` but is not a reference: no lifetime, no loan.
+    // Bit 16 of const_val, clear of the owning kind (low byte) and of
+    // TraitObject's Send/Sync bits (8, 9), so owning_*() never sees it.
+    static constexpr uint64_t RAW_FAT_BIT = 1ull << 16;
+    bool raw_fat() const noexcept {
+        auto k = kind();
+        if (k != LogosType::Kind::Slice && k != LogosType::Kind::TraitObject &&
+            k != LogosType::Kind::DstRef)
+            return false;
+        auto cv = const_val();
+        return cv && (uint64_t(*cv) & RAW_FAT_BIT);
+    }
     // logos-core 2.4(c): bit 8 / bit 9 of TraitObject's const_val carry the
     // `+ Send` / `+ Sync` auto-trait bounds (the trait object MUST satisfy
     // these at the unsize-coercion site). Encoded by make_trait_object's

@@ -145,23 +145,62 @@ struct Body {
 // them. A struct or enum like that with no declared lifetime parameter still
 // needs one origin, or the loan it carries is lost at the first copy.
 static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
-                                   int depth = 0) {
+                                   int depth = 0);
+
+// A struct's fields, read from its definition (the instance, else the base).
+static std::optional<std::vector<TypeRef>> bir_struct_fields(TypeRef t, const lir::LProgram& prog,
+                                                             const TypeSets& ts) {
+    std::string want = concrete_struct_name(t);
+    auto look = [&](const auto& map) -> std::optional<std::vector<TypeRef>> {
+        auto it = map.find(want);
+        if (it == map.end()) return std::nullopt;
+        std::vector<TypeRef> out;
+        for (auto& f : it->second.fields()) out.push_back(f.type(prog.type_pool.impl()));
+        return out;
+    };
+    if (auto f = look(ts.struct_by_name)) return f;
+    return look(ts.spec_by_name);
+}
+
+static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
+                                   int depth) {
     if (!t || depth > 16) return false;
     switch (t.kind()) {
         case LogosType::Kind::Ref: case LogosType::Kind::MutRef: case LogosType::Kind::Closure:
             return true;
-        case LogosType::Kind::Slice: return !t.owning_slice() || bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
-        case LogosType::Kind::TraitObject: return !t.owning_trait_object();
-        case LogosType::Kind::DstRef: return !t.owning_dst();
+        case LogosType::Kind::Ptr: {
+            // A raw pointer carries a loan only when it points AT a reference
+            // (`*const &'a T`). `*mut dyn Trait` is `*mut (dyn Trait + 'static)`
+            // in Rust: no loan.
+            TypeRef pt = t.pointee();
+            if (!pt) return false;
+            auto pk = pt.kind();
+            if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) return true;
+            if (pk == LogosType::Kind::TraitObject || pk == LogosType::Kind::UnsizedDyn ||
+                pk == LogosType::Kind::Slice || pk == LogosType::Kind::UnsizedSlice ||
+                pk == LogosType::Kind::DstRef)
+                return false;
+            return bir_type_carries_loans(pt, prog, ts, depth + 1);
+        }
+        case LogosType::Kind::Slice:
+            if (t.raw_fat()) return false;
+            return !t.owning_slice() || bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
+        case LogosType::Kind::TraitObject: return !t.owning_trait_object() && !t.raw_fat();
+        case LogosType::Kind::DstRef: return !t.owning_dst() && !t.raw_fat();
         case LogosType::Kind::Array: return bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
         case LogosType::Kind::Tuple:
             for (auto& e : t.tuple_elems()) if (bir_type_carries_loans(e, prog, ts, depth + 1)) return true;
             return false;
-        case LogosType::Kind::Struct:
+        case LogosType::Kind::Struct: {
             if (!t.lifetime_args().empty()) return true;
-            if (bc_holds_any_ref_type(ts, t) || bc_loan_carrying_type(ts, t)) return true;
+            if (bc_loan_carrying_type(ts, t)) return true;   // #[borrow_carrying]
             for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1)) return true;
-            return false;
+            if (auto fields = bir_struct_fields(t, prog, ts)) {
+                for (auto& ft : *fields) if (bir_type_carries_loans(ft, prog, ts, depth + 1)) return true;
+                return false;
+            }
+            return bc_holds_any_ref_type(ts, t);   // no definition: the name-keyed set
+        }
         case LogosType::Kind::Enum: {
             if (!t.lifetime_args().empty()) return true;
             for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1)) return true;
@@ -918,14 +957,15 @@ private:
                 return;
             }
             case LogosType::Kind::Slice:
+                if (t.raw_fat()) return;
                 if (!t.owning_slice()) elided = true;
                 lifetimes_in(t.elem(), names, elided, depth + 1);
                 return;
             case LogosType::Kind::TraitObject:
-                if (!t.owning_trait_object()) elided = true;
+                if (!t.owning_trait_object() && !t.raw_fat()) elided = true;
                 return;
             case LogosType::Kind::DstRef:
-                if (!t.owning_dst()) elided = true;
+                if (!t.owning_dst() && !t.raw_fat()) elided = true;
                 return;
             case LogosType::Kind::Array:
                 lifetimes_in(t.elem(), names, elided, depth + 1);
@@ -1761,14 +1801,14 @@ private:
                 return;
             }
             case LogosType::Kind::Slice:
-                if (!t.owning_slice()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
-                walk_type(t.elem(), invariant, out, depth + 1);
+                if (!t.owning_slice() && !t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
+                if (!t.raw_fat()) walk_type(t.elem(), invariant, out, depth + 1);
                 return;
             case LogosType::Kind::TraitObject:
-                if (!t.owning_trait_object()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
+                if (!t.owning_trait_object() && !t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
                 return;
             case LogosType::Kind::DstRef:
-                if (!t.owning_dst()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
+                if (!t.owning_dst() && !t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
                 return;
             case LogosType::Kind::Array:
                 walk_type(t.elem(), invariant, out, depth + 1);
@@ -2203,7 +2243,7 @@ private:
         for (auto& pj : p.proj) {
             if (pj.k == bir::Proj::K::Deref) {
                 if (synth) { synth = false; t = pj.ty ? pj.ty : b_.locals[p.local].synth_pointee; continue; }
-                if (t && t.kind() == LogosType::Kind::Ptr) return true;
+                if (t && (t.kind() == LogosType::Kind::Ptr || t.raw_fat())) return true;
                 t = pj.ty ? pj.ty : (t && t.kind() != LogosType::Kind::Slice ? t.pointee() : TypeRef{});
             } else if (pj.k == bir::Proj::K::Field) {
                 t = pj.ty ? pj.ty : field_type_(t, pj.field);

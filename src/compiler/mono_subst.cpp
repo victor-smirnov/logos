@@ -95,9 +95,13 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         // the existing Kind::Slice (fat-pointer ABI). Mirrors the sema-side
         // subst_type_sema canonicalisation; mono operates over the same
         // type-pool but with its own allocator/recorder.
+        // ADR 0028: behind a RAW pointer each canonical fat form is marked raw
+        // (a distinct type from the reference, as in Rust).
+        const bool raw_ptr = tv.kind() == LogosType::Kind::Ptr;
         if (inner && inner.kind() == LogosType::Kind::UnsizedSlice) {
             LogosTypeBuilder snt; snt.kind = LogosType::Kind::Slice;
             snt.elem = inner.elem();
+            if (raw_ptr) { snt.mut_ptr = tv.mut_ptr(); snt.const_val = int64_t(TypeRef::RAW_FAT_BIT); }
             return out_.type_pool.alloc(std::move(snt));
         }
         // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
@@ -105,6 +109,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             LogosTypeBuilder tnt; tnt.kind = LogosType::Kind::TraitObject;
             tnt.trait_name = std::string(inner.trait_name());
             tnt.type_args = inner.type_args();
+            if (raw_ptr) tnt.const_val = int64_t(TypeRef::RAW_FAT_BIT);
             return out_.type_pool.alloc(std::move(tnt));
         }
         // Phase 1B-14: when substitution lands a custom-DST struct as the
@@ -198,6 +203,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 dn.mut_ptr = (tv.kind() == LogosType::Kind::MutRef) ||
                              (tv.kind() == LogosType::Kind::Ptr && tv.mut_ptr());
                 dn.type_args = inner.type_args();
+                if (raw_ptr) dn.const_val = int64_t(TypeRef::RAW_FAT_BIT);
                 return out_.type_pool.alloc(std::move(dn));
             }
         }
