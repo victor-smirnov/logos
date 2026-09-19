@@ -297,6 +297,12 @@
 # a literal argument (FACT 5). Soundness-queue row
 # `localvec_for_ref_names_stdlib_as_slice` stays open and was RE-POINTED at it.
 # PROBES.md 2026-09-10d.
+# 2026-09-19, ADR 0028: sema.hpp enters the roster at 1 (3cfce651). The
+# literal is `Box` in is_stdlib_box_type, guarded on the owning package
+# (`logos.mem.boxed`, or empty on internal paths where it was stripped): a
+# user `struct Box` elsewhere does not match. One shared predicate for sema,
+# codegen and both borrow checkers instead of a literal at each.
+#SCAN sema.hpp 1 3cfce651
 #SCAN sema.cpp 48 ff909cb5
 #SCAN sema_auto_trait.cpp 16 a2c3b0b4
 #SCAN sema_collect.cpp 40 0f9e28cc
@@ -413,6 +419,7 @@ sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
 sema_expr.cpp	datatypes_	B#98	1	TypeRef(elem).struct_name()
 sema_expr.cpp	enums_	O	1	TypeRef(inner_t).enum_name()
 sema_expr.cpp	impls_	B#88	1	b.trait_name + "::" + std::string(TypeRef(actual).struct_name())
+sema_expr.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(t).type_var_name())
 sema_impl.hpp	current_type_bounds_	D	2	std::string(TypeRef(t).type_var_name())
 sema_impl.hpp	datatypes_	O	1	tr.struct_name()
 sema_impl.hpp	enums_	O	1	tr.enum_name()

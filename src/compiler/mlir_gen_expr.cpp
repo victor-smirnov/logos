@@ -1481,9 +1481,16 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         return get_subscript_ptr(vn);
     }
     case ec::Code::Deref: {
-        // `*op` — the pointer operand IS the place address.
+        // `*op` — the pointer operand IS the place address; for a built-in
+        // `*b` over a `Box<T>` it is the heap pointer the box holds.
         auto op = lir_view::EDerefView{e}.operand();
-        return op ? gen_expr(op) : nullptr;
+        if (!op) return nullptr;
+        if (is_stdlib_box(op.type(pool_impl()))) {
+            auto box_addr = is_place_chain(op) ? gen_lvalue_addr(op) : gen_expr(op);
+            return box_addr ? builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), box_addr).getResult()
+                            : mlir::Value{};
+        }
+        return gen_expr(op);
     }
     case ec::Code::FieldRead: {
         lir_view::EFieldReadView frv{e};
@@ -2105,6 +2112,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     if (!v.operand()) return nullptr;
     auto ptr = gen_expr(v.operand());
     if (!ptr) return nullptr;
+    // Built-in `*b` over a `Box<T>` (ADR 0028): the box is a pointer-represented
+    // `{ptr}`; the place is at the heap pointer it holds.
+    if (is_stdlib_box(v.operand().type(pool_impl())))
+        ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), ptr);
     // Structs/datatypes are always pointer-represented in MLIR/LLVM; the
     // logical *-deref just yields the same pointer.  Subsequent field
     // access or the return-by-value wrap handles the byte-level copy.

@@ -1,0 +1,38 @@
+// A trait default body calls `it.next()` on Self = SI<'a, T>, whose Item is &'a T: the
+// result holds what the iterator holds ('a), not a borrow of `it`, so `it` stays usable
+// while `first` lives (Rust elision over the declared signature; ADR 0028).
+package trait_default_next_item_binder;
+trait Itr {
+    type Item;
+    fn nx(self: &mut Self) -> Option<Self::Item>;
+    fn eat(self: Self) -> i64;
+    fn red(self: Self) -> Option<Self::Item> {
+        let mut it: Self = self;
+        let first: Option<Self::Item> = it.nx();
+        match first {
+            Option::None => { return Option::None; }
+            Option::Some(v) => {
+                let n: i64 = it.eat();
+                if n < 0i64 { return Option::None; }
+                return Option::Some(v);
+            }
+        }
+    }
+}
+struct SI<'a, T> { d: &'a [T], i: i64 }
+impl<'a, T> Itr for SI<'a, T> {
+    type Item = &'a T;
+    fn nx(self: &mut SI<'a, T>) -> Option<&'a T> {
+        if self.i >= self.d.len() { return Option::None; }
+        let r: &'a T = &self.d[self.i as u64];
+        self.i = self.i + 1i64;
+        return Option::Some(r);
+    }
+    fn eat(self: SI<'a, T>) -> i64 { return self.i; }
+}
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let sl: &[i64] = &a;
+    let s: SI<i64> = SI { d: sl, i: 0i64 };
+    match s.red() { Option::Some(x) => { return *x as i32; } Option::None => { return 9i32; } }
+}

@@ -268,3 +268,43 @@ to every input. Found by the S5 shadow run, 2026-09-18.
   `HashSetIter<'a, K>`, `BTreeMapIter<'a, K, V>`, `Chunks<'a, T: 'a>`,
   `Windows<'a, T: 'a>`.
 
+- Raw fat pointers are their own types, as in Rust: `*const [T]`,
+  `*mut dyn Tr`, `*const Dst` carry `TypeRef::RAW_FAT_BIT` and have no region
+  slot. Every walker that rebuilds a Slice / DstRef / TraitObject from its
+  parts keeps the bit.
+- The extractor reads facts, it does not infer them (Victor, 2026-09-18:
+  "no heuristics; thread what the borrow checker needs down from the upper
+  levels"). A fact sema decided goes into the L-IR at the site that decided
+  it. First instance: `BorrowOrigin` on `AddrOf` / `AddrOfTemp` (Explicit,
+  Autoref, Reborrow, CompoundAssign, OperatorAutoref, Desugar). Two-phase
+  borrows are the rustc set (AllowTwoPhase::Yes): Autoref, Reborrow,
+  CompoundAssign. An explicit `&mut x` argument is not two-phase, so
+  `f(&mut x, x)` is refused as rustc refuses it (E0503).
+- A loan the L-IR does not contain is not invented. Where sema leaves a
+  borrow to codegen (a place passed to a reference parameter or to a
+  `&self` receiver without a borrow node), the extractor marks the function
+  unsupported and the shadow census counts it per reason; the fix is in sema.
+- Call arguments are evaluated into temporaries before the call, as MIR
+  building does, so their reads precede the activation of a two-phase
+  reservation.
+- Open, next: the callee of a Call / MethodCall is found by name matching in
+  both codegen and the extractor. Mono must write the exact instance symbol
+  into the node, and both read it.
+- Box's `*b` is Rust's built-in place projection (DerefMove), not a
+  `Deref::deref` call: `Deref(b)` with `b: Box<T>` for a sized `T`. `(*b).s`
+  is the move path `b.*.s` in sema, both checkers and BIR; the box's drop
+  drops what is left of the pointee and frees the block without
+  `Box::drop`. `*b = v` and `*b op= v` still go through `deref_mut()`.
+- Elision is read from the DECLARED signature in the old checker too: a
+  result that writes every lifetime it has, none of them a reference
+  parameter's own, does not borrow through that reference
+  (`fn next(&mut self) -> Option<&'a T>`). The body's flow summary no longer
+  overrides the signature for a fresh borrow argument.
+- The receiver autoref of a method on a generic struct without method-level
+  type parameters stays in codegen until callees are exact (#83 key on the
+  call); BIR counts those functions as unsupported. Making it explicit first
+  exposed loans the old checker could not read the callee signature for.
+- Engine: one Database per thread, cleared between functions (rules planned
+  once); relation indexes are open hashing over row ids. `bir_check` 5.24 G
+  -> 2.64 G instructions on a 7-line program (callgrind, whole compile
+  11.7 G -> 9.1 G). Checking generic bodies once, before mono, is #434.

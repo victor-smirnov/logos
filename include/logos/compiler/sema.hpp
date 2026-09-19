@@ -1164,4 +1164,17 @@ struct SemaResult {
     }
 };
 
+// The stdlib owned box `logos.mem.boxed.Box<T>`, not a user struct that
+// happens to be named Box (an empty package is tolerated on internal paths
+// where it was stripped). Its `*b` is Rust's built-in place projection
+// (ADR 0028, DerefMove): sema, codegen and both borrow checkers ask here.
+inline bool is_stdlib_box_type(TypeRef t) noexcept {
+    if (!t) return false;
+    auto k = t.kind();
+    if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) return false;
+    if (t.struct_name() != "Box") return false;
+    auto p = t.pkg_name();
+    return p.empty() || p == "logos.mem.boxed";
+}
+
 } // namespace logos::compiler

@@ -1293,6 +1293,14 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             auto op = EDerefView{cur}.operand();
             if (op) {
                 auto ok = op.type(pool);
+                // The built-in `*b` of a stdlib Box is a step of the place
+                // under `b` (ADR 0028, DerefMove): `&(*b).t` borrows `b.*.t`,
+                // disjoint from a moved-out `b.*.s`.
+                if (is_stdlib_box_type(ok)) {
+                    path_parts.push_back("*");
+                    cur = op;
+                    continue;
+                }
                 bool through = is_ref_kind(ok) ||
                     (ok && (ok.kind() == LogosType::Kind::Struct ||
                             ok.kind() == LogosType::Kind::ZonedStruct ||
@@ -3467,6 +3475,37 @@ private:
     // NARROWER than `collect_ref_sources`, which names the HOLDER a reference
     // was copied out of and so would refuse the legal `*out = hr.r`
     // (pass/bc_b6ptr_param_holder_field). Params outlive the frame: excluded.
+    // Rust elision over the DECLARED signature: a result that writes every
+    // lifetime it has, none of them the lifetime of reference parameter `pi`,
+    // holds nothing borrowed through that reference.
+    // The callee of a call, resolved exactly: by its name, or by the mono key
+    // when one function answers to it. Empty otherwise.
+    lir_view::FunctionView exact_callee(lir_view::ExprRef e) const {
+        using EC = lir_schema::expr::Code;
+        if (!e || (e.kind() != EC::Call && e.kind() != EC::MethodCall)) return {};
+        std::string sym = e.kind() == EC::Call
+            ? std::string(lir_view::ECallView{e}.callee())
+            : std::string(lir_view::EMethodCallView{e}.resolved_symbol());
+        if (sym.empty()) return {};
+        if (auto it = fn_index_.by_name.find(sym); it != fn_index_.by_name.end()) return it->second;
+        if (auto jt = fn_index_.by_bare.find(std::string(bare_fn_name(sym)));
+            jt != fn_index_.by_bare.end() && jt->second.size() == 1)
+            return jt->second.front();
+        return {};
+    }
+    bool sig_result_excludes_param_ref(lir_view::FunctionView f, unsigned pi) const {
+        if (!f) return false;
+        const auto* pool = prog_.type_pool.impl();
+        auto ps = f.params();
+        if (pi >= ps.size()) return false;
+        TypeRef pt = ps[pi].decl_type(pool) ? ps[pi].decl_type(pool) : ps[pi].type(pool);
+        TypeRef rt = f.decl_ret_type(pool) ? f.decl_ret_type(pool) : f.ret_type(pool);
+        if (!pt || !rt || !is_ref_kind(pt)) return false;
+        std::set<std::string> rn;
+        names_in_type_(rt, rn);
+        if (rn.empty() || elided_in_type_(rt)) return false;
+        return !rn.count(std::string(pt.lifetime()));
+    }
     void collect_borrowed_local_roots(lir_view::ExprRef e,
                                       std::vector<std::string>& out) const {
         if (!e) return;
@@ -3513,9 +3552,18 @@ private:
                     fs = flow_of_method(mv); base = 1; recv = mv.receiver();
                 }
                 if (!fs || !fs->available) return;
+                // The callee, resolved exactly (its name, or the mono key when
+                // one function answers to it), whose DECLARED signature decides
+                // what the result borrows (ADR 0028).
+                lir_view::FunctionView callee = exact_callee(e);
                 auto one = [&](lir_view::ExprRef a, unsigned pi) {
                     if (!a || pi >= fs->nparams) return;
                     if ((fs->to_result & (1ull << pi)) == 0) return;
+                    // A fresh borrow passed to parameter `pi` reaches the result
+                    // only if the result can name that reference's lifetime.
+                    if ((a.kind() == EC::AddrOf || a.kind() == EC::AddrOfTemp) &&
+                        sig_result_excludes_param_ref(callee, pi))
+                        return;
                     // ⚠ AN AGGREGATE LITERAL ARGUMENT CARRIES THE BORROW TOO.
                     // `f((&l,1))`, `f(H{p:&l})`, `f([&l])` reach the result
                     // through the SAME `to_result` bit as `f(&l)`, and this
@@ -6934,7 +6982,13 @@ private:
                     if (!lt.empty() && lt != "'_" && lt != "_") out.insert(lt[0] == '\'' ? lt : "'" + lt);
                 for (auto& a : t.type_args()) names_in_type_(a, out, depth + 1);
                 return;
-            case LogosType::Kind::Slice: case LogosType::Kind::Array:
+            case LogosType::Kind::Slice: {
+                std::string lt(t.lifetime());
+                if (!t.owning_slice() && !t.raw_fat() && !lt.empty() && lt != "'_") out.insert(lt);
+                names_in_type_(t.elem(), out, depth + 1);
+                return;
+            }
+            case LogosType::Kind::Array:
                 names_in_type_(t.elem(), out, depth + 1);
                 return;
             case LogosType::Kind::Tuple:
@@ -6944,7 +6998,46 @@ private:
                 return;
         }
     }
+    // Does a type hold a reference position whose lifetime is elided?
+    static bool elided_in_type_(TypeRef t, int depth = 0) {
+        if (!t || depth > 16) return false;
+        auto elided = [](std::string_view lt) { return lt.empty() || lt == "'_" || lt == "_"; };
+        switch (t.kind()) {
+            case LogosType::Kind::Ref: case LogosType::Kind::MutRef:
+                return elided(t.lifetime()) || elided_in_type_(t.pointee(), depth + 1);
+            case LogosType::Kind::Slice:
+                if (!t.owning_slice() && !t.raw_fat() && elided(t.lifetime())) return true;
+                return elided_in_type_(t.elem(), depth + 1);
+            case LogosType::Kind::Struct: case LogosType::Kind::Enum:
+                for (auto& lt : t.lifetime_args()) if (elided(lt)) return true;
+                for (auto& a : t.type_args()) if (elided_in_type_(a, depth + 1)) return true;
+                return false;
+            case LogosType::Kind::Array:
+                return elided_in_type_(t.elem(), depth + 1);
+            case LogosType::Kind::Tuple:
+                for (auto& e : t.tuple_elems()) if (elided_in_type_(e, depth + 1)) return true;
+                return false;
+            default:
+                return false;
+        }
+    }
     bool is_self_borrowing(lir_view::FunctionView f) const {
+        // Rust elision (ADR 0028): a result that writes every lifetime it has,
+        // none of them the receiver reference's own, does not borrow the
+        // receiver: `fn next(&mut self) -> Option<&'a T>` in `impl<'a, T>
+        // Iterator for SliceIter<'a, T>` returns what self holds.
+        if (f) {
+            auto* pool0 = prog_.type_pool.impl();
+            auto ps = f.params();
+            TypeRef dret = f.decl_ret_type(pool0) ? f.decl_ret_type(pool0) : f.ret_type(pool0);
+            TypeRef dself = ps.empty() ? TypeRef{} : (ps[0].decl_type(pool0) ? ps[0].decl_type(pool0) : ps[0].type(pool0));
+            if (dret && dself && is_ref_kind(dself)) {
+                std::set<std::string> rn;
+                names_in_type_(dret, rn);
+                std::string self_lt(dself.lifetime());
+                if (!rn.empty() && !elided_in_type_(dret) && !rn.count(self_lt)) return false;
+            }
+        }
         // Elision: `&self -> &T` borrows self. SO DOES `&self -> <BC type>`
         // (iter()/iter_mut() returning a borrowing iterator, WAny views):
         // the returned VALUE carries the receiver borrow (adversarial #2
@@ -6964,14 +7057,17 @@ private:
             const FlowSummary* sfs = flow_of_call(f.name());
             if (sfs && sfs->available && (sfs->to_result & 1ull)) lt_exit = false;
         }
-        // ADR 0028: the SIGNATURE ties them when a lifetime named in the result
-        // is also named in the receiver (`fn iter<'a>(self: &'a Vec<T>) ->
-        // VecIter<'a, T>`), whatever the body does through raw pointers.
-        if (lt_exit && !params.empty()) {
-            std::set<std::string> rn, sn;
+        // ADR 0028: the SIGNATURE ties them when the result names the lifetime
+        // of the receiver REFERENCE itself (`fn iter<'a>(self: &'a Vec<T>) ->
+        // VecIter<'a, T>`), whatever the body does through raw pointers. A
+        // lifetime inside the pointee (`self: &mut SliceIter<'a, T> ->
+        // Option<&'a T>`) is what self holds, not the borrow of self.
+        if (lt_exit && !params.empty() && is_ref_kind(params[0].type(pool))) {
+            std::string self_lt(params[0].type(pool).lifetime());
+            std::set<std::string> rn;
             names_in_type_(f.ret_type(pool), rn);
-            names_in_type_(params[0].type(pool), sn);
-            for (auto& n : rn) if (n != "'static" && sn.count(n)) { lt_exit = false; break; }
+            if (!self_lt.empty() && self_lt != "'static" && self_lt != "'_" && rn.count(self_lt))
+                lt_exit = false;
         }
         if (lt_exit && logos::probe::on("selfltany")) lt_exit = false;
         if (params.empty() || !is_ref_kind(params[0].type(pool)) || lt_exit)
@@ -8904,12 +9000,17 @@ private:
                 RefProv rp = {};
                 bool recv_contributes = true;
                 if (fs) {
-                    recv_contributes = (fs->to_result & 1ull) != 0;
+                    // The declared signature overrides the body's flow for the
+                    // receiver: `fn next(&mut self) -> Option<&'a T>` returns
+                    // what self holds, not a borrow of self (ADR 0028).
+                    const bool recv_sig_excluded =
+                        sig_result_excludes_param_ref(exact_callee(v.self), 0);
+                    recv_contributes = (fs->to_result & 1ull) != 0 && !recv_sig_excluded;
                     std::vector<ExprRef> ops;
                     ops.push_back(v.receiver());
                     v.each_arg([&](ExprRef a){ ops.push_back(a); });
                     for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i)
-                        if (fs->to_result & (1ull << i))
+                        if ((fs->to_result & (1ull << i)) && !(i == 0 && recv_sig_excluded))
                             // bcdoor: ops[0] is the RECEIVER, which has its own
                             // temp clause below (three AND gates, each bought by
                             // a stdlib refusal). Mint on ARGUMENTS only — minting
@@ -12574,10 +12675,19 @@ private:
                 add(std::move(p));
             }
         };
+        // A fresh borrow (`&x`, an autoref) passed where the callee's declared
+        // result cannot name that reference's lifetime does not reach the
+        // result, whatever the body's flow says (ADR 0028).
+        const lir_view::FunctionView callee_ = exact_callee(val);
         auto by_mask = [&](const FlowSummary* fs, const std::vector<ExprRef>& ops) {
             if (!fs) return;
-            for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i)
-                if (fs->to_result & (1ull << i)) seed(ops[i]);
+            for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i) {
+                if (!(fs->to_result & (1ull << i))) continue;
+                if (ops[i] && (ops[i].kind() == Code::AddrOf || ops[i].kind() == Code::AddrOfTemp) &&
+                    sig_result_excludes_param_ref(callee_, unsigned(i)))
+                    continue;
+                seed(ops[i]);
+            }
         };
         std::vector<ExprRef> ops;
         switch (val.kind()) {
@@ -15598,8 +15708,20 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     TypeRef rt = r ? r.type(pool) : TypeRef(nullptr);
                     return rt && rt.kind() == LogosType::Kind::Ptr;
                 };
+                // The built-in `*b` of a stdlib Box is a step of the place
+                // under `b` (ADR 0028, DerefMove): `(*b).s` is `b.*.s`.
+                auto box_deref = [&](ExprRef n) {
+                    if (!n || n.kind() != Code::Deref) return false;
+                    TypeRef ot = EDerefView{n}.operand() ? EDerefView{n}.operand().type(pool) : TypeRef{};
+                    return is_stdlib_box_type(ot);
+                };
                 while (cur && (cur.kind() == Code::FieldRead ||
-                               cur.kind() == Code::TupleIndex)) {
+                               cur.kind() == Code::TupleIndex || box_deref(cur))) {
+                    if (box_deref(cur)) {
+                        segs.emplace_back("*");
+                        cur = EDerefView{cur}.operand();
+                        continue;
+                    }
                     segs.emplace_back(seg_of(cur));
                     if (recv_is_raw(cur)) raw_hop = true;
                     cur = recv_of(cur);

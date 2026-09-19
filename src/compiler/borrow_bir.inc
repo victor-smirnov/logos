@@ -497,6 +497,20 @@ private:
         lower_into(bir::Place{t, {}}, e);
         return read_place({t, {}}, e.type(pool_));
     }
+    // A call argument, evaluated into its own temporary BEFORE the call, as
+    // MIR building does (`_5 = copy c.n; call f(move _4, move _5)`): the
+    // argument's read happens at its own point, ahead of the call where the
+    // two-phase reservations activate.
+    bir::Operand call_operand(lir_view::ExprRef e) {
+        if (!e || is_constant(e)) return {};
+        auto p = place_of(e);
+        if (!p) return operand(e);
+        bir::LocalId t = temp(e.type(pool_));
+        bir::Rvalue rv(bir::Rvalue::K::Use);
+        rv.ops.push_back(read_place(*p, e.type(pool_)));
+        assign({t, {}}, std::move(rv));
+        return read_place({t, {}}, e.type(pool_));
+    }
     bool is_constant(lir_view::ExprRef e) const {
         switch (e.kind()) {
             case ECode::LitInt: case ECode::LitFloat: case ECode::LitBool:
@@ -752,28 +766,33 @@ private:
         terminate(std::move(t));
     }
 
-    // A `&mut T` place handed to a reference parameter is reborrowed
-    // (`&*p` / `&mut *p`), never moved: Rust's implicit reborrow at a
-    // coercion site. Returns false when `a` is not such a place.
-    bool reborrow_arg(lir_view::ExprRef a, TypeRef param, bir::Term& t,
-                      std::vector<std::pair<bir::BlockId, uint32_t>>& reservations,
-                      int kind_hint = 0) {
-        if (!a) return false;
-        TypeRef at = a.type(pool_);
-        if (!at || at.kind() != LogosType::Kind::MutRef) return false;
-        bool to_ref = !param || param.kind() == LogosType::Kind::Ref ||
-                      param.kind() == LogosType::Kind::MutRef;
-        if (!to_ref) return false;
-        auto p = place_of(a);
-        if (!p) return false;
-        // Unknown parameter: the receiver kind from the key when there is one,
-        // else a mutable reborrow (what a `&mut` argument most often meets).
-        bool m = param ? param.kind() == LogosType::Kind::MutRef : kind_hint != 1;
-        bir::LocalId tmp = synth_ref_temp(at.pointee());
-        assign({tmp, {}}, ref_of(p->with(bir::Proj(bir::Proj::K::Deref)), m, m));
-        if (m) reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
-        t.args.push_back(read_place({tmp, {}}, {}));
-        return true;
+    // rustc's AllowTwoPhase::Yes borrows: a method-receiver autoref, an
+    // implicit reborrow at a coercion site, an overloaded `x op= y`. Sema
+    // records which one it built (BorrowOrigin); nothing here infers it.
+    static bool two_phase_origin(lir_schema::expr::BorrowOrigin o) {
+        using BO = lir_schema::expr::BorrowOrigin;
+        return o == BO::Autoref || o == BO::Reborrow || o == BO::CompoundAssign;
+    }
+    static lir_schema::expr::BorrowOrigin borrow_origin(lir_view::ExprRef a) {
+        if (a && a.kind() == ECode::AddrOfTemp) return lir_view::EAddrOfTempView{a}.origin();
+        if (a && a.kind() == ECode::AddrOf)     return lir_view::EAddrOfView{a}.origin();
+        return lir_schema::expr::BorrowOrigin::Unknown;
+    }
+    // The `&mut` loan lowering `a` just issued into `op`'s temporary becomes a
+    // two-phase reservation, activated by the call being built.
+    void reserve_if_two_phase(lir_view::ExprRef a, const bir::Operand& op,
+                              std::vector<std::pair<bir::BlockId, uint32_t>>& reservations) {
+        if (!two_phase_origin(borrow_origin(a)) || !op.place.valid() || !op.place.proj.empty()) return;
+        auto& stmts = body_.blocks[cur_].stmts;
+        for (size_t i = stmts.size(); i-- > 0;) {
+            auto& st = stmts[i];
+            if (st.k != bir::Stmt::K::Assign || st.dest.local != op.place.local || !st.dest.proj.empty()) continue;
+            if (st.rv.k == bir::Rvalue::K::Ref && st.rv.mut_) {
+                st.rv.two_phase = true;
+                reservations.emplace_back(cur_, uint32_t(i));
+            }
+            return;
+        }
     }
 
     // ── calls ──
@@ -785,24 +804,22 @@ private:
         bir::Term t(bir::Term::K::Call);
         std::vector<std::pair<bir::BlockId, uint32_t>> reservations;
         auto arg_value = [&](lir_view::ExprRef a) {
-            // An implicit reborrow of a `&mut` argument (AddrOfTemp(Deref r))
-            // is an adjustment, which rustc allows as two-phase; an explicit
-            // `&mut x` argument is not.
-            if (a && a.kind() == ECode::AddrOfTemp && lir_view::EAddrOfTempView{a}.is_mut()) {
-                lir_view::EAddrOfTempView v{a};
-                if (v.inner() && v.inner().kind() == ECode::Deref) {
-                    bool saved = mut_deref_ctx_;
-                    mut_deref_ctx_ = true;
-                    bir::Place p = place_or_temp(v.inner());
-                    mut_deref_ctx_ = saved;
-                    bir::LocalId tmp = temp(a.type(pool_));
-                    assign({tmp, {}}, ref_of(std::move(p), true, true));
-                    reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
-                    t.args.push_back(read_place({tmp, {}}, a.type(pool_)));
-                    return;
-                }
+            bir::Operand op = call_operand(a);
+            reserve_if_two_phase(a, op, reservations);
+            t.args.push_back(std::move(op));
+        };
+        // A reference parameter given a value that is neither a reference nor
+        // a borrow node: sema left the autoref to codegen, so the loan is not
+        // in the L-IR. Refuse rather than guess it.
+        auto ref_param_gap = [&](lir_view::ExprRef a, TypeRef pt) {
+            if (!a || !pt) return false;
+            bool ref_param = pt.kind() == LogosType::Kind::Ref || pt.kind() == LogosType::Kind::MutRef;
+            if (ref_param && !is_pointer_kind(a.type(pool_)) && a.type(pool_) &&
+                a.type(pool_).kind() != LogosType::Kind::Slice && place_of(a)) {
+                unsupported("call: a place for a reference parameter without a borrow node");
+                return true;
             }
-            t.args.push_back(operand(a));
+            return false;
         };
         switch (e.kind()) {
             case ECode::Call: {
@@ -820,21 +837,8 @@ private:
                 v.each_arg([&](lir_view::ExprRef a) {
                     TypeRef pt = ai < ptypes.size() ? ptypes[ai] : TypeRef{};
                     ++ai;
-                    if (reborrow_arg(a, pt, t, reservations)) return;
                     if (raw_addr_arg(a, pt, t)) return;
-                    // A reference parameter given a non-reference place: the
-                    // autoref codegen inserts is a borrow of that place.
-                    if (pt && (pt.kind() == LogosType::Kind::Ref || pt.kind() == LogosType::Kind::MutRef) &&
-                        a && !is_pointer_kind(a.type(pool_)) &&
-                        a.type(pool_) && a.type(pool_).kind() != LogosType::Kind::Slice &&
-                        a.kind() != ECode::AddrOf && a.kind() != ECode::AddrOfTemp) {
-                        if (auto p = place_of(a)) {
-                            bir::LocalId tmp = temp(pt);
-                            assign({tmp, {}}, ref_of(*p, pt.kind() == LogosType::Kind::MutRef, false));
-                            t.args.push_back(read_place({tmp, {}}, pt));
-                            return;
-                        }
-                    }
+                    ref_param_gap(a, pt);
                     arg_value(a);
                 });
                 break;
@@ -865,8 +869,9 @@ private:
                     bir::Place p = place_or_temp(a.inner());
                     mut_deref_ctx_ = saved;
                     bir::LocalId tmp = synth_ref_temp(a.inner().type(pool_));
-                    assign({tmp, {}}, ref_of(std::move(p), m, m));
-                    if (m)
+                    bool tp = m && two_phase_origin(a.origin());
+                    assign({tmp, {}}, ref_of(std::move(p), m, tp));
+                    if (tp)
                         reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
                     t.args.push_back(read_place({tmp, {}}, rcv.type(pool_)));
                 } else if (rcv && sk == 3) {
@@ -874,17 +879,12 @@ private:
                     TypeRef p0 = f && !f.params_empty() ? f.params()[0].type(pool_) : TypeRef{};
                     if (p0 ? !raw_addr_arg(rcv, p0, t) : !raw_addr_place(rcv, t)) arg_value(rcv);
                 } else if (rcv && sk >= 1 && !is_pointer_kind(rcv.type(pool_))) {
-                    // A bare place passed to `&self` / `&mut self`.
-                    bir::Place p = place_or_temp(rcv);
-                    bir::LocalId tmp = synth_ref_temp(rcv.type(pool_));
-                    assign({tmp, {}}, ref_of(std::move(p), sk == 2, sk == 2));
-                    if (sk == 2)
-                        reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
-                    t.args.push_back(read_place({tmp, {}}, {}));
+                    // A bare place passed to `&self` / `&mut self`: sema left
+                    // the autoref to codegen, so the loan is not in the L-IR.
+                    unsupported(std::getenv("LOGOS_BIR_GAPNAME") ? "method: bare receiver " + std::string(v.method()) + " kind=" + std::to_string(int(rcv.kind())) : std::string("method: a receiver place for a reference self without a borrow node"));
+                    arg_value(rcv);
                 } else if (rcv) {
-                    TypeRef p0;
-                    if (auto f = resolve_method(v); f && !f.params_empty()) p0 = f.params()[0].type(pool_);
-                    if (!reborrow_arg(rcv, p0, t, reservations, sk)) arg_value(rcv);
+                    arg_value(rcv);
                 }
                 {
                     std::vector<TypeRef> ptypes;
@@ -894,8 +894,8 @@ private:
                     v.each_arg([&](lir_view::ExprRef a) {
                         TypeRef pt = ai < ptypes.size() ? ptypes[ai] : TypeRef{};
                         ++ai;
-                        if (reborrow_arg(a, pt, t, reservations)) return;
                         if (raw_addr_arg(a, pt, t)) return;
+                        ref_param_gap(a, pt);
                         arg_value(a);
                     });
                 }
@@ -2084,12 +2084,24 @@ private:
     // ── paths (moves / initialisation) ──
     // A move path is a local plus field projections, up to the first deref
     // or index. Returns ~0u when the place has no path (a temp-free const).
+    // Move paths follow fields and the owning `*` of a Box (ADR 0028:
+    // `(*b).s` is `b.*.s`); any other projection ends the path.
     uint32_t path_of(const bir::Place& p) {
         std::string key = "v" + std::to_string(p.local);
         uint32_t id = intern_path(key, ~0u, p.local);
+        TypeRef t = b_.locals[p.local].synth_ref ? TypeRef{} : b_.locals[p.local].type;
         for (auto& pj : p.proj) {
-            if (pj.k != bir::Proj::K::Field) break;
-            std::string child = key + "." + pj.field;
+            std::string seg;
+            if (pj.k == bir::Proj::K::Field) {
+                seg = pj.field;
+                t = pj.ty ? pj.ty : field_type_(t, pj.field);
+            } else if (pj.k == bir::Proj::K::Deref && is_std_box(t)) {
+                seg = "*";
+                t = pj.ty ? pj.ty : (t.type_args().empty() ? TypeRef{} : t.type_args()[0]);
+            } else {
+                break;
+            }
+            std::string child = key + "." + seg;
             id = intern_path(child, id, p.local);
             key = std::move(child);
         }
@@ -2124,7 +2136,7 @@ private:
         use_place(op.place, p);
         uint32_t path = path_of(op.place);
         row("path_accessed_at_base", {pa(path), pt(p)});
-        if (op.k == bir::Operand::K::Move && !op.place.has_deref()) {
+        if (op.k == bir::Operand::K::Move && !has_borrowing_deref(op.place)) {
             access(p, op.place, Access::WriteDeep);
             row("path_moved_at_base", {pa(path), pt(p)});
         } else {
@@ -2137,7 +2149,7 @@ private:
         else use_var(dest.local, p);   // writing through / into it uses it
         access(p, dest, Access::WriteShallow);
         kill_loans(dest, p);
-        if (!dest.has_deref()) {
+        if (!has_borrowing_deref(dest)) {
             row("path_assigned_at_base", {pa(path_of(dest)), pt(p)});
             if (!dest.proj.empty() && !b_.locals[dest.local].is_mut &&
                 b_.locals[dest.local].kind != bir::LocalKind::Temp)
@@ -2234,6 +2246,27 @@ private:
         };
         if (TypeRef t = look(ts_.struct_by_name)) return t;
         return look(ts_.spec_by_name);
+    }
+    // The stdlib `Box<T>`. Its built-in `*b` is an OWNING step (ADR 0028): a
+    // place under it is part of `b` for moves, initialisation and writes.
+    static bool is_std_box(TypeRef t) { return is_stdlib_box_type(t); }
+    // Does the place go through a deref that does not own its target (a
+    // reference or a raw pointer), as opposed to only through boxes?
+    bool has_borrowing_deref(const bir::Place& p) const {
+        TypeRef t = b_.locals[p.local].type;
+        bool synth = b_.locals[p.local].synth_ref;
+        for (auto& pj : p.proj) {
+            if (pj.k == bir::Proj::K::Deref) {
+                if (synth || !is_std_box(t)) return true;
+                t = pj.ty ? pj.ty : (t.type_args().empty() ? TypeRef{} : t.type_args()[0]);
+            } else if (pj.k == bir::Proj::K::Field) {
+                t = pj.ty ? pj.ty : field_type_(t, pj.field);
+            } else {
+                t = pj.ty ? pj.ty : (t && t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
+            }
+            synth = false;
+        }
+        return false;
     }
     // A place reached through `*p` with p a raw pointer: rustc does not check
     // loans there (the raw pointer took the place out of the borrow system).
@@ -2373,7 +2406,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         access(p, s.rv.place,
                                s.rv.mut_ && !s.rv.two_phase ? Access::WriteDeep : Access::Read,
                                loan_at[bi][si]);
-                        if (s.rv.mut_ && !s.rv.place.has_deref() &&
+                        if (s.rv.mut_ && !has_borrowing_deref(s.rv.place) &&
                             !b_.locals[s.rv.place.local].is_mut &&
                             b_.locals[s.rv.place.local].kind != bir::LocalKind::Temp)
                             row("immutable_write", {var(s.rv.place.local), pt(p)});
@@ -2442,7 +2475,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                     access(p, s.dest, Access::WriteDeep);
                     if (s.dest.proj.empty()) row("var_dropped_at", {var(s.dest.local), pt(p)});
                     else use_place(s.dest, p);
-                    if (!s.dest.has_deref())
+                    if (!has_borrowing_deref(s.dest))
                         row("path_moved_at_base", {pa(path_of(s.dest)), pt(p)});
                     break;
             }
@@ -2630,7 +2663,14 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
 
     dl::Symbols* syms = nullptr;
     const dl::Program& rules = bc_rules(syms);
-    dl::Database db(rules, *syms, /*provenance=*/want_dump);
+    // One database per thread, cleared between functions: the rules are
+    // planned and the relations' memory allocated once, not per function.
+    thread_local std::unique_ptr<dl::Database> tl_db;
+    if (!tl_db || &tl_db->program() != &rules)
+        tl_db = std::make_unique<dl::Database>(rules, *syms, /*provenance=*/want_dump);
+    else
+        tl_db->clear(/*provenance=*/want_dump);
+    dl::Database& db = *tl_db;
     BirFacts facts(body, prog, ts);
     facts.emit(db, *syms);
 

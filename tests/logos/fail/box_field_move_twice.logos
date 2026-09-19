@@ -1,0 +1,11 @@
+// ADR 0028 DerefMove: a field moved out of a Box cannot be moved again (rustc E0382).
+package box_field_move_twice;
+use logos.mem.boxed;
+use logos.mem.string;
+struct Inner { s: String, n: i64 }
+fn main() -> i32 {
+    let bx: Box<Inner> = Box::new(Inner { s: String::from("abc"), n: 3i64 });
+    let v: String = bx.s;
+    let w: String = bx.s;
+    return (v.len() + w.len()) as i32;
+}

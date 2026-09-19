@@ -1,0 +1,16 @@
+// Closed soundness row box_mutref_payload_write_immut_box. `**y = 2` where
+// `let y: Box<&mut i64>` is NOT `mut` is legal Rust: Box's deref is a BUILT-IN
+// place projection, and a write through the `&mut` payload needs no `&mut y`.
+// It used to be refused ("cannot borrow 'y' as mutable: not declared as mut")
+// because Box went through DerefMut. ADR 0028: `*b` of a stdlib Box is a
+// built-in place, as in rustc. Found 2026-09-08a (hand c33). Rust: exit 0.
+package box_mutref_payload_write_immut_box;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    {
+        let y: Box<&mut i64> = Box::new(&mut x);
+        **y = 2i64;
+    }
+    if x != 2i64 { return 1i32; }
+    return 0i32;
+}

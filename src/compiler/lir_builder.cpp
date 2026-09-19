@@ -51,9 +51,10 @@ lir_view::ExprRef LirBuilder::lit_float(double v, TypeRef ty) {
         [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_float(p, t, v); });
 }
 
-lir_view::ExprRef LirBuilder::addr_of(std::string var_name, TypeRef ty) {
+lir_view::ExprRef LirBuilder::addr_of(std::string var_name, TypeRef ty,
+                                      lir_schema::expr::BorrowOrigin origin) {
     return direct(prog_, ty,
-        [&](auto& p, TypeRef t){ return lir_mirror_emit_addr_of(p, t, var_name); });
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_addr_of(p, t, var_name, origin); });
 }
 
 lir_view::ExprRef LirBuilder::pack_expand(std::string var_name, TypeRef ty) {
@@ -232,16 +233,18 @@ lir_view::ExprRef LirBuilder::fn_ptr_call(lir::LExprPtr callee,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_fn_ptr_call(p, t, callee, args); });
 }
 
-lir_view::ExprRef LirBuilder::addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty) {
+lir_view::ExprRef LirBuilder::addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty,
+                                           lir_schema::expr::BorrowOrigin origin) {
     return direct(prog_, ty,
-        [&](auto& p, TypeRef t){ return lir_mirror_emit_addr_of_temp(p, t, inner, is_mut); });
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_addr_of_temp(p, t, inner, is_mut, origin); });
 }
 
 lir_view::ExprRef LirBuilder::reuse_mut_ref(const lir::LExprPtr& orig) {
     TypeRef t = orig ? orig.type(prog_.type_pool.impl()) : TypeRef{};
     if (!orig || !t) return orig;
     if (t.kind() != LogosType::Kind::MutRef || !t.pointee()) return orig;
-    return addr_of_temp(deref(orig, t.pointee()), /*is_mut=*/true, t);
+    return addr_of_temp(deref(orig, t.pointee()), /*is_mut=*/true, t,
+                        lir_schema::expr::BorrowOrigin::Reborrow);
 }
 
 lir_view::ExprRef LirBuilder::slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeRef ty) {

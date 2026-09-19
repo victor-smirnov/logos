@@ -108,15 +108,11 @@ try_operator_result_local_borrow_escape_admitted 1 tests/soundness/open/try_oper
 #    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
 struct_ref_param_field_return_exact_summary_escape_admitted 1 tests/soundness/open/struct_ref_param_field_return_exact_summary_escape_admitted admits
 
-box_field_move                1 tests/soundness/open/box_field_move                run 134
-
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 
 trait_default_body_type       2 tests/soundness/open/trait_default_body_type       admits
 
 trait_default_body_call       2 tests/soundness/open/trait_default_body_call       admits
-
-struct_binder_result          3 tests/soundness/open/struct_binder_result          refuses
 
 dangle_join_diverging_arm     3 tests/soundness/open/dangle_join_diverging_arm     refuses
 
@@ -135,8 +131,6 @@ enum_payload_partial_move_leak 1 tests/soundness/open/enum_payload_partial_move_
 variant_payload_char_literal_nomatch 1 tests/soundness/open/variant_payload_char_literal_nomatch run 1
 
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
-
-box_mutref_payload_write_immut_box 3 tests/soundness/open/box_mutref_payload_write_immut_box refuses
 
 labeled_foreach_label_lost    3 tests/soundness/open/labeled_foreach_label_lost    refuses
 
@@ -627,5 +621,5 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 # MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
-# TOTAL 235
+# TOTAL 232
 # SYNC-HASH 6d44ea2caf2891c70e1c517c1b7f3cfb

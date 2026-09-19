@@ -1,0 +1,16 @@
+// ADR 0028 DerefMove: after `bx.s` is moved out of a Box, its siblings stay usable
+// (`bx.n` read, `bx.t` borrowed); at scope exit `t` is dropped and the block freed.
+package box_field_move_siblings;
+use logos.mem.boxed;
+use logos.mem.string;
+struct Inner { s: String, t: String, n: i64 }
+fn main() -> i32 {
+    let bx: Box<Inner> = Box::new(Inner { s: String::from("abcdefghijklmnop"), t: String::from("qrstuvwxyz0123456789"), n: 3i64 });
+    let v: String = bx.s;
+    let k: i64 = bx.n;
+    let tl: i64 = bx.t.len();
+    if v.len() != 16i64 { return 1i32; }
+    if k != 3i64 { return 2i32; }
+    if tl != 20i64 { return 3i32; }
+    return 0i32;
+}

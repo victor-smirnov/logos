@@ -173,7 +173,8 @@ const uint8_t* lir_mirror_emit_lit_float(lir::LProgram& prog, TypeRef ty, double
 const uint8_t* lir_mirror_emit_lit_str  (lir::LProgram& prog, TypeRef ty, std::string_view v);
 const uint8_t* lir_mirror_emit_var_ref  (lir::LProgram& prog, TypeRef ty, std::string_view name,
                                                  uint32_t slot = 0xFFFFFFFFu);
-const uint8_t* lir_mirror_emit_addr_of  (lir::LProgram& prog, TypeRef ty, std::string_view var_name);
+const uint8_t* lir_mirror_emit_addr_of  (lir::LProgram& prog, TypeRef ty, std::string_view var_name,
+                                         lir_schema::expr::BorrowOrigin origin);
 const uint8_t* lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name);
 
 // Stage E — ObjectMap (working-state map) put helpers. Create the map in prog's
@@ -221,7 +222,8 @@ const uint8_t* lir_mirror_emit_slice_lit    (lir::LProgram& prog, TypeRef ty, li
 const uint8_t* lir_mirror_emit_slice_index  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef slice, lir_view::ExprRef index);
 const uint8_t* lir_mirror_emit_slice_len    (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef slice);
 const uint8_t* lir_mirror_emit_slice_ptr    (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef slice);
-const uint8_t* lir_mirror_emit_addr_of_temp (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef inner, bool is_mut);
+const uint8_t* lir_mirror_emit_addr_of_temp (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef inner, bool is_mut,
+                                             lir_schema::expr::BorrowOrigin origin);
 const uint8_t* lir_mirror_emit_ptr_arith    (lir::LProgram& prog, TypeRef ty, uint8_t op, lir_view::ExprRef ptr, lir_view::ExprRef offset);
 const uint8_t* lir_mirror_emit_ptr_diff     (lir::LProgram& prog, TypeRef ty, bool by_byte, lir_view::ExprRef lhs, lir_view::ExprRef rhs);
 const uint8_t* lir_mirror_emit_if_expr      (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef cond, lir_view::ExprRef then_val, lir_view::ExprRef else_val);

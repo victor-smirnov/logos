@@ -51,6 +51,9 @@ namespace logos::compiler::ctfe { struct CtfeValue; }
 
 namespace logos::compiler {
 
+// ADR 0028: why a borrow node exists (lir_schema::expr::BorrowOrigin).
+using BorrowOrigin = lir_schema::expr::BorrowOrigin;
+
 // ── Forward declarations of free helpers used in inline class methods ─────
 // (Full definitions are in sema.cpp / sema_impl.hpp bottom section.)
 
@@ -1712,7 +1715,7 @@ private:
         auto vt = lookup(var_name);
         if (!vt || TypeRef(vt).kind() != LogosType::Kind::Array) return false;
         if (TypeRef(vt).arr_size() != pointee.arr_size()) return false;
-        arg = builder().addr_of(var_name, expected);
+        arg = builder().addr_of(var_name, expected, lir_view::EAddrOfView{base}.origin());
         return true;
     }
     // G158-7: does an `&T` / `&mut T` argument satisfy a `&dyn Trait`
@@ -4651,6 +4654,12 @@ private:
                 lir_view::ETupleIndexView v{cur};
                 segs.emplace_back(std::to_string(v.index()));
                 cur = v.receiver();
+            } else if (cur.kind() == C::Deref &&
+                       is_stdlib_box(lir_view::EDerefView{cur}.operand().type(cur_prog_->type_pool.impl()))) {
+                // The built-in `*b` of a Box is a step of the place under `b`
+                // (ADR 0028): `(*b).s` is `b.*.s`.
+                segs.emplace_back("*");
+                cur = lir_view::EDerefView{cur}.operand();
             } else break;
         }
         if (!cur || cur.kind() != C::VarRef) return {};
@@ -4720,7 +4729,7 @@ private:
         // container's scope-end Drop (SDrop struct / tuple branch) skips it —
         // else it is dropped twice (double-free). #121-A: ONE walker for both
         // segment kinds, so a MIXED chain (`t.0.p`, `o.i.0`) is recorded too.
-        if (er.kind() == C::FieldRead || er.kind() == C::TupleIndex) {
+        if (er.kind() == C::FieldRead || er.kind() == C::TupleIndex || er.kind() == C::Deref) {
             if (!is_move_type(er.type(cur_prog_->type_pool.impl()))) return;
             std::string path = move_path_of(er);
             if (!path.empty()) mark_moved(path);
@@ -8843,7 +8852,8 @@ private:
     lir::LExprPtr hoist_stmt_temp(lir::LExprPtr v, bool is_mut);
     // Implicit auto-ref of an operand: a fresh droppable rvalue is owned by the
     // temp scope and initialised where it is evaluated (see PROBES.md 2026-09-14o).
-    lir::LExprPtr autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef ref_type);
+    lir::LExprPtr autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef ref_type,
+                                  lir_schema::expr::BorrowOrigin origin);
     void register_stmt_temp(const std::string& nm, TypeRef rt, lir::LExprPtr v, bool is_mut);
     // Rust temporary LIFETIME EXTENSION (destructors.md,
     // r[destructors.scope.lifetime-extension.exprs]). Borrow nodes that sit in
@@ -8864,7 +8874,8 @@ private:
     bool ext_borrow_place_ctx_ = false;   // an extending borrow's PLACE operand chain is being lowered
     bool in_foreach_iterable_ = false;    // a for-each ITERABLE is being lowered
     lir::LExprPtr hoist_block_temp(lir::LExprPtr v, bool is_mut);
-    lir::LExprPtr autoref_block_temp(lir::LExprPtr v, bool is_mut, TypeRef ref_type);
+    lir::LExprPtr autoref_block_temp(lir::LExprPtr v, bool is_mut, TypeRef ref_type,
+                                     lir_schema::expr::BorrowOrigin origin);
     // Lower a LAZILY- or REPEATEDLY-evaluated subexpression (a `&&`/`||` RHS, a
     // while-loop condition, a while-let scrutinee, an if-expression branch, an
     // expression-bodied closure) in its OWN temporary scope: droppable rvalue
@@ -8922,7 +8933,8 @@ private:
     // DROPPABLE rvalue and a statement temp-scope is active, hoist it to a named
     // local (so its scope-exit drop runs at end of statement — Rust temporary
     // scope) and borrow that; otherwise spill via addr_of_temp as before.
-    lir::LExprPtr materialize_recv_ref(lir::LExprPtr recv, bool is_mut, TypeRef ref_type);
+    lir::LExprPtr materialize_recv_ref(lir::LExprPtr recv, bool is_mut, TypeRef ref_type,
+                                       lir_schema::expr::BorrowOrigin origin);
 
     // Phase 2b: emit a generic-aware `recv.deref()` (or deref_mut) step. If
     // recv's type implements Deref/DerefMut — INCLUDING a generic impl like
@@ -8935,6 +8947,7 @@ private:
     // `degraded` (optional): set TRUE when a `want_mut` step found only a
     // `Deref` impl and took the SHARED step — the caller in a mutable-use
     // position refuses (E0594/E0596); every other caller may ignore it.
+    bool is_builtin_box_deref(TypeRef bt) const;
     std::optional<lir::LExprPtr> emit_generic_deref_step(lir::LExprPtr recv, bool want_mut,
                                                          bool* degraded = nullptr);
     std::optional<lir::LExprPtr> emit_generic_deref_call(lir::LExprPtr recv, bool want_mut,
@@ -9118,7 +9131,7 @@ private:
                                                    TypeRef(ipt).kind())));
                     if (widenable) {
                         lir::LExprPtr casted = b.cast(inner, ipt);
-                        e = b.addr_of_temp(casted, av.is_mut(), target);
+                        e = b.addr_of_temp(casted, av.is_mut(), target, av.origin());
                     }
                 }
             }

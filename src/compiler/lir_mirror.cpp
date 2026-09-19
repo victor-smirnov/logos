@@ -136,10 +136,13 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
-    const uint8_t* emit_addr_of_direct(TypeRef ty, std::string_view var_name) {
+    const uint8_t* emit_addr_of_direct(TypeRef ty, std::string_view var_name,
+                                       lir_schema::expr::BorrowOrigin origin) {
         auto n_av = put_string(var_name);
         auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::AddrOf));
         put(map_off, ek::NAME, n_av);
+        if (origin != lir_schema::expr::BorrowOrigin::Unknown)
+            put(map_off, ek::BORROW_ORIGIN, put_u32(uint32_t(origin)));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
@@ -411,11 +414,14 @@ public:
         return map_off;
     }
     const uint8_t* emit_addr_of_temp_direct(TypeRef ty, lir_view::ExprRef inner,
-                                                     bool is_mut) {
+                                                     bool is_mut,
+                                                     lir_schema::expr::BorrowOrigin origin) {
         auto in_av = expr_av(inner);
         auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::AddrOfTemp));
         put(map_off, ek::INNER,  in_av);
         put(map_off, ek::IS_MUT, put_bool(is_mut));
+        if (origin != lir_schema::expr::BorrowOrigin::Unknown)
+            put(map_off, ek::BORROW_ORIGIN, put_u32(uint32_t(origin)));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
@@ -2064,10 +2070,11 @@ const uint8_t* lir_mirror_emit_var_ref(lir::LProgram& prog, TypeRef ty, std::str
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_var_ref_direct(ty, name, slot);
 }
-const uint8_t* lir_mirror_emit_addr_of(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
+const uint8_t* lir_mirror_emit_addr_of(lir::LProgram& prog, TypeRef ty, std::string_view var_name,
+                                       lir_schema::expr::BorrowOrigin origin) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_addr_of_direct(ty, var_name);
+    return em.emit_addr_of_direct(ty, var_name, origin);
 }
 
 const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view name,
@@ -2194,10 +2201,11 @@ const uint8_t* lir_mirror_emit_slice_ptr(lir::LProgram& prog, TypeRef ty, lir_vi
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_slice_ptr_direct(ty, slice);
 }
-const uint8_t* lir_mirror_emit_addr_of_temp(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef inner, bool is_mut) {
+const uint8_t* lir_mirror_emit_addr_of_temp(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef inner, bool is_mut,
+                                            lir_schema::expr::BorrowOrigin origin) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_addr_of_temp_direct(ty, inner, is_mut);
+    return em.emit_addr_of_temp_direct(ty, inner, is_mut, origin);
 }
 const uint8_t* lir_mirror_emit_ptr_arith(lir::LProgram& prog, TypeRef ty, uint8_t op, lir_view::ExprRef ptr, lir_view::ExprRef offset) {
     auto& ctr = prog.type_pool.ctr_or_init();

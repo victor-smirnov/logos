@@ -32,7 +32,8 @@ public:
     lir_view::ExprRef lit_str   (std::string v, TypeRef ty);
     lir_view::ExprRef lit_float (double v,  TypeRef ty);
     lir_view::ExprRef var_ref   (std::string name, TypeRef ty, uint32_t slot = 0xFFFFFFFFu);
-    lir_view::ExprRef addr_of   (std::string var_name, TypeRef ty);
+    lir_view::ExprRef addr_of   (std::string var_name, TypeRef ty,
+                                 lir_schema::expr::BorrowOrigin origin);
     lir_view::ExprRef pack_expand(std::string var_name, TypeRef ty);
     lir_view::ExprRef size_of   (TypeRef elem_type, TypeRef ty);
     lir_view::ExprRef align_of  (TypeRef elem_type, TypeRef ty);
@@ -113,7 +114,8 @@ public:
                                std::vector<lir_view::ExprRef> args, TypeRef ty);
     lir_view::ExprRef fn_ptr_call(lir_view::ExprRef callee,
                               std::vector<lir_view::ExprRef> args, TypeRef ty);
-    lir_view::ExprRef addr_of_temp(lir_view::ExprRef inner, bool is_mut, TypeRef ty);
+    lir_view::ExprRef addr_of_temp(lir_view::ExprRef inner, bool is_mut, TypeRef ty,
+                                   lir_schema::expr::BorrowOrigin origin);
 
     // Re-emit a `&mut T` LIR expression for a second consuming use, wrapping
     // it as an implicit reborrow `AddrOfTemp(Deref(orig))` of the SAME type

@@ -1369,6 +1369,26 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
         return;
     }
 
+    // Box DerefMove (ADR 0028): a Box whose content was moved out in part
+    // (`let v = (*bx).s`, moved path `*.s`) or whole (`*`) does not run
+    // Box::drop. What is left of the pointee drops in place, skipping the
+    // moved paths, and the heap block is freed.
+    if (TypeRef bt = v.type(pool_impl()); is_stdlib_box(bt) && TypeRef(bt).type_args().size() == 1) {
+        std::set<std::string> under;
+        bool whole = false;
+        v.each_moved_field([&](std::string_view p) {
+            if (p == "*") whole = true;
+            else if (p.size() > 2 && p.substr(0, 2) == "*.") under.emplace(p.substr(2));
+        });
+        if (whole || !under.empty()) {
+            mlir::Value heap = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+            if (!whole) gen_drop_value(heap, TypeRef(bt).type_args()[0], /*run_user_drop=*/true, &under);
+            ensure_malloc_free(mod);
+            call_free(heap);
+            return;
+        }
+    }
+
     // 1. Call user's explicit drop function (if any).
     //    mono_clone re-mangles drop_fn to the bare `<concrete>__drop` form;
     //    after unconditional pkg-mangling the actual symbol is

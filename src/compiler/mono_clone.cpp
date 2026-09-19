@@ -752,7 +752,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         }
         case C::AddrOf: {
             std::string n(lir_view::EAddrOfView{eref}.var_name());
-            mp_ = lir_mirror_emit_addr_of(out_, rt_, n);
+            mp_ = lir_mirror_emit_addr_of(out_, rt_, n, lir_view::EAddrOfView{eref}.origin());
             break;
         }
         case C::PackExpand: {
@@ -1242,7 +1242,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             bool is_mut = v.is_mut();
             auto inner = subst_child_expr(v.inner());
             mp_ = lir_mirror_emit_addr_of_temp(
-                out_, rt_, inner, is_mut);
+                out_, rt_, inner, is_mut, v.origin());
             break;
         }
         case C::EnumLit: {
@@ -2682,8 +2682,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         if (et.kind() == LogosType::Kind::Tuple) {
                             // Nested — inline the inner chain. Use the
                             // field refs as the new receivers.
-                            auto inner_a_ref = lb.addr_of_temp(a_f, false, et_ref);
-                            auto inner_b_ref = lb.addr_of_temp(b_f, false, et_ref);
+                            auto inner_a_ref = lb.addr_of_temp(a_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
+                            auto inner_b_ref = lb.addr_of_temp(b_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
                             cmp = build_chain(et, inner_a_ref, inner_b_ref);
                         } else {
                             // Primitive/user-struct/slice elem — resolve
@@ -2724,7 +2724,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 dargs.push_back(b_f);
                                 cmp = lb.call(callee_sym, {}, dargs, bool_t);
                             } else {
-                                auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref);
+                                auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
                                 std::vector<lir::LExprPtr> margs;
                                 margs.push_back(b_f_ref);
                                 cmp = lb.method_call(a_f, "eq", callee_sym, {},
@@ -2830,7 +2830,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         if (et.kind() == LogosType::Kind::Tuple) {
                             LogosTypeBuilder rb; rb.kind = LogosType::Kind::Ref; rb.pointee = et;
                             TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
-                            auto inner = lb.addr_of_temp(field, false, et_ref);
+                            auto inner = lb.addr_of_temp(field, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
                             fld = build(et, inner);
                         } else {
                             std::string en = type_str(et);

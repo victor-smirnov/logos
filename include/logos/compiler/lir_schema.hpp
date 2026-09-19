@@ -23,6 +23,18 @@ using Key = logos::NamedCode<uint8_t>;
 // Order MUST match LExpr::kind variant declaration in lir.hpp.
 
 namespace expr {
+// Why sema built an AddrOf / AddrOfTemp (ADR 0028). The borrow checker reads
+// it instead of guessing from the node's shape. rustc's two-phase borrows
+// (AllowTwoPhase::Yes) are Autoref, Reborrow and CompoundAssign.
+enum class BorrowOrigin : uint8_t {
+    Unknown         = 0,   // absent: a producer that has not said
+    Explicit        = 1,   // source `&e` / `&mut e` / `ref x`
+    Autoref         = 2,   // method-receiver autoref (`v.push(..)` borrows v)
+    Reborrow        = 3,   // implicit reborrow at a coercion site (`&mut *r`)
+    CompoundAssign  = 4,   // overloaded `x op= y` borrows x
+    OperatorAutoref = 5,   // operand of an overloaded binary operator, index base
+    Desugar         = 6,   // a borrow the compiler's own lowering introduces
+};
 enum class Code : int32_t {
     LitInt        = 0,
     LitFloat      = 1,
@@ -222,6 +234,9 @@ inline constexpr Key TAG_TRAIT         {"TAG_TRAIT",       43};   // Varchar
 // Modifiers / flags
 inline constexpr Key IS_MUT            {"IS_MUT",          44};   // u8 (EAddrOfTemp)
 inline constexpr Key TUPLE_INDEX_VAL   {"TUPLE_INDEX_VAL", 45};   // u32
+// Reuses slot 45 inside AddrOf / AddrOfTemp maps only (a borrow never carries a tuple
+// index): the BorrowOrigin of the `&`/`&mut` sema built (ADR 0028).
+inline constexpr Key BORROW_ORIGIN     {"BORROW_ORIGIN",   45};   // u8 (BorrowOrigin)
 
 // ECast
 inline constexpr Key WRIT_BUILD_FN   {"WRIT_BUILD_FN", 46};   // Varchar (empty for plain cast)

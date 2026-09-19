@@ -1,8 +1,9 @@
-// SOUNDNESS QUEUE row struct_binder_result (tier 3). The method's result lifetime is
+// Closed soundness row struct_binder_result (#103). The method's result lifetime is
 // the STRUCT's binder 'x, not the receiver's own borrow, so 'w.bump()' after
-// 'let r = w.inner()' is legal Rust. TODAY refused: cannot borrow 'w' as mutable:
-// 'w' has shared borrows. is_self_borrowing's site is never reached (0 fires) —
-// a different channel (2026-09-03g §5.1).
+// 'let r = w.inner()' is legal Rust. It used to be refused ("'w' has shared borrows").
+// ADR 0028: by Rust elision over the declared signature, a result that writes every
+// lifetime it has, none of them the receiver reference's own, does not borrow the
+// receiver.
 package struct_binder_result;
 
 struct Wrap<'x> { p: &'x i64, k: i64 }

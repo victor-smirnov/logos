@@ -1734,6 +1734,9 @@ struct EVarRefView {
 struct EAddrOfView {
     ExprRef self;
     std::string_view var_name() const noexcept { return detail::read_string(self, ek::NAME.code); }
+    lir_schema::expr::BorrowOrigin origin() const noexcept {
+        return lir_schema::expr::BorrowOrigin(detail::read_u32(self, ek::BORROW_ORIGIN.code));
+    }
 };
 
 // EFieldRead { receiver: LExpr, field: Varchar }
@@ -2270,6 +2273,9 @@ struct EAddrOfTempView {
     ExprRef self;
     ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
     bool is_mut() const noexcept { return detail::read_bool(self, ek::IS_MUT.code); }
+    lir_schema::expr::BorrowOrigin origin() const noexcept {
+        return lir_schema::expr::BorrowOrigin(detail::read_u32(self, ek::BORROW_ORIGIN.code));
+    }
 };
 
 struct EEnumLitView {

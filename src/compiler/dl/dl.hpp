@@ -154,14 +154,21 @@ public:
     void lookup(uint32_t mask, std::span<const Value> key,
                 std::vector<uint32_t>& out) const;
 
+    // Drops every row; keeps the memory and the indexes, empty.
+    void clear();
+
 private:
+    // Open hashing over row ids: `heads[h & (heads.size()-1)]` starts a chain
+    // continued by `next[row]`; ~0u ends it. No allocation per key.
     struct Index {
-        uint32_t mask  = 0;
-        size_t   built = 0;
-        std::unordered_map<uint64_t, std::vector<uint32_t>> buckets;
+        uint32_t              mask  = 0;
+        size_t                built = 0;
+        std::vector<uint32_t> heads;
+        std::vector<uint32_t> next;
     };
     Index& index_(uint32_t mask) const;
     uint64_t hash_masked_(std::span<const Value> row, uint32_t mask) const;
+    bool eq_masked_(std::span<const Value> row, uint32_t mask, std::span<const Value> key) const;
 
     uint32_t                                    arity_;
     std::vector<Value>                          data_;
@@ -186,6 +193,10 @@ public:
     // Evaluates to fixpoint. May be called again after more insert()s when
     // the program has no negation; it then continues from the new rows.
     void run();
+    // Back to the state right after construction (inline facts only), keeping
+    // the relations' memory, their indexes and the planned rules: one
+    // Database serves many small independent problems.
+    void clear(bool provenance);
 
     const Relation& relation(uint32_t rel) const { return *rels_[rel]; }
     std::string format_row(uint32_t rel, std::span<const Value> row) const;

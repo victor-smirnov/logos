@@ -2071,7 +2071,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
                 auto fr   = builder().field_read(std::move(recv), fname, ft);
                 lir::SLet sl;
                 sl.name = bind_name; sl.type = rft; sl.is_mut = false;
-                sl.value = builder().addr_of_temp(std::move(fr), false, rft);
+                sl.value = builder().addr_of_temp(std::move(fr), false, rft, BorrowOrigin::Explicit);
                 blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 continue;
             }
@@ -2464,7 +2464,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         (!ext_mut && is_scalar_lit)) {
                         auto rhs_e = builder().addr_of_temp(
                             std::move(lit_expr), ext_mut,
-                            make_ref(ext_mut, lit_type));
+                            make_ref(ext_mut, lit_type), BorrowOrigin::Explicit);
                         define(std::string(name), ann ? ann : expr_type(rhs_e),
                                is_mut);
                         lir::SLet sl;
@@ -2501,10 +2501,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     blk.push_back(make_stmt_emit(node_line_, std::move(sl_tmp)));
 
                     // user:  `let name = &[mut] __lit_temp_N;`
-                    auto addr = builder().addr_of(tmp, make_ref(ext_mut, lit_type));
+                    auto addr = builder().addr_of(tmp, make_ref(ext_mut, lit_type), BorrowOrigin::Explicit);
                     if (ext_dbl) {
                         TypeRef at = expr_type(addr);
-                        addr = builder().addr_of_temp(std::move(addr), false, make_ref(false, at));
+                        addr = builder().addr_of_temp(std::move(addr), false, make_ref(false, at), BorrowOrigin::Explicit);
                     }
                     lir::SLet sl_user;
                     sl_user.name   = std::string(name);
@@ -2558,7 +2558,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
             // `&rhs` with type `&T` (matches `let y = &x;` semantics).
             auto inner_t = expr_type(rhs);
             rhs      = builder().addr_of_temp(std::move(rhs), /*is_mut=*/false,
-                                              make_ref(false, inner_t));
+                                              make_ref(false, inner_t), BorrowOrigin::Explicit);
             rhs_type = expr_type(rhs);
         }
         // E0507: `let s = *r` moving a MOVE-typed value out of a `&`/`&mut`
@@ -3070,7 +3070,7 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
             if (has_impl) {
                 auto mangled = type_name + "__" + assign_method;
                 auto mut_ref_t = make_ref(true, var_type);
-                auto recv = builder().addr_of(std::string(name), mut_ref_t);
+                auto recv = builder().addr_of(std::string(name), mut_ref_t, BorrowOrigin::CompoundAssign);
                 // G160-5: the `*Assign<Rhs>` method's second param is the
                 // trait's Rhs type-arg, which need NOT equal Self. Look it up by
                 // the actual rhs operand type (`x <<= 1u8` over `impl
@@ -3188,7 +3188,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                         lir::LExprPtr cur = nullptr;
                         if (fit_rd) {
                             std::vector<lir::LExprPtr> ra;
-                            ra.push_back(builder().addr_of(arr_name, make_ref(false, arr_type)));
+                            ra.push_back(builder().addr_of(arr_name, make_ref(false, arr_type), BorrowOrigin::OperatorAutoref));
                             ra.push_back(lower_idx(fit_rd));
                             auto rc = builder().call(fit_rd->symbol_name.empty()
                                           ? (type_name + "__index") : fit_rd->symbol_name,
@@ -3196,7 +3196,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                             cur = builder().deref(std::move(rc), out_t);
                         } else {
                             std::vector<lir::LExprPtr> ra;
-                            ra.push_back(builder().addr_of(arr_name, make_ref(true, arr_type)));
+                            ra.push_back(builder().addr_of(arr_name, make_ref(true, arr_type), BorrowOrigin::OperatorAutoref));
                             ra.push_back(lower_idx(fit_im));
                             auto rc = builder().call(fit_im->symbol_name.empty()
                                           ? (type_name + "__index_mut") : fit_im->symbol_name,
@@ -3205,7 +3205,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                         }
                         auto combined = builder().bin_op(base_op, std::move(cur), std::move(rhs2), out_t);
                         std::vector<lir::LExprPtr> wa;
-                        wa.push_back(builder().addr_of(arr_name, make_ref(true, arr_type)));
+                        wa.push_back(builder().addr_of(arr_name, make_ref(true, arr_type), BorrowOrigin::OperatorAutoref));
                         wa.push_back(lower_idx(fit_im));
                         auto wc = builder().call(fit_im->symbol_name.empty()
                                       ? (type_name + "__index_mut") : fit_im->symbol_name,
@@ -3251,7 +3251,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                     fit = find_func_by_base_and_signature(mangled, {mut_ref_t, pt}, false);
                 if (fit) {
                     auto addr = builder().addr_of_temp(lower_mut_place(place_node),  // eval #2 — &mut place
-                                                       /*is_mut=*/true, mut_ref_t);
+                                                       /*is_mut=*/true, mut_ref_t, BorrowOrigin::CompoundAssign);
                     std::vector<lir::LExprPtr> args;
                     // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
                     if (rhs && is_move_type(expr_type(rhs)) &&
@@ -3277,7 +3277,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
     auto newval = builder().bin_op(base_op, std::move(place_read), std::move(rhs),
                                    pt ? pt : error_t());
     auto addr = builder().addr_of_temp(lower_mut_place(place_node), /*is_mut=*/true,  // eval #2
-                                       make_ref(true, pt ? pt : error_t()));
+                                       make_ref(true, pt ? pt : error_t()), BorrowOrigin::Desugar);
     track_write_move(newval);
     return builder().stmt_deref_write(std::move(addr), std::move(newval), node_line_);
 }
@@ -6574,7 +6574,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t));
+        args.push_back(builder().addr_of(sv, ptr_t, BorrowOrigin::Desugar));
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
@@ -6597,7 +6597,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             return "";
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(parent_av, ptr_t_outer));
+        args.push_back(builder().addr_of(parent_av, ptr_t_outer, BorrowOrigin::Desugar));
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         auto call = builder().call(sym, {}, std::move(args), scrut_type);
@@ -6622,7 +6622,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().addr_of(sv, ptr_t_outer, BorrowOrigin::Desugar));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
@@ -6641,7 +6641,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().addr_of(sv, ptr_t_outer, BorrowOrigin::Desugar));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
@@ -6660,7 +6660,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().addr_of(sv, ptr_t_outer, BorrowOrigin::Desugar));
         args.push_back(builder().lit_int((int64_t)tc, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
@@ -6679,7 +6679,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().addr_of(sv, ptr_t_outer, BorrowOrigin::Desugar));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
     };
@@ -6696,7 +6696,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().addr_of(sv, ptr_t_outer, BorrowOrigin::Desugar));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
     };
@@ -8475,7 +8475,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         if (c->param_types.size() == 2) { fit = c; break; }
     if (fit) {
         widen_int_expr(idx_e, fit->param_types[1], builder());
-        auto recv_ref = builder().addr_of(arr_name, make_ref(true, arr_type));
+        auto recv_ref = builder().addr_of(arr_name, make_ref(true, arr_type), BorrowOrigin::OperatorAutoref);
         std::vector<lir::LExprPtr> args;
         args.push_back(std::move(recv_ref));
         args.push_back(std::move(idx_e));
@@ -8502,7 +8502,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         if (idx_t && TypeRef(idx_t).kind() != LogosType::Kind::TypeVar)
             widen_int_expr(idx_e, idx_t, builder());
         lir::EMethodCall mc;
-        mc.receiver = builder().addr_of(arr_name, make_ref(true, arr_type));
+        mc.receiver = builder().addr_of(arr_name, make_ref(true, arr_type), BorrowOrigin::OperatorAutoref);
         mc.method = "index_mut";
         mc.args.push_back(std::move(idx_e));
         mc.vtable_index = -1;
@@ -9049,7 +9049,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // Address of the place: `&mut <place>`. EAddrOfTemp recognises the place
     // read-expr kind and returns the real element GEP (not a temp copy).
     auto addr = builder().addr_of_temp(std::move(place), /*is_mut=*/true,
-                                       make_ref(true, pt ? pt : error_t()));
+                                       make_ref(true, pt ? pt : error_t()), BorrowOrigin::Desugar);
     track_write_move(val);
     return builder().stmt_deref_write(std::move(addr), std::move(val), node_line_,
                                       drop_old_place);

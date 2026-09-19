@@ -40,6 +40,14 @@ uint64_t Relation::hash_masked_(std::span<const Value> row, uint32_t mask) const
     return h;
 }
 
+bool Relation::eq_masked_(std::span<const Value> rv, uint32_t mask,
+                          std::span<const Value> key) const {
+    size_t k = 0;
+    for (uint32_t c = 0; c < arity_; ++c)
+        if ((mask & (1u << c)) && rv[c] != key[k++]) return false;
+    return true;
+}
+
 Relation::Index& Relation::index_(uint32_t mask) const {
     Index* ix = nullptr;
     for (auto& p : indexes_)
@@ -49,9 +57,23 @@ Relation::Index& Relation::index_(uint32_t mask) const {
         ix = indexes_.back().get();
         ix->mask = mask;
     }
-    for (size_t n = size(); ix->built < n; ++ix->built)
-        ix->buckets[hash_masked_(row(ix->built), mask)].push_back(
-            static_cast<uint32_t>(ix->built));
+    const size_t n = size();
+    if (ix->built == n) return *ix;
+    // Keep the load factor at most 1/2; growing rebuilds the chains.
+    size_t cap = ix->heads.size();
+    if (cap < 2 * n) {
+        size_t want = std::max<size_t>(16, cap);
+        while (want < 2 * n) want *= 2;
+        ix->heads.assign(want, ~0u);
+        ix->built = 0;
+    }
+    ix->next.resize(n);
+    const size_t m = ix->heads.size() - 1;
+    for (; ix->built < n; ++ix->built) {
+        uint32_t& head = ix->heads[hash_masked_(row(ix->built), mask) & m];
+        ix->next[ix->built] = head;
+        head = static_cast<uint32_t>(ix->built);
+    }
     return *ix;
 }
 
@@ -63,27 +85,32 @@ void Relation::lookup(uint32_t mask, std::span<const Value> key,
         for (size_t i = 0; i < n; ++i) out.push_back(static_cast<uint32_t>(i));
         return;
     }
+    if (n == 0) return;
     Index& ix = index_(mask);
-    auto it = ix.buckets.find(hash_key(key));
-    if (it == ix.buckets.end()) return;
-    for (uint32_t r : it->second) {
-        auto rv = row(r);
-        size_t k = 0;
-        bool eq = true;
-        for (uint32_t c = 0; c < arity_ && eq; ++c)
-            if (mask & (1u << c)) eq = rv[c] == key[k++];
-        if (eq) out.push_back(r);
-    }
+    // Chains are newest-first; callers see rows in insertion order.
+    for (uint32_t r = ix.heads[hash_key(key) & (ix.heads.size() - 1)]; r != ~0u; r = ix.next[r])
+        if (eq_masked_(row(r), mask, key)) out.push_back(r);
+    std::reverse(out.begin(), out.end());
 }
 
 std::optional<uint32_t> Relation::find(std::span<const Value> r) const {
     if (arity_ == 0) return nullary_ ? std::optional<uint32_t>(0) : std::nullopt;
-    Index& ix = index_(full_mask(arity_));
-    auto it = ix.buckets.find(hash_key(r));
-    if (it == ix.buckets.end()) return std::nullopt;
-    for (uint32_t i : it->second)
+    if (size() == 0) return std::nullopt;
+    const uint32_t full = full_mask(arity_);
+    Index& ix = index_(full);
+    for (uint32_t i = ix.heads[hash_key(r) & (ix.heads.size() - 1)]; i != ~0u; i = ix.next[i])
         if (std::equal(r.begin(), r.end(), row(i).begin())) return i;
     return std::nullopt;
+}
+
+void Relation::clear() {
+    data_.clear();
+    nullary_ = 0;
+    for (auto& ix : indexes_) {
+        std::fill(ix->heads.begin(), ix->heads.end(), ~0u);
+        ix->next.clear();
+        ix->built = 0;
+    }
 }
 
 bool Relation::contains(std::span<const Value> r) const { return find(r).has_value(); }
@@ -374,6 +401,21 @@ void Database::run() {
     }
     impl_->run();
     ran_ = true;
+}
+
+void Database::clear(bool provenance) {
+    provenance_ = provenance;
+    for (auto& r : rels_) r->clear();
+    for (auto& v : prov_rule_) v.clear();
+    for (auto& v : prov_off_) v.clear();
+    prov_pool_.clear();
+    stats_ = {};
+    ran_ = false;
+    if (impl_) {
+        for (auto& c : impl_->consumed) std::fill(c.begin(), c.end(), 0);
+        std::fill(impl_->evaluated.begin(), impl_->evaluated.end(), false);
+    }
+    for (auto& f : prog_.facts()) insert(f.rel, f.row);
 }
 
 std::string Database::format_row(uint32_t rel, std::span<const Value> row) const {

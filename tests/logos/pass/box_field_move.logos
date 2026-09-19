@@ -1,7 +1,8 @@
-// SOUNDNESS QUEUE row box_field_move (tier 1). A partial move of a drop-carrying
-// field out of a Box: legal Rust (Box is the one type with DerefMove). TODAY the
-// moved String is freed twice — rc 134, valgrind 'Invalid free'. Repair = DerefMove
-// lowering for a FIELD; the cheap refusal was declined (2026-09-04, 6ae8bf7bc).
+// Closed soundness row box_field_move (#99). A partial move of a drop-carrying
+// field out of a Box is legal Rust (Box is the one type with DerefMove). It used to
+// free the moved String twice (rc 134). ADR 0028: `*b` of a stdlib Box is a built-in
+// place projection, `(*b).s` is the move path `b.*.s`, and the box's drop drops what
+// is left of the pointee and frees the block without running Box::drop.
 package box_field_move;
 use logos.mem.boxed;
 use logos.mem.string;

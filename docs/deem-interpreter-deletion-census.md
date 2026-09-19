@@ -6177,9 +6177,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                test more, tests/imported/pass/methods/builder-returning-self-b163.logos, which exists there but is
 #                IGNORED by git (the `build*` pattern in .gitignore matches its name) while the CONFIGURE_DEPENDS glob
 #                registers it; the pin is the committed tree's count.
-REGISTRY-ALL         11088
-REGISTRY-NOIMPORTED  6586
-REGISTRY-TIERCOMMIT  356
+#                ALL 11088 -> 11091 (+3), NOIMPORTED 6586 -> 6589 (+3), TIERCOMMIT 356 -> 353 (-3) — 2026-09-19 ADR 0028
+#                DerefMove + declared-signature elision. Three soundness-queue rows closed (box_field_move, struct_binder_result,
+#                box_mutref_payload_write_immut_box): their three tier_commit squeue gates leave (-3 everywhere) and the
+#                programs land as pass fixtures (+3 to ALL and NOIMPORTED). Three new fixtures join: pass/
+#                box_field_move_siblings, pass/trait_default_next_item_binder, fail/box_field_move_twice (+3 to ALL and
+#                NOIMPORTED). The gate printed measured 11092/6589/353 on the author's tree; ALL there carries the one
+#                git-ignored imported fixture noted above, so the committed tree's ALL is 11091.
+REGISTRY-ALL         11091
+REGISTRY-NOIMPORTED  6589
+REGISTRY-TIERCOMMIT  353
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
