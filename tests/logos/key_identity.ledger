@@ -28,7 +28,12 @@
 # deliberate ledger edit in the same commit, so the count can only move on
 # purpose. A number that drifts down on its own is a measurement nobody reads.
 #
-# 43 rows / 47 sites. Cells: O 21, B#98 8, D 7, B#88 3, B#90 2, Q 3.
+# 2026-09-19, #438 step 4: the three B#88 rows are RETIRED. They pinned impls_
+# lookups composed from a bare trait spelling; impls_ is keyed by (trait DefId,
+# target) now, and those sites ask through has_impl / impl_key, whose rows are
+# in the ARGSCAN section below. The TARGET half of the key is still a spelling —
+# #88 itself stays open and moves with nominal-type DefIds.
+# 43 rows / 49 sites. Cells: O 21, B#98 8, D 7, B#90 2, Q 3.
 # (+1 Q row 2026-09-17q: mlir_gen_fn.cpp `fn_param_arg_index_`, make_fn_type's
 #  record of each param's MLIR argument index — keyed by `link_name(fn)`, the
 #  mangled link symbol, so it is qualified by construction, exactly as mono's
@@ -410,15 +415,12 @@ sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(x).type_var_name())
 sema.cpp	current_type_bounds_	D	1	type_str(result)
 sema.cpp	datatypes_	B#98	1	TypeRef(struct_t).struct_name()
 sema.cpp	enums_	O	2	std::string(TypeRef(t).enum_name())
-sema.cpp	impls_	B#88	1	"StableLayout::" + concrete_struct_name(ft)
-sema.cpp	impls_	B#88	1	"StableLayout::" + type_str(ft)
 sema.cpp	structs_	B#98	1	TypeRef(struct_t).struct_name()
 sema.cpp	structs_	O	3	std::string(TypeRef(t).struct_name())
 sema_expr.cpp	closure_capture_env_	D	1	type_str(ctype)
 sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
 sema_expr.cpp	datatypes_	B#98	1	TypeRef(elem).struct_name()
 sema_expr.cpp	enums_	O	1	TypeRef(inner_t).enum_name()
-sema_expr.cpp	impls_	B#88	1	b.trait_name + "::" + std::string(TypeRef(actual).struct_name())
 sema_expr.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(t).type_var_name())
 sema_impl.hpp	current_type_bounds_	D	2	std::string(TypeRef(t).type_var_name())
 sema_impl.hpp	datatypes_	O	1	tr.struct_name()
@@ -488,6 +490,17 @@ sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()
 # identity everything downstream uses. The row is here so the count cannot grow
 # unnoticed: a second resolver would be the defect.
 #ARGSCAN resolve_trait 1 bd8ed301
+# 2026-09-19, #438 step 4: the impl registry's three entry points. Each takes a
+# trait spelling — a path, a name written in the scope the call is in, or a name
+# the COMPILER spells itself ("Drop", "Copy", the auto markers) — and returns
+# the one identity the registry is keyed by (`impl_trait_id`: path, then scope,
+# then the lang-item table, then the single trait of that name; ambiguity
+# answers nothing). A spelled argument here is the POINT: this is where a
+# spelling stops being one. The counts are pinned so a fourth entry point, or a
+# site that goes around them back to a raw key, shows up as a diff.
+#ARGSCAN has_impl 17 a2e2eb9a
+#ARGSCAN impl_key 5 cbc0ca3c
+#ARGSCAN impl_trait_id 2 ec08d4b9
 #ARGSCAN resolve 2 8a6a5ca7
 #ARGSCAN satisfies 15 0272b985
 #ARGSCAN sema_has_impl_recursive 1 fae8a925

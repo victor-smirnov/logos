@@ -30,19 +30,16 @@
 // and nothing read it. The alias is retired on that measurement, not on this
 // fixture: THE FIXTURE IS NOT ITS SENSOR AND MUST NOT BE CITED AS ONE.
 //
-// ⚠ WHAT IS ACTUALLY WRONG, REPRODUCED, AND NOT ASSERTED HERE. Add
-//     let bad: i64 = hmid_tag(5i64);
-// to main and this program compiles past sema and dies at
-//     error: 'func.call' op 'i64__tag' does not reference a valid function
-//     logosc: MLIR generation failed                       (exit code 1)
-// `i64` implements the STDLIB `Hash`, not lhom's, so the bound on `hmid_tag`
-// should have been REFUSED with a diagnostic. Measured with mono's alias ON and
-// OFF: byte-identical, so the seam is not mono. It is `SemaChecker::collect_impl`,
-// which keys `impls_` as `trait_name + "::" + target` from the RAW spelling —
-// one key space for two traits — and `sema_has_impl_recursive` then reports
-// `Hash::i64` as a hit. Canonicalising `impls_` is the fix and touches ~116
-// impls_/impls_all_ sites. NOT asserted as an expectation here: a `fail/` door
-// pinning today's MLIR verifier failure would be asserting the defect.
+// ⚠ WHAT THIS PARAGRAPH RECORDED IS CLOSED, AND THE DOOR IS ELSEWHERE. It said:
+// add `let bad: i64 = hmid_tag(5i64);` to main and the program compiles past
+// sema and dies at `'func.call' op 'i64__tag' does not reference a valid
+// function`, because `impls_` was keyed by the RAW trait spelling — one key
+// space for two traits. Re-measured 2026-09-19: at 14c36a77f sema already
+// REFUSES that call (B-mv-03 carried the bound's identity), and since #438
+// step 4 `impls_` is keyed by (trait DefId, target), so there is no shared key
+// space left. The refusal, with the ground naming both traits, is pinned by
+// tests/logos/fail/trait_ident_chain_mirror_bound_refused.logos — a `fail/`
+// door on a DIAGNOSTIC, which is what was missing when the note was written.
 //
 // ⚠ ROW 2 IS A CONTROL AGAINST A COMPILER THAT SIMPLY STOPPED ANSWERING. `i64` does
 // implement the stdlib `Hash`; folding the intrinsic to a constant `false`, or

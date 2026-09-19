@@ -2763,7 +2763,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (code_of(tnode) == la::GENERIC_INST) self_t = resolve_type(tnode);
         }
         if (self_t) current_impl_self_types_.push_back(self_t);
-        auto it = trait_name.empty() ? impls_.end() : impls_.find(trait_name + "::" + target);
+        auto it = trait_name.empty() ? impls_.end() : impls_.find(impl_key(trait_name, target));
         if (it != impls_.end())
             for (auto ta : it->second.trait_type_args) current_impl_self_types_.push_back(ta);
         if (node.has_key(la::IMPL_TYPE_PARAMS))
@@ -2813,7 +2813,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // B62: copy trait-arg region info captured by collect_impl, so mono's
     // method_bound_ok can detect HRTB satisfaction mismatch.
     if (!trait_name.empty()) {
-        auto it = impls_.find(trait_name + "::" + target);
+        auto it = impls_.find(impl_key(trait_name, target));
         if (it != impls_.end()) {
             if (!it->second.trait_type_args.empty()) {
                 auto a = ib.array(ik::TRAIT_TYPE_ARGS);

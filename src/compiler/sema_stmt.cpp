@@ -3064,10 +3064,10 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
         if (!assign_trait.empty()) {
             auto type_name = concrete_struct_name(var_type);
             auto base_name = std::string(TypeRef(var_type).struct_name());
-            bool has_impl = impls_.count(assign_trait + "::" + type_name) ||
-                            (!base_name.empty() &&
-                             impls_.count(assign_trait + "::" + base_name));
-            if (has_impl) {
+            bool impl_found = has_impl(assign_trait, type_name) ||
+                              (!base_name.empty() &&
+                               has_impl(assign_trait, base_name));
+            if (impl_found) {
                 auto mangled = type_name + "__" + assign_method;
                 auto mut_ref_t = make_ref(true, var_type);
                 auto recv = builder().addr_of(std::string(name), mut_ref_t, BorrowOrigin::CompoundAssign);
@@ -3158,8 +3158,8 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
             if (arr_type && TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
                 auto type_name = concrete_struct_name(arr_type);
                 auto base_name = std::string(TypeRef(arr_type).struct_name());
-                bool has_im = impls_.count("IndexMut::" + type_name) ||
-                              (!base_name.empty() && impls_.count("IndexMut::" + base_name));
+                bool has_im = has_impl("IndexMut", type_name) ||
+                              (!base_name.empty() && has_impl("IndexMut", base_name));
                 if (has_im) {
                     if (!lookup_is_mut(arr_name))
                         error(std::format("index compound assign to immutable struct '{}'", arr_name));
@@ -3241,8 +3241,8 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
         if (op_assign_trait_method(base_op, atrait, amethod)) {
             auto type_name = concrete_struct_name(pt);
             auto base_name = std::string(TypeRef(pt).struct_name());
-            if (impls_.count(atrait + "::" + type_name) ||
-                (!base_name.empty() && impls_.count(atrait + "::" + base_name))) {
+            if (has_impl(atrait, type_name) ||
+                (!base_name.empty() && has_impl(atrait, base_name))) {
                 auto mangled = type_name + "__" + amethod;
                 auto mut_ref_t = make_ref(true, pt);
                 TypeRef rhs_ty = rhs ? TypeRef(expr_type(rhs)) : pt;
@@ -8461,8 +8461,8 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         return std::nullopt;
     auto type_name = concrete_struct_name(arr_type);
     auto base_name = std::string(TypeRef(arr_type).struct_name());
-    bool has_im = impls_.count("IndexMut::" + type_name) ||
-                  (!base_name.empty() && impls_.count("IndexMut::" + base_name));
+    bool has_im = has_impl("IndexMut", type_name) ||
+                  (!base_name.empty() && has_impl("IndexMut", base_name));
     if (!has_im) return std::nullopt;
     if (!lookup_is_mut(arr_name))
         error(std::format("index write to immutable struct '{}'", arr_name));
@@ -8486,8 +8486,8 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_);
     }
     const SemaImplInfo* ii = nullptr;
-    if (auto it = impls_.find("IndexMut::" + type_name); it != impls_.end()) ii = &it->second;
-    else if (auto it2 = impls_.find("IndexMut::" + base_name); it2 != impls_.end()) ii = &it2->second;
+    if (auto it = impls_.find(impl_key("IndexMut", type_name)); it != impls_.end()) ii = &it->second;
+    else if (auto it2 = impls_.find(impl_key("IndexMut", base_name)); it2 != impls_.end()) ii = &it2->second;
     if (ii && ii->trait_type_args.size() >= 2) {
         SemaSubst subst;
         if (ii->target_typeref) {
@@ -8660,10 +8660,10 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
             if (at_ && TypeRef(at_).kind() == LogosType::Kind::Struct) {
                 auto tn_ = concrete_struct_name(at_);
                 auto bn_ = std::string(TypeRef(at_).struct_name());
-                bool hix_ = impls_.count("Index::" + tn_) ||
-                            (!bn_.empty() && impls_.count("Index::" + bn_));
-                bool him_ = impls_.count("IndexMut::" + tn_) ||
-                            (!bn_.empty() && impls_.count("IndexMut::" + bn_));
+                bool hix_ = has_impl("Index", tn_) ||
+                            (!bn_.empty() && has_impl("Index", bn_));
+                bool him_ = has_impl("IndexMut", tn_) ||
+                            (!bn_.empty() && has_impl("IndexMut", bn_));
                 if (hix_ && !him_) {
                     error(std::format("cannot assign to index of '{}': type "
                                       "'{}' implements `Index` but not "

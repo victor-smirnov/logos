@@ -832,40 +832,16 @@ bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
                                           const std::string& concrete,
                                           const std::string& concrete_alt,
                                           logos::compiler::StrSet& seen) {
-    // ⚠ ASK BY IDENTITY, ALWAYS — never by the caller's spelling. `trait_name`
-    // arrives here as either a bare-text probe ("Drop", "Copy", "Index") or a
-    // traits_ registry key, and the registry key is BARE for whichever homonym
-    // owns the bare slot. Probing impls_ with that string reads whatever OTHER
-    // homonym happens to be filed under the same raw alias. `impl_key_trait`
-    // resolves it to `pkg::Trait`, which every impl is also filed under, so the
-    // bare-text probes keep matching and the homonyms stop colliding. A name
-    // that resolves to no trait passes through unchanged and the raw key still
-    // serves it.
-    const std::string tid = impl_key_trait(trait_name);
-    // ⚠ THIS PRIMITIVE IS ASKED BY TWO DIFFERENT KINDS OF CALLER, and they do
-    // NOT want the same answer. A user BOUND arrives carrying its identity and
-    // must see one trait's impls only — that narrowing lives in
-    // check_type_bounds, which composes identity keys directly. A hardcoded
-    // COMPILER PROBE ("a rel column must implement Hash", Drop/Copy/Index)
-    // names a specific STDLIB trait by bare text, and `impl_key_trait` resolves
-    // that text through traits_ — which returns whichever homonym owns the bare
-    // slot, NOT the stdlib's. MEASURED: narrowing this function to the identity
-    // alone made `trait_ident_bare_alias_bound` red with
-    //   "rel column 'pos: i64' — a rel column type must implement `Hash`;
-    //    `i64` does not"
-    // in a program that merely LINKS an archive declaring its own `Hash`.
-    // So the union is kept HERE, deliberately, and the narrowing is done where
-    // the caller's intent is known.
-    std::string k = tid + "::" + concrete;
+    // ⚠ ASK BY IDENTITY, ALWAYS. `trait_name` arrives as a path, as a name
+    // written in this scope, or as a compiler-spelled lang item ("Drop",
+    // "Copy", "Hash"); `impl_trait_id` turns each into the one identity the
+    // registry is keyed by, so a homonym's impls can never answer here and the
+    // compiler's own probes still reach the stdlib trait they name.
+    const DefId tid = impl_trait_id(trait_name);
+    std::string k = std::to_string(tid.v) + "::" + concrete;
     if (!seen.insert(k).second) return false;
-    if (impls_.count(k)) return true;
-    if (tid != trait_name && impls_.count(trait_name + "::" + concrete)) return true;
-    if (!concrete_alt.empty()) {
-        std::string ka = tid + "::" + concrete_alt;
-        if (impls_.count(ka)) return true;
-        if (tid != trait_name && impls_.count(trait_name + "::" + concrete_alt))
-            return true;
-    }
+    if (impls_.count(ImplKey{tid, concrete})) return true;
+    if (!concrete_alt.empty() && impls_.count(ImplKey{tid, concrete_alt})) return true;
     // Reference Self: `impl Trait for &T` / `&mut T` registers under collect_impl's
     // `$ref_`/`$mut_ref_` mangling, but `concrete` here is the raw type_str
     // (`&i32` / `&mut Foo`). Try both forms — primitive pointee keeps the full
@@ -875,14 +851,8 @@ bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
     for (auto& pfx : {std::string("&mut "), std::string("&")}) {
         if (concrete.rfind(pfx, 0) != 0) continue;
         std::string mpfx = (pfx == "&mut ") ? "$mut_ref_" : "$ref_";
-        if (impls_.count(tid + "::" + mpfx + concrete)) return true;
-        if (impls_.count(tid + "::" + mpfx + concrete.substr(pfx.size())))
-            return true;
-        if (tid != trait_name) {
-            if (impls_.count(trait_name + "::" + mpfx + concrete)) return true;
-            if (impls_.count(trait_name + "::" + mpfx + concrete.substr(pfx.size())))
-                return true;
-        }
+        if (impls_.count(ImplKey{tid, mpfx + concrete})) return true;
+        if (impls_.count(ImplKey{tid, mpfx + concrete.substr(pfx.size())})) return true;
         break;
     }
     for (auto& bi : blanket_impls_) {
@@ -1163,7 +1133,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // key instead of the plain one below.
             if (bound.on_ref_subject) {
                 std::string rk = (bound.is_ref_mut ? "$mut_ref_" : "$ref_") + concrete_str;
-                if (impls_.count(bid + "::" + rk)) continue;
+                if (has_impl(bid, rk)) continue;
                 if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
                 error(std::format("'{}': type '{}{}' does not implement trait '{}' "
                                   "required by parameter '&{}'{}",
@@ -1197,8 +1167,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 }
                 continue;
             }
-            auto key1 = bid + "::" + concrete_str;
-            auto key2 = unwrapped_name.empty() ? "" : bid + "::" + unwrapped_name;
+            const DefId bid_def = impl_trait_id(bid);
+            const ImplKey key1{bid_def, concrete_str};
+            const ImplKey key2 = unwrapped_name.empty() ? ImplKey{}
+                                                        : ImplKey{bid_def, unwrapped_name};
             // Parametrized bound `T: Trait<Args>`: the impls_ registry is keyed
             // `Trait::Self` and SINGLE-valued, so a Self-name hit proves only that
             // SOME `Trait` impl exists — NOT one with the right type-args (a type
@@ -1260,17 +1232,18 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 // Foo<T>` registers under `Trait::Foo` (bare), not the mangled
                 // `Trait::Foo$G1$i32`, so the generic-struct acceptance path keys
                 // on the bare name; mirror that here.
-                std::string key_bare;
+                ImplKey key_bare{};
                 if (cv.kind() == LogosType::Kind::Struct ||
                     cv.kind() == LogosType::Kind::ZonedStruct) {
                     if (!cv.struct_name().empty())
-                        key_bare = bid + "::" + std::string(cv.struct_name());
+                        key_bare = ImplKey{bid_def, std::string(cv.struct_name())};
                 } else if (cv.kind() == LogosType::Kind::Enum) {
                     if (!cv.enum_name().empty())
-                        key_bare = bid + "::" + std::string(cv.enum_name());
+                        key_bare = ImplKey{bid_def, std::string(cv.enum_name())};
                 }
-                for (auto* kp : {&key1, &key2, &key_bare}) {
-                    if (kp->empty()) continue;
+                const ImplKey* cands[] = {&key1, &key2, &key_bare};
+                for (const ImplKey* kp : cands) {
+                    if (!kp->trait_def || kp->target.empty()) continue;
                     auto it = impls_all_.find(*kp);
                     if (it == impls_all_.end()) continue;
                     for (auto& info : it->second)
@@ -1381,7 +1354,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 const SemaImplInfo* found = nullptr;
                 auto i1 = impls_.find(key1);
                 if (i1 != impls_.end()) found = &i1->second;
-                else if (!key2.empty()) {
+                else if (key2.trait_def) {
                     auto i2 = impls_.find(key2);
                     if (i2 != impls_.end()) found = &i2->second;
                 }
@@ -1397,12 +1370,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     if (bound.trait_name == "PartialEq")    alias = "Eq";
                     else if (bound.trait_name == "PartialOrd") alias = "Ord";
                     if (!alias.empty()) {
-                        auto ak1 = alias + "::" + concrete_str;
-                        auto i1a = impls_.find(ak1);
+                        auto i1a = impls_.find(impl_key(alias, concrete_str));
                         if (i1a != impls_.end()) found = &i1a->second;
                         else if (!unwrapped_name.empty()) {
-                            auto ak2 = alias + "::" + unwrapped_name;
-                            auto i2a = impls_.find(ak2);
+                            auto i2a = impls_.find(impl_key(alias, unwrapped_name));
                             if (i2a != impls_.end()) found = &i2a->second;
                         }
                     }
@@ -1474,8 +1445,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if ((cv.kind() == LogosType::Kind::Struct ||
                  cv.kind() == LogosType::Kind::ZonedStruct) &&
                 !cv.struct_name().empty()) {
-                auto key3 = bid + "::" + std::string(cv.struct_name());
-                if (type_args_ok && impls_.count(key3)) continue;
+                if (type_args_ok && impls_.count(ImplKey{bid_def, std::string(cv.struct_name())})) continue;
             }
             // Slice-impl bound satisfaction (the Sized-partition pattern):
             // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
@@ -1486,10 +1456,9 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if ((cv.kind() == LogosType::Kind::Slice ||
                  cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
                 TypeRef selem = cv.elem();
-                std::string ekey = bid + "::$slice$"
-                    + (selem ? type_str(selem) : std::string("?"));
-                if (impls_.count(ekey)) continue;
-                if (impls_.count(bid + "::$slice$T")) continue;
+                if (impls_.count(ImplKey{bid_def, "$slice$" +
+                        (selem ? type_str(selem) : std::string("?"))})) continue;
+                if (impls_.count(ImplKey{bid_def, "$slice$T"})) continue;
             }
             // Slice-impl bound satisfaction (the Sized-partition pattern):
             // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
@@ -1500,10 +1469,9 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if ((cv.kind() == LogosType::Kind::Slice ||
                  cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
                 TypeRef selem = cv.elem();
-                std::string ekey = bid + "::$slice$"
-                    + (selem ? type_str(selem) : std::string("?"));
-                if (impls_.count(ekey)) continue;
-                if (impls_.count(bid + "::$slice$T")) continue;
+                if (impls_.count(ImplKey{bid_def, "$slice$" +
+                        (selem ? type_str(selem) : std::string("?"))})) continue;
+                if (impls_.count(ImplKey{bid_def, "$slice$T"})) continue;
             }
             // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
             // are registered under `$tuple$N` (generic, mirrors the
@@ -1514,12 +1482,9 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // Variadic form `impl<A...> Trait for (A...)` registers under
             // `$tuple$variadic` — accept any tuple arity.
             if (cv.kind() == LogosType::Kind::Tuple && type_args_ok) {
-                auto key_variadic = bid + "::$tuple$variadic";
-                if (impls_.count(key_variadic)) continue;
+                if (impls_.count(ImplKey{bid_def, "$tuple$variadic"})) continue;
                 size_t arity = cv.tuple_elems().size();
-                auto key_arity = bid + "::$tuple$"
-                                 + std::to_string(arity);
-                if (impls_.count(key_arity)) {
+                if (impls_.count(ImplKey{bid_def, "$tuple$" + std::to_string(arity)})) {
                     // Recursive bound check: every element must itself
                     // implement bound.trait (matches the impl's
                     // `<A: trait, B: trait, …>` qualifiers).
@@ -1536,13 +1501,11 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         // Simpler: peek by reusing the same key-lookup
                         // logic against the element type.
                         std::string e_str = type_str(e);
-                        std::string ek1 = bid + "::" + e_str;
-                        if (impls_.count(ek1)) continue;
+                        if (impls_.count(ImplKey{bid_def, e_str})) continue;
                         // Tuple element is itself a tuple → arity key.
                         if (TypeRef(e).kind() == LogosType::Kind::Tuple) {
                             size_t a2 = TypeRef(e).tuple_elems().size();
-                            if (impls_.count(bid + "::$tuple$"
-                                             + std::to_string(a2)))
+                            if (impls_.count(ImplKey{bid_def, "$tuple$" + std::to_string(a2)}))
                                 continue;
                         }
                         // Auto trait short-circuit.
@@ -1727,8 +1690,8 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` registers under
             // `$fnptr$N`; a concrete fn-pointer satisfies the bound by arity.
             if (LogosType::is_fn_value_kind(cv.kind()) &&
-                impls_.count(bid + "::$fnptr$" +
-                             std::to_string(cv.closure_params().size())))
+                impls_.count(ImplKey{bid_def, "$fnptr$" +
+                             std::to_string(cv.closure_params().size())}))
                 continue;
             // G158-7: a `dyn Trait` trait object satisfies a `T: Trait` bound —
             // a trait object implements its own trait (Rust's auto rule) + any
@@ -1776,7 +1739,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                             TypeRef(pt).kind() == LogosType::Kind::ZonedStruct))
                         ? pfx + concrete_struct_name(pt)
                         : pfx + concrete_str;
-                if (impls_.count(bid + "::" + mangled)) continue;
+                if (has_impl(bid, mangled)) continue;
             }
             // ADR 0021 Phase 4a: a factory-backed metaclass marker's trait
             // impl is GENERATED by the mono→factory drain, which runs after
@@ -3371,11 +3334,12 @@ void SemaChecker::check_trait_def_identity() {
             fail(std::format("the path of '{}' does not lead back to it", defs_.path(id)));
     }
     for (auto& [key, ii] : impls_) {
-        if (ii.canonical_trait.empty()) continue;
-        if (ii.trait_def != trait_def_of_key(ii.canonical_trait))
-            fail(std::format("impl '{}': trait_def names '{}', canonical key '{}'", key,
-                             ii.trait_def ? defs_.path(ii.trait_def) : std::string("nothing"),
-                             ii.canonical_trait));
+        // The key IS the identity: the trait it is filed under must be the one
+        // the impl resolved to where it was written.
+        if (ii.trait_def && key.trait_def != ii.trait_def)
+            fail(std::format("impl of '{}' for '{}' is filed under '{}'",
+                             ii.canonical_trait.empty() ? ii.trait_name : ii.canonical_trait,
+                             key.target, defs_.path(key.trait_def)));
     }
 }
 
@@ -5315,39 +5279,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
             coherence_keys_.insert(coh_key);
             if (!cur_from_binary_) user_coherence_keys_.insert(coh_key);
         }
-        impls_[key] = info;
-        impls_all_[key].push_back(info);   // ALL impls (impls_ is last-wins)
-        if (!cur_from_binary_) user_impl_keys_.insert(key);
-        // B-mv-03: ALSO file the impl under the trait's IDENTITY key
-        // (`pkg::Trait::Target`). This is ADDITIVE by construction — for a
-        // trait that owns the bare slot `coh_trait == trait_name` and nothing
-        // is inserted at all, so every existing bare-text probe, every
-        // prefix-strip (`"Copy::"`, `"StableLayout::"`, the sole-concrete
-        // inference in sema_expr.cpp) and every impls_all_ enumeration sees a
-        // byte-identical map. What it BUYS: a bound that carries a canonical
-        // trait (TraitBound::canonical_trait / BlanketImpl::canonical_bound_trait)
-        // can ask for ONE homonym's impls and MISS the other's — which is the
-        // refusal this fix exists to produce.
-        // ⚠ NOT a replacement of the bare key: ~50 probes across sema compose
-        // a bare stdlib trait name (`Drop::`, `Index::`, `Deref::`, …) and are
-        // correct only because that trait owns the bare slot. Re-keying would
-        // move the slot under a homonym and silence them; the split is carried,
-        // not chosen away. `check_impl_registry_key_identity` (sema_impl.hpp)
-        // mechanically checks that the two spaces stay in step.
-        // ⚠ THE IDENTITY IS `impl_key_trait(coh_trait)`, NOT `coh_trait`.
-        // `coh_trait` is the traits_ KEY, which is BARE for whichever homonym
-        // owns the bare slot — so using it here filed the incumbent's identity
-        // under the very string every other homonym's RAW alias uses, and a
-        // bound over the incumbent read the newcomer's impls. See
-        // `impl_key_trait` in sema_impl.hpp for the measurement.
-        const std::string ident_trait =
-            coh_trait.empty() ? coh_trait : impl_key_trait(coh_trait);
-        if (ident_trait != trait_name && !ident_trait.empty()) {
-            std::string ckey = ident_trait + "::" + target;
-            impls_[ckey] = info;
-            impls_all_[ckey].push_back(info);
-            if (!cur_from_binary_) user_impl_keys_.insert(ckey);
-        }
+        // #438 step 4: ONE key — the trait's IDENTITY plus the target. The raw
+        // spelling key and the identity key that used to stand side by side are
+        // one thing now: a compiler probe spelling "Drop" and a bound carrying
+        // `logos.lang.drop::Drop` both arrive at the same DefId through
+        // `impl_trait_id`, and a homonym's impls live under a different one.
+        const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
+        impls_[ikey] = info;
+        impls_all_[ikey].push_back(info);   // ALL impls (impls_ is last-wins)
+        if (!cur_from_binary_) user_impl_keys_.insert(ikey);
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
         // Register an alias entry so satisfaction checks find the impl.
@@ -5356,19 +5296,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                target_resolved, impl_tps,
                                trait_type_args, trait_lt_args, impl_lt_params,
                                impl_lt_outlives, impl_doc, {}};
-            impls_[trait_name + "::&[u8]"] = alias;
-            impls_all_[trait_name + "::&[u8]"].push_back(alias);
-            // ⚠ THE ALIAS NEEDS THE IDENTITY KEY TOO. It used to be filed
-            // under `coh_trait` (the traits_ registry key, BARE for the
-            // bare-slot owner), so `impl Hash for str` had no
-            // `logos.lang.hash::Hash::&[u8]` entry and every identity-keyed
-            // bound over a `str`/`&[u8]` argument was REFUSED. MEASURED: the
-            // build of liblogos-lcm.a failed with "'hashmap_new': type '&[u8]'
-            // does not implement trait 'Hash'" until this key was added.
-            if (ident_trait != trait_name && !ident_trait.empty()) {
-                impls_[ident_trait + "::&[u8]"] = alias;
-                impls_all_[ident_trait + "::&[u8]"].push_back(alias);
-            }
+            const ImplKey akey{ikey.trait_def, "&[u8]"};
+            impls_[akey] = alias;
+            impls_all_[akey].push_back(alias);
         }
     }
 }
@@ -7006,8 +6936,7 @@ void SemaChecker::check_supertrait_impls() {
             const std::string& super_q = super.canonical_trait.empty()
                                              ? super.trait_name : super.canonical_trait;
             if (!trait_by_key(super_q)) continue;  // already reported above
-            std::string super_key = super_q + "::" + target;
-            if (impls_.count(super_key)) continue;
+            if (has_impl(super_q, target)) continue;
             // Blanket-derived supertrait satisfaction: if a blanket
             // `impl<T: BoundTrait> SuperTrait for T` exists and `target`
             // implements `BoundTrait` (directly or via another blanket),

@@ -20,6 +20,7 @@
 package test;
 
 use logos.std.wql.wql;
+use logos.mem.bt.map;   // the source traits this file implements
 use logos.mem.collections.vec;
 use logos.lang.result;
 

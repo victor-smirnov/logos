@@ -410,7 +410,7 @@ public:
     StrSet persisted_user_pkgs;
     StrSet persisted_user_module_const_keys;
     StrSet persisted_user_generic_const_keys;
-    StrSet persisted_user_impl_keys;
+    std::unordered_set<SemaChecker::ImplKey, SemaChecker::ImplKeyHash> persisted_user_impl_keys;
     StrSet persisted_user_coherence_keys;
     StrSet persisted_user_assoc_type_impl_keys;
     StrSet persisted_user_assoc_const_impl_keys;
@@ -2759,7 +2759,6 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // before the snapshot that carries them into the next call's
     // install_snapshot, whose const-index rebuild is another one).
     check_symbol_key_separators();
-    check_impl_registry_key_identity();
     check_trait_def_identity();
 
     {
@@ -3556,7 +3555,7 @@ void SemaChecker::compute_auto_copy_types() {
         // Drop registration: collect_impl inserts into impls_ keyed
         // "Drop::<target>". Plain bare-name lookup matches both
         // `impl Drop for X` and pkg-qualified variants.
-        return impls_.count("Drop::" + bare_name) != 0;
+        return has_impl("Drop", bare_name) != 0;
     };
     // is_copy_field: does this field-type qualify as Copy given the current
     // pending-copy set? Recurses into struct/tuple shapes; bottoms out on
@@ -3684,13 +3683,13 @@ void SemaChecker::compute_auto_copy_types() {
     // the prefix `"Copy::"` refused programs implementing the lang item
     // NOWHERE; both halves now ask the trait's declaration. PROBES.md
     // 2026-09-10f.
+    const DefId copy_id = impl_trait_id("Copy");
     for (auto& [ikey, info] : impls_) {
-        constexpr std::string_view kCopyPrefix = "Copy::";
-        if (ikey.rfind(kCopyPrefix, 0) != 0) continue;
+        if (ikey.trait_def != copy_id) continue;
         if (!bound_is_copy_lang_item(info.trait_name, info.canonical_trait))
             continue;
-        std::string target = ikey.substr(kCopyPrefix.size());
-        auto dit = impls_.find("Drop::" + target);
+        const std::string& target = ikey.target;
+        auto dit = impls_.find(impl_key("Drop", target));
         if (dit != impls_.end() &&
             trait_key_is_lang_item(dit->second.canonical_trait.empty()
                                        ? dit->second.trait_name
@@ -3761,9 +3760,9 @@ void SemaChecker::compute_auto_copy_types() {
                 // and names this exact site. Do not read the census count for
                 // this statement as three of three.
                 std::string n{ft.struct_name()};
-                if (impls_.count("StableLayout::" + n) ||
-                    impls_.count("StableLayout::" + concrete_struct_name(ft)) ||
-                    impls_.count("StableLayout::" + type_str(ft)))
+                if (has_impl("StableLayout", n) ||
+                    has_impl("StableLayout", concrete_struct_name(ft)) ||
+                    has_impl("StableLayout", type_str(ft)))
                     return true;
                 if (why) *why = std::format(
                     "struct '{}' has no StableLayout impl", n);
@@ -3776,11 +3775,11 @@ void SemaChecker::compute_auto_copy_types() {
                 return false;
             }
         };
+        const DefId sl_id = impl_trait_id("StableLayout");
         for (auto& [ikey, info] : impls_) {
-            constexpr std::string_view kSlPrefix = "StableLayout::";
-            if (ikey.rfind(kSlPrefix, 0) != 0) continue;
+            if (ikey.trait_def != sl_id) continue;
             if (info.is_negative) continue;
-            std::string target = ikey.substr(kSlPrefix.size());
+            const std::string& target = ikey.target;
             // structs_ keys are pkg-qualified (sema_key); the impl key's
             // target is the bare/type_str spelling — probe both forms.
             auto sit = structs_.find(target);
@@ -3832,9 +3831,7 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
     // the current impl context (two `Trait<T>` impls for one type at distinct T
     // register their assoc types under distinct suffixed keys).
     if (current_impl_trait_name_ == trait_name && !current_impl_trait_args_.empty()) {
-        auto it = assoc_type_impls_.find(
-            trait_name + trait_targ_suffix(current_impl_trait_args_)
-            + "::" + target + "::" + aname);
+        auto it = assoc_type_impls_.find(trait_name + trait_targ_suffix(current_impl_trait_args_) + "::" + target + "::" + aname);
         if (it != assoc_type_impls_.end()) return &it->second;
     }
     auto it = assoc_type_impls_.find(trait_name + "::" + target + "::" + aname);
@@ -4998,7 +4995,7 @@ TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     // MUST `impl SelfDescribing`. Without it the length would silently read 0.
     // (A self-describing DST used only through raw `*mut`/byte arithmetic — the
     // Segment pattern — never reaches here, so it is not forced to impl it.)
-    if (!impls_.count("SelfDescribing::" + sn))
+    if (!has_impl("SelfDescribing", sn))
         error(std::format(
             "#[self_describing] struct '{0}' is borrowed as a fat reference "
             "(`&{0}`) but does not implement `SelfDescribing` — its "
@@ -6919,9 +6916,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 if (bi.trait_name != bare_tn3) continue;
                 // Concrete type must implement every bound of the blanket.
                 auto bound_satisfied = [&](const std::string& bt) {
-                    if (impls_.count(bt + "::" + concrete_name)) return true;
+                    if (has_impl(bt, concrete_name)) return true;
                     if (!base_name.empty() && base_name != concrete_name &&
-                        impls_.count(bt + "::" + base_name)) return true;
+                        has_impl(bt, base_name)) return true;
                     return false;
                 };
                 if (!bound_satisfied(bi.bound_trait)) continue;
@@ -7289,8 +7286,8 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             // so a path here would miss every one of them. (Those key spaces
             // move to identities in a later step of #438.)
             const std::string& tname = tinfo.name;
-            bool found_impl = impls_.count(tname + "::" + cname) > 0
-                           || (!base_name.empty() && impls_.count(tname + "::" + base_name) > 0);
+            bool found_impl = has_impl(tname, cname) > 0
+                           || (!base_name.empty() && has_impl(tname, base_name) > 0);
             if (found_impl) {
                 for (auto& at : tinfo.assoc_types) {
                     if (at.name == assoc) { trait_for_assoc = tname; break; }
@@ -10966,7 +10963,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     if (_tit) {
                         bool _has_impl = false;
                         for (auto& kv : impls_)
-                            if (kv.first.rfind(_tn + "::", 0) == 0) { _has_impl = true; break; }
+                            if (kv.first.trait_def == _tit->def) { _has_impl = true; break; }
                         for (auto& m : _tit->methods) {
                             if (!m.has_default) continue;
                             logos::probe::census("trdef.mint");

@@ -905,6 +905,9 @@ function(logos_fail_extra_args BASE OUT_VAR)
     # A bound crossing an ARCHIVE boundary must keep its trait's identity —
     # lhom declares its own `Hash` and implements it for f64 only.
     set(FAIL_TRAIT_IDENT_CHAIN_USERS trait_ident_cross_archive_bound_refused)
+    # The MIRROR direction: the bound is declared in hmid, over lhom's `Hash`,
+    # and reaches this consumer through TWO archives.
+    set(FAIL_TRAIT_IDENT_MIRROR_USERS trait_ident_chain_mirror_bound_refused)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST FAIL_WQLMAP_USERS)
@@ -917,6 +920,8 @@ function(logos_fail_extra_args BASE OUT_VAR)
         set(_extra -l ${TRAIT_BLANKET_CHAIN_BPROBE_BIN})
     elseif (BASE IN_LIST FAIL_TRAIT_IDENT_CHAIN_USERS)
         set(_extra -l ${TRAIT_IDENT_CHAIN_LHOM_BIN})
+    elseif (BASE IN_LIST FAIL_TRAIT_IDENT_MIRROR_USERS)
+        set(_extra -l ${TRAIT_IDENT_CHAIN_HMID_BIN} -l ${TRAIT_IDENT_CHAIN_LHOM_BIN})
     else()
         set(_extra "")
     endif()

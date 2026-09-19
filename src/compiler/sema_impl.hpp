@@ -2952,51 +2952,11 @@ private:
         audit("module_consts_", module_consts_);
     }
 
-    // B-mv-03: the impl registry carries TWO key spellings for one impl — the
-    // RAW `Trait::Target` that ~50 bare-text probes across sema compose, and
-    // the IDENTITY `pkg::Trait::Target` that a canonicalised bound asks with.
-    // Carrying both is a deliberate choice (re-keying would move the bare slot
-    // under a homonym and silence the `Drop::`/`Copy::`/`Index::` gates), and a
-    // carried split needs a MECHANICAL check, not a comment — a comment is what
-    // protected the last separator invariant, and it did not.
-    //
-    // THE INVARIANT: an impl whose trait identity differs from its written
-    // spelling is filed under BOTH keys. If the alias insert in collect_impl is
-    // dropped, weakened, or made conditional on something else, the identity
-    // probes go quiet — a bound refusal that finds nothing looks exactly like a
-    // bound that was never asked — and this aborts instead.
-    //
-    // Over the POPULATION, not the call sites: it is blind to which composer
-    // built the key, so it holds for entries that entered through the `str` →
-    // `&[u8]` alias and for impls re-entering from a binary dependency's LIR
-    // just as it does for the primary insert.
-    void check_impl_registry_key_identity() const {
-        for (auto& kv : impls_) {
-            const auto& info = kv.second;
-            if (info.canonical_trait.empty() ||
-                info.canonical_trait == info.trait_name) continue;
-            const std::string bare  = info.trait_name + "::" + info.target_type;
-            const std::string ident = info.canonical_trait + "::" + info.target_type;
-            // The entry under `kv.first` proves one of the two exists; require
-            // the OTHER. (`kv.first` may be neither when the target was mangled
-            // on the way in — `$ref_`/`&[u8]` — so check both explicitly.)
-            bool have_bare  = impls_.count(bare) != 0  || kv.first == bare;
-            bool have_ident = impls_.count(ident) != 0 || kv.first == ident;
-            if (have_bare && have_ident) continue;
-            std::fprintf(stderr,
-                "logosc INTERNAL: impls_ entry '%s' is filed under only %s key\n"
-                "  impl '%s' for '%s' resolves to trait identity '%s'. The registry "
-                "must hold BOTH the raw key '%s' (bare-text probes: Drop::, Copy::, "
-                "Index::, the prefix-strip sweeps) and the identity key '%s' (a "
-                "canonicalised bound's lookup). One without the other means a bound "
-                "over a homonym trait silently answers from the wrong trait's impls, "
-                "or answers nothing at all and reads as a clean refusal.\n",
-                kv.first.c_str(), have_bare ? "the raw" : "the identity",
-                info.trait_name.c_str(), info.target_type.c_str(),
-                info.canonical_trait.c_str(), bare.c_str(), ident.c_str());
-            std::abort();
-        }
-    }
+    // (#438 step 4) The dual-key invariant that stood here is retired with the
+    // second key space: an impl is filed under ONE key — the trait's IDENTITY
+    // plus the target — so there is nothing left for the two spellings to drift
+    // between, and the bare-text probes ask through `impl_trait_id`, which
+    // resolves a compiler-spelled lang item to the same identity.
 
     // B-mv-03: the GROUND for a bound refusal — WHICH trait the written name
     // denotes here and WHERE the registry was consulted. Empty when the bound's
@@ -4259,7 +4219,31 @@ private:
     // (where present) handles symbol_name maps separately.
     StrSet user_module_const_keys_;
     StrSet user_generic_const_keys_;
-    StrSet user_impl_keys_;             // "Trait::Target" keys added by user impls
+public:
+    // ── AN IMPL IS KEYED BY WHAT IT IMPLEMENTS, NOT BY HOW IT WAS SPELLED ──
+    // #438: the trait half is the trait's IDENTITY (its DefId), so two packages'
+    // same-named traits are two key spaces and no impl of one can answer for the
+    // other. The target half is still the type's SPELLING (the mangled
+    // `type_str`, `$ref_X`, `$tuple$N`, …) — nominal types get their own DefIds
+    // in a later step, and #88 (`Copy::TypeId` of two packages on one key) closes
+    // with them, not here.
+    // A trait no declaration provides (a builtin marker in a freestanding build)
+    // still gets an id, interned in the root namespace, so two undeclared names
+    // cannot share one key either.
+    struct ImplKey {
+        DefId       trait_def;
+        std::string target;
+        bool operator==(const ImplKey&) const = default;
+    };
+    struct ImplKeyHash {
+        size_t operator()(const ImplKey& k) const noexcept {
+            return std::hash<uint32_t>{}(k.trait_def.v) * 1099511628211ull
+                 ^ logos::compiler::StringHash{}(k.target);
+        }
+    };
+    template <class V> using ImplMap = std::unordered_map<ImplKey, V, ImplKeyHash>;
+private:
+    std::unordered_set<ImplKey, ImplKeyHash> user_impl_keys_;   // impls added by user code
     StrSet user_coherence_keys_;         // "Trait[args]::Target" keys
     StrSet user_assoc_type_impl_keys_;   // "Trait::Target::Name" keys
     StrSet user_assoc_const_impl_keys_;
@@ -5973,7 +5957,9 @@ private:
     std::map<DefId, SemaTraitInfo>            traits_;
     // #438: every declaration's identity. Moves with the SemaCache snapshot, so
     // ids recorded on cached records stay valid across metaprog rounds.
-    DefTable defs_;
+    // mutable: interning is idempotent and only ever adds, so a const query may
+    // mint the identity of a name it is asked about.
+    mutable DefTable defs_;
     // Mints (or finds) the DefId of a trait record and stamps it.
     DefId stamp_trait_def_(SemaTraitInfo& info) {
         info.def = defs_.intern(DefKind::Trait, info.package, info.name);
@@ -6052,15 +6038,36 @@ private:
     // has an id naming its own (package, name), and every impl whose trait
     // resolved names the same trait by id as by its canonical key.
     void check_trait_def_identity();
-    // "TraitName::TypeName" → impl info
-    logos::compiler::StrMap<SemaImplInfo>     impls_;
+    // The identity to file an impl of `key` (a path, a written name resolved in
+    // scope, or a compiler-spelled lang item) under.
+    DefId impl_trait_id(std::string_view trait_key) const {
+        if (trait_key.empty()) return {};
+        if (DefId id = trait_def_of_key(trait_key)) return id;
+        if (auto* ti = resolve_trait(trait_key)) return ti->def;
+        // Nothing declares it: an identity of its own, so two undeclared names
+        // stay apart. The root namespace, because a builtin marker belongs to no
+        // package.
+        auto seg = trait_last_seg(trait_key);
+        return defs_.intern(DefKind::Trait, {}, seg);
+    }
+    ImplKey impl_key(std::string_view trait_key, std::string_view target) const {
+        return ImplKey{impl_trait_id(trait_key), std::string(target)};
+    }
+    bool has_impl(std::string_view trait_key, std::string_view target) const {
+        return impls_.count(impl_key(trait_key, target)) != 0;
+    }
+    SemaImplInfo* find_impl(std::string_view trait_key, std::string_view target) {
+        auto it = impls_.find(impl_key(trait_key, target));
+        return it == impls_.end() ? nullptr : &it->second;
+    }
+    ImplMap<SemaImplInfo>                     impls_;
     // Same key, but ALL impls (impls_ is single-valued / last-wins, so two
     // `Trait<A>` impls of one Self — `From<i32>` AND `From<i16>` for `i64`, or
     // `Iterator<i32>` vs the generic `Iterator<&T> for VecIter<T>` — collide).
     // Used by check_type_bounds to verify a parametrized bound `T: Trait<Args>`
     // against the impls' actual trait-args (single-valued impls_ can't, which
     // let `I: Iterator<i32>` be satisfied by an `Iterator<&i32>` impl).
-    logos::compiler::StrMap<std::vector<SemaImplInfo>> impls_all_;
+    ImplMap<std::vector<SemaImplInfo>> impls_all_;
     // Coherence-only set keyed by `Trait[arg1,arg2,...]::Target`. impls_ stays
     // bare (so existing bound-check / has_impl / find_impl callers without
     // trait_args still hit a registered impl); duplicate-detection uses this
@@ -6197,8 +6204,13 @@ private:
     // traits_ registry key (BARE for the homonym that owns the bare slot), or
     // an already-qualified identity. Comparing the strings as they arrive made
     // the answer depend on which spelling the caller happened to hold.
-    bool blanket_implements(const BlanketImpl& bi, const std::string& q) const {
-        return impl_key_trait(bi.query_trait()) == impl_key_trait(q);
+    // #438: a blanket implements the trait the QUERY names when the two are the
+    // same trait — compared by identity, so a homonym's blanket cannot answer.
+    bool blanket_implements(const BlanketImpl& bi, DefId q) const {
+        return q && impl_trait_id(bi.query_trait()) == q;
+    }
+    bool blanket_implements(const BlanketImpl& bi, std::string_view q) const {
+        return blanket_implements(bi, impl_trait_id(q));
     }
 
     // ── Package-qualified symbol lookup helpers ───────────────────
@@ -6441,6 +6453,16 @@ private:
     // in the current package, then in each import (the prelude among them).
     // A package-less file's traits are the root's and are found by the first
     // step there. Nothing answers from a scope the name was not written in.
+    const SemaTraitInfo* resolve_trait(std::string_view name) const {
+        if (name.empty()) return nullptr;
+        if (name.find("::") != std::string_view::npos) return trait_by_key(name);
+        if (auto id = defs_.find(DefNs::Type, cur_package_, name); id)
+            if (auto* ti = trait_info(id)) return ti;
+        for (auto& pkg : effective_import_pkgs())
+            if (auto id = defs_.find(DefNs::Type, pkg, name); id)
+                if (auto* ti = trait_info(id)) return ti;
+        return nullptr;
+    }
     SemaTraitInfo* resolve_trait(std::string_view name) {
         if (name.empty()) return nullptr;
         if (name.find("::") != std::string_view::npos) return trait_by_key(name);
@@ -9848,8 +9870,8 @@ public:
     StrMap<SemaChecker::GenericConstEntry> generic_consts;
     std::map<DefId, SemaChecker::SemaTraitInfo> traits;
     DefTable                               defs;
-    StrMap<SemaChecker::SemaImplInfo>     impls;
-    StrMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
+    SemaChecker::ImplMap<SemaChecker::SemaImplInfo>     impls;
+    SemaChecker::ImplMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
     StrSet                                 coherence_keys;
     StrMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
     StrMap<SemaChecker::AssocConstEntry>  assoc_const_impls;

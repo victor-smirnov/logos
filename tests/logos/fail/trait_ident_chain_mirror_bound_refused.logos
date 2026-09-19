@@ -1,0 +1,32 @@
+// THE MIRROR DIRECTION OF trait_ident_cross_archive_bound_refused: the bound is
+// two archives away, and the homonym that owns the SPELLING here is the one the
+// bound does NOT mean.
+//
+// Shape (the same three packages as tests/logos/pass/trait_ident_pkg_chain.logos):
+//   trait_ident_chain.lhom  declares its own `trait Hash`, `impl Hash for f64`,
+//                           and `pub fn hmid_tag`'s bound lives over it
+//   trait_ident_chain.hmid  `depends lhom`, no prelude, re-exports `hmid_tag<T: Hash>`
+//   THIS package            uses hmid only — lhom is never in scope here
+//
+// `i64` implements the STDLIB `Hash` and not lhom's, so `hmid_tag(5i64)` must be
+// REFUSED. The refusal has to name the trait the BOUND meant — lhom's, written
+// in hmid's scope — not the one this file's spelling would reach.
+//
+// ⚠ WHY THIS FIXTURE EXISTS AND THE pkg_chain ONE DOES NOT PIN IT. That file's
+// header records this call as ADMITTED and dying in the MLIR verifier at
+//     error: 'func.call' op 'i64__tag' does not reference a valid function
+// and deliberately does not assert it: a `fail/` door holding a verifier crash
+// would be asserting the defect. Re-measured at 14c36a77f: sema refuses it
+// there already (B-mv-03 carried the identity onto the bound), and at
+// #438 step 4 it refuses with the ground below, naming both traits. The door
+// is now a refusal, so it can be pinned — and what it guards is the direction
+// where the local spelling and the bound's identity disagree.
+package trait_ident_chain_mirror_bound_refused;
+
+use trait_ident_chain.hmid;
+
+fn main() -> i32 {
+    let bad: i64 = hmid_tag(5i64);
+    if bad == -1i64 { return 9i32; }
+    return 0i32;
+}

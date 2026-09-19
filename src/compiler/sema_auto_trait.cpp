@@ -34,8 +34,9 @@ bool SemaChecker::is_auto_trait_satisfied(
     if (visited.count(cycle_key)) return true;
     visited.insert(cycle_key);
 
+    const DefId auto_trait_id = impl_trait_id(trait_name);
     auto find_impl = [&](const std::string& name) -> const SemaImplInfo* {
-        auto it = impls_.find(std::string(trait_name) + "::" + name);
+        auto it = impls_.find(ImplKey{auto_trait_id, name});
         return it == impls_.end() ? nullptr : &it->second;
     };
     // Check explicit impl (positive or negative) for one of the candidate keys.

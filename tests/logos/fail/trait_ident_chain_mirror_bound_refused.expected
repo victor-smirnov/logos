@@ -1,0 +1,1 @@
+'hmid_tag': type 'i64' does not implement trait 'Hash' required by parameter 'T' — here 'Hash' denotes the trait registered as 'trait_ident_chain.lhom::Hash'

@@ -464,8 +464,7 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     const char* tr     = want_mut ? "DerefMut" : "Deref";  // may degrade below
     auto pick = [&](const char* trname) -> const SemaImplInfo* {
         const SemaImplInfo* loose = nullptr;
-        for (const std::string& key : {std::string(trname) + "::" + cname,
-                                       std::string(trname) + "::" + base}) {
+        for (const ImplKey& key : {impl_key(trname, cname), impl_key(trname, base)}) {
             auto ait = impls_all_.find(key);
             if (ait == impls_all_.end()) continue;
             for (const auto& info : ait->second) {
@@ -5579,8 +5578,7 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
             // trait name and are correct only because that trait owns the bare
             // slot. This is one of the ~15 whose target comes from a resolved
             // TypeRef and could take a qualified probe ahead of the bare one.
-            auto iit = impls_.find(b.trait_name + "::" +
-                                   std::string(TypeRef(actual).struct_name()));
+            auto iit = impls_.find(impl_key(b.trait_name, std::string(TypeRef(actual).struct_name())));
             if (iit == impls_.end()) continue;
             auto& imp = iit->second;
             if (imp.trait_type_args.empty()) continue;
@@ -9194,8 +9192,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             !sname_view.empty())
         {
             std::string base   = std::string(TypeRef(rt).struct_name());
-            auto it = impls_.find(std::string("Deref::") + sname_view);
-            if (it == impls_.end()) it = impls_.find(std::string("Deref::") + base);
+            auto it = impls_.find(impl_key("Deref", sname_view));
+            if (it == impls_.end()) it = impls_.find(impl_key("Deref", base));
             if (it != impls_.end() && !it->second.trait_type_args.empty()) {
                 probe_target = it->second.trait_type_args[0];
                 if (it->second.target_typeref) {
@@ -9922,7 +9920,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             else if (TypeRef(rst).kind() == LogosType::Kind::Enum)
                 recv_bare = std::string(TypeRef(rst).enum_name());
             if (!recv_bare.empty()) {
-                auto iit = impls_.find(fi->trait_name + "::" + recv_bare);
+                auto iit = impls_.find(impl_key(fi->trait_name, recv_bare));
                 auto* tit = resolve_trait(fi->trait_name);
                 if (iit != impls_.end() && tit) {
                     auto& tps   = tit->type_params;
@@ -13109,9 +13107,9 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     auto base_name = std::string(TypeRef(arr_type).struct_name());
     // For `&mut f[i]` we need IndexMut; for `&f[i]`, Index is enough.
     const char* trait = is_mut ? "IndexMut" : "Index";
-    bool has_trait = impls_.count(std::string(trait) + "::" + type_name) ||
+    bool has_trait = has_impl(std::string(trait), type_name) ||
                      (!base_name.empty() &&
-                      impls_.count(std::string(trait) + "::" + base_name));
+                      has_impl(std::string(trait), base_name));
     if (!has_trait) {
         // `&mut f[i]` but no IndexMut impl — not a user index-place we can
         // honour. Fall through (generic path will diagnose / copy).
@@ -13288,8 +13286,8 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
         {
             auto _tn = concrete_struct_name(arr_type);
             auto _bn = std::string(TypeRef(arr_type).struct_name());
-            bool _has_index = impls_.count("Index::" + _tn) ||
-                              (!_bn.empty() && impls_.count("Index::" + _bn));
+            bool _has_index = has_impl("Index", _tn) ||
+                              (!_bn.empty() && has_impl("Index", _bn));
             if (_has_index) break;
         }
         bool deref_only = false;
@@ -13311,14 +13309,14 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     if (TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
         auto type_name = concrete_struct_name(arr_type);
         auto base_name = std::string(TypeRef(arr_type).struct_name());
-        bool has_index = impls_.count("Index::" + type_name) ||
-                         (!base_name.empty() && impls_.count("Index::" + base_name));
+        bool has_index = has_impl("Index", type_name) ||
+                         (!base_name.empty() && has_impl("Index", base_name));
         // In a mutable-use position the step is `index_mut` (IndexMut), and
         // an `Index`-only type is not a writable place (E0594) — the same
         // refusal `lower_place_assign` gives a bare-variable receiver.
         const char* itr = mut_ctx ? "IndexMut" : "Index";
-        bool has_trait = impls_.count(std::string(itr) + "::" + type_name) ||
-                         (!base_name.empty() && impls_.count(std::string(itr) + "::" + base_name));
+        bool has_trait = has_impl(std::string(itr), type_name) ||
+                         (!base_name.empty() && has_impl(std::string(itr), base_name));
         if (has_index && mut_ctx && !has_trait) {
             error(std::format("cannot assign to index of '{}': type '{}' implements "
                               "`Index` but not `IndexMut`", type_str(arr_type),
@@ -13357,8 +13355,8 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             // Output = the impl's `Index<Idx, Output>` 2nd trait-arg, with the
             // struct's type-args substituted for the impl's type params.
             const SemaImplInfo* ii = nullptr;
-            if (auto it = impls_.find(std::string(itr) + "::" + type_name); it != impls_.end()) ii = &it->second;
-            else if (auto it2 = impls_.find(std::string(itr) + "::" + base_name); it2 != impls_.end()) ii = &it2->second;
+            if (auto it = impls_.find(impl_key(std::string(itr), type_name)); it != impls_.end()) ii = &it->second;
+            else if (auto it2 = impls_.find(impl_key(std::string(itr), base_name)); it2 != impls_.end()) ii = &it2->second;
             if (ii && ii->trait_type_args.size() >= 2) {
                 SemaSubst subst;
                 if (ii->target_typeref) {
@@ -14532,7 +14530,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             // so a path here would miss every one of them. (Those key spaces
             // move to identities in a later step of #438.)
             const std::string& tname = tinfo.name;
-            if (!impls_.count(tname + "::" + cname_str)) continue;
+            if (!has_impl(tname, cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
@@ -14564,13 +14562,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             // and no annotation). The unique impl's `<Concrete>__foo` supplies
             // the signature.
             if (!mfi && find_trait_by_name(cname_str).second) {
-                std::string prefix = cname_str + "::";
+                const DefId trait_id = impl_trait_id(cname_str);
                 std::string sole_concrete;
                 int n_impls = 0;
                 for (auto& [k, _v] : impls_) {
-                    if (k.size() <= prefix.size() ||
-                        k.compare(0, prefix.size(), prefix) != 0) continue;
-                    std::string concrete = k.substr(prefix.size());
+                    if (k.trait_def != trait_id) continue;
+                    const std::string& concrete = k.target;
                     // Skip trait-arg-keyed coherence entries (contain '[').
                     if (concrete.find('[') != std::string::npos) continue;
                     if (concrete != sole_concrete) { ++n_impls; sole_concrete = concrete; }
@@ -14681,7 +14678,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             // so a path here would miss every one of them. (Those key spaces
             // move to identities in a later step of #438.)
             const std::string& tname = tinfo.name;
-            if (!impls_.count(tname + "::" + cname_str)) continue;
+            if (!has_impl(tname, cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
@@ -14713,13 +14710,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             // and no annotation). The unique impl's `<Concrete>__foo` supplies
             // the signature.
             if (!mfi && find_trait_by_name(cname_str).second) {
-                std::string prefix = cname_str + "::";
+                const DefId trait_id = impl_trait_id(cname_str);
                 std::string sole_concrete;
                 int n_impls = 0;
                 for (auto& [k, _v] : impls_) {
-                    if (k.size() <= prefix.size() ||
-                        k.compare(0, prefix.size(), prefix) != 0) continue;
-                    std::string concrete = k.substr(prefix.size());
+                    if (k.trait_def != trait_id) continue;
+                    const std::string& concrete = k.target;
                     // Skip trait-arg-keyed coherence entries (contain '[').
                     if (concrete.find('[') != std::string::npos) continue;
                     if (concrete != sole_concrete) { ++n_impls; sole_concrete = concrete; }
@@ -17224,7 +17220,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             // so a path here would miss every one of them. (Those key spaces
             // move to identities in a later step of #438.)
             const std::string& tname = tinfo.name;
-            if (!impls_.count(tname + "::" + cname_str)) continue;
+            if (!has_impl(tname, cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
@@ -17380,8 +17376,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     // for `impl<T> Reset for Foo<T>`) or the concrete-spec name
                     // (`Reset::Box2$G1$i64`, for `impl Reset for Box2<i64>`).
                     if (!hbare.empty() &&
-                        (impls_.count(cname_str + "::" + hbare) ||
-                         (!hn.empty() && impls_.count(cname_str + "::" + hn)))) {
+                        (has_impl(cname_str, hbare) ||
+                         (!hn.empty() && has_impl(cname_str, hn)))) {
                         SemaSubst self_subst;
                         self_subst["Self"] = hint_call_return_type_;
                         TypeRef ret_t = subst_type_sema(tm->ret_type, self_subst);
@@ -24322,7 +24318,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             std::string base = ptype_stripped;
             if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
             while (!base.empty() && base.back() == ' ') base.pop_back();
-            if (auto iit = impls_.find(b.trait_name + "::" + base);
+            if (auto iit = impls_.find(impl_key(b.trait_name, base));
                 iit != impls_.end()) {
                 // A GENERIC source impl (`impl<K,V> MapSource<K,V> for
                 // HashMap<K,V>`) states its trait args as its own TYPE PARAMS,
