@@ -281,9 +281,20 @@ endif()
 # `<reldir>` (flat build tree), so one binary serves both layouts.
 target_compile_definitions(logosc PRIVATE
     LOGOS_LIB_RELDIR="../${LOGOS_LIB_RELDIR}")
-# The version lives in ONE generated source: configure_file rewrites it only
-# when the text changes, so a new version recompiles this file alone (it used
-# to be a -D on every logosc source, and a reconfigure rebuilt the compiler).
-configure_file(version.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/version.cpp @ONLY)
-target_sources(logosc PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
+# The version lives in ONE generated source, regenerated at every build (the
+# commit and the working tree change without a reconfigure) and rewritten only
+# when its text changes, so a new version recompiles this file alone.
+set(_logos_version_cpp ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
+set(_logos_version_cmd ${CMAKE_COMMAND}
+    -DSRC_DIR=${CMAKE_SOURCE_DIR} -DBASE_FULL=${LOGOS_VERSION_BASE}
+    -DSLOT=${LOGOS_VERSION_SLOT} -DRELEASE=${LOGOS_RELEASE}
+    -DTEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/version.cpp.in -DOUT=${_logos_version_cpp}
+    -P ${CMAKE_SOURCE_DIR}/cmake/LogosVersion.cmake)
+execute_process(COMMAND ${_logos_version_cmd})   # present at configure time too
+add_custom_target(logos_version
+    COMMAND ${_logos_version_cmd}
+    BYPRODUCTS ${_logos_version_cpp}
+    COMMENT "" VERBATIM)
+target_sources(logosc PRIVATE ${_logos_version_cpp})
+add_dependencies(logosc logos_version)
 

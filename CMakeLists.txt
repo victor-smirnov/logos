@@ -49,64 +49,20 @@ endif()
 # Default OFF means an accidental release-shaped package is impossible without opt-in.
 option(LOGOS_RELEASE
     "Official release build → clean X.Y[-preview] install slot. OFF (default) = snapshot, slot git-disambiguated." OFF)
+set(LOGOS_VERSION_BASE "${LOGOS_VERSION_FULL}")
 if(LOGOS_RELEASE)
     message(STATUS "Logos ${LOGOS_VERSION_FULL}  [RELEASE]  install slot: logosc-${LOGOS_VERSION_SLOT}")
 else()
-    set(_disc "snapshot")   # no-git fallback (e.g. tarball) — still distinct from any release slot
-    set(_clean_commit OFF)  # ON only for a non-dirty git checkout (sha is then a deterministic build id)
-    find_package(Git QUIET)
-    if(Git_FOUND AND IS_DIRECTORY ${CMAKE_SOURCE_DIR}/.git)
-        execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short=8 HEAD
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_sha
-            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-        execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_branch
-            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-        execute_process(COMMAND ${GIT_EXECUTABLE} status --porcelain --untracked-files=no
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_dirty
-            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-        if(_git_sha)
-            string(TOLOWER "${_git_branch}" _git_branch)
-            string(REGEX REPLACE "[^a-z0-9]+" "-" _git_branch "${_git_branch}")  # slot/package-name safe
-            string(REGEX REPLACE "^-+|-+$" "" _git_branch "${_git_branch}")
-            if(NOT _git_branch OR _git_branch STREQUAL "head")
-                set(_git_branch "detached")
-            endif()
-            set(_disc "${_git_branch}-g${_git_sha}")
-            if(_git_dirty)
-                set(_disc "${_disc}-dirty")
-                # The CONTENT of the uncommitted change identifies a dirty build:
-                # the same tree always gets the same version (and the same binary
-                # bytes), a different edit a different one. A timestamp did
-                # neither: every reconfigure minted a new version, rebuilt the
-                # compiler, and gave the verdict store a new build key.
-                execute_process(COMMAND ${GIT_EXECUTABLE} diff HEAD
-                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_diff
-                    ERROR_QUIET)
-                string(SHA256 _git_diff_hash "${_git_diff}")
-                string(SUBSTRING "${_git_diff_hash}" 0 12 _git_diff_id)
-            else()
-                set(_clean_commit ON)   # commit id alone identifies this build
-            endif()
-        endif()
-    endif()
+    include(${CMAKE_SOURCE_DIR}/cmake/LogosVersion.cmake)
+    logos_snapshot_disc(${CMAKE_SOURCE_DIR} _disc _full_disc)
     # Install SLOT uses the STABLE disc (one slot per branch/snapshot — a build
     # timestamp must NOT churn the install dir).
     set(LOGOS_VERSION_SLOT "${LOGOS_VERSION_SLOT}-${_disc}")
-    # FULL (semver build-metadata, what `--version` reports + the @abi stamp + the
-    # lforge rebuild-on-toolchain-change check) must DISTINGUISH otherwise-identical
-    # builds: a clean commit is already unique (sha), but a dirty tree or a no-git
-    # snapshot (e.g. the Docker .deb, which excludes .git) is not — append the
-    # content hash of the uncommitted change, or a timestamp when there is no git.
-    set(_full_disc "${_disc}")
-    if(_git_diff_id)
-        set(_full_disc "${_disc}.${_git_diff_id}")      # dirty tree: its content
-    elseif(NOT _clean_commit)
-        # No git at all (a tarball, the Docker .deb): nothing identifies the
-        # source, so a timestamp is the only distinguishing mark left.
-        string(TIMESTAMP _build_ts "%Y%m%dT%H%M%SZ" UTC)
-        set(_full_disc "${_disc}.${_build_ts}")
-    endif()
+    # FULL (what `--version` reports + the @abi stamp + the lforge
+    # rebuild-on-toolchain-change check) must distinguish otherwise-identical
+    # builds. This value is the configure-time one (messages, CPack); the
+    # compiler's own copy is regenerated at every build (src/compiler).
+    set(LOGOS_VERSION_BASE "${LOGOS_VERSION_FULL}")
     set(LOGOS_VERSION_FULL "${LOGOS_VERSION_FULL}+${_full_disc}")
     message(STATUS "Logos ${LOGOS_VERSION_FULL}  [SNAPSHOT — not a release]  install slot: logosc-${LOGOS_VERSION_SLOT}")
     message(STATUS "  snapshot installs into its own slot; pass -DLOGOS_RELEASE=ON for an official release build")

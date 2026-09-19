@@ -404,6 +404,20 @@ def stratum(source, name):
         return d or source
     return "_".join(name.split("_")[:2])
 
+WIDE_FIXTURE = 50
+
+def wide_consumers(con):
+    """Tests requiring a fixture with more than WIDE_FIXTURE setup tests."""
+    count = {}
+    for (fs,) in con.execute("SELECT fixtures_setup FROM tests WHERE present=1"):
+        for f in json.loads(fs or "[]"):
+            count[f] = count.get(f, 0) + 1
+    wide = {f for f, c in count.items() if c > WIDE_FIXTURE}
+    if not wide:
+        return set()
+    return {n for n, fr in con.execute("SELECT name, fixtures_required FROM tests WHERE present=1")
+            if wide & set(json.loads(fr or "[]"))}
+
 def sample_rest(con, pool, pct):
     """`pct` percent of `pool` (a task's L2), stratified by category
     (largest-remainder allocation, so each category keeps its share), and
@@ -412,6 +426,15 @@ def sample_rest(con, pool, pct):
     deterministic hash of the name."""
     import hashlib, math
     rest = [r for r in con.execute("SELECT name, source FROM tests WHERE present=1") if r[0] in pool]
+    # A test whose fixture needs a large share of the suite as setup (a census
+    # over every compile's facts) is a whole-suite consumer: sampling it pulls
+    # the suite in. It runs with the whole suite (`--all`, `series close`).
+    wide = wide_consumers(con)
+    if wide:
+        n = sum(1 for r in rest if r[0] in wide)
+        if n:
+            print(f"lt: {n} whole-suite consumer(s) left out of the sample (fixture needs > {WIDE_FIXTURE} setups)")
+        rest = [r for r in rest if r[0] not in wide]
     want = math.ceil(len(rest) * pct / 100.0) if pct > 0 else 0
     if want <= 0 or not rest:
         return set()
