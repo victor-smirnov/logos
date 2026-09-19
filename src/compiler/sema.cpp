@@ -412,8 +412,8 @@ public:
     StrSet persisted_user_generic_const_keys;
     std::unordered_set<SemaChecker::ImplKey, SemaChecker::ImplKeyHash> persisted_user_impl_keys;
     StrSet persisted_user_coherence_keys;
-    StrSet persisted_user_assoc_type_impl_keys;
-    StrSet persisted_user_assoc_const_impl_keys;
+    std::unordered_set<SemaChecker::AssocKey, SemaChecker::AssocKeyHash> persisted_user_assoc_type_impl_keys;
+    std::unordered_set<SemaChecker::AssocKey, SemaChecker::AssocKeyHash> persisted_user_assoc_const_impl_keys;
     std::set<DefId> persisted_user_trait_defs;
     StrSet persisted_user_type_alias_keys;
     StrSet persisted_user_blanket_mangled;
@@ -3831,10 +3831,10 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
     // the current impl context (two `Trait<T>` impls for one type at distinct T
     // register their assoc types under distinct suffixed keys).
     if (current_impl_trait_name_ == trait_name && !current_impl_trait_args_.empty()) {
-        auto it = assoc_type_impls_.find(trait_name + trait_targ_suffix(current_impl_trait_args_) + "::" + target + "::" + aname);
+        auto it = assoc_type_impls_.find(assoc_key(trait_name, trait_targ_suffix(current_impl_trait_args_), target, aname));
         if (it != assoc_type_impls_.end()) return &it->second;
     }
-    auto it = assoc_type_impls_.find(trait_name + "::" + target + "::" + aname);
+    auto it = assoc_type_impls_.find(assoc_key(trait_name, target, aname));
     if (it != assoc_type_impls_.end()) return &it->second;
     // G156-1 substitution-invariance fallback (ADR 0021 metaclass surface): a
     // projection whose trait_name was baked with TYPEVAR args ("Fam$G1$S", from
@@ -3846,14 +3846,11 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
     // candidate is unambiguous — use it. Multiple candidates (dual
     // `Trait<A>`/`Trait<B>` impls for one type — the case the suffix exists to
     // disambiguate) stay unresolved.
-    const std::string bare = strip_trait_targ_suffix(trait_name);
-    const std::string pfx  = bare + "$G";
-    const std::string tail = "::" + target + "::" + aname;
+    const DefId bare_id = impl_trait_id(strip_trait_targ_suffix(trait_name));
     const AssocTypeEntry* single = nullptr;
     for (auto& [k, v] : assoc_type_impls_) {
-        if (k.size() <= tail.size() + pfx.size()) continue;
-        if (k.compare(0, pfx.size(), pfx) != 0) continue;
-        if (k.compare(k.size() - tail.size(), tail.size(), tail) != 0) continue;
+        if (k.trait_def != bare_id || k.targs.empty()) continue;
+        if (k.target != target || k.name != aname) continue;
         if (single) return nullptr;   // ambiguous — the suffix must decide
         single = &v;
     }
@@ -4477,10 +4474,10 @@ bool SemaChecker::assoc_eqs_satisfied(
         if (!expected_ty) continue;
         // Look up the impl's `type Assoc = X` for this trait+concrete.
         // 1. Direct (concrete name).
-        std::string key = trait_name + "::" + concrete_name + "::" + aname;
+        const AssocKey key = assoc_key(trait_name, concrete_name, aname);
         auto it = assoc_type_impls_.find(key);
         if (it == assoc_type_impls_.end() && !base_name.empty() && base_name != concrete_name) {
-            std::string bkey = trait_name + "::" + base_name + "::" + aname;
+            const AssocKey bkey = assoc_key(trait_name, base_name, aname);
             it = assoc_type_impls_.find(bkey);
         }
         TypeRef found = (it != assoc_type_impls_.end()) ? it->second.type : nullptr;
@@ -4512,10 +4509,10 @@ bool SemaChecker::assoc_eqs_satisfied(
                     }
                 }
                 if (!ok) continue;
-                std::string bkey = trait_name + "::$blanket$" + trait_name + "$"
-                                 + bi.bound_trait + "$" + bi.target_typevar
-                                 + "::" + aname;
-                auto bit = assoc_type_impls_.find(bkey);
+                auto bit = assoc_type_impls_.find(assoc_key(trait_name,
+                        "$blanket$" + trait_name + "$" + bi.bound_trait + "$"
+                            + bi.target_typevar,   // the synthetic TARGET
+                        aname));
                 if (bit == assoc_type_impls_.end()) continue;
                 TypeRef concrete_t = lookup_type_by_name(concrete_name);
                 if (!concrete_t && !base_name.empty() && base_name != concrete_name)
@@ -5649,10 +5646,8 @@ std::optional<int64_t> SemaChecker::sema_assoc_const_value(const std::string& ty
                                                            const std::string& const_name) {
     // assoc_const_impls_ is keyed "<trait|inherent>::<target>::<name>"; match
     // any entry for THIS target+name and ctfe its initializer.
-    std::string tail = "::" + type_name + "::" + const_name;
     for (auto& [k, e] : assoc_const_impls_) {
-        if (k.size() <= tail.size()) continue;
-        if (k.compare(k.size() - tail.size(), tail.size(), tail) != 0) continue;
+        if (k.target != type_name || k.name != const_name) continue;
         if (e.value_ast.is_null()) continue;
         auto v = ctfe_eval_const(map_of(e.value_ast), holder_);
         if (v) return v.value().i;
@@ -5841,17 +5836,12 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
         // Inherent first (`impl S { const N: ... }`), then any trait impl on
         // the same target.
         writ::AnyVal init{};
-        auto iit = assoc_const_impls_.find("inherent::" + target + "::" + cn);
+        auto iit = assoc_const_impls_.find(inherent_key(target, cn));
         if (iit != assoc_const_impls_.end()) {
             init = iit->second.value_ast;
         } else {
             for (auto& [k, e] : assoc_const_impls_) {
-                auto tail = "::" + target + "::" + cn;
-                if (k.size() > tail.size() &&
-                    k.compare(k.size() - tail.size(), tail.size(), tail) == 0) {
-                    init = e.value_ast;
-                    break;
-                }
+                if (k.target == target && k.name == cn) { init = e.value_ast; break; }
             }
         }
         if (init.is_null()) {
@@ -6855,11 +6845,10 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                     for (auto& eb : bi.extra_bounds)
                         if (!tv_bound_set.count(eb)) { all_extra = false; break; }
                     if (!all_extra) continue;
-                    std::string blanket_key = full_tn + "::$blanket$"
-                        + bare_tn + "$" + bi.bound_trait
-                        + "$" + bi.target_typevar
-                        + "::" + std::string(t.assoc_type_name());
-                    auto bait = assoc_type_impls_.find(blanket_key);
+                    auto bait = assoc_type_impls_.find(assoc_key(full_tn,
+                            "$blanket$" + bare_tn + "$" + bi.bound_trait + "$"
+                                + bi.target_typevar,   // the synthetic TARGET
+                            std::string(t.assoc_type_name())));
                     if (bait == assoc_type_impls_.end()) continue;
                     SemaSubst bsubst;
                     bsubst[bi.target_typevar] = subbed_base;
@@ -6926,11 +6915,10 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 for (auto& eb : bi.extra_bounds)
                     if (!bound_satisfied(eb)) { all_extra = false; break; }
                 if (!all_extra) continue;
-                std::string blanket_key = tn + "::$blanket$"
-                    + bare_tn3 + "$" + bi.bound_trait
-                    + "$" + bi.target_typevar
-                    + "::" + std::string(t.assoc_type_name());
-                auto bait = assoc_type_impls_.find(blanket_key);
+                auto bait = assoc_type_impls_.find(assoc_key(tn,
+                        "$blanket$" + bare_tn3 + "$" + bi.bound_trait + "$"
+                            + bi.target_typevar,   // the synthetic TARGET
+                        std::string(t.assoc_type_name())));
                 if (bait == assoc_type_impls_.end()) continue;
                 // Substitute the blanket's target typevar → concrete.
                 SemaSubst bsubst;
@@ -7347,13 +7335,13 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         std::string sfx = trait_targ_suffix(trait_args_for_assoc);
         if (!sfx.empty()) {
             std::string cn = type_str(base_type);
-            auto it = assoc_type_impls_.find(trait_for_assoc + sfx + "::" + cn + "::" + assoc);
+            auto it = assoc_type_impls_.find(assoc_key(trait_for_assoc, sfx, cn, assoc));
             if (it == assoc_type_impls_.end() &&
                 (TypeRef(base_type).kind() == LogosType::Kind::Struct ||
                  TypeRef(base_type).kind() == LogosType::Kind::ZonedStruct)) {
                 std::string bn(TypeRef(base_type).struct_name());
                 if (!bn.empty() && bn != cn)
-                    it = assoc_type_impls_.find(trait_for_assoc + sfx + "::" + bn + "::" + assoc);
+                    it = assoc_type_impls_.find(assoc_key(trait_for_assoc, sfx, bn, assoc));
             }
             if (it != assoc_type_impls_.end()) {
                 SemaSubst sub;

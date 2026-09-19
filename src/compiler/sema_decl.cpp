@@ -3676,12 +3676,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         // (e.g. "Producer$G1$i64::Gen::Item"); for two `Trait<T>` impls of one
         // type the bare plain key is erased, so match THIS impl's suffixed
         // prefix. Empty suffix (non-generic trait) → bare prefix, unchanged.
-        auto prefix = trait_name + trait_targ_suffix(impl_trait_args)
-                    + "::" + stored_target + "::";
+        const DefId emit_trait_id = impl_trait_id(trait_name);
+        const std::string emit_targs = trait_targ_suffix(impl_trait_args);
         DeclArrayBuilder at_arr = ib.array(ik::ASSOC_TYPES);
         for (auto& [key, entry] : assoc_type_impls_) {
-            if (key.rfind(prefix, 0) == 0) {
-                auto assoc_name = key.substr(prefix.size());
+            if (key.trait_def == emit_trait_id && key.targs == emit_targs &&
+                key.target == stored_target) {
+                const std::string& assoc_name = key.name;
                 auto e = at_arr.submap(ASSOC_ENTRY_SCHEMA, 4);
                 e.str_always(aek::AE_NAME, assoc_name);
                 e.type(aek::AE_TYPE, entry.type);
@@ -3693,14 +3694,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         // is ctfe'd to an i64 here (sema is the only place that can).
         namespace ack = lir_schema::assoc_const_keys;
         constexpr uint64_t ASSOC_CONST_SCHEMA = lir_schema::stmt::Count + 17;
-        std::string cprefix = trait_name + "::" + target + "::";
         DeclArrayBuilder ac_arr = ib.array(ik::ASSOC_CONSTS);
         for (auto& [key, entry] : assoc_const_impls_) {
-            if (key.rfind(cprefix, 0) != 0) continue;
+            if (key.trait_def != emit_trait_id || !key.targs.empty() ||
+                key.target != target) continue;
             if (entry.value_ast.is_null()) continue;
             auto v = ctfe_eval_const(map_of(entry.value_ast), holder_);
             if (!v) continue;   // non-const-foldable value — skip (used via accessor)
-            auto cname = key.substr(cprefix.size());
+            const std::string& cname = key.name;
             auto e = ac_arr.submap(ASSOC_CONST_SCHEMA, 4);
             e.str_always(ack::AC_NAME, cname);
             e.i64(ack::AC_VALUE, v.value().i);

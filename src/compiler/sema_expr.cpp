@@ -14513,7 +14513,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         std::string mname_str = std::string(vname);
         // B97: try inherent assoc-const first (`impl S { const C: T = ... }`).
         {
-            std::string key = "inherent::" + cname_str + "::" + mname_str;
+            const AssocKey key = inherent_key(cname_str, mname_str);
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
@@ -14531,7 +14531,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             // move to identities in a later step of #438.)
             const std::string& tname = tinfo.name;
             if (!has_impl(tname, cname_str)) continue;
-            std::string key = tname + "::" + cname_str + "::" + mname_str;
+            const AssocKey key = assoc_key(tname, cname_str, mname_str);
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
@@ -14597,7 +14597,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     if (!found) {
         // B97: enum exists but variant not found — could be assoc const
         // on an enum (rare). Try inherent lookup as last resort.
-        std::string key = "inherent::" + std::string(ename) + "::" + std::string(vname);
+        const AssocKey key = inherent_key(std::string(ename), std::string(vname));
         auto cit = assoc_const_impls_.find(key);
         if (cit != assoc_const_impls_.end()) {
             if (!cit->second.cached_value) {
@@ -14679,7 +14679,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             // move to identities in a later step of #438.)
             const std::string& tname = tinfo.name;
             if (!has_impl(tname, cname_str)) continue;
-            std::string key = tname + "::" + cname_str + "::" + mname_str;
+            const AssocKey key = assoc_key(tname, cname_str, mname_str);
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
@@ -17203,7 +17203,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // For turbofish path `S::<T>::C`, the type-args don't change the lookup
         // key — inherent consts aren't per-instantiation, they're per-type-name.
         {
-            std::string ikey = "inherent::" + cname_str + "::" + mname_str;
+            const AssocKey ikey = inherent_key(cname_str, mname_str);
             auto cit = assoc_const_impls_.find(ikey);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
@@ -17221,7 +17221,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             // move to identities in a later step of #438.)
             const std::string& tname = tinfo.name;
             if (!has_impl(tname, cname_str)) continue;
-            std::string key = tname + "::" + cname_str + "::" + mname_str;
+            const AssocKey key = assoc_key(tname, cname_str, mname_str);
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {

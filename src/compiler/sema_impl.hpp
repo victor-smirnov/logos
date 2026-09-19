@@ -4242,11 +4242,59 @@ public:
         }
     };
     template <class V> using ImplMap = std::unordered_map<ImplKey, V, ImplKeyHash>;
+    // ── AN ASSOCIATED ITEM BELONGS TO AN IMPL, SO IT IS KEYED LIKE ONE ─────
+    // #438: `Trait::Target::Name` as a string put two homonym traits' assoc
+    // types in one space, and split on `::` at every reader. The key carries
+    // the trait's IDENTITY, the trait-arg suffix that distinguishes two
+    // `Trait<T>` impls of one target (G156-1), the target's spelling and the
+    // item's name. `trait_def` is empty for an INHERENT const (`impl Type {
+    // const C … }`), which belongs to no trait.
+    struct AssocKey {
+        DefId       trait_def;
+        std::string targs;    // "$G1$i64" (G156-1); empty = the plain key
+        std::string target;
+        std::string name;
+        bool operator==(const AssocKey&) const = default;
+    };
+    struct AssocKeyHash {
+        size_t operator()(const AssocKey& k) const noexcept {
+            size_t h = std::hash<uint32_t>{}(k.trait_def.v);
+            for (auto* p : {&k.targs, &k.target, &k.name})
+                h = h * 1099511628211ull ^ logos::compiler::StringHash{}(*p);
+            return h;
+        }
+    };
+    template <class V> using AssocMap = std::unordered_map<AssocKey, V, AssocKeyHash>;
+    // ⚠ A TRAIT SPELLING MAY CARRY ITS ARG SUFFIX INLINE. Callers pass either
+    // ("Producer", "$G1$i64") or the single spelling "Producer$G1$i64" (what a
+    // projection's baked trait name looks like). Splitting here keeps the two
+    // forms one key — the registration and the lookup cannot drift apart by
+    // which form the caller happened to hold.
+    AssocKey assoc_key(std::string_view trait_key, std::string_view targs,
+                       std::string_view target, std::string_view name) const {
+        std::string_view tname = trait_key;
+        std::string inline_targs;
+        if (auto d = trait_key.find('$'); d != std::string_view::npos) {
+            inline_targs = std::string(trait_key.substr(d));
+            tname = trait_key.substr(0, d);
+        }
+        if (targs.empty() && !inline_targs.empty()) targs = inline_targs;
+        return AssocKey{tname.empty() ? DefId{} : impl_trait_id(tname),
+                        std::string(targs), std::string(target), std::string(name)};
+    }
+    AssocKey assoc_key(std::string_view trait_key, std::string_view target,
+                       std::string_view name) const {
+        return assoc_key(trait_key, {}, target, name);
+    }
+    // An INHERENT associated const: no trait.
+    AssocKey inherent_key(std::string_view target, std::string_view name) const {
+        return AssocKey{DefId{}, {}, std::string(target), std::string(name)};
+    }
 private:
     std::unordered_set<ImplKey, ImplKeyHash> user_impl_keys_;   // impls added by user code
     StrSet user_coherence_keys_;         // "Trait[args]::Target" keys
-    StrSet user_assoc_type_impl_keys_;   // "Trait::Target::Name" keys
-    StrSet user_assoc_const_impl_keys_;
+    std::unordered_set<AssocKey, AssocKeyHash> user_assoc_type_impl_keys_;
+    std::unordered_set<AssocKey, AssocKeyHash> user_assoc_const_impl_keys_;
     std::set<DefId> user_trait_defs_;    // traits declared by user code (snapshot reset)
     StrSet user_type_alias_keys_;        // bare type alias names from user code
     StrSet user_blanket_mangled_;        // BlanketImpl.mangled_name from user code
@@ -6081,7 +6129,7 @@ private:
         std::vector<TypeParam> gat_type_params;   // from GAT itself: type Item<T> = ...
         std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
     };
-    logos::compiler::StrMap<AssocTypeEntry> assoc_type_impls_;
+    AssocMap<AssocTypeEntry> assoc_type_impls_;
 
     // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
     struct AssocConstEntry {
@@ -6090,7 +6138,7 @@ private:
         mutable lir::LExprPtr cached_value = nullptr;  // lowered once, reused at every access site
         std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
     };
-    logos::compiler::StrMap<AssocConstEntry> assoc_const_impls_;
+    AssocMap<AssocConstEntry> assoc_const_impls_;
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
@@ -9873,8 +9921,8 @@ public:
     SemaChecker::ImplMap<SemaChecker::SemaImplInfo>     impls;
     SemaChecker::ImplMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
     StrSet                                 coherence_keys;
-    StrMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
-    StrMap<SemaChecker::AssocConstEntry>  assoc_const_impls;
+    SemaChecker::AssocMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
+    SemaChecker::AssocMap<SemaChecker::AssocConstEntry>  assoc_const_impls;
     std::vector<SemaChecker::BlanketImpl>  blanket_impls;
     std::vector<MetaprogHandlerStage> metaprog_handlers;
     std::vector<MetaprogTargetStage>  metaprog_targets;

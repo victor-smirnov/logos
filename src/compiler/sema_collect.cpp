@@ -4306,8 +4306,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // (current_impl_trait_args_). A true duplicate (same
                 // trait+args+target+name) still collides on the suffixed key.
                 std::string targ_sfx = trait_targ_suffix(trait_type_args);
-                std::string key  = trait_name + targ_sfx + "::" + key_target + "::" + aname;
-                std::string pkey = trait_name + "::" + key_target + "::" + aname;
+                const AssocKey key  = assoc_key(trait_name, targ_sfx, key_target, aname);
+                const AssocKey pkey = assoc_key(trait_name, key_target, aname);
                 if (assoc_type_impls_.count(key))
                     error(std::format("impl {} for {}: duplicate associated type '{}'",
                                       trait_name, target, aname));
@@ -4367,7 +4367,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     TypeRef ctype = nullptr;
                     if (m.has_key(la::TYPE))
                         ctype = resolve_type(map_of(m.get(la::TYPE.code)));
-                    std::string key = "inherent::" + target + "::" + cname;
+                    const AssocKey key = inherent_key(target, cname);
                     assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc) };
                     if (!cur_from_binary_) user_assoc_const_impl_keys_.insert(key);
                 } else {
@@ -4397,7 +4397,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             }
                         }
                     }
-                    std::string key = trait_name + "::" + target + "::" + cname;
+                    const AssocKey key = assoc_key(trait_name, target, cname);
                     assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc) };
                     if (!cur_from_binary_) user_assoc_const_impl_keys_.insert(key);
                 }
@@ -5076,8 +5076,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // G156-1: this impl's assoc types are keyed by the trait's
                 // type-args (suffixed); the plain key may have been erased by a
                 // sibling dual impl. Check the suffixed key for THIS impl.
-                std::string key = trait_name + trait_targ_suffix(trait_type_args)
-                                + "::" + target + "::" + at.name;
+                const AssocKey key = assoc_key(trait_name, trait_targ_suffix(trait_type_args),
+                                                target, at.name);
                 if (!assoc_type_impls_.count(key)) {
                     // §3 c13 Wave 9 — an impl that omits an assoc type falls
                     // back to the trait's default (Rust:
@@ -5094,7 +5094,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             }
             // Check associated constant completeness
             for (auto& ac : tit->assoc_consts) {
-                std::string key = trait_name + "::" + target + "::" + ac.name;
+                const AssocKey key = assoc_key(trait_name, target, ac.name);
                 if (!assoc_const_impls_.count(key)) {
                     // §6 f1 Wave 9 — a default value in the trait lets the
                     // impl omit the const (Rust:
