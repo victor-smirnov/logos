@@ -3021,16 +3021,19 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             StrSet seen;
             std::function<void(const std::string&)> walk = [&](const std::string& tn) {
                 if (!seen.insert(tn).second) return;
-                auto it = find_trait_iter_scoped(tn);
-                if (it == traits_.end()) return;
-                for (auto& m : it->second.methods)
+                auto* it = find_trait_iter_scoped(tn);
+                if (!it) return;
+                for (auto& m : it->methods)
                     if (m.name == "eq") { provides_eq = true; break; }
-                for (auto& s : it->second.supertraits) walk(s.trait_name);
+                for (auto& s : it->supertraits) walk(s.trait_name);
             };
             for (auto& b : bit->second) walk(b.trait_name);
         }
         if (provides_eq) {
-            for (auto& [tn, ti] : traits_) {
+            for (auto& [tn_def, ti] : traits_) {
+            // ⚠ The trait's own NAME — see the note at the sibling loops: the
+            // impl key spaces are composed from the spelling at the impl.
+            const std::string& tn = ti.name;
                 (void)tn;
                 for (auto& mm : ti.methods)
                     if (mm.name == "eq") { eq_providers++; break; }
@@ -6617,8 +6620,8 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
                 auto tnode = map_of(items.get(0));
                 if (tnode.has_key(la::NAME)) {
                     std::string tname(str_of(tnode.get(la::NAME.code)));
-                    auto tit = traits_.find(tname);
-                    if (tit != traits_.end() && tit->second.is_writ) {
+                    auto* tit = resolve_trait(tname);
+                    if (tit && tit->is_writ) {
                         if (cur_prog_) {
                             std::string pkg = std::string(cur_package_);
                             std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;
@@ -7086,7 +7089,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             error("vtable_of::<Trait, T>() requires a trait name and a type argument");
             return error_expr();
         }
-        if (!traits_.count(trait_name))
+        if (!resolve_trait(trait_name))
             error(std::format("unknown trait '{}' in vtable_of", trait_name));
         std::vector<TypeRef> targs; targs.push_back(elem);
         std::vector<lir::LExprPtr> rargs;
@@ -7140,7 +7143,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             error("dyn_from_parts::<Trait>(data, vtable) requires one trait argument");
             return error_expr();
         }
-        if (!traits_.count(trait_name))
+        if (!resolve_trait(trait_name))
             error(std::format("unknown trait '{}' in dyn_from_parts", trait_name));
         check_trait_object_safe(trait_name);
         std::vector<lir::LExprPtr> rargs;
@@ -8547,13 +8550,13 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
     if (!(rtg && rtg.kind() == LogosType::Kind::TaggedPtr)) return std::nullopt;
     auto ts_name  = std::string(rtg.struct_name());  // e.g. "DataTypeTagSystem"
     auto tname    = std::string(rtg.trait_name());   // e.g. "Stringify"
-    auto tit = traits_.find(tname);
-    if (tit == traits_.end()) {
+    auto* tit = resolve_trait(tname);
+    if (!tit) {
         error(std::format("&tagged<{}> {}: trait '{}' not found", ts_name, tname, tname));
         return error_expr();
     }
-    for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
-        auto& m = tit->second.methods[mi];
+    for (size_t mi = 0; mi < tit->methods.size(); ++mi) {
+        auto& m = tit->methods[mi];
         if (m.name != method_name) continue;
         if (m.is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe method '{}' requires unsafe context",
@@ -8771,15 +8774,15 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
     // (mi) below stays consistent with mlir-gen: the EMIT side single-sources the
     // same flattened slot order from this trait's own def (sema_decl lowers it via
     // the same scope-aware key), and the mlir vtable registry is target-keyed.
-    auto canon = find_trait_iter_scoped(tname);
+    auto* canon = find_trait_iter_scoped(tname);
     auto tit = canon;
-    if (tit != traits_.end()) {
+    if (tit) {
         // Supertrait-closure vtable order: a supertrait method is dispatchable
         // through `&dyn Sub` because it owns a real slot in Sub's vtable. The
         // index in this flattened order IS the vtable slot (matches mlir-gen).
         std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
         std::vector<std::string> upsup_unused;
-        trait_vtable_layout(canon->first, vtab, upsup_unused);
+        trait_vtable_layout(trait_path(*canon), vtab, upsup_unused);
         for (size_t mi = 0; mi < vtab.size(); ++mi) {
             const std::string& owner_trait = vtab[mi].first;
             auto& m = *vtab[mi].second;
@@ -8917,9 +8920,8 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                 {
                     // Type params come from the method's OWNER trait (may be a
                     // supertrait), substituting recv's `&dyn` trait args.
-                    auto oit = traits_.find(owner_trait);
-                    auto& tparams = (oit != traits_.end())
-                        ? oit->second.type_params : tit->second.type_params;
+                    auto* oit = resolve_trait(owner_trait);
+                    auto& tparams = oit ? oit->type_params : tit->type_params;
                     // Trait args live on the TraitObject itself (`dyn_t`), NOT on
                     // a `&dyn` receiver: when recv is `Ref<TraitObject>` (e.g.
                     // `arc.deref().m()`), `expr_type(recv).type_args()` is EMPTY and
@@ -9333,16 +9335,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         StrSet pv;
         std::function<void(const std::string&)> probe = [&](const std::string& tn) {
             if (!pv.insert(tn).second) return;
-            auto it = find_trait_iter_scoped(tn);
-            if (it == traits_.end()) return;
-            for (auto& m : it->second.methods)
+            auto* it = find_trait_iter_scoped(tn);
+            if (!it) return;
+            for (auto& m : it->methods)
                 if (m.name == method_name && !m.has_default) found_nondefault = true;
-            for (auto& s : it->second.supertraits) probe(s.trait_name);
+            for (auto& s : it->supertraits) probe(s.trait_name);
         };
-        auto tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
-        if (tdef != traits_.end()) {
+        auto* tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
+        if (tdef) {
             std::string an(TypeRef(recv_inner).assoc_type_name());
-            for (auto& at : tdef->second.assoc_types)
+            for (auto& at : tdef->assoc_types)
                 if (at.name == an)
                     for (auto& b : at.bounds) probe(b.trait_name);
         }
@@ -9374,10 +9376,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                     const std::vector<TypeRef>& targs) -> SemaSubst {
             SemaSubst s;
             s["Self"] = recv_inner;
-            auto it = find_trait_iter_scoped(tn);
-            if (it != traits_.end())
-                for (size_t i = 0; i < it->second.type_params.size() && i < targs.size(); ++i)
-                    s[it->second.type_params[i].name] = targs[i];
+            auto* it = find_trait_iter_scoped(tn);
+            if (it)
+                for (size_t i = 0; i < it->type_params.size() && i < targs.size(); ++i)
+                    s[it->type_params[i].name] = targs[i];
             return s;
         };
 
@@ -9390,9 +9392,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         std::function<void(const std::string&, const SemaSubst&)> search_trait =
             [&](const std::string& tname, const SemaSubst& subst) {
             if (!st_visited.insert(tname).second) return;  // cycle / diamond guard (Bug 2)
-            auto tit = find_trait_iter_scoped(tname);  // B-mv-02: user trait shadows same-name stdlib
-            if (tit == traits_.end()) return;
-            for (auto& m : tit->second.methods) {
+            auto* tit = find_trait_iter_scoped(tname);  // B-mv-02: user trait shadows same-name stdlib
+            if (!tit) return;
+            for (auto& m : tit->methods) {
                 if (m.name != method_name) continue;
                 if (chosen_method && chosen_trait != tname)
                     error(std::format(
@@ -9407,14 +9409,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // Compose the substitution: the supertrait reference's type-args are
             // written in `tname`'s namespace (incl. Self), so resolve them through
             // `subst` and bind the supertrait's own formal params to the result.
-            for (auto& super : tit->second.supertraits) {
+            for (auto& super : tit->supertraits) {
                 SemaSubst sub2;
                 sub2["Self"] = subst.count("Self") ? subst.at("Self") : recv_inner;
-                auto sit2 = find_trait_iter_scoped(super.trait_name);
-                if (sit2 != traits_.end())
-                    for (size_t i = 0; i < sit2->second.type_params.size() &&
+                auto* sit2 = find_trait_iter_scoped(super.trait_name);
+                if (sit2)
+                    for (size_t i = 0; i < sit2->type_params.size() &&
                                        i < super.type_args.size(); ++i)
-                        sub2[sit2->second.type_params[i].name] =
+                        sub2[sit2->type_params[i].name] =
                             subst_type_sema(super.type_args[i], subst);
                 search_trait(super.trait_name, sub2);
             }
@@ -9430,10 +9432,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // substitution, not resolve_type_assoc_ref). Pull the assoc-type's
         // declared bounds (`type R: HasId`) straight from the trait decl.
         if (recv_is_assoc) {
-            auto tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
-            if (tdef != traits_.end()) {
+            auto* tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
+            if (tdef) {
                 std::string an(TypeRef(recv_inner).assoc_type_name());
-                for (auto& at : tdef->second.assoc_types)
+                for (auto& at : tdef->assoc_types)
                     if (at.name == an)
                         for (auto& b : at.bounds)
                             search_trait(b.trait_name,
@@ -9452,9 +9454,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::function<void(const std::string&)> add_b =
                 [&](const std::string& tn) {
                     if (!t_bounds.insert(tn).second) return;
-                    auto it = find_trait_iter_scoped(tn);
-                    if (it != traits_.end())
-                        for (auto& s : it->second.supertraits) add_b(s.trait_name);
+                    auto* it = find_trait_iter_scoped(tn);
+                    if (it)
+                        for (auto& s : it->supertraits) add_b(s.trait_name);
                 };
             for (auto& b : bit->second) add_b(b.trait_name);
             for (auto& bi : blanket_impls_) {
@@ -9623,13 +9625,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (bit2 != current_type_bounds_.end()) {
                     for (auto& bound : bit2->second) {
                         if (bound.trait_name != chosen_trait) continue;
-                        auto tit = find_trait_iter_scoped(bound.trait_name);
-                        if (tit == traits_.end()) break;
+                        auto* tit = find_trait_iter_scoped(bound.trait_name);
+                        if (!tit) break;
                         // Map each trait type param name to the bound's type arg
-                        for (size_t ti = 0; ti < tit->second.type_params.size() &&
+                        for (size_t ti = 0; ti < tit->type_params.size() &&
                                             ti < bound.type_args.size(); ++ti) {
                             if (bound.type_args[ti])
-                                self_subst[tit->second.type_params[ti].name] = bound.type_args[ti];
+                                self_subst[tit->type_params[ti].name] = bound.type_args[ti];
                         }
                         break;
                     }
@@ -9723,9 +9725,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // params, A from the trait/impl) loses the binding for A at the
             // call site and mono emits the un-monomorphised generic name.
             {
-                auto tit = traits_.find(chosen_trait);
-                if (tit != traits_.end()) {
-                    for (auto& tp : tit->second.type_params) {
+                auto* tit = resolve_trait(chosen_trait);
+                if (tit) {
+                    for (auto& tp : tit->type_params) {
                         auto it = self_subst.find(tp.name);
                         mc.type_args.push_back(it != self_subst.end() ? it->second : nullptr);
                     }
@@ -9760,7 +9762,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // common single-provider / non-colliding case.
             {
                 int provider_traits = 0;
-                for (auto& [tn, ti] : traits_) {
+                for (auto& [tn_def, ti] : traits_) {
+            // ⚠ The trait's own NAME — see the note at the sibling loops: the
+            // impl key spaces are composed from the spelling at the impl.
+            const std::string& tn = ti.name;
                     (void)tn;
                     for (auto& mm : ti.methods)
                         if (mm.name == method_name) { provider_traits++; break; }
@@ -9918,9 +9923,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 recv_bare = std::string(TypeRef(rst).enum_name());
             if (!recv_bare.empty()) {
                 auto iit = impls_.find(fi->trait_name + "::" + recv_bare);
-                auto tit = traits_.find(fi->trait_name);
-                if (iit != impls_.end() && tit != traits_.end()) {
-                    auto& tps   = tit->second.type_params;
+                auto* tit = resolve_trait(fi->trait_name);
+                if (iit != impls_.end() && tit) {
+                    auto& tps   = tit->type_params;
                     auto& targs = iit->second.trait_type_args;
                     for (size_t i = 0; i < tps.size() && i < targs.size(); ++i)
                         if (targs[i] && !recv_subst.count(tps[i].name))
@@ -14447,15 +14452,15 @@ lir::LExprPtr SemaChecker::try_lower_generic_assoc_const(const std::string& cnam
         [&](const std::string& tn) {
             if (!seen.insert(tn).second) return;
             search_traits.push_back(tn);
-            auto it = find_trait_iter_scoped(tn);
-            if (it != traits_.end())
-                for (auto& s : it->second.supertraits) add_t(s.trait_name);
+            auto* it = find_trait_iter_scoped(tn);
+            if (it)
+                for (auto& s : it->supertraits) add_t(s.trait_name);
         };
     for (auto& b : bit->second) add_t(b.trait_name);
     for (auto& tn : search_traits) {
-        auto tit = find_trait_iter_scoped(tn);
-        if (tit == traits_.end()) continue;
-        for (auto& ac : tit->second.assoc_consts) {
+        auto* tit = find_trait_iter_scoped(tn);
+        if (!tit) continue;
+        for (auto& ac : tit->assoc_consts) {
             if (ac.name != mname) continue;
             TypeRef ret_t = ac.type ? ac.type : prim(LogosType::Kind::I64);
             return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t);
@@ -14521,7 +14526,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
-        for (auto& [tname, tinfo] : traits_) {
+        for (auto& [tname_def, tinfo] : traits_) {
+            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
+            // spaces are composed from the spelling at the impl (collect_impl),
+            // so a path here would miss every one of them. (Those key spaces
+            // move to identities in a later step of #438.)
+            const std::string& tname = tinfo.name;
             if (!impls_.count(tname + "::" + cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
@@ -14665,7 +14675,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // Check for associated constant access before reporting "unknown enum".
         std::string cname_str = std::string(ename);
         std::string mname_str = std::string(vname);
-        for (auto& [tname, tinfo] : traits_) {
+        for (auto& [tname_def, tinfo] : traits_) {
+            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
+            // spaces are composed from the spelling at the impl (collect_impl),
+            // so a path here would miss every one of them. (Those key spaces
+            // move to identities in a later step of #438.)
+            const std::string& tname = tinfo.name;
             if (!impls_.count(tname + "::" + cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
@@ -15637,9 +15652,9 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
             [&](const std::string& tn) -> bool {
                 if (!seen.insert(tn).second) return false;
                 if (tn == trait) return true;
-                auto it = find_trait_iter_scoped(tn);
-                if (it == traits_.end()) return false;
-                for (auto& s : it->second.supertraits)
+                auto* it = find_trait_iter_scoped(tn);
+                if (!it) return false;
+                for (auto& s : it->supertraits)
                     if (reaches(s.trait_name)) return true;
                 return false;
             };
@@ -15671,9 +15686,9 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
             [&](const std::string& tn) -> bool {
                 if (!seen.insert(tn).second) return false;
                 if (tn == trait) return true;
-                auto it = traits_.find(tn);
-                if (it == traits_.end()) return false;
-                for (auto& s : it->second.supertraits)
+                auto* it = resolve_trait(tn);
+                if (!it) return false;
+                for (auto& s : it->supertraits)
                     if (reaches(s.trait_name)) return true;
                 return false;
             };
@@ -16408,9 +16423,9 @@ bool SemaChecker::coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt) {
         [&](const std::string& tn) -> bool {
             if (!seen.insert(tn).second) return false;
             if (tn == super) return true;
-            auto it = traits_.find(tn);
-            if (it == traits_.end()) return false;
-            for (auto& s : it->second.supertraits)
+            auto* it = resolve_trait(tn);
+            if (!it) return false;
+            for (auto& s : it->supertraits)
                 if (reaches(s.trait_name)) return true;
             return false;
         };
@@ -16756,9 +16771,9 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
     logos::compiler::StrSet seen;
     std::function<void(const std::string&)> walk = [&](const std::string& tn) {
         if (m || !seen.insert(tn).second) return;
-        auto it = find_trait_iter_scoped(tn);
-        if (it == traits_.end()) return;
-        for (auto& mm : it->second.methods) {
+        auto* it = find_trait_iter_scoped(tn);
+        if (!it) return;
+        for (auto& mm : it->methods) {
             if (mm.name != mname) continue;
             bool is_static = mm.param_types.empty() ||
                 !(mm.param_types[0] &&
@@ -16766,11 +16781,11 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
                   TypeRef(mm.param_types[0]).type_var_name() == "Self");
             if (is_static) {
                 m = &mm;
-                prov_trait_has_targs = !it->second.type_params.empty();
+                prov_trait_has_targs = !it->type_params.empty();
                 return;
             }
         }
-        for (auto& s : it->second.supertraits) walk(s.trait_name);
+        for (auto& s : it->supertraits) walk(s.trait_name);
     };
     for (auto& b : bit->second) { walk(b.trait_name); if (m) break; }
     if (!m) return nullptr;
@@ -17002,7 +17017,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             return error_expr();
         }
     }
-    if (find_trait_iter_scoped(std::string(class_name)) != traits_.end() &&
+    if (find_trait_iter_scoped(std::string(class_name)) &&
         !arg_exprs.empty() && !enums_.count(std::string(class_name)) &&
         find_struct_by_name(std::string(class_name)).second == nullptr &&
         // A datatype (Writ) sharing the trait's name (e.g. `Array`) has its
@@ -17203,7 +17218,12 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
-        for (auto& [tname, tinfo] : traits_) {
+        for (auto& [tname_def, tinfo] : traits_) {
+            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
+            // spaces are composed from the spelling at the impl (collect_impl),
+            // so a path here would miss every one of them. (Those key spaces
+            // move to identities in a later step of #438.)
+            const std::string& tname = tinfo.name;
             if (!impls_.count(tname + "::" + cname_str)) continue;
             std::string key = tname + "::" + cname_str + "::" + mname_str;
             auto cit = assoc_const_impls_.find(key);
@@ -17233,16 +17253,16 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     [&](const std::string& tn) {
                         if (!seen.insert(tn).second) return;
                         search_traits.push_back(tn);
-                        auto it = find_trait_iter_scoped(tn);
-                        if (it != traits_.end())
-                            for (auto& s : it->second.supertraits) add_t(s.trait_name);
+                        auto* it = find_trait_iter_scoped(tn);
+                        if (it)
+                            for (auto& s : it->supertraits) add_t(s.trait_name);
                     };
                 for (auto& bound : bit->second) add_t(bound.trait_name);
             }
             for (auto& tn : search_traits) {
-                auto tit = find_trait_iter_scoped(tn);
-                if (tit == traits_.end()) continue;
-                for (auto& m : tit->second.methods) {
+                auto* tit = find_trait_iter_scoped(tn);
+                if (!tit) continue;
+                for (auto& m : tit->methods) {
                     if (m.name != mname_str) continue;
                     // Static if the first param isn't Self/self.
                     bool is_static = m.param_types.empty() ||
@@ -17324,9 +17344,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 logos::compiler::StrSet seen;
                 std::function<void(const std::string&)> probe = [&](const std::string& tn) {
                     if (tm || !seen.insert(tn).second) return;
-                    auto it = find_trait_iter_scoped(tn);
-                    if (it == traits_.end()) return;
-                    for (auto& m : it->second.methods)
+                    auto* it = find_trait_iter_scoped(tn);
+                    if (!it) return;
+                    for (auto& m : it->methods)
                         if (m.name == mname_str) {
                             bool is_static = m.param_types.empty() ||
                                 !(m.param_types[0] &&
@@ -17334,7 +17354,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                                   TypeRef(m.param_types[0]).type_var_name() == "Self");
                             if (is_static) { tm = &m; return; }
                         }
-                    for (auto& s : it->second.supertraits) probe(s.trait_name);
+                    for (auto& s : it->supertraits) probe(s.trait_name);
                 };
                 probe(cname_str);
             }
@@ -17380,9 +17400,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         [&](const std::string& tn) -> bool {
                             if (!seen.insert(tn).second) return false;
                             if (tn == cname_str) return true;
-                            auto it = find_trait_iter_scoped(tn);
-                            if (it == traits_.end()) return false;
-                            for (auto& s : it->second.supertraits)
+                            auto* it = find_trait_iter_scoped(tn);
+                            if (!it) return false;
+                            for (auto& s : it->supertraits)
                                 if (reaches(s.trait_name)) return true;
                             return false;
                         };
@@ -24295,8 +24315,8 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // i64 — the cast is where a stored `u64::MAX` became `-1`.
         std::vector<std::string> trait_params;
         std::vector<std::string> trait_args;
-        if (auto trt = traits_.find(b.trait_name); trt != traits_.end())
-            for (const auto& tp : trt->second.type_params)
+        if (auto* trt = resolve_trait(b.trait_name))
+            for (const auto& tp : trt->type_params)
                 trait_params.push_back(tp.name);
         if (!trait_params.empty()) {
             std::string base = ptype_stripped;
@@ -25780,7 +25800,8 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                 if (!marg.empty()) {
                     // Bound check: the concrete source must bind every rel the
                     // bound trait declares (per-trait, not by name accident).
-                    auto trit = trait_rels_.find(mi.bound);
+                    auto* bti = resolve_trait(mi.bound);
+                    auto trit = bti ? trait_rels_.find(bti->def) : trait_rels_.end();
                     if (trit == trait_rels_.end()) {
                         error(std::format(
                             "'{}!': mapping '{}' is bounded by '{}', which "

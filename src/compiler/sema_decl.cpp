@@ -2433,14 +2433,14 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
     // tk::NAME stays BARE: the impl/vtable ecosystem is bare-keyed and target-
     // disambiguated by design (sema_collect.cpp impls_ key), so mlir-gen's
     // `td_name::target` emit key and `trait_name::type` dispatch key still agree.
-    auto tit_scoped = find_trait_iter_scoped(tname);
+    auto* tit_scoped = find_trait_iter_scoped(tname);
     std::string vtab_key =
-        (tit_scoped != traits_.end()) ? tit_scoped->first : tname;
+        (tit_scoped) ? trait_path(*tit_scoped) : tname;
     auto tit = tit_scoped;
-    if (tit != traits_.end()) {
-        if (!tit->second.assoc_types.empty()) {
+    if (tit) {
+        if (!tit->assoc_types.empty()) {
             auto arr = b.array(tk::ASSOC_TYPES);
-            for (auto& at : tit->second.assoc_types) {
+            for (auto& at : tit->assoc_types) {
                 auto sub = arr.submap(ASSOC_SCHEMA, /*cap=*/8);
                 sub.str_always(atk::AT_NAME, at.name);
                 if (!at.bounds.empty()) {
@@ -2450,9 +2450,9 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
                 sub.str(atk::AT_DOC, at.doc);
             }
         }
-        if (!tit->second.methods.empty()) {
+        if (!tit->methods.empty()) {
             auto arr = b.array(tk::METHODS);
-            for (auto& m : tit->second.methods) {
+            for (auto& m : tit->methods) {
                 // Params NOT lowered for trait sigs (may contain Self).
                 auto sub = arr.submap(METHOD_SCHEMA, /*cap=*/8);
                 sub.str_always(tmk::TM_NAME, m.name);
@@ -2462,11 +2462,11 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
         }
     }
     b.str(tk::PKG, cur_package_);
-    if (tit != traits_.end()) {
-        b.flag(tk::IS_AUTO, tit->second.is_auto);
+    if (tit) {
+        b.flag(tk::IS_AUTO, tit->is_auto);
         {
             auto arr = b.array(tk::SUPERTRAITS);
-            for (auto& s : tit->second.supertraits)
+            for (auto& s : tit->supertraits)
                 if (!bound_is_copy_lang_item(s.trait_name, s.canonical_trait))
                     arr.push_str(s.trait_name);
         }
@@ -2972,7 +2972,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 // #100: SCOPED (see the ground at the default-body loop below/above).
-                auto tit = find_trait_iter_scoped(trait_name);
+                auto* tit = find_trait_iter_scoped(trait_name);
                 size_t type_arg_idx = 0;
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     auto item = map_of(items.get(i));
@@ -2989,8 +2989,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                     auto resolved = resolve_type(item);
                     impl_trait_args.push_back(resolved);
-                    if (tit != traits_.end() && type_arg_idx < tit->second.type_params.size())
-                        current_type_params_[tit->second.type_params[type_arg_idx].name] = resolved;
+                    if (tit && type_arg_idx < tit->type_params.size())
+                        current_type_params_[tit->type_params[type_arg_idx].name] = resolved;
                     ++type_arg_idx;
                 }
             }
@@ -3402,9 +3402,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         // user method list, lower_impl_block synthesised the STDLIB default bodies
         // into the user impl and emitted them (MEASURED: `T ZqH__is_empty`, an
         // unqualified global, from a 5-line user file that never wrote is_empty).
-        auto tit = find_trait_iter_scoped(trait_name);
-        if (tit != traits_.end()) {
-            for (auto& m : tit->second.methods) {
+        auto* tit = find_trait_iter_scoped(trait_name);
+        if (tit) {
+            for (auto& m : tit->methods) {
                 // Blanket impls lower defaults under the synthetic `$blanket$…`
                 // target (matching `lower_target` + the collect-side
                 // registration) with Self = the blanket TypeVar, so the LIR
@@ -3454,8 +3454,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         for (auto& wb : m.where_param_bounds) {
                             // Find the trait-param index by name.
                             size_t pidx = SIZE_MAX;
-                            for (size_t pi = 0; pi < tit->second.type_params.size(); ++pi)
-                                if (tit->second.type_params[pi].name == wb.param_name) {
+                            for (size_t pi = 0; pi < tit->type_params.size(); ++pi)
+                                if (tit->type_params[pi].name == wb.param_name) {
                                     pidx = pi; break;
                                 }
                             if (pidx == SIZE_MAX) continue;
@@ -3536,7 +3536,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (m.default_holder) holder_ = m.default_holder;
                     namespace dk = lir_schema::decl_keys;
                     std::vector<TypeParam> type_params;
-                    shadow_scope_ = &tit->second.lifetime_params;
+                    shadow_scope_ = &tit->lifetime_params;
                     auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
                     shadow_scope_ = nullptr;
                     holder_ = saved_holder;
@@ -3557,8 +3557,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (!impl_is_blanket) {
                         for (auto& wb : m.where_param_bounds) {
                             size_t pidx = SIZE_MAX;
-                            for (size_t pi = 0; pi < tit->second.type_params.size(); ++pi)
-                                if (tit->second.type_params[pi].name == wb.param_name) {
+                            for (size_t pi = 0; pi < tit->type_params.size(); ++pi)
+                                if (tit->type_params[pi].name == wb.param_name) {
                                     pidx = pi; break;
                                 }
                             if (pidx == SIZE_MAX || pidx >= impl_trait_args.size()) continue;
@@ -3602,8 +3602,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         // overwrites bounds added earlier).
                         for (auto& wb : m.where_param_bounds) {
                             size_t pidx = SIZE_MAX;
-                            for (size_t pi = 0; pi < tit->second.type_params.size(); ++pi)
-                                if (tit->second.type_params[pi].name == wb.param_name) {
+                            for (size_t pi = 0; pi < tit->type_params.size(); ++pi)
+                                if (tit->type_params[pi].name == wb.param_name) {
                                     pidx = pi; break;
                                 }
                             if (pidx == SIZE_MAX || pidx >= impl_trait_args.size()) continue;
@@ -3657,9 +3657,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // Clean up trait type params
     if (!trait_name.empty()) {
         // #100: SCOPED (see the ground at the default-body loop below/above).
-        auto tit = find_trait_iter_scoped(trait_name);
-        if (tit != traits_.end()) {
-            for (auto& tp : tit->second.type_params)
+        auto* tit = find_trait_iter_scoped(trait_name);
+        if (tit) {
+            for (auto& tp : tit->type_params)
                 current_type_params_.erase(tp.name);
         }
     }
@@ -3768,9 +3768,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // Use traits_ (SemaTraitInfo) which has has_default; prog.traits (LTraitDef)
                 // only has the signature, not the default-body flag.
                 // #100: SCOPED (see the ground at the default-body loop below/above).
-                auto tit = find_trait_iter_scoped(trait_name);
-                if (tit != traits_.end()) {
-                    for (auto& m : tit->second.methods) {
+                auto* tit = find_trait_iter_scoped(trait_name);
+                if (tit) {
+                    for (auto& m : tit->methods) {
                         // Only emit entry if the method is actually lowered.
                         // A method exists iff: explicitly overridden OR has a default body.
                         auto mangled = target + "__" + m.name;

@@ -463,7 +463,10 @@ sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()
 #ARGSCAN enum_lit 3 d49e815d
 #ARGSCAN enum_lit_data 3 1eae352f
 #ARGSCAN erase 9 ab9caa8e
-#ARGSCAN find 12 1f8dc25a
+# 2026-09-19, #438 step 3: find 12 -> 11, roster 1f8dc25a -> 26e8ebd3. The
+# trait registry is keyed by DefId, so `traits_.find(<bare name>)` no longer
+# exists; what replaced it is `resolve_trait`, the row below.
+#ARGSCAN find 11 26e8ebd3
 #ARGSCAN find_enum_by_name 3 d49e815d
 #ARGSCAN find_struct_by_name 2 d4135532
 #ARGSCAN has_any_ 3 87d658f1
@@ -478,6 +481,13 @@ sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()
 #ARGSCAN pick 1 616dd64d
 #ARGSCAN prelude_remap 4 c4d77dbf
 #ARGSCAN remap 2 22dd1906
+# 2026-09-19, #438 step 3: resolve_trait IS the name resolver — the one place a
+# written trait name is turned into an identity, in the scope the name was
+# written in (current package, then imports, then the prelude). Its argument is
+# a spelling BY DEFINITION, as find_struct_by_name's is; what it returns is the
+# identity everything downstream uses. The row is here so the count cannot grow
+# unnoticed: a second resolver would be the defect.
+#ARGSCAN resolve_trait 1 bd8ed301
 #ARGSCAN resolve 2 8a6a5ca7
 #ARGSCAN satisfies 15 0272b985
 #ARGSCAN sema_has_impl_recursive 1 fae8a925

@@ -6854,6 +6854,11 @@ int main(int argc, char** argv) {
         g_user_root_idx = asts.size() - 1;
         logos::compiler::SemaOptions runner_opts;
         runner_opts.cfg_flags = cfg_flags;
+        // Cache-less, but NOT scope-less: a name still resolves in the prelude
+        // and the modules it was written against (#438).
+        runner_opts.implicit_prelude = implicit_prelude_pkg;
+        runner_opts.module_name_to_id = module_name_to_id;
+        runner_opts.module_prelude = module_prelude;
         runner_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
         prog = logos::compiler::sema_lower(asts, filenames, from_binary, runner_opts, is_lazy, module_ids);
         unit_order_facts.note_program(prog);   // §1.4
@@ -7354,6 +7359,9 @@ int main(int argc, char** argv) {
         if (test_mode) {
             drain_opts = logos::compiler::SemaOptions{};
             drain_opts.cfg_flags = cfg_flags;
+            drain_opts.implicit_prelude = implicit_prelude_pkg;   // scope survives (#438)
+            drain_opts.module_name_to_id = module_name_to_id;
+            drain_opts.module_prelude = module_prelude;
         }
         drain_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
         prog = logos::compiler::sema_lower(asts, filenames, from_binary,

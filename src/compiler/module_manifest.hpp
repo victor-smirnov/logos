@@ -61,9 +61,19 @@ struct ModuleManifest {
 
     // prelude: dotted package name to inject as implicit `use <pkg>;` at
     // the head of every file in this module that doesn't carry
-    // `#![no_implicit_prelude]`. Empty means "no prelude" (legacy behaviour).
-    // Typically:  logos.lang.prelude / logos.mem.prelude / logos.std.prelude.
+    // `#![no_implicit_prelude]`. ABSENT (empty) means the tier's default —
+    // logos.lang.prelude for tier lang, logos.mem.prelude for mem and lcm,
+    // logos.std.prelude otherwise — as a Rust crate gets core's or std's.
+    // `prelude none` parses to "-": no prelude at all, written down on purpose.
     std::string prelude;
+    // The package to inject, with the default and the opt-out applied.
+    std::string effective_prelude() const {
+        if (prelude == "-") return {};
+        if (!prelude.empty()) return prelude;
+        if (tier == "lang") return "logos.lang.prelude";
+        if (tier == "mem" || tier == "lcm") return "logos.mem.prelude";
+        return "logos.std.prelude";
+    }
 };
 
 // Parse a logos.module manifest file.  Returns nullopt + message on error.

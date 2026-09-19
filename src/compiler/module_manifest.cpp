@@ -63,10 +63,13 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
         }
         else if (key == "prelude") {
             if (val.empty()) {
-                err_out = "manifest: 'prelude' requires a package name";
+                err_out = "manifest: 'prelude' requires a package name (or 'none')";
                 return {};
             }
-            m.prelude = val;
+            // `prelude none` is the explicit opt-out; an ABSENT directive means
+            // the tier's default (a module resolves names against a prelude the
+            // way a Rust crate does), so "no prelude" has to be written down.
+            m.prelude = (val == "none") ? std::string("-") : val;
         }
         // ignore unknown keys for forward compat
     }

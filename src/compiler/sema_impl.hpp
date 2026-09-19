@@ -37,6 +37,7 @@
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -3724,11 +3725,7 @@ private:
                     // The bare fallback is NOT deleted: a bound built outside
                     // `read_trait_bound_args` has an empty `canonical_trait`, and
                     // for it the behaviour is byte-identical to before.
-                    SemaTraitInfo* ti = nullptr;
-                    if (!b.canonical_trait.empty()) {
-                        auto tit = traits_.find(b.canonical_trait);
-                        if (tit != traits_.end()) ti = &tit->second;
-                    }
+                    SemaTraitInfo* ti = trait_info(b.trait_def);
                     if (!ti) ti = find_trait_by_name(b.trait_name).second;
                     if (!ti) {
                         ctx_ = std::string(ctx);
@@ -4252,7 +4249,7 @@ private:
     StrSet user_coherence_keys_;         // "Trait[args]::Target" keys
     StrSet user_assoc_type_impl_keys_;   // "Trait::Target::Name" keys
     StrSet user_assoc_const_impl_keys_;
-    StrSet user_trait_keys_;             // bare trait names from user code
+    std::set<DefId> user_trait_defs_;    // traits declared by user code (snapshot reset)
     StrSet user_type_alias_keys_;        // bare type alias names from user code
     StrSet user_blanket_mangled_;        // BlanketImpl.mangled_name from user code
     // M6.1: user holders added to collected_holders_ under keep_user_state
@@ -5955,7 +5952,11 @@ private:
     // Hashes already reported as templates — one diagnostic per document, not
     // one per use site.
     std::unordered_set<uint64_t> parametric_reported_;
-    logos::compiler::StrMap<SemaTraitInfo>    traits_;
+    // #438: traits by identity. A trait is found by its DefId, by its path
+    // (`pkg::Name`, or `Name` for a package-less file's), or by resolving a
+    // written name in the current scope (resolve_trait); never by a bare
+    // spelling from anywhere.
+    std::map<DefId, SemaTraitInfo>            traits_;
     // #438: every declaration's identity. Moves with the SemaCache snapshot, so
     // ids recorded on cached records stay valid across metaprog rounds.
     DefTable defs_;
@@ -5968,13 +5969,12 @@ private:
     // bare name when it owns the bare slot and under `pkg::Name` otherwise; the
     // record whose own (package, name) matches is the one.
     SemaTraitInfo* trait_info(DefId id) {
-        if (!id) return nullptr;
-        const auto& e = defs_[id];
-        if (auto it = traits_.find(sema_key(e.package, e.name)); it != traits_.end() && it->second.def == id)
-            return &it->second;
-        if (auto it = traits_.find(e.name); it != traits_.end() && it->second.def == id)
-            return &it->second;
-        return nullptr;
+        auto it = traits_.find(id);
+        return it == traits_.end() ? nullptr : &it->second;
+    }
+    const SemaTraitInfo* trait_info(DefId id) const {
+        auto it = traits_.find(id);
+        return it == traits_.end() ? nullptr : &it->second;
     }
     // Resolves a bound's written trait name in the current scope and records
     // what it denotes: the registry key, the impl-registry identity and the
@@ -5986,11 +5986,54 @@ private:
         tb.identity_trait  = impl_key_trait(tb.canonical_trait);
         tb.trait_def       = trait_def_of_key(tb.canonical_trait);
     }
-    // The DefId of the trait stored under a registry key (empty if none).
-    DefId trait_def_of_key(std::string_view regkey) const {
-        auto it = traits_.find(std::string(regkey));
-        return it == traits_.end() ? DefId{} : it->second.def;
+    // The traits the COMPILER names itself (Rust's lang items): their package
+    // is fixed by the stdlib, so a probe spelled in C++ ("Drop", "Copy", the
+    // auto markers) reaches the stdlib trait and never a user's homonym.
+    static std::string_view lang_trait_package(std::string_view name) noexcept {
+        struct Row { std::string_view name, pkg; };
+        static constexpr Row kRows[] = {
+            {"Copy", "logos.lang.clone"},      {"Clone", "logos.lang.clone"},
+            {"Drop", "logos.lang.drop"},       {"Hash", "logos.lang.hash"},
+            {"Deref", "logos.lang.ops"},       {"DerefMut", "logos.lang.ops"},
+            {"Index", "logos.lang.ops"},       {"IndexMut", "logos.lang.ops"},
+            {"Fn", "logos.lang.ops"},          {"FnMut", "logos.lang.ops"},
+            {"FnOnce", "logos.lang.ops"},      {"Sized", "logos.lang.marker"},
+            {"Send", "logos.lang.marker"},     {"Sync", "logos.lang.marker"},
+            {"Unpin", "logos.lang.marker"},    {"Fst", "logos.lang.marker"},
+            {"StableLayout", "logos.lang.marker"},
+            {"SelfDescribing", "logos.lang.marker"},
+            {"Iterator", "logos.lang.iter"},   {"Default", "logos.lang.default"},
+            {"Error", "logos.lang.error"},
+        };
+        for (auto& r : kRows) if (r.name == name) return r.pkg;
+        return {};
     }
+    // The trait a key names. A PATH (`pkg::Name`) names it outright — that is
+    // what canonical_trait / identity_trait / the L-IR identity fields hold. A
+    // BARE name reaches a trait only when the answer cannot be in doubt: the
+    // root package's, a lang item's, or the single trait of that name in the
+    // whole compilation. Two same-named traits and a bare key ⇒ no answer, and
+    // the caller must ask by identity.
+    DefId trait_def_of_key(std::string_view path) const {
+        auto p = path.rfind("::");
+        if (p != std::string_view::npos) {
+            DefId id = defs_.find(DefNs::Type, path.substr(0, p), path.substr(p + 2));
+            return traits_.count(id) ? id : DefId{};
+        }
+        if (DefId id = defs_.find(DefNs::Type, {}, path); traits_.count(id)) return id;
+        if (auto pkg = lang_trait_package(path); !pkg.empty())
+            if (DefId id = defs_.find(DefNs::Type, pkg, path); traits_.count(id)) return id;
+        DefId only{};
+        for (auto& [id, ti] : traits_) {
+            if (ti.name != path) continue;
+            if (only) return {};        // ambiguous: ask by identity
+            only = id;
+        }
+        return only;
+    }
+    SemaTraitInfo* trait_by_key(std::string_view path) { return trait_info(trait_def_of_key(path)); }
+    const SemaTraitInfo* trait_by_key(std::string_view path) const { return trait_info(trait_def_of_key(path)); }
+    std::string trait_path(const SemaTraitInfo& ti) const { return defs_.path(ti.def); }
     // Always-on: the DefTable and the string registry agree. Every trait record
     // has an id naming its own (package, name), and every impl whose trait
     // resolved names the same trait by id as by its canonical key.
@@ -6360,12 +6403,11 @@ private:
         return lookup_qualified_<true>(enums_, name);
     }
     std::pair<std::string, SemaTraitInfo*> find_trait_by_name(std::string_view name) {
-        // NOTE (T1-9): traits stay on the UNCHECKED lookup — many callers
-        // are introspective probes (type-param shadow warnings, enum-lit
-        // assoc-fn fallbacks) where a privacy diagnostic would be spurious.
-        // The REFERENCE site that introduces a foreign trait (collect_impl)
-        // applies check_pub_access explicitly.
-        return lookup_qualified_<false>(traits_, name);
+        // NOTE (T1-9): unchecked lookup — many callers are introspective probes
+        // where a privacy diagnostic would be spurious. The REFERENCE site that
+        // introduces a foreign trait (collect_impl) applies check_pub_access.
+        SemaTraitInfo* ti = resolve_trait(name);
+        return {ti ? ti->package : std::string{}, ti};
     }
     // P2-15 object-safety (dyn-compatibility, Rust E0038): a trait used as a
     // trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe, else a method
@@ -6380,18 +6422,22 @@ private:
     // (collect_impl validation, method/assoc registration) keep working after
     // the B-mv-02 fix made a user trait that collides with an imported
     // same-name trait register under its package-qualified key only.
-    logos::compiler::StrMap<SemaTraitInfo>::iterator
-    find_trait_iter_scoped(std::string_view name) {
-        if (!cur_package_.empty()) {
-            auto it = traits_.find(sema_key(cur_package_, name));
-            if (it != traits_.end()) return it;
-        }
-        for (auto& pkg : effective_import_pkgs()) {
-            auto it = traits_.find(sema_key(pkg, name));
-            if (it != traits_.end()) return it;
-        }
-        return traits_.find(std::string(name));
+    // Resolves a WRITTEN trait name in the current scope, as Rust resolves a
+    // path: a path (`pkg::Name`) names its trait; a single name is looked up
+    // in the current package, then in each import (the prelude among them).
+    // A package-less file's traits are the root's and are found by the first
+    // step there. Nothing answers from a scope the name was not written in.
+    SemaTraitInfo* resolve_trait(std::string_view name) {
+        if (name.empty()) return nullptr;
+        if (name.find("::") != std::string_view::npos) return trait_by_key(name);
+        if (auto id = defs_.find(DefNs::Type, cur_package_, name); id)
+            if (auto* ti = trait_info(id)) return ti;
+        for (auto& pkg : effective_import_pkgs())
+            if (auto id = defs_.find(DefNs::Type, pkg, name); id)
+                if (auto* ti = trait_info(id)) return ti;
+        return nullptr;
     }
+    SemaTraitInfo* find_trait_iter_scoped(std::string_view name) { return resolve_trait(name); }
     // Canonical registry key for a trait NAME as resolved in the current scope:
     // the bare name for a trait that uniquely owns the bare slot (no behaviour
     // change vs the legacy registry), or `pkg::Name` for a same-name trait that
@@ -6420,11 +6466,9 @@ private:
     // probing the key for a `::` substring — a substring test over a key space
     // is the shape that produced the separator-class bug.
     std::string impl_key_trait(std::string_view regkey) const {
-        auto it = traits_.find(std::string(regkey));
-        if (it == traits_.end()) return std::string(regkey);
-        const auto& ti = it->second;
-        if (ti.package.empty() || ti.name.empty()) return std::string(regkey);
-        return sema_key(ti.package, ti.name);
+        const auto* ti = trait_by_key(regkey);
+        if (!ti || ti->package.empty() || ti->name.empty()) return std::string(regkey);
+        return sema_key(ti->package, ti->name);
     }
     // ── THE `Copy` MARKER IS A LANG ITEM, NOT A SPELLING ────────────────
     // `logos.lang.clone::Copy`. A user's own `trait Copy` conferred Copy-ness
@@ -6436,6 +6480,7 @@ private:
     static constexpr std::string_view kCopyLangPkg = "logos.lang.clone";
     static constexpr std::string_view kDropLangPkg = "logos.lang.drop";
     static constexpr std::string_view kDerefLangPkg = "logos.lang.ops";
+    static constexpr std::string_view kFnLangPkg    = "logos.lang.ops";
     static std::string_view trait_last_seg(std::string_view s) noexcept {
         auto p = s.find_last_of(":.");
         return p == std::string_view::npos ? s : s.substr(p + 1);
@@ -6443,14 +6488,13 @@ private:
     bool trait_key_is_lang_item(std::string_view regkey,
                                 std::string_view item,
                                 std::string_view item_pkg) const {
-        auto it = traits_.find(std::string(regkey));
+        const auto* ti = trait_by_key(regkey);
         // Undeclared / already-qualified spelling the registry does not key:
         // WILDCARD on the name alone. Narrowing here would refuse, and the
         // refusing direction is the one this change must never take.
-        if (it == traits_.end()) return trait_last_seg(regkey) == item;
-        const auto& ti = it->second;
-        return ti.name == item &&
-               (ti.package.empty() || ti.package == item_pkg);
+        if (!ti) return trait_last_seg(regkey) == item;
+        return ti->name == item &&
+               (ti->package.empty() || ti->package == item_pkg);
     }
     // A written name plus the identity captured for it at collect time
     // (`TraitBound::canonical_trait`, `SemaImplInfo::canonical_trait`). The
@@ -6474,9 +6518,10 @@ private:
                                       item, kDerefLangPkg);
     }
 
+    // The path of the trait a written name denotes here, or the name itself
+    // when it denotes none (the bound then refuses as unknown).
     std::string canonical_trait_name(std::string_view name) {
-        auto it = find_trait_iter_scoped(name);
-        if (it != traits_.end()) return it->first;
+        if (auto* ti = resolve_trait(name)) return trait_path(*ti);
         return std::string(name);
     }
     // ── Trait identity for the mono-time trait QUERY intrinsics ──────────
@@ -6515,13 +6560,8 @@ private:
     std::vector<std::string> trait_keys_spelling(std::string_view name) const {
         std::vector<std::string> out;
         if (name.empty()) return out;
-        const std::string suffix = "::" + std::string(name);
-        for (auto& kv : traits_) {
-            std::string_view k{kv.first};
-            if (k == name ||
-                (k.size() > suffix.size() && k.substr(k.size() - suffix.size()) == suffix))
-                out.push_back(kv.first);
-        }
+        for (auto& [id, ti] : traits_)
+            if (ti.name == name) out.push_back(trait_path(ti));
         // traits_ is a hash map: sort so the DIAGNOSTIC is byte-stable across
         // runs and a fail fixture can pin the trait list it names.
         std::sort(out.begin(), out.end());
@@ -6580,13 +6620,9 @@ private:
         // some path now registers a `pkg::Name` trait with no bare incumbent —
         // and THAT is the thing to go and read, not this diagnostic.
         std::string list;
-        for (auto& k : keys) {
+        for (auto& k : keys) {       // paths: `pkg::Name`
             if (!list.empty()) list += ", ";
-            auto it = traits_.find(k);
-            list += (it != traits_.end() && !it->second.package.empty() &&
-                     k.find("::") == std::string::npos)
-                        ? it->second.package + "::" + std::string(name)
-                        : k;
+            list += k;
         }
         error(std::format(
             "{}: trait name '{}' is ambiguous — it names {} distinct traits ({}) "
@@ -8528,7 +8564,9 @@ private:
     // last, which would attribute a rel error to an unrelated impl.
     struct TraitRelSig { std::string rel; std::vector<TraitRelCol> cols;
                          std::string file; uint32_t line = 0; };
-    std::unordered_map<std::string, std::vector<TraitRelSig>> trait_rels_;
+    // #438: keyed by the declaring trait's identity — the passes that read it
+    // (rel-column checking, mapping bound checks) run with no scope of their own.
+    std::map<DefId, std::vector<TraitRelSig>> trait_rels_;
 
     // ── rel COLUMN TYPES (ADR 0024 S1/S2) ────────────────────────────────
     // A rel's rows are a SET (deduplicated) and its columns are join keys, so
@@ -9794,7 +9832,7 @@ public:
     StrMap<TypeRef>                        module_consts;
     StrMap<writ::TinyMapView>            module_const_values;
     StrMap<SemaChecker::GenericConstEntry> generic_consts;
-    StrMap<SemaChecker::SemaTraitInfo>    traits;
+    std::map<DefId, SemaChecker::SemaTraitInfo> traits;
     DefTable                               defs;
     StrMap<SemaChecker::SemaImplInfo>     impls;
     StrMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
@@ -9812,7 +9850,7 @@ public:
     // is not snapshotted would silently VANISH between metaprog rounds (the
     // emitted `impl GraphSource for T` then failed with "trait declares no
     // rel 'edge'" — the trait was collected one round earlier).
-    std::unordered_map<std::string, std::vector<SemaChecker::TraitRelSig>>   trait_rels;
+    std::map<DefId, std::vector<SemaChecker::TraitRelSig>>   trait_rels;
     std::unordered_map<std::string, std::vector<SemaChecker::SourceRelBind>> source_impls;
     std::unordered_map<std::string, SemaChecker::MappingInfo>                mappings;
     bool builtin_sources_seeded = false;

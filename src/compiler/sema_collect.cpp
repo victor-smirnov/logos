@@ -490,14 +490,12 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 // is a no-op there, exactly like a bare one.
                 if (item.has_key(la::NAME.code)) {
                     auto tname = std::string(str_of(item.get(la::NAME.code)));
-                    auto bit = traits_.find(tname);
-                    const bool bare_taken_by_other =
-                        !tname.empty() && bit != traits_.end() &&
-                        !bit->second.package.empty() &&
-                        bit->second.package != cur_package_;
-                    const std::string key = bare_taken_by_other
-                        ? sema_key(cur_package_, tname) : tname;
-                    if (!traits_.count(key)) {
+                    // #438: a trait is registered under its own identity
+                    // (package, name); two packages' same-named traits are two
+                    // entries, and no one owns a bare slot.
+                    DefId pid = tname.empty() ? DefId{}
+                              : defs_.intern(DefKind::Trait, cur_package_, tname);
+                    if (pid && !traits_.count(pid)) {
                         SemaTraitInfo placeholder{};
                         // `name` is carried on the placeholder so `impl_key_trait`
                         // can compose the package-qualified IDENTITY from any
@@ -519,7 +517,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                                                  pv.as_value<uint8_t>() != 0;
                         }
                         stamp_trait_def_(placeholder);
-                        traits_[key] = std::move(placeholder);
+                        traits_[pid] = std::move(placeholder);
                     }
                 }
             }
@@ -1174,11 +1172,14 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 continue;
             }
             // Auto trait: synthesize satisfaction from field types.
-            auto trit = traits_.find(btn);
-            if (trit != traits_.end() && trit->second.is_auto) {
+            // #438: the trait this bound denotes, by identity. The auto-trait
+            // engine still matches lang names (Send / Sync / Unpin / Fst) and
+            // the raw impl keys, so it is asked by the trait's own NAME.
+            auto* trit = trait_info(bound.trait_def);
+            if (trit && trit->is_auto) {
                 StrSet visited;
                 last_offender_ = {};
-                if (is_auto_trait_satisfied(concrete, btn, visited)) continue;
+                if (is_auto_trait_satisfied(concrete, trit->name, visited)) continue;
                 if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
                 if (!last_offender_.field_name.empty()) {
                     error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
@@ -1439,10 +1440,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     // A blanket's own bound may be an AUTO trait (Fst/Send/…) —
                     // the string-recursive impl lookup can't see structural
                     // satisfaction, so consult the auto engine first.
-                    auto tit = traits_.find(bt);
-                    if (tit != traits_.end() && tit->second.is_auto) {
+                    auto* tit = resolve_trait(bt);
+                    if (tit && tit->is_auto) {
                         logos::compiler::StrSet av;
-                        return is_auto_trait_satisfied(concrete, bt, av);
+                        return is_auto_trait_satisfied(concrete, tit->name, av);
                     }
                     logos::compiler::StrSet seen;
                     return sema_has_impl_recursive(bt, concrete_str, unwrapped_name, seen);
@@ -1545,10 +1546,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                                 continue;
                         }
                         // Auto trait short-circuit.
-                        auto tit2 = traits_.find(btn);
-                        if (tit2 != traits_.end() && tit2->second.is_auto) {
+                        auto* tit2 = trait_info(bound.trait_def);
+                        if (tit2 && tit2->is_auto) {
                             StrSet visited;
-                            if (is_auto_trait_satisfied(e, btn, visited))
+                            if (is_auto_trait_satisfied(e, tit2->name, visited))
                                 continue;
                         }
                         all_elems_ok = false;
@@ -1740,18 +1741,22 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if ((cv.kind() == LogosType::Kind::TraitObject ||
                  cv.kind() == LogosType::Kind::UnsizedDyn) &&
                 !cv.trait_name().empty()) {
-                logos::compiler::StrSet seen;
-                std::function<bool(const std::string&)> reaches =
-                    [&](const std::string& tn) -> bool {
-                        if (!seen.insert(tn).second) return false;
-                        if (tn == btn) return true;
-                        auto it = traits_.find(tn);
-                        if (it == traits_.end()) return false;
-                        for (auto& s : it->second.supertraits)
-                            if (reaches(s.trait_name)) return true;
+                // #438: does the object's trait REACH the bound's trait, by
+                // identity — its own supertraits name what they denoted where
+                // the trait was declared.
+                std::set<DefId> seen;
+                std::function<bool(DefId)> reaches =
+                    [&](DefId d) -> bool {
+                        if (!d || !seen.insert(d).second) return false;
+                        if (d == bound.trait_def) return true;
+                        auto* it = trait_info(d);
+                        if (!it) return false;
+                        for (auto& s : it->supertraits)
+                            if (reaches(s.trait_def)) return true;
                         return false;
                     };
-                if (reaches(std::string(cv.trait_name()))) continue;
+                if (auto* dyn_ti = resolve_trait(cv.trait_name());
+                    dyn_ti && reaches(dyn_ti->def)) continue;
             }
             // `impl Trait for &T` / `&mut T` — a reference Self type. collect_impl
             // registers these under `$ref_`/`$mut_ref_` mangled keys (symbol-safe:
@@ -2993,6 +2998,9 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_trait_name_ = tname;
     SemaTraitInfo info;
     info.name = tname;
+    // #438: the identity first — the body's own registrations (rels) key on it.
+    info.package = cur_package_;
+    stamp_trait_def_(info);
     // T1-9: cross-package visibility (lookup_qualified_<true> checks it).
     if (node.has_key(la::IS_PUB)) {
         AnyVal pv = node.get(la::IS_PUB.code);
@@ -3160,7 +3168,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         tname, sig.rel));
                     continue;
                 }
-                for (const auto& seen : trait_rels_[tname]) {
+                for (const auto& seen : trait_rels_[info.def]) {
                     if (seen.rel == sig.rel) {
                         // User ASTs re-collect every metaprog round while the
                         // registry persists across rounds (snapshot) — an
@@ -3179,7 +3187,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         break;
                     }
                 }
-                if (!sig.rel.empty()) trait_rels_[tname].push_back(std::move(sig));
+                if (!sig.rel.empty()) trait_rels_[info.def].push_back(std::move(sig));
                 trait_method_sweep_doc.clear();
                 continue;
             }
@@ -3317,35 +3325,16 @@ void SemaChecker::collect_trait(TinyMapView node) {
     pop_type_params(info.type_params);
     current_type_params_.erase("Self");
     current_trait_name_.clear();
-    info.package = cur_package_;  // record so cross-pkg resolution can pick scope
-    stamp_trait_def_(info);
-    // B-mv-02 fix: by default a trait keeps its legacy BARE-name slot (single
-    // entry — preserves the per-trait iterations over traits_). When a user
-    // trait collides with an already-registered trait of the SAME bare name
-    // from a DIFFERENT package (e.g. a user `trait From` vs the prelude's
-    // `logos.lang.convert::From`), the two are distinct traits (Rust parity):
-    // keep the incumbent in the bare slot and register the newcomer ONLY under
-    // its package-qualified key `pkg::Name`. `find_trait_by_name` probes
-    // `cur_package_::Name` first, so user code resolves to its own trait while
-    // bare/hardcoded lookups (`traits_.find("Iterator")`) and other packages
-    // still see the incumbent. Doubling is thus confined to genuinely-colliding
-    // names. Real duplicate (B-it-05) = same package + same name.
-    auto bit = traits_.find(tname);
-    const bool bare_taken_by_other =
-        !tname.empty() && bit != traits_.end() && !bit->second.predeclared &&
-        !bit->second.package.empty() && bit->second.package != cur_package_;
-    if (bare_taken_by_other) {
-        const std::string qkey = sema_key(cur_package_, tname);
-        if (auto qit = traits_.find(qkey);
-            qit != traits_.end() && !qit->second.predeclared)
+
+    // #438: the registry holds one entry per trait IDENTITY. Two packages'
+    // same-named traits are two entries; a second declaration of the SAME
+    // (package, name) is a duplicate, except over a pass-0 placeholder.
+    if (info.def) {
+        if (auto it = traits_.find(info.def);
+            it != traits_.end() && !it->second.predeclared && !tname.empty())
             error(std::format("duplicate trait '{}'", tname));
-        traits_[qkey] = std::move(info);   // qualified-only; bare untouched
-        if (!cur_from_binary_) user_trait_keys_.insert(qkey);
-    } else {
-        if (!tname.empty() && bit != traits_.end() && !bit->second.predeclared)
-            error(std::format("duplicate trait '{}'", tname));
-        traits_[tname] = std::move(info);  // legacy bare slot (canonical)
-        if (!cur_from_binary_) user_trait_keys_.insert(tname);
+        if (!cur_from_binary_) user_trait_defs_.insert(info.def);
+        traits_[info.def] = std::move(info);
     }
 }
 
@@ -3371,15 +3360,15 @@ void SemaChecker::check_trait_def_identity() {
                      what.c_str());
         std::abort();
     };
-    for (auto& [key, ti] : traits_) {
-        if (!ti.def)
-            fail(std::format("trait '{}' (registry key '{}') has no DefId", ti.name, key));
-        const auto& e = defs_[ti.def];
+    for (auto& [id, ti] : traits_) {
+        if (!ti.def || ti.def != id)
+            fail(std::format("trait '{}::{}' is stored under another trait's id", ti.package, ti.name));
+        const auto& e = defs_[id];
         if (e.kind != DefKind::Trait || e.package != ti.package || e.name != ti.name)
-            fail(std::format("trait '{}::{}' (key '{}') carries the DefId of '{}'",
-                             ti.package, ti.name, key, defs_.path(ti.def)));
-        if (trait_info(ti.def) != &ti)
-            fail(std::format("DefId of '{}' does not lead back to its record", key));
+            fail(std::format("trait '{}::{}' carries the id of '{}'",
+                             ti.package, ti.name, defs_.path(id)));
+        if (trait_def_of_key(defs_.path(id)) != id)
+            fail(std::format("the path of '{}' does not lead back to it", defs_.path(id)));
     }
     for (auto& [key, ii] : impls_) {
         if (ii.canonical_trait.empty()) continue;
@@ -3861,7 +3850,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     const bool builtin_marker_ = !trait_name.empty() &&
         !(trait_name != "Copy" && trait_name != "Drop");
     const bool trait_is_drop_ = builtin_marker_ && trait_name != "Copy";
-    if (!trait_name.empty() && !builtin_marker_ && !traits_.count(trait_name))
+    if (!trait_name.empty() && !builtin_marker_ && !resolve_trait(trait_name))
         error(std::format("impl: unknown trait '{}'", trait_name));
     // rustc check_drop_impl: E0120 / E0366 / E0367 at the declaration. PROBES.md 2026-09-02u.
     if (trait_is_drop_) check_drop_impl_wf(target, target_resolved, impl_tps, node);
@@ -3875,8 +3864,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // (builtin_marker_ lets `Drop`/`Copy` impls through with no declaration).
     current_impl_trait_package_.clear();
     if (!trait_name.empty()) {
-        auto tit_ = find_trait_iter_scoped(trait_name);
-        if (tit_ != traits_.end()) current_impl_trait_package_ = tit_->second.package;
+        auto* tit_ = find_trait_iter_scoped(trait_name);
+        if (tit_) current_impl_trait_package_ = tit_->package;
     }
     // Resolve trait type args (e.g. impl Into<i32> for Celsius → T=i32)
     // and push them into current_type_params_ so method sigs resolve correctly.
@@ -3906,11 +3895,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 }
             }
         }
-        auto tit = find_trait_iter_scoped(trait_name);
-        if (tit != traits_.end()) {
-            for (size_t i = 0; i < tit->second.type_params.size() &&
+        auto* tit = find_trait_iter_scoped(trait_name);
+        if (tit) {
+            for (size_t i = 0; i < tit->type_params.size() &&
                                 i < trait_type_args.size(); ++i)
-                current_type_params_[tit->second.type_params[i].name] = trait_type_args[i];
+                current_type_params_[tit->type_params[i].name] = trait_type_args[i];
         }
     }
     // G156-1: expose this impl's concrete trait type-args to collect_fn so the
@@ -4173,7 +4162,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         target, rn, target));
                     continue;
                 }
-                auto trit = trait_rels_.find(trait_name);
+                auto* rti = resolve_trait(trait_name);
+                auto trit = rti ? trait_rels_.find(rti->def) : trait_rels_.end();
                 const TraitRelSig* sig = nullptr;
                 if (trit != trait_rels_.end())
                     for (const auto& ts : trit->second)
@@ -4366,9 +4356,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             error(std::format("impl {} for {}: GAT param '{}' shadows impl type param",
                                               trait_name, target, gtp.name));
                 // Bug 4 fix: impl GAT arity must match the trait's declaration.
-                auto tit_gat = find_trait_iter_scoped(trait_name);
-                if (tit_gat != traits_.end()) {
-                    for (auto& at_def : tit_gat->second.assoc_types) {
+                auto* tit_gat = find_trait_iter_scoped(trait_name);
+                if (tit_gat) {
+                    for (auto& at_def : tit_gat->assoc_types) {
                         if (at_def.name == aname && at_def.type_params.size() != gat_tps.size()) {
                             error(std::format(
                                 "impl {} for {}: associated type '{}' has {} GAT params but trait declares {}",
@@ -4421,9 +4411,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (m.has_key(la::TYPE))
                         ctype = resolve_type(map_of(m.get(la::TYPE.code)));
                     // Type check: impl's type must match the trait's declared type.
-                    auto tit2 = find_trait_iter_scoped(trait_name);
-                    if (tit2 != traits_.end() && ctype) {
-                        for (auto& ac_def : tit2->second.assoc_consts) {
+                    auto* tit2 = find_trait_iter_scoped(trait_name);
+                    if (tit2 && ctype) {
+                        for (auto& ac_def : tit2->assoc_consts) {
                             if (ac_def.name == cname && ac_def.type) {
                                 if (!types_equal(ac_def.type, ctype))
                                     error(std::format(
@@ -4432,7 +4422,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                         type_str(ctype), type_str(ac_def.type)));
                                 // ... and by REGION. PROBES.md 2026-09-13f-declarrivalland.
                                 else if (TypeRef want = static_item_regions_(rename_trait_regions_(
-                                             ac_def.type, tit2->second.lifetime_params, trait_lt_args), true);
+                                             ac_def.type, tit2->lifetime_params, trait_lt_args), true);
                                          want && !impl_regions_conform_(static_item_regions_(ctype, true), want, impl_lt_outlives))
                                     error(std::format(
                                         "impl {} for {}: associated constant '{}' has type '{}', which is not "
@@ -4491,9 +4481,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
         ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
         : target;
     if (!trait_name.empty()) {
-        auto tit = find_trait_iter_scoped(trait_name);
-        if (tit != traits_.end()) {
-            for (auto& m : tit->second.methods) {
+        auto* tit = find_trait_iter_scoped(trait_name);
+        if (tit) {
+            for (auto& m : tit->methods) {
                 auto mangled = check_target + "__" + m.name;
                 // Trait-aware mangling: a method that collided with another
                 // trait's same-named method was re-keyed under the
@@ -4543,7 +4533,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // exposes `fn call(&self, x: u8, y: bool)` against
                 // `Fn<i32, i32>` gets rejected instead of silently bound.
                 std::string variadic_tp_name;
-                for (auto& tp : tit->second.type_params) {
+                for (auto& tp : tit->type_params) {
                     if (tp.is_variadic) { variadic_tp_name = tp.name; break; }
                 }
                 // S2b: substitute the impl's CONCRETE trait args into the
@@ -4557,7 +4547,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // still cover the unbound ones.
                 SemaSubst trait_arg_subst;
                 {
-                    auto& tps = tit->second.type_params;
+                    auto& tps = tit->type_params;
                     for (size_t ti = 0; ti < tps.size() && ti < trait_type_args.size(); ++ti) {
                         if (trait_type_args[ti])
                             trait_arg_subst[tps[ti].name] = trait_type_args[ti];
@@ -4577,7 +4567,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 bool _sigdef_name_unique = true;
                 {
                     int _nsame = 0;
-                    for (auto& _mm : tit->second.methods)
+                    for (auto& _mm : tit->methods)
                         if (_mm.name == m.name) ++_nsame;
                     _sigdef_name_unique = (_nsame == 1);
                 }
@@ -4916,7 +4906,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (sig_match && m.ret_type && c->ret_type) {
                         TypeRef tr = m.ret_type;
                         if (!trait_arg_subst.empty()) tr = subst_type_sema(tr, trait_arg_subst);
-                        tr = rename_trait_regions_(tr, tit->second.lifetime_params, trait_lt_args);
+                        tr = rename_trait_regions_(tr, tit->lifetime_params, trait_lt_args);
                         if (tr && !is_generic_param(tr) && !is_generic_param(c->ret_type) &&
                             regions_all_impl_header_(tr, c->ret_type, impl_lt_params) &&
                             !impl_regions_conform_(c->ret_type, tr, impl_lt_outlives)) {
@@ -5116,9 +5106,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // blanket's assoc types are per-instantiation and not keyed by a single
     // target; the LIR body catches mistakes at monomorphization time).
     if (!trait_name.empty() && !is_blanket) {
-        auto tit = find_trait_iter_scoped(trait_name);
-        if (tit != traits_.end()) {
-            for (auto& at : tit->second.assoc_types) {
+        auto* tit = find_trait_iter_scoped(trait_name);
+        if (tit) {
+            for (auto& at : tit->assoc_types) {
                 // G156-1: this impl's assoc types are keyed by the trait's
                 // type-args (suffixed); the plain key may have been erased by a
                 // sibling dual impl. Check the suffixed key for THIS impl.
@@ -5139,7 +5129,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 }
             }
             // Check associated constant completeness
-            for (auto& ac : tit->second.assoc_consts) {
+            for (auto& ac : tit->assoc_consts) {
                 std::string key = trait_name + "::" + target + "::" + ac.name;
                 if (!assoc_const_impls_.count(key)) {
                     // §6 f1 Wave 9 — a default value in the trait lets the
@@ -5160,10 +5150,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 }
             }
             // Check unsafe parity
-            if (tit->second.is_unsafe && !impl_is_unsafe)
+            if (tit->is_unsafe && !impl_is_unsafe)
                 error(std::format("impl {} for {}: implementing unsafe trait requires `unsafe impl`",
                       trait_name, target));
-            if (!tit->second.is_unsafe && impl_is_unsafe && !tit->second.is_auto)
+            if (!tit->is_unsafe && impl_is_unsafe && !tit->is_auto)
                 error(std::format("impl {} for {}: `unsafe impl` for a safe trait",
                       trait_name, target));
         }
@@ -5231,9 +5221,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
         error(std::format("unsafe impl {}: standalone impl cannot be unsafe", target));
     // Clean up trait type params from scope
     if (!trait_name.empty() && !trait_type_args.empty()) {
-        auto tit = find_trait_iter_scoped(trait_name);
-        if (tit != traits_.end()) {
-            for (auto& tp : tit->second.type_params)
+        auto* tit = find_trait_iter_scoped(trait_name);
+        if (tit) {
+            for (auto& tp : tit->type_params)
                 current_type_params_.erase(tp.name);
         }
     }
@@ -6861,16 +6851,18 @@ void SemaChecker::check_rel_column_types() {
     // make hashable. Nothing is lost by waiting: the round where nothing is
     // pending is the round that judges.
     if (!metaprog_pending_pkgs_.empty()) return;
-    for (auto& [tname, sigs] : trait_rels_) {
+    for (auto& [tdef, sigs] : trait_rels_) {
+        const SemaTraitInfo* trel = trait_info(tdef);
+        const std::string tname = trel ? trel->name : std::string{};
         for (auto& sig : sigs) {
             // A column typed by one of the trait's TYPE PARAMETERS names no
             // concrete type here — `trait Src<K> { rel r(k: K) }` says what the
             // shape is, and the impl says what K is. The capability is checked
             // where the answer exists: at the impl, against its trait args.
-            auto tit = traits_.find(tname);
+            const SemaTraitInfo* tit = trel;
             auto is_trait_param = [&](const std::string& ty) {
-                if (tit == traits_.end()) return false;
-                for (const auto& tp : tit->second.type_params)
+                if (!tit) return false;
+                for (const auto& tp : tit->type_params)
                     if (tp.name == ty) return true;
                 return false;
             };
@@ -6937,16 +6929,16 @@ void SemaChecker::trait_vtable_layout(
         // SUPERTRAIT whose bare name shadows a prelude/imported one (e.g. user
         // `Sub: Add` both shadowing operators) walks the USER traits' methods,
         // not the incumbents'. No-op for non-colliding names (falls to bare).
-        auto it = find_trait_iter_scoped(tn);
-        if (it == traits_.end()) return;
-        for (auto& s : it->second.supertraits) {
+        auto* it = find_trait_iter_scoped(tn);
+        if (!it) return;
+        for (auto& s : it->supertraits) {
             // Only the LANG ITEM is the methodless marker with no vtable slot.
             if (bound_is_copy_lang_item(s.trait_name, s.canonical_trait))
                 continue;   // marker, no vtable
             walk(s.trait_name);
         }
         if (tn != trait) upcast_supers.push_back(tn);
-        for (auto& m : it->second.methods)
+        for (auto& m : it->methods)
             method_order.push_back({tn, &m});
     };
     walk(trait);
@@ -6957,11 +6949,16 @@ void SemaChecker::check_supertrait_impls() {
     // This pass must iterate over traits_ (not impls_) so that traits defined
     // but never implemented are also checked — check_supertrait_impls via impls_
     // would silently miss them.
-    for (auto& [tname, tinfo] : traits_) {
+    for (auto& [tname_def, tinfo] : traits_) {
+            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
+            // spaces are composed from the spelling at the impl (collect_impl),
+            // so a path here would miss every one of them. (Those key spaces
+            // move to identities in a later step of #438.)
+            const std::string& tname = tinfo.name;
         for (auto& super : tinfo.supertraits) {
             if (bound_is_copy_lang_item(super.trait_name,
                                         super.canonical_trait)) continue;
-            if (!traits_.count(super.trait_name)) {
+            if (!trait_info(super.trait_def)) {
                 ctx_ = std::format("trait {}", tname);
                 error(std::format("trait {}: unknown supertrait '{}'",
                                   tname, super.trait_name));
@@ -6970,16 +6967,16 @@ void SemaChecker::check_supertrait_impls() {
     }
 
     // Does `start` reach `goal` through its supertrait chain?
-    std::function<bool(const std::string&, const std::string&,
-                       logos::compiler::StrSet&)> trait_has_supertrait =
-        [&](const std::string& start, const std::string& goal,
-            logos::compiler::StrSet& seen) -> bool {
-        if (!seen.insert(start).second) return false;
-        auto it = traits_.find(start);
-        if (it == traits_.end()) return false;
-        for (auto& s : it->second.supertraits) {
-            if (s.trait_name == goal) return true;
-            if (trait_has_supertrait(s.trait_name, goal, seen)) return true;
+    // #438: reachability over trait IDENTITIES — each supertrait bound names
+    // the trait it denoted where the declaration was written.
+    std::function<bool(DefId, DefId, std::set<DefId>&)> trait_has_supertrait =
+        [&](DefId start, DefId goal, std::set<DefId>& seen) -> bool {
+        if (!start || !seen.insert(start).second) return false;
+        auto* it = trait_info(start);
+        if (!it) return false;
+        for (auto& s : it->supertraits) {
+            if (s.trait_def && s.trait_def == goal) return true;
+            if (trait_has_supertrait(s.trait_def, goal, seen)) return true;
         }
         return false;
     };
@@ -6993,11 +6990,11 @@ void SemaChecker::check_supertrait_impls() {
         // time), not whatever same-name trait holds the bare slot — otherwise a
         // user `impl Container for Foo` would be checked against a same-named
         // stdlib trait's supertraits (e.g. fabric::Container: Datatype).
-        auto tit = traits_.find(impl.canonical_trait.empty() ? tname
-                                                             : impl.canonical_trait);
-        if (tit == traits_.end()) continue;
+        auto* tit = impl.trait_def ? trait_info(impl.trait_def)
+                                   : resolve_trait(tname);
+        if (!tit) continue;
         ctx_ = std::format("impl {} for {}", tname, target);  // set once per impl
-        for (auto& super : tit->second.supertraits) {
+        for (auto& super : tit->supertraits) {
             // Only the LANG ITEM is exempt from supertrait impl parity.
             if (bound_is_copy_lang_item(super.trait_name,
                                         super.canonical_trait)) continue;
@@ -7008,7 +7005,7 @@ void SemaChecker::check_supertrait_impls() {
             // whichever homonym holds the bare registry slot.
             const std::string& super_q = super.canonical_trait.empty()
                                              ? super.trait_name : super.canonical_trait;
-            if (!traits_.count(super_q)) continue;  // already reported above
+            if (!trait_by_key(super_q)) continue;  // already reported above
             std::string super_key = super_q + "::" + target;
             if (impls_.count(super_key)) continue;
             // Blanket-derived supertrait satisfaction: if a blanket
@@ -7044,9 +7041,9 @@ void SemaChecker::check_supertrait_impls() {
                 for (auto& b : tp.bounds) {
                     // direct match, or the bound trait's own supertrait chain
                     // includes the requirement.
-                    if (b.trait_name == super.trait_name) { via_self_bound = true; break; }
-                    logos::compiler::StrSet seen_super;
-                    if (trait_has_supertrait(b.trait_name, super.trait_name, seen_super)) {
+                    if (b.trait_def && b.trait_def == super.trait_def) { via_self_bound = true; break; }
+                    std::set<DefId> seen_super;
+                    if (trait_has_supertrait(b.trait_def, super.trait_def, seen_super)) {
                         via_self_bound = true; break;
                     }
                 }
@@ -7120,8 +7117,8 @@ void SemaChecker::check_drop_impl_wf(const std::string& target, TypeRef target_r
             TraitBound b = std::move(work.back()); work.pop_back();
             if (b.is_relaxed || is_sized(b)) continue;
             if (!out.insert(render(b, true)).second) continue;
-            if (auto it = find_trait_iter_scoped(b.trait_name); it != traits_.end())
-                for (auto& sb : it->second.supertraits) work.push_back(sb);
+            if (auto* it = find_trait_iter_scoped(b.trait_name); it)
+                for (auto& sb : it->supertraits) work.push_back(sb);
         }
         return out;
     };

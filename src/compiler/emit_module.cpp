@@ -864,6 +864,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         mopts.self_module_id = module_id;    // hook-appended asts belong to THIS module
         mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
         mopts.module_prelude = module_prelude;
+        mopts.implicit_prelude = implicit_prelude;   // the module's own prelude (manifest)
         mopts.provenance_out = provenance_out;  // synth-chunk → source-file attribution
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
         // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
@@ -2163,7 +2164,7 @@ bool emit_module(const ModuleManifest& manifest,
         auto load_bucket = [&](const std::vector<std::string>& bucket) {
             for (auto& file : bucket) {
                 auto mods = load_modules(file, search_paths, nullptr,
-                                         all_lib_files, manifest.prelude,
+                                         all_lib_files, manifest.effective_prelude(),
                                          abs_excludes);
                 for (auto& m : mods) {
                     if (seen.insert(m.path).second)
@@ -2303,7 +2304,7 @@ bool emit_module(const ModuleManifest& manifest,
                                only_file_canon, &exports, /*out_lir_blob=*/&lir_blob,
                                /*module_name=*/manifest.name,
                                /*module_id=*/module_id,
-                               /*implicit_prelude=*/manifest.prelude,
+                               /*implicit_prelude=*/manifest.effective_prelude(),
                                /*dep_archives=*/all_lib_files,
                                /*per_ast_module_ids=*/per_ast_module_ids,
                                /*module_name_to_id=*/module_name_to_id,
@@ -2581,8 +2582,8 @@ bool emit_module(const ModuleManifest& manifest,
         f << "@abi " << logos::compiler::logos_version_full() << "\n";
         // The prelude this module's files were resolved in: a consumer
         // resolves a name in an archived file in the same scope.
-        if (!manifest.prelude.empty())
-            f << "@prelude " << manifest.prelude << "\n";
+        if (!manifest.effective_prelude().empty())
+            f << "@prelude " << manifest.effective_prelude() << "\n";
         for (size_t i = 0; i < modules_for_h0.size(); ++i) {
             auto& m = modules_for_h0[i];
             // Skip dependency modules embedded from a lower-layer archive.

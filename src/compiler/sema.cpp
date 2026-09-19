@@ -414,7 +414,7 @@ public:
     StrSet persisted_user_coherence_keys;
     StrSet persisted_user_assoc_type_impl_keys;
     StrSet persisted_user_assoc_const_impl_keys;
-    StrSet persisted_user_trait_keys;
+    std::set<DefId> persisted_user_trait_defs;
     StrSet persisted_user_type_alias_keys;
     StrSet persisted_user_blanket_mangled;
     std::unordered_set<const writ::MemHolder*> persisted_user_holders;
@@ -445,7 +445,7 @@ void SemaCache::reset_user_state() {
         for (auto& k : c->persisted_user_coherence_keys)        s->coherence_keys.erase(k);
         for (auto& k : c->persisted_user_assoc_type_impl_keys)  s->assoc_type_impls.erase(k);
         for (auto& k : c->persisted_user_assoc_const_impl_keys) s->assoc_const_impls.erase(k);
-        for (auto& k : c->persisted_user_trait_keys)            s->traits.erase(k);
+        for (auto& d : c->persisted_user_trait_defs)            s->traits.erase(d);
         for (auto& k : c->persisted_user_type_alias_keys)       s->type_aliases.erase(k);
         if (!c->persisted_user_blanket_mangled.empty()) {
             s->blanket_impls.erase(
@@ -477,7 +477,6 @@ void SemaCache::reset_user_state() {
             erase_pkg_key(s->module_consts);
             erase_pkg_key(s->module_const_values);
             erase_pkg_key(s->generic_consts);
-            erase_pkg_key(s->traits);
             erase_pkg_key(s->explicit_type_codes);
             auto erase_by_pkg_field = [&](auto& map) {
                 for (auto it = map.begin(); it != map.end(); ) {
@@ -490,6 +489,7 @@ void SemaCache::reset_user_state() {
             erase_by_pkg_field(s->funcs);
             erase_by_pkg_field(s->generic_funcs);
             erase_by_pkg_field(s->struct_specs_sema);
+            erase_by_pkg_field(s->traits);   // #438: keyed by DefId, so by its own package
             auto erase_orphan_overloads = [&](auto& overloads_map, auto& fn_map) {
                 for (auto it = overloads_map.begin(); it != overloads_map.end(); ) {
                     auto& syms = it->second;
@@ -572,7 +572,7 @@ void SemaCache::reset_user_state() {
     c->persisted_user_coherence_keys.clear();
     c->persisted_user_assoc_type_impl_keys.clear();
     c->persisted_user_assoc_const_impl_keys.clear();
-    c->persisted_user_trait_keys.clear();
+    c->persisted_user_trait_defs.clear();
     c->persisted_user_type_alias_keys.clear();
     c->persisted_user_blanket_mangled.clear();
     c->persisted_user_holders.clear();
@@ -643,7 +643,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
         for (auto& k : user_coherence_keys_)       c->persisted_user_coherence_keys.insert(k);
         for (auto& k : user_assoc_type_impl_keys_) c->persisted_user_assoc_type_impl_keys.insert(k);
         for (auto& k : user_assoc_const_impl_keys_)c->persisted_user_assoc_const_impl_keys.insert(k);
-        for (auto& k : user_trait_keys_)           c->persisted_user_trait_keys.insert(k);
+        for (auto& d : user_trait_defs_)           c->persisted_user_trait_defs.insert(d);
         for (auto& k : user_type_alias_keys_)      c->persisted_user_type_alias_keys.insert(k);
         for (auto& k : user_blanket_mangled_)      c->persisted_user_blanket_mangled.insert(k);
         // collected_holders user-portion: in keep_user_state mode collect
@@ -661,7 +661,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     for (auto& k : user_coherence_keys_)          s->coherence_keys.erase(k);
     for (auto& k : user_assoc_type_impl_keys_)    s->assoc_type_impls.erase(k);
     for (auto& k : user_assoc_const_impl_keys_)   s->assoc_const_impls.erase(k);
-    for (auto& k : user_trait_keys_)              s->traits.erase(k);
+    for (auto& d : user_trait_defs_)              s->traits.erase(d);
     for (auto& k : user_type_alias_keys_)         s->type_aliases.erase(k);
     // blanket_impls_ — vector; drop entries whose mangled_name was tagged
     // as user-origin (regular blankets use real mangled names; satisfaction
@@ -703,7 +703,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
         erase_pkg_key(s->module_consts);
         erase_pkg_key(s->module_const_values);
         erase_pkg_key(s->generic_consts);
-        erase_pkg_key(s->traits);
         erase_pkg_key(s->explicit_type_codes);
 
         // Map valued by SemaFuncInfo / SemaStructInfo with .package field
@@ -720,6 +719,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
         erase_by_pkg_field(s->funcs);
         erase_by_pkg_field(s->generic_funcs);
         erase_by_pkg_field(s->struct_specs_sema);
+        erase_by_pkg_field(s->traits);   // #438: keyed by DefId, so by its own package
 
         // func_overloads_ / generic_overloads_ are bare-name → vector<sym_name>.
         // Drop overload symbol_names that point into funcs/generic_funcs that
@@ -5564,10 +5564,13 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     // half of the same cell whose refusing half is the `dyn` intercept in
     // `resolve_type`. Derived from the registry's own structure, not from a
     // hardcoded package name.
-    if ((tb.trait_name == "Fn" || tb.trait_name == "FnMut" ||
-         tb.trait_name == "FnOnce") &&
-        (tb.canonical_trait.empty() || tb.canonical_trait == tb.trait_name)) {
-        tb.is_fn_family = true;
+    // #438: the family is a LANG ITEM (`logos.lang.ops::Fn` / `FnMut` /
+    // `FnOnce`), not a spelling and not "whoever owns the bare slot": a user's
+    // own `trait FnMut` is a different trait and gets no family shortcut.
+    if (tb.trait_name == "Fn" || tb.trait_name == "FnMut" || tb.trait_name == "FnOnce") {
+        const std::string& key = tb.canonical_trait.empty() ? tb.trait_name : tb.canonical_trait;
+        if (trait_key_is_lang_item(key, tb.trait_name, kFnLangPkg))
+            tb.is_fn_family = true;
     }
     if (bnode.has_key(la::PARAMS)) {
         auto pav = bnode.get(la::PARAMS.code);
@@ -7150,10 +7153,10 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         auto tnode = map_of(node.get(la::NAME.code));
         if (!tnode.is_null() && tnode.has_key(la::NAME)) {
             std::string qtrait(str_of(tnode.get(la::NAME.code)));
-            auto tit = find_trait_iter_scoped(qtrait);
-            if (tit != traits_.end()) {
+            auto* tit = find_trait_iter_scoped(qtrait);
+            if (tit) {
                 bool declares = false;
-                for (auto& at : tit->second.assoc_types)
+                for (auto& at : tit->assoc_types)
                     if (at.name == assoc) { declares = true; break; }
                 // Collect-order tolerance: pass-1 (aliases/consts) runs
                 // BEFORE pass-2 fills trait bodies, so an explicit
@@ -7161,7 +7164,7 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                 // only the pass-0 PLACEHOLDER (empty assoc_types). The
                 // qualifier is explicit — trust it and defer; a bogus assoc
                 // name still fails at impl resolution.
-                if (declares || tit->second.predeclared) {
+                if (declares || tit->predeclared) {
                     trait_for_assoc = qtrait;
                     if (tnode.has_key(la::TYPE_PARAMS)) {
                         auto tplist = map_of(tnode.get(la::TYPE_PARAMS.code));
@@ -7202,9 +7205,9 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                     std::vector<TypeRef> targs = std::move(worklist_args.back());
                     worklist_args.pop_back();
                     if (!seen.insert(tn).second) continue;
-                    auto tit = find_trait_iter_scoped(tn);
-                    if (tit == traits_.end()) continue;
-                    for (auto& at : tit->second.assoc_types) {
+                    auto* tit = find_trait_iter_scoped(tn);
+                    if (!tit) continue;
+                    for (auto& at : tit->assoc_types) {
                         if (at.name == assoc) {
                             trait_for_assoc = tn;
                             trait_args_for_assoc = targs;
@@ -7212,7 +7215,7 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                         }
                     }
                     if (!trait_for_assoc.empty()) break;
-                    for (auto& sup : tit->second.supertraits) {
+                    for (auto& sup : tit->supertraits) {
                         worklist.push_back(sup.trait_name);
                         worklist_args.push_back(sup.type_args);
                     }
@@ -7225,7 +7228,12 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         // declares an assoc type with this name. Mono's subst_type
         // for AssocType then resolves via concrete_impls_ /
         // blanket_impls_ once the base becomes concrete.
-        for (auto& [tname, tinfo] : traits_) {
+        for (auto& [tname_def, tinfo] : traits_) {
+            // ⚠ The projection carries the trait as a NAME, and the other arms
+            // above fill it from a bound's written spelling — so this arm must
+            // use the same form or two spellings of one projection compare
+            // unequal. (Projections by identity: the next step of #438.)
+            const std::string& tname = tinfo.name;
             for (auto& at : tinfo.assoc_types) {
                 if (at.name == assoc) { trait_for_assoc = tname; break; }
             }
@@ -7235,8 +7243,8 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         // T::A::B — search bounds of the associated type itself if we had them,
         // but currently we only store trait_name for the assoc type.
         // We'll search the trait indicated by base_type's own resolution.
-        auto tit = find_trait_iter_scoped(TypeRef(base_type).trait_name());
-        if (tit != traits_.end()) {
+        auto* tit = find_trait_iter_scoped(TypeRef(base_type).trait_name());
+        if (tit) {
             // This is slightly wrong: T::A might be bound to traits OTHER than the one it's defined in.
             // But our current system doesn't support "type Item: Bound;".
             // So we look in the trait that owns the associated type.
@@ -7252,9 +7260,9 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     // method signatures. Look up the assoc-type definition on the
     // impl's trait directly.
     if (trait_for_assoc.empty() && !current_impl_trait_name_.empty()) {
-        auto tit = find_trait_iter_scoped(current_impl_trait_name_);
-        if (tit != traits_.end()) {
-            for (auto& at : tit->second.assoc_types) {
+        auto* tit = find_trait_iter_scoped(current_impl_trait_name_);
+        if (tit) {
+            for (auto& at : tit->assoc_types) {
                 if (at.name == assoc) {
                     trait_for_assoc = current_impl_trait_name_;
                     // G156-1: inside `impl Trait<Args> for C`, `Self::Assoc`
@@ -7275,7 +7283,12 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             TypeRef(base_type).kind() == LogosType::Kind::ZonedStruct)
             base_name = TypeRef(base_type).struct_name();
 
-        for (auto& [tname, tinfo] : traits_) {
+        for (auto& [tname_def, tinfo] : traits_) {
+            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
+            // spaces are composed from the spelling at the impl (collect_impl),
+            // so a path here would miss every one of them. (Those key spaces
+            // move to identities in a later step of #438.)
+            const std::string& tname = tinfo.name;
             bool found_impl = impls_.count(tname + "::" + cname) > 0
                            || (!base_name.empty() && impls_.count(tname + "::" + base_name) > 0);
             if (found_impl) {
@@ -7302,13 +7315,12 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     // class. The bare fallback stays LAST rather than being deleted: reversing
     // that order reddened two imported tests once, and the comment at
     // `find_struct_repr_` records why.
-    auto tit_gat = traits_.end();
-    if (auto scoped = find_trait_iter_scoped(trait_for_assoc); scoped != traits_.end())
-        tit_gat = scoped;
-    else
-        tit_gat = traits_.find(trait_for_assoc);
-    if (tit_gat != traits_.end()) {
-        for (auto& at_def : tit_gat->second.assoc_types) {
+    // #438: `trait_for_assoc` is either a written name resolved here or a
+    // path already; both go through the one resolver, and there is no bare
+    // fallback to some other package's same-named trait.
+    auto* tit_gat = resolve_trait(trait_for_assoc);
+    if (tit_gat) {
+        for (auto& at_def : tit_gat->assoc_types) {
             if (at_def.name == assoc) {
                 size_t expected_gat = at_def.type_params.size();
                 if (!at_def.type_params.empty() && gat_args.size() != expected_gat)
@@ -7376,9 +7388,9 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
 
     auto result = pool_->alloc(std::move(t));
     // Propagate bounds for T::Item back into the context
-    auto tit = traits_.find(trait_for_assoc);
-    if (tit != traits_.end()) {
-        for (auto& at : tit->second.assoc_types) {
+    auto* tit = resolve_trait(trait_for_assoc);
+    if (tit) {
+        for (auto& at : tit->assoc_types) {
             if (at.name == assoc && !at.bounds.empty()) {
                 // KEY-IDENTITY: the key is the projection's own type spelling in
                 // the signature being checked, in the same type-parameter
@@ -8332,11 +8344,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // own method call died as `receiver is not a struct (got || -> void)` —
         // MEASURED, and the reason this cell was HALF-reachable: the generic-bound
         // spelling took the permissive `is_fn_family` skip instead.
-        // QUALIFIED KEY FIRST, BARE SLOT LAST: `canonical_trait_name` resolves in
-        // scope; bare ⇒ the ops trait or nothing ⇒ the shortcut, unchanged.
+        // #438: the shortcut belongs to the LANG ITEM `logos.lang.ops::Fn*`
+        // (or to a name that denotes no trait at all), never to a user's own
+        // same-named trait.
         const bool fn_family_name =
             (tname == "Fn" || tname == "FnMut" || tname == "FnOnce") &&
-            canonical_trait_name(tname) == tname;
+            trait_key_is_lang_item(canonical_trait_name(tname), tname, kFnLangPkg);
         if (fn_family_name) {
             LogosTypeBuilder t;
             t.kind = LogosType::Kind::Closure;
@@ -8383,7 +8396,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // and mlir-gen's vtable registry keys — else dispatch segfaults
         // (probe p2). Needs the full chokepoint sweep; see
         // docs/track3-gaps (dyn-local-trait-shadowing).
-        if (!traits_.count(tname))
+        if (!resolve_trait(tname))
             error(std::format("unknown trait '{}' in &dyn type", tname));
         // Optional type-args: &dyn Trait<T,…> — same shape as Struct<T,…>.
         // logos-core 2.4(c): the grammar now also collects per-bound AUTO_TRAIT_BOUND
@@ -8460,7 +8473,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // &tagged<TS> Trait — thin pointer with tag-based dispatch.
         // struct_name = tag system type name; trait_name = dispatched trait name.
         auto tname = std::string(str_of(node.get(la::NAME.code)));
-        if (!traits_.count(tname))
+        if (!resolve_trait(tname))
             error(std::format("unknown trait '{}' in &tagged type", tname));
         // Resolve the tag system type (used to check it's a struct).
         TypeRef ts_type = nullptr;
@@ -10002,7 +10015,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // the SAME entry (collect dedup: identical rel, error on divergence).
     {
         bool pending_gs = false;
-        auto trit = trait_rels_.find("GraphSource");
+        // The WQL graph-source trait is a stdlib trait named here by the
+        // compiler; resolve it in this file's scope like any other name.
+        auto* gsi = resolve_trait("GraphSource");
+        auto trit = gsi ? trait_rels_.find(gsi->def) : trait_rels_.end();
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             if (item.is_null()) continue;
@@ -10929,8 +10945,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 // It would collide at dispatch-table level: every concrete
                 // specialization would land in the same tag-system slot.
                 if (tv.type_code() != 0) {
-                    auto tit = traits_.find(std::string(tv.name()));
-                    if (tit != traits_.end() && !tit->second.type_params.empty())
+                    auto* tit = resolve_trait(std::string(tv.name()));
+                    if (tit && !tit->type_params.empty())
                         error(std::format("genos '{}': #[type_code] on a template "
                                           "(parametric) genos is forbidden — "
                                           "attach it to a concrete specialization "
@@ -10946,12 +10962,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 if (logos::probe::census_armed() || logos::probe::on("trdefchk") ||
                     logos::probe::on("trdefnogen")) {
                     std::string _tn(tv.name());
-                    auto _tit = traits_.find(_tn);
-                    if (_tit != traits_.end()) {
+                    auto* _tit = resolve_trait(_tn);
+                    if (_tit) {
                         bool _has_impl = false;
                         for (auto& kv : impls_)
                             if (kv.first.rfind(_tn + "::", 0) == 0) { _has_impl = true; break; }
-                        for (auto& m : _tit->second.methods) {
+                        for (auto& m : _tit->methods) {
                             if (!m.has_default) continue;
                             logos::probe::census("trdef.mint");
                             if (_has_impl) { logos::probe::census("trdef.hasimpl"); continue; }
@@ -10959,7 +10975,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             const bool _emit = logos::probe::on("trdefchk");
                             if (!_emit && !logos::probe::on("trdefnogen")) continue;
                             namespace dk = lir_schema::decl_keys;
-                            push_type_params(_tit->second.type_params);
+                            push_type_params(_tit->type_params);
                             const std::string _self_key = kSelfTypeParamName;
                             TypeRef _self = make_typevar(_self_key);
                             bool _had_self = current_type_params_.count(_self_key) > 0;
@@ -10969,12 +10985,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             TraitBound _tb; _tb.trait_name = _tn;
                             _tb.canonical_trait = _tn;   // the registry key itself
                             _tb.identity_trait  = impl_key_trait(_tn);
-                            _tb.trait_def       = _tit->second.def;
+                            _tb.trait_def       = _tit->def;
                             current_type_bounds_[_self_key] = {_tb};
                             auto* _saved_holder = holder_;
                             if (m.default_holder) holder_ = m.default_holder;
                             std::vector<TypeParam> _tps;
-                            shadow_scope_ = &_tit->second.lifetime_params;
+                            shadow_scope_ = &_tit->lifetime_params;
                             logos::probe::census("trdef.lower." + _tn + "." + m.name);
                             auto _fn = lower_fn(map_of(m.default_ast),
                                                 "$traitdef$" + _tn, &_tps);
@@ -10991,7 +11007,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             current_type_bounds_[_self_key] = _saved_bounds;
                             if (_had_self) current_type_params_[_self_key] = _saved_self;
                             else current_type_params_.erase(_self_key);
-                            pop_type_params(_tit->second.type_params);
+                            pop_type_params(_tit->type_params);
                         }
                     }
                 }

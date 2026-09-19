@@ -71,8 +71,8 @@ bool SemaChecker::is_auto_trait_satisfied(
                 auto sit = subst.find(tp.name);
                 if (sit == subst.end()) continue;
                 for (auto& b : tp.bounds) {
-                    auto tit = traits_.find(b.trait_name);
-                    if (tit == traits_.end() || !tit->second.is_auto) continue;
+                    const SemaTraitInfo* bti = trait_info(b.trait_def);
+                    if (!bti || !bti->is_auto) continue;
                     if (!is_auto_trait_satisfied(sit->second, b.trait_name, visited)) {
                         if (last_offender_.field_name.empty())
                             last_offender_ = {tp.name, sit->second};
