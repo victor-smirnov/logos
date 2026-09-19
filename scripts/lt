@@ -20,6 +20,8 @@ tests/groups.rules (committed) and may overlap; levels never do.
   lt task show [NAME] | lt task list
   lt levels [--task NAME]              sizes of L0 / L1 / L2
   lt run --level 0|1|2 [--upto]        run a level (--upto: L0..level, stop at a red level)
+  lt run --plus PCT                    run L0, then PCT% of L2: stratified by category,
+                                       least recently run first (successive runs rotate L2)
   lt run --group G... [--except G...]  run groups (or --all [--except G...])
   lt run --failed                      rerun what failed in the last run
   lt run NAME... | -k REGEX            run named tests / a name regex
@@ -367,10 +369,53 @@ def run_set(con, build, names, args, task, label):
 
 # ── commands ─────────────────────────────────────────────────────────────────
 
+def stratum(source, name):
+    """The category a test is sampled within: its source directory
+    (tests/imported/pass/borrowck, tests/logos/fail, …), else its name prefix."""
+    if source:
+        d = os.path.dirname(source)
+        return d or source
+    return "_".join(name.split("_")[:2])
+
+def sample_rest(con, pool, pct):
+    """`pct` percent of `pool` (a task's L2), stratified by category
+    (largest-remainder allocation, so each category keeps its share), and
+    within a category the tests run LEAST recently first (never-run first), so
+    successive samples rotate through the whole suite. Ties break by a
+    deterministic hash of the name."""
+    import hashlib, math
+    rest = [r for r in con.execute("SELECT name, source FROM tests WHERE present=1") if r[0] in pool]
+    want = math.ceil(len(rest) * pct / 100.0) if pct > 0 else 0
+    if want <= 0 or not rest:
+        return set()
+    last = dict(con.execute("SELECT test, MAX(run) FROM results GROUP BY test"))
+    strata = {}
+    for name, source in rest:
+        strata.setdefault(stratum(source, name), []).append(name)
+    quota = {k: len(v) * want / len(rest) for k, v in strata.items()}
+    alloc = {k: int(math.floor(q)) for k, q in quota.items()}
+    left = want - sum(alloc.values())
+    for k in sorted(quota, key=lambda k: -(quota[k] - alloc[k]))[:left]:
+        alloc[k] += 1
+    out = set()
+    for k, names in strata.items():
+        names.sort(key=lambda n: (last.get(n, 0), hashlib.sha1(n.encode()).hexdigest()))
+        out |= set(names[:alloc[k]])
+    return out
+
 def cmd_run(con, build, args):
     ensure_synced(build, con)
     everything = set(all_tests(con))
     task = None
+    if args.plus is not None:
+        task = current_task(con, args.task)
+        l0, _, l2, _ = levels(con, task)
+        rc = run_set(con, build, l0, args, task, f"task {task} L0")
+        if rc and not args.keep_going:
+            print("lt: L0 is red; not running the sample")
+            return rc
+        smp = sample_rest(con, l2, args.plus)
+        return run_set(con, build, smp, args, task, f"task {task} +{args.plus:g}% of L2") or rc
     if args.level is not None:
         task = current_task(con, args.task)
         l = levels(con, task)
@@ -454,6 +499,10 @@ def cmd_levels(con, build, args):
     for i, s in enumerate((l0, l1, l2)):
         cpu = sum(dur.get(n, 1.0) for n in s)
         print(f"L{i}: {len(s):6d} tests  ~{cpu/60:6.1f} CPU-min")
+    if args.plus is not None:
+        smp = sample_rest(con, l2, args.plus)
+        cpu = sum(dur.get(n, 1.0) for n in smp)
+        print(f"+{args.plus:g}% of L2: {len(smp):6d} tests  ~{cpu/60:6.1f} CPU-min")
     print("groups of L0: " + (", ".join(grps) or "—"))
     return 0
 
@@ -508,10 +557,13 @@ def main():
     sub.add_parser("sync")
     t = sub.add_parser("task"); t.add_argument("op", choices=["new", "add", "use", "show", "list", "rm"])
     t.add_argument("name", nargs="?"); t.add_argument("sel", nargs="*")
-    lv = sub.add_parser("levels"); lv.add_argument("--task")
+    lv = sub.add_parser("levels"); lv.add_argument("--task"); lv.add_argument("--plus", type=float)
     r = sub.add_parser("run")
     r.add_argument("names", nargs="*"); r.add_argument("--level", type=int, choices=[0, 1, 2])
     r.add_argument("--upto", action="store_true"); r.add_argument("--task")
+    r.add_argument("--plus", type=float, metavar="PCT",
+                   help="run L0, then PCT%% of L2 (stratified, least recently run first)")
+    r.add_argument("--keep-going", action="store_true", help="with --plus: run the sample even if L0 is red")
     r.add_argument("--group", nargs="+"); r.add_argument("--except", dest="except_", nargs="+")
     r.add_argument("--all", action="store_true"); r.add_argument("--failed", action="store_true")
     r.add_argument("--ungrouped", action="store_true")
