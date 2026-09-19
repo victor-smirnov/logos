@@ -217,8 +217,6 @@ zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref
 
 fatslice_field_match_binder_invalid_mlir 3 tests/soundness/open/fatslice_field_match_binder_invalid_mlir refuses
 
-generic_enum_type_printed_without_args 4 tests/soundness/open/generic_enum_type_printed_without_args diag expected Opt, got Opt
-
 arraylit_closure_elem_fnptr_refused 3 tests/soundness/open/arraylit_closure_elem_fnptr_refused refuses
 
 wrapper_unsize_missing_impl_backend_diag 4 tests/soundness/open/wrapper_unsize_missing_impl_backend_diag diag no vtable for 'A' as '&dyn Other'
@@ -627,5 +625,5 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 # MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
-# TOTAL 235
-# SYNC-HASH 5bf1e480f0924092f2a397f165eb002e
+# TOTAL 234
+# SYNC-HASH 4cf2d18b1287e8637c1225a110fd7fc0

@@ -6181,7 +6181,13 @@ REGISTRY-NOIMPORTED  6587
 #                MEASUREMENT (it printed measured 11086/6584/354). ⚠ MY ARITHMETIC PREDICTION (+1 to ALL) WAS WRONG and the
 #                gate said so; the earlier green on this pin was read BEFORE the glob reconfigure and was measured over a
 #                stale ctest registration, so it was not a verdict at all.
-REGISTRY-TIERCOMMIT  354
+#                TIERCOMMIT 354 -> 353 (-1), ALL and NOIMPORTED UNMOVED at 11089/6587 — 2026-09-19-diag-legibility.
+#                SOUNDNESS ROW generic_enum_type_printed_without_args RETIRED (#151, closed by #433's legibility fix):
+#                its program left tests/soundness/open/ (a tier_commit test, hence the -1) and its successor landed as
+#                fail/generic_enum_type_printed_with_args, which registers in the DIAGNOSTICS tier — so the two outer
+#                columns cancel to zero and only tier_commit moves, exactly as in the 2026-09-18 #271 retirement.
+#                RE-DERIVED FROM THE GATE'S OWN PRINTED MEASUREMENT (it printed measured 11089/6587/353).
+REGISTRY-TIERCOMMIT  353
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

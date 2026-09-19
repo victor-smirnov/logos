@@ -15998,6 +15998,35 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         }
     }
     auto [es, gs] = type_str_pair(expected, expr_type(e));
+    // ── #433: TWO DIFFERENT TYPES THAT PRINT THE SAME STRING ────────────────
+    //
+    // `expect_type` reaches here only on a MISMATCH, so `es == gs` means the
+    // rendering lost exactly what distinguishes them. MEASURED: `expected
+    // Option, got Option` for `Option<bool>` against `Option<i64>`, because
+    // `type_str`'s Enum arm returns the bare `enum_name()` unless `source_form`
+    // is set, while its Struct arm always carries the arguments — the same call
+    // site prints `expected Box3<bool>, got Box3<i64>` legibly.
+    //
+    // KEYED ON THE SYMPTOM, not on a list of carriers: "the two renderings
+    // collided" covers Option, Result, a user's own generic enum and anything
+    // added later, without an arm per type. Cost measured over the whole corpus
+    // before landing: 10 643 `.expected` files hold 30 pins of the form
+    // `expected X, got Y`, and exactly ONE is illegible.
+    //
+    // ⚠ WHY NOT IN `type_str_pair`, AND WHY NOT IN `type_str`. `type_str_pair`
+    // feeds seven sites, five of which word the mismatch differently (the array
+    // literal's "element N has type X, expected Y", the variance arm, the walk's
+    // exhaustion arm) and two of which say in comments that `expected {}, got {}`
+    // is this function's monopoly, guarded by scripts/lint-mismatch-monopoly.sh —
+    // widening there would churn seven message forms to fix one. And `type_str`'s
+    // Enum arm is reached from `mangle_type_for_name`, which composes SYMBOL
+    // names: widening it would change the ABI. This re-renders for the
+    // diagnostic alone.
+    if (es == gs) {
+        auto es_sf = type_str(expected, true);
+        auto gs_sf = type_str(expr_type(e), true);
+        if (es_sf != gs_sf) { es = std::move(es_sf); gs = std::move(gs_sf); }
+    }
     // ctx carries its own trailing punctuation ("let 'x': type mismatch —",
     // "field write 'a.b':"), so converted sites stay byte-identical to their
     // historical messages and no .expected files churn.
