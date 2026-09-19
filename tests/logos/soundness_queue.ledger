@@ -241,7 +241,7 @@ stdlib_drop_uninhabited_enum_byvalue_consumer 3 tests/soundness/open/stdlib_drop
 
 e0184_blame_header_names_unrelated_impl 4 tests/soundness/open/e0184_blame_header_names_unrelated_impl diag impl Hash for $tuple$8
 
-localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_names_stdlib_as_slice diag expected &Vec<i64>, got &Vec<i64>
+localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_names_stdlib_as_slice diag expected &'a Vec<i64>, got &Vec<i64>
 
 localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
 
@@ -628,4 +628,4 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
 # TOTAL 235
-# SYNC-HASH 5bf1e480f0924092f2a397f165eb002e
+# SYNC-HASH 6d44ea2caf2891c70e1c517c1b7f3cfb
