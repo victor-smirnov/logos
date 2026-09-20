@@ -1120,11 +1120,17 @@ private:
                                                                    : e.type(pool_);
         t.dest = {res, {}};
         bir::BlockId next = new_block();
-        t.targets = {next};
+        // A call of type `!` (`panic(..)`) does not return: MIR gives it no
+        // successor. With one, the path that never assigns `x` in `let x = if
+        // c { 10 } else { panic("..") };` reached the join and `x` was read
+        // uninitialised.
+        bool diverges = e.type(pool_) && e.type(pool_).kind() == LogosType::Kind::Never;
+        if (!diverges) t.targets = {next};
         terminate(std::move(t));
         bir::BlockId call_block = cur_;   // terminate() acted on cur_
         for (auto [b, st] : reservations) body_.two_phase.push_back({b, st, call_block});
         cur_ = next;
+        if (diverges) { terminate(bir::Term(bir::Term::K::Unreachable)); cur_ = new_block(); return; }
         if (dest.valid()) {
             bir::Rvalue rv(bir::Rvalue::K::Use);
             rv.ops.push_back(read_place({res, {}}, body_.locals[res].type));
