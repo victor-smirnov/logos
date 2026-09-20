@@ -493,6 +493,8 @@ struct SLet {
     lir_view::ExprRef value;
     // #121-A — compiler-synthesised drop glue (see stmt_keys::COMPILER_GLUE).
     bool             compiler_glue = false;
+    // The scrutinee temp of a destructuring `let` (see stmt_keys::DESTRUCTURE_TMP).
+    bool             destructure_tmp = false;
 };
 
 struct SAssign    { std::string name; lir_view::ExprRef value; };

@@ -1143,7 +1143,7 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
     define(tmp, rhs_type);
     {
         lir::SLet sl;
-        sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.value = std::move(rhs);
+        sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true; sl.value = std::move(rhs);
         blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
     }
     // Assign an accessor expr into a place name (or discard for `_`).
@@ -1443,7 +1443,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         define(tmp, rhs_type);
         {
             lir::SLet sl;
-            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
+            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
             sl.value = std::move(rhs);
             blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
@@ -1591,7 +1591,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         if (rhs) mark_moved_expr(expr_ref_of(rhs));
         {
             lir::SLet sl;
-            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
+            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
             sl.value = std::move(rhs);
             blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
@@ -1669,7 +1669,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             // tuple and array `let` destructures already do.
             if (rhs && is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
             lir::SLet sl;
-            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
+            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
             sl.value = std::move(rhs);
             blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
@@ -1772,7 +1772,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         define(etmp, rhs_type);
         {
             lir::SLet sl;
-            sl.name = etmp; sl.type = rhs_type; sl.is_mut = false;
+            sl.name = etmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
             sl.value = std::move(rhs);
             eblk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
@@ -1951,7 +1951,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
     if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
     {
         lir::SLet sl;
-        sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
+        sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
         sl.value = std::move(rhs);
         blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
     }

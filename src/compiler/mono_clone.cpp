@@ -4945,7 +4945,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto value = subst_child_expr(rhs);
         ns.mirror_ptr_ = lir_mirror_emit_let(
             out_, ns.line, name, ty, value, is_mut, v.var_slot(),
-            v.compiler_glue());  // Phase-1: carry slot; #121-A: carry provenance
+            v.compiler_glue(), v.destructure_tmp());  // Phase-1: carry slot; #121-A: carry provenance
         break;
     }
     case SCode::Assign: {

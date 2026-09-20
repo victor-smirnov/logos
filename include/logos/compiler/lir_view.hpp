@@ -2887,6 +2887,7 @@ struct SLetView {
     // #121-A — synthesised by the compiler (drop glue), not written by a user.
     // The borrow checker's `__cmfd_` exemption keys on THIS, never on the name.
     bool compiler_glue() const noexcept { return detail::read_bool(self, sk::COMPILER_GLUE.code); }
+    bool destructure_tmp() const noexcept { return detail::read_bool(self, sk::DESTRUCTURE_TMP.code); }
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::TYPE.code, pool);
     }

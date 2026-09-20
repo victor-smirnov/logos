@@ -2704,7 +2704,7 @@ private:
                 // synthetic temps (downstream name-keys those).
                 s.mirror_ptr_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value,
                                                        k.is_mut, lookup_slot(k.name),
-                                                       k.compiler_glue);
+                                                       k.compiler_glue, k.destructure_tmp);
             } else if constexpr (std::is_same_v<KT, lir::SAssign>) {
                 s.mirror_ptr_ = lir_mirror_emit_assign(p, line, k.name, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SReturn>) {

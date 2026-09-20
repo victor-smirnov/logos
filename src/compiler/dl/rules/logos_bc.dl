@@ -24,3 +24,20 @@ assign_twice(X, P) :-
 .decl mut_errors(v: Variable, p: Point)
 .output mut_errors
 mut_errors(V, P) :- immutable_write(V, P).
+
+// E0594 / E0596 through a shared reference: a write into, or a `&mut` of, a
+// place reached by dereferencing a `&T`. Like immutable_write it is read off
+// the place's types, not a flow property.
+.decl shared_deref_write(v: Variable, p: Point)
+.input shared_deref_write
+.decl deref_write_errors(v: Variable, p: Point)
+.output deref_write_errors
+deref_write_errors(V, P) :- shared_deref_write(V, P).
+
+// E0507: a move out of a place reached by dereferencing a reference. (A Box
+// deref is a move path, not a borrow, and is not reported.)
+.decl move_out_of_ref(x: Path, p: Point)
+.input move_out_of_ref
+.decl move_ref_errors(x: Path, p: Point)
+.output move_ref_errors
+move_ref_errors(X, P) :- move_out_of_ref(X, P).

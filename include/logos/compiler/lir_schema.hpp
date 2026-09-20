@@ -428,6 +428,12 @@ inline constexpr Key LET_ELSE_GUARDS   {"LET_ELSE_GUARDS", 38};   // Array<RelPt
 // binding renamed `zz_0`/`zz_9`, which was correctly refused. Provenance is not
 // derivable from the text, so the producer states it.
 inline constexpr Key COMPILER_GLUE     {"COMPILER_GLUE",   42};   // bool (sparse) — SLet
+// The temp sema materialises a destructured scrutinee into (`let P = rhs;`
+// lowers to `let __dst_N = rhs;` plus field reads). In Rust the pattern binds
+// straight off the place and the scrutinee is NOT moved, so a checker must not
+// read this `let` as a move of `rhs`. Same reason as COMPILER_GLUE for stating
+// it here: the name prefix is text any user can write.
+inline constexpr Key DESTRUCTURE_TMP   {"DESTRUCTURE_TMP", 43};   // bool (sparse) — SLet
 } // namespace stmt_keys
 
 // ── Declaration variant codes (Stage E: LProgram decl layer → Writ mirror) ─

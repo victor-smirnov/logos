@@ -282,6 +282,7 @@ public:
         // by the `Copy` lang item, as rustc checks generic MIR. Same walk and
         // same identity test as the counter-based checker's copy_tvs_.
         copy_tvs_.clear();
+        aliases_.clear();
         fn.each_type_param([&](lir_view::FnTParamView tp) {
             tp.each_bound([&](lir_view::FnTraitBoundView b) {
                 if (lir_is_copy_lang_item(b.identity_trait()))
@@ -470,6 +471,9 @@ private:
         switch (e.kind()) {
             case ECode::VarRef: {
                 lir_view::EVarRefView v{e};
+                if (!aliases_.empty())
+                    if (auto a = aliases_.find(std::string(v.name())); a != aliases_.end())
+                        return a->second;
                 bir::LocalId l = find_local(v.name(), v.var_slot());
                 if (l == bir::kNoLocal) return std::nullopt;   // a global / const
                 return bir::Place{l, {}};
@@ -1363,6 +1367,18 @@ private:
                 // shadowing `let x = f(x)` reads the outer x.
                 TypeRef t = v.type(pool_);
                 if (!t && v.value()) t = v.value().type(pool_);
+                // `let P = place;` — sema materialises the scrutinee into a
+                // temp and reads the bindings off it, but in Rust (and in MIR)
+                // the pattern binds straight off the PLACE and the scrutinee is
+                // not moved: `let Fd { n } = *self;` is legal because only a
+                // Copy field leaves. The temp is that place under another name.
+                // Sema says which `let` it is (DESTRUCTURE_TMP); the name is
+                // not consulted.
+                if (v.destructure_tmp() && v.value())
+                    if (auto sp = place_of(v.value())) {
+                        aliases_[std::string(v.name())] = *sp;
+                        return;
+                    }
                 bir::LocalId l = new_local(std::string(v.name()), bir::LocalKind::User, t,
                                            v.is_mut() || v.name().starts_with("__") || v.compiler_glue(),
                                            v.var_slot(), line_);
@@ -1739,6 +1755,11 @@ private:
                 std::string variant(v.variant());
                 v.each_binding([&](std::string_view name) {
                     int mode = i < modes.size() ? int(modes[i]) : 0;
+                    // 3 / 4 are sema's DEFAULT-MODE shared / mut bindings (RFC
+                    // 2005); the place already sits under the scrutinee's
+                    // deref here, so they borrow it like a written `ref`.
+                    if (mode == 3) mode = 1;
+                    else if (mode == 4) mode = 2;
                     if (mode == 0) mode = default_ref;
                     bind_to(p.with(bir::Proj(bir::Proj::K::Field, variant + "#" + std::to_string(i))),
                             i < types.size() ? types[i] : TypeRef{}, name,
@@ -1855,6 +1876,7 @@ private:
     bool                  mut_deref_ctx_ = false;
     bir::Body             body_;
     std::unordered_set<std::string> copy_tvs_;   // #434: the template's `T: Copy` params
+    std::unordered_map<std::string, bir::Place> aliases_;   // destructure temps -> the scrutinee place
     bir::BlockId          cur_ = 0;
     uint32_t              line_ = 0;
 };
@@ -2409,6 +2431,8 @@ private:
         use_place(op.place, p);
         uint32_t path = path_of(op.place);
         row("path_accessed_at_base", {pa(path), pt(p)});
+        if (op.k == bir::Operand::K::Move && derefs_through(op.place))
+            row("move_out_of_ref", {pa(path), pt(p)});
         if (op.k == bir::Operand::K::Move && !has_borrowing_deref(op.place)) {
             access(p, op.place, Access::WriteDeep);
             row("path_moved_at_base", {pa(path), pt(p)});
@@ -2422,6 +2446,7 @@ private:
         else use_var(dest.local, p);   // writing through / into it uses it
         access(p, dest, Access::WriteShallow);
         kill_loans(dest, p);
+        if (derefs_through(dest) & 1u) row("shared_deref_write", {var(dest.local), pt(p)});
         if (!has_borrowing_deref(dest)) {
             row("path_assigned_at_base", {pa(path_of(dest)), pt(p)});
             if (!dest.proj.empty() && !b_.locals[dest.local].is_mut &&
@@ -2525,6 +2550,33 @@ private:
     static bool is_std_box(TypeRef t) { return is_stdlib_box_type(t); }
     // Does the place go through a deref that does not own its target (a
     // reference or a raw pointer), as opposed to only through boxes?
+    // The references a place is reached through, read off its types: bit 0 a
+    // `&T` deref, bit 1 a `&mut T` deref. A Box deref is a move path and sets
+    // nothing; a raw pointer, a synthesised autoref or an unknown type ends the
+    // walk without an answer (nothing is guessed past it).
+    unsigned derefs_through(const bir::Place& p) const {
+        TypeRef t = b_.locals[p.local].type;
+        if (b_.locals[p.local].synth_ref) return 0;
+        unsigned out = 0;
+        for (auto& pj : p.proj) {
+            if (!t) return out;
+            if (pj.k == bir::Proj::K::Deref) {
+                if (t.kind() == LogosType::Kind::Ref) out |= 1u;
+                else if (t.kind() == LogosType::Kind::MutRef) out |= 2u;
+                else if (t.kind() == LogosType::Kind::Ptr) return 0;   // raw: outside the borrow system
+                else if (!is_std_box(t)) return out;
+                t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Struct
+                                         ? (t.type_args().empty() ? TypeRef{} : t.type_args()[0])
+                                         : t.pointee());
+            } else if (pj.k == bir::Proj::K::Field) {
+                t = pj.ty ? pj.ty : field_type_(t, pj.field);
+            } else {
+                if (t.kind() == LogosType::Kind::Ptr) return 0;   // `p[i]` on a raw pointer
+                t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
+            }
+        }
+        return out;
+    }
     bool has_borrowing_deref(const bir::Place& p) const {
         TypeRef t = b_.locals[p.local].type;
         bool synth = b_.locals[p.local].synth_ref;
@@ -2801,6 +2853,8 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         access(p, s.rv.place,
                                s.rv.mut_ && !s.rv.two_phase ? Access::WriteDeep : Access::Read,
                                loan_at[bi][si]);
+                        if (s.rv.mut_ && (derefs_through(s.rv.place) & 1u))
+                            row("shared_deref_write", {var(s.rv.place.local), pt(p)});
                         if (s.rv.mut_ && !has_borrowing_deref(s.rv.place) &&
                             !b_.locals[s.rv.place.local].is_mut &&
                             b_.locals[s.rv.place.local].kind != bir::LocalKind::Temp)
@@ -3175,6 +3229,24 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
             auto row = R.row(i);
             v.errors.push_back(std::format("'{}' is not declared mutable (line {})",
                                            body.locals[num(sym(row[0]))].name,
+                                           facts.point_line(num(sym(row[1])))));
+        }
+    }
+    {
+        const dl::Relation& R = rel("deref_write_errors");
+        for (size_t i = 0; i < R.size(); ++i) {
+            auto row = R.row(i);
+            v.errors.push_back(std::format("'{}' is written or mutably borrowed behind a `&` reference (line {})",
+                                           body.locals[num(sym(row[0]))].name,
+                                           facts.point_line(num(sym(row[1])))));
+        }
+    }
+    {
+        const dl::Relation& R = rel("move_ref_errors");
+        for (size_t i = 0; i < R.size(); ++i) {
+            auto row = R.row(i);
+            v.errors.push_back(std::format("cannot move out of '{}', which is behind a reference (line {})",
+                                           facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));
         }
     }
