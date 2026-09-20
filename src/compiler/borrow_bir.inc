@@ -433,6 +433,19 @@ private:
         for (size_t i = scopes_.size(); i-- > depth;)
             for (auto it = scopes_[i].locals.rbegin(); it != scopes_[i].locals.rend(); ++it) {
                 if (body_.locals[*it].kind == bir::LocalKind::Return) continue;
+                // Rust drops a scope's locals in REVERSE DECLARATION ORDER, each
+                // one dropped and then dead. Sema places its SDrop for a
+                // droppable local wherever its own glue wants it (ahead of the
+                // scope's StorageDeads), so `let h: H; let x = 7; h = H { r: &x
+                // };` had `drop h` run while `x` was still alive. The drop is
+                // put where Rust has it: `x` is dead by the time `h`'s
+                // destructor reads `*self.r` (E0597, dropck).
+                if (body_.locals[*it].kind != bir::LocalKind::Temp &&
+                    bir_drop_observes_borrow(body_.locals[*it].type, prog_, ts_)) {
+                    bir::Stmt d(bir::Stmt::K::Drop);
+                    d.dest = {*it, {}};
+                    emit(std::move(d));
+                }
                 bir::Stmt s(bir::Stmt::K::StorageDead);
                 s.local = *it;
                 emit(std::move(s));
@@ -1639,6 +1652,12 @@ private:
                 lir_view::SDropView v{s};
                 bir::LocalId l = find_local(v.var_name(), v.var_slot());
                 if (l == bir::kNoLocal) return;
+                // A local whose destructor can read a borrow is dropped where
+                // Rust drops it, at its scope's exit in reverse declaration
+                // order (exit_scopes); sema's placement is its own glue order.
+                if (body_.locals[l].kind != bir::LocalKind::Temp &&
+                    bir_drop_observes_borrow(body_.locals[l].type, prog_, ts_))
+                    return;
                 bir::Stmt d(bir::Stmt::K::Drop);
                 d.dest = {l, {}};
                 emit(std::move(d));
