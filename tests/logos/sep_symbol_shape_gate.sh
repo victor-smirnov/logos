@@ -101,14 +101,18 @@ forbid sep_free_fn_dunder "$TMPD/ff.txt" 'tr.a__b__f__ref_a__i64__i64' \
 # MEASURED after:  both symbols present, spelled with the argument's own '_'.
 # The control argument `k` passed both before and after, so only the `_`/`__`
 # spellings carry the claim.
+# RE-SPELLED 2026-09-20 (#438 step 8, 879ba2606): a vtable symbol carries the
+# trait's PACKAGE (`tr`) ahead of the trait name, so `Sp` of two packages get
+# two vtables. The claim pinned here is unchanged — the type-argument tail —
+# and the forbid below moved with it so it cannot go vacuous.
 syms_of sep_dyn_typearg_trailing_us "$TMPD/dy.txt"
-want sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__Sp__box_$G1$k_' \
+want sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__tr__Sp__box_$G1$k_' \
      "a vtable must exist for the instance whose TYPE ARGUMENT ends in '_'"
-want sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__Sp__box_$G1$k__j' \
+want sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__tr__Sp__box_$G1$k__j' \
      "and for the one whose TYPE ARGUMENT contains '__'"
-want sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__Sp__b__x$G1$k_' \
+want sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__tr__Sp__b__x$G1$k_' \
      "owner AND argument may both carry '__' — neither is a boundary"
-forbid sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__Sp__box_$G1$k__s' \
+forbid sep_dyn_typearg_trailing_us "$TMPD/dy.txt" '__logos_vtable__tr__Sp__box_$G1$k__s' \
      "the vtable keyed on an owner cut INSIDE the type argument"
 
 # ── 5. the bound-fingerprint instance on an owner ending in '_' ──────────────
