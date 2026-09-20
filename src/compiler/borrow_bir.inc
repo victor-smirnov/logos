@@ -247,8 +247,11 @@ public:
         cur_ = new_block();
         push_scope();
         fn.each_param([&](lir_view::LParamView p) {
+            // A parameter is immutable: sema rewrites `mut x: T` into a
+            // hidden parameter plus `let mut x`, so a Param local that is
+            // written or `&mut`-borrowed directly was never declared `mut`.
             bir::LocalId l = new_local(std::string(p.name()), bir::LocalKind::Param,
-                                       p.type(pool_), true, p.slot(), 0);
+                                       p.type(pool_), false, p.slot(), 0);
             declare(l);
             ++body_.n_params;
         });
