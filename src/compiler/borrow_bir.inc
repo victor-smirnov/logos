@@ -2281,6 +2281,11 @@ private:
                 // loan is the weaker claim and refuses the same programs that
                 // go on to use both.)
                 if (!t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
+                // A BORROWED one is `&'a (dyn Tr + 'b)`: the borrow's region and
+                // the bound on what was erased are two regions. With one, `let
+                // d: &dyn Tr = &w;` lost the loans `w` itself holds (`w: B`
+                // borrowing `c`), and `c.bump(); d.g();` went unrefused.
+                if (!t.raw_fat() && !t.owning_trait_object()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
                 return;
             case LogosType::Kind::DstRef:
                 if (!t.owning_dst() && !t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
