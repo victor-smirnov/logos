@@ -541,9 +541,28 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                     ts.holds_any_ref.size(), ts.holds_mut_ref.size());
     }
     // Name → def indices for O(1) by-name lookup (first-def-wins).
-    for (auto& sd : prog.structs)               ts.struct_by_name.emplace(std::string(sd.name()), sd);
-    for (auto& sd : prog.struct_specializations) ts.spec_by_name.emplace(std::string(sd.name()), sd);
-    for (auto& ed : prog.enums)                 ts.enum_by_name.emplace(std::string(ed.name()), ed);
+    // A module type's NON-generic struct is recorded under its bare name while
+    // concrete_struct_name folds the module in (`DirEntry$M<id>`); the folded
+    // spelling is registered beside the bare one, as mlir-gen does, so a lookup
+    // by either finds the definition. (A generic instance's name already
+    // carries the fold: mono composed it.)
+    auto folded = [](std::string_view name, std::string_view pkg) {
+        std::string suf = type_module_suffix(name, pkg);
+        return suf.empty() || name.find(suf) != std::string_view::npos ? std::string()
+                                                                       : std::string(name) + suf;
+    };
+    for (auto& sd : prog.structs) {
+        ts.struct_by_name.emplace(std::string(sd.name()), sd);
+        if (auto f = folded(sd.name(), sd.pkg()); !f.empty()) ts.struct_by_name.emplace(std::move(f), sd);
+    }
+    for (auto& sd : prog.struct_specializations) {
+        ts.spec_by_name.emplace(std::string(sd.name()), sd);
+        if (auto f = folded(sd.name(), sd.pkg()); !f.empty()) ts.spec_by_name.emplace(std::move(f), sd);
+    }
+    for (auto& ed : prog.enums) {
+        ts.enum_by_name.emplace(std::string(ed.name()), ed);
+        if (auto f = folded(ed.name(), ed.pkg()); !f.empty()) ts.enum_by_name.emplace(std::move(f), ed);
+    }
     return ts;
 }
 
@@ -17028,6 +17047,17 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
 // ── Pass entry point ────────────────────────────────────────────────────────
 
 lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
+    // The same naming context mono and mlir-gen install. Without it an instance
+    // name composed HERE (`Option__Buffer$G1$slice_u8`) lacks the module fold
+    // the definition was recorded under (`Option__Buffer$M<id>$G1$slice_u8`),
+    // and every by-name lookup of a module type's generic instance — move-ness
+    // of an enum payload, a struct's drop fields, BIR's field regions — missed
+    // silently. Measured: 800+ such misses in one Memoria fixture.
+    TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
+    std::unordered_set<std::string> ambiguous_type_names;
+    prog.ambiguous_type_names.for_each(
+        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
+    set_ambiguous_type_names(&ambiguous_type_names);
     const TypeSets ts = build_type_sets(prog);
     // Escape-analysis callee index — built ONCE here, shared (const) by every
     // per-function BorrowChecker below (was a per-instance map rebuilt N times).

@@ -37,6 +37,7 @@ struct Local {
     bool        synth_mut = false;   // the synthesised reference is `&mut`: its pointee is invariant
     bool        is_mut = false;
     bool        static_addr = false;   // holds the address of a `static` item
+    TypeRef     decl_type;             // Param / Return: the type as DECLARED (before mono)
     uint32_t    slot   = ~0u;
     uint32_t    line   = 0;
 };
@@ -133,6 +134,7 @@ struct Body {
     std::vector<Block>       blocks;
     uint32_t                 n_params = 0;   // locals 1..n_params are params
     std::set<std::string>    lifetime_params;   // the function's declared `'a`s
+    std::vector<std::pair<std::string, std::string>> outlives;   // declared `'long: 'short`
     std::vector<std::string> unsupported;
     // Two-phase loans: (block, stmt) of the Ref and (block) of the Call that
     // activates it, recorded while lowering the receiver.
@@ -316,7 +318,12 @@ public:
                     copy_tvs_.insert(std::string(tp.name()));
             });
         });
+        for (auto& [lo, sh] : fn.lifetime_outlives()) {
+            auto q = [](std::string_view n) { std::string r(n); if (!r.empty() && r[0] != '\'') r = "'" + r; return r; };
+            body_.outlives.emplace_back(q(lo), q(sh));
+        }
         new_local("_ret", bir::LocalKind::Return, fn.ret_type(pool_), true, ~0u, 0);
+        body_.locals[0].decl_type = fn.decl_ret_type(pool_);
         cur_ = new_block();
         push_scope();
         fn.each_param([&](lir_view::LParamView p) {
@@ -325,6 +332,7 @@ public:
             // written or `&mut`-borrowed directly was never declared `mut`.
             bir::LocalId l = new_local(std::string(p.name()), bir::LocalKind::Param,
                                        p.type(pool_), false, p.slot(), 0);
+            body_.locals[l].decl_type = p.decl_type(pool_) ? p.decl_type(pool_) : p.type(pool_);
             declare(l);
             ++body_.n_params;
         });
@@ -2232,6 +2240,119 @@ private:
         visiting_.erase(layout_key(t));
         return out;
     }
+    // ── exact field projection for a type that is NOT laid out from its fields
+    // (it declares lifetimes, or its type arguments carry regions) ──
+    // walk_type gives such a type [its lifetime params] ++ [each type
+    // argument's regions]. A field's regions are found in that list by what
+    // the field's type says: a written lifetime is the definition's lifetime
+    // parameter of that name; a sub-type that IS one of the type arguments
+    // (modulo regions) is that argument's slice. Anything the definition does
+    // not pin down (an ambiguous argument, an enum's lifetime, a trait object)
+    // gives no answer, and the caller keeps the whole list, inexactly.
+    struct ParentLayout {
+        std::vector<std::string> lifetimes;                  // names, in order
+        std::vector<std::pair<TypeRef, std::pair<size_t, size_t>>> args;   // (arg, [off, n))
+    };
+    std::optional<ParentLayout> parent_layout(TypeRef t) {
+        if (!t || (t.kind() != LogosType::Kind::Struct && t.kind() != LogosType::Kind::Enum)) return std::nullopt;
+        ParentLayout pl;
+        size_t nl = struct_lifetime_count(t);
+        if (nl) {
+            if (t.kind() != LogosType::Kind::Struct) return std::nullopt;
+            std::string want = concrete_struct_name(t);
+            auto names = [&](lir_view::StructView sd) { for (auto n : sd.lifetime_params()) { std::string q(n); if (!q.empty() && q[0] != '\'') q = "'" + q; pl.lifetimes.push_back(q); } };
+            if (auto it = ts_.struct_by_name.find(want); it != ts_.struct_by_name.end()) names(it->second);
+            else if (auto it2 = ts_.spec_by_name.find(want); it2 != ts_.spec_by_name.end()) names(it2->second);
+            if (pl.lifetimes.size() != nl) return std::nullopt;
+        }
+        size_t off = nl;
+        for (auto& a : t.type_args()) {
+            size_t n = 0; count_only(a, n);
+            pl.args.emplace_back(a, std::make_pair(off, n));
+            off += n;
+        }
+        return pl;
+    }
+    bool map_field_type(const ParentLayout& pl, TypeRef ft, std::vector<size_t>& out, int depth = 0) {
+        if (!ft || depth > 12) return !ft;
+        size_t need = 0; count_only(ft, need);
+        if (!need) return true;
+        // Is this sub-type one of the type arguments?
+        const std::pair<size_t, size_t>* hit = nullptr;
+        for (auto& [a, span] : pl.args)
+            if (span.second == need && same_type_modulo_regions(ft, a)) {
+                if (hit) return false;   // two arguments of one type: which one is not recoverable
+                hit = &span;
+            }
+        if (hit) { for (size_t k = 0; k < hit->second; ++k) out.push_back(hit->first + k); return true; }
+        auto by_name = [&](std::string lt) -> bool {
+            if (!lt.empty() && lt[0] != '\'') lt = "'" + lt;
+            for (size_t i = 0; i < pl.lifetimes.size(); ++i)
+                if (pl.lifetimes[i] == lt) { out.push_back(i); return true; }
+            return false;
+        };
+        switch (ft.kind()) {
+            case LogosType::Kind::Ref: case LogosType::Kind::MutRef:
+                return by_name(std::string(ft.lifetime())) && map_field_type(pl, ft.pointee(), out, depth + 1);
+            case LogosType::Kind::Slice:
+                if (ft.raw_fat()) return true;
+                if (!ft.owning_slice() && !by_name(std::string(ft.lifetime()))) return false;
+                return map_field_type(pl, ft.elem(), out, depth + 1);
+            case LogosType::Kind::Array:
+                return map_field_type(pl, ft.elem(), out, depth + 1);
+            case LogosType::Kind::Tuple:
+                for (auto& e : ft.tuple_elems()) if (!map_field_type(pl, e, out, depth + 1)) return false;
+                return true;
+            case LogosType::Kind::Struct: case LogosType::Kind::Enum: {
+                auto lts = ft.lifetime_args();
+                if (lts.size() != struct_lifetime_count(ft)) return false;
+                for (auto& lt : lts) if (!by_name(std::string(lt))) return false;
+                size_t before = out.size();
+                for (auto& a : ft.type_args()) if (!map_field_type(pl, a, out, depth + 1)) return false;
+                return out.size() - before + lts.size() == need;   // no hidden-region layout here
+            }
+            default:
+                return false;
+        }
+    }
+    // The indices, in `t`'s own region list, of the regions of field `field`.
+    std::optional<std::vector<size_t>> field_slots(TypeRef t, std::string_view field, TypeRef* ftype) {
+        if (auto span = field_span(t, field, ftype)) {
+            std::vector<size_t> v;
+            for (size_t k = 0; k < span->second; ++k) v.push_back(span->first + k);
+            return v;
+        }
+        auto pl = parent_layout(t);
+        auto fields = !pl ? std::nullopt
+                    : t.kind() == LogosType::Kind::Struct ? bir_struct_named_fields(t, prog_, ts_)
+                                                          : bir_enum_named_payloads(t, prog_, ts_);
+        if (!fields) {
+            if (std::getenv("LOGOS_BIR_LABELS") && t && (t.kind() == LogosType::Kind::Struct || t.kind() == LogosType::Kind::Enum))
+            {
+                std::fprintf(stderr, "[field-nodef] %s . %.*s layout=%d want=%s\n", type_str(t).c_str(), (int)field.size(),
+                             field.data(), (int)bool(pl),
+                             t.kind() == LogosType::Kind::Enum ? Mono::enum_instance_name(t).c_str() : concrete_struct_name(t).c_str());
+                static bool once = false;
+                if (!once) { once = true; for (auto& [k, _] : ts_.enum_by_name) if (k.find("Option") != std::string::npos) std::fprintf(stderr, "   have enum %s\n", k.c_str()); }
+            }
+            return std::nullopt;
+        }
+        for (auto& [fn, ft] : *fields) {
+            if (fn != field) continue;
+            std::vector<size_t> v;
+            if (!map_field_type(*pl, ft, v)) {
+                if (std::getenv("LOGOS_BIR_LABELS"))
+                    std::fprintf(stderr, "[field-miss] %s . %.*s : %s\n", type_str(t).c_str(), (int)field.size(),
+                                 field.data(), type_str(ft).c_str());
+                return std::nullopt;
+            }
+            size_t need = 0; count_only(ft, need);
+            if (v.size() != need) return std::nullopt;
+            if (ftype) *ftype = ft;
+            return v;
+        }
+        return std::nullopt;
+    }
     const OList& local_origins(bir::LocalId l) {
         auto it = local_os_.find(l);
         if (it != local_os_.end()) return it->second;
@@ -2269,6 +2390,8 @@ private:
                 } else if (k == LogosType::Kind::Slice && !t.owning_slice()) {
                     cur.os.erase(cur.os.begin()); cur.inv.erase(cur.inv.begin());
                     t = TypeRef{};   // the unsized [T]: its element list follows
+                } else if (is_std_box(t) && !t.type_args().empty()) {
+                    t = t.type_args()[0];   // Box<T>'s regions ARE T's
                 } else if (k == LogosType::Kind::Ptr) {
                     cur = {}; cur.exact = true; t = t.pointee();   // raw: untracked
                     OList fresh; walk_type(t, false, fresh);         // unconstrained
@@ -2299,12 +2422,12 @@ private:
                     // reads the whole list.
                     TypeRef ft;
                     size_t total = 0; count_only(t, total);
-                    auto span = field_span(t, pj.field, &ft);
-                    if (span && total == cur.os.size() && span->first + span->second <= cur.os.size()) {
+                    auto slots = field_slots(t, pj.field, &ft);
+                    bool ok = slots && total == cur.os.size();
+                    if (ok) for (size_t ix : *slots) if (ix >= cur.os.size()) ok = false;
+                    if (ok) {
                         OList sub;
-                        for (size_t k = 0; k < span->second; ++k) {
-                            sub.os.push_back(cur.os[span->first + k]); sub.inv.push_back(cur.inv[span->first + k]);
-                        }
+                        for (size_t ix : *slots) { sub.os.push_back(cur.os[ix]); sub.inv.push_back(cur.inv[ix]); }
                         cur = sub;
                         t = ft;
                     } else {
@@ -2391,11 +2514,22 @@ private:
         size_t total = 0; count_only(t, total);
         if (total != dst.os.size()) return std::nullopt;
         std::optional<std::pair<size_t, size_t>> span;
-        if (t.kind() == LogosType::Kind::Struct && i < s.rv.field_names.size()) {
-            span = field_span(t, s.rv.field_names[i], nullptr);
-        } else if (t.kind() == LogosType::Kind::Enum && s.rv.what != "tuple" && s.rv.what != "array" &&
-                   s.rv.what != "slice") {
-            span = field_span(t, s.rv.what + "#" + std::to_string(i), nullptr);
+        std::optional<std::vector<size_t>> slots;
+        if (t.kind() == LogosType::Kind::Struct && i < s.rv.field_names.size())
+            slots = field_slots(t, s.rv.field_names[i], nullptr);
+        else if (t.kind() == LogosType::Kind::Enum && s.rv.what != "tuple" && s.rv.what != "array" &&
+                 s.rv.what != "slice")
+            slots = field_slots(t, s.rv.what + "#" + std::to_string(i), nullptr);
+        if (slots) {
+            OList sub;
+            for (size_t ix : *slots) {
+                if (ix >= dst.os.size()) return std::nullopt;
+                sub.os.push_back(dst.os[ix]); sub.inv.push_back(dst.inv[ix]);
+            }
+            return sub;
+        }
+        if (t.kind() == LogosType::Kind::Struct || t.kind() == LogosType::Kind::Enum) {
+            return std::nullopt;
         } else if (t.kind() == LogosType::Kind::Array && s.rv.what == "array") {
             span = std::make_pair(size_t(0), total);   // every element has the element type's list
         } else if (t.kind() == LogosType::Kind::Tuple && s.rv.what == "tuple") {
@@ -3192,6 +3326,89 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             for (uint32_t oo : os.os) row("drop_of_var_derefs_origin", {var(li), o(oo)});
     }
 
+    // ── placeholders: what the SIGNATURE says about the universal regions ──
+    // Each universal origin holds a placeholder loan; one flowing into another
+    // universal origin is an error unless the signature relates them
+    // (subset_errors in polonius.dl): the same written or elided-and-minted
+    // lifetime, the same type parameter's position, a declared `'a: 'b`, or
+    // `'static`, which outlives everything. "return type has lifetime 'a but
+    // 'y' has lifetime 'b" is this rule; without the facts it never fired.
+    {
+        struct U { uint32_t origin; std::string label; bool claim; };
+        std::vector<U> us;
+        // Which regions the check may make a CLAIM about: the regions of plain
+        // references (through tuples and arrays). A region that is an ADT's
+        // lifetime or sits inside an ADT's type argument has the variance that
+        // ADT's definition gives it — `Cb<&'a i32>` with `f: fn(T)` is
+        // contravariant, `Marker<'a>` with `'a` unused is bivariant — and the
+        // L-IR does not carry variance. No claim there is a miss at worst,
+        // never a refusal of a legal program.
+        std::function<void(TypeRef, bool, std::vector<bool>&, int)> claim_mask =
+            [&](TypeRef t, bool claim, std::vector<bool>& out, int depth) {
+                if (!t || depth > 16) return;
+                switch (t.kind()) {
+                    case LogosType::Kind::Ref: case LogosType::Kind::MutRef:
+                        out.push_back(claim); claim_mask(t.pointee(), claim, out, depth + 1); return;
+                    case LogosType::Kind::Slice:
+                        if (!t.owning_slice() && !t.raw_fat()) out.push_back(claim);
+                        if (!t.raw_fat()) claim_mask(t.elem(), claim, out, depth + 1);
+                        return;
+                    case LogosType::Kind::Array: claim_mask(t.elem(), claim, out, depth + 1); return;
+                    case LogosType::Kind::Tuple:
+                        for (auto& e : t.tuple_elems()) claim_mask(e, claim, out, depth + 1);
+                        return;
+                    default: { size_t n = 0; count_only(t, n); out.insert(out.end(), n, false); return; }
+                }
+            };
+        // `'a: 'b, 'b: 'c` — closed over the NAMES, since `'b` may appear in no
+        // parameter and so have no origin to carry the chain.
+        std::set<std::pair<std::string, std::string>> outl(b_.outlives.begin(), b_.outlives.end());
+        for (bool grew = true; grew;) {
+            grew = false;
+            for (auto& x : std::vector<std::pair<std::string, std::string>>(outl.begin(), outl.end()))
+                for (auto& y : std::vector<std::pair<std::string, std::string>>(outl.begin(), outl.end()))
+                    if (x.second == y.first && outl.emplace(x.first, y.second).second) grew = true;
+        }
+        for (bir::LocalId li = 0; li < b_.locals.size(); ++li) {
+            const auto& L = b_.locals[li];
+            if (L.kind != bir::LocalKind::Param && L.kind != bir::LocalKind::Return) continue;
+            const OList& os = local_origins(li);
+            std::vector<std::string> ls;
+            labels(L.decl_type ? L.decl_type : L.type, L.type, ls);
+            if (ls.size() != os.os.size()) ls.assign(os.os.size(), "?");
+            std::vector<bool> cm;
+            claim_mask(L.type, true, cm, 0);
+            if (cm.size() != os.os.size()) cm.assign(os.os.size(), false);
+            for (size_t k = 0; k < os.os.size(); ++k) us.push_back({os.os[k], ls[k], bool(cm[k])});
+        }
+        uint32_t next_loan = 1000000;   // placeholder loans never meet a real loan's id
+        for (auto& u : us) row("placeholder", {o(u.origin), l(next_loan++)});
+        auto elided = [](const std::string& l) { return l.empty() || l.starts_with("'%"); };
+        auto related = [&](const U& a, const U& b) {   // may a's data flow into b?
+            if (!a.claim || !b.claim) return true;
+            if (a.label == "?" || b.label == "?" || a.label == "~" || b.label == "~") return true;   // unknown: no claim
+            // An ELIDED target (`-> &i64`, which sema mints a fresh name for):
+            // elision decides what may reach it, and that is relate_call's
+            // rule on the caller's side, not a named relation to check here.
+            if (elided(b.label)) return true;
+            // A region a TYPE PARAMETER brought in: in an instance `iter_max<I
+            // = SliceIter<'x, i32>, T = &'x i32>` the two are one region, but
+            // the declared signature relates `I` and `T` only through a trait
+            // bound the instance no longer shows. rustc decides this on the
+            // generic body, and so does the template pass (#434); an instance
+            // makes no claim.
+            if (a.label.starts_with("T:") || b.label.starts_with("T:")) return true;
+            if (a.label.empty()) return false;
+            if (a.label == b.label) return true;
+            if (a.label == "'static") return true;
+            if (outl.count({a.label, b.label})) return true;
+            return false;
+        };
+        for (auto& a : us) for (auto& b : us)
+            if (a.origin != b.origin && related(a, b))
+                row("known_placeholder_subset", {o(a.origin), o(b.origin)});
+    }
+
     // Loans first (the kill and invalidation passes need all of them).
     std::vector<std::vector<int32_t>> loan_at(b_.blocks.size());
     for (size_t bi = 0; bi < b_.blocks.size(); ++bi) {
@@ -3633,6 +3850,17 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
             v.errors.push_back(std::format("cannot move out of '{}', which is behind a reference (line {})",
                                            facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));
+        }
+    }
+    {
+        const dl::Relation& R = rel("subset_errors");
+        std::set<std::pair<std::string, std::string>> seen;
+        for (size_t i = 0; i < R.size(); ++i) {
+            auto row = R.row(i);
+            if (!seen.emplace(sym(row[0]), sym(row[1])).second) continue;
+            v.errors.push_back(std::format("lifetime mismatch: data with region {} flows into region {}, "
+                                           "which the signature does not allow (line {})",
+                                           sym(row[0]), sym(row[1]), facts.point_line(num(sym(row[2])))));
         }
     }
     {
