@@ -2890,6 +2890,7 @@ struct SLetView {
     // The borrow checker's `__cmfd_` exemption keys on THIS, never on the name.
     bool compiler_glue() const noexcept { return detail::read_bool(self, sk::COMPILER_GLUE.code); }
     bool destructure_tmp() const noexcept { return detail::read_bool(self, sk::DESTRUCTURE_TMP.code); }
+    bool annot_lifetime() const noexcept { return detail::read_bool(self, sk::ANNOT_LIFETIME.code); }
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::TYPE.code, pool);
     }

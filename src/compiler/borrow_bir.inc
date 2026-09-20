@@ -38,6 +38,7 @@ struct Local {
     bool        is_mut = false;
     bool        static_addr = false;   // holds the address of a `static` item
     TypeRef     decl_type;             // Param / Return: the type as DECLARED (before mono)
+    bool        annot_lifetime = false;   // a `let` whose WRITTEN annotation names a lifetime
     uint32_t    slot   = ~0u;
     uint32_t    line   = 0;
 };
@@ -362,9 +363,13 @@ private:
     bir::LocalId temp(TypeRef t) {
         bir::LocalId l = new_local("_t" + std::to_string(body_.locals.size()),
                                    bir::LocalKind::Temp, t, true, ~0u, line_);
-        declare(l);
+        if (extend_place_temps_) declare_outer(l); else declare(l);
         return l;
     }
+    // Building the PLACE under an extending `&`: `let f = &mk().n;` extends the
+    // temporary `mk()` the place is rooted in, not only a temporary that is the
+    // whole operand.
+    bool extend_place_temps_ = false;
     bir::LocalId synth_ref_temp(TypeRef pointee, bool is_mut) {
         bir::LocalId l = temp({});
         body_.locals[l].synth_ref = true;
@@ -736,7 +741,11 @@ private:
                 bool saved = mut_deref_ctx_;
                 mut_deref_ctx_ = v.is_mut();
                 bir::Place p;
-                if (auto known = place_of(v.inner())) p = *known;
+                bool saved_ept = extend_place_temps_;
+                extend_place_temps_ = extending_;
+                auto known = place_of(v.inner());
+                extend_place_temps_ = saved_ept;
+                if (known) p = *known;
                 else {
                     // The borrowed temporary. In an extending position of a
                     // `let` it lives as long as the binding; its own operands
@@ -744,10 +753,10 @@ private:
                     bir::LocalId tl = new_local("_t" + std::to_string(body_.locals.size()),
                                                 bir::LocalKind::Temp, v.inner().type(pool_), true, ~0u, line_);
                     if (extending_) declare_outer(tl); else declare(tl);
-                    bool ext = extending_;
-                    extending_ = false;
+                    // The operand of an extending `&` is itself in an extending
+                    // position (`&&&x`); lower_into ends the extension at the
+                    // first expression that is not one.
                     lower_into(bir::Place{tl, {}}, v.inner());
-                    extending_ = ext;
                     p = bir::Place{tl, {}};
                 }
                 mut_deref_ctx_ = saved;
@@ -1545,6 +1554,7 @@ private:
                 bir::LocalId l = new_local(std::string(v.name()), bir::LocalKind::User, t,
                                            v.is_mut() || v.name().starts_with("__") || v.compiler_glue(),
                                            v.var_slot(), line_);
+                body_.locals[l].annot_lifetime = v.annot_lifetime();
                 if (v.value()) lower_into({l, {}}, v.value());
                 declare_outer(l);
                 return;
@@ -1899,7 +1909,10 @@ private:
         bir::LocalId l = new_local(std::string(name), bir::LocalKind::User, bind_type, is_mut,
                                    slot, line_);
         if (ref_mode == 1 || ref_mode == 2)
-            assign({l, {}}, ref_of(std::move(src), ref_mode == 2, false));
+            // In a guard every binding is a SHARED reference, a `ref mut` one
+            // included (rustc: the guard sees `&&mut`): the unique borrow is
+            // taken when the arm is entered.
+            assign({l, {}}, ref_of(std::move(src), ref_mode == 2 && !in_guard_, false));
         else {
             bir::Rvalue rv(bir::Rvalue::K::Use);
             bir::Operand o = read_place(std::move(src), bind_type);
@@ -2014,6 +2027,53 @@ private:
                 return;   // Variant, Int, Bool, Range: no bindings
         }
     }
+    // The places a pattern TESTS (a discriminant or a value compared), as
+    // opposed to the ones it only binds or ignores.
+    void tested_places(bir::Place p, TypeRef t, lir_view::PatRef pat, std::vector<bir::Place>& out,
+                       int depth = 0) {
+        if (!pat || depth > 8) return;
+        if (is_pointer_kind(t) && t.kind() != LogosType::Kind::Ptr && pat.kind() != PCode::RefPat &&
+            pat.kind() != PCode::Wild && pat.kind() != PCode::RefBind && pat.kind() != PCode::At) {
+            p = p.with(bir::Proj(bir::Proj::K::Deref));
+            t = t.pointee();
+        }
+        switch (pat.kind()) {
+            case PCode::Wild: case PCode::RefBind: return;
+            case PCode::RefPat:
+                tested_places(p.with(bir::Proj(bir::Proj::K::Deref)), t ? t.pointee() : TypeRef{},
+                              lir_view::PatRefPatView{pat}.inner(), out, depth + 1);
+                return;
+            case PCode::At:
+                tested_places(p, t, lir_view::PatAtView{pat}.sub(), out, depth + 1);
+                return;
+            case PCode::Tuple: {
+                lir_view::PatTupleView v{pat};
+                auto elems = t && t.kind() == LogosType::Kind::Tuple ? t.tuple_elems() : std::vector<TypeRef>{};
+                size_t i = 0;
+                v.each_sub([&](lir_view::PatRef sp2) {
+                    if (sp2) tested_places(p.with(bir::Proj(bir::Proj::K::Field, std::to_string(i))),
+                                           i < elems.size() ? elems[i] : TypeRef{}, sp2, out, depth + 1);
+                    ++i;
+                });
+                return;
+            }
+            case PCode::Struct: {
+                lir_view::PatStructView v{pat};
+                v.each_field([&](lir_view::PatFieldBindingView f) {
+                    if (auto sub = f.sub())
+                        tested_places(p.with(bir::Proj(bir::Proj::K::Field, std::string(f.field_name()))),
+                                      field_type(t, f.field_name()), sub, out, depth + 1);
+                });
+                return;
+            }
+            case PCode::Or:
+                lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a) { tested_places(p, t, a, out, depth + 1); });
+                return;
+            default:
+                out.push_back(p);   // a variant, a literal, a range, a slice shape: the place is examined
+                return;
+        }
+    }
     bool pattern_binds(lir_view::PatRef pat) const {
         if (!pat) return false;
         switch (pat.kind()) {
@@ -2065,10 +2125,20 @@ private:
                 // holds a FAKE shared borrow of the scrutinee across the guard;
                 // here it is a real one that is read once the guard is done, so
                 // `3 if { x = 9; false } => ..` invalidates a live loan.
-                bir::LocalId fake = synth_ref_temp(stype, false);
-                assign({fake, {}}, ref_of(sp, false, false));
+                // ONLY the places the match TESTS (rustc's fake borrows are of
+                // the examined places): `_ if { x = 9; .. }` tests nothing, and
+                // `W { e: E::A, n: _ } if { w.n = 5; .. }` tests `w.e`, not
+                // `w.n`. Borrowing the whole scrutinee refused both.
+                std::vector<bir::Place> tested;
+                for (auto& a2 : arms) tested_places(sp, stype, a2.pat(), tested);
+                std::vector<bir::LocalId> fakes;
+                for (auto& tp : tested) {
+                    bir::LocalId fake = synth_ref_temp({}, false);
+                    assign({fake, {}}, ref_of(tp, false, false));
+                    fakes.push_back(fake);
+                }
                 bir::Operand c = operand(g);
-                {
+                for (bir::LocalId fake : fakes) {
                     bir::Stmt rd(bir::Stmt::K::Read);
                     bir::Operand fo; fo.k = bir::Operand::K::Copy; fo.place = {fake, {}};
                     rd.rv.ops.push_back(std::move(fo));
@@ -2406,6 +2476,16 @@ private:
                 if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
                     cur.os.erase(cur.os.begin()); cur.inv.erase(cur.inv.begin());
                     t = t.pointee();
+                    // The PLACE `*r` has the pointee's own variance. Invariance
+                    // is a fact about relating two `&mut T`s; a value stored
+                    // into `*x` (`*x = *y` with `x: &mut &'a i64`, `y: &mut &'b
+                    // i64`, `'b: 'a`) flows one way, and carrying the `&mut`'s
+                    // flag onto the place tied `'a` back into `'b`.
+                    OList own;
+                    uint32_t saved = n_origins_;
+                    walk_type(t, false, own);
+                    n_origins_ = saved;
+                    if (own.inv.size() == cur.inv.size()) cur.inv = own.inv;
                 } else if (k == LogosType::Kind::Slice && !t.owning_slice()) {
                     cur.os.erase(cur.os.begin()); cur.inv.erase(cur.inv.begin());
                     t = TypeRef{};   // the unsized [T]: its element list follows
@@ -3329,7 +3409,12 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         // USER bindings only: a temporary's type is inferred, not declared, and
         // an unresolved callee's result (`g1.get()` through a bound, returning
         // `&'a i64`) would make the receiver's autoref loan universal.
-        else if (L.kind == bir::LocalKind::User && !b_.lifetime_params.empty() && L.type && !L.synth_ref) {
+        // ... and only when the program WROTE the lifetime (sema's
+        // ANNOT_LIFETIME): `let m: &mut i32 = v;` gets `&'a mut i32` by
+        // inference, and a reborrow that ends at `m`'s last use is not a loan
+        // for all of `'a` (nll/poll-reborrow-then-remut).
+        else if (L.kind == bir::LocalKind::User && L.annot_lifetime && !b_.lifetime_params.empty() &&
+                 L.type && !L.synth_ref) {
             std::vector<std::string> ls;
             labels(L.type, L.type, ls);
             if (ls.size() == os.os.size())

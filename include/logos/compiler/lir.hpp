@@ -496,6 +496,8 @@ struct SLet {
     bool             compiler_glue = false;
     // The scrutinee temp of a destructuring `let` (see stmt_keys::DESTRUCTURE_TMP).
     bool             destructure_tmp = false;
+    // The written annotation names a lifetime (see stmt_keys::ANNOT_LIFETIME).
+    bool             annot_lifetime = false;
 };
 
 struct SAssign    { std::string name; lir_view::ExprRef value; };

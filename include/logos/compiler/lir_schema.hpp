@@ -434,6 +434,11 @@ inline constexpr Key COMPILER_GLUE     {"COMPILER_GLUE",   42};   // bool (spars
 // read this `let` as a move of `rhs`. Same reason as COMPILER_GLUE for stating
 // it here: the name prefix is text any user can write.
 inline constexpr Key DESTRUCTURE_TMP   {"DESTRUCTURE_TMP", 43};   // bool (sparse) — SLet
+// The `let`'s WRITTEN annotation names a lifetime (`let x: &'a i64 = ..`). The
+// binding's TYPE cannot say so: sema infers `&'a mut i32` for `let m: &mut i32
+// = v;` from the initialiser, and a rule keyed on the type would treat that
+// inferred region as one the program demanded.
+inline constexpr Key ANNOT_LIFETIME    {"ANNOT_LIFETIME",  44};   // bool (sparse) — SLet
 } // namespace stmt_keys
 
 // ── Declaration variant codes (Stage E: LProgram decl layer → Writ mirror) ─

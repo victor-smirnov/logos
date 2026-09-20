@@ -2704,7 +2704,8 @@ private:
                 // synthetic temps (downstream name-keys those).
                 s.mirror_ptr_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value,
                                                        k.is_mut, lookup_slot(k.name),
-                                                       k.compiler_glue, k.destructure_tmp);
+                                                       k.compiler_glue, k.destructure_tmp,
+                                                       k.annot_lifetime);
             } else if constexpr (std::is_same_v<KT, lir::SAssign>) {
                 s.mirror_ptr_ = lir_mirror_emit_assign(p, line, k.name, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SReturn>) {
@@ -8950,6 +8951,7 @@ private:
     lir::Pattern build_pattern_or(writ::TinyMapView pnode, TypeRef scrut_type);
     // Helper for inline PatWild construction with eager mirror emit.
     lir::Pattern make_pat_wild(std::string_view name, bool is_mut = false);
+    bool let_annot_names_lifetime_ = false;   // lower_let: the written annotation names a lifetime
     // If pnode is a Writ scalar pattern (PAT_WRIT_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.

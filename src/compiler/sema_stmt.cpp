@@ -2285,10 +2285,33 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     bool ann_is_box_dyn = false;  // `Box<dyn T>` collapses to a bare TraitObject
                                   // in resolve_type, but it is OWNING (heap
                                   // handle) — record so its drop runs.
+    let_annot_names_lifetime_ = false;
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         ann = resolve_type(tnode);
         if (ann) check_written_type_wf(ann, "let annotation", current_outlives_, /*decl_site=*/false);
+        // Did the annotation WRITE a lifetime? Asked of the resolved
+        // annotation, before inference touches the binding's type.
+        {
+            std::function<bool(TypeRef, int)> names_lt = [&](TypeRef t, int d) -> bool {
+                if (!t || d > 12) return false;
+                auto named = [](std::string_view lt) {
+                    return !lt.empty() && lt != "'_" && lt != "_" && lt != "'static" && lt != "static" &&
+                           !lt.starts_with("'%") && !lt.starts_with("%");
+                };
+                if (named(t.lifetime())) return true;
+                for (auto& lt : t.lifetime_args()) if (named(lt)) return true;
+                if (t.pointee() && t.pointee() != t && names_lt(t.pointee(), d + 1)) return true;
+                auto k = t.kind();
+                if ((k == LogosType::Kind::Slice || k == LogosType::Kind::Array) && t.elem() &&
+                    names_lt(t.elem(), d + 1)) return true;
+                if (k == LogosType::Kind::Tuple)
+                    for (auto& e : t.tuple_elems()) if (names_lt(e, d + 1)) return true;
+                for (auto& a : t.type_args()) if (names_lt(a, d + 1)) return true;
+                return false;
+            };
+            let_annot_names_lifetime_ = ann && names_lt(ann, 0);
+        }
         // `Box<dyn T>` now resolves to an OWNING TraitObject (owning bit on the
         // type) — no need to re-sniff the written name. A borrowed `&dyn` is a
         // non-owning TraitObject and is correctly excluded.
@@ -2967,6 +2990,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     slet.type   = var_type;
     slet.is_mut = is_mut;
     slet.value  = std::move(rhs);
+    slet.annot_lifetime = let_annot_names_lifetime_;
     return make_stmt_emit(node_line_, std::move(slet));
 }
 
