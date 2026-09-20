@@ -658,6 +658,19 @@ private:
                     lower_into(std::move(dest), v.inner());
                     return;
                 }
+                // Rvalue static promotion (Rust reference, "constant
+                // promotion"): a SHARED borrow of a literal is a `&'static` to
+                // a promoted constant, not a loan of a temporary — `return
+                // &5i32;` is legal. Literals only; a named const or a constant
+                // call is not claimed here.
+                if (!v.is_mut() && v.inner() && t && t.kind() != LogosType::Kind::Ptr)
+                    switch (v.inner().kind()) {
+                        case ECode::LitInt: case ECode::LitFloat: case ECode::LitBool:
+                        case ECode::LitStr:
+                            assign(std::move(dest), bir::Rvalue(bir::Rvalue::K::Use));
+                            return;
+                        default: break;
+                    }
                 // `&mut *x.deref()`: the deref feeding a mutable borrow is a
                 // `deref_mut`, whatever the L-IR spelled (sema may emit the
                 // shared one for a mutable receiver).
