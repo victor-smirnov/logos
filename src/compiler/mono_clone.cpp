@@ -4317,6 +4317,28 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         !specs_.count(tmpl_key) && rt)
                         if (std::string inst = emitted_method_instance(rt, method_q); !inst.empty())
                             tmpl_key = std::move(inst);
+                    // #438: the same gap for a NON-generic owner — a trait
+                    // method reached through a bound (`a.f()` inside
+                    // `fn f<T: Quux>`) composes `A__f`, while the impl's
+                    // function is `inheritance_basic.A__f__f__ref_A`. Ask the
+                    // function registry for the one declaration that owner and
+                    // method name.
+                    if (tmpl_key == base_fn && !templates_.count(tmpl_key) &&
+                        !specs_.count(tmpl_key)) {
+                        std::string rpkg;
+                        if (rt) {
+                            TypeRef pt = rt;
+                            while (pt && (TypeRef(pt).kind() == LogosType::Kind::Ref ||
+                                          TypeRef(pt).kind() == LogosType::Kind::MutRef ||
+                                          TypeRef(pt).kind() == LogosType::Kind::Ptr) &&
+                                   TypeRef(pt).pointee())
+                                pt = TypeRef(pt).pointee();
+                            if (pt) rpkg = std::string(TypeRef(pt).pkg_name());
+                        }
+                        if (std::string sym = declared_method_symbol(cname, rpkg, method_q);
+                            !sym.empty())
+                            tmpl_key = std::move(sym);
+                    }
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
                     v.each_arg([&](lir_view::ExprRef ar) {
