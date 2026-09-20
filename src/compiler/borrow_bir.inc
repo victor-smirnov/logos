@@ -1012,10 +1012,35 @@ private:
                 unsupported("expr:PackExpand");
                 assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
                 return;
-            case ECode::WritLit:
-                unsupported("expr:WritLit");
-                assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
+            case ECode::WritLit: {
+                // A Writ literal has two shapes and the L-IR already says which.
+                // CLOSED (`@{ a: 1 }`, `quote_item!`): a pre-serialised blob
+                // destined for rodata, no sub-expressions — a constant, which is
+                // what the empty `Use` already was. The function was being
+                // dropped from the comparison for a node that borrows nothing.
+                // WITH CAPTURES (`@{ a: $x }`): the captures are ordinary
+                // expressions evaluated here and patched into the template, so
+                // the value is an AGGREGATE over them and may hold what they
+                // hold. Reading them as operands is conservative in the right
+                // direction: a capture that carries a loan reaches the result.
+                // ⚠ NOT MODELLED: the call to `writ_build_from_template` the
+                // capture shape lowers to. Sema resolves that callee and keeps
+                // only its return type (lower_writ_lit), so the L-IR does not
+                // name it and its SIGNATURE cannot be read — the result's
+                // regions come from the aggregate instead of from the callee.
+                lir_view::EWritLitView v{e};
+                if (!v.has_captures()) {
+                    assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
+                    return;
+                }
+                bir::Rvalue rv(bir::Rvalue::K::Aggregate);
+                rv.what = "writ";
+                v.each_capture_expr([&](lir_view::ExprRef c) {
+                    rv.ops.push_back(operand(c));
+                });
+                assign(dest, std::move(rv));
                 return;
+            }
             case ECode::ReflectOf:
                 unsupported("expr:ReflectOf");
                 assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
