@@ -20,6 +20,15 @@
 
 namespace bir {
 
+// TEMPORARY (#438 pricing): how each callee is resolved. Reverted with the probe.
+struct CalleeCensus {
+    size_t call_name = 0, call_bare = 0, call_miss = 0;
+    size_t m_symbol = 0, m_recv = 0, m_miss = 0;
+    size_t ifr_needle = 0, ifr_selftype = 0;
+    size_t rm_symbol = 0, rm_needle = 0, rm_agree_bare = 0, rm_agree_base = 0, rm_miss = 0;
+};
+inline CalleeCensus& callee_census() { static CalleeCensus c; return c; }
+
 using LocalId = uint32_t;
 using BlockId = uint32_t;
 constexpr LocalId kNoLocal = ~0u;
@@ -1304,11 +1313,16 @@ private:
     // bare spelling (#83: a devirtualised generic method call names
     // `<Type>__<method>`, not any function's full name).
     lir_view::FunctionView resolve_call(std::string_view callee) const {
-        if (auto it = idx_.by_name.find(std::string(callee)); it != idx_.by_name.end())
+        if (auto it = idx_.by_name.find(std::string(callee)); it != idx_.by_name.end()) {
+            ++bir::callee_census().call_name;
             return it->second;
+        }
         if (auto it = idx_.by_bare.find(std::string(bare_fn_name(callee))); it != idx_.by_bare.end() &&
-            it->second.size() == 1)
+            it->second.size() == 1) {
+            ++bir::callee_census().call_bare;
             return it->second.front();
+        }
+        ++bir::callee_census().call_miss;
         return {};
     }
     // The callee of a method call: by its resolved symbol, else by the mono
@@ -1318,9 +1332,13 @@ private:
     // Exact resolution only: the resolved symbol, or the instance for this
     // receiver's concrete type. What the declared signature is read from.
     lir_view::FunctionView resolve_method_exact(lir_view::EMethodCallView v) const {
-        if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end())
+        if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end()) {
+            ++bir::callee_census().m_symbol;
             return it->second;
-        return instance_for_receiver(v);
+        }
+        auto r = instance_for_receiver(v);
+        ++(r ? bir::callee_census().m_recv : bir::callee_census().m_miss);
+        return r;
     }
     lir_view::FunctionView instance_for_receiver(lir_view::EMethodCallView v) const {
         auto rcv = v.receiver();
@@ -1340,7 +1358,7 @@ private:
         std::string needle2 = cname + "__" + std::string(v.method()) + "__";
         for (auto& f : it->second) {
             std::string n(f.name());
-            if (n.find(needle) != std::string::npos || n.starts_with(needle2)) return f;
+            if (n.find(needle) != std::string::npos || n.starts_with(needle2)) { ++bir::callee_census().ifr_needle; return f; }
         }
         // Instance names can carry a module hash the type's name does not
         // (`Buffer$M<hash>$G1$…`): match the receiver TYPE against each
@@ -1353,7 +1371,7 @@ private:
             while (p0 && (p0.kind() == LogosType::Kind::Ref || p0.kind() == LogosType::Kind::MutRef ||
                           p0.kind() == LogosType::Kind::Ptr))
                 p0 = p0.pointee();
-            if (p0 && type_str(p0, true) == want) return f;
+            if (p0 && type_str(p0, true) == want) { ++bir::callee_census().ifr_selftype; return f; }
         }
         if (std::getenv("LOGOS_BIR_RESOLVE_DEBUG"))
             std::fprintf(stderr, "[bir-resolve] no instance for %s among %zu (%s)\n", needle.c_str(),
@@ -1361,8 +1379,10 @@ private:
         return {};
     }
     lir_view::FunctionView resolve_method(lir_view::EMethodCallView v) const {
-        if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end())
+        if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end()) {
+            ++bir::callee_census().rm_symbol;
             return it->second;
+        }
         // The instance for THIS receiver: mono names a method instance
         // `<pkg>.<ConcreteType>__<method>__…`, so the receiver's concrete type
         // picks it out of the same-named candidates.
@@ -1379,7 +1399,9 @@ private:
                 if (auto it = idx_.by_base.find(std::string(v.method())); it != idx_.by_base.end()) {
                     std::string needle = "." + cname + "__" + std::string(v.method()) + "__";
                     for (auto& f : it->second)
-                        if (std::string(f.name()).find(needle) != std::string::npos) return f;
+                        if (std::string(f.name()).find(needle) != std::string::npos) {
+                            ++bir::callee_census().rm_needle; return f;
+                        }
                 }
         }
         auto agree = [&](const std::vector<lir_view::FunctionView>& cands) -> lir_view::FunctionView {
@@ -1395,9 +1417,10 @@ private:
         if (!v.resolved_symbol().empty())
             if (auto it = idx_.by_bare.find(std::string(bare_fn_name(v.resolved_symbol())));
                 it != idx_.by_bare.end())
-                if (auto f = agree(it->second)) return f;
+                if (auto f = agree(it->second)) { ++bir::callee_census().rm_agree_bare; return f; }
         if (auto it = idx_.by_base.find(std::string(v.method())); it != idx_.by_base.end())
-            return agree(it->second);
+            if (auto f = agree(it->second)) { ++bir::callee_census().rm_agree_base; return f; }
+        ++bir::callee_census().rm_miss;
         return {};
     }
     // The receiver form spelled in a mono template key: the first parameter

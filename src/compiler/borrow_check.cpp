@@ -17229,6 +17229,17 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         for (auto& [why, n] : census.skipped) skipped += n;
         line += std::format("\tskipped={}\n", skipped);
         for (auto& [why, n] : census.skipped) line += std::format("{}-skip\t{}\t{}\n", shadow_tag, why, n);
+        {   // TEMPORARY (#438 pricing)
+            auto& cc = bir::callee_census();
+            line += std::format("{}-callee\t{}\tcall_name={}\tcall_bare={}\tcall_miss={}"
+                                "\tm_symbol={}\tm_recv={}\tm_miss={}\n",
+                                shadow_tag, shadow_input_name(), cc.call_name, cc.call_bare,
+                                cc.call_miss, cc.m_symbol, cc.m_recv, cc.m_miss);
+            line += std::format("{}-callee2\t{}\tifr_needle={}\tifr_selftype={}\trm_symbol={}"
+                                "\trm_needle={}\trm_agree_bare={}\trm_agree_base={}\trm_miss={}\n",
+                                shadow_tag, shadow_input_name(), cc.ifr_needle, cc.ifr_selftype,
+                                cc.rm_symbol, cc.rm_needle, cc.rm_agree_bare, cc.rm_agree_base, cc.rm_miss);
+        }
         shadow_log(line);
     };
     if (dl_shadow_bc() && !generic_templates_only) census_line();
