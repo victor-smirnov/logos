@@ -156,8 +156,6 @@ struct_pattern_name_check_skipped_under_ref 2 tests/soundness/open/struct_patter
 
 letstruct_partial_destructure_moves_whole_source 3 tests/soundness/open/letstruct_partial_destructure_moves_whole_source refuses
 
-let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
-
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
@@ -611,5 +609,9 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 # MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
-# TOTAL 227
-# SYNC-HASH c74b307c1f3575565523ee3b8142a631
+closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
+
+let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
+
+# TOTAL 228
+# SYNC-HASH e075781fa51065a8756da54ba0665bab

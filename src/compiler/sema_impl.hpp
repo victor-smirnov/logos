@@ -2290,6 +2290,26 @@ private:
     //       trait name (`Box<dyn FnOnce()->i64>`);
     //   (b) a local bound to a closure LITERAL is answered per literal;
     //   (c) a generic `F: FnOnce` parameter is answered by its bound set.
+    // The Fn-family CALL MODE of a callable VALUE, by the same routes as
+    // callable_is_fn_once below — which is this function narrowed to one bit.
+    // A type PARAMETER is a different question (its bounds decide, weakest
+    // first) and is answered where the bounds are in scope, in lower_call.
+    lir_schema::expr::CallMode callable_call_mode(std::string_view name, TypeRef t) const {
+        using CM = lir_schema::expr::CallMode;
+        if (t && TypeRef(t).kind() == LogosType::Kind::Closure) {
+            auto tn = TypeRef(t).trait_name();
+            if (tn == "Fn")     return CM::Shared;
+            if (tn == "FnMut")  return CM::Mut;
+            if (tn == "FnOnce") return CM::Once;
+        }
+        if (!name.empty())
+            if (const VarInfo* vi = lookup_var_info(name); vi && !vi->closure_id.empty())
+                if (auto it = closure_kind_by_id_.find(vi->closure_id);
+                    it != closure_kind_by_id_.end())
+                    return it->second == 0 ? CM::Shared
+                         : it->second == 1 ? CM::Mut : CM::Once;
+        return CM::Unknown;
+    }
     bool callable_is_fn_once(std::string_view name, TypeRef t) const {
         if (t && TypeRef(t).kind() == LogosType::Kind::Closure &&
             TypeRef(t).trait_name() == "FnOnce")

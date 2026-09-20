@@ -4329,9 +4329,16 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         }
         if (is_fn_ptr)
             return builder().fn_ptr_call(std::move(callee_expr), std::move(arg_exprs), ret);
+        // THE SAME GENERALISATION THE CONSUME BIT BELOW ALREADY CARRIES:
+        // `fn_bound_mode` is computed for a TypeVar receiver only, so the other
+        // two ways of naming a callable reached the node as Unknown, and BIR's
+        // Unknown arm is a plain READ — no autoref, no move.
+        auto call_mode = fn_bound_mode;
+        if (call_mode == lir_schema::expr::CallMode::Unknown)
+            call_mode = callable_call_mode(callee, callee_type);
         auto closure_call_e =
             builder().closure_call(std::move(callee_expr), std::move(arg_exprs), ret,
-                                   fn_bound_mode);
+                                   call_mode);
         // FnOnce single-call: a callable bound ONLY by FnOnce is consumed by the
         // call (call_once takes self by value). Mark the callee var moved so a
         // second `f()` is rejected as use-after-move — closing the FnOnce-called-
@@ -8079,7 +8086,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         }
         return builder().closure_call(std::move(recv),
                                       std::move(arg_exprs), ret,
-                                      lir_schema::expr::CallMode::Unknown);
+                                      callable_call_mode({}, rt));
     }
     if (rt && LogosType::is_fn_value_kind(TypeRef(rt).kind())) {
         auto ret = TypeRef(rt).closure_ret()
@@ -10870,7 +10877,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 std::move(fr), std::move(arg_exprs), ret);
                         return builder().closure_call(
                             std::move(fr), std::move(arg_exprs), ret,
-                            lir_schema::expr::CallMode::Unknown);
+                            callable_call_mode({}, ft));
                     }
                     break;
                 }
