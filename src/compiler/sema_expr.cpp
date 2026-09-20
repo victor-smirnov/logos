@@ -18609,9 +18609,26 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // instead of widened, a widened root stays SHARED — which is exactly what
     // it was before the mut mark reached field paths, so nothing regresses.
     StrSet widened_roots;
+    // #444: A BINDING DECLARED INSIDE THE BODY IS NOT A CAPTURE. This scan runs
+    // AFTER the body has been lowered and its scope popped, so `lookup` can only
+    // see the ENCLOSING scopes and a body-local name whose spelling collides
+    // with an outer one reads as free. Measured: two closures differing only in
+    // a local's spelling, one capturing the outer binding and one capturing
+    // nothing. The closure's own PARAMETERS were already excluded by the
+    // `param_names` checks below — the shadowing question was asked once and
+    // answered for parameters only. The scan therefore carries the body's own
+    // scopes as it walks. ⚠ COVERS `let`, `for` and `for-each` bindings; a
+    // MATCH ARM's pattern bindings are not covered and shadow as before.
+    std::vector<StrSet> body_scopes;
+    auto is_body_local = [&](std::string_view n) {
+        for (auto it = body_scopes.rbegin(); it != body_scopes.rend(); ++it)
+            if (it->count(std::string(n))) return true;
+        return false;
+    };
     auto mark_mut_capture = [&](std::string_view target_name) {
         if (target_name.empty() || param_names.count(std::string(target_name)))
             return;
+        if (is_body_local(target_name)) return;
         // Only mark if it resolves in an enclosing scope.
         auto t = lookup(std::string(target_name));
         if (!t)
@@ -18697,6 +18714,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // widened with the prior path.
     auto add_capture_path = [&](const std::string& root, const std::string& path) {
         if (param_names.count(root)) return;
+        if (is_body_local(root)) return;   // #444
         if (auto it = seen.find(root); it != seen.end()) {
             for (size_t i = 0; i < captures.size(); ++i) if (captures[i] == root) {
                 std::string widened = path_lca(capture_paths[i], path);
@@ -19052,12 +19070,22 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     };
     scan_block_v = [&](lir_view::BlockRef b) {
         if (!b) return;
+        body_scopes.emplace_back();
         b.each_stmt([&](lir_view::StmtRef s){ scan_stmt_v(s); });
+        body_scopes.pop_back();
     };
     scan_stmt_v = [&](lir_view::StmtRef s) {
         if (!s) return;
         switch (s.kind()) {
-            case SC::Let:        scan_captures_v(lir_view::SLetView{s}.value()); break;
+            case SC::Let: {
+                // The VALUE is evaluated before the binding exists, so a use of
+                // the outer name on the right-hand side is still a capture.
+                auto v = lir_view::SLetView{s};
+                scan_captures_v(v.value());
+                if (!body_scopes.empty() && !v.name().empty())
+                    body_scopes.back().insert(std::string(v.name()));
+                break;
+            }
             case SC::Assign: {
                 auto v = lir_view::SAssignView{s};
                 mark_mut_capture(v.name());
@@ -19078,7 +19106,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             }
             case SC::For: {
                 auto v = lir_view::SForView{s};
-                scan_captures_v(v.lo()); scan_captures_v(v.hi()); scan_block_v(v.body()); break;
+                scan_captures_v(v.lo()); scan_captures_v(v.hi());
+                body_scopes.emplace_back();
+                if (!v.var().empty()) body_scopes.back().insert(std::string(v.var()));
+                scan_block_v(v.body());
+                body_scopes.pop_back();
+                break;
             }
             case SC::Loop:       scan_block_v(lir_view::SLoopView{s}.body()); break;
             case SC::Break:      scan_captures_v(lir_view::SBreakView{s}.value()); break;
@@ -19122,7 +19155,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             }
             case SC::ForEach: {
                 auto v = lir_view::SForEachView{s};
-                scan_captures_v(v.iter()); scan_block_v(v.body()); break;
+                scan_captures_v(v.iter());
+                body_scopes.emplace_back();
+                if (!v.var().empty()) body_scopes.back().insert(std::string(v.var()));
+                scan_block_v(v.body());
+                body_scopes.pop_back();
+                break;
             }
             case SC::DerefWrite: {
                 auto v = lir_view::SDerefWriteView{s};
