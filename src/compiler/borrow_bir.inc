@@ -2105,7 +2105,7 @@ private:
                 return;
             case LogosType::Kind::Struct: case LogosType::Kind::Enum: {
                 size_t before = out.os.size();
-                for (size_t i = 0; i < t.lifetime_args().size(); ++i) {
+                for (size_t i = 0, nl = struct_lifetime_count(t); i < nl; ++i) {
                     out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
                 }
                 for (auto& a : t.type_args()) walk_type(a, invariant, out, depth + 1);
@@ -2142,13 +2142,29 @@ private:
     // parameters (see walk_type). None for an enum, a struct with declared
     // lifetimes or region-carrying type arguments, a struct already being laid
     // out (a recursive type keeps its single origin), or one with no definition.
+    // How many lifetime parameters a struct type has. Mono drops lifetime
+    // ARGUMENTS from an instantiated type (`SliceIter<i64>` for the declared
+    // `SliceIter<'a, T>`), so an empty argument list says nothing: the
+    // DEFINITION's parameters do. Without this such a value had no origin at
+    // all when its fields are raw pointers, and `next(&mut self) -> Option<&'a
+    // T>` had no `'a` source to take its result from.
+    size_t struct_lifetime_count(TypeRef t) const {
+        size_t n = t.lifetime_args().size();
+        if (n || t.kind() != LogosType::Kind::Struct) return n;
+        std::string want = concrete_struct_name(t);
+        if (auto it = ts_.struct_by_name.find(want); it != ts_.struct_by_name.end())
+            return it->second.lifetime_params().size();
+        if (auto it = ts_.spec_by_name.find(want); it != ts_.spec_by_name.end())
+            return it->second.lifetime_params().size();
+        return 0;
+    }
     std::set<std::string> visiting_;
     static std::string layout_key(TypeRef t) {
         return t.kind() == LogosType::Kind::Enum ? "enum " + Mono::enum_instance_name(t)
                                                  : concrete_struct_name(t);
     }
     std::optional<std::vector<std::pair<std::string, TypeRef>>> expanded_fields(TypeRef t) {
-        if (!t || !t.lifetime_args().empty()) return std::nullopt;
+        if (!t || struct_lifetime_count(t)) return std::nullopt;
         if (t.kind() != LogosType::Kind::Struct && t.kind() != LogosType::Kind::Enum) return std::nullopt;
         for (auto& a : t.type_args()) { size_t n = 0; count_only(a, n); if (n) return std::nullopt; }
         if (visiting_.count(layout_key(t))) return std::nullopt;
@@ -2420,7 +2436,7 @@ private:
                 if (!same(dk, ak)) break;
                 auto alts = actual.lifetime_args(), dlts = decl.lifetime_args();
                 size_t before = out.size();
-                for (size_t i = 0; i < alts.size(); ++i) {
+                for (size_t i = 0, nl = struct_lifetime_count(actual); i < nl; ++i) {
                     std::string lt = i < dlts.size() ? dlts[i] : std::string();
                     if (!lt.empty() && lt[0] != '\'') lt = "'" + lt;
                     out.push_back(lt == "'_" ? "" : lt);
@@ -2431,6 +2447,23 @@ private:
                 // The implicit origin of a loan-carrying type that declares no
                 // lifetime: an unknown lifetime, labelled "~".
                 if (out.size() == before && n == 1) { out.push_back("~"); return; }
+                // An INSTANCE type carries no lifetime arguments (mono drops
+                // them: `SliceIter<i64>` for the declared `SliceIter<'a, T>`),
+                // so its regions are laid out from its fields. When the
+                // DECLARED type names exactly one lifetime, every one of those
+                // field regions is that lifetime — which is what lets
+                // `next(&mut self) -> Option<&'a T>` take its result from the
+                // iterator's `'a` and not from the `&mut self` autoref. With
+                // "?" here every source fed the result, and `iter_max` /
+                // `iter_min` held the loan of `it` in `best` (150 records).
+                if (out.size() == before && alts.empty() && dlts.size() == 1) {
+                    std::string lt = dlts[0];
+                    if (!lt.empty() && lt[0] != '\'') lt = "'" + lt;
+                    out.insert(out.end(), n, lt == "'_" ? std::string() : lt);
+                    return;
+                }
+                // Declared with no lifetime either: all hidden.
+                if (out.size() == before && alts.empty() && dlts.empty()) { out.insert(out.end(), n, "~"); return; }
                 if (out.size() - before != n) { out.resize(before); break; }
                 return;
             }
@@ -2450,7 +2483,12 @@ private:
         if (!t.callee_fn || !dst.exact) return false;
         std::vector<std::string> lret;
         labels(t.callee_fn.decl_ret_type(pool_), t.callee_fn.ret_type(pool_), lret);
-        if (lret.size() != dst.os.size()) return false;
+        if (lret.size() != dst.os.size()) {
+            if (std::getenv("LOGOS_BIR_LABELS"))
+                std::fprintf(stderr, "[labels-miss] %s lret=%zu dst=%zu ret=%s\n", t.callee.c_str(), lret.size(),
+                             dst.os.size(), type_str(t.callee_fn.ret_type(pool_)).c_str());
+            return false;
+        }
         auto ps = t.callee_fn.params();
         struct Src { uint32_t origin; std::string label; bool outer_self; bool inv; };
         std::vector<Src> srcs;
@@ -2479,6 +2517,13 @@ private:
         // source. An over-approximate summary only ever adds bits, so it is a
         // safe superset to narrow by. (A divergence to close by enforcing
         // E0106; ADR 0028.)
+        if (std::getenv("LOGOS_BIR_LABELS")) {
+            std::string m = "[labels] " + t.callee + " ret:";
+            for (auto& x : lret) m += " '" + x + "'";
+            m += " srcs:";
+            for (auto& x : srcs) m += " '" + x.label + "'" + (x.outer_self ? "(self)" : "");
+            std::fprintf(stderr, "%s\n", m.c_str());
+        }
         std::set<size_t> ambiguous_args;
         bool narrow = false;
         if (!self_ref && t.flow && t.flow->available) {
