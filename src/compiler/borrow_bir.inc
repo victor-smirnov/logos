@@ -34,6 +34,7 @@ struct Local {
     // has no pooled type: the local is a reference to `synth_pointee`.
     TypeRef     synth_pointee;
     bool        synth_ref = false;
+    bool        synth_mut = false;   // the synthesised reference is `&mut`: its pointee is invariant
     bool        is_mut = false;
     bool        static_addr = false;   // holds the address of a `static` item
     uint32_t    slot   = ~0u;
@@ -356,9 +357,10 @@ private:
         declare(l);
         return l;
     }
-    bir::LocalId synth_ref_temp(TypeRef pointee) {
+    bir::LocalId synth_ref_temp(TypeRef pointee, bool is_mut) {
         bir::LocalId l = temp({});
         body_.locals[l].synth_ref = true;
+        body_.locals[l].synth_mut = is_mut;
         body_.locals[l].synth_pointee = pointee;
         return l;
     }
@@ -1019,7 +1021,7 @@ private:
                     mut_deref_ctx_ = m;
                     bir::Place p = place_or_temp(a.inner());
                     mut_deref_ctx_ = saved;
-                    bir::LocalId tmp = synth_ref_temp(a.inner().type(pool_));
+                    bir::LocalId tmp = synth_ref_temp(a.inner().type(pool_), m);
                     bool tp = m && two_phase_origin(a.origin());
                     assign({tmp, {}}, ref_of(std::move(p), m, tp));
                     if (tp)
@@ -1075,7 +1077,7 @@ private:
                             d.ty = pointee;
                             p = p.with(std::move(d));
                         }
-                        bir::LocalId tmp = synth_ref_temp(pointee);
+                        bir::LocalId tmp = synth_ref_temp(pointee, m);
                         assign({tmp, {}}, ref_of(std::move(p), m, /*two_phase=*/m));
                         if (m)
                             reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
@@ -1779,6 +1781,7 @@ private:
                 bir::Place elem = seq.with(std::move(pj));
                 if (by_ref) {
                     body_.locals[var].synth_ref = true;
+                    body_.locals[var].synth_mut = mut_ref;
                     body_.locals[var].synth_pointee = et;
                     assign({var, {}}, ref_of(std::move(elem), mut_ref, false));
                 } else {
@@ -2223,7 +2226,10 @@ private:
         OList o;
         if (b_.locals[l].synth_ref) {
             o.os.push_back(fresh_origin()); o.inv.push_back(false);
-            walk_type(b_.locals[l].synth_pointee, false, o);
+            // What a synthesised `&mut` points at is invariant, exactly as
+            // behind a typed `&mut T`; it was covariant, so a `v.push(x)`
+            // through the autoref never tied `x`'s region to `v`'s.
+            walk_type(b_.locals[l].synth_pointee, b_.locals[l].synth_mut, o);
         } else {
             walk_type(b_.locals[l].type, false, o);
         }
@@ -2552,6 +2558,20 @@ private:
         // source. An over-approximate summary only ever adds bits, so it is a
         // safe superset to narrow by. (A divergence to close by enforcing
         // E0106; ADR 0028.)
+        // ARGUMENT TO ARGUMENT, by the signature: `push(&mut self: &mut Vec<T>,
+        // value: T)` names `T` in both, and the position behind `&mut` is
+        // invariant, so whatever `value` holds is held by `*self` after the
+        // call. This is how rustc knows a Vec keeps what was pushed into it;
+        // the body-derived out-param summary below remains for callees whose
+        // signature does not say (hidden regions).
+        for (size_t a = 0; a < srcs.size(); ++a)
+            for (size_t b = 0; b < srcs.size(); ++b) {
+                if (a == b || !srcs[b].inv || srcs[a].label != srcs[b].label) continue;
+                const std::string& lb = srcs[a].label;
+                bool identity = lb.starts_with("T:") || (lb.size() > 1 && lb[0] == '\'' && lb != "'static" &&
+                                                        lb[1] != '%');
+                if (identity) subset(srcs[a].origin, srcs[b].origin, p);
+            }
         if (std::getenv("LOGOS_BIR_LABELS")) {
             std::string m = "[labels] " + t.callee + " ret:";
             for (auto& x : lret) m += " '" + x + "'";
