@@ -2824,25 +2824,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 }
             }
         }
-        // ── SEPARATOR CLASS, JOIN DIRECTION — ambiguous, and knowingly kept ──
-        // These three fallbacks match a CANDIDATE against emitted function
-        // names by composing `callee + "__…"`. That is the join half of the
-        // class the split sites belong to: because `__` is legal inside an
-        // identifier, `callee` "foo" is a prefix of every method of an owner
-        // spelled "foo_", so a miss on `foo` can land on `foo_`'s function.
-        // (A lint cannot flag this — recomposing from carried parts and
-        // comparing is spelled identically and IS the sound pattern. What makes
-        // a join probe safe is that the candidate cannot be a proper prefix of
-        // another declared name, which is a fact about the registry, not the
-        // text. See tests/logos/separator_split_lint.sh, which says so.)
+        // ── SEPARATOR CLASS, JOIN DIRECTION — MEASURED, AND KEPT ────────
+        // Three fallbacks: `<callee>__g__` / `<callee>__f__` prefix,
+        // `.<callee>__…` contains, and `<callee>__` prefix. They match a
+        // candidate by composing text, so a miss on `foo` can land on `foo_`'s
+        // function — the join half of the separator class.
         //
-        // They survive because every exact, registry-anchored path is tried
-        // FIRST and these run only after all of them missed — at which point
-        // the alternative is not a correct answer but a hard failure. The
-        // right end state is to delete them and let the miss reach the R2 sink;
-        // that is a behaviour change on programs that today link by luck, so it
-        // is its own arc, not a rider on this one. Until then this comment is
-        // the classification the site was missing.
+        // ⚠ THEY ARE LOAD-BEARING, AND THAT IS MEASURED, NOT ARGUED. Labelled
+        // per arm and counted over 400 corpus files (2026-09-19, after #438
+        // made mono resolve a method callee by signature): the three join arms
+        // fired ZERO times there, so they were deleted — and `lt run --plus 50`
+        // (1768 tests) reddened EIGHT: iter_successors, iter_chain_map_fold,
+        // core_8_adv_iter_max_min(_method), fold-inferred-closure-params-b167,
+        // coretest_iter_map, coretest_batch_b49, coretest_batch_b51_dei, each
+        // with `'<Iter>$G2$…__next' does not reference a valid function`. The
+        // callee a generic ITERATOR instance carries still does not equal the
+        // emitted symbol, and the join is what bridges it.
+        //
+        // So the end state stands (delete them, let the miss reach the R2 sink)
+        // but it is blocked on that bridge: the instance's callee and its
+        // emitted name have to be made equal at the producer. THE SENSOR IS
+        // NAMED — those eight tests — and a 400-file sample is not it.
         if (!callee_fn) {
             std::string generic_prefix = callee + "__g__";
             std::string fn_prefix      = callee + "__f__";
