@@ -1,0 +1,205 @@
+{
+  "unit": "sema/sema_stmt/build_pattern_bytes.part3",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L4819-L5274",
+  "source_hash": "ec1c19c0d222c944",
+  "rules": [
+    {
+      "id": "pat.struct.unknown-name",
+      "domain": "pat",
+      "title": "Struct pattern name must resolve",
+      "statement": "A struct pattern `N { .. }` requires `N` to resolve to a known struct or datatype; a type-alias `N` whose target is a Struct/ZonedStruct resolves transparently to the underlying struct (matched under the real name). Otherwise it is an error 'unknown struct'.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4821-L4847"
+      ]
+    },
+    {
+      "id": "pat.struct.scrutinee-name-match",
+      "domain": "pat",
+      "title": "Struct pattern must match scrutinee struct",
+      "statement": "If the scrutinee has a concrete (non-error, named) Struct type, a struct pattern's name must equal the scrutinee's struct name, else error 'struct pattern != scrutinee'.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4848-L4852"
+      ]
+    },
+    {
+      "id": "pat.struct.field-exists",
+      "domain": "pat",
+      "title": "Struct pattern field must exist",
+      "statement": "Each named field in a struct pattern must be a declared field of the struct; an unknown field name is an error 'has no field'.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4881-L4889"
+      ]
+    },
+    {
+      "id": "pat.struct.rest-once-and-last",
+      "domain": "pat",
+      "title": "Struct pattern `..` at most once and last",
+      "statement": "A struct pattern may contain at most one `..` rest element, and no named field may follow `..`; violations are errors.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4864-L4873"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "pat.struct.exhaustive-fields",
+      "domain": "pat",
+      "title": "Struct pattern must cover all fields unless `..`",
+      "statement": "A non-union struct pattern without `..` must name every field of the struct; an uncovered field is an error (suggesting `..`).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5006-L5016"
+      ]
+    },
+    {
+      "id": "pat.struct.field-ref-shorthand",
+      "domain": "pat",
+      "title": "`ref [mut] f` field shorthand binds a reference to the field",
+      "statement": "In a struct pattern, a field marked `ref` (optionally `ref mut`) with no explicit sub-pattern binds `f` to `&[mut] T` where `T` is the field type, equivalent to a `ref [mut] f` ref-binding sub-pattern.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4892-L4917"
+      ]
+    },
+    {
+      "id": "pat.struct.shorthand-binds-field",
+      "domain": "pat",
+      "title": "Shorthand field binds the field name",
+      "statement": "A plain shorthand field `{ f }` (no sub-pattern) binds a new variable named `f` to the field value; `_` is non-binding.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4971-L4976"
+      ]
+    },
+    {
+      "id": "pat.struct.literal-field-guard",
+      "domain": "pat",
+      "title": "Literal field sub-pattern lowers to a binding plus equality guard",
+      "statement": "A refutable literal field sub-pattern `S { f: <int|neg-int|bool|char> }` (in refutable context) binds the field to a fresh synthetic name and gates the arm with `synth == <literal>`.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4918-L4951"
+      ]
+    },
+    {
+      "id": "pat.struct.refutable-sub-supported-kinds",
+      "domain": "pat",
+      "title": "Limited set of refutable field sub-patterns",
+      "statement": "Refutable field sub-patterns are accepted only for kinds {Wild, RefBind, RefPat, At, Variant, VariantData, Tuple, Or, Range, Int, Bool, Struct}; other kinds (e.g. slice, writ) are an error 'not yet supported'.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4952-L4969"
+      ],
+      "uncertainty": "List reflects current implementation coverage; the unsupported set is an implementation limitation rather than a settled language rule.",
+      "testability": "untestable"
+    },
+    {
+      "id": "pat.union.one-field-unsafe",
+      "domain": "pat",
+      "title": "Union pattern names exactly one field inside unsafe",
+      "statement": "A pattern on a `union` must specify exactly one field (no `..`), and the match must occur inside an `unsafe` block (it reads the named field's memory). Violations are errors.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4981-L5005"
+      ]
+    },
+    {
+      "id": "pat.slice.scrutinee-array-or-slice",
+      "domain": "pat",
+      "title": "Slice pattern requires array/slice scrutinee",
+      "statement": "A slice pattern `[..]` requires the scrutinee to be of array or slice type; the element sub-patterns are typed by the element type. A non-array/slice scrutinee is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5024-L5032"
+      ]
+    },
+    {
+      "id": "pat.slice.rest-once",
+      "domain": "pat",
+      "title": "Slice pattern `..` at most once",
+      "statement": "A slice pattern may contain at most one `..` rest; elements before `..` form the prefix, elements after form the suffix. A second `..` is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5043-L5058"
+      ]
+    },
+    {
+      "id": "pat.slice.rest-binding",
+      "domain": "pat",
+      "title": "Named `..` binds the rest sub-slice",
+      "statement": "A rest element written `name @ ..` binds `name` to the rest sub-slice; a bare `..` is anonymous.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5048-L5053"
+      ]
+    },
+    {
+      "id": "pat.slice.array-length-check",
+      "domain": "pat",
+      "title": "Fixed-array slice pattern length constraints",
+      "statement": "For a fixed-size array scrutinee: a slice pattern without `..` must have exactly `N` elements; with `..`, prefix+suffix count must not exceed `N`. Violations are errors.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5063-L5076"
+      ]
+    },
+    {
+      "id": "pat.writ.match-only",
+      "domain": "pat",
+      "title": "Writ scalar patterns only in match arms",
+      "statement": "Writ scalar patterns (`@null`, `@true`, `@false`, `@<int>`, `@\"str\"`, `@{...}`, `@[...]`, and typed array/map forms) are permitted only in `match` arms, not in if-let / while-let / let-bindings / nested pattern positions; elsewhere is an error. In a match arm they lower to a wildcard plus a synthesized guard.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5086-L5104"
+      ],
+      "divergence": "Logos extension (Writ value patterns); no Rust equivalent."
+    },
+    {
+      "id": "pat.ident.variant-alias",
+      "domain": "pat",
+      "title": "Bare ident resolving to a use-imported nullary variant is a variant pattern",
+      "statement": "A bare identifier pattern that matches a `use Type.{V, ..}` variant alias and names a nullary (no-payload) variant is a variant pattern, not a fresh binding; the scrutinee enum must match, else error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5106-L5132"
+      ]
+    },
+    {
+      "id": "pat.ident.module-const-value",
+      "domain": "pat",
+      "title": "Bare ident resolving to a module const is a value pattern",
+      "statement": "A bare identifier that names a module-level const is a value (refutable) pattern, not a binding: its initializer is ctfe-evaluated and matched. Bool/int/char consts emit a literal pattern. A non-ctfe-evaluable const initializer is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5133-L5158",
+        "src/compiler/sema_stmt.cpp#L5247-L5251"
+      ]
+    },
+    {
+      "id": "pat.ident.const-str-guard",
+      "domain": "pat",
+      "title": "str-typed const pattern lowers to a str_eq guard",
+      "statement": "A const pattern of `str` (Slice<u8>) type against a str scrutinee binds a synthetic name and gates the arm with `str_eq(synth, CONST)`; requires the stdlib `str_eq` to be in scope, else error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5159-L5168",
+        "src/compiler/sema_stmt.cpp#L5214-L5241"
+      ]
+    },
+    {
+      "id": "pat.ident.const-bytearray-guard",
+      "domain": "pat",
+      "title": "[u8; N] const pattern lowers to an element-wise equality guard",
+      "statement": "A const pattern of `[u8; N]` type against a `[u8; N]` scrutinee (matching array length) binds a synthetic name and gates the arm with the AND-chain `synth[i] == CONST[i]` for all i in 0..N.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5169-L5213"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "pat.ident.const-nonscalar-unsupported",
+      "domain": "pat",
+      "title": "Other non-scalar const patterns rejected",
+      "statement": "A const pattern whose value is neither int/bool/char nor the supported str/[u8;N] guard cases is an error ('non-scalar type').",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5242-L5246"
+      ],
+      "uncertainty": "Reflects current support boundary, not a permanent language restriction."
+    },
+    {
+      "id": "pat.ident.binding-and-mut",
+      "domain": "pat",
+      "title": "Bare ident is a binding; `mut` recorded for mutable binding",
+      "statement": "A bare identifier not resolving to a variant or const is a fresh binding (`_` is non-binding/wildcard). A `mut x` binding is recorded so the binding is introduced as mutable.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5254-L5264"
+      ]
+    }
+  ]
+}

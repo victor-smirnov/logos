@@ -1,0 +1,224 @@
+{
+  "unit": "sema/sema_stmt/build_writ_pat_guard",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L5275-L6048",
+  "source_hash": "bafaf3ab3adda1f2",
+  "rules": [
+    {
+      "id": "pat.writ.scalar-leaves",
+      "domain": "pat",
+      "title": "Writ scalar leaf patterns",
+      "statement": "Within a Writ value pattern (@{...}/@[...]), the scalar leaves are: null (`@null`), bool (`@true`/`@false`), integer (`@<int>`), and string (`@\"...\"`). Each tests the corresponding AnyVal scrutinee: null-ness, boolean equality, integer equality, and string equality respectively.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5293-L5334",
+        "src/compiler/sema_stmt.cpp#L5484-L5486"
+      ],
+      "divergence": "Writ pattern matching is a Logos addition (no Rust equivalent)."
+    },
+    {
+      "id": "pat.writ.int-i24-range",
+      "domain": "pat",
+      "title": "Writ integer pattern fits i24",
+      "statement": "A Writ integer pattern `@<int>` value v must satisfy -2^23 <= v < 2^23 (i24 range); otherwise it is a compile error. The literal may carry a negation flag that negates the parsed magnitude.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5312-L5327"
+      ],
+      "divergence": "Logos addition; i24 bound is Writ-specific."
+    },
+    {
+      "id": "pat.writ.map-shape",
+      "domain": "pat",
+      "title": "Writ map pattern",
+      "statement": "A Writ map pattern `@{k: p, ...}` matches iff the scrutinee is a map AND, for each listed entry key k, the key is present and its slot value matches sub-pattern p (conjunction over all entries). An entry without a value sub-pattern requires only presence of the key. Map patterns are non-exhaustive: keys not listed are ignored.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5495-L5524"
+      ],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "pat.writ.array-len-and-rest",
+      "domain": "pat",
+      "title": "Writ array pattern length and rest",
+      "statement": "A Writ array pattern `@[p0, p1, ...]` matches iff the scrutinee is an array of exactly the listed element count and each element matches its sub-pattern. A trailing `..` rest changes the length check to >= (count of non-rest elements) and binds no further elements. `..` is permitted only as the LAST element; otherwise a compile error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5525-L5562"
+      ],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "pat.writ.typed-array-element-types",
+      "domain": "pat",
+      "title": "Typed Writ array pattern element types",
+      "statement": "A typed Writ array pattern `@<T>[..]` matches iff the scrutinee has the array type-code for element type T. T must be one of {I8,U8,I16,U16,I32,U32,I64,U64,F32,F64,AnyVal}; any other element type is a compile error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5563-L5588"
+      ],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "pat.writ.typed-map-key-value-types",
+      "domain": "pat",
+      "title": "Typed Writ map pattern key/value types",
+      "statement": "A typed Writ map pattern `@<K[,V]>{..}` matches iff the scrutinee has the map type-code for key type K. K must be one of {Varchar,I32,U32,I64,U64}; the value type V, if given, must be AnyVal. Any other key or value type is a compile error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5589-L5616"
+      ],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "pat.writ.wildcard-binding",
+      "domain": "pat",
+      "title": "Named wildcard inside Writ pattern binds the AnyVal",
+      "statement": "A wildcard with a non-`_` name inside a Writ pattern binds that name to the current AnyVal sub-value and always matches; a `_` (or empty) name binds nothing.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5487-L5494"
+      ],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "pat.writ.or-no-mixing",
+      "domain": "pat",
+      "title": "Or-patterns may not mix Writ and non-Writ alternatives",
+      "statement": "In an or-pattern, if any alternative is a Writ pattern then all alternatives must be Writ patterns; mixing Writ patterns with non-Writ patterns is a compile error. An all-Writ or-pattern matches iff any alternative matches (disjunction).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5641-L5664"
+      ],
+      "divergence": "Logos addition.",
+      "testability": "untestable"
+    },
+    {
+      "id": "pat.bind.wildcard-no-binding",
+      "domain": "pat",
+      "title": "`_` binding name introduces no variable",
+      "statement": "A binding whose name is `_` introduces no variable into scope (across variant-data, tuple, struct-field, and wildcard patterns). This prevents a phantom binding from scheduling a drop on a payload the user discarded with `_`.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5691-L5694",
+        "src/compiler/sema_stmt.cpp#L5702-L5705",
+        "src/compiler/sema_stmt.cpp#L5726-L5734"
+      ]
+    },
+    {
+      "id": "pat.bind.struct-generic-subst",
+      "domain": "pat",
+      "title": "Struct pattern substitutes concrete type-args into field types",
+      "statement": "When matching a struct pattern against a concrete generic struct `S<A,B>`, each bound field's type is the field's declared type with the struct's type parameters substituted by the scrutinee's concrete type-args (e.g. `match s { S { x, y } }` over `S<u8,u16>` binds x:u8, y:u16). A `&`/`&mut`/`*` scrutinee is dereferenced first to obtain the type-args.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5768-L5783",
+        "src/compiler/sema_stmt.cpp#L5800-L5806"
+      ]
+    },
+    {
+      "id": "pat.bind.default-binding-mode-struct",
+      "domain": "pat",
+      "title": "Default binding modes for struct shorthand fields under a reference scrutinee",
+      "statement": "Under a `&`/`&mut` struct scrutinee, a shorthand field binding of a move-only field type T binds by reference (`&T` / `&mut T` matching the scrutinee's mutability) rather than moving the field out; Copy field types bind by value. Error and bare-TypeVar field types are excluded from the reference promotion.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5792-L5816"
+      ],
+      "divergence": "RFC 2005 default binding modes (Rust-conformant intent)."
+    },
+    {
+      "id": "pat.bind.or-alts-same-bindings",
+      "domain": "pat",
+      "title": "Or-pattern alternatives bind identical names and types",
+      "statement": "All alternatives of an or-pattern bind the same set of names with the same types; bindings are declared from the first alternative.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5719-L5725",
+        "src/compiler/sema_stmt.cpp#L5829-L5834"
+      ]
+    },
+    {
+      "id": "pat.bind.ref-pat-strips-ref",
+      "domain": "pat",
+      "title": "Reference pattern strips one reference layer",
+      "statement": "A reference pattern `&p` binds its inner pattern against the pointee of a `&`/`&mut` scrutinee type; against a non-reference scrutinee the inner type is Error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5744-L5751"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "pat.bind.slice-rest-is-subslice",
+      "domain": "pat",
+      "title": "Slice pattern element and named-rest types",
+      "statement": "In a slice pattern, prefix and suffix sub-patterns bind against the element type T of the scrutinee. A named rest `xs @ ..` binds the sub-slice as `&[T]` (slice type), not an element; an anonymous `..` rest binds nothing.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5819-L5828"
+      ]
+    },
+    {
+      "id": "pat.bind.mut-binding-mode",
+      "domain": "pat",
+      "title": "`mut` binding pattern marks variable mutable",
+      "statement": "A wildcard-name binding written with `mut` (tracked per pattern) declares the bound variable as mutable.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5726-L5733"
+      ]
+    },
+    {
+      "id": "stmt.if.cond-must-be-bool",
+      "domain": "stmt",
+      "title": "if condition must be bool",
+      "statement": "A non-pattern `if` condition must have type bool; Error and Never types are accepted (Never permits `if return x {}`), any other type is a compile error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5955-L5961"
+      ]
+    },
+    {
+      "id": "stmt.if-let.desugar-to-match",
+      "domain": "stmt",
+      "title": "if-let desugars to a two-arm match",
+      "statement": "`if let P = e { THEN } else { ELSE }` lowers to `match e { P => THEN, _ => ELSE }`, with nested-payload destructures emitted before THEN so their bindings are in scope.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5843-L5951"
+      ]
+    },
+    {
+      "id": "stmt.if-let.let-chain-trailing-cond",
+      "domain": "stmt",
+      "title": "let-chain trailing condition becomes a match-arm guard",
+      "statement": "`if let P = e && <cond> { THEN } else { ELSE }` desugars to `match e { P if <cond> => THEN, _ => ELSE }`: the chain condition becomes an arm guard, sees the pattern's bindings, must be bool (else Error accepted), and is conjoined AFTER the pattern's own refutable guards.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5872-L5903",
+        "src/compiler/sema_stmt.cpp#L5938-L5945"
+      ]
+    },
+    {
+      "id": "stmt.if-let.guard-no-nested-variant-binding",
+      "domain": "stmt",
+      "title": "let-chain condition cannot reference nested enum-variant bindings",
+      "statement": "A let-chain trailing condition may reference nested tuple/struct payload bindings (re-extracted as a guard prologue) but may NOT reference bindings from a nested enum-variant payload pattern; doing so is a compile error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5885-L5902"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "stmt.if-let.refutable-inner-guards",
+      "domain": "stmt",
+      "title": "Nested refutable payload predicates gate the then-arm",
+      "statement": "Refutable inner patterns (nested variant/literal payload predicates) of an if-let pattern are conjoined into the then-arm guard; a predicate failure falls through to the wildcard else-arm.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5928-L5937"
+      ]
+    },
+    {
+      "id": "stmt.if.move-merge-by-branch",
+      "domain": "stmt",
+      "title": "Per-branch move state merges by union over non-diverging branches",
+      "statement": "Across an `if`'s branches each branch is analyzed from the pre-if move state; the post-if moved set is the union of moves from all non-diverging branches (a branch ending in return/break/continue diverges and contributes nothing). A missing then/else branch behaves as a non-diverging fall-through preserving the pre-if state.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5966-L6038"
+      ]
+    },
+    {
+      "id": "stmt.if.definite-assignment-merge",
+      "domain": "stmt",
+      "title": "Definite-assignment merge across if branches",
+      "statement": "A variable is uninitialized at the if's merge point iff it is uninitialized on ANY incoming non-diverging branch path (union of currently-uninit sets over non-diverging branches); diverging branches contribute nothing to the merge.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L5980-L6040"
+      ]
+    }
+  ]
+}

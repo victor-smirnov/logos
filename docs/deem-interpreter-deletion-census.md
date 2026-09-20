@@ -6232,7 +6232,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                id verbatim while rustc compiles the twin at exit 0. Found while COSTING the closure lift, not by the
 #                lowering itself; it is also a prerequisite for that lift, since a lifted body is a function and two
 #                instantiations cannot share one name.
-REGISTRY-ALL         11101
+#                ALL 11101 -> 11102 (+1), NOIMPORTED 6597 -> 6597 (0), TIERCOMMIT 348 -> 348 (0) — 2026-09-20 #441. The one
+#                IMPORTED fixture the 2026-09-18 note above says "the author's tree carries" is COMMITTED:
+#                tests/imported/pass/methods/builder-returning-self-b163.logos (+ .expected). It had been swallowed by
+#                the unanchored `build*` in .gitignore since it was written; 62075b0ed anchored the rule, which made it
+#                visible, and it existed on one machine only. It is labelled `imported`, so only ALL moves. From here
+#                the committed tree and the author's tree count the same, and that note describes history, not a
+#                standing difference.
+REGISTRY-ALL         11102
 REGISTRY-NOIMPORTED  6597
 REGISTRY-TIERCOMMIT  348
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type

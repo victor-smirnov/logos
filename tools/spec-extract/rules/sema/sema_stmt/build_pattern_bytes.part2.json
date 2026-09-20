@@ -1,0 +1,186 @@
+{
+  "unit": "sema/sema_stmt/build_pattern_bytes.part2",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L4401-L4818",
+  "source_hash": "c234027243dce905",
+  "rules": [
+    {
+      "id": "lex.char.utf8-scalar-decode",
+      "domain": "lex",
+      "title": "Char literal multi-byte UTF-8 decode",
+      "statement": "A char literal body whose first byte >= 0x80 is decoded as a multi-byte UTF-8 sequence: lead byte 110xxxxx => 2 bytes, 1110xxxx => 3, 11110xxx => 4; any other lead byte is an error ('invalid UTF-8'). Fewer than the required continuation bytes is an error ('truncated UTF-8'). The scalar value is the assembled code point.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4401-L4412"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "pat.char.scrutinee-char-or-int",
+      "domain": "pat",
+      "title": "Char pattern scrutinee constraint",
+      "statement": "A char-literal pattern requires the scrutinee type to be `char` or an integer type; otherwise it is an error. The pattern matches the decoded code point as an integer constant.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4414-L4426"
+      ]
+    },
+    {
+      "id": "pat.char-range.scrutinee-and-order",
+      "domain": "pat",
+      "title": "Char range pattern constraints",
+      "statement": "A char-range pattern `lo..=hi` requires a `char` or integer scrutinee, and requires lo <= hi (decoded code points); lo > hi is an error. It matches the inclusive integer range [lo, hi].",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4427-L4443"
+      ]
+    },
+    {
+      "id": "pat.bool.scrutinee-bool",
+      "domain": "pat",
+      "title": "Bool pattern scrutinee constraint",
+      "statement": "A boolean-literal pattern requires a `bool` scrutinee; any other (non-error) scrutinee type is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4445-L4455"
+      ]
+    },
+    {
+      "id": "pat.tuple.scrutinee-tuple-or-ref",
+      "domain": "pat",
+      "title": "Tuple pattern over tuple or reference-to-tuple",
+      "statement": "A tuple pattern requires a tuple scrutinee, or a `&(T..)` / `&mut (T..)` scrutinee which is auto-dereferenced to the inner tuple (default binding mode). A non-tuple, non-(ref-to-tuple) scrutinee is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4456-L4480"
+      ]
+    },
+    {
+      "id": "pat.tuple.rest-expansion",
+      "domain": "pat",
+      "title": "Tuple pattern `..` rest expansion",
+      "statement": "A tuple pattern may contain at most one `..` rest marker; a second `..` is an error. The rest is expanded into wildcard `_` skip entries inserted at the rest position so the explicit elements plus padding equal the tuple arity. More explicit elements than the arity (with `..`) is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4481-L4520"
+      ]
+    },
+    {
+      "id": "pat.tuple.element-kinds",
+      "domain": "pat",
+      "title": "Allowed tuple pattern element kinds",
+      "statement": "Tuple pattern elements may be: wildcard/binding (`_`/name), integer/negative-integer/bool/range literals, variant-data patterns, string literals, and or-patterns. Any other element kind is an error ('only _, name, integer, bool, range, or variant patterns are supported').",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4521-L4630"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "pat.tuple.str-element-via-guard",
+      "domain": "pat",
+      "title": "String-literal tuple element lowered to str_eq guard",
+      "statement": "A string-literal element of a tuple pattern binds the element to a synthesized name and adds a refutable `str_eq(synth, lit)` guard, rather than a value-equality test (a raw `==` would pointer-compare). Requires the refutable-guard context to be active.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4552-L4567",
+        "src/compiler/sema_stmt.cpp#L4600-L4617"
+      ],
+      "divergence": "Logos addition: tuple-arm codegen lacks a native str_eq dispatch, so string elements are desugared to guards."
+    },
+    {
+      "id": "pat.tuple.single-alt-or-unwrap",
+      "domain": "pat",
+      "title": "Single-alternative or-pattern element is unwrapped",
+      "statement": "The grammar wraps every tuple element in a PAT_OR node; a trivial single-alternative or-pattern is unwrapped and treated as its inner binding/wildcard/literal/variant. Multi-alternative or-patterns are kept as PatOr and their alternatives must be scalar (bindings inside multi-alt are dropped).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4568-L4623"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "pat.tuple.arity-match",
+      "domain": "pat",
+      "title": "Tuple pattern element count equals arity",
+      "statement": "After rest expansion, the number of tuple pattern elements must equal the tuple arity; a mismatch is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4631-L4634"
+      ]
+    },
+    {
+      "id": "pat.tuple.default-ref-move-only",
+      "domain": "pat",
+      "title": "Default-ref binding for move-only tuple elements under shared borrow",
+      "statement": "When the tuple scrutinee is reached through a `&`/`&mut` (default binding mode), each tuple element binding whose element type is move-only (non-Copy, non-error, non-typevar) is bound by reference `&et`/`&mut et`; Copy elements are bound by value.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4456-L4461",
+        "src/compiler/sema_stmt.cpp#L4635-L4642"
+      ]
+    },
+    {
+      "id": "pat.range.half-open-clamp",
+      "domain": "pat",
+      "title": "Half-open range pattern clamps to scrutinee type bounds",
+      "statement": "In an integer range pattern, an omitted bound is clamped to the scrutinee integer type's min (for missing lo) or max (for missing hi); when the scrutinee type is unknown the bounds default to i32 range.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4654-L4676"
+      ]
+    },
+    {
+      "id": "pat.range.scrutinee-integer",
+      "domain": "pat",
+      "title": "Range pattern requires integer scrutinee",
+      "statement": "A range pattern requires an integer scrutinee type; a non-integer, non-error scrutinee is an error. A `never` scrutinee is exempted from this check.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4685-L4689"
+      ],
+      "divergence": "Logos char ranges are handled separately (PAT_CHAR_RANGE); PAT_RANGE is integer-only."
+    },
+    {
+      "id": "pat.range.bounds-fit-type",
+      "domain": "pat",
+      "title": "Range pattern bounds must fit scrutinee type",
+      "statement": "Both bounds of an integer range pattern must fit within the scrutinee integer type; a bound that does not fit is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4690-L4698"
+      ]
+    },
+    {
+      "id": "pat.range.exclusive-to-inclusive",
+      "domain": "pat",
+      "title": "Exclusive range pattern lowered to inclusive minus one",
+      "statement": "An exclusive range pattern `lo..hi` is lowered as inclusive `lo..=(hi-1)`. An exclusive range with lo >= hi is an empty-range error. An inclusive range (default when unmarked) with lo > hi is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4699-L4720"
+      ]
+    },
+    {
+      "id": "pat.at.binds-whole-and-sub",
+      "domain": "pat",
+      "title": "@-pattern binds whole value at scrutinee type",
+      "statement": "An `name @ subpat` pattern binds `name` to the whole scrutinee value at the scrutinee type (falling back to the error type if unknown) while also matching `subpat` against the same scrutinee type.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4724-L4740"
+      ]
+    },
+    {
+      "id": "pat.ref.scrutinee-reference",
+      "domain": "pat",
+      "title": "Reference pattern requires reference scrutinee",
+      "statement": "A reference pattern `&pat`/`&mut pat` requires a reference scrutinee. `&mut pat` requires a `&mut` scrutinee; `&pat` accepts both `&` and `&mut`. A non-reference scrutinee is an error. The inner pattern is matched against the pointee type.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4742-L4771"
+      ]
+    },
+    {
+      "id": "pat.ref-binding.binds-by-reference",
+      "domain": "pat",
+      "title": "`ref`/`ref mut` binding takes a reference to the matched place",
+      "statement": "A `ref x` / `ref mut x` binding binds `x` to a `&T` / `&mut T` reference of the scrutinee type `T` (the place's address) rather than moving the value.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4774-L4792"
+      ]
+    },
+    {
+      "id": "pat.ident.bare-no-payload-variant",
+      "domain": "pat",
+      "title": "Bare identifier resolving to a no-payload enum variant is a variant pattern",
+      "statement": "When the scrutinee is an enum and a bare identifier (not `_`) names a no-payload variant of that enum, the identifier is treated as a variant pattern (refutable) rather than an irrefutable binding. This covers prelude variants (None/Some/Ok/Err) and user enums matched without the `Enum::` qualifier.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4793-L4817"
+      ]
+    }
+  ]
+}

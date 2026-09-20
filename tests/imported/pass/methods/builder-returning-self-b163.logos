@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/ builder shapes (distilled).
+// Modifications: isize->i64; by-value `self`->`self:Self`; assert->if-return.
+//   A builder whose methods consume `self:Self` and return `Self`, chained.
+// Tests by-value-self method chaining that returns `Self` (a fluent builder),
+//   accumulating field state across the chain.
+package builder_returning_self_b163;
+
+struct Acc { total: i64 }
+
+impl Acc {
+    fn new() -> Self { return Acc { total: 0i64 }; }
+    fn add(self: Self, x: i64) -> Self { return Acc { total: self.total + x }; }
+    fn mul(self: Self, x: i64) -> Self { return Acc { total: self.total * x }; }
+    fn value(self: &Self) -> i64 { return self.total; }
+}
+
+fn main() -> i32 {
+    let a: Acc = Acc::new().add(3i64).add(4i64).mul(2i64);
+    if a.value() != 14i64 { return 1i32; }
+    let b: Acc = Acc::new().add(10i64);
+    if b.value() != 10i64 { return 2i32; }
+    return 0i32;
+}

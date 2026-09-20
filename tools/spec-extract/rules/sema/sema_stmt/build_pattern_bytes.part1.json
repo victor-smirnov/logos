@@ -1,0 +1,142 @@
+{
+  "unit": "sema/sema_stmt/build_pattern_bytes.part1",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L3964-L4400",
+  "source_hash": "0f54890fdbd2e646",
+  "rules": [
+    {
+      "id": "pat.bytes.slice-of-int-subpatterns",
+      "domain": "pat",
+      "title": "Byte-string pattern lowers to a fixed slice pattern of integer sub-patterns",
+      "statement": "A byte-string literal pattern `b\"...\"` matching N bytes is equivalent to a slice pattern of exactly N integer (u8) sub-patterns with no `..` rest: `[b0, b1, ..., b_{N-1}]`. It is an exact match (fixed length, no trailing rest).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3964-L3971",
+        "src/compiler/sema_stmt.cpp#L4051-L4062"
+      ]
+    },
+    {
+      "id": "pat.bytes.escape-set",
+      "domain": "pat",
+      "title": "Byte-string pattern escape sequences",
+      "statement": "Inside `b\"...\"` the recognized escapes are `\\n`=0x0A, `\\t`=0x09, `\\r`=0x0D, `\\0`=0x00, `\\\\`, `\\'`, `\\\"`, and `\\xHH` (two hex digits → byte HH). Any other escape is rejected; a malformed `\\x` is rejected. Non-escaped bytes are taken verbatim.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3978-L4021"
+      ]
+    },
+    {
+      "id": "pat.bytes.scrutinee-must-be-u8-array",
+      "domain": "pat",
+      "title": "Byte-string pattern requires `[u8; N]` scrutinee",
+      "statement": "A byte-string pattern requires the scrutinee (after peeling a single `&`/`&mut` reference) to be a fixed-size array `[u8; N]`; otherwise it is an error. Dynamic `&[u8]` slice scrutinees are not supported.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4025-L4050"
+      ],
+      "divergence": "Rust permits byte-string patterns against `&[u8]`/`&[u8; N]`; Logos requires fixed `[u8; N]` and rejects dynamic slices."
+    },
+    {
+      "id": "pat.bytes.length-must-match-array",
+      "domain": "pat",
+      "title": "Byte-string pattern length must equal scrutinee array length",
+      "statement": "For a `[u8; N]` scrutinee, the byte-string literal's byte count must equal N; a mismatch is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4040-L4044"
+      ]
+    },
+    {
+      "id": "pat.bytes.ref-array-autoderef",
+      "domain": "pat",
+      "title": "Byte-string pattern sees through a reference to an array",
+      "statement": "A byte-string pattern matches against `&[u8; N]` or `&mut [u8; N]` by peeling exactly one reference layer (default binding modes auto-deref the reference), so the pattern operates on the underlying array.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4025-L4033"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "pat.or.same-binding-set",
+      "domain": "pat",
+      "title": "Or-pattern alternatives must bind the same variable names",
+      "statement": "Every `|` alternative of an or-pattern must bind exactly the same set of variable names (E0408). Synthetic compiler-introduced bindings (e.g. `__refut_*`, `__pat_pld_*`, `__sve_*`) and the wildcard `_` are excluded from this check.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4074-L4142",
+        "src/compiler/sema_stmt.cpp#L4254-L4280"
+      ]
+    },
+    {
+      "id": "pat.or.nested-descends-first-alt",
+      "domain": "pat",
+      "title": "Binding collection descends only the first alternative of a nested or-pattern",
+      "statement": "When collecting bindings of a pattern that contains a nested or-pattern, only the first alternative is traversed; the nested or-pattern's own same-binding-set check guarantees the remaining alternatives bind identically.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4112-L4117",
+        "src/compiler/sema_stmt.cpp#L4214-L4221"
+      ]
+    },
+    {
+      "id": "pat.binding.bare-name-vs-variant-or-const",
+      "domain": "pat",
+      "title": "Bare name resolving to a no-payload variant or module const is not a binding",
+      "statement": "A bare identifier pattern that names a payload-less enum variant or a module-level const is a constant/variant pattern, not a new binding; otherwise it introduces a binding. `_` is never a binding.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4174-L4194"
+      ]
+    },
+    {
+      "id": "pat.struct.field-shorthand-binds-name",
+      "domain": "pat",
+      "title": "Struct field shorthand binds the field name",
+      "statement": "In a struct pattern, a field with no explicit sub-pattern (shorthand `Point { x }`) introduces a binding named after the field; a field with an explicit sub-pattern binds whatever that sub-pattern binds.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4201-L4209",
+        "src/compiler/sema_stmt.cpp#L4100-L4106"
+      ]
+    },
+    {
+      "id": "pat.float.literal-rejected",
+      "domain": "pat",
+      "title": "Float-literal patterns are rejected",
+      "statement": "A float-literal pattern is parsed but rejected as unsupported (IEEE-equality pattern semantics undecided).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4286-L4294"
+      ],
+      "divergence": "Rust deprecated-but-still-accepts float patterns; Logos hard-rejects them."
+    },
+    {
+      "id": "pat.str.position-restricted",
+      "domain": "pat",
+      "title": "String-literal patterns allowed only in specific positions",
+      "statement": "String-literal patterns are supported only as a whole match arm (`match s { \"foo\" => .. }`), inside an enum-variant payload (`Some(\"foo\")`), or as a tuple element (`(\"foo\", _)`). In any other position (e.g. inside an array/slice pattern) a string-literal pattern is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4296-L4312"
+      ],
+      "divergence": "Rust permits string patterns in all pattern positions; Logos restricts them."
+    },
+    {
+      "id": "pat.int.scrutinee-must-be-integer",
+      "domain": "pat",
+      "title": "Integer pattern requires an integer scrutinee",
+      "statement": "An integer-literal pattern (incl. negated form) requires the scrutinee type to be an integer type; matching against a non-integer scrutinee is an error. The check is skipped when the scrutinee type is Error or `!` (never).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4313-L4321"
+      ]
+    },
+    {
+      "id": "pat.int.value-must-fit",
+      "domain": "pat",
+      "title": "Integer pattern value must fit the scrutinee integer type",
+      "statement": "The value of an integer-literal pattern must be representable in the scrutinee's integer type; an out-of-range value is an error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4322-L4325"
+      ]
+    },
+    {
+      "id": "pat.char.scalar-as-integer",
+      "domain": "pat",
+      "title": "Char patterns lower to integer (Unicode scalar) patterns",
+      "statement": "A char-literal (and char-range) pattern is decoded to its Unicode scalar value and matched as an integer/range pattern, since `char` is a 4-byte Unicode scalar. Recognized escapes: `\\n`,`\\t`,`\\r`,`\\0`,`\\\\`,`\\'`,`\\\"`,`\\xHH` (exactly 2 hex digits), and `\\u{HEX}`; a `\\u` scalar must be <= U+10FFFF and outside the surrogate range U+D800..U+DFFF.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L4330-L4396"
+      ]
+    }
+  ]
+}
