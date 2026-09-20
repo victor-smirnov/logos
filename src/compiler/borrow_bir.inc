@@ -1465,14 +1465,15 @@ private:
                 bir::Operand hi = operand(v.hi());
                 push_scope();   // the counter lives across iterations
                 TypeRef it = v.lo() ? v.lo().type(pool_) : TypeRef{};
-                // The step below reassigns the counter; in Rust each iteration
-                // binds a fresh `i`, so the step is not a user assignment.
-                bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User, it,
-                                             true, v.var_slot(), line_);
-                declare(var);
+                // As Rust has it: a hidden counter the desugaring steps, and a
+                // FRESH `i` bound from it on every iteration, mutable only when
+                // declared `for mut i`. With the user's `i` doubling as the
+                // counter it had to be `mut`, and `&mut i` on a plain binder
+                // went unrefused.
+                bir::LocalId ctr = temp(it);
                 bir::Rvalue init(bir::Rvalue::K::Use);
                 init.ops.push_back(lo);
-                assign({var, {}}, std::move(init));
+                assign({ctr, {}}, std::move(init));
                 bir::BlockId head = new_block(), body = new_block(), step = new_block(),
                              exit = new_block();
                 goto_(head);
@@ -1480,18 +1481,30 @@ private:
                 bir::LocalId c = temp({});
                 bir::Rvalue cmp(bir::Rvalue::K::Op);
                 cmp.what = "<";
-                cmp.ops.push_back(read_place({var, {}}, it));
+                cmp.ops.push_back(read_place({ctr, {}}, it));
                 cmp.ops.push_back(as_read(hi));
                 assign({c, {}}, std::move(cmp));
                 branch(read_place({c, {}}, {}), {body, exit});
+                // `continue` leaves through `step` and must end this
+                // iteration's `i`, so the loop records the depth BELOW it.
                 loops_.push_back({std::string(v.label()), step, exit, scopes_.size()});
-                cur_ = body; lower_scoped_block(v.body()); goto_(step);
+                cur_ = body;
+                push_scope();
+                bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User, it,
+                                             v.var_mut(), v.var_slot(), line_);
+                declare(var);
+                bir::Rvalue bind(bir::Rvalue::K::Use);
+                bind.ops.push_back(read_place({ctr, {}}, it));
+                assign({var, {}}, std::move(bind));
+                lower_scoped_block(v.body());
+                pop_scope();
+                goto_(step);
                 loops_.pop_back();
                 cur_ = step;
                 bir::Rvalue inc(bir::Rvalue::K::Op);
                 inc.what = "+1";
-                inc.ops.push_back(read_place({var, {}}, it));
-                assign({var, {}}, std::move(inc));
+                inc.ops.push_back(read_place({ctr, {}}, it));
+                assign({ctr, {}}, std::move(inc));
                 goto_(head);
                 cur_ = exit;
                 pop_scope();
