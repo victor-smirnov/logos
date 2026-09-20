@@ -1872,7 +1872,8 @@ private:
             assign({l, {}}, ref_of(std::move(src), ref_mode == 2, false));
         else {
             bir::Rvalue rv(bir::Rvalue::K::Use);
-            rv.ops.push_back(read_place(std::move(src), bind_type));
+            bir::Operand o = read_place(std::move(src), bind_type);
+            rv.ops.push_back(in_guard_ ? as_read(std::move(o)) : std::move(o));
             assign({l, {}}, std::move(rv));
         }
         declare(l);
@@ -2020,13 +2021,23 @@ private:
         for (size_t i = 0; i < arms.size(); ++i) {
             cur_ = arm_blocks[i];
             push_scope();
-            bind_pattern(sp, stype, arms[i].pat(), 0);
             if (auto g = arms[i].guard()) {
+                // As MIR has it: the guard sees the arm's bindings BY
+                // REFERENCE, and the scrutinee is moved out of only once the
+                // guard has passed. Binding by move first left the scrutinee
+                // moved on the guard's FALSE edge (the next arm then read a
+                // moved value), and sema's nested-variant synthesis — an inner
+                // `match` inside the guard, repeated in the body — moved the
+                // same payload twice.
+                ++in_guard_;
+                bind_pattern(sp, stype, arms[i].pat(), 0);
                 bir::Operand c = operand(g);
+                --in_guard_;
                 bir::BlockId yes = new_block();
                 branch(std::move(c), {yes, i + 1 < arms.size() ? arm_blocks[i + 1] : nomatch});
                 cur_ = yes;
             }
+            bind_pattern(sp, stype, arms[i].pat(), 0);
             if (dest && arms[i].value()) lower_into(*dest, arms[i].value());
             if (auto b = arms[i].body()) lower_block_stmts(b);
             pop_scope();
@@ -2041,6 +2052,7 @@ private:
     const FlowSummaryMap* flows_;
     const TypePoolImpl*   pool_;
     bool                  mut_deref_ctx_ = false;
+    int                   in_guard_ = 0;   // lowering a match guard: bindings are reads
     bir::Body             body_;
     std::unordered_set<std::string> copy_tvs_;   // #434: the template's `T: Copy` params
     std::unordered_map<std::string, bir::Place> aliases_;   // destructure temps -> the scrutinee place
