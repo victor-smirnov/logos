@@ -4821,7 +4821,18 @@ private:
         // else it is dropped twice (double-free). #121-A: ONE walker for both
         // segment kinds, so a MIXED chain (`t.0.p`, `o.i.0`) is recorded too.
         if (er.kind() == C::FieldRead || er.kind() == C::TupleIndex || er.kind() == C::Deref) {
-            if (!is_move_type(er.type(cur_prog_->type_pool.impl()))) return;
+            // THE SAME DISJUNCT THE VarRef ARM ONE SCREEN UP ALREADY CARRIES,
+            // for the same reason its own comment gives: `is_move_type` answers
+            // FALSE for Kind::Closure, so a callable whose only Fn-family
+            // capability is FnOnce is affine and is not caught by it. The arm
+            // above got the route; this one did not, and a callable reached
+            // through a FIELD was therefore never marked moved by its consuming
+            // call — MEASURED as a live double free on three carriers
+            // (`f: || -> String`, `f: dyn FnOnce() -> String`, and
+            // `struct H<F> where F: FnOnce() -> String`), each compiling rc 0
+            // and aborting 134. #440.
+            TypeRef et_ = er.type(cur_prog_->type_pool.impl());
+            if (!is_move_type(et_) && !callable_is_fn_once({}, et_)) return;
             std::string path = move_path_of(er);
             if (!path.empty()) mark_moved(path);
         }

@@ -8084,9 +8084,18 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
                 mark_moved_expr(expr_ref_of(a));
             }
         }
+        // `FnOnce::call_once(self, ..)` CONSUMES the callable, and until now only
+        // a callable named by a BINDING was marked moved (lower_call's
+        // `consumes_callee`). A callable reached any other way — a struct FIELD
+        // above all — was called twice with no diagnostic: MEASURED as a LIVE
+        // DOUBLE FREE on three carriers, `f: || -> String`, `f: dyn FnOnce() ->
+        // String` and `struct H<F> where F: FnOnce() -> String`, each compiling
+        // rc 0 and aborting 134 (#440). The mode is already in hand here.
+        auto invoke_mode = callable_call_mode({}, rt);
+        if (invoke_mode == lir_schema::expr::CallMode::Once)
+            mark_moved_expr(expr_ref_of(recv));
         return builder().closure_call(std::move(recv),
-                                      std::move(arg_exprs), ret,
-                                      callable_call_mode({}, rt));
+                                      std::move(arg_exprs), ret, invoke_mode);
     }
     if (rt && LogosType::is_fn_value_kind(TypeRef(rt).kind())) {
         auto ret = TypeRef(rt).closure_ret()
@@ -10875,9 +10884,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         if (LogosType::is_fn_value_kind(ftk))
                             return builder().fn_ptr_call(
                                 std::move(fr), std::move(arg_exprs), ret);
+                        auto fld_mode = callable_call_mode({}, ft);
+                        if (fld_mode == lir_schema::expr::CallMode::Once)
+                            mark_moved_expr(expr_ref_of(fr));   // #440
                         return builder().closure_call(
-                            std::move(fr), std::move(arg_exprs), ret,
-                            callable_call_mode({}, ft));
+                            std::move(fr), std::move(arg_exprs), ret, fld_mode);
                     }
                     break;
                 }

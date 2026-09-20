@@ -3203,6 +3203,21 @@ bool SemaChecker::is_move_type(TypeRef t) const {
         // move-tracking site (let-RHS, call args, field / tuple-element moves)
         // suppress the source's drop uniformly — no per-site owning-dyn casing.
         if (TypeRef(x).owning_trait_object()) return true;
+        // A callable whose ONLY Fn-family capability is `FnOnce` is AFFINE, for
+        // the same reason an owning `Box<dyn>` is: `call_once` takes self BY
+        // VALUE, so the call consumes it and a second one is a use after move.
+        // ⚠ ONLY THE OWNED FORM. Calling through `&dyn FnOnce` cannot consume
+        // the referent, which is the exclusion `callee_is_ref_fn` already makes
+        // at lower_call.
+        // Until this line, `is_move_type` answered FALSE for every Kind::Closure
+        // and the VarRef arm of mark_moved_expr carried a `callable_is_fn_once`
+        // disjunct to work around it — a workaround its own comment names. The
+        // FIELD arm had no such disjunct, so a callable reached through a field
+        // was never moved: MEASURED as a live double free, rc 0 then abort 134,
+        // on `f: dyn FnOnce() -> String` called twice (#440).
+        if (TypeRef(x).kind() == LogosType::Kind::Closure &&
+            TypeRef(x).trait_name() == "FnOnce" && !TypeRef(x).borrowed_dyn_callable())
+            return true;
         // An owning `Box<[T]>` slice owns its heap buffer (non-Copy) → move type;
         // a borrowed `&[T]` is Copy-like (not a move type).
         if (TypeRef(x).owning_slice()) return true;

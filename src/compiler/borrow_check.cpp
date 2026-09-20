@@ -615,6 +615,14 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         // AddrOfTemp(Deref(r)), which the AddrOfTemp handler routes to a
         // borrow on r — they don't pass through the move path.
         if (x && x.kind() == LogosType::Kind::MutRef) return true;
+        // A callable whose ONLY Fn-family capability is `FnOnce` is AFFINE, for
+        // the same reason `&mut T` above is: `call_once` takes self BY VALUE, so
+        // the call consumes it. ⚠ OWNED FORM ONLY — calling through
+        // `&dyn FnOnce` cannot consume the referent. sema's leaf carries the
+        // twin of this line; the two classifiers must agree or a move one sees
+        // and the other does not is a diagnostic nobody emits. #440.
+        if (x && x.kind() == LogosType::Kind::Closure &&
+            x.trait_name() == "FnOnce" && !x.borrowed_dyn_callable()) return true;
         // A bare type-parameter `T` is MOVE unless it carries an explicit
         // `Copy` bound (Rust checks generic BODIES abstractly: `T` moves unless
         // `T: Copy`). Mirrors sema's bound-aware is_move_type (DIVERGENCES §B1)
