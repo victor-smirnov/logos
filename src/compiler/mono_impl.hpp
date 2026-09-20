@@ -1229,6 +1229,10 @@ private:
                                             std::string_view tmpl_name);
     std::string exact_method_instance(TypeRef recv_t, std::string_view method,
                                       std::string_view tmpl_name);
+    // #438: `eq` for a concrete element type, matched by SIGNATURE (see the
+    // definition). Empty when no implementation exists — the caller reports it.
+    std::string eq_instance_for(TypeRef et, TypeRef et_ref);
+    std::unordered_map<uint64_t, std::string> eq_instance_cache_;
 
     // Stronger sibling of mono_has_impl_recursive that takes a full
     // TypeRef instead of a stripped name. For a blanket impl

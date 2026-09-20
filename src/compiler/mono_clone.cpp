@@ -2687,33 +2687,27 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             auto inner_b_ref = lb.addr_of_temp(b_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
                             cmp = build_chain(et, inner_a_ref, inner_b_ref);
                         } else {
-                            // Primitive/user-struct/slice elem — resolve
-                            // `<T>__eq` by walking the function table
-                            // and matching the `<T>__eq__f__` prefix
-                            // anywhere in the symbol (accommodates pkg
-                            // prefixes + Slice ABI for str which uses
-                            // `str__eq__f__slice_u8__slice_u8` instead
-                            // of `__ref_str__ref_str`).
-                            // Slice<u8> canonicalises to "str" for stdlib
-                            // impl registration; type_str renders "&[u8]".
-                            std::string et_name = type_str(et);
-                            if (et.kind() == LogosType::Kind::Slice &&
-                                et.elem() && et.elem().kind() == LogosType::Kind::U8)
-                                et_name = "str";
-                            std::string prefix = et_name + "__eq__f__";
-                            std::string callee_sym;
-                            auto contains_prefix = [&](const std::string& full) {
-                                size_t pos = full.find(prefix);
-                                if (pos == std::string::npos) return false;
-                                return pos == 0 || full[pos - 1] == '.';
-                            };
-                            for (auto& fn : out_.functions)
-                                if (contains_prefix(std::string(fn.name()))) { callee_sym = std::string(fn.name()); break; }
+                            // Primitive / user-struct / slice element: resolve
+                            // `eq` for THIS element type by SIGNATURE — a
+                            // function whose method base is `eq` and whose two
+                            // parameters are the element type (by value for a
+                            // slice, by shared reference otherwise).
+                            //
+                            // #438: this used to scan function NAMES for the
+                            // `<T>__eq__f__` prefix and, when the scan found
+                            // nothing, invent the callee `<T>__eq` — a symbol no
+                            // declaration carries. Measured over 120 corpus
+                            // compiles: 1156 of the old borrow checker's
+                            // bare-name fallbacks were exactly these invented
+                            // names. A miss is now a diagnostic, not a name.
+                            std::string callee_sym = eq_instance_for(et, et_ref);
                             if (callee_sym.empty()) {
-                                for (auto& fn : in_.functions)
-                                    if (contains_prefix(std::string(fn.name()))) { callee_sym = std::string(fn.name()); break; }
+                                in_.diags.diags.push_back({Diag::Level::Error, "mono",
+                                    std::format("tuple equality: no `eq` implementation "
+                                                "for element type '{}'", type_str(et)),
+                                    {}, 0});
+                                return nullptr;
                             }
-                            if (callee_sym.empty()) callee_sym = type_str(et) + "__eq";
                             // For Slice elems (str), pass by-value — the
                             // impl signature is `(slice, slice)`, not
                             // `(&str, &str)`. mlir-gen's primitive-receiver

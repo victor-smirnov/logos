@@ -1214,6 +1214,38 @@ std::string Mono::method_instance_name(std::string_view concrete, std::string_vi
 // shape. Empty otherwise (a trait-object call, a free fn, an abstract receiver).
 // Slice 2 of ADR 0028: codegen and both borrow checkers read the callee by
 // name, so the name must be the instance, not the template.
+// #438: the `eq` instance for a concrete element type, found by SIGNATURE —
+// a function whose method base is `eq` and whose two parameters are that type
+// (by value for a slice, by shared reference otherwise). Cached by the type's
+// UID because a tuple comparison asks once per element.
+//
+// Not by name: the caller used to scan for a `<T>__eq__f__` prefix, which
+// cannot tell two packages' same-named types apart and, on a miss, invented a
+// callee that no declaration carries.
+std::string Mono::eq_instance_for(TypeRef et, TypeRef et_ref) {
+    // Types are interned, so the handle itself is the identity of the element
+    // type within this pool; `type_str` would be a spelling again.
+    const uint64_t key = et ? uint64_t(TypeRef(et).offset().value()) : 0;
+    if (auto it = eq_instance_cache_.find(key); it != eq_instance_cache_.end())
+        return it->second;
+    const bool by_value = et && TypeRef(et).kind() == LogosType::Kind::Slice;
+    TypeRef want = by_value ? et : et_ref;
+    auto matches = [&](lir_view::FunctionView fn, const TypePoolImpl* pool) {
+        if (fn.method_base() != "eq") return false;
+        auto ps = fn.params();
+        if (ps.size() != 2) return false;
+        return types_equal(ps[0].type(pool), want) && types_equal(ps[1].type(pool), want);
+    };
+    std::string sym;
+    for (auto& fn : out_.functions)
+        if (matches(fn, out_.type_pool.impl())) { sym = std::string(fn.name()); break; }
+    if (sym.empty())
+        for (auto& fn : in_.functions)
+            if (matches(fn, in_.type_pool.impl())) { sym = std::string(fn.name()); break; }
+    eq_instance_cache_.emplace(key, sym);
+    return sym;
+}
+
 std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,
                                         std::string_view tmpl_name) {
     TypeRef rt = recv_t;
