@@ -6093,6 +6093,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         if (fld_is_mut && !fld_is_ref && !fnode.has_key(la::VALUE) &&
                             fname != "_" && current_pat_mut_names_)
                             current_pat_mut_names_->insert(fname);
+                        // The written `mut` rides the binding, not only the side
+                        // set: a checker reading the PATTERN sees `x` as mutable.
+                        pfb.is_mut = fld_is_mut && !fld_is_ref && !fnode.has_key(la::VALUE);
                         if (fld_is_ref && !fnode.has_key(la::VALUE) &&
                             fname != "_") {
                             // Rust 2024 pat.binding.modifier-requires-move-mode

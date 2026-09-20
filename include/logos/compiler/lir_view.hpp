@@ -2743,6 +2743,8 @@ struct PatFieldBindingView {
         return detail::read_string(self, pk::FIELD_NAME.code);
     }
     PatRef sub() const noexcept { return detail::first_pat(self, pk::SUB.code); }
+    // The shorthand binder was written `mut x` (by value).
+    bool is_mut() const noexcept { return detail::read_bool(self, pk::IS_MUT.code); }
     uint32_t bind_slot() const noexcept {  // Phase-1 (shorthand only)
         auto v = detail::read_i64_opt(self, pk::BIND_SLOT.code);
         return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;

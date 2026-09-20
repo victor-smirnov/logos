@@ -1647,6 +1647,7 @@ const uint8_t* LirMirrorEmitter::emit_field_binding(
     put(map_off, pk::FIELD_NAME, name_av);
     put(map_off, pk::SUB,        subs_av);
     if (fb.slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)fb.slot));
+    if (fb.is_mut) put(map_off, pk::IS_MUT, put_bool(true));
     return map_off;
 }
 

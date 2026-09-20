@@ -1953,7 +1953,7 @@ private:
                     TypeRef ft = field_type(t, f.field_name());
                     bir::Place fp = p.with(bir::Proj(bir::Proj::K::Field, std::string(f.field_name())));
                     if (auto sub = f.sub()) bind_pattern(fp, ft, sub, default_ref);
-                    else bind_to(fp, ft, f.field_name(), f.bind_slot(), false, default_ref);
+                    else bind_to(fp, ft, f.field_name(), f.bind_slot(), f.is_mut(), default_ref);
                 });
                 return;
             }
