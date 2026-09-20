@@ -1150,7 +1150,11 @@ private:
             }
             case LogosType::Kind::Slice:
                 if (t.raw_fat()) return;
-                if (!t.owning_slice()) elided = true;
+                if (!t.owning_slice()) {
+                    std::string lt(t.lifetime());
+                    if (lt.empty() || lt == "'_") elided = true;
+                    else if (lt != "'static") names.insert(lt);
+                }
                 lifetimes_in(t.elem(), names, elided, depth + 1);
                 return;
             case LogosType::Kind::TraitObject:
@@ -2424,7 +2428,13 @@ private:
             }
             case LogosType::Kind::Slice:
                 if (!same(dk, ak)) break;
-                if (!actual.owning_slice()) out.push_back("");
+                // A borrowed slice is a reference: `&'a [T]` names its region
+                // like `&'a T` does (`Chunks::next -> Option<&'a [T]>` must
+                // take its result from `'a`, not from the `&mut self` autoref).
+                if (!actual.owning_slice() && !actual.raw_fat()) {
+                    std::string lt(decl.lifetime());
+                    out.push_back(lt.empty() || lt == "'_" ? "" : lt);
+                }
                 labels(decl.elem(), actual.elem(), out, depth + 1);
                 return;
             case LogosType::Kind::Array:
