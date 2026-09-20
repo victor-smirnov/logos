@@ -3891,6 +3891,37 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 new_concrete = nrt.kind() != LogosType::Kind::TypeVar &&
                                nrt.kind() != LogosType::Kind::AssocType;
             }
+            // `self: &Self` with `Self = &T` (a `where &T: Trait` bound): the
+            // receiver is `&&T`, one layer more than the peel above removes.
+            // Retarget it ONLY when the reference impl it names exists
+            // (`$ref_<C>__m` / `$mut_ref_<C>__m`): any other `&&T` receiver is
+            // resolved elsewhere, and claiming it here would compose a name
+            // nothing carries.
+            if (!orig_retargetable && orig_inner && new_recv &&
+                (TypeRef(orig_inner).kind() == LogosType::Kind::Ref ||
+                 TypeRef(orig_inner).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(orig_inner).pointee() &&
+                TypeRef(TypeRef(orig_inner).pointee()).kind() == LogosType::Kind::TypeVar) {
+                TypeRef nr{new_recv.type(out_.type_pool.impl())};
+                TypeRef inner = nr && nr.pointee() ? TypeRef(nr.pointee()) : TypeRef{};
+                TypeRef conc = inner && inner.pointee() ? TypeRef(inner.pointee()) : TypeRef{};
+                if (conc && (inner.kind() == LogosType::Kind::Ref || inner.kind() == LogosType::Kind::MutRef)) {
+                    std::string base_c =
+                        (conc.kind() == LogosType::Kind::Struct || conc.kind() == LogosType::Kind::ZonedStruct)
+                            ? concrete_struct_name(conc)
+                        : conc.kind() == LogosType::Kind::Enum ? enum_instance_name(conc)
+                                                               : type_str(conc);
+                    std::string key = (inner.kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") +
+                                      base_c + "__" + method;
+                    auto names_it = [&](std::string_view t) {
+                        return t == key || starts_with_parts(t, key, "__");
+                    };
+                    bool exists = templates_.count(key) || specs_.count(key);
+                    if (!exists) for (auto& f : in_.functions)  if (names_it(bare_fn_name(f.name()))) { exists = true; break; }
+                    if (!exists) for (auto& f : out_.functions) if (names_it(bare_fn_name(f.name()))) { exists = true; break; }
+                    if (exists) { orig_retargetable = true; new_concrete = true; }
+                }
+            }
             if (orig_retargetable && new_concrete &&
                 new_recv && new_recv.type(out_.type_pool.impl())) {
                 std::string cname;
@@ -4084,6 +4115,24 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     if (!sym_exists(cname + "__" + method) &&
                         sym_exists(refc + "__" + method))
                         cname = refc;
+                    // `self: &Self` with `Self = &mut M` (a `where &mut T:
+                    // Trait` bound): the receiver is `&&mut M` and the impl's
+                    // target is the INNER reference, keyed `$mut_ref_M`. The
+                    // key above reads the OUTER layer (`$ref_&mut M`, the
+                    // by-value-self target) and is tried first, unchanged.
+                    else if (TypeRef inner = TypeRef(rt).pointee();
+                             inner.pointee() && (inner.kind() == LogosType::Kind::Ref ||
+                                                 inner.kind() == LogosType::Kind::MutRef) &&
+                             !sym_exists(cname + "__" + method)) {
+                        TypeRef c = inner.pointee();
+                        std::string base_c =
+                            (c.kind() == LogosType::Kind::Struct || c.kind() == LogosType::Kind::ZonedStruct)
+                                ? concrete_struct_name(c)
+                            : c.kind() == LogosType::Kind::Enum ? enum_cname(c) : type_str(c);
+                        std::string inner_key =
+                            (inner.kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") + base_c;
+                        if (sym_exists(inner_key + "__" + method)) cname = inner_key;
+                    }
                 }
                 // Trait-aware method mangling: when sema flagged this dispatch
                 // as ambiguous-by-name (tag_trait carries the chosen trait),

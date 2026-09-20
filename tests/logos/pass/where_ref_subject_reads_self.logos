@@ -1,0 +1,28 @@
+// `where &T: Trait` / `where &mut T: Trait`: the bound's SUBJECT is the
+// reference, so `Self = &T` and a `self: &Self` method takes `&&T`. The
+// receiver `x: &T` is a value of Self and needs the autoref. Before the fix
+// `x` itself went into the `&&T` slot, and the moment a body READ `self` the
+// program died with rc 139 from safe code; the imported twin
+// (where-clause-ref-bound-b158) never noticed because its bodies return
+// constants. Both reference kinds, and the `&mut` impl is keyed
+// `$mut_ref_M`, not by the receiver's outer `&`.
+package where_ref_subject_reads_self;
+
+trait TheTrait { fn val(self: &Self) -> i64; }
+
+struct S { v: i64 }
+impl TheTrait for &S { fn val(self: &Self) -> i64 { return (**self).v; } }
+
+struct M { w: i64 }
+impl TheTrait for &mut M { fn val(self: &Self) -> i64 { return (**self).w + 1i64; } }
+
+fn foo<T>(x: &T) -> i64 where &T: TheTrait { return x.val(); }
+fn bar<T>(x: &mut T) -> i64 where &mut T: TheTrait { return x.val(); }
+
+fn main() -> i32 {
+    let s: S = S { v: 9i64 };
+    if foo(&s) != 9i64 { return 1i32; }
+    let mut m: M = M { w: 3i64 };
+    if bar(&mut m) != 4i64 { return 2i32; }
+    return 0i32;
+}

@@ -9724,6 +9724,29 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     auto ref_ty = make_ref(is_mut, expr_type(recv));
                     recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty, BorrowOrigin::Autoref);
                 }
+                // `where &T: Trait` / `where &mut T: Trait`: the bound's subject
+                // IS the reference, so `Self = &T` and a `self: &Self` method
+                // takes `&&T`. The receiver `x: &T` is then a VALUE of Self and
+                // needs the autoref like any other by-value receiver; without
+                // it `x` itself went into the `&&T` slot and the impl read a
+                // struct where a pointer was (rc 139 from safe code the moment
+                // the body touched `self`; where-clause-ref-bound-b158 passed
+                // only because its bodies do not).
+                else if (formal0 && is_ref_like(TypeRef(formal0).kind()) && expr_type(recv) &&
+                         is_ref_like(TypeRef(expr_type(recv)).kind())) {
+                    bool recv_mut = TypeRef(expr_type(recv)).kind() == LogosType::Kind::MutRef;
+                    bool ref_subject = false;
+                    if (auto bitr = current_type_bounds_.find(recv_bound_key);
+                        bitr != current_type_bounds_.end())
+                        for (auto& b : bitr->second)
+                            if (b.on_ref_subject && b.is_ref_mut == recv_mut &&
+                                b.trait_name == chosen_trait) { ref_subject = true; break; }
+                    if (ref_subject) {
+                        bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+                        auto ref_ty = make_ref(is_mut, expr_type(recv));
+                        recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty, BorrowOrigin::Autoref);
+                    }
+                }
             }
 
             // Use EMethodCall — mono will resolve to concrete impl.
