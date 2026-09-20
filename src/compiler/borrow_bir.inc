@@ -598,6 +598,23 @@ private:
         assign({t, {}}, std::move(rv));
         return read_place({t, {}}, e.type(pool_));
     }
+    // A literal, or an array of them (`&[]`, `&[1, 2]`): what Rust promotes to
+    // a `'static` place under a shared borrow.
+    bool is_promotable_literal(lir_view::ExprRef e, int depth = 0) const {
+        if (!e || depth > 4) return false;
+        switch (e.kind()) {
+            case ECode::LitInt: case ECode::LitFloat: case ECode::LitBool: case ECode::LitStr:
+                return true;
+            case ECode::ArrLit: {
+                lir_view::EArrLitView a{e};
+                for (uint64_t i = 0; i < a.count(); ++i)
+                    if (!is_promotable_literal(a.elem(i), depth + 1)) return false;
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
     bool is_constant(lir_view::ExprRef e) const {
         switch (e.kind()) {
             case ECode::LitInt: case ECode::LitFloat: case ECode::LitBool:
@@ -663,14 +680,11 @@ private:
                 // a promoted constant, not a loan of a temporary — `return
                 // &5i32;` is legal. Literals only; a named const or a constant
                 // call is not claimed here.
-                if (!v.is_mut() && v.inner() && t && t.kind() != LogosType::Kind::Ptr)
-                    switch (v.inner().kind()) {
-                        case ECode::LitInt: case ECode::LitFloat: case ECode::LitBool:
-                        case ECode::LitStr:
-                            assign(std::move(dest), bir::Rvalue(bir::Rvalue::K::Use));
-                            return;
-                        default: break;
-                    }
+                if (!v.is_mut() && v.inner() && t && t.kind() != LogosType::Kind::Ptr &&
+                    is_promotable_literal(v.inner())) {
+                    assign(std::move(dest), bir::Rvalue(bir::Rvalue::K::Use));
+                    return;
+                }
                 // `&mut *x.deref()`: the deref feeding a mutable borrow is a
                 // `deref_mut`, whatever the L-IR spelled (sema may emit the
                 // shared one for a mutable receiver).
