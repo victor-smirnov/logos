@@ -53,13 +53,20 @@ struct Local {
 };
 
 struct Proj {
-    enum class K : uint8_t { Deref, Field, Index };
+    // ADR 0028: Subslice is MIR's, and it exists because a slice pattern's REST
+    // (`[a, rest @ ..]`) names a RANGE of elements, not one. `from_end` is
+    // MIR's too: a suffix element (`[.., b]`) is at an offset counted from the
+    // end, which is a DIFFERENT element from the same offset counted from the
+    // start unless the length is known.
+    enum class K : uint8_t { Deref, Field, Index, Subslice };
     Proj() = default;
     explicit Proj(K kind, std::string f = {}) : k(kind), field(std::move(f)) {}
     K           k = K::Deref;
     std::string field;              // Field: name, tuple index or `Variant#i`
     LocalId     index = kNoLocal;   // Index: the index operand's local, if any
     int64_t     const_index = -1;   // Index into an ARRAY by a literal: MIR's ConstantIndex
+    bool        from_end = false;   // Index / Subslice: the offset counts from the END
+    int64_t     sub_to = -1;        // Subslice: the END offset (from the end when from_end)
     TypeRef     ty;                 // type of the place AFTER this projection, when known
 };
 
@@ -2212,18 +2219,72 @@ private:
                 // the over-approximation the old checker's own comment calls
                 // "coarse". Refused with its own reason so the census counts it.
                 lir_view::PatSliceView sv{pat};
-                bool has_rest = false;
-                sv.each_rest([&](lir_view::PatRef) { has_rest = true; });
-                if (has_rest || sv.suffix_count() != 0) {
-                    if (pattern_binds(pat)) unsupported("pat:Slice with a rest or suffix binding");
-                    return;
-                }
                 TypeRef et = t ? (t.kind() == LogosType::Kind::Array ? t.elem()
                                                                      : TypeRef{}) : TypeRef{};
                 int64_t i = 0;
                 sv.each_prefix([&](lir_view::PatRef sub) {
                     bir::Proj ix(bir::Proj::K::Index);
                     ix.const_index = i++;
+                    ix.ty = et;
+                    if (sub) bind_pattern(p.with(std::move(ix)), et, sub, default_ref);
+                });
+                // The REST binds a RANGE — MIR's Subslice — and the SUFFIX
+                // elements sit at offsets counted FROM THE END, because the
+                // length is not known here for a slice. Neither has a single
+                // element's move path, and `overlap` cannot separate them from
+                // anything, so both are conservative by construction.
+                // ⚠ AN ARRAY'S LENGTH IS KNOWN, SO THE OFFSET FROM THE END IS
+                // RESOLVED HERE AND THE PRECISE MACHINERY KEEPS WORKING.
+                // Leaving it `from_end` would truncate its move path to the
+                // CONTAINER (path_of cannot name it), and a WIDER move path is
+                // the REFUSING direction: `match arr { [a, .., b] => .. }` was
+                // refused as "use of moved or uninitialised 'arr.[0]'" because
+                // binding `b` moved the whole array. "Conservative" has a
+                // direction, and for moves it is not the wide one.
+                const uint64_t sfx = sv.suffix_count();
+                const int64_t  alen = (t && t.kind() == LogosType::Kind::Array)
+                                          ? int64_t(t.arr_size()) : -1;
+                sv.each_rest([&](lir_view::PatRef sub) {
+                    if (!sub) return;
+                    // BY VALUE OVER A KNOWN LENGTH: the rest moves exactly the
+                    // elements it covers, so it is bound to an AGGREGATE of
+                    // those places and each one moves by its own path. A single
+                    // Subslice path would be a sibling of `a[2]`, not its
+                    // parent — the initialisation dataflow builds its tree from
+                    // the parent FIELD, not from the `child_path` relation — so
+                    // moving the rest would not mark the elements moved. That
+                    // was MEASURED: four missed moves.
+                    const int64_t lo = i, hi = alen >= 0 ? alen - int64_t(sfx) : -1;
+                    if (default_ref == 0 && hi >= lo && sub.kind() == PCode::Wild) {
+                        auto wv = lir_view::PatWildView{sub};
+                        if (!wv.name().empty() && wv.name() != "_") {
+                            bir::LocalId l = new_local(std::string(wv.name()), bir::LocalKind::User,
+                                                       t, wv.is_mut(), wv.bind_slot(), line_);
+                            bir::Rvalue rv(bir::Rvalue::K::Aggregate);
+                            rv.what = "subslice";
+                            for (int64_t k = lo; k < hi; ++k) {
+                                bir::Proj ix(bir::Proj::K::Index);
+                                ix.const_index = k; ix.ty = et;
+                                rv.ops.push_back(read_place(p.with(std::move(ix)), et));
+                            }
+                            assign({l, {}}, std::move(rv));
+                            declare(l);
+                            return;
+                        }
+                    }
+                    bir::Proj ss(bir::Proj::K::Subslice);
+                    ss.const_index = i;
+                    ss.ty          = t;
+                    if (alen >= 0) { ss.sub_to = alen - int64_t(sfx); }
+                    else           { ss.sub_to = int64_t(sfx); ss.from_end = true; }
+                    bind_pattern(p.with(std::move(ss)), t, sub, default_ref);
+                });
+                int64_t j = int64_t(sfx);
+                sv.each_suffix([&](lir_view::PatRef sub) {
+                    bir::Proj ix(bir::Proj::K::Index);
+                    if (alen >= 0) ix.const_index = alen - j;
+                    else         { ix.const_index = j; ix.from_end = true; }
+                    --j;
                     ix.ty = et;
                     if (sub) bind_pattern(p.with(std::move(ix)), et, sub, default_ref);
                 });
@@ -2275,6 +2336,32 @@ private:
             case PCode::Or:
                 lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a) { tested_places(p, t, a, out, depth + 1); });
                 return;
+            case PCode::Slice: {
+                // ⚠ AN ARRAY'S LENGTH IS STATIC, SO A SHAPE TEST READS NOTHING.
+                // Falling to the default below marked the WHOLE array examined,
+                // and a second `match arr` after a first had moved an element
+                // out was then refused as a use of a partially moved value —
+                // rustc accepts it (twin measured), and so does the old checker.
+                // Only the sub-patterns test anything. A SLICE is different: its
+                // length is a runtime word, so the shape test does read it, and
+                // that falls through to the default.
+                if (!t || t.kind() != LogosType::Kind::Array) break;
+                lir_view::PatSliceView sv{pat};
+                TypeRef et = t.elem();
+                int64_t i = 0;
+                sv.each_prefix([&](lir_view::PatRef sub) {
+                    bir::Proj ix(bir::Proj::K::Index);
+                    ix.const_index = i++; ix.ty = et;
+                    tested_places(p.with(std::move(ix)), et, sub, out, depth + 1);
+                });
+                int64_t j = int64_t(sv.suffix_count());
+                sv.each_suffix([&](lir_view::PatRef sub) {
+                    bir::Proj ix(bir::Proj::K::Index);
+                    ix.const_index = int64_t(t.arr_size()) - j--; ix.ty = et;
+                    tested_places(p.with(std::move(ix)), et, sub, out, depth + 1);
+                });
+                return;
+            }
             default:
                 out.push_back(p);   // a variant, a literal, a range, a slice shape: the place is examined
                 return;
@@ -2304,7 +2391,22 @@ private:
         std::vector<lir_view::EMatchArmRef> arms;
         each_arm([&](lir_view::EMatchArmRef a) { arms.push_back(a); });
         bir::BlockId join = new_block();
-        pattern_test(sp, stype, {});
+        // ⚠ AN ARRAY MATCHED ONLY BY SHAPE READS NOTHING. The length is static,
+        // so `match arr { [.., z] => .. }` examines no storage — it only moves
+        // what it binds. Reading the whole scrutinee here (and again in the
+        // branch below) refused a SECOND `match arr` after a first had moved an
+        // element out, as a use of a partially moved value; rustc accepts that
+        // program (twin measured) and so does the old checker. This is the same
+        // argument the guard's fake borrows below already make, in the comment
+        // that says borrowing the whole scrutinee "refused both" — made once
+        // for guards and not for the read.
+        bool shape_only = stype && stype.kind() == LogosType::Kind::Array && !arms.empty();
+        if (shape_only)
+            for (auto& a2 : arms) {
+                auto k = a2.pat() ? a2.pat().kind() : PCode::Wild;
+                if (k != PCode::Slice && k != PCode::Wild) { shape_only = false; break; }
+            }
+        if (!shape_only) pattern_test(sp, stype, {});
         std::vector<bir::BlockId> arm_blocks;
         for (size_t i = 0; i < arms.size(); ++i) arm_blocks.push_back(new_block());
         // "No arm matched": a match is exhaustive, so this edge is never
@@ -2313,7 +2415,7 @@ private:
         body_.blocks[nomatch].term = bir::Term(bir::Term::K::Unreachable);
         body_.blocks[nomatch].terminated = true;
         arm_blocks.push_back(nomatch);
-        branch(read_place(sp, {}), arm_blocks);
+        branch(shape_only ? bir::Operand{} : read_place(sp, {}), arm_blocks);
         for (size_t i = 0; i < arms.size(); ++i) {
             cur_ = arm_blocks[i];
             push_scope();
@@ -2416,6 +2518,12 @@ public:
         for (auto& pj : p.proj) {
             if (pj.k == bir::Proj::K::Deref) s = "(*" + s + ")";
             else if (pj.k == bir::Proj::K::Field) s += "." + pj.field;
+            else if (pj.k == bir::Proj::K::Subslice)
+                s += pj.from_end ? "[" + std::to_string(pj.const_index) + "..-" +
+                                   std::to_string(pj.sub_to) + "]"
+                                 : "[" + std::to_string(pj.const_index) + "..]";
+            else if (pj.k == bir::Proj::K::Index && pj.from_end && pj.const_index >= 0)
+                s += "[-" + std::to_string(pj.const_index) + "]";
             else s += "[_]";
         }
         return s;
@@ -3149,10 +3257,25 @@ private:
             } else if (pj.k == bir::Proj::K::Deref && is_std_box(t)) {
                 seg = "*";
                 t = pj.ty ? pj.ty : (t.type_args().empty() ? TypeRef{} : t.type_args()[0]);
-            } else if (pj.k == bir::Proj::K::Index && pj.const_index >= 0 && t &&
+            } else if (pj.k == bir::Proj::K::Index && pj.const_index >= 0 && !pj.from_end && t &&
                        t.kind() == LogosType::Kind::Array) {
+                // ⚠ `!from_end`: an offset from the END is a different element
+                // from the same offset from the start unless the length is
+                // known, and it must not be given that element's move path. A
+                // Subslice names a RANGE and has no single path either. Both
+                // fall to the `break` below, which truncates to the container —
+                // the conservative direction for a move.
                 seg = "[" + std::to_string(pj.const_index) + "]";
                 t = pj.ty ? pj.ty : t.elem();
+            // ⚠ A Subslice gets NO path of its own, on purpose. Giving it one
+            // made `a[2..3]` and `a[2]` distinct paths and MEASURED as four
+            // missed moves — trading an over-refusal for silence, which is the
+            // worse direction. A rest binding TAKEN BY VALUE over an array of
+            // known length is bound to an AGGREGATE of the elements it covers
+            // instead (see the Slice pattern arm), so each element moves by its
+            // own precise path and this projection never reaches a move path.
+            // Through a REFERENCE it stays here and truncates, which is the
+            // conservative direction for a loan.
             } else {
                 break;
             }
@@ -3261,8 +3384,13 @@ private:
             if (x.k == bir::Proj::K::Field && y.k == bir::Proj::K::Field && x.field != y.field)
                 return is_union_type(t);
             if (x.k == bir::Proj::K::Index && y.k == bir::Proj::K::Index && x.const_index >= 0 &&
-                y.const_index >= 0 && x.const_index != y.const_index)
+                y.const_index >= 0 && x.from_end == y.from_end && x.const_index != y.const_index)
                 return false;   // two literal elements of one array
+            // ⚠ `x.from_end != y.from_end` FALLS THROUGH TO OVERLAP ON PURPOSE:
+            // `a[2]` and the element 1 FROM THE END are the same element of a
+            // 3-array and different elements of a 4-array, and the length is
+            // not known here. A Subslice names a RANGE and overlaps anything
+            // this walk cannot separate, which is the default below.
             if (x.k == bir::Proj::K::Deref)
                 t = x.ty ? x.ty : (t && t.pointee() ? TypeRef(t.pointee()) : TypeRef{});
             else if (x.k == bir::Proj::K::Field)
