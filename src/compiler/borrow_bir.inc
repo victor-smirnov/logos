@@ -255,7 +255,7 @@ static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const T
         case LogosType::Kind::Slice:
             if (t.raw_fat()) return false;
             return !t.owning_slice() || bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
-        case LogosType::Kind::TraitObject: return !t.owning_trait_object() && !t.raw_fat();
+        case LogosType::Kind::TraitObject: return !t.raw_fat();
         case LogosType::Kind::DstRef: return !t.owning_dst() && !t.raw_fat();
         case LogosType::Kind::Array: return bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
         case LogosType::Kind::Tuple:
@@ -692,7 +692,10 @@ private:
         struct ExtGuard { bool& f; bool v; ~ExtGuard() { f = v; } } ext_guard{extending_, extending_};
         switch (e.kind()) {
             case ECode::AddrOf: case ECode::AddrOfTemp: case ECode::StructLit:
-            case ECode::TupleLit: case ECode::ArrLit: break;
+            case ECode::TupleLit: case ECode::ArrLit:
+            // `&[&t]` coerced to `&[&dyn Tc]` is a SliceLit / a cast around the
+            // borrow: the operand of a cast is an extending position too.
+            case ECode::SliceLit: case ECode::Cast: break;
             default: extending_ = false; break;
         }
         switch (e.kind()) {
@@ -1062,10 +1065,47 @@ private:
                     TypeRef p0 = f && !f.params_empty() ? f.params()[0].type(pool_) : TypeRef{};
                     if (p0 ? !raw_addr_arg(rcv, p0, t) : !raw_addr_place(rcv, t)) arg_value(rcv);
                 } else if (rcv && sk >= 1 && !is_pointer_kind(rcv.type(pool_))) {
-                    // A bare place passed to `&self` / `&mut self`: sema left
-                    // the autoref to codegen, so the loan is not in the L-IR.
-                    unsupported(std::getenv("LOGOS_BIR_GAPNAME") ? "method: bare receiver " + std::string(v.method()) + " kind=" + std::to_string(int(rcv.kind())) : std::string("method: a receiver place for a reference self without a borrow node"));
-                    arg_value(rcv);
+                    TypeRef rty = rcv.type(pool_);
+                    bool fat_ref = rty && ((rty.kind() == LogosType::Kind::TraitObject && !rty.owning_trait_object()) ||
+                                           (rty.kind() == LogosType::Kind::Slice && !rty.owning_slice()) ||
+                                           (rty.kind() == LogosType::Kind::DstRef && !rty.owning_dst()));
+                    if (fat_ref) {
+                        // `&dyn Tr`, `&mut [T]`, `&Dst`: the receiver IS a
+                        // reference, and a method call REBORROWS it (`&*x`, a
+                        // two-phase `&mut *x`) as it does a thin one — sema
+                        // spells that reborrow for thin references only. Without
+                        // the loan, `let y = x.f1(); x.f2(); use(y);` over `x:
+                        // &mut dyn Foo` went unrefused.
+                        bool m = sk == 2;
+                        bir::Place p = place_or_temp(rcv).with(bir::Proj(bir::Proj::K::Deref));
+                        bir::LocalId tmp = synth_ref_temp({}, m);
+                        assign({tmp, {}}, ref_of(std::move(p), m, m));
+                        if (m)
+                            reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
+                        bir::Operand o;
+                        o.k = m ? bir::Operand::K::Move : bir::Operand::K::Copy;
+                        o.place = {tmp, {}};
+                        t.args.push_back(std::move(o));
+                    } else {
+                        // A value receiver of a `&self` / `&mut self` method with
+                        // no borrow node in the L-IR (sema leaves the address-of
+                        // to codegen for a `Box<dyn Tr>` handle, a zoned struct, a
+                        // primitive rvalue). What the language means is not in
+                        // doubt: `x.m()` borrows `x` — shared for `&self`, a
+                        // two-phase `&mut` for `&mut self` — and an rvalue is
+                        // borrowed through a temporary. The self kind comes from
+                        // the callee's signature, not from the receiver's shape.
+                        bool m = sk == 2;
+                        bir::Place p = place_or_temp(rcv);
+                        bir::LocalId tmp = synth_ref_temp(rty, m);
+                        assign({tmp, {}}, ref_of(std::move(p), m, m));
+                        if (m)
+                            reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
+                        bir::Operand o;
+                        o.k = m ? bir::Operand::K::Move : bir::Operand::K::Copy;
+                        o.place = {tmp, {}};
+                        t.args.push_back(std::move(o));
+                    }
                 } else if (rcv) {
                     arg_value(rcv);
                 }
@@ -2233,7 +2273,14 @@ private:
                 if (!t.raw_fat()) walk_type(t.elem(), invariant, out, depth + 1);
                 return;
             case LogosType::Kind::TraitObject:
-                if (!t.owning_trait_object() && !t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
+                // An OWNING trait object (`Box<dyn Get>`) erases what it holds,
+                // loans included: `Box::new(c.mk())` keeps `c` borrowed for as
+                // long as the box is used. One origin stands for whatever was
+                // erased, as it does for a closure's captures. (Rust asks for
+                // `+ 'static` here by default and refuses outright; holding the
+                // loan is the weaker claim and refuses the same programs that
+                // go on to use both.)
+                if (!t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
                 return;
             case LogosType::Kind::DstRef:
                 if (!t.owning_dst() && !t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
