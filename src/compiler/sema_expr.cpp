@@ -18439,6 +18439,20 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     bool saved_unsafe = inside_unsafe_;
     ret_type_ = has_annot ? ret_type : nullptr;
     inside_unsafe_ = false;
+    // THE CONSUMPTION FACT IS ALREADY COMPUTED — IT WAS NEVER WRITTEN DOWN.
+    // Lowering the body runs `mark_moved_expr` at every by-value position, and
+    // a capture resolves in an ENCLOSING scope, so a body that consumes one
+    // leaves its name in `moved_vars_`. (Measured: `let f = || { let y: String
+    // = x; }; let z = x;` is already refused with "use of moved variable 'x'".)
+    // The snapshot makes the reading precise: only what THIS body moved, not
+    // what was already moved before the closure was written.
+    std::set<std::string> moved_before_body = moved_vars_;
+    // ⚠ AND THE EVER-SET, because `lower_if` / `lower_match` SAVE AND RESTORE
+    // `moved_vars_` around a diverging branch: a capture consumed only inside
+    // an `if` would be reverted out of it by the time this is read, and the
+    // mode would silently fall back to a borrow. `body_ever_moved_` exists for
+    // exactly that reason — it is what the fn epilogue's param drops consult.
+    auto ever_before_body = body_ever_moved_;
     std::vector<lir_view::StmtRef> body;
     if (node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
@@ -19220,10 +19234,17 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->capture_modes.assign(ec->captures.size(), 0);
     ec->capture_widened.assign(ec->captures.size(), 0);
     for (size_t i = 0; i < ec->captures.size(); ++i) {
-        ec->capture_modes[i] = is_move ? uint8_t(2)                      // ByValue
+        const bool consumed_by_body =
+            (moved_vars_.count(ec->captures[i]) > 0 &&
+             moved_before_body.count(ec->captures[i]) == 0) ||
+            (body_ever_moved_.count(ec->captures[i]) > 0 &&
+             ever_before_body.count(ec->captures[i]) == 0);
+        // rustc keys ByValue on whether the BODY consumes the capture, not on
+        // the `move` keyword; `move` forces it, a consuming body earns it.
+        ec->capture_modes[i] = (is_move || consumed_by_body) ? uint8_t(2)   // ByValue
                              : mut_captures_set.count(ec->captures[i]) > 0
-                                 ? uint8_t(1)                            // MutBorrow
-                                 : uint8_t(0);                           // ImmBorrow
+                                 ? uint8_t(1)                              // MutBorrow
+                                 : uint8_t(0);                             // ImmBorrow
         ec->capture_widened[i] = widened_roots.count(ec->captures[i]) ? 1 : 0;
     }
 

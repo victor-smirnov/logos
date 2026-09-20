@@ -978,22 +978,11 @@ private:
                     TypeRef leaf = v.capture_field_type(pool_, i);
                     if (leaf) cur = leaf;
                     const uint8_t mode = v.capture_mode(i);
-                    // ⚠ THE ONE CASE THE MODE CANNOT ANSWER, AND IT IS NOT
-                    // GUESSED. Sema keys ByValue on the `move` KEYWORD, so for a
-                    // non-`move` closure a capture of a MOVE type is recorded
-                    // ImmBorrow whether the body reads it or CONSUMES it —
-                    // `let f = || { let y: S = x; };` is a by-value capture in
-                    // Rust (E0382 when the closure is built twice) and would be
-                    // lowered here as `&x`, a loan where MIR builds a move.
-                    // Sema records no consumption for a non-`move` body (it runs
-                    // is_move_type/mark_moved only under `if (is_move)`), so the
-                    // fact does not exist to read and the function is refused
-                    // with its reason counted, not lowered on a guess.
-                    if (mode != 2 && !v.is_move() && cur && !is_copy(cur)) {
-                        unsupported("closure: a move-type capture in a non-`move` closure");
-                        assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
-                        return;
-                    }
+                    // (The guard that used to stand here — refusing a move-type
+                    // capture in a non-`move` closure — is gone: sema now
+                    // records ByValue when the BODY CONSUMES the capture, which
+                    // is rustc's rule, so an ImmBorrow on a move type is a
+                    // known fact and no longer an unknown.)
                     if (mode == 2) {                       // ByValue
                         rv.ops.push_back(read_place(std::move(p), cur));
                     } else {
