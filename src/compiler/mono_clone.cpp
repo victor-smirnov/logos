@@ -4308,6 +4308,20 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             break;
                         }
                     }
+                    // #438: the composed `<cname>__<method>` is a SPELLING.
+                    // When no template and no specialisation carries it, the
+                    // call used to keep that name — a symbol no declaration
+                    // defines, which every consumer then re-resolved by
+                    // scanning names (measured: 1156 bare-name fallbacks in the
+                    // old borrow checker over 120 corpus compiles, all of them
+                    // in mono instances of generic stdlib methods). Ask the
+                    // function table by SIGNATURE instead; the composed name
+                    // stays only when nothing provides the method, where it is
+                    // the diagnostic the later phases already produce.
+                    if (tmpl_key == base_fn && !templates_.count(tmpl_key) &&
+                        !specs_.count(tmpl_key) && rt)
+                        if (std::string bysig = instance_by_signature(rt, method_q); !bysig.empty())
+                            tmpl_key = std::move(bysig);
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
                     v.each_arg([&](lir_view::ExprRef ar) {
