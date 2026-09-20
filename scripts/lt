@@ -20,8 +20,9 @@ tests/groups.rules (committed) and may overlap; levels never do.
   lt task show [NAME] | lt task list
   lt levels [--task NAME]              sizes of L0 / L1 / L2
   lt run --level 0|1|2 [--upto]        run a level (--upto: L0..level, stop at a red level)
-  lt run --plus PCT                    run L0, then PCT% of L2: stratified by category,
-                                       least recently run first (successive runs rotate L2)
+  lt run --plus PCT                    run L0, then PCT% of EVERYTHING ELSE (L1 + L2):
+                                       stratified by category, least recently run first,
+                                       so successive runs rotate through the suite
   lt run --group G... [--except G...]  run groups (or --all [--except G...])
   lt run --failed                      rerun what failed in the last run
   lt run --same-as RUN                 rerun exactly the tests of run RUN (before/after)
@@ -31,7 +32,7 @@ tests/groups.rules (committed) and may overlap; levels never do.
   lt groups [G]                        groups and their sizes (or members of G)
 
 A SERIES is a run of like tasks on one branch (e.g. ten BC defects). While it
-is open, each task runs its L0 plus a sample of L2 (`lt run --plus`); the
+is open, each task runs its L0 plus a sample of the rest (`lt run --plus`); the
 whole suite runs only when the series closes, and the series merges into main
 only from a green whole-suite run of the very commit being merged:
   lt series new NAME [--pct P]         branch series/NAME off HEAD; the series is
@@ -419,7 +420,7 @@ def wide_consumers(con):
             if wide & set(json.loads(fr or "[]"))}
 
 def sample_rest(con, pool, pct):
-    """`pct` percent of `pool` (a task's L2), stratified by category
+    """`pct` percent of `pool` (a task's L1 + L2), stratified by category
     (largest-remainder allocation, so each category keeps its share), and
     within a category the tests run LEAST recently first (never-run first), so
     successive samples rotate through the whole suite. Ties break by a
@@ -609,13 +610,19 @@ def cmd_run(con, build, args):
         args.plus = ser[3]
     if args.plus is not None:
         task = current_task(con, args.task)
-        l0, _, l2, _ = levels(con, task)
+        l0, l1, l2, _ = levels(con, task)
         rc = run_set(con, build, l0, args, task, f"task {task} L0")
         if rc and not args.keep_going:
             print("lt: L0 is red; not running the sample")
             return rc
-        smp = sample_rest(con, l2, args.plus)
-        return run_set(con, build, smp, args, task, f"task {task} +{args.plus:g}% of L2") or rc
+        # The sample is drawn from EVERYTHING the task's own tests are not:
+        # L1 (the groups they belong to) and L2 (the rest), which are disjoint
+        # from L0 by construction. Drawing from L2 alone meant that the better
+        # L0 got, the more groups L1 swallowed and the further the sample drifted
+        # from the work — `generics` and `patterns` sat entirely in L1 and never
+        # ran under `--plus`.
+        smp = sample_rest(con, l1 | l2, args.plus)
+        return run_set(con, build, smp, args, task, f"task {task} +{args.plus:g}% of L1+L2") or rc
     if args.level is not None:
         task = current_task(con, args.task)
         l = levels(con, task)
@@ -709,9 +716,9 @@ def cmd_levels(con, build, args):
         cpu = sum(dur.get(n, 1.0) for n in s)
         print(f"L{i}: {len(s):6d} tests  ~{cpu/60:6.1f} CPU-min")
     if args.plus is not None:
-        smp = sample_rest(con, l2, args.plus)
+        smp = sample_rest(con, l1 | l2, args.plus)
         cpu = sum(dur.get(n, 1.0) for n in smp)
-        print(f"+{args.plus:g}% of L2: {len(smp):6d} tests  ~{cpu/60:6.1f} CPU-min")
+        print(f"+{args.plus:g}% of L1+L2: {len(smp):6d} tests  ~{cpu/60:6.1f} CPU-min")
     print("groups of L0: " + (", ".join(grps) or "—"))
     return 0
 
@@ -771,7 +778,7 @@ def main():
     r.add_argument("names", nargs="*"); r.add_argument("--level", type=int, choices=[0, 1, 2])
     r.add_argument("--upto", action="store_true"); r.add_argument("--task")
     r.add_argument("--plus", type=float, metavar="PCT", nargs="?", const=-1.0,
-                   help="run L0, then PCT%% of L2 (stratified, least recently run first); "
+                   help="run L0, then PCT%% of L1+L2 (stratified, least recently run first); "
                         "no PCT: the series' percentage")
     r.add_argument("--force", action="store_true", help="on a series branch: allow --all / --level 2")
     r.add_argument("--keep-going", action="store_true", help="with --plus: run the sample even if L0 is red")

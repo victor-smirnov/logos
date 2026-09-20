@@ -37,12 +37,13 @@ deprecated (CMake still describes the tests; `lt` imports and runs them).
 
 **Work of one kind goes in a series** (e.g. ten borrow-checker defects from the
 tracker). A series is a branch; while it is open, each task runs only its L0
-and a rotating 10% of L2; the whole suite runs when the series closes, and the
-series merges only from a green whole-suite run of the commit being merged:
+and a rotating 10% of everything else; the whole suite runs when the series
+closes, and the series merges only from a green whole-suite run of the commit
+being merged:
 
     scripts/lt series new NAME [--pct 10]   # branch series/NAME off main
     scripts/lt task new TASK TEST...        # per task; joins the series
-    scripts/lt run --plus                   # L0 + 10% of L2; commit when green
+    scripts/lt run --plus                   # L0 + 10% of L1+L2; commit when green
     scripts/lt series close                 # build + whole suite; reds -> task NAME-fixN
     scripts/lt run --plus                   # fix NAME-fixN the same way, commit, close again
     scripts/lt series merge                 # into main, once a close of this HEAD is green
