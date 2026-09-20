@@ -1491,6 +1491,12 @@ private:
                 // Copy field leaves. The temp is that place under another name.
                 // Sema says which `let` it is (DESTRUCTURE_TMP); the name is
                 // not consulted.
+                // Sema's conditional-drop glue (`if __df_N { let __cmfd = h.p;
+                // drop(__cmfd); }`, stamped COMPILER_GLUE): drop ELABORATION,
+                // which in rustc runs AFTER borrowck and is not part of the
+                // program being checked. Read as a user move it is a second
+                // move of a maybe-moved path.
+                if (v.compiler_glue()) return;
                 if (v.destructure_tmp() && v.value())
                     if (auto sp = place_of(v.value())) {
                         aliases_[std::string(v.name())] = *sp;
