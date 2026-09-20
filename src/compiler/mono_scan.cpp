@@ -1246,6 +1246,37 @@ std::string Mono::eq_instance_for(TypeRef et, TypeRef et_ref) {
     return sym;
 }
 
+// #438: the name mono gives the EMITTED instance of `method` on a concrete
+// generic receiver — composed the same way the clone itself is named
+// (method_instance_name), from the struct's own method TEMPLATE. Empty when the
+// receiver is not a concrete generic struct or the struct declares no such
+// method.
+//
+// The call site used to keep `<concrete>__<method>` — no package, no signature
+// — which matches no emitted symbol, and mlir-gen bridged it by scanning names
+// (`'SuccessorsIter$G2$…__next' does not reference a valid function` the moment
+// that scan is removed).
+std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method) {
+    TypeRef rt = recv;
+    while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                  TypeRef(rt).kind() == LogosType::Kind::MutRef ||
+                  TypeRef(rt).kind() == LogosType::Kind::Ptr) && TypeRef(rt).pointee())
+        rt = TypeRef(rt).pointee();
+    if (!rt || (TypeRef(rt).kind() != LogosType::Kind::Struct &&
+                TypeRef(rt).kind() != LogosType::Kind::ZonedStruct))
+        return {};
+    if (TypeRef(rt).type_args().empty() || contains_typevar(rt)) return {};
+    std::string base{TypeRef(rt).struct_name()};
+    if (auto p = base.find("$G"); p != std::string::npos) base = base.substr(0, p);
+    std::string pkg{TypeRef(rt).pkg_name()};
+    auto* smt = find_struct_method_templates_guarded(pkg, base);
+    if (!smt) return {};
+    for (auto& [sn, fp] : *smt)
+        if (fp.method_base() == method)
+            return method_instance_name(concrete_struct_name(rt), pkg, base, method, fp.name());
+    return {};
+}
+
 std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,
                                         std::string_view tmpl_name) {
     TypeRef rt = recv_t;

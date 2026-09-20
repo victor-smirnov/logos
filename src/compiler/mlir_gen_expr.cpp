@@ -2824,27 +2824,32 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 }
             }
         }
-        // ── SEPARATOR CLASS, JOIN DIRECTION — MEASURED, AND KEPT ────────
+        // ── SEPARATOR CLASS, JOIN DIRECTION — ONE CLASS BRIDGED, ONE LEFT ──
         // Three fallbacks: `<callee>__g__` / `<callee>__f__` prefix,
         // `.<callee>__…` contains, and `<callee>__` prefix. They match a
         // candidate by composing text, so a miss on `foo` can land on `foo_`'s
-        // function — the join half of the separator class.
+        // function. They exist because a callee sometimes does not equal any
+        // emitted symbol, and they are removed one PRODUCER at a time.
         //
-        // ⚠ THEY ARE LOAD-BEARING, AND THAT IS MEASURED, NOT ARGUED. Labelled
-        // per arm and counted over 400 corpus files (2026-09-19, after #438
-        // made mono resolve a method callee by signature): the three join arms
-        // fired ZERO times there, so they were deleted — and `lt run --plus 50`
-        // (1768 tests) reddened EIGHT: iter_successors, iter_chain_map_fold,
-        // core_8_adv_iter_max_min(_method), fold-inferred-closure-params-b167,
-        // coretest_iter_map, coretest_batch_b49, coretest_batch_b51_dei, each
-        // with `'<Iter>$G2$…__next' does not reference a valid function`. The
-        // callee a generic ITERATOR instance carries still does not equal the
-        // emitted symbol, and the join is what bridges it.
+        // BRIDGED (2026-09-20): a concrete generic instance's method. Mono
+        // wrote `<concrete>__<method>` — no package, no signature — whenever
+        // the composed name matched no template and no specialisation; it now
+        // asks Mono::emitted_method_instance for the name the clone itself
+        // carries. Measured: with these three arms disabled, the eight iterator
+        // fixtures that used to need them (iter_successors, iter_chain_map_fold,
+        // core_8_adv_iter_max_min + `_method`, fold-inferred-closure-params-b167,
+        // coretest_iter_map, coretest_batch_b49, coretest_batch_b51_dei — all
+        // now in task defid's L0) pass, together with a 1655-test 50% L2 sample.
         //
-        // So the end state stands (delete them, let the miss reach the R2 sink)
-        // but it is blocked on that bridge: the instance's callee and its
-        // emitted name have to be made equal at the producer. THE SENSOR IS
-        // NAMED — those eight tests — and a 400-file sample is not it.
+        // LEFT, AND NAMED: a trait DEFAULT method dispatched through a
+        // supertrait composes `<trait>__<method>` (`A__f`) — an owner that is a
+        // TRAIT, not a type, so the instance namer above does not apply. With
+        // the arms disabled that class reddens ten fixtures in the `traits`
+        // group (inheritance-basic, inheritance-auto, inheritance-simple,
+        // inheritance-three-level-tr2, inheritance-call-bound-inherited(+2,
+        // +b148, +b155), blanket-via-supertrait-tr2,
+        // blanket-three-supertraits-tr2 — also L0 now). They stay until that
+        // producer names the impl's method instead of the trait's.
         if (!callee_fn) {
             std::string generic_prefix = callee + "__g__";
             std::string fn_prefix      = callee + "__f__";

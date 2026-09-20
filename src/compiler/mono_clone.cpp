@@ -4308,6 +4308,15 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             break;
                         }
                     }
+                    // #438: when the composed `<concrete>__<method>` names no
+                    // template and no specialisation, it names nothing at all —
+                    // it carries neither the package nor the signature the
+                    // emitted clone has. Ask for the instance's real name, the
+                    // one mono gives the clone itself.
+                    if (tmpl_key == base_fn && !templates_.count(tmpl_key) &&
+                        !specs_.count(tmpl_key) && rt)
+                        if (std::string inst = emitted_method_instance(rt, method_q); !inst.empty())
+                            tmpl_key = std::move(inst);
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
                     v.each_arg([&](lir_view::ExprRef ar) {
