@@ -48,3 +48,14 @@ move_ref_errors(X, P) :- move_out_of_ref(X, P).
 .decl move_drop_errors(x: Path, p: Point)
 .output move_drop_errors
 move_drop_errors(X, P) :- move_out_of_drop(X, P).
+
+// E0382 "assign to part of moved value": a write into a SUB-path of a path
+// that may be moved (`eat(x.a); x.a.f = 3;`). Re-initialising the moved path
+// itself (`x.a = ...`) is legal: only a strict ancestor of the assigned path
+// counts. Initialisation is dataflow the extractor runs (see polonius.dl), so
+// it hands over the verdict's rows.
+.decl partial_reinit(x: Path, p: Point)
+.input partial_reinit
+.decl partial_reinit_errors(x: Path, p: Point)
+.output partial_reinit_errors
+partial_reinit_errors(X, P) :- partial_reinit(X, P).

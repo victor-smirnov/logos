@@ -1593,6 +1593,17 @@ private:
             case SCode::DerefWrite: {
                 lir_view::SDerefWriteView v{s};
                 store(v.value(), v.drop_old(), [&] {
+                    // `place = v` for a field / index place is SPELLED by sema
+                    // as `*(&mut place) = v`, with the borrow stamped Desugar.
+                    // It is an assignment to the place: no loan, and the place
+                    // may be (re)initialised after a move (`h.a = Pay{..}` in
+                    // a loop that moved `h.a`). A `&mut` the program wrote
+                    // keeps its borrow.
+                    if (auto pe = v.ptr(); pe && pe.kind() == ECode::AddrOfTemp) {
+                        lir_view::EAddrOfTempView a{pe};
+                        if (a.is_mut() && a.origin() == lir_schema::expr::BorrowOrigin::Desugar)
+                            if (auto direct = place_of(a.inner())) return *direct;
+                    }
                     return place_or_temp(v.ptr()).with(bir::Proj(bir::Proj::K::Deref));
                 });
                 return;
@@ -2636,6 +2647,11 @@ private:
             if (!dest.proj.empty() && !b_.locals[dest.local].is_mut &&
                 b_.locals[dest.local].kind != bir::LocalKind::Temp)
                 row("immutable_write", {var(dest.local), pt(p)});
+        } else {
+            // A write THROUGH a reference reads the reference: `src.0 = 66`
+            // after `let moved = src;` is a use of the moved `src`. path_of
+            // stops at the borrowing deref, so this is the pointer's own path.
+            row("path_accessed_at_base", {pa(path_of(dest)), pt(p)});
         }
     }
     void kill_loans(const bir::Place& dest, uint32_t p) {
@@ -2955,6 +2971,9 @@ private:
         for (auto& [x, q] : assigned)
             if (paths_[x].second == ~0u && on_entry(init_exit, q, x))
                 row("path_maybe_initialized_on_entry", {pa(x), pt(q)});
+        for (auto& [x, q] : assigned)
+            for (uint32_t a = paths_[x].second; a != ~0u; a = paths_[a].second)
+                if (on_entry(uninit_exit, q, a)) { row("partial_reinit", {pa(x), pt(q)}); break; }
         for (uint32_t v : drop_vars) {
             auto it = var_paths.find(v);
             if (it == var_paths.end()) continue;
@@ -3489,6 +3508,15 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
             v.errors.push_back(std::format("cannot move out of '{}', which is behind a reference (line {})",
+                                           facts.path_str(num(sym(row[0]))),
+                                           facts.point_line(num(sym(row[1])))));
+        }
+    }
+    {
+        const dl::Relation& R = rel("partial_reinit_errors");
+        for (size_t i = 0; i < R.size(); ++i) {
+            auto row = R.row(i);
+            v.errors.push_back(std::format("assign to part of moved value '{}' at line {}",
                                            facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));
         }
