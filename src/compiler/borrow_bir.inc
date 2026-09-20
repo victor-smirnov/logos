@@ -1042,7 +1042,12 @@ private:
                 return;
             }
             case ECode::ReflectOf:
-                unsupported("expr:ReflectOf");
+                // `EReflectOf{T}` has no sub-expressions at all — codegen lowers
+                // it to the ADDRESS OF A STATIC (`__logos_reflect__<hash>` plus
+                // an offset), so it borrows nothing from the function and is a
+                // constant here. The empty `Use` the refusal already wrote was
+                // the right lowering; only the refusal beside it was wrong, and
+                // it cost the whole enclosing function.
                 assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
                 return;
             default: {
@@ -2195,9 +2200,35 @@ private:
                 if (binds) unsupported("pat:Or with bindings");
                 return;
             }
-            case PCode::Slice:
-                if (pattern_binds(pat)) unsupported("pat:Slice with bindings");
+            case PCode::Slice: {
+                // A FIXED-LENGTH slice pattern binds each element at a constant
+                // index, which is MIR's ConstantIndex and the projection BIR
+                // already has. `let [a, b] = xs;` never reaches here — sema
+                // desugars it to `xs[0]`, `xs[1]` — so what does is a match arm.
+                // ⚠ A REST OR A SUFFIX IS REFUSED, NOT APPROXIMATED. `[a, rest
+                // @ ..]` needs MIR's Subslice and `[.., b]` needs an index FROM
+                // THE END; `bir::Proj` has neither, so the place cannot be
+                // spelled and a coarse stand-in (the whole container) is exactly
+                // the over-approximation the old checker's own comment calls
+                // "coarse". Refused with its own reason so the census counts it.
+                lir_view::PatSliceView sv{pat};
+                bool has_rest = false;
+                sv.each_rest([&](lir_view::PatRef) { has_rest = true; });
+                if (has_rest || sv.suffix_count() != 0) {
+                    if (pattern_binds(pat)) unsupported("pat:Slice with a rest or suffix binding");
+                    return;
+                }
+                TypeRef et = t ? (t.kind() == LogosType::Kind::Array ? t.elem()
+                                                                     : TypeRef{}) : TypeRef{};
+                int64_t i = 0;
+                sv.each_prefix([&](lir_view::PatRef sub) {
+                    bir::Proj ix(bir::Proj::K::Index);
+                    ix.const_index = i++;
+                    ix.ty = et;
+                    if (sub) bind_pattern(p.with(std::move(ix)), et, sub, default_ref);
+                });
                 return;
+            }
             default:
                 return;   // Variant, Int, Bool, Range: no bindings
         }
