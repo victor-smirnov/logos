@@ -1232,17 +1232,6 @@ private:
     // #438: `eq` for a concrete element type, matched by SIGNATURE (see the
     // definition). Empty when no implementation exists — the caller reports it.
     std::string eq_instance_for(TypeRef et, TypeRef et_ref);
-    // #438: `method` for a concrete receiver, matched by signature (see the
-    // definition). Empty when no declaration provides it.
-    std::string instance_by_signature(TypeRef recv, std::string_view method);
-    struct SigKeyHash {
-        size_t operator()(const std::pair<uint64_t, std::string>& k) const noexcept {
-            return std::hash<uint64_t>{}(k.first) * 1099511628211ull
-                 ^ logos::compiler::StringHash{}(k.second);
-        }
-    };
-    std::unordered_map<std::pair<uint64_t, std::string>, std::string, SigKeyHash>
-        sig_instance_cache_;
     std::unordered_map<uint64_t, std::string> eq_instance_cache_;
 
     // Stronger sibling of mono_has_impl_recursive that takes a full

@@ -1222,62 +1222,6 @@ std::string Mono::method_instance_name(std::string_view concrete, std::string_vi
 // Not by name: the caller used to scan for a `<T>__eq__f__` prefix, which
 // cannot tell two packages' same-named types apart and, on a miss, invented a
 // callee that no declaration carries.
-// #438: the instance of `method` for a concrete receiver type, found by
-// SIGNATURE — a function whose method base is `method` and whose FIRST
-// parameter is that type, by value or behind a reference. Empty when none
-// exists. Cached per (receiver handle, method).
-//
-// This is what a composed name cannot do: `<cname>__<method>` is a spelling,
-// it cannot tell two packages' same-named types apart, and when no declaration
-// carries it the call keeps a symbol that nothing defines.
-std::string Mono::instance_by_signature(TypeRef recv, std::string_view method) {
-    TypeRef rt = recv;
-    while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
-                  TypeRef(rt).kind() == LogosType::Kind::MutRef ||
-                  TypeRef(rt).kind() == LogosType::Kind::Ptr) && TypeRef(rt).pointee())
-        rt = TypeRef(rt).pointee();
-    if (!rt) return {};
-    const uint64_t key = uint64_t(TypeRef(rt).offset().value());
-    auto ck = std::make_pair(key, std::string(method));
-    if (auto it = sig_instance_cache_.find(ck); it != sig_instance_cache_.end())
-        return it->second;
-    // A trait-qualified spelling (`Debug__fmt`) names the trait and the method;
-    // a declaration's method base is just `fmt`, so match on the tail and keep
-    // the trait segment as a discriminator on the symbol itself.
-    std::string_view base = method;
-    std::string_view trait_seg;
-    if (auto p = method.rfind("__"); p != std::string_view::npos) {
-        trait_seg = method.substr(0, p);
-        base = method.substr(p + 2);
-    }
-    auto first_param_is_recv = [&](lir_view::FunctionView fn, const TypePoolImpl* pool) {
-        if (fn.method_base() != method &&
-            !(fn.method_base() == base && !trait_seg.empty() &&
-              fn.name().find(method) != std::string_view::npos))
-            return false;
-        auto ps = fn.params();
-        if (ps.empty()) return false;
-        TypeRef p0 = ps[0].type(pool);
-        if (!p0) return false;
-        if (types_equal(p0, rt)) return true;
-        TypeRef inner = p0;
-        while (inner && (TypeRef(inner).kind() == LogosType::Kind::Ref ||
-                         TypeRef(inner).kind() == LogosType::Kind::MutRef ||
-                         TypeRef(inner).kind() == LogosType::Kind::Ptr) &&
-               TypeRef(inner).pointee())
-            inner = TypeRef(inner).pointee();
-        return inner && types_equal(inner, rt);
-    };
-    std::string sym;
-    for (auto& fn : out_.functions)
-        if (first_param_is_recv(fn, out_.type_pool.impl())) { sym = std::string(fn.name()); break; }
-    if (sym.empty())
-        for (auto& fn : in_.functions)
-            if (first_param_is_recv(fn, in_.type_pool.impl())) { sym = std::string(fn.name()); break; }
-    sig_instance_cache_.emplace(std::move(ck), sym);
-    return sym;
-}
-
 std::string Mono::eq_instance_for(TypeRef et, TypeRef et_ref) {
     // Types are interned, so the handle itself is the identity of the element
     // type within this pool; `type_str` would be a spelling again.
