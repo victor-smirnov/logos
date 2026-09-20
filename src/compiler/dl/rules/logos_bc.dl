@@ -41,3 +41,10 @@ deref_write_errors(V, P) :- shared_deref_write(V, P).
 .decl move_ref_errors(x: Path, p: Point)
 .output move_ref_errors
 move_ref_errors(X, P) :- move_out_of_ref(X, P).
+
+// E0509: a move out of a field of a value whose type implements Drop.
+.decl move_out_of_drop(x: Path, p: Point)
+.input move_out_of_drop
+.decl move_drop_errors(x: Path, p: Point)
+.output move_drop_errors
+move_drop_errors(X, P) :- move_out_of_drop(X, P).

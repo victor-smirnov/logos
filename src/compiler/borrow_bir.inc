@@ -35,6 +35,7 @@ struct Local {
     TypeRef     synth_pointee;
     bool        synth_ref = false;
     bool        is_mut = false;
+    bool        static_addr = false;   // holds the address of a `static` item
     uint32_t    slot   = ~0u;
     uint32_t    line   = 0;
 };
@@ -481,6 +482,12 @@ private:
             case ECode::Deref: {
                 auto inner = lir_view::EDerefView{e}.operand();
                 bir::Place p = place_or_temp(inner);
+                // Sema spells a static's address as the reserved VarRef
+                // `__static_addr:<link symbol>` (not an identifier a program
+                // can write). A static is never moved out of (E0507).
+                if (inner && inner.kind() == ECode::VarRef && p.proj.empty() &&
+                    lir_view::EVarRefView{inner}.name().starts_with("__static_addr:"))
+                    body_.locals[p.local].static_addr = true;
                 return p.with(bir::Proj(bir::Proj::K::Deref));
             }
             case ECode::FieldRead: {
@@ -2433,6 +2440,8 @@ private:
         row("path_accessed_at_base", {pa(path), pt(p)});
         if (op.k == bir::Operand::K::Move && derefs_through(op.place))
             row("move_out_of_ref", {pa(path), pt(p)});
+        if (op.k == bir::Operand::K::Move && field_of_drop_type(op.place))
+            row("move_out_of_drop", {pa(path), pt(p)});
         if (op.k == bir::Operand::K::Move && !has_borrowing_deref(op.place)) {
             access(p, op.place, Access::WriteDeep);
             row("path_moved_at_base", {pa(path), pt(p)});
@@ -2558,12 +2567,15 @@ private:
         TypeRef t = b_.locals[p.local].type;
         if (b_.locals[p.local].synth_ref) return 0;
         unsigned out = 0;
+        // bit 2: the place is inside a `static` item.
+        if (b_.locals[p.local].static_addr && !p.proj.empty() && p.proj[0].k == bir::Proj::K::Deref)
+            out |= 4u;
         for (auto& pj : p.proj) {
             if (!t) return out;
             if (pj.k == bir::Proj::K::Deref) {
                 if (t.kind() == LogosType::Kind::Ref) out |= 1u;
                 else if (t.kind() == LogosType::Kind::MutRef) out |= 2u;
-                else if (t.kind() == LogosType::Kind::Ptr) return 0;   // raw: outside the borrow system
+                else if (t.kind() == LogosType::Kind::Ptr) return out & 4u;   // raw: outside the borrow system (a static's address is spelled as one)
                 else if (!is_std_box(t)) return out;
                 t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Struct
                                          ? (t.type_args().empty() ? TypeRef{} : t.type_args()[0])
@@ -2571,11 +2583,37 @@ private:
             } else if (pj.k == bir::Proj::K::Field) {
                 t = pj.ty ? pj.ty : field_type_(t, pj.field);
             } else {
-                if (t.kind() == LogosType::Kind::Ptr) return 0;   // `p[i]` on a raw pointer
+                if (t.kind() == LogosType::Kind::Ptr) return out & 4u;   // `p[i]` on a raw pointer
                 t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
             }
         }
         return out;
+    }
+    // E0509: the place is a FIELD of a value whose own type implements Drop,
+    // reached without leaving that value (a deref ends the walk: what lies
+    // behind a pointer is not part of the owner). The destructor must see the
+    // whole value, so nothing may be moved out of it first.
+    bool field_of_drop_type(const bir::Place& p) const {
+        TypeRef t = b_.locals[p.local].type;
+        if (b_.locals[p.local].synth_ref) return false;
+        bool hit = false;
+        for (auto& pj : p.proj) {
+            if (!t) return hit;
+            if (pj.k == bir::Proj::K::Deref) {
+                if (!is_std_box(t)) return hit;
+                t = pj.ty ? pj.ty : (t.type_args().empty() ? TypeRef{} : t.type_args()[0]);
+                hit = false;   // the Box's content is its own owner
+            } else if (pj.k == bir::Proj::K::Field) {
+                std::string owner = t.kind() == LogosType::Kind::Struct ? std::string(t.struct_name())
+                                  : t.kind() == LogosType::Kind::Enum   ? std::string(t.enum_name())
+                                                                        : std::string();
+                if (!owner.empty() && ts_.drop_types.count(owner)) hit = true;
+                t = pj.ty ? pj.ty : field_type_(t, pj.field);
+            } else {
+                t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
+            }
+        }
+        return hit;
     }
     bool has_borrowing_deref(const bir::Place& p) const {
         TypeRef t = b_.locals[p.local].type;
@@ -3246,6 +3284,15 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
             v.errors.push_back(std::format("cannot move out of '{}', which is behind a reference (line {})",
+                                           facts.path_str(num(sym(row[0]))),
+                                           facts.point_line(num(sym(row[1])))));
+        }
+    }
+    {
+        const dl::Relation& R = rel("move_drop_errors");
+        for (size_t i = 0; i < R.size(); ++i) {
+            auto row = R.row(i);
+            v.errors.push_back(std::format("cannot move out of '{}': its owner implements Drop (E0509, line {})",
                                            facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));
         }
