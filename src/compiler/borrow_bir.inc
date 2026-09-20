@@ -82,6 +82,7 @@ struct Rvalue {
     bool                 mut_ = false;    // Ref
     bool                 two_phase = false;
     std::string          what;            // for dumps
+    std::vector<std::string> field_names; // Aggregate of a struct literal: ops[i] initialises field_names[i]
 };
 
 struct Stmt {
@@ -156,6 +157,50 @@ static std::optional<std::vector<TypeRef>> bir_struct_fields(TypeRef t, const li
         if (it == map.end()) return std::nullopt;
         std::vector<TypeRef> out;
         for (auto& f : it->second.fields()) out.push_back(f.type(prog.type_pool.impl()));
+        return out;
+    };
+    if (auto f = look(ts.struct_by_name)) return f;
+    return look(ts.spec_by_name);
+}
+
+// Whether dropping a value of type `t` may READ a borrow it holds — rustc's
+// dropck. A destructor observes what it can name through `self`; `Vec<B>` and
+// `Box<&T>` reach their elements too, but their drops are the `#[may_dangle]`
+// kind, and holding those loans to the drop would refuse every
+// `v.push(c.mk()); <last use of v>; c.bump()`. Logos has no `may_dangle`
+// spelling yet, so the stand-in is the counter-based checker's
+// (BorrowChecker::drop_can_observe_borrow): DECLARED FIELDS only, never type
+// arguments. The two must answer alike until the attribute exists.
+static bool bir_drop_observes_borrow(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
+                                     int depth = 0) {
+    if (!t || depth > 4 || t.kind() != LogosType::Kind::Struct) return false;
+    if (!needs_drop(t, prog, ts)) return false;
+    std::string want = concrete_struct_name(t);
+    auto reaches_ref = [&](lir_view::StructView sd) -> bool {
+        if (!sd) return false;
+        for (auto& f : sd.fields()) {
+            TypeRef ft = f.type(prog.type_pool.impl());
+            if (!ft) continue;
+            if (ft.kind() == LogosType::Kind::Ref || ft.kind() == LogosType::Kind::MutRef) return true;
+            if (bir_drop_observes_borrow(ft, prog, ts, depth + 1)) return true;
+        }
+        return false;
+    };
+    if (auto it = ts.struct_by_name.find(want); it != ts.struct_by_name.end() && reaches_ref(it->second)) return true;
+    if (auto it = ts.spec_by_name.find(want); it != ts.spec_by_name.end() && reaches_ref(it->second)) return true;
+    return false;
+}
+
+// The same, with the field names (declaration order).
+static std::optional<std::vector<std::pair<std::string, TypeRef>>>
+bir_struct_named_fields(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
+    std::string want = concrete_struct_name(t);
+    auto look = [&](const auto& map) -> std::optional<std::vector<std::pair<std::string, TypeRef>>> {
+        auto it = map.find(want);
+        if (it == map.end()) return std::nullopt;
+        std::vector<std::pair<std::string, TypeRef>> out;
+        for (auto& f : it->second.fields())
+            out.emplace_back(std::string(f.name()), f.type(prog.type_pool.impl()));
         return out;
     };
     if (auto f = look(ts.struct_by_name)) return f;
@@ -659,8 +704,9 @@ private:
             case ECode::StructLit: {
                 bir::Rvalue rv(bir::Rvalue::K::Aggregate);
                 rv.what = std::string(lir_view::EStructLitView{e}.name());
-                lir_view::EStructLitView{e}.each_field_value([&](lir_view::ExprRef fv) {
+                lir_view::EStructLitView{e}.each_field([&](std::string_view fname, lir_view::ExprRef fv) {
                     rv.ops.push_back(operand(fv));
+                    rv.field_names.emplace_back(fname);
                 });
                 assign(dest, std::move(rv));
                 return;
@@ -1892,7 +1938,22 @@ private:
                 }
                 for (auto& a : t.type_args()) walk_type(a, invariant, out, depth + 1);
                 if (out.os.size() == before && bir_type_carries_loans(t, prog_, ts_)) {
-                    out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
+                    // A struct that holds references without declaring a
+                    // lifetime parameter has HIDDEN ones. Rust would make the
+                    // author write `H<'a, 'b> { r: &'a mut Vec<B<'b>> }`; the
+                    // regions are laid out the same way here, field by field,
+                    // so the borrow's own region ('a) and the invariant region
+                    // of what it points at ('b) stay two origins. One origin
+                    // for both either lost the write-through (one-way subset)
+                    // or made `vs` hold the loan of itself (two-way).
+                    if (auto ef = expanded_fields(t)) {
+                        visiting_.insert(concrete_struct_name(t));
+                        for (auto& [fn, ft] : *ef) walk_type(ft, invariant, out, depth + 1);
+                        visiting_.erase(concrete_struct_name(t));
+                    }
+                    if (out.os.size() == before) {
+                        out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
+                    }
                 }
                 return;
             }
@@ -1904,6 +1965,32 @@ private:
             default:
                 return;
         }
+    }
+    // The fields whose regions stand in for a struct's hidden lifetime
+    // parameters (see walk_type). None for an enum, a struct with declared
+    // lifetimes or region-carrying type arguments, a struct already being laid
+    // out (a recursive type keeps its single origin), or one with no definition.
+    std::set<std::string> visiting_;
+    std::optional<std::vector<std::pair<std::string, TypeRef>>> expanded_fields(TypeRef t) {
+        if (!t || t.kind() != LogosType::Kind::Struct || !t.lifetime_args().empty()) return std::nullopt;
+        for (auto& a : t.type_args()) { size_t n = 0; count_only(a, n); if (n) return std::nullopt; }
+        if (visiting_.count(concrete_struct_name(t))) return std::nullopt;
+        return bir_struct_named_fields(t, prog_, ts_);
+    }
+    // [offset, count) of `field`'s origins inside the list walk_type gives `t`.
+    std::optional<std::pair<size_t, size_t>> field_span(TypeRef t, std::string_view field, TypeRef* ftype) {
+        auto ef = expanded_fields(t);
+        if (!ef) return std::nullopt;
+        visiting_.insert(concrete_struct_name(t));
+        size_t off = 0;
+        std::optional<std::pair<size_t, size_t>> out;
+        for (auto& [fn, ft] : *ef) {
+            size_t n = 0; count_only(ft, n);
+            if (fn == field) { out = std::make_pair(off, n); if (ftype) *ftype = ft; break; }
+            off += n;
+        }
+        visiting_.erase(concrete_struct_name(t));
+        return out;
     }
     const OList& local_origins(bir::LocalId l) {
         auto it = local_os_.find(l);
@@ -1964,7 +2051,22 @@ private:
                     cur = sub;
                     t = elems[i];
                 } else {
-                    cur.exact = false;   // struct / enum payload: whole list
+                    // A hidden-region struct's field has its own slice of the
+                    // list; anything else (declared lifetimes, enum payload)
+                    // reads the whole list.
+                    TypeRef ft;
+                    size_t total = 0; count_only(t, total);
+                    auto span = field_span(t, pj.field, &ft);
+                    if (span && total == cur.os.size() && span->first + span->second <= cur.os.size()) {
+                        OList sub;
+                        for (size_t k = 0; k < span->second; ++k) {
+                            sub.os.push_back(cur.os[span->first + k]); sub.inv.push_back(cur.inv[span->first + k]);
+                        }
+                        cur = sub;
+                        t = ft;
+                    } else {
+                        cur.exact = false;
+                    }
                 }
             }
         }
@@ -2037,6 +2139,32 @@ private:
     }
     // Loans in `src` flow into `dst` at point p. Pairwise when both shapes
     // are known and agree; every-to-every otherwise.
+    // The slice of `dst` that operand `i` of a struct or tuple literal
+    // initialises, when the destination's regions are laid out per field.
+    std::optional<OList> aggregate_slot(const bir::Stmt& s, size_t i, const OList& dst) {
+        if (s.rv.k != bir::Rvalue::K::Aggregate || !s.dest.proj.empty() || !dst.exact) return std::nullopt;
+        TypeRef t = b_.locals[s.dest.local].type;
+        if (!t) return std::nullopt;
+        size_t total = 0; count_only(t, total);
+        if (total != dst.os.size()) return std::nullopt;
+        std::optional<std::pair<size_t, size_t>> span;
+        if (t.kind() == LogosType::Kind::Struct && i < s.rv.field_names.size()) {
+            span = field_span(t, s.rv.field_names[i], nullptr);
+        } else if (t.kind() == LogosType::Kind::Tuple && s.rv.what == "tuple") {
+            auto elems = t.tuple_elems();
+            if (i >= elems.size()) return std::nullopt;
+            size_t off = 0;
+            for (size_t k = 0; k < i; ++k) { size_t n = 0; count_only(elems[k], n); off += n; }
+            size_t n = 0; count_only(elems[i], n);
+            span = std::make_pair(off, n);
+        }
+        if (!span || span->first + span->second > dst.os.size()) return std::nullopt;
+        OList sub;
+        for (size_t k = 0; k < span->second; ++k) {
+            sub.os.push_back(dst.os[span->first + k]); sub.inv.push_back(dst.inv[span->first + k]);
+        }
+        return sub;
+    }
     void relate(const OList& src, const OList& dst, uint32_t p) {
         if (src.exact && dst.exact && src.os.size() == dst.os.size()) {
             for (size_t i = 0; i < src.os.size(); ++i) {
@@ -2623,7 +2751,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         else
             row("path_moved_at_base", {pa(path_of({li, {}})), pt(entry)});
         if (L.is_mut) row("var_mut", {var(li)});
-        if (needs_drop(L.type, prog_, ts_))
+        if (bir_drop_observes_borrow(L.type, prog_, ts_))
             for (uint32_t oo : os.os) row("drop_of_var_derefs_origin", {var(li), o(oo)});
     }
 
@@ -2720,6 +2848,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             if (op.k != bir::Operand::K::Const && op.place.valid()) {
                                 OList src = place_origins(op.place);
                                 if (s.rv.k == bir::Rvalue::K::Use) relate(src, dst, p);
+                                else if (auto sub = aggregate_slot(s, size_t(&op - s.rv.ops.data()), dst)) relate(src, *sub, p);
                                 else { src.exact = false; relate(src, dst, p); }
                             }
                         }
