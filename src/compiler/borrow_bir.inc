@@ -2034,7 +2034,19 @@ private:
                 // same payload twice.
                 ++in_guard_;
                 bind_pattern(sp, stype, arms[i].pat(), 0);
+                // E0510: the guard may not change what is being matched. MIR
+                // holds a FAKE shared borrow of the scrutinee across the guard;
+                // here it is a real one that is read once the guard is done, so
+                // `3 if { x = 9; false } => ..` invalidates a live loan.
+                bir::LocalId fake = synth_ref_temp(stype, false);
+                assign({fake, {}}, ref_of(sp, false, false));
                 bir::Operand c = operand(g);
+                {
+                    bir::Stmt rd(bir::Stmt::K::Read);
+                    bir::Operand fo; fo.k = bir::Operand::K::Copy; fo.place = {fake, {}};
+                    rd.rv.ops.push_back(std::move(fo));
+                    emit(std::move(rd));
+                }
                 --in_guard_;
                 bir::BlockId yes = new_block();
                 branch(std::move(c), {yes, i + 1 < arms.size() ? arm_blocks[i + 1] : nomatch});
