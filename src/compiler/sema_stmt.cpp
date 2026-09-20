@@ -3738,11 +3738,11 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
     return builder().stmt_return(nullptr, node_line_);
 }
 
-lir::Pattern SemaChecker::make_pat_wild(std::string_view name) {
+lir::Pattern SemaChecker::make_pat_wild(std::string_view name, bool is_mut) {
     lir::Pattern p;
     // Phase-1: a named wild is a binding — reserve its dense slot (`_` = none).
     uint32_t slot = (name == "_" || name.empty()) ? 0xFFFFFFFFu : reserve_pat_slot(name);
-    p.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, name, slot);
+    p.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, name, slot, is_mut);
     return p;
 }
 
@@ -5698,7 +5698,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 if (nm != "_" && pat_byval_mut(inner) && current_pat_mut_names_)
                                     current_pat_mut_names_->insert(nm);  // `(mut a, b)` (the grammar wraps the element in PAT_OR)
                                 pt.bindings.push_back(nm);
-                                pt.subs.push_back(make_pat_wild(nm));
+                                // The written `mut` rides the binder itself, not
+                                // only the side set above: a checker reading the
+                                // pattern sees `a` as mutable.
+                                pt.subs.push_back(make_pat_wild(nm, nm != "_" && pat_byval_mut(inner)));
                             }
                             single = true;
                         } else if (isc == la::PAT_INT.code ||

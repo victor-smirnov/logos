@@ -231,8 +231,6 @@ overload_set_arg_mismatch_says_no_method 4 tests/soundness/open/overload_set_arg
 
 stdlib_drop_uninhabited_enum_byvalue_consumer 3 tests/soundness/open/stdlib_drop_uninhabited_enum_byvalue_consumer refuses
 
-e0184_blame_header_names_unrelated_impl 4 tests/soundness/open/e0184_blame_header_names_unrelated_impl diag impl Hash for $tuple$8
-
 localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_names_stdlib_as_slice diag expected &Vec<i64>, got &Vec<i64>
 
 localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
@@ -613,5 +611,5 @@ refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compar
 # MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
 ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
 
-# TOTAL 228
+# TOTAL 227
 # SYNC-HASH c74b307c1f3575565523ee3b8142a631

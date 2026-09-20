@@ -8949,7 +8949,7 @@ private:
     lir::Pattern build_pattern_bytes(writ::TinyMapView pnode, TypeRef scrut_type);
     lir::Pattern build_pattern_or(writ::TinyMapView pnode, TypeRef scrut_type);
     // Helper for inline PatWild construction with eager mirror emit.
-    lir::Pattern make_pat_wild(std::string_view name);
+    lir::Pattern make_pat_wild(std::string_view name, bool is_mut = false);
     // If pnode is a Writ scalar pattern (PAT_WRIT_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.

@@ -3713,6 +3713,14 @@ void SemaChecker::compute_auto_copy_types() {
             const std::string& cp = info.target_pkg;
             const std::string& dp = dit->second.target_pkg;
             if (!cp.empty() && !dp.empty() && cp != dp) continue;
+            // This sweep runs after every impl was collected, so `ctx_` still
+            // names whichever impl came LAST (a stdlib one: the header read
+            // `[impl Hasher for SipHasher]` over an error about `M`). The
+            // error is about this impl; say so, and put the context back.
+            std::string saved_ctx = std::move(ctx_);
+            ctx_ = std::format("impl Copy for {}", target);
+            struct CtxRestore { std::string& c; std::string v; ~CtxRestore() { c = std::move(v); } }
+                restore_ctx{ctx_, std::move(saved_ctx)};
             error(std::format(
                 "impl Copy for {}: the type also implements Drop (E0184) — "
                 "Copy types are duplicated bitwise, so each copy would run "

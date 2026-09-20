@@ -1,0 +1,1 @@
+error [impl Copy for M]: impl Copy for M: the type also implements Drop (E0184)

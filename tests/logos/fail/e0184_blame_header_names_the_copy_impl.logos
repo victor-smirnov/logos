@@ -1,3 +1,7 @@
+// CLOSED 2026-09-20 (#162): the E0184 sweep sets its own context, so the header
+// reads `[impl Copy for M]`. Was soundness-queue row
+// e0184_blame_header_names_unrelated_impl; the record of the defect follows.
+//
 // SOUNDNESS QUEUE row e0184_blame_header_names_unrelated_impl (tier 4, diag).
 // The E0184 Copy/Drop refusal is CORRECT about this program — `impl Copy` +
 // `impl Drop` for the same type is a genuine conflict — but its blame HEADER
@@ -15,7 +19,7 @@
 // `tests/spec/fail/type_diag_1__copy-drop-exclusive` too — both pinned fail
 // fixtures whose `.expected` matches only the SENTENCE. The verdict is right;
 // only the sentence's header is wrong, hence tier 4. PROBES.md 2026-09-10f.
-package e0184_blame_header_names_unrelated_impl;
+package e0184_blame_header_names_the_copy_impl;
 use logos.lang.clone;
 use logos.lang.drop;
 struct M { v: i32 }
