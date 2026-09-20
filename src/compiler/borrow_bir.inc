@@ -47,6 +47,7 @@ struct Proj {
     K           k = K::Deref;
     std::string field;              // Field: name, tuple index or `Variant#i`
     LocalId     index = kNoLocal;   // Index: the index operand's local, if any
+    int64_t     const_index = -1;   // Index into an ARRAY by a literal: MIR's ConstantIndex
     TypeRef     ty;                 // type of the place AFTER this projection, when known
 };
 
@@ -543,6 +544,12 @@ private:
                 }
                 bir::Proj ix(bir::Proj::K::Index);
                 ix.index = operand_local(v.index());
+                // `let [a, b] = xs;` reaches L-IR as `xs[0]`, `xs[1]`. Over an
+                // array a literal index is its own move path, as MIR's
+                // ConstantIndex is, so the elements move out one by one.
+                if (rt && rt.kind() == LogosType::Kind::Array && v.index() &&
+                    v.index().kind() == ECode::LitInt)
+                    ix.const_index = lir_view::ELitIntView{v.index()}.value();
                 return p.with(std::move(ix));
             }
             case ECode::SliceIndex: {
@@ -2647,6 +2654,10 @@ private:
             } else if (pj.k == bir::Proj::K::Deref && is_std_box(t)) {
                 seg = "*";
                 t = pj.ty ? pj.ty : (t.type_args().empty() ? TypeRef{} : t.type_args()[0]);
+            } else if (pj.k == bir::Proj::K::Index && pj.const_index >= 0 && t &&
+                       t.kind() == LogosType::Kind::Array) {
+                seg = "[" + std::to_string(pj.const_index) + "]";
+                t = pj.ty ? pj.ty : t.elem();
             } else {
                 break;
             }
@@ -2729,7 +2740,11 @@ private:
         }
     }
     static bool same_proj(const bir::Proj& a, const bir::Proj& b) {
-        return a.k == b.k && (a.k != bir::Proj::K::Field || a.field == b.field);
+        if (a.k != b.k) return false;
+        if (a.k == bir::Proj::K::Field) return a.field == b.field;
+        if (a.k == bir::Proj::K::Index && a.const_index >= 0 && b.const_index >= 0)
+            return a.const_index == b.const_index;
+        return true;
     }
     bool is_union_type(TypeRef t) const {
         if (!t || t.kind() != LogosType::Kind::Struct) return false;
@@ -2750,6 +2765,9 @@ private:
             const auto& y = b.proj[k];
             if (x.k == bir::Proj::K::Field && y.k == bir::Proj::K::Field && x.field != y.field)
                 return is_union_type(t);
+            if (x.k == bir::Proj::K::Index && y.k == bir::Proj::K::Index && x.const_index >= 0 &&
+                y.const_index >= 0 && x.const_index != y.const_index)
+                return false;   // two literal elements of one array
             if (x.k == bir::Proj::K::Deref)
                 t = x.ty ? x.ty : (t && t.pointee() ? TypeRef(t.pointee()) : TypeRef{});
             else if (x.k == bir::Proj::K::Field)
