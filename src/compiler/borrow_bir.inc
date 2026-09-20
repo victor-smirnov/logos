@@ -2428,8 +2428,18 @@ private:
                 const Src& sr = srcs[si];
                 bool from = false;
                 if (hidden_identity) from = sr.inv && sr.label == "~";
-                else if (L == "?" || sr.label == "?" || L == "~") from = true;
-                else if (L.empty()) {
+                else if (L == "?" || sr.label == "?") from = true;
+                else if (L.empty() || L == "~") {
+                    // A hidden region in the result (`-> W` with `struct W { p:
+                    // &mut i64 }`) is an ELIDED one: it follows the elision
+                    // rule below like a written `&`, and it also takes any
+                    // hidden region among the arguments (`fn id(b: B) -> B`).
+                    // Letting every source in ignored the narrowing, and
+                    // `keep(&mut b, &mut a) -> W` held `a` as well as `b`.
+                    // (So does what a type parameter brought in: nothing in
+                    // the signature separates it from the hidden region.)
+                    if (L == "~" && (sr.label == "~" || sr.label.starts_with("T:"))) { from = true; }
+                    else
                     // Elided result lifetime: from `&self`'s own lifetime,
                     // else from the one input lifetime, else from all.
                     if (self_ref) from = sr.outer_self;
