@@ -9,6 +9,8 @@
 
 #include "mono_impl.hpp"
 
+#include "mangled_name.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 #include <logos/compiler/lir_view.hpp>
@@ -1275,6 +1277,39 @@ std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method)
         if (fp.method_base() == method)
             return method_instance_name(concrete_struct_name(rt), pkg, base, method, fp.name());
     return {};
+}
+
+// #438: the symbol a call on a CONCRETE, NON-GENERIC owner actually reaches.
+// The call site composes `<owner>__<method>`; what is emitted carries the
+// package and the signature too (`inheritance_basic.A__f__f__ref_A`), so the
+// composed name names nothing and mlir-gen bridged the gap by scanning
+// function names for a `<callee>__` prefix.
+//
+// This is recompose-and-compare (mname::sig_of), not a prefix probe: a
+// candidate is accepted only when its whole name is exactly
+// `[pkg.]<owner>"__"<method><sig>` with `<sig>` a NON-generic tail (`__f__…`).
+// Generic templates are excluded on purpose — naming one is naming a function
+// that is never emitted, which is how the by-signature attempt (548027547)
+// broke eight iterator fixtures. Ambiguity is reported as no answer: two
+// candidates mean the owner/method pair does not determine the callee, and
+// picking one would be the guess this replaces.
+std::string Mono::declared_method_symbol(std::string_view owner, std::string_view pkg,
+                                         std::string_view method) {
+    if (owner.empty() || method.empty()) return {};
+    std::string best;
+    bool ambiguous = false;
+    auto consider = [&](lir_view::FunctionView fn) {
+        if (!fn || fn.method_base() != method) return;
+        std::string_view n = fn.name();
+        auto tail = mname::sig_of(n, owner, method);
+        if (!tail || !tail->starts_with("__f__")) return;
+        if (!pkg.empty() && !fn.package().empty() && fn.package() != pkg) return;
+        if (best.empty()) best = std::string(n);
+        else if (best != n) ambiguous = true;
+    };
+    for (auto& fn : out_.functions) consider(fn);
+    for (auto& fn : in_.functions) consider(fn);
+    return ambiguous ? std::string() : best;
 }
 
 std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,

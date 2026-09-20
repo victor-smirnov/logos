@@ -2824,61 +2824,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 }
             }
         }
-        // ── SEPARATOR CLASS, JOIN DIRECTION — ONE CLASS BRIDGED, ONE LEFT ──
-        // Three fallbacks: `<callee>__g__` / `<callee>__f__` prefix,
-        // `.<callee>__…` contains, and `<callee>__` prefix. They match a
-        // candidate by composing text, so a miss on `foo` can land on `foo_`'s
-        // function. They exist because a callee sometimes does not equal any
-        // emitted symbol, and they are removed one PRODUCER at a time.
-        //
-        // BRIDGED (2026-09-20): a concrete generic instance's method. Mono
-        // wrote `<concrete>__<method>` — no package, no signature — whenever
-        // the composed name matched no template and no specialisation; it now
-        // asks Mono::emitted_method_instance for the name the clone itself
-        // carries. Measured: with these three arms disabled, the eight iterator
-        // fixtures that used to need them (iter_successors, iter_chain_map_fold,
-        // core_8_adv_iter_max_min + `_method`, fold-inferred-closure-params-b167,
-        // coretest_iter_map, coretest_batch_b49, coretest_batch_b51_dei — all
-        // now in task defid's L0) pass, together with a 1655-test 50% L2 sample.
-        //
-        // LEFT, AND NAMED: a trait DEFAULT method dispatched through a
-        // supertrait composes `<trait>__<method>` (`A__f`) — an owner that is a
-        // TRAIT, not a type, so the instance namer above does not apply. With
-        // the arms disabled that class reddens ten fixtures in the `traits`
-        // group (inheritance-basic, inheritance-auto, inheritance-simple,
-        // inheritance-three-level-tr2, inheritance-call-bound-inherited(+2,
-        // +b148, +b155), blanket-via-supertrait-tr2,
-        // blanket-three-supertraits-tr2 — also L0 now). They stay until that
-        // producer names the impl's method instead of the trait's.
-        if (!callee_fn) {
-            std::string generic_prefix = callee + "__g__";
-            std::string fn_prefix      = callee + "__f__";
-            callee_fn = find_fn_matching(parent_mod,
-                [&](mlir::func::FuncOp fn) {
-                    llvm::StringRef n = fn.getName();
-                    return n.starts_with(generic_prefix) ||
-                           n.starts_with(fn_prefix);
-                });
-        }
-        if (!callee_fn) {
-            std::string contains_f = "." + callee + "__f__";
-            std::string contains_g = "." + callee + "__g__";
-            std::string ends_dot = "." + callee;
-            callee_fn = find_fn_matching(parent_mod,
-                [&](mlir::func::FuncOp fn) {
-                    llvm::StringRef n = fn.getName();
-                    return n.ends_with(ends_dot) ||
-                           n.contains(contains_f) ||
-                           n.contains(contains_g);
-                });
-        }
-        if (!callee_fn) {
-            std::string callee_prefix = callee + "__";
-            callee_fn = find_fn_matching(parent_mod,
-                [&](mlir::func::FuncOp fn) {
-                    return fn.getName().starts_with(callee_prefix);
-                });
-        }
+        // ── SEPARATOR CLASS, JOIN DIRECTION — DELETED (#438, 2026-09-20) ──
+        // Three fallbacks used to follow: `<callee>__g__` / `<callee>__f__`
+        // prefix, `.<callee>__…` contains, `<callee>__` prefix. They matched a
+        // candidate by composing text, so a miss on `foo` could land on `foo_`'s
+        // function. They existed because mono sometimes wrote a callee that
+        // equalled no emitted symbol, and each such producer is now named at
+        // the source:
+        //   - a concrete GENERIC instance's method (`SuccessorsIter$G2$…__next`)
+        //     — Mono::emitted_method_instance; sensors: the eight iterator
+        //     fixtures in task defid's L0.
+        //   - a NON-generic owner's trait method reached through a bound
+        //     (`A__f` for `inheritance_basic.A__f__f__ref_A`) —
+        //     Mono::declared_method_symbol; sensors: the ten `inheritance-*` /
+        //     `blanket-*-supertrait*` fixtures, also in that L0.
+        // Measured with the arms disabled: L0 86/86, groups traits+iterators
+        // 1007/1007, a 1101-test 10% sample of L1+L2 green. A miss now reaches
+        // the R2 sink below and is reported, not bridged by luck.
     }
     if (!callee_fn) {
         if (::getenv("LOGOS_TRACE_CALL_MISS")) {

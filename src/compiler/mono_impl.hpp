@@ -1232,6 +1232,10 @@ private:
     // #438: the emitted instance's name for `method` on a concrete generic
     // receiver (see the definition). Empty when there is none.
     std::string emitted_method_instance(TypeRef recv, std::string_view method);
+    // #438: the DECLARED non-generic method `<owner>__<method>__f__<sig>` of a
+    // concrete owner (see the definition). Empty when there is not exactly one.
+    std::string declared_method_symbol(std::string_view owner, std::string_view pkg,
+                                       std::string_view method);
     // #438: `eq` for a concrete element type, matched by SIGNATURE (see the
     // definition). Empty when no implementation exists — the caller reports it.
     std::string eq_instance_for(TypeRef et, TypeRef et_ref);
