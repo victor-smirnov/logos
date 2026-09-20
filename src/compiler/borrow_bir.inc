@@ -130,6 +130,7 @@ struct Body {
     std::vector<Local>       locals;
     std::vector<Block>       blocks;
     uint32_t                 n_params = 0;   // locals 1..n_params are params
+    std::set<std::string>    lifetime_params;   // the function's declared `'a`s
     std::vector<std::string> unsupported;
     // Two-phase loans: (block, stmt) of the Ref and (block) of the Call that
     // activates it, recorded while lowering the receiver.
@@ -302,6 +303,11 @@ public:
         // same identity test as the counter-based checker's copy_tvs_.
         copy_tvs_.clear();
         aliases_.clear();
+        for (auto lp : fn.lifetime_params()) {
+            std::string n(lp);
+            if (!n.empty() && n[0] != '\'') n = "'" + n;
+            body_.lifetime_params.insert(std::move(n));
+        }
         fn.each_type_param([&](lir_view::FnTParamView tp) {
             tp.each_bound([&](lir_view::FnTraitBoundView b) {
                 if (lir_is_copy_lang_item(b.identity_trait()))
@@ -645,6 +651,15 @@ private:
     // ── expressions into a destination ──
     void lower_into(bir::Place dest, lir_view::ExprRef e) {
         if (!e) return;
+        // Extending positions are `&E` itself and the operands of a braced
+        // struct / tuple / array literal; anything else (a call's arguments,
+        // an operator's operands) ends the extension.
+        struct ExtGuard { bool& f; bool v; ~ExtGuard() { f = v; } } ext_guard{extending_, extending_};
+        switch (e.kind()) {
+            case ECode::AddrOf: case ECode::AddrOfTemp: case ECode::StructLit:
+            case ECode::TupleLit: case ECode::ArrLit: break;
+            default: extending_ = false; break;
+        }
         switch (e.kind()) {
             case ECode::AddrOf: {
                 lir_view::EAddrOfView v{e};
@@ -690,7 +705,21 @@ private:
                 // shared one for a mutable receiver).
                 bool saved = mut_deref_ctx_;
                 mut_deref_ctx_ = v.is_mut();
-                bir::Place p = place_or_temp(v.inner());
+                bir::Place p;
+                if (auto known = place_of(v.inner())) p = *known;
+                else {
+                    // The borrowed temporary. In an extending position of a
+                    // `let` it lives as long as the binding; its own operands
+                    // do not.
+                    bir::LocalId tl = new_local("_t" + std::to_string(body_.locals.size()),
+                                                bir::LocalKind::Temp, v.inner().type(pool_), true, ~0u, line_);
+                    if (extending_) declare_outer(tl); else declare(tl);
+                    bool ext = extending_;
+                    extending_ = false;
+                    lower_into(bir::Place{tl, {}}, v.inner());
+                    extending_ = ext;
+                    p = bir::Place{tl, {}};
+                }
                 mut_deref_ctx_ = saved;
                 if (t && t.kind() == LogosType::Kind::Ptr) {
                     bir::Rvalue rv(bir::Rvalue::K::RawAddr);
@@ -1412,8 +1441,41 @@ private:
         return p.with(std::move(f));
     }
 
+    // ── temporaries die with their statement (Rust reference, "temporary
+    // scopes") ──
+    // A temporary lives to the end of the enclosing STATEMENT, except the
+    // operand of a `&` in an extending position of a `let` initializer, which
+    // lives to the end of the block: `let x = &mk();` is fine, `let r =
+    // keep(&mk().v);` and `x = &id(3);` leave `r` / `x` dangling (E0716).
+    // Statements with their own blocks keep the scopes they already open.
     void lower_stmt(lir_view::StmtRef s) {
         if (!s) return;
+        bool simple = false;
+        switch (s.kind()) {
+            case SCode::Let: case SCode::Assign: case SCode::ExprStmt:
+            case SCode::FieldWrite: case SCode::DerefFieldWrite: case SCode::DerefWrite:
+                simple = true; break;
+            default: break;
+        }
+        if (!simple) { lower_stmt_(s); return; }
+        push_scope();
+        bool saved_scoped = stmt_scoped_, saved_ext = extending_;
+        stmt_scoped_ = true;
+        extending_   = s.kind() == SCode::Let;
+        lower_stmt_(s);
+        stmt_scoped_ = saved_scoped;
+        extending_   = saved_ext;
+        pop_scope();
+    }
+    bool stmt_scoped_ = false;   // the innermost scope is a statement's
+    bool extending_   = false;   // lowering a `let` initializer in an extending position
+    // A local that outlives the statement being lowered: the `let`'s own
+    // binding, and an extended temporary.
+    void declare_outer(bir::LocalId l) {
+        if (stmt_scoped_ && scopes_.size() >= 2) scopes_[scopes_.size() - 2].locals.push_back(l);
+        else declare(l);
+    }
+    void lower_stmt_(lir_view::StmtRef s) {
         if (uint32_t ln = lir_view::stmt_line(s)) line_ = ln;
         switch (s.kind()) {
             case SCode::Let: {
@@ -1438,7 +1500,7 @@ private:
                                            v.is_mut() || v.name().starts_with("__") || v.compiler_glue(),
                                            v.var_slot(), line_);
                 if (v.value()) lower_into({l, {}}, v.value());
-                declare(l);
+                declare_outer(l);
                 return;
             }
             case SCode::Assign: {
@@ -2586,15 +2648,31 @@ private:
     static bool same_proj(const bir::Proj& a, const bir::Proj& b) {
         return a.k == b.k && (a.k != bir::Proj::K::Field || a.field == b.field);
     }
-    // Two places may denote overlapping memory.
-    static bool overlap(const bir::Place& a, const bir::Place& b) {
+    bool is_union_type(TypeRef t) const {
+        if (!t || t.kind() != LogosType::Kind::Struct) return false;
+        std::string want = concrete_struct_name(t);
+        if (auto it = ts_.struct_by_name.find(want); it != ts_.struct_by_name.end()) return it->second.is_union();
+        if (auto it = ts_.spec_by_name.find(want); it != ts_.spec_by_name.end()) return it->second.is_union();
+        return false;
+    }
+    // Two places may denote overlapping memory. Distinct fields are disjoint,
+    // except the fields of a UNION, which share their storage: a borrow of
+    // `u.s.a` and one of `u.z.c` overlap whatever follows the union's field.
+    bool overlap(const bir::Place& a, const bir::Place& b) const {
         if (a.local != b.local) return false;
         size_t n = std::min(a.proj.size(), b.proj.size());
+        TypeRef t = b_.locals[a.local].synth_ref ? TypeRef{} : b_.locals[a.local].type;
         for (size_t k = 0; k < n; ++k) {
             const auto& x = a.proj[k];
             const auto& y = b.proj[k];
             if (x.k == bir::Proj::K::Field && y.k == bir::Proj::K::Field && x.field != y.field)
-                return false;
+                return is_union_type(t);
+            if (x.k == bir::Proj::K::Deref)
+                t = x.ty ? x.ty : (t && t.pointee() ? TypeRef(t.pointee()) : TypeRef{});
+            else if (x.k == bir::Proj::K::Field)
+                t = x.ty ? x.ty : (t ? field_type_(t, x.field) : TypeRef{});
+            else
+                t = x.ty ? x.ty : (t && t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
         }
         return true;
     }
@@ -2943,6 +3021,20 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         for (uint32_t oo : os.os) row("use_of_var_derefs_origin", {var(li), o(oo)});
         if (L.kind == bir::LocalKind::Param || L.kind == bir::LocalKind::Return)
             for (uint32_t oo : os.os) row("universal_region", {o(oo)});
+        // `let x: &'a i64 = &v;` with `'a` a lifetime PARAMETER of the
+        // function: the annotation names a region that outlives the body, so
+        // that origin is universal exactly as a parameter's is, and a loan of a
+        // local that reaches it is refused when the local dies (E0597).
+        // USER bindings only: a temporary's type is inferred, not declared, and
+        // an unresolved callee's result (`g1.get()` through a bound, returning
+        // `&'a i64`) would make the receiver's autoref loan universal.
+        else if (L.kind == bir::LocalKind::User && !b_.lifetime_params.empty() && L.type && !L.synth_ref) {
+            std::vector<std::string> ls;
+            labels(L.type, L.type, ls);
+            if (ls.size() == os.os.size())
+                for (size_t k = 0; k < ls.size(); ++k)
+                    if (b_.lifetime_params.count(ls[k])) row("universal_region", {o(os.os[k])});
+        }
         if (L.kind == bir::LocalKind::Param)
             row("path_assigned_at_base", {pa(path_of({li, {}})), pt(entry)});
         else
