@@ -1,0 +1,42 @@
+// SOUNDNESS QUEUE — A CLOSURE INSIDE A GENERIC FUNCTION INSTANTIATED AT TWO
+// TYPES DOES NOT COMPILE. Tier 3: a legal Rust program is refused, and the
+// refusal is a link-level symbol collision, not a diagnostic about the source.
+//
+//   error: redefinition of symbol named '__closure_0'
+//   mlir_gen: module verification failed
+//
+// MEASURED 2026-09-20 on logosc 0.44.0-preview+main-gd3a8be39, rc 1, no object
+// file. rustc 1.98.1 --edition 2024 COMPILES the twin and it runs (exit 0).
+//
+// CAUSE, read not guessed: the closure's identity is minted ONCE per literal
+// in sema (`closure_id`), and monomorphisation copies it verbatim across
+// substitutions — `nc->closure_id = std::string(v.closure_id());` in
+// mono_clone.cpp's ClosureBox arm. Codegen then names the emitted function
+// exactly `closure_id`, so `apply<i64>`'s closure and `apply<i32>`'s closure
+// ask for one symbol. Every other generic entity is keyed per instantiation;
+// a closure is not.
+//
+// ⚠ THIS IS THE SAME SHAPE AS #438: an entity named by a string that does not
+// carry what distinguishes it. A per-instantiation closure identity is also a
+// PREREQUISITE for lifting closure bodies to real L-IR functions (ADR 0028),
+// because a lifted body is a function and two instantiations cannot share one
+// name.
+//
+// FOUND while costing the closure lift for ADR 0028, and reproduced by hand.
+package generic_closure_id_collides_across_instances;
+
+fn apply<T>(v: T) -> T {
+    let c = move || -> T { return v; };
+    return c();
+}
+
+fn main() -> i32 {
+    let a: i64 = apply::<i64>(7i64);
+    let b: i32 = apply::<i32>(3i32);
+    if a != 7i64 { return 1i32; }
+    if b != 3i32 { return 2i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024: ACCEPTED, exit 0. Twin at
+// scratchpad/t1/gen_clo.rs (a development-box path; the program above is the
+// reproducible part).

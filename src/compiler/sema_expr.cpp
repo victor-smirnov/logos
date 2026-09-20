@@ -19173,6 +19173,21 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     for (size_t i = 0; i < ec->captures.size(); ++i)
         ec->mut_captures[i] = mut_captures_set.count(ec->captures[i]) > 0 &&
                               !widened_roots.count(ec->captures[i]);
+    // ADR 0028: the same two facts, KEPT APART. `mut_captures` above is the
+    // mutation AND the widening policy in one bit, so a capture the body
+    // mutates through a widened path reads as "not mutated" and no consumer can
+    // recover which of the two it was. The borrow checker needs the mode of the
+    // capture (rustc's upvar kinds) and, separately, whether the place it is
+    // recorded for is wider than the one touched.
+    ec->capture_modes.assign(ec->captures.size(), 0);
+    ec->capture_widened.assign(ec->captures.size(), 0);
+    for (size_t i = 0; i < ec->captures.size(); ++i) {
+        ec->capture_modes[i] = is_move ? uint8_t(2)                      // ByValue
+                             : mut_captures_set.count(ec->captures[i]) > 0
+                                 ? uint8_t(1)                            // MutBorrow
+                                 : uint8_t(0);                           // ImmBorrow
+        ec->capture_widened[i] = widened_roots.count(ec->captures[i]) ? 1 : 0;
+    }
 
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {

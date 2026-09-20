@@ -690,6 +690,10 @@ struct EClosure {
     // body's FieldRead(root, …) chain works. nullptr (default) = whole-root
     // capture, current behaviour. Parallel to `captures`.
     std::vector<TypeRef>            capture_field_types;
+    // ADR 0028: per-capture MODE (0 ImmBorrow, 1 MutBorrow, 2 ByValue) and the
+    // bit saying the recorded path is an LCA widening. Parallel to `captures`.
+    std::vector<uint8_t>            capture_modes;
+    std::vector<uint8_t>            capture_widened;
     // When true: non-capturing closure coerced to fn ptr; emitted without env_ptr.
     bool                            as_fn_ptr = false;
     // G167-3b: the closure value escapes its creating frame (it is BOXED —

@@ -1696,7 +1696,7 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
     // ret-type, is-move, as-fn-ptr, mut-captures) — default cap=8 overflows.
     auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
                             | (1ULL << 47),
-                            /*cap=*/12);
+                            /*cap=*/16);
     put(map_off, ck::BLOCK,         mref_addr(body_off));
     if (!c.closure_id.empty())
         put(map_off, ck::NAME, put_string(c.closure_id));
@@ -1720,6 +1720,20 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
         auto m_off = make_array(m_elems.size());
         for (auto av : m_elems) array_push(m_off, av);
         put(map_off, ck::MUT_CAPTURES, mref_addr(m_off));
+    }
+    // ADR 0028: the per-capture MODE and the widening bit, always emitted
+    // together when the arity agrees — unlike MUT_CAPTURES they are not sparse
+    // on "nothing is mutated", because ImmBorrow and ByValue are both
+    // meaningful and a missing slot cannot tell them apart.
+    if (c.capture_modes.size() == c.captures.size() && !c.captures.empty()) {
+        auto md_off = make_array(c.capture_modes.size());
+        for (uint8_t m : c.capture_modes) array_push(md_off, put_u8(m));
+        put(map_off, ck::CAPTURE_MODES, mref_addr(md_off));
+    }
+    if (c.capture_widened.size() == c.captures.size() && !c.captures.empty()) {
+        auto wd_off = make_array(c.capture_widened.size());
+        for (uint8_t w : c.capture_widened) array_push(wd_off, put_bool(w != 0));
+        put(map_off, ck::CAPTURE_WIDENED, mref_addr(wd_off));
     }
     // RFC-2229: per-capture dotted field path. Only emit when at least one path
     // is narrower than its root (else whole-var capture is the implicit default).

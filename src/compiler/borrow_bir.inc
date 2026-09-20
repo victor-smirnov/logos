@@ -925,10 +925,89 @@ private:
             case ECode::FnPtrCall: case ECode::FormatCall:
                 lower_call(dest, e);
                 return;
-            case ECode::ClosureBox:
-                unsupported("expr:ClosureBox");
-                assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
+            case ECode::ClosureBox: {
+                // A closure VALUE is an aggregate of its captures, as MIR builds
+                // Rvalue::Aggregate(AggregateKind::Closure, ..): a by-reference
+                // capture issues its loan HERE, at the construction point, and a
+                // by-value one moves. The mode is READ (closure_keys::
+                // CAPTURE_MODES), never derived from {IS_MOVE, MUT_CAPTURES} —
+                // that pair cannot separate ByValue from ImmBorrow and loses the
+                // mutation whenever sema widened the path to an LCA.
+                // ⚠ THE BODY IS NOT LOWERED BY THIS ARM. A violation visible only
+                // inside the closure stays with the old checker and shows up as
+                // an `old_only` row; the body becomes its own bir::Body later.
+                lir_view::EClosureBoxView v{e};
+                bir::Rvalue rv(bir::Rvalue::K::Aggregate);
+                rv.what = std::string(v.closure_id());
+                std::vector<std::pair<std::string, TypeRef>> caps;
+                v.each_capture(pool_, [&](std::string_view n, TypeRef t) {
+                    caps.emplace_back(std::string(n), t);
+                });
+                for (uint64_t i = 0; i < caps.size(); ++i) {
+                    bir::LocalId root = find_local(caps[i].first, ~0u);
+                    if (root == bir::kNoLocal) {
+                        unsupported("closure: a capture names no local in scope");
+                        assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
+                        return;
+                    }
+                    bir::Place p{root, {}};
+                    // CAPTURE_PATHS is `root.f.g`; the tail after the root is a
+                    // chain of field projections on the place.
+                    std::string_view path = v.capture_path(i);
+                    TypeRef cur = caps[i].second;
+                    if (path.size() > caps[i].first.size() &&
+                        path.substr(0, caps[i].first.size()) == caps[i].first) {
+                        std::string_view tail = path.substr(caps[i].first.size() + 1);
+                        while (!tail.empty()) {
+                            auto dot = tail.find('.');
+                            std::string_view f = dot == std::string_view::npos ? tail : tail.substr(0, dot);
+                            bir::Proj pr(bir::Proj::K::Field, std::string(f));
+                            cur = field_type(cur, f);
+                            pr.ty = cur;
+                            p = p.with(std::move(pr));
+                            tail = dot == std::string_view::npos ? std::string_view{} : tail.substr(dot + 1);
+                        }
+                    }
+                    TypeRef leaf = v.capture_field_type(pool_, i);
+                    if (leaf) cur = leaf;
+                    const uint8_t mode = v.capture_mode(i);
+                    // ⚠ THE ONE CASE THE MODE CANNOT ANSWER, AND IT IS NOT
+                    // GUESSED. Sema keys ByValue on the `move` KEYWORD, so for a
+                    // non-`move` closure a capture of a MOVE type is recorded
+                    // ImmBorrow whether the body reads it or CONSUMES it —
+                    // `let f = || { let y: S = x; };` is a by-value capture in
+                    // Rust (E0382 when the closure is built twice) and would be
+                    // lowered here as `&x`, a loan where MIR builds a move.
+                    // Sema records no consumption for a non-`move` body (it runs
+                    // is_move_type/mark_moved only under `if (is_move)`), so the
+                    // fact does not exist to read and the function is refused
+                    // with its reason counted, not lowered on a guess.
+                    if (mode != 2 && !v.is_move() && cur && !is_copy(cur)) {
+                        unsupported("closure: a move-type capture in a non-`move` closure");
+                        assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
+                        return;
+                    }
+                    if (mode == 2) {                       // ByValue
+                        rv.ops.push_back(read_place(std::move(p), cur));
+                    } else {
+                        // A MutBorrow recorded for a WIDENED path is known only
+                        // for a place wider than the one the body touches, so it
+                        // is taken as a shared loan — which is exactly what the
+                        // folded `mut_captures` bit used to encode, now stated
+                        // rather than implied.
+                        const bool m = mode == 1 && !v.capture_widened(i);
+                        bir::LocalId tmp = synth_ref_temp(cur, m);
+                        assign({tmp, {}}, ref_of(std::move(p), m, /*two_phase=*/false));
+                        bir::Operand o;
+                        o.k = bir::Operand::K::Move;
+                        o.place = {tmp, {}};
+                        rv.ops.push_back(std::move(o));
+                    }
+                    rv.field_names.push_back(caps[i].first);
+                }
+                assign(dest, std::move(rv));
                 return;
+            }
             case ECode::PackExpand:
                 unsupported("expr:PackExpand");
                 assign(dest, bir::Rvalue(bir::Rvalue::K::Use));

@@ -2185,6 +2185,31 @@ public:
         return el.as_value<uint8_t>() != 0;
     }
 
+    // ADR 0028: capture i's MODE — 0 ImmBorrow, 1 MutBorrow, 2 ByValue. The
+    // slot is absent on closures emitted before it existed; the fallback is
+    // ImmBorrow, which is what the extractor's arm treats as a shared loan.
+    uint8_t capture_mode(uint64_t i) const noexcept {
+        auto* m = cl_map();
+        if (!m) return 0;
+        auto av = m->get(lir_schema::closure_keys::CAPTURE_MODES.code);
+        if (av.is_null()) return 0;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        if (i >= arr->size()) return 0;
+        auto el = arr->get(i);
+        return el.is_null() ? uint8_t(0) : el.as_value<uint8_t>();
+    }
+    // True when capture i's recorded PATH is an LCA widening of what the body
+    // touches, so a MutBorrow there is known only for a wider place.
+    bool capture_widened(uint64_t i) const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::CAPTURE_WIDENED.code);
+        if (av.is_null()) return false;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        if (i >= arr->size()) return false;
+        auto el = arr->get(i);
+        return !el.is_null() && el.as_value<uint8_t>() != 0;
+    }
     // RFC-2229 phase-1: capture i's dotted FIELD PATH (`p.x.y`). Falls back to
     // the bare capture name when the schema slot is absent (a closure that only
     // reads whole roots — the common case, schema footprint unchanged).

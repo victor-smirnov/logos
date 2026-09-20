@@ -613,5 +613,7 @@ closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_fie
 
 let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
 
-# TOTAL 228
-# SYNC-HASH e075781fa51065a8756da54ba0665bab
+generic_closure_id_collides_across_instances 3 tests/soundness/open/generic_closure_id_collides_across_instances refuses
+
+# TOTAL 229
+# SYNC-HASH 472b1d1da4a8d189522e1d33e0fdfb56

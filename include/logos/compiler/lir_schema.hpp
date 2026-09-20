@@ -328,6 +328,18 @@ inline constexpr Key MUT_CAPTURES      {"CL_MUT_CAPTURES",  9};   // Array<u8> (
 inline constexpr Key ESCAPES           {"CL_ESCAPES",      10};   // u8 (G167-3b: boxed → heap env)
 inline constexpr Key CAPTURE_PATHS     {"CL_CAPTURE_PATHS", 11}; // RFC-2229: per-capture dotted field path (`p.x`); parallel to PARAM_NAMES.
 inline constexpr Key CAPTURE_FIELD_TYPES {"CL_CAPTURE_FIELD_TYPES", 12}; // RFC-2229 phase-2: per-capture FIELD type (null = whole-root); parallel.
+// ADR 0028: the per-capture MODE, as rustc's upvar capture kinds. Parallel to
+// CAPTURE_NAMES. 0 = ImmBorrow, 1 = MutBorrow, 2 = ByValue. MUT_CAPTURES above
+// answers a narrower question ("does the body mutate it") AND folds a widening
+// POLICY into that answer, so it cannot say whether the closure takes the
+// capture by value.
+inline constexpr Key CAPTURE_MODES     {"CL_CAPTURE_MODES", 13};  // Array<u8>
+// 1 where CAPTURE_PATHS[i] is an LCA WIDENING of the paths the body touches.
+// The mode above states the FACT; this states where the fact is known only for
+// a wider place than the one accessed, which is what licenses reading a
+// MutBorrow as a shared loan. Keeping them apart is the point: MUT_CAPTURES
+// merges them and loses the mutation.
+inline constexpr Key CAPTURE_WIDENED   {"CL_CAPTURE_WIDENED", 14}; // Array<u8>
 } // namespace closure_keys
 
 // Keys for the EPtrDiff LExpr variant map (in addition to expr_common::TYPE,

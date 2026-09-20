@@ -4782,6 +4782,13 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             nc->mut_captures.resize(nc->captures.size(), false);
             for (size_t i = 0; i < nc->captures.size(); ++i)
                 nc->mut_captures[i] = v.capture_is_mut(i);
+            // ADR 0028: carry the per-capture MODE and the widening bit.
+            nc->capture_modes.resize(nc->captures.size(), 0);
+            nc->capture_widened.resize(nc->captures.size(), 0);
+            for (size_t i = 0; i < nc->captures.size(); ++i) {
+                nc->capture_modes[i]   = v.capture_mode(i);
+                nc->capture_widened[i] = v.capture_widened(i) ? 1 : 0;
+            }
             // RFC-2229: carry per-capture field PATH across substitution (else
             // post-mono borrow-check reads only the root and disjoint sibling
             // mutation is wrongly rejected).
