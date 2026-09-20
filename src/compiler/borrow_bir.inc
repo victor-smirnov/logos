@@ -208,6 +208,24 @@ bir_struct_named_fields(TypeRef t, const lir::LProgram& prog, const TypeSets& ts
     return look(ts.spec_by_name);
 }
 
+// An enum's payload slots as (`Variant#i`, type), in declaration order: the
+// names BIR's Field projections use for a variant's payload.
+static std::optional<std::vector<std::pair<std::string, TypeRef>>>
+bir_enum_named_payloads(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
+    auto it = ts.enum_by_name.end();
+    if (!t.type_args().empty()) it = ts.enum_by_name.find(Mono::enum_instance_name(t));
+    if (it == ts.enum_by_name.end()) it = ts.enum_by_name.find(std::string(t.enum_name()));
+    if (it == ts.enum_by_name.end()) return std::nullopt;
+    std::vector<std::pair<std::string, TypeRef>> out;
+    it->second.each_variant([&](lir_view::EnumVariantView v) {
+        uint32_t i = 0;
+        v.each_payload_type(prog.type_pool.impl(), [&](TypeRef pt) {
+            out.emplace_back(std::string(v.name()) + "#" + std::to_string(i++), pt);
+        });
+    });
+    return out;
+}
+
 static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
                                    int depth) {
     if (!t || depth > 16) return false;
@@ -1976,9 +1994,9 @@ private:
                     // for both either lost the write-through (one-way subset)
                     // or made `vs` hold the loan of itself (two-way).
                     if (auto ef = expanded_fields(t)) {
-                        visiting_.insert(concrete_struct_name(t));
+                        visiting_.insert(layout_key(t));
                         for (auto& [fn, ft] : *ef) walk_type(ft, invariant, out, depth + 1);
-                        visiting_.erase(concrete_struct_name(t));
+                        visiting_.erase(layout_key(t));
                     }
                     if (out.os.size() == before) {
                         out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
@@ -2000,17 +2018,25 @@ private:
     // lifetimes or region-carrying type arguments, a struct already being laid
     // out (a recursive type keeps its single origin), or one with no definition.
     std::set<std::string> visiting_;
+    static std::string layout_key(TypeRef t) {
+        return t.kind() == LogosType::Kind::Enum ? "enum " + Mono::enum_instance_name(t)
+                                                 : concrete_struct_name(t);
+    }
     std::optional<std::vector<std::pair<std::string, TypeRef>>> expanded_fields(TypeRef t) {
-        if (!t || t.kind() != LogosType::Kind::Struct || !t.lifetime_args().empty()) return std::nullopt;
+        if (!t || !t.lifetime_args().empty()) return std::nullopt;
+        if (t.kind() != LogosType::Kind::Struct && t.kind() != LogosType::Kind::Enum) return std::nullopt;
         for (auto& a : t.type_args()) { size_t n = 0; count_only(a, n); if (n) return std::nullopt; }
-        if (visiting_.count(concrete_struct_name(t))) return std::nullopt;
-        return bir_struct_named_fields(t, prog_, ts_);
+        if (visiting_.count(layout_key(t))) return std::nullopt;
+        // An enum's hidden regions are its variants' payloads, one after
+        // another (`Variant#i`), exactly as a struct's are its fields.
+        return t.kind() == LogosType::Kind::Struct ? bir_struct_named_fields(t, prog_, ts_)
+                                                   : bir_enum_named_payloads(t, prog_, ts_);
     }
     // [offset, count) of `field`'s origins inside the list walk_type gives `t`.
     std::optional<std::pair<size_t, size_t>> field_span(TypeRef t, std::string_view field, TypeRef* ftype) {
         auto ef = expanded_fields(t);
         if (!ef) return std::nullopt;
-        visiting_.insert(concrete_struct_name(t));
+        visiting_.insert(layout_key(t));
         size_t off = 0;
         std::optional<std::pair<size_t, size_t>> out;
         for (auto& [fn, ft] : *ef) {
@@ -2018,7 +2044,7 @@ private:
             if (fn == field) { out = std::make_pair(off, n); if (ftype) *ftype = ft; break; }
             off += n;
         }
-        visiting_.erase(concrete_struct_name(t));
+        visiting_.erase(layout_key(t));
         return out;
     }
     const OList& local_origins(bir::LocalId l) {
@@ -2179,6 +2205,11 @@ private:
         std::optional<std::pair<size_t, size_t>> span;
         if (t.kind() == LogosType::Kind::Struct && i < s.rv.field_names.size()) {
             span = field_span(t, s.rv.field_names[i], nullptr);
+        } else if (t.kind() == LogosType::Kind::Enum && s.rv.what != "tuple" && s.rv.what != "array" &&
+                   s.rv.what != "slice") {
+            span = field_span(t, s.rv.what + "#" + std::to_string(i), nullptr);
+        } else if (t.kind() == LogosType::Kind::Array && s.rv.what == "array") {
+            span = std::make_pair(size_t(0), total);   // every element has the element type's list
         } else if (t.kind() == LogosType::Kind::Tuple && s.rv.what == "tuple") {
             auto elems = t.tuple_elems();
             if (i >= elems.size()) return std::nullopt;
@@ -2296,7 +2327,7 @@ private:
         labels(t.callee_fn.decl_ret_type(pool_), t.callee_fn.ret_type(pool_), lret);
         if (lret.size() != dst.os.size()) return false;
         auto ps = t.callee_fn.params();
-        struct Src { uint32_t origin; std::string label; bool outer_self; };
+        struct Src { uint32_t origin; std::string label; bool outer_self; bool inv; };
         std::vector<Src> srcs;
         std::vector<size_t> elided_positions;
         bool self_ref = false;
@@ -2313,7 +2344,7 @@ private:
                                   (d0.kind() == LogosType::Kind::DstRef && !d0.owning_dst())))
                 self_ref = true;
             for (size_t k = 0; k < ao.os.size(); ++k) {
-                srcs.push_back({ao.os[k], pl[k], is_self && k == 0});
+                srcs.push_back({ao.os[k], pl[k], is_self && k == 0, bool(ao.inv[k])});
                 if (pl[k].empty() || (pl[k][0] == '\'' && pl[k] != "'static")) elided_positions.push_back(srcs.size() - 1);
             }
         }
@@ -2352,10 +2383,20 @@ private:
         for (size_t j = 0; j < dst.os.size(); ++j) {
             const std::string& L = lret[j];
             if (L == "'static") continue;
+            // A hidden region behind `&mut` in the result, with a hidden region
+            // behind `&mut` among the arguments: those are the same position
+            // of the same unnameable region, and ONLY they feed it. Letting
+            // every source in as well (the "~" default below) put the
+            // argument's own `&mut` loan into the region it is then tied back
+            // to, so `vs` held the loan of itself (bc_flow_mask/a1_loopbreak).
+            bool hidden_identity = false;
+            if (L == "~" && dst.inv[j])
+                for (auto& sr : srcs) if (sr.inv && sr.label == "~") { hidden_identity = true; break; }
             for (size_t si = 0; si < srcs.size(); ++si) {
                 const Src& sr = srcs[si];
                 bool from = false;
-                if (L == "?" || sr.label == "?" || L == "~") from = true;
+                if (hidden_identity) from = sr.inv && sr.label == "~";
+                else if (L == "?" || sr.label == "?" || L == "~") from = true;
                 else if (L.empty()) {
                     // Elided result lifetime: from `&self`'s own lifetime,
                     // else from the one input lifetime, else from all.
@@ -2376,6 +2417,16 @@ private:
                     // elided-result fallback relates every elided input and
                     // is an approximation, which must stay one-way.
                     if (dst.inv[j] && !L.empty() && L != "?" && L != "~" && sr.label == L)
+                        subset(dst.os[j], sr.origin, p);
+                    // A HIDDEN region ("~": a loan-carrying type that declares
+                    // no lifetime, so the signature cannot name it) behind
+                    // `&mut` on BOTH sides: `fn pick(v: &mut Vec<B>) -> &mut
+                    // Vec<B>`. Rust would make the author name it and the two
+                    // positions would be one region; with nothing written, a
+                    // store through the result must be assumed to land in the
+                    // argument. Hidden-to-hidden only, so a borrow's own region
+                    // is never tied to what it points at.
+                    else if (dst.inv[j] && sr.inv && L == "~" && sr.label == "~")
                         subset(dst.os[j], sr.origin, p);
                 }
             }
