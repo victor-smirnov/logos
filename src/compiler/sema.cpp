@@ -962,6 +962,10 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_sub(buf, impl, t.pointee);
         break;
     case K::AssocType:
+        // #438: the trait's package — `T::Item` of two same-named traits are
+        // two projections. Empty for a node built before its trait resolved,
+        // which keeps that node's UID as it was.
+        put_str(buf, t.pkg_name);
         put_str(buf, t.trait_name);
         put_str(buf, t.assoc_type_name);
         put_sub(buf, impl, t.assoc_base);
@@ -1118,7 +1122,8 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         return t.type_var_name == r.type_var_name() &&
                t.const_val == r.const_val();
     case K::AssocType:
-        return t.trait_name == r.trait_name() &&
+        return t.pkg_name == r.pkg_name() &&      // #438: the trait's identity
+               t.trait_name == r.trait_name() &&
                t.assoc_type_name == r.assoc_type_name() &&
                t.assoc_base == r.assoc_base() &&
                vec_ptr_eq(t.gat_args, r.gat_args()) &&
@@ -7130,6 +7135,11 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         }
     }
     std::string trait_for_assoc;
+    // #438: the package of the trait the arms below pick. Set where the pick is
+    // NOT a written name (the cfg-slot arm chooses among same-named traits), so
+    // the projection's identity is the trait that was chosen, not whatever the
+    // name resolves to here.
+    std::string trait_pkg_for_assoc;
     // G156-1: the trait's concrete type-args at this projection site (from the
     // type-var bound or the current impl). Used to disambiguate two
     // `Trait<T>` impls for one type (each declaring the same assoc type).
@@ -7215,21 +7225,53 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             }
         }
     } else if (TypeRef(base_type).kind() == LogosType::Kind::CfgSlotType) {
-        // CfgSlotType base — type isn't known until mono substitutes
-        // CFG. Resolve by assoc-name alone: pick the first trait that
-        // declares an assoc type with this name. Mono's subst_type
-        // for AssocType then resolves via concrete_impls_ /
-        // blanket_impls_ once the base becomes concrete.
-        for (auto& [tname_def, tinfo] : traits_) {
-            // ⚠ The projection carries the trait as a NAME, and the other arms
-            // above fill it from a bound's written spelling — so this arm must
-            // use the same form or two spellings of one projection compare
-            // unequal. (Projections by identity: the next step of #438.)
-            const std::string& tname = tinfo.name;
+        // CfgSlotType base — the type is not known until mono substitutes the
+        // CFG, so there is no bound to read the trait off. The assoc NAME is
+        // all there is, and it does not name a trait: `Item` is declared by
+        // Iterator and by anything else that chose the word.
+        //
+        // #438: this used to take the first trait in registry order — a hash
+        // order before the registry was keyed by DefId, declaration order
+        // after, and arbitrary either way. It now prefers what the file could
+        // have MEANT: a trait in scope here (own package, then an import, then
+        // the prelude), and only falls back to the first declaring trait when
+        // none of the candidates is in scope. A single candidate is taken
+        // whether it is in scope or not, so the unambiguous case never changes.
+        // Mono's subst_type for AssocType resolves the projection through
+        // concrete_impls_ / blanket_impls_ once the base becomes concrete, so a
+        // wrong pick here shows up there as an unresolved projection.
+        const SemaTraitInfo* only_decl = nullptr;
+        size_t n_decl = 0;
+        for (auto& [tdef, tinfo] : traits_) {
             for (auto& at : tinfo.assoc_types) {
-                if (at.name == assoc) { trait_for_assoc = tname; break; }
+                if (at.name != assoc) continue;
+                ++n_decl;
+                if (!only_decl) only_decl = &tinfo;
+                break;
             }
-            if (!trait_for_assoc.empty()) break;
+        }
+        const SemaTraitInfo* pick = only_decl;
+        if (n_decl > 1) {
+            auto in_scope_with_assoc = [&](std::string_view pkg) -> const SemaTraitInfo* {
+                for (auto& [tdef, tinfo] : traits_) {
+                    if (tinfo.package != pkg) continue;
+                    for (auto& at : tinfo.assoc_types)
+                        if (at.name == assoc) return &tinfo;
+                }
+                return nullptr;
+            };
+            const SemaTraitInfo* scoped = in_scope_with_assoc(cur_package_);
+            if (!scoped)
+                for (auto& pkg : effective_import_pkgs())
+                    if ((scoped = in_scope_with_assoc(pkg))) break;
+            if (scoped) pick = scoped;
+        }
+        if (pick) {
+            // ⚠ The projection carries the trait as a NAME, and the other arms
+            // fill it from a bound's written spelling, so this arm uses the
+            // same form; the package rides beside it.
+            trait_for_assoc     = pick->name;
+            trait_pkg_for_assoc = pick->package;
         }
     } else if (TypeRef(base_type).kind() == LogosType::Kind::AssocType) {
         // T::A::B — search bounds of the associated type itself if we had them,
@@ -7370,6 +7412,10 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     // trait_name bare, preserving legacy behaviour. Bare-name consumers strip
     // the suffix via strip_trait_targ_suffix().
     t.trait_name      = trait_for_assoc + trait_targ_suffix(trait_args_for_assoc);
+    // #438: the trait's package — the projection's identity half, so `T::Item`
+    // of two same-named traits are two types (compute_type_uid hashes it).
+    if (!trait_pkg_for_assoc.empty()) t.pkg_name = trait_pkg_for_assoc;
+    else if (auto* pti = resolve_trait(trait_for_assoc)) t.pkg_name = pti->package;
     t.assoc_type_name = assoc;
     t.gat_args        = std::move(gat_args);
     // B88: stash GAT lifetime args on lifetime_args field — distinct

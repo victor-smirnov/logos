@@ -9689,6 +9689,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             rt.kind            = LogosType::Kind::AssocType;
                             rt.assoc_base      = TypeRef(ret_type).assoc_base();
                             rt.trait_name      = want_tn;
+                            rt.pkg_name        = std::string(TypeRef(ret_type).pkg_name());   // #438
                             rt.assoc_type_name = std::string(TypeRef(ret_type).assoc_type_name());
                             for (auto g : TypeRef(ret_type).gat_args()) rt.gat_args.push_back(g);
                             ret_type = pool_->alloc(std::move(rt));
@@ -17307,6 +17308,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                                 rb.kind            = LogosType::Kind::AssocType;
                                 rb.assoc_base      = TypeRef(ret_t).assoc_base();
                                 rb.trait_name      = want_tn;
+                                rb.pkg_name        = std::string(TypeRef(ret_t).pkg_name());   // #438
                                 rb.assoc_type_name = std::string(TypeRef(ret_t).assoc_type_name());
                                 for (auto g : TypeRef(ret_t).gat_args()) rb.gat_args.push_back(g);
                                 ret_t = pool_->alloc(std::move(rb));
