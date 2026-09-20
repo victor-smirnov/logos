@@ -12,21 +12,23 @@ CTestTestfile.cmake
 !/CTestTestfile.cmake
 _deps
 CMakeUserPresets.json
-build*
-!tools/lforge/pkg/build*
-!tests/lforge/build_cache.sh
-# ⚠ A CORPUS FIXTURE CANNOT BE RENAMED OUT OF THIS PATTERN. `build*` is a bare
-# pattern and matches at ANY depth, so it swallowed
-# tests/imported/pass/methods/builder-returning-self-b163.logos — a real test
-# that CONFIGURE_DEPENDS registers locally and git never tracked, which is why
-# the census pin has carried "the one git-ignored imported fixture" for days and
-# census_pin reds in a clean clone. The `build_hash.py` rename (ab7f55084) is not
-# available here: an imported fixture's name mirrors the upstream rustc test it
-# is ported from. So the corpus's own extensions are exempted, and nothing else:
-# a `build/` directory under tests/ stays ignored.
-!tests/**/build*.logos
-!tests/**/build*.expected
-!tests/**/build*.module
+# ⚠ ANCHORED, AND THE ANCHOR IS THE FIX. A bare `build*` matches at ANY DEPTH,
+# so it swallowed three unrelated things in three different ways:
+#   · `scripts/build_hash.py` — the script that keys every gate verdict, never
+#     tracked, so a fresh clone could not create a gate-verdict store at all
+#     (ab7f55084 renamed it to `scripts/hash-build.py` to escape the pattern);
+#   · `tests/imported/pass/methods/builder-returning-self-b163.logos` — a corpus
+#     fixture that CONFIGURE_DEPENDS registers on the machine that has it and git
+#     has never seen, which is why `census_pin` reds in a clean clone (#441);
+#   · every `tools/lforge/pkg/build*.logos` and `tests/lforge/build_cache.sh`,
+#     which needed hand-written exemptions to survive.
+# The build directories this rule exists for are all at the ROOT (`build`,
+# `build-ordcmp`, `build-ordcmp2`), so `/build*` says what was meant and the
+# exemptions are no longer needed. Nothing else depends on the unanchored form:
+# a worktree's `build/` is covered by `.claude/worktrees/` below and cmake's
+# `build.make` by `CMakeFiles` above — both checked with `git check-ignore -v`
+# before the anchor went in.
+/build*
 /memoria*
 /vcpkg_installed
 *.o
