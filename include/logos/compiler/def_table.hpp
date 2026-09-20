@@ -16,6 +16,9 @@
 #include "logos/compiler/str_map.hpp"
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <unordered_map>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -24,7 +27,12 @@
 namespace logos::compiler {
 
 struct DefId {
-    uint32_t v = 0;                       // 0 = no entity
+    // A STABLE hash of the path, not a counter: rustc's DefPathHash, for the
+    // same reason. Sema runs several times over one program (metaprog rounds,
+    // the discovery pass, a cache-less re-run), and a counter gave one path two
+    // ids across those runs — records written by one run then missed the other
+    // run's lookups. A hash is the same in every run and in every process.
+    uint64_t v = 0;                       // 0 = no entity
     explicit operator bool() const noexcept { return v != 0; }
     friend bool operator==(DefId a, DefId b) noexcept { return a.v == b.v; }
     friend auto operator<=>(DefId a, DefId b) noexcept { return a.v <=> b.v; }
@@ -52,24 +60,28 @@ struct DefEntry {
 
 class DefTable {
 public:
-    DefTable() { entries_.emplace_back(); }   // id 0 = none
-
-    // The id of (kind's namespace, package, name), minted on first sight.
-    // A second declaration of the same path is the caller's duplicate check.
+    // The id of (kind's namespace, package, name). Minting is a hash, so the
+    // same path gives the same id in any run; the table records what the id
+    // stands for, for diagnostics and for name lookups.
     DefId intern(DefKind kind, std::string_view package, std::string_view name) {
-        std::string key = path_key(def_ns(kind), package, name);
-        if (auto it = by_path_.find(key); it != by_path_.end()) return it->second;
-        DefId id{static_cast<uint32_t>(entries_.size())};
-        entries_.push_back({kind, std::string(package), std::string(name)});
-        by_path_.emplace(std::move(key), id);
+        DefId id = hash_of(def_ns(kind), package, name);
+        auto [it, fresh] = entries_.try_emplace(id.v, DefEntry{kind, std::string(package), std::string(name)});
+        if (!fresh && (it->second.package != package || it->second.name != name))
+            collision(it->second, package, name);
         return id;
     }
+    // Empty unless the path has been interned in this compilation — "is there
+    // such a declaration", not "what would its id be".
     DefId find(DefNs ns, std::string_view package, std::string_view name) const {
-        auto it = by_path_.find(path_key(ns, package, name));
-        return it == by_path_.end() ? DefId{} : it->second;
+        DefId id = hash_of(ns, package, name);
+        return entries_.count(id.v) ? id : DefId{};
     }
-    const DefEntry& operator[](DefId id) const { return entries_.at(id.v); }
-    size_t size() const noexcept { return entries_.size() - 1; }
+    const DefEntry& operator[](DefId id) const {
+        static const DefEntry kNone{};
+        auto it = entries_.find(id.v);
+        return it == entries_.end() ? kNone : it->second;
+    }
+    size_t size() const noexcept { return entries_.size(); }
 
     // `package::name`, or `name` for the root: the spelling a diagnostic and
     // the L-IR's identity fields use.
@@ -79,21 +91,32 @@ public:
     }
 
 private:
-    static std::string path_key(DefNs ns, std::string_view package, std::string_view name) {
-        std::string k;
-        k.reserve(package.size() + name.size() + 3);
-        k.push_back(ns == DefNs::Type ? 'T' : 'V');
-        k.append(package);
-        k.push_back('\x1f');   // cannot occur in a package or a name
-        k.append(name);
-        return k;
+    // FNV-1a over (namespace, package, \x1f, name). 64 bits: a collision would
+    // make two declarations one, so it is checked at intern time rather than
+    // assumed away.
+    static DefId hash_of(DefNs ns, std::string_view package, std::string_view name) noexcept {
+        uint64_t h = 1469598103934665603ull;
+        auto mix = [&](uint8_t b) { h ^= b; h *= 1099511628211ull; };
+        mix(ns == DefNs::Type ? 'T' : 'V');
+        for (char c : package) mix(uint8_t(c));
+        mix(0x1f);
+        for (char c : name) mix(uint8_t(c));
+        return DefId{h | 1ull};   // never 0, which means "no entity"
     }
-    std::vector<DefEntry> entries_;
-    StrMap<DefId> by_path_;
+    [[noreturn]] static void collision(const DefEntry& have,
+                                       std::string_view package, std::string_view name) {
+        std::fprintf(stderr,
+            "logosc INTERNAL: DefId collision — '%s::%s' and '%.*s::%.*s' hash alike.\n"
+            "  Two declarations would become one entity. Widen the hash.\n",
+            have.package.c_str(), have.name.c_str(),
+            (int)package.size(), package.data(), (int)name.size(), name.data());
+        std::abort();
+    }
+    std::unordered_map<uint64_t, DefEntry> entries_;
 };
 
 }  // namespace logos::compiler
 
 template <> struct std::hash<logos::compiler::DefId> {
-    size_t operator()(logos::compiler::DefId d) const noexcept { return std::hash<uint32_t>{}(d.v); }
+    size_t operator()(logos::compiler::DefId d) const noexcept { return std::hash<uint64_t>{}(d.v); }
 };

@@ -2959,9 +2959,9 @@ private:
                 std::abort();
             }
         };
-        audit("structs_", structs_);
-        audit("enums_", enums_);
-        audit("datatypes_", datatypes_);
+        // #438 step 10: structs_, enums_ and datatypes_ are keyed by DefId, so
+        // their halves are fields and cannot be miscut. What is left string-keyed
+        // and split is module_consts_.
         audit("module_consts_", module_consts_);
     }
 
@@ -3432,8 +3432,7 @@ private:
             auto ename = std::string(str_of(vmap.get(la::NAME.code)));
             auto vname = std::string(str_of(vmap.get(la::FIELD.code)));
             auto [epkg, esi] = find_enum_by_name(ename);
-            auto it = esi ? enums_.find(sema_key(epkg, ename)) : enums_.end();
-            if (it == enums_.end()) it = enums_.find(ename);
+            auto it = esi ? enums_.find(esi->def) : enums_.end();
             if (it == enums_.end()) {
                 error(std::format("enum '{}' not found in annotation value", ename));
                 return 0;
@@ -3741,50 +3740,45 @@ private:
         };
         for (auto& [_k, fi] : generic_funcs_) check_bounds(fi.type_params,
             std::format("fn {}", fi.base_name));
-        for (auto& [_k, si] : structs_)      check_bounds(si.type_params,
-            std::format("struct {}", _k));
-        for (auto& [_k, ei] : enums_)        check_bounds(ei.type_params,
-            std::format("enum {}", _k));
-        for (auto& [_k, dt] : datatypes_)    check_bounds(dt.type_params,
-            std::format("datatype {}", _k));
+        for (auto& [_d, si] : structs_)      check_bounds(si.type_params,
+            std::format("struct {}", defs_.path(_d)));
+        for (auto& [_d, ei] : enums_)        check_bounds(ei.type_params,
+            std::format("enum {}", defs_.path(_d)));
+        for (auto& [_d, dt] : datatypes_)    check_bounds(dt.type_params,
+            std::format("datatype {}", defs_.path(_d)));
     }
 
     void check_recursive_value_types() {
         enum Color { White, Gray, Black };
-        std::unordered_map<std::string, Color> sc;
-        std::unordered_map<std::string, Color> ec;
-        for (auto& [k, _] : structs_) sc[k] = White;
-        for (auto& [k, _] : enums_)   ec[k] = White;
+        // #438: colour by IDENTITY. The keys used to be registry strings and the
+        // diagnostics cut the package half back off with rfind("::").
+        std::map<DefId, Color> sc, ec;
+        for (auto& [d, _] : structs_) sc[d] = White;
+        for (auto& [d, _] : enums_)   ec[d] = White;
 
-        // Resolve a TypeRef edge to its registry key (struct or enum) so we
-        // can look up by name, falling back from pkg-qualified to bare.
-        auto find_struct_key = [&](TypeRef t) -> std::string {
-            std::string q = sema_key(TypeRef(t).pkg_name(), TypeRef(t).struct_name());
-            if (structs_.count(q)) return q;
-            std::string b(TypeRef(t).struct_name());
-            return structs_.count(b) ? b : std::string{};
+        auto struct_def = [&](TypeRef t) -> DefId {
+            DefId d = type_id(TypeRef(t).pkg_name(), TypeRef(t).struct_name());
+            return structs_.count(d) ? d : DefId{};
         };
-        auto find_enum_key = [&](TypeRef t) -> std::string {
-            std::string q = sema_key(TypeRef(t).pkg_name(), TypeRef(t).enum_name());
-            if (enums_.count(q)) return q;
-            std::string b(TypeRef(t).enum_name());
-            return enums_.count(b) ? b : std::string{};
+        auto enum_def = [&](TypeRef t) -> DefId {
+            DefId d = type_id(TypeRef(t).pkg_name(), TypeRef(t).enum_name());
+            return enums_.count(d) ? d : DefId{};
         };
 
-        std::function<bool(const std::string&)> visit_struct;
-        std::function<bool(const std::string&)> visit_enum;
+        std::function<bool(DefId)> visit_struct;
+        std::function<bool(DefId)> visit_enum;
         std::function<bool(TypeRef)> walk;
         walk = [&](TypeRef t) -> bool {
             if (!t) return false;
             auto k = TypeRef(t).kind();
             if (k == LogosType::Kind::Struct ||
                 k == LogosType::Kind::ZonedStruct) {
-                auto sk = find_struct_key(t);
-                return !sk.empty() && visit_struct(sk);
+                DefId d = struct_def(t);
+                return d && visit_struct(d);
             }
             if (k == LogosType::Kind::Enum) {
-                auto ek = find_enum_key(t);
-                return !ek.empty() && visit_enum(ek);
+                DefId d = enum_def(t);
+                return d && visit_enum(d);
             }
             if (k == LogosType::Kind::Tuple) {
                 for (auto e : TypeRef(t).tuple_elems())
@@ -3792,13 +3786,11 @@ private:
             }
             return false;
         };
-        visit_struct = [&](const std::string& key) -> bool {
-            auto& col = sc[key];
+        visit_struct = [&](DefId d) -> bool {
+            auto& col = sc[d];
             if (col == Black) return false;
             if (col == Gray) {
-                // Bare name from key (strip pkg::)
-                auto pos = key.rfind("::");
-                std::string nm = pos == std::string::npos ? key : key.substr(pos + 2);
+                const std::string& nm = defs_[d].name;
                 error(std::format("infinite-size type '{}' (cannot contain "
                                   "itself by value); use a pointer or '&{}'",
                                   nm, nm));
@@ -3806,19 +3798,18 @@ private:
                 return true;
             }
             col = Gray;
-            auto& sd = structs_[key];
+            auto& sd = structs_[d];
             for (auto& f : sd.fields) {
                 if (walk(f.type)) { col = Black; return true; }
             }
             col = Black;
             return false;
         };
-        visit_enum = [&](const std::string& key) -> bool {
-            auto& col = ec[key];
+        visit_enum = [&](DefId d) -> bool {
+            auto& col = ec[d];
             if (col == Black) return false;
             if (col == Gray) {
-                auto pos = key.rfind("::");
-                std::string nm = pos == std::string::npos ? key : key.substr(pos + 2);
+                const std::string& nm = defs_[d].name;
                 error(std::format("infinite-size enum '{}' (variant payload "
                                   "contains itself by value); box the payload "
                                   "with '*const {}'", nm, nm));
@@ -3826,7 +3817,7 @@ private:
                 return true;
             }
             col = Gray;
-            auto& ed = enums_[key];
+            auto& ed = enums_[d];
             for (auto& v : ed.variants) {
                 for (auto& pt : v.payload_types)
                     if (walk(pt)) { col = Black; return true; }
@@ -3834,8 +3825,8 @@ private:
             col = Black;
             return false;
         };
-        for (auto& [k, _] : structs_) if (sc[k] == White) visit_struct(k);
-        for (auto& [k, _] : enums_)   if (ec[k] == White) visit_enum(k);
+        for (auto& [d, _] : structs_) if (sc[d] == White) visit_struct(d);
+        for (auto& [d, _] : enums_)   if (ec[d] == White) visit_enum(d);
     }
 
     void check_annotations(AttrTarget target, std::string_view target_name,
@@ -4106,7 +4097,9 @@ private:
     // the fn-epilogue param walk (was 4 drifting copies).
     void emit_frame_drops(const Frame& frame, std::vector<lir_view::StmtRef>& drops,
                           const std::set<std::string>* extra_skip = nullptr) const;
-    std::set<std::string> copy_types_;   // types with impl Copy — never move-only
+    // #438: by identity. A primitive (`impl Copy for i32`) has no package and
+    // gets the ROOT's id, which is what a package-less TypeRef asks with.
+    std::set<DefId> copy_types_;         // types with impl Copy — never move-only
     // T1-13: extern-block statics (declaration only, foreign storage) —
     // every access requires `unsafe`.
     std::set<std::string> module_extern_statics_;
@@ -4116,7 +4109,7 @@ private:
     // (struct_type_is_copy evaluates via is_move_type recursion). The blanket
     // `impl<P> Copy for Pin<P>` made Pin<Box<T>> Copy → a "move" bitwise-
     // copied and BOTH bindings dropped (double free, adversarial t03).
-    std::unordered_map<std::string, std::vector<size_t>> conditional_copy_;
+    std::map<DefId, std::vector<size_t>> conditional_copy_;
     bool struct_type_is_copy(TypeRef x) const;
     // WF of a written type — `&'y X` ⇒ X: 'y at let / field / payload / turbofish (PROBES.md 2026-09-03a).
     void check_written_type_wf(TypeRef t, const std::string& ctx,
@@ -4250,7 +4243,7 @@ public:
     };
     struct ImplKeyHash {
         size_t operator()(const ImplKey& k) const noexcept {
-            return std::hash<uint32_t>{}(k.trait_def.v) * 1099511628211ull
+            return std::hash<uint64_t>{}(k.trait_def.v) * 1099511628211ull
                  ^ logos::compiler::StringHash{}(k.target);
         }
     };
@@ -4271,7 +4264,7 @@ public:
     };
     struct AssocKeyHash {
         size_t operator()(const AssocKey& k) const noexcept {
-            size_t h = std::hash<uint32_t>{}(k.trait_def.v);
+            size_t h = std::hash<uint64_t>{}(k.trait_def.v);
             for (auto* p : {&k.targs, &k.target, &k.name})
                 h = h * 1099511628211ull ^ logos::compiler::StringHash{}(*p);
             return h;
@@ -5225,6 +5218,7 @@ private:
                             std::string module_id;  // owning-module id (mangle key); empty = no module
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
                             bool is_annotation_type = false;  // #[annotation] datatype (see StructDraft::is_annotation_type)
+                            DefId def;   // #438: this declaration's identity
                             bool is_tuple_struct = false;  // B-ts-01: `struct Foo(T1, T2);` — positional fields, ctor is `Foo(a, b)` and pattern is `Foo(x, y)`
                             bool no_auto_drop = false;  // `#[no_auto_drop]` — compiler emits NO auto-Drop (user drop + field drop) for this struct. ManuallyDrop<T> lang-item shape.
                             // Phase 1B-13: custom DST — the LAST field has
@@ -5419,6 +5413,7 @@ private:
         bool is_pub = false;                 // T1-9: cross-pkg visibility
         bool is_module_only = false;          // §4: `pub(module)`
         std::string package;                 // pkg this enum was declared in
+        DefId def;                           // #438: this declaration's identity
         std::string module_id;               // owning-module id (mangle key); empty = no module
         std::vector<TypeParam> type_params;  // for generic enums
         std::vector<std::string> lifetime_params;  // B65: enum lifetime params
@@ -5705,8 +5700,11 @@ private:
     // is declared in package a.b. Used by find_* helpers for transitive import resolution.
     logos::compiler::StrMap<std::vector<std::string>> pkg_reexports_;
 
-    logos::compiler::StrMap<SemaStructInfo>   structs_;
-    logos::compiler::StrMap<SemaStructInfo>   datatypes_;  // Writ datatypes
+    // #438: nominal types by identity. A struct, a Writ datatype and an enum
+    // share Rust's TYPE namespace, so one (package, name) is one DefId whichever
+    // registry holds the record.
+    std::map<DefId, SemaStructInfo>           structs_;
+    std::map<DefId, SemaStructInfo>           datatypes_;  // Writ datatypes
     // Explicit type_code from #[type_code=N] annotations; populated in lower_module_items.
     logos::compiler::StrMap<uint64_t>         explicit_type_codes_;
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
@@ -5772,7 +5770,7 @@ private:
         }
         return out;
     }
-    logos::compiler::StrMap<SemaEnumInfo>     enums_;
+    std::map<DefId, SemaEnumInfo>             enums_;
     logos::compiler::StrMap<SemaFuncInfo>     funcs_;
     // base name -> concrete overload symbols stored in funcs_.
     logos::compiler::StrMap<std::vector<std::string>> func_overloads_;
@@ -6093,6 +6091,15 @@ private:
         return only;
     }
     SemaTraitInfo* trait_by_key(std::string_view path) { return trait_info(trait_def_of_key(path)); }
+    // #438: the identity of a nominal type. `type_id` only LOOKS UP (empty when
+    // nothing of that path was ever declared); `intern_type` mints on first
+    // sight, for a registration.
+    DefId type_id(std::string_view pkg, std::string_view name) const {
+        return defs_.find(DefNs::Type, pkg, name);
+    }
+    DefId intern_type(DefKind kind, std::string_view pkg, std::string_view name) {
+        return defs_.intern(kind, pkg, name);
+    }
     const SemaTraitInfo* trait_by_key(std::string_view path) const { return trait_info(trait_def_of_key(path)); }
     std::string trait_path(const SemaTraitInfo& ti) const { return defs_.path(ti.def); }
     // Always-on: the DefTable and the string registry agree. Every trait record
@@ -6293,34 +6300,23 @@ private:
     std::pair<std::string, SemaEnumInfo*> enum_of(TypeRef tr) {
         return {tr ? std::string(tr.pkg_name()) : std::string{}, get_enum_si(tr)};
     }
+    // #438: a resolved type names its declaration by (package, name); these
+    // three take it to the record by identity. A package-less type is the
+    // ROOT's, which is an identity like any other — the old bare fallback,
+    // which answered from any package, is gone.
     SemaStructInfo* get_struct_si(TypeRef tr) {
         if (!tr) return nullptr;
-        if (!tr.pkg_name().empty()) {
-            auto it = structs_.find(sema_key(tr.pkg_name(), tr.struct_name()));
-            if (it != structs_.end()) return &it->second;
-            return nullptr;
-        }
-        auto it = structs_.find(tr.struct_name());
+        auto it = structs_.find(type_id(tr.pkg_name(), tr.struct_name()));
         return it != structs_.end() ? &it->second : nullptr;
     }
     SemaStructInfo* get_datatype_si(TypeRef tr) {
         if (!tr) return nullptr;
-        if (!tr.pkg_name().empty()) {
-            auto it = datatypes_.find(sema_key(tr.pkg_name(), tr.struct_name()));
-            if (it != datatypes_.end()) return &it->second;
-            return nullptr;
-        }
-        auto it = datatypes_.find(tr.struct_name());
+        auto it = datatypes_.find(type_id(tr.pkg_name(), tr.struct_name()));
         return it != datatypes_.end() ? &it->second : nullptr;
     }
     SemaEnumInfo* get_enum_si(TypeRef tr) {
         if (!tr) return nullptr;
-        if (!tr.pkg_name().empty()) {
-            auto it = enums_.find(sema_key(tr.pkg_name(), tr.enum_name()));
-            if (it != enums_.end()) return &it->second;
-            return nullptr;
-        }
-        auto it = enums_.find(tr.enum_name());
+        auto it = enums_.find(type_id(tr.pkg_name(), tr.enum_name()));
         return it != enums_.end() ? &it->second : nullptr;
     }
 
@@ -6365,76 +6361,48 @@ private:
     auto lookup_qualified_(Map& m, std::string_view name)
         -> std::pair<std::string, typename Map::mapped_type*>
     {
-        if (!cur_package_.empty()) {
-            auto it = m.find(sema_key(cur_package_, std::string(name)));
-            if (it != m.end()) return {cur_package_, &it->second};
-        }
+        auto probe = [&](std::string_view pkg) -> typename Map::mapped_type* {
+            DefId d = type_id(pkg, name);
+            if (!d) return nullptr;
+            auto it = m.find(d);
+            return it == m.end() ? nullptr : &it->second;
+        };
+        if (!cur_package_.empty())
+            if (auto* v = probe(cur_package_)) return {cur_package_, v};
         for (auto& pkg : effective_import_pkgs()) {
-            auto it = m.find(sema_key(pkg, std::string(name)));
-            if (it != m.end()) {
-                // §3.2b: `use pkg from <module>;` restricts a package's TYPES /
-                // enums / traits (not just its free fns) to the named module —
-                // skip a match imported `from` a different module than the one
-                // owning this package. (pkg_module_ids_[pkg] is the package's
-                // owning module.) Empty restriction map ⇒ no-op (common case).
-                if (auto rit = cur_imports_.pkg_from_module_id.find(pkg);
-                    rit != cur_imports_.pkg_from_module_id.end()) {
-                    auto mit = pkg_module_ids_.find(pkg);
-                    std::string pkg_mod =
-                        (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
-                    if (pkg_mod != rit->second) continue;
-                }
-                if constexpr (PubCheck) {
-                    // §4: pass the module-linkage info so a `pub(module)` type
-                    // accessed from another module gets a "module-private"
-                    // diagnostic (pkg_module_ids_[pkg] = the package's owning
-                    // module — uniform across infos, incl. traits with no own id).
-                    auto mit = pkg_module_ids_.find(pkg);
-                    std::string pkg_mod =
-                        (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
-                    check_pub_access(it->second.is_pub, it->second.package, name,
-                                     it->second.is_module_only, pkg_mod);
-                }
-                return {pkg, &it->second};
+            auto* v = probe(pkg);
+            if (!v) continue;
+            // §3.2b: `use pkg from <module>;` restricts a package's TYPES /
+            // enums / traits (not just its free fns) to the named module —
+            // skip a match imported `from` a different module than the one
+            // owning this package. (pkg_module_ids_[pkg] is the package's
+            // owning module.) Empty restriction map ⇒ no-op (common case).
+            if (auto rit = cur_imports_.pkg_from_module_id.find(pkg);
+                rit != cur_imports_.pkg_from_module_id.end()) {
+                auto mit = pkg_module_ids_.find(pkg);
+                std::string pkg_mod =
+                    (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
+                if (pkg_mod != rit->second) continue;
             }
-        }
-        // logos-core 6.6: the bare-key fallback tier was a visibility-
-        // check bypass — a non-`pub` item from another package could be
-        // resolved through it without going through `check_pub_access`.
-        // Apply the same pub-check the package-qualified tier above
-        // uses, scoped to the case where the resolved item belongs to
-        // a DIFFERENT package than `cur_package_` (own-package bare
-        // entries — e.g. primitives, builtins — are always permitted).
-        auto it = m.find(std::string(name));
-        // The bare slot is storage, not scope: an entry answers only where its
-        // package is in scope (own package, an import, the prelude), as Rust
-        // resolves a path in the scope it is written in. Otherwise the stdlib
-        // looking up a type parameter `T` finds a user's trait `T`.
-        if (it != m.end() && !cur_package_.empty()) {
-            const std::string& owner = it->second.package;
-            bool in_scope = owner.empty() || owner == cur_package_;
-            if (!in_scope) {
-                auto imp = effective_import_pkgs();
-                in_scope = std::find(imp.begin(), imp.end(), owner) != imp.end();
-            }
-            if (!in_scope) {
-                if (std::getenv("LOGOS_TRACE_BARE"))
-                    std::fprintf(stderr, "BARE-OUT-OF-SCOPE cur=%s name=%.*s owner=%s\n",
-                                 cur_package_.c_str(), (int)name.size(), name.data(), owner.c_str());
-                return {"", nullptr};
-            }
-        }
-        if (it != m.end()) {
             if constexpr (PubCheck) {
-                if (!it->second.package.empty() &&
-                    it->second.package != cur_package_) {
-                    check_pub_access(it->second.is_pub,
-                                     it->second.package, name);
-                }
+                // §4: pass the module-linkage info so a `pub(module)` type
+                // accessed from another module gets a "module-private"
+                // diagnostic (pkg_module_ids_[pkg] = the package's owning
+                // module — uniform across infos, incl. traits with no own id).
+                auto mit = pkg_module_ids_.find(pkg);
+                std::string pkg_mod =
+                    (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
+                check_pub_access(v->is_pub, v->package, name,
+                                 v->is_module_only, pkg_mod);
             }
-            return {"", &it->second};
+            return {pkg, v};
         }
-        return {"", nullptr};
+        // #438: the ROOT (a declaration with no package) — a package-less file's
+        // own items, which is where a `cur_package_`-less file finds itself, and
+        // the compiler's built-in declarations. It is an identity like any
+        // other, not the old "answer from whatever package registered first".
+        if (auto* v = probe(std::string_view{})) return {std::string{}, v};
+        return {std::string{}, nullptr};
     }
     std::pair<std::string, SemaStructInfo*> find_struct_by_name(std::string_view name) {
         return lookup_qualified_<true>(structs_, name);
@@ -6447,12 +6415,15 @@ private:
     // — visibility is irrelevant to a layout/repr question. Prefers the
     // package-qualified key; falls back to the bare legacy slot.
     SemaStructInfo* find_struct_repr_(std::string_view pkg, std::string_view name) {
+        auto it = structs_.find(type_id(pkg, name));
+        if (it != structs_.end()) return &it->second;
+        // #438: a package-less (root) declaration of the same name — the
+        // builtin case. NOT another package's: that is the aliasing this class
+        // is about.
         if (!pkg.empty()) {
-            auto it = structs_.find(sema_key(pkg, name));
+            it = structs_.find(type_id({}, name));
             if (it != structs_.end()) return &it->second;
         }
-        auto it = structs_.find(std::string(name));
-        if (it != structs_.end()) return &it->second;
         return nullptr;
     }
     // Same, for `#[zoned]` datatypes — the second registry a struct-kind
@@ -6461,12 +6432,12 @@ private:
     // answer "unknown" (→ the {8,8} default) and makes two same-named types
     // from different packages alias onto whichever registered first.
     SemaStructInfo* find_datatype_repr_(std::string_view pkg, std::string_view name) {
+        auto it = datatypes_.find(type_id(pkg, name));
+        if (it != datatypes_.end()) return &it->second;
         if (!pkg.empty()) {
-            auto it = datatypes_.find(sema_key(pkg, name));
+            it = datatypes_.find(type_id({}, name));
             if (it != datatypes_.end()) return &it->second;
         }
-        auto it = datatypes_.find(std::string(name));
-        if (it != datatypes_.end()) return &it->second;
         return nullptr;
     }
     std::pair<std::string, SemaStructInfo*> find_datatype_by_name(std::string_view name) {
@@ -6478,12 +6449,12 @@ private:
     // {8,8} instead of {32,8} and `PanicInfo` came out 24 against the object
     // file's 48. Found by the ledger check, not by a program.
     SemaEnumInfo* find_enum_repr_(std::string_view pkg, std::string_view name) {
+        auto it = enums_.find(type_id(pkg, name));
+        if (it != enums_.end()) return &it->second;
         if (!pkg.empty()) {
-            auto it = enums_.find(sema_key(pkg, name));
+            it = enums_.find(type_id({}, name));
             if (it != enums_.end()) return &it->second;
         }
-        auto it = enums_.find(std::string(name));
-        if (it != enums_.end()) return &it->second;
         return nullptr;
     }
     std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
@@ -9916,11 +9887,11 @@ inline LogosType::Kind float_suffix_kind(std::string_view sv) noexcept {
 class SemaCheckerSnapshot {
 public:
     // Symbol tables — direct move targets of SemaChecker members.
-    StrMap<SemaChecker::SemaStructInfo>   structs;
-    StrMap<SemaChecker::SemaStructInfo>   datatypes;
+    std::map<DefId, SemaChecker::SemaStructInfo>   structs;
+    std::map<DefId, SemaChecker::SemaStructInfo>   datatypes;
     StrMap<SemaChecker::SemaStructInfo>   struct_specs_sema;
     StrMap<uint64_t>                       explicit_type_codes;
-    StrMap<SemaChecker::SemaEnumInfo>     enums;
+    std::map<DefId, SemaChecker::SemaEnumInfo>     enums;
     StrMap<SemaChecker::SemaFuncInfo>     funcs;
     StrMap<std::vector<std::string>>       func_overloads;
     StrMap<SemaChecker::SemaFuncInfo>     generic_funcs;
@@ -9939,8 +9910,8 @@ public:
     std::vector<SemaChecker::BlanketImpl>  blanket_impls;
     std::vector<MetaprogHandlerStage> metaprog_handlers;
     std::vector<MetaprogTargetStage>  metaprog_targets;
-    std::set<std::string>                   copy_types;
-    std::unordered_map<std::string, std::vector<size_t>> conditional_copy;
+    std::set<DefId>                         copy_types;
+    std::map<DefId, std::vector<size_t>>    conditional_copy;
     StrMap<std::vector<std::string>>       pkg_reexports;
     // ADR 0016 registries: cross-round persistence — the round-2 sema skips
     // re-collecting cached (stdlib) holders, so anything collect-derived that

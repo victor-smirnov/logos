@@ -361,7 +361,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 if (is_specialization_struct(item)) continue;  // specs registered later
                 auto sname = std::string(str_of(item.get(la::NAME.code)));
                 auto key = sema_key(cur_package_, sname);
-                if (structs_.count(key)) {
+                const DefId kid = intern_type(DefKind::Struct, cur_package_, sname);
+                if (structs_.count(kid)) {
                     auto fit = first_struct.find(key);
                     if (fit != first_struct.end()
                             && items_equal(fit->second, holder_, item_off(item))) {
@@ -370,7 +371,22 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                         error(std::format("duplicate struct '{}'", sname));
                     }
                 } else {
-                    structs_[key] = {};
+                    {   // #438: a placeholder carries its own package and id —
+                        // the user-state reset filters by the record's package.
+                        SemaStructInfo ph{};
+                        ph.package = cur_package_;
+                        ph.def     = kid;
+                        // …and its visibility: a reference resolving BEFORE the
+                        // defining pass replaces the placeholder must not read a
+                        // default-false is_pub (spurious "private to package"),
+                        // exactly as the trait placeholder carries it.
+                        if (item.has_key(la::IS_PUB)) {
+                            AnyVal pv = item.get(la::IS_PUB.code);
+                            ph.is_pub = !pv.is_null() && pv.is_value() &&
+                                        pv.as_value<uint8_t>() != 0;
+                        }
+                        structs_[kid] = std::move(ph);
+                    }
                     first_struct[key] = {holder_, item_off(item)};
                     first_struct_decl_[key] = {static_cast<void*>(holder_), item_off(item)};
                 }
@@ -386,7 +402,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 if (!item.has_key(la::NAME.code)) continue;
                 auto uname = std::string(str_of(item.get(la::NAME.code)));
                 auto key = sema_key(cur_package_, uname);
-                if (structs_.count(key)) {
+                const DefId kid = intern_type(DefKind::Struct, cur_package_, uname);
+                if (structs_.count(kid)) {
                     auto fit = first_struct.find(key);
                     if (fit != first_struct.end()
                             && items_equal(fit->second, holder_, item_off(item))) {
@@ -395,7 +412,22 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                         error(std::format("duplicate struct/union '{}'", uname));
                     }
                 } else {
-                    structs_[key] = {};
+                    {   // #438: a placeholder carries its own package and id —
+                        // the user-state reset filters by the record's package.
+                        SemaStructInfo ph{};
+                        ph.package = cur_package_;
+                        ph.def     = kid;
+                        // …and its visibility: a reference resolving BEFORE the
+                        // defining pass replaces the placeholder must not read a
+                        // default-false is_pub (spurious "private to package"),
+                        // exactly as the trait placeholder carries it.
+                        if (item.has_key(la::IS_PUB)) {
+                            AnyVal pv = item.get(la::IS_PUB.code);
+                            ph.is_pub = !pv.is_null() && pv.is_value() &&
+                                        pv.as_value<uint8_t>() != 0;
+                        }
+                        structs_[kid] = std::move(ph);
+                    }
                     first_struct[key] = {holder_, item_off(item)};
                 }
             } else if (ic == la::SCHEMA_DEF || ic == la::SCHEMA_ENUM_DEF) {
@@ -406,7 +438,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 if (!item.has_key(la::NAME.code)) continue;
                 auto sname = std::string(str_of(item.get(la::NAME.code)));
                 auto key = sema_key(cur_package_, sname);
-                if (structs_.count(key)) {
+                const DefId kid = intern_type(DefKind::Struct, cur_package_, sname);
+                if (structs_.count(kid)) {
                     auto fit = first_struct.find(key);
                     if (fit != first_struct.end()
                             && items_equal(fit->second, holder_, item_off(item))) {
@@ -415,7 +448,22 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                         error(std::format("duplicate schema/struct '{}'", sname));
                     }
                 } else {
-                    structs_[key] = {};
+                    {   // #438: a placeholder carries its own package and id —
+                        // the user-state reset filters by the record's package.
+                        SemaStructInfo ph{};
+                        ph.package = cur_package_;
+                        ph.def     = kid;
+                        // …and its visibility: a reference resolving BEFORE the
+                        // defining pass replaces the placeholder must not read a
+                        // default-false is_pub (spurious "private to package"),
+                        // exactly as the trait placeholder carries it.
+                        if (item.has_key(la::IS_PUB)) {
+                            AnyVal pv = item.get(la::IS_PUB.code);
+                            ph.is_pub = !pv.is_null() && pv.is_value() &&
+                                        pv.as_value<uint8_t>() != 0;
+                        }
+                        structs_[kid] = std::move(ph);
+                    }
                     first_struct[key] = {holder_, item_off(item)};
                 }
             } else if ((ic == la::STRUCT && is_datatype_struct) || ic == la::DATATYPE) {
@@ -424,7 +472,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 if (is_specialization_struct(item)) continue;  // partial/full specs registered later
                 auto dname = std::string(str_of(item.get(la::NAME.code)));
                 auto key = sema_key(cur_package_, dname);
-                if (datatypes_.count(key)) {
+                const DefId kid = intern_type(DefKind::Datatype, cur_package_, dname);
+                if (datatypes_.count(kid)) {
                     auto fit = first_datatype.find(key);
                     if (fit != first_datatype.end()
                             && items_equal(fit->second, holder_, item_off(item))) {
@@ -433,13 +482,29 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                         error(std::format("duplicate datatype '{}'", dname));
                     }
                 } else {
-                    datatypes_[key] = {};
+                    {   // #438: a placeholder carries its own package and id —
+                        // the user-state reset filters by the record's package.
+                        SemaStructInfo ph{};
+                        ph.package = cur_package_;
+                        ph.def     = kid;
+                        // …and its visibility: a reference resolving BEFORE the
+                        // defining pass replaces the placeholder must not read a
+                        // default-false is_pub (spurious "private to package"),
+                        // exactly as the trait placeholder carries it.
+                        if (item.has_key(la::IS_PUB)) {
+                            AnyVal pv = item.get(la::IS_PUB.code);
+                            ph.is_pub = !pv.is_null() && pv.is_value() &&
+                                        pv.as_value<uint8_t>() != 0;
+                        }
+                        datatypes_[kid] = std::move(ph);
+                    }
                     first_datatype[key] = {holder_, item_off(item)};
                 }
             } else if (ic == la::ENUM) {
                 auto ename = std::string(str_of(item.get(la::NAME.code)));
                 auto key = sema_key(cur_package_, ename);
-                if (enums_.count(key)) {
+                const DefId kid = intern_type(DefKind::Enum, cur_package_, ename);
+                if (enums_.count(kid)) {
                     auto fit = first_enum.find(key);
                     if (fit != first_enum.end()
                             && items_equal(fit->second, holder_, item_off(item))) {
@@ -448,7 +513,22 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                         error(std::format("duplicate enum '{}'", ename));
                     }
                 } else {
-                    enums_[key] = {};
+                    {   // #438: a placeholder carries its own package and id —
+                        // the user-state reset filters by the record's package.
+                        SemaEnumInfo ph{};
+                        ph.package = cur_package_;
+                        ph.def     = kid;
+                        // …and its visibility: a reference resolving BEFORE the
+                        // defining pass replaces the placeholder must not read a
+                        // default-false is_pub (spurious "private to package"),
+                        // exactly as the trait placeholder carries it.
+                        if (item.has_key(la::IS_PUB)) {
+                            AnyVal pv = item.get(la::IS_PUB.code);
+                            ph.is_pub = !pv.is_null() && pv.is_value() &&
+                                        pv.as_value<uint8_t>() != 0;
+                        }
+                        enums_[kid] = std::move(ph);
+                    }
                     first_enum[key] = {holder_, item_off(item)};
                 }
             } else if (ic == la::TRAIT_DEF) {
@@ -678,13 +758,9 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
         for (const auto& mh : metaprog_handlers_)
             if (mh.trigger != "<missing>") trigger_names.insert(mh.trigger);
         std::set<std::string> annotation_type_names;
-        for (auto& [k, dt] : datatypes_)
-            if (dt.is_annotation_type) {
-                // Key is "<pkg>::<name>" or just "<name>"; strip pkg prefix.
-                auto colon = k.rfind("::");
-                annotation_type_names.insert(
-                    colon == std::string::npos ? k : k.substr(colon + 2));
-            }
+        for (auto& [d, dt] : datatypes_)
+            if (dt.is_annotation_type)
+                annotation_type_names.insert(defs_[d].name);   // #438: the name is a field
         for (size_t ai = 0; ai < asts.size(); ++ai) {
             // M6.1: delta mode — already processed in a prior call.
             if (ai < delta_start_idx_) continue;
@@ -2026,9 +2102,9 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                         // the per-flag docs).
                         {
                             auto f = parse_struct_attr_flags(pending_annots);
-                            auto skey = sema_key(cur_package_, sname);
+                            const DefId skey = type_id(cur_package_, sname);
                             auto sit = structs_.find(skey);
-                            if (sit == structs_.end()) sit = structs_.find(sname);
+                            if (sit == structs_.end()) sit = structs_.find(type_id({}, sname));   // the root's
                             if (sit != structs_.end()) {
                                 auto& si = sit->second;
                                 si.no_auto_drop    |= f.no_auto_drop;
@@ -2062,9 +2138,9 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 if (!a.has_key(la::NAME.code)) continue;
                                 std::string mode(str_of(a.get(la::NAME.code)));
                                 if (mode == "transparent") {
-                                    auto skey = sema_key(cur_package_, sname);
+                                    const DefId skey = type_id(cur_package_, sname);
                                     auto sit = structs_.find(skey);
-                                    if (sit == structs_.end()) sit = structs_.find(sname);
+                                    if (sit == structs_.end()) sit = structs_.find(type_id({}, sname));   // the root's
                                     if (sit != structs_.end()) {
                                         if (sit->second.fields.size() != 1)
                                             error(std::format(
@@ -2130,8 +2206,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                        ? dname : cur_package_ + "::" + dname;
                             explicit_type_codes_[fqn] = tc;
                         } else if (aname == "annotation") {
-                            auto qkey = sema_key(cur_package_, dname);
-                            auto it = datatypes_.find(qkey);
+                            auto it = datatypes_.find(type_id(cur_package_, dname));
                             if (it != datatypes_.end())
                                 it->second.is_annotation_type = true;
                         }
@@ -2153,8 +2228,8 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     std::string ename(str_of(item.get(la::NAME.code)));
                     auto f = parse_struct_attr_flags(pending_annots);
                     if (f.zoned || f.borrow_carrying) {
-                        auto eit = enums_.find(sema_key(cur_package_, ename));
-                        if (eit == enums_.end()) eit = enums_.find(ename);
+                        auto eit = enums_.find(type_id(cur_package_, ename));
+                        if (eit == enums_.end()) eit = enums_.find(type_id({}, ename));   // the root's
                         if (eit != enums_.end()) {
                             eit->second.zoned2          |= f.zoned;
                             eit->second.borrow_carrying |= f.borrow_carrying;
@@ -2194,7 +2269,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                             else if (mode == "usize") disc_kind = LogosType::Kind::Usize;
                             else if (mode == "isize") disc_kind = LogosType::Kind::Isize;
                             if (disc_kind != LogosType::Kind::Error) {
-                                auto eit = enums_.find(ename);
+                                auto eit = enums_.find(type_id({}, ename));   // the root's
                                 if (eit != enums_.end()) {
                                     if (eit->second.backing_type &&
                                         TypeRef(eit->second.backing_type).kind() != disc_kind) {
@@ -2450,7 +2525,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                             auto ref_variant = std::string(str_of(blk.get(la::FIELD.code)));
                             auto [rpkg, rinfo] = find_enum_by_name(ref_enum);
                             if (!rinfo) {
-                                auto rit = enums_.find(ref_enum);
+                                auto rit = enums_.find(type_id({}, ref_enum));
                                 if (rit != enums_.end()) rinfo = &rit->second;
                             }
                             if (!rinfo) {
@@ -2602,7 +2677,11 @@ void SemaChecker::collect_enum(TinyMapView node) {
                                       enum_outlives, /*decl_site=*/true);
     }
     pop_type_params(info.type_params);
-    enums_[sema_key(cur_package_, ename)] = std::move(info);
+    {   // #438: the record carries the identity it is filed under.
+        const DefId eid = intern_type(DefKind::Enum, cur_package_, ename);
+        info.def = eid;
+        enums_[eid] = std::move(info);
+    }
 }
 
 void SemaChecker::collect_type_alias(TinyMapView node) {
@@ -5171,13 +5250,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                         ? TypeRef(target_resolved).pkg_name()
                                         : std::string_view{};
         if (copy_pkg.empty()) copy_pkg = cur_package_;
-        std::string copy_qkey = sema_key(copy_pkg, target);
+        // #438: the type's own identity, and the ROOT's twin for the
+        // package-less TypeRefs (primitives, mono-produced instances) that ask
+        // without one — the two spellings this used to insert, as ids.
+        DefId copy_qkey = intern_type(DefKind::Struct, copy_pkg, target);
+        DefId copy_bare = intern_type(DefKind::Struct, {}, target);
         if (cond_positions.empty()) {
-            copy_types_.insert(target);
-            if (copy_qkey != target) copy_types_.insert(copy_qkey);
+            copy_types_.insert(copy_bare);
+            if (copy_qkey != copy_bare) copy_types_.insert(copy_qkey);
         } else {
-            if (copy_qkey != target) conditional_copy_[copy_qkey] = cond_positions;
-            conditional_copy_[target] = std::move(cond_positions);
+            if (copy_qkey != copy_bare) conditional_copy_[copy_qkey] = cond_positions;
+            conditional_copy_[copy_bare] = std::move(cond_positions);
         }
     }
     // Standalone unsafe impl (no trait) makes no semantic sense.
@@ -5260,7 +5343,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // and the bare spelling already names the right thing.
         std::string tgt_pkg;
         if (!cur_package_.empty() && !target.empty()) {
-            std::string lk = sema_key(cur_package_, target);
+            DefId lk = type_id(cur_package_, target);
             if (structs_.count(lk) || enums_.count(lk) || datatypes_.count(lk))
                 tgt_pkg = cur_package_;
         }
@@ -5507,11 +5590,16 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                     // sharing a stdlib name is answered by the homonym's
                     // `is_data_plain` flag. Same conversion as sema.cpp's
                     // `si2` lookup and it lands with it.
-                    auto ndit = datatypes_.find(std::string(fv.struct_name()));
+                    // #438: the field type's OWN identity first, then this
+                    // file's package, then the root's — never another
+                    // package's same-named datatype.
+                    auto ndit = datatypes_.end();
+                    if (!fv.pkg_name().empty())
+                        ndit = datatypes_.find(type_id(fv.pkg_name(), fv.struct_name()));
                     if (ndit == datatypes_.end() && !cur_package_.empty())
-                        ndit = datatypes_.find(cur_package_ + "::" + std::string(fv.struct_name()));
-                    if (ndit == datatypes_.end() && !fv.pkg_name().empty())
-                        ndit = datatypes_.find(std::string(fv.pkg_name()) + "::" + std::string(fv.struct_name()));
+                        ndit = datatypes_.find(type_id(cur_package_, fv.struct_name()));
+                    if (ndit == datatypes_.end())
+                        ndit = datatypes_.find(type_id({}, fv.struct_name()));
                     if (ndit == datatypes_.end()) return true; // unknown → conservative
                     return !ndit->second.is_data_plain;
                 }
@@ -5523,7 +5611,8 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
             dt_field_sweep_doc.clear();
         }
     }
-    auto dkey = sema_key(cur_package_, dname);
+    const DefId dkey = intern_type(DefKind::Datatype, cur_package_, dname);
+    info.def = dkey;   // #438
     datatypes_[dkey] = std::move(info);
     pop_type_params(datatypes_[dkey].type_params);
 }
@@ -5621,7 +5710,10 @@ void SemaChecker::collect_schema(TinyMapView node) {
     }
 
     pop_type_params(info.type_params);
-    structs_[sema_key(cur_package_, sname)] = std::move(info);
+    {   const DefId sid = intern_type(DefKind::Struct, cur_package_, sname);   // #438
+        info.def = sid;
+        structs_[sid] = std::move(info);
+    }
 }
 
 // ADR 0011 — collect a `schema enum E : category(expr)? { V(S), … }` item.
@@ -5689,7 +5781,10 @@ void SemaChecker::collect_schema_enum(TinyMapView node) {
     }
 
     pop_type_params(info.type_params);
-    structs_[sema_key(cur_package_, sname)] = std::move(info);
+    {   const DefId sid = intern_type(DefKind::Struct, cur_package_, sname);   // #438
+        info.def = sid;
+        structs_[sid] = std::move(info);
+    }
 }
 
 void SemaChecker::collect_struct(TinyMapView node) {
@@ -5803,7 +5898,8 @@ void SemaChecker::collect_struct(TinyMapView node) {
             field_sweep_doc.clear();
         }
     }
-    auto skey = sema_key(cur_package_, sname);
+    const DefId skey = intern_type(DefKind::Struct, cur_package_, sname);
+    info.def = skey;   // #438
     structs_[skey] = std::move(info);
     // Methods declared inline in the struct body (grammar: `method_def_or_doc*`)
     // are collected exactly like impl methods — so they need the same `Self`
@@ -5912,11 +6008,11 @@ bool SemaChecker::is_known_type_name(std::string_view name) const {
     // is_known_type_name is const — do direct map lookups with qualified key first.
     auto ukey = std::string(name);
     auto has_in = [&](const auto& map) -> bool {
-        if (map.count(ukey)) return true;
-        if (!cur_package_.empty() && map.count(sema_key(cur_package_, ukey))) return true;
+        // #438: this file's scope — own package, its imports, then the root's.
+        if (!cur_package_.empty() && map.count(type_id(cur_package_, ukey))) return true;
         for (auto& pkg : cur_imports_.wildcard_packages)
-            if (map.count(sema_key(pkg, ukey))) return true;
-        return false;
+            if (map.count(type_id(pkg, ukey))) return true;
+        return map.count(type_id({}, ukey)) != 0;
     };
     if (has_in(structs_) || has_in(datatypes_) || has_in(enums_)) return true;
     // Type aliases: check unqualified, current package, and imports
@@ -6011,7 +6107,7 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
     bool base_is_schema = false;
     if (node.has_key(la::NAME.code)) {
         auto sname = std::string(str_of(node.get(la::NAME.code)));
-        auto key_in_pkg = sema_key(cur_package_, sname);
+        DefId key_in_pkg = type_id(cur_package_, sname);
         auto sit2 = structs_.find(key_in_pkg);
         auto dit2 = datatypes_.find(key_in_pkg);
         base_exists = sit2 != structs_.end() || dit2 != datatypes_.end();

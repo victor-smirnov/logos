@@ -1876,7 +1876,7 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     else if (dsi_sd) sinfo = dsi_sd;
     else {
         // Fall back to qualified key (cur_package_ set by lower_module_items)
-        auto qkey = sema_key(cur_package_, sname);
+        DefId qkey = type_id(cur_package_, sname);
         auto sit2  = structs_.find(qkey);
         auto doit2 = datatypes_.find(qkey);
         if      (sit2  != structs_.end())   sinfo = &sit2->second;
@@ -2170,8 +2170,8 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
     std::vector<std::string> lifetime_params;
     std::vector<std::pair<std::string, std::string>> lifetime_outlives;
     auto [epkg_led, esi_led] = find_enum_by_name(ename);
-    auto eit_led = esi_led ? enums_.find(sema_key(epkg_led, ename)) : enums_.end();
-    if (eit_led == enums_.end()) eit_led = enums_.find(ename);
+    auto eit_led = esi_led ? enums_.find(type_id(epkg_led, ename)) : enums_.end();
+    if (eit_led == enums_.end()) eit_led = enums_.find(type_id({}, ename));   // the root's
     if (eit_led == enums_.end()) {
         error(std::format("internal: enum '{}' not found in lower_enum_def", ename));
         ed.str(dk::DOC, take_pending_doc());

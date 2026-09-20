@@ -470,9 +470,8 @@ void SemaCache::reset_user_state() {
                     ++it;
                 }
             };
-            erase_pkg_key(s->structs);
-            erase_pkg_key(s->datatypes);
-            erase_pkg_key(s->enums);
+            // #438: keyed by DefId — filtered by the record's own package
+            // (erase_by_pkg_field, below) instead of by cutting a key.
             erase_pkg_key(s->type_aliases);
             erase_pkg_key(s->module_consts);
             erase_pkg_key(s->module_const_values);
@@ -490,6 +489,9 @@ void SemaCache::reset_user_state() {
             erase_by_pkg_field(s->generic_funcs);
             erase_by_pkg_field(s->struct_specs_sema);
             erase_by_pkg_field(s->traits);   // #438: keyed by DefId, so by its own package
+            erase_by_pkg_field(s->structs);
+            erase_by_pkg_field(s->datatypes);
+            erase_by_pkg_field(s->enums);
             auto erase_orphan_overloads = [&](auto& overloads_map, auto& fn_map) {
                 for (auto it = overloads_map.begin(); it != overloads_map.end(); ) {
                     auto& syms = it->second;
@@ -696,9 +698,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
                 ++it;
             }
         };
-        erase_pkg_key(s->structs);
-        erase_pkg_key(s->datatypes);
-        erase_pkg_key(s->enums);
+        // #438: see the twin above — these three go by the record's package.
         erase_pkg_key(s->type_aliases);
         erase_pkg_key(s->module_consts);
         erase_pkg_key(s->module_const_values);
@@ -720,6 +720,9 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
         erase_by_pkg_field(s->generic_funcs);
         erase_by_pkg_field(s->struct_specs_sema);
         erase_by_pkg_field(s->traits);   // #438: keyed by DefId, so by its own package
+        erase_by_pkg_field(s->structs);
+        erase_by_pkg_field(s->datatypes);
+        erase_by_pkg_field(s->enums);
 
         // func_overloads_ / generic_overloads_ are bare-name → vector<sym_name>.
         // Drop overload symbol_names that point into funcs/generic_funcs that
@@ -2772,17 +2775,13 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     check_trait_def_identity();
 
     {
-        auto bare_of = [](const std::string& key) -> std::string_view {
-            auto p = key.rfind("::");
-            std::string_view sv(key);
-            return p == std::string::npos ? sv : sv.substr(p + 2);
-        };
+        // #438: the name is a FIELD of the identity now, not a substring of a key.
         ambiguous_type_names_.clear();  // fresh per run (checker may be reused)
         std::unordered_map<std::string, std::string> first_pkg;
-        for (auto& [k, si] : structs_)
-            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, bare_of(k), si.package);
-        for (auto& [k, ei] : enums_)
-            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, bare_of(k), ei.package);
+        for (auto& [d, si] : structs_)
+            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, defs_[d].name, si.package);
+        for (auto& [d, ei] : enums_)
+            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, defs_[d].name, ei.package);
         // G156-1 (trailer v3): fold in dependency-archive nominal decls that are
         // NOT in structs_/enums_ because their package's AST was loaded lazily
         // (or not at all). Without these, a higher tier can't see a lower
@@ -2818,11 +2817,9 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // checker, and a sweep after it reads an empty registry and records
     // nothing — a check that looked at zero types and said nothing was wrong.
     if (layout::recording_enabled()) {
-        for (auto& [skey, ssi] : structs_) {
+        for (auto& [sdef, ssi] : structs_) {
             if (!ssi.type_params.empty()) continue;
-            auto p = skey.rfind("::");
-            std::string bare = p == std::string::npos ? skey : skey.substr(p + 2);
-            TypeRef st = make_struct_type(bare, ssi.package);
+            TypeRef st = make_struct_type(defs_[sdef].name, ssi.package);
             if (!st) continue;
             logos::compiler::StrSet seen;
             (void)sema_abi_layout(st, seen);
@@ -3169,12 +3166,13 @@ bool SemaChecker::struct_type_is_copy(TypeRef x) const {
     // the bare slot answers only a package-less TypeRef (generic parameter
     // substitution, mono-produced instances), which is what it was always for.
     std::string_view pkg = TypeRef(x).pkg_name();
-    std::string qkey = sema_key(pkg, nm);
-    if (copy_types_.count(qkey)) return true;
-    if (pkg.empty() && copy_types_.count(nm)) return true;
-    auto cond_it = conditional_copy_.find(qkey);
-    if (cond_it == conditional_copy_.end() && pkg.empty())
-        cond_it = conditional_copy_.find(nm);
+    DefId qkey = type_id(pkg, nm);
+    if (qkey && copy_types_.count(qkey)) return true;
+    DefId bare_id = type_id({}, nm);
+    if (pkg.empty() && bare_id && copy_types_.count(bare_id)) return true;
+    auto cond_it = qkey ? conditional_copy_.find(qkey) : conditional_copy_.end();
+    if (cond_it == conditional_copy_.end() && pkg.empty() && bare_id)
+        cond_it = conditional_copy_.find(bare_id);
     if (auto it = cond_it; it != conditional_copy_.end()) {
         auto targs = TypeRef(x).type_args();
         for (size_t pos : it->second) {
@@ -3455,8 +3453,8 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     if (TypeRef(t).kind() == LogosType::Kind::Enum) {
         auto eit = enums_.end();
         if (!TypeRef(t).pkg_name().empty())
-            eit = enums_.find(sema_key(TypeRef(t).pkg_name(), TypeRef(t).enum_name()));
-        if (eit == enums_.end()) eit = enums_.find(std::string(TypeRef(t).enum_name()));
+            eit = enums_.find(type_id(TypeRef(t).pkg_name(), TypeRef(t).enum_name()));
+        if (eit == enums_.end()) eit = enums_.find(type_id({}, TypeRef(t).enum_name()));   // the root's
         if (eit == enums_.end()) return false;
         auto targs = TypeRef(t).type_args();
         auto& tparams = eit->second.type_params;
@@ -3479,10 +3477,9 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
     auto sit = structs_.end();
     if (!TypeRef(t).pkg_name().empty()) {
-        auto qkey = sema_key(TypeRef(t).pkg_name(), TypeRef(t).struct_name());
-        sit = structs_.find(qkey);
+        sit = structs_.find(type_id(TypeRef(t).pkg_name(), TypeRef(t).struct_name()));
     }
-    if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
+    if (sit == structs_.end()) sit = structs_.find(type_id({}, TypeRef(t).struct_name()));   // the root's
     if (sit == structs_.end()) return false;
     // `#[no_auto_drop]` (ManuallyDrop<T> lang-item shape): the compiler must
     // not run the inner field's destructor at scope exit — the wrapper's
@@ -3517,9 +3514,8 @@ bool SemaChecker::type_no_auto_drop(TypeRef t) const {
     if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) return false;
     auto sit = structs_.end();
     if (!TypeRef(t).pkg_name().empty())
-        sit = structs_.find(sema_key(TypeRef(t).pkg_name(),
-                                     TypeRef(t).struct_name()));
-    if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
+        sit = structs_.find(type_id(TypeRef(t).pkg_name(), TypeRef(t).struct_name()));
+    if (sit == structs_.end()) sit = structs_.find(type_id({}, TypeRef(t).struct_name()));   // the root's
     return sit != structs_.end() && sit->second.no_auto_drop;
 }
 
@@ -3586,7 +3582,7 @@ void SemaChecker::compute_auto_copy_types() {
                 // ⚠ #110 ROOT. This lookup used to ask `struct_name()` (empty on
                 // an Enum TypeRef — enums carry ENUM_NAME) against the BARE key
                 // (`enums_` is only ever written qualified, sema_collect.cpp
-                // `enums_[sema_key(pkg,name)]`). BOTH misses landed on the
+                // `enums_[intern_type(DefKind::Enum, pkg, name)]`). BOTH misses landed on the
                 // generous `return true`, so the payload arm below never
                 // executed once and EVERY enum-typed field read as Copy —
                 // promoting `struct WO { o: Option<Inner> }` into copy_types_.
@@ -3603,9 +3599,9 @@ void SemaChecker::compute_auto_copy_types() {
                 // concretization has_droppable_fields does.
                 auto eit = enums_.end();
                 if (!TypeRef(t).pkg_name().empty())
-                    eit = enums_.find(sema_key(TypeRef(t).pkg_name(), TypeRef(t).enum_name()));
+                    eit = enums_.find(type_id(TypeRef(t).pkg_name(), TypeRef(t).enum_name()));
                 if (eit == enums_.end())
-                    eit = enums_.find(std::string(TypeRef(t).enum_name()));
+                    eit = enums_.find(type_id({}, TypeRef(t).enum_name()));   // the root's
                 if (eit == enums_.end()) return false;  // unknown — conservative
                 if (has_drop_impl(std::string(TypeRef(t).enum_name()))) return false;
                 auto targs = TypeRef(t).type_args();
@@ -3629,10 +3625,9 @@ void SemaChecker::compute_auto_copy_types() {
             // Look up by qualified-then-bare key, same as has_droppable_fields.
             auto sit = structs_.end();
             if (!TypeRef(t).pkg_name().empty()) {
-                auto qkey = sema_key(TypeRef(t).pkg_name(), TypeRef(t).struct_name());
-                sit = structs_.find(qkey);
+                sit = structs_.find(type_id(TypeRef(t).pkg_name(), TypeRef(t).struct_name()));
             }
-            if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
+            if (sit == structs_.end()) sit = structs_.find(type_id({}, TypeRef(t).struct_name()));   // the root's
             if (sit == structs_.end()) return false;  // unknown — conservative
             return struct_type_is_copy(t);
         }
@@ -3650,17 +3645,11 @@ void SemaChecker::compute_auto_copy_types() {
     while (changed) {
         changed = false;
         for (auto& [skey, info] : structs_) {
-            // skey is "pkg::name" (sema_key separator) or "name"; strip pkg
-            // for the copy_types_ set because that's what is_move_type keys
-            // on (TypeRef::struct_name() returns bare).
-            std::string bare = skey;
-            if (auto sep = bare.rfind("::"); sep != std::string::npos)
-                bare = bare.substr(sep + 2);
-            // ⚠ The "already promoted" test is on the QUALIFIED key. On the
-            // bare one, a user struct whose name a stdlib Copy type already
-            // owns was skipped forever — it never got its own entry, and after
-            // struct_type_is_copy stopped falling back to the bare slot that
-            // would have turned a legitimately-all-Copy user struct move-only.
+            const std::string& bare = defs_[skey].name;
+            // ⚠ The "already promoted" test is on the struct's OWN identity.
+            // On a shared bare key, a user struct whose name a stdlib Copy type
+            // already owns was skipped forever — it never got its own entry,
+            // and that turned a legitimately-all-Copy user struct move-only.
             if (copy_types_.count(skey)) continue;
             // Spec / annotation / Writ datatypes — leave to manual `impl Copy`.
             if (!info.is_data_plain) continue;
@@ -3671,12 +3660,10 @@ void SemaChecker::compute_auto_copy_types() {
                 if (!is_copy_field(f.type)) { all_copy = false; break; }
             }
             if (all_copy) {
-                // ── A LOOKUP KEY IS NOT AN IDENTITY ──────────────────────
-                // Both spellings: `skey` IS the identity ("pkg::name"), the
-                // bare one remains for package-less TypeRefs. struct_type_is_copy
-                // answers a packaged TypeRef from the qualified key alone.
-                copy_types_.insert(bare);
-                if (skey != bare) copy_types_.insert(skey);
+                // The struct's own identity, and the ROOT's twin for the
+                // package-less TypeRefs that ask without one (#438).
+                copy_types_.insert(skey);
+                copy_types_.insert(intern_type(DefKind::Struct, {}, bare));
                 changed = true;
             }
         }
@@ -3790,16 +3777,14 @@ void SemaChecker::compute_auto_copy_types() {
             if (ikey.trait_def != sl_id) continue;
             if (info.is_negative) continue;
             const std::string& target = ikey.target;
-            // structs_ keys are pkg-qualified (sema_key); the impl key's
-            // target is the bare/type_str spelling — probe both forms.
-            auto sit = structs_.find(target);
-            if (sit == structs_.end()) {
-                for (auto& [sk, si] : structs_) {
-                    auto sep = sk.rfind("::");
-                    std::string bare = sep == std::string::npos ? sk : sk.substr(sep + 2);
-                    if (bare == target) { sit = structs_.find(sk); break; }
-                }
-            }
+            // #438: the impl key's TARGET half is still a SPELLING (nominal
+            // types get their own DefIds in a later step), so the root's
+            // identity first and then the one struct of that name — the same
+            // two probes this did as strings.
+            auto sit = structs_.find(type_id({}, target));
+            if (sit == structs_.end())
+                for (auto it = structs_.begin(); it != structs_.end(); ++it)
+                    if (defs_[it->first].name == target) { sit = it; break; }
             if (sit == structs_.end()) continue;   // primitives / unknown: no field check
             for (auto& f : sit->second.fields) {
                 std::string why;
@@ -4901,10 +4886,10 @@ bool SemaChecker::is_effective_dst(TypeRef t) {
     // changed. MEASURED: two imported pass tests went red on exactly that.
     SemaStructInfo* ssi = nullptr;
     if (!t.pkg_name().empty()) {
-        auto it = structs_.find(sema_key(t.pkg_name(), sn));
+        auto it = structs_.find(type_id(t.pkg_name(), sn));
         if (it != structs_.end()) ssi = &it->second;
         if (!ssi) {
-            auto dit = datatypes_.find(sema_key(t.pkg_name(), sn));
+            auto dit = datatypes_.find(type_id(t.pkg_name(), sn));
             if (dit != datatypes_.end()) ssi = &dit->second;
         }
     }
@@ -9290,7 +9275,7 @@ TypeRef SemaChecker::field_type_of(std::string_view sname, std::string_view fnam
     SemaStructInfo* si = nullptr;
     // If we have a pkg_hint, try the fully-qualified key first (avoids import-scope dependence).
     if (!pkg_hint.empty()) {
-        auto qkey = sema_key(std::string(pkg_hint), std::string(sname));
+        DefId qkey = type_id(pkg_hint, sname);
         auto sit = structs_.find(qkey);
         if (sit != structs_.end()) si = &sit->second;
         if (!si) { auto dit = datatypes_.find(qkey); if (dit != datatypes_.end()) si = &dit->second; }
@@ -9381,10 +9366,12 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
     // conversion, but it moves keys for the entire stdlib and owes a RED LIST
     // over a full rebuild of all 53 targets, so it is filed, not done here.
     SemaStructInfo* si2 = nullptr;
-    { auto it = structs_.find(TypeRef(struct_t).struct_name()); if (it != structs_.end()) si2 = &it->second; }
-    if (!si2) { auto it = datatypes_.find(TypeRef(struct_t).struct_name()); if (it != datatypes_.end()) si2 = &it->second; }
+    // #438: the type's OWN identity first; the root's only as the builtin case.
+    DefId own = type_id(TypeRef(struct_t).pkg_name(), TypeRef(struct_t).struct_name());
+    { auto it = structs_.find(own); if (it != structs_.end()) si2 = &it->second; }
+    if (!si2) { auto it = datatypes_.find(own); if (it != datatypes_.end()) si2 = &it->second; }
     if (!si2 && !TypeRef(struct_t).pkg_name().empty()) {
-        auto qkey = sema_key(TypeRef(struct_t).pkg_name(), TypeRef(struct_t).struct_name());
+        DefId qkey = type_id({}, TypeRef(struct_t).struct_name());
         { auto it = structs_.find(qkey); if (it != structs_.end()) si2 = &it->second; }
         if (!si2) { auto it = datatypes_.find(qkey); if (it != datatypes_.end()) si2 = &it->second; }
     }
@@ -10917,9 +10904,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         }
                         // Legacy bare-name fallback for same-package structs
                         if (!like_eidos) {
-                            if (datatypes_.count(tname))
+                            if (datatypes_.count(type_id(cur_package_, tname)))
                                 like_eidos = make_generic_datatype(tname, resolved_args);
-                            else if (structs_.count(tname))
+                            else if (structs_.count(type_id(cur_package_, tname)))
                                 like_eidos = make_generic_struct(tname, resolved_args);
                         }
                         if (like_eidos)
@@ -11287,25 +11274,20 @@ void SemaChecker::compute_variances() {
             m["@" + std::to_string(i)] = Variance::BiVar;
         variance_table_[key] = std::move(m);
     };
-    // structs_/datatypes_/enums_ are keyed by "pkg::Name" (sema_key). Subtype
-    // lookup uses "pkg.Name". Strip the "pkg::" prefix from the map key and
-    // re-join with "." to match what subtype expects.
-    auto qkey = [](const std::string& pkg, const std::string& map_key) {
-        std::string name = map_key;
-        if (!pkg.empty()) {
-            std::string prefix = pkg + "::";
-            if (name.compare(0, prefix.size(), prefix) == 0)
-                name = name.substr(prefix.size());
-            return pkg + "." + name;
-        }
-        return name;
+    // #438: the registries are keyed by DefId, so the name is a field; subtype
+    // lookup wants "pkg.Name" (or the bare name for a package-less type).
+    auto qkey = [&](const std::string& pkg, DefId d) {
+        const std::string& name = defs_[d].name;
+        return pkg.empty() ? name : pkg + "." + name;
     };
-    for (auto& [k, si] : structs_)
-        seed(qkey(si.package, k), si.type_params, si.lifetime_params);
-    for (auto& [k, si] : datatypes_)
-        seed(qkey(si.package, k), si.type_params, si.lifetime_params);
-    for (auto& [k, ei] : enums_)
-        seed(k, ei.type_params, ei.lifetime_params);
+    for (auto& [d, si] : structs_)
+        seed(qkey(si.package, d), si.type_params, si.lifetime_params);
+    for (auto& [d, si] : datatypes_)
+        seed(qkey(si.package, d), si.type_params, si.lifetime_params);
+    // ⚠ Enums seeded by the BARE name, as before: the enum subtype keys are
+    // built that way (changing them is its own measurement).
+    for (auto& [d, ei] : enums_)
+        seed(defs_[d].name, ei.type_params, ei.lifetime_params);
 
     bool changed = true;
     int rounds = 0;
@@ -11356,7 +11338,7 @@ void SemaChecker::compute_variances() {
                        });
         }
         for (auto& [k, ei] : enums_) {
-            update_def(k, ei.type_params, ei.lifetime_params,
+            update_def(defs_[k].name, ei.type_params, ei.lifetime_params,
                        [&]() {
                            std::vector<TypeRef> ts;
                            for (auto& v : ei.variants)

@@ -1319,8 +1319,8 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         if (TypeRef innt(expr_type(inner)); innt.kind() == LogosType::Kind::Enum) {
             auto en = innt.enum_name();
             auto [epkg_cast, esi_cast] = find_enum_by_name(en);
-            auto eit = esi_cast ? enums_.find(sema_key(epkg_cast, en)) : enums_.end();
-            if (eit == enums_.end()) eit = enums_.find(en);
+            auto eit = esi_cast ? enums_.find(type_id(epkg_cast, en)) : enums_.end();
+            if (eit == enums_.end()) eit = enums_.find(type_id({}, en));   // the root's
             if (eit != enums_.end()) {
                 bool has_payload = false;
                 for (auto& vv : eit->second.variants)
@@ -1733,8 +1733,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         const char* ok_name  = is_option ? "Some" : "Ok";
         const char* err_name = is_option ? "None" : "Err";
         auto [epkg_res, esi_res] = enum_of(TypeRef(inner_t));
-        auto eit = esi_res ? enums_.find(sema_key(epkg_res, TypeRef(inner_t).enum_name())) : enums_.end();
-        if (eit == enums_.end()) eit = enums_.find(TypeRef(inner_t).enum_name());
+        auto eit = esi_res ? enums_.find(type_id(epkg_res, TypeRef(inner_t).enum_name())) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find(type_id({}, TypeRef(inner_t).enum_name()));
         if (eit != enums_.end()) {
             for (auto& v : eit->second.variants) {
                 if (v.name == ok_name)  ok_disc  = v.value;
@@ -3470,8 +3470,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 if (!t || TypeRef(t).kind() != RK_::Enum) return false;
                 auto en = TypeRef(t).enum_name();
                 auto [epkg, esi] = find_enum_by_name(en);
-                auto eit = esi ? enums_.find(sema_key(epkg, en)) : enums_.end();
-                if (eit == enums_.end()) eit = enums_.find(std::string(en));
+                auto eit = esi ? enums_.find(type_id(epkg, en)) : enums_.end();
+                if (eit == enums_.end()) eit = enums_.find(type_id({}, en));   // the root's
                 if (eit == enums_.end()) return false;
                 for (auto& vv : eit->second.variants)
                     if (!vv.payload_types.empty()) return true;
@@ -6456,7 +6456,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
             // same bare spelling, not a qualified lookup). The value read out is
             // the datatype's PACKAGE, so a homonym hit here mis-attributes the
             // element's package to the wrong one. Censused, not measured.
-            if (!gsi) { auto it = datatypes_.find(TypeRef(elem).struct_name()); if (it != datatypes_.end()) gsi = &it->second; }
+            if (!gsi) { auto it = datatypes_.find(type_id(TypeRef(elem).pkg_name(), TypeRef(elem).struct_name())); if (it != datatypes_.end()) gsi = &it->second; }
             if (gsi) pkg = gsi->package;
             else pkg = cur_package_;
         }
@@ -7578,7 +7578,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             if (!found_si) { auto [sp, ssi] = struct_of(TypeRef(check)); found_si = ssi; }
             // Package-qualified fallback using pkg_name on the type itself.
             if (!found_si && !TypeRef(check).pkg_name().empty()) {
-                auto qkey = sema_key(TypeRef(check).pkg_name(), TypeRef(check).struct_name());
+                DefId qkey = type_id(TypeRef(check).pkg_name(), TypeRef(check).struct_name());
                 { auto it = datatypes_.find(qkey); if (it != datatypes_.end()) found_si = &it->second; }
                 if (!found_si) { auto it = structs_.find(qkey); if (it != structs_.end()) found_si = &it->second; }
             }
@@ -10059,9 +10059,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // down in lower_method_call.
                 SemaSubst struct_subst;
                 auto [epkg_genum, esi_genum] = find_enum_by_name(base);
-                auto eit = esi_genum ? enums_.find(sema_key(epkg_genum, base))
+                auto eit = esi_genum ? enums_.find(type_id(epkg_genum, base))
                                      : enums_.end();
-                if (eit == enums_.end()) eit = enums_.find(base);
+                if (eit == enums_.end()) eit = enums_.find(type_id({}, base));   // the root's
                 if (eit != enums_.end()) {
                     auto& tps = eit->second.type_params;
                     for (size_t i = 0; i < tps.size() && i < rte.type_args().size(); ++i)
@@ -14500,7 +14500,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         }
     }
     // G160-2: peel a non-generic type-alias to an enum (`type A = Foo; A::Qux`).
-    if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
+    if (!find_enum_by_name(ename_buf).second) {
         auto ait = alias_find(ename_buf);
         if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
             ait->second.type &&
@@ -14511,8 +14511,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     auto vname = str_of(node.get(la::FIELD.code));
     auto [epkg_el, esi_el] = find_enum_by_name(ename);
     if (esi_el) check_turbofish_lifetime_arity_(node, ename, esi_el->lifetime_params);
-    auto eit = esi_el ? enums_.find(sema_key(epkg_el, std::string(ename))) : enums_.end();
-    if (eit == enums_.end()) eit = enums_.find(std::string(ename));
+    auto eit = esi_el ? enums_.find(type_id(epkg_el, std::string(ename))) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(type_id({}, ename));   // the root's
     if (eit == enums_.end()) {
         // Before reporting "unknown enum", check if this is an associated constant
         // access (e.g. Buffer::MAX) parsed as ENUM_LIT due to grammar ambiguity.
@@ -14662,7 +14662,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         }
     }
     // G160-2: peel a non-generic type-alias to an enum.
-    if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
+    if (!find_enum_by_name(ename_buf).second) {
         auto ait = alias_find(ename_buf);
         if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
             ait->second.type &&
@@ -14672,8 +14672,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     std::string_view ename = ename_buf;
     auto vname = str_of(node.get(la::FIELD.code));
     auto [epkg_eld, esi_eld] = find_enum_by_name(ename);
-    auto eit = esi_eld ? enums_.find(sema_key(epkg_eld, std::string(ename))) : enums_.end();
-    if (eit == enums_.end()) eit = enums_.find(std::string(ename));
+    auto eit = esi_eld ? enums_.find(type_id(epkg_eld, std::string(ename))) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(type_id({}, ename));   // the root's
     if (eit == enums_.end()) {
         // Bug 5 fix: ENUM_LIT_DATA shares the same grammar path as ENUM_LIT.
         // Check for associated constant access before reporting "unknown enum".
@@ -14999,7 +14999,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         };
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
             if (payload[i]) walk(vinfo->payload_types[i], expr_type(payload[i]));
-        census_meet_("enumlit", einfo.lifetime_params, lt_cands, eit->first);
+        census_meet_("enumlit", einfo.lifetime_params, lt_cands, defs_.path(eit->first));
         enumlit_meet_(einfo.lifetime_params, lt_cands, lt_subst);
     }
 
@@ -15246,8 +15246,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         TinyMapView node, std::string_view ename, std::string_view vname) {
     auto [epkg_els, esi_els] = find_enum_by_name(ename);
-    auto eit = esi_els ? enums_.find(sema_key(epkg_els, std::string(ename))) : enums_.end();
-    if (eit == enums_.end()) eit = enums_.find(std::string(ename));
+    auto eit = esi_els ? enums_.find(type_id(epkg_els, std::string(ename))) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(type_id({}, ename));   // the root's
     if (eit == enums_.end()) return error_expr();
     const SemaVariantInfo* vinfo = nullptr;
     for (auto& v : eit->second.variants)
@@ -15366,7 +15366,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         };
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i)
             if (payload[i]) walk(vinfo->payload_types[i], expr_type(payload[i]));
-        census_meet_("enumlit", einfo.lifetime_params, lt_cands, eit->first);
+        census_meet_("enumlit", einfo.lifetime_params, lt_cands, defs_.path(eit->first));
         enumlit_meet_(einfo.lifetime_params, lt_cands, lt_subst);
     }
 
@@ -16926,12 +16926,12 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
         auto [epkg_sc, esi_sc] = find_enum_by_name(enum_name);
         bool is_enum = esi_sc != nullptr;
-        if (!is_enum) is_enum = enums_.count(enum_name) > 0;
+        if (!is_enum) is_enum = find_enum_by_name(enum_name).second != nullptr;
         if (is_enum) {
             bool is_variant = false;
-            auto eit = esi_sc ? enums_.find(sema_key(epkg_sc, enum_name))
+            auto eit = esi_sc ? enums_.find(type_id(epkg_sc, enum_name))
                               : enums_.end();
-            if (eit == enums_.end()) eit = enums_.find(enum_name);
+            if (eit == enums_.end()) eit = enums_.find(type_id({}, enum_name));   // the root's
             if (eit != enums_.end())
                 for (auto& v : eit->second.variants)
                     if (v.name == method_name) { is_variant = true; break; }
@@ -17021,7 +17021,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
     if (find_trait_iter_scoped(std::string(class_name)) &&
-        !arg_exprs.empty() && !enums_.count(std::string(class_name)) &&
+        !arg_exprs.empty() && !find_enum_by_name(class_name).second &&
         find_struct_by_name(std::string(class_name)).second == nullptr &&
         // A datatype (Writ) sharing the trait's name (e.g. `Array`) has its
         // own static methods (`Array::init`) — don't hijack those as a
@@ -17179,7 +17179,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     tf_args.push_back(t);
                 }
                 if (all_concrete && !tf_args.empty()) {
-                    bool is_zoned = datatypes_.count(resolved_class) > 0;
+                    bool is_zoned = find_datatype_by_name(resolved_class).second != nullptr;
                     TypeRef concrete_t = is_zoned
                         ? make_generic_datatype(resolved_class, tf_args)
                         : make_generic_struct(resolved_class, tf_args);
@@ -17494,7 +17494,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 // keep the template symbol here and let mono rewrite it to the concrete
                 // instantiated struct method later.  That preserves the generic suffix
                 // and avoids emitting a bare "Box$G1$i32__wrap" call too early.
-                auto sit = structs_.find(std::string(class_name));
+                auto sit = structs_.find(type_id(cur_package_, class_name));
+                if (sit == structs_.end()) sit = structs_.find(type_id({}, class_name));
                 if (sit != structs_.end() && !sit->second.type_params.empty()) {
                     return finish_generic_call(
                         fi.symbol_name.empty() ? mangled : fi.symbol_name,
