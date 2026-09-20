@@ -8412,6 +8412,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     fn_prefix_lt = std::string(str_of(node.get(la::LIFETIME.code)));
                 t.trait_name = tname;
                 if (!fn_is_ref) t.const_val = int64_t(uint8_t(TraitOwningKind::Box));
+                // The borrow's MUTABILITY is part of the type, as in Rust: the
+                // grammar sets IS_MUT on this node for `&mut dyn …` and it was
+                // read by nobody, so `&dyn FnMut` and `&mut dyn FnMut` interned
+                // as ONE type and a reborrow of `*f` was indistinguishable from
+                // a `&mut` of the binding `f`.
+                else if (node.has_key(la::IS_MUT) && !node.get(la::IS_MUT.code).is_null() &&
+                         node.get(la::IS_MUT.code).as_value<int32_t>() != 0)
+                    t.const_val = int64_t(TypeRef::DYN_MUT_BORROW_BIT);
                 t.lifetime = fn_is_ref ? fn_prefix_lt : fl;
             }
             return pool_->alloc(std::move(t));

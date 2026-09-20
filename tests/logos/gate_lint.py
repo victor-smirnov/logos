@@ -213,6 +213,14 @@ NOT_GATES = {
     # Reporters. They pronounce no verdict at all — this is also written down in
     # verdict.py's gate census.
     "ctest-summary.sh":        "reports a ctest run; asserts nothing",
+    # ADR 0028's shadow MEASUREMENT loop, not a gate. `rerun.sh` compiles a list
+    # of inputs with LOGOS_DL_SHADOW=bc and appends a census; it asserts nothing
+    # and has no pass/fail — the numbers are read by summ.py/top.py and quoted in
+    # a commit. Registering it would be a ctest test that takes ~28 minutes over
+    # 11k inputs and always exits 0. Same ground as tools/dlog's rules: it grades
+    # a measurement, not the tree.
+    "rerun.sh":                "ADR 0028 shadow-census driver: appends a census "
+                               "over an input list, asserts nothing",
     # TWO BARRIERS AND AN AUDITOR, added 2026-08-28 after Victor's point that an
     # instruction agents can read is not an instruction they execute — measured,
     # 6 builds for a batch of 9 probes where the protocol says ONE, and `L4 bc`

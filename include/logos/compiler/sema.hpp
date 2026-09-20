@@ -483,6 +483,30 @@ public:
     bool owning_trait_object() const noexcept {
         return trait_owning_kind() != OwningKind::Borrow;
     }
+    // ADR 0028: a `dyn Fn*` object resolves to Kind::Closure (not TraitObject),
+    // and the FORM it was written in is part of its identity, as it is for a
+    // trait object: `Box<dyn Fn>` carries OwningKind::Box in const_val, a
+    // borrowed one carries none. The BORROW'S MUTABILITY was dropped, so
+    // `&dyn FnMut` and `&mut dyn FnMut` were one type and neither checker
+    // could tell a reborrow of `*f` from a `&mut` of the binding `f`. Bit 18,
+    // clear of the owning kind (low byte) and of RAW_FAT_BIT (16).
+    static constexpr uint64_t DYN_MUT_BORROW_BIT = 1ull << 18;
+    // A `dyn Fn*` object, as opposed to a closure literal's type: only the
+    // former carries its family in `trait_name()`.
+    bool dyn_callable() const noexcept {
+        return kind() == LogosType::Kind::Closure && !trait_name().empty();
+    }
+    // Written as a reference (`&dyn Fn*` / `&mut dyn Fn*`): the value IS the
+    // fat borrow, so the local holding it is a reference, not an owner.
+    bool borrowed_dyn_callable() const noexcept {
+        if (!dyn_callable()) return false;
+        auto cv = const_val();
+        return !cv || (uint64_t(*cv) & 0xffull) == uint64_t(OwningKind::Borrow);
+    }
+    bool mut_borrowed_dyn_callable() const noexcept {
+        auto cv = const_val();
+        return borrowed_dyn_callable() && cv && (uint64_t(*cv) & DYN_MUT_BORROW_BIT);
+    }
     // ADR 0028: a RAW fat pointer — `*const/*mut [T]`, `*const/*mut dyn T`,
     // `*const/*mut DstStruct` — shares its representation with `&[T]` /
     // `&dyn T` / `&DstStruct` but is not a reference: no lifetime, no loan.

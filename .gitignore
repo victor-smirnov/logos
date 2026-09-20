@@ -15,6 +15,18 @@ CMakeUserPresets.json
 build*
 !tools/lforge/pkg/build*
 !tests/lforge/build_cache.sh
+# ⚠ A CORPUS FIXTURE CANNOT BE RENAMED OUT OF THIS PATTERN. `build*` is a bare
+# pattern and matches at ANY depth, so it swallowed
+# tests/imported/pass/methods/builder-returning-self-b163.logos — a real test
+# that CONFIGURE_DEPENDS registers locally and git never tracked, which is why
+# the census pin has carried "the one git-ignored imported fixture" for days and
+# census_pin reds in a clean clone. The `build_hash.py` rename (ab7f55084) is not
+# available here: an imported fixture's name mirrors the upstream rustc test it
+# is ported from. So the corpus's own extensions are exempted, and nothing else:
+# a `build/` directory under tests/ stays ignored.
+!tests/**/build*.logos
+!tests/**/build*.expected
+!tests/**/build*.module
 /memoria*
 /vcpkg_installed
 *.o

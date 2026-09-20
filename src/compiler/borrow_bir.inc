@@ -1155,6 +1155,14 @@ private:
                             bir::Proj d(bir::Proj::K::Deref);
                             d.ty = pointee;
                             p = p.with(std::move(d));
+                        } else if (ct && ct.borrowed_dyn_callable()) {
+                            // `&dyn Fn*` / `&mut dyn Fn*`: the value IS the fat
+                            // borrow, so the autoref is a reborrow of `*f` and
+                            // not a borrow of the binding `f`. Its pointee is
+                            // the callable itself.
+                            bir::Proj d(bir::Proj::K::Deref);
+                            d.ty = ct;
+                            p = p.with(std::move(d));
                         }
                         bir::LocalId tmp = synth_ref_temp(pointee, m);
                         assign({tmp, {}}, ref_of(std::move(p), m, /*two_phase=*/m));
@@ -3213,6 +3221,10 @@ private:
             if (pj.k == bir::Proj::K::Deref) {
                 if (t.kind() == LogosType::Kind::Ref) out |= 1u;
                 else if (t.kind() == LogosType::Kind::MutRef) out |= 2u;
+                // A `dyn Fn*` written as a reference is a reference: the fat
+                // borrow IS the value, so its deref is a borrowing one and its
+                // strength is the borrow's own.
+                else if (t.borrowed_dyn_callable()) out |= t.mut_borrowed_dyn_callable() ? 2u : 1u;
                 else if (t.kind() == LogosType::Kind::Ptr) return out & 4u;   // raw: outside the borrow system (a static's address is spelled as one)
                 else if (!is_std_box(t)) return out;
                 t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Struct

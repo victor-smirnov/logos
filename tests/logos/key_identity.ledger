@@ -355,7 +355,20 @@
 #   TypeRef(t).trait_name() == "FnOnce" — the family name a `dyn Fn(..)`
 #     destination carries on its Kind::Closure type. That string is MINTED by
 #     the compiler when the dyn form is built, never read from user source.
-#SCAN sema_impl.hpp 33 c58f7625
+# sema_impl.hpp 33 -> 36, 2026-09-20 (ADR 0028 call modes). THREE more
+# comparisons of a trait name against a literal, all inside the new
+# `callable_call_mode` — which is `callable_is_fn_once` three rows above with
+# its narrowing removed, so these are the SAME three literals that predicate's
+# own note (29 -> 32, 2026-09-07s) already classifies, now asked for all three
+# members instead of one:
+#   TypeRef(t).trait_name() == "Fn" / "FnMut" / "FnOnce" on a Kind::Closure.
+#   That string is MINTED by the compiler when the `dyn Fn*` form is built
+#   (sema.cpp, the DYN_TYPE arm) and ONLY after `trait_key_is_lang_item`
+#   has verified the name denotes `logos.lang.ops::Fn*` — #100's own guard.
+#   A user `trait FnMut` never reaches Kind::Closure, so the literal separates
+#   the three members of a closed lang-item family and cannot intercept
+#   anything. Never read from user source.
+#SCAN sema_impl.hpp 36 3512ef27
 # 2026-09-06d, -4 (15 -> 11), roster fa9e12e1 -> 1ff7800a: four `nm == "_"`
 # discard-name tests vanished with mark_match_scrutinee_moved's AST re-derivation
 # (the move question is now read off the LIR pattern by `pattern_moves_out`, whose

@@ -6214,8 +6214,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                everywhere) and the programs move to tests/imported/fail/borrowck (+2 to ALL only). Six imported
 #                tpb-* pass fixtures move to imported fail (0). The gate printed measured 11096/6591/347; ALL there
 #                carries the one git-ignored imported fixture noted above.
-REGISTRY-ALL         11095
-REGISTRY-NOIMPORTED  6591
+#                ALL 11095 -> 11100 (+5), NOIMPORTED 6591 -> 6596 (+5), TIERCOMMIT 347 -> 347 (0) — 2026-09-20 ADR 0028
+#                call modes. ⚠ TWO COMPONENTS, AND THEY ARE NOT THE SAME SIZE. (a) THIS WORK: +2 everywhere — the new
+#                tier_commit squeue gates for closure_field_fnonce_called_twice_double_free (#440, a live double free
+#                found by the call-mode battery) and for let_tuplestruct_generic_elem_type_unsubstituted (#126, REOPENED
+#                on a measurement: its repair never reached main and the defect still reproduces). (b) DRIFT THAT
+#                PREDATES THIS WORK, absorbed here rather than smuggled: the pin was last moved at e936dd77f and five
+#                fixtures landed after it without moving it — fail/trait_ident_chain_mirror_bound_refused,
+#                fail/trait_ident_supertrait_identity, pass/dyn_vtable_homonym_target, pass/where_ref_subject_reads_self
+#                and trait_ident_chain/lhom/lhom2, all from #438 — while tier_commit fell 2 the other way. So before this
+#                commit the committed tree measured 11098/6594/345 against a pin of 11095/6591/347: adrift in BOTH
+#                directions. Named, not silently ratified.
+REGISTRY-ALL         11100
+REGISTRY-NOIMPORTED  6596
 REGISTRY-TIERCOMMIT  347
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
