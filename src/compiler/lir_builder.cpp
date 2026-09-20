@@ -221,9 +221,10 @@ lir_view::ExprRef LirBuilder::set_tuple_elem(lir_view::ExprRef tuple, size_t idx
 
 lir_view::ExprRef LirBuilder::closure_call(lir::LExprPtr callee,
                                         std::vector<lir::LExprPtr> args,
-                                        TypeRef ty) {
+                                        TypeRef ty,
+                                        lir_schema::expr::CallMode mode) {
     return direct(prog_, ty,
-        [&](auto& p, TypeRef t){ return lir_mirror_emit_closure_call(p, t, callee, args); });
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_closure_call(p, t, callee, args, mode); });
 }
 
 lir_view::ExprRef LirBuilder::fn_ptr_call(lir::LExprPtr callee,

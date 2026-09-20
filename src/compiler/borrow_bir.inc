@@ -233,6 +233,16 @@ public:
     bir::Body build(lir_view::FunctionView fn) {
         body_ = {};
         body_.name = std::string(fn.name());
+        // #434: a generic TEMPLATE's `T` moves unless the function bounds it
+        // by the `Copy` lang item, as rustc checks generic MIR. Same walk and
+        // same identity test as the counter-based checker's copy_tvs_.
+        copy_tvs_.clear();
+        fn.each_type_param([&](lir_view::FnTParamView tp) {
+            tp.each_bound([&](lir_view::FnTraitBoundView b) {
+                if (lir_is_copy_lang_item(b.identity_trait()))
+                    copy_tvs_.insert(std::string(tp.name()));
+            });
+        });
         new_local("_ret", bir::LocalKind::Return, fn.ret_type(pool_), true, ~0u, 0);
         cur_ = new_block();
         push_scope();
@@ -374,7 +384,7 @@ private:
     }
     bool is_copy(TypeRef t) const {
         if (!t) return true;
-        return !is_move_type(t, prog_, ts_);
+        return !is_move_type(t, prog_, ts_, &copy_tvs_);
     }
     TypeRef field_type(TypeRef st, std::string_view field) const {
         if (!st) return {};
@@ -904,7 +914,49 @@ private:
             case ECode::ClosureCall: {
                 lir_view::EClosureCallView v{e};
                 t.callee = "<closure>";
-                t.args.push_back(as_read(operand(v.callee())));
+                // #434: `f(args)` is `Fn::call(&f, ..)`, `FnMut::call_mut(&mut
+                // f, ..)` or `FnOnce::call_once(f, ..)` — as MIR has it, with
+                // the autoref explicit and, for `&mut`, two-phase. Sema says
+                // which (CallMode); Unknown keeps the plain read.
+                using CM = lir_schema::expr::CallMode;
+                lir_view::ExprRef c = v.callee();
+                switch (v.call_mode()) {
+                    case CM::Shared: case CM::Mut: {
+                        bool m = v.call_mode() == CM::Mut;
+                        TypeRef ct = c ? c.type(pool_) : TypeRef{};
+                        bir::Place p = place_or_temp(c);
+                        TypeRef pointee = ct;
+                        if (ct && (ct.kind() == LogosType::Kind::Ref ||
+                                   ct.kind() == LogosType::Kind::MutRef) && ct.pointee()) {
+                            // Called through `&F` / `&mut F`: a reborrow of `*f`.
+                            pointee = ct.pointee();
+                            bir::Proj d(bir::Proj::K::Deref);
+                            d.ty = pointee;
+                            p = p.with(std::move(d));
+                        }
+                        bir::LocalId tmp = synth_ref_temp(pointee);
+                        assign({tmp, {}}, ref_of(std::move(p), m, /*two_phase=*/m));
+                        if (m)
+                            reservations.emplace_back(cur_, uint32_t(body_.blocks[cur_].stmts.size() - 1));
+                        bir::Operand o;
+                        o.k = m ? bir::Operand::K::Move : bir::Operand::K::Copy;
+                        o.place = {tmp, {}};
+                        t.args.push_back(std::move(o));
+                        // `Fn::call(&self, Args) -> Self::Output`: Output is
+                        // fixed by `F` and `Args`, so the result cannot hold
+                        // the autoref's loan — the declared signature, as for
+                        // any other callee. Every other argument may reach it.
+                        t.has_sig = true;
+                        t.sig_to_result = ~uint64_t(1);
+                        break;
+                    }
+                    case CM::Once:
+                        t.args.push_back(call_operand(c));
+                        break;
+                    case CM::Unknown:
+                        t.args.push_back(as_read(operand(c)));
+                        break;
+                }
                 v.each_arg(arg_value);
                 break;
             }
@@ -1740,6 +1792,7 @@ private:
     const TypePoolImpl*   pool_;
     bool                  mut_deref_ctx_ = false;
     bir::Body             body_;
+    std::unordered_set<std::string> copy_tvs_;   // #434: the template's `T: Copy` params
     bir::BlockId          cur_ = 0;
     uint32_t              line_ = 0;
 };

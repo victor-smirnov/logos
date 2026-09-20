@@ -4190,6 +4190,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // mono_clone.cpp by inspecting the substituted callee type).
     bool is_fn_bound = false;
     bool fn_once_consume = false;   // callee is bound ONLY by FnOnce → call consumes it
+    // #434: the same fact, recorded on the node for the borrow checker. WEAKEST
+    // BOUND WINS (Fn < FnMut < FnOnce), Rust's own resolution order.
+    auto fn_bound_mode = lir_schema::expr::CallMode::Unknown;
     TypeRef synth_closure_t = nullptr;
     TypeRef original_typevar_t = nullptr;
     // G158-1: the callee may be `&F` / `&mut F` (a reference to an Fn-bounded
@@ -4227,6 +4230,11 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 // bound means the call CONSUMES the callable.
                 if (b.trait_name == "Fn" || b.trait_name == "FnMut")
                     has_multi_call = true;
+                using CM = lir_schema::expr::CallMode;
+                CM m = b.trait_name == "Fn" ? CM::Shared
+                     : b.trait_name == "FnMut" ? CM::Mut : CM::Once;
+                if (fn_bound_mode == CM::Unknown || uint8_t(m) < uint8_t(fn_bound_mode))
+                    fn_bound_mode = m;
             }
             fn_once_consume = has_fn_family && !has_multi_call;
         }
@@ -4322,7 +4330,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if (is_fn_ptr)
             return builder().fn_ptr_call(std::move(callee_expr), std::move(arg_exprs), ret);
         auto closure_call_e =
-            builder().closure_call(std::move(callee_expr), std::move(arg_exprs), ret);
+            builder().closure_call(std::move(callee_expr), std::move(arg_exprs), ret,
+                                   fn_bound_mode);
         // FnOnce single-call: a callable bound ONLY by FnOnce is consumed by the
         // call (call_once takes self by value). Mark the callee var moved so a
         // second `f()` is rejected as use-after-move — closing the FnOnce-called-
@@ -8069,7 +8078,8 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
             }
         }
         return builder().closure_call(std::move(recv),
-                                      std::move(arg_exprs), ret);
+                                      std::move(arg_exprs), ret,
+                                      lir_schema::expr::CallMode::Unknown);
     }
     if (rt && LogosType::is_fn_value_kind(TypeRef(rt).kind())) {
         auto ret = TypeRef(rt).closure_ret()
@@ -10836,7 +10846,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             return builder().fn_ptr_call(
                                 std::move(fr), std::move(arg_exprs), ret);
                         return builder().closure_call(
-                            std::move(fr), std::move(arg_exprs), ret);
+                            std::move(fr), std::move(arg_exprs), ret,
+                            lir_schema::expr::CallMode::Unknown);
                     }
                     break;
                 }

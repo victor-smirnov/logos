@@ -17092,6 +17092,12 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     // ADR 0028 S5 (#424): under LOGOS_DL_SHADOW=bc the Polonius rules check
     // every post-mono function beside this checker; the verdicts are compared
     // and logged, and the compile acts on this checker's verdict.
+    // #434: the PRE-mono pass is compared too, under its own tag (`bcg`), so
+    // the template census never mixes with the instance census. The old side
+    // there is exclusivity-only, so a `new_only` MOVE error on a template is
+    // expected to be the new checker seeing more, and each class is read, not
+    // assumed.
+    const char* shadow_tag = generic_templates_only ? "bcg" : "bc";
     BcShadowCensus census;
     auto shadow_compare = [&](lir_view::FunctionView fn, size_t diags_before) {
         std::vector<std::string> old_errs;
@@ -17108,7 +17114,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         bool o = !old_errs.empty(), n = !v.errors.empty();
         if (o == n) { ++census.agree; return; }
         (o ? census.old_only : census.new_only)++;
-        std::string text = std::format("bc\t{}\t{}\told={}\tnew={}\n",
+        std::string text = std::format("{}\t{}\t{}\told={}\tnew={}\n", shadow_tag,
                                        o ? "old_only" : "new_only", fn.name(), o ? 1 : 0, n ? 1 : 0);
         text += "  input: " + shadow_input_name() + "\n";
         for (auto& e : old_errs) text += "  old: " + e + "\n";
@@ -17148,7 +17154,10 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
                       prog, ts, fn_index, /*exclusivity_only=*/generic_templates_only,
                       generic_templates_only ? nullptr : &ri,
                       &flows).check(fn);
-        if (generic_templates_only) return;
+        if (generic_templates_only) {
+            if (dl_shadow_bc()) shadow_compare(fn, diags_before);
+            return;
+        }
         if (std::getenv("LOGOS_DUMP_REGIONS"))
             ri.dump(std::string(bare_fn_name(fn.name())));
         // B72/B73: region-based conflict diagnostics. Phrased in
@@ -17182,18 +17191,22 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
 
     for (auto& fn : prog.functions)       check(fn);
     for (auto& fn : prog.specializations) check(fn);
-    if (dl_shadow_bc() && !generic_templates_only) {
-        std::string line = std::format("bc-census\t{}\tcompared={}\tagree={}\told_only={}\tnew_only={}",
-                                       shadow_input_name(), census.compared, census.agree,
+    auto census_line = [&] {
+        std::string line = std::format("{}-census\t{}\tcompared={}\tagree={}\told_only={}\tnew_only={}",
+                                       shadow_tag, shadow_input_name(), census.compared, census.agree,
                                        census.old_only, census.new_only);
         size_t skipped = 0;
         for (auto& [why, n] : census.skipped) skipped += n;
         line += std::format("\tskipped={}\n", skipped);
-        for (auto& [why, n] : census.skipped) line += std::format("bc-skip\t{}\t{}\n", why, n);
+        for (auto& [why, n] : census.skipped) line += std::format("{}-skip\t{}\t{}\n", shadow_tag, why, n);
         shadow_log(line);
-    }
+    };
+    if (dl_shadow_bc() && !generic_templates_only) census_line();
     for (auto& sd : prog.structs)
         sd.each_method([&](lir_view::FunctionView m) { check(m); });
+    // The template census goes AFTER the struct methods: most templates are
+    // methods of generic structs, which the instance census never sees here.
+    if (dl_shadow_bc() && generic_templates_only) census_line();
 
     // P2-10: a generic template and each of its monomorphizations are checked
     // separately and report the SAME borrow error (same context/line/message —

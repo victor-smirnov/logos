@@ -110,8 +110,11 @@ public:
     // child can't update parent mirrors, which is the parent-mirror
     // invalidation blocker).
     lir_view::ExprRef set_tuple_elem(lir_view::ExprRef tuple, size_t idx, lir_view::ExprRef new_value);
+    // `mode` is REQUIRED, like a borrow's origin: a producer that does not
+    // know says Unknown, it does not leave the slot to a default.
     lir_view::ExprRef closure_call(lir_view::ExprRef callee,
-                               std::vector<lir_view::ExprRef> args, TypeRef ty);
+                               std::vector<lir_view::ExprRef> args, TypeRef ty,
+                               lir_schema::expr::CallMode mode);
     lir_view::ExprRef fn_ptr_call(lir_view::ExprRef callee,
                               std::vector<lir_view::ExprRef> args, TypeRef ty);
     lir_view::ExprRef addr_of_temp(lir_view::ExprRef inner, bool is_mut, TypeRef ty,

@@ -233,7 +233,7 @@ const uint8_t* lir_mirror_emit_arr_lit      (lir::LProgram& prog, TypeRef ty, co
 const uint8_t* lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRef ty, lir_view::BlockRef block, lir_view::ExprRef result);
 // EAGER block completion: emit a block container from collected stmt refs.
 lir_view::BlockRef lir_mirror_block         (lir::LProgram& prog, const std::vector<lir_view::StmtRef>& stmts);
-const uint8_t* lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args);
+const uint8_t* lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args, lir_schema::expr::CallMode mode);
 const uint8_t* lir_mirror_emit_fn_ptr_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args);
 const uint8_t* lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef scrut, const std::vector<lir::EMatchArm>& arms);
 const uint8_t* lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef scrut, const std::vector<lir::EMatchArmView>& arms);

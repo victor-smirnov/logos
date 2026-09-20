@@ -1112,7 +1112,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     out_, rt_, callee_name, {}, call_args);
             } else {
                 mp_ = lir_mirror_emit_closure_call(
-                    out_, rt_, callee, args);
+                    out_, rt_, callee, args, v.call_mode());
             }
             break;
         }

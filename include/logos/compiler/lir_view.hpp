@@ -1965,6 +1965,9 @@ struct EMethodCallView {
 struct EClosureCallView {
     ExprRef self;
     ExprRef callee() const noexcept { return self.sub_expr(ek::CALLEE.code); }
+    lir_schema::expr::CallMode call_mode() const noexcept {
+        return lir_schema::expr::CallMode(detail::read_u32(self, ek::CALL_MODE.code));
+    }
     template <class F> void each_arg(F&& f) const noexcept {
         detail::for_each_arg(self, std::forward<F>(f));
     }

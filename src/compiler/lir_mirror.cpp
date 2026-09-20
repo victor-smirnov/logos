@@ -663,12 +663,15 @@ public:
     template <class ExprVec>
     const uint8_t* emit_closure_call_direct(TypeRef ty,
                                                      lir_view::ExprRef callee,
-                                                     const ExprVec& args) {
+                                                     const ExprVec& args,
+                                                     lir_schema::expr::CallMode mode) {
         auto c_av = expr_av(callee);
         auto a_av = expr_array(args);
         auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ClosureCall));
         put(map_off, ek::CALLEE, c_av);
         put(map_off, ek::ARGS,   a_av);
+        if (mode != lir_schema::expr::CallMode::Unknown)
+            put(map_off, ek::CALL_MODE, put_u32(uint32_t(mode)));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
@@ -2242,10 +2245,10 @@ const uint8_t* lir_mirror_emit_block_expr(lir::LProgram& prog, TypeRef ty, lir_v
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_block_expr_direct(ty, block, result);
 }
-const uint8_t* lir_mirror_emit_closure_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args) {
+const uint8_t* lir_mirror_emit_closure_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args, lir_schema::expr::CallMode mode) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_closure_call_direct(ty, callee, args);
+    return em.emit_closure_call_direct(ty, callee, args, mode);
 }
 const uint8_t* lir_mirror_emit_fn_ptr_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args) {
     auto& ctr = prog.type_pool.ctr_or_init();

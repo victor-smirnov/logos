@@ -35,6 +35,17 @@ enum class BorrowOrigin : uint8_t {
     OperatorAutoref = 5,   // operand of an overloaded binary operator, index base
     Desugar         = 6,   // a borrow the compiler's own lowering introduces
 };
+// How a ClosureCall reaches its callable (ADR 0028, #434): rustc lowers
+// `f(args)` to `Fn::call(&f, ..)`, `FnMut::call_mut(&mut f, ..)` or
+// `FnOnce::call_once(f, ..)`, and which one is a fact about the callable's
+// BOUNDS that sema has in hand at the call. The borrow checker reads it; it
+// does not re-derive it from type-parameter names.
+enum class CallMode : uint8_t {
+    Unknown = 0,   // absent: the producer does not know (a concrete closure value)
+    Shared  = 1,   // `Fn`     — called through `&f`
+    Mut     = 2,   // `FnMut`  — called through `&mut f` (a two-phase autoref)
+    Once    = 3,   // `FnOnce` — the call consumes `f`
+};
 enum class Code : int32_t {
     LitInt        = 0,
     LitFloat      = 1,
@@ -237,6 +248,9 @@ inline constexpr Key TUPLE_INDEX_VAL   {"TUPLE_INDEX_VAL", 45};   // u32
 // Reuses slot 45 inside AddrOf / AddrOfTemp maps only (a borrow never carries a tuple
 // index): the BorrowOrigin of the `&`/`&mut` sema built (ADR 0028).
 inline constexpr Key BORROW_ORIGIN     {"BORROW_ORIGIN",   45};   // u8 (BorrowOrigin)
+// Reuses slot 45 inside ClosureCall maps only (a call carries neither): how the
+// callable is reached (#434).
+inline constexpr Key CALL_MODE         {"CALL_MODE",       45};   // u8 (CallMode)
 
 // ECast
 inline constexpr Key WRIT_BUILD_FN   {"WRIT_BUILD_FN", 46};   // Varchar (empty for plain cast)
