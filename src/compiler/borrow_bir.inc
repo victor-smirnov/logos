@@ -1358,7 +1358,10 @@ private:
     // after the value exists.
     template <class MakeDest>
     void store(lir_view::ExprRef value, bool drop_old, MakeDest make_dest) {
-        bir::Operand v = operand(value);
+        // Into its own temporary, as MIR does: a value that is a PLACE
+        // (`s[0] = s[1]`) must be READ before the destination's `&mut s[0]`
+        // exists, not merely named before it.
+        bir::Operand v = call_operand(value);
         bir::Place dest = make_dest();
         if (drop_old) {
             bir::Stmt d(bir::Stmt::K::Drop);
@@ -1630,6 +1633,19 @@ private:
                 bir::Place seq = place_or_temp(v.iter());
                 if (by_ref || is_pointer_kind(st)) seq = seq.with(bir::Proj(bir::Proj::K::Deref));
                 push_scope();
+                // By value, `for d in xs` is `IntoIterator::into_iter(xs)`: the
+                // sequence is moved into the iterator ONCE, and each `next()`
+                // hands an element out of it. Reading `xs[i]` as a move per
+                // iteration moved the whole array again on the second pass
+                // ("use of moved '_t5'" over `for d in [a, b]`).
+                bool by_value_iter = !by_ref && !is_pointer_kind(st);
+                if (by_value_iter) {
+                    bir::LocalId it = temp(st);
+                    bir::Rvalue into(bir::Rvalue::K::Use);
+                    into.ops.push_back(read_place(seq, st));
+                    assign({it, {}}, std::move(into));
+                    seq = bir::Place{it, {}};
+                }
                 bir::LocalId ix = temp({});
                 assign({ix, {}}, bir::Rvalue(bir::Rvalue::K::Use));   // ix = 0
                 bir::BlockId head = new_block(), body = new_block(), step = new_block(),
@@ -1656,8 +1672,11 @@ private:
                     body_.locals[var].synth_pointee = et;
                     assign({var, {}}, ref_of(std::move(elem), mut_ref, false));
                 } else {
-                    bir::Rvalue get(bir::Rvalue::K::Use);
-                    get.ops.push_back(read_place(std::move(elem), et));
+                    // `next()`: the element comes out of the iterator, which
+                    // stays whole (and keeps whatever loans the elements hold).
+                    bir::Rvalue get(bir::Rvalue::K::Op);
+                    get.what = "next";
+                    get.ops.push_back(as_read(read_place(std::move(elem), et)));
                     assign({var, {}}, std::move(get));
                 }
                 declare(var);
