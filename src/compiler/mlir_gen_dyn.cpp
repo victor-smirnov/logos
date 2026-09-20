@@ -895,8 +895,18 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
 
     for (auto& td : prog.traits) {
         std::string td_name(td.name());
+        // #438: the trait's IDENTITY (`pkg::Trait`). Pairing a trait decl with
+        // its impls by SPELLING matched both packages' impls when two packages
+        // declare the same trait name, and their vtables then shared a key.
+        const std::string td_ident =
+            td.pkg().empty() ? td_name : std::string(td.pkg()) + "::" + td_name;
         for (auto& ib : prog.impls) {
-            if (ib.trait_name() != td_name) continue;
+            const std::string_view ib_ident = ib.identity_trait();
+            if (!ib_ident.empty() && ib_ident != td_name) {
+                if (ib_ident != td_ident) continue;      // a homonym's impl
+            } else if (ib.trait_name() != td_name) {
+                continue;                                 // archive with no identity
+            }
 
             // Resolve method-symbol given a TARGET (bare or concrete).
             //
@@ -925,13 +935,27 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             // Package segment of an emitted symbol `<module_id>..<pkg>.<Owner>__<m>`
             // (or `<pkg>.<Owner>__<m>`): the last dotted segment BEFORE the
             // owner. Empty for an unqualified symbol.
-            auto sym_pkg = [](std::string_view nm) -> std::string_view {
+            // ⚠ THE PACKAGE IS THE WHOLE DOTTED PATH, NOT ITS LAST SEGMENT.
+            // This read the segment before the owner ("lhom") and compared it
+            // with `ib.pkg()` ("trait_ident_chain.lhom"), so for every package
+            // whose name has a dot the comparison could not hold and the
+            // package-exact preference silently degraded to "first match".
+            // MEASURED on two packages of ONE module (the module id is shared,
+            // so the `$M` fold cannot tell their same-named types apart):
+            // `lhom2::Cell`'s trait object dispatched `lhom::Cell`'s method —
+            // a silent wrong answer, pinned by
+            // tests/logos/pass/dyn_vtable_homonym_target.logos.
+            auto sym_in_pkg = [](std::string_view nm, std::string_view pkg) {
                 auto dot = nm.rfind('.');
-                if (dot == std::string_view::npos) return {};
-                nm = nm.substr(0, dot);
-                if (auto d2 = nm.rfind('.'); d2 != std::string_view::npos)
-                    nm = nm.substr(d2 + 1);
-                return nm;
+                if (dot == std::string_view::npos) return pkg.empty();
+                std::string_view owner_prefix = nm.substr(0, dot);  // [<module>..]<pkg>
+                if (owner_prefix.size() < pkg.size()) return false;
+                if (owner_prefix.compare(owner_prefix.size() - pkg.size(), pkg.size(), pkg) != 0)
+                    return false;
+                // The character before the package (if any) must be a separator,
+                // so `a.b` does not match a symbol of package `xa.b`.
+                if (owner_prefix.size() == pkg.size()) return true;
+                return owner_prefix[owner_prefix.size() - pkg.size() - 1] == '.';
             };
             auto resolve_methods = [&](std::string_view target) -> std::vector<std::string> {
                 auto belongs_to_target = [&](std::string_view nm) -> bool {
@@ -962,7 +986,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                                 if (!belongs_to_target(fp.name())) continue;
                                 if (sym.empty()) sym = link_name(fp);   // first match
                                 if (want_pkg.empty()) break;
-                                if (sym_pkg(fp.name()) != want_pkg) continue;
+                                if (!sym_in_pkg(fp.name(), want_pkg)) continue;
                                 sym = link_name(fp); break;             // package-exact wins
                             }
                         }
@@ -976,7 +1000,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                                     if (!belongs_to_target(mp.name())) continue;
                                     if (sym.empty()) sym = link_name(mp);
                                     if (want_pkg.empty()) break;
-                                    if (sym_pkg(mp.name()) != want_pkg) continue;
+                                    if (!sym_in_pkg(mp.name(), want_pkg)) continue;
                                     sym = link_name(mp); break;
                                 }
                             }
@@ -1017,7 +1041,12 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                 auto meth = resolve_methods(ib_target);
                 // The bare key stays exactly as it was — every lookup that
                 // resolves through it today keeps resolving through it.
-                dyn_vtable_methods_[td_name + "::" + ib_target] = meth;
+                // The identity key is what a lookup that knows the trait's
+                // package probes first; the bare key stays for the lookups
+                // (and archives) that do not carry one.
+                dyn_vtable_methods_[td_ident + "::" + ib_target] = meth;
+                if (td_ident != td_name)
+                    dyn_vtable_methods_[td_name + "::" + ib_target] = meth;
                 // ADDITIVE package-qualified twin. `ensure_vtable_global`'s
                 // lookup key is `trait::concrete_struct_name(T)`, which carries
                 // the G156-1 `$M<hash>` fold for a name declared in more than
@@ -1029,8 +1058,11 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                 // ambiguous, and then no twin is written at all.
                 if (!want_pkg.empty()) {
                     std::string suffix = type_module_suffix(ib_target, want_pkg);
-                    if (!suffix.empty())
-                        dyn_vtable_methods_[td_name + "::" + ib_target + suffix] = meth;
+                    if (!suffix.empty()) {
+                        dyn_vtable_methods_[td_ident + "::" + ib_target + suffix] = meth;
+                        if (td_ident != td_name)
+                            dyn_vtable_methods_[td_name + "::" + ib_target + suffix] = meth;
+                    }
                 }
             }
 
@@ -1051,8 +1083,10 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             if (auto g = target_base.find("$G"); g != std::string_view::npos)
                 target_base = target_base.substr(0, g);
             for (auto& concrete : collect_concrete_targets(std::string(target_base))) {
-                dyn_vtable_methods_[td_name + "::" + concrete] =
-                    resolve_methods(concrete);
+                auto cmeth = resolve_methods(concrete);
+                dyn_vtable_methods_[td_ident + "::" + concrete] = cmeth;
+                if (td_ident != td_name)
+                    dyn_vtable_methods_[td_name + "::" + concrete] = std::move(cmeth);
             }
         }
     }
@@ -1148,8 +1182,9 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
 
 mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
                                                std::string_view type_name,
-                                               TypeRef concrete_ty) {
-    std::string sym = ensure_vtable_global(trait_name, type_name, concrete_ty);
+                                               TypeRef concrete_ty,
+                                               std::string_view trait_pkg) {
+    std::string sym = ensure_vtable_global(trait_name, type_name, concrete_ty, trait_pkg);
     if (sym.empty()) return nullptr;
     // AddressOf the `[N x ptr]` global → a `ptr` to the table (the vtable ptr).
     return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), sym);
@@ -1157,10 +1192,20 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
 
 std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
                                               std::string_view type_name,
-                                              TypeRef concrete_ty) {
+                                              TypeRef concrete_ty,
+                                              std::string_view trait_pkg) {
+    // #438: the identity key `<pkg>::<trait>::<type>` first — two packages'
+    // same-named traits have two vtables. The bare key answers when the caller
+    // has no package (an archive predating it, a supertrait recursion).
     std::string key;
-    key.reserve(trait_name.size() + 2 + type_name.size());
+    if (!trait_pkg.empty()) {
+        key.append(trait_pkg); key.append("::");
+    }
     key.append(trait_name); key.append("::"); key.append(type_name);
+    if (!trait_pkg.empty() && !dyn_vtable_methods_.count(key) &&
+        !dyn_vtable_globals_.count(key)) {
+        key.assign(trait_name); key.append("::"); key.append(type_name);
+    }
     // Already built (also breaks supertrait-diamond recursion).
     if (auto git = dyn_vtable_globals_.find(key); git != dyn_vtable_globals_.end())
         return git->second;
@@ -1174,10 +1219,17 @@ std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
     // null vtable → SIGSEGV.
     if (vit == dyn_vtable_methods_.end()) {
         if (auto mp = type_name.find("$M"); mp != std::string_view::npos) {
-            std::string bare_key(trait_name);
+            std::string bare_key;
+            if (!trait_pkg.empty()) { bare_key.append(trait_pkg); bare_key += "::"; }
+            bare_key.append(trait_name);
             bare_key += "::";
             bare_key.append(type_name.substr(0, mp));
             vit = dyn_vtable_methods_.find(bare_key);
+            if (vit == dyn_vtable_methods_.end() && !trait_pkg.empty()) {
+                bare_key.assign(trait_name); bare_key += "::";
+                bare_key.append(type_name.substr(0, mp));
+                vit = dyn_vtable_methods_.find(bare_key);
+            }
         }
     }
     // Blanket fallback: no explicit (trait, type) vtable was registered, but
@@ -1297,7 +1349,8 @@ std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
 
 mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
                                         std::string_view src_type_name,
-                                        TypeRef concrete_ty) {
+                                        TypeRef concrete_ty,
+                                        std::string_view trait_pkg) {
     auto dyn_struct = dyn_llvm_type();
     // The {data,vtable} fat pair lives in a STACK alloca (value-fat-pair model,
     // like a slice) — `&dyn`/`*dyn`/`Box<dyn>` are all uniform 16-byte fat. The
@@ -1317,7 +1370,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
         loc_, ptr_type(), dyn_struct, alloca, idx0);
     builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, dp);
     // Store vtable pointer at field 1
-    auto vtable = build_inline_vtable(trait_name, src_type_name, concrete_ty);
+    auto vtable = build_inline_vtable(trait_name, src_type_name, concrete_ty, trait_pkg);
     if (vtable) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
         auto vp = builder_.create<mlir::LLVM::GEPOp>(

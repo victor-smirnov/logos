@@ -323,7 +323,8 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
             ft = repr_storage_type(ref_repr_of(fv));  // = dyn_llvm_type() (RefRepr Phase 1)
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {},
                                    std::string(fv.trait_name()),
-                                   /*is_pointer=*/false});
+                                   /*is_pointer=*/false,
+                                   std::string(fv.pkg_name())});
             field_types.push_back(ft);
             continue;
         } else if ((fv.kind() == LogosType::Kind::Ptr ||
@@ -339,7 +340,8 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
             ft = ptr_type();
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {},
                                    std::string(fv.pointee().trait_name()),
-                                   /*is_pointer=*/true});
+                                   /*is_pointer=*/true,
+                                   std::string(fv.pointee().pkg_name())});
             field_types.push_back(ft);
             continue;
         } else if (fv.kind() == LogosType::Kind::Tuple) {

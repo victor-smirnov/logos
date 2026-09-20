@@ -309,7 +309,13 @@
 # codegen and both borrow checkers instead of a literal at each.
 #SCAN sema.hpp 1 3cfce651
 #SCAN sema.cpp 48 ff909cb5
-#SCAN sema_auto_trait.cpp 16 a2c3b0b4
+# 2026-09-19, #438 step 6: sema_auto_trait.cpp 16 -> 2, roster a2c3b0b4 ->
+# 0120090a. Fourteen of those intercepts were the literal comparisons
+# `trait_name == "Send"` / `"Sync"` / `"Unpin"` / `"Fst"` — the engine resolves
+# the four LANG ITEMS through impl_trait_id once and compares DefIds now, so
+# the spellings are gone from the file. The two that remain are the type-param
+# name keys (rows below), which are not entity names.
+#SCAN sema_auto_trait.cpp 2 0120090a
 #SCAN sema_collect.cpp 40 0f9e28cc
 #SCAN sema_decl.cpp 2 ce09ff69
 # sema_expr.cpp 162 -> 160, 2026-09-10h. The Deref/DerefMut bound-autoderef
@@ -500,7 +506,11 @@ sema_stmt.cpp	enums_	O	2	TypeRef(scrut_type).enum_name()
 # site that goes around them back to a raw key, shows up as a diff.
 #ARGSCAN has_impl 17 a2e2eb9a
 #ARGSCAN impl_key 5 cbc0ca3c
-#ARGSCAN impl_trait_id 2 ec08d4b9
+# 2026-09-19, steps 6 + 8: impl_trait_id 2 -> 6, roster ec08d4b9 -> 052a7a0c.
+# The four new arguments are the lang-item spellings the auto-trait engine
+# resolves ("Send", "Sync", "Unpin", "Fst") — the one place each is turned into
+# an identity, which is what the engine then compares.
+#ARGSCAN impl_trait_id 6 052a7a0c
 #ARGSCAN resolve 2 8a6a5ca7
 #ARGSCAN satisfies 15 0272b985
 #ARGSCAN sema_has_impl_recursive 1 fae8a925

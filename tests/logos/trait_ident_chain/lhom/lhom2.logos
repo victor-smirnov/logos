@@ -1,0 +1,19 @@
+// A SECOND PACKAGE IN THE SAME MODULE, declaring the same trait and target
+// NAMES as its sibling — the shape #15 is about.
+//
+// Two packages of ONE module share the module's mangle id, so `Cell` here and
+// `Cell` in lhom.logos both mangle with the SAME `$M<id>` fold: the module
+// suffix, which separates an archive's type from a consumer's same-named one,
+// cannot separate these two. The vtable key was `<trait spelling>::<type
+// name>` = `Hash::Cell$M<id>` for both, and the second registration won.
+#![no_implicit_prelude]
+package trait_ident_chain.lhom2;
+
+pub trait Hash { fn tag(&self) -> i64; }
+pub struct Cell { pub v: i64 }
+impl Hash for Cell { fn tag(&self) -> i64 { return 3i64; } }
+pub fn lhom2_cell_tag() -> i64 {
+    let c: Cell = Cell { v: 0i64 };
+    let d: &dyn Hash = &c;
+    return d.tag();
+}

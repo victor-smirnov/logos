@@ -1,0 +1,41 @@
+// TWO PACKAGES' SAME-NAMED TRAITS OVER SAME-NAMED TARGETS GET TWO VTABLES (#15).
+//
+// This package declares `trait Hash` and `struct Cell`; the linked archive
+// `trait_ident_chain.lhom` declares its own `trait Hash` and its own
+// `struct Cell`, and implements one for the other. Both impls are therefore
+// (a trait named Hash) for (a type named Cell).
+//
+// mlir-gen keyed a vtable by `<trait spelling>::<type name>`, so both impls
+// filed their method lists under `Hash::Cell` and the second registration won.
+// A `&dyn Hash` over THIS package's `Cell` could then dispatch the ARCHIVE's
+// method — a silent wrong answer, not a crash. Since #438 step 8 the key
+// carries the trait's package on both sides (registration reads the impl's
+// IDENTITY_TRAIT, the lookup reads the package the trait-object type carries
+// since step 7), so the two are distinct keys.
+//
+// ⚠ THE TWO HALVES ARE BOTH ASSERTED. `mine` must be 2 (this package's impl)
+// and `theirs` 1 (the archive's own dispatch, through a `&dyn Hash` built
+// inside the archive) — a fix that merely moved the collision the other way
+// would satisfy one and fail the other.
+package dyn_vtable_homonym_target;
+use trait_ident_chain.hmid;
+use trait_ident_chain.lhom;
+use trait_ident_chain.lhom2;
+
+pub trait Hash { fn tag(&self) -> i64; }
+pub struct Cell { pub v: i64 }
+impl Hash for Cell { fn tag(&self) -> i64 { return 2i64; } }
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let c: Cell = Cell { v: 0i64 };
+    let d: &dyn Hash = &c;
+    let mine: i64 = d.tag();
+    let theirs: i64 = lhom_cell_tag();
+    let sibling: i64 = lhom2_cell_tag();
+    unsafe { printf("mine=%ld theirs=%ld sibling=%ld\n".as_ptr(), mine, theirs, sibling); }
+    if mine != 2i64 { return 1i32; }
+    if theirs != 1i64 { return 2i32; }
+    if sibling != 3i64 { return 3i32; }
+    return 0i32;
+}

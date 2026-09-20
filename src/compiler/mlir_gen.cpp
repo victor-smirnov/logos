@@ -1376,7 +1376,8 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
                                 pointee.kind() == LogosType::Kind::ZonedStruct))
                     src_struct = concrete_struct_name(pointee);
                 if (!src_struct.empty()) {
-                    if (auto fat = coerce_to_dyn(val, fi->trait_name, src_struct))
+                    if (auto fat = coerce_to_dyn(val, fi->trait_name, src_struct, {},
+                                                 fi->trait_pkg))
                         val = fat;
                 }
             }
@@ -1660,7 +1661,7 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
                 if (!src_struct.empty() && val.getType() == ptr_type()) {
                     if (auto fat = coerce_to_dyn(
                             val, std::string(TypeRef(dyn_trait_elem).trait_name()),
-                            src_struct))
+                            src_struct, {}, TypeRef(dyn_trait_elem).pkg_name()))
                         val = fat;
                 }
             }

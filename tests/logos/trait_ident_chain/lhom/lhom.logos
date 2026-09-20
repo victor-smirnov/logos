@@ -19,3 +19,15 @@ pub trait Hash { fn tag(&self) -> i64; }
 impl Hash for f64 { fn tag(&self) -> i64 { return 8712i64; } }
 
 pub fn lhom_tag<T: Hash>(x: T) -> i64 { return x.tag(); }
+
+// A target whose NAME the consumer also uses, so both packages' impls of a
+// trait named `Hash` are filed for a type named `Cell`. The vtable key used to
+// be `<trait spelling>::<type name>`, i.e. one key for the two (#438 step 8 /
+// #15); `lhom_cell_tag` dispatches THIS package's through a trait object.
+pub struct Cell { pub v: i64 }
+impl Hash for Cell { fn tag(&self) -> i64 { return 1i64; } }
+pub fn lhom_cell_tag() -> i64 {
+    let c: Cell = Cell { v: 0i64 };
+    let d: &dyn Hash = &c;
+    return d.tag();
+}

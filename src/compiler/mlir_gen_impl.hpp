@@ -144,6 +144,9 @@ struct FieldInfo {
                                      // is still populated (so chain-field access via the
                                      // pointer can resolve), but auto-Drop must skip these
                                      // — they don't own the pointee.
+    std::string trait_pkg;     // #438: the `trait_name` trait's package — the identity half
+                               // of the vtable key. Last so the 6-field aggregate inits of
+                               // the non-dyn field kinds stay as they are.
 };
 
 struct StructInfo {
@@ -1904,16 +1907,22 @@ private:
     void emit_static_globals(mlir::ModuleOp mod, const LProgram& prog);
     bool has_static_init_ = false;  // set by emit_static_globals if any non-
                                     // extern static needs runtime init
+    // #438: `trait_pkg` is the package of the dispatched trait, taken from the
+    // trait-object TYPE (which carries it since step 7). Empty ⇒ the lookup
+    // falls back to the bare `<trait>::<type>` key, as an archive without the
+    // package does.
     mlir::Value build_inline_vtable(std::string_view trait_name,
                                      std::string_view type_name,
-                                     TypeRef concrete_ty = {});
+                                     TypeRef concrete_ty = {},
+                                     std::string_view trait_pkg = {});
     // Ensure the `[N x ptr]` vtable global for (trait, type) exists (placeholder
     // + recorded spec) and return its symbol; "" if no methods are registered.
     // build_inline_vtable = ensure_vtable_global + AddressOf. Recurses to build
     // each supertrait's vtable global for the stored super-vtable-pointer slots.
     std::string ensure_vtable_global(std::string_view trait_name,
                                      std::string_view type_name,
-                                     TypeRef concrete_ty);
+                                     TypeRef concrete_ty,
+                                     std::string_view trait_pkg = {});
     // Build a fat {data,vtable} pair. `heap=false` (default) → stack alloca:
     // used for borrow `&dyn`/`&mut dyn` (value-fat-pair model; no leak). The
     // CONSUMER copies the 16 bytes when it escapes (struct field / array /
@@ -1923,7 +1932,8 @@ private:
     // heap slot (Box<dyn>'s drop frees it).
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
                                std::string_view src_type_name,
-                               TypeRef concrete_ty = {});
+                               TypeRef concrete_ty = {},
+                               std::string_view trait_pkg = {});
     // G168-A: unsize-coerce a concrete `Box<Concrete>` / `&Concrete` / struct
     // value into a fat `{data,vtable}` handle when the destination SLOT is a
     // trait object (`dyn`/`Box<dyn>`/`&dyn`) but the VALUE is still concrete —

@@ -3005,7 +3005,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 // cast path already threads the concrete type; this implicit
                 // call-arg coercion must too.
                 v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), vt_name,
-                                  vt_type);
+                                  vt_type, TypeRef(param_lt).pkg_name());
             }
         }
         if (i < param_types.size()) {
@@ -3342,7 +3342,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                         : type_str(vt_type);
                 // Value model: owning Box<dyn> arg = inline value fat pair.
                 if (auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()),
-                                             vt_name)) {
+                                             vt_name, {}, TypeRef(ptl).pkg_name())) {
                     args.push_back(fat);
                     continue;
                 }
@@ -4033,7 +4033,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
                      TypeRef(concrete_tail).kind() == LogosType::Kind::ZonedStruct)
                         ? concrete_struct_name(concrete_tail)
                         : type_str(concrete_tail);
-                if (auto alloca = coerce_to_dyn(val, trait, vt_name, concrete_tail))
+                if (auto alloca = coerce_to_dyn(val, trait, vt_name, concrete_tail,
+                                                TypeRef(tgt_tail).pkg_name()))
                     return alloca;
             }
         }
