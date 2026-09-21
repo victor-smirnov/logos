@@ -1757,9 +1757,28 @@ private:
     }
     void write_place(bir::Place dest, lir_view::ExprRef value, bool drop_old) {
         if (drop_old) {
+            // THE OLD VALUE DIES AFTER THE NEW ONE IS BUILT, NOT BEFORE — the
+            // order `store()` above already keeps, and for its reason: the
+            // right-hand side may READ the destination. `a = format!("{}{}", a,
+            // a);` dropped `a` and then evaluated a format block that borrows
+            // it, so the checker reported `a` used while moved or
+            // uninitialised. Rust evaluates the rvalue first and the assignment
+            // drops what was there afterwards; the imported fixture
+            // `self/string-self-append` is exactly that loop and rustc accepts
+            // it (MEASURED). The temporary is BIR-only — this lowering feeds
+            // the checker, not codegen — so it costs facts, not a copy.
+            bir::LocalId t = temp(value ? value.type(pool_) : TypeRef{});
+            lower_into(bir::Place{t, {}}, value);
             bir::Stmt d(bir::Stmt::K::Drop);
             d.dest = dest;
             emit(std::move(d));
+            bir::Rvalue rv(bir::Rvalue::K::Use);
+            bir::Operand o;
+            o.k = bir::Operand::K::Move;
+            o.place = bir::Place{t, {}};
+            rv.ops.push_back(std::move(o));
+            assign(std::move(dest), std::move(rv));
+            return;
         }
         lower_into(std::move(dest), value);
     }
