@@ -1608,10 +1608,15 @@ private:
         return fill_elided_regions_(ret, src);
     }
 
-    TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret) {
+    // `family` is TypeRef::FnFamily; Unstated (the default) interns exactly as
+    // before, so the four synthesis callers are untouched. See FN_FAMILY_SHIFT.
+    TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret,
+                              TypeRef::FnFamily family = TypeRef::FnFamily::Unstated) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Closure;
         t.closure_params = std::move(params);
         t.closure_ret = ret;
+        if (family != TypeRef::FnFamily::Unstated)
+            t.const_val = int64_t(uint64_t(family) << TypeRef::FN_FAMILY_SHIFT);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_fn_ptr_type(std::vector<TypeRef> params, TypeRef ret) {

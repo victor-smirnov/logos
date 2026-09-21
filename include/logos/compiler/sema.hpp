@@ -491,6 +491,27 @@ public:
     // could tell a reborrow of `*f` from a `&mut` of the binding `f`. Bit 18,
     // clear of the owning kind (low byte) and of RAW_FAT_BIT (16).
     static constexpr uint64_t DYN_MUT_BORROW_BIT = 1ull << 18;
+    // ADR 0028 / #440: the Fn-family of a CALLABLE, as Rust has it — in Rust the
+    // family is the type's (a closure's anonymous type implements one or more of
+    // Fn/FnMut/FnOnce and a bound names which). A `dyn Fn*` spelling has carried
+    // it in `trait_name()` all along; a closure LITERAL's type carried nothing,
+    // so `|| -> String` was ONE type whether the literal in it was Fn, FnMut or
+    // FnOnce — which is how an FnOnce closure in a struct field was called twice
+    // and freed its capture twice. Bits 19-20, clear of the owning kind (low
+    // byte), RAW_FAT_BIT (16) and DYN_MUT_BORROW_BIT (18).
+    // ⚠ 0 MEANS "NOT STATED", NOT "Fn". Four of the five `make_closure_type`
+    // callers synthesise a signature from a bound or a formal and must keep
+    // interning exactly as before, or every closure argument becomes a type
+    // mismatch. Only a literal and a written declaration state a family.
+    enum class FnFamily : uint8_t { Unstated = 0, Fn = 1, FnMut = 2, FnOnce = 3 };
+    static constexpr uint64_t FN_FAMILY_SHIFT = 19;
+    static constexpr uint64_t FN_FAMILY_MASK  = 3ull << 19;
+    FnFamily closure_fn_family() const noexcept {
+        if (kind() != LogosType::Kind::Closure) return FnFamily::Unstated;
+        auto cv = const_val();
+        if (!cv) return FnFamily::Unstated;
+        return FnFamily((uint64_t(*cv) & FN_FAMILY_MASK) >> FN_FAMILY_SHIFT);
+    }
     // A `dyn Fn*` object, as opposed to a closure literal's type: only the
     // former carries its family in `trait_name()`.
     bool dyn_callable() const noexcept {

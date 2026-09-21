@@ -19412,7 +19412,36 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     pending_closure_deferred_moves_ = std::move(deferred_moves);
     pending_closure_capture_drops_ = std::move(unskipped_captures);
 
-    auto ctype = make_closure_type(std::move(param_types), ret_type);
+    // #440: THE KIND IS COMPUTED BEFORE THE TYPE IS MINTED, so the literal's
+    // type can state it. The computation needs only `body_moved_outer` (set at
+    // the top of this function), `ec->captures` and `ec->mut_captures`, all of
+    // which are final by here; the two side-map stores below keep their place
+    // and now read this value instead of recomputing it.
+    int closure_kind_value = 0;
+    {
+        // MOVING A FIELD OUT OF A CAPTURE IS MOVING OUT OF THE CAPTURE. The
+        // body's move set records a PATH (`x.d`) while the capture is spelled by
+        // its ROOT (`x`), so a bare membership test answered "not FnOnce" for
+        // `move || { let t: D = x.d; }` — measured as a DOUBLE FREE at the second
+        // call. Segment-wise prefix, so `x.dq` is not a prefix of `x.d`.
+        auto body_consumed = [&](const std::string& root) {
+            if (body_moved_outer.count(root)) return true;
+            for (const auto& m : body_moved_outer)
+                if (m.size() > root.size() && m[root.size()] == '.' &&
+                    m.compare(0, root.size(), root) == 0)
+                    return true;
+            return false;
+        };
+        for (size_t i = 0; i < ec->captures.size(); ++i) {
+            if (body_consumed(ec->captures[i])) { closure_kind_value = 2; break; }
+            if (i < ec->mut_captures.size() && ec->mut_captures[i]) closure_kind_value = 1;
+        }
+    }
+    auto ctype = make_closure_type(
+        std::move(param_types), ret_type,
+        closure_kind_value == 2 ? TypeRef::FnFamily::FnOnce
+      : closure_kind_value == 1 ? TypeRef::FnFamily::FnMut
+                                : TypeRef::FnFamily::Fn);
     // T1-7 (audit-v2, Send/Sync soundness): record this literal's CAPTURE
     // types against the interned closure type so the auto-trait engine
     // walks captures, not parameter types. Closure types intern by
@@ -19453,7 +19482,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // alone does NOT raise the kind — a `move` closure that only reads its owned
     // captures is still Fn (Rust: kind is set by USE, not capture mode).
     {
-        int kind = 0;
+        const int kind = closure_kind_value;   // #440: computed above the mint
         // MOVING A FIELD OUT OF A CAPTURE IS MOVING OUT OF THE CAPTURE. The
         // body's move set records a PATH (`x.d`) for the RFC-2229 narrow
         // spelling, and the capture is spelled by its ROOT (`x`), so a bare
@@ -19462,18 +19491,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // DOUBLE FREE at the second call, while the whole-var spelling one
         // token away was classified correctly. Segment-wise prefix, so `x.dq`
         // is not a prefix of `x.d` (same test as elaborate_cond_moves').
-        auto body_consumed = [&](const std::string& root) {
-            if (body_moved_outer.count(root)) return true;
-            for (const auto& m : body_moved_outer)
-                if (m.size() > root.size() && m[root.size()] == '.' &&
-                    m.compare(0, root.size(), root) == 0)
-                    return true;
-            return false;
-        };
-        for (size_t i = 0; i < ec->captures.size(); ++i) {
-            if (body_consumed(ec->captures[i])) { kind = 2; break; }
-            if (i < ec->mut_captures.size() && ec->mut_captures[i]) kind = 1;
-        }
         // KEY-IDENTITY: OPEN #90 — the WRITE side. `type_str(ctype)` is the
         // closure's SIGNATURE, so every literal with the same params/ret shares
         // one slot and the max is taken across them. Unlike the Send/Sync union

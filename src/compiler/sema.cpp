@@ -3216,7 +3216,9 @@ bool SemaChecker::is_move_type(TypeRef t) const {
         // was never moved: MEASURED as a live double free, rc 0 then abort 134,
         // on `f: dyn FnOnce() -> String` called twice (#440).
         if (TypeRef(x).kind() == LogosType::Kind::Closure &&
-            TypeRef(x).trait_name() == "FnOnce" && !TypeRef(x).borrowed_dyn_callable())
+            (TypeRef(x).trait_name() == "FnOnce" ||
+             TypeRef(x).closure_fn_family() == TypeRef::FnFamily::FnOnce) &&
+            !TypeRef(x).borrowed_dyn_callable())
             return true;
         // An owning `Box<[T]>` slice owns its heap buffer (non-Copy) → move type;
         // a borrowed `&[T]` is Copy-like (not a move type).
