@@ -1,8 +1,14 @@
 // `|mut x|` / `|mut x: T|` — mutable closure-parameter bindings (Rust idiom).
 // Desugared like fn `mut` params: synth immutable param + `let mut x = synth;`.
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package closure_mut_param;
 
-fn apply<F>(f: F, x: i64) -> i64 where F: FnMut(i64) -> i64 { return f(x); }
+fn apply<F>(mut f: F, x: i64) -> i64 where F: FnMut(i64) -> i64 { return f(x); }
 fn run<F>(mut f: F) where F: FnMut() { f(); }
 
 fn main() -> i32 {

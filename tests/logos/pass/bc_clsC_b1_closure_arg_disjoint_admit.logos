@@ -3,12 +3,18 @@
 // property away from fail/bc_clsC_b1_closure_arg_conflict: which local the
 // program reads and writes while the closure is live. A rule that refused every
 // closure-carrying argument would satisfy the fail fixture and red here.
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package bc_clsC_b1_closure_arg_disjoint_admit;
 fn apply<F>(f: F) -> F { return f; }
 fn main() -> i32 {
     let mut x: i64 = 0i64;
     let mut y: i64 = 1i64;
-    let c = apply(|| { x = 4i64; });
+    let mut c = apply(|| { x = 4i64; });
     let n: i64 = y;
     y = 2i64;
     c();

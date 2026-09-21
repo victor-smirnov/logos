@@ -20,6 +20,12 @@
 //
 // `refpat_variant` and `refpat_ref_mut` cover the RefPat arm, which recurses
 // into the inner pattern — the only kind here that declares by delegation.
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package bc_patdeclrefbmut_legal_shapes_pass;
 
 enum E1 { V(i64) }
@@ -30,7 +36,7 @@ fn bump(p: &mut i64) -> i64 { *p = *p + 1i64; return *p; }
 fn closure_mut_reborrow() -> i64 {
   let mut o: i64 = 1i64;
   match o {
-    ref mut foo => { let f = || { let bar: &mut i64 = foo; *bar = 5i64; }; f(); }
+    ref mut foo => { let mut f = || { let bar: &mut i64 = foo; *bar = 5i64; }; f(); }
   }
   return o;
 }

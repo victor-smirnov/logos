@@ -6,11 +6,17 @@
 // (incl. nested generic FnMut bounds) was freed twice. Gated on concrete
 // move-types (TypeVar args are left alone — `T: Copy` reuses the value, e.g.
 // SuccessorsIter; by-ref `FnMut(&T)` params don't consume).
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package closure_call_moves_string;
 
 use logos.mem.string;
 
-fn g<Ty, F: FnMut(String) -> Ty>(s: String, f: F) -> Ty { return f(s); }
+fn g<Ty, F: FnMut(String) -> Ty>(s: String, mut f: F) -> Ty { return f(s); }
 fn apply<Ty, F: FnMut(String) -> Ty>(s: String, f: F) -> Ty {
     return g(s, |v: String| -> Ty { let r = f(v); return r; });
 }

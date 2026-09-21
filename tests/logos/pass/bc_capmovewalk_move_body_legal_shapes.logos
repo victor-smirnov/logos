@@ -7,6 +7,12 @@
 //
 // ⚠ THE REFUSE HALF IS tests/logos/fail/
 // bc_capmovewalk_move_body_ret_capture_fail.
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package bc_capmovewalk_move_body_legal_shapes;
 fn bump(p: &mut i64) { *p = *p + 1i64; }
 struct S { v: i64 }
@@ -16,7 +22,7 @@ fn read(p: &S) -> i64 { return p.v; }
 // Both are the closure's own bindings.
 fn own_local_and_capture() -> i64 {
     let mut owned: i64 = 1i64;
-    let c = move || -> i64 {
+    let mut c = move || -> i64 {
         let mut local: i64 = 10i64;
         bump(&mut local);
         bump(&mut owned);

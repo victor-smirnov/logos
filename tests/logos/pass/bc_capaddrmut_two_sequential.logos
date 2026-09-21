@@ -4,15 +4,21 @@
 // and not a one-off aliasing accident. It is also the legality half: two mut
 // captures whose loans do not overlap must still admit, which is what makes
 // this the pair of fail/bc_capaddrmut_shared_use_conflict.
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package bc_capaddrmut_two_sequential;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn bump(p: &mut i64) { *p = *p + 1i64; }
 fn main() -> i32 {
     let mut x: i64 = 1i64;
-    let f = || { bump(&mut x); };
+    let mut f = || { bump(&mut x); };
     f();
-    let g = || { bump(&mut x); };
+    let mut g = || { bump(&mut x); };
     g();
     printi("x=%ld\n", x);
     return 0i32;

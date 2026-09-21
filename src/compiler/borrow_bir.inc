@@ -978,6 +978,27 @@ private:
                         while (!tail.empty()) {
                             auto dot = tail.find('.');
                             std::string_view f = dot == std::string_view::npos ? tail : tail.substr(0, dot);
+                            // A FIELD REACHED THROUGH A REFERENCE IS REACHED BY
+                            // DEREFERENCING IT, and the place has to say so. The
+                            // capture path is a DOTTED STRING (`this.x`), which
+                            // spells no deref even when the root is a `&mut`, so
+                            // the place read `this.x` with a bare Field step —
+                            // and `write_place`'s `!has_borrowing_deref` guard
+                            // then took the write for a write to the BINDING,
+                            // demanding `let mut this`. rustc demands nothing:
+                            // writing THROUGH a `&mut` is not reassigning it
+                            // (MEASURED, `let this = &mut f; let mut r = ||
+                            // { this.x = this.x + 10; };` compiles). The DIRECT
+                            // spelling of the same write was already right —
+                            // only the capture path, which builds its place
+                            // from the string instead of from the type, was not.
+                            while (cur && (cur.kind() == LogosType::Kind::Ref ||
+                                           cur.kind() == LogosType::Kind::MutRef)) {
+                                bir::Proj dr(bir::Proj::K::Deref);
+                                cur = cur.pointee();
+                                dr.ty = cur;
+                                p = p.with(std::move(dr));
+                            }
                             bir::Proj pr(bir::Proj::K::Field, std::string(f));
                             cur = field_type(cur, f);
                             pr.ty = cur;

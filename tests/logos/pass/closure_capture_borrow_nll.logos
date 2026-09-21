@@ -1,6 +1,12 @@
 // P2-13: a read-only (shared) capture does not block reads, and a `&mut` capture
 // is released at the closure's last use (NLL) — so using the variable AFTER the
 // closure's last call is allowed.
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package closure_capture_borrow_nll;
 fn main() -> i32 {
     let r: i64 = 5i64;
@@ -9,7 +15,7 @@ fn main() -> i32 {
     let s: i64 = g();
 
     let mut x: i64 = 1i64;
-    let f = || { x = x + 1i64; };             // &mut capture
+    let mut f = || { x = x + 1i64; };             // &mut capture
     f();                                       // last use of f
     let z: i64 = x;                            // after f's last use (NLL): OK
     return (a + s + z) as i32;                 // 5 + 6 + 2 = 13

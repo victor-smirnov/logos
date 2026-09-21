@@ -4,13 +4,19 @@
 // sema (`b()` over `Box<Closure>` retypes through a Deref to inner
 // Closure); sizeof::<Closure>() corrected to 16 (was 8 because
 // closures pass by ptr at the surface ABI but the storage is fat).
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package cl_box_dyn_fnmut;
 
 use logos.mem.boxed;
 
 fn main() -> i32 {
     let cl = || -> i32 { return 42i32; };
-    let b: Box<dyn FnMut() -> i32> = box_new(cl);
+    let mut b: Box<dyn FnMut() -> i32> = box_new(cl);
     let r: i32 = b();
     if r != 42i32 { return 1i32; }
     return 0i32;

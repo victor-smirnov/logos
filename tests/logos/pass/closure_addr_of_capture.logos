@@ -3,6 +3,12 @@
 // capture scanner missed AddrOf expressions and the unpack-captures
 // loop never bound `x` in the closure's local scope, so mlir-gen
 // emitted `& undefined 'x'`.
+// ⚠ THE `mut` ON THE CALLABLE'S BINDING IS REQUIRED, NOT STYLE: calling an
+// `FnMut` takes `&mut` of it, so rustc 1.98.1 refuses the same program without
+// it — error[E0596] "cannot borrow as mutable, as it is not declared as
+// mutable" (MEASURED 2026-09-21, both the closure-local and the `Box<dyn
+// FnMut>` spellings). The ADR 0028 checker says so too; the counter-based one
+// does not, which is why this fixture stood without it.
 package closure_addr_of_capture;
 
 fn get(p: &i32) -> i32 { return *p; }
@@ -14,7 +20,7 @@ fn main() -> i32 {
     if c() != 5i32 { return 1; }
 
     let mut y: i32 = 7i32;
-    let d = || -> i32 { return get_mut(&mut y); };
+    let mut d = || -> i32 { return get_mut(&mut y); };
     if d() != 7i32 { return 2; }
 
     return 0;
