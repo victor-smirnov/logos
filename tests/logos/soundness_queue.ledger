@@ -241,8 +241,6 @@ lifereg_field_reborrow_deposit_unread_admits 2 tests/soundness/open/lifereg_fiel
 
 lifereg_slice_elem_field_store_admits 2 tests/soundness/open/lifereg_slice_elem_field_store_admits admits
 
-rpit_dyn_fn_kind_unchecked 2 tests/soundness/open/rpit_dyn_fn_kind_unchecked admits
-
 let_impl_trait_annotation_unchecked 2 tests/soundness/open/let_impl_trait_annotation_unchecked admits
 
 dyn_fnmut_nested_call_admits 2 tests/soundness/open/dyn_fnmut_nested_call_admits admits
@@ -611,5 +609,5 @@ closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_fie
 
 let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
 
-# TOTAL 227
-# SYNC-HASH 19def660cc94b339b63b2c0a5103ee35
+# TOTAL 226
+# SYNC-HASH 1cf9e970a43602cab71cb5943ec4b4a9

@@ -4825,6 +4825,21 @@ private:
             "consumed (an `FnOnce` is consumed by the call and cannot be "
             "called again)", path));
     }
+    // Does this type mention a closure type anywhere in its structure? Used by
+    // expect_type to choose the SOURCE rendering, which is the only one that
+    // states a `dyn Fn*`'s spelling and a literal's Fn-family.
+    static bool type_mentions_closure(TypeRef t, int depth = 0) {
+        if (!t || depth > 8) return false;
+        TypeRef v(t);
+        if (v.kind() == LogosType::Kind::Closure) return true;
+        if (type_mentions_closure(v.pointee(), depth + 1)) return true;
+        if (type_mentions_closure(v.elem(), depth + 1)) return true;
+        if (type_mentions_closure(v.closure_ret(), depth + 1)) return true;
+        for (auto a : v.type_args())       if (type_mentions_closure(a, depth + 1)) return true;
+        for (auto a : v.tuple_elems())     if (type_mentions_closure(a, depth + 1)) return true;
+        for (auto a : v.closure_params())  if (type_mentions_closure(a, depth + 1)) return true;
+        return false;
+    }
     void mark_moved_expr(lir_view::ExprRef er) {
         if (!er) return;
         using C = lir_schema::expr::Code;

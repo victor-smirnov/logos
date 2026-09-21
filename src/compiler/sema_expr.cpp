@@ -16106,10 +16106,23 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     // Enum arm is reached from `mangle_type_for_name`, which composes SYMBOL
     // names: widening it would change the ABI. This re-renders for the
     // diagnostic alone.
-    if (es == gs) {
+    // ⚠ A CLOSURE TYPE IS ILLEGIBLE IN THE CANONICAL FORM EVEN WHEN THE TWO
+    // STRINGS DIFFER, so the collision test above is not the whole symptom. The
+    // canonical form prints a written `dyn Fn() -> i64` and a literal's type as
+    // the same `|| -> i64`, and states no Fn-family — the two facts a closure
+    // mismatch is always ABOUT. `call_ref(&c)` with an `FnMut` literal against
+    // a `&dyn Fn` parameter is refused (correctly, as rustc's E0525) and read
+    // "expected || -> i64, got &|| -> i64": neither type named, no reason given.
+    // MEASURED before widening: ZERO of the corpus's `.expected` files pin a
+    // mismatch mentioning a closure type, so the source form here churns
+    // nothing. The narrow key is "a closure is involved", not "the strings
+    // collided".
+    const bool closure_in_play = type_mentions_closure(named) ||
+                                 type_mentions_closure(expr_type(e));
+    if (es == gs || closure_in_play) {
         auto es_sf = type_str(named, true);
         auto gs_sf = type_str(expr_type(e), true);
-        if (es_sf != gs_sf) { es = std::move(es_sf); gs = std::move(gs_sf); }
+        if (es_sf != gs_sf || closure_in_play) { es = std::move(es_sf); gs = std::move(gs_sf); }
     }
     // ctx carries its own trailing punctuation ("let 'x': type mismatch —",
     // "field write 'a.b':"), so converted sites stay byte-identical to their

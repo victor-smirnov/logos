@@ -1,0 +1,1 @@
+expected Box<dyn Fn() -> i64>, got Box<|| -> i64 {FnMut closure#

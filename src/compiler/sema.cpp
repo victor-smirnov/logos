@@ -2623,6 +2623,24 @@ std::string type_str(TypeRef t, bool source_form) {
         return s;
     }
     case LogosType::Kind::Closure: {
+        // A WRITTEN `dyn Fn*` PRINTS AS ITSELF. Both the erased form and a
+        // literal's type are Kind::Closure, and both printed `|T| -> R`, so
+        // `Box<dyn Fn() -> i64>` and `Box<|| -> i64>` were ONE string — which
+        // is how a family mismatch came out as "expected Box<|| -> i64>, got
+        // Box<|| -> i64>", a message naming neither type nor reason. Source
+        // form only, for the reason the literal id below gives.
+        if (source_form && !TypeRef(t).trait_name().empty()) {
+            std::string d = "dyn ";
+            d += TypeRef(t).trait_name();
+            d += "(";
+            for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
+                if (i) d += ", ";
+                d += type_str(TypeRef(t).closure_params()[i], source_form);
+            }
+            d += ") -> ";
+            d += type_str(TypeRef(t).closure_ret(), source_form);
+            return d;
+        }
         std::string r = "|";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
             if (i) r += ", ";
@@ -2640,8 +2658,21 @@ std::string type_str(TypeRef t, bool source_form) {
         // over every literal of that signature, and "#90's fix must SPLIT the
         // two maps, not convert them together"). Putting the identity in the
         // canonical form would silently re-key that map.
-        if (source_form && TypeRef(t).closure_literal_id())
-            r += std::format(" {{closure#{:08x}}}", TypeRef(t).closure_literal_id());
+        if (source_form && TypeRef(t).closure_literal_id()) {
+            // AND ITS FAMILY, because that is what a mismatch against a written
+            // `dyn Fn*` is ABOUT: rustc says "this closure only implements
+            // `FnMut`" (E0525), and a reader handed two closure types with no
+            // family on either cannot see which capability is missing.
+            const char* fam = "";
+            switch (TypeRef(t).closure_fn_family()) {
+                case TypeRef::FnFamily::Fn:     fam = "Fn ";     break;
+                case TypeRef::FnFamily::FnMut:  fam = "FnMut ";  break;
+                case TypeRef::FnFamily::FnOnce: fam = "FnOnce "; break;
+                case TypeRef::FnFamily::Unstated: break;
+            }
+            r += std::format(" {{{}closure#{:08x}}}", fam,
+                             TypeRef(t).closure_literal_id());
+        }
         return r; }
     case LogosType::Kind::FnPtr: {
         // T2-23: surface the extern ABI tag (struct_name; "" = default) so

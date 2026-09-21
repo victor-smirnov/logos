@@ -90,6 +90,19 @@ D4. **The body becomes an L-IR function**, with the env as its first parameter
 and the free names rewritten to projections of it — the step codegen performs
 today by name. Both checkers then see closure bodies for free.
 
+D7. **The erased `dyn Fn*` STATES ITS FAMILY IN THE TYPE too** (2026-09-21).
+D1 put a literal's family in `const_val`; a `dyn Fn*` kept stating it only as
+the string in `trait_name`, so every reader that wanted the family compared a
+bare entity name. Five such ladders entered the compiler during this arc and one
+went stale, which is how #440's Rust-shaped carrier was called twice. There is
+ONE spelling-to-family step now, at the `DYN_TYPE` mint where the spelling is
+read off the syntax, and `closure_fn_family()` is the only reader. ⚠ It makes D2's
+coercion arm LIVE for `dyn`: a slot that STATES a family takes only a literal
+that fits it, so an `FnMut` literal into `dyn Fn` is refused, as in Rust. The
+BOUND population is NOT consolidated by this — a bound's family is still its
+trait NAME, in four hand copies, and #438's per-bound `trait_def` DefId is the
+repair when someone takes it.
+
 D5. **A bare `|T| -> R` DECLARATION is NOT decided here.** Reading it as `Fn`
 was implemented and REFUTED: it refuses a legal program through an explicit type
 ARGUMENT (`apply_n::<|| -> i64>(bump, 5)`), where the family cannot be spelled

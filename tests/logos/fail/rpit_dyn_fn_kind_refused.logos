@@ -1,0 +1,42 @@
+// ADR 0029 — A CLOSURE THAT MUTATES A CAPTURE IS `FnMut` AND DOES NOT FIT A
+// `dyn Fn` SLOT. Three carriers in one program: a `Box<dyn Fn() -> i64>` RETURN
+// (RPIT-shaped), a `Box<dyn Fn() -> i64>` LET ANNOTATION, and a `&dyn Fn() -> i64`
+// PARAMETER. rustc 1.98.1 --edition 2024 refuses the twin with E0525 "expected a
+// closure that implements the `Fn` trait, but this closure only implements
+// `FnMut`" (and E0594 on the assignment).
+//
+// It was the soundness-queue row `rpit_dyn_fn_kind_unchecked` (#170, tier 2):
+// logosc compiled it SILENTLY. The fact was missing in two places at once and
+// closing either alone would not have been enough — the LITERAL's type did not
+// state its Fn-family (ADR 0029 S1 put it in const_val), and the written
+// `dyn Fn*` did not state its own either, carrying the family ONLY as the string
+// in `trait_name` that no coercion arm read. With both stated, the S1 erasure
+// arm does the check it was written for: a slot that STATES a family takes only
+// a literal that fits it.
+//
+// THE ONE-TOKEN LEGAL CONTRAST compiles: `dyn FnMut` in place of `dyn Fn`, and
+// a non-mutating literal into `dyn Fn`. Both measured.
+//
+// ⚠ THE MESSAGE IS PART OF WHAT IS PINNED. Before this round the canonical
+// rendering printed a written `dyn Fn() -> i64` and a literal's type as the same
+// `|| -> i64` and stated no family, so the refusal read "expected Box<|| -> i64>,
+// got Box<|| -> i64>" — a message naming neither type nor reason. The `.expected`
+// stops at `closure#` because the literal identity is a hash of (package, closure
+// id) and is not the subject here.
+package rpit_dyn_fn_kind_unchecked;
+fn mk_boxed() -> Box<dyn Fn() -> i64> {
+    let mut x: i64 = 0i64;
+    return Box::new(move || -> i64 { x += 1i64; return x; });
+}
+fn call_ref(f: &dyn Fn() -> i64) -> i64 {
+    return f();
+}
+fn main() -> i32 {
+    let b = mk_boxed();
+    let mut y: i64 = 0i64;
+    let annotated: Box<dyn Fn() -> i64> = Box::new(move || -> i64 { y += 2i64; return y; });
+    let mut z: i64 = 0i64;
+    let c = move || -> i64 { z += 4i64; return z; };
+    return (b() + annotated() + call_ref(&c)) as i32;
+}
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0525]: expected a closure that implements the `Fn` trait, but this closure only implements `FnMut` / error[E0594]: cannot assign to `x`, as it is a captured variable in a `Fn` closure. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/rpit_dyn_fn_kind_unchecked.rs. Variants: rpit_dyn_fn_kind_unchecked__control_fnmut.rs compiles, exit 7. Audit note: header cites E0594 only; rustc prints E0525 first. FnMut control compiles, runs 7.
