@@ -421,5 +421,29 @@ bir_flow_summary_seed_underreports  defect  1  ADR 0028, found 2026-09-21 while 
     # checker because a hidden result region with a single candidate argument is
     # tied unconditionally. Both close together or neither does.
 
-# TOTAL 19
-# SYNC-HASH e1915ae283e8f2ab52726188745d3427
+stream_plane_batch_region_unnamed  defect  2  ADR 0028 blocker, priced 2026-09-21
+    # `SliceStream<R> { rows: &[R] }` hands out `RowsBatch<R>` (= `&[R]`, an ALIAS with
+    # an ELIDED region) from `next_batch(&mut self)`. Under Rust's elision rule 3 the
+    # batch's region is then `&mut self`'s, so the rows appear to borrow the STREAM
+    # rather than the caller's slice, and anything built from a row and returned past
+    # the stream's scope is refused. The ADR 0028 checker says so on three generated
+    # WQL scans (wql_find_e2e: find_41_run, find_ancient_run, find_by_age_run):
+    # "mutable borrow of '__ss0' (line N) is used after an access at line N invalidated
+    # it". Same class as the str iterators fixed on 2026-09-21 and settled by Victor
+    # that morning: a struct with a borrowed field NAMES its region.
+    # PRICED WITH THE COMPILER, and this is why it is a row and not a commit: naming
+    # the alias (`pub type RowsBatch<'a, R> = &'a [R];`) makes EVERY mention of it
+    # require a lifetime argument, which forces `'a` into every enclosing signature and
+    # type — `Buffer<R>`, `WritWalk`, `DeltaBatch<R>` and their users in turn. 37 alias
+    # mentions and 64 `SliceStream` mentions across stdlib/lang/stream, stdlib/mem/stream,
+    # stdlib/mem/wql/{writ_graph,params,rexpr_walk}. A first attempt was made and
+    # REVERTED at the first build: the shape is mechanical but it cascades, and a
+    # half-threaded region is worse than none.
+    # WHAT IT NEEDS TO BECOME A ROUND: thread `'a` through the stream plane in one pass,
+    # bottom-up (alias, SliceStream, Buffer, WritWalk, DeltaBatch, then the WQL
+    # generator's emitted signatures), with `cmake --build` as the pricing instrument at
+    # each step. It closes three ADR 0028 blockers and is the last known instance of the
+    # elision class.
+
+# TOTAL 20
+# SYNC-HASH 0bc2268042d3f6d56ac81390075b7cb6
