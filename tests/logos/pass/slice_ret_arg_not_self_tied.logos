@@ -6,7 +6,14 @@ use logos.lang.str;
 
 pub struct Tok { start: i64, len: i64 }
 impl Tok {
-    pub fn text(self: &Tok, src: str) -> str {
+    // ⚠ THE RECEIVER IS BY VALUE, and that is the point of the fixture: with
+    // `self: &Tok` there are TWO input regions and the elided result takes the
+    // RECEIVER's under Rust's elision rule 3, so the returned `str` borrows the
+    // token rather than `src` — rustc 1.98.1 then refuses the call site with
+    // error[E0597] (MEASURED 2026-09-21). `Tok` is two scalars, so by value is
+    // free, and it leaves `src` as the sole input region, which is what the name
+    // of this fixture claims.
+    pub fn text(self: Tok, src: str) -> str {
         return unsafe {
             str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len)
         };

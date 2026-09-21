@@ -9,7 +9,11 @@ use logos.mem.string;
 pub struct Keeper { pub n: i64 }
 
 impl Keeper {
-    pub fn keep(self: Keeper, s: str) -> str { return "abcde"; }
+    // ⚠ `&'static str`: with an elided `-> str` the result region is `s`'s, so the
+    // caller's value borrows the argument and reading it after the owner dies is
+    // error[E0597] in rustc 1.98.1. This method returns a literal and the fixture
+    // exists to pin that the result does NOT come from the argument — so it says so.
+    pub fn keep(self: Keeper, s: str) -> &'static str { return "abcde"; }
 }
 
 fn main() -> i32 {

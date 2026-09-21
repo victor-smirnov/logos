@@ -25,7 +25,11 @@ fn main() -> i32 {
     match b.get(1u64).compare(&DView::from_str("apple")) { Ordering::Equal => {} _ => { return 4; } }
 
     // materialize a str from the stored view
-    let a: str = b.get(1u64).as_str();
+    // ⚠ THE VIEW IS BOUND FIRST: `b.get(1u64).as_str()` borrows a TEMPORARY that
+    // dies at the end of the statement, which rustc 1.98.1 refuses with
+    // error[E0716] "temporary value dropped while borrowed" (MEASURED 2026-09-21).
+    let dv: DView = b.get(1u64);
+    let a: str = dv.as_str();
     if a.len() != 5i64 { return 5; }                       // "apple"
     if unsafe { *(a.as_ptr()) } != 97u8 { return 6; }      // 'a'
 

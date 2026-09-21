@@ -4,7 +4,11 @@
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/lb/hand/L5b.logos
 package bc_0911d_liferegb_hb_l5b_admit;
 struct U2 { h: &i64 }
-fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+// ⚠ `y: &'a i64`, NOT `y: &i64`: with two input regions and a NAMED output
+// region, the second input's elided region is a SEPARATE one, and rustc 1.98.1
+// refuses the body that returns `y` with error[E0621] "explicit lifetime
+// required in the type of `y`" (MEASURED 2026-09-21).
+fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
   let mut u: U2 = U2 { h: x };
   u.h = y;
   u.h = x;

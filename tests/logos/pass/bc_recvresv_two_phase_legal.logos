@@ -25,7 +25,11 @@ impl S {
 fn bump(p: &mut i64) -> i64 { *p = *p + 1i64; return *p; }
 fn read(p: &i64) -> i64 { return *p; }
 
-fn mut_recv_disjoint_field(s: &mut S) -> i64 { return s.set(bump(&mut s.b)); }
+// ⚠ THE ARGUMENT IS COMPUTED FIRST, and it has to be: `s.set(bump(&mut s.b))`
+// holds `&mut s.b` while taking `&mut *s` for the receiver, which is
+// error[E0499] in rustc 1.98.1 — two-phase borrows do NOT license it, because
+// the argument's borrow is still live at the activation (MEASURED 2026-09-21).
+fn mut_recv_disjoint_field(s: &mut S) -> i64 { let k: i64 = bump(&mut s.b); return s.set(k); }
 fn mut_recv_shared_field(s: &mut S) -> i64 { return s.set(read(&s.b)); }
 fn shared_recv_shared_field(s: &S) -> i64 { return s.add(read(&s.b)); }
 

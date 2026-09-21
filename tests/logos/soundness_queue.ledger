@@ -611,5 +611,7 @@ let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuple
 
 derefwrite_rawptr_field_under_live_borrow_admits 2 tests/soundness/open/derefwrite_rawptr_field_under_live_borrow_admits admits
 
-# TOTAL 227
-# SYNC-HASH 65000bf3703af80a5b0bb4aed4a1b2a7
+field_retarget_overlapping_mutborrow_admits 2 tests/soundness/open/field_retarget_overlapping_mutborrow_admits admits
+
+# TOTAL 228
+# SYNC-HASH bd3659a517d5d552917cf294a872517f

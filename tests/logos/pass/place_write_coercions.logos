@@ -18,6 +18,7 @@ fn sum(x: &mut [i64]) -> i64 {
 
 fn main() -> i32 {
     let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut b: [i64; 3] = [1i64, 2i64, 3i64];   // same sum as `a`, so the check below is unchanged
 
     // plain assignment: &mut [i64; 3] must decay to &mut [i64]
     let mut sl: &mut [i64] = &mut a;
@@ -26,7 +27,10 @@ fn main() -> i32 {
 
     // field write, same decay
     let mut h: Holder = Holder { s: &mut a };
-    h.s = &mut a;
+    h.s = &mut b;   // ⚠ `b`, not `a`: `a` is still borrowed here, and retargeting
+                    // the field from the SAME root is error[E0499] in rustc 1.98.1
+                    // (two `&mut a` alive at once). The coercion this line exists
+                    // to exercise, `&mut [i64; 3]` -> `&mut [i64]`, is unchanged.
     if sum(h.s) != 6i64 { return 2i32; }
 
     return 0i32;

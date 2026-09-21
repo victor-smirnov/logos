@@ -1,0 +1,38 @@
+// SOUNDNESS QUEUE — RETARGETING A `&mut` FIELD FROM THE SAME ROOT IS ADMITTED.
+// `let mut h: Inner = Inner { r: &mut vs }; h.r = &mut vs;` compiles (rc 0);
+// rustc 1.98.1 --edition 2024 REFUSES it with error[E0499] "cannot borrow `vs`
+// as mutable more than once at a time" (MEASURED 2026-09-21, both ways).
+//
+// ⚠ AND THE PREMISE IT WAS FILED UNDER IS THE DEFECT. As a pass fixture its
+// header said the field form "converges on the verdict the plain-local twin
+// (`r = &mut vs;`) gives". IT DOES NOT, AND FOR A PRECISE REASON: a plain local
+// reference may be re-pointed because its region is chosen per assignment, so
+// NLL ends the first loan at the overwrite. A FIELD lives in `Inner<'a>`, whose
+// region parameter is ONE region shared by every value the field ever holds and
+// INVARIANT — so the second `&mut vs` must share 'a with the first, and the
+// first cannot be shortened. Rust makes the two shapes differ; this fixture
+// pinned them as equal.
+//
+// THE ADR 0028 CHECKER ALREADY REFUSES IT ("mutable borrow of 'vs' (line N) is
+// used after an access at line N invalidated it"), so the row closes when S6
+// switches the verdict and needs no repair of its own.
+//
+// PROVENANCE: was tests/logos/pass/bc_d1r9_f0_retarget_overlap_admit, D1 round
+// 9 / F0. Found by triaging the ADR 0028 census's over-refusals against rustc.
+package bc_d1r9_f0_retarget_overlap_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Outer { i: Inner }
+fn main() -> i64 {
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: Inner = Inner { r: &mut vs };
+    h.r = &mut vs;                   // source and destination overlap
+    return vs.len() as i64;
+}
