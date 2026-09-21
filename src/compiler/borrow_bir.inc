@@ -1049,7 +1049,23 @@ private:
                     // records ByValue when the BODY CONSUMES the capture, which
                     // is rustc's rule, so an ImmBorrow on a move type is a
                     // known fact and no longer an unknown.)
-                    if (mode == 2) {                       // ByValue
+                    // A SHARED REFERENCE IS Copy, SO AN ImmBorrow OF ONE IS A
+                    // COPY OF IT, NOT A LOAN OF THE LOCAL THAT HOLDS IT. rustc
+                    // captures the PLACE the body touches (RFC 2229): for
+                    // `|| *r` with `r: &'a i64` that is `*r`, so the env holds a
+                    // `&'a i64` and the closure borrows nothing of the enclosing
+                    // frame. The capture PATH is a dotted string and a deref is
+                    // not spellable in it, so the path names the root `r` and
+                    // this arm issued `& r` — a loan of a LOCAL, which then
+                    // escaped with the closure and made `fn mk<'a>(r: &'a i64)
+                    // -> Box<dyn Fn() -> i64 + 'a>` refuse (rustc accepts it,
+                    // MEASURED). Copying the reference gives the same env value
+                    // with the same region and no loan at all.
+                    // ⚠ SHARED ONLY. A `&mut` is not Copy: rustc REBORROWS it,
+                    // and the reborrow is a real loan of the place that holds it.
+                    const bool copy_shared_ref =
+                        mode == 0 && cur && cur.kind() == LogosType::Kind::Ref;
+                    if (mode == 2 || copy_shared_ref) {    // ByValue, or a Copy of a `&T`
                         rv.ops.push_back(read_place(std::move(p), cur));
                     } else {
                         // A MutBorrow recorded for a WIDENED path is known only
@@ -1364,6 +1380,9 @@ private:
             case ECode::FnPtrCall: {
                 lir_view::EFnPtrCallView v{e};
                 t.callee = "<fnptr>";
+                t.has_sig = true;
+                t.sig_to_result = signature_mask_of_type(
+                    v.callee() ? v.callee().type(pool_) : TypeRef{}, /*arg_off=*/1);
                 t.args.push_back(as_read(operand(v.callee())));
                 v.each_arg(arg_value);
                 break;
@@ -1455,6 +1474,36 @@ private:
         }
     }
     // Which arguments the result may borrow from, by the signature of `f`.
+    // THE SAME QUESTION ASKED OF A FN-POINTER'S TYPE. A `fn(A, B) -> R` value
+    // carries its regions in the type itself, so which parameters share one with
+    // the result is readable without a FunctionView — and without it
+    // `relate_call` bails on a fn-pointer call (`t.callee_fn` is null) and the
+    // fallback ties the result to EVERY borrowing argument. `arg_off` is 1 for a
+    // FnPtrCall, whose first operand is the pointer itself, so the bits line up
+    // with `t.args`.
+    uint64_t signature_mask_of_type(TypeRef fty, size_t arg_off) const {
+        if (!fty) return ~uint64_t(0);
+        auto ps = fty.closure_params();
+        TypeRef ret = fty.closure_ret();
+        std::set<std::string> rnames;
+        bool relided = false;
+        lifetimes_in(ret, rnames, relided);
+        if (rnames.empty() && !relided) return 0;
+        uint64_t mask = 0;
+        std::vector<size_t> ref_params;
+        for (size_t i = 0; i < ps.size() && i + arg_off < 64; ++i) {
+            std::set<std::string> pn;
+            bool pe = false;
+            lifetimes_in(ps[i], pn, pe);
+            for (auto& n : pn) if (rnames.count(n)) mask |= uint64_t(1) << (i + arg_off);
+            if (pe || !pn.empty()) ref_params.push_back(i + arg_off);
+        }
+        // An elided result with no `self` takes every input region — Rust
+        // refuses that signature (E0106) and Logos accepts it, so the
+        // conservative reading is the one that keeps every candidate.
+        if (relided) for (size_t i : ref_params) mask |= uint64_t(1) << i;
+        return mask;
+    }
     uint64_t signature_mask(lir_view::FunctionView f) const {
         std::set<std::string> rnames;
         bool relided = false;

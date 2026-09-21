@@ -23,11 +23,19 @@ pub fn run(f: fn(str) -> str) -> i64 {
     return v.len();
 }
 
-pub fn pick2(a: str, b: str) -> str { return b; }
+// ⚠ `pick2` NAMES THE REGION IT RETURNS, and the fixture is about exactly that:
+// with `(a: str, b: str) -> str` the output region is elided against TWO inputs,
+// which rustc 1.98.1 refuses outright — error[E0106] "missing lifetime
+// specifier... the signature does not say whether it is borrowed from `a` or
+// `b`" (MEASURED 2026-09-21). Logos accepts the spelling, so the checker must
+// read it conservatively (every input reaches the result) and the block-local
+// `a` then outlives its borrow. Saying which input the result comes from is
+// what makes the program mean what its name claims.
+pub fn pick2<'a>(a: str, b: &'a str) -> &'a str { return b; }
 
-pub fn resolved(p: str) -> i64 {
-    let g: fn(str, str) -> str = pick2;
-    let mut v: str = "";
+pub fn resolved<'a>(p: &'a str) -> i64 {
+    let g: fn(str, &'a str) -> &'a str = pick2;
+    let mut v: &'a str = "";
     {
         let a: String = String::from("zz");
         v = g(a.as_str(), p);
