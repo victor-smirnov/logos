@@ -3533,6 +3533,51 @@ private:
         }
         return true;
     }
+    // Does the extension from `shorter` to `longer` pass through the deref of a
+    // SHARED reference? If it does, the two places are NOT in the same borrow
+    // tree: what is reached past a `&T` is reachable only by reading that
+    // reference, and the holder of `shorter` cannot write it.
+    //
+    // THE DEFECT THIS CLOSES: `let a = &(*w.v).a;` with `w: W<&P>`, then
+    // `w = W { v: &s2, .. };`. The loan's path is `(*w.v).a` and it is rooted at
+    // `s1`, not at `w` — overwriting `w` swaps the POINTER and does not touch
+    // `*w.v`. The assignment's `drop w` is lowered as a DEEP write, which hit
+    // everything overlapping, so the loan died and `*a` on the next line was
+    // refused. rustc accepts the program (MEASURED); its own `places_conflict`
+    // stops the walk at a shared deref for exactly this reason.
+    bool extends_through_shared_deref(const bir::Place& longer, const bir::Place& shorter) const {
+        if (longer.local != shorter.local) return false;
+        if (longer.proj.size() <= shorter.proj.size()) return false;
+        if (b_.locals[longer.local].synth_ref) return false;
+        // ⚠ NOT WHEN A DESTRUCTOR CAN READ IT. A deep write is also how a DROP
+        // is modelled, and rustc's dropck says a `Drop` impl observes what it
+        // can name through `self` — including what a shared field points at. So
+        // the exemption is withheld for a type whose drop reaches a reference;
+        // `bir_drop_observes_borrow` is the same predicate the checker already
+        // uses for that question, so the two cannot drift apart.
+        {
+            TypeRef at = shorter.proj.empty() ? b_.locals[shorter.local].type
+                                              : shorter.proj.back().ty;
+            if (bir_drop_observes_borrow(at, prog_, ts_)) return false;
+        }
+        TypeRef t = b_.locals[longer.local].type;
+        for (size_t k = 0; k < longer.proj.size(); ++k) {
+            const auto& pj = longer.proj[k];
+            if (!t) return false;
+            if (pj.k == bir::Proj::K::Deref) {
+                const bool shared = t.kind() == LogosType::Kind::Ref ||
+                                    (t.borrowed_dyn_callable() && !t.mut_borrowed_dyn_callable());
+                if (shared && k >= shorter.proj.size()) return true;
+                if (t.kind() == LogosType::Kind::Ptr) return false;   // raw: outside the borrow system
+                t = pj.ty ? pj.ty : t.pointee();
+            } else if (pj.k == bir::Proj::K::Field) {
+                t = pj.ty ? pj.ty : field_type_(t, pj.field);
+            } else {
+                t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
+            }
+        }
+        return false;
+    }
     // `longer` extends `shorter` with no deref in the extension.
     static bool extends_without_deref(const bir::Place& longer, const bir::Place& shorter) {
         if (longer.proj.size() < shorter.proj.size()) return false;
@@ -3564,7 +3609,9 @@ private:
                               L.place.proj.size() <= a.place.proj.size();
                         break;
                     case Access::WriteDeep:
-                        hit = true;
+                        // …but not past a SHARED deref: see
+                        // extends_through_shared_deref.
+                        hit = !extends_through_shared_deref(L.place, a.place);
                         break;
                     case Access::StorageDead:
                         hit = extends_without_deref(L.place, a.place);

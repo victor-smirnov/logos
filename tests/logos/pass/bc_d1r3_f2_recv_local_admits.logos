@@ -20,15 +20,20 @@
 // pass/bc_d1r3_f1_method_arg_admits, which moves the receiver to a &-param and
 // keeps everything else identical.
 package bc_d1r3_f2_recv_local_admits;
+// ⚠ EVERY REGION IS NAMED, and `Id::thru` is why: its result is the ARGUMENT,
+// not the receiver, and with `B`'s region elided Rust's elision rule 3 ties it
+// to `&self` — so the value would borrow the fn-local `i` and the caller is
+// error[E0515]. Decision 2026-09-21 (Victor): Logos follows Rust; a struct with
+// a borrowed field names its region and a method says which one it returns.
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
-    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn mk<'a>(self: &'a C) -> B<'a> { return B { p: &self.v }; }
 }
 struct Id { z: i64 }
-impl Id { fn thru(&self, b: B) -> B { return b; } }
-fn thru(c: &C) -> B { let i: Id = Id { z: 0i64 }; return i.thru(c.mk()); }
+impl Id { fn thru<'a>(self: &Id, b: B<'a>) -> B<'a> { return b; } }
+fn thru<'a>(c: &'a C) -> B<'a> { let i: Id = Id { z: 0i64 }; return i.thru(c.mk()); }
 fn main() -> i32 {
     let c: C = C { v: 1i64 };
     let b: B = thru(&c);
