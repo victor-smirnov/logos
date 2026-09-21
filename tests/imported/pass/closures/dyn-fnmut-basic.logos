@@ -9,15 +9,19 @@
 //
 // Box<dyn FnMut()> is the next slice (needs Box-deref auto-call on
 // boxed closures).
+// ⚠ THE `&mut` IS REQUIRED, NOT STYLE: calling an `FnMut` through a reference
+// takes `&mut` of it, so rustc 1.98.1 refuses `f: &dyn FnMut() -> i32` with
+// error[E0596] (MEASURED 2026-09-21). Keeping the FnMut slice this fixture
+// exists for means taking the receiver by `&mut dyn`, not weakening it to `Fn`.
 package cl_dyn_fnmut_basic;
 
-fn take_ref(f: &dyn FnMut() -> i32) -> i32 {
+fn take_ref(f: &mut dyn FnMut() -> i32) -> i32 {
     return f();
 }
 
 fn main() -> i32 {
-    let cl = || -> i32 { return 42i32; };
-    let r = take_ref(&cl);
+    let mut cl = || -> i32 { return 42i32; };
+    let r = take_ref(&mut cl);
     if r != 42i32 { return 1i32; }
     return 0i32;
 }

@@ -1,0 +1,37 @@
+// SOUNDNESS QUEUE — A WRITE THROUGH A RAW-POINTER FIELD UNDER A LIVE BORROW OF
+// THAT FIELD IS ADMITTED. `let b = &pp.p; *pp.p = 7i64; return **b;` compiles
+// (rc 0) and runs; rustc 1.98.1 --edition 2024 REFUSES the twin with
+// error[E0506] "cannot assign to `*pp.p` because it is borrowed" — the borrow
+// `&pp.p` is later used through `**b`, so the assignment through the pointer
+// conflicts with it. MEASURED 2026-09-21 both ways.
+//
+// PROVENANCE, AND IT IS THE REASON THIS ROW EXISTS RATHER THAN A PASS FIXTURE:
+// this program was the SECOND HALF of tests/logos/pass/bc_derefwrite_field_rawptr_admit,
+// where its header names it as the twin that "is rc 0 here" and uses that rc 0
+// to price a guard in the counter-based checker's `check_recv_conflict`. The rc
+// 0 is the defect, not the specification — rustc refuses the shape — so the
+// program leaves the pass corpus and becomes a row. The first half (`plain()`,
+// a raw-field write with NO live borrow) is legal and stays there.
+//
+// THE ADR 0028 CHECKER ALREADY REFUSES IT: "shared borrow of 'pp.p' (line N) is
+// used after an access at line N invalidated it". The row therefore closes when
+// S6 switches the verdict, and needs no repair of its own.
+package derefwrite_rawptr_field_under_live_borrow_admits;
+
+struct P { p: *mut i64 }
+
+fn under_a_live_borrow() -> i64 {
+    let mut x: i64 = 1i64;
+    unsafe {
+        let pp: P = P { p: &mut x as *mut i64 };
+        let b = &pp.p;
+        *pp.p = 7i64;
+        return **b;
+    }
+}
+
+fn main() -> i32 {
+    if under_a_live_borrow() != 7i64 { return 2i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024: REFUSED — error[E0506] cannot assign to `*pp.p` because it is borrowed.

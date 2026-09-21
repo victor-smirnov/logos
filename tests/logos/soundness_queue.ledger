@@ -609,5 +609,7 @@ closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_fie
 
 let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
 
-# TOTAL 226
-# SYNC-HASH 1cf9e970a43602cab71cb5943ec4b4a9
+derefwrite_rawptr_field_under_live_borrow_admits 2 tests/soundness/open/derefwrite_rawptr_field_under_live_borrow_admits admits
+
+# TOTAL 227
+# SYNC-HASH 65000bf3703af80a5b0bb4aed4a1b2a7

@@ -7,10 +7,19 @@
 // ⚠ THIS FIXTURE ALONE DOES NOT PROVE THE GUARD, and saying so is the point: a
 // raw field with no live borrow records nothing in the field tables, so this
 // program is rc 0 with the guard deleted too. The guard's value was measured
-// on the twin that DOES populate the table — `let b = &pp.p; *pp.p = 7;`,
-// which is rc 0 here and rc 1 ("cannot assign through 'pp.p' while 'pp.p' is
-// borrowed") with the guard's one line removed. That twin is the second half
-// of this fixture. The 8 live stdlib sites (cell.logos `*g.value`,
+// on the twin that DOES populate the table — `let b = &pp.p; *pp.p = 7;` —
+// which used to be the second half of this fixture, pinned at rc 0.
+//
+// ⚠⚠ THAT rc 0 WAS THE DEFECT, NOT THE SPECIFICATION, and the twin has left.
+// rustc 1.98.1 --edition 2024 REFUSES the shape with error[E0506] "cannot
+// assign to `*pp.p` because it is borrowed" — `&pp.p` is used later through
+// `**b`, so the write through the pointer conflicts with it (MEASURED
+// 2026-09-21). A pass fixture may not pin a program Rust rejects, so the twin
+// is now the soundness-queue program
+// tests/soundness/open/derefwrite_rawptr_field_under_live_borrow_admits, which
+// the ADR 0028 checker already refuses and which therefore closes at S6. What
+// is left here is the FIRST shape, the legal one, and the honest statement that
+// it does not by itself prove the guard. The 8 live stdlib sites (cell.logos `*g.value`,
 // `*a.value`/`*b.value`, `*self.state`, `*orig.state`; handle.logos
 // `*self.id_ctr_p`) are all the first shape, which is why the full build stays
 // green either way.
@@ -24,17 +33,7 @@ fn plain() -> i64 {
         return *pp.p;
     }
 }
-fn under_a_live_borrow() -> i64 {
-    let mut x: i64 = 1i64;
-    unsafe {
-        let pp: P = P { p: &mut x as *mut i64 };
-        let b = &pp.p;
-        *pp.p = 7i64;
-        return **b;
-    }
-}
 fn main() -> i32 {
     if plain() != 7i64 { return 1i32; }
-    if under_a_live_borrow() != 7i64 { return 2i32; }
     return 0i32;
 }

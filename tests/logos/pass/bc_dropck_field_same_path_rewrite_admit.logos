@@ -15,9 +15,17 @@ struct W<'a> { a: &'a i64, b: &'a i64 }
 impl<'a> Drop for W<'a> { fn drop(self: &mut Self) { let v: i64 = *self.a; if v < 0i64 { return; } } }
 fn main() -> i32 {
     let o: i64 = 5i64;
+    // ⚠ `inner` IS DECLARED BEFORE `w` ON PURPOSE, and rustc is why: `W<'a>` has a
+    // Drop that reads `self.a`, so dropck requires everything ever stored in `a`
+    // to outlive `w` — reassigning `w.a = &o` before `inner` dies does NOT release
+    // it, because the requirement is on the REGION `'a`, not on the last value.
+    // With `inner` inside the block rustc 1.98.1 refuses with error[E0597] "`inner`
+    // does not live long enough" (MEASURED 2026-09-21). Declared here, `w` drops
+    // first and `inner` outlives it, and the property this fixture pins — that a
+    // rewrite of the SAME path does not append a second region — is unchanged.
+    let inner: i64 = 7i64;
     let mut w: W = W { a: &o, b: &o };
     {
-        let inner: i64 = 7i64;
         w.a = &inner;
         w.a = &o;
     }
