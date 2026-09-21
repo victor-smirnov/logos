@@ -1614,16 +1614,30 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 if (cv.kind() == LogosType::Kind::Closure) {
                     int req = (bound.trait_name == "Fn")    ? 0
                             : (bound.trait_name == "FnMut") ? 1 : 2;
-                    // KEY-IDENTITY: OPEN #90 — this is the READ side of the
-                    // signature-keyed Fn-kind verdict. `check_type_bounds`
-                    // receives (target_name, type_params, args) and no caller
-                    // passes an argument expression, so the literal's identity
-                    // cannot be recovered here: one closure's FnMut verdict
-                    // refuses a sibling literal of the same signature.
-                    // MEASURED live; fixture-free because the repair reaches
-                    // make_closure_type, mono and the mangler.
-                    auto kit = closure_kind_.find(type_str(cv));
-                    int ck = (kit == closure_kind_.end()) ? 0 : kit->second;
+                    // #90 CLOSED HERE, AND THE NOTE THIS REPLACES WAS TRUE WHEN IT WAS
+                    // WRITTEN. It said the literal's identity "cannot be recovered
+                    // here" and that the repair "reaches make_closure_type, mono and
+                    // the mangler" — true of a type that carried nothing. Since the
+                    // literal's type states its own Fn-family (FN_FAMILY_SHIFT), the
+                    // identity IS here, on `cv`, and the repair is to ASK IT. No mono,
+                    // no mangler, no ABI.
+                    // What the signature-keyed map did instead: it is a MAX over every
+                    // literal of one signature, so
+                    //     let mut h = || -> i64 { n = n + 1i64; return n; };
+                    //     let k = || -> i64 { return 9i64; };
+                    //     apply_val(k)
+                    // refused `k` — "its body mutates a capture" — for `h`'s mutation.
+                    // Deleting `h` admitted the same program: MEASURED both ways.
+                    // The map is still consulted when the type states nothing: the four
+                    // signature-SYNTHESIS callers of make_closure_type mint `Unstated`,
+                    // and a bound over such a type has only the old answer available.
+                    int ck;
+                    if (cv.closure_fn_family() != TypeRef::FnFamily::Unstated) {
+                        ck = int(cv.closure_fn_family()) - 1;   // Fn=1.. -> 0..
+                    } else {
+                        auto kit = closure_kind_.find(type_str(cv));
+                        ck = (kit == closure_kind_.end()) ? 0 : kit->second;
+                    }
                     if (ck > req)
                         error(std::format(
                             "closure does not implement `{}`: its body {} a "

@@ -1213,22 +1213,24 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     #  · nll/poll-problem-case-3
     #      "cannot borrow 'v' as mutable: 'v' has shared borrows" — NLL
     #      precision; the shared borrow is dead at the write.
-    #  · unboxed-closures/call-through-ref-to-fn-bound-b158
-    #      "closure does not implement `Fn`: its body mutates a captured
-    #       variable, so it is `FnMut`" — the Fn/FnMut classification. This is
-    #      the one with a task number: #111.
     #  · expr/if-generic
     #      "use of moved variable 'expected'" — move analysis through a generic
     #      `if`.
     #
     # To re-enable one: delete its line. To re-check them all without editing
     # anything: `ctest --test-dir build -L imported` still RUNS everything else,
-    # and the summary names these five as Disabled.
+    # and the summary names these four as Disabled.
+    #
+    # RE-ENABLED 2026-09-20: unboxed-closures/call-through-ref-to-fn-bound-b158.
+    # Its ground was the Fn/FnMut classification (#111), and the classification
+    # was not the defect — the READ was. `check_type_bounds` asked a map keyed by
+    # the closure SIGNATURE, which holds the MAX over every literal of that
+    # shape, so one literal's FnMut verdict refused a sibling. The literal's type
+    # now states its own family and the bound check asks the type.
     set(_LOGOS_DISABLED_PORTS
         "dropck-shadow-rebind"
         "ref-mut-binding-stable-across-guard-m2"
         "poll-problem-case-3"
-        "call-through-ref-to-fn-bound-b158"
         "if-generic")
     if (LOGOS_FILE MATCHES "/tests/imported/" AND BASE IN_LIST _LOGOS_DISABLED_PORTS)
         set_tests_properties(${_test_name} PROPERTIES DISABLED TRUE)
