@@ -1611,13 +1611,33 @@ private:
     // `family` is TypeRef::FnFamily; Unstated (the default) interns exactly as
     // before, so the four synthesis callers are untouched. See FN_FAMILY_SHIFT.
     TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret,
-                              TypeRef::FnFamily family = TypeRef::FnFamily::Unstated) {
+                              TypeRef::FnFamily family = TypeRef::FnFamily::Unstated,
+                              uint32_t literal_id = 0) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Closure;
         t.closure_params = std::move(params);
         t.closure_ret = ret;
+        uint64_t cv = 0;
         if (family != TypeRef::FnFamily::Unstated)
-            t.const_val = int64_t(uint64_t(family) << TypeRef::FN_FAMILY_SHIFT);
+            cv |= uint64_t(family) << TypeRef::FN_FAMILY_SHIFT;
+        if (literal_id)
+            cv |= (uint64_t(literal_id) << TypeRef::CLOSURE_ID_SHIFT) &
+                  TypeRef::CLOSURE_ID_MASK;
+        if (cv) t.const_val = int64_t(cv);
         return pool_->alloc(std::move(t));
+    }
+    // ADR 0029 S1: a literal's type identity. FNV-1a over (package, closure id),
+    // never a counter — the same ground def_table.hpp gives for DefId: a counter
+    // is per-COMPILATION, and a closure arriving from an archive would collide
+    // with a local one minted in the same order. Never 0: 0 means "no identity",
+    // which is what the ERASED forms (`dyn Fn*`, a written `|T| -> R`) mint.
+    static uint32_t closure_literal_identity(std::string_view pkg, std::string_view id) {
+        uint64_t h = 1469598103934665603ull;
+        auto mix = [&](uint8_t b) { h ^= b; h *= 1099511628211ull; };
+        for (char c : pkg) mix(uint8_t(c));
+        mix(0x1f);
+        for (char c : id) mix(uint8_t(c));
+        uint32_t v = uint32_t(h ^ (h >> 32));
+        return v ? v : 1u;
     }
     TypeRef make_fn_ptr_type(std::vector<TypeRef> params, TypeRef ret) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::FnPtr;

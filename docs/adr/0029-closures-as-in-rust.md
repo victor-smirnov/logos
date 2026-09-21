@@ -101,13 +101,36 @@ commit, or every literal meeting a written closure type stops type-checking.
 
 ## Open
 
-O1. **Symbol and instance multiplication.** MEASURED with `--emit-llvm`: a
-closure's `type_str` is literally inside the link symbol
-(`@"mg$apply_val__g__F__|| -> i64"`), and a two-literal program emits ONE
-generic instance today. With per-literal types it emits two. The ABI spec is
-NOT affected (`abi/logos.abi` holds no closure types, and stdlib has no
-`dyn Fn`), so the blast radius is user-side symbol text and instance count.
-Measure the instance growth on the largest corpus program before S1 lands.
+O1. **ANSWERED, 2026-09-20, and the answer changes S1.** The worry was that
+per-literal types multiply generic instances, because a closure's `type_str` is
+literally inside the link symbol (`@"mg$apply_val__g__F__|| -> i64"`). Measured
+with `--emit-llvm` before touching anything:
+
+- the LARGEST real programs contain NO closures at all: `deem_memoria_showcase`
+  1115 defines, 0 closure bodies, 0 closure-typed instances; `writ_showcase` 0;
+- `stdlib` holds exactly ONE closure literal (`lang/cmp/ord.logos`) against 40
+  Fn-family BOUNDS, so the adapters are declared there and instantiated by user
+  code;
+- over 60 closure-heavy fixtures: 68 closure bodies against 32 closure-typed
+  instances, and the worst per-file sharing is 2 bodies to 1 instance;
+- ⚠ AND WHERE CLOSURES MEET THE STDLIB ADAPTERS THE CLOSURE IS NOT IN THE KEY AT
+  ALL. `test_harness_coretest_iter_filter`: 6 closure bodies, ONE closure-typed
+  instance. The instantiated symbols read
+  `FilterIter$G2$CopiedIter$G2$SliceIter$G1$i32$i32$i32__next__g__…` — keyed by
+  the ITERATOR and ELEMENT types; the closure is erased out of them.
+
+So the multiplication is bounded by a handful of fixtures at ×2, and it is not
+a reason to avoid per-literal types.
+
+**DECISION TAKEN FROM THE MEASUREMENT (D6): the MANGLER IS NOT CHANGED.** The
+identity exists for TYPE CHECKING; the SYMBOL stays keyed by the representation
+(the signature), exactly as today. That is sound here and not in Rust for a
+reason that is specific to Logos: a closure value is already a fat pair
+`{fn_ptr, env_ptr}` whose LAYOUT does not depend on its captures, so a generic
+instance shared by two same-signature literals is still correct — the call goes
+through the pointer. Rust monomorphises per closure type because its closure IS
+the env struct, by value. Keeping the mangler unchanged removes O1 entirely and
+takes symbol churn out of S1.
 
 O2. **How much precision S5 actually buys.** Two attempts to construct a
 program where the one-origin stand-in over-refuses both FAILED — the closure

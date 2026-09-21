@@ -506,6 +506,23 @@ public:
     enum class FnFamily : uint8_t { Unstated = 0, Fn = 1, FnMut = 2, FnOnce = 3 };
     static constexpr uint64_t FN_FAMILY_SHIFT = 19;
     static constexpr uint64_t FN_FAMILY_MASK  = 3ull << 19;
+    // ADR 0029 S1: THE PER-LITERAL IDENTITY. A closure literal's type is its own
+    // type, as in Rust, where a literal gets an anonymous NOMINAL type. Bits
+    // 21..52 of const_val (0-7 owning kind, 16 RAW_FAT, 18 DYN_MUT_BORROW,
+    // 19-20 FnFamily are taken; bit 63 stays clear, const_val is int64_t).
+    // ⚠ A HASH OF A PATH, NOT A COUNTER, for the reason DefId gives at
+    // def_table.hpp: a counter is per-COMPILATION, so a closure arriving from an
+    // archive would collide with a local one that happened to be minted in the
+    // same order. `dyn Fn*` and a written `|T| -> R` mint NO identity: they are
+    // the ERASED form and must keep interning as one type.
+    static constexpr uint64_t CLOSURE_ID_SHIFT = 21;
+    static constexpr uint64_t CLOSURE_ID_MASK  = 0xFFFFFFFFull << 21;
+    uint32_t closure_literal_id() const noexcept {
+        if (kind() != LogosType::Kind::Closure) return 0;
+        auto cv = const_val();
+        if (!cv) return 0;
+        return uint32_t((uint64_t(*cv) & CLOSURE_ID_MASK) >> CLOSURE_ID_SHIFT);
+    }
     FnFamily closure_fn_family() const noexcept {
         if (kind() != LogosType::Kind::Closure) return FnFamily::Unstated;
         auto cv = const_val();

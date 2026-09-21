@@ -916,6 +916,19 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
     case K::Closure:
         for (auto p : t.closure_params) put_sub(buf, impl, p);
         put_sub(buf, impl, t.closure_ret);
+        // ADR 0029 S1: a LITERAL's identity enters the UID, so two literals of
+        // one signature are two types. ⚠ ONLY those bits: folding the whole
+        // const_val would also split `Box<dyn Fn>` from `&dyn Fn` from
+        // `&mut dyn Fn`, which is a separate (and probably correct) change and
+        // not this one. The erased forms mint no identity, so they are
+        // unaffected and keep the UID they have — which is what keeps every
+        // written `dyn Fn*` / `|T| -> R` surface in the corpus interning as it
+        // did.
+        if (t.const_val) {
+            uint32_t cid = uint32_t((uint64_t(*t.const_val) &
+                                     TypeRef::CLOSURE_ID_MASK) >> TypeRef::CLOSURE_ID_SHIFT);
+            if (cid) { put_byte(buf, uint8_t(0x43)); put_u64(buf, cid); }
+        }
         break;
     case K::FnItem:
         // logos-core 1.4: distinct instantiations of the same fn must intern
@@ -2112,6 +2125,32 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
 bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
     if (types_equal(from, to)) return true;
+    // ADR 0029 S1: A LITERAL'S TYPE ERASES TO THE WRITTEN FORM. Since a closure
+    // literal's type carries its own identity, it is no longer EQUAL to the
+    // erased type a slot is written with — `Box<|| -> i64>` against
+    // `Box<|| -> i64>`, one of them a literal. In Rust this is the coercion from
+    // an anonymous closure type to `dyn Fn*`; here it is the same step, from an
+    // identified type to an unidentified one of the SAME SIGNATURE.
+    // ONE DIRECTION ONLY: an erased callable cannot be given a literal's
+    // identity back, exactly as `FnPtr -> FnItem` is refused eleven lines below.
+    // TWO DIFFERENT LITERALS STAY INCOMPATIBLE, which is Rust's answer too: two
+    // closures have two types, and a merge of them needs a `Box<dyn Fn*>`.
+    if (TypeRef(from).kind() == LogosType::Kind::Closure &&
+        TypeRef(to).kind() == LogosType::Kind::Closure &&
+        TypeRef(from).closure_literal_id() && !TypeRef(to).closure_literal_id()) {
+        auto fp = TypeRef(from).closure_params(), tp = TypeRef(to).closure_params();
+        bool sig = fp.size() == tp.size() &&
+                   types_equal(TypeRef(from).closure_ret(), TypeRef(to).closure_ret());
+        for (size_t i = 0; sig && i < fp.size(); ++i)
+            if (!types_equal(fp[i], tp[i])) sig = false;
+        if (sig) {
+            // When the slot STATES a family, the literal's must fit it:
+            // Fn <= FnMut <= FnOnce. A slot that states none takes any.
+            auto ff = TypeRef(from).closure_fn_family(), tf = TypeRef(to).closure_fn_family();
+            if (tf == TypeRef::FnFamily::Unstated || uint8_t(ff) <= uint8_t(tf))
+                return true;
+        }
+    }
     // logos-core 1.4: FnItem auto-coerces to FnPtr at every value-use site
     // (call arg, let-binding, return, etc.). Two FnItems with identical
     // FnPtr signatures intern distinctly (different fn identity), so a
@@ -2573,6 +2612,18 @@ std::string type_str(TypeRef t, bool source_form) {
         }
         r += "| -> ";
         r += type_str(TypeRef(t).closure_ret(), source_form);
+        // ADR 0029 S1: NAME THE LITERAL WHEN TWO TYPES WOULD PRINT ONE STRING.
+        // Since a literal's type is its own type, `|| -> i64 vs || -> i64` is a
+        // real message about two different types — the class c3ca80270 has a
+        // commit about, and the reason that commit exists.
+        // ⚠ SOURCE FORM ONLY. The canonical `type_str` is the KEY of
+        // `closure_capture_env_`, whose signature keying is DELIBERATE (its own
+        // note: the Send/Sync question is asked of the TYPE, answered by union
+        // over every literal of that signature, and "#90's fix must SPLIT the
+        // two maps, not convert them together"). Putting the identity in the
+        // canonical form would silently re-key that map.
+        if (source_form && TypeRef(t).closure_literal_id())
+            r += std::format(" {{closure#{:08x}}}", TypeRef(t).closure_literal_id());
         return r; }
     case LogosType::Kind::FnPtr: {
         // T2-23: surface the extern ABI tag (struct_name; "" = default) so

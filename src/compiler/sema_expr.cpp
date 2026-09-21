@@ -18095,8 +18095,9 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                 !types_compatible(expr_type(else_val), expr_type(then_val)) &&
                 !(result_type && types_compatible(expr_type(then_val), result_type) &&
                   types_compatible(expr_type(else_val), result_type))) {
+                // source form: two closure literals print one string otherwise
                 error(std::format("if-expression branches have incompatible types: {} vs {}",
-                      type_str(expr_type(then_val)), type_str(expr_type(else_val))));
+                      type_str(expr_type(then_val), true), type_str(expr_type(else_val), true)));
             } else {
                 result_type = unify_numeric(expr_type(then_val), expr_type(else_val));
             }
@@ -19441,7 +19442,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         std::move(param_types), ret_type,
         closure_kind_value == 2 ? TypeRef::FnFamily::FnOnce
       : closure_kind_value == 1 ? TypeRef::FnFamily::FnMut
-                                : TypeRef::FnFamily::Fn);
+                                : TypeRef::FnFamily::Fn,
+        closure_literal_identity(cur_package_, closure_id));
     // T1-7 (audit-v2, Send/Sync soundness): record this literal's CAPTURE
     // types against the interned closure type so the auto-trait engine
     // walks captures, not parameter types. Closure types intern by
