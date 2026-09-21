@@ -17186,6 +17186,23 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         // (region_infer scaffolding-only). Generic templates skip
         // region inference (imprecise on TypeVars).
         const size_t diags_before = prog.diags.diags.size();
+        // ADR 0028 S6: with the new checker LIVE, it is the only one that runs
+        // — unless it cannot lower this function, in which case the old one
+        // still answers rather than leaving it unchecked.
+        if (dl_bc_live()) {
+            BirVerdict v = bir_check(fn, prog, ts, fn_index, &flows);
+            if (v.unsupported.empty()) {
+                for (auto& e : v.errors) {
+                    Diag d;
+                    d.level   = Diag::Level::Error;
+                    d.context = "fn " + std::string(bare_fn_name(fn.name()));
+                    d.message = e;
+                    d.line    = 0;
+                    prog.diags.diags.push_back(std::move(d));
+                }
+                return;
+            }
+        }
         RegionInferer ri;
         if (!generic_templates_only)
             ri.analyze(fn, prog);

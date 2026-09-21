@@ -125,7 +125,14 @@ impl WAny {
     // inline Pod (e.g. an i56) or a Ref to a non-string object — must NOT have its
     // word reinterpreted as a `*WString` (that dereferences a wild pointer → SIGSEGV
     // for a Pod). Same absent-key default (empty str) covers null, Pod, and wrong-Ref.
-    pub fn as_wstr(self: &WAny) -> str {
+    // ⚠ THE OUTPUT REGION IS THIS METHOD'S OWN, NOT `&self`'s: the slice is
+    // resolved from the WAny's ARENA POINTER and points into the arena, not
+    // into the `WAny` word. With it elided, Rust's elision rule 3 ties it to
+    // `&self`, and `fn from_wany(v: WAny) -> str { return v.as_wstr(); }`
+    // then returns a borrow of a BY-VALUE parameter — which the ADR 0028
+    // checker refuses and rustc refuses too (E0515). Same idiom as
+    // `wstr_as_str` next door and the generated `val_at`.
+    pub fn as_wstr<'a>(self: &WAny) -> &'a str {
         if !self.is_string() { return str_from_raw(0i64 as *const u8, 0i64); }
         return unsafe { (&*(self.resolve() as *const WString)).as_str() };
     }

@@ -468,22 +468,26 @@ pub unsafe fn utf8_validate(ptr: *const u8, len: i64) -> Result<(), Utf8Error> {
 // trailing invalid run (caller treats those bytes as U+FFFD).
 
 /// A chunk from `Utf8Chunks`: a maximal valid prefix plus a trailing run of invalid bytes.
-pub struct Utf8Chunk {
+// ⚠ `'a` IS THE HAYSTACK'S REGION: the chunk's `valid` slice points into the
+// string the iterator walks, not into the iterator. Elided, it would take the
+// `&mut self` of `next` under Rust's elision rule 3 and holding a chunk across
+// iterations would conflict with the next call. Same shape as VecIter<'a, T>.
+pub struct Utf8Chunk<'a> {
     /// The well-formed UTF-8 slice (possibly empty).
-    pub valid:         str,
+    pub valid:         &'a str,
     /// Number of invalid bytes following `valid`; 0 when the input ends after `valid`.
     pub invalid_bytes: i64,
 }
 
 /// Iterator over runs of valid UTF-8 interleaved with invalid bytes; mirrors Rust's `Utf8Chunks`.
-pub struct Utf8Chunks {
+pub struct Utf8Chunks<'a> {
     ptr: *const u8,
     pos: i64,
     len: i64,
 }
 
 /// Returns a `Utf8Chunks` iterator over the bytes of `s`.
-pub fn str_utf8_chunks(s: str) -> Utf8Chunks {
+pub fn str_utf8_chunks<'a>(s: &'a str) -> Utf8Chunks<'a> {
     return Utf8Chunks { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
@@ -492,8 +496,8 @@ pub unsafe fn utf8_chunks_from_raw(ptr: *const u8, len: i64) -> Utf8Chunks {
     return Utf8Chunks { ptr: ptr, pos: 0, len: len };
 }
 
-impl Iterator<Utf8Chunk> for Utf8Chunks {
-    fn next(self: &mut Utf8Chunks) -> Option<Utf8Chunk> {
+impl<'a> Iterator<Utf8Chunk<'a>> for Utf8Chunks<'a> {
+    fn next(self: &mut Utf8Chunks<'a>) -> Option<Utf8Chunk<'a>> {
         if self.pos >= self.len { return Option::None; }
         unsafe {
             let valid_start: i64 = self.pos;

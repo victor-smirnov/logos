@@ -2713,6 +2713,24 @@ public:
     void emit(dl::Database& db, dl::Symbols& syms);
 
     const std::vector<Loan>& loans() const { return loans_; }
+    // WHY this loan died at this point, as a code the message site can switch
+    // on without reaching into the access record: 0 unknown, 1 a new SHARED
+    // borrow, 2 a new MUTABLE borrow, 3 the place went out of scope, 4 an
+    // assignment, 5 a move, 6 a plain read. See why_ and invalidations().
+    int invalidation_kind(uint32_t loan, uint32_t point) const {
+        auto it = why_.find({loan, point});
+        if (it == why_.end()) return 0;
+        const auto& a = it->second;
+        if (a.self_loan >= 0 && size_t(a.self_loan) < loans_.size())
+            return loans_[size_t(a.self_loan)].mut_ ? 2 : 1;
+        switch (a.kind) {
+            case Access::StorageDead:   return 3;
+            case Access::WriteShallow:  return 4;
+            case Access::WriteDeep:     return 5;
+            case Access::Read:          return 6;
+        }
+        return 0;
+    }
     std::string point_name(uint32_t p) const { return "p" + std::to_string(p); }
     uint32_t point_line(uint32_t p) const { return p < point_lines_.size() ? point_lines_[p] : 0; }
     std::string place_str(const bir::Place& p) const {
@@ -3580,6 +3598,8 @@ private:
     enum class Access : uint8_t { Read, WriteShallow, WriteDeep, StorageDead };
     struct Acc { uint32_t point; bir::Place place; Access kind; int32_t self_loan; };
     std::vector<Acc> accesses_;
+    // (loan, point) -> the access that invalidated it; see invalidations().
+    std::map<std::pair<uint32_t, uint32_t>, Acc> why_;
     void access(uint32_t p, const bir::Place& pl, Access k, int32_t self_loan = -1) {
         accesses_.push_back({p, pl, k, self_loan});
     }
@@ -3764,7 +3784,19 @@ private:
                         hit = extends_without_deref(L.place, a.place);
                         break;
                 }
-                if (hit) row("loan_invalidated_at", {l(i), pt(a.point)});
+                if (hit) {
+                    row("loan_invalidated_at", {l(i), pt(a.point)});
+                    // ⚠ WHY the loan died is what the MESSAGE is made of, and it
+                    // is known only here. The Datalog fact carries (loan,
+                    // point); the kind of access, and whether that access was
+                    // itself a borrow, decide between "cannot borrow as
+                    // mutable", "cannot assign to", "cannot move" and "cannot
+                    // use" — the wordings the corpus pins and the ones rustc
+                    // uses. Keeping the first one per (loan, point): a later
+                    // access at the same point cannot make the diagnosis more
+                    // specific than the one that already fired.
+                    why_.try_emplace({i, a.point}, a);
+                }
             }
         }
     }
@@ -4631,10 +4663,45 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
             auto row = R.row(i);
             uint32_t L = num(sym(row[0])), P = num(sym(row[1]));
             const auto& loan = facts.loans()[L];
-            v.errors.push_back(std::format(
-                "{} borrow of '{}' (line {}) is used after an access at line {} invalidated it",
-                loan.mut_ ? "mutable" : "shared", facts.place_str(loan.place), loan.line,
-                facts.point_line(P)));
+            // ⚠ THE WORDING IS RUSTC'S, NOT POLONIUS'S. "borrow ... is used
+            // after an access ... invalidated it" describes the RULE that
+            // fired; a reader needs to know what they did — borrowed again,
+            // assigned, moved, or read — and that is exactly what the
+            // invalidating access says. 1029 pinned diagnostics across the
+            // corpus spell these, and rustc spells them the same way.
+            const std::string nm = facts.place_str(loan.place);
+            const uint32_t at = facts.point_line(P);
+            std::string msg;
+            switch (facts.invalidation_kind(L, P)) {
+                case 1:
+                    msg = loan.mut_
+                        ? std::format("cannot borrow '{}': '{}' is already mutably borrowed", nm, nm)
+                        : std::format("cannot borrow '{}': '{}' is already borrowed", nm, nm);
+                    break;
+                case 2:
+                    msg = loan.mut_
+                        ? std::format("cannot borrow '{}': '{}' is already mutably borrowed", nm, nm)
+                        : std::format("cannot borrow '{}' as mutable: '{}' has shared borrows", nm, nm);
+                    break;
+                case 3:
+                    msg = std::format("'{}' does not live long enough: it is borrowed here and "
+                                      "used after '{}' goes out of scope", nm, nm);
+                    break;
+                case 4:
+                    // A shared loan and a mutable one read differently, and the
+                    // corpus pins both spellings.
+                    msg = loan.mut_
+                        ? std::format("cannot assign to '{}' while it is mutably borrowed", nm)
+                        : std::format("cannot assign to '{}' because it is borrowed", nm);
+                    break;
+                case 5:  msg = std::format("cannot move '{}' while it is borrowed", nm); break;
+                case 6:  msg = std::format("cannot use '{}' while it is mutably borrowed", nm); break;
+                default:
+                    msg = loan.mut_
+                        ? std::format("cannot use '{}' while it is mutably borrowed", nm)
+                        : std::format("cannot borrow '{}' as mutable: '{}' has shared borrows", nm, nm);
+            }
+            v.errors.push_back(std::format("line {}: {}", at, msg));
         }
     }
     {
@@ -4659,9 +4726,11 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
         const dl::Relation& R = rel("mut_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
-            v.errors.push_back(std::format("'{}' is not declared mutable (line {})",
-                                           body.locals[num(sym(row[0]))].name,
-                                           facts.point_line(num(sym(row[1])))));
+            // rustc's wording, and the corpus's: the reader wants "you cannot
+            // borrow this as mutable, because it was not declared `mut`".
+            v.errors.push_back(std::format("line {}: cannot borrow '{}' as mutable: not declared as mut",
+                                           facts.point_line(num(sym(row[1]))),
+                                           body.locals[num(sym(row[0]))].name));
         }
     }
     {
@@ -4729,6 +4798,21 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
 // the one the compile acts on. Per process, disagreements are logged with both
 // sides' messages, and a census line records how many functions were
 // compared, skipped (and why), agreed and disagreed.
+
+// ── LIVE mode (LOGOS_DL_BC=1) — ADR 0028 S6 ─────────────────────────────────
+//
+// The NEW checker's verdict is the one the compile acts on, and the old one
+// does not run at all. A function the new checker cannot lower yet
+// (`v.unsupported`, 13 of them corpus-wide) falls back to the old checker
+// rather than going unchecked — the only thing that would be worse than either
+// verdict is none.
+static bool dl_bc_live() {
+    static const bool on = [] {
+        const char* v = std::getenv("LOGOS_DL_BC");
+        return v && *v && std::string_view(v) != "0";
+    }();
+    return on;
+}
 
 static bool dl_shadow_bc() {
     static const bool on = [] {
