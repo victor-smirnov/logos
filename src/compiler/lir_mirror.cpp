@@ -1692,11 +1692,19 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
         param_types_av = mref_addr(t_off);
     }
 
-    // 10 keys (block, name, cap-types, cap-names, param-names, param-types,
-    // ret-type, is-move, as-fn-ptr, mut-captures) — default cap=8 overflows.
+    // ⚠ A FULL TinyObjectMap ABORTS THE COMPILER, and this one had ONE SLOT
+    // LEFT. The capacity is FIXED — `put` on a full map returns
+    // `field_dropped` (tiny_object_map.hpp, "full — fixed capacity, no
+    // growth") and the LOGOS_ASSERT below turns that into LIR-MIRROR-005. The
+    // comment here said "10 keys" while `closure_keys` had grown to FIFTEEN in
+    // a cap-16 map, so the SEVENTEENTH key would have been an abort and the
+    // sixteenth the last one anyone could add without noticing. A count in a
+    // comment is not a check; the cap is raised with room for the ADR 0029 lift
+    // and the comment states the invariant instead of a number that rots.
+    // INVARIANT: capacity > the number of keys in lir_schema::closure_keys.
     auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
                             | (1ULL << 47),
-                            /*cap=*/16);
+                            /*cap=*/24);
     put(map_off, ck::BLOCK,         mref_addr(body_off));
     if (!c.closure_id.empty())
         put(map_off, ck::NAME, put_string(c.closure_id));

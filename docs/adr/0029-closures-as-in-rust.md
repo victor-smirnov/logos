@@ -59,6 +59,17 @@ side tables keyed by `type_str`, i.e. by the signature:
   are not visible in the type: one origin stands for whatever the closure may
   hold." Every capture loan is indistinguishable once the closure value is
   copied, returned or passed.
+- ⚠ **BUT NOT "MOST OF THE old_only DISAGREEMENTS", WHICH WAS WRONG.** The
+  sentence below said so; a whole-corpus shadow census at `339b28757`
+  (29 814 090 comparisons, 105 `old_only`, 123 `new_only`, 13 skips) refutes it:
+  of the 104 distinct inputs carrying an `old_only`, **25 even CONTAIN a closure
+  literal**, and containing one over-counts — the disagreeing function need not
+  be the one with the closure. Only 5 carry a closure-explicit message (E0521,
+  "borrowed data escapes the closure"). The three largest `old_only` classes are
+  a dangling return-reference (21), `cannot borrow as mutable: has shared
+  borrows` (14) and E0597 (14), none of them closure-shaped. So the lift is NOT
+  the critical path to switching the verdict; it is worth doing for the reasons
+  above, and it is worth doing AFTER the classes that are.
 - **The body is not a function.** It is an OPEN TERM: it names the enclosing
   scope's variables, and nothing between sema and codegen binds them. Codegen
   closes it at MLIR time by GEP-ing each capture out of the env and writing the
@@ -118,8 +129,37 @@ out of this ADR's scope.
 | S2 | the captures in the type | LANDED; two measured Send defects, both directions, now fixtures |
 | S3 | the body as an L-IR function (env parameter, names rewritten) | the lifted function is checked like any other |
 | S4 | codegen reads the lifted function; `gen_closure`'s re-derivation goes | L1 + the IR snapshots |
-| S5 | BIR: closure bodies checked, per-capture origins replace the one-origin stand-in | the shadow census: `old_only` falls |
+| S5a | BIR: one origin per CAPTURE, minted from the capture types S2 put in the type | the shadow census + a fixture where a capture loan survives a copy |
+| S5b | BIR: the lifted function gets a `bir::Body` like any other | the `old_only` closure class falls |
 | S6 | delete `closure_kind_`, `closure_capture_env_` and the name-keyed workarounds | each deletion with its diff |
+
+## Price, measured 2026-09-21
+
+A four-way map of every consumer of the inline body priced the lift at **~3380
+lines, of which ~1100 are ONE un-bisectable commit** — the flip, where the free
+names become env projections. It is un-bisectable for S1's exact reason: the
+body is ONE arena object (a lifted function's `BODY` can alias the ClosureBox's
+`BLOCK`, so S3's scaffolding costs no second copy), and the instant that object
+says `env.s.a` instead of `s`, NEITHER `gen_closure`'s name-keyed scope binding
+and fake-root materialisation NOR the old checker's `walk_closure_body` can read
+it. Roughly 60% of the flip is deletion.
+
+**S5a does not depend on S3/S4 at all** — S2 already put the captures in the
+type, so `borrow_bir.inc`'s `case Kind::Closure:` can mint one origin per capture
+through the existing struct path instead of a blanket `fresh_origin()`. ~90
+lines, independent, and it lands first.
+
+**S5b must NOT be faked by walking the inline body** in the creator's
+`bir::Body`. Three reasons, each already recorded in this tree: (1) the capture
+loan is issued AT THE CONSTRUCTION POINT, so a body lowered after it conflicts
+with its own capture — the old checker met exactly this and paid with an
+ordering hack whose price is written at `borrow_check.cpp`'s walk (four imported
+pins re-pinned, E0506 where upstream says E0499); (2) a closure may never run,
+run twice, or escape, which the creator's CFG cannot express, and unlike the old
+checker an inline lowering has no under-refusing direction available; (3)
+`bir::Body` is built from a `FunctionView` — after the flip the lifted function
+is simply picked up by the existing per-function driver, ~150 lines. Faking it
+costs more than doing it and would be deleted again.
 
 ⚠ S1 CANNOT BE BISECTED: the UID change and the coercion arm must land in one
 commit, or every literal meeting a written closure type stops type-checking.

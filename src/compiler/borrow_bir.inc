@@ -2585,11 +2585,31 @@ private:
                 }
                 return;
             }
-            case LogosType::Kind::Closure:
-                // Captures are not visible in the type: one origin stands for
-                // whatever the closure may hold.
+            case LogosType::Kind::Closure: {
+                // ADR 0029 S5a — THE CAPTURES ARE VISIBLE IN THE TYPE NOW, and
+                // the comment that stood here ("one origin stands for whatever
+                // the closure may hold") stopped being true the moment S2
+                // landed CLOSURE_CAPTURES. A literal's type carries its env, by
+                // capture order, with a by-reference capture already spelled
+                // `&[mut] T` — so each one walks like a struct field and gets
+                // its own origin, with a `&mut` capture invariant in what it
+                // points at exactly as the Ref arm above decides it.
+                //
+                // THE ERASED FORMS KEEP THE ONE-ORIGIN STAND-IN, and there it is
+                // the right answer, not a stand-in for a better one: a written
+                // `|T| -> R` or a `dyn Fn*` states no env, so one origin stands
+                // for whatever was erased — the same claim the TraitObject arm
+                // above makes, for the same reason. It is the literal id, not
+                // an empty capture list, that separates the two: a literal that
+                // captures NOTHING holds no loans and needs no origin at all.
+                if (t.closure_literal_id()) {
+                    for (auto c : t.closure_captures())
+                        walk_type(c, invariant, out, depth + 1);
+                    return;
+                }
                 out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
                 return;
+            }
             default:
                 return;
         }
