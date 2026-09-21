@@ -8,7 +8,13 @@
 // Sibling twin: tests/logos/pass/bc_lifereg_path_sibling_admit.
 package bc_lifereg_path_rewrite_admit;
 struct U<T> { h: T, g: T }
-fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+// ⚠ `y: &'a i64`, NOT `y: &i64`, AND IT IS THE POINT OF THE SHAPE: `y` is stored
+// into a field of a struct whose region parameter also carries `x`, so the two
+// must be ONE region — and then the result, declared `&'a`, requires `y` to
+// live for `'a` too. With `y`'s region elided that is a SEPARATE region and
+// rustc 1.98.1 refuses with error[E0621] "explicit lifetime required in the
+// type of `y`" (MEASURED 2026-09-21 on the sibling l5b, same shape).
+fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
   let mut u: U<&i64> = U { h: x, g: x };
   { let d: &mut U<&i64> = &mut u; d.h = y; d.h = x; }
   return u.h;

@@ -3,7 +3,13 @@
 // ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0911d_liferegb_hb_l7_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/lb/hand/L7.logos
 package bc_0911d_liferegb_hb_l7_admit;
-fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
+// ⚠ `y: &'a i64`, NOT `y: &i64`, AND IT IS THE POINT OF THE SHAPE: `y` is stored
+// into a field of a struct whose region parameter also carries `x`, so the two
+// must be ONE region — and then the result, declared `&'a`, requires `y` to
+// live for `'a` too. With `y`'s region elided that is a SEPARATE region and
+// rustc 1.98.1 refuses with error[E0621] "explicit lifetime required in the
+// type of `y`" (MEASURED 2026-09-21 on the sibling l5b, same shape).
+fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
   let mut arr: [&i64; 2] = [x, x];
   arr[1u64] = y;
   return arr[0u64];
