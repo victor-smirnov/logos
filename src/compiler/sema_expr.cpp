@@ -19438,12 +19438,31 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             if (i < ec->mut_captures.size() && ec->mut_captures[i]) closure_kind_value = 1;
         }
     }
+    // ADR 0029 S2: THE CAPTURE TYPES ARE COMPUTED BEFORE THE TYPE IS MINTED,
+    // so the literal's type can carry its own env — the same move #440 forced
+    // on the Fn-family one commit earlier, for the same reason: the fact is
+    // known HERE, and everything downstream that had to re-derive it from a
+    // signature-keyed side table was answering with some other literal's env.
+    // The rule is the one the Send/Sync table already used: a by-ref capture
+    // enters as `&[mut] T` so the reference rules apply, an owned one as `T`,
+    // and an RFC-2229 narrow capture as the captured FIELD's type.
+    std::vector<TypeRef> literal_captures;
+    for (size_t i = 0; i < ec->captures.size(); ++i) {
+        TypeRef ct = (i < ec->capture_field_types.size() &&
+                      ec->capture_field_types[i])
+                         ? TypeRef(ec->capture_field_types[i])
+                         : TypeRef(ec->capture_types[i]);
+        if (!ct) continue;
+        bool mut_cap = i < ec->mut_captures.size() && ec->mut_captures[i];
+        literal_captures.push_back(is_move ? ct : make_ref(mut_cap, ct));
+    }
     auto ctype = make_closure_type(
         std::move(param_types), ret_type,
         closure_kind_value == 2 ? TypeRef::FnFamily::FnOnce
       : closure_kind_value == 1 ? TypeRef::FnFamily::FnMut
                                 : TypeRef::FnFamily::Fn,
-        closure_literal_identity(cur_package_, closure_id));
+        closure_literal_identity(cur_package_, closure_id),
+        literal_captures);
     // T1-7 (audit-v2, Send/Sync soundness): record this literal's CAPTURE
     // types against the interned closure type so the auto-trait engine
     // walks captures, not parameter types. Closure types intern by
@@ -19461,6 +19480,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // NOT be converted along with closure_kind_ (#90).
         auto& env = closure_capture_env_[type_str(ctype)];
         auto& caps = closure_caps_by_id_[closure_id];
+        size_t cap_i = 0;
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             TypeRef ct = (i < ec->capture_field_types.size() &&
                           ec->capture_field_types[i])
@@ -19469,7 +19489,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             if (!ct) continue;
             bool by_ref = !is_move;
             bool mut_cap = i < ec->mut_captures.size() && ec->mut_captures[i];
-            env.push_back(by_ref ? make_ref(mut_cap, ct) : ct);
+            // ONE list, not two: the type's captures were built by this exact
+            // rule above, so the table is filled FROM it rather than beside it.
+            // S6 deletes the table; until then two copies that could drift are
+            // the defect, not the safeguard.
+            env.push_back(literal_captures[cap_i++]);
             const VarInfo* cvi = lookup_var_info(ec->captures[i]);
             caps.emplace_back((by_ref && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
                                   ? make_ref(mut_cap, ct) : ct,

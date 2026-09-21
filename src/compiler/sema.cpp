@@ -222,6 +222,7 @@ public:
         writ::AnyVal v_lifetime, v_arr_size_var, v_struct_name, v_enum_name;
         writ::AnyVal v_pkg_name, v_trait_name, v_type_var_name, v_assoc_type_name;
         writ::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
+        writ::AnyVal v_closure_captures;
         writ::AnyVal v_lifetime_args;
 
         // mut_ptr slot: *mut vs *const (Ptr), &mut vs & (DstRef), &mut [T] vs
@@ -264,6 +265,8 @@ public:
         if (!t.type_args.empty())       v_type_args       = put_type_vec(t.type_args);
         if (!t.tuple_elems.empty())     v_tuple_elems     = put_type_vec(t.tuple_elems);
         if (!t.closure_params.empty())  v_closure_params  = put_type_vec(t.closure_params);
+        if (!t.closure_captures.empty())
+            v_closure_captures = put_type_vec(t.closure_captures);
         if (!t.gat_args.empty())        v_gat_args        = put_type_vec(t.gat_args);
         if (!t.lifetime_args.empty())   v_lifetime_args   = put_string_vec(t.lifetime_args);
 
@@ -300,6 +303,7 @@ public:
         put(k::TYPE_ARGS,        v_type_args);
         put(k::TUPLE_ELEMS,      v_tuple_elems);
         put(k::CLOSURE_PARAMS,   v_closure_params);
+        put(k::CLOSURE_CAPTURES, v_closure_captures);
         put(k::GAT_ARGS,         v_gat_args);
         put(k::LIFETIME_ARGS,    v_lifetime_args);
 
@@ -929,6 +933,16 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
                                      TypeRef::CLOSURE_ID_MASK) >> TypeRef::CLOSURE_ID_SHIFT);
             if (cid) { put_byte(buf, uint8_t(0x43)); put_u64(buf, cid); }
         }
+        // ADR 0029 S2: the CAPTURES are identity too, and not redundantly so —
+        // ONE literal inside a generic fn keeps ONE literal id across every
+        // instantiation, while its captures are substituted per instantiation.
+        // Without this byte `|| -> i32` capturing `T=i32` and the same literal
+        // capturing `T=*mut i32` would be one type, and the Send answer of the
+        // first would be read off the second.
+        if (!t.closure_captures.empty()) {
+            put_byte(buf, uint8_t(0x45));
+            for (auto c : t.closure_captures) put_sub(buf, impl, c);
+        }
         break;
     case K::FnItem:
         // logos-core 1.4: distinct instantiations of the same fn must intern
@@ -1113,6 +1127,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
                t.closure_ret == r.closure_ret() &&
                t.trait_name == r.trait_name() &&
                t.const_val == r.const_val() &&
+               vec_ptr_eq(t.closure_captures, r.closure_captures()) &&
                t.lifetime == r.lifetime();
     case K::FnItem:
         // logos-core 1.4: FnItem equality = same fn (struct_name) + same
@@ -1191,6 +1206,7 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
     for (auto& a : t.type_args)      if (a && a.is_external()) a = intern_foreign(a);
     for (auto& e : t.tuple_elems)    if (e && e.is_external()) e = intern_foreign(e);
     for (auto& p : t.closure_params) if (p && p.is_external()) p = intern_foreign(p);
+    for (auto& c : t.closure_captures) if (c && c.is_external()) c = intern_foreign(c);
     for (auto& g : t.gat_args)       if (g && g.is_external()) g = intern_foreign(g);
 
     LogosType::TypeUID uid = compute_type_uid(impl_.get(), t);
@@ -1397,6 +1413,7 @@ std::vector<std::string> string_vec_via_mirror(const TypeRef& self,
 std::vector<TypeRef> TypeRef::type_args()      const noexcept { return type_vec_via_mirror(*this, sema_schema::TYPE_ARGS); }
 std::vector<TypeRef> TypeRef::tuple_elems()    const noexcept { return type_vec_via_mirror(*this, sema_schema::TUPLE_ELEMS); }
 std::vector<TypeRef> TypeRef::closure_params() const noexcept { return type_vec_via_mirror(*this, sema_schema::CLOSURE_PARAMS); }
+std::vector<TypeRef> TypeRef::closure_captures() const noexcept { return type_vec_via_mirror(*this, sema_schema::CLOSURE_CAPTURES); }
 std::vector<TypeRef> TypeRef::gat_args()       const noexcept { return type_vec_via_mirror(*this, sema_schema::GAT_ARGS); }
 std::vector<std::string> TypeRef::lifetime_args()  const noexcept { return string_vec_via_mirror(*this, sema_schema::LIFETIME_ARGS); }
 
@@ -1420,6 +1437,7 @@ LogosTypeBuilder TypeRef::to_builder() const {
     b.lifetime_args   = lifetime_args();
     b.tuple_elems     = tuple_elems();
     b.closure_params  = closure_params();
+    b.closure_captures = closure_captures();
     b.closure_ret     = closure_ret();
     b.trait_name      = std::string(trait_name());
     b.type_var_name   = std::string(type_var_name());
@@ -6772,12 +6790,27 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         }
         auto new_ret = subst_type_sema(t.closure_ret(), s, ls);
         changed |= (new_ret != t.closure_ret());
+        // ADR 0029 S2: THE CAPTURES SUBSTITUTE TOO, AND THEY ARE PART OF
+        // `changed`. A closure's SIGNATURE is routinely free of the enclosing
+        // generic's type vars while its ENV is not — `|| -> i32 { x }` inside
+        // `fn f<T>(x: T)` — so deciding "nothing changed" from params/ret alone
+        // would hand every instantiation the pre-substitution env, i.e. the
+        // TypeVar, and the auto-trait walk would answer about `T` instead of
+        // the argument it was instantiated at.
+        std::vector<TypeRef> new_caps;
+        for (auto c : t.closure_captures()) {
+            auto nc = subst_type_sema(c, s, ls);
+            changed |= (nc != c);
+            new_caps.push_back(nc);
+        }
         if (!changed) return t;
 
         LogosTypeBuilder nt;
         nt.kind = t.kind();  // preserve Closure vs FnPtr vs FnItem
         nt.closure_params = std::move(new_params);
         nt.closure_ret = new_ret;
+        if (t.kind() == LogosType::Kind::Closure)
+            nt.closure_captures = std::move(new_caps);
         if (t.kind() == LogosType::Kind::Closure) {   // a `dyn Fn(..)` object keeps its family / owning kind / slot
             nt.trait_name = std::string(t.trait_name());
             nt.const_val = t.const_val();

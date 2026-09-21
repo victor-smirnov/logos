@@ -1612,10 +1612,15 @@ private:
     // before, so the four synthesis callers are untouched. See FN_FAMILY_SHIFT.
     TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret,
                               TypeRef::FnFamily family = TypeRef::FnFamily::Unstated,
-                              uint32_t literal_id = 0) {
+                              uint32_t literal_id = 0,
+                              std::vector<TypeRef> captures = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Closure;
         t.closure_params = std::move(params);
         t.closure_ret = ret;
+        // ADR 0029 S2 — the env IS the type. Only a literal passes captures;
+        // every erased form leaves the slot absent, which is how a consumer
+        // tells "no env recorded" from "an empty env".
+        t.closure_captures = std::move(captures);
         uint64_t cv = 0;
         if (family != TypeRef::FnFamily::Unstated)
             cv |= uint64_t(family) << TypeRef::FN_FAMILY_SHIFT;

@@ -43,6 +43,18 @@ side tables keyed by `type_str`, i.e. by the signature:
   is necessary and not sufficient.
 - **#442 / #105**, both closed by S0: a closure in a generic function
   instantiated twice did not compile (`redefinition of symbol '__closure_0'`).
+- **The Send/Sync answer came from a SIGNATURE, and it was wrong in BOTH
+  directions** (measured 2026-09-20 against the committed binary, and the note
+  in `sema_auto_trait.cpp` had claimed a union "cannot admit an unsound answer
+  — only a stricter one"). Over-refusal: a `Send` literal beside a
+  `*mut`-capturing sibling of the identical signature was refused, and deleting
+  the sibling admitted the same program. Unsound admit: `fn take(b: Box<dyn
+  Fn() -> i32>) { need_send(b) }` — a box that may hold a closure built in
+  another package around a raw pointer — compiled when a trivial `move || x`
+  appeared EARLIER in the same file and was refused when it did not, or when
+  `take` was merely moved above it. A thread-safety verdict that turns on
+  declaration order is not a stricter answer. Both are `tests/logos/{pass,fail}/
+  closure_{send_not_from_sibling,dyn_send_needs_own_env}`.
 - **The new borrow checker cannot see captures.** `borrow_bir.inc`: "Captures
   are not visible in the type: one origin stands for whatever the closure may
   hold." Every capture loan is indistinguishable once the closure value is
@@ -90,7 +102,7 @@ out of this ADR's scope.
 |---|---|---|
 | S0 | a closure id per INSTANTIATION (mono) | LANDED `82ebecfc9`; closes #442, #105 |
 | S1 | per-literal type identity: the UID arm, the `types_compatible` erasure arm, the mangler case, `type_str` as `[closure@file:line]` | whole corpus; symbol count on a two-literal program; the 216 written surfaces |
-| S2 | the captures in the type | Send/Sync exactness; #440's remaining carriers |
+| S2 | the captures in the type | LANDED; two measured Send defects, both directions, now fixtures |
 | S3 | the body as an L-IR function (env parameter, names rewritten) | the lifted function is checked like any other |
 | S4 | codegen reads the lifted function; `gen_closure`'s re-derivation goes | L1 + the IR snapshots |
 | S5 | BIR: closure bodies checked, per-capture origins replace the one-origin stand-in | the shadow census: `old_only` falls |

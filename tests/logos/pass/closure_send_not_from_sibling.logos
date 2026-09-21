@@ -1,0 +1,20 @@
+// ADR 0029 S2: a closure's Send answer comes from ITS OWN env, which now lives
+// in its type, not from a signature-keyed union over every literal of the same
+// shape. `good` captures an `i32` and is Send; `bad`, one token away and of the
+// identical signature `|| -> i32`, captures a `*mut i32` and is not. Before the
+// captures entered the type, `need_send(good)` was REFUSED — "type '|| -> i32'
+// does not satisfy auto trait 'Send'" — and deleting `bad` admitted the very
+// same program, so the verdict printed at `good` was `bad`'s.
+package closure_send_not_from_sibling;
+
+fn need_send<T: Send>(v: T) -> i32 { 1 }
+
+fn main() -> i32 {
+    let mut buf = 0i32;
+    let p: *mut i32 = &mut buf;
+    let bad = move || unsafe { *p };
+    let x = 5i32;
+    let good = move || x;
+    if need_send(good) != 1 { return 1; }
+    return 0;
+}

@@ -6246,8 +6246,24 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                same shape as the 2026-09-18 #271 and 2026-09-19 #151 retirements. The second row was found by
 #                its own gate going red for the right reason: the queue requires a row's program to STILL
 #                exhibit the recorded behaviour, and it had stopped.
-REGISTRY-ALL         11102
-REGISTRY-NOIMPORTED  6597
+#                ALL 11102 -> 11104 (+2), NOIMPORTED 6597 -> 6599 (+2), TIERCOMMIT 346 -> 346 (0) — 2026-09-20
+#                ADR 0029 S2, the captures in the closure TYPE. TWO local fixtures, neither a squeue gate, so
+#                tier_commit is unmoved: pass/closure_send_not_from_sibling and fail/closure_dyn_send_needs_own_env.
+#                They pin the two directions the signature-keyed Send union got wrong, both measured against the
+#                committed binary before the change. OVER-REFUSAL: a Send literal beside a `*mut`-capturing sibling
+#                of the identical signature was refused, and deleting the sibling admitted the same program.
+#                UNSOUND ADMIT: `fn take(b: Box<dyn Fn() -> i32>) { need_send(b) }` compiled when a trivial
+#                `move || x` appeared EARLIER in the file and was refused when it did not, or when `take` was moved
+#                above it — a thread-safety verdict turning on declaration order. PREDICTED 11104/6599/346 (+2/+2/0),
+#                stated BEFORE the reconfigure, and CONFIRMED after it. ⚠ AN INTERMEDIATE READ SAID 347, AND IT WAS
+#                THE CONFIGURE, NOT THE TREE: the `logos_09_facts_*` rule registers a SECOND test for a pass fixture
+#                that has NO `.expected`, and the pass fixture was written one step before its `.expected`. The
+#                configure in between had already minted `logos_09_facts_closure_send_not_from_sibling`; re-running
+#                cmake retired it. A count read off a build tree whose glob predates the file is not this tree's
+#                count — the same class as a GREEN read before a reconfigure, and the reason the prediction is
+#                written down first.
+REGISTRY-ALL         11104
+REGISTRY-NOIMPORTED  6599
 REGISTRY-TIERCOMMIT  346
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

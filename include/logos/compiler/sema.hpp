@@ -623,6 +623,11 @@ public:
     std::vector<TypeRef> type_args()      const noexcept;
     std::vector<TypeRef> tuple_elems()    const noexcept;
     std::vector<TypeRef> closure_params() const noexcept;
+    // ADR 0029 S2: the literal's CAPTURE types, by-ref ones already wrapped as
+    // `&[mut] T`. EMPTY IS AMBIGUOUS BY ITSELF — a capture-free literal and an
+    // erased `dyn Fn` both read empty; `closure_literal_id() != 0` is what
+    // separates them, and every consumer must ask that first.
+    std::vector<TypeRef> closure_captures() const noexcept;
     std::vector<TypeRef> gat_args()       const noexcept;
     std::vector<std::string> lifetime_args() const noexcept;
 
@@ -766,6 +771,9 @@ struct LogosTypeBuilder {
     // Closure
     std::vector<TypeRef> closure_params;
     TypeRef     closure_ret;
+    // ADR 0029 S2 — the captures of the LITERAL this type belongs to. See
+    // TypeRef::closure_captures().
+    std::vector<TypeRef> closure_captures;
 
     // TraitObject — &dyn Trait
     std::string trait_name;

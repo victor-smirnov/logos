@@ -388,10 +388,22 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         }
         TypeRef new_ret = subst_type(tv.closure_ret(), s);
         changed |= (new_ret != tv.closure_ret());
+        // ADR 0029 S2: substitute the CAPTURES, and let them decide `changed` —
+        // a closure literal in a generic fn has a signature free of the
+        // generic's vars far more often than it has an env free of them. See
+        // the twin arm in sema.cpp's subst_type_sema.
+        std::vector<TypeRef> new_caps;
+        for (auto c : tv.closure_captures()) {
+            TypeRef nc = subst_type(c, s);
+            changed |= (nc != c);
+            new_caps.push_back(nc);
+        }
         if (!changed) return tv;
         LogosTypeBuilder nt = tv.to_builder();
         nt.closure_params = std::move(new_params);
         nt.closure_ret    = new_ret;
+        if (tv.kind() == LogosType::Kind::Closure)
+            nt.closure_captures = std::move(new_caps);
         return out_.type_pool.alloc(std::move(nt));
     }
     case LogosType::Kind::AssocType: {

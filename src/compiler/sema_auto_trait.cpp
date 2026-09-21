@@ -288,16 +288,38 @@ bool SemaChecker::is_auto_trait_satisfied(
     //    (e.g. a bare `dyn Fn` annotation) is conservative `false` — like
     //    Rust's `dyn Fn()` without an explicit `+ Send`.
     case Kind::Closure: {
-        // KEY-IDENTITY: keyed by the closure SIGNATURE, and that is the intent
-        // HERE, unlike closure_kind_ (#90). The Send/Sync question is asked of
-        // the closure TYPE, and this map answers it by UNION over every literal
-        // of that signature: if any literal captures a !Send value the type is
-        // !Send. Union is conservative in the safe direction, so sharing the
-        // slot cannot admit an unsound answer — only a stricter one. #90's fix
-        // must SPLIT the two maps, not convert them together.
-        auto it = closure_capture_env_.find(type_str(tv));
-        if (it == closure_capture_env_.end()) return false;
-        for (auto e : it->second)
+        // ADR 0029 S2: ASK THE TYPE. The env is IN the closure type now, so
+        // this answers about THIS literal and no other.
+        //
+        // ⚠ THE NOTE THAT USED TO STAND HERE WAS WRONG IN BOTH DIRECTIONS, and
+        // both were measured before the change. It claimed the signature key
+        // was "the intent here" and that a union "cannot admit an unsound
+        // answer — only a stricter one":
+        //
+        //   OVER-REFUSAL. Two literals of one signature, one capturing a
+        //   `*mut i32` and one capturing an `i32`, made the SECOND one !Send.
+        //   Deleting the first admitted the same program — a legal program
+        //   refused by a verdict belonging to its sibling, exactly #90's shape
+        //   in this map rather than a different one.
+        //
+        //   AND AN UNSOUND ADMIT, which the note's "safe direction" argument
+        //   misses because the union's members are not only literals ASKED
+        //   about: a bare `Box<dyn Fn() -> i32>` — a box that may hold any
+        //   closure at all, including one built in another package around a
+        //   raw pointer — read its Send answer off whatever same-signature
+        //   literal the file happened to contain. `fn take(b: Box<dyn Fn() ->
+        //   i32>) { need_send(b) }` was ADMITTED when a trivial `move || x`
+        //   appeared earlier in the file and REFUSED when it did not, and
+        //   refused again when `take` was merely moved above it. A
+        //   thread-safety verdict that turns on declaration order is not a
+        //   stricter answer, it is no answer.
+        //
+        // An erased form records no env and stays conservative `false`, which
+        // is Rust's `dyn Fn()` without an explicit `+ Send`. A capture-FREE
+        // literal is Send, and it is the literal id, not the empty list, that
+        // separates the two.
+        if (!tv.closure_literal_id()) return false;
+        for (auto e : tv.closure_captures())
             if (!is_auto_trait_satisfied(e, trait_name, visited)) return false;
         return true;
     }

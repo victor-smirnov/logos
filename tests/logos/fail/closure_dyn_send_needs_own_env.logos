@@ -1,0 +1,23 @@
+// ADR 0029 S2: an ERASED callable has no recorded env, so it is not Send —
+// Rust's `dyn Fn()` without an explicit `+ Send`. A `Box<dyn Fn() -> i32>` may
+// hold a closure built anywhere, including one closed over a raw pointer, and
+// the trivial `move || x` below says nothing about it.
+//
+// Before the captures entered the type this program COMPILED: the Send answer
+// for the box was read off whatever same-signature literal the file happened to
+// contain, so it turned on declaration order — admitted with `main` above
+// `take`, refused with `main` below it, refused again with the literal deleted.
+package closure_dyn_send_needs_own_env;
+
+fn need_send<T: Send>(v: T) -> i32 { 1 }
+
+fn main() -> i32 {
+    let x = 5i32;
+    let trivial = move || x;
+    if need_send(trivial) != 1 { return 1; }
+    return 0;
+}
+
+fn take(b: Box<dyn Fn() -> i32>) -> i32 {
+    return need_send(b);
+}

@@ -65,6 +65,13 @@ inline constexpr Key CONST_VAL         {"CONST_VAL",       19}; // i64 (std::opt
 // Cached TypeUID (32-byte datatype, filled lazily on first request)
 inline constexpr Key TYPE_UID          {"TYPE_UID",        20}; // TypeUID datatype
 
+// Closure — ADR 0029 S2: the CAPTURE types of the literal this type belongs
+// to, in capture order, by-ref captures already wrapped as `&[mut] T`. Present
+// ONLY on a type minted for a closure LITERAL; absent on every erased form
+// (`dyn Fn*`, a written `|T| -> R`), which is what tells the auto-trait engine
+// "this type has no known env" apart from "its env is empty".
+inline constexpr Key CLOSURE_CAPTURES  {"CLOSURE_CAPTURES", 21}; // Array<RelPtr<LogosType>>
+
 // ── TraitBound keys ────────────────────────────────────────────────────────
 //
 // TraitBound lives in its own TinyObjectMap with schema_type_code derived from
