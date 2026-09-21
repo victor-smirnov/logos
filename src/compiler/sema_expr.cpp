@@ -8092,6 +8092,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         // String` and `struct H<F> where F: FnOnce() -> String`, each compiling
         // rc 0 and aborting 134 (#440). The mode is already in hand here.
         auto invoke_mode = callable_call_mode({}, rt);
+        check_callable_place_not_consumed(expr_ref_of(recv));   // #440
         if (invoke_mode == lir_schema::expr::CallMode::Once)
             mark_moved_expr(expr_ref_of(recv));
         return builder().closure_call(std::move(recv),
@@ -10885,6 +10886,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             return builder().fn_ptr_call(
                                 std::move(fr), std::move(arg_exprs), ret);
                         auto fld_mode = callable_call_mode({}, ft);
+                        check_callable_place_not_consumed(expr_ref_of(fr));  // #440
                         if (fld_mode == lir_schema::expr::CallMode::Once)
                             mark_moved_expr(expr_ref_of(fr));   // #440
                         return builder().closure_call(

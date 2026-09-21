@@ -1,0 +1,37 @@
+// #440, THE RUST-SHAPED CARRIER: an `FnOnce` closure held in a struct field
+// whose type is a generic parameter bounded `F: FnOnce() -> String`. The first
+// call moves the captured `String` out; the second frees it again. Measured as
+// a LIVE DOUBLE FREE — compiled rc 0, linked, ran, `free(): double free
+// detected in tcache 2`, exit 134. rustc 1.98.1 --edition 2024 refuses the
+// twin: error[E0382]: use of moved value: `h.f`.
+//
+// TWO FACTS WERE PRESENT AND NEITHER WAS ASKED FOR. The CONSUMING side already
+// marked the path `h.f` moved. The READING side asked `moved_vars_` about the
+// callee NAME, and the callee here is a PLACE — so the same call marked `h.f`
+// moved twice and refused nothing. And `callable_is_fn_once` was a hand copy of
+// `callable_call_mode` narrowed to a bit, stale exactly where it mattered: it
+// read the family off `trait_name()`, which only a written `dyn FnOnce`
+// carries, never off the family bits a LITERAL's type has carried since
+// ADR 0029 S1. One call site moded the call `Once` while the other answered
+// `false` about the same type.
+//
+// ⚠ ITS SIBLING CARRIER IS STILL OPEN AND NOT BY OVERSIGHT: with the field
+// declared `f: || -> String` the type is the ERASED form, which states no
+// Fn-family at all (ADR 0029 D5 — what a bare `|T| -> R` DECLARATION means is
+// undecided, and reading it as `Fn` was implemented and refuted). That carrier
+// is the queue row closure_field_fnonce_called_twice_double_free (#440).
+package closure_field_fnonce_generic_called_twice;
+use logos.mem.string;
+
+struct H<F> where F: FnOnce() -> String { f: F }
+
+fn main() -> i32 {
+    let s: String = String::from("abcd");
+    let h = H { f: move || -> String { return s; } };
+    let a: String = (h.f)();
+    let b: String = (h.f)();
+    if a.len() != 4i64 { return 1i32; }
+    if b.len() != 4i64 { return 2i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024: REFUSED — error[E0382]: use of moved value: `h.f`.

@@ -6262,8 +6262,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                cmake retired it. A count read off a build tree whose glob predates the file is not this tree's
 #                count — the same class as a GREEN read before a reconfigure, and the reason the prediction is
 #                written down first.
-REGISTRY-ALL         11104
-REGISTRY-NOIMPORTED  6599
+#                ALL 11104 -> 11105 (+1), NOIMPORTED 6599 -> 6600 (+1), TIERCOMMIT 346 -> 346 (0) — 2026-09-20/21
+#                #440's RUST-SHAPED carrier closed: ONE local fail fixture, closure_field_fnonce_generic_called_twice,
+#                `struct H<F> where F: FnOnce() -> String` called twice. A fail fixture is not in the `direct_door`
+#                pass population, so those pins do not move, and the queue row itself stays OPEN for the bare
+#                `f: || -> String` spelling, whose type states no family (ADR 0029 D5). tier_commit is unmoved: no
+#                squeue gate leaves while the row stands. PREDICTED 11105/6600/346 (+1/+1/0), stated BEFORE the
+#                reconfigure.
+REGISTRY-ALL         11105
+REGISTRY-NOIMPORTED  6600
 REGISTRY-TIERCOMMIT  346
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

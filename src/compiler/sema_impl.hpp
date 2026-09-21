@@ -2331,7 +2331,24 @@ private:
             if (tn == "Fn")     return CM::Shared;
             if (tn == "FnMut")  return CM::Mut;
             if (tn == "FnOnce") return CM::Once;
+            // ADR 0029 S1/S2: a LITERAL's type states its family in const_val,
+            // and only a `dyn Fn*` states it in trait_name. Reading one and not
+            // the other is why the same question got two answers from the two
+            // functions here: `callable_is_fn_once` below already reached a
+            // generic `F: FnOnce` through its BOUND, while this one returned
+            // Unknown for the identical callee and let #440's Rust-shaped
+            // carrier — `struct H<F> where F: FnOnce() -> String` — be called
+            // twice. An ERASED form (a written `|T| -> R`) states nothing and
+            // stays Unknown: that is D5, not an oversight.
+            switch (TypeRef(t).closure_fn_family()) {
+                case TypeRef::FnFamily::Fn:       return CM::Shared;
+                case TypeRef::FnFamily::FnMut:    return CM::Mut;
+                case TypeRef::FnFamily::FnOnce:   return CM::Once;
+                case TypeRef::FnFamily::Unstated: break;
+            }
         }
+        // The BOUND route, the one `callable_is_fn_once` has and this lacked.
+        if (typevar_only_fn_once(t)) return CM::Once;
         if (!name.empty())
             if (const VarInfo* vi = lookup_var_info(name); vi && !vi->closure_id.empty())
                 if (auto it = closure_kind_by_id_.find(vi->closure_id);
@@ -2340,17 +2357,16 @@ private:
                          : it->second == 1 ? CM::Mut : CM::Once;
         return CM::Unknown;
     }
+    // ONE ANSWER, NOT TWO. This was a hand copy of the switch above, narrowed
+    // to a bit — and the copy went stale exactly where it mattered: it tested
+    // `trait_name() == "FnOnce"`, which only a written `dyn FnOnce` carries,
+    // and never the family bits a LITERAL's type carries since ADR 0029 S1. So
+    // one call site read Once off the type while this one read false off the
+    // same type: #440's Rust-shaped carrier had its consuming call correctly
+    // moded Once and its callable never marked moved, and the second call
+    // freed the capture again. Derived now, so the two cannot disagree.
     bool callable_is_fn_once(std::string_view name, TypeRef t) const {
-        if (t && TypeRef(t).kind() == LogosType::Kind::Closure &&
-            TypeRef(t).trait_name() == "FnOnce")
-            return true;
-        if (typevar_only_fn_once(t)) return true;
-        if (!name.empty())
-            if (const VarInfo* vi = lookup_var_info(name); vi && !vi->closure_id.empty())
-                if (auto it = closure_kind_by_id_.find(vi->closure_id);
-                    it != closure_kind_by_id_.end() && it->second == 2)
-                    return true;
-        return false;
+        return callable_call_mode(name, t) == lir_schema::expr::CallMode::Once;
     }
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
@@ -4792,6 +4808,28 @@ private:
         return path;
     }
 
+    // #440: A CALLABLE REACHED THROUGH A PLACE IS CHECKED LIKE ONE REACHED
+    // THROUGH A NAME. `lower_call` refuses `f()` after `f` was moved or
+    // consumed, but it asks `moved_vars_` about the NAME, and the callee of an
+    // expression-call is a PLACE — `h.f`, `t.0`, a chain. The consuming side
+    // was already symmetric: `mark_moved_expr`'s FieldRead arm records the
+    // path. Only the reading side was not, so `(h.f)()` twice marked `h.f`
+    // moved TWICE and refused nothing, and the second call freed the capture
+    // the first had moved out. Measured rc 134 on the Rust-shaped carrier
+    // `struct H<F> where F: FnOnce() -> String`, which rustc refuses with
+    // E0382 `use of moved value: h.f`.
+    //
+    // The message is lower_call's, verbatim and with the PATH in place of the
+    // name: two spellings of one refusal must not become two diagnostics.
+    void check_callable_place_not_consumed(lir_view::ExprRef er) {
+        if (!er) return;
+        std::string path = move_path_of(er);
+        if (path.empty() || !moved_vars_.count(path)) return;
+        error(std::format(
+            "use of moved value '{}': the callable was already moved or "
+            "consumed (an `FnOnce` is consumed by the call and cannot be "
+            "called again)", path));
+    }
     void mark_moved_expr(lir_view::ExprRef er) {
         if (!er) return;
         using C = lir_schema::expr::Code;
