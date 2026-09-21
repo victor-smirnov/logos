@@ -431,6 +431,41 @@ private:
         // `x = h(move x)` as one statement would move and initialise x at the
         // same point; route the value through a temporary so the move comes
         // first.
+        // A READ THROUGH A REFERENCE IS ITS OWN STATEMENT, for the same reason
+        // the self-move above is: otherwise the read and the write of the
+        // destination land on ONE program point, and a write that invalidates
+        // a loan the same point still uses is an error the program does not
+        // have. MIR does exactly this — `x = x + *pick(&x)` lowers to
+        // `_4 = (*_3); x = Add(x, move _4);` — and `acc = acc + *pick(&acc);`
+        // was refused here while rustc 1.98.1 accepts it (MEASURED).
+        //
+        // ⚠ ONLY FOR A NON-TEMP DESTINATION, and only for an Op rvalue. A temp
+        // destination cannot be the place a loan is held on, so materialising
+        // there would add statements and facts for nothing. ⚠ AND THE TEMP
+        // TAKES THE PLACE'S TYPE, not a null one: an untyped temp gets no
+        // origins, the loan would not flow through it, and the materialisation
+        // would turn an over-refusal into a silent hole.
+        if (rv.k == bir::Rvalue::K::Op &&
+            body_.locals[dest.local].kind != bir::LocalKind::Temp) {
+            for (auto& op : rv.ops) {
+                if (op.k == bir::Operand::K::Const || !op.place.valid()) continue;
+                bool derefs = false;
+                for (auto& pj : op.place.proj)
+                    if (pj.k == bir::Proj::K::Deref) { derefs = true; break; }
+                if (!derefs) continue;
+                TypeRef pt = op.place.proj.empty() ? body_.locals[op.place.local].type
+                                                   : op.place.proj.back().ty;
+                bir::LocalId t = temp(pt);
+                bir::Stmt sm(bir::Stmt::K::Assign);
+                sm.dest = {t, {}};
+                bir::Rvalue use(bir::Rvalue::K::Use);
+                use.ops.push_back(op);
+                sm.rv = std::move(use);
+                emit(std::move(sm));
+                op.k = bir::Operand::K::Copy;
+                op.place = bir::Place{t, {}};
+            }
+        }
         bool self_move = false;
         for (auto& op : rv.ops)
             if (op.k == bir::Operand::K::Move && op.place.local == dest.local) self_move = true;
