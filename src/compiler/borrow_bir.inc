@@ -133,6 +133,10 @@ struct Term {
     // the body-derived `flow` is only a fallback for unresolved callees.
     bool                 has_sig = false;
     uint64_t             sig_to_result = 0;
+    // Bit i set when argument i's DECLARED type can be WRITTEN THROUGH (a
+    // `&mut`, or a value holding one). Read only for an INDIRECT call, where
+    // there is no body to summarise: see the out-param fallback.
+    uint64_t             sig_mut_params = 0;
     // The resolved callee, whose DECLARED signature (decl_ret_type /
     // decl_type) says which argument positions the result borrows from.
     lir_view::FunctionView callee_fn;
@@ -1437,6 +1441,8 @@ private:
                 t.has_sig = true;
                 t.sig_to_result = signature_mask_of_type(
                     v.callee() ? v.callee().type(pool_) : TypeRef{}, /*arg_off=*/1);
+                t.sig_mut_params = mut_param_mask_of_type(
+                    v.callee() ? v.callee().type(pool_) : TypeRef{}, /*arg_off=*/1);
                 t.args.push_back(as_read(operand(v.callee())));
                 v.each_arg(arg_value);
                 break;
@@ -1535,6 +1541,25 @@ private:
     // fallback ties the result to EVERY borrowing argument. `arg_off` is 1 for a
     // FnPtrCall, whose first operand is the pointer itself, so the bits line up
     // with `t.args`.
+    // Which argument positions can be WRITTEN THROUGH, read off a fn-pointer's
+    // type. An indirect call has no body to summarise, so this is what the
+    // out-param fallback has instead.
+    uint64_t mut_param_mask_of_type(TypeRef fty, size_t arg_off) const {
+        if (!fty) return 0;
+        uint64_t mask = 0;
+        auto ps = fty.closure_params();
+        for (size_t i = 0; i < ps.size() && i + arg_off < 64; ++i) {
+            TypeRef pt = ps[i];
+            if (!pt) continue;
+            const bool writable =
+                pt.kind() == LogosType::Kind::MutRef ||
+                ((pt.kind() == LogosType::Kind::Slice || pt.kind() == LogosType::Kind::DstRef) &&
+                 pt.mut_ptr() && !pt.raw_fat()) ||
+                bc_holds_mut_ref_type(ts_, pt);
+            if (writable) mask |= uint64_t(1) << (i + arg_off);
+        }
+        return mask;
+    }
     uint64_t signature_mask_of_type(TypeRef fty, size_t arg_off) const {
         if (!fty) return ~uint64_t(0);
         auto ps = fty.closure_params();
@@ -4337,6 +4362,32 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                      : (!t.flow || !t.flow->available ||
                                         (ai < 64 && (t.flow->to_result >> ai) & 1u));
                         if (reaches) { OList src = place_origins(a.place); src.exact = false; relate(src, dst, p); }
+                    }
+                    // ⚠ AN INDIRECT CALL HAS NO BODY TO SUMMARISE, so its
+                    // out-param flow is the CONSERVATIVE one: anything handed
+                    // to it may be stored through any argument it can write
+                    // through. `let g: fn(&C, &mut Vec<B>) = stash2; g(&c, &mut
+                    // vs); c.bump();` held a loan of `c` inside `vs` and went
+                    // unrefused, because this loop is gated on a summary a fn
+                    // POINTER cannot have — the pointer could be any function
+                    // with that signature. The mask comes from the TYPE, the
+                    // only thing the call site knows.
+                    if (!t.flow && t.has_sig && t.sig_mut_params) {
+                        for (size_t j = 0; j < t.args.size() && j < 64; ++j) {
+                            if (!((t.sig_mut_params >> j) & 1u)) continue;
+                            if (!t.args[j].place.valid()) continue;
+                            OList dstj = place_origins(t.args[j].place);
+                            if (dstj.os.empty()) continue;
+                            for (size_t i2 = 0; i2 < t.args.size(); ++i2) {
+                                if (i2 == j) continue;
+                                const auto& ai = t.args[i2];
+                                if (ai.k == bir::Operand::K::Const || !ai.place.valid()) continue;
+                                OList src = place_origins(ai.place);
+                                if (src.os.empty()) continue;
+                                src.exact = false;
+                                relate(src, dstj, p);
+                            }
+                        }
                     }
                     // Out-params: argument i stored behind `&mut` argument j.
                     if (t.flow && t.flow->available)
