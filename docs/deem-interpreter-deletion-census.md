@@ -6277,8 +6277,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                it is refused on all three of its carriers now (a Box return, a Box let annotation and a `&dyn Fn`
 #                parameter), with the one-token legal contrasts measured as controls. PREDICTED 11105/6600/345
 #                (0/0/-1), stated BEFORE the reconfigure.
-REGISTRY-ALL         11105
-REGISTRY-NOIMPORTED  6600
+#                ALL 11105 -> 11106 (+1), NOIMPORTED 6600 -> 6601 (+1), TIERCOMMIT 345 -> 345 (0) — 2026-09-21,
+#                ADR 0028: ONE local fail fixture, bc_flow_hop_two_args_bir_admits, the program of backlog row
+#                bir_flow_summary_seed_underreports (#447). It is a FAIL fixture because the SHIPPED compile is
+#                correct — the counter-based checker refuses it — and the defect is the ADR 0028 checker's alone,
+#                live in shadow mode and a compile-time hole the moment S6 switches. Not a squeue gate, so
+#                tier_commit is unmoved. PREDICTED 11106/6601/345 (+1/+1/0), stated BEFORE the reconfigure.
+REGISTRY-ALL         11106
+REGISTRY-NOIMPORTED  6601
 REGISTRY-TIERCOMMIT  345
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

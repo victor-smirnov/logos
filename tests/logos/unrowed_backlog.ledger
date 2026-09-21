@@ -398,5 +398,28 @@ proj_ref_param_call_infer  defect  1  probe v4_ref_len in the same directory
     # turbofish. If both still refuse, it is a real inference defect at a `&`-projection parameter;
     # if either compiles, delete this entry.
 
-# TOTAL 18
-# SYNC-HASH 5a67ee10fcb0b98ab5639eb60b1828a8
+bir_flow_summary_seed_underreports  defect  1  ADR 0028, found 2026-09-21 while pricing a hidden-region narrowing
+    # THE NEW CHECKER ADMITS A LOAN HELD ACROSS A MUTATION when the loan reaches
+    # the result through a FIELD of a shared-reference parameter and TWO OR MORE
+    # arguments carry a lifetime. The counter-based checker refuses it.
+    #   #[borrow_carrying] struct B { p: &i64 }
+    #   fn thru2(b: &B, d: &B) -> B { return B { p: b.p }; }
+    #   let b0 = c.mk(); let bx = c.mk(); let b1 = thru2(&b0, &bx);
+    #   c.bump(); return *b1.p;            // admitted by BIR, refused by the old
+    # ROOT, MEASURED: `thru2` summarises `to_result=0` with `available=1`, so
+    # relate_call's `narrow` block (which trusts that bit whenever >=2 args carry
+    # lifetimes) drops every source and the result ties to nothing. The summary's
+    # `taint_of` FieldRead arm short-circuits on `stored_shared_extract` (#77 r2
+    # SEED) — the right answer to the CHECKER's question ("where does a new loan
+    # root?") and the wrong answer to the SUMMARY's ("does a loan rooted at
+    # parameter i reach the result?"). One predicate, two notions.
+    # WHAT IT NEEDS TO BECOME A ROW: the repair is in borrow_flow_summary.inc,
+    # which the OLD checker also consumes, so it moves verdicts on both sides and
+    # must be priced with a whole-corpus run of its own before it is taken.
+    # The one-argument spelling of the same shape is the twin defect in the other
+    # direction: pass/bc_argcomp_tvbuild_byvalue_fat_admit is REFUSED by the new
+    # checker because a hidden result region with a single candidate argument is
+    # tied unconditionally. Both close together or neither does.
+
+# TOTAL 19
+# SYNC-HASH e1915ae283e8f2ab52726188745d3427

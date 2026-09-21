@@ -1,0 +1,38 @@
+// THE PROGRAM OF BACKLOG ROW bir_flow_summary_seed_underreports (#447), and it
+// is a FAIL fixture because the SHIPPED compile is correct: the counter-based
+// checker refuses it. The ADR 0028 checker does not, and that is the defect —
+// a hole that becomes a compile-time one the moment S6 switches the verdict.
+//
+// ONE VARIABLE against fail/bc_d1r2_ref_arg_hop_held, which both checkers
+// refuse: a SECOND reference argument. With two, relate_call's `narrow` block
+// consults the body summary, the summary answers `to_result=0` for a callee
+// that plainly stores `b.p` into its result, every source is dropped, and the
+// loan ties to nothing.
+//
+// ROOT, MEASURED: the summary's `taint_of` FieldRead arm short-circuits on
+// `stored_shared_extract` (#77 r2 SEED). That is the right answer to the
+// CHECKER's question — where does a new loan ROOT — and the wrong answer to the
+// SUMMARY's — does a loan rooted at parameter i REACH the result. One predicate
+// answering two notions. The repair is in borrow_flow_summary.inc, which the
+// OLD checker also consumes, so it is priced on its own.
+package bc_flow_hop_two_args_bir_admits;
+
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+
+fn thru2(b: &B, d: &B) -> B { return B { p: b.p }; }
+
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let b0: B = c.mk();
+    let bx: B = c.mk();
+    let b1: B = thru2(&b0, &bx);
+    c.bump();
+    return *b1.p;
+}

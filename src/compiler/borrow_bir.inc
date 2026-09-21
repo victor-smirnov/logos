@@ -289,6 +289,16 @@ static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const T
         }
         case LogosType::Kind::Enum: {
             if (!t.lifetime_args().empty()) return true;
+            // `#[borrow_carrying]` IS READ ON AN ENUM TOO. The arm above reads
+            // it and this one did not, so the attribute worked on a struct and
+            // was invisible on an enum — and the stdlib's own `WAny` is an
+            // enum. Its payloads are `*const u8` and `u64`, neither of which
+            // carries a loan by structure, which is exactly why the attribute
+            // is written on it: the Ref variant points INTO a Writ arena. With
+            // the attribute unread, every `WAny` carrying a borrow of a local
+            // arena was loan-free to the new checker, and four escapes rode out
+            // of their functions unrefused.
+            if (bc_loan_carrying_type(ts, t)) return true;   // #[borrow_carrying]
             for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1)) return true;
             auto eit = ts.enum_by_name.end();
             if (!t.type_args().empty()) eit = ts.enum_by_name.find(Mono::enum_instance_name(t));
@@ -2531,6 +2541,33 @@ private:
                 walk_type(t.pointee(), invariant || t.kind() == LogosType::Kind::MutRef, out, depth + 1);
                 return;
             }
+            case LogosType::Kind::Ptr: {
+                // A RAW POINTER HAS NO REGION OF ITS OWN — AND WHAT IT POINTS AT
+                // MAY HAVE SEVERAL. `bir_type_carries_loans` already says a
+                // `*mut &'a T` carries a loan; this walker minted NO origin for
+                // it and the two predicates disagreed about the same type, so a
+                // struct field of that shape was loan-free here and
+                // loan-carrying there. MEASURED as the one variable in a
+                // four-program ladder: with `q: &'a &'a i64` the escape of a
+                // local through a struct and a call is refused, and changing
+                // that ONE FIELD to `q: *mut &'a i64` let it out — rustc
+                // refuses both (E0515).
+                //
+                // No origin for the pointer itself: `*mut T` is `*mut (T +
+                // 'static)`-shaped in Rust, the pointer is not a loan. The
+                // pointee kinds skipped here are the ones the carries-loans Ptr
+                // arm skips, for its own stated reason (`*mut dyn Trait` is
+                // `+ 'static`), so the two arms stay one decision.
+                TypeRef pt = t.pointee();
+                if (!pt) return;
+                auto pk = pt.kind();
+                if (pk == LogosType::Kind::TraitObject || pk == LogosType::Kind::UnsizedDyn ||
+                    pk == LogosType::Kind::Slice || pk == LogosType::Kind::UnsizedSlice ||
+                    pk == LogosType::Kind::DstRef)
+                    return;
+                walk_type(pt, invariant, out, depth + 1);
+                return;
+            }
             case LogosType::Kind::Slice:
                 if (!t.owning_slice() && !t.raw_fat()) { out.os.push_back(fresh_origin()); out.inv.push_back(invariant); }
                 if (!t.raw_fat()) walk_type(t.elem(), invariant, out, depth + 1);
@@ -3217,6 +3254,39 @@ private:
                     else from = std::find(elided_positions.begin(), elided_positions.end(), si) !=
                                 elided_positions.end() &&
                                 (!narrow || ambiguous_args.count(src_arg[si]));
+                    // ⚠ DO NOT NARROW THIS BY THE BODY SUMMARY. Tried and
+                    // REFUTED, 2026-09-21, and the refutation is worth more
+                    // than the attempt. The idea: a HIDDEN result region (`~`)
+                    // is not a written contract, so the body should be the
+                    // evidence — and `narrow` above consults the summary only
+                    // when TWO OR MORE arguments are candidates, leaving the
+                    // one-argument case tied unconditionally (`fn tvb(tag: i64,
+                    // s: str) -> MyAny` holds `s` although its body returns
+                    // `MyAny::Pod`; pass/bc_argcomp_tvbuild_byvalue_fat_admit is
+                    // refused by this checker today because of it).
+                    //
+                    // MEASURED: clearing `from` when `to_result` has no bit for
+                    // the argument closed that one over-refusal and OPENED SIX
+                    // MISSES. Adding `!self_ref` recovered five — they were
+                    // `&self` methods whose result legitimately holds the
+                    // receiver (`fn mk(&self) -> B`, `cr.iter()`). The sixth
+                    // survived and is the real answer: `fn thru(b: &B) -> B {
+                    // return B { p: b.p }; }` summarises `to_result=0` with
+                    // `available=1` — the body plainly stores `b.p` into the
+                    // result. The summary's `taint_of` FieldRead arm
+                    // short-circuits on `stored_shared_extract` (#77 r2 SEED),
+                    // which is the right answer to the CHECKER's question
+                    // ("where does a new loan root?") and the wrong answer to
+                    // the SUMMARY's ("does a loan rooted at parameter i reach
+                    // the result?"). One predicate, two notions.
+                    //
+                    // SO THE BIT UNDER-REPORTS, AND `narrow` ABOVE ALREADY
+                    // TRUSTS IT: the two-argument spelling of that same program
+                    // is a LIVE PERMISSIVE HOLE in this checker — `thru2(&b0,
+                    // &bx); c.bump(); *b1.p` is admitted here and refused by the
+                    // counter-based one. Rowed rather than patched: the repair
+                    // is in the summary, which the OLD checker also consumes, so
+                    // it moves verdicts on both sides and is priced on its own.
                 } else {
                     from = sr.label == L;
                 }
@@ -3960,8 +4030,31 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             relate(referent, inner, p);
                         }
                     } else {
+                        // A CAST TO A RAW POINTER ERASES PROVENANCE, which is
+                        // this file's own established rule one screen up: a
+                        // DEREF of a raw pointer drops the tracked origins and
+                        // mints fresh ones ("raw: untracked"). The write side
+                        // had no such rule, so `let p: *const F = &d.f.value as
+                        // *const F;` related the REFERENCE's own loan into the
+                        // pointer and kept it live for as long as `p` was used
+                        // — `read::<F>(p)` on the next line then read "through"
+                        // a borrow that Rust ends at the cast. Three pass
+                        // fixtures were refused this way. The operand is still
+                        // READ here, so the borrow must be live AT the cast,
+                        // which is exactly Rust's requirement and no more.
+                        //
+                        // ⚠ ONLY THE CAST. A raw-pointer FIELD still takes what
+                        // is stored into it (`MH { q: &r }` with
+                        // `q: *mut &'a mut i64`), because there the region 'a
+                        // lives INSIDE the pointee type and is what the callee's
+                        // signature names.
+                        const bool cast_to_raw =
+                            s.rv.k == bir::Rvalue::K::Op && s.rv.what == "cast" &&
+                            s.dest.proj.empty() && b_.locals[s.dest.local].type &&
+                            TypeRef(b_.locals[s.dest.local].type).kind() == LogosType::Kind::Ptr;
                         for (auto& op : s.rv.ops) {
                             read_operand(op, p);
+                            if (cast_to_raw) continue;
                             if (op.k != bir::Operand::K::Const && op.place.valid()) {
                                 OList src = place_origins(op.place);
                                 if (s.rv.k == bir::Rvalue::K::Use) relate(src, dst, p);
