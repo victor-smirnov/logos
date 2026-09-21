@@ -3285,8 +3285,7 @@ bool SemaChecker::is_move_type(TypeRef t) const {
         // was never moved: MEASURED as a live double free, rc 0 then abort 134,
         // on `f: dyn FnOnce() -> String` called twice (#440).
         if (TypeRef(x).kind() == LogosType::Kind::Closure &&
-            (TypeRef(x).trait_name() == "FnOnce" ||
-             TypeRef(x).closure_fn_family() == TypeRef::FnFamily::FnOnce) &&
+            TypeRef(x).closure_fn_family() == TypeRef::FnFamily::FnOnce &&
             !TypeRef(x).borrowed_dyn_callable())
             return true;
         // An owning `Box<[T]>` slice owns its heap buffer (non-Copy) → move type;
@@ -8479,8 +8478,18 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // #438: the shortcut belongs to the LANG ITEM `logos.lang.ops::Fn*`
         // (or to a name that denotes no trait at all), never to a user's own
         // same-named trait.
+        // ONE SPELLING-TO-FAMILY STEP IN THE WHOLE COMPILER, and it is here,
+        // where the spelling is read off the syntax. Everything downstream asks
+        // `closure_fn_family()`. A second copy of this ladder is what the
+        // key-identity lint counts as a bare-name intercept, and the copies are
+        // what went stale in #440.
+        const TypeRef::FnFamily fn_family =
+              tname == "Fn"     ? TypeRef::FnFamily::Fn
+            : tname == "FnMut"  ? TypeRef::FnFamily::FnMut
+            : tname == "FnOnce" ? TypeRef::FnFamily::FnOnce
+                                : TypeRef::FnFamily::Unstated;
         const bool fn_family_name =
-            (tname == "Fn" || tname == "FnMut" || tname == "FnOnce") &&
+            fn_family != TypeRef::FnFamily::Unstated &&
             trait_key_is_lang_item(canonical_trait_name(tname), tname, kFnLangPkg);
         if (fn_family_name) {
             LogosTypeBuilder t;
@@ -8512,7 +8521,22 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 if (node.has_key(la::LIFETIME) && !node.get(la::LIFETIME.code).is_null())
                     fn_prefix_lt = std::string(str_of(node.get(la::LIFETIME.code)));
                 t.trait_name = tname;
-                if (!fn_is_ref) t.const_val = int64_t(uint8_t(TraitOwningKind::Box));
+                // ADR 0029: THE FAMILY IS A PROPERTY, AND IT GOES WHERE EVERY
+                // OTHER CONSUMER ALREADY LOOKS. A `dyn Fn*` stated its family
+                // ONLY as the string in `trait_name`, so every reader that
+                // wanted it compared a BARE ENTITY NAME — five such comparisons
+                // entered the compiler in this arc alone, each a hand copy of
+                // the same three-way ladder, and one of them went stale (the
+                // `callable_is_fn_once` twin, #440). A literal states its family
+                // in const_val since S1; the erased form states it there too
+                // now, and `closure_fn_family()` is the one place it is read.
+                // ⚠ THIS MAKES THE S1 ERASURE ARM LIVE FOR `dyn`: a slot that
+                // STATES a family now takes only a literal that fits it, so an
+                // `FnMut` literal into `dyn Fn` is refused — which is what Rust
+                // answers and what the arm was written for.
+                const uint64_t fn_cv =
+                    uint64_t(fn_family) << TypeRef::FN_FAMILY_SHIFT;
+                if (!fn_is_ref) t.const_val = int64_t(uint8_t(TraitOwningKind::Box) | fn_cv);
                 // The borrow's MUTABILITY is part of the type, as in Rust: the
                 // grammar sets IS_MUT on this node for `&mut dyn …` and it was
                 // read by nobody, so `&dyn FnMut` and `&mut dyn FnMut` interned
@@ -8520,7 +8544,9 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 // a `&mut` of the binding `f`.
                 else if (node.has_key(la::IS_MUT) && !node.get(la::IS_MUT.code).is_null() &&
                          node.get(la::IS_MUT.code).as_value<int32_t>() != 0)
-                    t.const_val = int64_t(TypeRef::DYN_MUT_BORROW_BIT);
+                    t.const_val = int64_t(TypeRef::DYN_MUT_BORROW_BIT | fn_cv);
+                else
+                    t.const_val = int64_t(fn_cv);
                 t.lifetime = fn_is_ref ? fn_prefix_lt : fl;
             }
             return pool_->alloc(std::move(t));

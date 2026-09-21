@@ -622,8 +622,7 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         // twin of this line; the two classifiers must agree or a move one sees
         // and the other does not is a diagnostic nobody emits. #440.
         if (x && x.kind() == LogosType::Kind::Closure &&
-            (x.trait_name() == "FnOnce" ||
-             x.closure_fn_family() == TypeRef::FnFamily::FnOnce) &&
+            x.closure_fn_family() == TypeRef::FnFamily::FnOnce &&
             !x.borrowed_dyn_callable()) return true;
         // A bare type-parameter `T` is MOVE unless it carries an explicit
         // `Copy` bound (Rust checks generic BODIES abstractly: `T` moves unless

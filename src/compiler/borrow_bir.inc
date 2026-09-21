@@ -2736,8 +2736,6 @@ private:
                 std::fprintf(stderr, "[field-nodef] %s . %.*s layout=%d want=%s\n", type_str(t).c_str(), (int)field.size(),
                              field.data(), (int)bool(pl),
                              t.kind() == LogosType::Kind::Enum ? Mono::enum_instance_name(t).c_str() : concrete_struct_name(t).c_str());
-                static bool once = false;
-                if (!once) { once = true; for (auto& [k, _] : ts_.enum_by_name) if (k.find("Option") != std::string::npos) std::fprintf(stderr, "   have enum %s\n", k.c_str()); }
             }
             return std::nullopt;
         }

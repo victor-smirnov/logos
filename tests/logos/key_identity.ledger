@@ -234,7 +234,19 @@
 # BirBuilder::instance_for_receiver keeps only candidates whose parameter 0 is
 # named `self`, then matches the receiver type against that parameter's type.
 # Same receiver-keyword sentinel as the two sites above.
-#SCAN borrow_bir.inc 4 c9f7d0d1
+# 2026-09-21, ADR 0029: borrow_bir.inc 4 -> 5, roster c9f7d0d1 -> 64ec51ca.
+# THE LITERAL IS `_`, THE WILDCARD TOKEN — BirBuilder::bind_to skips a binder
+# whose name is empty or `_`, because a wildcard binds no local and a BIR local
+# for it would be a place nothing can name. The same residual shape as the
+# `.name() != "_"` site at 2249 this file already files, and as the four
+# `nm != "_"` sites elsewhere: `_` is a grammar token, not an entity, and
+# nothing can register a second one.
+# ⚠ THE SAME EDIT DELETED A REAL BARE NAME that this count never saw as one: a
+# `k.find("Option")` inside a LOGOS_BIR_LABELS debug dump, which FACT 5 caught
+# as a find() argument. It was a hard-coded substring filter in a one-off
+# debugging aid, not a lookup key, and it is gone rather than pinned — which is
+# why #ARGSCAN find stays at 11.
+#SCAN borrow_bir.inc 5 64ec51ca
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
 # 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
 # (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is
@@ -342,7 +354,18 @@
 # logos.lang.ops, RUNS, asserts got42) and
 # fail/deref_bound_local_homonym_no_autoderef (declares its own homonym).
 # PROBES.md 2026-09-10h.
-#SCAN sema_expr.cpp 152 d9b99169
+# 2026-09-21, ADR 0028 call modes: sema_expr.cpp 152 -> 154, roster d9b99169 ->
+# 484b7c54. The two literals are `Fn` and `FnMut` in lower_call's fn-bound mode
+# ladder: a `F: Fn`/`F: FnMut`/`F: FnOnce` BOUND decides how a call through it
+# takes the callable. CLASSIFIED as the BOUND population, which is NOT the one
+# ADR 0029 consolidated: a closure TYPE's family moved into const_val and every
+# reader of it now asks `closure_fn_family()`, but a bound's family is still its
+# trait NAME, and there are four hand copies of this ladder left (here,
+# sema_collect.cpp check_type_bounds, sema_impl.hpp lower_call's has_multi_call,
+# borrow_check.cpp fnmode_of_trait). #438 gave every bound a `trait_def` DefId;
+# reading the family off THAT is the repair, and it is one sweep over four
+# sites, not a pin. Named here so the next round finds it written down.
+#SCAN sema_expr.cpp 154 484b7c54
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":
@@ -368,7 +391,17 @@
 #   A user `trait FnMut` never reaches Kind::Closure, so the literal separates
 #   the three members of a closed lang-item family and cannot intercept
 #   anything. Never read from user source.
-#SCAN sema_impl.hpp 36 3512ef27
+# 2026-09-21, ADR 0029: sema_impl.hpp 36 -> 32, roster 3512ef27 -> 93215572.
+# A REMOVAL, and the ledger records it because a conversion is a deliberate edit:
+# `callable_call_mode` held a three-way ladder over the bare strings `Fn` /
+# `FnMut` / `FnOnce` read from a closure type's `trait_name`, and
+# `callable_is_fn_once` held a fourth copy of the same test. Since a literal's
+# type states its family in const_val (S1) and a `dyn Fn*` states it there too,
+# both read `closure_fn_family()` and the second function is DERIVED from the
+# first. The stale copy was not hypothetical: it answered `false` about a type
+# the other moded `Once`, which is how #440's Rust-shaped carrier was called
+# twice and freed its capture twice.
+#SCAN sema_impl.hpp 32 93215572
 # 2026-09-06d, -4 (15 -> 11), roster fa9e12e1 -> 1ff7800a: four `nm == "_"`
 # discard-name tests vanished with mark_match_scrutinee_moved's AST re-derivation
 # (the move question is now read off the LIR pattern by `pattern_moves_out`, whose
@@ -407,7 +440,12 @@
 # ⚠ The same edit added a SECOND `!= "_"` line (`bn != "_"`), which this count
 # does NOT see: SCAN_LHS's hand list of LHS spellings holds `fname` and not `bn`.
 # That is the header's own declared blind spot, measured again here, not a new one.
-#SCAN sema_stmt.cpp 23 be9db22c
+# 2026-09-21: sema_stmt.cpp 23 -> 24, roster be9db22c -> aad23633. Added at
+# e8bb27706 ("a tuple pattern's `mut` rides the binder"), and THE LITERAL IS `_`
+# AGAIN — the tuple door comparing a binder spelling against the wildcard token,
+# the same residual shape as the `fname != "_"` site the paragraph above
+# classifies. Not an entity-name intercept.
+#SCAN sema_stmt.cpp 24 aad23633
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
@@ -427,9 +465,19 @@ mlir_gen_types.cpp	struct_types_	O	1	std::string(TypeRef(lt).struct_name())
 mono.cpp	poisoned_fns_	Q	1	sym::link_name(fn, out_.pkg_module_ids)
 mono.cpp	poisoned_fns_	Q	1	sym::link_name(m, out_.pkg_module_ids)
 mono_scan.cpp	dyn_coerced_targets_	B#98	1	std::string(TypeRef(tgt).trait_name())
-sema_auto_trait.cpp	closure_capture_env_	D	1	type_str(tv)
+# 2026-09-21, ADR 0029 S2 — ROW RETIRED BY DELETION OF ITS SITE, not converted:
+# sema_auto_trait.cpp's Send/Sync walk looked the captures up in
+# closure_capture_env_ keyed by the closure SIGNATURE. The captures are IN THE
+# TYPE now, so the lookup is gone and the auto-trait engine asks the TypeRef.
+# The old note at the site argued the signature key was safe because a union
+# over same-signature literals "cannot admit an unsound answer — only a stricter
+# one". BOTH HALVES WERE MEASURED FALSE: a Send literal beside a `*mut`-capturing
+# sibling was refused, and a bare `Box<dyn Fn() -> i32>` read its Send answer off
+# whatever same-signature literal the file happened to contain — admitted or
+# refused by declaration order. Pinned by tests/logos/{pass,fail}/
+# closure_send_not_from_sibling and closure_dyn_send_needs_own_env.
 sema_auto_trait.cpp	current_type_bounds_	D	1	std::string(tv.type_var_name())
-sema_collect.cpp	closure_kind_	B#90	1	type_str(cv)
+sema_collect.cpp	closure_kind_	D	1	type_str(cv)
 sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(base).type_var_name())
 sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(x).type_var_name())
 sema.cpp	current_type_bounds_	D	1	type_str(result)

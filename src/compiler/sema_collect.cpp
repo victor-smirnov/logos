@@ -1628,13 +1628,24 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     //     apply_val(k)
                     // refused `k` — "its body mutates a capture" — for `h`'s mutation.
                     // Deleting `h` admitted the same program: MEASURED both ways.
-                    // The map is still consulted when the type states nothing: the four
-                    // signature-SYNTHESIS callers of make_closure_type mint `Unstated`,
-                    // and a bound over such a type has only the old answer available.
+                    // The map is still consulted when the type states NOTHING,
+                    // and there the signature key is the only key there is.
+                    // The four signature-SYNTHESIS callers of make_closure_type mint
+                    // `Unstated` — a type built from a BOUND or a FORMAL, never from a
+                    // literal, so it has no literal identity to be keyed by and the
+                    // over-refusal #90 named cannot arise through it: the MAX is taken
+                    // over a population whose members are indistinguishable by
+                    // construction. A carried decision, not an open defect; it retires
+                    // with the map itself at ADR 0029 S6.
                     int ck;
                     if (cv.closure_fn_family() != TypeRef::FnFamily::Unstated) {
                         ck = int(cv.closure_fn_family()) - 1;   // Fn=1.. -> 0..
                     } else {
+                        // KEY-IDENTITY: a carried decision — see just above. The
+                        // `Unstated` population is built from BOUNDS and FORMALS,
+                        // never from literals, so its members carry no identity to
+                        // be keyed by and #90's over-refusal cannot arise through
+                        // it. Retires with the map at ADR 0029 S6.
                         auto kit = closure_kind_.find(type_str(cv));
                         ck = (kit == closure_kind_.end()) ? 0 : kit->second;
                     }

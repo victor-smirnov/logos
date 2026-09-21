@@ -2327,18 +2327,13 @@ private:
     lir_schema::expr::CallMode callable_call_mode(std::string_view name, TypeRef t) const {
         using CM = lir_schema::expr::CallMode;
         if (t && TypeRef(t).kind() == LogosType::Kind::Closure) {
-            auto tn = TypeRef(t).trait_name();
-            if (tn == "Fn")     return CM::Shared;
-            if (tn == "FnMut")  return CM::Mut;
-            if (tn == "FnOnce") return CM::Once;
-            // ADR 0029 S1/S2: a LITERAL's type states its family in const_val,
-            // and only a `dyn Fn*` states it in trait_name. Reading one and not
-            // the other is why the same question got two answers from the two
-            // functions here: `callable_is_fn_once` below already reached a
-            // generic `F: FnOnce` through its BOUND, while this one returned
-            // Unknown for the identical callee and let #440's Rust-shaped
-            // carrier — `struct H<F> where F: FnOnce() -> String` — be called
-            // twice. An ERASED form (a written `|T| -> R`) states nothing and
+            // ONE PLACE STATES THE FAMILY AND ONE READS IT. A literal's type
+            // states it in const_val (S1) and a `dyn Fn*` states it there too,
+            // so the three-way ladder over the BARE STRING in `trait_name` that
+            // stood here is gone — it was one of five hand copies, and the copy
+            // in `callable_is_fn_once` had already gone stale, which is what let
+            // #440's Rust-shaped carrier (`struct H<F> where F: FnOnce() ->
+            // String`) be called twice. A written `|T| -> R` states nothing and
             // stays Unknown: that is D5, not an oversight.
             switch (TypeRef(t).closure_fn_family()) {
                 case TypeRef::FnFamily::Fn:       return CM::Shared;
