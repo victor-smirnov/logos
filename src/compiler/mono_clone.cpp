@@ -4761,7 +4761,32 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 break;
             }
             auto nc = lir::alloc_closure(out_);
-            nc->closure_id = std::string(v.closure_id());
+            // #442: A CLOSURE ID MUST BE PER INSTANTIATION. sema mints it once
+            // per LITERAL (`__closure_0`), and codegen names the emitted MLIR
+            // function exactly that, so a closure inside a generic function
+            // instantiated at two types asked for ONE symbol twice:
+            //   error: redefinition of symbol named '__closure_0'
+            // and the whole module failed verification. Every other generic
+            // entity is keyed per instantiation; a closure was not.
+            // The substitution is what distinguishes the instances, and it is
+            // in hand here. Keys are sorted so the suffix does not depend on
+            // the map's iteration order; an EMPTY substitution (a verbatim
+            // clone, not an instantiation) leaves the id untouched, so no
+            // existing symbol is re-spelled.
+            std::string cid(v.closure_id());
+            if (!s.empty()) {
+                std::vector<std::string> ks;
+                ks.reserve(s.size());
+                for (auto& kv : s) ks.push_back(kv.first);
+                std::sort(ks.begin(), ks.end());
+                for (auto& k : ks) {
+                    auto it = s.find(k);
+                    if (it == s.end() || !it->second) continue;
+                    cid += "__";
+                    cid += mangle_type(it->second);
+                }
+            }
+            nc->closure_id = std::move(cid);
             v.each_param(out_.type_pool.impl(),
                 [&](std::string_view nm, TypeRef pt) {
                     nc->params.push_back({std::string(nm), subst_type(pt, s)});

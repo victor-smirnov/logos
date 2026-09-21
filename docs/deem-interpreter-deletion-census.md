@@ -6239,9 +6239,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                visible, and it existed on one machine only. It is labelled `imported`, so only ALL moves. From here
 #                the committed tree and the author's tree count the same, and that note describes history, not a
 #                standing difference.
+#                ALL 11102 -> 11102 (0), NOIMPORTED 6597 -> 6597 (0), TIERCOMMIT 348 -> 346 (-2) — 2026-09-20,
+#                #442 and #105 CLOSED by the per-instantiation closure id. TWO soundness-queue rows retire and
+#                their programs land as pass fixtures, so the two outer columns cancel exactly (a tier_commit
+#                squeue gate leaves, an advanced_features pass fixture arrives) and only tier_commit moves, the
+#                same shape as the 2026-09-18 #271 and 2026-09-19 #151 retirements. The second row was found by
+#                its own gate going red for the right reason: the queue requires a row's program to STILL
+#                exhibit the recorded behaviour, and it had stopped.
 REGISTRY-ALL         11102
 REGISTRY-NOIMPORTED  6597
-REGISTRY-TIERCOMMIT  348
+REGISTRY-TIERCOMMIT  346
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

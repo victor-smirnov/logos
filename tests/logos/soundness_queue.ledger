@@ -116,8 +116,6 @@ trait_default_body_call       2 tests/soundness/open/trait_default_body_call    
 
 dangle_join_diverging_arm     3 tests/soundness/open/dangle_join_diverging_arm     refuses
 
-closure_in_generic_two_insts  3 tests/soundness/open/closure_in_generic_two_insts  refuses
-
 dyn_paren_region_bound        3 tests/soundness/open/dyn_paren_region_bound        refuses
 
 box_vec_new_infer             3 tests/soundness/open/box_vec_new_infer             refuses
@@ -613,7 +611,5 @@ closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_fie
 
 let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
 
-generic_closure_id_collides_across_instances 3 tests/soundness/open/generic_closure_id_collides_across_instances refuses
-
-# TOTAL 229
-# SYNC-HASH 472b1d1da4a8d189522e1d33e0fdfb56
+# TOTAL 227
+# SYNC-HASH 19def660cc94b339b63b2c0a5103ee35

@@ -1,0 +1,32 @@
+// A CLOSURE INSIDE A GENERIC FUNCTION, INSTANTIATED AT TWO TYPES. Pins that
+// the two instances get DIFFERENT closure symbols and both run.
+//
+// Was soundness-queue row generic_closure_id_collides_across_instances (tier 3,
+// `refuses`): the program did not compile at all —
+//     error: redefinition of symbol named '__closure_0'
+//     mlir_gen: module verification failed
+// because sema mints a closure id once per LITERAL and mono copied it verbatim
+// across substitutions, while codegen names the emitted function exactly that.
+// Every other generic entity is keyed per instantiation; a closure was not.
+// Closed by keying the id on the substitution (mono_clone's ClosureBox arm).
+// rustc 1.98.1 --edition 2024 compiles and runs the twin at exit 0.
+//
+// ⚠ THE REGRESSION TEST IS THE WHOLE PROGRAM: revert the fix and it does not
+// compile. Keep BOTH instantiations — one alone never collides.
+package generic_closure_id_collides_across_instances;
+
+fn apply<T>(v: T) -> T {
+    let c = move || -> T { return v; };
+    return c();
+}
+
+fn main() -> i32 {
+    let a: i64 = apply::<i64>(7i64);
+    let b: i32 = apply::<i32>(3i32);
+    if a != 7i64 { return 1i32; }
+    if b != 3i32 { return 2i32; }
+    return 0i32;
+}
+// rustc 1.98.1 --edition 2024: ACCEPTED, exit 0. Twin at
+// scratchpad/t1/gen_clo.rs (a development-box path; the program above is the
+// reproducible part).
