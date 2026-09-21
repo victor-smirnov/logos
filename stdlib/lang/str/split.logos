@@ -20,14 +20,14 @@ use logos.lang.ops;
 /// Yields substrings of the input separated by a fixed multi-byte `str` separator.
 ///
 /// Segments are sub-`str` views into the original buffer, which must outlive iteration.
-pub struct Splitter {
-    rest: str,      // remaining input
-    sep: str,       // separator
+pub struct Splitter<'a> {
+    rest: &'a str,  // remaining input
+    sep: &'a str,   // separator
     done: bool,     // true after final segment yielded
 }
 
-impl Iterator<str> for Splitter {
-    fn next(self: &mut Splitter) -> Option<str> {
+impl<'a> Iterator<&'a str> for Splitter<'a> {
+    fn next(self: &mut Splitter<'a>) -> Option<&'a str> {
         if self.done { return Option::None; }
         let n: i64 = self.rest.len();
         let sn: i64 = self.sep.len();
@@ -54,7 +54,7 @@ impl Iterator<str> for Splitter {
 /// Splits `s` on each occurrence of `sep`, yielding sub-`str` views into `s`.
 ///
 /// Empty `sep` yields the whole `s` once.
-pub fn split(s: str, sep: str) -> Splitter {
+pub fn split<'a>(s: &'a str, sep: &'a str) -> Splitter<'a> {
     return Splitter { rest: s, sep: sep, done: false };
 }
 
@@ -62,14 +62,14 @@ pub fn split(s: str, sep: str) -> Splitter {
 ///
 /// Common fast path for `','`, `'/'`, etc. Segments are sub-`str` views into the
 /// original buffer, which must outlive iteration.
-pub struct ByteSplitter {
-    rest: str,
+pub struct ByteSplitter<'a> {
+    rest: &'a str,
     sep: u8,
     done: bool,
 }
 
-impl Iterator<str> for ByteSplitter {
-    fn next(self: &mut ByteSplitter) -> Option<str> {
+impl<'a> Iterator<&'a str> for ByteSplitter<'a> {
+    fn next(self: &mut ByteSplitter<'a>) -> Option<&'a str> {
         if self.done { return Option::None; }
         let n: i64 = self.rest.len();
         let sp: *const u8 = self.rest.as_ptr();
@@ -91,7 +91,7 @@ impl Iterator<str> for ByteSplitter {
 }
 
 /// Splits `s` on each occurrence of the single byte `sep`, yielding sub-`str` views into `s`.
-pub fn split_byte(s: str, sep: u8) -> ByteSplitter {
+pub fn split_byte<'a>(s: &'a str, sep: u8) -> ByteSplitter<'a> {
     return ByteSplitter { rest: s, sep: sep, done: false };
 }
 
@@ -108,20 +108,20 @@ pub fn split_byte(s: str, sep: u8) -> ByteSplitter {
 /// Generic pattern-driven splitter over a `str`, parameterized by any `Pattern` type.
 ///
 /// Segments are sub-`str` views into the original buffer, which must outlive iteration.
-pub struct SplitPat<P> {
-    haystack: str,
+pub struct SplitPat<'a, P> {
+    haystack: &'a str,
     pat:      P,
     pos:      i64,
     done:     bool,
 }
 
 /// Splits `s` on each match of pattern `p`, yielding sub-`str` views into `s`.
-pub fn str_split_pat<P: Pattern>(s: str, p: P) -> SplitPat<P> {
+pub fn str_split_pat<'a, P: Pattern>(s: &'a str, p: P) -> SplitPat<'a, P> {
     return SplitPat::<P> { haystack: s, pat: p, pos: 0i64, done: false };
 }
 
-impl<P: Pattern> Iterator<str> for SplitPat<P> {
-    fn next(self: &mut SplitPat<P>) -> Option<str> {
+impl<'a, P: Pattern> Iterator<&'a str> for SplitPat<'a, P> {
+    fn next(self: &mut SplitPat<'a, P>) -> Option<&'a str> {
         if self.done { return Option::None; }
         // Mirror Matches's "advancing pos over immutable haystack" shape
         // — mutating `rest` between calls hits a generic-struct-field

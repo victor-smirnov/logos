@@ -316,19 +316,24 @@ impl Iterator<u8> for Bytes {
 
 /// Iterator over the lines of a string slice, split on `\n` with a preceding `\r` stripped.
 /// A trailing newline does not produce a final empty line (Rust `str::lines` semantics).
-pub struct Lines {
+// ⚠ `'a` IS THE HAYSTACK'S REGION AND IT IS CARRIED BY THE TYPE, NOT BY A
+// FIELD: the items are built from a raw pointer, so nothing in the struct
+// mentions the borrow. Same shape as VecIter<'a, T>. Without it the item's
+// region is elided at `next`, elision rule 3 fills it from `&mut self`, and
+// holding an item across iterations conflicts with the next call.
+pub struct Lines<'a> {
     ptr: *const u8,
     pos: i64,
     len: i64,
 }
 
 /// Returns an iterator over the lines of `s`, without terminators.
-pub fn str_lines(s: str) -> Lines {
+pub fn str_lines<'a>(s: &'a str) -> Lines<'a> {
     return Lines { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
-impl Iterator<str> for Lines {
-    fn next(self: &mut Lines) -> Option<str> {
+impl<'a> Iterator<&'a str> for Lines<'a> {
+    fn next(self: &mut Lines<'a>) -> Option<&'a str> {
         if self.pos >= self.len { return Option::None; }
         unsafe {
             let start: i64 = self.pos;
@@ -614,19 +619,19 @@ impl Pattern for u32 {
 
 /// Iterator over the non-overlapping matches of a pattern in a string slice.
 /// A zero-length match advances one byte, so empty patterns cannot loop forever.
-pub struct Matches<P> {
-    haystack: str,
+pub struct Matches<'a, P> {
+    haystack: &'a str,
     pat: P,
     pos: i64,
 }
 
 /// Returns an iterator over the non-overlapping matches of `p` in `s`.
-pub fn str_matches<P: Pattern>(s: str, p: P) -> Matches<P> {
+pub fn str_matches<'a, P: Pattern>(s: &'a str, p: P) -> Matches<'a, P> {
     return Matches::<P> { haystack: s, pat: p, pos: 0i64 };
 }
 
-impl<P: Pattern> Iterator<str> for Matches<P> {
-    fn next(self: &mut Matches<P>) -> Option<str> {
+impl<'a, P: Pattern> Iterator<&'a str> for Matches<'a, P> {
+    fn next(self: &mut Matches<'a, P>) -> Option<&'a str> {
         let idx: i64 = self.pat.find_in(self.haystack, self.pos);
         if idx < 0i64 { return Option::None; }
         let mlen: i64 = self.pat.match_len();
@@ -642,27 +647,27 @@ impl<P: Pattern> Iterator<str> for Matches<P> {
 }
 
 /// A byte-offset + matched-slice pair yielded by `MatchIndices`.
-pub struct StrMatchIndex {
+pub struct StrMatchIndex<'a> {
     /// Byte offset of the match within the haystack.
     pub idx: i64,
     /// The matched slice.
-    pub m:   str,
+    pub m:   &'a str,
 }
 
 /// Iterator over non-overlapping pattern matches together with their byte offsets.
-pub struct MatchIndices<P> {
-    haystack: str,
+pub struct MatchIndices<'a, P> {
+    haystack: &'a str,
     pat: P,
     pos: i64,
 }
 
 /// Returns an iterator over the matches of `p` in `s` and their byte offsets.
-pub fn str_match_indices<P: Pattern>(s: str, p: P) -> MatchIndices<P> {
+pub fn str_match_indices<'a, P: Pattern>(s: &'a str, p: P) -> MatchIndices<'a, P> {
     return MatchIndices::<P> { haystack: s, pat: p, pos: 0i64 };
 }
 
-impl<P: Pattern> Iterator<StrMatchIndex> for MatchIndices<P> {
-    fn next(self: &mut MatchIndices<P>) -> Option<StrMatchIndex> {
+impl<'a, P: Pattern> Iterator<StrMatchIndex<'a>> for MatchIndices<'a, P> {
+    fn next(self: &mut MatchIndices<'a, P>) -> Option<StrMatchIndex<'a>> {
         let idx: i64 = self.pat.find_in(self.haystack, self.pos);
         if idx < 0i64 { return Option::None; }
         let mlen: i64 = self.pat.match_len();
