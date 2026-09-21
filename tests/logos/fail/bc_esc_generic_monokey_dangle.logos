@@ -28,20 +28,25 @@ package bc_esc_generic_monokey_dangle;
 
 use logos.mem.string;
 
-pub trait Tr { fn thru(&self, s: str) -> str; }
+// ⚠ THE REGION IS A PARAMETER OF THE TRAIT, and the two impls are why it has to
+// be: `K::thru` returns its ARGUMENT and `M::thru` returns its FIELD, so one
+// elided signature cannot mean both — under Rust's elision rule 3 it would mean
+// `&self`'s region for both, which is right for neither. With `Tr<'a>` the two
+// agree: `M`'s field region IS `'a`. Decision 2026-09-21 (Victor): follow Rust.
+pub trait Tr<'a> { fn thru(self: &Self, s: &'a str) -> &'a str; }
 
 pub struct K { pub z: i64 }
-pub struct M { pub s: str }
+pub struct M<'a> { pub s: &'a str }
 
-impl Tr for K {
-    fn thru(&self, s: str) -> str { return s; }
+impl<'a> Tr<'a> for K {
+    fn thru(self: &K, s: &'a str) -> &'a str { return s; }
 }
 
-impl Tr for M {
-    fn thru(&self, s: str) -> str { return self.s; }
+impl<'a> Tr<'a> for M<'a> {
+    fn thru(self: &M<'a>, s: &'a str) -> &'a str { return self.s; }
 }
 
-pub fn bad<T: Tr>(t: &T) -> str {
+pub fn bad<'a, T: Tr<'a>>(t: &T) -> &'a str {
     let o: String = String::from("hello");
     return t.thru(o.as_str());
 }

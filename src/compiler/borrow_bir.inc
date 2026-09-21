@@ -631,8 +631,30 @@ private:
                     d.ty = is_pointer_kind(rt) ? rt.pointee() : TypeRef{};
                     p = p.with(std::move(d));
                 }
+                // THE BOUNDS CHECK IS A BORROW OF THE BASE, AND IT SPANS THE
+                // INDEX EXPRESSION. MIR takes a shallow FAKE borrow of the
+                // indexed place for the length read, so
+                // `arr[{ arr = [4,5,6]; 1 }]` has a live loan of `arr` when the
+                // index expression assigns to it — upstream's E0510, which this
+                // checker missed because nothing here borrowed the base at all.
+                // A real shared loan, read once after the index is computed, is
+                // the same shape the match-guard fake borrows above already use.
+                // ⚠ ONLY WHEN THE INDEX CAN WRITE. A literal or a plain place
+                // cannot, and issuing a loan for every `xs[i]` would add a fact
+                // per index in the corpus for nothing.
+                bir::LocalId fake = bir::kNoLocal;
+                if (v.index() && index_may_write(v.index())) {
+                    fake = synth_ref_temp({}, false);
+                    assign({fake, {}}, ref_of(p, false, /*two_phase=*/false));
+                }
                 bir::Proj ix(bir::Proj::K::Index);
                 ix.index = operand_local(v.index());
+                if (fake != bir::kNoLocal) {
+                    bir::Stmt rd(bir::Stmt::K::Read);
+                    bir::Operand fo; fo.k = bir::Operand::K::Copy; fo.place = {fake, {}};
+                    rd.rv.ops.push_back(std::move(fo));
+                    emit(std::move(rd));
+                }
                 // `let [a, b] = xs;` reaches L-IR as `xs[0]`, `xs[1]`. Over an
                 // array a literal index is its own move path, as MIR's
                 // ConstantIndex is, so the elements move out one by one.
@@ -650,6 +672,19 @@ private:
             }
             default:
                 return std::nullopt;
+        }
+    }
+    // Can this expression WRITE anything? A constant or a plain place cannot;
+    // anything with a block, a call or an assignment in it can. Used to decide
+    // whether an index expression needs the bounds-check fake borrow above.
+    static bool index_may_write(lir_view::ExprRef e) {
+        if (!e) return false;
+        switch (e.kind()) {
+            case ECode::LitInt: case ECode::LitBool: case ECode::VarRef:
+            case ECode::FieldRead: case ECode::TupleIndex: case ECode::Cast:
+                return false;
+            default:
+                return true;
         }
     }
     // A place for `e`: the place itself, or a temporary holding its value.
@@ -3552,6 +3587,16 @@ private:
             if (loans_[i].issue == p) continue;
             const bir::Place& lp = loans_[i].place;
             if (lp.local != dest.local || lp.proj.size() < dest.proj.size()) continue;
+            // ⚠ NOT THROUGH A DEREF. Overwriting `t` does not overwrite `*t.0`,
+            // so a loan whose path reaches PAST a dereference of `t` survives
+            // the assignment — its referent is somewhere else entirely. The
+            // invalidation side one screen down already says this
+            // (`extends_without_deref` guards WriteShallow and StorageDead);
+            // the KILL side did not, so `let a = &t.0.a; t = (&s2, 20); s1.a =
+            // 9;` killed the loan when `t` was re-pointed and the write to `s1`
+            // — the loan's real root — went unrefused. Four `thruref` fixtures
+            // and their kin pin it.
+            if (!extends_without_deref(lp, dest)) continue;
             bool prefix = true;
             for (size_t k = 0; k < dest.proj.size() && prefix; ++k)
                 prefix = same_proj(lp.proj[k], dest.proj[k]);

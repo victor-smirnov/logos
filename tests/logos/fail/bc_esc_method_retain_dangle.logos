@@ -22,10 +22,15 @@ package bc_esc_method_retain_dangle;
 
 use logos.mem.string;
 
+// ⚠ `thru` NAMES THE REGION IT RETURNS, MATCHING ITS ADMIT TWIN: the pair must
+// differ in ONE thing — whether the argument's borrow is rooted at a PARAMETER
+// or at a LOCAL. With the region elided the result would take `&self`'s under
+// Rust's elision rule 3, which is neither what the body does (it returns `s`)
+// nor what the pair is about. Decision 2026-09-21 (Victor): follow Rust.
 pub struct K { pub z: i64 }
 
 impl K {
-    pub fn thru(&self, s: str) -> str { return s; }
+    pub fn thru<'a>(self: &K, s: &'a str) -> &'a str { return s; }
 }
 
 pub fn bad(k: &K) -> str {
