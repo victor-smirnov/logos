@@ -9,19 +9,26 @@
 package bc_esc_holder_return_method_admit;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+// ⚠ THE REGION IS NAMED, AND THAT IS THE SHAPE. With `struct W { v: str }` and
+// `fn get(&self) -> str` the result's region is ELIDED, so Rust's elision rule 3
+// gives it `&self`'s — and `ok`, whose holder is a LOCAL, is then error[E0515]
+// (rustc 1.98.1, MEASURED 2026-09-21). To mean "the FIELD's region" one must SAY
+// it, as this stdlib's own `VecIter<'a, T>` does. Decision 2026-09-21 (Victor):
+// Logos follows Rust here; there is no elision divergence, and the header of the
+// dangle sibling that called the field-region reading "Rust parity" was wrong.
+pub struct W<'a> { pub v: &'a str }
 
-impl W {
-    pub fn get(&self) -> str { return self.v; }
-    pub fn n(&self) -> i64 { return 7i64; }
+impl<'a> W<'a> {
+    pub fn get(self: &W<'a>) -> &'a str { return self.v; }
+    pub fn n(self: &W<'a>) -> i64 { return 7i64; }
 }
 
-pub fn ok(s: str) -> str {
-    let w: W = W { v: s };
+pub fn ok<'a>(s: &'a str) -> &'a str {
+    let w: W<'a> = W { v: s };
     return w.get();
 }
 
-pub fn ok_ref(w: &W) -> str { return w.get(); }
+pub fn ok_ref<'a>(w: &W<'a>) -> &'a str { return w.get(); }
 
 pub fn ok_scalar() -> i64 {
     let o: String = String::from("hello");

@@ -24,21 +24,28 @@
 // and this function refuses).
 package bc_esc_summary_seed_field_admit;
 
-pub struct H { pub r: &i64 }
+// ⚠ EVERY STRUCT WITH A BORROWED FIELD NAMES ITS REGION, AND EVERY FUNCTION THAT
+// RETURNS THAT FIELD NAMES IT TOO. `stored_str(c: &Cfg) -> str` with the region
+// elided takes `&c`'s under Rust's elision rule 3, so `outlives`, whose `Cfg` is
+// a LOCAL, is error[E0515] (rustc 1.98.1, MEASURED 2026-09-21) even though the
+// field itself is a `'static` literal. Decision 2026-09-21 (Victor): Logos
+// follows Rust. `pick(h: H<'a>)` takes its holder BY VALUE and so was already
+// unambiguous; it is spelled out here for the same reason.
+pub struct H<'a> { pub r: &'a i64 }
 
-pub fn pick(h: H) -> &i64 { return h.r; }
+pub fn pick<'a>(h: H<'a>) -> &'a i64 { return h.r; }
 
-pub fn keep_param(q: &i64) -> &i64 {
-    let h: H = H { r: q };
+pub fn keep_param<'a>(q: &'a i64) -> &'a i64 {
+    let h: H<'a> = H { r: q };
     return pick(h);
 }
 
-pub struct Cfg { pub name: str, pub n: i64 }
+pub struct Cfg<'a> { pub name: &'a str, pub n: i64 }
 
-pub fn stored_str(c: &Cfg) -> str { return c.name; }
+pub fn stored_str<'a>(c: &Cfg<'a>) -> &'a str { return c.name; }
 
-pub fn outlives() -> str {
-    let c: Cfg = Cfg { name: "abcd", n: 0i64 };
+pub fn outlives() -> &'static str {
+    let c: Cfg<'static> = Cfg { name: "abcd", n: 0i64 };
     return stored_str(&c);
 }
 

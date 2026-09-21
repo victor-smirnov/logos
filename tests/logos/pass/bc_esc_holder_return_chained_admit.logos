@@ -16,20 +16,27 @@
 package bc_esc_holder_return_chained_admit;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+// ⚠ THE REGION IS NAMED, AND THAT IS THE WHOLE POINT OF THE SHAPE. With
+// `struct W { v: str }` and `fn get(&self) -> str` the result's region is
+// ELIDED, so Rust's elision rule 3 gives it `&self`'s — and returning it out
+// of a function whose holder is a local is error[E0515] (rustc 1.98.1,
+// MEASURED 2026-09-21). To mean "the FIELD's region" one must SAY it, exactly
+// as this stdlib's own `VecIter<'a, T>` does. Decision 2026-09-21 (Victor):
+// Logos follows Rust here; there is no elision divergence.
+pub struct W<'a> { pub v: &'a str }
 
-impl W {
-    pub fn get(&self) -> str { return self.v; }
+impl<'a> W<'a> {
+    pub fn get(self: &W<'a>) -> &'a str { return self.v; }
 }
 
-pub fn mk(s: str) -> W { return W { v: s }; }
+pub fn mk<'a>(s: &'a str) -> W<'a> { return W { v: s }; }
 
-pub fn ok_chain(s: str) -> str { return mk(s).get(); }
+pub fn ok_chain<'a>(s: &'a str) -> &'a str { return mk(s).get(); }
 
-pub fn ok_static() -> str { return mk("abcde").get(); }
+pub fn ok_static() -> &'static str { return mk("abcde").get(); }
 
-pub fn ok_local(s: str) -> str {
-    let w: W = W { v: s };
+pub fn ok_local<'a>(s: &'a str) -> &'a str {
+    let w: W<'a> = W { v: s };
     return w.get();
 }
 

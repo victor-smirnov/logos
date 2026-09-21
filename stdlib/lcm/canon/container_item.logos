@@ -469,7 +469,16 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             use logos.mem.bt.alg;
             use logos.lang.option;
             impl #nm {
-                pub fn val_at(self: &#nm, i: u32) -> &[u8] {
+                // ⚠ THE OUTPUT REGION IS THIS METHOD'S OWN, NOT `&self`'s, and it has to
+                // be: the slice is built from a RAW POINTER into the arena block, so it
+                // does not borrow the leaf HANDLE at all. With the region elided, Rust's
+                // elision rule 3 ties it to `&self`, and every caller that returns the
+                // value outward is then error[E0515] — MEASURED with rustc 1.98.1 on the
+                // transcription, which is also what the ADR 0028 checker says about seven
+                // pass fixtures. `fn f<'a>(p: *const u8) -> &'a T` is the idiom this
+                // stdlib already uses for a borrow conjured from a pointer (see
+                // mem/wql/trama_parser.logos wstr_as_str), and rustc accepts it.
+                pub fn val_at<'a>(self: &#nm, i: u32) -> &'a [u8] {
                     unsafe {
                         let b: PdtBuf = self.vc();
                         let off: u64 = b.row_offset(0u32, 0u32, i as u64);

@@ -28,13 +28,18 @@
 package bc_esc_holder_return_chained_dangle;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+// ⚠ THE REGION IS NAMED, MATCHING THE ADMIT TWIN: the pair must differ in ONE
+// thing — whether the field's borrow is rooted at a PARAMETER or at a LOCAL —
+// so both halves spell the region the same way. With it elided the result would
+// take `&self`'s region under Rust's elision rule 3 and the two halves would
+// differ in two things at once. Decision 2026-09-21 (Victor): follow Rust.
+pub struct W<'a> { pub v: &'a str }
 
-impl W {
-    pub fn get(&self) -> str { return self.v; }
+impl<'a> W<'a> {
+    pub fn get(self: &W<'a>) -> &'a str { return self.v; }
 }
 
-pub fn mk(s: str) -> W { return W { v: s }; }
+pub fn mk<'a>(s: &'a str) -> W<'a> { return W { v: s }; }
 
 pub fn bad() -> str {
     let o: String = String::from("hello");

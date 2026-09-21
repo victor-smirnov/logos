@@ -97,6 +97,39 @@ that converges to Rust behaviour. They are NOT to be parked as "divergence".
 - **`Rc<dyn Tr>` / `Arc<dyn Tr>` as the real struct repr + implicit unsize coercion** — ✅ 2026-06-02 (B3 stage-2b, commits 30f1aafc/f1c65cc7/6202da30/ea92f72f). Was: `Rc/Arc<dyn>` collapsed to an owning trait object `{data,vtable}`, layout-incompatible with the `Rc<T>` `{inner}` struct, so generic inherent methods (`clone_ref`/`strong_count`/…) couldn't run and a repr-aware `.clone()` marker was needed; implicit `Rc<A>→Rc<dyn>` coercion was absent (explicit `as` required — "GAP-C"). Now `Rc<dyn Tr>` resolves to the real `Rc` STRUCT `{inner: *mut RcInner<dyn Tr>}` (inner = fat custom-DST `DstRef`); all generic methods run directly (per-instance mono re-lowering of the prefix-field read + the unsized-dyn-tail projection + a vtable drop-in-place for the moved dyn tail), and CoerceUnsized fires implicitly at let/arg/return (no `as`). Repr-aware specials removed (`__smartptr_dyn_clone__` marker + handler). Arc's inherent methods correctly relaxed to `impl<T: ?Sized>` (Send+Sync gates only `unsafe impl Send/Sync for Arc`, per Rust). `Box<dyn>` intentionally stays the owning trait object — it IS Rust's canonical owned-dyn fat pointer (no refcount machinery to access). Foundation: custom-DST struct with a `dyn`-trait tail (a generic struct `<T:?Sized>` whose tail field is bound to `dyn`).
 - **unit struct `struct Foo;` (Rust parity)** — ✅ 2026-05-25 (G172-14). Was repurposed as the `struct_inst` explicit-instantiation form, so a bare `struct Foo;` errored "'Foo' is not defined". A grammar rule now parses `struct Foo;` / `pub struct Foo;` as a zero-field struct decl, and a bare unit-struct name in value position constructs it. The dedicated explicit-instantiation syntax is **`instantiate Foo<T>;`** (KW_INSTANTIATE, ADR-0009); the legacy generic `struct Foo<Args>;` shape still parses as `struct_inst` (kept for the unbound-typevar diagnostic). Logos `#[derive]` still diverges (per-trait `#[derive_<trait>]` + metaprog handler — see A3).
 
+### Lifetime elision on a method that returns a borrow — **NOT a divergence** (2026-09-21)
+
+**Decision (Victor, 2026-09-21): Logos follows Rust. There is no elision
+divergence, and the register had none because there is none to bless.**
+
+It needs saying because the tree contained the opposite claim. A fixture header
+described "the Rust-parity rule that a `str` copied out of a `&W` has the FIELD's
+lifetime, not `&self`'s". **Rust has no such rule.** Elision rule 3 gives an
+elided output region the receiver's region whenever there is a `&self`, and the
+only way to mean anything else is to NAME it:
+
+```logos
+pub struct W<'a> { pub v: &'a str }
+impl<'a> W<'a> {
+    pub fn get(self: &W<'a>) -> &'a str { return self.v; }   // the FIELD's region
+}
+```
+
+MEASURED with rustc 1.98.1 --edition 2024: with the region elided, every caller
+that returns the value out of a scope where the holder is a local is
+`error[E0515]`. The counter-based borrow checker implemented the non-existent
+rule; the ADR 0028 checker reads the signature and refuses, and it is right.
+
+⚠ THE SAME SHAPE IS NOT ONLY IN FIXTURES. Two stdlib families carried it:
+the `str` iterators (`SplitPat`, `Matches`, `MatchIndices`, `Splitter`,
+`ByteSplitter`, `Lines`), whose elided item region made them LENDING iterators
+so that holding an item across a loop conflicted with the next `next()`; and the
+generated container accessor `val_at`, whose slice is built from a raw pointer
+into the arena and therefore borrows no receiver at all. The iterators now name
+`'a` as `VecIter<'a, T>` already did; `val_at` takes an output region of its own
+(`fn val_at<'a>(self: &#nm, i: u32) -> &'a [u8]`), which is this stdlib's
+existing idiom for a borrow conjured from a pointer and which rustc accepts.
+
 ---
 
 ## Process (per imported batch)

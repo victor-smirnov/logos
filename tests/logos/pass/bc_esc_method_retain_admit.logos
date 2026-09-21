@@ -15,27 +15,33 @@ package bc_esc_method_retain_admit;
 
 use logos.mem.string;
 
+// ⚠ BOTH SIGNATURES NAME THEIR REGION, AND NEITHER IS STYLE. With the region
+// elided, Rust's elision rule 3 gives the result `&self`'s region whenever there
+// is a `&self` — so `thru`, whose result is the ARGUMENT, and `first`, whose
+// result is the FIELD, both said something they do not mean, and rustc 1.98.1
+// refuses the callers (MEASURED 2026-09-21). Decision 2026-09-21 (Victor): Logos
+// follows Rust; to mean a region other than the receiver's, say which.
 pub struct K { pub z: i64 }
 
 impl K {
-    pub fn thru(&self, s: str) -> str { return s; }
+    pub fn thru<'a>(self: &K, s: &'a str) -> &'a str { return s; }
 }
 
-pub fn ok(k: &K, p: str) -> str {
+pub fn ok<'a>(k: &K, p: &'a str) -> &'a str {
     let o: String = String::from("hello");
     let n: i64 = o.len();
     if n == 0i64 { return ""; }
     return k.thru(p);
 }
 
-pub struct Held { pub s: str }
+pub struct Held<'a> { pub s: &'a str }
 
-impl Held {
-    pub fn first(&self) -> str { return self.s; }
+impl<'a> Held<'a> {
+    pub fn first(self: &Held<'a>) -> &'a str { return self.s; }
 }
 
-pub fn view() -> str {
-    let h: Held = Held { s: "abcd" };
+pub fn view() -> &'static str {
+    let h: Held<'static> = Held { s: "abcd" };
     return h.first();
 }
 
