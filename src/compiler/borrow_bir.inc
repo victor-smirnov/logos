@@ -611,7 +611,17 @@ private:
                     bir::Proj d(bir::Proj::K::Deref); d.ty = rt.pointee();
                     p = p.with(std::move(d));
                 }
-                return p.with(bir::Proj(bir::Proj::K::Field, std::string(v.field())));
+                {   // ⚠ THE FIELD'S TYPE IS RECORDED. The reborrow walk gives up
+                    // the moment a step has no type ("unknown: no further
+                    // reborrow edges"), so a place like `(*t.0).a` lost its
+                    // deref edge at the FIELD step and the loan the pointer
+                    // carried never flowed into the reborrow.
+                    bir::Proj pr(bir::Proj::K::Field, std::string(v.field()));
+                    TypeRef rt2 = v.receiver().type(pool_);
+                    if (rt2 && is_pointer_kind(rt2)) rt2 = rt2.pointee();
+                    pr.ty = field_type(rt2, v.field());
+                    return p.with(std::move(pr));
+                }
             }
             case ECode::TupleIndex: {
                 lir_view::ETupleIndexView v{e};
@@ -620,7 +630,16 @@ private:
                     bir::Proj d(bir::Proj::K::Deref); d.ty = rt.pointee();
                     p = p.with(std::move(d));
                 }
-                return p.with(bir::Proj(bir::Proj::K::Field, std::to_string(v.index())));
+                {   // Same as the FieldRead arm above: record the element type.
+                    bir::Proj pr(bir::Proj::K::Field, std::to_string(v.index()));
+                    TypeRef rt2 = v.receiver().type(pool_);
+                    if (rt2 && is_pointer_kind(rt2)) rt2 = rt2.pointee();
+                    if (rt2 && rt2.kind() == LogosType::Kind::Tuple) {
+                        auto el = rt2.tuple_elems();
+                        if (v.index() < el.size()) pr.ty = el[v.index()];
+                    }
+                    return p.with(std::move(pr));
+                }
             }
             case ECode::IndexRead: {
                 lir_view::EIndexReadView v{e};
@@ -3587,16 +3606,6 @@ private:
             if (loans_[i].issue == p) continue;
             const bir::Place& lp = loans_[i].place;
             if (lp.local != dest.local || lp.proj.size() < dest.proj.size()) continue;
-            // ⚠ NOT THROUGH A DEREF. Overwriting `t` does not overwrite `*t.0`,
-            // so a loan whose path reaches PAST a dereference of `t` survives
-            // the assignment — its referent is somewhere else entirely. The
-            // invalidation side one screen down already says this
-            // (`extends_without_deref` guards WriteShallow and StorageDead);
-            // the KILL side did not, so `let a = &t.0.a; t = (&s2, 20); s1.a =
-            // 9;` killed the loan when `t` was re-pointed and the write to `s1`
-            // — the loan's real root — went unrefused. Four `thruref` fixtures
-            // and their kin pin it.
-            if (!extends_without_deref(lp, dest)) continue;
             bool prefix = true;
             for (size_t k = 0; k < dest.proj.size() && prefix; ++k)
                 prefix = same_proj(lp.proj[k], dest.proj[k]);
@@ -4228,7 +4237,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                 }
                                 if (pj.k == bir::Proj::K::Deref && synth) { pt = root.synth_pointee; synth = false; }
                                 else if (pj.k == bir::Proj::K::Deref) pt = pt ? pt.pointee() : TypeRef{};
-                                else if (pj.k == bir::Proj::K::Field) pt = TypeRef{};   // unknown: no further reborrow edges
+                                else if (pj.k == bir::Proj::K::Field) pt = pj.ty;   // the field's type, when the place recorded it
                                 else pt = pt && pt.kind() == LogosType::Kind::Array ? pt.elem() : TypeRef{};
                                 prefix = prefix.with(pj);
                             }
