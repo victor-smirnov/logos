@@ -1,3 +1,6 @@
+// 2026-09-22: THIS PORT IS LEGAL RUST and lands under pass/. MEASURED with rustc
+// 1.98.1 by path: it compiles clean — `y` is last used before `let z = x;`, so under NLL the `&mut x` borrow is over when `x` moves. The upstream
+// test's illegality did not survive the port; the row was a verdict by reading.
 // rustc borrowck/borrowck-no-cycle-in-exchange-heap.rs — upstream E0505
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.NEW

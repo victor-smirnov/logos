@@ -1,3 +1,9 @@
+// 2026-09-22: THIS PROGRAM IS LEGAL RUST and lands under pass/ (was fail/bc_idxbase_elem_write_in_index_fail).
+// MEASURED, rustc 1.98.1 by path: compiles clean. Indexing an ARRAY takes no
+// fake borrow of it — the length is static — so writing the array (or an
+// element) inside the index expression is allowed. The fake borrow rustc does
+// take is of a slice reached through a pointer stored INSIDE the indexed place
+// (`x[1][{ x = yr; 2 }]`, E0510): fail/slice-index-bounds-check-invalidation--t35.
 // THE REFUSING HALF of the E0510 index-base loan (borrow_check.cpp, IndexRead).
 // Paired with tests/logos/pass/bc_idxbase_read_in_index.logos, which pins the
 // reads that must stay legal.
@@ -11,7 +17,7 @@
 // Element granularity is deliberately NOT claimed here: `a[0]` and `a[2]` are
 // disjoint in fact, and rustc refuses anyway. FIELD granularity IS claimed and
 // is pinned on the pass side.
-package bc_idxbase_elem_write_in_index_fail;
+package bc_idxbase_elem_write_in_index_admit;
 fn main() -> i32 {
     let mut a: [i64; 3] = [1i64, 2i64, 3i64];
     let z: i64 = a[{ a[0u64] = 9i64; 2u64 }];

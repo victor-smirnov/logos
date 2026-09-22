@@ -1,3 +1,6 @@
+// 2026-09-22: THIS PORT IS LEGAL RUST and lands under pass/. MEASURED with rustc
+// 1.98.1 by path: it compiles clean — the port dropped upstream's `F: FnMut()` bound on `to_fn_mut`, so the outer closure is inferred FnOnce and may move `bar` into the inner `move` closure. The upstream
+// test's illegality did not survive the port; the row was a verdict by reading.
 // rustc borrowck/borrowck-move-by-capture.rs — upstream E0507
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.NEW-CAPMOVE — RE-PORTED AS-IS 2026-09-07 (stage 4)

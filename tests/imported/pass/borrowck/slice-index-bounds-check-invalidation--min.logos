@@ -1,0 +1,16 @@
+// 2026-09-22: THIS PROGRAM IS LEGAL RUST and lands under pass/ (was fail/slice-index-bounds-check-invalidation--min).
+// MEASURED, rustc 1.98.1 by path: compiles clean. Indexing an ARRAY takes no
+// fake borrow of it — the length is static — so writing the array (or an
+// element) inside the index expression is allowed. The fake borrow rustc does
+// take is of a slice reached through a pointer stored INSIDE the indexed place
+// (`x[1][{ x = yr; 2 }]`, E0510): fail/slice-index-bounds-check-invalidation--t35.
+// rustc borrowck/slice-index-bounds-check-invalidation.rs — upstream E0510
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: pin · WAS admit/bck.NEW until the IndexRead arm held a SHARED
+// loan on the index base while the index expression was evaluated (E0510).
+package slice_index_bounds_check_invalidation_min;
+fn main() -> i32 {
+    let mut arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let z: i64 = arr[{ arr = [4i64, 5i64, 6i64]; 1u64 }];
+    return 0i32;
+}

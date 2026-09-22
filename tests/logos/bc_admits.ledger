@@ -1911,17 +1911,9 @@ anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admi
 
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): upstream's `struct Int(i32)` is a MOVE type and the error is E0505 "cannot move out of `x` because it is borrowed"; the port's `struct Int { v: i32 }` is auto-Copy under DIVERGENCES A16, so the RHS `x` is a COPY — and a READ of a place held by a two-phase RESERVATION is exactly what the reservation permits (`v.push(v.len())`). The illegality upstream rests on the operand being a MOVE. Same second blocker as bck.NEW-A16's two rows. NOT closable at the checker; A16 is what must move. Owner's. See PROBES.md 2026-09-12e
 
-borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
-
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 
-borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/imported/admit/borrowck/borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed  #  ⚠ LEGAL AS PORTED, measured 2026-09-11: the "minimal reduction" dropped the only LATER use of its loan, so under NLL the loan is dead at the move and our arm is correct. 2x2 measured (restore the later use / remove it, x admit / refuse). RETIRE CANDIDATE or re-port with the later use restored — owner's. ⚠ MEASURED 2026-09-15f-rustcaudit: rustc 1.98.1 --edition 2024 COMPILES the port as written (build 0, run 0; twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed.rs) and refuses the later-use restoration E0505 (__control_lateruse.rs), as it refuses upstream's .rs (E0505). The row records a CORRECT admission — for the ledger rounds.
-
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): `Mine` is all-Copy-fields with no Drop, so A16 makes it Copy and `make_bar(start)` MOVES NOTHING — there is no use-after-move to refuse. The move checker itself is not the hole: the identical program with `impl Drop for Mine` added is REFUSED "use of moved variable 'start'", at BOTH the whole-value and the `start.test` projection spelling (two hand pairs). Third row of the same A16 class. Owner's. See PROBES.md 2026-09-12e
-
-reborrow-sugg-move-then-borrow bck.NEW tests/imported/admit/borrowck/reborrow-sugg-move-then-borrow  #  ⚠ LOOKS LEGAL AS PORTED, 2026-09-11: `let moved: &mut State = state;` is a REBORROW at a coercion site, not a move, so there is nothing to refuse. ⚠ MEASURED 2026-09-15f-rustcaudit: rustc 1.98.1 --edition 2024 COMPILES the port as written (build 0, run 0; twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_reborrow-sugg-move-then-borrow.rs), while upstream's own .rs is E0382. The row records a CORRECT admission. Owner's call on retiring it; do not price it as a defect.
-
-slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck/slice-index-bounds-check-invalidation--t35
 
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop  #  ⚠ PREDICTED BY NAME AND DID NOT CLOSE, 2026-09-12i (build ccac360a27d1b9c8). It was grouped with `borrowck-lend-flow-loop` under one property — a loan raised inside a loop body whose holder is an OUTER binding must be live at the back edge — and the door-1 + door-2 change that closed that row leaves this one ADMITTED, measured directly on the landed binary. So the grouping is refuted for this row too, as it was for `nllmoves.R3` the round before: the class as MEASURED is one ledger row plus one field-path twin with no row. Its loan is not raised by an assignment to a holder at all — `strings.push(foo.get_string())` deposits a two-phase RECEIVER reservation on `foo` into a Vec, and `release_dead_borrows` never sees a BorrowRecord whose raise_point it could compare. Whatever closes it is on the reservation plane, not the last-use plane.
 
@@ -2552,5 +2544,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 35
-# SYNC-HASH 02fabfb3593fa81c0222a8cd91b353aa
+# TOTAL 31
+# SYNC-HASH 8d74f74522d0ea164c9050b584737534

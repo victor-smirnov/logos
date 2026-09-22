@@ -111,6 +111,10 @@ struct Rvalue {
     Place                place;           // Ref, RawAddr
     bool                 mut_ = false;    // Ref
     bool                 two_phase = false;
+    // A FAKE borrow (Ref): MIR's shallow borrow that exists only to forbid a
+    // change — 1 of an indexed place while its index is computed, 2 of what a
+    // match tests while a guard runs. It decides the SENTENCE (E0510).
+    uint8_t              fake = 0;
     std::string          what;            // for dumps
     std::vector<std::string> field_names; // Aggregate of a struct literal: ops[i] initialises field_names[i]
 };
@@ -807,9 +811,11 @@ private:
                 // cannot, and issuing a loan for every `xs[i]` would add a fact
                 // per index in the corpus for nothing.
                 bir::LocalId fake = bir::kNoLocal;
-                if (v.index() && index_may_write(v.index())) {
+                if (v.index() && index_may_write(v.index()) && index_base_needs_fake(p)) {
                     fake = synth_ref_temp({}, false);
-                    assign({fake, {}}, ref_of(p, false, /*two_phase=*/false));
+                    bir::Rvalue fr = ref_of(p, false, /*two_phase=*/false);
+                    fr.fake = 1;
+                    assign({fake, {}}, std::move(fr));
                 }
                 bir::Proj ix(bir::Proj::K::Index);
                 ix.index = operand_local(v.index());
@@ -830,13 +836,42 @@ private:
             case ECode::SliceIndex: {
                 lir_view::ESliceIndexView v{e};
                 bir::Place p = place_or_temp(v.slice()).with(bir::Proj(bir::Proj::K::Deref));
+                // The same FAKE borrow the IndexRead arm takes, and for the same
+                // reason: `x[1][{ x = yr; 2 }]` reassigns the slice the outer
+                // index reads (rustc E0510). MIR fake-borrows the indexed place
+                // and its PREFIXES; the root is the prefix a write to `x` hits.
+                bir::LocalId fake = bir::kNoLocal;
+                if (v.index() && index_may_write(v.index()) && index_base_needs_fake(p)) {
+                    fake = synth_ref_temp({}, false);
+                    bir::Rvalue fr = ref_of(bir::Place{p.local, {}}, false, /*two_phase=*/false);
+                    fr.fake = 1;
+                    assign({fake, {}}, std::move(fr));
+                }
                 bir::Proj ix(bir::Proj::K::Index);
                 ix.index = operand_local(v.index());
+                if (fake != bir::kNoLocal) {
+                    bir::Stmt rd(bir::Stmt::K::Read);
+                    bir::Operand fo; fo.k = bir::Operand::K::Copy; fo.place = {fake, {}};
+                    rd.rv.ops.push_back(std::move(fo));
+                    emit(std::move(rd));
+                }
                 return p.with(std::move(ix));
             }
             default:
                 return std::nullopt;
         }
+    }
+    // Does indexing `base` need MIR's fake borrow of it while the index runs?
+    // MEASURED against rustc 1.98.1: `arr[{ arr = [4,5,6]; 1 }]`,
+    // `a[{ a[0] = 9; 1 }]` and `x[{ x = &y; 1 }]` (x: &[T]) are all ACCEPTED —
+    // an array's length is static, and a lone `*x` is read through a copy of
+    // the pointer — while `x[1][{ x = yr; 2 }]` is E0510: there the slice being
+    // indexed is reached through a pointer STORED INSIDE the place, `(*x)[1]`.
+    // So: only a base with a Deref that follows another projection.
+    static bool index_base_needs_fake(const bir::Place& base) {
+        for (size_t k = 1; k < base.proj.size(); ++k)
+            if (base.proj[k].k == bir::Proj::K::Deref) return true;
+        return false;
     }
     // Can this expression WRITE anything? A constant or a plain place cannot;
     // anything with a block, a call or an assignment in it can. Used to decide
@@ -2815,7 +2850,9 @@ private:
                 std::vector<bir::LocalId> fakes;
                 for (auto& tp : tested) {
                     bir::LocalId fake = synth_ref_temp({}, false);
-                    assign({fake, {}}, ref_of(tp, false, false));
+                    bir::Rvalue fr = ref_of(tp, false, false);
+                    fr.fake = 2;
+                    assign({fake, {}}, std::move(fr));
                     fakes.push_back(fake);
                 }
                 bir::Operand c = operand(g);
@@ -2888,6 +2925,7 @@ public:
         uint32_t   activation = ~0u;   // two-phase: the Call's Mid point
         uint32_t   origin = 0;
         uint32_t   line = 0;
+        uint8_t    fake = 0;           // Rvalue::fake
     };
     struct Out {
         std::vector<std::pair<std::string, std::vector<std::string>>> rows;   // rel, row
@@ -4709,6 +4747,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             L.issue = M(bi, si);
             L.origin = fresh_origin();
             L.line = s.line;
+            L.fake = s.rv.fake;
             loan_at[bi][si] = int32_t(loans_.size());
             loans_.push_back(std::move(L));
         }
@@ -5381,7 +5420,18 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             const std::string nm = facts.place_str(loan.place);
             const uint32_t at = facts.point_line(P);
             std::string msg;
-            switch (facts.invalidation_kind(L, P)) {
+            const unsigned ik = facts.invalidation_kind(L, P);
+            // E0510: a FAKE borrow was hit — the program changed what an index
+            // is reading, or what a match is testing, while that was going on.
+            // rustc names the construct, not the borrow.
+            if (loan.fake && (ik == 4 || ik == 2)) {
+                const char* where = loan.fake == 1 ? "indexing expression" : "match guard";
+                msg = ik == 4 ? std::format("cannot assign '{}' in {}", nm, where)
+                              : std::format("cannot mutably borrow '{}' in {}", nm, where);
+                v.errors.push_back(std::format("line {}: {}", at, msg));
+                continue;
+            }
+            switch (ik) {
                 case 1:
                     // A new SHARED borrow only conflicts with a mutable loan.
                     msg = std::format("cannot borrow '{}' as immutable because it is also "
