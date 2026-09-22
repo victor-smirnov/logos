@@ -1,0 +1,14 @@
+// A CLOSURE SIGNATURE IS NOT ELIDED. `|x: &i64| -> &i64 { x }` with no `Fn*`
+// bound to be checked against gives the result its OWN region, so returning the
+// parameter is refused. MEASURED, rustc 1.98.1 by path, 2026-09-22: error:
+// lifetime may not live long enough ("returning this value requires that `'1`
+// must outlive `'2`"). The same body passed where a bound ties the two
+// (`apply<F: Fn(&i64) -> &i64>(|x| x, ..)`) is legal: pass/bc_dclfnbnd_static_ret.
+// Collected from five pass fixtures that asserted the refused shape.
+package bc_closure_return_param_no_bound_refuse;
+fn main() -> i32 {
+    let l: i64 = 5i64;
+    let c = |x: &i64| -> &i64 { return x; };
+    let r: &i64 = c(&l);
+    return (*r - 5i64) as i32;
+}

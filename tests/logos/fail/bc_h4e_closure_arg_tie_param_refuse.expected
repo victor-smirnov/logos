@@ -1,0 +1,1 @@
+lifetime may not live long enough: returning this value requires that the region of 'x' outlives the closure's return

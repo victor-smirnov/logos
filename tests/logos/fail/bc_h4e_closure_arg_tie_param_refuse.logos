@@ -1,0 +1,15 @@
+// 2026-09-22: was pass/bc_h4e_closure_arg_tie_param. It asserted a closure that returns its PARAMETER's
+// reference with no `Fn*` bound to tie the two — a closure signature is not
+// elided, and rustc 1.98.1 by path refuses it ("lifetime may not live long
+// enough"). logosc admitted it because inference copied the parameter's region
+// onto the return; CL_RET_TIED now records whether a bound tied them.
+// The ADMIT half of the pair. One token from
+// fail/bc_h4e_closure_arg_tie_dangle.logos: the argument is the PARAM `p`, not
+// `&l`. The tie is exact — it follows the argument — so this stays legal.
+package bc_h4e_closure_arg_tie_param_refuse;
+fn get(p: &i64) -> &i64 {
+    let l: i64 = 5i64;
+    let c = |x: &i64| -> &i64 { return x; };
+    return c(p);
+}
+fn main() -> i32 { let a: i64 = 3i64; return *get(&a) as i32 - 3i32; }

@@ -4794,6 +4794,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             nc->ret_type  = subst_type(v.ret_type(out_.type_pool.impl()), s);
             nc->body      = subst_child_block(br);
             nc->is_move   = v.is_move();
+            nc->ret_tied  = v.ret_tied();
             nc->as_fn_ptr = v.as_fn_ptr();
             nc->escapes   = v.escapes();  // G167-3b: preserve heap-env flag
             v.each_capture_name([&](std::string_view cn) {

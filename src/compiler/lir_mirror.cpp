@@ -1714,6 +1714,7 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
     put(map_off, ck::PARAM_TYPES,   param_types_av);
     if (c.ret_type) put(map_off, ck::RET_TYPE, type_av(c.ret_type));
     put(map_off, ck::IS_MOVE,   put_bool(c.is_move));
+    if (c.ret_tied) put(map_off, ck::RET_TIED, put_bool(true));
     put(map_off, ck::AS_FN_PTR, put_bool(c.as_fn_ptr));
     if (c.escapes) put(map_off, ck::ESCAPES, put_bool(c.escapes));
     // C5-cl-08: per-capture mut flag — emit as parallel Array<u8> only when

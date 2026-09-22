@@ -1,9 +1,14 @@
+// 2026-09-22: was pass/bc_capretsc_closure_elided_contract. It asserted a closure that returns its PARAMETER's
+// reference with no `Fn*` bound to tie the two — a closure signature is not
+// elided, and rustc 1.98.1 by path refuses it ("lifetime may not live long
+// enough"). logosc admitted it because inference copied the parameter's region
+// onto the return; CL_RET_TIED now records whether a bound tied them.
 // THE ADMIT HALF of fail/bc_capretsc_closure_static_contract, ONE TOKEN AWAY
 // (`-> &i64` for `-> &'static i64`). Rebinding `param_lifetimes_` from the
 // closure's own ref params must give the closure the SAME rule a fn gets — not
 // a stricter one — so the elided form stays legal, and so does an enclosing fn
 // whose own elision contract is satisfied while a closure sits in its body.
-package bc_capretsc_closure_elided_contract;
+package bc_capretsc_closure_elided_refuse;
 
 fn foo(x: &i64) -> &i64 {
     let c = |y: &i64| -> &i64 {

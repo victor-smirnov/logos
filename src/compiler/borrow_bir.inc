@@ -167,6 +167,7 @@ struct Body {
     std::vector<Block>       blocks;
     uint32_t                 n_params = 0;   // locals 1..n_params are params
     bool                     is_closure = false;
+    bool                     ret_tied = false;   // a closure: CL_RET_TIED
     uint32_t                 n_captures = 0;   // a closure: locals 1..n_captures are its captures
     std::set<std::string>    lifetime_params;   // the function's declared `'a`s
     std::vector<std::pair<std::string, std::string>> outlives;   // declared `'long: 'short`
@@ -420,6 +421,7 @@ public:
         body_ = {};
         body_.name = "closure " + std::string(v.closure_id());
         body_.is_closure = true;
+        body_.ret_tied = v.ret_tied();
         copy_tvs_.clear();
         aliases_.clear();
         closures_.clear();
@@ -4518,7 +4520,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
     // `'static`, which outlives everything. "return type has lifetime 'a but
     // 'y' has lifetime 'b" is this rule; without the facts it never fired.
     {
-        struct U { uint32_t origin; std::string label; bool claim; bool capture; };
+        struct U { uint32_t origin; std::string label; bool claim; bool capture; bool ret = false; };
         std::vector<U> us;
         // Which regions the check may make a CLAIM about: the regions of plain
         // references (through tuples and arrays). A region that is an ADT's
@@ -4589,7 +4591,8 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             claim_mask(L.type, true, cm, 0, false);
             if (cm.size() != os.os.size()) cm.assign(os.os.size(), false);
             for (size_t k = 0; k < os.os.size(); ++k) {
-                us.push_back({os.os[k], ls[k], bool(cm[k]), L.is_capture});
+                us.push_back({os.os[k], ls[k], bool(cm[k]), L.is_capture,
+                              L.kind == bir::LocalKind::Return});
                 placeholder_owner_.emplace(os.os[k], Universal{li, ls[k]});
             }
         }
@@ -4651,12 +4654,29 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             // early-bound from the parent and falls through to the label rules,
             // exactly as rustc treats it.
             if (b_.is_closure && b.capture && !a.capture && elided(a.label)) return false;
+            // A CLOSURE'S RESULT IS NOT ELIDED FROM ITS PARAMETERS. rustc gives
+            // `|y: &i64| y`'s return its own region; only an `Fn*` bound the
+            // closure was checked against can tie them (CL_RET_TIED). Sema's
+            // inference copies the parameter's region onto the return type,
+            // so the labels are equal and prove nothing here.
+            if (b_.is_closure && b.ret && !b_.ret_tied && !a.capture && !a.ret &&
+                elided(a.label)) return false;
+            // …and where the bound DID tie them, the closure may return what its
+            // parameters point at (the labels need not agree: sema rewrites the
+            // types only for a plain `&`).
+            if (b_.is_closure && b.ret && b_.ret_tied && !a.capture && !a.ret) return true;
+            // A CAPTURE's data into the closure's result is fine: the capture's
+            // region is the parent's, and the result's is inferred there.
+            if (b_.is_closure && b.ret && a.capture) return true;
             if (!a.claim || !b.claim) return true;
             if (a.label == "?" || b.label == "?" || a.label == "~" || b.label == "~") return true;   // unknown: no claim
             // An ELIDED target (`-> &i64`, which sema mints a fresh name for):
             // elision decides what may reach it, and that is relate_call's
             // rule on the caller's side, not a named relation to check here.
-            if (elided(b.label)) return true;
+            // ⚠ NOT FOR A CLOSURE'S RESULT: a closure signature is not elided
+            // (sema gives its return its own region unless an `Fn*` bound tied
+            // it), so there is no elision rule to defer to.
+            if (elided(b.label) && !(b_.is_closure && b.ret)) return true;
             // A region a TYPE PARAMETER brought in: in an instance `iter_max<I
             // = SliceIter<'x, i32>, T = &'x i32>` the two are one region, but
             // the declared signature relates `I` and `T` only through a trait
@@ -5494,6 +5514,18 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                     "borrowed data escapes outside of closure: '{}' escapes the closure body "
                     "here, and '{}' is declared outside of it (line {})",
                     body.locals[ua->local].name, body.locals[ub->local].name, line));
+                continue;
+            }
+            // A closure returning its PARAMETER's data where no bound tied the
+            // two: rustc's "lifetime may not live long enough" with
+            // "returning this value requires that '1 must outlive '2".
+            if (la_ok && lb_ok && body.is_closure && !body.locals[ua->local].is_capture &&
+                body.locals[ua->local].kind == bir::LocalKind::Param &&
+                body.locals[ub->local].kind == bir::LocalKind::Return && ub->label != "'static") {
+                v.errors.push_back(std::format(
+                    "lifetime may not live long enough: returning this value requires that the "
+                    "region of '{}' outlives the closure's return (line {})",
+                    body.locals[ua->local].name, line));
                 continue;
             }
             // RUSTC HAS TWO SENTENCES FOR A SUBSET BETWEEN UNIVERSAL REGIONS,

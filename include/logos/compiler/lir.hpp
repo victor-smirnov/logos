@@ -660,6 +660,7 @@ struct EClosure {
     TypeRef                ret_type = nullptr;
     lir_view::BlockRef              body;
     bool                            is_move = false;
+    bool                            ret_tied = false;   // CL_RET_TIED
     std::vector<std::string>        captures;
     std::vector<TypeRef>   capture_types;
     // C5-cl-08: per-capture flag — set when the closure body mutates the

@@ -12,10 +12,12 @@ fn with<R, F>(f: F) -> R where F: Fn(&i64) -> R {
 }
 fn main() -> i32 {
     let l: i64 = 5i64;
-    let c = |x: &i64| -> &i64 { return x; };
-    let r: &i64 = c(&l);
+    // (2026-09-22: was `-> &i64 { return x; }`, refused by rustc 1.98.1 — see
+    // fail/bc_closure_return_param_no_bound_refuse.)
+    let c = |x: &i64| -> i64 { return *x; };
+    let r: i64 = c(&l);
     let s = |x: &i64| -> i64 { return *x; };
     let v: i64 = s(&l);
     let w: i64 = with(|o: &i64| -> i64 { return *o; });
-    return (*r + v + w - 13i64) as i32;
+    return (r + v + w - 13i64) as i32;
 }

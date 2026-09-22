@@ -340,6 +340,10 @@ inline constexpr Key CAPTURE_MODES     {"CL_CAPTURE_MODES", 13};  // Array<u8>
 // MutBorrow as a shared loan. Keeping them apart is the point: MUT_CAPTURES
 // merges them and loses the mutation.
 inline constexpr Key CAPTURE_WIDENED   {"CL_CAPTURE_WIDENED", 14}; // Array<u8>
+// An `Fn*` bound the closure was checked against TIED its return region to a
+// parameter's (sema's (H)/(C) arms). Without it a closure signature is not
+// elided: returning a parameter's data is "lifetime may not live long enough".
+inline constexpr Key RET_TIED          {"CL_RET_TIED",      15}; // u8
 } // namespace closure_keys
 
 // Keys for the EPtrDiff LExpr variant map (in addition to expr_common::TYPE,

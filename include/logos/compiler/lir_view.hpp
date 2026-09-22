@@ -2128,6 +2128,13 @@ public:
         if (av.is_null()) return false;
         return av.as_value<uint8_t>() != 0;
     }
+    bool ret_tied() const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::RET_TIED.code);
+        if (av.is_null()) return false;
+        return av.as_value<uint8_t>() != 0;
+    }
 
     // G167-3b: closure value is boxed → its env must be heap-allocated.
     bool escapes() const noexcept {

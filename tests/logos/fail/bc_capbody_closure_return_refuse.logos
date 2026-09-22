@@ -1,3 +1,8 @@
+// 2026-09-22: was pass/bc_capbody_closure_return_admit. It asserted a closure that returns its PARAMETER's
+// reference with no `Fn*` bound to tie the two — a closure signature is not
+// elided, and rustc 1.98.1 by path refuses it ("lifetime may not live long
+// enough"). logosc admitted it because inference copied the parameter's region
+// onto the return; CL_RET_TIED now records whether a bound tied them.
 // ⚠ THIS PROGRAM IS WHY THE ROUND CLOSED 12 ROWS AND NOT 15. The body walk made
 // a `return` INSIDE a closure body answer to the ENCLOSING fn's return
 // contract, so this — legal, and the closure is never even CALLED — was refused
@@ -9,7 +14,7 @@
 // PERTURB: fail/bc_capbody_enclosing_return_refuse is the same shape with the
 // ENCLOSING fn's own return dangling, and must stay RED — the suppression is
 // scoped to the closure body, not to the function.
-package bc_capbody_closure_return_admit;
+package bc_capbody_closure_return_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn foo(x: &i64) -> &i64 {

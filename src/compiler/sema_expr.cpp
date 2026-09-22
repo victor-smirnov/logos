@@ -9910,6 +9910,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             TypeRef rte(expr_type(recv));
             if (rte.kind() == LogosType::Kind::Enum && !rte.enum_name().empty())
                 lookup_name = std::string(rte.enum_name()) + "__" + std::string(method_name);
+            // A PRIMITIVE receiver (`0i64.m(|x| ..)`): its impl methods register
+            // under the primitive's name. With no lookup the closure argument got
+            // no hint, and without the hint its `Fn*` bound could not tie the
+            // closure's return to its parameter (CL_RET_TIED).
+            else if (auto pk = rte.kind(); pk >= LogosType::Kind::I32 && pk <= LogosType::Kind::U128)
+                lookup_name = type_str(rte) + "__" + std::string(method_name);
         }
         if (lookup_name.empty()) return out;
         auto cands = find_func_candidates(lookup_name);
@@ -18382,6 +18388,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     bool has_annot = node.has_key(la::RET_TYPE);
     TypeRef ret_type = has_annot
         ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
+    bool ret_tied_by_bound_ = false;   // -> EClosure::ret_tied (CL_RET_TIED)
     // ── LANDED 2026-09-04f: THE CLOSURE'S RETURN REGION COMES FROM THE BOUND ─
     // 09-04e §6 measured that EVERY region on the closure side of the return
     // comparison is the EMPTY spelling, which is why every return-position arm
@@ -18400,6 +18407,41 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             return t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
                          TypeRef(t).kind() == LogosType::Kind::MutRef);
         };
+        // CL_RET_TIED, READ OFF THE BOUND BY Fn-SUGAR ELISION — for every
+        // borrowed pointer, not only `&` (a `&'a [i64]` result is a Slice here,
+        // and the (B)/(H)/(C) arms below, which rewrite the TYPE, see only `&`).
+        // The bound ties the result to the inputs when its result region is
+        // WRITTEN and named by an input (`FnOnce(&'a [T]) -> &'a [T]`), or is
+        // elided and the inputs use exactly ONE lifetime (`Fn(&T) -> &U`,
+        // `Fn(&'a T, &'a T) -> &U`). `FnOnce(&T) -> B` ties nothing.
+        {
+            auto borrowed_lt_ = [](TypeRef t, std::string& lt) {
+                if (!t) return false;
+                TypeRef u(t);
+                auto k = u.kind();
+                const bool b = k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+                    (k == LogosType::Kind::Slice && !u.owning_slice() && !u.raw_fat()) ||
+                    (k == LogosType::Kind::TraitObject && !u.owning_trait_object() && !u.raw_fat()) ||
+                    (k == LogosType::Kind::DstRef && !u.owning_dst() && !u.raw_fat());
+                if (b) { lt = std::string(u.lifetime()); if (lt == "'_") lt.clear(); }
+                return b;
+            };
+            TypeRef hc_ = hint_closure_formal_ ? peel_to_callable(hint_closure_formal_) : TypeRef{};
+            std::string olt_;
+            if (hc_ && (LogosType::is_fn_value_kind(TypeRef(hc_).kind()) ||
+                        TypeRef(hc_).kind() == LogosType::Kind::Closure) &&
+                borrowed_lt_(TypeRef(hc_).closure_ret(), olt_)) {
+                std::set<std::string> in_;
+                size_t anon_ = 0;
+                for (auto pt : TypeRef(hc_).closure_params()) {
+                    std::string l_;
+                    if (!borrowed_lt_(pt, l_)) continue;
+                    in_.insert(l_.empty() ? "#" + std::to_string(anon_++) : l_);
+                }
+                if (!olt_.empty() ? in_.count(olt_) != 0 : in_.size() == 1)
+                    ret_tied_by_bound_ = true;
+            }
+        }
         // (B) an UNANNOTATED closure under a bound whose return is a `&`
         // adopts that return. NARROWED TO `&` ON PURPOSE — the unnarrowed form
         // is `closrethint`, declined; PROBES.md 2026-09-04e §3.
@@ -18421,6 +18463,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             else if (is_ref_(hret_) && clos_in_regs_.size() == 1)
                 rlt_ = clos_in_regs_[0];
             if (!rlt_.empty()) {
+                ret_tied_by_bound_ = true;
                 logos::probe::census("closbnd.ret.tied");
                 ret_type = make_ref(
                     TypeRef(ret_type).kind() == LogosType::Kind::MutRef,
@@ -19268,6 +19311,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // capture (rustc's upvar kinds) and, separately, whether the place it is
     // recorded for is wider than the one touched.
     ec->capture_modes.assign(ec->captures.size(), 0);
+    ec->ret_tied = ret_tied_by_bound_;
     ec->capture_widened.assign(ec->captures.size(), 0);
     for (size_t i = 0; i < ec->captures.size(); ++i) {
         const bool consumed_by_body =

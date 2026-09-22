@@ -53,12 +53,16 @@ fn main() -> i32 {
     total = total + nested;
 
     let l: i64 = 5i64;
-    let c = |x: &i64| -> &i64 {
+    // (2026-09-22: this closure returned `h`, a `&i64` from its parameter,
+    // as `-> &i64` with no `Fn*` bound — rustc 1.98.1 refuses that, a closure
+    // signature is not elided. It returns the VALUE now; the refused shape is
+    // fail/bc_closure_return_param_no_bound_refuse.)
+    let c = |x: &i64| -> i64 {
         let h: &i64 = x;
-        return h;
+        return *h;
     };
-    let returns: &i64 = c(&l);
-    total = total + *returns;
+    let returns: i64 = c(&l);
+    total = total + returns;
 
     let z: i64 = 4i64;
     let mut outer_borrow: &i64 = &z;

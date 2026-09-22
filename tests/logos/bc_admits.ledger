@@ -1945,8 +1945,6 @@ capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-st
 
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 
-issue-48697--t16 nllmoves.NEW-CESC tests/imported/admit/nll/issue-48697--t16  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
-
 issue-51268 nllmoves.NEW-CAPLOAN tests/imported/admit/nll/issue-51268  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)  ⚠ CONTRADICTED 2026-09-11 BY ITS OWN SUCCESSOR ROUND: not a defect under our own rule. Upstream pins `edition:2015..2021`, where the closure captures the WHOLE `self`; Logos captures `self.number` precisely per `borrow.closure.disjoint-field-capture`, so the paths are disjoint and Rust 2024 ACCEPTS this program. RETIRE CANDIDATE — the owner's call, not a round's; the 09-07 verdict above is stale and is kept so the two readings are visible together. ⚠ MEASURED 2026-09-15f-rustcaudit with rustc 1.98.1: the port COMPILES under --edition 2024 and 2021 (twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_issue-51268.rs); upstream's own tests/ui/nll/issue-51268.rs is E0502 under 2015 and 2018 and COMPILES under 2021 and 2024 — `//@ edition:2015..2021` is half-open, so whole-`self` capture is 2015/2018 only, not 2021.
 
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
@@ -1970,8 +1968,6 @@ var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
 
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
-
-regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had ANNOTATED the closure, which is the one thing upstream leaves to inference; annotation removed. ROOT RE-CHECKED, lifereg.C SPLITS: this row is the closure's return region flowing into a CALLER-CHOSEN generic `B`. PAIR: the same escape written as a FN ITEM signature is REFUSED (`variance mismatch — expected &'static i64, got &'p i64`)
 
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured — do not group it. Upstream's four LEGAL contrast traits need a lifetime SUPERTRAIT bound (`trait T: 'static`), which does not parse here -> unrowed_backlog lifetime_supertrait_bound
 
@@ -2556,5 +2552,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 37
-# SYNC-HASH 15b761262563bdfe14302c5311bdcd36
+# TOTAL 35
+# SYNC-HASH 02fabfb3593fa81c0222a8cd91b353aa
