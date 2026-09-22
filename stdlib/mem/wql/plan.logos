@@ -53,8 +53,8 @@ pub schema RQAgg : code(0x0012_0000_0000_0010) {
 
 impl RQAgg {
     // The inner argument expression as an SExpr view (only valid when has_arg).
-    pub fn arg_expr(self: &RQAgg) -> SExpr { return self.arg.any().view::<SExpr>(); }
-    pub fn as_ref(self: &RQAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn arg_expr(self: RQAgg) -> SExpr { return self.arg.any().view::<SExpr>(); }
+    pub fn as_ref(self: RQAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized aggregate-column list — a fan-out of up to `RQAGG_MAX` RQAgg
@@ -100,7 +100,7 @@ impl RQAggArr {
     }
 
     pub fn set_len(self: &mut RQAggArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQAggArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQAggArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // ── RQSimple — scan / filter / project (the simple query shape) ───────────────
@@ -187,9 +187,9 @@ pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
 }
 
 impl RQJoinStep {
-    pub fn on_expr(self: &RQJoinStep) -> SExpr { return self.on.any().view::<SExpr>(); }
-    pub fn path_arr(self: &RQJoinStep) -> RQPathSegArr { return self.path.any().view::<RQPathSegArr>(); }
-    pub fn as_ref(self: &RQJoinStep) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn on_expr(self: RQJoinStep) -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn path_arr(self: RQJoinStep) -> RQPathSegArr { return self.path.any().view::<RQPathSegArr>(); }
+    pub fn as_ref(self: RQJoinStep) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // ── RQPathSeg — one `.field` segment of a traversal step's field path ─────────
@@ -198,7 +198,7 @@ pub schema RQPathSeg : code(0x0012_0000_0000_001A) {
 }
 
 impl RQPathSeg {
-    pub fn as_ref(self: &RQPathSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQPathSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized segment list — fan-out of up to RQPSEG_MAX RQPathSeg edges
@@ -244,7 +244,7 @@ impl RQPathSegArr {
     }
 
     pub fn set_len(self: &mut RQPathSegArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQPathSegArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQPathSegArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // ── RQGStep — one GRAPH-PATH step (ADR 0016 M2a) ──────────────────────────────
@@ -271,7 +271,7 @@ pub schema RQGStep : code(0x0012_0000_0000_001C) {
 }
 
 impl RQGStep {
-    pub fn as_ref(self: &RQGStep) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQGStep) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized graph-step list (the RQPathSegArr pattern).
@@ -316,7 +316,7 @@ impl RQGStepArr {
     }
 
     pub fn set_len(self: &mut RQGStepArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQGStepArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQGStepArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized join-step list — a fan-out of up to `RQJSTEP_MAX` RQJoinStep
@@ -370,7 +370,7 @@ impl RQJoinStepArr {
     }
 
     pub fn set_len(self: &mut RQJoinStepArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQJoinStepArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQJoinStepArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // ── RQJoin — an N-way join CHAIN over a base source ───────────────────────────
@@ -485,7 +485,7 @@ pub schema RQRelCol : code(0x0012_0000_0000_0014) {
 }
 
 impl RQRelCol {
-    pub fn as_ref(self: &RQRelCol) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQRelCol) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized column list — fan-out of up to RQRELCOL_MAX RQRelCol edges.
@@ -530,7 +530,7 @@ impl RQRelColArr {
     }
 
     pub fn set_len(self: &mut RQRelColArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQRelColArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQRelColArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized body list — fan-out of up to RQBODY_MAX RQuery edges (each
@@ -578,7 +578,7 @@ impl RQBodyArr {
     }
 
     pub fn set_len(self: &mut RQBodyArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQBodyArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQBodyArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // One rel block: name + declared columns + producing bodies.
@@ -589,9 +589,9 @@ pub schema RQRel : code(0x0012_0000_0000_0016) {
 }
 
 impl RQRel {
-    pub fn cols_arr(self: &RQRel)   -> RQRelColArr { return self.cols.any().view::<RQRelColArr>(); }
-    pub fn bodies_arr(self: &RQRel) -> RQBodyArr   { return self.bodies.any().view::<RQBodyArr>(); }
-    pub fn as_ref(self: &RQRel) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn cols_arr(self: RQRel) -> RQRelColArr { return self.cols.any().view::<RQRelColArr>(); }
+    pub fn bodies_arr(self: RQRel) -> RQBodyArr   { return self.bodies.any().view::<RQBodyArr>(); }
+    pub fn as_ref(self: RQRel) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized rel list — fan-out of up to RQREL_MAX RQRel edges,
@@ -653,7 +653,7 @@ impl RQRelArr {
     }
 
     pub fn set_len(self: &mut RQRelArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQRelArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQRelArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // ── RQProgram — the program ENVELOPE the parser export returns ────────────────
@@ -704,7 +704,7 @@ pub schema RQSrcSegArr : code(0x0012_0000_0000_001F) {
 pub fn RQSEG_MAX() -> i64 { return 8i64; }
 
 impl RQSrcSeg {
-    pub fn as_ref(self: &RQSrcSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQSrcSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 impl RQSrcSegArr {
@@ -731,17 +731,17 @@ impl RQSrcSegArr {
         self.a7 = r;
     }
     pub fn set_len(self: &mut RQSrcSegArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQSrcSegArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RQSrcSegArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 impl RQProgram {
     // True iff the block declared ≥ 1 rel (the rels edge is non-null).
     pub fn has_rels(self: &RQProgram) -> bool { return !self.rels.any().is_null(); }
-    pub fn rels_arr(self: &RQProgram) -> RQRelArr { return self.rels.any().view::<RQRelArr>(); }
+    pub fn rels_arr(self: RQProgram) -> RQRelArr { return self.rels.any().view::<RQRelArr>(); }
     // The entry query's raw edge handle (provenance-laundered — the walker
     // fat-wraps it per shape for the fn_name / row_ty stamps).
-    pub fn entry_any(self: &RQProgram) -> WAny { return unsafe { WAny::ref_to(self.entry.any().raw() as *const u8) }; }
-    pub fn as_ref(self: &RQProgram) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn entry_any(self: RQProgram) -> WAny { return unsafe { WAny::ref_to(self.entry.any().raw() as *const u8) }; }
+    pub fn as_ref(self: RQProgram) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // ── Fat (allocator-carrying) view wrappers ────────────────────────────────────
@@ -787,37 +787,37 @@ pub fn rq_fat_rels(node: WAny, h: &Writ) -> RQRelArr {
 }
 
 // ── Edge handles (same provenance-laundering rationale as ir.logos) ───────────
-impl RQSimple { pub fn as_ref(self: &RQSimple) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RQJoin   { pub fn as_ref(self: &RQJoin)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RQAggr   { pub fn as_ref(self: &RQAggr)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RQFind   { pub fn as_ref(self: &RQFind)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RQSimple { pub fn as_ref(self: RQSimple) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RQJoin   { pub fn as_ref(self: RQJoin) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RQAggr   { pub fn as_ref(self: RQAggr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RQFind   { pub fn as_ref(self: RQFind) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── Typed edge RESOLVERS (the walker's convenience API) ───────────────────────
 impl RQSimple {
-    pub fn gpath_arr(self: &RQSimple)   -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
-    pub fn where_expr(self: &RQSimple)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
-    pub fn select_expr(self: &RQSimple) -> SExpr { return self.select.any().view::<SExpr>(); }
-    pub fn order_expr(self: &RQSimple)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
+    pub fn gpath_arr(self: RQSimple) -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
+    pub fn where_expr(self: RQSimple) -> SExpr { return self.where_pred.any().view::<SExpr>(); }
+    pub fn select_expr(self: RQSimple) -> SExpr { return self.select.any().view::<SExpr>(); }
+    pub fn order_expr(self: RQSimple) -> SExpr { return self.order_key.any().view::<SExpr>(); }
 }
 impl RQJoin {
-    pub fn gpath_arr(self: &RQJoin) -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
-    pub fn steps_arr(self: &RQJoin)   -> RQJoinStepArr { return self.steps.any().view::<RQJoinStepArr>(); }
-    pub fn where_expr(self: &RQJoin)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
-    pub fn select_expr(self: &RQJoin) -> SExpr { return self.select.any().view::<SExpr>(); }
-    pub fn order_expr(self: &RQJoin)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
+    pub fn gpath_arr(self: RQJoin) -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
+    pub fn steps_arr(self: RQJoin) -> RQJoinStepArr { return self.steps.any().view::<RQJoinStepArr>(); }
+    pub fn where_expr(self: RQJoin) -> SExpr { return self.where_pred.any().view::<SExpr>(); }
+    pub fn select_expr(self: RQJoin) -> SExpr { return self.select.any().view::<SExpr>(); }
+    pub fn order_expr(self: RQJoin) -> SExpr { return self.order_key.any().view::<SExpr>(); }
 }
 impl RQFind {
-    pub fn pred_expr(self: &RQFind) -> SExpr { return self.pred.any().view::<SExpr>(); }
+    pub fn pred_expr(self: RQFind) -> SExpr { return self.pred.any().view::<SExpr>(); }
 }
 impl RQAggr {
-    pub fn gpath_arr(self: &RQAggr) -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
-    pub fn where_expr(self: &RQAggr)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
-    pub fn key_expr(self: &RQAggr)    -> SExpr { return self.key.any().view::<SExpr>(); }
-    pub fn aggs_arr(self: &RQAggr)    -> RQAggArr { return self.aggs.any().view::<RQAggArr>(); }
-    pub fn select_expr(self: &RQAggr) -> SExpr { return self.select.any().view::<SExpr>(); }
-    pub fn order_expr(self: &RQAggr)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
-    pub fn having_expr(self: &RQAggr) -> SExpr { return self.having_pred.any().view::<SExpr>(); }
+    pub fn gpath_arr(self: RQAggr) -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
+    pub fn where_expr(self: RQAggr) -> SExpr { return self.where_pred.any().view::<SExpr>(); }
+    pub fn key_expr(self: RQAggr) -> SExpr { return self.key.any().view::<SExpr>(); }
+    pub fn aggs_arr(self: RQAggr) -> RQAggArr { return self.aggs.any().view::<RQAggArr>(); }
+    pub fn select_expr(self: RQAggr) -> SExpr { return self.select.any().view::<SExpr>(); }
+    pub fn order_expr(self: RQAggr) -> SExpr { return self.order_key.any().view::<SExpr>(); }
+    pub fn having_expr(self: RQAggr) -> SExpr { return self.having_pred.any().view::<SExpr>(); }
     // True iff the aggregate ranges over a JOINED stream (`steps` edge non-null).
     pub fn has_steps(self: &RQAggr)   -> bool { return !self.steps.any().is_null(); }
-    pub fn steps_arr(self: &RQAggr)   -> RQJoinStepArr { return self.steps.any().view::<RQJoinStepArr>(); }
+    pub fn steps_arr(self: RQAggr) -> RQJoinStepArr { return self.steps.any().view::<RQJoinStepArr>(); }
 }

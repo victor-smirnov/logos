@@ -1593,40 +1593,55 @@ fn qmods_none() -> QMods {
 }
 
 // Peel a root RLimit wrapper into `mods` (identity otherwise).
-fn peel_limit(e: RExpr, mods: &mut QMods) -> RExpr {
+// ⚠ `mods` TRAVELS BY VALUE, and that is the point rather than a style.
+// `QMods` holds `sort_key: WRef<SExpr>` and `limit_param: str`, so a
+// `&mut QMods` parameter carries a region — and these peelers BOTH write a view
+// derived from `e` into it AND return a view derived from `e`. Rust would spell
+// that `peel_limit<'a>(e: RExpr<'a>, mods: &mut QMods<'a>) -> RExpr<'a>`; with
+// no region parameter on the view types there is nothing to name, elision has
+// two candidates and no rule, and it tied the RESULT to `mods` — after which
+// `peel_distinct(r1, &mut mods)` was a second mutable borrow of something the
+// first result still held. Taking `mods` by value leaves ONE region-carrying
+// input, which elision resolves correctly and for the right reason.
+struct PeeledMods { e: RExpr, mods: QMods }
+
+fn peel_limit(e: RExpr, mods: QMods) -> PeeledMods {
+    let mut m: QMods = mods;
     match e {
         RExpr::Limit(l) => {
-            mods.has_limit      = true;
-            mods.limit_n        = l.n;
-            mods.limit_is_param = l.is_param;
-            mods.limit_param    = l.param;
-            return l.input_expr();
+            m.has_limit      = true;
+            m.limit_n        = l.n;
+            m.limit_is_param = l.is_param;
+            m.limit_param    = l.param;
+            return PeeledMods { e: l.input_expr(), mods: m };
         }
-        _ => { return e; }
+        _ => { return PeeledMods { e: e, mods: m }; }
     }
 }
 
 // Peel a root RDistinct wrapper into `mods` (identity otherwise).
-fn peel_distinct(e: RExpr, mods: &mut QMods) -> RExpr {
+fn peel_distinct(e: RExpr, mods: QMods) -> PeeledMods {
+    let mut m: QMods = mods;
     match e {
         RExpr::Distinct(d) => {
-            mods.distinct = true;
-            return d.input_expr();
+            m.distinct = true;
+            return PeeledMods { e: d.input_expr(), mods: m };
         }
-        _ => { return e; }
+        _ => { return PeeledMods { e: e, mods: m }; }
     }
 }
 
 // Peel an RSort under the projection into `mods` (identity otherwise).
-fn peel_sort(e: RExpr, mods: &mut QMods) -> RExpr {
+fn peel_sort(e: RExpr, mods: QMods) -> PeeledMods {
+    let mut m: QMods = mods;
     match e {
         RExpr::Sort(s) => {
-            mods.has_sort  = true;
-            mods.sort_key  = s.key;
-            mods.sort_desc = s.desc;
-            return s.input_expr();
+            m.has_sort  = true;
+            m.sort_key  = s.key;
+            m.sort_desc = s.desc;
+            return PeeledMods { e: s.input_expr(), mods: m };
         }
-        _ => { return e; }
+        _ => { return PeeledMods { e: e, mods: m }; }
     }
 }
 
@@ -2157,14 +2172,18 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
     // Peel the post-projection wrappers (RLimit over RDistinct — the lowering
     // order) and the RSort under the projection into the QMods envelope.
     let mut mods: QMods = qmods_none();
-    let r1: RExpr = peel_limit(root, &mut mods);
-    let r2: RExpr = peel_distinct(r1, &mut mods);
+    let p1: PeeledMods = peel_limit(root, mods);
+    let p2: PeeledMods = peel_distinct(p1.e, p1.mods);
+    mods = p2.mods;
+    let r2: RExpr = p2.e;
     // `limit <ident>` must reference a declared SCALAR param (build error else).
     if !check_limit_param(&mods, prm) { return false; }
     match r2 {
         RExpr::Proj(p) => {
             let body0: RExpr = p.input_expr();
-            let body: RExpr = peel_sort(body0, &mut mods);
+            let ps: PeeledMods = peel_sort(body0, mods);
+            mods = ps.mods;
+            let body: RExpr = ps.e;
             let sel: WRef<SExpr> = p.sel;
             // FIND mode — the body is a (possibly filtered) scan; the selector is
             // the identity, so the emitter returns the row BORROW directly.

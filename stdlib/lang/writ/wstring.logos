@@ -92,7 +92,11 @@ impl WString {
 
     /// Returns the inline UTF-8 payload — the tail past its vlen prefix.
     /// The `str` borrows arena storage and stays valid while the container lives.
-    pub fn as_str(self: &WString) -> str {
+    // The region is NAMED, not elided: the bytes are the WString's, so the
+    // result lives exactly as long as the borrow of it — and a caller that
+    // names its own output region (`intern_str`) cannot satisfy it from an
+    // elided one.
+    pub fn as_str<'a>(self: &'a WString) -> &'a str {
         unsafe {
             let p: *const u8 = self.bytes.as_ptr();
             let payload: u64 = vlen_read(p);

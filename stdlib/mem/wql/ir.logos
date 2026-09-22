@@ -210,7 +210,7 @@ pub schema RAgg : code(0x0011_0000_0000_0010) {
 
 impl RAgg {
     // The inner argument expression as an SExpr view (only valid when has_arg).
-    pub fn arg_expr(self: &RAgg) -> SExpr { return self.arg.any().view::<SExpr>(); }
+    pub fn arg_expr(self: RAgg) -> SExpr { return self.arg.any().view::<SExpr>(); }
     pub fn as_ref(self: RAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
@@ -357,35 +357,35 @@ impl STuple {
     pub fn items_arr(self: STuple) -> SExprArr { return self.items.any().view::<SExprArr>(); }
 }
 impl RFilter {
-    pub fn input_expr(self: &RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn pred_expr(self: &RFilter)  -> SExpr { return self.pred.any().view::<SExpr>(); }
+    pub fn input_expr(self: RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn pred_expr(self: RFilter) -> SExpr { return self.pred.any().view::<SExpr>(); }
 }
 impl REdge {
-    pub fn input_expr(self: &REdge) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn on_expr(self: &REdge)    -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn input_expr(self: REdge) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn on_expr(self: REdge) -> SExpr { return self.on.any().view::<SExpr>(); }
 }
 impl RProj {
-    pub fn input_expr(self: &RProj) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn sel_expr(self: &RProj)   -> SExpr { return self.sel.any().view::<SExpr>(); }
+    pub fn input_expr(self: RProj) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn sel_expr(self: RProj) -> SExpr { return self.sel.any().view::<SExpr>(); }
 }
 impl RJoin {
-    pub fn left_expr(self: &RJoin)  -> RExpr { return self.left.any().view::<RExpr>(); }
-    pub fn right_expr(self: &RJoin) -> RExpr { return self.right.any().view::<RExpr>(); }
-    pub fn on_expr(self: &RJoin)    -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn left_expr(self: RJoin) -> RExpr { return self.left.any().view::<RExpr>(); }
+    pub fn right_expr(self: RJoin) -> RExpr { return self.right.any().view::<RExpr>(); }
+    pub fn on_expr(self: RJoin) -> SExpr { return self.on.any().view::<SExpr>(); }
 }
 impl RAnti {
-    pub fn left_expr(self: &RAnti)  -> RExpr { return self.left.any().view::<RExpr>(); }
-    pub fn right_expr(self: &RAnti) -> RExpr { return self.right.any().view::<RExpr>(); }
-    pub fn on_expr(self: &RAnti)    -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn left_expr(self: RAnti) -> RExpr { return self.left.any().view::<RExpr>(); }
+    pub fn right_expr(self: RAnti) -> RExpr { return self.right.any().view::<RExpr>(); }
+    pub fn on_expr(self: RAnti) -> SExpr { return self.on.any().view::<SExpr>(); }
 }
 impl RAggr {
-    pub fn input_expr(self: &RAggr) -> RExpr   { return self.input.any().view::<RExpr>(); }
-    pub fn key_expr(self: &RAggr)   -> SExpr   { return self.key.any().view::<SExpr>(); }
-    pub fn aggs_arr(self: &RAggr)   -> RAggArr { return self.aggs.any().view::<RAggArr>(); }
+    pub fn input_expr(self: RAggr) -> RExpr   { return self.input.any().view::<RExpr>(); }
+    pub fn key_expr(self: RAggr) -> SExpr   { return self.key.any().view::<SExpr>(); }
+    pub fn aggs_arr(self: RAggr) -> RAggArr { return self.aggs.any().view::<RAggArr>(); }
 }
 impl RSort {
-    pub fn input_expr(self: &RSort) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn key_expr(self: &RSort)   -> SExpr { return self.key.any().view::<SExpr>(); }
+    pub fn input_expr(self: RSort) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn key_expr(self: RSort) -> SExpr { return self.key.any().view::<SExpr>(); }
 }
-impl RLimit    { pub fn input_expr(self: &RLimit)    -> RExpr { return self.input.any().view::<RExpr>(); } }
-impl RDistinct { pub fn input_expr(self: &RDistinct) -> RExpr { return self.input.any().view::<RExpr>(); } }
+impl RLimit    { pub fn input_expr(self: RLimit) -> RExpr { return self.input.any().view::<RExpr>(); } }
+impl RDistinct { pub fn input_expr(self: RDistinct) -> RExpr { return self.input.any().view::<RExpr>(); } }
