@@ -445,5 +445,40 @@ stream_plane_batch_region_unnamed  defect  2  ADR 0028 blocker, priced 2026-09-2
     # each step. It closes three ADR 0028 blockers and is the last known instance of the
     # elision class.
 
-# TOTAL 20
-# SYNC-HASH 0bc2268042d3f6d56ac81390075b7cb6
+run_signature_matched_by_hand_six_places  risk  1  ADR 0028 — the deem `_run` signature has six hand-written readers
+    # 2026-09-22 — six census gates assert the shape of the deem-generated `_run`
+    # signature, in FIVE files, by FOUR different spellings: `grep -c "^pub fn \${FN}("`
+    # (slice_scan_codegen), a `grep -c` plus an `awk -v fn=` slice (drain_read_once_pair),
+    # `awk -v want="pub fn \$1("` (order_elision_pair, order_desc_pair), and three
+    # `^pub fn …_run\(` shape assertions (join_order_multi, join_order_key_fidelity,
+    # wql_shadowed_column, prepared_plan).
+    # THE RISK FIRED ONCE ALREADY: making the emitter write the query's region
+    # (`pub fn q_run<'a>(…)`) orphaned all six at the same moment and seven census
+    # gates went red for a reason unrelated to what they measure.
+    # WHAT IT NEEDS: one helper the gates share, so the next change to the emitted
+    # signature reaches every reader at once.
+
+e0106_hidden_result_regions  defect  2  ADR 0028 — E0106 does not see a HIDDEN result region
+    # 2026-09-22 — the E0106 rule fires when the return type carries an elided
+    # REFERENCE region (`&T`, `&[T]`, `&dyn Tr`) with more than one input region and
+    # no `&self`. It does NOT fire when the result's region is HIDDEN: a
+    # `#[borrow_carrying]` ADT that declares no region parameter (`RtVal`, `WAny`).
+    # Those signatures are equally ambiguous and Rust refuses them too.
+    # LIVE CONSEQUENCE: `pub type QFn = fn(&[RtVal]) -> RtVal;` — Rust spells it
+    # `fn(&'x [RtVal<'s>]) -> RtVal<'s>`, the result comes from the VALUES and never
+    # from the borrow of the buffer. With both elided the hidden-result rule takes
+    # every elided input, so `eval_sexpr`'s `f(&argv[..])` read as returning a borrow
+    # of the local `argv`. That call site is laundered through `slice_from_raw` with
+    # `unsafe` as the honest marker — a scaffold, not the answer.
+    # ⚠ BLOCKED ON A SEPARATE DEFECT. Giving `RtVal` a region parameter was tried and
+    # made it WORSE: an ADT with a declared region AND a loan-carrying payload lays out
+    # a DIFFERENT NUMBER of regions as a declaration than as a mono instance, so
+    # `labels()` and `walk_type()` disagree on the same type (measured:
+    # `ret=RtVal decl=RtVal dest=RtVal lret=1 dst=2`, and elsewhere `lret=2 dst=1`)
+    # and every call through it falls back to "?", which matches every source.
+    # ORDER: align an ADT's region LAYOUT between declaration and instance; then
+    # E0106 over hidden result regions; then `QFn` names its two and the laundering
+    # in stdlib/mem/deem/tpl.logos comes out.
+
+# TOTAL 22
+# SYNC-HASH 5a01c4b2de6ce9238a256435d5d5b7cf

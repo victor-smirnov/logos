@@ -457,6 +457,13 @@ private:
     }
 
     void assign(bir::Place dest, bir::Rvalue rv) {
+        // ⚠ THE SHAPE IS "AN RVALUE THAT MOVES ONE PLACE TWICE", not "an array
+        // literal". Found on `[a; 2]`, then measured on `Pair { a: d, b: d }`,
+        // which had the same hole — rustc answers E0382 for both. Placing the
+        // split HERE covers every aggregate at once instead of one literal kind
+        // at a time. It is a no-op unless a place is moved twice, and the
+        // statement it emits has a single operand, so it cannot recurse.
+        split_repeated_moves(rv);
         // `x = h(move x)` as one statement would move and initialise x at the
         // same point; route the value through a temporary so the move comes
         // first.
@@ -988,7 +995,6 @@ private:
                 lir_view::ETupleLitView{e}.each_elem([&](lir_view::ExprRef el) {
                     rv.ops.push_back(operand(el));
                 });
-                split_repeated_moves(rv);
                 assign(dest, std::move(rv));
                 return;
             }
@@ -998,7 +1004,6 @@ private:
                 lir_view::EArrLitView{e}.each_elem([&](lir_view::ExprRef el) {
                     rv.ops.push_back(operand(el));
                 });
-                split_repeated_moves(rv);
                 assign(dest, std::move(rv));
                 return;
             }

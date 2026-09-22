@@ -565,6 +565,8 @@ derefwrite_rawptr_field_under_live_borrow_admits 2 tests/soundness/open/derefwri
 
 field_retarget_overlapping_mutborrow_admits 2 tests/soundness/open/field_retarget_overlapping_mutborrow_admits admits
 
+bc_patmovebind_at_ref_binding_twin 3 tests/soundness/open/bc_patmovebind_at_ref_binding_twin refuses
+
 # ── 2026-09-15c-argref (PRICING, tier 1: `&<reference binding>` is one level short — scope_ holds the reference VALUE, EAddrOf returns it) ──
 # Nine rows OPENED by the round's hand battery, each measured on build/ 98ca3fa669468808 43 unarmed. Four are members of
 # addr_of_struct_ref_local_arg_passes_referent_run's class at binders with a DIFFERENT record (for-each R, match/if-let VT, capture V,
@@ -580,5 +582,5 @@ field_retarget_overlapping_mutborrow_admits 2 tests/soundness/open/field_retarge
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 211
-# SYNC-HASH 9967e88f21ba73dc88005bc490a409dc
+# TOTAL 212
+# SYNC-HASH 2308ba5bd0da571c9758b865acd34c9b

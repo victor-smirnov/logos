@@ -12,7 +12,9 @@ use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 
-fn test_generic<T>(expected: T, eq: fn(T, T) -> bool) {
+// `T: Copy` is required: `expected` moves into the block and is used again
+// in the call. rustc: E0382 "use of moved value: `expected`".
+fn test_generic<T: Copy>(expected: T, eq: fn(T, T) -> bool) {
     let actual: T = { expected };
     assert!(eq(expected, actual));
 }
@@ -20,6 +22,9 @@ fn test_generic<T>(expected: T, eq: fn(T, T) -> bool) {
 fn compare_bool(b1: bool, b2: bool) -> bool { return b1 == b2; }
 
 struct Pair { a: isize, b: isize }
+// `Copy`, because `test_generic<T: Copy>` needs it — the same `#[derive(Copy)]`
+// rustc requires for this program.
+impl Copy for Pair {}
 
 fn compare_pair(t1: Pair, t2: Pair) -> bool {
     return t1.a == t2.a && t1.b == t2.b;

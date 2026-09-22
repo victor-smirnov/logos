@@ -1,3 +1,15 @@
+// SOUNDNESS QUEUE row bc_patmovebind_at_ref_binding_twin (tier 3). `ref b @ E::B`
+// under a `match *r` BINDS BY REFERENCE and moves nothing; logosc answers
+// "cannot move out of 'r', which is behind a reference". rustc 1.98.1
+// --edition 2024 ACCEPTS the same program (measured 2026-09-22: the twin
+// compiles with no diagnostic).
+//
+// THE MODE IS NOT IN THE AST. `PatAt` carries no mode field at all, so
+// `ref b @ …` and `b @ …` are the SAME NODE — sema_stmt.cpp says so at its
+// `case ps::Code::At` — and the borrow checker cannot distinguish them. Reading
+// the binding's TYPE instead was tried and does not work: it is `E`, not `&E`.
+// The repair is a mode flag on `PatAt`, threaded grammar -> schema -> mirror ->
+// view, which is why this is a row and not a patch.
 // PAIR 4 of 6, CASUALTY GUARD — `ref b @ E::B` is LEGAL and the first correct
 // spelling of arm 4 refused it (MEASURED rc=1). `PatAt` carries
 // {name, sub, type, bind_slot} and NO mode field at all, so `ref b @ E::B` and

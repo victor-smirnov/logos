@@ -1,6 +1,8 @@
 package generic_pow;
 
-fn pow<T>(base: T, n: i32) -> T {
+// `T: Copy` is required: `base` is used TWICE (`base * pow(base, …)`), and
+// rustc answers E0382 "use of moved value: `base`" without the bound.
+fn pow<T: Copy>(base: T, n: i32) -> T {
     if n == 0 { return 1; }
     return base * pow::<T>(base, n - 1);
 }
