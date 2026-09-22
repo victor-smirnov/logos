@@ -436,7 +436,10 @@ unsafe fn parse_value(h: &Writ, p: *mut P, depth: i64) -> WAny {
     }
     if c == 34u8 {                               // "  string
         let s: String = parse_str_raw(p);
-        let sval: WAny = WAny::from(h.wstring(s.as_str()));
+        // The arena COPIES the bytes, so the handle is the arena's and not a
+        // view of `s`. Spelling the intermediate makes that explicit.
+        let ws: &WString = h.wstring(s.as_str());
+        let sval: WAny = WAny::from(ws);
         skip_ws(p);
         if peek(p) == 64u8 {                     // "init"@Type(params) postfix
             advance(p);

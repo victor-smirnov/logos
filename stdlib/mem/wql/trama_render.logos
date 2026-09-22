@@ -365,7 +365,13 @@ fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, 
                 // inferring): folding cannot change an EL type — a folded compare
                 // is a bool literal and the unfolded SBin compare infers BOOL —
                 // and the pre-pass has no arena to fold into.
-                ty.set_ty_named(s.var, infer_ty_name(s.expr_expr(), ty));
+                // The inferred name is READ OUT of `ty` and written back into
+                // it, so the read must finish before the write begins — rustc
+                // answers this exact shape with `cannot borrow *t as mutable
+                // because it is also borrowed as immutable`. An owned copy
+                // ends the shared borrow at the semicolon.
+                let nm: String = String::from_str(infer_ty_name(s.expr_expr(), ty));
+                ty.set_ty_named(s.var, string_as_str(&nm));
             }
             TStmt::If(i) => {
                 // Conditionals don't bind vars; recurse both arms with the same env.

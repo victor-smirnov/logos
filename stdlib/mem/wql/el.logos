@@ -1687,7 +1687,9 @@ pub struct ElTypes {
     // representative, so a `u64` column produced `i64` literals and an `i64` row
     // type. The class is a VIEW now (`ty_of` = `el_ty_of_name` of this), so there
     // is no second column to disagree with.
-    pub tns:    [str; 256],
+    pub tns: [String; 256],   // OWNED — the table is WRITTEN from names it
+                              // itself handed out (`set_ty_named(v, infer_ty_name(e, self))`),
+                              // so a view here would make the table borrow itself.
     pub n:      i64,
     pub udf_names: [str; 32],
     pub udf_ret:   [i32; 32],
@@ -1742,7 +1744,12 @@ pub fn EL_TY_CAP() -> i64 { return 256i64; }
 
 pub fn el_types_new() -> ElTypes {
     return ElTypes {
-        tns:    [""; 256],
+        // `[expr; N]` over a non-Copy element. Rust requires `Copy` here; Logos
+        // RE-LOWERS the operand once per slot (sema_expr: "re-lower for each
+        // slot"), so the 256 slots are 256 separate values and nothing is
+        // shared. `String::new()` over `from_str("")` only to avoid 256
+        // one-byte allocations for a table that is usually sparse.
+        tns:    [String::new(); 256],
         names:  [""; 256],
         n:      0i64,
         udf_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -1793,12 +1800,12 @@ impl ElTypes {
     pub fn set_ty_named(self: &mut ElTypes, name: str, ty_name: str) {
         let mut i: i64 = 0i64;
         while i < self.n {
-            if str_eq(self.names[i], name) { self.tns[i] = ty_name; return; }
+            if str_eq(self.names[i], name) { self.tns[i] = String::from_str(ty_name); return; }
             i = i + 1i64;
         }
         if self.n >= EL_TY_CAP() { self.note_overflow("", name); return; }
         self.names[self.n] = name;
-        self.tns[self.n]   = ty_name;
+        self.tns[self.n]   = String::from_str(ty_name);
         self.n = self.n + 1i64;
     }
 
@@ -1833,7 +1840,7 @@ impl ElTypes {
     pub fn ty_name_of(self: &ElTypes, name: str) -> str {
         let mut i: i64 = 0i64;
         while i < self.n {
-            if str_eq(self.names[i], name) { return self.tns[i]; }
+            if str_eq(self.names[i], name) { return string_as_str(&self.tns[i]); }
             i = i + 1i64;
         }
         return "i64";

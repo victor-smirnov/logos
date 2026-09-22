@@ -3306,6 +3306,36 @@ private:
                 }
                 labels(decl.elem(), actual.elem(), out, depth + 1);
                 return;
+            case LogosType::Kind::DstRef:
+                // `&WString` IS NOT A `Ref`. WString is unsized, so the borrow
+                // is a DstRef — and with this case missing the switch fell
+                // through, the label count did not match the origin count, and
+                // the caller replaced every label with "?", which matches every
+                // source. `Writ::wstring<'a>(self: &'a Writ, s: str) -> &'a
+                // WString` then gave its result `s`'s region as well as the
+                // arena's, so `parse_value` looked like it returned a borrow of
+                // the local `String` whose bytes the arena had just COPIED.
+                // A written region on a DST borrow is a contract like any other.
+                //
+                // One label, and no recursion into the pointee: that is exactly
+                // what `walk_type`'s DstRef arm counts.
+                if (!same(dk, ak)) break;
+                {
+                    // ⚠ ONLY A WRITTEN REGION. Labelling an ELIDED DST borrow
+                    // too was MEASURED and is wrong: the corpus went 146 -> 556
+                    // failing, +239 of them pass fixtures newly REFUSED. An
+                    // empty label is not "no constraint" — it takes the
+                    // elided-result fallback, which relates every elided input,
+                    // and behind `&mut` it also arms the invariance back-edge.
+                    // Falling through to "?" is what those callees had before
+                    // and what they still get; the contract-honouring part is
+                    // the WRITTEN `'a`, which is all this case is here for.
+                    std::string lt(decl.lifetime());
+                    if (lt.empty() || lt == "'_") break;
+                    if (actual.owning_dst() || actual.raw_fat()) break;
+                    out.push_back(lt);
+                }
+                return;
             case LogosType::Kind::Array:
                 if (!same(dk, ak)) break;
                 labels(decl.elem(), actual.elem(), out, depth + 1);
