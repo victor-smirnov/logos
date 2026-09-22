@@ -74,13 +74,13 @@ impl Writ {
 
 impl WAny {
     /// Returns `true` if this is a Ref to a `WDecimal` (tag `W_DECIMAL`).
-    pub fn is_decimal(self: &WAny) -> bool {
+    pub fn is_decimal(self: WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_DECIMAL;
     }
     /// Borrows the pointed-at `WDecimal`; the caller must check `is_decimal()` first.
     /// PANICS if this is not a Ref to a `W_DECIMAL` object (resolver-guard class — see
     /// the note at the top of `writ/array.logos`).
-    pub fn as_decimal(self: &WAny) -> &WDecimal {
+    pub fn as_decimal(self: WAny) -> &WDecimal {
         if !self.is_decimal() { panic("WAny::as_decimal: the WAny is not a Ref to a W_DECIMAL object — check is_decimal() first"); }
         return unsafe { &*(self.resolve() as *const WDecimal) };
     }

@@ -66,12 +66,16 @@ impl WAny {
     // (low-bit-0). Reconstructing the word from the two arms makes the niche-enum
     // transition transparent to the bit-twiddling accessors below.
     /// Returns the raw 8-byte word: Pod → the tagged word, Ref → the absolute pointer bits.
-    pub fn raw(self: &WAny) -> i64 {
+    pub fn raw(self: WAny) -> i64 {
         // The niche enum IS its 8-byte word (value form: Pod = the tagged word,
         // Ref = the absolute pointer bits). Read it directly rather than matching —
         // both arms reconstruct the same word, and this avoids the via-&self niche
         // match entirely.
-        return unsafe { *(self as *const WAny as *const i64) };
+        // `&self` is the LOCAL COPY's address, not the caller's handle: the
+        // borrow begins and ends inside this method. Through a `&self`
+        // parameter it was the CALLER's place that got borrowed, and a walker
+        // that only ever asks `v.raw()` looked like it lent `v` out.
+        return unsafe { *(&self as *const WAny as *const i64) };
     }
 
     // ── constructors (value form) ─────────────────────────────────────────────
@@ -114,23 +118,23 @@ impl WAny {
     //   call sites). `resolve` returns a raw pointer (safe to OBTAIN, like Rust's
     //   `as_ptr`); dereferencing / tagged-dispatch through it is where `unsafe` lives.
     /// Returns `true` iff the raw word is 0 (the null reference).
-    pub fn is_null(self: &WAny) -> bool { return self.raw() == 0i64; }
+    pub fn is_null(self: WAny) -> bool { return self.raw() == 0i64; }
     /// Returns `true` iff this holds an inline Pod (low bit 1).
-    pub fn is_pod(self: &WAny)  -> bool { return (self.raw() & 1i64) == 1i64; }
+    pub fn is_pod(self: WAny)  -> bool { return (self.raw() & 1i64) == 1i64; }
     /// Returns `true` iff this holds a non-null Ref (low bit 0, word != 0).
-    pub fn is_ref(self: &WAny)  -> bool {
+    pub fn is_ref(self: WAny)  -> bool {
         let w: i64 = self.raw();           // single read (raw() is a non-inlined call)
         return (w & 1i64) == 0i64 && w != 0i64;
     }
     /// Returns the Pod's 7-bit type code (bits[7:1]); meaningful only when `is_pod()`.
-    pub fn pod_code(self: &WAny) -> u8 { return ((self.raw() >> 1) & 0x7Fi64) as u8; }
+    pub fn pod_code(self: WAny) -> u8 { return ((self.raw() >> 1) & 0x7Fi64) as u8; }
     /// Returns the inline Pod value: bits[63:8] sign-extended to `i64`.
-    pub fn as_i56(self: &WAny)  -> i64 { return self.raw() >> 8; }   // sign-extends
+    pub fn as_i56(self: WAny)  -> i64 { return self.raw() >> 8; }   // sign-extends
     /// Returns `true` iff the inline Pod value (bits[63:8]) is nonzero.
-    pub fn as_bool(self: &WAny) -> bool { return (self.raw() >> 8) != 0i64; }
+    pub fn as_bool(self: WAny) -> bool { return (self.raw() >> 8) != 0i64; }
     // Resolve a Ref to the absolute tagged-object pointer (value form holds it raw).
     /// Returns the Ref's absolute tagged-object pointer; safe to obtain, `unsafe` to dereference.
-    pub fn resolve(self: &WAny) -> *const u8 { return self.raw() as *const u8; }
+    pub fn resolve(self: WAny) -> *const u8 { return self.raw() as *const u8; }
 }
 
 // Writ WAny Pod primitive type codes (7-bit; identify the inline value).
@@ -244,34 +248,34 @@ impl WAny {
     // Exact-width reads — the inline value re-narrowed to the written type. (A wrong
     // accessor truncates rather than faulting; pair with the `is_*` predicate.)
     /// Returns the inline value narrowed to `i8`; a wrong accessor truncates (pair with `is_i8`).
-    pub fn as_i8(self: &WAny)  -> i8  { return self.as_i56() as i8;  }
+    pub fn as_i8(self: WAny)  -> i8  { return self.as_i56() as i8;  }
     /// Returns the inline value narrowed to `u8`; truncates on mismatch (pair with `is_u8`).
-    pub fn as_u8(self: &WAny)  -> u8  { return self.as_i56() as u8;  }
+    pub fn as_u8(self: WAny)  -> u8  { return self.as_i56() as u8;  }
     /// Returns the inline value narrowed to `i16`; truncates on mismatch (pair with `is_i16`).
-    pub fn as_i16(self: &WAny) -> i16 { return self.as_i56() as i16; }
+    pub fn as_i16(self: WAny) -> i16 { return self.as_i56() as i16; }
     /// Returns the inline value narrowed to `i24`; truncates on mismatch (pair with `is_i24`).
-    pub fn as_i24(self: &WAny) -> i24 { return self.as_i56() as i24; }
+    pub fn as_i24(self: WAny) -> i24 { return self.as_i56() as i24; }
     /// Returns the inline value narrowed to `u16`; truncates on mismatch (pair with `is_u16`).
-    pub fn as_u16(self: &WAny) -> u16 { return self.as_i56() as u16; }
+    pub fn as_u16(self: WAny) -> u16 { return self.as_i56() as u16; }
     /// Returns the inline value narrowed to `u24`; truncates on mismatch (pair with `is_u24`).
-    pub fn as_u24(self: &WAny) -> u24 { return self.as_i56() as u24; }
+    pub fn as_u24(self: WAny) -> u24 { return self.as_i56() as u24; }
 
     /// Returns `true` iff an inline Pod tagged `WA_I56`.
-    pub fn is_i56(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WA_I56; }
+    pub fn is_i56(self: WAny)  -> bool { return self.is_pod() && self.pod_code() == WA_I56; }
     /// Returns `true` iff an inline Pod tagged `WA_BOOL`.
-    pub fn is_bool(self: &WAny) -> bool { return self.is_pod() && self.pod_code() == WA_BOOL; }
+    pub fn is_bool(self: WAny) -> bool { return self.is_pod() && self.pod_code() == WA_BOOL; }
     /// Returns `true` iff an inline Pod tagged `WT_I8`.
-    pub fn is_i8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == WT_I8;  }
+    pub fn is_i8(self: WAny)   -> bool { return self.is_pod() && self.pod_code() == WT_I8;  }
     /// Returns `true` iff an inline Pod tagged `WT_U8`.
-    pub fn is_u8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == WT_U8;  }
+    pub fn is_u8(self: WAny)   -> bool { return self.is_pod() && self.pod_code() == WT_U8;  }
     /// Returns `true` iff an inline Pod tagged `WT_I16`.
-    pub fn is_i16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_I16; }
+    pub fn is_i16(self: WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_I16; }
     /// Returns `true` iff an inline Pod tagged `WT_I24`.
-    pub fn is_i24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_I24; }
+    pub fn is_i24(self: WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_I24; }
     /// Returns `true` iff an inline Pod tagged `WT_U16`.
-    pub fn is_u16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_U16; }
+    pub fn is_u16(self: WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_U16; }
     /// Returns `true` iff an inline Pod tagged `WT_U24`.
-    pub fn is_u24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_U24; }
+    pub fn is_u24(self: WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_U24; }
     // (the value reads back via the matching `as_*`)
 
     // The unified type code: for a Pod, the inline pod code; for a Ref, the
@@ -279,26 +283,26 @@ impl WAny {
     // for generic walkers (stringify / binary / equality).
     /// Returns the unified type code: Pod → inline pod code, Ref → the pointee's
     /// in-band tag, null → 0.
-    pub fn type_code(self: &WAny) -> u64 {
+    pub fn type_code(self: WAny) -> u64 {
         if self.is_null() { return 0u64; }
         if self.is_pod()  { return self.pod_code() as u64; }
         return unsafe { w_type_code(self.resolve()) };
     }
     /// Returns `true` iff a Ref to a `W_STRING` arena object.
-    pub fn is_string(self: &WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_STRING; }
+    pub fn is_string(self: WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_STRING; }
     /// Returns `true` iff a Ref to a `W_ARRAY` arena object.
-    pub fn is_array(self: &WAny)  -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_ARRAY; }
+    pub fn is_array(self: WAny)  -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_ARRAY; }
     /// Returns `true` iff a Ref to a `W_MAP` arena object.
-    pub fn is_map(self: &WAny)    -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_MAP; }
+    pub fn is_map(self: WAny)    -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_MAP; }
     /// Returns `true` iff a Ref to a `W_TINYMAP` (bitmap-indexed tiny map) object.
-    pub fn is_tinymap(self: &WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_TINYMAP; }
+    pub fn is_tinymap(self: WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_TINYMAP; }
 
     // Wide scalars: an integer is an inline (i56 / exact-width) Pod or a boxed
     // W_I64 / W_U64; a float is a boxed W_F32 / W_F64. `as_i64`/`as_u64`/
     // `as_f32`/`as_f64` read whichever form holds the value.
     /// Returns `true` iff an integer in any form: inline Pod (`WA_I56` or exact-width)
     /// or boxed `W_I64`/`W_U64`.
-    pub fn is_int(self: &WAny) -> bool {
+    pub fn is_int(self: WAny) -> bool {
         if self.is_pod() {
             let c: u8 = self.pod_code();
             // the generic i56, or any exact-width inline integer (I8..U24, 20..25).
@@ -309,29 +313,29 @@ impl WAny {
         return t == W_I64 || t == W_U64;          // boxed i64 / u64
     }
     /// Returns `true` iff a Ref to a boxed `W_U64` object (inline Pods never carry u64).
-    pub fn is_u64(self: &WAny) -> bool {
+    pub fn is_u64(self: WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_U64;
     }
     /// Returns `true` iff a Ref to a boxed `W_F32` object.
-    pub fn is_f32(self: &WAny) -> bool {
+    pub fn is_f32(self: WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_F32;
     }
     /// Returns `true` iff a Ref to a boxed float (`W_F32` or `W_F64`); floats never inline.
-    pub fn is_float(self: &WAny) -> bool {
+    pub fn is_float(self: WAny) -> bool {
         if !self.is_ref() { return false; }
         let t: u64 = unsafe { w_type_code(self.resolve()) };
         return t == W_F32 || t == W_F64;          // boxed f32 / f64
     }
     /// Returns the integer value: inline Pod → sign-extended i56, boxed Ref → the
     /// 64-bit pointee, null → 0 (ADR 0011 absent-key default).
-    pub fn as_i64(self: &WAny) -> i64 {
+    pub fn as_i64(self: WAny) -> i64 {
         if self.is_pod() { return self.as_i56(); }
         if self.is_null() { return 0i64; }   // null/absent WAny decodes to zero (ADR 0011 absent-key default)
         return unsafe { *(self.resolve() as *const i64) };
     }
     /// Returns the unsigned value: inline Pod → `as_i56() as u64`, boxed Ref → the
     /// 64-bit pointee, null → 0.
-    pub fn as_u64(self: &WAny) -> u64 {
+    pub fn as_u64(self: WAny) -> u64 {
         if self.is_pod() { return self.as_i56() as u64; }
         if self.is_null() { return 0u64; }
         return unsafe { *(self.resolve() as *const u64) };
@@ -341,7 +345,7 @@ impl WAny {
     // so a bare null-check would fall through and reinterpret the Pod word as a wild
     // `*f32`/`*f64` pointer → SIGSEGV. `!is_ref()` covers both null and Pod → 0.0.
     /// Returns the boxed `f32` value; null or Pod → `0.0` (floats are never inline).
-    pub fn as_f32(self: &WAny) -> f32 {
+    pub fn as_f32(self: WAny) -> f32 {
         if !self.is_ref() { return 0.0f32; }
         // A W_F64 box holds EIGHT bytes; reading four of them as an f32 is the
         // mirror of the defect fixed in `as_f64` below, and it is the same fix.
@@ -369,7 +373,7 @@ impl WAny {
     /// denormal. Victor ruled 2026-08-04 that this is a FIX and not a migration:
     /// nothing correct ever depended on the denormal, and the wire format has one
     /// float tag with no f32 variant to be compatible with.
-    pub fn as_f64(self: &WAny) -> f64 {
+    pub fn as_f64(self: WAny) -> f64 {
         if !self.is_ref() { return 0.0f64; }
         if unsafe { w_type_code(self.resolve()) } == W_F32 {
             return unsafe { *(self.resolve() as *const f32) } as f64;

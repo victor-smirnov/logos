@@ -342,7 +342,7 @@ impl RQJoinStepArr {
     // fat-view rewrap for the handler's row_ty stamp). The raw()/ref_to round
     // trip launders the field-temp provenance (the WAny targets the step's TOM
     // in the arena, which outlives the view — the as_ref idiom).
-    pub fn step_any(self: &RQJoinStepArr, i: i64) -> WAny {
+    pub fn step_any(self: RQJoinStepArr, i: i64) -> WAny {
         if i == 0i64 { return unsafe { WAny::ref_to(self.s0.any().raw() as *const u8) }; }
         if i == 1i64 { return unsafe { WAny::ref_to(self.s1.any().raw() as *const u8) }; }
         if i == 2i64 { return unsafe { WAny::ref_to(self.s2.any().raw() as *const u8) }; }
@@ -554,7 +554,7 @@ impl RQBodyArr {
 
     // The i-th body's raw edge handle (raw()/ref_to provenance laundering —
     // the step_any idiom; feeds the walker's fat-view rewrap for stamping).
-    pub fn body_any(self: &RQBodyArr, i: i64) -> WAny {
+    pub fn body_any(self: RQBodyArr, i: i64) -> WAny {
         if i == 0i64 { return unsafe { WAny::ref_to(self.b0.any().raw() as *const u8) }; }
         if i == 1i64 { return unsafe { WAny::ref_to(self.b1.any().raw() as *const u8) }; }
         if i == 2i64 { return unsafe { WAny::ref_to(self.b2.any().raw() as *const u8) }; }

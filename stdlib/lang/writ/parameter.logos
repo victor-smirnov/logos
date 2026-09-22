@@ -74,13 +74,13 @@ impl Writ {
 
 impl WAny {
     /// Returns `true` if this value is a Ref to a `WParameter`.
-    pub fn is_parameter(self: &WAny) -> bool {
+    pub fn is_parameter(self: WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_PARAMETER;
     }
     /// Borrows the pointed-at `WParameter`; check `is_parameter` first.
     /// PANICS if this is not a Ref to a `W_PARAMETER` object (resolver-guard class — see
     /// the note at the top of `writ/array.logos`).
-    pub fn as_parameter(self: &WAny) -> &WParameter {
+    pub fn as_parameter(self: WAny) -> &WParameter {
         if !self.is_parameter() { panic("WAny::as_parameter: the WAny is not a Ref to a W_PARAMETER object — check is_parameter() first"); }
         return unsafe { &*(self.resolve() as *const WParameter) };
     }

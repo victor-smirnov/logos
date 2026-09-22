@@ -50,7 +50,12 @@ impl<S> WRef<S> {
     // Wrap an existing erased ref handle.
     pub fn from_any(h: WAny) -> WRef<S> { return WRef::<S> { h: h }; }
     // The erased handle (consumers call `.resolve()` then `.view::<S>()`).
-    pub fn any(self: &WRef<S>) -> WAny { return self.h; }
+    // BY VALUE: a `WRef` is an 8-byte handle wrapping the document's `WAny`,
+    // and the handle it returns belongs to the DOCUMENT. Through `&self`,
+    // elision gave the result the WRAPPER's region — so `prog.segs.any()`,
+    // whose receiver is a field TEMPORARY, produced a WAny that died with
+    // that temporary while the caller still held it.
+    pub fn any(self: WRef<S>) -> WAny { return self.h; }
 }
 
 // `WRef<S>` is a schema field: the at-rest value IS the WAny handle (identity).
@@ -103,7 +108,7 @@ impl SExprArr {
     // WAny edge itself (e.g. the optimizer's changed-child comparison) rather
     // than a bound view. Rebuilt through `raw()` (the step_any provenance-
     // laundering idiom) so no reference to the temporary WRef escapes.
-    pub fn arg_any(self: &SExprArr, i: i64) -> WAny {
+    pub fn arg_any(self: SExprArr, i: i64) -> WAny {
         if i == 0i64 { return unsafe { WAny::ref_to(self.a0.any().raw() as *const u8) }; }
         if i == 1i64 { return unsafe { WAny::ref_to(self.a1.any().raw() as *const u8) }; }
         if i == 2i64 { return unsafe { WAny::ref_to(self.a2.any().raw() as *const u8) }; }

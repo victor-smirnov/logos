@@ -817,7 +817,7 @@ fn wany_to_rt(v: WAny) -> RtVal {
 // ═══════════════════════════════════════════════════════════════════════════
 /// Runtime scalar value of the Deem evaluator — the argument/result type of UDFs and UDAs.
 /// Cheap to copy (all payloads are word-sized views/handles).
-pub enum RtVal {
+pub enum RtVal<'s> {
     /// 64-bit integer.
     I(i64),
     /// 64-bit float.
@@ -880,7 +880,14 @@ fn rt_is_err(v: RtVal) -> bool {
 // step(acc, arg) folds one row, fin(acc) finalizes (pass an identity fn when
 // no finalization is needed).
 /// Scalar UDF: evaluated argument values in, one value out.
-pub type QFn      = fn(&[RtVal]) -> RtVal;
+// ⚠ TWO REGIONS, AND THEY ARE NOT THE SAME ONE. The outer `&` is the borrow
+// of the caller's argument BUFFER and lasts only for the call; `'s` is where
+// the values themselves live, which is the render scratch. `RtVal::S`'s own
+// doc states the contract — "a UDF returning `S` must return a view that
+// outlives the call" — and with both elided the result was tied to the
+// BUFFER, so `eval_sexpr` looked like it returned a borrow of the local
+// `argv` it had just filled.
+pub type QFn<'s>  = fn(&[RtVal<'s>]) -> RtVal<'s>;
 /// UDA initializer: seeds the accumulator.
 pub type QAggInit = fn() -> RtVal;
 /// UDA step: folds one row's value into the accumulator.

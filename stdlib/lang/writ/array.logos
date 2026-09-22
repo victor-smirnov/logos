@@ -279,7 +279,14 @@ impl WAny {
     /// Resolves a Ref to a borrowed read-only `&WArray<WAny>`; check `is_array()` first.
     /// Encapsulates the `resolve()`+cast so callers stay safe.
     /// PANICS if this is not a Ref to a `W_ARRAY` object (see the resolver-guard note above).
-    pub fn as_array(self: &WAny) -> &WArray<WAny> {
+    // ⚠ THE OUTPUT REGION IS THIS METHOD'S OWN, NOT `&self`'s. The object
+    // is resolved from the WAny's ARENA POINTER and lives in the arena, not
+    // inside the 8-byte `WAny` word. With it elided, Rust's elision rule 3
+    // ties it to `&self`, and every value reached THROUGH it then carries a
+    // loan of a by-value handle — `wg_walk(v: WAny, out: &mut Vec<Row>)`
+    // read as storing a borrow of `v` into `out` and escaping the function.
+    // Same idiom, and the same justification, as `WAny::as_wstr` next door.
+    pub fn as_array<'a>(self: WAny) -> &'a WArray<WAny> {
         if !self.is_array() { panic("WAny::as_array: the WAny is not a Ref to a W_ARRAY object — check is_array() first"); }
         return unsafe { &*(self.resolve() as *const WArray<WAny>) };
     }

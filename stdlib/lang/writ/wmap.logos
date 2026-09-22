@@ -317,7 +317,14 @@ impl WAny {
     /// Check `is_map()` first; encapsulates the resolve()+cast so callers stay unsafe-free.
     /// PANICS if this is not a Ref to a `W_MAP` object. Note the tag is W_MAP, not
     /// W_TINYMAP: a `WMap<Wu6, WAny>` is a DIFFERENT type and does not resolve here.
-    pub fn as_map(self: &WAny) -> &WMap<WString, WAny> {
+    // ⚠ THE OUTPUT REGION IS THIS METHOD'S OWN, NOT `&self`'s. The object
+    // is resolved from the WAny's ARENA POINTER and lives in the arena, not
+    // inside the 8-byte `WAny` word. With it elided, Rust's elision rule 3
+    // ties it to `&self`, and every value reached THROUGH it then carries a
+    // loan of a by-value handle — `wg_walk(v: WAny, out: &mut Vec<Row>)`
+    // read as storing a borrow of `v` into `out` and escaping the function.
+    // Same idiom, and the same justification, as `WAny::as_wstr` next door.
+    pub fn as_map<'a>(self: WAny) -> &'a WMap<WString, WAny> {
         if !self.is_map() { panic("WAny::as_map: the WAny is not a Ref to a W_MAP object — check is_map() first"); }
         return unsafe { &*(self.resolve() as *const WMap<WString, WAny>) };
     }

@@ -114,7 +114,14 @@ impl WAny {
     /// Encapsulates the `resolve()`+cast so callers stay `unsafe`-free.
     /// PANICS if this is not a Ref to a `W_STRING` object. (`as_wstr` below is the
     /// null-safe VALUE form and keeps its ADR-0011 empty-str default instead.)
-    pub fn as_string(self: &WAny) -> &WString {
+    // ⚠ THE OUTPUT REGION IS THIS METHOD'S OWN, NOT `&self`'s. The object
+    // is resolved from the WAny's ARENA POINTER and lives in the arena, not
+    // inside the 8-byte `WAny` word. With it elided, Rust's elision rule 3
+    // ties it to `&self`, and every value reached THROUGH it then carries a
+    // loan of a by-value handle — `wg_walk(v: WAny, out: &mut Vec<Row>)`
+    // read as storing a borrow of `v` into `out` and escaping the function.
+    // Same idiom, and the same justification, as `WAny::as_wstr` next door.
+    pub fn as_string<'a>(self: WAny) -> &'a WString {
         if !self.is_string() { panic("WAny::as_string: the WAny is not a Ref to a W_STRING object — check is_string() first"); }
         return unsafe { &*(self.resolve() as *const WString) };
     }
@@ -136,7 +143,7 @@ impl WAny {
     // then returns a borrow of a BY-VALUE parameter — which the ADR 0028
     // checker refuses and rustc refuses too (E0515). Same idiom as
     // `wstr_as_str` next door and the generated `val_at`.
-    pub fn as_wstr<'a>(self: &WAny) -> &'a str {
+    pub fn as_wstr<'a>(self: WAny) -> &'a str {
         if !self.is_string() { return str_from_raw(0i64 as *const u8, 0i64); }
         return unsafe { (&*(self.resolve() as *const WString)).as_str() };
     }

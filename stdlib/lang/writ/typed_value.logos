@@ -83,13 +83,13 @@ impl Writ {
 
 impl WAny {
     /// Returns `true` if this value is a `Ref` to a `WTypedValue`.
-    pub fn is_typed_value(self: &WAny) -> bool {
+    pub fn is_typed_value(self: WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_TYPEDVALUE;
     }
     /// Borrows the pointed-at typed value; call `is_typed_value` first.
     /// PANICS if this is not a Ref to a `W_TYPEDVALUE` object (resolver-guard class — see
     /// the note at the top of `writ/array.logos`).
-    pub fn as_typed_value(self: &WAny) -> &WTypedValue {
+    pub fn as_typed_value(self: WAny) -> &WTypedValue {
         if !self.is_typed_value() { panic("WAny::as_typed_value: the WAny is not a Ref to a W_TYPEDVALUE object — check is_typed_value() first"); }
         return unsafe { &*(self.resolve() as *const WTypedValue) };
     }

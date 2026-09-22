@@ -339,11 +339,11 @@ impl WAny {
     pub fn from(r: &WRow) -> WAny { return unsafe { WAny::ref_to(r as *const WRow as *const u8) }; }
 
     /// Returns `true` iff a Ref to a `W_ROW` arena object.
-    pub fn is_row(self: &WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_ROW; }
+    pub fn is_row(self: WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_ROW; }
 
     /// Resolves a Ref `WAny` to a borrowed `&WRow`. Check `is_row()` first.
     /// PANICS if this is not a Ref to a `W_ROW` object.
-    pub fn as_row(self: &WAny) -> &WRow {
+    pub fn as_row(self: WAny) -> &WRow {
         if !self.is_row() { panic("WAny::as_row: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
         return unsafe { &*(self.resolve() as *const WRow) };
     }
