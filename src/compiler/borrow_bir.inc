@@ -1570,6 +1570,18 @@ private:
                         t.args.push_back(as_read(operand(c)));
                         break;
                 }
+                // An ERASED callable (`&dyn Fn(&'q i64) -> &'q i64`, `|T| -> R`)
+                // has a signature its author WROTE, as a fn pointer's is, so the
+                // call is related by that type exactly like a FnPtrCall. A
+                // closure LITERAL's type keeps the old path: its signature is
+                // the literal's own, and its captures ride in the receiver.
+                if (c) {
+                    TypeRef ct = c.type(pool_);
+                    while (ct && (ct.kind() == LogosType::Kind::Ref || ct.kind() == LogosType::Kind::MutRef))
+                        ct = ct.pointee();
+                    if (ct && ct.kind() == LogosType::Kind::Closure && !ct.closure_literal_id())
+                        t.callee_fty = ct;
+                }
                 v.each_arg(arg_value);
                 break;
             }
@@ -2935,6 +2947,7 @@ private:
     // ── origins ──
     struct OList { std::vector<uint32_t> os; std::vector<bool> inv; bool exact = true; };
     std::map<uint32_t, Universal> placeholder_owner_;
+    std::map<std::string, uint32_t> named_origin_;   // declared `'a` -> its own universal origin
     const ClosureReqs* creqs_ = nullptr;
     uint32_t fresh_origin() { return n_origins_++; }
     void walk_type(TypeRef t, bool invariant, OList& out, int depth = 0) {
@@ -3680,6 +3693,14 @@ private:
         // call. This is how rustc knows a Vec keeps what was pushed into it;
         // the body-derived out-param summary below remains for callees whose
         // signature does not say (hidden regions).
+        // AN INDIRECT CALL'S TYPE IS WRITTEN IN THE CALLER, so a lifetime it
+        // names is the CALLER's: passing `&t` where `f: &dyn Fn(&'q i64)` asks
+        // for `&'q i64` requires `t` to be borrowed for all of `'q`. (A direct
+        // call's labels are the callee's own late-bound names and bind fresh.)
+        if (indirect)
+            for (auto& sr : srcs)
+                if (auto it = named_origin_.find(sr.label); it != named_origin_.end())
+                    subset(sr.origin, it->second, p);
         for (size_t a = 0; a < srcs.size(); ++a)
             for (size_t b = 0; b < srcs.size(); ++b) {
                 if (a == b || !srcs[b].inv || srcs[a].label != srcs[b].label) continue;
@@ -4543,6 +4564,21 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                 us.push_back({os.os[k], ls[k], bool(cm[k]), L.is_capture});
                 placeholder_owner_.emplace(os.os[k], Universal{li, ls[k]});
             }
+        }
+        // ONE REGION PER DECLARED LIFETIME. `'q` may be written only inside a
+        // parameter's ERASED type (`f: &dyn Fn(&'q i64) -> &'q i64`), which
+        // walks to a single stand-in origin — so the function had no region
+        // that IS `'q`, and `f(&t)` could not be required to borrow `t` for
+        // `'q` (rustc: E0597). A named origin per lifetime parameter is that
+        // region; it is universal and related to the rest by its label like
+        // any parameter region. relate_call ties an indirect call's arguments
+        // to it.
+        for (auto& lp : b_.lifetime_params) {
+            if (lp.empty() || lp == "'static" || lp == "'_") continue;
+            uint32_t no = fresh_origin();
+            named_origin_[lp] = no;
+            row("universal_region", {o(no)});
+            us.push_back({no, lp, true, false});
         }
         uint32_t next_loan = 1000000;   // placeholder loans never meet a real loan's id
         for (auto& u : us) row("placeholder", {o(u.origin), l(next_loan++)});

@@ -1,1 +1,1 @@
-[fn manip]: lifetime elision: return reference must derive from 'y' (the only reference parameter)
+'t' does not live long enough: it is borrowed here and used after 't' goes out of scope

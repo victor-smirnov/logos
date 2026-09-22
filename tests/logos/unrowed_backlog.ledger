@@ -488,5 +488,7 @@ e0382_three_sentences_not_one 2026-09-22 diagnostics tests/imported/fail/borrowc
 
 impl_header_implied_bounds_not_required_at_call 2026-09-22 borrow-check tests/imported/fail/regions/wf-self-type
 
-# TOTAL 26
-# SYNC-HASH 46e5792387abed878727475411b5e62e
+closure_signature_elided_regions_are_distinct 2026-09-22 borrow-check tests/imported/fail/regions/regions-infer-call-3
+
+# TOTAL 27
+# SYNC-HASH c21d1b06aa46f84057953808cd0023ea

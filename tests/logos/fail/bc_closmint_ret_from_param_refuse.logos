@@ -1,0 +1,18 @@
+// `with<'q>(f: &dyn Fn(&'q i64) -> &'q i64)` calls `f(&t)` with a LOCAL `t`: the
+// argument must be borrowed for all of `'q`, a lifetime of `with` itself, so `t`
+// does not live long enough — whatever closure the caller passes. MEASURED, rustc
+// 1.98.1 by path, 2026-09-22: E0597 on `t`, plus "lifetime may not live long enough"
+// in the closure (#460). This file was pass/bc_closmint_ret_from_param, the "legal
+// twin" of fail/bc_closmint_ret_from_capture_fail; it was never legal — the two
+// differ only in the closure body, and the error rustc reports first is not there.
+package bc_closmint_ret_from_param_refuse;
+
+fn select<'r>(a: &'r i64, b: &'r i64) -> &'r i64 { return a; }
+fn with<'q>(f: &dyn Fn(&'q i64) -> &'q i64) -> i64 { let t: i64 = 20i64; return *f(&t); }
+
+fn manip<'a>(x: &'a i64) -> i64 {
+    let c = |y: &i64| { return select(y, y); };
+    return with(&c);
+}
+
+fn main() -> i32 { let v: i64 = 1i64; if manip(&v) != 20i64 { return 1i32; } return 0i32; }
