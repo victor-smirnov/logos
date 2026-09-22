@@ -325,7 +325,7 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
     if ri >= 0i64 {
         *at = ri;
         out.push_str("(");
-        out.push_str(prm.rel_size_at[ri]);
+        out.push_str(string_as_str(&prm.rel_size_at[ri]));
         out.push_str(" as i64)");
         return true;
     }
@@ -395,7 +395,7 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
     // size perfectly well.
     if prm.rel_src_streams(src) { return SZ_STREAMS(); }
     let ri: i64 = prm.rel_find_src(src);
-    if ri >= 0i64 && prm.rel_size_at[ri].len() == 0i64 {
+    if ri >= 0i64 && string_as_str(&prm.rel_size_at[ri]).len() == 0i64 {
         if prm.rel_native[ri] { return SZ_DERIVED(); }
         return SZ_LOCAL();
     }

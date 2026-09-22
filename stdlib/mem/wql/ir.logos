@@ -83,7 +83,7 @@ pub fn SEXPRARR_MAX() -> i64 { return 8i64; }
 
 impl SExprArr {
     // The arg count (the prepared list arity).
-    pub fn len(self: &SExprArr) -> i64 { return self.count as i64; }
+    pub fn len(self: SExprArr) -> i64 { return self.count as i64; }
 
     // The i-th argument as an SExpr view (0-based). Out-of-range i is a caller
     // error; reads the fixed slot key i+1. The slots are a flat fan-out (no
@@ -182,17 +182,17 @@ pub schema enum SExpr : category(0x0010_0000_0000_0000) {
 // The cast through `i64` launders the pointer provenance: the WAny ref targets
 // the TOM in the Writ arena (which outlives the view), so it is NOT a dangling
 // reference to the local view — mirrors static_view.logos's WAny::Ref pattern.
-impl SLit     { pub fn as_ref(self: &SLit)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SParam   { pub fn as_ref(self: &SParam)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SVar     { pub fn as_ref(self: &SVar)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SField   { pub fn as_ref(self: &SField)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SBin     { pub fn as_ref(self: &SBin)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SUn      { pub fn as_ref(self: &SUn)      -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SCall    { pub fn as_ref(self: &SCall)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SCond    { pub fn as_ref(self: &SCond)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SComp    { pub fn as_ref(self: &SComp)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl STuple   { pub fn as_ref(self: &STuple)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl SExprArr { pub fn as_ref(self: &SExprArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SLit     { pub fn as_ref(self: SLit)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SParam   { pub fn as_ref(self: SParam)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SVar     { pub fn as_ref(self: SVar)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SField   { pub fn as_ref(self: SField)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SBin     { pub fn as_ref(self: SBin)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SUn      { pub fn as_ref(self: SUn)      -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SCall    { pub fn as_ref(self: SCall)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SCond    { pub fn as_ref(self: SCond)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SComp    { pub fn as_ref(self: SComp)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl STuple   { pub fn as_ref(self: STuple)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SExprArr { pub fn as_ref(self: SExprArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── RAgg — one aggregate SPEC `out = fn(arg)` of an RAggr (ADR 0012 §2/§8) ────
 // The relational aggregate spec, enriching the algebra so `RAggr` captures the
@@ -211,7 +211,7 @@ pub schema RAgg : code(0x0011_0000_0000_0010) {
 impl RAgg {
     // The inner argument expression as an SExpr view (only valid when has_arg).
     pub fn arg_expr(self: &RAgg) -> SExpr { return self.arg.any().view::<SExpr>(); }
-    pub fn as_ref(self: &RAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // The materialized aggregate-spec list — a fan-out of up to `RAGG_MAX` RAgg edges
@@ -257,7 +257,7 @@ impl RAggArr {
     }
 
     pub fn set_len(self: &mut RAggArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RAggArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn as_ref(self: RAggArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 // ── Relational / graph tier — RExpr (category 0x0011) ─────────────────────
@@ -309,17 +309,17 @@ pub schema enum RExpr : category(0x0011_0000_0000_0000) {
 
 // Relational-node edge handles (same provenance-laundering rationale as the
 // scalar `as_ref` above): the WAny ref targets the node's TOM in the arena.
-impl RScan   { pub fn as_ref(self: &RScan)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl REdge   { pub fn as_ref(self: &REdge)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RFilter { pub fn as_ref(self: &RFilter) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RProj   { pub fn as_ref(self: &RProj)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RJoin   { pub fn as_ref(self: &RJoin)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RAnti   { pub fn as_ref(self: &RAnti)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RAggr   { pub fn as_ref(self: &RAggr)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RFix    { pub fn as_ref(self: &RFix)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RSort     { pub fn as_ref(self: &RSort)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RLimit    { pub fn as_ref(self: &RLimit)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RDistinct { pub fn as_ref(self: &RDistinct) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RScan   { pub fn as_ref(self: RScan)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl REdge   { pub fn as_ref(self: REdge)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RFilter { pub fn as_ref(self: RFilter) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RProj   { pub fn as_ref(self: RProj)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RJoin   { pub fn as_ref(self: RJoin)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RAnti   { pub fn as_ref(self: RAnti)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RAggr   { pub fn as_ref(self: RAggr)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RFix    { pub fn as_ref(self: RFix)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RSort     { pub fn as_ref(self: RSort)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RLimit    { pub fn as_ref(self: RLimit)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl RDistinct { pub fn as_ref(self: RDistinct) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── Typed edge RESOLVERS (the IR-walking convenience API) ─────────────────
 // Read a `WRef<S>` field → resolve the handle → bind the target view. These are
@@ -335,26 +335,26 @@ impl RDistinct { pub fn as_ref(self: &RDistinct) -> WAny { return unsafe { WAny:
 // tests/logos/pass/wql_wref_field_read.logos). The resolvers stay because the
 // named `…_expr()` form is clearer at call sites, not because reads must route
 // through this CU.
-impl SField { pub fn base_expr(self: &SField) -> SExpr { return self.base.any().view::<SExpr>(); } }
-impl SUn    { pub fn arg_expr(self: &SUn)      -> SExpr { return self.arg.any().view::<SExpr>(); } }
+impl SField { pub fn base_expr(self: SField) -> SExpr { return self.base.any().view::<SExpr>(); } }
+impl SUn    { pub fn arg_expr(self: SUn)      -> SExpr { return self.arg.any().view::<SExpr>(); } }
 impl SBin   {
-    pub fn lhs_expr(self: &SBin) -> SExpr { return self.lhs.any().view::<SExpr>(); }
-    pub fn rhs_expr(self: &SBin) -> SExpr { return self.rhs.any().view::<SExpr>(); }
+    pub fn lhs_expr(self: SBin) -> SExpr { return self.lhs.any().view::<SExpr>(); }
+    pub fn rhs_expr(self: SBin) -> SExpr { return self.rhs.any().view::<SExpr>(); }
 }
 impl SCond  {
-    pub fn cond_expr(self: &SCond) -> SExpr { return self.c.any().view::<SExpr>(); }
-    pub fn then_expr(self: &SCond) -> SExpr { return self.t.any().view::<SExpr>(); }
-    pub fn else_expr(self: &SCond) -> SExpr { return self.e.any().view::<SExpr>(); }
+    pub fn cond_expr(self: SCond) -> SExpr { return self.c.any().view::<SExpr>(); }
+    pub fn then_expr(self: SCond) -> SExpr { return self.t.any().view::<SExpr>(); }
+    pub fn else_expr(self: SCond) -> SExpr { return self.e.any().view::<SExpr>(); }
 }
 impl SCall  {
-    pub fn args_arr(self: &SCall) -> SExprArr { return self.args.any().view::<SExprArr>(); }
+    pub fn args_arr(self: SCall) -> SExprArr { return self.args.any().view::<SExprArr>(); }
 }
 impl SComp  {
-    pub fn plan_expr(self: &SComp) -> RExpr { return self.plan.any().view::<RExpr>(); }
-    pub fn head_expr(self: &SComp) -> SExpr { return self.head.any().view::<SExpr>(); }
+    pub fn plan_expr(self: SComp) -> RExpr { return self.plan.any().view::<RExpr>(); }
+    pub fn head_expr(self: SComp) -> SExpr { return self.head.any().view::<SExpr>(); }
 }
 impl STuple {
-    pub fn items_arr(self: &STuple) -> SExprArr { return self.items.any().view::<SExprArr>(); }
+    pub fn items_arr(self: STuple) -> SExprArr { return self.items.any().view::<SExprArr>(); }
 }
 impl RFilter {
     pub fn input_expr(self: &RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }

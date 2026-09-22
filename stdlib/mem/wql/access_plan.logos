@@ -755,7 +755,7 @@ pub fn access_plan_ask_size(ap: &mut AccessPlan, prm: &MacroParams) {
     while ri < ap.n {
         if prm.rel_size_fn[ri].len() > 0i64 {
             ap.size_fn[ri]  = prm.rel_size_fn[ri];
-            ap.size_at[ri]  = prm.rel_size_at[ri];
+            ap.size_at[ri]  = string_as_str(&prm.rel_size_at[ri]);
             ap.size_why[ri] = "measured: the source reports its size, read once before the first row";
         } else {
             ap.size_why[ri] = "unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has";

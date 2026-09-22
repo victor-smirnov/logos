@@ -660,7 +660,7 @@ pub fn writ_walk(root: &Writ) -> WritWalk {
 //      A refusal that keeps the answers is worth more than a half-landing that
 //      keeps the byte count.
 //
-//      ⚠ R-H CORRECTION TO THE PRICE. This block said "`prm.rel_srcs[…]`, nine
+//      ⚠ R-H CORRECTION TO THE PRICE. This block said "`string_as_str(&prm.rel_srcs[…])`, nine
 //      sites in `rexpr_walk.logos`". THE NINE SITES ARE THE WRONG POPULATION and
 //      the price is wrong in both directions. Read them: `push_dep_params`
 //      (a rel-helper fn's PARAMETER `, <src>: &[<rowty>]`, not a read at all),
@@ -674,7 +674,7 @@ pub fn writ_walk(root: &Writ) -> WritWalk {
 //      (`emit_prelude_oneshot`: the `AD_NONE` streamed arm, the drained arm, the
 //      container arm where every writ rel lands today; plus `emit_prelude_scc`),
 //      and the SECOND READ reaches it through `src_name`/`a_name` on the scan,
-//      join and group nodes — stamped from `prm.rel_srcs[…]` at EIGHT sites in
+//      join and group nodes — stamped from `string_as_str(&prm.rel_srcs[…])` at EIGHT sites in
 //      `plan_walker.logos` and consumed as a bare name (`parse_expr(src_name)`)
 //      throughout `rexpr_walk`, which mentions `src_name` 51 times and `a_name`
 //      15. So the honest emitter half is "the node's source stops being a NAME

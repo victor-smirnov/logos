@@ -55,6 +55,18 @@ impl String {
         return String { data: 0 as *mut u8, nbytes: 0, cap: 0 };
     }
 
+    /// Creates an owned `String` holding a copy of `s`.
+    ///
+    /// The counterpart of `as_str`: it is what a struct that must OUTLIVE the
+    /// buffer a `str` views needs, and there was no one-expression way to say
+    /// it — `String::new()` followed by `push_str` is two statements and does
+    /// not compose inside a field initialiser or a call argument.
+    pub static fn from_str(s: str) -> String {
+        let mut r: String = String::with_capacity(s.len());
+        r.push_str(s);
+        return r;
+    }
+
     /// Creates an empty `String` with capacity for `cap` content bytes.
     /// On allocation failure, returns the unallocated `String::new()` state.
     pub static fn with_capacity(cap: i64) -> String {

@@ -1057,15 +1057,14 @@ fn rt_push(out: &mut String, v: RtVal) {
     }
 }
 
-// Intern an owned String into the render scratch arena; the returned view
-// stays valid for the rest of the render (Writ segments never move).
-fn intern(scratch: &Writ, s: &String) -> str {
-    let ws: &WString = scratch.wstring(sstr(s));
-    return ws.as_str();
-}
-
 // Intern a borrowed view into an arena (QRows string materialization).
-fn intern_str(arena: &Writ, s: str) -> str {
+//
+// ⚠ THE OUTPUT REGION IS THE ARENA'S AND IS NAMED. `str` is itself a view, so
+// this signature has TWO region-carrying inputs and elision has no rule that
+// picks between them — it tied the result to `s`, and a caller interning a
+// LOCAL String then looked like it returned a borrow of that local. The arena
+// owns the bytes once `wstring` has copied them; `s` does not outlive the call.
+fn intern_str<'a>(arena: &'a Writ, s: str) -> &'a str {
     let ws: &WString = arena.wstring(s);
     return ws.as_str();
 }

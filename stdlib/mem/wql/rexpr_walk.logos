@@ -6505,7 +6505,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         let mut tf: i64 = 0i64;
         while tf < ntm {
             fnames.push(Ident::new(string_as_str(&totnm[tf])));
-            ftys.push(parse_type_of_vec(prm.rel_rowty[tmem[tf]]));
+            ftys.push(parse_type_of_vec(string_as_str(&prm.rel_rowty[tmem[tf]])));
             tf = tf + 1i64;
         }
         // ── `__lat` — THE INTERMEDIATE-SET LATCHES, NOW A HANDLE FIELD ──────
@@ -7172,7 +7172,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             cb.push_str(", ");
             cb.push_str(string_as_str(&totnm[ti]));
             cb.push_str(": ");
-            push_vec_new(&mut cb, prm.rel_rowty[tmem[ti]]);
+            push_vec_new(&mut cb, string_as_str(&prm.rel_rowty[tmem[ti]]));
             ti = ti + 1i64;
         }
         // UNDER THE SAME `dred` THE FIELD WAS DECLARED UNDER — one variable read
@@ -7328,7 +7328,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         let mut dq: i64 = 0i64;
         while dq < ntm {
             push_clone_field(&mut dcl, &mut dlit, &mut dcm, 3i64 + dq,
-                             string_as_str(&totnm[dq]), prm.rel_rowty[tmem[dq]],
+                             string_as_str(&totnm[dq]), string_as_str(&prm.rel_rowty[tmem[dq]]),
                              fn_name, CPR_REL());
             dq = dq + 1i64;
         }
@@ -7846,7 +7846,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // round 0. NOT MEASURED at any size; no number is quoted.
             let mut pt: String = String::new();
             let ety: str = prm.tys[rel_sp];
-            let rty: str = prm.rel_rowty[rel_m];
+            let rty: str = string_as_str(&prm.rel_rowty[rel_m]);
             let mut eqt: String = String::new();
             incr_row_eq_text(ty, ety, "__c", "__dv", &mut eqt);
             // ── INBOUND COLLAPSE BOUNDARY: a 0→positive PRESENCE crossing ───
@@ -7971,7 +7971,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             let mut fi: i64 = -1i64;
             let mut t0: i64 = 0i64;
             while t0 < ntm {
-                let mrt: str = prm.rel_rowty[tmem[t0]];
+                let mrt: str = string_as_str(&prm.rel_rowty[tmem[t0]]);
                 if tmem[t0] == rel_m { fi = t0; }
                 iw_node(fn_name, mrt, "member total working set", MG_IW_TT());
                 pt.push_str("let mut __tt"); pt.push_i64(t0);
@@ -8324,7 +8324,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // first-member-instead-of-selected-member bug hides.
                 let mut d0: i64 = 0i64;
                 while d0 < ntm {
-                    let drt: str = prm.rel_rowty[tmem[d0]];
+                    let drt: str = string_as_str(&prm.rel_rowty[tmem[d0]]);
                     iw_node(fn_name, drt, "member total working set", MG_IW_TT());
                     dt.push_str("let mut __tt"); dt.push_i64(d0);
                     dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
@@ -10452,7 +10452,7 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
         push_f = rel_push_agg_frag(ri, prm, parse_expr(string_as_str(&key_body)),
                                             parse_expr(string_as_str(&val_body)));
     } else {
-        push_f = rel_push_frag(prm.rel_rowty[ri], parse_expr(string_as_str(&proj_body)));
+        push_f = rel_push_frag(string_as_str(&prm.rel_rowty[ri]), parse_expr(string_as_str(&proj_body)));
     }
     if s.has_where {
         let pred_f: ExprBlob = parse_expr(string_as_str(&pred_body));
@@ -10726,7 +10726,7 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
         push_f = rel_push_agg_frag(ri, prm, parse_expr(string_as_str(&key_body)),
                                             parse_expr(string_as_str(&val_body)));
     } else {
-        push_f = rel_push_frag(prm.rel_rowty[ri], parse_expr(string_as_str(&proj_body)));
+        push_f = rel_push_frag(string_as_str(&prm.rel_rowty[ri]), parse_expr(string_as_str(&proj_body)));
     }
     if has_where {
         let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
@@ -10802,9 +10802,9 @@ fn push_dep_params(out: &mut String, prm: &MacroParams, mask: i64) {
     while j < prm.rel_n {
         if (mask & (1i64 << j)) != 0i64 {
             out.push_str(", ");
-            out.push_str(prm.rel_srcs[j]);
+            out.push_str(string_as_str(&prm.rel_srcs[j]));
             out.push_str(": &[");
-            out.push_str(prm.rel_rowty[j]);
+            out.push_str(string_as_str(&prm.rel_rowty[j]));
             out.push_str("]");
         }
         j = j + 1i64;
@@ -10850,7 +10850,7 @@ fn rel_body_frag(body_any: WAny, ri: i64,
 fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
                        params_text: str, prm: &MacroParams, scc: &RelScc,
                        h: &Writ) -> bool {
-    let row_ty: str = prm.rel_rowty[ri];
+    let row_ty: str = string_as_str(&prm.rel_rowty[ri]);
     // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
     // ⚠ The leading `-` is the PRIVATE marker `vis_is_priv` reads: a rel helper
     // is not part of the resource's surface, and the shell decides `fn` vs
@@ -11198,7 +11198,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         ps.push_str(", __tot_");
         ps.push_str(prm.rel_names[mem[m0]]);
         ps.push_str(": &mut Vec<");
-        ps.push_str(prm.rel_rowty[mem[m0]]);
+        ps.push_str(string_as_str(&prm.rel_rowty[mem[m0]]));
         ps.push_str(">");
         m0 = m0 + 1i64;
     }
@@ -11274,10 +11274,10 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     let mut m1: i64 = 0i64;
     while m1 < nm {
         let rn: str = prm.rel_names[mem[m1]];
-        let rt: ExprBlob  = parse_type(prm.rel_rowty[mem[m1]]);
-        let rt2: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
-        let rt3: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
-        let rt4: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let rt: ExprBlob  = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let rt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let rt3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let rt4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
         let s_dl: String = suffixed("__dl_", rn);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn);  let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         // THE WORK COUNTER — one per member, fn-level so it outlives the member
@@ -11292,7 +11292,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         // BEFORE the arms and taking the same `rel_is_agg` discriminant they
         // take, so the node cannot disagree with the artifact about which
         // novelty structure was built (identity (ii)).
-        fp_node_member(rn, prm.rel_rowty[mem[m1]], prm.rel_is_agg[mem[m1]]);
+        fp_node_member(rn, string_as_str(&prm.rel_rowty[mem[m1]]), prm.rel_is_agg[mem[m1]]);
         if prm.rel_is_agg[mem[m1]] {
             let off: i64 = prm.rel_coff[mem[m1]];
             let kty:  ExprBlob = parse_type(prm.relc_ty[off]);
@@ -11318,8 +11318,8 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                 let mut #n_nd: Vec<#(rt3)> = Vec::<#(rt4)>::new();
             });
         } else {
-            let rt5: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
-            let rt6: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+            let rt5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+            let rt6: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
             let s_rs: String = suffixed("__rs_", rn);  let n_rs: Ident = Ident::new(string_as_str(&s_rs));
             if incr {
                 // ⚠ SEEDED FROM THE TOTAL — see (1) in this fn's header. The set
@@ -11327,7 +11327,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                 // save this O(|total|) walk, but it would put a `HashSet` of the
                 // whole relation beside the `Vec` of it, and the walk is
                 // dominated by the naïve round-0 pass that follows anyway.
-                let rt7: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+                let rt7: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
                 let s_tt1: String = suffixed("__tot_", rn); let n_tt1: Ident = Ident::new(string_as_str(&s_tt1));
                 state.push(quote_block! {
                     let mut #n_rs: HashSet<#(rt5)> = hashset_new::<#(rt6)>();
@@ -11388,8 +11388,8 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         while mb < nm {
             let rnb: str = prm.rel_names[mem[mb]];
             if !prm.rel_is_agg[mem[mb]] {
-                let rtb: ExprBlob = parse_type(prm.rel_rowty[mem[mb]]);
-                let n_ssb: Ident = Ident::new(prm.rel_srcs[mem[mb]]);
+                let rtb: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[mb]]));
+                let n_ssb: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[mb]]));
                 let s_ttb: String = suffixed("__tot_", rnb); let n_ttb: Ident = Ident::new(string_as_str(&s_ttb));
                 r0.push(quote_block! { let #n_ssb: &[#(rtb)] = #n_ttb.as_slice(); });
             }
@@ -11407,8 +11407,8 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     let mut m3: i64 = 0i64;
     while m3 < nm {
         let rn3: str = prm.rel_names[mem[m3]];
-        let rt3:  ExprBlob = parse_type(prm.rel_rowty[mem[m3]]);
-        let rt3b: ExprBlob = parse_type(prm.rel_rowty[mem[m3]]);
+        let rt3:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+        let rt3b: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
         let s_dl: String = suffixed("__dl_", rn3);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn3);  let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_tt: String = suffixed("__tot_", rn3); let n_tt: Ident = Ident::new(string_as_str(&s_tt));
@@ -11484,15 +11484,15 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     let mut m5: i64 = 0i64;
     while m5 < nm {
         let rn5: str = prm.rel_names[mem[m5]];
-        let rt5:  ExprBlob = parse_type(prm.rel_rowty[mem[m5]]);
-        let rt5b: ExprBlob = parse_type(prm.rel_rowty[mem[m5]]);
+        let rt5:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m5]]));
+        let rt5b: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m5]]));
         let s_dl: String = suffixed("__dl_", rn5);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_tt: String = suffixed("__tot_", rn5); let n_tt: Ident = Ident::new(string_as_str(&s_tt));
-        let n_ds: Ident = Ident::new(prm.rel_dsrcs[mem[m5]]);
+        let n_ds: Ident = Ident::new(string_as_str(&prm.rel_dsrcs[mem[m5]]));
         if prm.rel_is_agg[mem[m5]] {
             binds.push(quote_block! { let #n_ds: &[#(rt5)] = #n_dl.as_slice(); });
         } else {
-            let n_ss: Ident = Ident::new(prm.rel_srcs[mem[m5]]);
+            let n_ss: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[m5]]));
             binds.push(quote_block! {
                 let #n_ss: &[#(rt5)] = #n_tt.as_slice();
                 let #n_ds: &[#(rt5b)] = #n_dl.as_slice();
@@ -11517,8 +11517,8 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                 while v < oc.n {
                     let mut w: i64 = 0i64;
                     while w < oc.n {
-                        let nm_w: str = if w == v { prm.rel_dsrcs[oc.rel[w]] }
-                                        else      { prm.rel_srcs[oc.rel[w]] };
+                        let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[oc.rel[w]]) }
+                                        else      { string_as_str(&prm.rel_srcs[oc.rel[w]]) };
                         set_occ_src(body_any, &oc, w, nm_w, h);
                         w = w + 1i64;
                     }
@@ -11530,7 +11530,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                 // Restore the canonical (total) source names.
                 let mut w2: i64 = 0i64;
                 while w2 < oc.n {
-                    set_occ_src(body_any, &oc, w2, prm.rel_srcs[oc.rel[w2]], h);
+                    set_occ_src(body_any, &oc, w2, string_as_str(&prm.rel_srcs[oc.rel[w2]]), h);
                     w2 = w2 + 1i64;
                 }
             }
@@ -11617,8 +11617,8 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
 // its contents.
 fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlob {
     let rn: str = prm.rel_names[ri];
-    let rt:  ExprBlob = parse_type(prm.rel_rowty[ri]);
-    let rt2: ExprBlob = parse_type(prm.rel_rowty[ri]);
+    let rt:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[ri]));
+    let rt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[ri]));
     let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
     // The work counter's per-member accumulator, bound the same way and for the
     // same reason as `__out`/`__rsp` — see `rel_push_frag`'s `__wcp` note. It is
@@ -12021,7 +12021,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         ps.push_str(", __rd_");
         ps.push_str(prm.rel_names[mem[m0]]);
         ps.push_str(": &[");
-        ps.push_str(prm.rel_rowty[mem[m0]]);
+        ps.push_str(string_as_str(&prm.rel_rowty[mem[m0]]));
         ps.push_str("]");
         m0 = m0 + 1i64;
     }
@@ -12030,7 +12030,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         ps.push_str(", __od_");
         ps.push_str(prm.rel_names[mem[m0b]]);
         ps.push_str(": &mut Vec<");
-        ps.push_str(prm.rel_rowty[mem[m0b]]);
+        ps.push_str(string_as_str(&prm.rel_rowty[mem[m0b]]));
         ps.push_str(">");
         m0b = m0b + 1i64;
     }
@@ -12040,10 +12040,10 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut m1: i64 = 0i64;
     while m1 < nm {
         let rn: str = prm.rel_names[mem[m1]];
-        let at1: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
-        let at2: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
-        let at3: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
-        let at4: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let at1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let at2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let at3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
+        let at4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m1]]));
         let s_rs: String = suffixed("__rs_", rn); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
         let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         // The work counter's accumulator — `member_block_frag` binds `__wcp` to
@@ -12054,7 +12054,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         // R-C2 — DRed phase 1a. TWO landings, no driving delta: this is the
         // left-hand side of identity (i), and it is why `__nd` exceeds `__dl`
         // by exactly the over-deletion member count.
-        fp_node_od_phase1a(rn, prm.rel_rowty[mem[m1]]);
+        fp_node_od_phase1a(rn, string_as_str(&prm.rel_rowty[mem[m1]]));
         state.push(quote_block! {
             let mut #n_rs: HashSet<#(at1)> = hashset_new::<#(at2)>();
             let mut #n_nd: Vec<#(at3)> = Vec::<#(at4)>::new();
@@ -12067,8 +12067,8 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut m2: i64 = 0i64;
     while m2 < nm {
         let rnb: str = prm.rel_names[mem[m2]];
-        let bt: ExprBlob = parse_type(prm.rel_rowty[mem[m2]]);
-        let n_ss: Ident = Ident::new(prm.rel_srcs[mem[m2]]);
+        let bt: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m2]]));
+        let n_ss: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[m2]]));
         let s_rd: String = suffixed("__rd_", rnb); let n_rd: Ident = Ident::new(string_as_str(&s_rd));
         binds.push(quote_block! { let #n_ss: &[#(bt)] = #n_rd; });
         m2 = m2 + 1i64;
@@ -12096,7 +12096,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut m4: i64 = 0i64;
     while m4 < nm {
         let rnp: str = prm.rel_names[mem[m4]];
-        let pt: ExprBlob = parse_type(prm.rel_rowty[mem[m4]]);
+        let pt: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m4]]));
         let s_nd: String = suffixed("__nd_", rnp); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_od: String = suffixed("__od_", rnp); let n_od: Ident = Ident::new(string_as_str(&s_od));
         prom.push(quote_block! {
@@ -12142,7 +12142,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         pps.push_str(", __od_");
         pps.push_str(prm.rel_names[mem[m5]]);
         pps.push_str(": &mut Vec<");
-        pps.push_str(prm.rel_rowty[mem[m5]]);
+        pps.push_str(string_as_str(&prm.rel_rowty[mem[m5]]));
         pps.push_str(">");
         m5 = m5 + 1i64;
     }
@@ -12153,13 +12153,13 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut m6: i64 = 0i64;
     while m6 < nm {
         let rn6: str = prm.rel_names[mem[m6]];
-        let ct1: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
-        let ct2: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
-        let ct3: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
-        let ct4: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
-        let ct5: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
-        let ct6: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
-        let ct7: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let ct1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct6: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
+        let ct7: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m6]]));
         let s_rs: String = suffixed("__rs_", rn6); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
         let s_dl: String = suffixed("__dl_", rn6); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn6); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
@@ -12174,7 +12174,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         // already in scope at the `_odp` loop top.
         let s_wc: String = suffixed("__wc_", rn6); let n_wc: Ident = Ident::new(string_as_str(&s_wc));
         // R-C2 — DRed phase 1b. A full semi-naive round, so all three landings.
-        fp_node_od_phase1b(rn6, prm.rel_rowty[mem[m6]]);
+        fp_node_od_phase1b(rn6, string_as_str(&prm.rel_rowty[mem[m6]]));
         pstate.push(quote_block! {
             let mut #n_wc: i64 = 0i64;
             let mut #n_rs: HashSet<#(ct1)> = hashset_new::<#(ct2)>();
@@ -12207,10 +12207,10 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut m8: i64 = 0i64;
     while m8 < nm {
         let rn8: str = prm.rel_names[mem[m8]];
-        let dt1: ExprBlob = parse_type(prm.rel_rowty[mem[m8]]);
-        let dt2: ExprBlob = parse_type(prm.rel_rowty[mem[m8]]);
-        let n_ss: Ident = Ident::new(prm.rel_srcs[mem[m8]]);
-        let n_ds: Ident = Ident::new(prm.rel_dsrcs[mem[m8]]);
+        let dt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m8]]));
+        let dt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m8]]));
+        let n_ss: Ident = Ident::new(string_as_str(&prm.rel_srcs[mem[m8]]));
+        let n_ds: Ident = Ident::new(string_as_str(&prm.rel_dsrcs[mem[m8]]));
         let s_dl: String = suffixed("__dl_", rn8); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_od: String = suffixed("__od_", rn8); let n_od: Ident = Ident::new(string_as_str(&s_od));
         pbinds.push(quote_block! {
@@ -12237,8 +12237,8 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                 while v < oc.n {
                     let mut w: i64 = 0i64;
                     while w < oc.n {
-                        let nm_w: str = if w == v { prm.rel_dsrcs[oc.rel[w]] }
-                                        else      { prm.rel_srcs[oc.rel[w]] };
+                        let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[oc.rel[w]]) }
+                                        else      { string_as_str(&prm.rel_srcs[oc.rel[w]]) };
                         set_occ_src(body_any, &oc, w, nm_w, h);
                         w = w + 1i64;
                     }
@@ -12249,7 +12249,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                 }
                 let mut w2: i64 = 0i64;
                 while w2 < oc.n {
-                    set_occ_src(body_any, &oc, w2, prm.rel_srcs[oc.rel[w2]], h);
+                    set_occ_src(body_any, &oc, w2, string_as_str(&prm.rel_srcs[oc.rel[w2]]), h);
                     w2 = w2 + 1i64;
                 }
             }
@@ -12263,8 +12263,8 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut ma: i64 = 0i64;
     while ma < nm {
         let rna: str = prm.rel_names[mem[ma]];
-        let et1: ExprBlob = parse_type(prm.rel_rowty[mem[ma]]);
-        let et2: ExprBlob = parse_type(prm.rel_rowty[mem[ma]]);
+        let et1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[ma]]));
+        let et2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[ma]]));
         let s_dl: String = suffixed("__dl_", rna); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rna); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_od: String = suffixed("__od_", rna); let n_od: Ident = Ident::new(string_as_str(&s_od));
@@ -12330,7 +12330,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         cs.push_str("__od_");
         cs.push_str(prm.rel_names[mem[c0]]);
         cs.push_str(": &[");
-        cs.push_str(prm.rel_rowty[mem[c0]]);
+        cs.push_str(string_as_str(&prm.rel_rowty[mem[c0]]));
         cs.push_str("]");
         c0 = c0 + 1i64;
     }
@@ -12339,7 +12339,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         cs.push_str(", __tot_");
         cs.push_str(prm.rel_names[mem[c1]]);
         cs.push_str(": &mut Vec<");
-        cs.push_str(prm.rel_rowty[mem[c1]]);
+        cs.push_str(string_as_str(&prm.rel_rowty[mem[c1]]));
         cs.push_str(">");
         c1 = c1 + 1i64;
     }
@@ -12372,7 +12372,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         cs.push_str(", __rm_");
         cs.push_str(prm.rel_names[mem[c1b]]);
         cs.push_str(": &mut Vec<");
-        cs.push_str(prm.rel_rowty[mem[c1b]]);
+        cs.push_str(string_as_str(&prm.rel_rowty[mem[c1b]]));
         cs.push_str(">");
         c1b = c1b + 1i64;
     }
@@ -12384,11 +12384,11 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut c2: i64 = 0i64;
     while c2 < nm {
         let rnc: str = prm.rel_names[mem[c2]];
-        let kt1: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
-        let kt2: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
-        let kt3: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
-        let kt4: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
-        let kt5: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
+        let kt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
+        let kt5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c2]]));
         let s_os:  String = suffixed("__os_",   rnc); let n_os:  Ident = Ident::new(string_as_str(&s_os));
         let s_odn: String = suffixed("__odn_",  rnc); let n_odn: Ident = Ident::new(string_as_str(&s_odn));
         let s_kp:  String = suffixed("__keep_", rnc); let n_kp:  Ident = Ident::new(string_as_str(&s_kp));
@@ -12396,7 +12396,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         let s_tt:  String = suffixed("__tot_",  rnc); let n_tt:  Ident = Ident::new(string_as_str(&s_tt));
         // R-C2 — the over-deletion distinct set, one per member; the right-hand
         // side of identity (i).
-        fp_node_od_set(rnc, prm.rel_rowty[mem[c2]]);
+        fp_node_od_set(rnc, string_as_str(&prm.rel_rowty[mem[c2]]));
         cchk.push(quote_block! {
             let mut #n_os: HashSet<#(kt1)> = hashset_new::<#(kt2)>();
             {
@@ -12432,8 +12432,8 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut c3: i64 = 0i64;
     while c3 < nm {
         let rnd: str = prm.rel_names[mem[c3]];
-        let lt1: ExprBlob = parse_type(prm.rel_rowty[mem[c3]]);
-        let lt2: ExprBlob = parse_type(prm.rel_rowty[mem[c3]]);
+        let lt1: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c3]]));
+        let lt2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[c3]]));
         let s_os:  String = suffixed("__os_",   rnd); let n_os:  Ident = Ident::new(string_as_str(&s_os));
         let s_odn: String = suffixed("__odn_",  rnd); let n_odn: Ident = Ident::new(string_as_str(&s_odn));
         // `__keep_<m>` is deliberately NOT re-read here. It and `__w` are the

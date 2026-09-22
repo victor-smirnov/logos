@@ -326,7 +326,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                     let mut t: String = String::new();
                     t.push_str(rt_s(l));
                     t.push_str(rt_s(r));
-                    return RtVal::S(intern(scratch, &t));
+                    return RtVal::S(intern_str(scratch, sstr(&t)));
                 }
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 {
                     return RtVal::F(rt_f(l) + rt_f(r));   // IEEE f64: no trap
@@ -417,11 +417,11 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 if bfn == BFN_LEN() { return RtVal::I(rt_s(a0).len()); }
                 if bfn == BFN_UPPER() {
                     let u2: String = wql_upper(rt_s(a0));
-                    return RtVal::S(intern(scratch, &u2));
+                    return RtVal::S(intern_str(scratch, sstr(&u2)));
                 }
                 if bfn == BFN_LOWER() {
                     let l2: String = wql_lower(rt_s(a0));
-                    return RtVal::S(intern(scratch, &l2));
+                    return RtVal::S(intern_str(scratch, sstr(&l2)));
                 }
                 if bfn == BFN_CONTAINS() {
                     return RtVal::B(str_contains(rt_s(a0), rt_s(a1)));

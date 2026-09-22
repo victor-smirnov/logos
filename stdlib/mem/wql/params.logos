@@ -77,9 +77,16 @@ pub struct MacroParams {
     pub n:        i64,
     // ── rel registry (wql! rel blocks — slices B/C) ──
     pub rel_names: [str; 8],    // declared rel name ("step")
-    pub rel_srcs:  [str; 8],    // emitted source name ("__rel_step_sl")
-    pub rel_dsrcs: [str; 8],    // emitted DELTA source name ("__dl_step_sl")
-    pub rel_rowty: [str; 8],    // native row type text ("(i64, i64)" / "i64")
+    pub rel_srcs: [String; 8],    // emitted source name ("__rel_step_sl")  // OWNED — the registry OUTLIVES the frame
+                                // whose Strings backed this view, and has no region
+                                // parameter to say so.
+    pub rel_dsrcs: [String; 8], // emitted DELTA source name ("__dl_step_sl") — OWNED:
+                                // it used to be a view into a String held by the
+                                // walker's FRAME, which outlives nothing the registry
+                                // can name (the registry has no region parameter).
+    pub rel_rowty: [String; 8],    // native row type text ("(i64, i64)" / "i64")  // OWNED — the registry OUTLIVES the frame
+                                // whose Strings backed this view, and has no region
+                                // parameter to say so.
     pub rel_coff:  [i64; 8],    // column window offset (flat relc_* arrays)
     pub rel_ccnt:  [i64; 8],    // column count
     pub relc_name: [str; 64],   // flat column names
@@ -218,7 +225,9 @@ pub struct MacroParams {
     /// The un-sliced binding name (`__rel_<r>`), used when the rel streams —
     /// carrying a name that ends in `_sl` for something that is not a slice
     /// would make generated code lie to whoever reads it.
-    pub rel_ssrc:    [str; 8],
+    pub rel_ssrc: [String; 8],  // OWNED — the registry OUTLIVES the frame
+                                // whose Strings backed this view, and has no region
+                                // parameter to say so.
     // ADR 0016 §6 (sources as relational interfaces): a native rel's
     // materializer fn name, the param it is applied to, and the module the
     // materializer lives in ("" = the consuming package — no import needed).
@@ -259,7 +268,9 @@ pub struct MacroParams {
     // number is what a plan built against real data will.
     pub rel_size_fn: [str; 8],
     pub rel_size_ty: [str; 8],
-    pub rel_size_at: [str; 8],
+    pub rel_size_at: [String; 8],  // OWNED — the registry OUTLIVES the frame
+                                // whose Strings backed this view, and has no region
+                                // parameter to say so.
     pub op_off:   [i64; 8],
     pub op_cnt:   [i64; 8],
     pub opc_col:  [str; 32],
@@ -297,9 +308,12 @@ pub fn macro_params_new() -> MacroParams {
         is_slice: [false; 64],
         n: 0i64,
         rel_names: ["", "", "", "", "", "", "", ""],
-        rel_srcs:  ["", "", "", "", "", "", "", ""],
-        rel_dsrcs: ["", "", "", "", "", "", "", ""],
-        rel_rowty: ["", "", "", "", "", "", "", ""],
+        rel_srcs:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        rel_dsrcs: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        rel_rowty: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         rel_coff:  [0i64; 8],
         rel_ccnt:  [0i64; 8],
         relc_name: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -332,14 +346,16 @@ pub fn macro_params_new() -> MacroParams {
         rel_ordcol:  [""; 8],
         rel_ord_noop: [false; 8],
         rel_ord_rev:  [false; 8],
-        rel_ssrc:    [""; 8],
+        rel_ssrc:    [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         rel_mat:     [""; 8],
         rel_marg:    [""; 8],
         rel_marg2:   [""; 8],
         rel_mod:     [""; 8],
         rel_size_fn: [""; 8],
         rel_size_ty: [""; 8],
-        rel_size_at: [""; 8],
+        rel_size_at: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         op_off:   [0i64; 8],
         op_cnt:   [0i64; 8],
         opc_col:  [""; 32],
@@ -494,9 +510,9 @@ impl MacroParams {
         if self.rel_n >= 8i64 { return -1i64; }
         let i: i64 = self.rel_n;
         self.rel_names[i] = name;
-        self.rel_srcs[i]  = src;
-        self.rel_dsrcs[i] = dsrc;
-        self.rel_rowty[i] = rowty;
+        self.rel_srcs[i]  = String::from_str(src);
+        self.rel_dsrcs[i] = String::from_str(dsrc);
+        self.rel_rowty[i] = String::from_str(rowty);
         // Columns append at the current flat top.
         let mut off: i64 = 0i64;
         if i > 0i64 { off = self.rel_coff[i - 1i64] + self.rel_ccnt[i - 1i64]; }
@@ -656,8 +672,8 @@ impl MacroParams {
     pub fn rel_find_src(self: &MacroParams, src: str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.rel_n {
-            if str_eq(self.rel_srcs[i], src) { return i; }
-            if str_eq(self.rel_dsrcs[i], src) { return i; }
+            if str_eq(string_as_str(&self.rel_srcs[i]), src) { return i; }
+            if str_eq(string_as_str(&self.rel_dsrcs[i]), src) { return i; }
             i = i + 1i64;
         }
         return -1i64;
@@ -681,7 +697,7 @@ impl MacroParams {
 pub fn size_binding_text(out: &mut String, prm: &MacroParams, r: i64) {
     if prm.rel_size_fn[r].len() == 0i64 { return; }
     out.push_str("    let ");
-    out.push_str(prm.rel_size_at[r]);
+    out.push_str(string_as_str(&prm.rel_size_at[r]));
     if prm.rel_size_ty[r].len() > 0i64 {
         out.push_str(": ");
         out.push_str(prm.rel_size_ty[r]);
