@@ -141,6 +141,8 @@ struct Term {
     // decl_type) says which argument positions the result borrows from.
     lir_view::FunctionView callee_fn;
     TypeRef              callee_fty;   // indirect call: the fn-pointer's TYPE is its contract
+    int8_t               closure_recv = -1;  // ClosureCall: leading origins of args[0]
+                                             // that are the AUTOREF, not the captures
     uint32_t             line = 0;
 };
 
@@ -1516,6 +1518,15 @@ private:
                         // any other callee. Every other argument may reach it.
                         t.has_sig = true;
                         t.sig_to_result = ~uint64_t(1);
+                        // ⚠ THE MASK EXCLUDES THE WHOLE ARGUMENT, AND THE
+                        // CAPTURES ARE INSIDE IT. `Self::Output` cannot hold the
+                        // AUTOREF's loan — that is what the mask says and it is
+                        // right — but it may hold what `F` itself holds: `|| &l`
+                        // returns `&'a i64` with `'a` from the capture. Dropping
+                        // the argument dropped both, so `fn get() -> &i64 { let
+                        // l = 5; (|| &l)() }` compiled clean. One origin is the
+                        // autoref; the rest are the closure's, and they relate.
+                        t.closure_recv = 1;
                         break;
                     }
                     case CM::Once:
@@ -4585,6 +4596,22 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                      : (!t.flow || !t.flow->available ||
                                         (ai < 64 && (t.flow->to_result >> ai) & 1u));
                         if (reaches) { OList src = place_origins(a.place); src.exact = false; relate(src, dst, p); }
+                    }
+                    // A CLOSURE CALL CARRIES WHAT THE CLOSURE HOLDS. The
+                    // per-argument mask above can only keep or drop the whole
+                    // receiver, and dropping it drops the captures with the
+                    // autoref. Relate the receiver's origins PAST the autoref:
+                    // those are the closure's own, and `Self::Output` may hold
+                    // them.
+                    if (t.closure_recv >= 0 && !t.args.empty() &&
+                        t.args[0].k != bir::Operand::K::Const && t.args[0].place.valid()) {
+                        OList rec = place_origins(t.args[0].place);
+                        OList inner;
+                        for (size_t k = size_t(t.closure_recv); k < rec.os.size(); ++k) {
+                            inner.os.push_back(rec.os[k]);
+                            inner.inv.push_back(rec.inv[k]);
+                        }
+                        if (!inner.os.empty()) { inner.exact = false; relate(inner, dst, p); }
                     }
                     // ⚠ AN INDIRECT CALL HAS NO BODY TO SUMMARISE, so its
                     // out-param flow is the CONSERVATIVE one: anything handed
