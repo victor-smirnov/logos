@@ -490,5 +490,9 @@ impl_header_implied_bounds_not_required_at_call 2026-09-22 borrow-check tests/im
 
 closure_signature_elided_regions_are_distinct 2026-09-22 borrow-check tests/imported/fail/regions/regions-infer-call-3
 
-# TOTAL 27
-# SYNC-HASH c21d1b06aa46f84057953808cd0023ea
+elided_result_not_enforced_in_body 2026-09-22 borrow-check tests/logos/fail/bc_esc_generic_recv_thru_param_refuse
+
+static_bound_on_type_param_lost_by_mono 2026-09-22 borrow-check tests/imported/admit/regions/regions-pattern-typing-issue-19552
+
+# TOTAL 29
+# SYNC-HASH 0e0f4a697432545334f38f9fa231f94e

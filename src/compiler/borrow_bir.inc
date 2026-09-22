@@ -189,12 +189,23 @@ struct Body {
 static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
                                    int depth = 0);
 
+// The definition a struct TYPE denotes: by its package first, then by the
+// bare name (a module-folded or generic instance name carries its own
+// identity). A bare name alone is not an identity: the stdlib has two `Bytes`,
+// and first-def-wins handed a user's `struct Bytes` their fields.
+template <class Map>
+static auto struct_def_find(const Map& map, TypeRef t, const std::string& want) {
+    if (t) if (std::string_view pk = t.pkg_name(); !pk.empty())
+        if (auto it = map.find(std::string(pk) + "::" + want); it != map.end()) return it;
+    return map.find(want);
+}
+
 // A struct's fields, read from its definition (the instance, else the base).
 static std::optional<std::vector<TypeRef>> bir_struct_fields(TypeRef t, const lir::LProgram& prog,
                                                              const TypeSets& ts) {
     std::string want = concrete_struct_name(t);
     auto look = [&](const auto& map) -> std::optional<std::vector<TypeRef>> {
-        auto it = map.find(want);
+        auto it = struct_def_find(map, t, want);
         if (it == map.end()) return std::nullopt;
         std::vector<TypeRef> out;
         for (auto& f : it->second.fields()) out.push_back(f.type(prog.type_pool.impl()));
@@ -227,8 +238,8 @@ static bool bir_drop_observes_borrow(TypeRef t, const lir::LProgram& prog, const
         }
         return false;
     };
-    if (auto it = ts.struct_by_name.find(want); it != ts.struct_by_name.end() && reaches_ref(it->second)) return true;
-    if (auto it = ts.spec_by_name.find(want); it != ts.spec_by_name.end() && reaches_ref(it->second)) return true;
+    if (auto it = struct_def_find(ts.struct_by_name, t, want); it != ts.struct_by_name.end() && reaches_ref(it->second)) return true;
+    if (auto it = struct_def_find(ts.spec_by_name, t, want); it != ts.spec_by_name.end() && reaches_ref(it->second)) return true;
     return false;
 }
 
@@ -237,7 +248,7 @@ static std::optional<std::vector<std::pair<std::string, TypeRef>>>
 bir_struct_named_fields(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
     std::string want = concrete_struct_name(t);
     auto look = [&](const auto& map) -> std::optional<std::vector<std::pair<std::string, TypeRef>>> {
-        auto it = map.find(want);
+        auto it = struct_def_find(map, t, want);
         if (it == map.end()) return std::nullopt;
         std::vector<std::pair<std::string, TypeRef>> out;
         for (auto& f : it->second.fields())
@@ -693,7 +704,7 @@ private:
         if (st.kind() != LogosType::Kind::Struct) return {};
         std::string want = concrete_struct_name(st);
         auto look = [&](const auto& map) -> TypeRef {
-            auto it = map.find(want);
+            auto it = struct_def_find(map, st, want);
             if (it == map.end()) return {};
             for (auto& f : it->second.fields())
                 if (f.name() == field) return f.type(pool_);
@@ -3084,9 +3095,9 @@ private:
         size_t n = t.lifetime_args().size();
         if (n || t.kind() != LogosType::Kind::Struct) return n;
         std::string want = concrete_struct_name(t);
-        if (auto it = ts_.struct_by_name.find(want); it != ts_.struct_by_name.end())
+        if (auto it = struct_def_find(ts_.struct_by_name, t, want); it != ts_.struct_by_name.end())
             return it->second.lifetime_params().size();
-        if (auto it = ts_.spec_by_name.find(want); it != ts_.spec_by_name.end())
+        if (auto it = struct_def_find(ts_.spec_by_name, t, want); it != ts_.spec_by_name.end())
             return it->second.lifetime_params().size();
         return 0;
     }
@@ -3141,8 +3152,8 @@ private:
             if (t.kind() != LogosType::Kind::Struct) return std::nullopt;
             std::string want = concrete_struct_name(t);
             auto names = [&](lir_view::StructView sd) { for (auto n : sd.lifetime_params()) { std::string q(n); if (!q.empty() && q[0] != '\'') q = "'" + q; pl.lifetimes.push_back(q); } };
-            if (auto it = ts_.struct_by_name.find(want); it != ts_.struct_by_name.end()) names(it->second);
-            else if (auto it2 = ts_.spec_by_name.find(want); it2 != ts_.spec_by_name.end()) names(it2->second);
+            if (auto it = struct_def_find(ts_.struct_by_name, t, want); it != ts_.struct_by_name.end()) names(it->second);
+            else if (auto it2 = struct_def_find(ts_.spec_by_name, t, want); it2 != ts_.spec_by_name.end()) names(it2->second);
             if (pl.lifetimes.size() != nl) return std::nullopt;
         }
         size_t off = nl;
@@ -3703,6 +3714,7 @@ private:
             for (auto& sr : srcs)
                 if (auto it = named_origin_.find(sr.label); it != named_origin_.end())
                     subset(sr.origin, it->second, p);
+
         for (size_t a = 0; a < srcs.size(); ++a)
             for (size_t b = 0; b < srcs.size(); ++b) {
                 if (a == b || !srcs[b].inv || srcs[a].label != srcs[b].label) continue;
@@ -3999,8 +4011,8 @@ private:
     bool is_union_type(TypeRef t) const {
         if (!t || t.kind() != LogosType::Kind::Struct) return false;
         std::string want = concrete_struct_name(t);
-        if (auto it = ts_.struct_by_name.find(want); it != ts_.struct_by_name.end()) return it->second.is_union();
-        if (auto it = ts_.spec_by_name.find(want); it != ts_.spec_by_name.end()) return it->second.is_union();
+        if (auto it = struct_def_find(ts_.struct_by_name, t, want); it != ts_.struct_by_name.end()) return it->second.is_union();
+        if (auto it = struct_def_find(ts_.spec_by_name, t, want); it != ts_.spec_by_name.end()) return it->second.is_union();
         return false;
     }
     // Two places may denote overlapping memory. Distinct fields are disjoint,
@@ -4146,7 +4158,7 @@ private:
         if (st.kind() != LogosType::Kind::Struct) return {};
         std::string want = concrete_struct_name(st);
         auto look = [&](const auto& map) -> TypeRef {
-            auto it = map.find(want);
+            auto it = struct_def_find(map, st, want);
             if (it == map.end()) return {};
             for (auto& f : it->second.fields())
                 if (f.name() == field) return f.type(pool_);
@@ -4476,13 +4488,18 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         // ANNOT_LIFETIME): `let m: &mut i32 = v;` gets `&'a mut i32` by
         // inference, and a reborrow that ends at `m`'s last use is not a loan
         // for all of `'a` (nll/poll-reborrow-then-remut).
-        else if (L.kind == bir::LocalKind::User && L.annot_lifetime && !b_.lifetime_params.empty() &&
-                 L.type && !L.synth_ref) {
+        // `'static` is universal too, and needs no lifetime parameter to be
+        // written: `let e: E<&'static i64> = E::V::<&'static i64>(&c);` must
+        // borrow `c` for ever (rustc E0597). Sema's let-vs-value check catches
+        // the unannotated right-hand side; a turbofish makes both sides say
+        // `'static`, and then only this reaches it.
+        else if (L.kind == bir::LocalKind::User && L.annot_lifetime && L.type && !L.synth_ref) {
             std::vector<std::string> ls;
             labels(L.type, L.type, ls);
             if (ls.size() == os.os.size())
                 for (size_t k = 0; k < ls.size(); ++k)
-                    if (b_.lifetime_params.count(ls[k])) row("universal_region", {o(os.os[k])});
+                    if (ls[k] == "'static" || b_.lifetime_params.count(ls[k]))
+                        row("universal_region", {o(os.os[k])});
         }
         if (L.kind == bir::LocalKind::Param)
             row("path_assigned_at_base", {pa(path_of({li, {}})), pt(entry)});
@@ -4510,15 +4527,18 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         // contravariant, `Marker<'a>` with `'a` unused is bivariant — and the
         // L-IR does not carry variance. No claim there is a miss at worst,
         // never a refusal of a legal program.
-        std::function<void(TypeRef, bool, std::vector<bool>&, int)> claim_mask =
-            [&](TypeRef t, bool claim, std::vector<bool>& out, int depth) {
+        std::function<void(TypeRef, bool, std::vector<bool>&, int, bool)> claim_mask =
+            [&](TypeRef t, bool claim, std::vector<bool>& out, int depth, bool inv) {
                 if (!t || depth > 16) return;
                 switch (t.kind()) {
                     case LogosType::Kind::Ref: case LogosType::Kind::MutRef:
-                        out.push_back(claim); claim_mask(t.pointee(), claim, out, depth + 1); return;
+                        out.push_back(claim);
+                        claim_mask(t.pointee(), claim, out, depth + 1,
+                                   inv || t.kind() == LogosType::Kind::MutRef);
+                        return;
                     case LogosType::Kind::Slice:
                         if (!t.owning_slice() && !t.raw_fat()) out.push_back(claim);
-                        if (!t.raw_fat()) claim_mask(t.elem(), claim, out, depth + 1);
+                        if (!t.raw_fat()) claim_mask(t.elem(), claim, out, depth + 1, inv);
                         return;
                     case LogosType::Kind::TraitObject:
                         // A BORROWED trait object's two regions — the borrow and
@@ -4536,11 +4556,17 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         if (!t.owning_trait_object()) { out.push_back(claim); out.push_back(claim); }
                         else out.push_back(false);
                         return;
-                    case LogosType::Kind::Array: claim_mask(t.elem(), claim, out, depth + 1); return;
+                    case LogosType::Kind::Array: claim_mask(t.elem(), claim, out, depth + 1, inv); return;
                     case LogosType::Kind::Tuple:
-                        for (auto& e : t.tuple_elems()) claim_mask(e, claim, out, depth + 1);
+                        for (auto& e : t.tuple_elems()) claim_mask(e, claim, out, depth + 1, inv);
                         return;
-                    default: { size_t n = 0; count_only(t, n); out.insert(out.end(), n, false); return; }
+                    // BEHIND `&mut` EVERYTHING IS INVARIANT, whatever the ADT's own
+                    // variance: `&'1 mut Buffer<'a>` fixes `'a` exactly. The
+                    // unknown variance that makes an ADT's regions claim-free
+                    // does not exist there, so they carry the claim — and an
+                    // unclaimed one is not neutral (it relates to everything, and
+                    // the known relation is transitive).
+                    default: { size_t n = 0; count_only(t, n); out.insert(out.end(), n, inv && claim); return; }
                 }
             };
         // `'a: 'b, 'b: 'c` — closed over the NAMES, since `'b` may appear in no
@@ -4560,7 +4586,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             labels(L.decl_type ? L.decl_type : L.type, L.type, ls);
             if (ls.size() != os.os.size()) ls.assign(os.os.size(), "?");
             std::vector<bool> cm;
-            claim_mask(L.type, true, cm, 0);
+            claim_mask(L.type, true, cm, 0, false);
             if (cm.size() != os.os.size()) cm.assign(os.os.size(), false);
             for (size_t k = 0; k < os.os.size(); ++k) {
                 us.push_back({os.os[k], ls[k], bool(cm[k]), L.is_capture});
@@ -4579,11 +4605,38 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             if (lp.empty() || lp == "'static" || lp == "'_") continue;
             uint32_t no = fresh_origin();
             named_origin_[lp] = no;
+            placeholder_owner_.emplace(no, Universal{bir::kNoLocal, lp});
             row("universal_region", {o(no)});
             us.push_back({no, lp, true, false});
         }
+        // `'static` is a region of every body. Anything may be made FROM it
+        // (`related` says so for its label) and nothing flows INTO it unless it
+        // is `'static` too — which is what a `&'static` field of a struct
+        // literal demands of the value stored in it.
+        {
+            uint32_t no = fresh_origin();
+            named_origin_["'static"] = no;
+            placeholder_owner_.emplace(no, Universal{bir::kNoLocal, "'static"});
+            row("universal_region", {o(no)});
+            us.push_back({no, "'static", true, false});
+        }
+        // ⚠ A REGION THE CHECK MAKES NO CLAIM ABOUT IS NOT A PLACEHOLDER. It used
+        // to be one, "known" to relate to every other in both directions — and
+        // known_subset is TRANSITIVE, so it BRIDGED: `buf -> ?ret -> 'static`,
+        // `x -> ADT-arg -> result`. Not a placeholder, it raises no error of its
+        // own (which is all "no claim" ever meant), while a REAL flow through it
+        // between two claimed regions is still a subset chain and is judged by
+        // their labels. No claim: unclaimed (variance unknown), an unknown or
+        // hidden label ("?", "~"), or a type parameter's region in an instance.
+        // A CAPTURE always claims: its regions are the PARENT's, and a
+        // parameter's data flowing into one is E0521 whatever the capture's
+        // type (an `Option<&i64>` capture is unclaimed by variance alone).
+        auto claims = [](const U& u) {
+            if (u.capture) return true;
+            return u.claim && u.label != "?" && u.label != "~" && !u.label.starts_with("T:");
+        };
         uint32_t next_loan = 1000000;   // placeholder loans never meet a real loan's id
-        for (auto& u : us) row("placeholder", {o(u.origin), l(next_loan++)});
+        for (auto& u : us) if (claims(u)) row("placeholder", {o(u.origin), l(next_loan++)});
         auto elided = [](const std::string& l) { return l.empty() || l.starts_with("'%"); };
         auto related = [&](const U& a, const U& b) {   // may a's data flow into b?
             // ⚠ A CLOSURE PARAMETER'S REGION IS BOUND BY THE CALL; A CAPTURE'S
@@ -4618,7 +4671,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             return false;
         };
         for (auto& a : us) for (auto& b : us)
-            if (a.origin != b.origin && related(a, b))
+            if (a.origin != b.origin && claims(a) && claims(b) && related(a, b))
                 row("known_placeholder_subset", {o(a.origin), o(b.origin)});
     }
 
@@ -4697,9 +4750,19 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                 prefix = prefix.with(pj);
                             }
                         }
-                        // The loan's origin flows into the reference's outer
-                        // origin; the referent's origins into the inner ones.
-                        if (!dst.os.empty()) {
+                        // A BORROW STORED AS A RAW POINTER (`let q: *mut &'static
+                        // i64 = &mut r;`): a raw pointer has no region of its own
+                        // — walk_type lays out only its pointee's — so there is
+                        // no outer origin for the loan, and `dst.os[0]` is the
+                        // pointee's first region. Relating the loan there made
+                        // `r` itself borrowed for `'static`. The referent's
+                        // regions still meet the pointee's, one to one.
+                        const TypeRef dty = s.dest.proj.empty() ? TypeRef(b_.locals[s.dest.local].type) : TypeRef{};
+                        if (dty && dty.kind() == LogosType::Kind::Ptr) {
+                            OList referent = place_origins(s.rv.place);
+                            if (s.rv.mut_) for (auto&& f : referent.inv) f = true;
+                            relate(referent, dst, p);
+                        } else if (!dst.os.empty()) {
                             subset(L.origin, dst.os[0], p);
                             OList inner = dst;
                             inner.os.erase(inner.os.begin()); inner.inv.erase(inner.inv.begin());
@@ -4732,9 +4795,29 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             s.rv.k == bir::Rvalue::K::Op && s.rv.what == "cast" &&
                             s.dest.proj.empty() && b_.locals[s.dest.local].type &&
                             TypeRef(b_.locals[s.dest.local].type).kind() == LogosType::Kind::Ptr;
+                        // A FIELD DECLARED `&'static` takes only `'static` data:
+                        // `Bytes { b: buf }` with `b: &'static [u8]` and `buf` a
+                        // parameter's slice is refused by rustc ("'1 must outlive
+                        // 'static"). A struct with no lifetime parameter lays
+                        // out no origin for such a field, so without this the
+                        // value vanished into it unconstrained.
+                        const TypeRef agg_t = s.rv.k == bir::Rvalue::K::Aggregate && s.dest.proj.empty()
+                            ? TypeRef(b_.locals[s.dest.local].type) : TypeRef{};
                         for (auto& op : s.rv.ops) {
                             read_operand(op, p);
                             if (cast_to_raw) continue;
+                            if (agg_t && agg_t.kind() == LogosType::Kind::Struct && op.place.valid()) {
+                                const size_t fi = size_t(&op - s.rv.ops.data());
+                                TypeRef ft = fi < s.rv.field_names.size()
+                                    ? field_type_(agg_t, s.rv.field_names[fi]) : TypeRef{};
+                                if (std::getenv("LOGOS_BIR_LABELS"))
+                                    std::fprintf(stderr, "[aggfield] pkg=%s %s.%s fi=%zu names=%zu ft=%s lt='%s'\n", std::string(agg_t.pkg_name()).c_str(), concrete_struct_name(agg_t).c_str(), s.rv.field_names[fi].c_str(), fi, s.rv.field_names.size(),
+                                                 ft ? type_str(ft).c_str() : "-", ft ? std::string(ft.lifetime()).c_str() : "");
+                                if (ft && is_borrowing_pointer(ft) && ft.lifetime() == "'static") {
+                                    OList so = place_origins(op.place);
+                                    if (!so.os.empty()) subset(so.os[0], named_origin_["'static"], p);
+                                }
+                            }
                             if (op.k != bir::Operand::K::Const && op.place.valid()) {
                                 OList src = place_origins(op.place);
                                 if (s.rv.k == bir::Rvalue::K::Use) relate(src, dst, p);
@@ -4926,6 +5009,52 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                     }
                                 }
                                 if (relate_into_type_arg(src, st, into, pointee, p)) continue;
+                                // BY THE CALLEE'S LABELS, where both ends have one.
+                                // `fn set(&mut self, l: &'a i64, r: &'b i64)` on
+                                // `P<'a, 'b>` stores `l` into the `'a` field and
+                                // `r` into the `'b` one; the all-to-all relation
+                                // below also sent `l` into `'b`, which is invisible
+                                // while a `&mut`'s inner regions make no claim and
+                                // a false "'x: 'y" the moment they do. Two DIFFERENT
+                                // written or minted labels never meet; anything
+                                // unknown, a type parameter's, or 'static still does.
+                                if (t.callee_fn) {
+                                    auto cps = t.callee_fn.params();
+                                    if (ai < cps.size() && j < cps.size()) {
+                                        auto decl = [&](size_t k) {
+                                            TypeRef d = cps[k].decl_type(pool_);
+                                            return d ? d : cps[k].type(pool_);
+                                        };
+                                        std::vector<std::string> la, lj;
+                                        labels(decl(ai), cps[ai].type(pool_), la);
+                                        labels(decl(j), cps[j].type(pool_), lj);
+                                        if (la.size() == src.os.size() && lj.size() == into.os.size() + 1) {
+                                            auto concrete = [](const std::string& l) {
+                                                return l.size() > 1 && l[0] == '\'' && l != "'static";
+                                            };
+                                            // The callee's own `'b: 'a` lets `'b` data be
+                                            // stored under `'a` (closed over the names).
+                                            std::set<std::pair<std::string, std::string>> co;
+                                            for (auto [lo, sh] : t.callee_fn.lifetime_outlives())
+                                                co.emplace(std::string(lo), std::string(sh));
+                                            for (bool grew = true; grew;) {
+                                                grew = false;
+                                                for (auto x : std::vector(co.begin(), co.end()))
+                                                    for (auto y : std::vector(co.begin(), co.end()))
+                                                        if (x.second == y.first && co.emplace(x.first, y.second).second) grew = true;
+                                            }
+                                            for (size_t k = 0; k < src.os.size(); ++k)
+                                                for (size_t m = 0; m < into.os.size(); ++m) {
+                                                    const std::string& from = la[k];
+                                                    const std::string& to = lj[m + 1];
+                                                    const bool apart = concrete(from) && concrete(to) && from != to &&
+                                                                       !co.count({from, to});
+                                                    if (!apart) subset(src.os[k], into.os[m], p);
+                                                }
+                                            continue;
+                                        }
+                                    }
+                                }
                                 OList srcx = src; srcx.exact = false;
                                 OList intox = into; intox.exact = false;
                                 relate(srcx, intox, p);
@@ -5357,7 +5486,9 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             // got region numbers, which name nothing they wrote.
             const BirFacts::Universal* ua = facts.placeholder_owner(num(sym(row[0])));
             const BirFacts::Universal* ub = facts.placeholder_owner(num(sym(row[1])));
-            if (ua && ub && body.is_closure &&
+            const bool la_ok = ua && ua->local != bir::kNoLocal && ua->local < body.locals.size();
+            const bool lb_ok = ub && ub->local != bir::kNoLocal && ub->local < body.locals.size();
+            if (la_ok && lb_ok && body.is_closure &&
                 !body.locals[ua->local].is_capture && body.locals[ub->local].is_capture) {
                 v.errors.push_back(std::format(
                     "borrowed data escapes outside of closure: '{}' escapes the closure body "
@@ -5388,7 +5519,16 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                     ua->label, ub->label, line));
                 continue;
             }
-            if (ua && !named_a && named_b && ua->local < body.locals.size() &&
+            // Into `'static`, from a region the reader did not name: rustc says
+            // "lifetime may not live long enough" and points at "'1 must
+            // outlive 'static" — there is no annotation that would help.
+            if (la_ok && !named_a && ub && ub->label == "'static") {
+                v.errors.push_back(std::format(
+                    "lifetime may not live long enough: the region of '{}' must outlive 'static (line {})",
+                    body.locals[ua->local].name, line));
+                continue;
+            }
+            if (la_ok && !named_a && named_b &&
                 body.locals[ua->local].kind == bir::LocalKind::Param) {
                 v.errors.push_back(std::format(
                     "explicit lifetime required in the type of '{}': lifetime {} required (line {})",

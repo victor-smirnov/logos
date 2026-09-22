@@ -1931,8 +1931,6 @@ two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-l
 # ── tests/ui/dropck ─────────────────────────────────────────
 dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-error  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. The OLD port had NO CONSTRUCT LEFT (field -> i64, `User = Self` dropped). Root is NOT a region root: E0277 on a projection. ONE-ROW root, no separating pair measured
 
-e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
-
 elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a METHOD CALL whose receiver-region demand is never checked. PAIR: the same escape through two FREE fns REFUSES (`return type mismatch: variance mismatch — expected &'static bool, got &'s bool`); through `self.a()` it admits. Writing 's explicitly changes nothing, so elision is NOT the variable
 
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
@@ -1942,12 +1940,6 @@ mut-slice-struct-lifetime-transmute--t17 lifereg.NEW-B2 tests/imported/admit/lif
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
-
-# ── tests/ui/moves ─────────────────────────────────────────
-
-
-# ── tests/ui/nll ─────────────────────────────────────────
-adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33  #  2026-09-12q: NOT moved by `letnamed`/`letnamedc` (predicted). Upstream has no `let` — the `&c` reaches `'static` at the turbofish CTOR ARGUMENT (a permissive call-argument site); the port's let annotation is not where the region is decided. The `&local -> 'static` plane is PROBES.md 2026-09-02p §4.
 
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 
@@ -1975,9 +1967,6 @@ propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/n
 
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 
-# ── tests/ui/regions ─────────────────────────────────────────
-better-blame-constraint-for-outlives-static lifereg.NEW-N1 tests/imported/admit/regions/better-blame-constraint-for-outlives-static
-
 explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
 
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
@@ -1991,6 +1980,12 @@ regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
+
+# ── tests/ui/moves ─────────────────────────────────────────
+
+
+# ── tests/ui/nll ─────────────────────────────────────────
+# ── tests/ui/regions ─────────────────────────────────────────
 
 # ── tests/ui/lifetimes ─────────────────────────────────────────
 
@@ -2561,5 +2556,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 40
-# SYNC-HASH 02636949f14a927944d44e0bb35780e1
+# TOTAL 37
+# SYNC-HASH 15b761262563bdfe14302c5311bdcd36

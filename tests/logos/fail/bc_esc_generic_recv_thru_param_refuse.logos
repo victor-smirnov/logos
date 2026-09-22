@@ -1,0 +1,19 @@
+// A method `fn thru(&self, s: str) -> str` returns something with the lifetime
+// of `&self` — elision rule 3 — not of `s`, whatever its body does. Returning
+// `t.thru(p)` as `&'a str` therefore needs `t`'s lifetime to outlive `'a`:
+// MEASURED, rustc 1.98.1 by path, 2026-09-22 — error[E0621]: explicit lifetime
+// required in the type of `t`. Both shapes used to sit in
+// pass/bc_esc_generic_recv_admit as "the retained argument is the caller's own
+// parameter"; that reading ignored rule 3.
+package bc_esc_generic_recv_thru_param_refuse;
+pub trait Tr { fn thru(&self, s: str) -> str; }
+pub struct K { pub z: i64 }
+impl Tr for K { fn thru(&self, s: str) -> str { return s; } }
+pub fn thru_param<'a, T: Tr>(t: &T, p: &'a str) -> &'a str { return t.thru(p); }
+pub fn via_where<'a, T>(t: &T, p: &'a str) -> &'a str where T: Tr { return t.thru(p); }
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    let a = thru_param::<K>(&k, "xyz");
+    let b = via_where::<K>(&k, "wq");
+    return (a.len() + b.len()) as i32;
+}

@@ -1,1 +1,1 @@
-explicit lifetime required in the type of 's': lifetime 'static required (line 7)
+lifetime may not live long enough: the region of 's' must outlive 'static

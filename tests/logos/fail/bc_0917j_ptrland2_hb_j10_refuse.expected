@@ -1,1 +1,1 @@
-'r' does not live long enough: it is borrowed here and used after 'r' goes out of scope
+'v' does not live long enough: it is borrowed here and used after 'v' goes out of scope

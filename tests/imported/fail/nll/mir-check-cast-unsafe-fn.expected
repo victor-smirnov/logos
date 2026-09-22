@@ -1,1 +1,1 @@
-explicit lifetime required in the type of 'input': lifetime 'static required (line 9)
+lifetime may not live long enough: the region of 'input' must outlive 'static

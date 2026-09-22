@@ -15,17 +15,19 @@
 // THING THAT KEEPS THAT DISTINCTION HONEST — a corpus that merely stayed green
 // cannot tell a precise fix from a conservative one.
 //
-// The five shapes, each one variable away from fail/bc_esc_generic_recv_dangle:
+// The shapes, each one variable away from fail/bc_esc_generic_recv_dangle:
 //   self_sourced  callee returns `self.s`, signature still takes a borrow
 //                 (result<-0x1: the argument is NOT retained)
 //   owned_arg     the argument is moved in by value, so nothing is borrowed
 //   recv_outlives the receiver outlives the call and the result is its view
-//   thru_param    the retained argument is the CALLER'S OWN parameter
 //   scalar        the result cannot carry a borrow at all
-//   via_where     the callee is reached through a where-clause bound
 //   outparam_ok   the &mut out-param is filled from the caller's parameter,
 //                 not from a callee-frame local (the twin of
 //                 fail/bc_esc_generic_outparam_dangle)
+// (2026-09-22: `thru_param` and `via_where` LEFT this file. They returned
+// `t.thru(p)` as `&'a str`, but elision rule 3 gives `thru(&self, s: str) ->
+// str` the lifetime of `&self`, not of `s`: rustc 1.98.1 refuses both with
+// E0621 on `t`. They are fail/bc_esc_generic_recv_thru_param_refuse now.)
 package bc_esc_generic_recv_admit;
 
 use logos.mem.string;
@@ -41,7 +43,7 @@ pub trait Tr {
 pub struct K { pub z: i64, pub s: str }
 
 impl Tr for K {
-    fn thru(&self, s: str) -> str { return s; }
+    fn thru(&self, s: str) -> str { return self.s; }   // `return s` is E0621-class under elision rule 3 (#461)
     fn pick(&self, probe: str) -> str { return self.s; }
     fn keep(&self, s: String) -> i64 { return s.len(); }
     fn n(&self) -> i64 { return self.z; }
@@ -63,14 +65,12 @@ pub fn owned_arg<T: Tr>(t: &T) -> i64 {
 
 pub fn recv_outlives<T: Tr>(t: &T) -> str { return t.pick("probe"); }
 
-pub fn thru_param<'a, T: Tr>(t: &T, p: &'a str) -> &'a str { return t.thru(p); }
 
 pub fn scalar<T: Tr>(t: &T) -> i64 {
     let o: String = String::from("hello");
     return t.n() + o.len();
 }
 
-pub fn via_where<'a, T>(t: &T, p: &'a str) -> &'a str where T: Tr { return t.thru(p); }
 
 pub fn outparam_ok<'a, T: Tr>(t: &T, p: &'a str) -> &'a str {
     let mut v: str = "";
@@ -83,9 +83,7 @@ fn main() -> i32 {
     if self_sourced::<K>(&k).len()  != 4i64 { return 1i32; }
     if owned_arg::<K>(&k)           != 5i64 { return 2i32; }
     if recv_outlives::<K>(&k).len() != 4i64 { return 3i32; }
-    if thru_param::<K>(&k, "xyz").len() != 3i64 { return 4i32; }
     if scalar::<K>(&k)              != 6i64 { return 5i32; }
-    if via_where::<K>(&k, "wq").len()   != 2i64 { return 6i32; }
     if outparam_ok::<K>(&k, "pq").len() != 2i64 { return 7i32; }
     return 0i32;
 }

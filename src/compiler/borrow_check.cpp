@@ -552,13 +552,22 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         return suf.empty() || name.find(suf) != std::string_view::npos ? std::string()
                                                                        : std::string(name) + suf;
     };
+    // ⚠ A BARE NAME IS NOT AN IDENTITY. The stdlib has two `Bytes` of its own,
+    // and first-def-wins handed a user's `struct Bytes { b: &'static [u8] }` the
+    // stdlib's fields. Every definition is ALSO registered under
+    // `pkg::name`, which a lookup that knows the type's package asks first
+    // (bir_struct_def).
     for (auto& sd : prog.structs) {
         ts.struct_by_name.emplace(std::string(sd.name()), sd);
         if (auto f = folded(sd.name(), sd.pkg()); !f.empty()) ts.struct_by_name.emplace(std::move(f), sd);
+        if (!sd.pkg().empty())
+            ts.struct_by_name.emplace(std::string(sd.pkg()) + "::" + std::string(sd.name()), sd);
     }
     for (auto& sd : prog.struct_specializations) {
         ts.spec_by_name.emplace(std::string(sd.name()), sd);
         if (auto f = folded(sd.name(), sd.pkg()); !f.empty()) ts.spec_by_name.emplace(std::move(f), sd);
+        if (!sd.pkg().empty())
+            ts.spec_by_name.emplace(std::string(sd.pkg()) + "::" + std::string(sd.name()), sd);
     }
     for (auto& ed : prog.enums) {
         ts.enum_by_name.emplace(std::string(ed.name()), ed);

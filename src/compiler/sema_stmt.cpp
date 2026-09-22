@@ -2295,8 +2295,12 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         {
             std::function<bool(TypeRef, int)> names_lt = [&](TypeRef t, int d) -> bool {
                 if (!t || d > 12) return false;
+                // `'static` COUNTS: it is written, and a loan of a local stored
+                // under it must live for ever (`let e: E<&'static i64> =
+                // E::V::<&'static i64>(&c);`, rustc E0597). A promoted constant
+                // (`let r: &'static i64 = &7i64;`) is not a loan of a local.
                 auto named = [](std::string_view lt) {
-                    return !lt.empty() && lt != "'_" && lt != "_" && lt != "'static" && lt != "static" &&
+                    return !lt.empty() && lt != "'_" && lt != "_" &&
                            !lt.starts_with("'%") && !lt.starts_with("%");
                 };
                 if (named(t.lifetime())) return true;
