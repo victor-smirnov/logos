@@ -175,7 +175,7 @@ done
 if [ "$n_art" -ne 5 ]; then
     echo "FAIL: the artifact assertions ran on $n_art emitted queries (want 5: qf, qn, qi, qs, qu)."
     echo "      A guard that admits nothing skips every check inside it."
-    grep -hE '^pub fn q._run\(' "${DUMPS[@]}" || true
+    grep -hE '^pub fn q._run(<[^>]*>)?\(' "${DUMPS[@]}" || true
     fail=1
 fi
 

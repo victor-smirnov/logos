@@ -317,7 +317,7 @@ eq batch "$(count_err batch '^\[plan\] m -> drain on regrouped: aggregate')" 0 \
 eq batch "$(count_err batch '^\[plan\] m -> no materialization   \(no node: the plan reads this source once')" 2 \
    "the queries that materialize nothing do not SAY so — silence and 'nothing built' are again indistinguishable"
 # (c) THE ARTIFACT SIDE of the same decision, on the emitted fn by name.
-awk '/^pub fn parity_sums_run\(/ {f=1} f {print} f && /^}$/ {exit}' \
+awk '/^pub fn parity_sums_run(<[^>]*>)?\(/ {f=1} f {print} f && /^}$/ {exit}' \
     $(dumps batch) > "$TMPD/batch.agg" || true
 if [ ! -s "$TMPD/batch.agg" ]; then
     echo "FAIL [batch]: no emitted \`parity_sums_run\` in the dump — the artifact side of the aggregate's scan was not asserted at all"

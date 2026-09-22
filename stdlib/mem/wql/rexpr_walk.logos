@@ -245,6 +245,32 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // no callers: every emitter in this file, the four constant-body peepholes
 // included, now hands over a fragment it BUILT. A text overload is the seam a
 // new text body would come back through, so it is gone rather than unused.)
+// Write the query's region into a signature fragment.
+//
+// Every borrow in a `deem` query's signature belongs to ONE region: the sources
+// the query reads, which is where every borrowed result comes from. The
+// generated `_run` takes `__pl: &Plan` AS WELL, so its signature has TWO region
+// positions with an elided result — E0106 in Rust, and elision picking between
+// them is exactly the guess this compiler no longer makes. Naming the region is
+// what a human writes, so the emitter writes it.
+//
+// Textual by necessity: `params_text` is the user's own `deem!(…)` paren text,
+// re-emitted verbatim on purpose. `&` gains `'a` unless it already carries a
+// region (`&'`) or is a double borrow (`&&`, which the inner one handles).
+fn region_annotate(src: str, out: &mut String) {
+    let n: i64 = src.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(src, i);
+        out.push_u8(c);
+        if c == 38u8 {
+            let nx: u8 = if i + 1i64 < n { str_byte_at(src, i + 1i64) } else { 0u8 };
+            if nx != 39u8 && nx != 38u8 { out.push_str("'a "); }
+        }
+        i = i + 1i64;
+    }
+}
+
 fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
                       body: ExprBlob, prm: &MacroParams) {
     // The imports a native source's materializer needs are a RUNTIME list —
@@ -995,7 +1021,31 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         rps.push_str(", ");
         rps.push_str(params_text);
     }
-    emit_fn_quote_blob(string_as_str(&runnm), string_as_str(&rps), tps, ret_ty, body, prm);
+    // The run fn is the one with two region positions; `prepare` and the direct
+    // fn have one each, so only this signature needs the region written.
+    // ⚠ THE PLAN'S BORROW KEEPS ITS OWN REGION. Annotating it with `'a` too tied
+    // the result to the plan — which the direct fn builds as a LOCAL — so
+    // `head` read as returning a borrow of `__pl`. Only the query's SOURCES and
+    // the result share the region; the plan is read during the call and not
+    // held.
+    let mut rps_a: String = String::new();
+    rps_a.push_str("__pl: &");
+    rps_a.push_str(tyn);
+    if params_text.len() > 0i64 {
+        rps_a.push_str(", ");
+        region_annotate(params_text, &mut rps_a);
+    }
+    let mut ret_a: String = String::new();
+    region_annotate(ret_ty, &mut ret_a);
+    let mut tps_a: String = String::new();
+    if tps.len() == 0i64 {
+        tps_a.push_str("<'a>");
+    } else {
+        tps_a.push_str("<'a, ");
+        tps_a.push_str(unsafe { str_from_raw(((tps.as_ptr() as i64) + 1i64) as *const u8, tps.len() - 1i64) });
+    }
+    emit_fn_quote_blob(string_as_str(&runnm), string_as_str(&rps_a), string_as_str(&tps_a),
+                       string_as_str(&ret_a), body, prm);
 
     // ── the direct fn: prepare, then run ───────────────────────────────────
     // The plan is a NAMED local rather than `&<prepare>(…)`: a plan is a value

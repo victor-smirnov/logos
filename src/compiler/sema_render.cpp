@@ -1379,6 +1379,20 @@ std::string SemaChecker::render_type_param_src_(TinyMapView node) {
     // reading its fields as a parameter's is silent corruption: a DYN_TYPE's
     // NAME alone turned `impl Fam<dyn Tag>` into `impl Fam<Tag>`, and a
     // GENERIC_INST's args came out as bounds (`Wrap<u64>` → `Wrap: u64`).
+    // A LIFETIME_PARAM rides the SAME `TYPE_PARAMS` list as a type parameter,
+    // distinguished only by its node code — and with no arm here it fell into
+    // `render_type_arg_src_`, which renders a TYPE and dropped the region
+    // entirely. `--gen-dir` reparses what this prints, so a `fn f<'a>(…)`
+    // came back as `fn f(…)` and E0106 fired on the dump although the emitted
+    // signature was well-formed. A renderer that cannot print what the parser
+    // accepts is a fidelity gap, and this is the shape main.cpp's --gen-dir
+    // note warns about.
+    if (code_of(node) == la::LIFETIME_PARAM) {
+        std::string n = node.has_key(la::NAME)
+                            ? std::string(str_of(node.get(la::NAME.code))) : std::string();
+        if (n.empty()) return "'_";
+        return n[0] == '\'' ? n : "'" + n;
+    }
     if (code_of(node) != la::TYPE_PARAM && code_of(node) != la::CONST_PARAM)
         return render_type_arg_src_(node);
     if (code_of(node) == la::CONST_PARAM) {
@@ -2306,15 +2320,29 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
                                 : (is_mut ? "*mut " : "*const ");
         return pre + recur(pointee);
     }
+    // ⚠ A WRITTEN REGION IS PART OF THE TYPE. Dropping it here made `--gen-dir`
+    // print `&T` for `&'a T`, and the dump is REPARSED — so a signature the
+    // emitter wrote correctly came back elided and E0106 fired on it. Same gap
+    // as LIFETIME_PARAM above, one level down.
     case la::REF_TYPE: {
         auto inner = node.has_key(la::POINTEE) ? map_of(node.get(la::POINTEE.code))
                                                 : map_of(node.get(la::TYPE.code));
-        return "&" + recur(inner);
+        std::string lt;
+        if (node.has_key(la::LIFETIME) && !node.get(la::LIFETIME.code).is_null()) {
+            std::string n(str_of(node.get(la::LIFETIME.code)));
+            if (!n.empty() && n != "_" && n != "'_") lt = (n[0] == '\'' ? n : "'" + n) + " ";
+        }
+        return "&" + lt + recur(inner);
     }
     case la::MUT_REF_TYPE: {
         auto inner = node.has_key(la::POINTEE) ? map_of(node.get(la::POINTEE.code))
                                                 : map_of(node.get(la::TYPE.code));
-        return "&mut " + recur(inner);
+        std::string lt;
+        if (node.has_key(la::LIFETIME) && !node.get(la::LIFETIME.code).is_null()) {
+            std::string n(str_of(node.get(la::LIFETIME.code)));
+            if (!n.empty() && n != "_" && n != "'_") lt = (n[0] == '\'' ? n : "'" + n) + " ";
+        }
+        return "&" + lt + "mut " + recur(inner);
     }
     case la::ARR_TYPE: {
         std::string s = "[";
@@ -2339,8 +2367,15 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         s += "]";
         return s;
     }
-    case la::SLICE_TYPE:
-        return "&[" + recur(map_of(node.get(la::TYPE.code))) + "]";
+    case la::SLICE_TYPE: {
+        // A slice is a BORROW and may name its region, exactly as `&T` does.
+        std::string lt;
+        if (node.has_key(la::LIFETIME) && !node.get(la::LIFETIME.code).is_null()) {
+            std::string n(str_of(node.get(la::LIFETIME.code)));
+            if (!n.empty() && n != "_" && n != "'_") lt = (n[0] == '\'' ? n : "'" + n) + " ";
+        }
+        return "&" + lt + "[" + recur(map_of(node.get(la::TYPE.code))) + "]";
+    }
     case la::UNSIZED_SLICE_TYPE:
         return "[" + recur(map_of(node.get(la::TYPE.code))) + "]";
     case la::TUPLE_TYPE: {

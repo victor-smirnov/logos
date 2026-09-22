@@ -126,7 +126,7 @@ slice_fn() {   # slice_fn <fn-name> <outfile>
     # (the lint, or a person) cannot tell which one a line means. A `done` flag
     # says the same thing and leaves exactly one meaning of the word in this
     # file — the one that ends the gate.
-    awk -v want="pub fn $1(" '
+    awk -v want="pub fn $1" '
         !done && index($0, want) == 1 { inside = 1 }
         inside && !done { print }
         inside && $0 == "}" { inside = 0; done = 1 }

@@ -216,7 +216,7 @@ cat "${DUMPS[@]}" > "$TMPD/all.txt"
 # Extract the function: from its definition line to the first column-0 `}`.
 # The emitter writes one definition per name, and the assertion below checks
 # that — two definitions would make "the emitted scan" ambiguous.
-DEFS=$(grep -c "^pub fn ${FN}(" "$TMPD/all.txt" || true)
+DEFS=$(grep -cE "^pub fn ${FN}(<[^>]*>)?\\(" "$TMPD/all.txt" || true)
 if [ "$DEFS" != 1 ]; then
     echo "FAIL(1): expected exactly one definition of ${FN}, found ${DEFS}."
     echo "         dumps: ${DUMPS[*]}"

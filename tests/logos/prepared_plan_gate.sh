@@ -66,7 +66,7 @@ want=3
 for kind in 'pub struct [A-Za-z]+Plan \{' \
             '^impl [A-Za-z]+Plan \{' \
             '^pub fn [a-z_]+_prepare\(' \
-            '^pub fn [a-z_]+_run\(__pl: &[A-Za-z]+Plan, '; do
+            '^pub fn [a-z_]+_run(<[^>]*>)?\(__pl: &[A-Za-z]+Plan, '; do
     n=$(count "$kind")
     if [ "$n" -ne "$want" ]; then
         echo "FAIL: $n items matching /$kind/ (want $want, one per query)"

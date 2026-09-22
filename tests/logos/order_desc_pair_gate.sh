@@ -151,7 +151,7 @@ slice_fn() {   # slice_fn <fn-name> <artifact> <outfile>
     # ⚠ NO `exit` IN THE awk PROGRAM: awk's `exit` and the shell's are spelled
     # identically and a static reader cannot tell which one a line means. A
     # `done` flag leaves exactly one meaning of the word in this file.
-    awk -v want="pub fn $1(" '
+    awk -v want="pub fn $1" '
         !done && index($0, want) == 1 { inside = 1 }
         inside && !done { print }
         inside && $0 == "}" { inside = 0; done = 1 }

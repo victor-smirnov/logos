@@ -154,7 +154,7 @@ done
 extract() {                     # extract <dumpfile> <fnname> <outfile>
     local src="$1" fn="$2" out="$3"
     local n
-    n=$(grep -c "^pub fn ${fn}(" "$src")
+    n=$(grep -cE "^pub fn ${fn}(<[^>]*>)?\\(" "$src")
     if [ "$n" != "1" ]; then
         note "expected exactly ONE definition of ${fn} in the dump, found ${n}.
       With two, \"the emitted query\" is ambiguous and every clause below is
@@ -162,7 +162,7 @@ extract() {                     # extract <dumpfile> <fnname> <outfile>
         : > "$out"
         return 1
     fi
-    awk -v fn="^pub fn ${fn}\\\\(" '$0 ~ fn {f=1} f {print} f && /^}$/ {exit}' \
+    awk -v fn="^pub fn ${fn}(<[^>]*>)?\\\\(" '$0 ~ fn {f=1} f {print} f && /^}$/ {exit}' \
         "$src" > "$out"
 }
 

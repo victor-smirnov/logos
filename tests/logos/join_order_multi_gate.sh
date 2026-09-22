@@ -245,7 +245,7 @@ fi
 # the guard admitted is asserted below.
 n_q3=0
 for f in "${DUMPS[@]}"; do
-    grep -Eq '^pub fn q3_run\(' "$f" || continue
+    grep -Eq '^pub fn q3_run(<[^>]*>)?\(' "$f" || continue
     n_q3=$((n_q3 + 1))
     n_disc=$(grep -Ec '\(__pl\.order_ix == [0-9]+i64\)' "$f" || true)
     if [ "$n_disc" -ne 3 ]; then
