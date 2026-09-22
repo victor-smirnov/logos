@@ -3536,6 +3536,24 @@ private:
                     labels(decl.pointee(), pt, out, depth + 1);
                 }
                 return;
+            case LogosType::Kind::TraitObject:
+                // `&'a (dyn Tr + 'b)` IS a TraitObject here, and `walk_type`
+                // gives a borrowed one TWO origins: the borrow and the bound on
+                // what was erased. With no case the switch fell through, both
+                // became "?", and "?" is related to everything — so
+                // `fn f<'a, 'b>(x: &'a mut dyn Tr) -> &'b mut dyn Tr { x }` was
+                // admitted. The bound is not stored when written; rustc's
+                // default object lifetime for `&'a dyn Tr` is `'a`, so both
+                // take the borrow's label. An OWNING one (`Box<dyn Tr>`, one
+                // origin) keeps "?": its default bound is 'static, and claiming
+                // that would refuse every box of a borrowing value.
+                if (!same(dk, ak) || actual.owning_trait_object() || actual.raw_fat()) break;
+                {
+                    std::string lt(decl.lifetime());
+                    if (lt == "'_") lt.clear();
+                    out.insert(out.end(), n, lt);
+                }
+                return;
             case LogosType::Kind::Array:
                 if (!same(dk, ak)) break;
                 labels(decl.elem(), actual.elem(), out, depth + 1);
@@ -4197,6 +4215,22 @@ private:
     }
     // A place reached through `*p` with p a raw pointer: rustc does not check
     // loans there (the raw pointer took the place out of the borrow system).
+    // A pointer whose deref is a REBORROW: `&'p T`, and the borrowed fat
+    // pointers — `&'p [T]`, `&'p dyn Tr`, `&'p Dst` — which are one kind each
+    // here rather than a Ref around an unsized pointee. The reborrow
+    // constraint listed only the first two, so `&*x` with `x: &'a dyn Tr`
+    // issued a loan that forgot `'a`, and `-> &'b i64 { x.borrowed() }` went
+    // unrefused.
+    static bool is_borrowing_pointer(TypeRef t) {
+        if (!t) return false;
+        switch (t.kind()) {
+            case LogosType::Kind::Ref: case LogosType::Kind::MutRef: return true;
+            case LogosType::Kind::Slice:       return !t.owning_slice() && !t.raw_fat();
+            case LogosType::Kind::TraitObject: return !t.owning_trait_object() && !t.raw_fat();
+            case LogosType::Kind::DstRef:      return !t.owning_dst() && !t.raw_fat();
+            default: return false;
+        }
+    }
     bool through_raw_pointer(const bir::Place& p) const {
         TypeRef t = b_.locals[p.local].type;
         bool synth = b_.locals[p.local].synth_ref;
@@ -4463,6 +4497,22 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         if (!t.owning_slice() && !t.raw_fat()) out.push_back(claim);
                         if (!t.raw_fat()) claim_mask(t.elem(), claim, out, depth + 1);
                         return;
+                    case LogosType::Kind::TraitObject:
+                        // A BORROWED trait object's two regions — the borrow and
+                        // the bound on what was erased — BOTH carry a claim. The
+                        // bound is labelled by rustc's default object lifetime
+                        // (`&'a dyn Tr` is `+ 'a`), and leaving it unclaimed is
+                        // not neutral: an unclaimed region is known-related to
+                        // everything, the known relation is TRANSITIVE, and the
+                        // bound then bridged `x: &'a mut dyn Tr` into a `-> &'b
+                        // mut dyn Tr` result. A WRITTEN bound is not stored; the
+                        // corpus writes five, all equal to the borrow's own
+                        // region. An owning one's single region is its bound,
+                        // which defaults to 'static: no claim there.
+                        if (t.raw_fat()) return;
+                        if (!t.owning_trait_object()) { out.push_back(claim); out.push_back(claim); }
+                        else out.push_back(false);
+                        return;
                     case LogosType::Kind::Array: claim_mask(t.elem(), claim, out, depth + 1); return;
                     case LogosType::Kind::Tuple:
                         for (auto& e : t.tuple_elems()) claim_mask(e, claim, out, depth + 1);
@@ -4596,9 +4646,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             bool synth = root.synth_ref;
                             for (auto& pj : s.rv.place.proj) {
                                 bool ref_deref = pj.k == bir::Proj::K::Deref &&
-                                    (synth || (pt && (pt.kind() == LogosType::Kind::Ref ||
-                                                      pt.kind() == LogosType::Kind::MutRef ||
-                                                      (pt.kind() == LogosType::Kind::Slice && !pt.owning_slice()))));
+                                    (synth || is_borrowing_pointer(pt));
                                 if (ref_deref) {
                                     OList po = place_origins(prefix);
                                     if (po.exact && !po.os.empty()) subset(po.os[0], L.origin, p);

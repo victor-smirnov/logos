@@ -486,5 +486,7 @@ e0373_closure_may_outlive_borrowed_local 2026-09-22 diagnostics tests/imported/f
 
 e0382_three_sentences_not_one 2026-09-22 diagnostics tests/imported/fail/borrowck/borrowck-move-out-from-array-use-match--b
 
-# TOTAL 25
-# SYNC-HASH d76d07af405f9a534ed56d1a5f8290f4
+impl_header_implied_bounds_not_required_at_call 2026-09-22 borrow-check tests/imported/fail/regions/wf-self-type
+
+# TOTAL 26
+# SYNC-HASH 46e5792387abed878727475411b5e62e
