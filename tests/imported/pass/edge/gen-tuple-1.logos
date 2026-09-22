@@ -1,5 +1,8 @@
 package gen_tuple_1;
-fn pair<T>(x: T) -> (T, T) { return (x, x); }
+// `T: Copy` is REQUIRED, and rustc says so: `fn pair<T>(x: T) -> (T, T) { (x, x) }`
+// is E0382 "use of moved value: `x`" — a generic template's T moves unless the
+// signature bounds it. The fixture asserted the unbounded form compiles.
+fn pair<T: Copy>(x: T) -> (T, T) { return (x, x); }
 fn main() -> i32 {
     let p: (i32, i32) = pair::<i32>(1i32);
     return p.0 + p.1 - 2i32;

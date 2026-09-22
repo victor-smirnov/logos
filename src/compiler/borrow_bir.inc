@@ -432,6 +432,30 @@ private:
         t.targets = {b};
         terminate(std::move(t));
     }
+    // `[a; 2]` reads `a` TWICE inside ONE rvalue, and both reads land at the
+    // SAME point — so the initialisation dataflow, which asks whether a path is
+    // uninitialised ON ENTRY to a point, cannot see the second. MIR gives each
+    // operand its own statement (`_3 = move _1; _4 = move _1;`) and the second
+    // is then a use of a moved value; the counter-based checker said exactly
+    // that, and this one compiled the program CLEAN — a double move of a value
+    // with a `Drop` impl, so a double drop.
+    //
+    // Only the DUPLICATE is materialised: the first read keeps its place, so
+    // every aggregate that mentions a local once is untouched.
+    void split_repeated_moves(bir::Rvalue& rv) {
+        std::set<bir::LocalId> seen;
+        for (auto& op : rv.ops) {
+            if (op.k != bir::Operand::K::Move || !op.place.valid() || !op.place.proj.empty())
+                continue;
+            if (seen.insert(op.place.local).second) continue;
+            bir::LocalId t = temp(body_.locals[op.place.local].type);
+            bir::Rvalue u(bir::Rvalue::K::Use);
+            u.ops.push_back(op);
+            assign(bir::Place{t, {}}, std::move(u));
+            op.place = bir::Place{t, {}};
+        }
+    }
+
     void assign(bir::Place dest, bir::Rvalue rv) {
         // `x = h(move x)` as one statement would move and initialise x at the
         // same point; route the value through a temporary so the move comes
@@ -964,6 +988,7 @@ private:
                 lir_view::ETupleLitView{e}.each_elem([&](lir_view::ExprRef el) {
                     rv.ops.push_back(operand(el));
                 });
+                split_repeated_moves(rv);
                 assign(dest, std::move(rv));
                 return;
             }
@@ -973,6 +998,7 @@ private:
                 lir_view::EArrLitView{e}.each_elem([&](lir_view::ExprRef el) {
                     rv.ops.push_back(operand(el));
                 });
+                split_repeated_moves(rv);
                 assign(dest, std::move(rv));
                 return;
             }

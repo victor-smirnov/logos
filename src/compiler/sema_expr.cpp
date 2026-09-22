@@ -14482,11 +14482,20 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     elems.push_back(std::move(fill_val));
     for (int64_t i = 1; i < n; ++i)
         elems.push_back(lower_expr(val_node));  // re-lower for each slot (simple literals)
-    // `[a; 1]` MOVES its operand into the single element (legal at count 1 for a
-    // non-Copy value; above 1 the Copy bound refuses it) — row
-    // array_repeat_len1_noncopy_operand_double_drop_run.
+    // `[a; N]` MOVES its operand into EVERY slot, because the operand is
+    // re-lowered once per slot above — so a non-Copy `a` is used N times and
+    // the second use is a use of a moved value.
+    //
+    // ⚠ ONLY `elems[0]` WAS MARKED, and the comment that stood here asserted
+    // "above 1 the Copy bound refuses it". No such bound fires: `[a; 2]` over a
+    // `D` with a `Drop` impl compiled CLEAN under this checker and was refused
+    // by the counter-based one (`use of moved value 'a'`), which is a double
+    // move and therefore a double drop. A threshold that lives in a comment is
+    // not held. Row array_repeat_len2_noncopy_says_use_of_moved, which stays
+    // OPEN: rustc's sentence is E0277 "the trait bound `D: Copy` is not
+    // satisfied", and this restores the refusal, not yet the wording.
     if (n >= 1 && !in_foreach && elem_type && is_move_type(elem_type))
-        mark_moved_expr(expr_ref_of(elems[0]));
+        for (auto& el : elems) mark_moved_expr(expr_ref_of(el));
     return builder().arr_lit(std::move(elems), make_array(elem_type, (size_t)n));
 }
 

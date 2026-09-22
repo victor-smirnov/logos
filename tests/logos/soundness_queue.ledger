@@ -114,8 +114,6 @@ trait_default_body_type       2 tests/soundness/open/trait_default_body_type    
 
 trait_default_body_call       2 tests/soundness/open/trait_default_body_call       admits
 
-dangle_join_diverging_arm     3 tests/soundness/open/dangle_join_diverging_arm     refuses
-
 dyn_paren_region_bound        3 tests/soundness/open/dyn_paren_region_bound        refuses
 
 box_vec_new_infer             3 tests/soundness/open/box_vec_new_infer             refuses
@@ -165,15 +163,11 @@ sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_wr
 # Six roots, named by symbol in each program's header, not by spelling.
 let_underscore_defers_drop_to_block_end 3 tests/soundness/open/let_underscore_defers_drop_to_block_end run 1
 
-box_deref_move_refused_outside_let 3 tests/soundness/open/box_deref_move_refused_outside_let refuses
-
 nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
 
 self_assign_refused_as_moved 3 tests/soundness/open/self_assign_refused_as_moved refuses
 
 boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
-
-tuple_elem_reinit_after_move_refused 3 tests/soundness/open/tuple_elem_reinit_after_move_refused refuses
 
 variant_payload_nested_struct_sub_double_drops 1 tests/soundness/open/variant_payload_nested_struct_sub_double_drops run 2
 
@@ -247,10 +241,6 @@ dyn_fnmut_nested_call_admits 2 tests/soundness/open/dyn_fnmut_nested_call_admits
 
 closure_literal_fnmut_nested_call_admits 2 tests/soundness/open/closure_literal_fnmut_nested_call_admits admits
 
-loop_holder_realias_alternating_refuses 3 tests/soundness/open/loop_holder_realias_alternating_refuses refuses
-
-loop_holder_realias_referent_read_after_refuses 3 tests/soundness/open/loop_holder_realias_referent_read_after_refuses refuses
-
 loop_init_before_break_refuses 3 tests/soundness/open/loop_init_before_break_refuses refuses
 
 anon_region_let_annotation_refuses_named_region 3 tests/soundness/open/anon_region_let_annotation_refuses_named_region refuses
@@ -279,15 +269,11 @@ enum_payload_rewrap_carries_declared_region_refuses 3 tests/soundness/open/enum_
 
 struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses 3 tests/soundness/open/struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses refuses
 
-promoted_literal_call_arg_refused 3 tests/soundness/open/promoted_literal_call_arg_refused refuses
-
 static_array_whole_borrow_reads_garbage 1 tests/soundness/open/static_array_whole_borrow_reads_garbage run 1
 
 vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_dropped refuses
 
 static_arg_pins_shared_callee_region_refused 3 tests/soundness/open/static_arg_pins_shared_callee_region_refused refuses
-
-where_impl_region_static_bound_unused_refused 3 tests/soundness/open/where_impl_region_static_bound_unused_refused refuses
 
 call_static_bound_empty_arg_region_admits 2 tests/soundness/open/call_static_bound_empty_arg_region_admits admits
 
@@ -337,10 +323,6 @@ enum_variant_pattern_on_integer_scrutinee_admits 2 tests/soundness/open/enum_var
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
-vec_push_arg_reads_loan_refused 3 tests/soundness/open/vec_push_arg_reads_loan_refused refuses
-
-vec_push_ifarm_after_loan_last_use_refused 3 tests/soundness/open/vec_push_ifarm_after_loan_last_use_refused refuses
-
 generic_user_indexmut_store_refused 3 tests/soundness/open/generic_user_indexmut_store_refused refuses
 
 enum_payload_binding_declared_binder_name_collision_admits 2 tests/soundness/open/enum_payload_binding_declared_binder_name_collision_admits admits
@@ -364,10 +346,6 @@ generic_mutref_pair_local_borrow_escape_admits 2 tests/soundness/open/generic_mu
 # ── 2026-09-14e-thruref: eight defects the pricing round's hand battery found around issue-51117's three doors and the
 # pointer-comparison arm, each reproducing on base baa2a38e8b650fb3 43 (read) before any edit; reason and hands in each header.
 explicit_deref_field_borrow_through_refvar_unkeyed_admits 2 tests/soundness/open/explicit_deref_field_borrow_through_refvar_unkeyed_admits admits
-
-refvar_reborrow_whole_then_assign_counter_refused 3 tests/soundness/open/refvar_reborrow_whole_then_assign_counter_refused refuses
-
-pattern_ref_binding_loan_outlives_last_use_refused 3 tests/soundness/open/pattern_ref_binding_loan_outlives_last_use_refused refuses
 
 pattern_enum_payload_ref_owner_move_admits 2 tests/soundness/open/pattern_enum_payload_ref_owner_move_admits admits
 
@@ -412,23 +390,17 @@ user_type_alias_shadows_stdlib_type_param_refused 3 tests/soundness/open/user_ty
 # 0230e503bd682184 43 before any edit; the probe measurements and the reason a neighbour is rowed are in each header.
 vec_mutref_elem_push_store_rehomed_admits 2 tests/soundness/open/vec_mutref_elem_push_store_rehomed_admits admits
 
-vec_mutref_elem_push_store_rehomed_refused 3 tests/soundness/open/vec_mutref_elem_push_store_rehomed_refused refuses
-
 loop_push_no_later_use_dangle_not_carried_admits 2 tests/soundness/open/loop_push_no_later_use_dangle_not_carried_admits admits
 
 arraylit_ref_elem_store_after_init_admits 2 tests/soundness/open/arraylit_ref_elem_store_after_init_admits admits
 
 vec_of_mutref_elem_receiver_store_loan_unheld_admits 2 tests/soundness/open/vec_of_mutref_elem_receiver_store_loan_unheld_admits admits
 
-aggregate_param_ref_field_borrow_returned_says_dangling_refused 3 tests/soundness/open/aggregate_param_ref_field_borrow_returned_says_dangling_refused refuses
-
 vec_elem_ref_copied_out_src_assigned_admits 2 tests/soundness/open/vec_elem_ref_copied_out_src_assigned_admits admits
 
 vec_holder_moved_src_assigned_admits 2 tests/soundness/open/vec_holder_moved_src_assigned_admits admits
 
 setter_mutref_field_store_after_outer_set_rehomed_admits 2 tests/soundness/open/setter_mutref_field_store_after_outer_set_rehomed_admits admits
-
-setter_mutref_field_store_after_outer_set_rehomed_refused 3 tests/soundness/open/setter_mutref_field_store_after_outer_set_rehomed_refused refuses
 
 refcell_interior_push_block_local_dangle_admits 2 tests/soundness/open/refcell_interior_push_block_local_dangle_admits admits
 
@@ -473,13 +445,6 @@ tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tupl
 
 ref_pair_nonprim_tuple_eq_compares_addresses_run 1 tests/soundness/open/ref_pair_nonprim_tuple_eq_compares_addresses_run run 1
 
-# ── 2026-09-15c-argref (PRICING, tier 1: `&<reference binding>` is one level short — scope_ holds the reference VALUE, EAddrOf returns it) ──
-# Nine rows OPENED by the round's hand battery, each measured on build/ 98ca3fa669468808 43 unarmed. Four are members of
-# addr_of_struct_ref_local_arg_passes_referent_run's class at binders with a DIFFERENT record (for-each R, match/if-let VT, capture V,
-# closure parameter none); argrefland moves the first three, argreflandx all four (src/compiler/probes/2026-09-15c-argref/RESULT.txt).
-# Five are out-of-class legal refusals the battery met.
-double_ref_deref_return_outer_lifetime_refused 3 tests/soundness/open/double_ref_deref_return_outer_lifetime_refused refuses
-
 ref_to_slice_ref_param_unsized_refused 3 tests/soundness/open/ref_to_slice_ref_param_unsized_refused refuses
 
 ref_to_dyn_ref_type_parse_refused 3 tests/soundness/open/ref_to_dyn_ref_type_parse_refused refuses
@@ -506,8 +471,6 @@ generic_operator_mono_redispatch_operands_double_drop 1 tests/soundness/open/gen
 loop_break_value_array_lit_uninit_drop_run 1 tests/soundness/open/loop_break_value_array_lit_uninit_drop_run run 139
 
 generic_unbounded_typevar_reuse_after_tuple_literal_admits 2 tests/soundness/open/generic_unbounded_typevar_reuse_after_tuple_literal_admits admits
-
-at_binding_whole_struct_wild_fields_refused 3 tests/soundness/open/at_binding_whole_struct_wild_fields_refused refuses
 
 array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
 
@@ -565,17 +528,6 @@ arg_ref_primitive_for_ref_struct_admits 2 tests/soundness/open/arg_ref_primitive
 
 double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_while_borrowed_admits admits
 
-# ── 2026-09-16n-arrstore2 (LANDING, tier 3: the array place write's TWO guards are doors in SERIES) ── Two rows CLOSE
-#    (array_store_value_reads_loan_refused, array_index_store_index_reads_loan_refused): borrow_check.cpp's place-write
-#    exclusivity report AND the second guard of the same `AddrOfTemp` arm both ask store_loans_die_in_stmt_ now, the
-#    second one scoped to the store's own LHS. 16m opened the first alone and measured CEILING 0 — doors in series.
-#    Both programs are now pass fixtures, each COMPILING and RUNNING exit 0 against its rustc 1.98.1 twin.
-#    ONE row OPENS: the same shape with the array as a STRUCT FIELD. Neighbour rowed with its reason (no carrier):
-#    it is refused by take_field_borrow_path_'s FIELD-PATH guard, and the store-liveness query returns false by its
-#    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
-#    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
-array_field_store_value_reads_field_loan_refused 3 tests/soundness/open/array_field_store_value_reads_field_loan_refused refuses
-
 # ── 2026-09-17b-ptrmentionland: TWO DEFECTS FOUND BY THE ABUSE DIRECTION OF A CONDEMNED ARM ──
 # Both reproduce on the SHIPPED compiler with NO probe installed (build_hash 8f5483d04b7c49ac 43).
 # They were found by carrier-varied counter-examples written to price `collect_param_regions_`
@@ -613,5 +565,20 @@ derefwrite_rawptr_field_under_live_borrow_admits 2 tests/soundness/open/derefwri
 
 field_retarget_overlapping_mutborrow_admits 2 tests/soundness/open/field_retarget_overlapping_mutborrow_admits admits
 
-# TOTAL 228
-# SYNC-HASH bd3659a517d5d552917cf294a872517f
+# ── 2026-09-15c-argref (PRICING, tier 1: `&<reference binding>` is one level short — scope_ holds the reference VALUE, EAddrOf returns it) ──
+# Nine rows OPENED by the round's hand battery, each measured on build/ 98ca3fa669468808 43 unarmed. Four are members of
+# addr_of_struct_ref_local_arg_passes_referent_run's class at binders with a DIFFERENT record (for-each R, match/if-let VT, capture V,
+# closure parameter none); argrefland moves the first three, argreflandx all four (src/compiler/probes/2026-09-15c-argref/RESULT.txt).
+# Five are out-of-class legal refusals the battery met.
+# ── 2026-09-16n-arrstore2 (LANDING, tier 3: the array place write's TWO guards are doors in SERIES) ── Two rows CLOSE
+#    (array_store_value_reads_loan_refused, array_index_store_index_reads_loan_refused): borrow_check.cpp's place-write
+#    exclusivity report AND the second guard of the same `AddrOfTemp` arm both ask store_loans_die_in_stmt_ now, the
+#    second one scoped to the store's own LHS. 16m opened the first alone and measured CEILING 0 — doors in series.
+#    Both programs are now pass fixtures, each COMPILING and RUNNING exit 0 against its rustc 1.98.1 twin.
+#    ONE row OPENS: the same shape with the array as a STRUCT FIELD. Neighbour rowed with its reason (no carrier):
+#    it is refused by take_field_borrow_path_'s FIELD-PATH guard, and the store-liveness query returns false by its
+#    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
+#    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
+
+# TOTAL 211
+# SYNC-HASH 9967e88f21ba73dc88005bc490a409dc
