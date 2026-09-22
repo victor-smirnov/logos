@@ -484,5 +484,7 @@ e0510_mutable_borrow_in_match_guard 2026-09-22 diagnostics tests/imported/fail/n
 
 e0373_closure_may_outlive_borrowed_local 2026-09-22 diagnostics tests/imported/fail/regions/regions-nested-fns
 
-# TOTAL 24
-# SYNC-HASH 0a31d28f6e295c44f7f770fd8f578438
+e0382_three_sentences_not_one 2026-09-22 diagnostics tests/imported/fail/borrowck/borrowck-move-out-from-array-use-match--b
+
+# TOTAL 25
+# SYNC-HASH d76d07af405f9a534ed56d1a5f8290f4

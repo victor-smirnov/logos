@@ -472,6 +472,8 @@ bc_patmovebind_at_ref_binding_twin 3 tests/soundness/open/bc_patmovebind_at_ref_
 
 vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
 
+let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
+
 # ── 2026-09-17d-arrlit: TWO ESCAPE CARRIERS THE ArrLit ARM DOES NOT REACH ──
 # Both reproduce on the binary this commit ships (the ArrLit arm INSTALLED) and both were
 # MEASURED unmoved by it — they are rowed, not deferred, each with its reason:
@@ -513,5 +515,5 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 177
-# SYNC-HASH f3e4a8361fe808dfbee5477e777e7118
+# TOTAL 178
+# SYNC-HASH 3bebbd60f56e22213cab3fdc27a3ffaf

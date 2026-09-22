@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row let_array_pattern_ref_mut_binding_is_raw_pointer_refuses (tier 3).
+// LEGAL PROGRAM REFUSED. `let [ref mut a, ref mut b] = xs; *a = 3; *b = 4;` is legal
+// Rust (MEASURED, rustc 1.98.1 by path, 2026-09-22: no diagnostics). logosc refuses
+// it in SEMA, before any borrow check: "write through raw pointer requires unsafe
+// context" and "deref-write: '=' left side must be a pointer or mutable reference".
+// The binding a `ref mut` element of a LET array pattern produces is typed as a raw
+// pointer, not `&mut i64`. The same pattern in a `match` arm is accepted and
+// correct (tests/logos/pass/array_pattern_ref_mut_elems_disjoint).
+// Found: 2026-09-22, while landing that admit twin.
+package let_array_pattern_ref_mut_binding_is_raw_pointer_refuses;
+fn main() -> i32 {
+    let mut xs: [i64; 2] = [1i64, 2i64];
+    let [ref mut a, ref mut b] = xs;
+    *a = 3i64;
+    *b = 4i64;
+    return (xs[0u64] + xs[1u64] - 7i64) as i32;
+}

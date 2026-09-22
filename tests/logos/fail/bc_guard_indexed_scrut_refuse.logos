@@ -1,0 +1,16 @@
+// A GUARD THAT WRITES AN ELEMENT OF AN INDEXED SCRUTINEE IS REFUSED.
+// `match a[0] { 1 if { a[1] = 7; true } => .. }` — MEASURED, rustc 1.98.1 by path,
+// 2026-09-22: error[E0510]: cannot assign `a[_]` in match guard. An index
+// EXPRESSION is MIR's `a[_]`: it cannot tell `a[1]` from `a[0]`, and neither can
+// rustc, which refuses. This file used to be pass/bc_guard_indexed_scrut_admit,
+// an "exemption" from the old checker that called the program legal BY READING;
+// it was never measured, and it was wrong.
+// The pinned sentence is our E0506; rustc's is E0510, which logosc does not have
+// yet — issue #455. Re-pin this file when it lands.
+package bc_guard_indexed_scrut_refuse;
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let mut o: i64 = 0i64;
+    match a[0] { 1i64 if { a[1] = 7i64; true } => { o = 1i64; } _ => { o = 0i64; } }
+    return (o - 1i64 + a[1] - 7i64) as i32;
+}

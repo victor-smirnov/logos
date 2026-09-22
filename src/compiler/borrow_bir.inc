@@ -70,6 +70,10 @@ struct Proj {
     LocalId     index = kNoLocal;   // Index: the index operand's local, if any
     int64_t     const_index = -1;   // Index into an ARRAY by a literal: MIR's ConstantIndex
     bool        from_end = false;   // Index / Subslice: the offset counts from the END
+    // Index: the element was named by a PATTERN (MIR's ConstantIndex). An index
+    // EXPRESSION `a[0]` is MIR's Index(local) even with a literal, and rustc
+    // lets two of those overlap (`a[_]`); only two pattern elements are disjoint.
+    bool        pattern = false;
     int64_t     sub_to = -1;        // Subslice: the END offset (from the end when from_end)
     TypeRef     ty;                 // type of the place AFTER this projection, when known
 };
@@ -2561,6 +2565,7 @@ private:
                 int64_t i = 0;
                 sv.each_prefix([&](lir_view::PatRef sub) {
                     bir::Proj ix(bir::Proj::K::Index);
+                    ix.pattern = true;
                     ix.const_index = i++;
                     ix.ty = et;
                     if (sub) bind_pattern(p.with(std::move(ix)), et, sub, default_ref);
@@ -2601,6 +2606,7 @@ private:
                             rv.what = "subslice";
                             for (int64_t k = lo; k < hi; ++k) {
                                 bir::Proj ix(bir::Proj::K::Index);
+                                ix.pattern = true;
                                 ix.const_index = k; ix.ty = et;
                                 rv.ops.push_back(read_place(p.with(std::move(ix)), et));
                             }
@@ -2619,6 +2625,7 @@ private:
                 int64_t j = int64_t(sfx);
                 sv.each_suffix([&](lir_view::PatRef sub) {
                     bir::Proj ix(bir::Proj::K::Index);
+                    ix.pattern = true;
                     if (alen >= 0) ix.const_index = alen - j;
                     else         { ix.const_index = j; ix.from_end = true; }
                     --j;
@@ -2688,12 +2695,14 @@ private:
                 int64_t i = 0;
                 sv.each_prefix([&](lir_view::PatRef sub) {
                     bir::Proj ix(bir::Proj::K::Index);
+                    ix.pattern = true;
                     ix.const_index = i++; ix.ty = et;
                     tested_places(p.with(std::move(ix)), et, sub, out, depth + 1);
                 });
                 int64_t j = int64_t(sv.suffix_count());
                 sv.each_suffix([&](lir_view::PatRef sub) {
                     bir::Proj ix(bir::Proj::K::Index);
+                    ix.pattern = true;
                     ix.const_index = int64_t(t.arr_size()) - j--; ix.ty = et;
                     tested_places(p.with(std::move(ix)), et, sub, out, depth + 1);
                 });
@@ -3796,7 +3805,15 @@ private:
     // or index. Returns ~0u when the place has no path (a temp-free const).
     // Move paths follow fields and the owning `*` of a Box (ADR 0028:
     // `(*b).s` is `b.*.s`); any other projection ends the path.
-    uint32_t path_of(const bir::Place& p) {
+    // `exact`, when asked for, says whether EVERY projection became a path
+    // segment. A truncated path names a container, not the written place.
+    // `moved`: the place is the operand of a MOVE. Only then may an index
+    // EXPRESSION with a literal (`xs[0]`) name its element — moving out of an
+    // array by index is illegal in Rust (E0508), so a legal one is sema's
+    // desugaring of `let [a, b] = xs;`, i.e. a pattern that lost its mark.
+    // Anywhere else an index expression is MIR's `a[_]` and names the array.
+    uint32_t path_of(const bir::Place& p, bool* exact = nullptr, bool moved = false) {
+        if (exact) *exact = true;
         std::string key = "v" + std::to_string(p.local);
         uint32_t id = intern_path(key, ~0u, p.local);
         TypeRef t = b_.locals[p.local].synth_ref ? TypeRef{} : b_.locals[p.local].type;
@@ -3809,7 +3826,7 @@ private:
                 seg = "*";
                 t = pj.ty ? pj.ty : (t.type_args().empty() ? TypeRef{} : t.type_args()[0]);
             } else if (pj.k == bir::Proj::K::Index && pj.const_index >= 0 && !pj.from_end && t &&
-                       t.kind() == LogosType::Kind::Array) {
+                       t.kind() == LogosType::Kind::Array && (pj.pattern || moved)) {
                 // ⚠ `!from_end`: an offset from the END is a different element
                 // from the same offset from the start unless the length is
                 // known, and it must not be given that element's move path. A
@@ -3828,6 +3845,7 @@ private:
             // Through a REFERENCE it stays here and truncates, which is the
             // conservative direction for a loan.
             } else {
+                if (exact) *exact = false;
                 break;
             }
             std::string child = key + "." + seg;
@@ -3840,7 +3858,11 @@ private:
         auto it = path_ids_.find(key);
         if (it != path_ids_.end()) return it->second;
         uint32_t id = static_cast<uint32_t>(paths_.size());
-        paths_.emplace_back(b_.locals[l].name + key.substr(key.find('.') == std::string::npos ? key.size() : key.find('.')), parent);
+        std::string shown = b_.locals[l].name + key.substr(key.find('.') == std::string::npos ? key.size() : key.find('.'));
+        // The key joins every segment with '.', which is right for a FIELD and
+        // wrong on screen for an ELEMENT: the reader wrote `a[2]`, not `a.[2]`.
+        for (size_t at; (at = shown.find(".[")) != std::string::npos;) shown.erase(at, 1);
+        paths_.emplace_back(std::move(shown), parent);
         path_ids_.emplace(key, id);
         if (parent == ~0u) row("path_is_var", {pa(id), var(l)});
         else row("child_path", {pa(id), pa(parent)});
@@ -3869,7 +3891,7 @@ private:
     void read_operand(const bir::Operand& op, uint32_t p) {
         if (op.k == bir::Operand::K::Const || !op.place.valid()) return;
         use_place(op.place, p);
-        uint32_t path = path_of(op.place);
+        uint32_t path = path_of(op.place, nullptr, op.k == bir::Operand::K::Move);
         row("path_accessed_at_base", {pa(path), pt(p)});
         if (op.k == bir::Operand::K::Move && derefs_through(op.place))
             row("move_out_of_ref", {pa(path), pt(p)});
@@ -3889,8 +3911,20 @@ private:
         access(p, dest, Access::WriteShallow);
         kill_loans(dest, p);
         if (derefs_through(dest) & 1u) row("shared_deref_write", {var(dest.local), pt(p)});
+        bool exact = true;
+        const uint32_t dpath = path_of(dest, &exact);
+        if (!has_borrowing_deref(dest) && !exact) {
+            // A WRITE TO `a[i]` IS NOT AN ASSIGNMENT OF `a`. The element has no
+            // move path of its own, so the path truncated to the container —
+            // and assigning the container would REINITIALISE all of it, hiding
+            // a pattern's earlier move of `a[2]`. rustc reads it the other way:
+            // writing an element USES the array and needs it whole (E0382 "use
+            // of partially moved value"). Same row as a write through a pointer.
+            row("path_accessed_at_base", {pa(dpath), pt(p)});
+        } else if (!has_borrowing_deref(dest)) {
+            row("path_assigned_at_base", {pa(dpath), pt(p)});
+        }
         if (!has_borrowing_deref(dest)) {
-            row("path_assigned_at_base", {pa(path_of(dest)), pt(p)});
             if (!dest.proj.empty() && !b_.locals[dest.local].is_mut &&
                 b_.locals[dest.local].kind != bir::LocalKind::Temp)
                 row("immutable_write", {var(dest.local), pt(p)});
@@ -3940,9 +3974,10 @@ private:
             const auto& y = b.proj[k];
             if (x.k == bir::Proj::K::Field && y.k == bir::Proj::K::Field && x.field != y.field)
                 return is_union_type(t);
-            if (x.k == bir::Proj::K::Index && y.k == bir::Proj::K::Index && x.const_index >= 0 &&
-                y.const_index >= 0 && x.from_end == y.from_end && x.const_index != y.const_index)
-                return false;   // two literal elements of one array
+            if (x.k == bir::Proj::K::Index && y.k == bir::Proj::K::Index && x.pattern && y.pattern &&
+                x.const_index >= 0 && y.const_index >= 0 && x.from_end == y.from_end &&
+                x.const_index != y.const_index)
+                return false;   // two pattern elements of one array
             // ⚠ `x.from_end != y.from_end` FALLS THROUGH TO OVERLAP ON PURPOSE:
             // `a[2]` and the element 1 FROM THE END are the same element of a
             // 3-array and different elements of a 4-array, and the length is
@@ -4665,8 +4700,14 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                     access(p, s.dest, Access::WriteDeep);
                     if (s.dest.proj.empty()) row("var_dropped_at", {var(s.dest.local), pt(p)});
                     else use_place(s.dest, p);
-                    if (!has_borrowing_deref(s.dest))
-                        row("path_moved_at_base", {pa(path_of(s.dest)), pt(p)});
+                    if (!has_borrowing_deref(s.dest)) {
+                        // Dropping `a[i]`'s old value (before `a[i] = v`) does not
+                        // deinitialise `a`: the element has no move path, so a
+                        // truncated path is a USE of the array, as in write_place.
+                        bool exact = true;
+                        const uint32_t dp = path_of(s.dest, &exact);
+                        row(exact ? "path_moved_at_base" : "path_accessed_at_base", {pa(dp), pt(p)});
+                    }
                     break;
             }
         }

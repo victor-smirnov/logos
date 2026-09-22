@@ -1,0 +1,11 @@
+// ADMIT TWIN of fail/elem_borrow_mut_mut: two `ref mut` elements named by a PATTERN
+// are disjoint (MIR ConstantIndex), while two index EXPRESSIONS `&mut arr[0]`,
+// `&mut arr[1]` overlap (MIR Index, rustc E0499 on `arr[_]`). One token of provenance.
+package array_pattern_ref_mut_elems_disjoint;
+fn main() -> i32 {
+    let mut arr: [i64; 3] = [1i64, 2i64, 3i64];
+    match arr {
+        [ref mut a, ref mut b, _] => { *a = 10i64; *b = 20i64; }
+    }
+    return (arr[0u64] + arr[1u64] - 30i64) as i32;
+}

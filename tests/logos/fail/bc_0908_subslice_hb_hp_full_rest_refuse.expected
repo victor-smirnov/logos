@@ -1,1 +1,1 @@
-use of moved or uninitialised 'a.[0]' at line 12
+use of moved or uninitialised 'a[0]' at line 12
