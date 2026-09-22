@@ -3338,6 +3338,31 @@ private:
                     out.push_back(lt);
                 }
                 return;
+            case LogosType::Kind::Ptr:
+                // A RAW POINTER HAS NO REGION OF ITS OWN, and `walk_type`'s Ptr
+                // arm says so: no origin for the pointer, the pointee's regions
+                // laid out behind it. With no case here the switch fell through
+                // and the caller made every label "?", which matches EVERY
+                // source — so `fn parse_primary(doc: &Writ, lex: &mut Lexer,
+                // src: str) -> *const WMap<..>` handed its raw-pointer result
+                // the `&mut *lex` reborrow's region, the reborrow outlived its
+                // use, and the next `lex.peek()` was a second mutable borrow of
+                // a place the first still held.
+                //
+                // The pointee kinds skipped are the ones `walk_type` skips, for
+                // its own stated reason, so the two stay one decision.
+                if (!same(dk, ak)) break;
+                {
+                    TypeRef pt = actual.pointee();
+                    if (!pt) return;
+                    auto pk = pt.kind();
+                    if (pk == LogosType::Kind::TraitObject || pk == LogosType::Kind::UnsizedDyn ||
+                        pk == LogosType::Kind::Slice || pk == LogosType::Kind::UnsizedSlice ||
+                        pk == LogosType::Kind::DstRef)
+                        return;
+                    labels(decl.pointee(), pt, out, depth + 1);
+                }
+                return;
             case LogosType::Kind::Array:
                 if (!same(dk, ak)) break;
                 labels(decl.elem(), actual.elem(), out, depth + 1);
