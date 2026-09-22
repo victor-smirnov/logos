@@ -1,1 +1,1 @@
-cannot borrow 'c' as mutable: 'c' has shared borrows
+cannot return reference to temporary value: dangling reference

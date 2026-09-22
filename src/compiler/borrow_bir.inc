@@ -339,6 +339,7 @@ public:
         // same identity test as the counter-based checker's copy_tvs_.
         copy_tvs_.clear();
         aliases_.clear();
+        closures_.clear();
         for (auto lp : fn.lifetime_params()) {
             std::string n(lp);
             if (!n.empty() && n[0] != '\'') n = "'" + n;
@@ -376,6 +377,63 @@ public:
         }
         return std::move(body_);
     }
+
+    // ADR 0029 S5b — A CLOSURE BODY IS ITS OWN `bir::Body`, as MIR gives a
+    // closure one. Everything it needs is already in the L-IR — CL_BLOCK,
+    // CL_PARAM_*, CL_CAPTURE_* and CL_RET_TYPE — so the body is LOWERED rather
+    // than approximated, and a violation visible ONLY inside the closure (a
+    // returned reference to a body local, two conflicting borrows of one
+    // capture) is found. 29 of the corpus's 61 remaining misses are this shape.
+    //
+    // ⚠ A CAPTURE IS A PARAMETER HERE, AND ITS LOAN IS NOT RE-ISSUED. The loan a
+    // by-reference capture takes is issued in the ENCLOSING body at the
+    // construction point (the `ClosureBox` arm), which is where rustc issues it
+    // too; taking it again here would count one borrow twice and refuse programs
+    // that only ever borrow once. What this body checks is what the body DOES
+    // with what it was given.
+    bir::Body build_closure(lir_view::ExprRef e) {
+        lir_view::EClosureBoxView v{e};
+        body_ = {};
+        body_.name = "closure " + std::string(v.closure_id());
+        copy_tvs_.clear();
+        aliases_.clear();
+        closures_.clear();
+        new_local("_ret", bir::LocalKind::Return, v.ret_type(pool_), true, ~0u, 0);
+        cur_ = new_block();
+        push_scope();
+        uint64_t ci = 0;
+        v.each_capture(pool_, [&](std::string_view n, TypeRef t) {
+            // CAPTURE_MODES: 0 ImmBorrow, 1 MutBorrow, 2 ByValue. Only the first
+            // cannot be written through, so it is the only one that is not `mut`.
+            bir::LocalId l = new_local(std::string(n), bir::LocalKind::Param, t,
+                                       v.capture_mode(ci) != 0, ~0u, 0);
+            // ⚠ NOT `declare`d — ON PURPOSE. `declare` puts a local in a SCOPE,
+            // and leaving the scope emits its StorageDead. A capture's storage
+            // is the ENCLOSING frame's, not this body's: in MIR a by-reference
+            // capture is reached as `(*_1.0)` and nothing about it dies when the
+            // closure returns. Declaring it made a borrow of a capture look
+            // like a borrow of a dying local, so every closure that RETURNS
+            // something derived from what it captured read as letting borrowed
+            // data escape — eighteen pass fixtures, all of them legal.
+            ++body_.n_params;
+            ++ci;
+        });
+        v.each_param(pool_, [&](std::string_view n, TypeRef t) {
+            bir::LocalId l = new_local(std::string(n), bir::LocalKind::Param, t,
+                                       false, ~0u, 0);
+            declare(l);
+            ++body_.n_params;
+        });
+        if (auto b = v.body()) lower_block_stmts(b);
+        if (!body_.blocks[cur_].terminated) {
+            exit_scopes(0, 0);
+            terminate(bir::Term(bir::Term::K::Return));
+        }
+        return std::move(body_);
+    }
+    // The closure literals THIS body mentioned — a closure inside a closure is
+    // found by asking the sub-body the same question.
+    const std::vector<lir_view::ExprRef>& closures() const { return closures_; }
 
 private:
     using ECode = lir_schema::expr::Code;
@@ -1079,6 +1137,9 @@ private:
                 // inside the closure stays with the old checker and shows up as
                 // an `old_only` row; the body becomes its own bir::Body later.
                 lir_view::EClosureBoxView v{e};
+                // ADR 0029 S5b: the BODY becomes its own `bir::Body`, as MIR
+                // gives a closure one. Recorded here, lowered after this body.
+                closures_.push_back(e);
                 bir::Rvalue rv(bir::Rvalue::K::Aggregate);
                 rv.what = std::string(v.closure_id());
                 std::vector<std::pair<std::string, TypeRef>> caps;
@@ -2705,6 +2766,7 @@ private:
     const TypeSets&       ts_;
     const FnIndex&        idx_;
     const FlowSummaryMap* flows_;
+    std::vector<lir_view::ExprRef> closures_;   // ADR 0029 S5b: bodies to lower next
     const TypePoolImpl*   pool_;
     bool                  mut_deref_ctx_ = false;
     int                   in_guard_ = 0;   // lowering a match guard: bindings are reads
@@ -4773,18 +4835,14 @@ struct BirSlowTimer {
     }
 };
 
-static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog,
-                            const TypeSets& ts, const FnIndex& idx,
-                            const FlowSummaryMap* flows) {
-    BirVerdict v;
-    BirBuilder builder(prog, ts, idx, flows);
-    bir::Body body = builder.build(fn);
+// Check ONE body and append what it says to `v`. A function and a closure are
+// the same question asked of different bodies, so they run the same rules.
+static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
+                           const TypeSets& ts, BirVerdict& v) {
     BirSlowTimer slow_timer_(body);
     const char* dump = std::getenv("LOGOS_BIR_DUMP");
     bool want_dump = dump && body.name.find(dump) != std::string::npos;
     if (want_dump) std::fputs(bir_dump(body).c_str(), stderr);
-    v.unsupported = body.unsupported;
-    if (!body.unsupported.empty()) return v;
 
     dl::Symbols* syms = nullptr;
     const dl::Program& rules = bc_rules(syms);
@@ -4983,6 +5041,39 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
             if (auto d = db.explain(*rules.relation("errors"), R.row(i), 64))
                 std::fputs(db.render(*d).c_str(), stderr);
     }
+}
+
+static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog,
+                            const TypeSets& ts, const FnIndex& idx,
+                            const FlowSummaryMap* flows) {
+    BirVerdict v;
+    BirBuilder builder(prog, ts, idx, flows);
+    bir::Body body = builder.build(fn);
+    v.unsupported = body.unsupported;
+    if (!body.unsupported.empty()) return v;
+    bir_check_body(body, prog, ts, v);
+
+    // ADR 0029 S5b — then every closure the body mentions, and every closure
+    // THOSE mention. A worklist rather than recursion so a closure inside a
+    // closure is reached without the builder re-entering itself.
+    std::vector<lir_view::ExprRef> queue(builder.closures().begin(), builder.closures().end());
+    for (size_t qi = 0; qi < queue.size(); ++qi) {
+        BirBuilder cb(prog, ts, idx, flows);
+        bir::Body cbody = cb.build_closure(queue[qi]);
+        // ⚠ «CONSERVATIVE» HAS A DIRECTION. A closure body this lowering cannot
+        // express makes the ENCLOSING function's verdict incomplete too, so the
+        // whole function falls back to the old checker rather than reporting a
+        // partial answer as a complete one.
+        if (!cbody.unsupported.empty()) {
+            v.unsupported = cbody.unsupported;
+            v.errors.clear();
+            return v;
+        }
+        for (auto x : cb.closures()) queue.push_back(x);
+        bir_check_body(cbody, prog, ts, v);
+    }
+    std::sort(v.errors.begin(), v.errors.end());
+    v.errors.erase(std::unique(v.errors.begin(), v.errors.end()), v.errors.end());
     return v;
 }
 

@@ -1,1 +1,1 @@
-cannot use 'x' because it was mutably borrowed
+cannot use 'x' while it is mutably borrowed

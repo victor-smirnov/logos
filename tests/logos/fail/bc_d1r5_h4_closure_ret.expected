@@ -1,1 +1,1 @@
-cannot return reference to local variable
+cannot return reference to temporary value: dangling reference
