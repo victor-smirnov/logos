@@ -403,7 +403,7 @@ fn gp_mk_self_body(h: &Writ, src: str, f1: str, f2: str) -> i64 {
 
 // Find the program's reach rel for `src`, injecting it on first use.
 // Returns the rel NAME (arena-interned) or "" when the rel cap is full.
-fn gp_reach_rel(prog_root: WAny, src: str, h: &Writ) -> str {
+fn gp_reach_rel<'a>(prog_root: WAny, src: str, h: &'a Writ) -> &'a str {
     let mut nm: String = String::new();
     nm.push_str("__reach_");
     nm.push_str(src);

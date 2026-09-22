@@ -538,6 +538,14 @@ private:
         };
         auto k = t.kind();
         if (k == K::Ref || k == K::MutRef) slot(t.lifetime());
+        // A SLICE IS A BORROW AND SO IS A LIFETIME POSITION. `str` and `&[T]`
+        // are fat pointers into someone else's storage — Rust writes them
+        // `&'a str` / `&'a [T]` and counts them for elision. Counting only
+        // `Ref`/`MutRef` let `fn f(arena: &Writ, s: str) -> str` look like it
+        // had ONE input region, so rule 2 fired and silently picked the wrong
+        // source instead of asking for an annotation.
+        else if (k == K::Slice || k == K::UnsizedSlice || k == K::TraitObject)
+            slot(t.lifetime());
         else if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
             auto wr = t.lifetime_args();
             size_t n = std::max(decl_lt_arity_(t), wr.size());

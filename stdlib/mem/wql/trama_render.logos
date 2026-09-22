@@ -251,7 +251,7 @@ impl StructEnv {
 // STEP (`SField{name=f, base=B}`) is field `f`'s declared type WITHIN the struct
 // `B` resolves to. Anything else (or an unknown/absent field) is "" (unresolvable
 // — the loop var then falls back to the `with` override / the i64 baseline).
-fn resolve_struct_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
+fn resolve_struct_type<'a>(view: &'a OView, e: SExpr, env: &'a StructEnv) -> &'a str {
     match e {
         SExpr::Field(f) => {
             let fname: str = f.name;
@@ -280,7 +280,7 @@ fn resolve_struct_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
 //   • `SField{name=f, base=B}` → element type of field `f` in struct(B);
 //   • a bare root that is itself a collection VAR → env[X] (already an element ty).
 // "" when unresolvable.
-fn resolve_for_element_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
+fn resolve_for_element_type<'a>(view: &'a OView, e: SExpr, env: &'a StructEnv) -> &'a str {
     match e {
         SExpr::Field(f) => {
             let fname: str = f.name;

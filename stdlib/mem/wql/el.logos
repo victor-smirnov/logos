@@ -1236,7 +1236,7 @@ pub fn el_cmp_ident(named: str, emitted: str) -> i32 {
 }
 
 /// The ground for a key whose emitted comparison does not realize its order.
-pub fn el_cmp_why(named: str, emitted: str) -> str {
+pub fn el_cmp_why<'a>(named: &'a str, emitted: &'a str) -> &'a str {
     let f: i32 = el_cmp_fidelity(named, emitted);
     if f == EL_ORD_OK() { return ""; }
     if f == EL_ORD_UNNAMED() && el_ty(named).cls >= 0i32 && el_ty(emitted).cls >= 0i32 {
@@ -1246,7 +1246,7 @@ pub fn el_cmp_why(named: str, emitted: str) -> str {
 }
 
 /// The ground for a key whose emitted `==` does not realize its equality.
-pub fn el_cmp_ident_why(named: str, emitted: str) -> str {
+pub fn el_cmp_ident_why<'a>(named: &'a str, emitted: &'a str) -> &'a str {
     let i: i32 = el_cmp_ident(named, emitted);
     if i == EL_ID_OK() { return ""; }
     if i == EL_ID_NO_EQ() {

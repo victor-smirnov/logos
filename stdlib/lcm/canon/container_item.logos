@@ -148,7 +148,7 @@ fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
 // The split-policy verdict for a kind=node ctr: "fast" | "volume" | "" (absent).
 // The leaf's split_into body is a FUNCTION of this — Canon decides, the emitter
 // reproduces the matching hand-written template.
-fn cv_split_policy(vroot: &WMap<WString, WAny>, ctr: str) -> str {
+fn cv_split_policy<'a>(vroot: &'a WMap<WString, WAny>, ctr: str) -> &'a str {
     let av: WAny = vroot.get(V_SPLIT);
     if !av.is_array() {
         return "";
@@ -171,7 +171,7 @@ fn cv_split_policy(vroot: &WMap<WString, WAny>, ctr: str) -> str {
 }
 
 // BTFL 8b: the (ctr, stream) layout verdict from V_LAYOUTS; "" when absent.
-fn cv_stream_layout(vroot: &WMap<WString, WAny>, ctr: str, stream: str) -> str {
+fn cv_stream_layout<'a>(vroot: &'a WMap<WString, WAny>, ctr: str, stream: str) -> &'a str {
     let av: WAny = vroot.get(V_LAYOUTS);
     if !av.is_array() {
         return "";
@@ -197,7 +197,7 @@ fn cv_stream_layout(vroot: &WMap<WString, WAny>, ctr: str, stream: str) -> str {
 }
 
 // relty of the (ctr, col) col_proj verdict row; "" when absent.
-fn cv_col_relty(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> str {
+fn cv_col_relty<'a>(vroot: &'a WMap<WString, WAny>, ctr: str, col: str) -> &'a str {
     let av: WAny = vroot.get(V_COL_PROJS);
     if !av.is_array() {
         return "";

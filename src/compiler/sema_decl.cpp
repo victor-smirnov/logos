@@ -1460,6 +1460,14 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) &&
                 TypeRef(t).lifetime().empty())
                 return true;
+            // A slice / trait object IS a borrow, so an unannotated one in the
+            // return type is an elided output region exactly as `&T` is. Reading
+            // only `Ref`/`MutRef` here is why `fn f(a: &Writ, s: str) -> str`
+            // never reached the ambiguity test below.
+            if ((k == LogosType::Kind::Slice || k == LogosType::Kind::UnsizedSlice ||
+                 k == LogosType::Kind::TraitObject) &&
+                TypeRef(t).lifetime().empty())
+                return true;
             if (TypeRef(t).pointee() && has_elided_ref(TypeRef(t).pointee())) return true;
             if (TypeRef(t).elem() && has_elided_ref(TypeRef(t).elem())) return true;
             for (auto e : TypeRef(t).tuple_elems()) if (has_elided_ref(e)) return true;

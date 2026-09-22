@@ -176,7 +176,7 @@ fn names_own_param(view: &OView, decl: WAny, nm: str) -> bool {
 //   • an alias to a type with no name of its own (`type Buf = [i64; 4]`, `&T`) —
 //     the target node carries no NAME, so the walk stops and returns the last name
 //     it had. Neither name is in the lattice and neither should be.
-pub fn resolve_alias_name(view: &OView, name: str) -> str {
+pub fn resolve_alias_name<'a>(view: &'a OView, name: &'a str) -> &'a str {
     if view.holder == (0 as *mut u8) { return name; }
     if name.len() == 0i64 { return name; }
     if el_class_lookup(name) >= 0i32 { return name; }
@@ -202,7 +202,7 @@ pub fn resolve_alias_name(view: &OView, name: str) -> str {
 // Look up the declared Logos TYPE NAME of field `field_name` within the struct
 // node `decl` (an AST item handle from `find_decl_by_name`). Returns an empty
 // `str` if the field is absent. This is the per-field reflection primitive.
-pub fn field_type_name(view: &OView, decl: WAny, field_name: str) -> str {
+pub fn field_type_name<'a>(view: &'a OView, decl: WAny, field_name: str) -> &'a str {
     if decl.is_null() { return ""; }
     let nf: u64 = view.ast_struct_field_count(decl);
     let mut i: u64 = 0 as u64;
@@ -241,7 +241,7 @@ fn is_collection_type_code(code: u64) -> bool {
 // This is the loop-var reflection primitive: `for v in ctx.field` binds `v` to
 // this element type (and its fields are reflected in turn). A scalar/struct field
 // (not a collection) returns "" (nothing to iterate over element-wise).
-pub fn field_element_type_name(view: &OView, decl: WAny, field_name: str) -> str {
+pub fn field_element_type_name<'a>(view: &'a OView, decl: WAny, field_name: str) -> &'a str {
     if decl.is_null() { return ""; }
     let nf: u64 = view.ast_struct_field_count(decl);
     let mut i: u64 = 0 as u64;
@@ -321,7 +321,7 @@ pub fn field_traversal_kind(view: &OView, decl: WAny, field_name: str) -> i32 {
     return 0i32;
 }
 
-pub fn field_traversal_elem(view: &OView, decl: WAny, field_name: str) -> str {
+pub fn field_traversal_elem<'a>(view: &'a OView, decl: WAny, field_name: str) -> &'a str {
     if decl.is_null() { return ""; }
     let nf: u64 = view.ast_struct_field_count(decl);
     let mut i: u64 = 0 as u64;

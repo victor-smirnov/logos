@@ -338,7 +338,7 @@ pub fn traversal_step_sel() -> StepSel {
 /// counting claim `plan_nodes_gate` pins. So the registry answers first and the
 /// source name is the fallback — which is exactly the blind class, where the
 /// registry has no answer and the param's own name is the only name there is.
-pub fn node_subject(prm: &MacroParams, src: str, var: str) -> str {
+pub fn node_subject<'a>(prm: &'a MacroParams, src: str, var: str) -> &'a str {
     let ri: i64 = prm.rel_find_src(src);
     if ri >= 0i64 { return prm.rel_names[ri]; }
     if src.len() > 0i64 { return src; }
