@@ -1,3 +1,10 @@
+// ── 2026-09-22: THIS PORT IS LEGAL RUST, and it lands under pass/. MEASURED with
+//    rustc 1.98.1 by path: the ported program compiles clean. RFC 2229 captures
+//    the PLACE `(*bar).a` in `inner`, i.e. a copy of the shared `&'a X`, so the
+//    outer `move` closure's environment is not borrowed and nothing escapes it.
+//    The row's "still a defect" was a verdict by reading. The upstream subject
+//    (an FnMut capture escaping) is covered by fail/nll/issue-40510-3; if this
+//    upstream test's own shape is wanted, it needs a re-port, not a checker fix.
 // rustc borrowck/issue-95079-missing-move-in-nested-closure.rs — upstream captured
 // variable cannot escape `FnMut` closure body
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)

@@ -52,6 +52,7 @@ struct Local {
     // the PARENT frame's free region, not one bound by the call. The two are
     // the whole of E0521, so they may not be one kind.
     bool        is_capture = false;
+    uint8_t     capture_mode = 0;   // a capture: CAPTURE_MODES — 0 ImmBorrow, 1 MutBorrow, 2 ByValue
     uint32_t    slot   = ~0u;
     uint32_t    line   = 0;
 };
@@ -431,6 +432,7 @@ public:
             bir::LocalId l = new_local(std::string(n), bir::LocalKind::Param, t,
                                        /*is_mut=*/true, ~0u, 0);
             body_.locals[l].is_capture = true;
+            body_.locals[l].capture_mode = v.capture_mode(ci);
             ++body_.n_captures;
             (void)ci;
             // ⚠ NOT `declare`d — ON PURPOSE. `declare` puts a local in a SCOPE,
@@ -4804,6 +4806,19 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                 break;
             case bir::Term::K::Return:
                 use_var(0, p);
+                // THE ENVIRONMENT LIVES FOR ONE CALL. A closure body reaches its
+                // captures through `self: &'env (mut) Env`, and `'env` ends
+                // when the call does: a loan of a BY-VALUE capture's place, or
+                // of a `&mut`-captured place (a reborrow through `&'env mut`),
+                // may not outlive the return (rustc E0521 / "captured variable
+                // cannot escape `FnMut` closure body"). A SHARED by-reference
+                // capture is exempt — `&*env.x` through `&'env &'x T` may be
+                // copied out at `'x` — and so is anything past a deref, which
+                // StorageDead does not reach.
+                if (b_.is_closure)
+                    for (bir::LocalId li = 1; li <= b_.n_captures && li < b_.locals.size(); ++li)
+                        if (b_.locals[li].capture_mode != 0)
+                            access(p, {li, {}}, Access::StorageDead);
                 break;
             case bir::Term::K::Call: {
                 for (auto& a : t.args) read_operand(a, p);
@@ -5242,7 +5257,14 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                     const bir::LocalKind lk = body.locals[loan.place.local].kind;
                     const bool ret_carries =
                         bir_type_carries_loans(body.locals[0].type, prog, ts);
-                    if (facts.at_return(P) && lk == bir::LocalKind::Param)
+                    const bir::Local& lroot = body.locals[loan.place.local];
+                    if (facts.at_return(P) && body.is_closure && lroot.is_capture)
+                        // The capture's place is the closure's ENVIRONMENT, which
+                        // the call only borrows (see the Return arm in BirFacts).
+                        msg = lroot.capture_mode == 1
+                            ? std::string("captured variable cannot escape `FnMut` closure body")
+                            : std::format("borrowed data escapes outside of closure: '{}'", nm);
+                    else if (facts.at_return(P) && lk == bir::LocalKind::Param)
                         msg = std::format("borrowed data escapes outside of function: '{}'", nm);
                     else if (facts.at_return(P) && ret_carries)
                         msg = loan.place.proj.empty() && lk == bir::LocalKind::Temp

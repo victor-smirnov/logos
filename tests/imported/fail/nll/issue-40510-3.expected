@@ -1,0 +1,1 @@
+captured variable cannot escape `FnMut` closure body
