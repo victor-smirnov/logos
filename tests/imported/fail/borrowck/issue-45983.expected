@@ -1,1 +1,1 @@
-'y' does not live long enough: it is borrowed by 'x', which is used here after 'y' goes out of scope (E0597)
+borrowed data escapes outside of closure: 'y' escapes the closure body here, and 'x' is declared outside of it

@@ -1,1 +1,1 @@
-cannot borrow 's.a': 's.a' is already mutably borrowed
+cannot assign to 's.a' because it is borrowed

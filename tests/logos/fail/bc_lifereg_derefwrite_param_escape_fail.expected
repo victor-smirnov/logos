@@ -1,1 +1,1 @@
-lifetime mismatch: data with region o2 flows into region o0, which the signature does not allow (line 13)
+explicit lifetime required in the type of 'y': lifetime 'a required (line 13)

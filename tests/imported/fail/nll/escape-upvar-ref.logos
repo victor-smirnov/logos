@@ -8,7 +8,7 @@ fn main() -> i32 {
     let mut p: &i64 = &x;
     {
         let y: i64 = 22i64;
-        let c = || { p = &y; };
+        let mut c = || { p = &y; };
         c();
     }
     return deref(p) as i32;

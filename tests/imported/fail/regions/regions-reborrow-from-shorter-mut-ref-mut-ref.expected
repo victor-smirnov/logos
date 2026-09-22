@@ -1,1 +1,1 @@
-lifetime mismatch: data with region o1 flows into region o0, which the signature does not allow (line 6)
+lifetime may not live long enough: consider adding the bound `'a: 'b` (line 6)

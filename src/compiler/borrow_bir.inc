@@ -48,6 +48,10 @@ struct Local {
     bool        static_addr = false;   // holds the address of a `static` item
     TypeRef     decl_type;             // Param / Return: the type as DECLARED (before mono)
     bool        annot_lifetime = false;   // a `let` whose WRITTEN annotation names a lifetime
+    // A CLOSURE CAPTURE. It is a Param of the closure body, but its region is
+    // the PARENT frame's free region, not one bound by the call. The two are
+    // the whole of E0521, so they may not be one kind.
+    bool        is_capture = false;
     uint32_t    slot   = ~0u;
     uint32_t    line   = 0;
 };
@@ -157,6 +161,8 @@ struct Body {
     std::vector<Local>       locals;
     std::vector<Block>       blocks;
     uint32_t                 n_params = 0;   // locals 1..n_params are params
+    bool                     is_closure = false;
+    uint32_t                 n_captures = 0;   // a closure: locals 1..n_captures are its captures
     std::set<std::string>    lifetime_params;   // the function's declared `'a`s
     std::vector<std::pair<std::string, std::string>> outlives;   // declared `'long: 'short`
     std::vector<std::string> unsupported;
@@ -397,6 +403,7 @@ public:
         lir_view::EClosureBoxView v{e};
         body_ = {};
         body_.name = "closure " + std::string(v.closure_id());
+        body_.is_closure = true;
         copy_tvs_.clear();
         aliases_.clear();
         closures_.clear();
@@ -407,8 +414,21 @@ public:
         v.each_capture(pool_, [&](std::string_view n, TypeRef t) {
             // CAPTURE_MODES: 0 ImmBorrow, 1 MutBorrow, 2 ByValue. Only the first
             // cannot be written through, so it is the only one that is not `mut`.
+            // ⚠ THE CAPTURE IS `mut` HERE, AND THE MODE IS NOT RE-DERIVED.
+            // Whether a capture may be mutated is decided OUTSIDE, at the
+            // construction point, and the enclosing body acts on that decision:
+            // `CAPTURE_MODES` is what it borrows by. Re-deriving it inside meant
+            // answering the same question twice from less — and sema records
+            // ImmBorrow for a capture the body only CALLS, so `|v| f(v)` with
+            // `F: FnMut` was refused with "cannot borrow 'f' as mutable, as it
+            // is not declared as mutable" although `mut f` was written. Four
+            // legal fixtures. What this body checks is what it DOES with what it
+            // was given; by what right it was given is the caller's question.
             bir::LocalId l = new_local(std::string(n), bir::LocalKind::Param, t,
-                                       v.capture_mode(ci) != 0, ~0u, 0);
+                                       /*is_mut=*/true, ~0u, 0);
+            body_.locals[l].is_capture = true;
+            ++body_.n_captures;
+            (void)ci;
             // ⚠ NOT `declare`d — ON PURPOSE. `declare` puts a local in a SCOPE,
             // and leaving the scope emits its StorageDead. A capture's storage
             // is the ENCLOSING frame's, not this body's: in MIR a by-reference
@@ -629,6 +649,16 @@ private:
         for (size_t s = scopes_.size(); s-- > 0;)
             for (auto it = scopes_[s].locals.rbegin(); it != scopes_[s].locals.rend(); ++it)
                 if (body_.locals[*it].name == name) return *it;
+        // ⚠ A CLOSURE'S CAPTURE IS A PARAM WITH NO SCOPE. It is deliberately not
+        // `declare`d — its storage belongs to the enclosing frame, so it must
+        // not receive a StorageDead — and the scope walk above therefore cannot
+        // see it. Without this the body's every mention of a capture missed and
+        // became a FRESH const temp (`_t3 = const; r = &mut _t3.a;`), so the
+        // body was lowered and said nothing: two conflicting borrows of one
+        // capture touched two different temps.
+        for (size_t i = 0; i < body_.locals.size(); ++i)
+            if (body_.locals[i].kind == bir::LocalKind::Param && body_.locals[i].name == name)
+                return static_cast<bir::LocalId>(i);
         return bir::kNoLocal;
     }
 
@@ -2788,6 +2818,22 @@ private:
     uint32_t              line_ = 0;
 };
 
+// ── Closure requirements ─────────────────────────────────────────────────────
+//
+// A CLOSURE BODY CANNOT ANSWER ITS OWN ESCAPE QUESTION. In
+// `{ let y = 22i64; let c = || { p = &y; }; c(); }` the body learns only that a
+// loan of capture `y` reaches capture `p`; whether that is legal is the
+// PARENT's question, and the parent's alone — `y` dies with the block and `p`
+// is read after it. Both captures are free regions of the parent, so a
+// body-local check either admits every such closure or refuses every one.
+//
+// rustc propagates the constraint outward as a closure region requirement.
+// Here a requirement is a pair of CAPTURE INDICES, "a loan of capture a reaches
+// capture b", and the parent turns it back into a subset between the two
+// operands of the construction, where its own liveness then decides. Keyed by
+// closure id, because an inner closure's requirement is an outer one's fact.
+using ClosureReqs = std::map<std::string, std::set<std::pair<uint32_t, uint32_t>>>;
+
 // ── Facts ────────────────────────────────────────────────────────────────────
 //
 // BIR -> the input relations of dl/rules/logos_bc.dl (Polonius + E0384 +
@@ -2810,9 +2856,14 @@ public:
     struct Out {
         std::vector<std::pair<std::string, std::vector<std::string>>> rows;   // rel, row
     };
+    // A universal region's PARAM/RETURN local and the lifetime its declared
+    // type wrote there ("" when elided). A subset error between two of them is
+    // a sentence about those two, and rustc has two of them — see the report.
+    struct Universal { bir::LocalId local; std::string label; };
 
-    BirFacts(const bir::Body& b, const lir::LProgram& prog, const TypeSets& ts)
-        : b_(b), prog_(prog), ts_(ts), pool_(prog.type_pool.impl()) {}
+    BirFacts(const bir::Body& b, const lir::LProgram& prog, const TypeSets& ts,
+             const ClosureReqs* creqs = nullptr)
+        : b_(b), prog_(prog), ts_(ts), pool_(prog.type_pool.impl()), creqs_(creqs) {}
 
     // Fills `db` (whose program is logos_bc.dl) and keeps the loan table for
     // explanations.
@@ -2864,9 +2915,18 @@ public:
     }
     std::string path_str(uint32_t id) const { return paths_[id].first; }
 
+    // Which PARAM or RETURN local a universal region belongs to. A subset error
+    // between two of them is a claim about those two locals, and the reader
+    // needs their names, not the region numbers.
+    const Universal* placeholder_owner(uint32_t origin) const {
+        auto it = placeholder_owner_.find(origin);
+        return it == placeholder_owner_.end() ? nullptr : &it->second;
+    }
 private:
     // ── origins ──
     struct OList { std::vector<uint32_t> os; std::vector<bool> inv; bool exact = true; };
+    std::map<uint32_t, Universal> placeholder_owner_;
+    const ClosureReqs* creqs_ = nullptr;
     uint32_t fresh_origin() { return n_origins_++; }
     void walk_type(TypeRef t, bool invariant, OList& out, int depth = 0) {
         if (!t || depth > 16) return;
@@ -4349,7 +4409,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
     // `'static`, which outlives everything. "return type has lifetime 'a but
     // 'y' has lifetime 'b" is this rule; without the facts it never fired.
     {
-        struct U { uint32_t origin; std::string label; bool claim; };
+        struct U { uint32_t origin; std::string label; bool claim; bool capture; };
         std::vector<U> us;
         // Which regions the check may make a CLAIM about: the regions of plain
         // references (through tuples and arrays). A region that is an ADT's
@@ -4394,12 +4454,27 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             std::vector<bool> cm;
             claim_mask(L.type, true, cm, 0);
             if (cm.size() != os.os.size()) cm.assign(os.os.size(), false);
-            for (size_t k = 0; k < os.os.size(); ++k) us.push_back({os.os[k], ls[k], bool(cm[k])});
+            for (size_t k = 0; k < os.os.size(); ++k) {
+                us.push_back({os.os[k], ls[k], bool(cm[k]), L.is_capture});
+                placeholder_owner_.emplace(os.os[k], Universal{li, ls[k]});
+            }
         }
         uint32_t next_loan = 1000000;   // placeholder loans never meet a real loan's id
         for (auto& u : us) row("placeholder", {o(u.origin), l(next_loan++)});
         auto elided = [](const std::string& l) { return l.empty() || l.starts_with("'%"); };
         auto related = [&](const U& a, const U& b) {   // may a's data flow into b?
+            // ⚠ A CLOSURE PARAMETER'S REGION IS BOUND BY THE CALL; A CAPTURE'S
+            // IS THE PARENT FRAME'S. That asymmetry IS E0521: the parent chose
+            // the capture's region before any call existed, so nothing the call
+            // binds can be known to outlive it, while the reverse — a capture's
+            // data reaching a parameter — is always fine. Without this the two
+            // were both elided placeholders, `related` took the elided-target
+            // branch ("elision decides on the caller's side"), and every
+            // `give(|y| { x = y; })` was admitted: ten fixtures, all E0521/E0597
+            // upstream. A parameter whose region is WRITTEN (`|y: &'a i64|`) is
+            // early-bound from the parent and falls through to the label rules,
+            // exactly as rustc treats it.
+            if (b_.is_closure && b.capture && !a.capture && elided(a.label)) return false;
             if (!a.claim || !b.claim) return true;
             if (a.label == "?" || b.label == "?" || a.label == "~" || b.label == "~") return true;   // unknown: no claim
             // An ELIDED target (`-> &i64`, which sema mints a fresh name for):
@@ -4547,6 +4622,30 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             }
                         }
                         if (s.rv.k == bir::Rvalue::K::RawAddr) use_place(s.rv.place, p);
+                    }
+                    // WHAT THE CLOSURE BODY REQUIRES OF THIS FRAME. The
+                    // construction is where the parent hands the body its
+                    // captures, so it is where the body's answer comes back:
+                    // capture a's loan must end up inside capture b's region.
+                    if (s.rv.k == bir::Rvalue::K::Aggregate && creqs_ && !s.rv.what.empty()) {
+                        auto it = creqs_->find(s.rv.what);
+                        if (it != creqs_->end())
+                            for (auto& [ia, ib] : it->second) {
+                                if (ia >= s.rv.ops.size() || ib >= s.rv.ops.size()) continue;
+                                const bir::Place& pa = s.rv.ops[ia].place;
+                                const bir::Place& pb = s.rv.ops[ib].place;
+                                if (!pa.valid() || !pb.valid()) continue;
+                                OList oa = place_origins(pa), ob = place_origins(pb);
+                                // A by-reference capture's operand IS the
+                                // reference; the body writes into its POINTEE,
+                                // so the target regions start one past the
+                                // reference's own.
+                                const size_t skip = pb.proj.empty() &&
+                                                    b_.locals[pb.local].synth_ref ? 1u : 0u;
+                                if (oa.os.empty() || ob.os.size() <= skip) continue;
+                                for (size_t k = skip; k < ob.os.size(); ++k)
+                                    subset(oa.os[0], ob.os[k], p);
+                            }
                     }
                     write_place(s.dest, p);
                     break;
@@ -4864,8 +4963,68 @@ struct BirSlowTimer {
 
 // Check ONE body and append what it says to `v`. A function and a closure are
 // the same question asked of different bodies, so they run the same rules.
+// What one closure body requires of the frame that built it: pairs of CAPTURE
+// INDICES (a, b) meaning "a loan of capture a's place reaches capture b". Read
+// off the body's own statements — a small flow over locals, not a second
+// analysis — and closed over an INNER closure's requirements, whose operands
+// name this body's captures.
+static void closure_requirements(const bir::Body& b, ClosureReqs& out) {
+    if (!b.is_closure || !b.n_captures || b.name.size() <= 8) return;
+    auto cap = [&](bir::LocalId l) { return l >= 1 && l <= b.n_captures ? int(l) - 1 : -1; };
+    std::map<bir::LocalId, std::set<uint32_t>> carry;   // local -> captures it holds a loan of
+    std::map<bir::LocalId, int> desig;                  // local -> the capture it points AT
+    auto& reqs = out[b.name.substr(8)];
+    auto note = [&](const std::set<uint32_t>& from, int to) {
+        if (to < 0) return;
+        for (uint32_t f : from) if (f != uint32_t(to)) reqs.emplace(f, uint32_t(to));
+    };
+    // A loop's back edge can make a carry visible only on a second reading, so
+    // this repeats until nothing new is learned.
+    for (int round = 0; round < 4; ++round) {
+        const size_t before = reqs.size();
+        size_t carried = 0;
+        for (auto& [l, cs] : carry) carried += cs.size();
+        for (auto& blk : b.blocks) for (auto& st : blk.stmts) {
+            if (st.k != bir::Stmt::K::Assign) continue;
+            std::set<uint32_t> src;
+            if (st.rv.k == bir::Rvalue::K::Ref) {
+                if (int c = cap(st.rv.place.local); c >= 0) src.insert(uint32_t(c));
+                if (auto it = carry.find(st.rv.place.local); it != carry.end())
+                    src.insert(it->second.begin(), it->second.end());
+                if (st.dest.proj.empty()) desig[st.dest.local] = cap(st.rv.place.local);
+            } else {
+                for (auto& op : st.rv.ops)
+                    if (op.place.valid())
+                        if (auto it = carry.find(op.place.local); it != carry.end())
+                            src.insert(it->second.begin(), it->second.end());
+                if (st.rv.k == bir::Rvalue::K::Aggregate && !st.rv.what.empty())
+                    if (auto ir = out.find(st.rv.what); ir != out.end())
+                        for (auto& [ia, ib] : ir->second) {
+                            if (ia >= st.rv.ops.size() || ib >= st.rv.ops.size()) continue;
+                            const bir::Place& pa = st.rv.ops[ia].place;
+                            const bir::Place& pb = st.rv.ops[ib].place;
+                            if (!pa.valid() || !pb.valid()) continue;
+                            std::set<uint32_t> from;
+                            if (auto it = carry.find(pa.local); it != carry.end()) from = it->second;
+                            if (int c = cap(pa.local); c >= 0) from.insert(uint32_t(c));
+                            auto d = desig.find(pb.local);
+                            note(from, d != desig.end() ? d->second : cap(pb.local));
+                        }
+            }
+            if (src.empty()) continue;
+            note(src, cap(st.dest.local));
+            carry[st.dest.local].insert(src.begin(), src.end());
+        }
+        size_t after = 0;
+        for (auto& [l, cs] : carry) after += cs.size();
+        if (reqs.size() == before && after == carried) break;
+    }
+    if (reqs.empty()) out.erase(b.name.substr(8));
+}
+
 static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
-                           const TypeSets& ts, BirVerdict& v) {
+                           const TypeSets& ts, BirVerdict& v,
+                           const ClosureReqs* creqs = nullptr) {
     BirSlowTimer slow_timer_(body);
     const char* dump = std::getenv("LOGOS_BIR_DUMP");
     bool want_dump = dump && body.name.find(dump) != std::string::npos;
@@ -4881,7 +5040,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
     else
         tl_db->clear(/*provenance=*/want_dump);
     dl::Database& db = *tl_db;
-    BirFacts facts(body, prog, ts);
+    BirFacts facts(body, prog, ts, creqs);
     facts.emit(db, *syms);
     slow_timer_.loans   = facts.loans().size();
     slow_timer_.origins = facts.n_origins();
@@ -4965,6 +5124,12 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                             ? std::string("cannot return reference to temporary value: dangling reference")
                             : std::format("cannot return reference to local variable '{}': "
                                           "dangling reference", nm);
+                    // A TEMPORARY HAS NO NAME THE READER WROTE. `_t3` is this
+                    // lowering's own bookkeeping, and printing it asks the
+                    // reader to find a local that does not exist in the source;
+                    // rustc calls the same thing a temporary value (E0716).
+                    else if (lk == bir::LocalKind::Temp && loan.place.proj.empty())
+                        msg = "temporary value dropped while borrowed";
                     else
                         msg = std::format("'{}' does not live long enough: it is borrowed here and "
                                           "used after '{}' goes out of scope", nm, nm);
@@ -5036,9 +5201,56 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
             if (!seen.emplace(sym(row[0]), sym(row[1])).second) continue;
+            const uint32_t line = facts.point_line(num(sym(row[2])));
+            // E0521 IS A SUBSET ERROR WITH TWO NAMES. Inside a closure the two
+            // regions belong to a PARAMETER (bound by the call) and a CAPTURE
+            // (the parent frame's), and rustc's headline for that pair is
+            // "borrowed data escapes outside of closure" — the twin of the
+            // function case two hundred lines up. Without the names the reader
+            // got region numbers, which name nothing they wrote.
+            const BirFacts::Universal* ua = facts.placeholder_owner(num(sym(row[0])));
+            const BirFacts::Universal* ub = facts.placeholder_owner(num(sym(row[1])));
+            if (ua && ub && body.is_closure &&
+                !body.locals[ua->local].is_capture && body.locals[ub->local].is_capture) {
+                v.errors.push_back(std::format(
+                    "borrowed data escapes outside of closure: '{}' escapes the closure body "
+                    "here, and '{}' is declared outside of it (line {})",
+                    body.locals[ua->local].name, body.locals[ub->local].name, line));
+                continue;
+            }
+            // RUSTC HAS TWO SENTENCES FOR A SUBSET BETWEEN UNIVERSAL REGIONS,
+            // and which one it uses is decided by whether the SOURCE region was
+            // written. Elided (`y: &i64` feeding a `-> &'a i64`): E0621,
+            // "explicit lifetime required in the type of `y`", because the
+            // repair is to write `'a` on `y`. Both written (`'b` feeding `'a`):
+            // "lifetime may not live long enough", because the repair is a
+            // BOUND, not an annotation. The region numbers this used to print
+            // named nothing the programmer wrote.
+            // A region sema MINTED for an elision (`'%1`) is not a name the
+            // programmer wrote, so it may not appear in a suggested bound —
+            // `consider adding the bound `'%1: 'a`` is unactionable. It counts
+            // as elided, which is the branch that suggests an ANNOTATION.
+            auto written = [](const std::string& l) {
+                return l.size() > 1 && l[0] == '\'' && l[1] != '%';
+            };
+            const bool named_a = ua && written(ua->label);
+            const bool named_b = ub && written(ub->label);
+            if (named_a && named_b && ua->label != ub->label) {
+                v.errors.push_back(std::format(
+                    "lifetime may not live long enough: consider adding the bound `{}: {}` (line {})",
+                    ua->label, ub->label, line));
+                continue;
+            }
+            if (ua && !named_a && named_b && ua->local < body.locals.size() &&
+                body.locals[ua->local].kind == bir::LocalKind::Param) {
+                v.errors.push_back(std::format(
+                    "explicit lifetime required in the type of '{}': lifetime {} required (line {})",
+                    body.locals[ua->local].name, ub->label, line));
+                continue;
+            }
             v.errors.push_back(std::format("lifetime mismatch: data with region {} flows into region {}, "
                                            "which the signature does not allow (line {})",
-                                           sym(row[0]), sym(row[1]), facts.point_line(num(sym(row[2])))));
+                                           sym(row[0]), sym(row[1]), line));
         }
     }
     {
@@ -5078,12 +5290,16 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
     bir::Body body = builder.build(fn);
     v.unsupported = body.unsupported;
     if (!body.unsupported.empty()) return v;
-    bir_check_body(body, prog, ts, v);
-
-    // ADR 0029 S5b — then every closure the body mentions, and every closure
-    // THOSE mention. A worklist rather than recursion so a closure inside a
-    // closure is reached without the builder re-entering itself.
+    // ADR 0029 S5b — every closure the body mentions, and every closure THOSE
+    // mention. A worklist rather than recursion so a closure inside a closure
+    // is reached without the builder re-entering itself.
+    // ⚠ LOWERED BEFORE ANYTHING IS CHECKED, AND THE PARENT IS CHECKED LAST.
+    // A closure body's escape question is the parent's to answer
+    // (closure_requirements), so the parent's facts need the bodies' answers
+    // before they are emitted — and an inner closure's answer is an outer
+    // one's input, which is why the requirements are read deepest-first.
     std::vector<lir_view::ExprRef> queue(builder.closures().begin(), builder.closures().end());
+    std::vector<bir::Body> cbodies;
     for (size_t qi = 0; qi < queue.size(); ++qi) {
         BirBuilder cb(prog, ts, idx, flows);
         bir::Body cbody = cb.build_closure(queue[qi]);
@@ -5097,8 +5313,12 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
             return v;
         }
         for (auto x : cb.closures()) queue.push_back(x);
-        bir_check_body(cbody, prog, ts, v);
+        cbodies.push_back(std::move(cbody));
     }
+    ClosureReqs reqs;
+    for (size_t i = cbodies.size(); i-- > 0;) closure_requirements(cbodies[i], reqs);
+    bir_check_body(body, prog, ts, v, &reqs);
+    for (auto& cbody : cbodies) bir_check_body(cbody, prog, ts, v, &reqs);
     std::sort(v.errors.begin(), v.errors.end());
     v.errors.erase(std::unique(v.errors.begin(), v.errors.end()), v.errors.end());
     return v;

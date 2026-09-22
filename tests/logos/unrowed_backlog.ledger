@@ -480,5 +480,9 @@ e0106_hidden_result_regions  defect  2  ADR 0028 — E0106 does not see a HIDDEN
     # E0106 over hidden result regions; then `QFn` names its two and the laundering
     # in stdlib/mem/deem/tpl.logos comes out.
 
-# TOTAL 22
-# SYNC-HASH 5a01c4b2de6ce9238a256435d5d5b7cf
+e0510_mutable_borrow_in_match_guard 2026-09-22 diagnostics tests/imported/fail/nll/issue-27282-mutate-before-diverging-arm-3
+
+e0373_closure_may_outlive_borrowed_local 2026-09-22 diagnostics tests/imported/fail/regions/regions-nested-fns
+
+# TOTAL 24
+# SYNC-HASH 0a31d28f6e295c44f7f770fd8f578438
