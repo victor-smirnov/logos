@@ -67,8 +67,12 @@ pub struct Token {
 }
 
 impl Token {
-    // The source slice this token spans (a borrow into the lexer's source).
-    pub fn text(self: &Token, src: str) -> str {
+    // The source slice this token spans. THE REGION IS `src`'s, and it is
+    // named: a `Token` is five integers and borrows nothing, so elision
+    // rule 3 tied the result to `&self` — to the TOKEN — and a caller that
+    // kept the text past the token's scope read as returning a borrow of a
+    // local. The bytes are the source's.
+    pub fn text<'a>(self: &Token, src: &'a str) -> &'a str {
         return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };
     }
 }

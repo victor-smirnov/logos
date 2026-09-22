@@ -76,7 +76,7 @@ pub fn RQAGG_MAX() -> i64 { return 8i64; }
 impl RQAggArr {
     pub fn len(self: &RQAggArr) -> i64 { return self.count as i64; }
 
-    pub fn agg_at(self: &RQAggArr, i: i64) -> RQAgg {
+    pub fn agg_at(self: RQAggArr, i: i64) -> RQAgg {
         if i == 0i64 { return self.c0.any().view::<RQAgg>(); }
         if i == 1i64 { return self.c1.any().view::<RQAgg>(); }
         if i == 2i64 { return self.c2.any().view::<RQAgg>(); }
@@ -220,7 +220,7 @@ pub fn RQPSEG_MAX() -> i64 { return 8i64; }
 impl RQPathSegArr {
     pub fn len(self: &RQPathSegArr) -> i64 { return self.count as i64; }
 
-    pub fn seg_at(self: &RQPathSegArr, i: i64) -> RQPathSeg {
+    pub fn seg_at(self: RQPathSegArr, i: i64) -> RQPathSeg {
         if i == 0i64 { return self.p0.any().view::<RQPathSeg>(); }
         if i == 1i64 { return self.p1.any().view::<RQPathSeg>(); }
         if i == 2i64 { return self.p2.any().view::<RQPathSeg>(); }
@@ -292,7 +292,7 @@ pub fn RQGSTEP_MAX() -> i64 { return 8i64; }
 impl RQGStepArr {
     pub fn len(self: &RQGStepArr) -> i64 { return self.count as i64; }
 
-    pub fn gstep_at(self: &RQGStepArr, i: i64) -> RQGStep {
+    pub fn gstep_at(self: RQGStepArr, i: i64) -> RQGStep {
         if i == 0i64 { return self.g0.any().view::<RQGStep>(); }
         if i == 1i64 { return self.g1.any().view::<RQGStep>(); }
         if i == 2i64 { return self.g2.any().view::<RQGStep>(); }
@@ -353,7 +353,7 @@ impl RQJoinStepArr {
         return unsafe { WAny::ref_to(self.s7.any().raw() as *const u8) };
     }
 
-    pub fn step_at(self: &RQJoinStepArr, i: i64) -> RQJoinStep {
+    pub fn step_at(self: RQJoinStepArr, i: i64) -> RQJoinStep {
         return self.step_any(i).view::<RQJoinStep>();
     }
 
@@ -506,7 +506,7 @@ pub fn RQRELCOL_MAX() -> i64 { return 8i64; }
 impl RQRelColArr {
     pub fn len(self: &RQRelColArr) -> i64 { return self.count as i64; }
 
-    pub fn col_at(self: &RQRelColArr, i: i64) -> RQRelCol {
+    pub fn col_at(self: RQRelColArr, i: i64) -> RQRelCol {
         if i == 0i64 { return self.c0.any().view::<RQRelCol>(); }
         if i == 1i64 { return self.c1.any().view::<RQRelCol>(); }
         if i == 2i64 { return self.c2.any().view::<RQRelCol>(); }
@@ -629,7 +629,7 @@ impl RQRelArr {
 
 
 
-    pub fn rel_at(self: &RQRelArr, i: i64) -> RQRel {
+    pub fn rel_at(self: RQRelArr, i: i64) -> RQRel {
         if i == 0i64 { return self.r0.any().view::<RQRel>(); }
         if i == 1i64 { return self.r1.any().view::<RQRel>(); }
         if i == 2i64 { return self.r2.any().view::<RQRel>(); }
@@ -709,7 +709,7 @@ impl RQSrcSeg {
 
 impl RQSrcSegArr {
     pub fn len(self: &RQSrcSegArr) -> i64 { return self.count as i64; }
-    pub fn seg_at(self: &RQSrcSegArr, i: i64) -> RQSrcSeg {
+    pub fn seg_at(self: RQSrcSegArr, i: i64) -> RQSrcSeg {
         if i == 0i64 { return self.a0.any().view::<RQSrcSeg>(); }
         if i == 1i64 { return self.a1.any().view::<RQSrcSeg>(); }
         if i == 2i64 { return self.a2.any().view::<RQSrcSeg>(); }

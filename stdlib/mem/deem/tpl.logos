@@ -440,7 +440,27 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                     k = k + 1i64;
                 }
                 let f: QFn = env.f_ptrs[ui];
-                return f(&argv[0i64..na]);
+                // ⚠ THE ARGUMENT BUFFER IS HANDED OVER AS A RAW SLICE, and the
+                // `unsafe` is the honest marker for what cannot be written in
+                // the type. `QFn` is `fn(&[RtVal]) -> RtVal`: Rust spells it
+                // `fn(&'x [RtVal<'s>]) -> RtVal<'s>` — the result comes from
+                // the VALUES, never from the borrow of the buffer holding
+                // them — and with both elided Rust REFUSES the signature
+                // (E0106) rather than guessing. Logos elides it, and the
+                // checker's rule for a hidden result region takes every
+                // elided input, so `&argv[..]` fed the result and returning
+                // it read as returning a borrow of `argv`.
+                //
+                // THE REAL REPAIR is E0106 over hidden result regions, which
+                // would force `QFn` to name its two. It is blocked on a
+                // separate defect: a type WITH a declared region and a
+                // loan-carrying payload lays out a different NUMBER of
+                // regions as a declaration than as a mono instance, so
+                // `labels()` and `walk_type()` disagree and every call
+                // through it falls back to "?" — which matches everything.
+                let ap: *const RtVal = &argv[0i64] as *const RtVal;
+                let r: RtVal = f(unsafe { slice_from_raw::<RtVal>(ap, na) });
+                return r;
             }
             return RtVal::Null;
         }

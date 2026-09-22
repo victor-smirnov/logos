@@ -9335,18 +9335,18 @@ sym	logos_lang..logos.lang.writ.anyval.WAnyMut__is_ref__f__ref_WAnyMut
 sym	logos_lang..logos.lang.writ.anyval.WAnyMut__is_string__f__ref_WAnyMut
 sym	logos_lang..logos.lang.writ.anyval.WAnyMut__set__f__ref_WAnyMut__WAny
 sym	logos_lang..logos.lang.writ.anyval.WAnyMut__type_code__f__ref_WAnyMut
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_bool__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_f32__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_f64__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_i16__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_i24__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_i56__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_i64__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_i8__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_u16__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_u24__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_u64__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__as_u8__f__ref_WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_bool__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_f32__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_f64__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_i16__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_i24__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_i56__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_i64__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_i8__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_u16__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_u24__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_u64__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__as_u8__f__WAny
 sym	logos_lang..logos.lang.writ.anyval.WAny__from__f__bool
 sym	logos_lang..logos.lang.writ.anyval.WAny__from__f__i16
 sym	logos_lang..logos.lang.writ.anyval.WAny__from__f__i24
@@ -9355,35 +9355,35 @@ sym	logos_lang..logos.lang.writ.anyval.WAny__from__f__i8
 sym	logos_lang..logos.lang.writ.anyval.WAny__from__f__u16
 sym	logos_lang..logos.lang.writ.anyval.WAny__from__f__u24
 sym	logos_lang..logos.lang.writ.anyval.WAny__from__f__u8
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_array__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_bool__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_f32__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_float__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_i16__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_i24__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_i56__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_i8__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_int__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_map__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_null__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_pod__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_ref__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_string__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_tinymap__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_u16__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_u24__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_u64__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__is_u8__f__ref_WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_array__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_bool__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_f32__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_float__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_i16__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_i24__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_i56__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_i8__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_int__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_map__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_null__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_pod__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_ref__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_string__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_tinymap__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_u16__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_u24__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_u64__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__is_u8__f__WAny
 sym	logos_lang..logos.lang.writ.anyval.WAny__null__f__void
 sym	logos_lang..logos.lang.writ.anyval.WAny__pod__f__i64__u8
 sym	logos_lang..logos.lang.writ.anyval.WAny__pod_bool__f__bool__u8
-sym	logos_lang..logos.lang.writ.anyval.WAny__pod_code__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__raw__f__ref_WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__pod_code__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__raw__f__WAny
 sym	logos_lang..logos.lang.writ.anyval.WAny__ref_to__f__pcst_u8
-sym	logos_lang..logos.lang.writ.anyval.WAny__resolve__f__ref_WAny
-sym	logos_lang..logos.lang.writ.anyval.WAny__type_code__f__ref_WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__resolve__f__WAny
+sym	logos_lang..logos.lang.writ.anyval.WAny__type_code__f__WAny
 sym	logos_lang..logos.lang.writ.array.WAnyMut__as_array_mut__f__WAnyMut
-sym	logos_lang..logos.lang.writ.array.WAny__as_array__f__ref_WAny
+sym	logos_lang..logos.lang.writ.array.WAny__as_array__f__WAny
 sym	logos_lang..logos.lang.writ.array.WAny__from__f__ref_WArray$G1$WAny
 sym	logos_lang..logos.lang.writ.array.WArray$G1$WAny__get__f__ref_WArray$G1$WAny__i64
 sym	logos_lang..logos.lang.writ.array.WArray$G1$WAny__get_mut__f__refmut_WArray$G1$WAny__i64
@@ -9424,9 +9424,9 @@ sym	logos_lang..logos.lang.writ.container.Writ__float__f__ref_Writ__f64
 sym	logos_lang..logos.lang.writ.container.Writ__int__f__ref_Writ__i64
 sym	logos_lang..logos.lang.writ.container.Writ__root__f__ref_Writ
 sym	logos_lang..logos.lang.writ.container.Writ__set_root__f__ref_Writ__WAny
-sym	logos_lang..logos.lang.writ.decimal.WAny__as_decimal__f__ref_WAny
+sym	logos_lang..logos.lang.writ.decimal.WAny__as_decimal__f__WAny
 sym	logos_lang..logos.lang.writ.decimal.WAny__from__f__ref_WDecimal
-sym	logos_lang..logos.lang.writ.decimal.WAny__is_decimal__f__ref_WAny
+sym	logos_lang..logos.lang.writ.decimal.WAny__is_decimal__f__WAny
 sym	logos_lang..logos.lang.writ.decimal.WDecimal__coeff__f__ref_WDecimal
 sym	logos_lang..logos.lang.writ.decimal.WDecimal__is_neg__f__ref_WDecimal
 sym	logos_lang..logos.lang.writ.decimal.WDecimal__scale__f__ref_WDecimal
@@ -9484,9 +9484,9 @@ sym	logos_lang..logos.lang.writ.objdata.WritObjectData__is_scalar__f__ref_WritOb
 sym	logos_lang..logos.lang.writ.objdata.WritObjectData__len__f__ref_WritObjectData
 sym	logos_lang..logos.lang.writ.objdata.WritObjectData__materialize__f__ref_WritObjectData__ref_Writ
 sym	logos_lang..logos.lang.writ.objdata.WritObjectData__tag__f__ref_WritObjectData
-sym	logos_lang..logos.lang.writ.parameter.WAny__as_parameter__f__ref_WAny
+sym	logos_lang..logos.lang.writ.parameter.WAny__as_parameter__f__WAny
 sym	logos_lang..logos.lang.writ.parameter.WAny__from__f__ref_WParameter
-sym	logos_lang..logos.lang.writ.parameter.WAny__is_parameter__f__ref_WAny
+sym	logos_lang..logos.lang.writ.parameter.WAny__is_parameter__f__WAny
 sym	logos_lang..logos.lang.writ.parameter.WParameter__is_bound__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WParameter__name__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WParameter__name_str__f__ref_WParameter
@@ -9504,9 +9504,9 @@ sym	logos_lang..logos.lang.writ.row.RowRef__get__f__ref_RowRef__i64
 sym	logos_lang..logos.lang.writ.row.RowRef__row__f__ref_RowRef
 sym	logos_lang..logos.lang.writ.row.RowRef__span__f__ref_RowRef
 sym	logos_lang..logos.lang.writ.row.RowRef__to_buf__f__ref_RowRef
-sym	logos_lang..logos.lang.writ.row.WAny__as_row__f__ref_WAny
+sym	logos_lang..logos.lang.writ.row.WAny__as_row__f__WAny
 sym	logos_lang..logos.lang.writ.row.WAny__from__f__ref_WRow
-sym	logos_lang..logos.lang.writ.row.WAny__is_row__f__ref_WAny
+sym	logos_lang..logos.lang.writ.row.WAny__is_row__f__WAny
 sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__WAny
 sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__bool
 sym	logos_lang..logos.lang.writ.row.WRowBuilder__set__f__refmut_WRowBuilder__i64__f64
@@ -9534,9 +9534,9 @@ sym	logos_lang..logos.lang.writ.static_view.WView2__get_u64__f__WView2__WAny
 sym	logos_lang..logos.lang.writ.static_view.WView2__map_get__f__WView2__WAny__slice_u8
 sym	logos_lang..logos.lang.writ.static_view.WView2__root__f__WView2
 sym	logos_lang..logos.lang.writ.static_view.WView2__tiny_map_get__f__WView2__WAny__u8
-sym	logos_lang..logos.lang.writ.typed_value.WAny__as_typed_value__f__ref_WAny
+sym	logos_lang..logos.lang.writ.typed_value.WAny__as_typed_value__f__WAny
 sym	logos_lang..logos.lang.writ.typed_value.WAny__from__f__ref_WTypedValue
-sym	logos_lang..logos.lang.writ.typed_value.WAny__is_typed_value__f__ref_WAny
+sym	logos_lang..logos.lang.writ.typed_value.WAny__is_typed_value__f__WAny
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__has_params__f__ref_WTypedValue
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__init__f__ref_WTypedValue
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__params__f__ref_WTypedValue
@@ -9544,7 +9544,7 @@ sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__type_name__f__ref_WType
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__type_name_str__f__ref_WTypedValue
 sym	logos_lang..logos.lang.writ.typed_value.Writ__typed_value__f__ref_Writ__slice_u8__WAny__WAny
 sym	logos_lang..logos.lang.writ.wmap.WAnyMut__as_map_mut__f__WAnyMut
-sym	logos_lang..logos.lang.writ.wmap.WAny__as_map__f__ref_WAny
+sym	logos_lang..logos.lang.writ.wmap.WAny__as_map__f__WAny
 sym	logos_lang..logos.lang.writ.wmap.WAny__from__f__ref_WMap$G2$WString$WAny
 sym	logos_lang..logos.lang.writ.wmap.WAny__from__f__ref_WMap$G2$Wu6$WAny
 sym	logos_lang..logos.lang.writ.wmap.WAny__from_wany__f__WAny
@@ -9616,8 +9616,8 @@ sym	logos_lang..logos.lang.writ.wmap.u8__to_wany__f__u8__pmut_Allocator
 sym	logos_lang..logos.lang.writ.wmap.usize__from_wany__f__WAny
 sym	logos_lang..logos.lang.writ.wmap.usize__to_wany__f__usize__pmut_Allocator
 sym	logos_lang..logos.lang.writ.wstatic.WritStatic__size__f__ref_WritStatic
-sym	logos_lang..logos.lang.writ.wstring.WAny__as_string__f__ref_WAny
-sym	logos_lang..logos.lang.writ.wstring.WAny__as_wstr__f__ref_WAny
+sym	logos_lang..logos.lang.writ.wstring.WAny__as_string__f__WAny
+sym	logos_lang..logos.lang.writ.wstring.WAny__as_wstr__f__WAny
 sym	logos_lang..logos.lang.writ.wstring.WAny__from__f__dstref_WString
 sym	logos_lang..logos.lang.writ.wstring.WString__as_str__f__dstref_WString
 sym	logos_lang..logos.lang.writ.wstring.WString__dst_len__f__pcst_WString
@@ -10479,7 +10479,6 @@ sym	logos_lang.logos.lang.rc$rc_new__g__T__Writ
 sym	logos_lang.logos.lang.result$is_err_i32__f__Result
 sym	logos_lang.logos.lang.result$is_ok_i32__f__Result
 sym	logos_lang.logos.lang.result$unwrap_or_i32__f__Result__i32
-sym	logos_lang.logos.lang.slice$slice_get_range__g__slice_T__i64__i64__RtVal
 sym	logos_lang.logos.lang.str$bool_from_str__f__slice_u8
 sym	logos_lang.logos.lang.str$char_count__f__pcst_u8__i64
 sym	logos_lang.logos.lang.str$chars_from_raw__f__pcst_u8__i64
@@ -11755,6 +11754,7 @@ sym	logos_mem..logos.mem.string.String__from__f__slice_u8
 sym	logos_mem..logos.mem.string.String__from_bytes__f__pcst_u8__i64
 sym	logos_mem..logos.mem.string.String__from_cstr__f__pcst_u8
 sym	logos_mem..logos.mem.string.String__from_datum__f__pcst_String__DView
+sym	logos_mem..logos.mem.string.String__from_str__f__slice_u8
 sym	logos_mem..logos.mem.string.String__grow__f__refmut_String__i64
 sym	logos_mem..logos.mem.string.String__is_empty__f__ref_String
 sym	logos_mem..logos.mem.string.String__len__f__ref_String
@@ -12881,7 +12881,7 @@ type	logos.lang.writ.anyval.WAnyMut	fields=[slot:*zoned mut WAny,zone:*mut u8]
 type	logos.lang.writ.array.WArray	fields=[len:i64,cap:i64,data:*mut T]
 type	logos.lang.writ.compactify.CloneRefusal	fields=[kind:i64,tag:u64]
 type	logos.lang.writ.container.Held	fields=[holder:Rc<dyn Resident>,ptr:*const T]
-type	logos.lang.writ.container.HeldAny	fields=[holder:Rc<dyn Resident>,val:WAny]
+type	logos.lang.writ.container.HeldAny	fields=[holder:Rc<dyn Resident>,raw:i64]
 type	logos.lang.writ.container.Slot	fields=[p:*mut T]
 type	logos.lang.writ.container.Writ	fields=[allocator:Allocator,root:i64]
 type	logos.lang.writ.decimal.WDecimal	fields=[spec:u32,coeff:u64]

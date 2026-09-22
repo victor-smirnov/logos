@@ -1236,7 +1236,7 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
         w.line(pred.as_str());
     }
     w.line("impl Token {");
-    w.line("    pub fn text(self: &Token, src: str) -> str {");
+    w.line("    pub fn text<'a>(self: &Token, src: &'a str) -> &'a str {");
     w.line("        return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };");
     w.line("    }");
     w.line("}");

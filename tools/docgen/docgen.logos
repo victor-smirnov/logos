@@ -22,7 +22,7 @@ use logos.lang.result;
 use logos.lang.option;
 
 // Read a string field from a fact map; "" when absent/non-string.
-fn field_str(m: &WMap<WString, WAny>, key: str) -> str {
+fn field_str<'a>(m: &'a WMap<WString, WAny>, key: str) -> &'a str {
     let v = m.get(key);
     if v.is_string() { return v.as_string().as_str(); }
     return "";

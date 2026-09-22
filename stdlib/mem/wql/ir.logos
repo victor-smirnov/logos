@@ -93,7 +93,7 @@ impl SExprArr {
     // The i-th argument as an SExpr view (0-based). Out-of-range i is a caller
     // error; reads the fixed slot key i+1. The slots are a flat fan-out (no
     // chaining) so this is O(1).
-    pub fn arg_at(self: &SExprArr, i: i64) -> SExpr {
+    pub fn arg_at(self: SExprArr, i: i64) -> SExpr {
         if i == 0i64 { return self.a0.any().view::<SExpr>(); }
         if i == 1i64 { return self.a1.any().view::<SExpr>(); }
         if i == 2i64 { return self.a2.any().view::<SExpr>(); }
@@ -238,7 +238,7 @@ pub fn RAGG_MAX() -> i64 { return 8i64; }
 impl RAggArr {
     pub fn len(self: &RAggArr) -> i64 { return self.count as i64; }
 
-    pub fn agg_at(self: &RAggArr, i: i64) -> RAgg {
+    pub fn agg_at(self: RAggArr, i: i64) -> RAgg {
         if i == 0i64 { return self.g0.any().view::<RAgg>(); }
         if i == 1i64 { return self.g1.any().view::<RAgg>(); }
         if i == 2i64 { return self.g2.any().view::<RAgg>(); }

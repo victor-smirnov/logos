@@ -312,17 +312,31 @@ impl<T> Held<T> {
 // the value BY VALUE (no `*const`, unlike `Held<T>`) + a Writ holder; while the
 // HeldAny lives the arena is alive, so `val()`/`resolve()` are well-defined.
 /// An escaping `WAny` (stored by value) paired with a Writ holder that keeps the arena alive.
-pub struct HeldAny { holder: Rc<dyn Resident>, val: WAny }
+/// The escape form of a `WAny`: a value plus a clone of the arena's residency
+/// holder, so it stays valid without the borrow it was read through.
+///
+/// ⚠ THE VALUE IS STORED AS ITS RAW WORD, NOT AS A `WAny`, and that is the
+/// whole point. `WAny` is `#[borrow_carrying]`, so a `WAny` FIELD makes this
+/// type BORROW whatever the handle was read from — and what it was read from is
+/// a local `Rc<Writ>` that the caller drops on the next line. That reads as
+/// returning a borrow of a local, and rightly so: the type said it borrows.
+///
+/// It does not. The `holder` is an OWNED keep-alive; the arena outlives this
+/// value because this value holds it. Storing the word says exactly that, and
+/// `val()` rebuilds the handle from it. Rust has no safe spelling for a struct
+/// that borrows from what it owns either — `owning_ref` and friends exist for
+/// this — and the raw word plus an owned holder is the same answer.
+pub struct HeldAny { holder: Rc<dyn Resident>, raw: i64 }
 
 /// Pairs `v` with a clone of the container's residency holder — the escape form of a `WAny`.
 pub fn hold_any(h: &Rc<Writ>, v: WAny) -> HeldAny {
     let holder: Rc<dyn Resident> = h.clone_ref();
-    return HeldAny { holder: holder, val: v };
+    return HeldAny { holder: holder, raw: v.raw() };
 }
 
 impl HeldAny {
     /// Returns the held value; valid while this `HeldAny` (hence its Writ holder) lives.
-    pub fn val(self: &HeldAny) -> WAny { return self.val; }
+    pub fn val(self: &HeldAny) -> WAny { return unsafe { WAny::ref_to(self.raw as *const u8) }; }
     /// Returns the held value's raw word as an absolute pointer (tagged object for a Ref).
-    pub fn resolve(self: &HeldAny) -> *const u8 { return self.val.resolve(); }
+    pub fn resolve(self: &HeldAny) -> *const u8 { return self.raw as *const u8; }
 }

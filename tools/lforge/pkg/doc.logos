@@ -31,7 +31,7 @@ use lforge.util;
 
 // ── .docwr → docs.json conversion (shared logic; mirrors tools/docgen) ──────
 
-fn field_str(m: &WMap<WString, WAny>, key: str) -> str {
+fn field_str<'a>(m: &'a WMap<WString, WAny>, key: str) -> &'a str {
     let v = m.get(key);
     if v.is_string() { return v.as_string().as_str(); }
     return "";

@@ -140,6 +140,7 @@ struct Term {
     // The resolved callee, whose DECLARED signature (decl_ret_type /
     // decl_type) says which argument positions the result borrows from.
     lir_view::FunctionView callee_fn;
+    TypeRef              callee_fty;   // indirect call: the fn-pointer's TYPE is its contract
     uint32_t             line = 0;
 };
 
@@ -1439,6 +1440,7 @@ private:
                 lir_view::EFnPtrCallView v{e};
                 t.callee = "<fnptr>";
                 t.has_sig = true;
+                t.callee_fty = v.callee() ? v.callee().type(pool_) : TypeRef{};
                 t.sig_to_result = signature_mask_of_type(
                     v.callee() ? v.callee().type(pool_) : TypeRef{}, /*arg_off=*/1);
                 t.sig_mut_params = mut_param_mask_of_type(
@@ -3395,16 +3397,39 @@ private:
     // result lifetime from `&self` or the single input lifetime, type
     // parameters position by position).
     bool relate_call(const bir::Term& t, const OList& dst, uint32_t p) {
-        if (!t.callee_fn || !dst.exact) return false;
+        if (!dst.exact) return false;
+        // AN INDIRECT CALL HAS NO BODY, BUT IT HAS A TYPE — and the type is
+        // written by the author, so it is exactly as authoritative as a named
+        // callee's signature. `QFn<'s> = fn(&[RtVal<'s>]) -> RtVal<'s>` says
+        // the result comes from `'s`, not from the borrow of the argument
+        // BUFFER; the one-bit-per-argument mask below cannot say that, so it
+        // set the bit for `'s` and dragged `&argv` in with it. Matching region
+        // LABELS is what the direct case already does.
+        const bool indirect = !t.callee_fn;
+        if (indirect && !t.callee_fty) return false;
+        std::vector<TypeRef> pdecl, pact;
+        TypeRef rdecl, ract;
+        size_t arg_off = 0;   // indirect: args[0] is the callee itself
+        auto ps = t.callee_fn ? t.callee_fn.params() : decltype(t.callee_fn.params()){};
+        if (!indirect) {
+            rdecl = t.callee_fn.decl_ret_type(pool_);
+            ract  = t.callee_fn.ret_type(pool_);
+            for (auto& pv : ps) { pdecl.push_back(pv.decl_type(pool_)); pact.push_back(pv.type(pool_)); }
+        } else {
+            rdecl = ract = t.callee_fty.closure_ret();
+            for (auto pt : t.callee_fty.closure_params()) { pdecl.push_back(pt); pact.push_back(pt); }
+            arg_off = 1;
+        }
         std::vector<std::string> lret;
-        labels(t.callee_fn.decl_ret_type(pool_), t.callee_fn.ret_type(pool_), lret);
+        labels(rdecl, ract, lret);
         if (lret.size() != dst.os.size()) {
             if (std::getenv("LOGOS_BIR_LABELS"))
-                std::fprintf(stderr, "[labels-miss] %s lret=%zu dst=%zu ret=%s\n", t.callee.c_str(), lret.size(),
-                             dst.os.size(), type_str(t.callee_fn.ret_type(pool_)).c_str());
+                std::fprintf(stderr, "[labels-miss] %s lret=%zu dst=%zu ret=%s decl=%s dest=%s\n",
+                             t.callee.c_str(), lret.size(), dst.os.size(),
+                             type_str(ract).c_str(), type_str(rdecl).c_str(),
+                             t.dest.valid() ? type_str(b_.locals[t.dest.local].type).c_str() : "-");
             return false;
         }
-        auto ps = t.callee_fn.params();
         struct Src { uint32_t origin; std::string label; bool outer_self; bool inv; };
         std::vector<Src> srcs;
         std::vector<size_t> elided_positions;
@@ -3414,10 +3439,11 @@ private:
             if (a.k == bir::Operand::K::Const || !a.place.valid()) continue;
             OList ao = place_origins(a.place);
             std::vector<std::string> pl;
-            if (i < ps.size()) labels(ps[i].decl_type(pool_), ps[i].type(pool_), pl);
+            size_t pi = i >= arg_off ? i - arg_off : ~size_t(0);
+            if (pi != ~size_t(0) && pi < pdecl.size()) labels(pdecl[pi], pact[pi], pl);
             if (!ao.exact || pl.size() != ao.os.size()) pl.assign(ao.os.size(), "?");
-            bool is_self = i == 0 && !ps.empty() && ps[0].name() == "self";
-            TypeRef d0 = is_self ? ps[0].decl_type(pool_) : TypeRef{};
+            bool is_self = !indirect && i == 0 && !ps.empty() && ps[0].name() == "self";
+            TypeRef d0 = is_self ? pdecl[0] : TypeRef{};
             if (is_self && d0 && (d0.kind() == LogosType::Kind::Ref || d0.kind() == LogosType::Kind::MutRef ||
                                   (d0.kind() == LogosType::Kind::DstRef && !d0.owning_dst())))
                 self_ref = true;
