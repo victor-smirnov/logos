@@ -3227,12 +3227,12 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             // `rel_mat` there would hand the constructor an empty string.
             if prm.rel_native[bri] && prm.rel_node[bri] == AD_NONE() {
                 dx_walk.push_str(prm.rel_itty[bri]);
-                dx_ctor.push_str(prm.rel_mat[bri]);
+                dx_ctor.push_str(string_as_str(&prm.rel_mat[bri]));
                 dx_ctor.push_str("(");
                 dx_ctor.push_str(prm.rel_marg[bri]);
                 if prm.rel_marg2[bri].len() > 0i64 {
                     dx_ctor.push_str(", ");
-                    dx_ctor.push_str(prm.rel_marg2[bri]);
+                    dx_ctor.push_str(string_as_str(&prm.rel_marg2[bri]));
                 }
                 dx_ctor.push_str(")");
                 dx_rel    = bri;

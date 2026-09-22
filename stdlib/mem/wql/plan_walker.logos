@@ -1809,9 +1809,9 @@ fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
         prm.rel_size_fn[idx] = szfn;
         prm.rel_size_ty[idx] = szty;
         prm.rel_size_at[idx] = String::from_str(string_as_str(szatb));
-        prm.rel_mat[idx] = mat;
+        prm.rel_mat[idx] = String::from_str(mat);
         prm.rel_marg[idx] = marg;
-        prm.rel_marg2[idx] = marg2;
+        prm.rel_marg2[idx] = String::from_str(marg2);
         prm.rel_mod[idx] = module;
     }
     return idx;
@@ -2684,8 +2684,8 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
     let mut ri: i64 = 0i64;
     while ri < ap.n {
         if ap.op[ri] >= 0i64 {
-            prm.rel_mat[ri]   = ap.fnm[ri];
-            prm.rel_marg2[ri] = ap.arg[ri];
+            prm.rel_mat[ri]   = String::from_str(string_as_str(&ap.fnm[ri]));
+            prm.rel_marg2[ri] = String::from_str(string_as_str(&ap.arg[ri]));
             // The chosen operation's producer type replaces the rel's own —
             // the binding is annotated with what will actually be called.
             prm.rel_iter[ri]  = prm.opc_iter[ap.op[ri]];
@@ -2716,7 +2716,7 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
         // is, and the prelude's job there is to NAME the buffer it was handed.
         if ap.stream[ri] {
             prm.rel_node[ri] = AD_NONE();
-        } else if str_eq(ap.mgnd[ri], MG_CONTAINER()) {
+        } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) {
             prm.rel_node[ri] = AD_BUFFER();
         } else {
             // ⚠ THE FALLBACK IS `MAT_DRAIN`, NOT `AD_NONE`. The node list has a
@@ -2803,7 +2803,7 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
     while ri < ap.n {
         // Only the absence-of-a-node case is re-headed: a rel the drain pass
         // already decided owns a node with a ground obtained from a real offer.
-        if str_eq(ap.mgnd[ri], MG_CONTAINER()) && scc.rec[scc.comp[ri]] {
+        if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) && scc.rec[scc.comp[ri]] {
             ap_land(ap, ri, MAT_FPACC(), MG_FIXPOINT(),
                     "the members of a recursive SCC have no last row until the fixpoint closes, so this total is GROWN — the semi-naive driver fills it through a `&mut Vec` out-param and the plan is what declares it");
             // The per-rel MODE line's sentence, which the container arm wrote
@@ -2811,9 +2811,9 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
             // it is the same answer to the same question (this rel does not
             // stream) — and only the account of WHY changes, from a producer's
             // hand-over to the plan's own fixpoint.
-            ap.swhy[ri] = "materialized: this rel is recursive, so the semi-naive fixpoint accumulates its rows into a Vec the SCC driver grows — the plan builds this container rather than being handed one";
+            ap.swhy[ri] = String::from_str("materialized: this rel is recursive, so the semi-naive fixpoint accumulates its rows into a Vec the SCC driver grows — the plan builds this container rather than being handed one");
             prm.rel_node[ri] = MAT_FPACC();
-        } else if str_eq(ap.mgnd[ri], MG_CONTAINER()) && !prm.rel_native[ri] {
+        } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) && !prm.rel_native[ri] {
             // ARM B — a PARSE-SIDE rel outside every cycle: one call to the
             // helper this compilation emitted for its rel block, whose result
             // the prelude binds. `rel_native` is the discriminator and it is
@@ -2822,7 +2822,7 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
             // above, so what is left here is the one-shot arm.
             ap_land(ap, ri, MAT_RELLAND(), MG_REL_RESULT(),
                     "the rel block's helper fn folds the body and RETURNS the container; the prelude binds what it built, so this buffer is this plan's — one frame down — and not a source's");
-            ap.swhy[ri] = "materialized: the rel block's helper fn folds the body into a Vec and returns it, and the prelude binds the result — the container is built by code this compilation emitted, not handed over by a source";
+            ap.swhy[ri] = String::from_str("materialized: the rel block's helper fn folds the body into a Vec and returns it, and the prelude binds the result — the container is built by code this compilation emitted, not handed over by a source");
             prm.rel_node[ri] = MAT_RELLAND();
         }
         ri = ri + 1i64;
@@ -3134,12 +3134,12 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str(": ");
             prelude.push_str(prm.rel_itty[r]);
             prelude.push_str(" = ");
-            prelude.push_str(prm.rel_mat[r]);
+            prelude.push_str(string_as_str(&prm.rel_mat[r]));
             prelude.push_str("(");
             prelude.push_str(prm.rel_marg[r]);
             if prm.rel_marg2[r].len() > 0i64 {
                 prelude.push_str(", ");
-                prelude.push_str(prm.rel_marg2[r]);
+                prelude.push_str(string_as_str(&prm.rel_marg2[r]));
             }
             prelude.push_str(");\n");
             return;
@@ -3160,12 +3160,12 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str(": ");
             prelude.push_str(prm.rel_itty[r]);
             prelude.push_str(" = ");
-            prelude.push_str(prm.rel_mat[r]);
+            prelude.push_str(string_as_str(&prm.rel_mat[r]));
             prelude.push_str("(");
             prelude.push_str(prm.rel_marg[r]);
             if prm.rel_marg2[r].len() > 0i64 {
                 prelude.push_str(", ");
-                prelude.push_str(prm.rel_marg2[r]);
+                prelude.push_str(string_as_str(&prm.rel_marg2[r]));
             }
             prelude.push_str(");\n");
             // ADR 0025 S3b — THE DRAIN NODE'S LANDING IS A `Buffer`, NOT A `Vec`.
@@ -3271,12 +3271,12 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         prelude.push_str("> = ");
         // The materializer + its param arrive in the natspec — the emitter
         // knows no source type (ADR 0016 §6).
-        prelude.push_str(prm.rel_mat[r]);
+        prelude.push_str(string_as_str(&prm.rel_mat[r]));
         prelude.push_str("(");
         prelude.push_str(prm.rel_marg[r]);
         if prm.rel_marg2[r].len() > 0i64 {
             prelude.push_str(", ");
-            prelude.push_str(prm.rel_marg2[r]);
+            prelude.push_str(string_as_str(&prm.rel_marg2[r]));
         }
         prelude.push_str(");\n");
         prelude.push_str("    let ");

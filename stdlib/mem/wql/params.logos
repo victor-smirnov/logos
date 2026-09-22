@@ -235,14 +235,18 @@ pub struct MacroParams {
     // for the duration of the walk. The prelude prints `<mat>(<marg>)`; the
     // chunk imports each distinct non-empty rel_mod. This replaces the old
     // rel_nkind flavor switch — the walker no longer knows ANY source type.
-    pub rel_mat:     [str; 8],
+    pub rel_mat: [String; 8],   // OWNED — fed from the AccessPlan, which is
+                                // itself a frame value; a view here would
+                                // outlive what it points at.
     pub rel_marg:    [str; 8],
     /// A NARROWING argument the materializer takes beyond the source itself —
     /// the constant a pushdown reads from (`__ctr_bat_Hs…(c, 42u64)`).
     /// Empty for the plain full-scan binding. The capability belongs to the
     /// FAMILY, which publishes one narrowing producer per shape; a plan only
     /// chooses which and supplies the constant.
-    pub rel_marg2:   [str; 8],
+    pub rel_marg2: [String; 8], // OWNED — fed from the AccessPlan, a frame
+                                // value; a view here would make the registry
+                                // borrow the plan it outlives.
     pub rel_mod:     [str; 8],
     // ── the item's TYPE-PARAM list, verbatim (`<V: Bound, …>`; "" = concrete) ──
     // A generic `deem q<V: …>(…)` re-emits it onto EVERY generated fn head; the
@@ -348,9 +352,11 @@ pub fn macro_params_new() -> MacroParams {
         rel_ord_rev:  [false; 8],
         rel_ssrc:    [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
                      String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        rel_mat:     [""; 8],
+        rel_mat:     [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         rel_marg:    [""; 8],
-        rel_marg2:   [""; 8],
+        rel_marg2:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                       String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         rel_mod:     [""; 8],
         rel_size_fn: [""; 8],
         rel_size_ty: [""; 8],

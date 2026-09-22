@@ -413,12 +413,12 @@ pub struct AccessPlan {
     pub kind:  [i32; 8],
     pub card:  [i32; 8],
     pub op:    [i64; 8],   // index into the flat op table, or -1 = scan
-    pub fnm:   [str; 8],   // the operation implementing it
-    pub arg:   [str; 8],   // the narrowing constant, typed by the column
-    pub col:   [str; 8],
-    pub cmp:   [str; 8],   // the DEMAND this access answers
+    pub fnm: [String; 8],   // the operation implementing it
+    pub arg: [String; 8],   // the narrowing constant, typed by the column
+    pub col: [String; 8],
+    pub cmp: [String; 8],   // the DEMAND this access answers
     pub exact: [bool; 8],  // its rows are precisely the demand's matches
-    pub why:   [str; 8],
+    pub why: [String; 8],
     /// STREAM instead of materialize (ADR 0024 S4). The producer hands back an
     /// iterator AND the plan consumes it exactly once, so no `Vec` is built at
     /// all: a `find` over a million rows stops at the first match, and a scan
@@ -432,7 +432,7 @@ pub struct AccessPlan {
     /// is an eagerly-drained one — never the reverse — which is why draining is
     /// always available as the fallback.
     pub stream: [bool; 8],
-    pub swhy:   [str; 8],
+    pub swhy: [String; 8],
     /// ADR 0025 S3 — THE ELISION, decided by the walk and recorded ONCE. The
     /// query has an `order by` over exactly the column this source declares its
     /// rows already arrive sorted by, so no Sort node was inserted and the walk
@@ -484,7 +484,7 @@ pub struct AccessPlan {
     ///
     /// Written by `access_plan_decide_mode` and cleared by `ap_land`; the
     /// grounds for nodes that DO exist live on the nodes, in `nd_gnd`.
-    pub mgnd:   [str; 8],
+    pub mgnd: [String; 8],
     /// THE NODE LIST — one entry per materialization this plan performs, in the
     /// order the emitted code performs them (prelude first, then the build
     /// phase). `nd_rel` is the rel index the node consumes; `nd_gnd` the ground
@@ -493,8 +493,8 @@ pub struct AccessPlan {
     /// plane builds a third.
     pub nd_kind: [i32; 16],
     pub nd_rel:  [i64; 16],
-    pub nd_gnd:  [str; 16],
-    pub nd_why:  [str; 16],
+    pub nd_gnd: [String; 16],
+    pub nd_why: [String; 16],
     pub nd_n:    i64,
     /// THE SOURCE'S SIZE, as a fact the plan ASKED FOR (ADR 0024 S4).
     ///
@@ -515,9 +515,9 @@ pub struct AccessPlan {
     /// ⚠ ASKED ONCE. A size is a property of the relation, not of a row, so it
     /// is read in the prelude beside the source's own binding and never inside a
     /// walk. `size_at` naming ONE binding per rel is what holds that.
-    pub size_fn: [str; 8],
-    pub size_at: [str; 8],
-    pub size_why:[str; 8],
+    pub size_fn: [String; 8],
+    pub size_at: [String; 8],
+    pub size_why: [String; 8],
     pub n:     i64,
     /// The residual filter is redundant and will be dropped. A property of the
     /// QUERY, not of a rel: the filter belongs to the query node, and only an
@@ -530,27 +530,26 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         kind:  [ACC_SCAN(); 8],
         card:  [CARD_ALL(); 8],
         op:    [-1i64; 8],
-        fnm:   ["", "", "", "", "", "", "", ""],
-        arg:   ["", "", "", "", "", "", "", ""],
-        col:   ["", "", "", "", "", "", "", ""],
-        cmp:   ["", "", "", "", "", "", "", ""],
+        fnm:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        arg:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        col:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        cmp:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         exact: [false; 8],
-        why:   ["", "", "", "", "", "", "", ""],
+        why:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         stream: [false; 8],
-        swhy:  ["", "", "", "", "", "", "", ""],
+        swhy:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         ord_noop: [false; 8],
         ord_rev:  [false; 8],
-        mgnd:  ["", "", "", "", "", "", "", ""],
+        mgnd:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         nd_kind: [0i32; 16],
         nd_rel:  [-1i64; 16],
-        nd_gnd:  ["", "", "", "", "", "", "", "",
-                  "", "", "", "", "", "", "", ""],
-        nd_why:  ["", "", "", "", "", "", "", "",
-                  "", "", "", "", "", "", "", ""],
+        nd_gnd:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        nd_why:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         nd_n:    0i64,
-        size_fn: ["", "", "", "", "", "", "", ""],
-        size_at: ["", "", "", "", "", "", "", ""],
-        size_why:["", "", "", "", "", "", "", ""],
+        size_fn: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        size_at: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        size_why: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
+                   String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         n: n,
         drop_where: false,
     };
@@ -589,8 +588,8 @@ impl AccessPlan {
         if self.nd_n >= 16i64 { return; }
         self.nd_kind[self.nd_n] = kind;
         self.nd_rel[self.nd_n]  = ri;
-        self.nd_gnd[self.nd_n]  = gnd;
-        self.nd_why[self.nd_n]  = why;
+        self.nd_gnd[self.nd_n] = String::from_str(gnd);
+        self.nd_why[self.nd_n] = String::from_str(why);
         self.nd_n = self.nd_n + 1i64;
     }
 }
@@ -647,8 +646,8 @@ pub fn ap_drain(ap: &mut AccessPlan, prm: &MacroParams, ri: i64, gnd: str, why: 
     let ix: i64 = ap.prelude_ix(ri);
     if ix >= 0i64 {
         ap.nd_kind[ix] = k;
-        ap.nd_gnd[ix]  = gnd;
-        ap.nd_why[ix]  = why;
+        ap.nd_gnd[ix] = String::from_str(gnd);
+        ap.nd_why[ix] = String::from_str(why);
         return;
     }
     ap.push_node(k, ri, gnd, why);
@@ -680,7 +679,7 @@ pub fn ap_land(ap: &mut AccessPlan, ri: i64, k: i32, gnd: str, why: str) {
     if ap.prelude_ix(ri) >= 0i64 { return; }
     ap.push_node(k, ri, gnd, why);
     // The absence this rel used to record is now a presence. See `mgnd`.
-    ap.mgnd[ri] = "";
+    ap.mgnd[ri] = String::from_str("");
 }
 
 /// Decide MATERIALIZE vs STREAM for every rel: the source's OFFER and the plan's
@@ -704,12 +703,12 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
         let offers: bool = ap_offers(ap, prm, ri);
         let nx: i64 = ap.prelude_ix(ri);
         if !offers {
-            ap.swhy[ri] = "materialized: the producer returns a container, not an iterator";
+            ap.swhy[ri] = String::from_str("materialized: the producer returns a container, not an iterator");
             // The node question is answered by the PRODUCER here, whatever the
             // walk concluded about second reads: a container is a buffer
             // already, so no node was inserted (`ap_drain` refuses one) and the
             // ground says which absence this is (ADR 0025 §4).
-            ap.mgnd[ri] = MG_CONTAINER();
+            ap.mgnd[ri] = String::from_str(MG_CONTAINER());
         } else if ap.ord_noop[ri] {
             // ADR 0025 S3 — STREAMED, and the `order by` did not stop it. Said
             // in the ACCESS line too and not only on the node line, because
@@ -719,21 +718,21 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
             // reason it stopped.
             ap.stream[ri] = true;
             if ap.ord_rev[ri] {
-                ap.swhy[ri] = "streamed BACKWARD: the producer is an iterator over the column the rows already arrive sorted by, the plan reads it once, and `desc` is one landing at the end plus a backward pull";
-                ap.mgnd[ri] = MG_ORDERED_SOURCE_REV();
+                ap.swhy[ri] = String::from_str("streamed BACKWARD: the producer is an iterator over the column the rows already arrive sorted by, the plan reads it once, and `desc` is one landing at the end plus a backward pull");
+                ap.mgnd[ri] = String::from_str(MG_ORDERED_SOURCE_REV());
             } else {
-                ap.swhy[ri] = "streamed: the producer is an iterator, the plan reads it once, and the `order by` is over the column the rows already arrive sorted by";
-                ap.mgnd[ri] = MG_ORDERED_SOURCE();
+                ap.swhy[ri] = String::from_str("streamed: the producer is an iterator, the plan reads it once, and the `order by` is over the column the rows already arrive sorted by");
+                ap.mgnd[ri] = String::from_str(MG_ORDERED_SOURCE());
             }
         } else if nx >= 0i64 {
             // THE NODE'S OWN SENTENCE, not a second copy of it. `swhy` and
             // `nd_why` used to be written from `owhy` independently and could
             // report a materialization two ways; now the per-rel line in
             // `explain()` and the node line quote one string.
-            ap.swhy[ri] = ap.nd_why[nx];
+            ap.swhy[ri] = String::from_str(string_as_str(&ap.nd_why[nx]));
         } else {
             ap.stream[ri] = true;
-            ap.swhy[ri] = "streamed: the producer is an iterator and the plan reads it once";
+            ap.swhy[ri] = String::from_str("streamed: the producer is an iterator and the plan reads it once");
         }
         ri = ri + 1i64;
     }
@@ -754,11 +753,11 @@ pub fn access_plan_ask_size(ap: &mut AccessPlan, prm: &MacroParams) {
     let mut ri: i64 = 0i64;
     while ri < ap.n {
         if prm.rel_size_fn[ri].len() > 0i64 {
-            ap.size_fn[ri]  = prm.rel_size_fn[ri];
-            ap.size_at[ri]  = string_as_str(&prm.rel_size_at[ri]);
-            ap.size_why[ri] = "measured: the source reports its size, read once before the first row";
+            ap.size_fn[ri] = String::from_str(prm.rel_size_fn[ri]);
+            ap.size_at[ri] = String::from_str(string_as_str(&prm.rel_size_at[ri]));
+            ap.size_why[ri] = String::from_str("measured: the source reports its size, read once before the first row");
         } else {
-            ap.size_why[ri] = "unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has";
+            ap.size_why[ri] = String::from_str("unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has");
         }
         ri = ri + 1i64;
     }
@@ -770,20 +769,20 @@ impl AccessPlan {
                   col: str, cmp: str, op_cmp: str, exact: bool, why: str) {
         if ri < 0i64 || ri >= 8i64 { return; }
         self.op[ri]    = oi;
-        self.fnm[ri]   = fnm;
-        self.arg[ri]   = arg;
-        self.col[ri]   = col;
-        self.cmp[ri]   = cmp;
+        self.fnm[ri] = String::from_str(fnm);
+        self.arg[ri] = String::from_str(arg);
+        self.col[ri] = String::from_str(col);
+        self.cmp[ri] = String::from_str(cmp);
         self.kind[ri]  = ap_kind_of_cmp(op_cmp);
         self.card[ri]  = ap_card_of_cmp(op_cmp);
         self.exact[ri] = exact;
-        self.why[ri]   = why;
+        self.why[ri] = String::from_str(why);
     }
 
     /// Record that rel `ri` is read whole, and the antecedent that decided it.
     pub fn scan(self: &mut AccessPlan, ri: i64, why: str) {
         if ri < 0i64 || ri >= 8i64 { return; }
-        self.why[ri] = why;
+        self.why[ri] = String::from_str(why);
     }
 }
 
@@ -796,30 +795,30 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
     while ri < ap.n {
         let mut vb: String = String::new();
         if ap.op[ri] < 0i64 { vb.push_str("scan"); }
-        else { vb.push_str(ap.fnm[ri]); }
+        else { vb.push_str(string_as_str(&ap.fnm[ri])); }
         vb.push_str(" ["); vb.push_str(ap_card_name(ap.card[ri])); vb.push_str("]");
-        let w: str = if ap.why[ri].len() > 0i64 { ap.why[ri] }
+        let w: str = if string_as_str(&ap.why[ri]).len() > 0i64 { string_as_str(&ap.why[ri]) }
                      else { "no filter reaches this rel" };
-        plan_trace(prm.rel_names[ri], string_as_str(&vb), ap.col[ri], w);
-        if ap.swhy[ri].len() > 0i64 {
+        plan_trace(prm.rel_names[ri], string_as_str(&vb), string_as_str(&ap.col[ri]), w);
+        if string_as_str(&ap.swhy[ri]).len() > 0i64 {
             plan_trace(prm.rel_names[ri],
                        if ap.stream[ri] { "stream" } else { "materialize" },
-                       "", ap.swhy[ri]);
+                       "", string_as_str(&ap.swhy[ri]));
         }
         // The SIZE the plan asked for, or the absence of one. Reported for every
         // rel, like the access: a plan that only speaks when it got a number
         // leaves "no line" meaning both "did not ask" and "asked and got none".
-        if ap.size_why[ri].len() > 0i64 {
+        if string_as_str(&ap.size_why[ri]).len() > 0i64 {
             let mut sb: String = String::new();
-            if ap.size_fn[ri].len() > 0i64 {
-                sb.push_str(ap.size_fn[ri]);
-                if ap.size_at[ri].len() > 0i64 {
-                    sb.push_str(" -> "); sb.push_str(ap.size_at[ri]);
+            if string_as_str(&ap.size_fn[ri]).len() > 0i64 {
+                sb.push_str(string_as_str(&ap.size_fn[ri]));
+                if string_as_str(&ap.size_at[ri]).len() > 0i64 {
+                    sb.push_str(" -> "); sb.push_str(string_as_str(&ap.size_at[ri]));
                 }
             }
             plan_trace(prm.rel_names[ri],
-                       if ap.size_fn[ri].len() > 0i64 { "size" } else { "size unknown" },
-                       string_as_str(&sb), ap.size_why[ri]);
+                       if string_as_str(&ap.size_fn[ri]).len() > 0i64 { "size" } else { "size unknown" },
+                       string_as_str(&sb), string_as_str(&ap.size_why[ri]));
         }
         // WHAT THIS PLAN BUILDS OVER THIS REL, or the fact that it builds
         // nothing (ADR 0025 §4). Reported per rel and POSITIVELY in both
@@ -831,7 +830,7 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
         while nk < ap.nd_n {
             if ap.nd_rel[nk] == ri {
                 plan_trace(prm.rel_names[ri], mat_kind_name(ap.nd_kind[nk]),
-                           ap.nd_gnd[nk], ap.nd_why[nk]);
+                           string_as_str(&ap.nd_gnd[nk]), string_as_str(&ap.nd_why[nk]));
                 spoke = true;
             }
             nk = nk + 1i64;
@@ -845,13 +844,13 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             // exactly the justification-drifted-from-mechanism class.
             let mut gnd0: str = "";
             let mut why0: str = "no node: the plan reads this source once and consumes it where it stands";
-            if str_eq(ap.mgnd[ri], MG_CONTAINER()) {
+            if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) {
                 gnd0 = MG_CONTAINER();
                 why0 = "no node: the producer hands back a container, which IS a buffer — nothing is built";
-            } else if str_eq(ap.mgnd[ri], MG_ORDERED_SOURCE()) {
+            } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_ORDERED_SOURCE()) {
                 gnd0 = MG_ORDERED_SOURCE();
                 why0 = "no sort node: the query orders by the column this source declares its rows already arrive sorted by, so the permutation would be the identity — the walk streams in order";
-            } else if str_eq(ap.mgnd[ri], MG_ORDERED_SOURCE_REV()) {
+            } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_ORDERED_SOURCE_REV()) {
                 // FOUR absences now. The sentence names the TRAVERSAL, because
                 // that is the whole difference between this ground and the one
                 // above and a reader comparing two elided plans has nothing
