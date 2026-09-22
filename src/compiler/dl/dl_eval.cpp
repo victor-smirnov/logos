@@ -155,7 +155,11 @@ struct Database::Impl {
 
     struct CompiledRule {
         uint32_t     id = 0;
-        detail::Plan plan;
+        detail::Plan plan;                     // no delta: body order as written
+        // One plan per positive literal, parallel to `plan.pos_lits`, each
+        // driven FROM that literal so the delta rows bind before anything else
+        // is looked at.
+        std::vector<detail::Plan> delta_plans;
     };
     // One derived row waiting for the end of the round.
     struct Pending {
@@ -171,6 +175,7 @@ struct Database::Impl {
     // Per-evaluation state.
     const Rule*                                 rule  = nullptr;
     const CompiledRule*                         cr    = nullptr;
+    const detail::Plan*                         pl    = nullptr;
     int32_t                                     delta_lit = -1;
     size_t                                      delta_lo = 0, delta_hi = 0;
     std::vector<Value>                          vals;
@@ -200,7 +205,7 @@ struct Database::Impl {
     }
 
     void step(size_t i, uint32_t pos_idx) {
-        const auto& steps = cr->plan.steps;
+        const auto& steps = pl->steps;
         if (i == steps.size()) { emit(); return; }
         const detail::Step& s = steps[i];
         switch (s.kind) {
@@ -266,12 +271,17 @@ struct Database::Impl {
     void eval(const CompiledRule& c, int32_t dlit, size_t lo, size_t hi) {
         rule = &db.prog_.rules()[c.id];
         cr   = &c;
+        pl   = &c.plan;
+        if (dlit >= 0)
+            for (size_t k = 0; k < c.plan.pos_lits.size(); ++k)
+                if (c.plan.pos_lits[k] == static_cast<uint32_t>(dlit) &&
+                    k < c.delta_plans.size()) { pl = &c.delta_plans[k]; break; }
         delta_lit = dlit;
         delta_lo  = lo;
         delta_hi  = hi;
         vals.assign(rule->var_names.size(), 0);
-        prem.assign(c.plan.pos_lits.size(), {0, 0});
-        bufs.resize(std::max(bufs.size(), c.plan.steps.size()));
+        prem.assign(pl->pos_lits.size(), {0, 0});
+        bufs.resize(std::max(bufs.size(), pl->steps.size()));
         step(0, 0);
     }
 
@@ -319,6 +329,14 @@ struct Database::Impl {
             bool ok = detail::plan_rule(rules[i], compiled[i].plan, err);
             assert(ok && "the parser accepted a rule the planner rejects");
             (void)ok;
+            compiled[i].delta_plans.resize(compiled[i].plan.pos_lits.size());
+            for (size_t k = 0; k < compiled[i].plan.pos_lits.size(); ++k) {
+                std::string derr;
+                bool dok = detail::plan_rule(rules[i], compiled[i].delta_plans[k], derr,
+                                             static_cast<int32_t>(compiled[i].plan.pos_lits[k]));
+                assert(dok && "a delta-driven order of an accepted rule must plan");
+                (void)dok;
+            }
         }
         const size_t ns = db.prog_.strata().size();
         stratum_of.assign(db.rels_.size(), -1);

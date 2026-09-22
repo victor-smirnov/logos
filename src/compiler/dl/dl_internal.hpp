@@ -42,6 +42,13 @@ struct Plan {
 // Orders the body: positive atoms as written; each negation / comparison right
 // after the first point its variables are bound; `X = t` with X unbound
 // becomes a binding. Fails with a message naming the unbound variable.
-bool plan_rule(const Rule& r, Plan& out, std::string& err);
+//
+// `first_lit` >= 0 puts that positive atom FIRST and the rest after it, in
+// written order. Semi-naive evaluation restricts ONE body atom to the delta
+// rows, and a plan that reaches it second scans every earlier atom in full:
+// `ocl(O1,L,P), subset(O1,O2,P)` with the delta in `subset` walked all 592,162
+// rows of `ocl` per round. One plan per delta position makes the delta atom
+// the driver, so the rest join against bound columns.
+bool plan_rule(const Rule& r, Plan& out, std::string& err, int32_t first_lit = -1);
 
 } // namespace logos::dl::detail

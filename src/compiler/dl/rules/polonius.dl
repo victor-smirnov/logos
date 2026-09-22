@@ -83,6 +83,15 @@ origin_live_on_entry(O, P) :- universal_region(O), cfg_node(P).
 // ── loans ───────────────────────────────────────────────────────────────
 .decl subset(o1: Origin, o2: Origin, p: Point)
 subset(O1, O2, P) :- subset_base(O1, O2, P).
+// The per-point transitive closure. It is what polonius calls the Naive variant
+// and it cost 390 SECONDS on one function — but the price was the ENGINE's, not
+// the rule's: semi-naive evaluation restricted the delta to its position in the
+// body, so a delta into `subset` re-scanned all 592,162 rows of `ocl` every
+// round. With one plan per delta position the same closure costs milliseconds.
+//
+// ⚠ IT IS NOT OPTIONAL. Restricting it to CFG edges whose intermediate origin
+// dies looked equivalent and is not: `bc_0914m_storeedgeland_hb_s18_refuse`,
+// whose twin rustc REFUSES with E0502, started compiling clean.
 subset(O1, O3, P) :- subset(O1, O2, P), subset(O2, O3, P).
 subset(O1, O2, Q) :-
     subset(O1, O2, P), cfg_edge(P, Q), origin_live_on_entry(O1, Q), origin_live_on_entry(O2, Q).

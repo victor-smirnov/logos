@@ -679,7 +679,7 @@ Program::parse(std::string_view text, std::string_view file, Symbols& syms,
 
 namespace detail {
 
-bool plan_rule(const Rule& r, Plan& out, std::string& err) {
+bool plan_rule(const Rule& r, Plan& out, std::string& err, int32_t first_lit) {
     out = {};
     std::vector<bool> bound(r.var_names.size(), false);
     std::vector<bool> placed(r.body.size(), false);
@@ -742,14 +742,20 @@ bool plan_rule(const Rule& r, Plan& out, std::string& err) {
     };
 
     place_ready();
-    for (uint32_t li = 0; li < r.body.size(); ++li) {
-        if (r.body[li].kind != Literal::Kind::Pos) continue;
+    auto place_pos = [&](uint32_t li) {
         out.steps.push_back(atom_step(li, Step::Kind::Scan));
         out.pos_lits.push_back(li);
         placed[li] = true;
         for (auto& t : r.body[li].atom.args)
             if (t.kind == Term::Kind::Var) bound[t.value] = true;
         place_ready();
+    };
+    if (first_lit >= 0 && static_cast<size_t>(first_lit) < r.body.size() &&
+        r.body[first_lit].kind == Literal::Kind::Pos)
+        place_pos(static_cast<uint32_t>(first_lit));
+    for (uint32_t li = 0; li < r.body.size(); ++li) {
+        if (r.body[li].kind != Literal::Kind::Pos || placed[li]) continue;
+        place_pos(li);
     }
     for (uint32_t li = 0; li < r.body.size(); ++li) {
         if (placed[li]) continue;
