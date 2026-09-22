@@ -980,6 +980,14 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
                        parse_block(string_as_str(&pb)), prm);
 
     // ── run: the query's body, with the plan in front of the sources ───────
+    // ⚠ THE RUN FN'S SIGNATURE IS AMBIGUOUS BY RUST'S RULES AND STAYS SO.
+    // `__pl: &Plan` plus the query's sources is TWO region-carrying inputs
+    // with an elided result that comes from the SOURCES, which is E0106 in
+    // Rust. Passing the plan BY VALUE removes the ambiguity and was tried:
+    // it breaks the PUBLIC prepared-plan surface — `by_key_run(&plan, ..)`
+    // is what a caller writes — so twelve wql fixtures stopped compiling.
+    // Annotating instead needs `'a` woven into the user's own parameter
+    // TEXT and into `ret_ty`, both of which arrive here as strings.
     let mut rps: String = String::new();
     rps.push_str("__pl: &");
     rps.push_str(tyn);

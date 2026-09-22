@@ -63,16 +63,16 @@ pub fn owned_arg<T: Tr>(t: &T) -> i64 {
 
 pub fn recv_outlives<T: Tr>(t: &T) -> str { return t.pick("probe"); }
 
-pub fn thru_param<T: Tr>(t: &T, p: str) -> str { return t.thru(p); }
+pub fn thru_param<'a, T: Tr>(t: &T, p: &'a str) -> &'a str { return t.thru(p); }
 
 pub fn scalar<T: Tr>(t: &T) -> i64 {
     let o: String = String::from("hello");
     return t.n() + o.len();
 }
 
-pub fn via_where<T>(t: &T, p: str) -> str where T: Tr { return t.thru(p); }
+pub fn via_where<'a, T>(t: &T, p: &'a str) -> &'a str where T: Tr { return t.thru(p); }
 
-pub fn outparam_ok<T: Tr>(t: &T, p: str) -> str {
+pub fn outparam_ok<'a, T: Tr>(t: &T, p: &'a str) -> &'a str {
     let mut v: str = "";
     t.stash(p, &mut v);
     return v;

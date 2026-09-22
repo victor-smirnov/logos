@@ -1911,12 +1911,6 @@ anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admi
 
 augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): upstream's `struct Int(i32)` is a MOVE type and the error is E0505 "cannot move out of `x` because it is borrowed"; the port's `struct Int { v: i32 }` is auto-Copy under DIVERGENCES A16, so the RHS `x` is a COPY — and a READ of a place held by a two-phase RESERVATION is exactly what the reservation permits (`v.push(v.len())`). The illegality upstream rests on the operand being a MOVE. Same second blocker as bck.NEW-A16's two rows. NOT closable at the checker; A16 is what must move. Owner's. See PROBES.md 2026-09-12e
 
-borrowck-borrowed-uniq-rvalue bck.D tests/imported/admit/borrowck/borrowck-borrowed-uniq-rvalue
-
-borrowck-loan-blocks-move-cc--r10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--r10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --t10 (upstream box_imm/box_imm_explicit are textually identical); merging is an owner decision
-
-borrowck-loan-blocks-move-cc--t10 bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-loan-blocks-move-cc--t10  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --r10; merging is an owner decision
-
 borrowck-move-by-capture bck.NEW-CAPMOVE tests/imported/admit/borrowck/borrowck-move-by-capture  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
@@ -1925,11 +1919,7 @@ borrowck-no-cycle-in-exchange-heap--min-move-while-mut-borrowed bck.NEW tests/im
 
 borrowed-data-escapes-closure-148392 bck.NEW-CESC tests/imported/admit/borrowck/borrowed-data-escapes-closure-148392  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 
-issue-51117 bck.B tests/imported/admit/borrowck/issue-51117
-
 issue-95079-missing-move-in-nested-closure bck.NEW-CESC tests/imported/admit/borrowck/issue-95079-missing-move-in-nested-closure  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
-
-mut-borrow-conflict-in-closures-vec--bounded bck.NEW-CAPLOAN tests/imported/admit/borrowck/mut-borrow-conflict-in-closures-vec--bounded  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): `Mine` is all-Copy-fields with no Drop, so A16 makes it Copy and `make_bar(start)` MOVES NOTHING — there is no use-after-move to refuse. The move checker itself is not the hole: the identical program with `impl Drop for Mine` added is REFUSED "use of moved variable 'start'", at BOTH the whole-value and the `start.test` projection spelling (two hand pairs). Third row of the same A16 class. Owner's. See PROBES.md 2026-09-12e
 
@@ -1939,16 +1929,11 @@ slice-index-bounds-check-invalidation--t35 bck.NEW tests/imported/admit/borrowck
 
 two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop  #  ⚠ PREDICTED BY NAME AND DID NOT CLOSE, 2026-09-12i (build ccac360a27d1b9c8). It was grouped with `borrowck-lend-flow-loop` under one property — a loan raised inside a loop body whose holder is an OUTER binding must be live at the back edge — and the door-1 + door-2 change that closed that row leaves this one ADMITTED, measured directly on the landed binary. So the grouping is refuted for this row too, as it was for `nllmoves.R3` the round before: the class as MEASURED is one ledger row plus one field-path twin with no row. Its loan is not raised by an assignment to a holder at all — `strings.push(foo.get_string())` deposits a two-phase RECEIVER reservation on `foo` into a Vec, and `release_dead_borrows` never sees a BorrowRecord whose raise_point it could compare. Whatever closes it is on the reservation plane, not the last-use plane.
 
-borrowck-unboxed-closures bck.A-FNMUT tests/imported/admit/borrowck/borrowck-unboxed-closures  #  ⚠ BLOCKED ON THREE PINS, 2026-09-12g — NOT a missing mechanism. The arm that closes this row is ONE CALL, `check_recv_conflict(callee_place, is_mut=true)` at borrow_check.cpp Code::ClosureCall, on top of the Fn-family CALL MODE (`fn_call_mode` / `fnfam_tvs_`) landed in that round for the E0499 half. Armed, it prints exactly upstream's verdict ("cannot borrow 'f' as mutable: not declared as mut"; rustc .stderr on the box at borrowck-unboxed-closures.rs:7 says E0596 "cannot borrow `f` as mutable, as it is not declared as mutable") and it REFUSES THREE GREEN PASS FIXTURES that spell this row's own construct: tests/logos/pass/closure_call_moves_string (`fn g<Ty, F: FnMut(String)->Ty>(s: String, f: F)`), tests/logos/pass/closure_mut_param (`fn apply<F>(f: F, x: i64) where F: FnMut(i64)->i64` — and the SAME FILE spells `fn run<F>(mut f: F)` correctly one line below), and tests/imported/pass/closures/hrtb-fnmut-via-Fn-family. POPULATION MEASURED, not sampled: all 101 non-fail corpus programs mentioning `FnMut` were compiled under the armed binary and exactly those three refuse, no others. All three are pass fixtures asserting a program rustc refuses, so closing this row means editing them — the same wall and the same rule as `--c-mut-and-shared-args` four rows down: A LEDGER ROW MAY NOT BE BOUGHT BY EDITING A PIN. CORPUS DECISION WITH AN OWNER.
-
 # ── tests/ui/drop ─────────────────────────────────────────
 
 
 # ── tests/ui/dropck ─────────────────────────────────────────
 dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-error  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. The OLD port had NO CONSTRUCT LEFT (field -> i64, `User = Self` dropped). Root is NOT a region root: E0277 on a projection. ONE-ROW root, no separating pair measured
-
-# ── tests/ui/lifetimes ─────────────────────────────────────────
-borrowck-let-suggestion bck.NEW-BCS tests/imported/admit/lifetimes/borrowck-let-suggestion
 
 e0621-mut-ref-aliases-pointee-lifetime lifereg.NEW-R19 tests/imported/admit/lifetimes/e0621-mut-ref-aliases-pointee-lifetime
 
@@ -1968,25 +1953,15 @@ trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/
 # ── tests/ui/nll ─────────────────────────────────────────
 adt-tuple-enums--t33 nllmoves.NEW-L1 tests/imported/admit/nll/adt-tuple-enums--t33  #  2026-09-12q: NOT moved by `letnamed`/`letnamedc` (predicted). Upstream has no `let` — the `&c` reaches `'static` at the turbofish CTOR ARGUMENT (a permissive call-argument site); the port's let annotation is not where the region is decided. The `&local -> 'static` plane is PROBES.md 2026-09-02p §4.
 
-borrowed-referent-issue-38899 bck.NEW-BLOCKREF tests/imported/admit/nll/borrowed-referent-issue-38899  # OPENED 2026-09-08: the port had dropped upstream's `mut block`; with it restored the program is upstream's construct, rustc reports E0502 `cannot borrow *block.current as immutable because it is also borrowed as mutable` (tests/ui/nll/borrowed-referent-issue-38899.stderr @ da5114692c9) and logosc compiles it silently. SINGLE-ROW ROOT, no separating pair measured, no grouping claim.
-
-borrowed-temporary-error--t08 nllmoves.D tests/imported/admit/nll/borrowed-temporary-error--t08
-
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 
 impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
 
 issue-40510-3 nllmoves.NEW-CESC tests/imported/admit/nll/issue-40510-3  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
 
-issue-42574-diagnostic-in-nested-closure--b nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--b  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED. The OLD port was LEGAL RUST (NLL ends the capture loan at the last use of `c`); as-is it is upstream's construct and is the SAME PROGRAM as --t15
-
-issue-42574-diagnostic-in-nested-closure--t15 nllmoves.NEW-CESC tests/imported/admit/nll/issue-42574-diagnostic-in-nested-closure--t15  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. SAME CONSTRUCT as --b; merging is an owner decision
-
 issue-48697--t16 nllmoves.NEW-CESC tests/imported/admit/nll/issue-48697--t16  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)
 
 issue-51268 nllmoves.NEW-CAPLOAN tests/imported/admit/nll/issue-51268  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)  ⚠ CONTRADICTED 2026-09-11 BY ITS OWN SUCCESSOR ROUND: not a defect under our own rule. Upstream pins `edition:2015..2021`, where the closure captures the WHOLE `self`; Logos captures `self.number` precisely per `borrow.closure.disjoint-field-capture`, so the paths are disjoint and Rust 2024 ACCEPTS this program. RETIRE CANDIDATE — the owner's call, not a round's; the 09-07 verdict above is stale and is kept so the two readings are visible together. ⚠ MEASURED 2026-09-15f-rustcaudit with rustc 1.98.1: the port COMPILES under --edition 2024 and 2021 (twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_issue-51268.rs); upstream's own tests/ui/nll/issue-51268.rs is E0502 under 2015 and 2018 and COMPILES under 2021 and 2024 — `//@ edition:2015..2021` is half-open, so whole-`self` capture is 2015/2018 only, not 2021.
-
-issue-53773 nllmoves.E tests/imported/admit/nll/issue-53773
 
 issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
 
@@ -1995,8 +1970,6 @@ issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephane
 issue-54556-temps-in-tail-diagnostic nllmoves.D tests/imported/admit/nll/issue-54556-temps-in-tail-diagnostic
 
 issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issue-62007-assign-differing-fields--c
-
-match-guards-always-borrow nllmoves.B tests/imported/admit/nll/match-guards-always-borrow
 
 projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 
@@ -2015,10 +1988,6 @@ explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explic
 
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
 
-regions-adjusted-lvalue-op--c26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--c26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had NO place-op adjustment (`v.oh_no(&v)` on the vector itself) and duplicated --t26; restored to upstream's DEREF door. ROOT lifereg.R2 = the SAME mechanism as bck.D/nllmoves.D: two loans minted inside ONE call's own evaluation deposit nothing. PAIRS: sequenced into lets REFUSED; the shared loan taken FIRST as a named local then the receiver autoref REFUSED; both inside the call ADMITTED  ⚠ SAME BLOCKER AS `two-phase-nonrecv-autoref--c-mut-and-shared-args`, 2026-09-09: measured to be the same mechanism reached through a DEREF place op (and `--t26` through an INDEX place op), and the census says why both read zero at the activation check — `record_borrow` deposits the bare-place receiver's reservation inside its own `in_call_args_` bracket, which runs BEFORE `visit_args` pushes the call-args frame, so the gate never asks. One line of scope bookkeeping, not a new predicate. Blocked with that row on the two green pass fixtures named there.
-
-regions-adjusted-lvalue-op--t26 lifereg.R2 tests/imported/admit/regions/regions-adjusted-lvalue-op--t26  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. INDEX place-op door. Same root and same pairs as --c26, and the two are now two different doors rather than one program twice  ⚠ See `--c26`: same mechanism, INDEX place-op door, same blocker.
-
 regions-escape-method lifereg.C tests/imported/admit/regions/regions-escape-method  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had ANNOTATED the closure, which is the one thing upstream leaves to inference; annotation removed. ROOT RE-CHECKED, lifereg.C SPLITS: this row is the closure's return region flowing into a CALLER-CHOSEN generic `B`. PAIR: the same escape written as a FN ITEM signature is REFUSED (`variance mismatch — expected &'static i64, got &'p i64`)
 
 regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured — do not group it. Upstream's four LEGAL contrast traits need a lifetime SUPERTRAIT bound (`trait T: 'static`), which does not parse here -> unrowed_backlog lifetime_supertrait_bound
@@ -2028,6 +1997,8 @@ regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 
 regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
+
+# ── tests/ui/lifetimes ─────────────────────────────────────────
 
 # ── 2026-09-09 — THE E0502/E0499 HALF OF `bck.D` PRICED, 90 -> 90, NO ROW CLOSED,
 #    AND THE MERGE'S OWN GLOSS REFUTED BY ONE HAND PROGRAM (PROBES.md 2026-09-09m-tpb)
@@ -2596,5 +2567,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 58
-# SYNC-HASH fc8cf4ff0801a118f4b6b83c4ff89af2
+# TOTAL 43
+# SYNC-HASH 8ec3e44457a206f1be8329b34b526569

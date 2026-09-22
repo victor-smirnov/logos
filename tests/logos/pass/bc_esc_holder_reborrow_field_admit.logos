@@ -11,17 +11,17 @@
 package bc_esc_holder_reborrow_field_admit;
 use logos.mem.string;
 
-pub struct W { pub v: str }
+pub struct W<'a> { pub v: &'a str }
 
-pub fn ok(s: str) -> str {
-    let mut w: W = W { v: "" };
-    let r: &mut W = &mut w;
+pub fn ok<'a>(s: &'a str) -> &'a str {
+    let mut w: W<'a> = W { v: "" };
+    let r: &mut W<'a> = &mut w;
     r.v = s;
     return w.v;
 }
 
-pub fn ok_param(w: &mut W, s: str) -> str {
-    let r: &mut W = w;
+pub fn ok_param<'a>(w: &mut W<'a>, s: &'a str) -> &'a str {
+    let r: &mut W<'a> = w;
     r.v = s;
     return w.v;
 }

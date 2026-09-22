@@ -14,7 +14,9 @@ fn swap_max(v: &mut Vec<str>) {
         }
     }
 }
-fn head(v: &Vec<str>) -> str {
+// `&Vec<str>` carries TWO regions — the borrow of the vec and the region of
+// the views it stores — and the result is one of the stored views.
+fn head<'a>(v: &Vec<&'a str>) -> &'a str {
     return v.get(0i64);      // copy of the stored borrow — returnable
 }
 fn main() -> i32 {

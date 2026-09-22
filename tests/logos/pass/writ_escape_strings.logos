@@ -8,7 +8,9 @@ use logos.mem.writ.parser;
 use logos.lang.rc;
 use logos.lang.str;
 
-unsafe fn get_str(h: &Writ, text: str) -> str {
+// The result is parsed INTO `h` and read back out of it, so the region is the
+// arena's. Two region inputs and an elided output is E0106 in Rust.
+unsafe fn get_str<'a>(h: &'a Writ, text: str) -> &'a str {
     let v: WAny = parse(h, text);
     let hs: &WString = &*(v.resolve() as *const WString);
     return hs.as_str();

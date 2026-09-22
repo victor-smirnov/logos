@@ -20,7 +20,7 @@ impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
 struct W { t: [&dyn Shape; 2] }
 
 fn take(t: [&dyn Shape; 2]) -> i64 { return t[0].area() + t[1].area(); }
-fn mk(a: &Sq, b: &Sq) -> [&dyn Shape; 2] { return [a, b]; }
+fn mk<'a>(a: &'a Sq, b: &'a Sq) -> [&'a dyn Shape; 2] { return [a, b]; }
 
 fn main() -> i32 {
     let a: Sq = Sq { s: 4i64 };

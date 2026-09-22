@@ -16,7 +16,7 @@ impl Tr for K {
     fn wrap(&self, s: str) -> W { return W { v: s }; }
 }
 
-pub fn ok(t: &dyn Tr, s: str) -> str {
+pub fn ok<'a>(t: &dyn Tr, s: &'a str) -> &'a str {
     let w: W = t.wrap(s);
     return w.v;
 }
