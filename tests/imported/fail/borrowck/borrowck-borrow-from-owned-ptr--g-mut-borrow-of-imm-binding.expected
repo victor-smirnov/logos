@@ -1,1 +1,1 @@
-cannot borrow 'foo.bar1' as mutable: 'foo' not declared as mut
+cannot borrow 'foo' as mutable, as it is not declared as mutable

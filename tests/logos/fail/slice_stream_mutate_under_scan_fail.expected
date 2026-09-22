@@ -1,1 +1,1 @@
-cannot borrow 'rows' as mutable: 'rows' has shared borrows
+cannot borrow 'rows' as mutable because it is also borrowed as immutable

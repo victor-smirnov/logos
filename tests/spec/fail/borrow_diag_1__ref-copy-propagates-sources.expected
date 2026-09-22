@@ -1,1 +1,1 @@
-cannot return reference to local variable 'o': dangling reference
+cannot return reference to local variable 'local': dangling reference

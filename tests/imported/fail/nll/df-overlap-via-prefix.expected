@@ -1,1 +1,1 @@
-already mutably borrowed
+cannot borrow 'o.i' as mutable more than once at a time

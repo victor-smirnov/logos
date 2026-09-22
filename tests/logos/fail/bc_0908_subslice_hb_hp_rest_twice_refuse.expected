@@ -1,1 +1,1 @@
-[fn main]: use of moved field 'a.2'
+use of moved or uninitialised 'a.[2]' at line 11

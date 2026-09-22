@@ -1,1 +1,1 @@
-cannot return reference to local variable 'out': dangling reference
+cannot move out of 'raw' because it is borrowed

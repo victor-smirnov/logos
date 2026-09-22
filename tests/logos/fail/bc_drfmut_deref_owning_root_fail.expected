@@ -1,1 +1,1 @@
-[fn main]: cannot borrow 'r' as mutable: not declared as mut
+cannot borrow 'r' as mutable, as it is not declared as mutable

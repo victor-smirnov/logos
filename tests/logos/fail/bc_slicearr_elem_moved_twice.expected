@@ -1,1 +1,1 @@
-use of moved field 'a.2' (moved on line 18)
+use of moved or uninitialised 'a.[2]' at line 23

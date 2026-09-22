@@ -1,1 +1,1 @@
-does not live long enough
+'t.n' does not live long enough: it is borrowed here and used after 't.n' goes out of scope

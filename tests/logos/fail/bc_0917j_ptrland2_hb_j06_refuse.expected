@@ -1,1 +1,1 @@
-'p' does not live long enough
+'p' does not live long enough: it is borrowed here and used after 'p' goes out of scope

@@ -1,1 +1,1 @@
-temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of the statement; bind the owning value to a variable first so it outlives the borrow
+'_t3' does not live long enough: it is borrowed here and used after '_t3' goes out of scope

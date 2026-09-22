@@ -1,1 +1,1 @@
-error [fn mk]: cannot return reference to local variable 'r': dangling reference
+cannot return reference to local variable 'r': dangling reference

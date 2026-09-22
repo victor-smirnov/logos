@@ -1,1 +1,1 @@
-[fn main]: 'd' does not live long enough: it is borrowed by 'v', which is used here after 'd' goes out of scope (E0597)
+'d' does not live long enough: it is borrowed here and used after 'd' goes out of scope

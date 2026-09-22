@@ -1,1 +1,1 @@
-Drop
+'mid' does not live long enough: it is borrowed here and used after 'mid' goes out of scope

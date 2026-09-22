@@ -1,1 +1,1 @@
-[fn main]: 'data' does not live long enough: it is borrowed by 'buffer', which is used here after 'data' goes out of scope (E0597)
+'data' does not live long enough: it is borrowed here and used after 'data' goes out of scope

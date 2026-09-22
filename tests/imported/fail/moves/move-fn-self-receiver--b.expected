@@ -1,1 +1,1 @@
-cannot move 'mut_foo' while it is borrowed
+cannot move out of 'mut_foo' because it is borrowed

@@ -1,1 +1,1 @@
-cannot return reference to local variable 'x': dangling reference
+cannot return reference to local variable 'x.n': dangling reference

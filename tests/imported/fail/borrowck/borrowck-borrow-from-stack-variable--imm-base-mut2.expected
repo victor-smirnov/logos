@@ -1,1 +1,1 @@
-cannot borrow 'foo' as mutable: field of 'foo' is already borrowed
+cannot borrow 'foo.bar1.int1' as mutable because it is also borrowed as immutable

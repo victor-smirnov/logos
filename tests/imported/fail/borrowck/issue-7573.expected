@@ -1,1 +1,1 @@
-'installed' does not live long enough: it is borrowed by 'lines', which is used here after 'installed' goes out of scope (E0597)
+cannot borrow 'f' as mutable, as it is not declared as mutable

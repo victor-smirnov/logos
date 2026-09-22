@@ -1,1 +1,1 @@
-error [fn f]: captured variable 't' cannot escape `FnMut` closure body: a mutable reborrow of a capture is bounded by the closure call
+cannot borrow 'c' as mutable, as it is not declared as mutable

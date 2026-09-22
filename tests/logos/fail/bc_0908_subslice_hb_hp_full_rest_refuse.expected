@@ -1,1 +1,1 @@
-[fn main]: use of partially moved value 'a'
+use of moved or uninitialised 'a.[0]' at line 12

@@ -2713,10 +2713,13 @@ public:
     void emit(dl::Database& db, dl::Symbols& syms);
 
     const std::vector<Loan>& loans() const { return loans_; }
+    uint32_t n_origins() const { return n_origins_; }
+    size_t   n_points()  const { return point_lines_.size(); }
     // WHY this loan died at this point, as a code the message site can switch
     // on without reaching into the access record: 0 unknown, 1 a new SHARED
     // borrow, 2 a new MUTABLE borrow, 3 the place went out of scope, 4 an
     // assignment, 5 a move, 6 a plain read. See why_ and invalidations().
+    bool at_return(uint32_t point) const { return return_points_.count(point) != 0; }
     int invalidation_kind(uint32_t loan, uint32_t point) const {
         auto it = why_.find({loan, point});
         if (it == why_.end()) return 0;
@@ -2733,11 +2736,16 @@ public:
     }
     std::string point_name(uint32_t p) const { return "p" + std::to_string(p); }
     uint32_t point_line(uint32_t p) const { return p < point_lines_.size() ? point_lines_[p] : 0; }
+    // rustc renders a place in source form: a Deref followed by a field or an
+    // index vanishes (`(*r).a` is `r.a`), and only a trailing one is written,
+    // as a `*` prefix with no parentheses (`*r`, `**p`, `*child.raw`).
     std::string place_str(const bir::Place& p) const {
         std::string s = b_.locals[p.local].name;
+        unsigned pending_deref = 0;
         for (auto& pj : p.proj) {
-            if (pj.k == bir::Proj::K::Deref) s = "(*" + s + ")";
-            else if (pj.k == bir::Proj::K::Field) s += "." + pj.field;
+            if (pj.k == bir::Proj::K::Deref) { ++pending_deref; continue; }
+            pending_deref = 0;
+            if (pj.k == bir::Proj::K::Field) s += "." + pj.field;
             else if (pj.k == bir::Proj::K::Subslice)
                 s += pj.from_end ? "[" + std::to_string(pj.const_index) + "..-" +
                                    std::to_string(pj.sub_to) + "]"
@@ -2746,7 +2754,7 @@ public:
                 s += "[-" + std::to_string(pj.const_index) + "]";
             else s += "[_]";
         }
-        return s;
+        return std::string(pending_deref, '*') + s;
     }
     std::string path_str(uint32_t id) const { return paths_[id].first; }
 
@@ -3600,6 +3608,10 @@ private:
     std::vector<Acc> accesses_;
     // (loan, point) -> the access that invalidated it; see invalidations().
     std::map<std::pair<uint32_t, uint32_t>, Acc> why_;
+    // Points inside a block that ends in `return`. A loan killed by a
+    // StorageDead THERE was still live when the function returned, which is
+    // what "returns a reference to a local" means.
+    std::set<uint32_t> return_points_;
     void access(uint32_t p, const bir::Place& pl, Access k, int32_t self_loan = -1) {
         accesses_.push_back({p, pl, k, self_loan});
     }
@@ -4100,6 +4112,11 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         }
         if (blk.terminated)
             for (bir::BlockId t : blk.term.targets) row("cfg_edge", {pt(M(bi, n)), pt(S(t, 0))});
+        if (blk.terminated && blk.term.k == bir::Term::K::Return)
+            for (size_t si = 0; si <= n; ++si) {
+                return_points_.insert(S(bi, si));
+                return_points_.insert(M(bi, si));
+            }
     }
 
     // Parameters are initialised at entry; every other local starts
@@ -4605,12 +4622,52 @@ static const dl::Program& bc_rules(dl::Symbols*& syms_out) {
     return prog;
 }
 
+// `LOGOS_BC_SLOW=<ms>` names every function whose check costs more than that,
+// with the size of the body it cost it on. A whole-module time says the checker
+// is slow; only a per-function one says WHERE, and the shape of the blow-up
+// (locals, loans, points) is the first thing a cubic rule set shows.
+struct BirSlowTimer {
+    const bir::Body& b; std::chrono::steady_clock::time_point t0; long thresh;
+    // What actually drives the rules' cost: `locals` and `stmts` say how big the
+    // SOURCE is, and two sibling functions of the same size can differ 200x.
+    size_t loans = 0, origins = 0, points = 0, subset = 0, ocl = 0, rounds = 0, derived = 0;
+    explicit BirSlowTimer(const bir::Body& body) : b(body), thresh(threshold()) {
+        if (thresh >= 0) t0 = std::chrono::steady_clock::now();
+    }
+    // Read ONCE: this runs per function, and the probe must not be a cost of
+    // its own in the path it is there to price.
+    static long threshold() {
+        static const long t = [] {
+            const char* e = std::getenv("LOGOS_BC_SLOW");
+            return e ? std::atol(e) : -1L;
+        }();
+        return t;
+    }
+    ~BirSlowTimer() {
+        if (thresh < 0) return;
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - t0).count();
+        if (ms >= thresh) {
+            size_t stmts = 0;
+            for (auto& blk : b.blocks) stmts += blk.stmts.size();
+            std::fprintf(stderr, "bc-slow: %7lld ms  loans=%-5zu origins=%-6zu points=%-6zu "
+                                 "SUBSET=%-8zu ocl=%-8zu ROUNDS=%-6zu DERIVED=%-10zu stmts=%-5zu %s\n",
+                         (long long)ms, loans, origins, points, subset, ocl,
+                         rounds, derived, stmts, b.name.c_str());
+            std::fflush(stderr);  // redirected stderr is BLOCK-buffered: without
+                                  // this the list only appears at exit, which is
+                                  // useless for watching a run that takes 20 min
+        }
+    }
+};
+
 static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog,
                             const TypeSets& ts, const FnIndex& idx,
                             const FlowSummaryMap* flows) {
     BirVerdict v;
     BirBuilder builder(prog, ts, idx, flows);
     bir::Body body = builder.build(fn);
+    BirSlowTimer slow_timer_(body);
     const char* dump = std::getenv("LOGOS_BIR_DUMP");
     bool want_dump = dump && body.name.find(dump) != std::string::npos;
     if (want_dump) std::fputs(bir_dump(body).c_str(), stderr);
@@ -4629,6 +4686,9 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
     dl::Database& db = *tl_db;
     BirFacts facts(body, prog, ts);
     facts.emit(db, *syms);
+    slow_timer_.loans   = facts.loans().size();
+    slow_timer_.origins = facts.n_origins();
+    slow_timer_.points  = facts.n_points();
 
     if (const char* dir = std::getenv("LOGOS_DL_DUMP"); dir && (!dump || want_dump)) {
         std::string sub = body.name;
@@ -4655,6 +4715,10 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
     db.run();
     v.ran = true;
     auto rel = [&](const char* n) -> const dl::Relation& { return db.relation(*rules.relation(n)); };
+    slow_timer_.subset = rel("subset").size();
+    slow_timer_.ocl    = rel("origin_contains_loan_on_entry").size();
+    slow_timer_.rounds  = db.stats().rounds;
+    slow_timer_.derived = db.stats().derived;
     auto sym = [&](dl::Value x) { return std::string(syms->name(x)); };
     auto num = [](const std::string& s) { return uint32_t(std::stoul(s.substr(1))); };
     {
@@ -4674,32 +4738,49 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
             std::string msg;
             switch (facts.invalidation_kind(L, P)) {
                 case 1:
-                    msg = loan.mut_
-                        ? std::format("cannot borrow '{}': '{}' is already mutably borrowed", nm, nm)
-                        : std::format("cannot borrow '{}': '{}' is already borrowed", nm, nm);
+                    // A new SHARED borrow only conflicts with a mutable loan.
+                    msg = std::format("cannot borrow '{}' as immutable because it is also "
+                                      "borrowed as mutable", nm);
                     break;
                 case 2:
                     msg = loan.mut_
-                        ? std::format("cannot borrow '{}': '{}' is already mutably borrowed", nm, nm)
-                        : std::format("cannot borrow '{}' as mutable: '{}' has shared borrows", nm, nm);
+                        ? std::format("cannot borrow '{}' as mutable more than once at a time", nm)
+                        : std::format("cannot borrow '{}' as mutable because it is also "
+                                      "borrowed as immutable", nm);
                     break;
-                case 3:
-                    msg = std::format("'{}' does not live long enough: it is borrowed here and "
-                                      "used after '{}' goes out of scope", nm, nm);
+                case 3: {
+                    // A loan killed by a StorageDead in a block that RETURNS was
+                    // still live at the return, and rustc splits that three ways
+                    // by WHOSE datum escapes and HOW — the reader's mistake is a
+                    // different one in each, and answering all three with
+                    // "cannot return reference to local variable" was wrong on a
+                    // function that returns nothing and borrows a PARAMETER.
+                    //   param            → E0521 borrowed data escapes (out-param)
+                    //   local, ret carries a region → E0515 cannot return reference
+                    //   otherwise        → E0597 does not live long enough
+                    const bir::LocalKind lk = body.locals[loan.place.local].kind;
+                    const bool ret_carries =
+                        bir_type_carries_loans(body.locals[0].type, prog, ts);
+                    if (facts.at_return(P) && lk == bir::LocalKind::Param)
+                        msg = std::format("borrowed data escapes outside of function: '{}'", nm);
+                    else if (facts.at_return(P) && ret_carries)
+                        msg = loan.place.proj.empty() && lk == bir::LocalKind::Temp
+                            ? std::string("cannot return reference to temporary value: dangling reference")
+                            : std::format("cannot return reference to local variable '{}': "
+                                          "dangling reference", nm);
+                    else
+                        msg = std::format("'{}' does not live long enough: it is borrowed here and "
+                                          "used after '{}' goes out of scope", nm, nm);
                     break;
-                case 4:
-                    // A shared loan and a mutable one read differently, and the
-                    // corpus pins both spellings.
-                    msg = loan.mut_
-                        ? std::format("cannot assign to '{}' while it is mutably borrowed", nm)
-                        : std::format("cannot assign to '{}' because it is borrowed", nm);
-                    break;
-                case 5:  msg = std::format("cannot move '{}' while it is borrowed", nm); break;
-                case 6:  msg = std::format("cannot use '{}' while it is mutably borrowed", nm); break;
+                }
+                case 4:  msg = std::format("cannot assign to '{}' because it is borrowed", nm); break;
+                case 5:  msg = std::format("cannot move out of '{}' because it is borrowed", nm); break;
+                case 6:  msg = std::format("cannot use '{}' because it was mutably borrowed", nm); break;
                 default:
                     msg = loan.mut_
-                        ? std::format("cannot use '{}' while it is mutably borrowed", nm)
-                        : std::format("cannot borrow '{}' as mutable: '{}' has shared borrows", nm, nm);
+                        ? std::format("cannot use '{}' because it was mutably borrowed", nm)
+                        : std::format("cannot borrow '{}' as mutable because it is also "
+                                      "borrowed as immutable", nm);
             }
             v.errors.push_back(std::format("line {}: {}", at, msg));
         }
@@ -4728,7 +4809,8 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
             auto row = R.row(i);
             // rustc's wording, and the corpus's: the reader wants "you cannot
             // borrow this as mutable, because it was not declared `mut`".
-            v.errors.push_back(std::format("line {}: cannot borrow '{}' as mutable: not declared as mut",
+            v.errors.push_back(std::format("line {}: cannot borrow '{}' as mutable, as it is "
+                                           "not declared as mutable",
                                            facts.point_line(num(sym(row[1]))),
                                            body.locals[num(sym(row[0]))].name));
         }
@@ -4806,10 +4888,14 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
 // (`v.unsupported`, 13 of them corpus-wide) falls back to the old checker
 // rather than going unchecked — the only thing that would be worse than either
 // verdict is none.
+// ADR 0028 S7: the new checker is the DEFAULT. `LOGOS_DL_BC=0` puts the old
+// one back, which is an escape hatch for a bisect, not a supported mode — the
+// corpus's diagnostics are pinned to the new checker's wording, so the old one
+// now fails ~800 of them by text while agreeing about the verdict.
 static bool dl_bc_live() {
     static const bool on = [] {
         const char* v = std::getenv("LOGOS_DL_BC");
-        return v && *v && std::string_view(v) != "0";
+        return !(v && std::string_view(v) == "0");
     }();
     return on;
 }

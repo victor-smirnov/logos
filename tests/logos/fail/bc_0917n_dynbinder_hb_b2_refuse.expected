@@ -1,1 +1,1 @@
-does not live long enough: it is borrowed and stored through 'out'
+'l' does not live long enough: it is borrowed here and used after 'l' goes out of scope

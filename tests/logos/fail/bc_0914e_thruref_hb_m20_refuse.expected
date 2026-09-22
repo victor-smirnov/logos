@@ -1,1 +1,1 @@
-[fn main]: 's1' does not live long enough: it is borrowed by 'out', which is used here after 's1' goes out of scope (E0597)
+'s1' does not live long enough: it is borrowed here and used after 's1' goes out of scope

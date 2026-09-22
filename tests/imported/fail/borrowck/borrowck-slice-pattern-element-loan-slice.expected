@@ -1,1 +1,1 @@
-cannot borrow 's' as mutable: 2 shared borrow(s) active
+cannot borrow 's' as mutable, as it is not declared as mutable

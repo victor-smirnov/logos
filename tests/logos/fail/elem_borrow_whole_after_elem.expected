@@ -1,1 +1,1 @@
-cannot borrow 'arr' as mutable: already mutably borrowed
+cannot borrow 'arr[_]' as mutable more than once at a time

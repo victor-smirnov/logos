@@ -1,1 +1,1 @@
-cannot use 'o' while it is mutably borrowed
+cannot use 'o' because it was mutably borrowed

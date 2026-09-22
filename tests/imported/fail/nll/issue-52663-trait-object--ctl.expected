@@ -1,1 +1,1 @@
-'tmp0' does not live long enough: it is borrowed by 'r', which is used here after 'tmp0' goes out of scope (E0597)
+'tmp0' does not live long enough: it is borrowed here and used after 'tmp0' goes out of scope

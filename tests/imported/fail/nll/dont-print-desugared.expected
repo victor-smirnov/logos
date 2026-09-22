@@ -1,1 +1,1 @@
-cannot borrow 's.n' as mutable: 's' is behind a `&` reference
+'s' is written or mutably borrowed behind a `&` reference (line 7)

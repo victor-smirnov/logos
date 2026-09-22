@@ -1,1 +1,1 @@
-cannot assign to 'p': 'p' is behind a `&` reference
+'p' is written or mutably borrowed behind a `&` reference (line 10)

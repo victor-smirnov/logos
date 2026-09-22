@@ -1,1 +1,1 @@
-cannot move 's' while
+cannot move out of 's.val' because it is borrowed

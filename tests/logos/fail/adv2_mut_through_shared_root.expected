@@ -1,1 +1,1 @@
-is behind a `&` reference
+'r' is written or mutably borrowed behind a `&` reference (line 7)

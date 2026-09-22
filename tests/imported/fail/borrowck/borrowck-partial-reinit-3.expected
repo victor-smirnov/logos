@@ -1,1 +1,1 @@
-use of moved field 'x.a' (moved on line 11)
+assign to part of moved value 'x.a.f' at line 12

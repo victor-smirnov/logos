@@ -1,1 +1,1 @@
-[fn foo]: 'arr' does not live long enough: it is borrowed and stored through 'out', whose storage the caller owns and outlives this function (E0597)
+'arr[_]' does not live long enough: it is borrowed here and used after 'arr[_]' goes out of scope

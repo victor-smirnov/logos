@@ -1,1 +1,1 @@
-[fn main]: 'd' does not live long enough: it is borrowed by 'buffer', which is used here after 'd' goes out of scope (E0597)
+cannot assign to 'd' because it is borrowed

@@ -1,1 +1,1 @@
-temporary value dropped while borrowed: this reference borrows into a temporary that is dropped at the end of the statement; bind the owning value to a variable first so it outlives the borrow
+cannot move out of '__rtmp_0' because it is borrowed

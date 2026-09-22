@@ -1,1 +1,1 @@
-use of moved value 'g'
+use of moved or uninitialised 'g' at line 23

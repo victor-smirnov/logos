@@ -1,1 +1,1 @@
-cannot assign to 'x' because it is borrowed
+cannot borrow 'g' as mutable, as it is not declared as mutable

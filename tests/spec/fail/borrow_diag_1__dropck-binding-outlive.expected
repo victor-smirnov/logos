@@ -1,1 +1,1 @@
-has a `Drop` impl and borrows local
+'local' does not live long enough: it is borrowed here and used after 'local' goes out of scope

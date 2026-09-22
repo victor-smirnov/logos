@@ -1,1 +1,1 @@
-cannot borrow 'vs2': 'vs2' is already mutably borrowed
+cannot borrow 'vs2' as immutable because it is also borrowed as mutable

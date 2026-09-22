@@ -1,1 +1,1 @@
-cannot return reference to local variable 'e': dangling reference
+cannot move out of 'h' because it is borrowed

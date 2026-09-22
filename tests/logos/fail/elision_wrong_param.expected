@@ -1,1 +1,1 @@
-cannot return reference to local variable 'b': dangling reference
+borrowed data escapes outside of function: 'b'

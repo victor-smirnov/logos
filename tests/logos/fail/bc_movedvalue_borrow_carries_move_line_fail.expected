@@ -1,1 +1,1 @@
-cannot borrow moved value 'a' (moved on line 15)
+use of moved or uninitialised 'a' at line 16

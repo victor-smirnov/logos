@@ -1,1 +1,1 @@
-cannot borrow 'void' as mutable: already mutably borrowed
+cannot borrow 'void' as mutable more than once at a time

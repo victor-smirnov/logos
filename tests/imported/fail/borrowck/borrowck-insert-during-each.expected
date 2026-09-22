@@ -1,1 +1,1 @@
-cannot borrow 'f': 'f.n' is already mutably borrowed
+cannot borrow 'f.n' as mutable more than once at a time

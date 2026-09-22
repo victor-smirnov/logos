@@ -1,1 +1,1 @@
-[fn main]: cannot move 's1' while it is borrowed
+cannot move out of 's1' because it is borrowed

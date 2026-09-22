@@ -1,1 +1,1 @@
-cannot borrow 'foo' as shared: field of 'foo' is mutably borrowed
+cannot borrow 'foo.bar1' as mutable more than once at a time

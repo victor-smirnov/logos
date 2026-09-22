@@ -1,1 +1,1 @@
-[fn main]: cannot borrow 's1.a': 's1' is already mutably borrowed
+cannot assign to 's1' because it is borrowed

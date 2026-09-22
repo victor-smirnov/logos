@@ -1,1 +1,1 @@
-use of moved field 'bx.s'
+use of moved or uninitialised 'bx.*.s' at line 9

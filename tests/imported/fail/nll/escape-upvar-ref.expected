@@ -1,1 +1,1 @@
-'y' does not live long enough: it is borrowed by 'p', which is used here after 'y' goes out of scope (E0597)
+cannot borrow 'c' as mutable, as it is not declared as mutable

@@ -1,1 +1,1 @@
-cannot borrow 'sr' as mutable: already mutably borrowed
+cannot borrow '*sr' as mutable more than once at a time

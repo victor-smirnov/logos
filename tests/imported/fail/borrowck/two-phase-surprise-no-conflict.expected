@@ -1,1 +1,1 @@
-cannot use 'self' while it is mutably borrowed
+cannot use '*self' because it was mutably borrowed

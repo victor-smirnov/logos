@@ -1,1 +1,1 @@
-cannot assign to 'b': 'b' is behind a `&` reference
+'b' is written or mutably borrowed behind a `&` reference (line 4)

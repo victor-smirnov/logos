@@ -1,1 +1,1 @@
-cannot assign through 'list[..]' while 'list' is mutably borrowed
+cannot borrow 'b' as mutable more than once at a time

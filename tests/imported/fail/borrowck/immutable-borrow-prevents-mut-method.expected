@@ -1,1 +1,1 @@
-cannot borrow 'collection' as mutable: 'collection' has shared borrows
+cannot borrow 'collection' as mutable because it is also borrowed as immutable

@@ -1,1 +1,1 @@
-cannot borrow 'arg' as mutable: not declared as mut
+cannot borrow 'arg' as mutable, as it is not declared as mutable

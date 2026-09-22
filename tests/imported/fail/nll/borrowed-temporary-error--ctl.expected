@@ -1,1 +1,1 @@
-'w' does not live long enough: it is borrowed by 'x', which is used here after 'w' goes out of scope (E0597)
+'w.a' does not live long enough: it is borrowed here and used after 'w.a' goes out of scope

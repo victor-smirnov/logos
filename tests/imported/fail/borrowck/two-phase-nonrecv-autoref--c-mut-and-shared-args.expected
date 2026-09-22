@@ -1,1 +1,1 @@
-cannot borrow 'a' as shared: already mutably borrowed
+cannot borrow 'a' as immutable because it is also borrowed as mutable

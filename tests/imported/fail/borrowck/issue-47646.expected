@@ -1,1 +1,1 @@
-cannot use 'heap' while it is mutably borrowed
+cannot use 'heap' because it was mutably borrowed

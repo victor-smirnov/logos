@@ -1,1 +1,1 @@
-[fn main]: cannot borrow 's1' as mutable: already mutably borrowed
+cannot borrow 's1' as mutable more than once at a time

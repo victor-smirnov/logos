@@ -1,1 +1,1 @@
-cannot borrow 'c' as mutable: 'c' has shared borrows
+cannot move out of 'h', which is behind a reference (line 18)

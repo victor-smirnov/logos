@@ -1,1 +1,1 @@
-cannot borrow 'sr.x' as mutable: 'sr' is behind a `&` reference
+'sr' is written or mutably borrowed behind a `&` reference (line 10)

@@ -1,1 +1,1 @@
-[fn main]: cannot use 's1' while it is mutably borrowed
+cannot use 's1' because it was mutably borrowed

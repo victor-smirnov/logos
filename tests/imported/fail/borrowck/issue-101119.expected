@@ -1,1 +1,1 @@
-cannot borrow moved value 'state' (moved on line 13)
+cannot borrow 'c' as mutable, as it is not declared as mutable

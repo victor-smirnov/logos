@@ -1,1 +1,1 @@
-cannot borrow 'data.0': 'data.0' is already mutably borrowed
+cannot assign to 'data.0' because it is borrowed

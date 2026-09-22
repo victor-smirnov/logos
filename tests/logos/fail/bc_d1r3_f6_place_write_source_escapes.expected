@@ -1,1 +1,1 @@
-does not live long enough
+'q' does not live long enough: it is borrowed here and used after 'q' goes out of scope

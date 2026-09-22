@@ -1,1 +1,1 @@
-[fn foo]: 'p' does not live long enough: it is borrowed into 'r', whose declared type requires lifetime 'a, which outlives this function (E0597)
+'p.k' does not live long enough: it is borrowed here and used after 'p.k' goes out of scope

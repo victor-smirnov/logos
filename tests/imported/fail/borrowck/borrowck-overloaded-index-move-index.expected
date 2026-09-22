@@ -1,1 +1,1 @@
-cannot move 's' while it is borrowed
+cannot move out of 's' because it is borrowed

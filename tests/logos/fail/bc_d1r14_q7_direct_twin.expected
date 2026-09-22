@@ -1,1 +1,1 @@
-error [fn body]: 'x' does not live long enough
+'x' does not live long enough: it is borrowed here and used after 'x' goes out of scope

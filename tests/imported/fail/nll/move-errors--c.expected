@@ -1,1 +1,1 @@
-cannot move out of a value behind a mutable reference (E0507)
+cannot move out of 'r', which is behind a reference (line 11)

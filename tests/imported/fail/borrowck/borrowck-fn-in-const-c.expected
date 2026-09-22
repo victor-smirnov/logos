@@ -1,1 +1,1 @@
-cannot return reference to local variable 'local': dangling reference
+cannot move out of 'local.inner' because it is borrowed

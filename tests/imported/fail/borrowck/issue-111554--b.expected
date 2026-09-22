@@ -1,1 +1,1 @@
-cannot borrow 'self' as mutable: not declared as mut
+cannot borrow 'self' as mutable, as it is not declared as mutable

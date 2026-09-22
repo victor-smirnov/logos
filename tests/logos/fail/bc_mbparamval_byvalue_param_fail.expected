@@ -1,1 +1,1 @@
-cannot borrow 'f' as mutable: not declared as mut
+cannot borrow 'f' as mutable, as it is not declared as mutable

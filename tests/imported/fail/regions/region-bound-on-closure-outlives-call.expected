@@ -1,1 +1,1 @@
-cannot move 'f' while it is borrowed
+cannot move out of 'f' because it is borrowed

@@ -1,1 +1,1 @@
-[fn main]: cannot borrow 'r' as mutable: field of 'r' is already borrowed
+cannot borrow 'r.a' as mutable more than once at a time

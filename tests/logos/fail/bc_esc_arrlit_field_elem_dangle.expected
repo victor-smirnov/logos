@@ -1,1 +1,1 @@
-cannot return reference to local variable 's': dangling reference
+cannot return reference to local variable 's.f': dangling reference

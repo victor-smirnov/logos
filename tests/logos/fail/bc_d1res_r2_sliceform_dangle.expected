@@ -1,1 +1,1 @@
-does not live long enough
+'arr' does not live long enough: it is borrowed here and used after 'arr' goes out of scope

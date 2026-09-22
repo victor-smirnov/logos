@@ -1,1 +1,1 @@
-'z' does not live long enough: it is borrowed by 'y', which is used here after 'z' goes out of scope (E0597)
+'z' does not live long enough: it is borrowed here and used after 'z' goes out of scope

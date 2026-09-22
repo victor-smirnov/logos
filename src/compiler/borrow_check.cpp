@@ -22,6 +22,7 @@
 //
 // Loops: outer variables moved inside the body are dead after the loop.
 
+#include <chrono>
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_mirror.hpp>

@@ -1,1 +1,1 @@
-cannot borrow 'outer' as mutable: not declared as mut
+cannot borrow 'outer' as mutable, as it is not declared as mutable

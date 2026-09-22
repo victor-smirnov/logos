@@ -1,1 +1,1 @@
-[fn main]: cannot assign to 'h' while 'h.o.b' is borrowed
+cannot assign to 'h.o.b' because it is borrowed

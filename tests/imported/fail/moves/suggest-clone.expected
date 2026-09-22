@@ -1,1 +1,1 @@
-cannot move out of a value behind a shared reference (E0507)
+cannot move out of 'foo', which is behind a reference (line 17)

@@ -1,1 +1,1 @@
-binding 'w' has a `Drop` impl and borrows local 'inner', but 'inner' goes out of scope before 'w' is dropped
+'inner' does not live long enough: it is borrowed here and used after 'inner' goes out of scope

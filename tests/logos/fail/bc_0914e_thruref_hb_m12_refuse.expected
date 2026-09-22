@@ -1,1 +1,1 @@
-[fn main]: cannot assign to 's1' while 's1.a' is borrowed
+cannot assign to 's1.a' because it is borrowed

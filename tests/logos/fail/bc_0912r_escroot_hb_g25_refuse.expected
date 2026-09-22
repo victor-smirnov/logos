@@ -1,1 +1,1 @@
-[fn store]: 'v' does not live long enough: it is borrowed and stored through 'out', whose storage the caller owns and outlives this function (E0597)
+'v' does not live long enough: it is borrowed here and used after 'v' goes out of scope

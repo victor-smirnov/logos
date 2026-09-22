@@ -1,1 +1,1 @@
-cannot use 's' while it is mutably borrowed
+cannot borrow 's.s1' as immutable because it is also borrowed as mutable

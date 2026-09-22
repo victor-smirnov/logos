@@ -1,1 +1,1 @@
-'c' does not live long enough
+'c' does not live long enough: it is borrowed here and used after 'c' goes out of scope

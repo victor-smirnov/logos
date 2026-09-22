@@ -1,1 +1,1 @@
-cannot borrow 'vs' as mutable: 'vs' has shared borrows
+cannot borrow '*vs' as mutable because it is also borrowed as immutable

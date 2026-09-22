@@ -1,1 +1,1 @@
-cannot assign to 'x' while 'x.0' is borrowed
+cannot assign to 'x.Some#0' because it is borrowed
