@@ -1,0 +1,23 @@
+// 2026-09-22: RE-PORTED FAITHFULLY. Upstream declares `SomeStruct<'a, 'b>` with
+// `p: &'a mut &'b i64, y: &'b i64`; the port had ELIDED them, which leaves the
+// struct with Logos's hidden per-field regions and a different program. With
+// upstream's lifetimes the checker refuses it as rustc does (E0597 on `y`). The
+// hidden-lifetime form is its own question: #465.
+// rustc nll/capture-ref-in-struct.rs — upstream E0597
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root nllmoves.B
+package capture_ref_in_struct_t08;
+struct SomeStruct<'a, 'b> { p: &'a mut &'b i64, y: &'b i64 }
+impl<'a, 'b> SomeStruct<'a, 'b> { fn invoke(self: Self) { *self.p = self.y; } }
+fn deref(z: &i64) { }
+fn main() -> i32 {
+    let x: i64 = 44i64;
+    let mut p: &i64 = &x;
+    {
+        let y: i64 = 22i64;
+        let closure = SomeStruct { p: &mut p, y: &y };
+        closure.invoke();
+    }
+    deref(p);
+    return 0i32;
+}

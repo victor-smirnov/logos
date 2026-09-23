@@ -1921,8 +1921,6 @@ trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/t
 
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
 
-capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
-
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
 
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
@@ -2508,5 +2506,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 13
-# SYNC-HASH 813f07da8bb4e226e4e6dea186cdedd4
+# TOTAL 12
+# SYNC-HASH 41fa085ea8d6855b97d42ffd2a754706
