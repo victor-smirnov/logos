@@ -16,6 +16,6 @@ impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Two<'a> { x: &'a mut Vec<B<'a>>, y: &'a mut Vec<B<'a>> }
-fn wire3(dst: &mut Two, a: &mut Vec<B>, z: &mut Vec<B>) { dst.x = a; dst.y = z; }
+struct Two<'a, 'b> { x: &'a mut Vec<B<'b>>, y: &'a mut Vec<B<'b>> }
+fn wire3<'a, 'b>(dst: &mut Two<'a, 'b>, a: &'a mut Vec<B<'b>>, z: &'a mut Vec<B<'b>>) { dst.x = a; dst.y = z; }
 fn main() -> i64 { return 0i64; }

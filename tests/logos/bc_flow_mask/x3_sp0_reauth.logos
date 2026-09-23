@@ -19,9 +19,9 @@ impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Inner<'a> { r: &'a mut Vec<B<'a>> }
-struct Mid<'a> { i: Inner<'a> }
-fn stash2(c: &C, v: &mut Vec<B>, w: &mut Vec<B>) {
+struct Inner<'a, 'b> { r: &'a mut Vec<B<'b>> }
+struct Mid<'a, 'b> { i: Inner<'a, 'b> }
+fn stash2<'a, 'b>(c: &'b C, v: &'a mut Vec<B<'b>>, w: &'a mut Vec<B<'b>>) {
     let inn: Inner = Inner { r: v };
     let mut h: Mid = Mid { i: Inner { r: w } };
     h.i = inn;

@@ -2936,6 +2936,9 @@ private:
 // operands of the construction, where its own liveness then decides. Keyed by
 // closure id, because an inner closure's requirement is an outer one's fact.
 using ClosureReqs = std::map<std::string, std::set<std::pair<uint32_t, uint32_t>>>;
+// The target of a requirement that a capture's loan be 'static (see
+// closure_requirements: a capture returned under a higher-ranked bound).
+constexpr uint32_t kReqStatic = 0xFFFFFFFFu;
 
 // ── Facts ────────────────────────────────────────────────────────────────────
 //
@@ -5184,6 +5187,11 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         auto it = creqs_->find(s.rv.what);
                         if (it != creqs_->end())
                             for (auto& [ia, ib] : it->second) {
+                                if (ib == kReqStatic && ia < s.rv.ops.size() && s.rv.ops[ia].place.valid()) {
+                                    OList oa = place_origins(s.rv.ops[ia].place);
+                                    if (!oa.os.empty()) subset(oa.os[0], named_origin_["'static"], p);
+                                    continue;
+                                }
                                 if (ia >= s.rv.ops.size() || ib >= s.rv.ops.size()) continue;
                                 const bir::Place& pa = s.rv.ops[ia].place;
                                 const bir::Place& pb = s.rv.ops[ib].place;
@@ -5681,6 +5689,12 @@ static void closure_requirements(const bir::Body& b, ClosureReqs& out) {
                         }
             }
             if (src.empty()) continue;
+            // A RESULT TIED BY AN `Fn*` BOUND (`for<'z> FnOnce(&'z i64) -> &'z
+            // i64`) is the call's late-bound region: a capture's loan returned
+            // there must outlive EVERY such region, i.e. be 'static — rustc
+            // E0597 on the captured local in the parent (regions-nested-fns-2).
+            if (st.dest.local == 0 && st.dest.proj.empty() && b.ret_tied)
+                for (uint32_t f : src) reqs.emplace(f, kReqStatic);
             note(src, cap(st.dest.local));
             carry[st.dest.local].insert(src.begin(), src.end());
         }

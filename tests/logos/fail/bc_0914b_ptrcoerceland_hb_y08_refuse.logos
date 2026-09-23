@@ -2,7 +2,7 @@
 // legality: MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, (no code)); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_0914b_ptrcoerceland_hb_y08_refuse.rs
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/land14a_hand.Clf6/Y08_mutvec_to_mutslice_invariant.logos
 package bc_0914b_ptrcoerceland_hb_y08_refuse;
-fn f<'a>(v: &mut Vec<&'static i64>) -> &mut [&'a i64] {
+fn f<'a>(v: &'a mut Vec<&'static i64>) -> &'a mut [&'a i64] {
     return v;
 }
 fn main() -> i32 { return 0i32; }

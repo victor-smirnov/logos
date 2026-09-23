@@ -1,0 +1,12 @@
+// Twin of imported/fail/regions/regions-nested-fns-2: under a higher-ranked
+// `Fn` bound the closure's result is the call's own region, so a captured
+// borrow may be USED but not RETURNED (that would need 'static). Returning the
+// parameter while reading the capture is legal (rustc accepts).
+package closure_hr_ret_capture_used_not_returned_admit;
+fn ignore<F>(f: F) -> i64 where F: for<'z> FnOnce(&'z i64) -> &'z i64 { let k: i64 = 7i64; return *f(&k); }
+fn main() -> i32 {
+    let y: i64 = 3i64;
+    let n: i64 = ignore(|z| { if *z == y { return z; } else { return z; } });
+    if n != 7i64 { return 1i32; }
+    return 0i32;
+}

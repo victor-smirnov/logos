@@ -1923,8 +1923,6 @@ propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/n
 
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 
-regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had dropped upstream's `for<'z>` HRTB; restored (it parses) and nothing changed, so the BOUND is not read either way. ROOT RE-CHECKED, lifereg.C SPLITS: this row is a CAPTURED enclosing local escaping through the closure's return. PAIR: a closure returning a borrow of its OWN local is REFUSED (`cannot return reference to local variable 'w'`); the same closure returning a borrow of the ENCLOSING fn's local is ADMITTED — the dangling check is frame-local
-
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 
 # ── tests/ui/moves ─────────────────────────────────────────
@@ -2502,5 +2500,5 @@ regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regio
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 10
-# SYNC-HASH 9d341854124cded45aed6205a5d0a299
+# TOTAL 9
+# SYNC-HASH f1c7d0c9313b2de9015c522b9489d474

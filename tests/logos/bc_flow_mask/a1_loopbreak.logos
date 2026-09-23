@@ -11,8 +11,8 @@ package a1_loopbreak;
 use logos.mem.collections.vec;
 #[borrow_carrying]
 struct B<'a> { p: &'a i64 }
-fn pickl(v: &mut Vec<B>) -> &mut Vec<B> { return loop { break v; }; }
-fn pickd(v: &mut Vec<B>) -> &mut Vec<B> { return v; }
+fn pickl<'a, 'b>(v: &'a mut Vec<B<'b>>) -> &'a mut Vec<B<'b>> { return loop { break v; }; }
+fn pickd<'a, 'b>(v: &'a mut Vec<B<'b>>) -> &'a mut Vec<B<'b>> { return v; }
 fn main() -> i64 {
     let mut vs: Vec<B> = Vec::new();
     let a: &mut Vec<B> = pickl(&mut vs);

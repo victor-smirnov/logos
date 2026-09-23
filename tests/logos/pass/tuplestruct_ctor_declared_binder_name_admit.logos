@@ -1,4 +1,4 @@
-package tuplestruct_ctor_declared_binder_name_refused;
+package tuplestruct_ctor_declared_binder_name_admit;
 struct P<'s>(&'s i64, &'s i64);
 fn mk<'a, 'b: 'a>(x: &'a i64, y: &'b i64) -> P<'a> {
     return P(x, y);
@@ -9,7 +9,7 @@ fn main() -> i32 {
     let p: P = mk(&a, &b);
     return (*p.0 + *p.1) as i32;
 }
-// SOUNDNESS QUEUE row tuplestruct_ctor_declared_binder_name_refused (tier 3).
+// Was SOUNDNESS QUEUE row tuplestruct_ctor_declared_binder_name_refused (tier 3); closed: a tuple-struct constructor instantiates the struct's own binders from the values, as a braced literal does. Twin: fail/tuplestruct_ctor_declared_binder_name_fail.
 // Legal Rust (exit 7): `'b: 'a`, so both fields fit `P<'a>`. TODAY refused: "tuple-struct 'P' field 0: variance
 // mismatch — expected &'s i64, got &'a i64" (and field 1). The constructor compares each field against the
 // DECLARED binder name `'s` with no instantiation; spelled `'a` like the fn's binder the same program compiles

@@ -4117,6 +4117,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     unify_types(tsinfo->fields[i].type, expr_type(arg_exprs[i]), subst);
             }
             std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+            std::vector<TypeRef> pts;
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto pt = tsinfo->fields[i].type;
                 if (!subst.empty()) pt = subst_type_sema(pt, subst);
@@ -4125,9 +4126,24 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                                 std::format("tuple-struct '{}' field {}:", callee, i));
                 else
                     widen_int_expr(arg_exprs[i], pt, builder());
-                check_variance(expr_type(arg_exprs[i]), pt,
-                               std::format("tuple-struct '{}' field {}", callee, i));
+                pts.push_back(pt);
                 fields.emplace_back(std::to_string(i), std::move(arg_exprs[i]));
+            }
+            // THE STRUCT'S OWN BINDERS ARE INSTANTIATED HERE, as at a braced
+            // struct literal: `P(x, y)` for `struct P<'s>(&'s i64, &'s i64)`
+            // compares the VALUES' regions with each other, not with the
+            // declaration's `'s` (squeue tuplestruct_ctor_declared_binder_name).
+            logos::compiler::StrMap<std::string> blift;
+            if (!tsinfo->lifetime_params.empty())
+                blift = structlit_lt_subst_(tsinfo->lifetime_params, tsinfo->fields, fields,
+                                            tsinfo->package.empty() ? std::string(callee)
+                                                                    : tsinfo->package + "." + std::string(callee));
+            for (size_t i = 0; i < fields.size(); ++i) {
+                TypeRef pt = pts[i];
+                if (!blift.empty()) pt = subst_type_sema(pt, {}, blift);
+                check_variance(expr_type(fields[i].second), pt,
+                               std::format("tuple-struct '{}' field {}", callee, i),
+                               /*permissive=*/true);
             }
             TypeRef lit_type;
             if (!tsinfo->type_params.empty()) {

@@ -1,4 +1,4 @@
-package anon_region_let_annotation_refuses_named_region;
+package anon_region_let_annotation_named_region_admit;
 
 fn f<'q>(x: &'q i64) -> i64 {
     let r: &'_ i64 = x;
@@ -10,7 +10,7 @@ fn main() -> i32 {
     if f(&v) != 13i64 { return 1i32; }
     return 0i32;
 }
-// SOUNDNESS QUEUE row anon_region_let_annotation_refuses_named_region (tier 3).
+// Was SOUNDNESS QUEUE row anon_region_let_annotation_refuses_named_region (tier 3); closed by the #465 neighbour: a written `'_` compares as the elided slot.
 // Legal Rust: `'_` in a let annotation is an inference hole, so `&'_ i64` accepts a
 // `&'q i64`. TODAY refused: "let 'r': variance mismatch — expected &'_ i64, got &'q i64".
 // The same sentence for `A<'_>` fed by a struct literal of a param (`A { x: x }`) and by

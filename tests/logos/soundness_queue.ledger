@@ -195,8 +195,6 @@ localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_man
 
 loop_init_before_break_refuses 3 tests/soundness/open/loop_init_before_break_refuses refuses
 
-anon_region_let_annotation_refuses_named_region 3 tests/soundness/open/anon_region_let_annotation_refuses_named_region refuses
-
 index_through_ref_to_vec_let_refuses 3 tests/soundness/open/index_through_ref_to_vec_let_refuses refuses
 
 self_literal_local_borrow_pins_impl_region_admits 2 tests/soundness/open/self_literal_local_borrow_pins_impl_region_admits admits
@@ -267,11 +265,7 @@ vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_ref
 
 generic_user_indexmut_store_refused 3 tests/soundness/open/generic_user_indexmut_store_refused refuses
 
-tuplestruct_ctor_declared_binder_name_admits 2 tests/soundness/open/tuplestruct_ctor_declared_binder_name_admits admits
-
 generic_type_param_two_regions_first_wins_refused 3 tests/soundness/open/generic_type_param_two_regions_first_wins_refused refuses
-
-tuplestruct_ctor_declared_binder_name_refused 3 tests/soundness/open/tuplestruct_ctor_declared_binder_name_refused refuses
 
 where_struct_literal_instantiation_rigid_refused 3 tests/soundness/open/where_struct_literal_instantiation_rigid_refused refuses
 
@@ -506,5 +500,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 173
-# SYNC-HASH 12966c7dfbb2b1940974635a2a4b6e0f
+# TOTAL 170
+# SYNC-HASH f6babb6c540ea9b3e6aaab340ebdc138

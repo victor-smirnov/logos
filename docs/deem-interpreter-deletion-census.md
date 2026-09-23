@@ -6311,9 +6311,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                #462: imported/admit/regions/regions-pattern-typing-issue-19552 MOVED to imported/fail/regions
 #                (BC ledger 11 -> 10): the admit shelf's test was registered outside the imported label and in the
 #                committed tier; the fail twin is an imported diagnostics test. ALL unchanged.
-REGISTRY-ALL         11116
+#                ALL 11116 -> 11117 (+1), NOIMPORTED 6563 -> 6563 (0), TIERCOMMIT 244 -> 240 (-4) — 2026-09-23:
+#                THREE squeue rows closed (#224 -> fail/tuplestruct_ctor_declared_binder_name_fail, #227 ->
+#                pass/tuplestruct_ctor_declared_binder_name_admit, #177 -> pass/anon_region_let_annotation_named_region_admit)
+#                and BC row regions-nested-fns-2 (#76) moved admit -> imported/fail; new twin
+#                pass/closure_hr_ret_capture_used_not_returned_admit.
+REGISTRY-ALL         11117
 REGISTRY-NOIMPORTED  6563
-REGISTRY-TIERCOMMIT  244
+REGISTRY-TIERCOMMIT  240
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

@@ -22,9 +22,9 @@ impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct H<'a> { r: &'a mut Vec<B<'a>> }
-fn stashv(h: H, c: &C) { h.r.push(c.mk()); }
-fn stashr(h: &mut H, c: &C) { h.r.push(c.mk()); }
+struct H<'a, 'b> { r: &'a mut Vec<B<'b>> }
+fn stashv<'a, 'b>(h: H<'a, 'b>, c: &'b C) { h.r.push(c.mk()); }
+fn stashr<'a, 'b>(h: &mut H<'a, 'b>, c: &'b C) { h.r.push(c.mk()); }
 fn main() -> i64 {
     let c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();
