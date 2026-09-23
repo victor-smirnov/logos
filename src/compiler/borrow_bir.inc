@@ -1667,6 +1667,25 @@ private:
             }
             case ECode::FnPtrCall: {
                 lir_view::EFnPtrCallView v{e};
+                // A call through a FN ITEM value (`let g = static_id; g(u)`)
+                // calls a known function: judge it by that function's
+                // declaration (its `where 'a: 'static` included), reading the
+                // value itself as a use.
+                if (TypeRef ft = v.callee() ? v.callee().type(pool_) : TypeRef{};
+                    ft && ft.kind() == LogosType::Kind::FnItem) {
+                    if (auto cf = resolve_call(std::string(ft.struct_name()))) {
+                        bir::Stmt rd(bir::Stmt::K::Read);
+                        rd.rv.ops.push_back(as_read(operand(v.callee())));
+                        emit(std::move(rd));
+                        t.callee = std::string(ft.struct_name());
+                        t.callee_fn = cf;
+                        t.has_sig = true;
+                        t.sig_to_result = signature_mask(cf);
+                        t.sig_mut_params = mut_param_mask_of_fn(cf);
+                        v.each_arg(arg_value);
+                        break;
+                    }
+                }
                 t.callee = "<fnptr>";
                 t.has_sig = true;
                 t.callee_fty = v.callee() ? v.callee().type(pool_) : TypeRef{};
@@ -5597,6 +5616,41 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             }
                         }
                         if (s.rv.k == bir::Rvalue::K::RawAddr) use_place(s.rv.place, p);
+                    }
+                    // A LITERAL WHOSE TYPE NAMES THIS BODY'S OWN LIFETIME (`Self {
+                    // r: &v }` in `impl<'s> Foo<'s>` is a `Foo<'s>`): its region
+                    // IS that universal region, so `&v` must live for all of 's.
+                    if (s.rv.k == bir::Rvalue::K::Aggregate && s.dest.proj.empty()) {
+                        TypeRef at_ = b_.locals[s.dest.local].type;
+                        if (at_ && at_.kind() == LogosType::Kind::Struct) {
+                            auto la_ = at_.lifetime_args();
+                            for (size_t i = 0; i < la_.size() && i < dst.os.size(); ++i) {
+                                std::string n(la_[i]);
+                                if (!n.empty() && n[0] != '\'') n = "'" + n;
+                                if (n == "'static" || n.starts_with("'%") || n == "'_") continue;
+                                // The body's own declared lifetime, or — an impl's
+                                // `'s`, not declared on the method — the region a
+                                // PARAMETER carries under that name.
+                                // A FUNCTION's own lifetime in a literal's type is
+                                // sema's instantiation from the values (`P { a: x,
+                                // b: x }` reads as `P<'a, 'a>`) — an inference, not
+                                // a spelling; only an IMPL's (`Self`) is fixed.
+                                if (b_.lifetime_params.count(n)) continue;
+                                uint32_t target = UINT32_MAX;
+                                for (bir::LocalId pl = 0; target == UINT32_MAX && pl < b_.locals.size(); ++pl) {
+                                    const auto& PL = b_.locals[pl];
+                                    if (PL.kind != bir::LocalKind::Param || PL.is_capture) continue;
+                                    std::vector<std::string> lb;
+                                    labels(PL.decl_type ? PL.decl_type : PL.type, PL.type, lb);
+                                    const OList& po = local_origins(pl);
+                                    for (size_t k = 0; k < lb.size() && k < po.os.size(); ++k)
+                                        if (lb[k] == n) { target = po.os[k]; break; }
+                                }
+                                if (target == UINT32_MAX) continue;
+                                subset(dst.os[i], target, p);
+                                subset(target, dst.os[i], p);
+                            }
+                        }
                     }
                     // WHAT THE CLOSURE BODY REQUIRES OF THIS FRAME. The
                     // construction is where the parent hands the body its

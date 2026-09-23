@@ -193,8 +193,6 @@ loop_init_before_break_refuses 3 tests/soundness/open/loop_init_before_break_ref
 
 index_through_ref_to_vec_let_refuses 3 tests/soundness/open/index_through_ref_to_vec_let_refuses refuses
 
-self_literal_local_borrow_pins_impl_region_admits 2 tests/soundness/open/self_literal_local_borrow_pins_impl_region_admits admits
-
 self_tuple_struct_ctor_refused 3 tests/soundness/open/self_tuple_struct_ctor_refused refuses
 
 enum_variant_value_into_scalar_let_admits 1 tests/soundness/open/enum_variant_value_into_scalar_let_admits admits
@@ -210,8 +208,6 @@ static_array_whole_borrow_reads_garbage 1 tests/soundness/open/static_array_whol
 vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_dropped refuses
 
 static_arg_pins_shared_callee_region_refused 3 tests/soundness/open/static_arg_pins_shared_callee_region_refused refuses
-
-fn_item_pointer_call_where_static_admits 2 tests/soundness/open/fn_item_pointer_call_where_static_admits admits
 
 impl_method_ret_renamed_header_binder_refused 3 tests/soundness/open/impl_method_ret_renamed_header_binder_refused refuses
 
@@ -470,5 +466,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 154
-# SYNC-HASH fefd5085518e2c552be350e2ce932dee
+# TOTAL 152
+# SYNC-HASH aea9c2fc73257c096c03351a33cb4eea

@@ -1,10 +1,11 @@
+// Was SOUNDNESS QUEUE row fn_item_pointer_call_where_static_admits; closed 2026-09-23: a call through a fn-item value is judged by the named function's declaration, its where-clause included.
 // SOUNDNESS QUEUE row fn_item_pointer_call_where_static_admits (tier 2).
 // NEIGHBOUR of bc_admits regions-static-bound, ROWED — reason 1 (the fact has no
 // carrier there). A fn item bound to a local and called through it goes through the
 // closure / fn-pointer invoke, whose type carries parameter types and a return but
 // NO where-clause, so the callee's `'a: 'static` cannot be asked at that call.
 // Rust keeps the fn-item type (and its bounds) and refuses: E0521.
-package fn_item_pointer_call_where_static_admits;
+package fn_item_pointer_call_where_static_fail;
 fn static_id<'a>(t: &'a i64) -> i64 where 'a: 'static { return *t; }
 fn f(u: &i64) -> i64 {
     let g = static_id;

@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row self_literal_local_borrow_pins_impl_region_admits; closed 2026-09-23: a literal whose type names an impl lifetime (`Self` in `impl<'s>`) takes that region, so a local borrow must live for all of it.
 // ADMISSION, tier 2 — Rust refuses (E0597), logosc compiles. Inside `impl<'s> Foo<'s>`,
 // `Self { r: &v }` IS `Foo<'s>`: the literal pins the impl's region, `'s` outlives the
 // function, and `v` is a body local — "`v` does not live long enough" even though the
@@ -9,7 +10,7 @@
 // still compiles — because `&v`'s region is EMPTY at the literal, and an empty region is
 // permissive in the variance check. The door that gives a local borrow a region (12q's door L,
 // declined on four legal refusals) must open first.
-package self_literal_local_borrow_pins_impl_region_admits;
+package self_literal_local_borrow_pins_impl_region_fail;
 struct Foo<'s> { r: &'s i64 }
 impl<'s> Foo<'s> {
     fn peek(self: &Self) -> i64 {
