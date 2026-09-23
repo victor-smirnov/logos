@@ -1451,6 +1451,7 @@ private:
                     t.has_sig = true;
                     t.sig_to_result = signature_mask(cf);
                     t.callee_fn = cf;
+                    t.sig_mut_params = mut_param_mask_of_fn(cf);
                 }
                 size_t ai = 0;
                 v.each_arg([&](lir_view::ExprRef a) {
@@ -1470,6 +1471,7 @@ private:
                     t.has_sig = true;
                     t.sig_to_result = signature_mask(f);
                     t.callee_fn = f;
+                    t.sig_mut_params = mut_param_mask_of_fn(f);
                 } else if (is_deref_method(v)) {
                     // Deref::deref(&'a self) -> &'a Target.
                     t.has_sig = true;
@@ -1745,6 +1747,24 @@ private:
     // Which argument positions can be WRITTEN THROUGH, read off a fn-pointer's
     // type. An indirect call has no body to summarise, so this is what the
     // out-param fallback has instead.
+    // The same mask read off a resolved callee's DECLARED parameters (self
+    // included): a direct call with no flow summary — a generic TEMPLATE body
+    // calling `Vec::push` — had no out-parameter relation at all, so
+    // `result.push(&mut x.value)` in a loop never put the loan into `result`.
+    uint64_t mut_param_mask_of_fn(lir_view::FunctionView cf) const {
+        uint64_t mask = 0;
+        auto ps = cf.params();
+        for (size_t i = 0; i < ps.size() && i < 64; ++i) {
+            TypeRef pt = ps[i].decl_type(pool_) ? ps[i].decl_type(pool_) : ps[i].type(pool_);
+            if (!pt) continue;
+            const bool writable =
+                pt.kind() == LogosType::Kind::MutRef ||
+                ((pt.kind() == LogosType::Kind::Slice || pt.kind() == LogosType::Kind::DstRef) &&
+                 pt.mut_ptr() && !pt.raw_fat());
+            if (writable) mask |= uint64_t(1) << i;
+        }
+        return mask;
+    }
     uint64_t mut_param_mask_of_type(TypeRef fty, size_t arg_off) const {
         if (!fty) return 0;
         uint64_t mask = 0;
@@ -5031,16 +5051,64 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         for (size_t j = 0; j < t.args.size() && j < 64; ++j) {
                             if (!((t.sig_mut_params >> j) & 1u)) continue;
                             if (!t.args[j].place.valid()) continue;
+                            // INTO WHAT THE REFERENCE POINTS AT: a store through a
+                            // `&mut` writes its pointee, not the reference's own
+                            // region (which only says how long the borrow lasts).
                             OList dstj = place_origins(t.args[j].place);
+                            const bir::Place& jpl = t.args[j].place;
+                            const bool jref = jpl.proj.empty() &&
+                                (b_.locals[jpl.local].synth_ref || is_borrowing_pointer(b_.locals[jpl.local].type));
+                            if (jref && dstj.exact && dstj.os.size() > 1) {
+                                dstj.os.erase(dstj.os.begin()); dstj.inv.erase(dstj.inv.begin());
+                            }
                             if (dstj.os.empty()) continue;
+                            // BY THE CALLEE'S SIGNATURE, where it has one: an
+                            // argument's region can be stored through parameter j
+                            // only if that region is NAMED in j's pointee — the
+                            // same lifetime, or a type parameter. An ELIDED one is
+                            // a fresh late-bound region of the call and can never
+                            // be (`fn f(v: &mut Vec<&i64>, x: &i64) { v.push(x) }`
+                            // is refused in `f` itself). Without this, a callee with
+                            // no summary — `WMap::set(&mut self, k: str, ..)`,
+                            // which copies `k` — was taken to keep the key's loan.
+                            std::vector<std::string> lj;
+                            auto cps = t.callee_fn ? t.callee_fn.params() : decltype(t.callee_fn.params()){};
+                            auto decl_of = [&](size_t k) {
+                                TypeRef d = cps[k].decl_type(pool_);
+                                return d ? d : cps[k].type(pool_);
+                            };
+                            if (t.callee_fn && j < cps.size()) {
+                                labels(decl_of(j), cps[j].type(pool_), lj);
+                                if (lj.size() == dstj.os.size() + 1) lj.erase(lj.begin());
+                                else if (lj.size() != dstj.os.size()) lj.clear();
+                            }
                             for (size_t i2 = 0; i2 < t.args.size(); ++i2) {
                                 if (i2 == j) continue;
                                 const auto& ai = t.args[i2];
                                 if (ai.k == bir::Operand::K::Const || !ai.place.valid()) continue;
                                 OList src = place_origins(ai.place);
                                 if (src.os.empty()) continue;
-                                src.exact = false;
-                                relate(src, dstj, p);
+                                std::vector<std::string> la;
+                                if (!lj.empty() && i2 < cps.size()) {
+                                    labels(decl_of(i2), cps[i2].type(pool_), la);
+                                    if (la.size() != src.os.size()) la.clear();
+                                }
+                                if (la.empty() || lj.empty()) {
+                                    src.exact = false;
+                                    relate(src, dstj, p);
+                                    continue;
+                                }
+                                auto elided_l = [](const std::string& l) { return l.empty() || l.starts_with("'%"); };
+                                auto concrete = [](const std::string& l) {
+                                    return l.size() > 1 && l[0] == '\'' && l[1] != '%' && l != "'static";
+                                };
+                                for (size_t k = 0; k < src.os.size(); ++k) {
+                                    if (elided_l(la[k])) continue;          // never storable
+                                    for (size_t m = 0; m < dstj.os.size(); ++m) {
+                                        if (concrete(la[k]) && concrete(lj[m]) && la[k] != lj[m]) continue;
+                                        subset(src.os[k], dstj.os[m], p);
+                                    }
+                                }
                             }
                         }
                     }
