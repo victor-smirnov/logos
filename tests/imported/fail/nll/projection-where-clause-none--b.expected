@@ -1,0 +1,1 @@
+call to 'bar': the associated type `T::Output` may not live long enough — 'bar' requires `T::Output: 'static`

@@ -1931,10 +1931,6 @@ trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/
 
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 
-projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
-
-projection-where-clause-none--c nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--c
-
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
 
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
@@ -2522,5 +2518,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 20
-# SYNC-HASH a8cd61a95bd242bdfa71939ad5e032a2
+# TOTAL 18
+# SYNC-HASH 922a9f81bf2ed82f3d6ba29d30449f52

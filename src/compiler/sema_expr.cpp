@@ -5883,6 +5883,45 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     check_type_bounds(callee_diag, fi.type_params, type_args);
     check_call_outlives(callee_diag, fi.param_types, arg_exprs, fi.lifetime_outlives, {},
                         /*first_arg_is_receiver=*/false, fi.ret_type);
+    // E0309 AT THE CALL: the callee's `T: 'a` must hold for the type passed as
+    // `T`, with `'a` instantiated to the CALLER's region (build_call_lt_subst_,
+    // the same map the argument check uses). A caller type parameter proves it
+    // only by a bound of its own that outlives that region; a projection
+    // (`T::Output`) has no such bound to give. rustc 1.98.1: "the parameter
+    // type `T` may not live long enough". A concrete type is not judged here.
+    {
+        auto ls_ = build_call_lt_subst_(fi.param_types, fi.lifetime_params, arg_exprs, fi.ret_type);
+        auto adj_ = outlives_adj(current_outlives_);
+        for (size_t i = 0; i < fi.type_params.size() && i < type_args.size(); ++i) {
+            TypeRef x_ = type_args[i];
+            if (!x_) continue;
+            for (auto& b_ : fi.type_params[i].lifetime_outlives) {
+                std::string need_;
+                if (outlives_is_static(b_)) need_ = "'static";
+                else if (auto it = ls_.find(b_); it != ls_.end()) need_ = it->second;
+                if (need_.empty() || !wf_lt_usable(need_)) continue;
+                const auto k_ = TypeRef(x_).kind();
+                if (k_ == LogosType::Kind::TypeVar) {
+                    std::string tv_(TypeRef(x_).type_var_name());
+                    bool ok_ = false;
+                    if (auto jt = current_type_lt_outlives_.find(tv_); jt != current_type_lt_outlives_.end())
+                        for (auto& have_ : jt->second)
+                            if (wf_lt_usable(have_) &&
+                                outlives(outlives_norm(have_), outlives_norm(need_), adj_, /*permissive_empty=*/false)) {
+                                ok_ = true; break;
+                            }
+                    if (!ok_)
+                        error(std::format("call to '{}': the parameter type `{}` may not live long enough "
+                                          "— '{}' requires `{}: {}`", callee_diag, tv_, callee_diag, tv_,
+                                          outlives_norm(need_)));
+                } else if (k_ == LogosType::Kind::AssocType) {
+                    error(std::format("call to '{}': the associated type `{}` may not live long enough "
+                                      "— '{}' requires `{}: {}`", callee_diag, type_str(x_, true), callee_diag,
+                                      type_str(x_, true), outlives_norm(need_)));
+                }
+            }
+        }
+    }
 
     // Substitute return type
     TypeRef ret = subst_type_sema(fi.ret_type, subst);

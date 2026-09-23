@@ -420,11 +420,17 @@ fn main() -> i32 {
     arr.push(10i64);
     arr.push(20i64);
     let r3: &mut WMap<WString, WAny> = d3.map(8i64);
+    // THE BACK EDGE FIRST, AND RAW (like `meta` below). `WAny` is
+    // #[borrow_carrying]: once `r3` holds `WAny::from(&*right)` it holds a shared
+    // loan of `*right`, and no `right.set(..)` may follow — a cycle cannot be
+    // built out of tracked borrows. This line came AFTER `r3.set("right", ..)`
+    // and passed only because `WMap::set` (a stdlib body with no flow summary)
+    // had no out-parameter relation. (#464)
+    right.set("back", unsafe { WAny::ref_to((r3 as *const WMap<WString, WAny>) as *const u8) });   // closes the cycle
     r3.set("left", WAny::from(&*left));
     r3.set("right", WAny::from(&*right));
     r3.set("meta", unsafe { WAny::ref_to((meta.m as i64) as *const u8) });
     r3.set("arr", WAny::from(&*arr));
-    right.set("back", WAny::from(&*r3));            // closes the cycle
     let rv3: WAny = WAny::from(&*r3);
     d3.set_root(rv3);
     if !d3.root().is_map() { return 93i32; }             // setup, not the subject
