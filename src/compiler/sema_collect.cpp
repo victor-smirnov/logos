@@ -1148,6 +1148,41 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         // `T` to any TypeVar-bearing subject. (Struct/enum kinds also fell
         // through to error when the generic itself had no impl, e.g.
         // `EnumPair<T>: Ord` — same class, same cure.)
+        // NOT GENERAL ENOUGH — decided before the TypeVar deferral below: it
+        // does not depend on what the type variables become.
+        if (LogosType::is_fn_value_kind(cv.kind()) || cv.kind() == LogosType::Kind::Closure) {
+          const std::string concrete_str = type_str(cv);
+          for (auto& bound : tp.bounds) {
+            if (!bound.is_fn_family) continue;
+            if (bound.fn_ret && TypeRef(bound.fn_ret).kind() == LogosType::Kind::TypeVar) {
+                auto got = cv.closure_params();
+                TypeRef gr = cv.closure_ret();
+                for (size_t q = 0; q < bound.fn_params.size() && q < got.size(); ++q) {
+                    TypeRef bp = bound.fn_params[q];
+                    if (!bp || (bp.kind() != LogosType::Kind::Ref && bp.kind() != LogosType::Kind::MutRef) ||
+                        !(bp.lifetime().empty() || bp.lifetime() == "'_" || lt_is_minted(bp.lifetime())))
+                        continue;
+                    TypeRef gp = got[q];
+                    if (!gp || !gr) continue;
+                    const bool same_tv = gr.kind() == LogosType::Kind::TypeVar &&
+                                         gp.kind() == LogosType::Kind::TypeVar &&
+                                         std::string_view(gr.type_var_name()) == std::string_view(gp.type_var_name());
+                    const bool ret_ref_from_arg =
+                        (gr.kind() == LogosType::Kind::Ref || gr.kind() == LogosType::Kind::MutRef) &&
+                        (gp.kind() == LogosType::Kind::Ref || gp.kind() == LogosType::Kind::MutRef) &&
+                        got.size() == 1 && gr.lifetime() == gp.lifetime();
+                    if (same_tv || ret_ref_from_arg) {
+                        if (bounds_probe_) { bounds_probe_ok_ = false; break; }
+                        error(std::format("'{}': implementation of `FnOnce` is not general enough — `{}` "
+                                          "returns (a borrow from) its argument, and `{}` cannot name the "
+                                          "higher-ranked region of `{}`",
+                                          target_name, concrete_str, type_str(bound.fn_ret), type_str(bp)));
+                        break;
+                    }
+                }
+            }
+          }
+        }
         {
             std::function<bool(TypeRef)> mentions_tv = [&](TypeRef t) -> bool {
                 if (!t) return false;
@@ -1701,6 +1736,12 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 // (`mentions_tv` above). A bound written without parentheses
                 // (`F: FnMut`) carries no signature and is not checked; that
                 // is the stated limit of this arm.
+                // NOT GENERAL ENOUGH (rustc E0631-class, issue-74400): the
+                // bound's parameter `&T` is elided, so higher-ranked, while its
+                // result is a bare type parameter `S` fixed OUTSIDE the binder;
+                // a callable returning (a borrow from) that very parameter
+                // would need `S` to name the per-call region. Independent of
+                // what `T` is, so it is decided before the TypeVar exit below.
                 if (!bound.fn_params.empty() || bound.fn_ret) {
                     std::function<bool(TypeRef)> tv_in = [&](TypeRef t) -> bool {
                         if (!t) return false;

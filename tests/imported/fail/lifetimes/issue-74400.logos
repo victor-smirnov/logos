@@ -1,6 +1,6 @@
 // rustc lifetimes/lifetime-errors/issue_74400.rs — upstream E0631 / E0271 / FnOnce not general enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N3
+// shelf: pin (was admit · root lifereg.NEW-N3; closed: a callable returning its higher-ranked argument does not fit `Fn(&T) -> S`)
 package issue_74400;
 fn identity<A>(a: A) -> A { return a; }
 fn f<T, S, K: Fn(&T) -> S>(data: &T, key: K) {}

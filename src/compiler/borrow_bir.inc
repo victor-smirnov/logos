@@ -3396,7 +3396,7 @@ private:
                 case K::Array: case K::Slice: walk(f.elem(), inv, d + 1); return;
                 case K::Tuple: for (auto e : f.tuple_elems()) walk(e, inv, d + 1); return;
                 case K::Struct: case K::ZonedStruct: case K::Enum: {
-                    const bool cell = f.kind() == K::Struct && f.struct_name() == "UnsafeCell";
+                    const bool cell = f.kind() == K::Struct && f.struct_name() == "UnsafeCell" && f.pkg_name() == "logos.lang.cell";
                     auto ta = f.type_args();
                     for (size_t j = 0; j < ta.size(); ++j)
                         walk(ta[j], inv || cell || (f.kind() == K::Struct && struct_tp_invariant(f, j, depth + 1)), d + 1);

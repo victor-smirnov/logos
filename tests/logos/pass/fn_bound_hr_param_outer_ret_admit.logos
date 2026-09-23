@@ -1,0 +1,11 @@
+// Twin of imported/fail/lifetimes/issue-74400: under `K: Fn(&T) -> S` the
+// parameter's region is higher-ranked and `S` is fixed outside it, so a
+// callable whose result does NOT borrow from the argument fits (rustc accepts).
+package fn_bound_hr_param_outer_ret_admit;
+fn f<T, S, K: Fn(&T) -> S>(data: &T, key: K) -> S { return key(data); }
+fn h<T>(data: &T) -> i64 { return f(data, |x: &T| 1i64); }
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    if h(&v) != 1i64 { return 1i32; }
+    return 0i32;
+}
