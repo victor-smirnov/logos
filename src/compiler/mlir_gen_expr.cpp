@@ -4790,33 +4790,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 // Address the place; spill only a genuine rvalue.
                 if (!scrut_ptr) aptr = aggregate_scrut_base(v.scrut(), aptr);
                 if (aptr && elem_mlir && arr_mlir) {
+                    // Through the single pat_bind foundation, as the match
+                    // STATEMENT's Slice case does. This lambda's own Wild arm
+                    // LOADED the element as its scalar mlir type — for a struct
+                    // element that is a `ptr`, so the binder held the struct's
+                    // first 8 bytes and its drop ran on them (SIGSEGV).
                     auto bind_elem = [&](lir_view::PatRef sp, int32_t idx) {
                         if (!sp) return;
                         llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
                         auto ep = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), arr_mlir, aptr, gi);
-                        if (sp.kind() == pc::Code::Wild) {
-                            std::string pwn(lir_view::PatWildView{sp}.name());
-                            if (pwn == "_" || pwn.empty()) return;
-                            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
-                            auto alloca = create_entry_alloca(elem_mlir);
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                            evict_var_shapes(pwn);
-                            scope_[pwn] = alloca;
-                            let_vars_.insert(pwn);
-                            var_elem_types_[pwn] = elem_mlir;
-                            added.push_back(pwn);
-                        } else if (sp.kind() == pc::Code::RefBind) {
-                            std::string prbn(lir_view::PatRefBindView{sp}.name());
-                            if (prbn == "_" || prbn.empty()) return;
-                            auto alloca = create_entry_alloca(ptr_type());
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
-                            evict_var_shapes(prbn);
-                            scope_[prbn] = alloca;
-                            let_vars_.insert(prbn);
-                            var_elem_types_[prbn] = ptr_type();
-                            added.push_back(prbn);
-                        }
+                        std::vector<std::pair<std::string, TypeRef>> binds;
+                        collect_pat_bindings(sp, atype.elem(), binds);
+                        for (auto& b : binds) added.push_back(b.first);
+                        pat_bind(sp, ep, atype.elem());
                     };
                     lir_view::PatSliceView psl{pat_ref};
                     int32_t idx = 0;
@@ -5583,8 +5570,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
                 }
                 else_block = test_block;
+            } else if (sub && sub.kind() != pc::Code::Wild) {
+                // Any other sub-pattern — an OR of variants (`y @ (E::A(_) | E::C)`),
+                // a tuple, a struct — is tested by the general pat_test on the
+                // scrutinee's place. Reading it as irrefutable matched every value.
+                auto* test_block = new mlir::Block();
+                region->push_back(test_block);
+                {
+                    mlir::OpBuilder::InsertionGuard ig(builder_);
+                    builder_.setInsertionPointToStart(test_block);
+                    mlir::Value sp = scrut_ptr ? scrut_ptr : aggregate_scrut_base(v.scrut(), scrut);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, pat_test(sub, sp, scrut_ty), arm_entry, else_block);
+                }
+                else_block = test_block;
             } else {
-                // Irrefutable sub-pattern (e.g. `n @ _`) — arm always runs.
+                // Irrefutable sub-pattern (`n @ _`) — arm always runs.
                 else_block = arm_entry;
             }
         } else {

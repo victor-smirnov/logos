@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #302): an `@` arm over an or of variants skipped every non-scalar alternative, so its test was false and control fell to `unreachable`; such alternatives are now tested with pat_test, and the arm is fanned out per alternative.
 // SOUNDNESS QUEUE row at_binding_or_subpattern_enum_segfaults_run (tier 1, run 139). An `@` BINDER
 // WHOSE SUB-PATTERN IS AN OR OF VARIANTS SEGFAULTS — and NOTHING is read through the binder.
 //

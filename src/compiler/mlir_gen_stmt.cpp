@@ -5679,7 +5679,17 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             int64_t av = 0;
                             if (alt.kind() == pc::Code::Int)       av = lir_view::PatIntView{alt}.value();
                             else if (alt.kind() == pc::Code::Bool) av = lir_view::PatBoolView{alt}.value() ? 1 : 0;
-                            else return;  // skip unsupported alt kind
+                            else {
+                                // A variant (or any structured) alternative —
+                                // `y @ (E::A(_) | E::B(_))`: the general test on
+                                // the scrutinee's place. Skipping it left the
+                                // OR false and the match fell to `unreachable`.
+                                mlir::Value sp = scrut_ptr ? scrut_ptr
+                                               : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
+                                if (!scrut_ptr && !collapsed_scrut) sp = aggregate_scrut_base(v.scrut(), sp);
+                                alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, pat_test(alt, sp, scrut_ty));
+                                return;
+                            }
                             auto cv = coerce_int(
                                 builder_.create<mlir::arith::ConstantIntOp>(loc_, av, 64), sc_scrut_type);
                             auto eq = builder_.create<mlir::arith::CmpIOp>(

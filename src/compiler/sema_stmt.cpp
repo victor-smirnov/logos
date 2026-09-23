@@ -5008,6 +5008,24 @@ lir::Pattern SemaChecker::build_pattern_bytes(TinyMapView pnode, TypeRef scrut_t
     return p_;
 }
 
+int SemaChecker::at_or_fanout_alts(writ::TinyMapView lhs) {
+    // The grammar wraps a whole arm pattern in a single-alt PAT_OR.
+    if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
+        auto a = arr_of(lhs.get(la::ITEMS.code));
+        if (a.size() == 1) lhs = map_of(a.get(0));
+    }
+    if (code_of(lhs) != la::PAT_AT || !lhs.has_key(la::VALUE)) return 0;
+    auto sub = map_of(lhs.get(la::VALUE.code));
+    if (code_of(sub) != la::PAT_OR || !sub.has_key(la::ITEMS)) return 0;
+    auto alts = arr_of(sub.get(la::ITEMS.code));
+    if (alts.size() < 2) return 0;
+    for (uint64_t k = 0; k < alts.size(); ++k) {
+        int32_t c = code_of(map_of(alts.get(k)));
+        if (c != la::PAT_INT && c != la::PAT_BOOL && c != la::PAT_CHAR) return (int)alts.size();
+    }
+    return 0;
+}
+
 lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode); (void)pc;
     auto arr = arr_of(pnode.get(la::ITEMS.code));
@@ -5965,7 +5983,14 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_AT) {
         auto bname = std::string(str_of(pnode.get(la::NAME.code)));
         auto sub_node = map_of(pnode.get(la::VALUE.code));
+        if (at_or_alt_ >= 0 && code_of(sub_node) == la::PAT_OR && sub_node.has_key(la::ITEMS)) {
+            auto alts = arr_of(sub_node.get(la::ITEMS.code));
+            if ((uint64_t)at_or_alt_ < alts.size()) sub_node = map_of(alts.get((uint64_t)at_or_alt_));
+        }
+        int32_t saved_at_or_alt = at_or_alt_;
+        at_or_alt_ = -1;   // the selection is this binder's; nested ones are not fanned
         auto sub_pat = build_pattern(sub_node, scrut_orig);
+        at_or_alt_ = saved_at_or_alt;
         lir::PatAt pa;
         pa.name = bname;
         // NS3: scrut_type may be null for unknown types; fallback to error_t() so
@@ -10306,7 +10331,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         // normal single-arm path with its own refutable-inner guard
         // and payload extraction. Scalar-only or-patterns (`1 | 2 | 3`)
         // and same-variant-with-bindings or-patterns stay merged.
-        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
+        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; int32_t at_alt = -1; };
         // An or-pattern alternative is "merge-safe" only if it is a pure
         // scalar literal that binds nothing (PAT_INT / PAT_BOOL / PAT_CHAR).
         // The merged PatOr codegen treats each alt as a scalar discriminant
@@ -10385,6 +10410,11 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                         eff_arms.push_back({arm, -1, k});
                     continue;
                 }
+                if (int n = at_or_fanout_alts(lhs); n > 0) {
+                    for (int k = 0; k < n; ++k)
+                        eff_arms.push_back({arm, -1, -1, k});
+                    continue;
+                }
             }
             eff_arms.push_back({arm, -1});
         }
@@ -10457,6 +10487,8 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             // B170-E: select this fanned arm's payload-or alternative.
             int32_t saved_payload_or_alt = payload_or_alt_;
             payload_or_alt_ = eff_arms[i].payload_alt;
+            int32_t saved_at_or_alt = at_or_alt_;
+            at_or_alt_ = eff_arms[i].at_alt;
             // G172-1: a top-level string-literal arm lowers to a wildcard +
             // `str_eq(__smatch, "lit")` guard (no PatStr LIR / codegen needed).
             lir::LExprPtr str_arm_guard = nullptr;
@@ -10484,6 +10516,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                     : make_pat_wild("_");
             }
             payload_or_alt_ = saved_payload_or_alt;
+            at_or_alt_ = saved_at_or_alt;
             current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;
             in_match_writ_ctx_ = false;
@@ -11187,7 +11220,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // or-patterns (`1|2|3`) stay merged. Without this, the merged tuple/
         // variant codegen mishandled bindings — e.g. dispatched on the
         // scrutinee pointer (`arith.cmpi ptr, 0`).
-        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
+        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; int32_t at_alt = -1; };
         auto alt_is_merge_safe = [](int32_t c) -> bool {
             return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
         };
@@ -11242,6 +11275,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (int n = variant_payload_or_alts(lhs); n > 0) {
                     for (int k = 0; k < n; ++k)
                         eff_arms.push_back({arm, -1, k});
+                    continue;
+                }
+                if (int n = at_or_fanout_alts(lhs); n > 0) {
+                    for (int k = 0; k < n; ++k)
+                        eff_arms.push_back({arm, -1, -1, k});
                     continue;
                 }
             }
@@ -11324,6 +11362,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // B170-E: select this fanned arm's payload-or alternative.
             int32_t saved_payload_or_alt = payload_or_alt_;
             payload_or_alt_ = eff_arms[i].payload_alt;
+            int32_t saved_at_or_alt = at_or_alt_;
+            at_or_alt_ = eff_arms[i].at_alt;
             // G172-1: top-level string-literal arm → wildcard + str_eq guard.
             lir::LExprPtr str_arm_guard = nullptr;
             lir::Pattern pat;
@@ -11349,6 +11389,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     : make_pat_wild("_");
             }
             payload_or_alt_ = saved_payload_or_alt;
+            at_or_alt_ = saved_at_or_alt;
             current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;
             in_match_writ_ctx_ = false;

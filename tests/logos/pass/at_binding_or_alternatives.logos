@@ -1,0 +1,33 @@
+// `y @ (P | Q)` arms: an alternative with an inner literal, a non-matching value falling to
+// the next arm, the binder used in the arm, a droppable payload, and the match-expression form.
+// rustc 1.98.1 prints the same line.
+package at_binding_or_alternatives;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+enum E { A(i64), B(i64), C }
+enum F { P(D), Q(D), R }
+fn val(e: &E) -> i64 { match e { E::A(x) => { return *x; }, E::B(x) => { return *x * 100i64; }, E::C => { return -1i64; } } }
+fn s(e: E) -> i64 {
+    match e {
+        y @ (E::A(3i64) | E::B(_)) => { return val(&y); }
+        _ => { return 0i64; }
+    }
+}
+fn x(e: E) -> i64 {
+    let k: i64 = match e { y @ (E::A(_) | E::C) => val(&y) + 1i64, _ => 9i64 };
+    return k;
+}
+fn f(g: F, p: *mut i64) -> i64 {
+    match g {
+        y @ (F::P(_) | F::Q(_)) => { let _ = y; return 1i64; }
+        F::R => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let r: i64 = f(F::Q(D { v: 4i64, c: p }), p);
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), s(E::A(3i64)), s(E::A(4i64)), s(E::B(2i64)), s(E::C), x(E::A(5i64)), x(E::C), x(E::B(1i64)), r * 100i64 + n); }
+    return 0i32;
+}

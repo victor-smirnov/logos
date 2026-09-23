@@ -303,8 +303,6 @@ loop_break_value_array_lit_uninit_drop_run 1 tests/soundness/open/loop_break_val
 
 array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
 
-match_expr_array_pattern_segfaults_run 1 tests/soundness/open/match_expr_array_pattern_segfaults_run run 139
-
 operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses
 
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
@@ -326,8 +324,6 @@ at_binding_array_sub_verifier_error_refused 3 tests/soundness/open/at_binding_ar
 variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tuple_door_struct_shape_sub_unresolved refuses
 
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses
-
-at_binding_or_subpattern_enum_segfaults_run 1 tests/soundness/open/at_binding_or_subpattern_enum_segfaults_run run 139
 
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
 
@@ -443,5 +439,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 139
-# SYNC-HASH 468eb044adaed4917485482d2bc085ae
+# TOTAL 137
+# SYNC-HASH 81d06c9f9f4bf06e8ea7a47c5a7c4291

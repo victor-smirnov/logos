@@ -31,7 +31,7 @@ fn main() -> i32 {
     //    BOTH parameters must carry the full bundle.
     let a: i64 = 3i64;
     let b: i64 = 4i64;
-    let o: i32 = i64::cmp(&a, &b);
+    let o: i32 = i64::cmp(&a, &b) as i32;
 
     // ── NON-FREEZE, IMPORTED. `UnsafeCell<i64>::get(&self)` is the primitive
     //    the entire interior-mutability discipline is built on. Its receiver

@@ -9195,6 +9195,13 @@ private:
     // alternative (`Some(P|Q)` → `Some(P) | Some(Q)`), each re-evaluating the
     // guard with its own bindings (rustc backtracks alts under a failing guard).
     int32_t payload_or_alt_ = -1;
+    // `y @ (P | Q)` fanned out one arm per alternative (as a top-level or-arm
+    // is): the PAT_AT builder takes alternative `at_or_alt_` of its sub-pattern,
+    // so each alternative's refutable-inner guard stays its own arm's.
+    int32_t at_or_alt_ = -1;
+    // The alternative count when `lhs` is `name @ (A | B …)` with an alternative
+    // that binds or is structured (merge-unsafe); 0 otherwise.
+    int at_or_fanout_alts(writ::TinyMapView lhs);
     // K4: emit `let <variant-sub-pat> = synth else { loop {} }` body-prologue
     // stmts (into `out`) that re-extract the bindings of a nested variant
     // payload pattern (e.g. `Some(Some(v))`), defining them in the current
