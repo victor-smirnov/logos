@@ -8626,6 +8626,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     continue;
                 }
                 if (ic == la::AUTO_LIFE_BOUND.code) {
+                    // E0226: a trait object takes ONE explicit lifetime bound.
+                    // `dyn Is<'a> + 'b + 'c` used to keep the last one silently.
+                    if (item.has_key(la::NAME) && !plus_lt.empty())
+                        error(std::format("only a single explicit lifetime bound is permitted on "
+                                          "`dyn {}` (E0226)", tname));
                     if (item.has_key(la::NAME)) plus_lt = std::string(str_of(item.get(la::NAME.code)));
                     continue;
                 }
