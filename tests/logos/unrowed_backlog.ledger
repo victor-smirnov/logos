@@ -492,5 +492,7 @@ static_bound_on_type_param_lost_by_mono 2026-09-22 borrow-check tests/imported/a
 
 move_out_of_raw_pointer_admitted 2026-09-22 borrow-check tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
 
-# TOTAL 28
-# SYNC-HASH 9082713dabbc51152af531e81f5556da
+writ_cycle_needs_raw_edge_under_borrow_carrying_wany 2026-09-22 writ tests/logos/pass/wql_graph_null_root_row
+
+# TOTAL 29
+# SYNC-HASH 5bfd7765dbc4dbe14ccd35dee1a41d52
