@@ -344,6 +344,26 @@ variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload
 
 unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_binds_deref_admits admits
 
+arg_ref_primitive_for_ref_struct_admits 2 tests/soundness/open/arg_ref_primitive_for_ref_struct_admits admits
+
+double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_while_borrowed_admits admits
+
+# ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
+# array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
+# moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
+# MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
+ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
+
+closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
+
+let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
+
+bc_patmovebind_at_ref_binding_twin 3 tests/soundness/open/bc_patmovebind_at_ref_binding_twin refuses
+
+vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
+
+let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
+
 # ⚠ RE-OBSERVED 2026-09-17j-ptrland2, NOT FIXED AND NOT CLOSED. The collect_param_regions_ Ptr arm landed in that
 # commit opens this program's FIRST door, so it no longer reads 'variance mismatch — expected &*mut &'static i64'.
 # It now COMPILES and ANSWERS 1 where rustc 1.98.1 answers 0 (MEASURED, twin 2026-09-16l-refptee/rust/r01_rawptr.rs).
@@ -352,11 +372,6 @@ unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_bi
 # row refptr_param_eq_compares_outer_ref: control D02, which has no inner reference at all, runs 1 on the BASE
 # binary with nothing armed while its rustc twin runs 0. Carriers L03 and X03 of the same hand battery behave
 # identically and are covered by that tier-1 row rather than opening duplicates.
-refptr_inner_region_elision_demands_static_refused 3 tests/soundness/open/refptr_inner_region_elision_demands_static_refused run 1
-
-arg_ref_primitive_for_ref_struct_admits 2 tests/soundness/open/arg_ref_primitive_for_ref_struct_admits admits
-
-double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_while_borrowed_admits admits
 
 # ── 2026-09-17b-ptrmentionland: TWO DEFECTS FOUND BY THE ABUSE DIRECTION OF A CONDEMNED ARM ──
 # Both reproduce on the SHIPPED compiler with NO probe installed (build_hash 8f5483d04b7c49ac 43).
@@ -379,23 +394,6 @@ double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_whi
 #    shape is refused on base by an unrelated region defect, and recorded it as "unreachable until
 #    the region door opens — doors in series". With no inner reference it is reachable TODAY.
 #    Control on the same binary: the direct `p == q` spelling runs 0, correctly.
-refptr_param_eq_compares_outer_ref 1 tests/soundness/open/refptr_param_eq_compares_outer_ref run 1
-
-# ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
-# array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
-# moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
-# MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
-ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
-
-closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
-
-let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
-
-bc_patmovebind_at_ref_binding_twin 3 tests/soundness/open/bc_patmovebind_at_ref_binding_twin refuses
-
-vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
-
-let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
 # ── 2026-09-14j-fnptrbinder: defects the pricing round's hand battery found around a fn-pointer type's own regions (an elided
 # slot read as a wildcard, a `for<..>` binder read as the enclosing scope's name), each reproducing on build c52dcb19dff987ff 43
@@ -448,5 +446,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 143
-# SYNC-HASH aa29acde92f719a20458a005875d86f1
+# TOTAL 141
+# SYNC-HASH abb456a9f8194a3c60bf77ffe6fb8eac

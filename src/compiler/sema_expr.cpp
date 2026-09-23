@@ -2466,6 +2466,9 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                         e.kind() == K::Bool || e.kind() == K::Char);
             };
             if (!p) return false;
+            // A raw or fn pointer is a Copy scalar compared by address: `&*mut T == &*mut T`
+            // compares the pointers, not the references to them.
+            if (p.kind() == K::Ptr || p.kind() == K::FnPtr) return true;
             if (p.kind() == K::Array) return prim(p.elem());
             if (p.kind() == K::Slice) return p.elem() && p.elem().kind() == K::U8;
             if (p.kind() != K::Tuple || p.tuple_elems().empty()) return false;

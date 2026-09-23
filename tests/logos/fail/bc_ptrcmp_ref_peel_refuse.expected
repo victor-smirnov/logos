@@ -1,1 +1,1 @@
-[fn compiles]: operator '==': lifetime may not live long enough — &*mut &'a i64 and &*mut &'b i64 have no common type: 'a must outlive 'b and 'b must outlive 'a, because a mutable pointer is invariant over its pointee
+[fn compiles]: operator '==': lifetime may not live long enough — *mut &'a i64 and *mut &'b i64 have no common type: 'a must outlive 'b and 'b must outlive 'a, because a mutable pointer is invariant over its pointee

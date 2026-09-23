@@ -1,0 +1,27 @@
+// Reference pairs over raw and fn pointers compare the pointers: equal and unequal
+// pointers, `<` on `&*const`, `&fn()`, and a double reference `&&*mut` with `!=`.
+package ref_pair_pointer_eq_compares_through;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn same(x: &*mut i64, y: &*mut i64) -> bool { return x == y; }
+fn lt(x: &*const i64, y: &*const i64) -> bool { return x < y; }
+fn f1() -> i64 { return 1i64; }
+fn f2() -> i64 { return 2i64; }
+fn fsame(x: &fn() -> i64, y: &fn() -> i64) -> bool { return x == y; }
+fn dd(x: &&*mut i64, y: &&*mut i64) -> bool { return x != y; }
+fn main() -> i32 {
+    let mut a: [i64; 2] = [1i64, 2i64];
+    let p: *mut i64 = &mut a[0];
+    let q: *mut i64 = p;
+    let r: *mut i64 = &mut a[1];
+    let pc: *const i64 = p as *const i64;
+    let rc: *const i64 = r as *const i64;
+    let g1: fn() -> i64 = f1;
+    let g2: fn() -> i64 = f1;
+    let g3: fn() -> i64 = f2;
+    let rq: &*mut i64 = &q;
+    let rr: &*mut i64 = &r;
+    unsafe { printf("%d%d %d%d %d%d %d%d\n".as_ptr(), same(&p, &q) as i32, same(&p, &r) as i32,
+        lt(&pc, &rc) as i32, lt(&rc, &pc) as i32, fsame(&g1, &g2) as i32, fsame(&g1, &g3) as i32,
+        dd(&rq, &rq) as i32, dd(&rq, &rr) as i32); }
+    return 0i32;
+}
