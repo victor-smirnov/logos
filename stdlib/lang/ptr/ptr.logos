@@ -61,10 +61,13 @@ pub fn null_mut<T>() -> *mut T {
 // that the original location isn't read again (Rust's by-value-move
 // semantics).
 pub unsafe fn read<T>(src: *const T) -> T {
-    // A DEREF, not `src[0]`: for `T = [U; N]` an index on `*const T` reads
-    // INTO the array. This module is where a move out of a raw pointer is
-    // DEFINED; the borrow checker refuses it everywhere else (E0507, #463).
-    unsafe { return *src; }
+    // An INDEX, `src[0]`: element 0 at `src`, whatever `T` is. It yields the
+    // ADDRESS for a pointer-represented `T` — a struct, an array, a closure's
+    // inline `{fn, env}` pair — which is what every caller relies on; a DEREF
+    // would LOAD through a closure pointer (MEASURED: `read::<F>` of an inline
+    // closure field then called garbage). This module is where a move out of a
+    // raw pointer is DEFINED; the borrow checker refuses it elsewhere (#463).
+    unsafe { return src[0]; }
 }
 
 /// Writes `src` to `dst` without reading or dropping the previous pointee.

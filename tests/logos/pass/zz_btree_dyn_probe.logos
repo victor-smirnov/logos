@@ -57,8 +57,9 @@ pub trait BTreeNode<const STORE_CFG: WritStatic> {
         // at fn exit fires user `impl Drop` body (if any) + recursive
         // field destructors. Per-concrete clone via mono substitution.
         unsafe {
-            let p: *mut Self = self as *mut Self;
-            let _consumed: Self = *p;
+            // `ptr::drop_in_place`, not `let _: Self = *p` — a move out of a
+            // raw pointer is E0507 outside logos.lang.ptr (#463).
+            logos.lang.ptr::drop_in_place(self as *mut Self);
         }
     }
     fn block_type_hash(&self) -> u64;

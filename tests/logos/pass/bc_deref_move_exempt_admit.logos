@@ -69,7 +69,7 @@ fn borrow_again(r: &Own) -> i64 { let q: &Own = &*r; return q.n; }
 fn double_copy(r: &&i64) -> i64 { return **r; }
 fn destr_nodrop(r: &P) -> i64 { let P { a: x } = *r; return x; }
 fn blk_nodrop(r: &P) -> i64 { let v: P = { *r }; return v.a; }
-unsafe fn raw_move(p: *const Own) -> Own { let y = *p; return y; }
+unsafe fn raw_move(p: *const Own) -> Own { let y = logos.lang.ptr::read(p); return y; }   // `*p` is E0507 (#463)
 fn by_ref(r: &E) -> i64 {
     match *r { E::A(ref d) => { return d.n; } E::B => { return 0i64; } }
 }

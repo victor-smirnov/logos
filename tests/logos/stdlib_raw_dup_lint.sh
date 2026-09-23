@@ -121,8 +121,12 @@ command -v grep >/dev/null                || die2 "grep unavailable"
 
 cd "$ROOT" || die2 "cannot cd $ROOT"
 
-BROAD_RE='\*\(\(&[^)]*\) as \*const '
-NARROW_RE='\*\(\(&[a-z_]*\) as \*const '
+# 2026-09-22 (#463): a move out of a raw pointer is E0507 outside logos.lang.ptr,
+# so the duplicate is now SPELLED `ptr::read((&X) as *const T)` — the same
+# property. Both spellings are one pattern here, or a migrated site would drop
+# out of the census while staying a duplicate.
+BROAD_RE='(\*|ptr::read)\(\(&[^)]*\) as \*const '
+NARROW_RE='(\*|ptr::read)\(\(&[a-z_]*\) as \*const '
 
 BROAD=$(grep -rnE "$BROAD_RE" stdlib/ | sort)
 NARROW=$(grep -rnE "$NARROW_RE" stdlib/ | sort)

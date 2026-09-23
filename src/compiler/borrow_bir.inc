@@ -4352,15 +4352,19 @@ private:
     // `ptr::read` is the legal way). An INDEX (`x[i]`, i.e. `(*x)[i]`) is Logos's
     // pointer-arithmetic read and stays allowed. The one place a deref-move is
     // DEFINED is `logos.lang.ptr` itself (`read`, `drop_in_place`), exempt below.
+    // Judged at the LAST raw deref — the one that reaches the moved value: in
+    // `self.buf[k]` with `self: *mut VecDeque<T>` the value is `(*buf)[k]`, an
+    // index read; the earlier `*self` only reads the (Copy) pointer `buf`.
     bool moves_through_raw_deref(const bir::Place& p) const {
         TypeRef t = b_.locals[p.local].type;
         bool synth = b_.locals[p.local].synth_ref;
+        int verdict = -1;   // -1 no raw deref seen, 0 indexed, 1 plain deref
         for (size_t k = 0; k < p.proj.size(); ++k) {
             const auto& pj = p.proj[k];
             if (pj.k == bir::Proj::K::Deref) {
                 if (synth) { synth = false; t = pj.ty ? pj.ty : b_.locals[p.local].synth_pointee; continue; }
                 if (t && (t.kind() == LogosType::Kind::Ptr || t.raw_fat()))
-                    return !(k + 1 < p.proj.size() && p.proj[k + 1].k == bir::Proj::K::Index);
+                    verdict = (k + 1 < p.proj.size() && p.proj[k + 1].k == bir::Proj::K::Index) ? 0 : 1;
                 t = pj.ty ? pj.ty : (t && t.kind() != LogosType::Kind::Slice ? t.pointee() : TypeRef{});
             } else if (pj.k == bir::Proj::K::Field) {
                 t = pj.ty ? pj.ty : field_type_(t, pj.field);
@@ -4368,7 +4372,7 @@ private:
                 t = pj.ty ? pj.ty : (t && t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
             }
         }
-        return false;
+        return verdict == 1;
     }
     bool is_raw_pointer_primitive() const {
         return b_.name.find("logos.lang.ptr$") != std::string::npos;

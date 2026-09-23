@@ -597,7 +597,8 @@ impl<T> OnceCell<T> {
             // Single-owner handoff: from here on the compiler owns nothing.
             let hold: OnceCellTakeGuard<T> = OnceCellTakeGuard::<T> { cell: self };
             unsafe {
-                let v: T = *hold.cell.storage.get();
+                let sp: *mut T = hold.cell.storage.get();
+                let v: T = logos.lang.ptr::read(sp as *const T);   // #463
                 return Option::Some(v);
             }
         }
