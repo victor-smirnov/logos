@@ -1150,7 +1150,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         // `EnumPair<T>: Ord` — same class, same cure.)
         // NOT GENERAL ENOUGH — decided before the TypeVar deferral below: it
         // does not depend on what the type variables become.
-        if (LogosType::is_fn_value_kind(cv.kind()) || cv.kind() == LogosType::Kind::Closure) {
+        // (A CLOSURE returning its parameter is the BIR's "lifetime may not live
+        // long enough", which is rustc's wording for a closure; this sentence
+        // is rustc's for a fn item / fn pointer.)
+        if (LogosType::is_fn_value_kind(cv.kind())) {
           const std::string concrete_str = type_str(cv);
           for (auto& bound : tp.bounds) {
             if (!bound.is_fn_family) continue;
