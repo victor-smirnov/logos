@@ -86,9 +86,9 @@ fn arr_id(rows: &Vec<WritEdgeRow>, key: str) -> i64 {
 }
 
 // `vs` of the row of kind `k` at position `idx` under parent `par`.
-// The result is a CELL of a stored row, so its region is the vector's, not
+// The result is a CELL of a stored row, so its region is the cells' (`'a`), not
 // the `k` we searched by. Two region inputs and an elided output is E0106.
-fn vs_at<'a>(rows: &'a Vec<WritEdgeRow>, par: i64, k: str, idx: i64) -> &'a str {
+fn vs_at<'a>(rows: &Vec<(i64, &'a str, i64, i64, &'a str, i64, i64, &'a str)>, par: i64, k: str, idx: i64) -> &'a str {
     let mut i: i64 = 0i64;
     while i < rows.len() {
         let r: WritEdgeRow = rows.get(i);

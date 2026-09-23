@@ -3455,6 +3455,44 @@ private:
         for (auto fd : sd->fields()) walk(fd.type(prog_.type_pool.impl()), false, 0);
         return hit;
     }
+    // Whether a struct's `i`-th TYPE parameter appears under a fn pointer, a
+    // closure or a trait object in its definition — where its variance may be
+    // contravariant. Otherwise (not invariant either) it is covariant.
+    bool struct_tp_fn_use(TypeRef t, size_t i, int depth = 0) const {
+        if (!t || depth > 8 || t.kind() != LogosType::Kind::Struct) return true;
+        auto ta = t.type_args();
+        if (i >= ta.size()) return true;
+        TypeRef arg_ty = ta[i];
+        auto it2 = struct_def_find(ts_.struct_by_name, t, concrete_struct_name(t));
+        if (it2 == ts_.struct_by_name.end()) return true;
+        bool hit = false;
+        std::function<void(TypeRef, bool, int)> walk = [&](TypeRef f, bool in_fn, int d) {
+            if (!f || d > 16 || hit) return;
+            using K = LogosType::Kind;
+            if (in_fn && same_type_modulo_regions(f, arg_ty)) { hit = true; return; }
+            switch (f.kind()) {
+                case K::FnPtr: case K::FnItem: case K::Closure:
+                    for (auto q : f.closure_params()) walk(q, true, d + 1);
+                    walk(f.closure_ret(), true, d + 1);
+                    return;
+                case K::TraitObject: case K::UnsizedDyn:
+                    for (auto a : f.type_args()) walk(a, true, d + 1);
+                    return;
+                case K::Ref: case K::MutRef: case K::Ptr: walk(f.pointee(), in_fn, d + 1); return;
+                case K::Array: case K::Slice: walk(f.elem(), in_fn, d + 1); return;
+                case K::Tuple: for (auto e : f.tuple_elems()) walk(e, in_fn, d + 1); return;
+                case K::Struct: case K::ZonedStruct: case K::Enum: {
+                    auto ta2 = f.type_args();
+                    for (size_t j = 0; j < ta2.size(); ++j)
+                        walk(ta2[j], in_fn || (f.kind() == K::Struct && struct_tp_fn_use(f, j, depth + 1)), d + 1);
+                    return;
+                }
+                default: return;
+            }
+        };
+        for (auto fd : it2->second.fields()) walk(fd.type(prog_.type_pool.impl()), false, 0);
+        return hit;
+    }
     std::set<std::string> visiting_;
     static std::string layout_key(TypeRef t) {
         return t.kind() == LogosType::Kind::Enum ? "enum " + Mono::enum_instance_name(t)
@@ -3770,16 +3808,26 @@ private:
         if (total != dst.os.size()) return std::nullopt;
         std::optional<std::pair<size_t, size_t>> span;
         std::optional<std::vector<size_t>> slots;
+        TypeRef slot_ft;
         if (t.kind() == LogosType::Kind::Struct && i < s.rv.field_names.size())
-            slots = field_slots(t, s.rv.field_names[i], nullptr);
+            slots = field_slots(t, s.rv.field_names[i], &slot_ft);
         else if (t.kind() == LogosType::Kind::Enum && s.rv.what != "tuple" && s.rv.what != "array" &&
                  s.rv.what != "slice")
-            slots = field_slots(t, s.rv.what + "#" + std::to_string(i), nullptr);
+            slots = field_slots(t, s.rv.what + "#" + std::to_string(i), &slot_ft);
         if (slots) {
             OList sub;
             for (size_t ix : *slots) {
                 if (ix >= dst.os.size()) return std::nullopt;
                 sub.os.push_back(dst.os[ix]); sub.inv.push_back(dst.inv[ix]);
+            }
+            // THE VALUE MEETS THE FIELD AT THE FIELD'S OWN VARIANCE: `C { r }`
+            // with `r: &'b i64` for `r: &'a i64` coerces (`'b: 'a`) even when
+            // `C<'a>` is invariant in `'a` elsewhere (`*mut &'a i64`).
+            if (slot_ft) {
+                OList own; uint32_t saved = n_origins_;
+                walk_type(slot_ft, false, own);
+                n_origins_ = saved;
+                if (own.inv.size() == sub.inv.size()) sub.inv = own.inv;
             }
             return sub;
         }
@@ -4038,6 +4086,18 @@ private:
             OList ao = place_origins(a.place);
             std::vector<std::string> pl;
             size_t pi = i >= arg_off ? i - arg_off : ~size_t(0);
+            // `&'r U` passed for a RAW pointer parameter `*const U`: the
+            // reference's own region is erased by the coercion, the pointee's
+            // regions meet the parameter's (see relate_pointee).
+            if (pi != ~size_t(0) && pi < pdecl.size() && pdecl[pi] && pdecl[pi].kind() == LogosType::Kind::Ptr &&
+                a.place.proj.empty() && ao.exact && !ao.os.empty()) {
+                TypeRef at = b_.locals[a.place.local].type;
+                if (at && (at.kind() == LogosType::Kind::Ref || at.kind() == LogosType::Kind::MutRef)) {
+                    ao.os.erase(ao.os.begin()); ao.inv.erase(ao.inv.begin());
+                    labels(pdecl[pi].pointee(), at.pointee(), pl);
+                    pi = ~size_t(0);   // labelled here, by the pointees
+                }
+            }
             if (pi != ~size_t(0) && pi < pdecl.size()) {
                 // A trait method's GENERIC signature: the regions are laid out
                 // by the argument's own type (a type parameter's are its bounds').
@@ -4138,6 +4198,11 @@ private:
                 }
             }
         }
+        // A parameter position the CALLEE declares `'static` takes only
+        // 'static data, whoever calls it (`keep(p: *const &'static i64)`).
+        if (auto st = named_origin_.find("'static"); st != named_origin_.end())
+            for (auto& sr : srcs)
+                if (sr.label == "'static") subset(sr.origin, st->second, p);
         if (t.trait_decl) {
             for (auto& sr : srcs)
                 if (uint32_t no = caller_named(sr.label); no != UINT32_MAX) subset(sr.origin, no, p);
@@ -5045,6 +5110,21 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         else out.push_back(false);
                         return;
                     case LogosType::Kind::Array: claim_mask(t.elem(), claim, out, depth + 1, inv); return;
+                    // A RAW POINTER has no region of its own, and its pointee's
+                    // variance is known (`*const T` covariant, `*mut T`
+                    // invariant): those regions claim as a reference's pointee's
+                    // do. Same skip list as walk_type's Ptr arm.
+                    case LogosType::Kind::Ptr: {
+                        TypeRef pt = t.pointee();
+                        if (!pt) return;
+                        auto pk = pt.kind();
+                        if (pk == LogosType::Kind::TraitObject || pk == LogosType::Kind::UnsizedDyn ||
+                            pk == LogosType::Kind::Slice || pk == LogosType::Kind::UnsizedSlice ||
+                            pk == LogosType::Kind::DstRef)
+                            return;
+                        claim_mask(pt, claim, out, depth + 1, inv || t.mut_ptr());
+                        return;
+                    }
                     case LogosType::Kind::Tuple:
                         for (auto& e : t.tuple_elems()) claim_mask(e, claim, out, depth + 1, inv);
                         return;
@@ -5068,6 +5148,10 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             for (size_t j = 0; j < ta.size(); ++j) {
                                 if (t.kind() == LogosType::Kind::Struct && struct_tp_invariant(t, j)) {
                                     claim_mask(ta[j], claim, out, depth + 1, true);
+                                } else if (t.kind() == LogosType::Kind::Struct && !struct_tp_fn_use(t, j)) {
+                                    // Known COVARIANT (`Vec<T>`, `Box<T>`): claims
+                                    // as a shared reference's pointee does.
+                                    claim_mask(ta[j], claim, out, depth + 1, false);
                                 } else {
                                     size_t n = 0; count_only(ta[j], n); out.insert(out.end(), n, false);
                                 }
@@ -5392,9 +5476,31 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                         // value vanished into it unconstrained.
                         const TypeRef agg_t = s.rv.k == bir::Rvalue::K::Aggregate && s.dest.proj.empty()
                             ? TypeRef(b_.locals[s.dest.local].type) : TypeRef{};
+                        // `&'r U -> *const U` (an `as` cast, or the coercion a
+                        // plain assignment makes): the reference's own region is
+                        // erased, the POINTEE's regions are not — rustc relates
+                        // them (`& &'a i64` as `*const &'b i64` needs 'a: 'b).
+                        auto relate_pointee = [&](const bir::Operand& op) -> bool {
+                            if (!s.dest.proj.empty() || !op.place.valid()) return false;
+                            TypeRef dt = b_.locals[s.dest.local].type;
+                            if (!dt || dt.kind() != LogosType::Kind::Ptr) return false;
+                            OList src = place_origins(op.place);
+                            TypeRef st = op.place.proj.empty() ? TypeRef(b_.locals[op.place.local].type) : TypeRef{};
+                            if (!st || (st.kind() != LogosType::Kind::Ref && st.kind() != LogosType::Kind::MutRef) ||
+                                !src.exact || src.os.empty())
+                                return false;
+                            OList inner = src;
+                            inner.os.erase(inner.os.begin()); inner.inv.erase(inner.inv.begin());
+                            OList dst = place_origins(s.dest);
+                            if (dt.mut_ptr()) { for (auto&& f : inner.inv) f = true; for (auto&& f : dst.inv) f = true; }
+                            if (inner.os.size() == dst.os.size()) relate(inner, dst, p);
+                            else { inner.exact = false; relate(inner, dst, p); }
+                            return true;
+                        };
                         for (auto& op : s.rv.ops) {
                             read_operand(op, p);
-                            if (cast_to_raw) continue;
+                            if (cast_to_raw) { relate_pointee(op); continue; }
+                            if (s.rv.k == bir::Rvalue::K::Use && relate_pointee(op)) continue;
                             if (agg_t && agg_t.kind() == LogosType::Kind::Struct && op.place.valid()) {
                                 const size_t fi = size_t(&op - s.rv.ops.data());
                                 TypeRef ft = fi < s.rv.field_names.size()
@@ -5402,9 +5508,27 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                 if (std::getenv("LOGOS_BIR_LABELS"))
                                     std::fprintf(stderr, "[aggfield] pkg=%s %s.%s fi=%zu names=%zu ft=%s lt='%s'\n", std::string(agg_t.pkg_name()).c_str(), concrete_struct_name(agg_t).c_str(), s.rv.field_names[fi].c_str(), fi, s.rv.field_names.size(),
                                                  ft ? type_str(ft).c_str() : "-", ft ? std::string(ft.lifetime()).c_str() : "");
-                                if (ft && is_borrowing_pointer(ft) && ft.lifetime() == "'static") {
+                                // Every `'static` POSITION of the field's declared
+                                // type, not only its outer reference: `p: *const
+                                // &'static i64` given `& &'a i64` needs 'a: 'static.
+                                if (ft) {
                                     OList so = place_origins(op.place);
-                                    if (!so.os.empty()) subset(so.os[0], named_origin_["'static"], p);
+                                    TypeRef ot = op.place.proj.empty() ? TypeRef(b_.locals[op.place.local].type) : TypeRef{};
+                                    TypeRef fl_t = ft, ol_t = ot;
+                                    if (ft.kind() == LogosType::Kind::Ptr && ot &&
+                                        (ot.kind() == LogosType::Kind::Ref || ot.kind() == LogosType::Kind::MutRef) &&
+                                        so.exact && !so.os.empty()) {
+                                        so.os.erase(so.os.begin()); so.inv.erase(so.inv.begin());
+                                        fl_t = ft.pointee(); ol_t = ot.pointee();
+                                    }
+                                    std::vector<std::string> fl;
+                                    if (ol_t) labels(fl_t, ol_t, fl);
+                                    if (so.exact && fl.size() == so.os.size()) {
+                                        for (size_t k = 0; k < fl.size(); ++k)
+                                            if (fl[k] == "'static") subset(so.os[k], named_origin_["'static"], p);
+                                    } else if (is_borrowing_pointer(ft) && ft.lifetime() == "'static" && !so.os.empty()) {
+                                        subset(so.os[0], named_origin_["'static"], p);
+                                    }
                                 }
                             }
                             if (op.k != bir::Operand::K::Const && op.place.valid()) {
@@ -5420,6 +5544,14 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                 const bool unsize = s.rv.k == bir::Rvalue::K::Aggregate && s.rv.what == "slice" &&
                                                     &op == &s.rv.ops[0] && src.exact && dst.exact &&
                                                     src.os.size() == dst.os.size();
+                                // `&mut U -> &U`: the pointee becomes covariant
+                                // (`&'a mut Vec<&'static i64>` read as `&'a
+                                // Vec<&'a i64>`); only the TARGET's variance holds.
+                                if (s.rv.k == bir::Rvalue::K::Use && s.dest.proj.empty() && op.place.proj.empty()) {
+                                    TypeRef dt_ = b_.locals[s.dest.local].type, st_ = b_.locals[op.place.local].type;
+                                    if (dt_ && st_ && dt_.kind() == LogosType::Kind::Ref && st_.kind() == LogosType::Kind::MutRef)
+                                        for (auto&& f : src.inv) f = false;
+                                }
                                 if (s.rv.k == bir::Rvalue::K::Use || unsize) relate(src, dst, p);
                                 else if (auto sub = aggregate_slot(s, size_t(&op - s.rv.ops.data()), dst)) relate(src, *sub, p);
                                 else { src.exact = false; relate(src, dst, p); }

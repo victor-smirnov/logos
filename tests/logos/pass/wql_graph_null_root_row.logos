@@ -267,8 +267,8 @@ fn nth_vi_under(rs: &Vec<WritEdgeRow>, p: i64, nth: i64) -> i64 {
 }
 
 // `key` of the nth (0-based, emission order) edge under parent `p`.
-// The result is a CELL of a stored row, so the region is the vector's.
-fn nth_key_under<'a>(rs: &'a Vec<WritEdgeRow>, p: i64, nth: i64) -> &'a str {
+// The result is a CELL of a stored row, so the region is the cells' (`'a`).
+fn nth_key_under<'a>(rs: &Vec<(i64, &'a str, i64, i64, &'a str, i64, i64, &'a str)>, p: i64, nth: i64) -> &'a str {
     let mut c: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < rs.len() {

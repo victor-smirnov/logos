@@ -243,18 +243,6 @@ static_ref_nested_borrow_region_not_static_refused 3 tests/soundness/open/static
 
 struct_lit_field_vec_new_infer_refused 3 tests/soundness/open/struct_lit_field_vec_new_infer_refused refuses
 
-# ── 2026-09-14b-ptrcoerceland: the landing's five rowed neighbours (reason in each program's header) and nine
-# defects its hand battery found, each reproducing identically on base 6d1bbee8344b2a81 and landed 33067b51ad15d447.
-ptr_coercion_cast_door_elided_let_region_admits 2 tests/soundness/open/ptr_coercion_cast_door_elided_let_region_admits admits
-
-ptr_coercion_call_arg_pointee_region_admits 2 tests/soundness/open/ptr_coercion_call_arg_pointee_region_admits admits
-
-ptr_coercion_struct_literal_field_region_admits 2 tests/soundness/open/ptr_coercion_struct_literal_field_region_admits admits
-
-ptr_coercion_tail_return_region_admits 2 tests/soundness/open/ptr_coercion_tail_return_region_admits admits
-
-ptr_coercion_generic_struct_pointee_region_admits 2 tests/soundness/open/ptr_coercion_generic_struct_pointee_region_admits admits
-
 enum_variant_pattern_on_integer_scrutinee_admits 2 tests/soundness/open/enum_variant_pattern_on_integer_scrutinee_admits admits
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
@@ -452,6 +440,9 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
+# ── 2026-09-14b-ptrcoerceland: the landing's five rowed neighbours (reason in each program's header) and nine
+# defects its hand battery found, each reproducing identically on base 6d1bbee8344b2a81 and landed 33067b51ad15d447.
+
 # ── 2026-09-14f-thrurefland: defects the landing round's hand battery found beside the pointer-comparison arm and the
 # overwrite-through-reference readers, each reproducing on base baa2a38e8b650fb3 43 before any edit; hands in each header.
 
@@ -496,5 +487,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 168
-# SYNC-HASH 899f4b965baec66322390527ae53970f
+# TOTAL 163
+# SYNC-HASH ac5cea530ad53e7f33da2e9ff95605f3

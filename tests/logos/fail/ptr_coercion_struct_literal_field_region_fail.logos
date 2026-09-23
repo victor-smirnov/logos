@@ -1,4 +1,4 @@
-package ptr_coercion_struct_literal_field_region_admits;
+package ptr_coercion_struct_literal_field_region_fail;
 struct HS { p: *const &'static i64 }
 struct TS(*const &'static i64);
 fn f<'a>(x: & &'a i64) -> i64 {
@@ -9,7 +9,7 @@ fn f<'a>(x: & &'a i64) -> i64 {
 fn main() -> i32 {
     return 0i32;
 }
-// SOUNDNESS QUEUE row ptr_coercion_struct_literal_field_region_admits (tier 2).
+// Was SOUNDNESS QUEUE row ptr_coercion_struct_literal_field_region_admits (tier 2); closed: a raw pointer's pointee regions are related and claimed (only the reference's own region is erased).
 // Illegal: a `& &'a i64` stored into a `*const &'static i64` field through a struct literal and a tuple-struct
 // constructor (rustc: lifetime may not live long enough). TODAY admitted; the same-kind `*const &'a i64` is refused.
 // REASON 2 — DOORS IN SERIES: literal fields pass permissive=true, and their region binders arrive UNINSTANTIATED:

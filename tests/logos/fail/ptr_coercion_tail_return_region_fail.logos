@@ -1,11 +1,11 @@
-package ptr_coercion_tail_return_region_admits;
+package ptr_coercion_tail_return_region_fail;
 fn f<'a, 'b>(x: & &'a i64) -> *const &'b i64 {
     x
 }
 fn main() -> i32 {
     return 0i32;
 }
-// SOUNDNESS QUEUE row ptr_coercion_tail_return_region_admits (tier 2).
+// Was SOUNDNESS QUEUE row ptr_coercion_tail_return_region_admits (tier 2); closed: a raw pointer's pointee regions are related and claimed (only the reference's own region is erased).
 // Illegal: the implicit TAIL return of `& &'a i64` as `*const &'b i64` (rustc: lifetime may not live long enough).
 // TODAY admitted, while `return x;` is refused (bc_ptrcoerce_shared_to_const_refuse) and the same-kind tail `x:
 // *const &'a i64` is refused.

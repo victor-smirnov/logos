@@ -1,4 +1,4 @@
-package ptr_coercion_generic_struct_pointee_region_admits;
+package ptr_coercion_generic_struct_pointee_region_fail;
 fn vp<'a>(v: &'a Vec<&'a i64>) -> *const Vec<&'static i64> {
     return v;
 }
@@ -8,7 +8,7 @@ fn bp<'a>(b: &'a Box<&'a i64>) -> *const Box<&'static i64> {
 fn main() -> i32 {
     return 0i32;
 }
-// SOUNDNESS QUEUE row ptr_coercion_generic_struct_pointee_region_admits (tier 2).
+// Was SOUNDNESS QUEUE row ptr_coercion_generic_struct_pointee_region_admits (tier 2); closed: a raw pointer's pointee regions are related and claimed (only the reference's own region is erased).
 // Illegal: `*const Vec<&'static i64>` from `&'a Vec<&'a i64>` — `*const T` and Vec/Box are covariant, and
 // `'a: 'static` does not hold (rustc: lifetime may not live long enough). TODAY admitted.
 // DOORS IN SERIES, the neighbour of the 2026-09-14b-ptrcoerceland subtype() arm that was NOT closed: asking a

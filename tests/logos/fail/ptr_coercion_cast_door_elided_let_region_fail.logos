@@ -1,4 +1,4 @@
-package ptr_coercion_cast_door_elided_let_region_admits;
+package ptr_coercion_cast_door_elided_let_region_fail;
 fn array_elem<'a, 'b>(x: &'a i64) -> *const &'b i64 {
     let z: &[&i64; 3] = &[x; 3];
     let y: *const &i64 = z as *const &i64;
@@ -17,7 +17,7 @@ fn nested_array<'a, 'b>(x: &'a i64) -> *const [&'b i64; 2] {
 fn main() -> i32 {
     return 0i32;
 }
-// SOUNDNESS QUEUE row ptr_coercion_cast_door_elided_let_region_admits (tier 2).
+// Was SOUNDNESS QUEUE row ptr_coercion_cast_door_elided_let_region_admits (tier 2); closed: a raw pointer's pointee regions are related and claimed (only the reference's own region is erased).
 // The three `as`-cast doors of rustc tests/ui/nll/type-check-pointer-coercions.rs (array_elem,
 // array_coerce, nested_array), split off when bc_admits `type-check-pointer-coercions` closed at
 // its four implicit-coercion doors (2026-09-14b-ptrcoerceland). Upstream: "lifetime may not live
