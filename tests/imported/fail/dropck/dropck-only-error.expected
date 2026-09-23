@@ -1,0 +1,1 @@
+the trait bound `Self: AuthUser` is not satisfied (E0277)

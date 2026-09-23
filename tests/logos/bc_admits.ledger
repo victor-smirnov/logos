@@ -1905,13 +1905,12 @@
 #
 anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 
+issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
+
 # ── tests/ui/drop ─────────────────────────────────────────
 
 
 # ── tests/ui/dropck ─────────────────────────────────────────
-dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-error  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. The OLD port had NO CONSTRUCT LEFT (field -> i64, `User = Self` dropped). Root is NOT a region root: E0277 on a projection. ONE-ROW root, no separating pair measured
-
-issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 
 # ── tests/ui/moves ─────────────────────────────────────────
 
@@ -2488,5 +2487,5 @@ issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 3
-# SYNC-HASH dd568f1589c7b9fb5c899fc8ff4d0359
+# TOTAL 2
+# SYNC-HASH 75d9dbdad2789d7a4daaae75db645a4a

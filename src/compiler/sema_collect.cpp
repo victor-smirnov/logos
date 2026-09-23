@@ -3188,6 +3188,9 @@ void SemaChecker::collect_trait(TinyMapView node) {
                             TraitBound tb;
                             tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
                             resolve_bound_trait_(tb);
+                            // `AuthnBackend<User = Self>`: the bound's own
+                            // arguments and associated-type equalities.
+                            read_trait_bound_args(bnode, tb);
                             at.bounds.push_back(std::move(tb));
                         }
                     }

@@ -1,0 +1,7 @@
+// Twin of imported/fail/dropck/dropck-only-error: `type AuthnBackend:
+// AuthnBackend<User = Self>` needs `Self: AuthUser`, and a supertrait says so.
+package assoc_bound_eq_self_supertrait_admit;
+trait AuthUser { type Id; }
+trait AuthnBackend { type User: AuthUser; }
+trait Authz: AuthUser { type AuthnBackend: AuthnBackend<User = Self>; }
+fn main() -> i32 { return 0i32; }

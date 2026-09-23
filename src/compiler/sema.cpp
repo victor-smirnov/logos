@@ -11195,6 +11195,43 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 // A trait default body is lowered only as a per-impl copy, so a
                 // trait with no implementor is never checked. PROBES.md
                 // 2026-09-04d §2/§7.
+                // WF OF AN ASSOCIATED TYPE'S BOUND: `type AuthnBackend:
+                // AuthnBackend<User = Self>` sets `User = Self`, and `AuthnBackend`
+                // declares `type User: AuthUser` — so `Self: AuthUser` must hold,
+                // which only the trait's own supertraits can say (rustc E0277,
+                // dropck-only-error). A concrete `X` is left to the impl checks.
+                if (auto* _wt = resolve_trait(std::string(tv.name()))) {
+                    auto self_has = [&](DefId need) -> bool {
+                        if (need == _wt->def) return true;
+                        std::set<DefId> seen;
+                        std::function<bool(DefId)> up = [&](DefId d) -> bool {
+                            if (!d || !seen.insert(d).second) return false;
+                            if (d == need) return true;
+                            auto* ti = trait_info(d);
+                            if (!ti) return false;
+                            for (auto& sup : ti->supertraits) if (up(sup.trait_def)) return true;
+                            return false;
+                        };
+                        return up(_wt->def);
+                    };
+                    for (auto& at : _wt->assoc_types)
+                        for (auto& b : at.bounds)
+                            for (auto& [eqn, eqty] : b.assoc_eqs) {
+                                if (!eqty || eqty.kind() != LogosType::Kind::TypeVar ||
+                                    std::string_view(eqty.type_var_name()) != "Self") continue;
+                                auto* bt = trait_info(b.trait_def);
+                                if (!bt) continue;
+                                for (auto& bat : bt->assoc_types) {
+                                    if (bat.name != eqn) continue;
+                                    for (auto& need : bat.bounds)
+                                        if (need.trait_def && !self_has(need.trait_def))
+                                            error(std::format(
+                                                "trait {}: the trait bound `Self: {}` is not satisfied (E0277) — "
+                                                "required by `{}<{} = Self>` on `{}::{}`",
+                                                tv.name(), need.trait_name, b.trait_name, eqn, tv.name(), at.name));
+                                }
+                            }
+                }
                 // LANDED 2026-09-23 (was PROBE trdefchk): an ORPHAN trait's default
                 // bodies are lowered once as GENERIC templates over `Self` and
                 // borrow-checked by the pre-mono template pass, as rustc checks
