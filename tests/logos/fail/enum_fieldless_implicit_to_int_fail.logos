@@ -1,0 +1,10 @@
+// A FIELDLESS enum does not coerce to an integer either (Rust E0308): its
+// discriminant is read with `as` (twin: pass/enum_match writes `Color::Green as i32`).
+// The implicit rule that admitted this also admitted a PAYLOAD enum into an
+// `i64` slot and read garbage (fail/enum_variant_value_into_scalar_let_fail).
+package enum_fieldless_implicit_to_int_fail;
+enum C { X, Y }
+fn main() -> i32 {
+    let c: i64 = C::Y;
+    return c as i32;
+}

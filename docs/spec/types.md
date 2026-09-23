@@ -3474,9 +3474,9 @@ When pinning an enum-literal expression to a concrete enum type, the concrete ty
 
 **Source:** `src/compiler/sema_impl.hpp#L545-L581`
 
-### `coerce.enum.to-integer-discriminant` — C-style enum coerces to integer (discriminant) but never to another enum
+### `coerce.enum.to-integer-discriminant` — an enum never coerces to an integer; the discriminant is read with `as`
 
-An Enum coerces to a non-enum integer kind (its discriminant). Enum to Enum via this rule is forbidden, and implicit int to Enum is forbidden (requires explicit cast/variant).
+An Enum does not coerce implicitly to an integer kind (Rust): a fieldless enum's discriminant is read with an explicit `as` cast, and a payload enum has no integer conversion at all. Implicit int to Enum is forbidden too (requires an explicit cast/variant).
 
 **Source:** `src/compiler/sema.cpp#L1922-L1934`
 

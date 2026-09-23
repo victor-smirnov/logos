@@ -187,8 +187,6 @@ index_through_ref_to_vec_let_refuses 3 tests/soundness/open/index_through_ref_to
 
 self_tuple_struct_ctor_refused 3 tests/soundness/open/self_tuple_struct_ctor_refused refuses
 
-enum_variant_value_into_scalar_let_admits 1 tests/soundness/open/enum_variant_value_into_scalar_let_admits admits
-
 closure_elided_param_called_with_field_ref_refuses 3 tests/soundness/open/closure_elided_param_called_with_field_ref_refuses refuses
 
 enum_payload_rewrap_carries_declared_region_refuses 3 tests/soundness/open/enum_payload_rewrap_carries_declared_region_refuses refuses
@@ -454,5 +452,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 146
-# SYNC-HASH 1adface7595010f5500600b2b290055a
+# TOTAL 145
+# SYNC-HASH 541b1d54e3b676fdb379b19bea83f66e

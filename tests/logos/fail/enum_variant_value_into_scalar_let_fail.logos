@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #186): the implicit enum -> integer coercion is deleted (Rust: E0308); the discriminant is read with `as`.
 // ADMISSION, tier 1 — a type confusion that compiles and reads garbage at run time.
 // `let s: i64 = E::A(x);` binds an ENUM value to an `i64` slot. Rust: E0308
 // mismatched types. logosc compiles it with no diagnostic and the program's exit

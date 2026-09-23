@@ -2291,14 +2291,9 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         if (from.kind() == LogosType::Kind::F32 || from.kind() == LogosType::Kind::F64 ||
             to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64) return true;
     }
-    // C-style enum → integer (discriminant). `is_integer_kind` deliberately
-    // counts `Enum` itself as "integer-like" (for discriminant arithmetic
-    // elsewhere), so this MUST exclude an enum `to` — otherwise it silently
-    // accepts ANY enum→enum (e.g. `Option<i32>` ↔ `Option<i64>`), reinterpreting
-    // one instantiation's value as another's incompatible niche/tagged layout
-    // → a real miscompile (the discriminant reads garbage, e.g. as `None`).
-    if (from.kind() == LogosType::Kind::Enum && to.kind() != LogosType::Kind::Enum &&
-        is_integer_kind(to.kind())) return true;
+    // NO implicit enum → integer: Rust reads a fieldless enum's discriminant
+    // only through `as`. The implicit rule admitted `let s: i64 = E::A(x)` for a
+    // PAYLOAD enum and read garbage (squeue enum_variant_value_into_scalar_let).
     // NOTE: implicit `int → enum` is intentionally NOT allowed (Rust requires an
     // explicit cast / variant). Permitting it made a data/niche enum (e.g. WAny)
     // a spurious overload candidate for an integer arg — `push(7i64)` resolved to

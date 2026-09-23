@@ -1925,7 +1925,11 @@ fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool {
 fn key_norm_body(body: str, tn: str, kv: str) -> String {
     let mut out: String = String::new();
     if str_eq(tn, kv) { out.push_str(body); return out; }
-    let cast: str = el_norm_cast(tn);
+    let mut cast: str = el_norm_cast(tn);
+    // A FIELDLESS enum column (outside the lattice, admitted by
+    // `column_decl_admit`) keys by its discriminant. Rust has no implicit
+    // enum -> integer coercion, so the conversion is WRITTEN.
+    if cast.len() == 0i64 && el_ty(tn).cls == -1i32 && str_eq(kv, "i64") { cast = "i64"; }
     if cast.len() == 0i64 || !str_eq(cast, kv) { out.push_str(body); return out; }
     out.push_str("(("); out.push_str(body);
     out.push_str(") as "); out.push_str(cast); out.push_str(")");
