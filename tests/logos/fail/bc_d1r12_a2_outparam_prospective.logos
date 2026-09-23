@@ -14,14 +14,14 @@
 package bc_d1r12_a2_outparam_prospective;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct T { x: &mut Vec<B> }
-fn wire(t: &mut T, v: &mut Vec<B>) { t.x = v; }
+struct T<'a, 'b> { x: &'a mut Vec<B<'b>> }
+fn wire<'a, 'b>(t: &mut T<'a, 'b>, v: &'a mut Vec<B<'b>>) { t.x = v; }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

@@ -31,18 +31,18 @@ use logos.lang.option;
 pub struct Rows { pub n: u64 }
 
 #[borrow_carrying]
-pub struct Bat { pub r: &Rows, pub base: u64 }
+pub struct Bat<'a> { pub r: &'a Rows, pub base: u64 }
 
-impl Bat {
-    pub fn len(self: &Bat) -> u64 { return 4u64; }
-    pub fn at(self: &Bat, i: u64) -> u64 { return self.base + i; }
+impl<'a> Bat<'a> {
+    pub fn len(self: &Bat<'a>) -> u64 { return 4u64; }
+    pub fn at(self: &Bat<'a>, i: u64) -> u64 { return self.base + i; }
 }
 
 #[borrow_carrying]
-pub struct Walk { pub r: &Rows, pub at: u64 }
+pub struct Walk<'a> { pub r: &'a Rows, pub at: u64 }
 
-impl Walk {
-    pub fn next_batch(self: &mut Walk) -> Option<Bat> {
+impl<'a> Walk<'a> {
+    pub fn next_batch(self: &mut Walk<'a>) -> Option<Bat> {
         if self.at >= self.r.n { return Option::None; }
         let b: Bat = Bat { r: self.r, base: self.at };
         self.at = self.at + 4u64;
@@ -54,10 +54,10 @@ pub fn walk_of(r: &Rows) -> Walk { return Walk { r: r, at: 0u64 }; }
 
 // ── channel A: ORDINARY SOURCE, multi-line (genuinely borrow-checked) ───────
 #[borrow_carrying]
-pub struct PlainDx { w: Walk, sc: Vec<u64>, done: bool }
+pub struct PlainDx<'a> { w: Walk<'a>, sc: Vec<u64>, done: bool }
 
-impl PlainDx {
-    pub fn next_batch(self: &mut PlainDx) -> Option<&[u64]> {
+impl<'a> PlainDx<'a> {
+    pub fn next_batch(self: &mut PlainDx<'a>) -> Option<&[u64]> {
         if self.done { return Option::None; }
         let o = self.w.next_batch();
         if o.is_some() {
@@ -87,9 +87,9 @@ pub fn gen_quote(s: str) -> ItemList {
         use logos.mem.collections.vec;
         use logos.lang.option;
         #[borrow_carrying]
-        pub struct #dnm { w: Walk, sc: Vec<u64>, done: bool }
-        impl #dnm {
-            pub fn next_batch(self: &mut #dnm) -> Option<&[u64]> {
+        pub struct #dnm<'a> { w: Walk<'a>, sc: Vec<u64>, done: bool }
+        impl<'a> #dnm<'a> {
+            pub fn next_batch(self: &mut #dnm<'a>) -> Option<&[u64]> {
                 if self.done { return Option::None; }
                 let o = self.w.next_batch();
                 if o.is_some() {

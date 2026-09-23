@@ -22,7 +22,7 @@
 // level down).
 package bc_fatret_struct_field_dangle;
 
-pub struct H { r: &i64 }
+pub struct H<'a> { r: &'a i64 }
 
 pub fn pick(src: H) -> H { return src; }
 

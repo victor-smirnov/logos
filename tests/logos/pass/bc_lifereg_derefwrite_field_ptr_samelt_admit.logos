@@ -6,10 +6,10 @@
 // why it is pinned here rather than left to be rediscovered.
 // ONE TOKEN from its fail twin: `y` is `&'a i64` here and elided there.
 package bc_lifereg_derefwrite_field_ptr_samelt_admit;
-struct H<'b> { r: &mut &'b i64 }
+struct H<'a, 'b> { r: &'a mut &'b i64 }
 fn f<'a>(x: &'a i64, y: &'a i64) -> &'a i64 {
   let mut out: &'a i64 = x;
-  { let h: H<'a> = H { r: &mut out }; *h.r = y; }
+  { let h: H<'_, 'a> = H { r: &mut out }; *h.r = y; }
   return out;
 }
 fn main() -> i32 {

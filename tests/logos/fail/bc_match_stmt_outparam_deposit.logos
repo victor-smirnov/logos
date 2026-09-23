@@ -13,15 +13,15 @@
 // which is exactly why this one survived four rounds of looking.
 package bc_match_stmt_outparam_deposit;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct H { r: &mut Vec<B> }
-fn stash(h: &mut H, c: &C) -> i64 { h.r.push(c.mk()); return 0i64; }
-fn wrap(h: &mut H, c: &C) -> i64 { match stash(h, c) { _ => { } } return 0i64; }
+struct H<'a, 'b> { r: &'a mut Vec<B<'b>> }
+fn stash<'a, 'b>(h: &mut H<'a, 'b>, c: &'b C) -> i64 { h.r.push(c.mk()); return 0i64; }
+fn wrap<'a, 'b>(h: &mut H<'a, 'b>, c: &'b C) -> i64 { match stash(h, c) { _ => { } } return 0i64; }
 fn main() -> i32 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

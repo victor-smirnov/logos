@@ -51,8 +51,8 @@
 //   program as `issue-52059-report-when-borrow-and-drop-conflict`'s `finish_1`, and
 //   the duplication is why the `nllmoves.E` grouping looked like one mechanism.
 package enum_drop_access;
-struct DropOpt { r: &mut i64 }
-impl Drop for DropOpt { fn drop(self: &mut DropOpt) { *self.r = 9i64; } }
+struct DropOpt<'a> { r: &'a mut i64 }
+impl<'a> Drop for DropOpt<'a> { fn drop(self: &mut DropOpt) { *self.r = 9i64; } }
 fn drop_enum(opt: DropOpt) -> &mut i64 { return opt.r; }
 fn main() -> i32 {
     let mut n: i64 = 1i64;

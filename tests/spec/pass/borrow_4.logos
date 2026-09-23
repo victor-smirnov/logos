@@ -38,7 +38,7 @@ struct Pair { a: R, b: R }
 
 // #[borrow_carrying] struct (tracked like a reference for escape/lifetime).
 #[borrow_carrying]
-struct RefWrap { p: &i64 }
+struct RefWrap<'a> { p: &'a i64 }
 
 // Two-phase / shared-read helper: returns a borrow of its parameter.
 fn pick(x: &i64) -> &i64 { return x; }

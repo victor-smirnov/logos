@@ -3,7 +3,7 @@
 // arm as a CONFLICT check, not a blanket refusal on writes through a
 // field-held `&mut`.
 package bc_derefwrite_field_ptr_admit;
-struct H { r: &mut i64 }
+struct H<'a> { r: &'a mut i64 }
 fn main() -> i32 {
     let mut x: i64 = 1i64;
     let h: H = H { r: &mut x };

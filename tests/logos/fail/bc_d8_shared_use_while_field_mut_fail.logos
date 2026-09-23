@@ -35,17 +35,17 @@ use logos.lang.option;
 pub struct Rows { pub n: u64 }
 
 #[borrow_carrying]
-pub struct Bat { pub r: &Rows, pub base: u64 }
+pub struct Bat<'a> { pub r: &'a Rows, pub base: u64 }
 
-impl Bat {
-    pub fn len(self: &Bat) -> u64 { return 4u64; }
+impl<'a> Bat<'a> {
+    pub fn len(self: &Bat<'a>) -> u64 { return 4u64; }
 }
 
 #[borrow_carrying]
-pub struct Walk { pub r: &Rows, pub at: u64 }
+pub struct Walk<'a> { pub r: &'a Rows, pub at: u64 }
 
-impl Walk {
-    pub fn next_batch(self: &mut Walk) -> Option<Bat> {
+impl<'a> Walk<'a> {
+    pub fn next_batch(self: &mut Walk<'a>) -> Option<Bat> {
         if self.at >= self.r.n { return Option::None; }
         let b: Bat = Bat { r: self.r, base: self.at };
         self.at = self.at + 4u64;
@@ -62,13 +62,13 @@ pub fn gen_quote(s: str) -> ItemList {
         use logos.mem.collections.vec;
         use logos.lang.option;
         #[borrow_carrying]
-        pub struct #dnm { w: Walk, sc: Vec<u64>, done: bool }
-        impl #dnm {
+        pub struct #dnm<'a> { w: Walk<'a>, sc: Vec<u64>, done: bool }
+        impl<'a> #dnm<'a> {
             // `&self` — and it READS the mut-loaned field. Real aliasing.
-            pub fn wat(self: &#dnm) -> u64 {
+            pub fn wat(self: &#dnm<'a>) -> u64 {
                 return self.w.at;
             }
-            pub fn next_batch(self: &mut #dnm) -> u64 {
+            pub fn next_batch(self: &mut #dnm<'a>) -> u64 {
                 let o = self.w.next_batch();
                 let b = o.unwrap();
                 let z = self.wat();

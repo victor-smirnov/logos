@@ -1,1 +1,1 @@
-cannot move out of 's.url': its owner implements Drop (E0509, line 53)
+line 53: borrow may still be in use when destructor runs: '*s.url' (E0713)

@@ -7,7 +7,7 @@ package dyn_in_struct_gap;
 trait Speak { fn val(self: &Self) -> i32; }
 struct A { v: i32 }
 impl Speak for A { fn val(self: &A) -> i32 { return self.v; } }
-struct Holder { sp: &dyn Speak }
+struct Holder<'a> { sp: &'a dyn Speak }
 fn main() -> i32 {
     let a: A = A { v: 9i32 };
     let h: Holder = Holder { sp: &a };

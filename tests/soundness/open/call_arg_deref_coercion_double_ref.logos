@@ -21,7 +21,7 @@
 // door (`sum(*t)`) in the same commit; this row holds the spelling rustc
 // accepts and Logos does not.
 package call_arg_deref_coercion_double_ref;
-enum List<T> { Cons { head: T, tail: &List<T> }, Nil }
+enum List<'a, T> { Cons { head: T, tail: &'a List<'a, T> }, Nil }
 fn sum(l: &List<i64>) -> i64 {
     match l {
         List::Cons { head: h, tail: t } => { return *h + sum(t); }

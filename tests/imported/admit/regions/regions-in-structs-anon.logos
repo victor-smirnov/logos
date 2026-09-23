@@ -18,6 +18,6 @@
 //   fields, which is this row's half.
 package regions_in_structs_anon;
 
-struct Foo { x: &i64 }
+struct Foo<'a> { x: &'a i64 }
 
 fn main() -> i32 { return 0i32; }

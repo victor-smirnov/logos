@@ -10,9 +10,9 @@
 // this fixture would red.
 package bc_d1r5_h8_match_tmp_admits;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
-struct Wrap { b: B }
+struct Wrap<'a> { b: B<'a> }
 impl C {
     fn mk_wrap(&self) -> Wrap { return Wrap { b: B { p: &self.v } }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }

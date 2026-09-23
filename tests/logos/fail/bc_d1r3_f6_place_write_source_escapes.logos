@@ -7,9 +7,9 @@
 // own key rather than being erased along with `t.b`.
 package bc_d1r3_f6_place_write_source_escapes;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
-struct Two { a: B, b: B }
+struct Two<'a> { a: B<'a>, b: B<'a> }
 fn main() -> i64 {
     let c: C = C { v: 1i64 };
     let mut t: Two = Two { a: B { p: &c.v }, b: B { p: &c.v } };

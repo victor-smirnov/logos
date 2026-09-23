@@ -831,3 +831,23 @@ E0521 против E0515), часть требует разбора.
 - было (other): `has a `Drop` impl and borrows local`
 - стало (E0597 outlives): `'local' does not live long enough: it is borrowed here and used after 'local' goes out of scope`
 
+
+## tests/imported/fail/lifetimes/ex2d-push-inference-variable-2.expected
+- было (sema variance, at the LEGAL `let a: &mut Vec<Ref> = x`): `let 'a': variance mismatch — expected &mut Vec<Ref>, got &'a mut Vec<Ref<'b>>`
+- стало (lifetime may not live long enough, at the push, as rustc): `lifetime may not live long enough: consider adding the bound `'c: 'b``
+
+## tests/imported/fail/nll/issue-52742.expected
+- было (E0597, an artefact of the port's single-region `Foo`): `'tmp' does not live long enough …`
+- стало (at upstream's own site, `self.y = b.z` in `take_bar`, once upstream's `Foo<'a, 'b>` is restored; rustc: lifetime may not live long enough): `assignment to 'self.y': variance mismatch`
+
+## tests/imported/fail/nll/issue-52059-report-when-borrow-and-drop-conflict.expected
+- было (E0509, moved-out-of-Drop — the value was MOVED out at the return): `cannot move out of 's.url': its owner implements Drop (E0509, line 53)`
+- стало (E0713, as upstream — a return is a coercion site, so the `&mut` field is REBORROWED and the destructor runs over a live reborrow): `line 53: borrow may still be in use when destructor runs: '*s.url' (E0713)`
+
+## tests/imported/fail/nll/enum-drop-access.expected
+- было (E0509, moved-out-of-Drop — the value was MOVED out at the return): `cannot move out of 'opt.r': its owner implements Drop (E0509, line 56)`
+- стало (E0713, as upstream — a return is a coercion site, so the `&mut` field is REBORROWED and the destructor runs over a live reborrow): `line 56: borrow may still be in use when destructor runs: '*opt.r' (E0713)`
+
+## tests/imported/fail/nll/issue-53773.expected
+- было (move out while borrowed, at the return): `cannot move out of '*child.raw' because it is borrowed`
+- стало (E0713, as upstream: the return REBORROWS the `&mut` field and `C`'s destructor runs over it): `borrow may still be in use when destructor runs: '*child.raw' (E0713)`

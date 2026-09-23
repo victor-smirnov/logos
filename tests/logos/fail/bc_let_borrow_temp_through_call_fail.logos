@@ -14,7 +14,7 @@
 package bc_let_borrow_temp_through_call_fail;
 struct Buf { n: i64 }
 #[borrow_carrying]
-struct It { p: &i64 }
+struct It<'a> { p: &'a i64 }
 fn mk() -> Buf { return Buf { n: 7i64 }; }
 fn iter(b: &Buf) -> It { return It { p: &b.n }; }
 fn main() -> i32 {

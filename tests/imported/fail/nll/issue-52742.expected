@@ -1,1 +1,1 @@
-'tmp' does not live long enough: it is borrowed here and used after 'tmp' goes out of scope
+assignment to 'self.y': variance mismatch

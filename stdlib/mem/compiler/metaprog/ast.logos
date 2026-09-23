@@ -37,7 +37,7 @@ pub struct Type {
     /// Numeric `LogosType::Kind` discriminant (Void=0, I32=1, ...).
     pub kind: u32,
     /// Type name bytes (rodata-backed; empty on values decoded by `type_from_anyval`).
-    pub name: &[u8],
+    pub name: &'static [u8],
     /// Size of the type in bytes.
     pub size: i64,
     /// Alignment of the type in bytes.

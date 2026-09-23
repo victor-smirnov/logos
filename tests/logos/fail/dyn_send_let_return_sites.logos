@@ -9,7 +9,7 @@ trait Speak { fn hi(&self) -> i32; }
 struct NotSend { p: *mut u8 }
 impl Speak for NotSend { fn hi(&self) -> i32 { 1 } }
 
-struct Holder { d: &dyn Speak + Send }
+struct Holder<'a> { d: &'a dyn Speak + Send }
 
 fn give(ns: &NotSend) -> &dyn Speak + Send {
     ns

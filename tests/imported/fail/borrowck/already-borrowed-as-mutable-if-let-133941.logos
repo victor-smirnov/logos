@@ -4,8 +4,8 @@
 //   argument now holds that argument for the binding's lifetime)
 // upstream: already-borrowed-as-mutable-if-let-133941.rs E0499
 package already_borrowed_as_mutable_if_let_133941;
-struct Bar { r: &mut i64 }
-impl Drop for Bar { fn drop(self: &mut Bar) {} }
+struct Bar<'a> { r: &'a mut i64 }
+impl<'a> Drop for Bar<'a> { fn drop(self: &mut Bar) {} }
 struct Foo { n: i64 }
 impl Foo {
     fn f(self: &mut Foo) -> Bar { return Bar { r: &mut self.n }; }

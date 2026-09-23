@@ -10,10 +10,10 @@
 // one via `&arr` slices concluded, wrongly, that it did not exist.
 package bc_slice_coercion_holds_loan;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C { fn mk(&self) -> B { return B { p: &self.v }; } }
-impl B { fn thru(&self) -> B { return B { p: self.p }; } }
+impl<'a> B<'a> { fn thru(&self) -> B { return B { p: self.p }; } }
 fn main() -> i64 {
     let c: C = C { v: 1i64 };
     let mut holders: [B; 1] = [ c.mk() ];

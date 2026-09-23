@@ -11,7 +11,7 @@ struct B { b: i64 }
 impl Val for A { fn v(self: &A) -> i64 { return (*self).a; } }
 impl Val for B { fn v(self: &B) -> i64 { return (*self).b; } }
 
-struct Pair { first: &dyn Val, second: &dyn Val }
+struct Pair<'a> { first: &'a dyn Val, second: &'a dyn Val }
 
 fn main() -> i32 {
     let a = A { a: 3i64 };

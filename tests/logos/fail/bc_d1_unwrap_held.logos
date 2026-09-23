@@ -5,7 +5,7 @@
 // advance()+batch(&c) because the pinned next() could not be checked).
 package bc_d1_unwrap_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

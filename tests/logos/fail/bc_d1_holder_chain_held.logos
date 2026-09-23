@@ -4,14 +4,14 @@
 // follows the HOLDER graph (inherit_loans), so `b` holds c's loan directly.
 package bc_d1_holder_chain_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct S { b: B }
-impl S { fn get(&self) -> B { return self.b; } }
+struct S<'a> { b: B<'a> }
+impl<'a> S<'a> { fn get(&self) -> B { return self.b; } }
 impl C { fn iter(&self) -> S { return S { b: self.mk() }; } }
 fn main() -> i32 {
     let mut c: C = C { v: 1i64 };

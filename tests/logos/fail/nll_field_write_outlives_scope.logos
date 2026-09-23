@@ -1,5 +1,5 @@
 package field;
-struct Ref { p: &i64 }
+struct Ref<'a> { p: &'a i64 }
 fn main() -> i32 {
     let mut outer: Ref = Ref { p: &0i64 };
     { let x: i64 = 7i64; outer.p = &x; }

@@ -6,7 +6,7 @@
 // and runs this. The program RUNS and its exit code is the oracle: 7 only if
 // the payload was read back through the slice correctly.
 package enum_ctor_arg_array_to_slice_unsize;
-enum E { N, S(&[i64]) }
+enum E<'a> { N, S(&'a [i64]) }
 fn main() -> i64 {
     let a: [i64; 3] = [1i64, 2i64, 3i64];
     let e: E = E::S(&a);

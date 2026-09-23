@@ -13,7 +13,7 @@
 package bc_d1r6_g0_reborrow_use_after_mut;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

@@ -1401,6 +1401,7 @@ private:
             const std::string& vkey = {}) {
         logos::compiler::StrMap<std::string> flt;
         LtCands cands;
+        std::unordered_set<std::string> bare;
         if (lifetime_params.empty()) return flt;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
             if (!dt || !at) return;
@@ -1441,6 +1442,11 @@ private:
                         cands[dl[i]].push_back(al[i]);
                         if (!flt.count(dl[i])) flt.emplace(dl[i], al[i]);
                     }
+                // A BARE value type (`B` for `B<'a>`) spells its regions as
+                // elided — inference variables. A binder met ONLY there is
+                // instantiated to the elided region below (#465).
+                if (al.empty())
+                    for (auto& l : dl) if (!l.empty()) bare.insert(l);
                 auto da = dt.type_args(); auto aa = at.type_args();
                 for (size_t i = 0; i < da.size() && i < aa.size(); ++i) walk(da[i], aa[i]);
                 return;
@@ -1465,7 +1471,10 @@ private:
         for (size_t i = 0; i < lifetime_params.size(); ++i) {
             const std::string& lp = lifetime_params[i];
             auto it = cands.find(lp);
-            if (it == cands.end() || it->second.empty()) continue;
+            if (it == cands.end() || it->second.empty()) {
+                if (bare.count(lp)) out[lp] = std::string{};
+                continue;
+            }
             std::unordered_set<std::string> d(it->second.begin(), it->second.end());
             // THE MEET. Two DIFFERENT regions were offered for one binder and
             // the binder is covariant: it is instantiated at the region both
@@ -4027,7 +4036,8 @@ private:
 
     struct VarInfo { TypeRef type; bool is_mut = false; bool owning_dyn = false;
                      uint32_t slot = 0xFFFFFFFFu;  // no slot unless a frame record assigns one (0 is binding 0)
-                     std::string closure_id; };  // set when the binding's RHS is a closure literal
+                     std::string closure_id;  // set when the binding's RHS is a closure literal
+                     bool regions_inferred = false; };  // a `let` whose type names no region: inference variables (#465)
     // A closure LITERAL's captures, by closure_id (per literal — the
     // signature-keyed closure_capture_env_ is a union and answers a different
     // question). By-ref capture of a SHARED reference is the reborrow `&'a T`

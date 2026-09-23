@@ -6,9 +6,9 @@
 // niche (NullPtr/LowBit), 3-variant, &mut, and generic (Option<&P>) shapes.
 package adv1_enum_ref_payload_field;
 struct P { x: i64, y: i64 }
-enum ER { S(&P), N }
-enum EL { R(&P), M(i64) }
-enum EM { S(&mut P), N }
+enum ER<'a> { S(&'a P), N }
+enum EL<'a> { R(&'a P), M(i64) }
+enum EM<'a> { S(&'a mut P), N }
 fn main() -> i32 {
     let p = P { x: 7i64, y: 9i64 };
     let e = ER::S(&p);

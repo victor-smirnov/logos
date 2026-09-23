@@ -10,12 +10,12 @@
 package x3_wire3;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Two { x: &mut Vec<B>, y: &mut Vec<B> }
+struct Two<'a> { x: &'a mut Vec<B<'a>>, y: &'a mut Vec<B<'a>> }
 fn wire3(dst: &mut Two, a: &mut Vec<B>, z: &mut Vec<B>) { dst.x = a; dst.y = z; }
 fn main() -> i64 { return 0i64; }

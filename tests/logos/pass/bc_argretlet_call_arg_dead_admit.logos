@@ -4,7 +4,7 @@
 // makes that possible: a loan re-homed with an EMPTY holder could never be
 // retired and this program would be refused.
 package bc_argretlet_call_arg_dead_admit;
-struct W { p: &mut i64 }
+struct W<'a> { p: &'a mut i64 }
 fn wrap(r: &mut i64) -> W { return W { p: r }; }
 fn main() -> i32 {
     let mut x: i64 = 1i64;

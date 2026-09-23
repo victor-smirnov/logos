@@ -11,16 +11,16 @@
 // inherit and made the arm look inert. Taking the slice from a CALL exposes it.
 package bc_hop_through_slice_elem;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
 }
-impl B {
+impl<'a> B<'a> {
     fn thru(&self) -> B { return B { p: self.p }; }
 }
-struct Bx { items: [B; 1] }
-impl Bx {
+struct Bx<'a> { items: [B<'a>; 1] }
+impl<'a> Bx<'a> {
     fn all(&self) -> &[B] { return &self.items; }
     fn touch(&mut self) { self.items = self.items; }
 }

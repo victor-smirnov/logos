@@ -4,7 +4,7 @@
 // result, `a` is held for `w`'s lifetime, and the write to `a` conflicts.
 // Upstream E0506.
 package bc_argretlet_mask_reaching_fail;
-struct W { p: &mut i64 }
+struct W<'a> { p: &'a mut i64 }
 fn keep(src: &mut i64, scratch: &mut i64) -> W {
     *scratch = *scratch + 1i64;
     return W { p: src };

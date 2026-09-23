@@ -12,7 +12,7 @@ package test.ref_payload_depth2;
 struct P { x: i64, y: i64 }
 impl P { fn sum(&self) -> i64 { return self.x + self.y; } }
 
-enum E { Pt(&P), N(&i64) }
+enum E<'a> { Pt(&'a P), N(&'a i64) }
 
 fn eval(e: &E) -> i64 {
     match e {

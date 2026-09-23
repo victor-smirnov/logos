@@ -4,7 +4,7 @@
 // an `&[i64]` payload; the row was closed by widening the coercion set at this
 // position, not by making it stop checking.
 package enum_ctor_arg_array_to_slice_unsize;
-enum E { N, S(&[i64]) }
+enum E<'a> { N, S(&'a [i64]) }
 fn main() -> i64 {
     let a: [i64; 3] = [1i64, 2i64, 3i64];
     let e: E = E::S(a);

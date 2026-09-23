@@ -32,7 +32,7 @@ package bc_d1r9_p12_enum_payload_addrof;
 struct C { v: i64 }
 impl C { fn bump(&mut self) { self.v = self.v + 1i64; } }
 #[borrow_carrying]
-enum E { None, Some(&i64) }
+enum E<'a> { None, Some(&'a i64) }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let rc: &C = &c;

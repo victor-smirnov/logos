@@ -5,7 +5,7 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 trait Tr { fn get(self: &Self) -> i64; }
 struct D { v: i64 }
 impl Tr for D { fn get(self: &D) -> i64 { return self.v; } }
-struct H { d: &dyn Tr, n: i64 }
+struct H<'a> { d: &'a dyn Tr, n: i64 }
 fn main() -> i32 {
     let d: D = D { v: 4i64 };
     let h: H = H { d: &d, n: 3i64 };

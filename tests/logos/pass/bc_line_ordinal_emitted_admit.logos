@@ -13,7 +13,7 @@ fn emit_oneline_ok_hook(target_offset: u32) -> () {
     if view.holder == (0 as *mut u8) { return; }
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.buf.push_str("pub struct ERows { pub n: u64 } #[borrow_carrying] pub struct EWalk { pub r: &ERows, pub at: u64 } impl EWalk { pub fn plain(self: &mut EWalk) -> u64 { self.at = self.at + 1u64; return self.at; } } pub fn ez2(r: &ERows) -> u64 { let mut w: EWalk = EWalk { r: r, at: 0u64 }; let p = &mut w; let z = p.at; return p.at + z; }");
+    em.buf.push_str("pub struct ERows { pub n: u64 } #[borrow_carrying] pub struct EWalk<'a> { pub r: &'a ERows, pub at: u64 } impl<'a> EWalk<'a> { pub fn plain(self: &mut EWalk<'a>) -> u64 { self.at = self.at + 1u64; return self.at; } } pub fn ez2(r: &ERows) -> u64 { let mut w: EWalk = EWalk { r: r, at: 0u64 }; let p = &mut w; let z = p.at; return p.at + z; }");
     em.commit();
     return;
 }

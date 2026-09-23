@@ -39,7 +39,7 @@ struct SegI64  { h: i64,          data: [u8] }
 struct SegOI64 { h: Option<i64>,  data: [u8] }
 struct SegOI32 { h: Option<i32>,  data: [u8] }
 struct SegOU8  { h: Option<u8>,   data: [u8] }
-struct SegORef { h: Option<&i64>, data: [u8] }
+struct SegORef<'a> { h: Option<&'a i64>, data: [u8] }
 struct SegOZst { h: Option<Zst>,  data: [u8] }
 struct SegU    { h: UBig,         data: [u8] }
 struct SegWI32 { h: Wrap<i32>,    data: [u8] }

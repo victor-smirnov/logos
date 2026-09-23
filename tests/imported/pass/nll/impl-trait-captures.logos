@@ -9,7 +9,7 @@
 // appear in its bounds -> rustc E0700
 package impl_trait_captures;
 trait Foo<'a> { fn go(self: &Self) -> i64; }
-struct W { r: &i64 }
-impl<'a> Foo<'a> for W { fn go(self: &W) -> i64 { return *self.r; } }
+struct W<'a> { r: &'a i64 }
+impl<'b, 'a> Foo<'a> for W<'b> { fn go(self: &W) -> i64 { return *self.r; } }
 fn foo<'a>(x: &i64) -> impl Foo<'a> { return W { r: x }; }
 fn main() -> i32 { let v = 1i64; return foo(&v).go() as i32; }

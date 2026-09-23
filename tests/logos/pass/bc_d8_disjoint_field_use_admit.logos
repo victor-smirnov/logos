@@ -35,17 +35,17 @@ use logos.lang.option;
 pub struct Rows { pub n: u64 }
 
 #[borrow_carrying]
-pub struct Bat { pub r: &Rows, pub base: u64 }
+pub struct Bat<'a> { pub r: &'a Rows, pub base: u64 }
 
-impl Bat {
+impl<'a> Bat<'a> {
     pub fn len(self: &Bat) -> u64 { return 4u64; }
     pub fn at(self: &Bat, i: u64) -> u64 { return self.base + i; }
 }
 
 #[borrow_carrying]
-pub struct Walk { pub r: &Rows, pub at: u64 }
+pub struct Walk<'a> { pub r: &'a Rows, pub at: u64 }
 
-impl Walk {
+impl<'a> Walk<'a> {
     pub fn next_batch(self: &mut Walk) -> Option<Bat> {
         if self.at >= self.r.n { return Option::None; }
         let b: Bat = Bat { r: self.r, base: self.at };
@@ -57,12 +57,12 @@ impl Walk {
 pub fn walk_of(r: &Rows) -> Walk { return Walk { r: r, at: 0u64 }; }
 
 #[borrow_carrying]
-pub struct Arm { pub w: Walk, pub sc: Vec<u64>, pub tag2: u64 }
+pub struct Arm<'a> { pub w: Walk<'a>, pub sc: Vec<u64>, pub tag2: u64 }
 
 #[borrow_carrying]
-pub struct Deep { pub a: Arm, pub b: Arm, pub tag: u64 }
+pub struct Deep<'a> { pub a: Arm<'a>, pub b: Arm<'a>, pub tag: u64 }
 
-impl Deep {
+impl<'a> Deep<'a> {
     pub fn step(self: &mut Deep) -> u64 {
         let o = self.a.w.next_batch();
         if o.is_none() { return 0u64; }

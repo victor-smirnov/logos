@@ -5,8 +5,8 @@
 // a borrow held in a struct field is forgotten as soon as that struct is itself
 // composed into ANOTHER struct (one extra hop; the un-nested form is refused)
 package maybe_initialized_drop_implicit_fragment_drop_f_nested_holder;
-struct Wrap { p: &mut i64 }
-struct Foo { b: Wrap }
+struct Wrap<'a> { p: &'a mut i64 }
+struct Foo<'a> { b: Wrap<'a> }
 fn main() -> i32 {
     let mut x: i64 = 0i64;
     let w = Wrap { p: &mut x };

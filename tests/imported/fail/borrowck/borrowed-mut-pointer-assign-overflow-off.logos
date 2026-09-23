@@ -3,7 +3,7 @@
 // shelf: fail (CLOSED 2026-09-03n — a call whose result carries a borrow of an
 //   argument now holds that argument for the binding's lifetime)
 package borrowed_mut_pointer_assign_overflow_off;
-struct S { pointer: &mut i64 }
+struct S<'a> { pointer: &'a mut i64 }
 fn copy_borrowed_ptr(p: &mut S) -> S { return S { pointer: &mut *p.pointer }; }
 fn main() -> i32 {
     let mut x: i64 = 1i64;

@@ -7,7 +7,7 @@
 // field write, and the general place write (index / deref).
 package place_write_coercions;
 
-struct Holder { s: &mut [i64] }
+struct Holder<'a> { s: &'a mut [i64] }
 
 fn sum(x: &mut [i64]) -> i64 {
     let mut t: i64 = 0i64;

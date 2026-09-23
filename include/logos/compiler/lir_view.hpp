@@ -557,6 +557,9 @@ struct EnumView {
     bool borrow_carrying() const noexcept {
         return detail::read_bool(self, lir_schema::decl_keys::BORROW_CARRYING.code);
     }
+    std::vector<std::string_view> lifetime_params() const noexcept {
+        return detail::read_string_array(self, lir_schema::decl_keys::LIFETIME_PARAMS.code);
+    }
     // Source-level `pub` (sparse; set by lower_enum_def) — --emit-abi scoping.
     bool is_pub() const noexcept {
         return detail::read_bool(self, lir_schema::decl_keys::IS_PUB.code);

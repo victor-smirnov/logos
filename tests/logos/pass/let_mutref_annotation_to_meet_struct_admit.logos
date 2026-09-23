@@ -1,4 +1,4 @@
-package let_mutref_annotation_to_meet_struct_refused;
+package let_mutref_annotation_to_meet_struct_admit;
 struct P<'a> { x: &'a i64, y: &'a i64 }
 fn bump(p: &mut P) -> i64 { return *p.x + *p.y; }
 fn go<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 {
@@ -9,9 +9,11 @@ fn go<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 {
 fn main() -> i32 {
     let a: i64 = 2i64;
     let b: i64 = 7i64;
-    return go(&a, &b) as i32;
+    if go(&a, &b) != 9i64 { return 1i32; }
+    return 0i32;
 }
-// SOUNDNESS QUEUE row let_mutref_annotation_to_meet_struct_refused (tier 3).
+// Was SOUNDNESS QUEUE row let_mutref_annotation_to_meet_struct_refused (tier 3); closed by #465:
+// a bare `P` in a body annotation is the elided spelling of every slot (subtype.hpp).
 // Legal Rust (exit 9): `let r: &mut P = &mut p` elides P's region, inferred as p's. TODAY refused: "let 'r':
 // variance mismatch — expected &mut P, got &mut P<'a> — lifetime structure incompatible". The non-generic
 // literal's own walk types `p` first-wins as P<'a>; the `&mut` annotation's elided slot is compared under

@@ -10,8 +10,8 @@
 package bc_d1_residency_exempt_return_admits;
 use logos.lang.rc;
 #[borrow_carrying]
-struct B { p: &i64 }
-struct H { h: Rc<i64>, b: B }
+struct B<'a> { p: &'a i64 }
+struct H<'a> { h: Rc<i64>, b: B<'a> }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

@@ -4,8 +4,8 @@
 // upstream: borrowck/issue-82462.rs (E0502: the `DroppingSlice` value has a `Drop` impl,
 // so its borrow of `v` stays live until its destructor runs)
 package issue_82462;
-struct DroppingSlice { r: &i64 }
-impl Drop for DroppingSlice { fn drop(self: &mut DroppingSlice) {} }
+struct DroppingSlice<'a> { r: &'a i64 }
+impl<'a> Drop for DroppingSlice<'a> { fn drop(self: &mut DroppingSlice) {} }
 fn main() -> i32 {
     let mut v: i64 = 1i64;
     let d = DroppingSlice { r: &v };

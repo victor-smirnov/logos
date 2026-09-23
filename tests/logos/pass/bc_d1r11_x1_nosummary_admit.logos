@@ -30,15 +30,15 @@
 package bc_d1r11_x1_nosummary_admit;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-trait Src { fn get(&mut self) -> &mut Vec<B>; }
-struct Own { own: Vec<B> }
-impl Src for Own { fn get(&mut self) -> &mut Vec<B> { return &mut self.own; } }
+trait Src<'a> { fn get(&mut self) -> &mut Vec<B<'a>>; }
+struct Own<'a> { own: Vec<B<'a>> }
+impl<'a> Src<'a> for Own<'a> { fn get(&mut self) -> &mut Vec<B<'a>> { return &mut self.own; } }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut o: Own = Own { own: Vec::<B>::new() };

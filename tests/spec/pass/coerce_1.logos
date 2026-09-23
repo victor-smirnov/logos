@@ -15,7 +15,7 @@ impl Animal for Concrete { fn legs(&self) -> i64 { return self.x; } }
 impl Dog    for Concrete { fn bark(&self) -> i64 { return self.y; } }
 
 // struct field of trait-object type (unsize coercion on store)
-struct Field { d: &dyn Animal }
+struct Field<'a> { d: &'a dyn Animal }
 
 // struct with scalar fields of differing declared numeric types
 struct Numbers { a: i32, b: i64, f: f64 }

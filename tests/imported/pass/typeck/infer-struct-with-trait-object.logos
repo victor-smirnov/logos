@@ -12,9 +12,9 @@ trait X {
     fn dummy(&self) -> i32;
 }
 
-struct S {
-    f: &dyn X,
-    g: &dyn X,
+struct S<'a> {
+    f: &'a dyn X,
+    g: &'a dyn X,
 }
 
 struct F {}

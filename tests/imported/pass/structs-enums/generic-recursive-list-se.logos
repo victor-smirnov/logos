@@ -4,7 +4,7 @@
 // Box; Logos heap-link via `&List<T>`), summed by a recursive fn pattern-matching the variants and
 // extracting the generic payload. isize->i64; Box<List<T>>->&List<T>; assert->return-code.
 package se_generic_recursive_list;
-enum List<T> { Cons { head: T, tail: &List<T> }, Nil }
+enum List<'a, T> { Cons { head: T, tail: &'a List<'a, T> }, Nil }
 fn sum(l: &List<i64>) -> i64 {
     match l {
         List::Cons { head: h, tail: t } => { return *h + sum(*t); }

@@ -18,7 +18,7 @@
 package bc_flow_hop_two_args_bir_admits;
 
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 
 impl C {
@@ -26,7 +26,7 @@ impl C {
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
 
-fn thru2(b: &B, d: &B) -> B { return B { p: b.p }; }
+fn thru2<'a>(b: &B<'a>, d: &B) -> B<'a> { return B { p: b.p }; }
 
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };

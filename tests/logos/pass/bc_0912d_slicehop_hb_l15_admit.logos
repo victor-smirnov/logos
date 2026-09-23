@@ -3,7 +3,7 @@
 // ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0912d_slicehop_hb_l15_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/R0912d/ce/L15_deref_field_from_field_read.logos
 package bc_0912d_slicehop_hb_l15_admit;
-struct H { a: &i64, b: &i64 }
+struct H<'a> { a: &'a i64, b: &'a i64 }
 fn f<'a>(x: &'a i64, w: &'a i64) -> &'a i64 {
   let mut h: H = H { a: x, b: w };
   {

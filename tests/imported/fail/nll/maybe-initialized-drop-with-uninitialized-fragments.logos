@@ -3,9 +3,9 @@
 // shelf: fail — REFUSED since 2026-08-27 (a loan whose holder has a `Drop` impl reaching a reference field is no longer retired by the NLL cursor; it dies at the drop point)
 package maybe_initialized_drop_with_uninitialized_fragments;
 use logos.mem.string;
-struct Wrap { p: &mut i64 }
-impl Drop for Wrap { fn drop(self: &mut Self) { *self.p = *self.p + 1i64; } }
-struct FooS { a: String, b: Wrap }
+struct Wrap<'a> { p: &'a mut i64 }
+impl<'a> Drop for Wrap<'a> { fn drop(self: &mut Self) { *self.p = *self.p + 1i64; } }
+struct FooS<'a> { a: String, b: Wrap<'a> }
 fn eat_s(s: String) { }
 fn eat_w(w: Wrap) { }
 fn main() -> i32 {

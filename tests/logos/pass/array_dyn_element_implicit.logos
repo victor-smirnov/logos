@@ -17,7 +17,7 @@ trait Shape { fn area(&self) -> i64; }
 struct Sq { s: i64 }
 impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
 
-struct W { t: [&dyn Shape; 2] }
+struct W<'a> { t: [&'a dyn Shape; 2] }
 
 fn take(t: [&dyn Shape; 2]) -> i64 { return t[0].area() + t[1].area(); }
 fn mk<'a>(a: &'a Sq, b: &'a Sq) -> [&'a dyn Shape; 2] { return [a, b]; }

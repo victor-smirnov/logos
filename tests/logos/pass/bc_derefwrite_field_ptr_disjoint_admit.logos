@@ -3,7 +3,7 @@
 // would red. field_borrow_conflicts is asked with the pointer's OWN path, and
 // paths_overlap says these are disjoint siblings.
 package bc_derefwrite_field_ptr_disjoint;
-struct H { r: &mut i64, q: &mut i64 }
+struct H<'a> { r: &'a mut i64, q: &'a mut i64 }
 fn main() -> i32 {
     let mut x: i64 = 1i64;
     let mut y: i64 = 2i64;

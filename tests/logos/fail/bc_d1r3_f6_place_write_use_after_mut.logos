@@ -7,13 +7,13 @@
 // erases the sources it overwrites; it does not touch who HOLDS the new loan.
 package bc_d1r3_f6_place_write_use_after_mut;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Wrap { b: B }
+struct Wrap<'a> { b: B<'a> }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let z: i64 = 9i64;

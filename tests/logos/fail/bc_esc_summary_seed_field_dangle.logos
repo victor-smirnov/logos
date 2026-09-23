@@ -21,7 +21,7 @@
 // parameter there. Same struct, same `pick`, same call.
 package bc_esc_summary_seed_field_dangle;
 
-pub struct H { pub r: &i64 }
+pub struct H<'a> { pub r: &'a i64 }
 
 pub fn pick(h: H) -> &i64 { return h.r; }
 

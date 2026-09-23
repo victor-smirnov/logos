@@ -7,13 +7,13 @@
 package bc_d1r11_x1_prospective_alias;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-fn pick(v: &mut Vec<B>) -> &mut Vec<B> { return v; }
+fn pick<'r, 'a>(v: &'r mut Vec<B<'a>>) -> &'r mut Vec<B<'a>> { return v; }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

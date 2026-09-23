@@ -10,14 +10,14 @@
 package bc_d1r4_n0_field_recv_summary_held;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Keep { v: Vec<B> }
-fn stash3(c: &C, k: &mut Keep) { k.v.push(c.mk()); }
+struct Keep<'a> { v: Vec<B<'a>> }
+fn stash3<'a>(c: &'a C, k: &mut Keep<'a>) { k.v.push(c.mk()); }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let e: Vec<B> = Vec::new();

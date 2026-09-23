@@ -3,9 +3,9 @@
 // shelf: fail — REFUSED since 2026-08-27 (a loan whose holder has a `Drop` impl reaching a reference field is no longer retired by the NLL cursor; it dies at the drop point)
 // port of nll/issue-54556-wrap-it-up.rs: assign to x while a Drop-bearing value holds &mut x
 package issue_54556_wrap_it_up;
-struct Wrap { p: &mut i64 }
-impl Drop for Wrap { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }
-struct Foo { a: i64, b: Wrap }
+struct Wrap<'a> { p: &'a mut i64 }
+impl<'a> Drop for Wrap<'a> { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }
+struct Foo<'a> { a: i64, b: Wrap<'a> }
 fn main() -> i32 {
     let mut x: i64 = 0i64;
     let wrap: Wrap = Wrap { p: &mut x };

@@ -4,7 +4,7 @@
 // the borrow was transient and this compiled. PAIRED WITH pass/bc_d1_consumed_to_scalar_admits.
 package bc_d1_enum_lit_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

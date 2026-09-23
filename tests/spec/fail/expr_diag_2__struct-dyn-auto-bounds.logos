@@ -13,8 +13,8 @@ impl Speak for NotSend {
     fn go(&self) -> i32 { return 0i32; }
 }
 
-struct Holder {
-    d: &dyn Speak + Send,
+struct Holder<'a> {
+    d: &'a dyn Speak + Send,
 }
 
 fn main() -> i32 {

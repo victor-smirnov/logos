@@ -4,7 +4,7 @@
 // and a value-copy memcpy of a struct with a slice field preserves the
 // trailing fields AND the inline {ptr,len} pair.
 package test;
-struct WithSlice { tag: i32, name: &[u8], n: i64 }
+struct WithSlice<'a> { tag: i32, name: &'a [u8], n: i64 }
 fn main() -> i32 {
     // tag@0 (4), pad, name@8 (16 inline {ptr,len}), n@24 (i64) → size 32, align 8.
     if sizeof::<WithSlice>() != 32i64 { return 1i32; }

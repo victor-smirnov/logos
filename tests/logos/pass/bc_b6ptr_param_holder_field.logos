@@ -4,8 +4,8 @@
 // (`collect_ref_sources`) names the local `h` and would refuse this.
 // (2026-09-02c)
 package bc_b6ptr_param_holder_field;
-struct H { r: &i64 }
-fn store(out: &mut &i64, src: &i64) {
+struct H<'a> { r: &'a i64 }
+fn store<'a>(out: &mut &'a i64, src: &'a i64) {
     let h: H = H { r: src };
     let hr: &H = &h;
     *out = hr.r;

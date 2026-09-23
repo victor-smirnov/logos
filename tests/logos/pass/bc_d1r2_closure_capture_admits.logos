@@ -7,7 +7,7 @@
 // separates them. The value pins that the read happened PRE-mutation.
 package bc_d1r2_closure_capture_admits;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

@@ -12,7 +12,7 @@
 package bc_d1r2_dyn_erasure_admits;
 use logos.mem.boxed;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
@@ -20,12 +20,15 @@ impl C {
 }
 struct Plain { n: i64 }
 trait Get { fn g(&self) -> i64; }
-impl Get for B { fn g(&self) -> i64 { return *self.p; } }
+impl<'a> Get for B<'a> { fn g(&self) -> i64 { return *self.p; } }
 impl Get for Plain { fn g(&self) -> i64 { return self.n; } }
 fn main() -> i32 {
     let mut c: C = C { v: 1i64 };
-    let d: Box<dyn Get> = Box::new(c.mk());
-    let n: i64 = d.g();
+    let mut n: i64 = 0i64;
+    {
+        let d: Box<dyn Get + '_> = Box::new(c.mk());   // scoped: its drop uses '_, as in rustc
+        n = d.g();
+    }
     let q: Box<dyn Get> = Box::new(Plain { n: 7i64 });
     c.bump();
     let m: i64 = q.g();

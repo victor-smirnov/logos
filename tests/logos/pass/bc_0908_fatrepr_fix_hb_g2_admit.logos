@@ -5,7 +5,7 @@
 // G2 LEGAL — the MUTABLE unsize `&mut [i64;3]` -> `&mut [i64]` in a payload,
 // written THROUGH the binder and read back from the array afterwards.
 package bc_0908_fatrepr_fix_hb_g2_admit;
-enum E { N, S(&mut [i64]) }
+enum E<'a> { N, S(&'a mut [i64]) }
 fn main() -> i32 {
     let mut a: [i64; 3] = [1i64, 2i64, 3i64];
     let e: E = E::S(&mut a);

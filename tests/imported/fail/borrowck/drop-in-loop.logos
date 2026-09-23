@@ -3,8 +3,8 @@
 // shelf: fail — REFUSED since 2026-08-27 (a loan whose holder has a `Drop` impl reaching a reference field is no longer retired by the NLL cursor; it dies at the drop point)
 // upstream: drop-in-loop.rs E0506 (Drop impl could observe the changed borrow)
 package drop_in_loop;
-struct WrapperWithDrop { r: &mut bool }
-impl Drop for WrapperWithDrop { fn drop(self: &mut WrapperWithDrop) {} }
+struct WrapperWithDrop<'a> { r: &'a mut bool }
+impl<'a> Drop for WrapperWithDrop<'a> { fn drop(self: &mut WrapperWithDrop) {} }
 fn drop_in_loop() {
     let mut base = true;
     let mut wrapper = WrapperWithDrop { r: &mut base };

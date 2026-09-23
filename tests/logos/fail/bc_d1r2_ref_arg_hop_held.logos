@@ -10,7 +10,7 @@
 // This fixture is now the refusal, and the ADR paragraph is superseded.
 package bc_d1r2_ref_arg_hop_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

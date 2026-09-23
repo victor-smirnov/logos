@@ -9,7 +9,7 @@ trait A { fn val(self: &Self) -> i64; }
 struct B { n: i64 }
 impl A for B { fn val(self: &B) -> i64 { return (*self).n; } }
 
-struct Holder { item: &dyn A }
+struct Holder<'a> { item: &'a dyn A }
 
 fn main() -> i32 {
     let b = B { n: 9i64 };

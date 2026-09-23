@@ -3,7 +3,7 @@
 // ⚠ THE AUDIT RECORDS THIS FIXTURE AS RESTING ON A BLESSED DIVERGENCE, NOT AS WRONG — rustc refuses the literal twin and the canonising row/clause is named in docs/rustc-fixture-audit-2026-09.md §bc_0911d_liferegb_hb_l5b_admit. The assertion is UNCHANGED: a corpus decision with an owner.
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/lb/hand/L5b.logos
 package bc_0911d_liferegb_hb_l5b_admit;
-struct U2 { h: &i64 }
+struct U2<'a> { h: &'a i64 }
 // ⚠ `y: &'a i64`, NOT `y: &i64`: with two input regions and a NAMED output
 // region, the second input's elided region is a SEPARATE one, and rustc 1.98.1
 // refuses the body that returns `y` with error[E0621] "explicit lifetime

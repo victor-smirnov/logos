@@ -2072,6 +2072,56 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
                 error(std::format("struct '{}': use of undeclared lifetime name '{}'",
                                   sname, lt));
     }
+    // ── ELIDED REFERENCE LIFETIME IN A FIELD (E0106) ────────────────────────
+    // A field has no signature to borrow a lifetime from, so rustc refuses
+    // `struct S { p: &i64 }` — "missing lifetime specifier". Logos admitted it
+    // and gave each such field a HIDDEN region that made no claim, so a body
+    // storing one hidden region into another was never judged (#465). WRITTEN
+    // elision only, read off the AST: a fn-pointer type opens its own elision
+    // scope and is not one (`ast_elided_ref_` stops there).
+    if (node.has_key(la::FIELDS)) {
+        auto fnodes = arr_of(node.get(la::FIELDS.code));
+        for (uint64_t i = 0; i < fnodes.size(); ++i) {
+            auto fnode = map_of(fnodes.get(i));
+            if (code_of(fnode) != la::FIELD_DEF || !fnode.has_key(la::TYPE)) continue;
+            if (!ast_elided_ref_(map_of(fnode.get(la::TYPE.code)))) continue;
+            error(std::format("struct '{}': missing lifetime specifier (E0106) in field '{}' — "
+                              "declare a lifetime on the struct and name it, e.g. "
+                              "`struct {}<'a> {{ {}: &'a ... }}`",
+                              sname, str_of(fnode.get(la::NAME.code)), sname,
+                              str_of(fnode.get(la::NAME.code))));
+        }
+    }
+    // The same rule for a lifetime-carrying ADT written WITHOUT its lifetime
+    // arguments (`b: B` where `struct B<'a>`): rustc says E0106 for it too, and
+    // the region it hides is exactly as unclaimed as a hidden `&`'s.
+    {
+        using K = LogosType::Kind;
+        auto walk_ = [&](TypeRef t, const std::string& fname, auto& rec) -> bool {
+            if (!t) return false;
+            auto k = t.kind();
+            if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
+                if (t.lifetime_args().size() < decl_lt_arity_(t)) {
+                    error(std::format("struct '{}': missing lifetime specifier (E0106) in field '{}' — "
+                                      "'{}' takes {} lifetime argument(s); declare a lifetime on the "
+                                      "struct and pass it, e.g. `{}<'a>`",
+                                      sname, fname, type_str(t, true), decl_lt_arity_(t),
+                                      type_str(t, true)));
+                    return true;
+                }
+                for (auto a : t.type_args()) if (rec(a, fname, rec)) return true;
+                return false;
+            }
+            if (k == K::Ref || k == K::MutRef || k == K::Ptr) return rec(t.pointee(), fname, rec);
+            if (k == K::Tuple) {
+                for (auto e2 : t.tuple_elems()) if (rec(e2, fname, rec)) return true;
+                return false;
+            }
+            if (k == K::Slice || k == K::UnsizedSlice || k == K::Array) return rec(t.elem(), fname, rec);
+            return false;
+        };
+        for (auto& f : fields) walk_(f.type, f.name, walk_);
+    }
     if (!fields.empty()) {
         auto fa = sd.array(stk::FIELDS);
         for (auto& f : fields) fa.push_field(f);
@@ -2170,7 +2220,7 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
     namespace tpk = lir_schema::enum_tparam_keys;
     auto ename = std::string(str_of(node.get(la::NAME.code)));
     // Stage E direct-build: NAME always; the rest is added below as it's read.
-    DeclBuilder ed(*cur_prog_, lir_schema::decl::Code::Enum, /*cap=*/16);
+    DeclBuilder ed(*cur_prog_, lir_schema::decl::Code::Enum, /*cap=*/17);
     ed.str_always(dk::NAME, ename);
     if (!cur_package_.empty()) ed.str(dk::PKG, cur_package_);
     // Local TypeParam set for validation (outlives/uniqueness) — NOT stored.
@@ -2290,6 +2340,29 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
                 if (!known_p(lt))
                     error(std::format("enum '{}': use of undeclared lifetime name '{}'",
                                       ename, lt));
+            // E0106 for a lifetime-carrying ADT named without its lifetime
+            // arguments in a payload — the struct field rule's twin (#465).
+            using K = LogosType::Kind;
+            auto bare_ = [&](TypeRef t, auto& rec) -> bool {
+                if (!t) return false;
+                auto k = t.kind();
+                if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
+                    if (t.lifetime_args().size() < decl_lt_arity_(t)) {
+                        error(std::format("enum '{}': missing lifetime specifier (E0106) — '{}' takes {} "
+                                          "lifetime argument(s); declare a lifetime on the enum and pass it",
+                                          ename, type_str(t, true), decl_lt_arity_(t)));
+                        return true;
+                    }
+                    for (auto a : t.type_args()) if (rec(a, rec)) return true;
+                    return false;
+                }
+                if (k == K::Ref || k == K::MutRef || k == K::Ptr) return rec(t.pointee(), rec);
+                if (k == K::Tuple) { for (auto e2 : t.tuple_elems()) if (rec(e2, rec)) return true; return false; }
+                if (k == K::Slice || k == K::UnsizedSlice || k == K::Array) return rec(t.elem(), rec);
+                return false;
+            };
+            for (auto& v : einfo.variants)
+                for (auto t : v.payload_types) if (bare_(t, bare_)) break;
         }
     }
     // Type-param uniqueness on enum (B-gn-01 family)
@@ -2317,6 +2390,12 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
     // TYPE_PARAMS array of enum-tparam sub-maps. Carry only the fields READ
     // post-construction (name + is_variadic); bounds/const/default are not
     // read for enums (mirrors enum_tparam_av).
+    // The declared lifetime parameters: the borrow checker lays a payload's
+    // regions out by these names, as it does a struct's fields (#465).
+    if (!lifetime_params.empty()) {
+        auto la_ = ed.array(dk::LIFETIME_PARAMS);
+        for (auto& lp : lifetime_params) la_.push_str(lp);
+    }
     if (!tparams.empty()) {
         auto ta = ed.array(dk::TYPE_PARAMS);
         for (auto& tp : tparams) {

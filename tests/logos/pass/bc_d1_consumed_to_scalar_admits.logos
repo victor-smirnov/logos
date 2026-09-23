@@ -6,7 +6,7 @@
 // argument rule protects — key the rule on the argument alone and this reds.
 package bc_d1_consumed_to_scalar_admits;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

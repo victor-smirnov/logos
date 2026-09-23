@@ -10,7 +10,7 @@
 // type of the reference ACTUALLY DEREFERENCED separates them, and in this half
 // no reference is dereferenced at all.
 package bc_thrumutref_borrow_of_the_field_fail;
-struct H { r: &mut i64 }
+struct H<'a> { r: &'a mut i64 }
 fn use_ref(y: &mut &mut i64) { }
 fn bump(h: H) { use_ref(&mut h.r); }
 fn main() -> i32 {

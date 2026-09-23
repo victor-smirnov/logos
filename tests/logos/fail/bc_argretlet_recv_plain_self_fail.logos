@@ -5,7 +5,7 @@
 package bc_argretlet_recv_plain_self_fail;
 struct Row { n: i64 }
 struct Cursor { data: Row, at: i64 }
-struct Item { p: &mut i64 }
+struct Item<'a> { p: &'a mut i64 }
 impl Cursor {
     fn nxt(self: &mut Cursor) -> Item {
         self.at = self.at + 1i64;

@@ -4,7 +4,7 @@
 package assign_op_invariance_lifetime;
 use logos.mem.string;
 use logos.lang.str;
-struct Acc { r: &str }
+struct Acc<'a> { r: &'a str }
 fn main() -> i32 {
     let keep: &str = "";
     let mut acc: Acc = Acc { r: keep };

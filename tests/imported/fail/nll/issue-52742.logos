@@ -2,9 +2,9 @@
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
 package issue_52742;
-struct Foo { x: &i64, y: &i64 }
-struct Bar { z: &i64 }
-impl Foo { fn take_bar(self: &mut Foo, b: Bar) { self.y = b.z; } }
+struct Foo<'a, 'b> { x: &'a i64, y: &'b i64 }
+struct Bar<'b> { z: &'b i64 }
+impl Foo<'_, '_> { fn take_bar(self: &mut Self, b: Bar<'_>) { self.y = b.z; } }
 fn main() -> i32 {
     let a: i64 = 1i64;
     let mut f: Foo = Foo { x: &a, y: &a };

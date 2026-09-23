@@ -11,7 +11,7 @@ package bc_thru_ref_field_mut_reborrow_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
-struct H { r: &mut i64 }
+struct H<'a> { r: &'a mut i64 }
 
 fn bump(h: H) { let y: &mut i64 = &mut *h.r; *y = 5i64; }
 

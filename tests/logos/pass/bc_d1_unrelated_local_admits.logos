@@ -4,7 +4,7 @@
 // loan record, which is why an unrelated local cannot be dragged in.
 package bc_d1_unrelated_local_admits;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn bump(&mut self) { self.v = self.v + 1i64; }

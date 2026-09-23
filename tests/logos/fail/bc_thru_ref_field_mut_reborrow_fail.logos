@@ -8,7 +8,7 @@
 // ONE TOKEN from `pass/bc_thru_ref_field_mut_reborrow_admit`: `&i64` vs
 // `&mut i64`. `h` is a non-mut binding on both sides.
 package bc_thru_ref_field_mut_reborrow_fail;
-struct H { r: &i64 }
+struct H<'a> { r: &'a i64 }
 fn bump(h: H) { let y: &mut i64 = &mut *h.r; *y = 5i64; }
 fn main() -> i32 {
     let n: i64 = 1i64;

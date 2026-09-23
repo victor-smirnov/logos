@@ -4,7 +4,7 @@
 //   argument now holds that argument for the binding's lifetime)
 // upstream: borrowck-assign-to-andmut-in-borrowed-loc.rs E0503/E0506
 package borrowck_assign_to_andmut_in_borrowed_loc;
-struct S { pointer: &mut i64 }
+struct S<'a> { pointer: &'a mut i64 }
 fn copy_borrowed_ptr(p: &mut S) -> S {
     return S { pointer: &mut *p.pointer };
 }

@@ -31,7 +31,7 @@ enum Cons { Nil, More(i32, *const i64) }
 enum WithUnit { Yes(i64), Nope(()) }
 
 // a slice payload is stored inline as the full 16-byte fat pair.
-enum SliceCarry { N, S(&[u8]) }
+enum SliceCarry<'a> { N, S(&'a [u8]) }
 
 fn main() -> i64 {
     // @rule layout.zero-size.void-never

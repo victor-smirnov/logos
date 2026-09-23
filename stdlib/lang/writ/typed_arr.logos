@@ -102,13 +102,13 @@ pub unsafe fn writ_build_array_f64(vals: *const f64, len: i64) -> Rc<Writ> {
 // Refs deep-copy into the result zone (lang.writ.compactify).
 
 /// Parallel `i32` key / `WAny` value slices, the source for `(keys, vals) as <i32, AnyVal>{}`.
-pub struct MapSliceI32 { pub keys: &[i32], pub vals: &[WAny] }
+pub struct MapSliceI32<'a> { pub keys: &'a [i32], pub vals: &'a [WAny] }
 /// Parallel `u32` key / `WAny` value slices, the source for `(keys, vals) as <u32, AnyVal>{}`.
-pub struct MapSliceU32 { pub keys: &[u32], pub vals: &[WAny] }
+pub struct MapSliceU32<'a> { pub keys: &'a [u32], pub vals: &'a [WAny] }
 /// Parallel `i64` key / `WAny` value slices, the source for `(keys, vals) as <i64, AnyVal>{}`.
-pub struct MapSliceI64 { pub keys: &[i64], pub vals: &[WAny] }
+pub struct MapSliceI64<'a> { pub keys: &'a [i64], pub vals: &'a [WAny] }
 /// Parallel `u64` key / `WAny` value slices, the source for `(keys, vals) as <u64, AnyVal>{}`.
-pub struct MapSliceU64 { pub keys: &[u64], pub vals: &[WAny] }
+pub struct MapSliceU64<'a> { pub keys: &'a [u64], pub vals: &'a [WAny] }
 
 unsafe fn w_build_typed_map_raw(keys: *const u8, vals: *const i64, len: i64,
                                  kw: i64, mtc: u64) -> Rc<Writ> {

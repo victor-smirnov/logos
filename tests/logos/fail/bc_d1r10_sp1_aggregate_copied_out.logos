@@ -9,16 +9,16 @@
 package bc_d1r10_sp1_aggregate_copied_out;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Inner { r: &mut Vec<B> }
-struct Mid { i: Inner }
-struct Outer { m: Mid }
-fn stash3(c: &C, v: &mut Vec<B>) {
+struct Inner<'r, 'a> { r: &'r mut Vec<B<'a>> }
+struct Mid<'r, 'a> { i: Inner<'r, 'a> }
+struct Outer<'r, 'a> { m: Mid<'r, 'a> }
+fn stash3<'a>(c: &'a C, v: &mut Vec<B<'a>>) {
     let mut h: Mid = Mid { i: Inner { r: v } };
     let inn: Inner = h.i;
     inn.r.push(c.mk());

@@ -3,13 +3,13 @@
 package bc_d1r4_n1_field_container_admits;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Keep { v: Vec<B> }
+struct Keep<'a> { v: Vec<B<'a>> }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let e: Vec<B> = Vec::new();

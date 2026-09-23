@@ -2633,6 +2633,14 @@ void SemaChecker::collect_enum(TinyMapView node) {
                     if (v.has_key(la::variant::IS_STRUCT_SHAPE))
                         is_struct_shape = v.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
 
+                    // E0106: a payload has no signature to borrow a lifetime
+                    // from, exactly as a struct field (#465).
+                    auto e0106_ = [&](TinyMapView tn) {
+                        if (ast_elided_ref_(tn))
+                            error(std::format("enum '{}': missing lifetime specifier (E0106) in variant '{}' — "
+                                              "declare a lifetime on the enum and name it, e.g. `enum {}<'a> {{ .. &'a .. }}`",
+                                              ename, std::string(vname), ename));
+                    };
                     if (v.has_key(la::ITEMS)) {
                         // E0121: enum-variant payload types are item
                         // signatures — `_` rejected (covers tuple,
@@ -2641,6 +2649,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         auto av = v.get(la::ITEMS.code);
                         if (is_var) {
                             // Single type_ref map (variadic variant: ITEMS: $4)
+                            e0106_(map_of(av));
                             payload.push_back(resolve_type(map_of(av)));
                         } else if (is_struct_shape) {
                             // P4-pm-01: struct-shape variant — ITEMS is a
@@ -2658,6 +2667,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                             for (uint64_t j = 0; j < fitems.size(); ++j) {
                                 auto fnode = map_of(fitems.get(j));
                                 std::string fname = std::string(str_of(fnode.get(la::NAME.code)));
+                                if (fnode.has_key(la::TYPE)) e0106_(map_of(fnode.get(la::TYPE.code)));
                                 TypeRef ftype = fnode.has_key(la::TYPE)
                                     ? resolve_type(map_of(fnode.get(la::TYPE.code)))
                                     : nullptr;
@@ -2679,8 +2689,10 @@ void SemaChecker::collect_enum(TinyMapView node) {
                             } else {
                                 pitems = arr_of(av);
                             }
-                            for (uint64_t j = 0; j < pitems.size(); ++j)
+                            for (uint64_t j = 0; j < pitems.size(); ++j) {
+                                e0106_(map_of(pitems.get(j)));
                                 payload.push_back(resolve_type(map_of(pitems.get(j))));
+                            }
                         }
                     }
                     info.variants.push_back({vname, vval, std::move(payload),
@@ -3790,6 +3802,32 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // Self from a struct's DECLARED lifetime params mapped POSITIONALLY onto
         // the impl header, and has no enum arm at all. PROBES.md 2026-09-04a.
         TypeRef self_written = nullptr;
+        // E0726: an impl header names a lifetime-carrying type WITHOUT its
+        // lifetime arguments (`impl S` for `struct S<'a>`). rustc: "implicit
+        // elided lifetime not allowed here" — write `S<'_>` or `impl<'a>
+        // S<'a>`. An impl header is not an elision scope (#465).
+        if (node.has_key(la::TYPE)) {
+            auto wnode = map_of(node.get(la::TYPE.code));
+            const int32_t wc = code_of(wnode);
+            if ((wc == la::GENERIC_INST || wc == la::TYPE_REF) && wnode.has_key(la::NAME)) {
+                // By NAME, not by resolving: an impl target may not be a
+                // resolvable type at collect time (a datatype implementor).
+                std::string nm(str_of(wnode.get(la::NAME.code)));
+                size_t arity = 0;
+                if (auto [sp_, si_] = find_struct_by_name(nm); si_) arity = si_->lifetime_params.size();
+                else if (auto [ep_, ei_] = find_enum_by_name(nm); ei_) arity = ei_->lifetime_params.size();
+                size_t written = 0;
+                if (wc == la::GENERIC_INST && wnode.has_key(la::ITEMS)) {
+                    auto items = arr_of(wnode.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        if (code_of(map_of(items.get(i))) == la::LIFETIME_PARAM) ++written;
+                }
+                if (written < arity)
+                    error(std::format("implicit elided lifetime not allowed here (E0726): '{}' takes {} "
+                                      "lifetime argument(s) — name them in the impl header (`'_`, or "
+                                      "`impl<'a> ...` with `'a`)", nm, arity));
+            }
+        }
         if (!target_resolved && node.has_key(la::TYPE)) {
             auto wnode = map_of(node.get(la::TYPE.code));
             if (code_of(wnode) == la::GENERIC_INST) {
@@ -4673,7 +4711,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     bool _aret = logos::probe::on("sigalphaw") ||
                                  logos::probe::on("sigalphas") ||
                                  logos::probe::on("sigalpharet") || _asub;
-                    auto _acollect = [](TypeRef t, std::vector<std::string>& o,
+                    auto _acollect = [this](TypeRef t, std::vector<std::string>& o,
                                         auto& self) -> void {
                         if (!t) return;
                         using K2 = LogosType::Kind;
@@ -4700,10 +4738,21 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                 for (auto g : TypeRef(t).gat_args()) self(g, o, self);
                                 for (auto& l : TypeRef(t).lifetime_args()) o.push_back(l);
                                 break;
-                            default:
+                            default: {
                                 for (auto a : TypeRef(t).type_args()) self(a, o, self);
-                                for (auto& l : TypeRef(t).lifetime_args()) o.push_back(l);
+                                // A bare `S` for `S<'a>` and `S<'_>` are one elided
+                                // spelling: every slot an elided region (#465).
+                                size_t n_ = 0;
+                                for (auto& l : TypeRef(t).lifetime_args()) {
+                                    o.push_back(l == "'_" || l == "_" ? std::string() : l);
+                                    ++n_;
+                                }
+                                using K2b = LogosType::Kind;
+                                const auto k_ = TypeRef(t).kind();
+                                if (k_ == K2b::Struct || k_ == K2b::ZonedStruct || k_ == K2b::Enum)
+                                    for (size_t d_ = decl_lt_arity_(t); n_ < d_; ++n_) o.emplace_back();
                                 break;
+                            }
                         }
                     };
                     // Rust ELISION, expanded per signature before the alpha

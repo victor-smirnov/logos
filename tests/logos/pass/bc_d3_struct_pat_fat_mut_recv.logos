@@ -8,7 +8,7 @@
 // luck). The fix registers the plain-let mut-ref protocol at the binder.
 package z3;
 use logos.mem.collections.vec;
-struct H { r: &mut Vec<i64> }
+struct H<'a> { r: &'a mut Vec<i64> }
 fn main() -> i64 {
     let mut vs: Vec<i64> = Vec::new();
     vs.push(5i64);

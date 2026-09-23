@@ -7,14 +7,14 @@
 // cannot pass on the exit code alone.
 package bc_d1r2_call_out_param_admits;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Wrap { b: B }
-fn stash(w: &mut Wrap, x: B) { w.b = x; }
+struct Wrap<'a> { b: B<'a> }
+fn stash<'a>(w: &mut Wrap<'a>, x: B<'a>) { w.b = x; }
 fn main() -> i32 {
     let mut c: C = C { v: 1i64 };
     let z: i64 = 9i64;

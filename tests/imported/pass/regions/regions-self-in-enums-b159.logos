@@ -8,7 +8,7 @@
 //   from a local and matched to extract the reference, then dereferenced.
 package regions_self_in_enums_b159;
 
-enum IntWrapper { Ctor(&i64) }
+enum IntWrapper<'a> { Ctor(&'a i64) }
 
 fn main() -> i32 {
     let x = 3i64;

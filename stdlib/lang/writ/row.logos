@@ -387,9 +387,9 @@ unsafe fn row_arena_base(d: &Writ) -> i64 {
 /// refused (`fail/bc_row_ref_return_dangle`), while the same construction rooted
 /// at a caller's container is admitted (`pass/bc_row_ref_return_admit`).
 #[borrow_carrying]
-pub struct RowRef {
+pub struct RowRef<'a> {
     /// The row, borrowed for as long as this view lives.
-    r: &WRow,
+    r: &'a WRow,
 }
 
 /// A row that OWNS its arena: the assembled form (D10's "spans blocks").
@@ -415,7 +415,7 @@ pub struct RowBuf {
     off: i64,
 }
 
-impl RowRef {
+impl<'a> RowRef<'a> {
     /// The borrowed row. Valid while this view — hence the container — lives.
     pub fn row(self: &RowRef) -> &WRow { return self.r; }
 

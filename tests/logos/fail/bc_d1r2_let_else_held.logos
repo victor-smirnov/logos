@@ -7,7 +7,7 @@
 // silently skipped is invisible to every rule the checker will ever grow.
 package bc_d1r2_let_else_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

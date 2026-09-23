@@ -13,7 +13,7 @@
 // tuple / struct payload patterns work in if-let and while-let too.
 package match_if_let_nested;
 
-enum E { Empty, Some(&E) }
+enum E<'a> { Empty, Some(&'a E<'a>) }
 
 fn f(e: &E) -> u32 {
     if let E::Some(E::Some(_)) = e { return 1u32; } else { return 2u32; }

@@ -7,7 +7,7 @@
 // slice reference, and the same value stored in a struct field.
 package m_tuple_index_fat_types;
 
-struct Foo { f0: &[i64] }
+struct Foo<'a> { f0: &'a [i64] }
 
 fn main() -> i32 {
     let x: &[i64] = &[1i64, 2i64, 3i64];

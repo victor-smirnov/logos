@@ -5,7 +5,7 @@
 // G7 LEGAL — the ctor inside a GENERIC FUNCTION, so the variant is resolved
 // through the from-static lowering path with a substitution in flight.
 package bc_0908_fatrepr_fix_hb_g7_admit;
-enum E { N, S(&[i64]) }
+enum E<'a> { N, S(&'a [i64]) }
 fn mk<T>(t: T, p: &[i64; 3]) -> E { return E::S(p); }
 fn main() -> i32 {
     let a: [i64; 3] = [5i64, 6i64, 7i64];

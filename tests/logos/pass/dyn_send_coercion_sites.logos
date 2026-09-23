@@ -5,7 +5,7 @@ trait Speak { fn hi(&self) -> i32; }
 struct Fine { x: i32 }
 impl Speak for Fine { fn hi(&self) -> i32 { 2 } }
 
-struct Holder { d: &dyn Speak + Send }
+struct Holder<'a> { d: &'a dyn Speak + Send }
 
 fn give(f: &Fine) -> &dyn Speak + Send { f }
 

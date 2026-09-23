@@ -16,13 +16,13 @@
 package p3_byvalue_outparam;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct H { r: &mut Vec<B> }
+struct H<'a> { r: &'a mut Vec<B<'a>> }
 fn stashv(h: H, c: &C) { h.r.push(c.mk()); }
 fn stashr(h: &mut H, c: &C) { h.r.push(c.mk()); }
 fn main() -> i64 {

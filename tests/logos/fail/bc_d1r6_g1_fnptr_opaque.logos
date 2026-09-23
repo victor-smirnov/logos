@@ -11,14 +11,14 @@
 package bc_d1r6_g1_fnptr_opaque;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
 fn mkd(c: &C) -> B { return c.mk(); }
-fn via(g: fn(&C) -> B, c: &C, vs: &mut Vec<B>) { vs.push(g(c)); }
+fn via<'a>(g: fn(&C) -> B, c: &'a C, vs: &mut Vec<B<'a>>) { vs.push(g(c)); }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

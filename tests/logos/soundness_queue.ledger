@@ -271,8 +271,6 @@ enum_payload_binding_declared_binder_name_collision_admits 2 tests/soundness/ope
 
 tuplestruct_ctor_declared_binder_name_admits 2 tests/soundness/open/tuplestruct_ctor_declared_binder_name_admits admits
 
-let_mutref_annotation_to_meet_struct_refused 3 tests/soundness/open/let_mutref_annotation_to_meet_struct_refused refuses
-
 generic_type_param_two_regions_first_wins_refused 3 tests/soundness/open/generic_type_param_two_regions_first_wins_refused refuses
 
 tuplestruct_ctor_declared_binder_name_refused 3 tests/soundness/open/tuplestruct_ctor_declared_binder_name_refused refuses
@@ -510,5 +508,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 175
-# SYNC-HASH 2805848aef0807cb968debd36ddb42a6
+# TOTAL 174
+# SYNC-HASH 8f82407d9bee5cf7227f514b49acde55

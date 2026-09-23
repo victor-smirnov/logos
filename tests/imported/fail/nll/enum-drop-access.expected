@@ -1,1 +1,1 @@
-cannot move out of 'opt.r': its owner implements Drop (E0509, line 56)
+line 56: borrow may still be in use when destructor runs: '*opt.r' (E0713)

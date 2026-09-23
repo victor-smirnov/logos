@@ -7,8 +7,8 @@
 // because it is borrowed (both marked lines).
 package drop_no_may_dangle;
 extern fn noop(p: *const u8);
-struct WrapMayNotDangle { value: &i64 }
-impl Drop for WrapMayNotDangle { fn drop(self: &mut WrapMayNotDangle) { unsafe { noop(0 as *const u8); } } }
+struct WrapMayNotDangle<'a> { value: &'a i64 }
+impl<'a> Drop for WrapMayNotDangle<'a> { fn drop(self: &mut WrapMayNotDangle) { unsafe { noop(0 as *const u8); } } }
 fn use_x(a: i64) -> bool { return true; }
 fn main() -> i32 {
     let mut v: [i64; 3] = [1i64, 2i64, 3i64];

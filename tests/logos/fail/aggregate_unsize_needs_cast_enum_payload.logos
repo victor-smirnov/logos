@@ -22,7 +22,7 @@ trait Shape { fn area(&self) -> i64; }
 trait Other { fn tag(&self) -> i64; }
 struct Sq { s: i64 }
 impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
-enum E { Some((&dyn Shape, i64)), None }
+enum E<'a> { Some((&'a dyn Shape, i64)), None }
 fn main() -> i32 {
     let a: Sq = Sq { s: 4i64 };
     let t = (&a, 7i64);

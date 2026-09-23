@@ -5,14 +5,14 @@
 package bc_d1r9_n0_aggregate_copy_out;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Inner { r: &mut Vec<B> }
-struct Outer { i: Inner }
+struct Inner<'a, 'b> { r: &'a mut Vec<B<'b>> }
+struct Outer<'a, 'b> { i: Inner<'a, 'b> }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

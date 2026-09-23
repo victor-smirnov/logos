@@ -373,9 +373,9 @@ struct WgFrame {
 /// once per incoming edge, containers expanded once. `str` cells are VIEWS into
 /// the document, which is why the borrow is carried.
 #[borrow_carrying]
-pub struct WritWalk {
+pub struct WritWalk<'a> {
     /// The document, borrowed for the life of the cursor.
-    doc: &Writ,
+    doc: &'a Writ,
     /// The suspended recursion (item 1 above).
     stack: Vec<WgFrame>,
     /// The expanded-container set (item 2 above), owned.
@@ -391,7 +391,7 @@ pub struct WritWalk {
     armed: bool,
 }
 
-impl WritWalk {
+impl<'a> WritWalk<'a> {
     /// A fresh walk over `root`. Costs one empty frame stack — it does NOT
     /// touch the document until the first pull.
     pub fn new(root: &Writ) -> WritWalk {
@@ -523,10 +523,10 @@ impl WritWalk {
 
 // The walk IS a batch stream, and the batch is row-major (`WritEdgeRow` tuples
 // in a slice), which is what makes the emitter spell the row `bb[j]`.
-impl BatchStream<RowsBatch<WritEdgeRow>> for WritWalk {
+impl<'a> BatchStream<RowsBatch<WritEdgeRow>> for WritWalk<'a> {
     fn next(&mut self) -> Option<RowsBatch<WritEdgeRow>> { return self.next_batch(); }
 }
-impl RowMajor for WritWalk {}
+impl<'a> RowMajor for WritWalk<'a> {}
 
 // ⚠ `Rewind` IS IMPLEMENTED AND IS NOT THE RE-READ CAPABILITY.
 //
@@ -548,7 +548,7 @@ impl RowMajor for WritWalk {}
 // yields an independent walk", which is a property of the PRODUCER FUNCTION,
 // not of the stream type. That capability DOES NOT EXIST YET — see the REFUSAL
 // block below, which says what it would cost and what was measured without it.
-impl Rewind for WritWalk {
+impl<'a> Rewind for WritWalk<'a> {
     fn rewind(&mut self) {
         self.stack.clear();
         self.seen.clear();

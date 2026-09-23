@@ -5,7 +5,7 @@
 // G3 LEGAL — the ctor is not on the RHS of a `let`: it is built directly at a
 // CALL ARGUMENT position, so no LetInit hint reaches the payload check.
 package bc_0908_fatrepr_fix_hb_g3_admit;
-enum E { N, S(&[i64]) }
+enum E<'a> { N, S(&'a [i64]) }
 fn take(e: E) -> i64 {
     match e {
         E::N => { return 0i64; }

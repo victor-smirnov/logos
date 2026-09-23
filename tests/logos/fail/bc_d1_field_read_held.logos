@@ -3,13 +3,13 @@
 // inherited nothing, so the loan died at `w`'s last use.
 package bc_d1_field_read_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Wrap { b: B }
+struct Wrap<'a> { b: B<'a> }
 fn main() -> i32 {
     let mut c: C = C { v: 1i64 };
     let w: Wrap = Wrap { b: c.mk() };

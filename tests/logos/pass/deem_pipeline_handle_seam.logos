@@ -73,11 +73,11 @@ pub deem q1(m: &<typeof(Led) as CtrFamily>::Handle) {
 // `pass/deem_order_desc_elision` records at its own split. This fixture needs
 // all three in ONE module (that IS the arm: a handle-fed chain), so the counter
 // moves off the module surface instead of the fixture being split in half.
-pub struct SeamSrc { pub rows: &[(u64, u64)], pub ctr: *mut i64 }
+pub struct SeamSrc<'a> { pub rows: &'a [(u64, u64)], pub ctr: *mut i64 }
 
-pub struct SeamIter { pub rows: &[(u64, u64)], pub i: i64, pub ctr: *mut i64 }
+pub struct SeamIter<'a> { pub rows: &'a [(u64, u64)], pub i: i64, pub ctr: *mut i64 }
 
-impl Iterator<(u64, u64)> for SeamIter {
+impl<'a> Iterator<(u64, u64)> for SeamIter<'a> {
     fn next(self: &mut SeamIter) -> Option<(u64, u64)> {
         if self.i >= self.rows.len() { return Option::None; }
         unsafe { self.ctr[0] = self.ctr[0] + 1i64; }
@@ -91,7 +91,7 @@ pub fn seam_rows(s: &SeamSrc) -> SeamIter {
     return SeamIter { rows: s.rows, i: 0i64, ctr: s.ctr };
 }
 
-impl OrderedMapSource<u64, u64> for SeamSrc {
+impl<'a> OrderedMapSource<u64, u64> for SeamSrc<'a> {
     rel entry = seam_rows;
 }
 

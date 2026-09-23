@@ -19,5 +19,5 @@
 //   tests/logos/pass/bc_enumpldlt_placeholder_payload_lifetime `enum E1 { V(&i64) }`
 //   asserts that exactly this compiles, with a header saying so.
 package regions_in_enums_anon;
-enum Foo { Bar(&i64) }
+enum Foo<'a> { Bar(&'a i64) }
 fn main() -> i32 { return 0i32; }

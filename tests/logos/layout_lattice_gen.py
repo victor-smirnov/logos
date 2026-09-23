@@ -54,7 +54,7 @@ def composition_axes():
     axes.append(("opt_none_i64", "Option<i64>", "Option::None"))
     # NICHE-PACKED — the disc lives in the pointer's null value, so the enum is
     # exactly its payload and there is no disc word at all.
-    axes.append(("opt_ref", "Option<&i64>", "Option::Some(&NINE)"))
+    axes.append(("opt_ref", "Option<&'static i64>", "Option::Some(&NINE)"))
     # NESTED enum — the inner enum's full inline footprint, not a pointer.
     axes.append(("opt_opt", "Option<Option<i64>>", "Option::Some(Option::Some(7i64))"))
     # Authored enums: two payload arms of different widths, and a C-like enum
@@ -119,7 +119,7 @@ USES = "use logos.lang.option;"
 PRELUDE = """struct Zst {}
 enum E2 { A(i32), B(i64) }
 enum EC { X, Y, Z }
-enum ORef { N, S(&i64) }
+enum ORef { N, S(&'static i64) }
 """ + "".join(f"enum EB_{w} : {w} {{ X, Y, Z }}\n" for w in BACKINGS) \
     + "".join(f"enum GB_{w}<T> : {w} {{ X, Y, Z }}\n" for w in BACKINGS) + """
 union UBig { bytes: [u8; 12], big: i64 }

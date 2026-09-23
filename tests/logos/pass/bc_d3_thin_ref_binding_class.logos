@@ -15,9 +15,9 @@
 package bc_d3_thin_ref_binding_class;
 use logos.mem.collections.vec;
 
-struct H  { r: &mut Vec<i64> }
-struct HI { r: &Vec<i64> }
-enum E { V(&mut Vec<i64>) }
+struct H<'a>  { r: &'a mut Vec<i64> }
+struct HI<'a> { r: &'a Vec<i64> }
+enum E<'a> { V(&'a mut Vec<i64>) }
 
 fn takes_ref(v: &Vec<i64>) -> i64 { return v.len() as i64; }
 

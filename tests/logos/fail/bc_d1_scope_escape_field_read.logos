@@ -6,8 +6,8 @@
 // PAIRED WITH pass/bc_d1_scope_escape_scalar_admits.
 package bc_d1_scope_escape_field_read;
 #[borrow_carrying]
-struct B { p: &i64 }
-struct Wrap { b: B }
+struct B<'a> { p: &'a i64 }
+struct Wrap<'a> { b: B<'a> }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

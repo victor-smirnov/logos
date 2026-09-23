@@ -235,6 +235,14 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
                 if (alts.empty() != blts.empty() &&
                     all_empty(alts) && all_empty(blts)) return true;
             }
+            // #465: a BARE `P` in a body annotation is the elided spelling of
+            // every slot — inference variables, as an elided `&`'s region is.
+            // It pairs slot by slot as elided against the other side's names
+            // (lt_eq's empty rule, 'static direction included). This used to
+            // be refused, which pinned `ex2d-push-inference-variable-2` at its
+            // LEGAL `let` (09-01n §6); the BIR checker refuses the push.
+            if (alts.empty() && !blts.empty()) alts.assign(blts.size(), std::string{});
+            else if (blts.empty() && !alts.empty()) blts.assign(alts.size(), std::string{});
             if (alts.size() != blts.size()) return false;
             for (size_t i = 0; i < alts.size(); ++i)
                 if (!lt_eq(alts[i], blts[i])) return false;

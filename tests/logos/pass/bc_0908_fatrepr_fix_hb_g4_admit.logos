@@ -5,7 +5,7 @@
 // G4 LEGAL — the ctor at a RETURN position inside a function whose result is
 // matched by the caller; the array outlives the call through a parameter.
 package bc_0908_fatrepr_fix_hb_g4_admit;
-enum E { N, S(&[i64]) }
+enum E<'a> { N, S(&'a [i64]) }
 fn wrap(p: &[i64]) -> E { return E::S(p); }
 fn wrap2(p: &[i64; 3]) -> E { return E::S(p); }
 fn main() -> i32 {

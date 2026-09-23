@@ -10,7 +10,7 @@
 // ref_source_places), and opening only the type gate left this one open.
 package bc_reborrow_slice_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }

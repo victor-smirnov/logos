@@ -5,7 +5,7 @@
 // ⚠ LEGALITY MEASURED 2026-09-16 vs rustc 1.98.1 --edition 2024: CONFIRMED (REFUSED, E0621); twin src/compiler/probes/2026-09-16a-fixtureaudit/rust/shard4-fail/twins/bc_lifereg_derefwrite_field_ptr_escape_fail.rs
 // ONE TOKEN from pass/bc_lifereg_derefwrite_field_ptr_samelt_admit.
 package bc_lifereg_derefwrite_field_ptr_escape_fail;
-struct H { r: &mut &i64 }
+struct H<'p, 'q> { r: &'p mut &'q i64 }
 fn f<'a>(x: &'a i64, y: &i64) -> &'a i64 {
   let mut out: &i64 = x;
   { let h: H = H { r: &mut out }; *h.r = y; }

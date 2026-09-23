@@ -7,8 +7,8 @@
 //
 // ONE LINE apart from `pass/bc_dropck_loan_nodrop_admit`: the `impl Drop`.
 package bc_dropck_loan_drop_ref_field_fail;
-struct Wrap { p: &mut i64 }
-impl Drop for Wrap { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }
+struct Wrap<'a> { p: &'a mut i64 }
+impl<'a> Drop for Wrap<'a> { fn drop(self: &mut Wrap) { *self.p = *self.p + 1i64; } }
 fn main() -> i32 {
     let mut x: i64 = 0i64;
     let wrap: Wrap = Wrap { p: &mut x };

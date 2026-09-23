@@ -8,14 +8,14 @@
 package bc_d1r11_x1_result_subplace;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Inner { r: &mut Vec<B> }
-fn peel3r(h: &mut Inner) -> &mut Vec<B> { return h.r; }
+struct Inner<'r, 'a> { r: &'r mut Vec<B<'a>> }
+fn peel3r<'h, 'a>(h: &'h mut Inner<'_, 'a>) -> &'h mut Vec<B<'a>> { return h.r; }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

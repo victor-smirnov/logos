@@ -5,7 +5,7 @@
 // G6 LEGAL — TWO ctors of the same variant in an ARRAY of enums, read back by
 // index; the payload is a slice of a DIFFERENT length each time.
 package bc_0908_fatrepr_fix_hb_g6_admit;
-enum E { N, S(&[i64]) }
+enum E<'a> { N, S(&'a [i64]) }
 fn main() -> i32 {
     let a: [i64; 3] = [1i64, 2i64, 3i64];
     let b: [i64; 2] = [9i64, 8i64];

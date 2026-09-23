@@ -48,7 +48,7 @@
 //     and correctly so; keeping it in this file would make part of the row's
 //     admission licensed, which is exactly the confusion this stage exists to remove.
 package issue_52059_report_when_borrow_and_drop_conflict;
-struct S { url: &mut i64 }
-impl Drop for S { fn drop(self: &mut S) { } }
-fn finish_1(s: S) -> &mut i64 { return s.url; }            // THE DEFECT: admitted, upstream E0713
+struct S<'a> { url: &'a mut i64 }
+impl<'a> Drop for S<'a> { fn drop(self: &mut S) { } }
+fn finish_1(s: S) -> &mut i64 { return s.url; }            // upstream E0713
 fn main() -> i32 { return 0i32; }

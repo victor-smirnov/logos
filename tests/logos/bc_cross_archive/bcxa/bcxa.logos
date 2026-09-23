@@ -24,7 +24,7 @@ package bc_cross_archive.bcxa;
 use logos.mem.collections.vec;
 
 #[borrow_carrying]
-pub struct B { pub p: &i64 }
+pub struct B<'a> { pub p: &'a i64 }
 
 pub struct C { pub v: i64 }
 
@@ -34,7 +34,7 @@ impl C {
 }
 
 // The out-param sink: reachable only through the summary.
-pub fn stash2(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+pub fn stash2<'a>(c: &'a C, v: &mut Vec<B<'a>>) { v.push(c.mk()); }
 
 // The direction control's callee: carries NOTHING (scalar result, no sink).
 pub fn count_of(c: &C) -> i64 { return c.v; }

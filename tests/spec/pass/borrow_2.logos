@@ -8,7 +8,7 @@ use logos.lang.rc;
 
 struct Point { x: i64, y: i64 }
 
-struct Guard { r: &mut i64 }
+struct Guard<'a> { r: &'a mut i64 }
 
 struct Holder { v: i64 }
 impl Holder {

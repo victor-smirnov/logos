@@ -10,8 +10,8 @@ struct C { v: i64 }
 impl C {
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct IV { r: &mut Vec<i64> }
-struct MV { i: IV }
+struct IV<'a> { r: &'a mut Vec<i64> }
+struct MV<'a> { i: IV<'a> }
 fn work(v: &mut Vec<i64>, w: &mut Vec<i64>, u: &mut Vec<i64>) {
     let inn: IV = IV { r: v };
     let mut h: MV = MV { i: inn };

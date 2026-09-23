@@ -1,16 +1,16 @@
 // THE LEGAL TWIN, ONE TOKEN APART: `S` by value is ONE input lifetime (its
 // elided argument), so the output takes it. Also pins a lifetime-less struct
-// beside a ref, and the Logos struct-field elision idiom (`struct E { x: &i64 }`
-// declares no binder, so `&E` is one position).
+// beside a ref, and a borrow-carrying struct behind a ref (`&E<'a>` is two
+// positions, as in Rust, so the output names `'a`).
 package bc_dclltpos_struct_arity_named;
 
 struct S<'a> { field: &'a i64 }
 struct P { n: i64 }
-struct E { x: &i64 }
+struct E<'a> { x: &'a i64 }
 
 fn f(a: S, b: i64) -> &i64 { return a.field; }
 fn g(p: P, q: &i64) -> &i64 { return q; }
-fn h(e: &E, n: i64) -> &i64 { return e.x; }
+fn h<'a>(e: &E<'a>, n: i64) -> &'a i64 { return e.x; }
 
 fn main() -> i32 {
     let v: i64 = 3i64;

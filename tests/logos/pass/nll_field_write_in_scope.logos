@@ -2,7 +2,7 @@
 // `outer` (both live to the end). Must compile (no E0597) — guards against the
 // field-write E0597 check over-firing.
 package nll_field_write_in_scope;
-struct Ref { p: &i64 }
+struct Ref<'a> { p: &'a i64 }
 fn main() -> i32 {
     let x: i64 = 7i64;
     let mut outer: Ref = Ref { p: &0i64 };

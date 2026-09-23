@@ -31,13 +31,13 @@
 // (the dangling-source direction, which the PLACE keys had to preserve).
 package bc_d1r2_place_write_field_admits;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Wrap { b: B }
+struct Wrap<'a> { b: B<'a> }
 fn main() -> i32 {
     let mut c: C = C { v: 1i64 };
     let z: i64 = 9i64;

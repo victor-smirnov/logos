@@ -1,5 +1,5 @@
 // D1 round 5 / H0 — a &mut REBORROW LOCAL between the &mut param and the
-// store erased the whole out-param flow. `let r: &mut Vec<B> = v;` made the
+// store erased the whole out-param flow. `let r: &mut Vec<B<'a>> = v;` made the
 // summary read `result<-0` where the one-line-less twin read
 // `result<-0 out1<-0x1`: call_effects deposited on the ALIAS while recompute
 // read back the PARAM NAME. Pins that an inert alias line cannot change the
@@ -9,13 +9,13 @@
 package bc_d1r5_h0_alias_out_param;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-fn stash(c: &C, v: &mut Vec<B>) { let r: &mut Vec<B> = v; r.push(c.mk()); }
+fn stash<'a>(c: &'a C, v: &mut Vec<B<'a>>) { let r: &mut Vec<B<'a>> = v; r.push(c.mk()); }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

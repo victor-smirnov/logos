@@ -10,17 +10,17 @@
 package bc_d1r2_dyn_erasure_held;
 use logos.mem.boxed;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
 trait Get { fn g(&self) -> i64; }
-impl Get for B { fn g(&self) -> i64 { return *self.p; } }
+impl Get for B<'_> { fn g(&self) -> i64 { return *self.p; } }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
-    let d: Box<dyn Get> = Box::new(c.mk());
+    let d: Box<dyn Get + '_> = Box::new(c.mk());
     c.bump();
     return d.g();
 }

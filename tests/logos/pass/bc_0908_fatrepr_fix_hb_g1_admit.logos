@@ -5,7 +5,7 @@
 // G1 LEGAL — GENERIC enum: the payload type is a substituted `&[T]`, so the
 // unsize is decided AFTER subst_type_sema. A shape the pricing round did not use.
 package bc_0908_fatrepr_fix_hb_g1_admit;
-enum E<T> { N, S(&[T]) }
+enum E<'a, T> { N, S(&'a [T]) }
 fn main() -> i32 {
     let a: [i64; 3] = [7i64, 8i64, 9i64];
     let e: E<i64> = E::S(&a);

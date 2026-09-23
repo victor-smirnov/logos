@@ -5,7 +5,7 @@
 // Semantic port: return a value that references a TEMPORARY produced inside the fn.
 package return_local_binding_from_desugaring;
 struct Item { n: i64 }
-struct Holder { r: &i64 }
+struct Holder<'a> { r: &'a i64 }
 fn mk() -> Item { return Item { n: 5i64 }; }
 fn group_by() -> Holder {
     let x = mk();

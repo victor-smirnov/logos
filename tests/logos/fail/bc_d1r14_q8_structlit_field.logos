@@ -17,7 +17,7 @@
 // A LITERAL receiver is what makes the witness: `h.r` on a plain variable is
 // covered by the RefGraph channel, which is why the shape hid for 13 rounds.
 package bc_d1r14_q8_structlit_field;
-struct T { a: &i64 }
+struct T<'a> { a: &'a i64 }
 fn main() -> i32 {
     let mut o: &i64;
     { let x: i64 = 7i64; o = T { a: &x }.a; }

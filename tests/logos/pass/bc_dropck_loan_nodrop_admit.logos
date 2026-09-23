@@ -9,7 +9,7 @@
 package bc_dropck_loan_nodrop_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
-struct Wrap { p: &mut i64 }
+struct Wrap<'a> { p: &'a mut i64 }
 fn main() -> i32 {
     let mut x: i64 = 0i64;
     let wrap: Wrap = Wrap { p: &mut x };

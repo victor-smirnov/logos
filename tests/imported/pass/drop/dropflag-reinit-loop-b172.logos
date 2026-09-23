@@ -12,9 +12,9 @@
 // argument by value and drops it when it returns, forcing an early drop.
 package drop_dropflag_reinit;
 
-struct A { p: &mut i64 }
+struct A<'a> { p: &'a mut i64 }
 
-impl Drop for A {
+impl<'a> Drop for A<'a> {
     fn drop(&mut self) { *self.p = *self.p + 1i64; }
 }
 

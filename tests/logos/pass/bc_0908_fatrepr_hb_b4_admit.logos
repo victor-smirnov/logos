@@ -9,7 +9,7 @@ package bc_0908_fatrepr_hb_b4_admit;
 trait Tr { fn v(&self) -> i64; }
 struct A { x: i64 }
 impl Tr for A { fn v(&self) -> i64 { return self.x; } }
-struct H { d: &dyn Tr, n: i64 }
+struct H<'a> { d: &'a dyn Tr, n: i64 }
 fn main() -> i32 {
     let a: A = A { x: 17i64 };
     let h: H = H { d: &a, n: 7i64 };

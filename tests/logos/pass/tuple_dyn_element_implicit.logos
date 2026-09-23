@@ -20,7 +20,7 @@ struct Tri { b: i64 }
 impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
 impl Shape for Tri { fn area(&self) -> i64 { return self.b + 100i64; } }
 
-struct W { t: (&dyn Shape, i64) }
+struct W<'a> { t: (&'a dyn Shape, i64) }
 
 fn take(t: (&dyn Shape, i64)) -> i64 { return t.0.area() + t.1; }
 fn mk(a: &Sq) -> (&dyn Shape, i64) { return (a, 7i64); }

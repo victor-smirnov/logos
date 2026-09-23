@@ -2317,6 +2317,15 @@ private:
                 bir::BlockId body = new_block(), exit = new_block();
                 bir::LocalId slot = v.break_slot().empty() ? bir::kNoLocal
                                                            : find_local(v.break_slot(), ~0u);
+                // THE BREAK SLOT IS A LOCAL OF ITS OWN (mlir-gen allocates it at
+                // the loop). Nothing declared it here, so `break &mut vs` went
+                // into a throwaway temp and `let s = loop { .. }` read a
+                // const: the loan never reached `s` (#465).
+                if (slot == bir::kNoLocal && !v.break_slot().empty() && v.result_type(pool_)) {
+                    slot = new_local(std::string(v.break_slot()), bir::LocalKind::Temp,
+                                     v.result_type(pool_), true, ~0u, line_);
+                    declare(slot);
+                }
                 goto_(body);
                 loops_.push_back({std::string(v.label()), body, exit, scopes_.size(), slot});
                 cur_ = body; lower_scoped_block(v.body()); goto_(body);
@@ -2971,6 +2980,7 @@ public:
     // borrow, 2 a new MUTABLE borrow, 3 the place went out of scope, 4 an
     // assignment, 5 a move, 6 a plain read. See why_ and invalidations().
     bool at_return(uint32_t point) const { return return_points_.count(point) != 0; }
+    bool at_drop(uint32_t point) const { return drop_points_.count(point) != 0; }
     int invalidation_kind(uint32_t loan, uint32_t point) const {
         auto it = why_.find({loan, point});
         if (it == why_.end()) return 0;
@@ -2981,6 +2991,7 @@ public:
             case Access::StorageDead:   return 3;
             case Access::WriteShallow:  return 4;
             case Access::WriteDeep:     return 5;
+            case Access::DropNoGlue:    return 5;
             case Access::Read:          return 6;
         }
         return 0;
@@ -3092,7 +3103,8 @@ private:
             case LogosType::Kind::Struct: case LogosType::Kind::Enum: {
                 size_t before = out.os.size();
                 for (size_t i = 0, nl = struct_lifetime_count(t); i < nl; ++i) {
-                    out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
+                    out.os.push_back(fresh_origin());
+                    out.inv.push_back(invariant || struct_lt_invariant(t, i));
                 }
                 for (auto& a : t.type_args()) walk_type(a, invariant, out, depth + 1);
                 if (out.os.size() == before && bir_type_carries_loans(t, prog_, ts_)) {
@@ -3154,8 +3166,42 @@ private:
     // DEFINITION's parameters do. Without this such a value had no origin at
     // all when its fields are raw pointers, and `next(&mut self) -> Option<&'a
     // T>` had no `'a` source to take its result from.
+    // An enum's definition (the instance, else the base), when it has one.
+    const lir_view::EnumView* enum_def_(TypeRef t) const {
+        if (!t || t.kind() != LogosType::Kind::Enum) return nullptr;
+        auto it = ts_.enum_by_name.end();
+        if (!t.type_args().empty()) it = ts_.enum_by_name.find(Mono::enum_instance_name(t));
+        if (it == ts_.enum_by_name.end()) it = ts_.enum_by_name.find(std::string(t.enum_name()));
+        return it == ts_.enum_by_name.end() ? nullptr : &it->second;
+    }
+    // A struct's or enum's declared lifetime names ('-prefixed) and the types
+    // its fields / payloads are declared with.
+    bool adt_decl_(TypeRef t, std::vector<std::string>& lts, std::vector<TypeRef>& fts) const {
+        auto norm = [](std::string_view s) { std::string q(s); if (!q.empty() && q[0] != '\'') q = "'" + q; return q; };
+        if (t && t.kind() == LogosType::Kind::Enum) {
+            const auto* ed = enum_def_(t);
+            if (!ed) return false;
+            for (auto n : ed->lifetime_params()) lts.push_back(norm(n));
+            ed->each_variant([&](lir_view::EnumVariantView v) {
+                v.each_payload_type(prog_.type_pool.impl(), [&](TypeRef pt) { fts.push_back(pt); });
+            });
+            return true;
+        }
+        if (!t || t.kind() != LogosType::Kind::Struct) return false;
+        std::string want = concrete_struct_name(t);
+        const lir_view::StructView* sd = nullptr;
+        auto it = struct_def_find(ts_.struct_by_name, t, want);
+        if (it != ts_.struct_by_name.end()) sd = &it->second;
+        else if (auto it2 = struct_def_find(ts_.spec_by_name, t, want); it2 != ts_.spec_by_name.end()) sd = &it2->second;
+        if (!sd) return false;
+        for (auto n : sd->lifetime_params()) lts.push_back(norm(n));
+        for (auto fd : sd->fields()) fts.push_back(fd.type(prog_.type_pool.impl()));
+        return true;
+    }
     size_t struct_lifetime_count(TypeRef t) const {
         size_t n = t.lifetime_args().size();
+        if (!n && t.kind() == LogosType::Kind::Enum)
+            if (const auto* ed = enum_def_(t)) return ed->lifetime_params().size();
         if (n || t.kind() != LogosType::Kind::Struct) return n;
         std::string want = concrete_struct_name(t);
         if (auto it = struct_def_find(ts_.struct_by_name, t, want); it != ts_.struct_by_name.end())
@@ -3163,6 +3209,115 @@ private:
         if (auto it = struct_def_find(ts_.spec_by_name, t, want); it != ts_.spec_by_name.end())
             return it->second.lifetime_params().size();
         return 0;
+    }
+    // Whether a struct's `i`-th lifetime parameter is used ONLY covariantly by
+    // its fields (`&'a T`, `&'a [T]`, a nested struct's covariant parameter),
+    // and at least once. Such a region of a by-value parameter IS a
+    // placeholder, exactly as a plain `&'a`'s is: `y: Ref<'c>` pushed into
+    // `x: &mut Vec<Ref<'b>>` is "'c must outlive 'b" (#465). Anything else —
+    // invariant, contravariant, a type argument's, a fn pointer's, unused —
+    // keeps the no-claim answer below, which can miss but never refuse.
+    bool struct_lt_covariant(TypeRef t, size_t i, int depth = 0) const {
+        if (!t || depth > 8) return false;
+        std::vector<std::string> lps;
+        std::vector<TypeRef> fts;
+        if (!adt_decl_(t, lps, fts) || i >= lps.size()) return false;
+        auto norm = [](std::string_view s) {
+            std::string q(s);
+            if (!q.empty() && q[0] != '\'') q = "'" + q;
+            return q;
+        };
+        const std::string name = lps[i];
+        bool co = false, bad = false;
+        std::function<void(TypeRef, bool, int)> walk = [&](TypeRef f, bool inv, int d) {
+            if (!f || d > 16 || bad) return;
+            using K = LogosType::Kind;
+            switch (f.kind()) {
+                case K::Ref: case K::MutRef:
+                    if (norm(f.lifetime()) == name) { if (inv) bad = true; else co = true; }
+                    walk(f.pointee(), inv || f.kind() == K::MutRef, d + 1);
+                    return;
+                case K::Slice: case K::TraitObject: case K::DstRef:
+                    if (norm(f.lifetime()) == name) { if (inv) bad = true; else co = true; }
+                    if (f.kind() == K::Slice) walk(f.elem(), inv, d + 1);
+                    return;
+                case K::Ptr: walk(f.pointee(), inv || f.mut_ptr(), d + 1); return;
+                case K::Array: walk(f.elem(), inv, d + 1); return;
+                case K::Tuple: for (auto e : f.tuple_elems()) walk(e, inv, d + 1); return;
+                case K::Struct: case K::ZonedStruct: case K::Enum: {
+                    auto la = f.lifetime_args();
+                    for (size_t j = 0; j < la.size(); ++j)
+                        if (norm(la[j]) == name) {
+                            if (inv || f.kind() == K::ZonedStruct || !struct_lt_covariant(f, j, depth + 1)) bad = true;
+                            else co = true;
+                        }
+                    for (auto a : f.type_args()) {
+                        bool saved = co; co = false;
+                        walk(a, inv, d + 1);
+                        if (co) bad = true;   // a type argument's variance is the ADT's: unknown here
+                        co = saved;
+                    }
+                    return;
+                }
+                case K::FnPtr: case K::FnItem: case K::Closure: {
+                    bool saved = co; co = false;
+                    for (auto p : f.closure_params()) walk(p, inv, d + 1);
+                    walk(f.closure_ret(), inv, d + 1);
+                    if (co) bad = true;
+                    co = saved;
+                    return;
+                }
+                default: return;
+            }
+        };
+        for (auto ft : fts) walk(ft, false, 0);
+        return co && !bad;
+    }
+    // Whether a struct's `i`-th lifetime parameter occurs in an INVARIANT
+    // position of its fields: behind `&mut` / `*mut`, or as an invariant
+    // parameter of a nested struct. `Outer<'a, 'b> { i: Inner<'a, 'b> }` with
+    // `Inner { r: &'a mut Vec<B<'b>> }` fixes 'b exactly, so relating an
+    // `Inner` into an `Outer` must tie 'b both ways — one way, what is later
+    // pushed through `h.i.r` never reached `vs` (#465).
+    bool struct_lt_invariant(TypeRef t, size_t i, int depth = 0) const {
+        if (!t || depth > 8) return false;
+        std::vector<std::string> lps;
+        std::vector<TypeRef> fts;
+        if (!adt_decl_(t, lps, fts) || i >= lps.size()) return false;
+        auto norm = [](std::string_view s) {
+            std::string q(s);
+            if (!q.empty() && q[0] != '\'') q = "'" + q;
+            return q;
+        };
+        const std::string name = lps[i];
+        bool hit = false;
+        std::function<void(TypeRef, bool, int)> walk = [&](TypeRef f, bool inv, int d) {
+            if (!f || d > 16 || hit) return;
+            using K = LogosType::Kind;
+            switch (f.kind()) {
+                case K::Ref: case K::MutRef:
+                    if (inv && norm(f.lifetime()) == name) hit = true;
+                    walk(f.pointee(), inv || f.kind() == K::MutRef, d + 1);
+                    return;
+                case K::Slice: case K::TraitObject: case K::DstRef:
+                    if (inv && norm(f.lifetime()) == name) hit = true;
+                    if (f.kind() == K::Slice) walk(f.elem(), inv, d + 1);
+                    return;
+                case K::Ptr: walk(f.pointee(), inv || f.mut_ptr(), d + 1); return;
+                case K::Array: walk(f.elem(), inv, d + 1); return;
+                case K::Tuple: for (auto e : f.tuple_elems()) walk(e, inv, d + 1); return;
+                case K::Struct: case K::ZonedStruct: case K::Enum: {
+                    auto la = f.lifetime_args();
+                    for (size_t j = 0; j < la.size(); ++j)
+                        if (norm(la[j]) == name && (inv || struct_lt_invariant(f, j, depth + 1))) hit = true;
+                    for (auto a : f.type_args()) walk(a, inv, d + 1);
+                    return;
+                }
+                default: return;
+            }
+        };
+        for (auto ft : fts) walk(ft, false, 0);
+        return hit;
     }
     std::set<std::string> visiting_;
     static std::string layout_key(TypeRef t) {
@@ -3211,8 +3366,10 @@ private:
         if (!t || (t.kind() != LogosType::Kind::Struct && t.kind() != LogosType::Kind::Enum)) return std::nullopt;
         ParentLayout pl;
         size_t nl = struct_lifetime_count(t);
-        if (nl) {
-            if (t.kind() != LogosType::Kind::Struct) return std::nullopt;
+        if (nl && t.kind() == LogosType::Kind::Enum) {
+            std::vector<TypeRef> fts_;
+            if (!adt_decl_(t, pl.lifetimes, fts_) || pl.lifetimes.size() != nl) return std::nullopt;
+        } else if (nl) {
             std::string want = concrete_struct_name(t);
             auto names = [&](lir_view::StructView sd) { for (auto n : sd.lifetime_params()) { std::string q(n); if (!q.empty() && q[0] != '\'') q = "'" + q; pl.lifetimes.push_back(q); } };
             if (auto it = struct_def_find(ts_.struct_by_name, t, want); it != ts_.struct_by_name.end()) names(it->second);
@@ -3986,7 +4143,7 @@ private:
     }
 
     // ── accesses ──
-    enum class Access : uint8_t { Read, WriteShallow, WriteDeep, StorageDead };
+    enum class Access : uint8_t { Read, WriteShallow, WriteDeep, StorageDead, DropNoGlue };
     struct Acc { uint32_t point; bir::Place place; Access kind; int32_t self_loan; };
     std::vector<Acc> accesses_;
     // (loan, point) -> the access that invalidated it; see invalidations().
@@ -3995,6 +4152,7 @@ private:
     // StorageDead THERE was still live when the function returned, which is
     // what "returns a reference to a local" means.
     std::set<uint32_t> return_points_;
+    std::set<uint32_t> drop_points_;   // points of a `Drop` statement
     void access(uint32_t p, const bir::Place& pl, Access k, int32_t self_loan = -1) {
         accesses_.push_back({p, pl, k, self_loan});
     }
@@ -4207,6 +4365,11 @@ private:
                         hit = !extends_through_shared_deref(L.place, a.place);
                         break;
                     case Access::StorageDead:
+                    // A DROP WITH NO DESTRUCTOR THAT CAN SEE A BORROW does not
+                    // reach behind a reference (rustc's AccessDepth::Drop):
+                    // `Pin<&mut T>` dropped after `&mut *self.pointer` was
+                    // returned touches nothing the reborrow points at.
+                    case Access::DropNoGlue:
                         hit = extends_without_deref(L.place, a.place);
                         break;
                 }
@@ -4677,6 +4840,19 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                     // does not exist there, so they carry the claim — and an
                     // unclaimed one is not neutral (it relates to everything, and
                     // the known relation is transitive).
+                    case LogosType::Kind::Struct: case LogosType::Kind::Enum:
+                        if (!inv && claim && t.lifetime_args().size() == struct_lifetime_count(t) &&
+                            !t.lifetime_args().empty()) {
+                            // A lifetime parameter its definition uses only
+                            // covariantly claims like a plain `&'a` (see
+                            // struct_lt_covariant); the type arguments keep
+                            // their unknown variance.
+                            size_t nl = struct_lifetime_count(t);
+                            for (size_t i = 0; i < nl; ++i) out.push_back(struct_lt_covariant(t, i));
+                            for (auto& a : t.type_args()) { size_t n = 0; count_only(a, n); out.insert(out.end(), n, false); }
+                            return;
+                        }
+                        [[fallthrough]];
                     default: { size_t n = 0; count_only(t, n); out.insert(out.end(), n, inv && claim); return; }
                 }
             };
@@ -4865,19 +5041,28 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             const bir::Local& root = b_.locals[prefix.local];
                             TypeRef pt = root.type;
                             bool synth = root.synth_ref;
+                            // rustc's SUPPORTING PREFIXES: from the innermost
+                            // deref outwards, every reference deref'd keeps what
+                            // it holds alive for the new loan — and a SHARED
+                            // reference ends the walk (`&(*self).data.n` with
+                            // `data: &'a Row` needs 'a, not `self`'s borrow).
+                            std::vector<std::pair<bir::Place, bool>> derefs;   // prefix, is shared
                             for (auto& pj : s.rv.place.proj) {
                                 bool ref_deref = pj.k == bir::Proj::K::Deref &&
                                     (synth || is_borrowing_pointer(pt));
-                                if (ref_deref) {
-                                    OList po = place_origins(prefix);
-                                    if (po.exact && !po.os.empty()) subset(po.os[0], L.origin, p);
-                                    else for (uint32_t oo : po.os) subset(oo, L.origin, p);
-                                }
+                                if (ref_deref)
+                                    derefs.emplace_back(prefix, !synth && pt && pt.kind() == LogosType::Kind::Ref);
                                 if (pj.k == bir::Proj::K::Deref && synth) { pt = root.synth_pointee; synth = false; }
                                 else if (pj.k == bir::Proj::K::Deref) pt = pt ? pt.pointee() : TypeRef{};
                                 else if (pj.k == bir::Proj::K::Field) pt = pj.ty;   // the field's type, when the place recorded it
                                 else pt = pt && pt.kind() == LogosType::Kind::Array ? pt.elem() : TypeRef{};
                                 prefix = prefix.with(pj);
+                            }
+                            for (size_t di = derefs.size(); di-- > 0;) {
+                                OList po = place_origins(derefs[di].first);
+                                if (po.exact && !po.os.empty()) subset(po.os[0], L.origin, p);
+                                else for (uint32_t oo : po.os) subset(oo, L.origin, p);
+                                if (derefs[di].second) break;
                             }
                         }
                         // A BORROW STORED AS A RAW POINTER (`let q: *mut &'static
@@ -4897,6 +5082,12 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             OList inner = dst;
                             inner.os.erase(inner.os.begin()); inner.inv.erase(inner.inv.begin());
                             OList referent = place_origins(s.rv.place);
+                            // WELL-FORMEDNESS OF `&'r T`: every region of T
+                            // outlives 'r (rustc's implied `T: 'r`). Without it
+                            // `s.get()` on `s: S<'x>` with `fn get(&self) -> B`
+                            // returned a B that held only the borrow of `s`,
+                            // not what `s` holds (#465).
+                            for (uint32_t oo : referent.os) subset(oo, dst.os[0], p);
                             if (s.rv.mut_) {
                                 for (auto&& f : referent.inv) f = true;
                             }
@@ -5007,7 +5198,10 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                     row("var_dead_at", {var(s.local), pt(p)});
                     break;
                 case bir::Stmt::K::Drop:
-                    access(p, s.dest, Access::WriteDeep);
+                    access(p, s.dest,
+                           s.dest.proj.empty() && !bir_drop_observes_borrow(b_.locals[s.dest.local].type, prog_, ts_)
+                               ? Access::DropNoGlue : Access::WriteDeep);
+                    drop_points_.insert(p);
                     if (s.dest.proj.empty()) row("var_dropped_at", {var(s.dest.local), pt(p)});
                     else use_place(s.dest, p);
                     if (!has_borrowing_deref(s.dest)) {
@@ -5612,7 +5806,15 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                     break;
                 }
                 case 4:  msg = std::format("cannot assign to '{}' because it is borrowed", nm); break;
-                case 5:  msg = std::format("cannot move out of '{}' because it is borrowed", nm); break;
+                case 5:
+                    // A DESTRUCTOR running over a value while a reborrow of
+                    // what it points at is live (`fn f(s: S) -> &mut i64 {
+                    // return s.url; }` with `impl Drop for S`): rustc E0713.
+                    msg = facts.at_drop(P) && std::any_of(loan.place.proj.begin(), loan.place.proj.end(),
+                                                          [](const bir::Proj& pj) { return pj.k == bir::Proj::K::Deref; })
+                        ? std::format("borrow may still be in use when destructor runs: '{}' (E0713)", nm)
+                        : std::format("cannot move out of '{}' because it is borrowed", nm);
+                    break;
                 case 6:  msg = std::format("cannot use '{}' because it was mutably borrowed", nm); break;
                 default:
                     msg = loan.mut_
@@ -5752,6 +5954,18 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                 v.errors.push_back(std::format(
                     "explicit lifetime required in the type of '{}': lifetime {} required (line {})",
                     body.locals[ua->local].name, ub->label, line));
+                continue;
+            }
+            // Two PARAMETERS' elided regions: rustc's "lifetime may not live
+            // long enough … requires that '2 must outlive '1" — each elided
+            // region is its own late-bound lifetime (#465).
+            if (la_ok && lb_ok && !named_a && !named_b &&
+                body.locals[ua->local].kind == bir::LocalKind::Param &&
+                body.locals[ub->local].kind == bir::LocalKind::Param) {
+                v.errors.push_back(std::format(
+                    "lifetime may not live long enough: the elided lifetime of parameter '{}' must "
+                    "outlive the elided lifetime of parameter '{}' (line {})",
+                    body.locals[ua->local].name, body.locals[ub->local].name, line));
                 continue;
             }
             v.errors.push_back(std::format("lifetime mismatch: data with region {} flows into region {}, "

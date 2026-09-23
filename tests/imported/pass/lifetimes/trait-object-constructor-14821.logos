@@ -16,12 +16,12 @@ impl SomeTrait for Meow {
     fn tag(&self) -> i32 { return 7i32; }
 }
 
-struct Foo {
-    x: &dyn SomeTrait,
-    y: &dyn SomeTrait,
+struct Foo<'a> {
+    x: &'a dyn SomeTrait,
+    y: &'a dyn SomeTrait,
 }
 
-impl Foo {
+impl<'a> Foo<'a> {
     fn new(x: &dyn SomeTrait, y: &dyn SomeTrait) -> Foo {
         return Foo { x: x, y: y };
     }

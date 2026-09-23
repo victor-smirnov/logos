@@ -15,16 +15,16 @@
 package bc_d1r10_sp2_field_retarget;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Inner { r: &mut Vec<B> }
-struct Mid { i: Inner }
-struct Outer { m: Mid }
-fn retarget(c: &C, v: &mut Vec<B>, w: &mut Vec<B>) {
+struct Inner<'a, 'b> { r: &'a mut Vec<B<'b>> }
+struct Mid<'a, 'b> { i: Inner<'a, 'b> }
+struct Outer<'a, 'b> { m: Mid<'a, 'b> }
+fn retarget<'a, 'b>(c: &'b C, v: &'a mut Vec<B<'b>>, w: &'a mut Vec<B<'b>>) {
     let mut h: Inner = Inner { r: v };
     h.r = w;
     h.r.push(c.mk());

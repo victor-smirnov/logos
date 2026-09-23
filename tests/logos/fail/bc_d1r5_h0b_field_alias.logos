@@ -3,15 +3,15 @@
 package bc_d1r5_h0b_field_alias;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct K { v: Vec<B> }
-impl K {
-    fn stash(&mut self, c: &C) { let r: &mut Vec<B> = &mut self.v; r.push(c.mk()); }
+struct K<'a> { v: Vec<B<'a>> }
+impl<'a> K<'a> {
+    fn stash(&mut self, c: &'a C) { let r: &mut Vec<B<'a>> = &mut self.v; r.push(c.mk()); }
 }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };

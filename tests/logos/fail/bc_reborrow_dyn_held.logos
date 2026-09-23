@@ -10,10 +10,10 @@
 // Unlike its slice twin, this one closed on the type gate ALONE.
 package bc_reborrow_dyn_held;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 trait Tr { fn g(&self) -> i64; }
-impl Tr for B { fn g(&self) -> i64 { return *self.p; } }
+impl<'a> Tr for B<'a> { fn g(&self) -> i64 { return *self.p; } }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }

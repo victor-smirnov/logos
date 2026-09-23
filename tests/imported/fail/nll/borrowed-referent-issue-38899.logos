@@ -18,7 +18,7 @@
 // ⚠ SINGLE-ROW ROOT — no separating pair was measured, so `bck.NEW-BLOCKREF`
 //   makes NO grouping claim.
 package borrowed_referent_issue_38899;
-struct Block { current: &i64, unrelated: &i64 }
+struct Block<'a> { current: &'a i64, unrelated: &'a i64 }
 fn bump(mut block: &mut Block) -> i64 {
     let x: &mut &mut Block = &mut block;
     let a: i64 = *x.current;

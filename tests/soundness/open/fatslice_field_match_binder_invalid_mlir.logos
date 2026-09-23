@@ -51,7 +51,7 @@
 // "FatSlice field x struct pattern (compile error)", never rowed; the note did
 // not say which pattern door, and the `let` door is the one that works.
 package fatslice_field_match_binder_invalid_mlir;
-struct H { s: &[i64], n: i64 }
+struct H<'a> { s: &'a [i64], n: i64 }
 fn main() -> i32 {
     let a: [i64; 3] = [1i64, 2i64, 3i64];
     let h: H = H { s: &a, n: 7i64 };

@@ -301,14 +301,14 @@ pub trait RowMajor {}
 /// and a capability with no consumer is a claim no test can bite. The random-access
 /// face the sort path needs is `as_slice()`, an inherent method, not a capability.
 #[borrow_carrying]
-pub struct SliceStream<R> {
+pub struct SliceStream<'a, R> {
     /// The caller's rows, borrowed for the life of the stream.
-    rows: &[R],
+    rows: &'a [R],
     /// False until the single packet has been handed out; `rewind` clears it.
     sent: bool,
 }
 
-impl<R> SliceStream<R> {
+impl<'a, R> SliceStream<'a, R> {
     /// Wraps a borrowed slice as a one-packet stream. Copies nothing.
     pub fn new(rows: &[R]) -> SliceStream<R> {
         return SliceStream { rows: rows, sent: false };
@@ -340,25 +340,25 @@ impl<R> SliceStream<R> {
 }
 
 // One packet, then exhaustion — including the EMPTY slice, which still ticks once.
-impl<R> BatchStream<RowsBatch<R>> for SliceStream<R> {
+impl<'a, R> BatchStream<RowsBatch<R>> for SliceStream<'a, R> {
     fn next(&mut self) -> Option<RowsBatch<R>> { return self.next_batch(); }
 }
 
 // Row-major: the batch is `&[R]`, the caller's own slice (§2). This is what makes
 // `batch_row_text` spell the row as `bb[j]` instead of `bb.<col>_at(j)`.
-impl<R> RowMajor for SliceStream<R> {}
+impl<'a, R> RowMajor for SliceStream<'a, R> {}
 
 // Re-presenting the same slice is free — the rows are the caller's and were never
 // consumed. A slice param is therefore MULTI-PASS by type, which is the fact the
 // plan's read-once proof used to have to carry for it.
-impl<R> Rewind for SliceStream<R> {
+impl<'a, R> Rewind for SliceStream<'a, R> {
     fn rewind(&mut self) {
         self.sent = false;
     }
 }
 
 // The row count is the slice length — free, and unmoved by pulling.
-impl<R> SizedStream for SliceStream<R> {
+impl<'a, R> SizedStream for SliceStream<'a, R> {
     fn size(&self) -> u64 {
         return self.rows.len() as u64;
     }
@@ -474,16 +474,16 @@ pub type DeltaBatch<R> = RowsBatch<Weighted<R>>;
 /// `Epoch` into `{ s: SliceStream<R>, w: i64 }` is the recorded step that would make the
 /// drift impossible instead of merely noticed.
 #[borrow_carrying]
-pub struct Epoch<R> {
+pub struct Epoch<'a, R> {
     /// The delta's rows, borrowed from the caller for this epoch.
-    rows: &[R],
+    rows: &'a [R],
     /// The one weight the whole packet carries: +1 insert, −1 retract, `n` copies.
     w: i64,
     /// False until the single packet has been handed out; `rewind` clears it.
     sent: bool,
 }
 
-impl<R> Epoch<R> {
+impl<'a, R> Epoch<'a, R> {
     /// An epoch of `rows` at an explicit weight — the general `<q>_apply` form.
     pub fn at(rows: &[R], w: i64) -> Epoch<R> {
         return Epoch { rows: rows, w: w, sent: false };
@@ -515,25 +515,25 @@ impl<R> Epoch<R> {
 }
 
 // One packet, then exhaustion — including the EMPTY delta, which still ticks once.
-impl<R> BatchStream<RowsBatch<R>> for Epoch<R> {
+impl<'a, R> BatchStream<RowsBatch<R>> for Epoch<'a, R> {
     fn next(&mut self) -> Option<RowsBatch<R>> { return self.next_batch(); }
 }
 
 // Row-major: the batch is `&[R]`, the caller's own slice (§2).
-impl<R> RowMajor for Epoch<R> {}
+impl<'a, R> RowMajor for Epoch<'a, R> {}
 
 // Re-presenting the same epoch is free — the rows are the caller's and were never
 // consumed. This is what a non-`Rewind` STREAMING source cannot offer, and it is why
 // the incremental tier's decline of a streaming source (`rexpr_walk::incr_eligible`,
 // "a join source STREAMS") is a statement about the SOURCE and not about this type.
-impl<R> Rewind for Epoch<R> {
+impl<'a, R> Rewind for Epoch<'a, R> {
     fn rewind(&mut self) {
         self.sent = false;
     }
 }
 
 // The delta's row count is the slice length — free, and unmoved by pulling.
-impl<R> SizedStream for Epoch<R> {
+impl<'a, R> SizedStream for Epoch<'a, R> {
     fn size(&self) -> u64 {
         return self.rows.len() as u64;
     }

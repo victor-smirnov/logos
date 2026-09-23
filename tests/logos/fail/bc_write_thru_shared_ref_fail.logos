@@ -7,6 +7,6 @@
 // ONE TOKEN apart from `pass/bc_write_thru_shared_raw_ptr_admit`, modulo the
 // `unsafe` a raw write costs by Rust's own rule: `&mut i64` vs `*mut i64`.
 package bc_write_thru_shared_ref_fail;
-struct S { p: &mut i64 }
+struct S<'a> { p: &'a mut i64 }
 fn a(s: &S) -> i32 { *s.p = 7i64; return 0i32; }
 fn main() -> i32 { let mut n: i64 = 1i64; let s: S = S { p: &mut n }; return a(&s); }

@@ -98,11 +98,11 @@ pub deem q1(rows: &[Row]) {
 // Borrows the seam's storage (`Buffer::as_slice` or `Vec::as_slice`) — it does
 // NOT copy, which is the point: a source that copied its input would put a
 // THIRD materialization in a two-seam pipeline and no counter here would see it.
-pub struct SeamSrc { pub rows: &[(i64, i64)] }
+pub struct SeamSrc<'a> { pub rows: &'a [(i64, i64)] }
 
-pub struct SeamIter { pub rows: &[(i64, i64)], pub i: i64 }
+pub struct SeamIter<'a> { pub rows: &'a [(i64, i64)], pub i: i64 }
 
-impl Iterator<(i64, i64)> for SeamIter {
+impl<'a> Iterator<(i64, i64)> for SeamIter<'a> {
     fn next(self: &mut SeamIter) -> Option<(i64, i64)> {
         if self.i >= self.rows.len() { return Option::None; }
         unsafe { PULLED = PULLED + 1i64; }
@@ -119,7 +119,7 @@ pub fn seam_rows(s: &SeamSrc) -> SeamIter {
 // The producer returns an ITERATOR, which is the whole opt-in (ADR 0024 S4: the
 // source joins the streaming plane by its producer's RETURN TYPE, and Deem asks
 // the type rather than the author).
-impl OrderedMapSource<i64, i64> for SeamSrc {
+impl<'a> OrderedMapSource<i64, i64> for SeamSrc<'a> {
     rel entry = seam_rows;
 }
 

@@ -11,7 +11,7 @@
 //   · the body stores an OUTER borrow outward while a parameter is in scope —
 //     the source is main's `z`, not the parameter          (`outer_borrow`)
 package bc_f1_closure_param_legal_shapes;
-struct Holder { r: &i64 }
+struct Holder<'a> { r: &'a i64 }
 fn give<F: FnOnce(&i64)>(f: F) {
     let t: i64 = 7i64;
     f(&t);

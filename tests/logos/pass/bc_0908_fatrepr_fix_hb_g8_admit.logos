@@ -5,7 +5,7 @@
 // G8 LEGAL — a NON-ZERO argument index, with a thin arg BEFORE and AFTER the
 // fat one, so a fix that only looks at arg 0 shows here.
 package bc_0908_fatrepr_fix_hb_g8_admit;
-enum E { N, S(i64, &[i64], i64) }
+enum E<'a> { N, S(i64, &'a [i64], i64) }
 fn main() -> i32 {
     let a: [i64; 3] = [1i64, 2i64, 3i64];
     let e: E = E::S(11i64, &a, 22i64);

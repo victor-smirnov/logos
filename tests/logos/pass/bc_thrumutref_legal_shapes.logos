@@ -14,13 +14,13 @@ package bc_thrumutref_legal_shapes;
 
 // (1) a reborrow through a `&mut` held in a FIELD of a by-value parameter that
 // is not declared `mut`. It is `h.r` that is dereferenced, not `h` borrowed.
-struct H { r: &mut i64 }
+struct H<'a> { r: &'a mut i64 }
 fn bump(h: H) { let y: &mut i64 = &mut *h.r; *y = *y + 1i64; }
 
 // (2) the same, TWO field hops down: the exemption keys on the reference
 // dereferenced at whatever depth, not on the root.
-struct Inner { r: &mut i64 }
-struct Outer { i: Inner }
+struct Inner<'a> { r: &'a mut i64 }
+struct Outer<'a> { i: Inner<'a> }
 fn bump2(o: Outer) { let y: &mut i64 = &mut *o.i.r; *y = *y + 1i64; }
 
 // (3) a WRITE through the same field reference, which reaches the same gate by

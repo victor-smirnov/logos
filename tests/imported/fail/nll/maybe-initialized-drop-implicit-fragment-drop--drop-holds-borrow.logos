@@ -3,9 +3,9 @@
 // shelf: fail — REFUSED since 2026-08-27 (a loan whose holder has a `Drop` impl reaching a reference field is no longer retired by the NLL cursor; it dies at the drop point)
 // port of tests/ui/nll/maybe-initialized-drop-implicit-fragment-drop.rs (E0506)
 package maybe_initialized_drop_implicit_fragment_drop_drop_holds_borrow;
-struct Wrap { p: &mut i64 }
-impl Drop for Wrap { fn drop(self: &mut Wrap) { *self.p += 1i64; } }
-struct Foo { a: i64, b: Wrap }
+struct Wrap<'a> { p: &'a mut i64 }
+impl<'a> Drop for Wrap<'a> { fn drop(self: &mut Wrap) { *self.p += 1i64; } }
+struct Foo<'a> { a: i64, b: Wrap<'a> }
 fn eat(w: Wrap) -> i64 { return 0i64; }
 fn main() -> i32 {
     let mut x: i64 = 0i64;

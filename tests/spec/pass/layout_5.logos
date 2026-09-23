@@ -7,17 +7,17 @@ use logos.mem.string;
 // (i32, align 4 -> low bit always 0), the other a small integer value.
 // If the low-bit niche packing is wrong, the discriminant/value would not
 // round-trip across a match.
-enum PtrOrInt {
-    Ptr(&i32),
+enum PtrOrInt<'a> {
+    Ptr(&'a i32),
     Num(i32),
 }
 
 // Enums whose value arm uses various low-bit-niche integer widths. Each must
 // round-trip its packed value through a match unchanged.
-enum NicheBool { P(&i32), V(bool) }
-enum NicheU8   { P(&i32), V(u8)   }
-enum NicheU16  { P(&i32), V(u16)  }
-enum NicheU32  { P(&i32), V(u32)  }
+enum NicheBool<'a> { P(&'a i32), V(bool) }
+enum NicheU8<'a>   { P(&'a i32), V(u8)   }
+enum NicheU16<'a>  { P(&'a i32), V(u16)  }
+enum NicheU32<'a>  { P(&'a i32), V(u32)  }
 
 // A struct used as a tuple element and behind a reference, to exercise
 // default-binding-mode tuple patterns over a ref scrutinee.

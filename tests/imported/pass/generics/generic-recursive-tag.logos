@@ -8,7 +8,7 @@
 // →`fn main()->i32`.
 package m_generics_generic_recursive_tag;
 
-enum List<T> { Cons(T, &List<T>), Nil }
+enum List<'a, T> { Cons(T, &'a List<'a, T>), Nil }
 
 fn main() -> i32 {
     let a: List<i64> = List::Nil;

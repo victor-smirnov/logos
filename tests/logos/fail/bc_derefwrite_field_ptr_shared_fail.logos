@@ -8,7 +8,7 @@
 // `visit(v.ptr(), ...)` asks the READ form, and reading `h.r` is legal.
 // rustc: E0506.
 package bc_derefwrite_field_ptr_fail;
-struct H { r: &mut i64 }
+struct H<'a> { r: &'a mut i64 }
 fn main() -> i32 {
     let mut x: i64 = 1i64;
     let h: H = H { r: &mut x };

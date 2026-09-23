@@ -3,8 +3,8 @@
 // shelf: pin
 package two_phase_surprise_no_conflict;
 struct Map { n: i64 }
-struct SH { cx: &Map, k: i64 }
-impl SH {
+struct SH<'a> { cx: &'a Map, k: i64 }
+impl<'a> SH<'a> {
     fn demo(self: &mut SH) -> i64 {
         let mb: &mut SH = self;
         let acc: &Map = self.cx;

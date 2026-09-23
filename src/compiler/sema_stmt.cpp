@@ -775,7 +775,21 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             error("deref-write: cannot write through *const pointer (use *mut)");
         // B68: variance check at *ptr = val. The pointee must Inv-match the
         // value's type. Strict mode (fn-scope-fixed lifetimes).
-        if (val && TypeRef(pt).pointee())
+        // A pointer read out of a local whose regions are INFERRED (`let h: H
+        // = H { r: &mut out }; *h.r = y`) has regions sema pinned to the
+        // initializer; the borrow checker infers them (#465).
+        bool ptr_in_inferred_local = false;
+        {
+            using C = lir_schema::expr::Code;
+            auto r = expr_ref_of(ptr);
+            while (r && (r.kind() == C::FieldRead || r.kind() == C::TupleIndex))
+                r = r.kind() == C::FieldRead ? lir_view::EFieldReadView{r}.receiver()
+                                             : lir_view::ETupleIndexView{r}.receiver();
+            if (r && r.kind() == C::VarRef)
+                if (auto* vi = lookup_var_info(lir_view::EVarRefView{r}.name()))
+                    ptr_in_inferred_local = vi->regions_inferred;
+        }
+        if (val && TypeRef(pt).pointee() && !ptr_in_inferred_local)
             check_variance(expr_type(val), TypeRef(pt).pointee(),
                            "deref-write '*ptr = …'", /*permissive=*/false);
         // T1.5 (whole-referent form): `*r = new` through a `&mut` overwrites a
@@ -2933,6 +2947,21 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         if (self_rooted_move) mark_moved_expr(expr_ref_of(rhs));
     }
     define(name, var_type, is_mut);
+    // A LOCAL'S REGIONS ARE INFERENCE VARIABLES unless its annotation NAMES
+    // one. Sema pins them to the initializer's (above), which is right for the
+    // reads and wrong for a later write of a shorter-lived value (`p.b = y`):
+    // rustc infers a region both satisfy. Such writes are left to the borrow
+    // checker, which does infer (#465).
+    if (!scope_.empty()) {
+        bool names_region = false;
+        if (ann) {
+            std::vector<std::string> lts;
+            lt_names_(ann, lts);
+            for (auto& l : lts)
+                if (!l.empty() && l[0] != '\x01' && l != "'_" && !lt_is_minted(l)) { names_region = true; break; }
+        }
+        scope_.back().vars[std::string(name)].regions_inferred = !names_region;
+    }
     if (rhs && expr_ref_of(rhs).kind() == lir_schema::expr::Code::ClosureBox && !scope_.empty())
         scope_.back().vars[std::string(name)].closure_id =
             std::string(lir_view::EClosureBoxView{expr_ref_of(rhs)}.closure_id());
@@ -3613,6 +3642,11 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
             hint_struct_type_ = saved_struct_hint;
             hint_closure_formal_ = saved_closure_hint;
             hint_arr_elem_type_ = saved_arr_elem_hint;
+            // A RETURN IS A COERCION SITE: `return h.r;` with `h: &mut Inner`
+            // and `-> &mut Vec<..>` reborrows `&mut *h.r` as rustc does, instead
+            // of moving the `&mut` out from behind `h` (#465).
+            if (val && ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::MutRef)
+                try_implicit_reborrow_mut(val, ret_type_);
             // G151-3: a non-capturing closure literal returned where a fn-ptr
             // type is expected coerces to that fn-ptr — the same coercion the
             // let-annotation and call-arg paths apply. Without this, `fn f() ->
@@ -8972,6 +9006,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // A place rooted at a `static mut` lies inside the static's declared type,
     // whose elided regions are 'static. PROBES.md 2026-09-13d-staticdemand.
     bool place_in_static_mut = false;
+    bool place_in_inferred_local = false;
     for (auto cur = place_node; !cur.is_null();) {
         const int32_t cc = code_of(cur);
         if ((cc == la::FIELD_READ || cc == la::TUPLE_INDEX || cc == la::INDEX_READ) &&
@@ -8989,10 +9024,11 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                                   !current_type_params_.count(rn);
             for (auto it = scope_.rbegin(); place_in_static_mut && it != scope_.rend(); ++it)
                 if (it->vars.count(rn)) place_in_static_mut = false;
+            if (auto* vi = lookup_var_info(rn)) place_in_inferred_local = vi->regions_inferred;
         }
         break;
     }
-    if (pt && val)
+    if (pt && val && !place_in_inferred_local)
         check_variance(expr_type(val),
                        place_in_static_mut ? static_item_regions_(pt) : pt,
                        std::format("assignment to '{}'",

@@ -11,15 +11,15 @@
 package bc_d1r10_e0_root_rebind_strands_alias;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-struct Inner { r: &mut Vec<B> }
-struct Mid { i: Inner }
-struct Outer { m: Mid }
+struct Inner<'r, 'a> { r: &'r mut Vec<B<'a>> }
+struct Mid<'r, 'a> { i: Inner<'r, 'a> }
+struct Outer<'r, 'a> { m: Mid<'r, 'a> }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();

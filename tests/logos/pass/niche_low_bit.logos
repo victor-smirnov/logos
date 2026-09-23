@@ -6,7 +6,7 @@
 // recovers (word >> 1) with sign extension.
 package niche_low_bit;
 
-enum E { Ptr(&i64), Val(i32) }
+enum E<'a> { Ptr(&'a i64), Val(i32) }
 
 fn main() -> i32 {
     if (sizeof::<E>() as i64) != 8i64 { return 50i32; }   // niche-packed: no disc word

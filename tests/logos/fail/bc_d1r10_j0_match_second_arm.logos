@@ -7,13 +7,13 @@
 package bc_d1r10_j0_match_second_arm;
 use logos.mem.collections.vec;
 #[borrow_carrying]
-struct B { p: &i64 }
+struct B<'a> { p: &'a i64 }
 struct C { v: i64 }
 impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-fn stash(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn stash<'a>(c: &'a C, v: &mut Vec<B<'a>>) { v.push(c.mk()); }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();
