@@ -5729,6 +5729,23 @@ void Mono::populate_trait_engine_() {
         trait_engine_.add_shape_auto_impl(fnt, "closure", is_closure_typename);
         if (trait_rules_) trait_rules_->add_predicate(fnt, is_closure_typename);
     }
+    // The built-in Copy handle kinds, as sema's bound check has them: a shared
+    // `&T`, a raw pointer, a fn pointer (`&mut T` is NOT Copy). Without this
+    // `impl<T: Copy> Cell<T>` was never instantiated for `Cell<&i64>` and
+    // `get()` emitted no value (#469).
+    {
+        auto is_copy_handle = [](std::string_view n) {
+            if (n.starts_with("&mut ") || n.starts_with("&'") && n.find(" mut ") != std::string_view::npos)
+                return false;
+            if (n.starts_with("$mut_ref_")) return false;
+            return n.starts_with("$ref_") || n.starts_with("&") || n.starts_with("*const ") ||
+                   n.starts_with("*mut ") || n.starts_with("fn(");
+        };
+        for (const char* ct : {"Copy", "logos.lang.clone::Copy"}) {
+            trait_engine_.add_shape_auto_impl(ct, "copy-handle", is_copy_handle);
+            if (trait_rules_) trait_rules_->add_predicate(ct, is_copy_handle);
+        }
+    }
     // Slice-target impls (`impl<E> Trait for [E]` → key "$slice$T";
     // concrete-elem form → "$slice$<elem>"): the engine's name-based facts
     // can't match a query for "[u8]" against those keys, so register a
