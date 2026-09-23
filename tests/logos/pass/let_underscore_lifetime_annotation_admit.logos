@@ -1,0 +1,10 @@
+// `'_` in a let annotation is an inference region (rustc), not a name: `H<'_, '_>` takes the
+// initializer's regions. Twin: fail/let_underscore_lifetime_annotation_escape_fail.
+package let_underscore_lifetime_annotation_admit;
+struct H<'p, 'q> { r: &'p mut &'q i64 }
+fn f<'a>(x: &'a i64) -> i64 {
+  let mut out: &i64 = x;
+  let h: H<'_, '_> = H { r: &mut out };
+  return **h.r;
+}
+fn main() -> i32 { return 0i32; }

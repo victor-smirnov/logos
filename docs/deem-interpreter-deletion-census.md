@@ -6299,9 +6299,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                with retargeting a plain local — and rustc refuses the field form with E0499 because a struct's
 #                region parameter is one shared invariant region. PREDICTED 11107/6602/347 (0/0/+1), stated BEFORE
 #                the reconfigure.
-REGISTRY-ALL         11111
-REGISTRY-NOIMPORTED  6559
-REGISTRY-TIERCOMMIT  247
+#                ALL 11111 -> 11113 (+2), NOIMPORTED 6559 -> 6561 (+2), TIERCOMMIT 247 -> 245 (-2) — 2026-09-23,
+#                #465: TWO squeue rows CLOSED and left the tier (#225 let_mutref_annotation_to_meet_struct_refused ->
+#                pass/let_mutref_annotation_to_meet_struct_admit, #223 enum_payload_binding_declared_binder_name_collision
+#                -> fail/…_fail), so their fixtures cancel their squeue tests in ALL; plus the new twin
+#                pass/let_underscore_lifetime_annotation_admit + fail/let_underscore_lifetime_annotation_escape_fail (+2).
+REGISTRY-ALL         11113
+REGISTRY-NOIMPORTED  6561
+REGISTRY-TIERCOMMIT  245
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

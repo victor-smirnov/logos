@@ -68,6 +68,10 @@ inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
     // here" and "the same region as that other elided slot"; only the minting
     // site can tell them apart. Numbers in src/compiler/PROBES.md 2026-08-31.
     auto lt_eq = [&](std::string_view x, std::string_view y) {
+        // `'_` WRITTEN in a body annotation is the elided slot spelled out
+        // (rustc: an inference region), not a name (#465).
+        if (x == "'_") x = {};
+        if (y == "'_") y = {};
         // A MINTED REGION IS AN INFERENCE VARIABLE (probe ltregall /
         // ltregallany — see probe.hpp). Unarmed both sides here are "" and
         // this lambda returns TRUE; the mint replaced "" with two distinct
@@ -288,6 +292,8 @@ inline bool lifetime_at(Variance v,
                         const OutlivesAdj& adj,
                         bool permissive_empty)
 {
+    if (sub_lt == "'_") sub_lt = {};
+    if (sup_lt == "'_") sup_lt = {};
     switch (v) {
         case Variance::BiVar: return true;
         case Variance::Co:    return outlives(sub_lt, sup_lt, adj, permissive_empty);

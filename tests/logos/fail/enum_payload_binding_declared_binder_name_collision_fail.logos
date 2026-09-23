@@ -1,4 +1,4 @@
-package enum_payload_binding_declared_binder_name_collision_admits;
+package enum_payload_binding_declared_binder_name_collision_fail;
 enum E<'a> { N, Two(&'a i64, &'a i64) }
 fn second<'a, 'b>(x: &'a i64, e: E<'b>) -> &'a i64 {
     match e {
@@ -11,7 +11,7 @@ fn main() -> i32 {
     let b: i64 = 4i64;
     return *second(&a, E::Two(&b, &b)) as i32;
 }
-// SOUNDNESS QUEUE row enum_payload_binding_declared_binder_name_collision_admits (tier 2).
+// Was SOUNDNESS QUEUE row enum_payload_binding_declared_binder_name_collision_admits (tier 2); closed by #465 (enum payloads laid out by the enum's lifetime NAMES in the borrow checker).
 // Illegal: `q` is a `&'b i64` bound out of an `E<'b>` scrutinee and returned as `&'a i64` with no `'b: 'a`
 // (rustc: lifetime may not live long enough). TODAY admitted. The payload binding carries the enum
 // DECLARATION's binder name (`'a`), not the scrutinee's region (`'b`) — the root of the queue row
