@@ -480,8 +480,6 @@ e0106_hidden_result_regions  defect  2  ADR 0028 — E0106 does not see a HIDDEN
     # E0106 over hidden result regions; then `QFn` names its two and the laundering
     # in stdlib/mem/deem/tpl.logos comes out.
 
-e0510_mutable_borrow_in_match_guard 2026-09-22 diagnostics tests/imported/fail/nll/issue-27282-mutate-before-diverging-arm-3
-
 e0373_closure_may_outlive_borrowed_local 2026-09-22 diagnostics tests/imported/fail/regions/regions-nested-fns
 
 e0382_three_sentences_not_one 2026-09-22 diagnostics tests/imported/fail/borrowck/borrowck-move-out-from-array-use-match--b
@@ -492,5 +490,7 @@ elided_result_not_enforced_in_body 2026-09-22 borrow-check tests/logos/fail/bc_e
 
 static_bound_on_type_param_lost_by_mono 2026-09-22 borrow-check tests/imported/admit/regions/regions-pattern-typing-issue-19552
 
+move_out_of_raw_pointer_admitted 2026-09-22 borrow-check tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
+
 # TOTAL 28
-# SYNC-HASH 7ea546cc3581444c8fb9243db923598c
+# SYNC-HASH 9082713dabbc51152af531e81f5556da
