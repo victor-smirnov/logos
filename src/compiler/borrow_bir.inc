@@ -3134,7 +3134,12 @@ private:
                     out.os.push_back(fresh_origin());
                     out.inv.push_back(invariant || struct_lt_invariant(t, i));
                 }
-                for (auto& a : t.type_args()) walk_type(a, invariant, out, depth + 1);
+                {
+                    auto ta = t.type_args();
+                    for (size_t j = 0; j < ta.size(); ++j)
+                        walk_type(ta[j], invariant || (t.kind() == LogosType::Kind::Struct && struct_tp_invariant(t, j)),
+                                  out, depth + 1);
+                }
                 if (out.os.size() == before && bir_type_carries_loans(t, prog_, ts_)) {
                     // A struct that holds references without declaring a
                     // lifetime parameter has HIDDEN ones. Rust would make the
@@ -3345,6 +3350,62 @@ private:
             }
         };
         for (auto ft : fts) walk(ft, false, 0);
+        return hit;
+    }
+    // Whether a struct's `i`-th TYPE parameter is used invariantly by its
+    // definition: behind `&mut`, inside `UnsafeCell`, or as an invariant
+    // argument of a nested struct. Read off the GENERIC definition when it is
+    // still there (else the instance's fields, by type). `Cell<T> { v:
+    // UnsafeCell<T> }` fixes T exactly, so `&Cell<&'y i64>` ties 'y both ways.
+    bool struct_tp_invariant(TypeRef t, size_t i, int depth = 0) const {
+        if (!t || depth > 8 || t.kind() != LogosType::Kind::Struct) return false;
+        std::string base(t.struct_name());
+        const lir_view::StructView* sd = nullptr;
+        auto it = struct_def_find(ts_.struct_by_name, t, base);
+        if (it != ts_.struct_by_name.end() && !it->second.type_params().empty()) sd = &it->second;
+        // Post-mono only the INSTANCE may be left: its fields hold the
+        // argument itself where the template held the parameter.
+        TypeRef arg_ty;
+        if (!sd) {
+            auto ta = t.type_args();
+            if (i >= ta.size()) return false;
+            arg_ty = ta[i];
+            auto it2 = struct_def_find(ts_.struct_by_name, t, concrete_struct_name(t));
+            if (it2 == ts_.struct_by_name.end()) return false;
+            sd = &it2->second;
+        }
+        std::string name;
+        if (!arg_ty) {
+            auto tps = sd->type_params();
+            if (i >= tps.size()) return false;
+            name = std::string(tps[i].name());
+        }
+        bool hit = false;
+        std::function<void(TypeRef, bool, int)> walk = [&](TypeRef f, bool inv, int d) {
+            if (!f || d > 16 || hit) return;
+            using K = LogosType::Kind;
+            if (arg_ty && inv && same_type_modulo_regions(f, arg_ty)) { hit = true; return; }
+            switch (f.kind()) {
+                case K::TypeVar: if (inv && !arg_ty && std::string_view(f.type_var_name()) == name) hit = true; return;
+                case K::Ref: walk(f.pointee(), inv, d + 1); return;
+                case K::MutRef: walk(f.pointee(), true, d + 1); return;
+                // A raw `*mut T` field is how Logos spells `NonNull<T>` / `Unique<T>`
+                // (Vec, Box, Rc hold their buffer so), and those are COVARIANT in
+                // Rust; invariance comes from `&mut T` and `UnsafeCell<T>`.
+                case K::Ptr: walk(f.pointee(), inv, d + 1); return;
+                case K::Array: case K::Slice: walk(f.elem(), inv, d + 1); return;
+                case K::Tuple: for (auto e : f.tuple_elems()) walk(e, inv, d + 1); return;
+                case K::Struct: case K::ZonedStruct: case K::Enum: {
+                    const bool cell = f.kind() == K::Struct && f.struct_name() == "UnsafeCell";
+                    auto ta = f.type_args();
+                    for (size_t j = 0; j < ta.size(); ++j)
+                        walk(ta[j], inv || cell || (f.kind() == K::Struct && struct_tp_invariant(f, j, depth + 1)), d + 1);
+                    return;
+                }
+                default: return;
+            }
+        };
+        for (auto fd : sd->fields()) walk(fd.type(prog_.type_pool.impl()), false, 0);
         return hit;
     }
     std::set<std::string> visiting_;
@@ -4908,15 +4969,23 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                     // unclaimed one is not neutral (it relates to everything, and
                     // the known relation is transitive).
                     case LogosType::Kind::Struct: case LogosType::Kind::Enum:
-                        if (!inv && claim && t.lifetime_args().size() == struct_lifetime_count(t) &&
-                            !t.lifetime_args().empty()) {
+                        if (!inv && claim && t.lifetime_args().size() == struct_lifetime_count(t)) {
                             // A lifetime parameter its definition uses only
                             // covariantly claims like a plain `&'a` (see
-                            // struct_lt_covariant); the type arguments keep
-                            // their unknown variance.
+                            // struct_lt_covariant). A type argument the
+                            // definition holds INVARIANTLY (`*mut T`,
+                            // UnsafeCell) has a known variance too and claims
+                            // as behind `&mut`; any other keeps its unknown one.
                             size_t nl = struct_lifetime_count(t);
                             for (size_t i = 0; i < nl; ++i) out.push_back(struct_lt_covariant(t, i));
-                            for (auto& a : t.type_args()) { size_t n = 0; count_only(a, n); out.insert(out.end(), n, false); }
+                            auto ta = t.type_args();
+                            for (size_t j = 0; j < ta.size(); ++j) {
+                                if (t.kind() == LogosType::Kind::Struct && struct_tp_invariant(t, j)) {
+                                    claim_mask(ta[j], claim, out, depth + 1, true);
+                                } else {
+                                    size_t n = 0; count_only(ta[j], n); out.insert(out.end(), n, false);
+                                }
+                            }
                             return;
                         }
                         [[fallthrough]];
@@ -5028,6 +5097,14 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             // ⚠ NOT FOR A CLOSURE'S RESULT: a closure signature is not elided
             // (sema gives its return its own region unless an `Fn*` bound tied
             // it), so there is no elision rule to defer to.
+            // TWO CLOSURE PARAMETERS' elided regions are two regions of the
+            // call — higher-ranked when a bound gave them — so one's data may
+            // not reach the other: rustc "lifetime may not live long enough"
+            // (propagate-fail-to-approximate-longer-no-bounds). The fn case is
+            // #466 (blocked on bare `str` fields); a closure has no such cost.
+            if (b_.is_closure && !a.capture && !b.capture && !a.ret && !b.ret &&
+                elided(a.label) && elided(b.label) && a.label != b.label)
+                return false;
             if (elided(b.label) && !(b_.is_closure && b.ret)) return true;
             // A region a TYPE PARAMETER brought in: in an instance `iter_max<I
             // = SliceIter<'x, i32>, T = &'x i32>` the two are one region, but

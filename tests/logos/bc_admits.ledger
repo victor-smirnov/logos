@@ -1913,8 +1913,6 @@ dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-
 
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 
-propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
-
 # ── tests/ui/moves ─────────────────────────────────────────
 
 
@@ -2490,5 +2488,5 @@ propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/n
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 4
-# SYNC-HASH ac98e31f50a70ec79c879f9b00c20389
+# TOTAL 3
+# SYNC-HASH dd568f1589c7b9fb5c899fc8ff4d0359

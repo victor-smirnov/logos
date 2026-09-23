@@ -1,6 +1,6 @@
 // rustc nll/closure-requirements/propagate-fail-to-approximate-longer-no-bounds.rs
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root nllmoves.A
+// shelf: pin (was admit · root nllmoves.A; closed: two closure parameters' elided regions are unrelated, and std Cell is invariant)
 // Original path: tests/ui/nll/closure-requirements/propagate-fail-to-approximate-longer-no-bounds.rs @ 4b0c9d76a
 // Modifications: u32 -> i64; `#![feature(rustc_attrs)]` and `#[rustc_regions]` dropped
 //   (compiler-internal debug attributes, not part of the construct); the
@@ -16,10 +16,9 @@
 //   accepts. The construct restored here is the real one: a closure passed to a bound
 //   `for<'x,'y> FnMut(&Cell<&'y &'b i64>, &Cell<&'x i64>, &Cell<&'y i64>)` whose body
 //   demands `'x: 'y`, a relation the callee's `'b: 'y` cannot supply.
-// 2026-09-08 re-port: STILL ADMITTED, now with the construct actually present.
+// 2026-09-08 re-port: still admitted then; 2026-09-23 refused (Cell now std's, over UnsafeCell).
 package propagate_fail_to_approximate_longer_no_bounds;
-struct Cell<T> { p: *mut T }
-impl<T> Cell<T> { fn get(&self) -> T { unsafe { return *self.p; } } }
+use logos.lang.cell;   // std's Cell, as upstream: invariant in T
 fn establish_relationships<'a, 'b, F>(cell_a: &Cell<&'a i64>, cell_b: &Cell<&'b i64>, closure: F)
 where F: for<'x, 'y> FnMut(&Cell<&'y &'b i64>, &Cell<&'x i64>, &Cell<&'y i64>)
 { }
