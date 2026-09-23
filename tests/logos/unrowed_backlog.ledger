@@ -494,7 +494,5 @@ fnptr_coercion_not_general_enough_admitted 2026-09-23 types tests/logos/fail/bc_
 
 boxed_dyn_drop_is_not_a_use_of_its_region 2026-09-23 borrow-check tests/logos/pass/bc_d1r2_dyn_erasure_admits
 
-cell_of_ref_get_emits_no_value 2026-09-23 codegen tests/logos/pass/alias_hole_twice_same_region_admit
-
-# TOTAL 30
-# SYNC-HASH 75d7cd4b5f6c92e3ccd90ff9511c573d
+# TOTAL 29
+# SYNC-HASH 52c668b1208f20eeb0a49bec589e24fc
