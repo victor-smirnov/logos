@@ -1,0 +1,1 @@
+method 'foo' receiver: variance mismatch — expected &'a Self, got &Self

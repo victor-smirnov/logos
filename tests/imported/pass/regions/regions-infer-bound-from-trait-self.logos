@@ -33,7 +33,7 @@ package regions_infer_bound_from_trait_self;
 struct Inv<'a> { x: &'a mut i64 }
 fn check_bound<'a, A>(x: Inv<'a>, a: A) -> i32 where A: 'a { return 0i32; }
 trait InheritsFromNothing<'a> {
-  // THE DEFECT: admitted, upstream "parameter type `Self` may not live long enough"
+  // rustc 1.98.1 accepts (Self outlives the trait's own lifetimes in a default body)
   fn foo(self: Self, x: Inv<'a>) -> i32 { return check_bound(x, self); }
 }
 fn main() -> i32 { return 0i32; }

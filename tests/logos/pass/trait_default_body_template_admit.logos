@@ -1,0 +1,9 @@
+// Twin of imported/fail/lifetimes/trait-method-lifetime-suggestion: an orphan
+// trait's default body is borrow-checked as a generic template over `Self`,
+// and a receiver that carries the trait's `'a` satisfies `fn foo(&'a self)`.
+package trait_default_body_template_admit;
+trait Foo<'a> {
+    fn foo(self: &'a Self) -> i64;
+    fn bar(self: &'a Self) -> i64 { return self.foo() + 1i64; }
+}
+fn main() -> i32 { return 0i32; }

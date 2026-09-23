@@ -1,0 +1,1 @@
+type parameter 'Self' has no trait bound providing method 'nosuch'

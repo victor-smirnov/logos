@@ -153,6 +153,7 @@ struct Term {
     // The resolved callee, whose DECLARED signature (decl_ret_type /
     // decl_type) says which argument positions the result borrows from.
     lir_view::FunctionView callee_fn;
+    bool trait_decl = false;   // callee_fn is a trait method's `$traitdecl$` signature
     TypeRef              callee_fty;   // indirect call: the fn-pointer's TYPE is its contract
     int8_t               closure_recv = -1;  // ClosureCall: leading origins of args[0]
                                              // that are the AUTOREF, not the captures
@@ -1473,6 +1474,14 @@ private:
                     t.sig_to_result = signature_mask(f);
                     t.callee_fn = f;
                     t.sig_mut_params = mut_param_mask_of_fn(f);
+                } else if (auto df = resolve_trait_decl_(v)) {
+                    // A trait DEFAULT body's `self.m()`: the trait's declared
+                    // signature. Its trait-level lifetimes are this body's own.
+                    t.has_sig = true;
+                    t.sig_to_result = signature_mask(df);
+                    t.callee_fn = df;
+                    t.sig_mut_params = mut_param_mask_of_fn(df);
+                    t.trait_decl = true;
                 } else if (is_deref_method(v)) {
                     // Deref::deref(&'a self) -> &'a Target.
                     t.has_sig = true;
@@ -1860,6 +1869,21 @@ private:
     // the counter-based checker's method_self_kind uses).
     // Exact resolution only: the resolved symbol, or the instance for this
     // receiver's concrete type. What the declared signature is read from.
+    // Inside a trait DEFAULT template (`<pkg>.$traitdef$<Trait>__<m>…`), a
+    // method call the L-IR left unresolved is the trait's own method: its
+    // `<pkg>.$traitdecl$<Trait>__<method>` signature.
+    lir_view::FunctionView resolve_trait_decl_(lir_view::EMethodCallView v) const {
+        if (!v.resolved_symbol().empty()) return {};
+        const std::string& bn = body_.name;
+        auto td = bn.find("$traitdef$");
+        if (td == std::string::npos) return {};
+        auto us = bn.find("__", td + 10);
+        if (us == std::string::npos) return {};
+        std::string want = bn.substr(0, td) + "$traitdecl$" + bn.substr(td + 10, us - (td + 10)) + "__" +
+                           std::string(v.method());
+        if (auto it = idx_.by_name.find(want); it != idx_.by_name.end()) return it->second;
+        return {};
+    }
     lir_view::FunctionView resolve_method_exact(lir_view::EMethodCallView v) const {
         if (auto it = idx_.by_name.find(std::string(v.resolved_symbol())); it != idx_.by_name.end()) {
             ++bir::callee_census().m_symbol;
@@ -3950,6 +3974,29 @@ private:
                     if (static_tps.count(nm)) subset(sr.origin, named_origin_["'static"], p);
                 }
         }
+        // A TRAIT METHOD'S SIGNATURE from a default template: the trait's
+        // lifetimes are free in it (not the method's own late-bound ones) and
+        // name the template's universal regions — `fn foo(self: &'a Self)`
+        // called on `self: &Self` needs that borrow to outlive the trait's 'a.
+        std::set<std::string> callee_own_lts;
+        if (t.trait_decl)
+            for (auto lp : t.callee_fn.lifetime_params()) {
+                std::string n(lp);
+                if (!n.empty() && n[0] != '\'') n = "'" + n;
+                callee_own_lts.insert(n);
+            }
+        auto caller_named = [&](const std::string& l) -> uint32_t {
+            if (!t.trait_decl || l.size() < 2 || l[0] != '\'' || l == "'static" || callee_own_lts.count(l))
+                return UINT32_MAX;
+            auto it = named_origin_.find(l);
+            return it == named_origin_.end() ? UINT32_MAX : it->second;
+        };
+        if (t.trait_decl) {
+            for (auto& sr : srcs)
+                if (uint32_t no = caller_named(sr.label); no != UINT32_MAX) subset(sr.origin, no, p);
+            for (size_t j = 0; j < dst.os.size() && j < lret.size(); ++j)
+                if (uint32_t no = caller_named(lret[j]); no != UINT32_MAX) subset(no, dst.os[j], p);
+        }
         if (indirect)
             for (auto& sr : srcs)
                 if (auto it = named_origin_.find(sr.label); it != named_origin_.end())
@@ -5987,6 +6034,17 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                 v.errors.push_back(std::format(
                     "lifetime may not live long enough: the region of '{}' must outlive 'static (line {})",
                     body.locals[ua->local].name, line));
+                continue;
+            }
+            // rustc suggests an annotation only for an ordinary parameter; for
+            // the RECEIVER (`&self` feeding a `'a` of the trait or impl) it says
+            // "lifetime may not live long enough".
+            if (la_ok && !named_a && named_b &&
+                body.locals[ua->local].kind == bir::LocalKind::Param &&
+                body.locals[ua->local].name == "self") {
+                v.errors.push_back(std::format(
+                    "lifetime may not live long enough: the region of 'self' must outlive {} (line {})",
+                    ub->label, line));
                 continue;
             }
             if (la_ok && !named_a && named_b &&

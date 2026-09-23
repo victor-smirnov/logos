@@ -1911,11 +1911,7 @@ anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admi
 # ── tests/ui/dropck ─────────────────────────────────────────
 dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-error  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. The OLD port had NO CONSTRUCT LEFT (field -> i64, `User = Self` dropped). Root is NOT a region root: E0277 on a projection. ONE-ROW root, no separating pair measured
 
-elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elided-self-lifetime-in-trait-fn  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a METHOD CALL whose receiver-region demand is never checked. PAIR: the same escape through two FREE fns REFUSES (`return type mismatch: variance mismatch — expected &'static bool, got &'s bool`); through `self.a()` it admits. Writing 's explicitly changes nothing, so elision is NOT the variable
-
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
-
-trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
 
@@ -2498,5 +2494,5 @@ regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regio
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 8
-# SYNC-HASH 9ce5a345a9e95630dd526cf116818b11
+# TOTAL 6
+# SYNC-HASH be01d1e34090ee5eb05127af671e0f46

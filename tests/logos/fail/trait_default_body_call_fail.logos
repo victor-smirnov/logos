@@ -1,9 +1,9 @@
-// SOUNDNESS QUEUE row trait_default_body_call (tier 2). Same root as
+// Was SOUNDNESS QUEUE row trait_default_body_call (tier 2). Same root as; closed: an orphan trait's default bodies are lowered and checked as generic templates.
 // trait_default_body_type, the other face: a call to a method that does not exist
 // ('self.nosuch') inside a default body with no implementor compiles rc 0. Two rows
 // because they are two faces of one missing check, and an 'admits' row that bundled
 // both would go red on a half fix and lose the other half.
-package trait_default_body_call;
+package trait_default_body_call_fail;
 
 trait T {
     fn a(self: &Self, x: i64) -> i64;

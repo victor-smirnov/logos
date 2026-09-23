@@ -11195,21 +11195,69 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 // A trait default body is lowered only as a per-impl copy, so a
                 // trait with no implementor is never checked. PROBES.md
                 // 2026-09-04d §2/§7.
-                if (logos::probe::census_armed() || logos::probe::on("trdefchk") ||
-                    logos::probe::on("trdefnogen")) {
+                // LANDED 2026-09-23 (was PROBE trdefchk): an ORPHAN trait's default
+                // bodies are lowered once as GENERIC templates over `Self` and
+                // borrow-checked by the pre-mono template pass, as rustc checks
+                // them generically; the trait's methods ride along as body-less
+                // `$traitdecl$` signatures the checker resolves `self.m()` to.
+                {
                     std::string _tn(tv.name());
                     auto* _tit = resolve_trait(_tn);
                     if (_tit) {
                         bool _has_impl = false;
                         for (auto& kv : impls_)
                             if (kv.first.trait_def == _tit->def) { _has_impl = true; break; }
+                        // The trait's methods as body-less GENERIC signatures,
+                        // `<pkg>.$traitdecl$<Trait>__<m>`: what a template's
+                        // `self.m()` means to the borrow checker (the trait's own
+                        // lifetimes are the caller's, see relate_call).
+                        bool _any_default = false;
+                        for (auto& m : _tit->methods) _any_default |= m.has_default;
+                        if (_any_default && !_has_impl && !logos::probe::on("trdefnogen")) {
+                            namespace dk = lir_schema::decl_keys;
+                            for (auto& mm : _tit->methods) {
+                                DeclBuilder d(*cur_prog_, lir_schema::decl::Code::Func, /*cap=*/40);
+                                d.str_always(dk::NAME, (cur_package_.empty() ? std::string() : cur_package_ + ".") +
+                                                       "$traitdecl$" + _tn + "__" + mm.name);
+                                if (!cur_package_.empty()) d.str(dk::PKG, cur_package_);
+                                d.type(dk::RET_TYPE, mm.ret_type ? mm.ret_type : prim(LogosType::Kind::Void));
+                                if (!mm.param_types.empty()) {
+                                    auto a = d.array(dk::PARAMS);
+                                    for (size_t i = 0; i < mm.param_types.size(); ++i) {
+                                        lir::LParam lp;
+                                        lp.name = (i == 0 && mm.has_self_receiver) ? std::string("self")
+                                                                                  : "p" + std::to_string(i);
+                                        lp.type = mm.param_types[i];
+                                        a.push_param(lp);
+                                    }
+                                }
+                                {
+                                    TypeParam _stp; _stp.name = kSelfTypeParamName;
+                                    auto a = d.array(dk::TYPE_PARAMS);
+                                    a.push_fn_tparam(_stp);
+                                    for (auto& tp : _tit->type_params) a.push_fn_tparam(tp);
+                                    for (auto& tp : mm.type_params) a.push_fn_tparam(tp);
+                                }
+                                // Only the METHOD's own lifetimes are declared: the
+                                // trait's stay free in the signature, and free names
+                                // are the calling template's own regions.
+                                if (!mm.lifetime_params.empty()) {
+                                    auto a = d.array(dk::LIFETIME_PARAMS);
+                                    for (auto& l : mm.lifetime_params) a.push_str(l);
+                                }
+                                if (!mm.lifetime_outlives.empty()) {
+                                    auto a = d.array(dk::LIFETIME_OUTLIVES);
+                                    for (auto& [x, y] : mm.lifetime_outlives) { a.push_str(x); a.push_str(y); }
+                                }
+                                prog.functions.push_back(d.view<lir_view::FunctionView>());
+                            }
+                        }
                         for (auto& m : _tit->methods) {
                             if (!m.has_default) continue;
                             logos::probe::census("trdef.mint");
                             if (_has_impl) { logos::probe::census("trdef.hasimpl"); continue; }
                             logos::probe::census("trdef.orphan");
-                            const bool _emit = logos::probe::on("trdefchk");
-                            if (!_emit && !logos::probe::on("trdefnogen")) continue;
+                            const bool _emit = !logos::probe::on("trdefnogen");
                             namespace dk = lir_schema::decl_keys;
                             push_type_params(_tit->type_params);
                             const std::string _self_key = kSelfTypeParamName;
@@ -11227,16 +11275,39 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             if (m.default_holder) holder_ = m.default_holder;
                             std::vector<TypeParam> _tps;
                             shadow_scope_ = &_tit->lifetime_params;
+                            // The trait's lifetimes are in scope for the body, as
+                            // an impl's are for its methods.
+                            auto _saved_ilp = current_impl_lifetime_params_;
+                            current_impl_lifetime_params_.assign(_tit->lifetime_params.begin(),
+                                                                 _tit->lifetime_params.end());
                             logos::probe::census("trdef.lower." + _tn + "." + m.name);
                             auto _fn = lower_fn(map_of(m.default_ast),
                                                 "$traitdef$" + _tn, &_tps);
                             logos::probe::census("trdef.lowered." + _tn + "." + m.name);
+                            current_impl_lifetime_params_ = _saved_ilp;
                             shadow_scope_ = nullptr;
                             holder_ = _saved_holder;
                             _fn.flag(dk::IS_PUB, true);
-                            if (!_tps.empty()) {
+                            // GENERIC over `Self` (and the trait's own type
+                            // parameters): the pre-mono template pass checks it,
+                            // mono never instantiates it, codegen never sees it.
+                            {
+                                TypeParam _stp; _stp.name = _self_key; _stp.bounds = {_tb};
+                                std::vector<TypeParam> _all{_stp};
+                                for (auto& tp : _tit->type_params) _all.push_back(tp);
+                                for (auto& tp : _tps)
+                                    if (tp.name != _self_key &&
+                                        std::none_of(_all.begin(), _all.end(), [&](const TypeParam& x) { return x.name == tp.name; }))
+                                        _all.push_back(tp);
                                 auto a = _fn.array(dk::TYPE_PARAMS);
-                                for (auto& tp : _tps) a.push_fn_tparam(tp);
+                                for (auto& tp : _all) a.push_fn_tparam(tp);
+                            }
+                            // The trait's lifetime parameters are the body's own
+                            // universal regions (`trait Foo<'a>`: `'a` is fixed for
+                            // the whole impl, not late-bound per call).
+                            if (m.lifetime_params.empty() && !_tit->lifetime_params.empty()) {
+                                auto a = _fn.array(dk::LIFETIME_PARAMS);
+                                for (auto& l : _tit->lifetime_params) a.push_str(l);
                             }
                             // `trdefnogen` = the same check without the emit.
                             if (_emit) prog.functions.push_back(_fn.view<lir_view::FunctionView>());

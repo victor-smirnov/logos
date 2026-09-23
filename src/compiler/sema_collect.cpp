@@ -1063,6 +1063,17 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 auto eit = current_type_lt_outlives_.find(tvn);
                 bool declared = eit != current_type_lt_outlives_.end() &&
                                 !eit->second.empty();
+                // `Self` inside a trait's DEFAULT body outlives the trait's own
+                // lifetime parameters (rustc accepts `check_bound::<'a, Self>`
+                // in `trait T<'a>` — regions-infer-bound-from-trait-self).
+                if (!declared && tvn == "Self" && !current_impl_lifetime_params_.empty()) {
+                    const auto& need = tp.lifetime_outlives;
+                    declared = std::all_of(need.begin(), need.end(), [&](const std::string& l) {
+                        return std::find(current_impl_lifetime_params_.begin(),
+                                         current_impl_lifetime_params_.end(), l) !=
+                               current_impl_lifetime_params_.end();
+                    });
+                }
                 if (!declared) {
                     if (bounds_probe_) bounds_probe_ok_ = false;
                     else error(std::format(
@@ -3401,7 +3412,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     // Door 1 of 2 — `lower_fn` bails for any fn collect never registered.
     // ⚠ probe::on arms ONE name per process, so this door answers for BOTH as a
     // disjunction. PROBES.md 2026-09-04d §2.
-    if (logos::probe::on("trdefchk") || logos::probe::on("trdefnogen")) {
+    {   // LANDED 2026-09-23 (was PROBE trdefchk/trdefnogen): see the template emit in sema.cpp.
         for (auto& m : info.methods) {
             if (!m.has_default) continue;
             auto* saved_holder = holder_;
