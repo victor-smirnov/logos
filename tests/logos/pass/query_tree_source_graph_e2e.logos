@@ -175,10 +175,13 @@ fn main() -> i32 {
     meta.alpha = 100i64;
     meta.beta = 200i64;
     let root: &mut WMap<WString, WAny> = d.map(8i64);
+    // THE BACK EDGE FIRST, AND RAW (like `meta`): `WAny` is #[borrow_carrying],
+    // so once `root` holds `WAny::from(&*right)` no `right.set(..)` may follow —
+    // a cycle cannot be built out of tracked borrows (#464).
+    right.set("back", unsafe { WAny::ref_to((root as *const WMap<WString, WAny>) as *const u8) });   // the cycle
     root.set("left", WAny::from(&*left));
     root.set("right", WAny::from(&*right));
     root.set("meta", unsafe { WAny::ref_to((meta.m as i64) as *const u8) });
-    right.set("back", WAny::from(&*root));      // the cycle
     let rootv: WAny = WAny::from(&*root);
     d.set_root(rootv);
 

@@ -5898,7 +5898,16 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             for (auto& b_ : fi.type_params[i].lifetime_outlives) {
                 std::string need_;
                 if (outlives_is_static(b_)) need_ = "'static";
-                else if (auto it = ls_.find(b_); it != ls_.end()) need_ = it->second;
+                else {
+                    // A binder the call does not BIND (in no parameter type and
+                    // not in the result) is free: rustc infers it as short as it
+                    // likes, and `T: 'x` then always holds. Its default in the
+                    // map is not a requirement.
+                    bool bound_ = type_mentions_lt_(fi.ret_type, b_);
+                    for (auto pt_ : fi.param_types) bound_ = bound_ || type_mentions_lt_(pt_, b_);
+                    if (!bound_) continue;
+                    if (auto it = ls_.find(b_); it != ls_.end()) need_ = it->second;
+                }
                 if (need_.empty() || !wf_lt_usable(need_)) continue;
                 const auto k_ = TypeRef(x_).kind();
                 if (k_ == LogosType::Kind::TypeVar) {

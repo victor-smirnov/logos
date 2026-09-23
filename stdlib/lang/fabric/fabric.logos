@@ -529,7 +529,7 @@ impl<DT: PodRef> Container for DT {
     fn drop_store(s: *mut PrimVec<DT>) { unsafe { s.clear(); } }
     fn store_len(s: *const PrimVec<DT>) -> u64 { unsafe { return s.len; } }
     fn store_push(s: *mut PrimVec<DT>, v: *const DT) {
-        unsafe { s.push(*v); }
+        unsafe { s.push(logos.lang.ptr::read(v)); }   // #463: a read out of `*const DT`
     }
     fn store_get(s: *const PrimVec<DT>, idx: u64) -> *const DT {
         unsafe {
@@ -538,10 +538,10 @@ impl<DT: PodRef> Container for DT {
         }
     }
     fn store_set(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
-        unsafe { s.set(idx, *v); }
+        unsafe { s.set(idx, logos.lang.ptr::read(v)); }
     }
     fn store_insert_at(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
-        unsafe { s.insert_at(idx, *v); }
+        unsafe { s.insert_at(idx, logos.lang.ptr::read(v)); }
     }
     fn store_remove_at(s: *mut PrimVec<DT>, idx: u64) {
         unsafe { s.remove_at(idx); }

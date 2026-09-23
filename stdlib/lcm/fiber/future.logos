@@ -80,7 +80,7 @@ pub fn future_get<T: Send>(slot: *mut FutureSlot<T>) -> T {
     let vp0: i64 = unsafe { slot.value_ptr } as i64;
     if vp0 != 0 {
         let vp: *mut T = vp0 as *mut T;
-        let val: T = unsafe { *vp };
+        let val: T = unsafe { logos.lang.ptr::read(vp as *const T) };   // #463
         dealloc(vp as *mut u8);
         return val;
     }
@@ -104,7 +104,7 @@ pub fn future_get<T: Send>(slot: *mut FutureSlot<T>) -> T {
 
     // Resumed by future_complete — value is now ready.
     let vp: *mut T = unsafe { slot.value_ptr };
-    let val: T = unsafe { *vp };
+    let val: T = unsafe { logos.lang.ptr::read(vp as *const T) };   // #463
     dealloc(vp as *mut u8);
     return val;
 }

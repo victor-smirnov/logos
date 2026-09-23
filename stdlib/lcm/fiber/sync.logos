@@ -141,7 +141,7 @@ fn chan_ring_read<T>(ch: *mut Chan<T>) -> T {
     let cap:  i64       = unsafe { ch.cap };
     let buf:  *const u8 = unsafe { ch.buf } as *const u8;
     let slot: *const T  = (buf as i64 + head * sz) as *const T;
-    let val: T          = unsafe { *slot };
+    let val: T          = unsafe { logos.lang.ptr::read(slot) };   // #463
     unsafe { ch.head = (head + 1) % cap; }
     // Bug 2 fix: read len into local before decrementing (no nested unsafe).
     let old_len: i64 = unsafe { ch.len };
@@ -206,7 +206,7 @@ pub fn chan_recv<T>(ch: *mut Chan<T>) -> T {
             unsafe { ch.send_fiber = 0; ch.send_val = 0; }
             // Write the pending value into the ring.
             let vp: *mut T = sv as *mut T;
-            let pval: T = unsafe { *vp };
+            let pval: T = unsafe { logos.lang.ptr::read(vp as *const T) };   // #463
             dealloc(vp as *mut u8);
             chan_ring_write::<T>(ch, pval);
             let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
@@ -219,7 +219,7 @@ pub fn chan_recv<T>(ch: *mut Chan<T>) -> T {
     let existing_rf: i64 = unsafe { ch.recv_fiber };
     if existing_rf != 0 {
         // Caller error: multiple concurrent receivers — return zero value.
-        let zero: T = unsafe { *(0 as *const T) };
+        let zero: T = unsafe { logos.lang.ptr::read(0 as *const T) };   // #463
         return zero;
     }
 

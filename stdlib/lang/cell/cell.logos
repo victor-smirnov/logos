@@ -144,7 +144,7 @@ impl<T: Copy> Cell<T> {
     pub fn replace(&self, val: T) -> T {
         unsafe {
             let p: *mut T = self.inner.get();
-            let old: T = *p;
+            let old: T = logos.lang.ptr::read(p as *const T);   // #463
             *p = val;
             return old;
         }
@@ -155,8 +155,8 @@ impl<T: Copy> Cell<T> {
         unsafe {
             let a: *mut T = self.inner.get();
             let b: *mut T = other.inner.get();
-            let tmp: T = *a;
-            *a = *b;
+            let tmp: T = logos.lang.ptr::read(a as *const T);   // #463
+            *a = logos.lang.ptr::read(b as *const T);
             *b = tmp;
         }
     }
@@ -176,7 +176,7 @@ impl<T: Copy> Cell<T> {
 pub fn cell_take<T: Copy + Default>(c: &Cell<T>) -> T {
     unsafe {
         let p: *mut T = c.as_ptr();
-        let old: T = *p;
+        let old: T = logos.lang.ptr::read(p as *const T);   // #463
         *p = T::default();
         return old;
     }

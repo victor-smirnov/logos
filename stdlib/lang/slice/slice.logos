@@ -241,7 +241,7 @@ pub fn slice_binary_search<T: Ord + Copy>(s: &[T], target: T) -> Result<i64, i64
         let esz:  i64 = sizeof::<T>() as i64;
         while lo < hi {
             let mid: i64 = lo + (hi - lo) / 2i64;
-            let elem: T = *((base as i64 + mid * esz) as *const T);
+            let elem: T = logos.lang.ptr::read((base as i64 + mid * esz) as *const T);   // #463
             match elem.cmp(&target) {
                 Ordering::Less    => { lo = mid + 1i64; }
                 Ordering::Greater => { hi = mid; }
@@ -271,11 +271,11 @@ pub unsafe fn slice_sort<T: Ord + Copy>(base: *mut T, n: i64) {
     let esz: i64 = sizeof::<T>() as i64;
     let mut i: i64 = 1i64;
     while i < n {
-        let cur: T = *((base as i64 + i * esz) as *const T);
+        let cur: T = logos.lang.ptr::read((base as i64 + i * esz) as *const T);   // #463
         let mut j: i64 = i;
         while j > 0i64 {
             let prev_p: *mut T = (base as i64 + (j - 1i64) * esz) as *mut T;
-            let prev: T = *prev_p;
+            let prev: T = logos.lang.ptr::read(prev_p as *const T);   // #463
             match prev.cmp(&cur) {
                 Ordering::Greater => {
                     let cur_p: *mut T = (base as i64 + j * esz) as *mut T;

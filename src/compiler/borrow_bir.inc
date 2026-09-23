@@ -3021,6 +3021,9 @@ private:
     struct OList { std::vector<uint32_t> os; std::vector<bool> inv; bool exact = true; };
     std::map<uint32_t, Universal> placeholder_owner_;
     std::map<std::string, uint32_t> named_origin_;   // declared `'a` -> its own universal origin
+public:
+    std::set<uint32_t> raw_move_paths_;   // move_out_of_ref rows behind a RAW pointer deref
+private:
     const ClosureReqs* creqs_ = nullptr;
     uint32_t fresh_origin() { return n_origins_++; }
     void walk_type(TypeRef t, bool invariant, OList& out, int depth = 0) {
@@ -4008,6 +4011,11 @@ private:
         row("path_accessed_at_base", {pa(path), pt(p)});
         if (op.k == bir::Operand::K::Move && derefs_through(op.place))
             row("move_out_of_ref", {pa(path), pt(p)});
+        else if (op.k == bir::Operand::K::Move && !is_raw_pointer_primitive() &&
+                 moves_through_raw_deref(op.place)) {
+            row("move_out_of_ref", {pa(path), pt(p)});
+            raw_move_paths_.insert(path);
+        }
         if (op.k == bir::Operand::K::Move && field_of_drop_type(op.place))
             row("move_out_of_drop", {pa(path), pt(p)});
         if (op.k == bir::Operand::K::Move && !has_borrowing_deref(op.place)) {
@@ -4338,6 +4346,32 @@ private:
             case LogosType::Kind::DstRef:      return !t.owning_dst() && !t.raw_fat();
             default: return false;
         }
+    }
+    // A MOVE out through a raw pointer written as a DEREF (`*x`, `(*x).f`) is
+    // rustc's E0507 ("cannot move out of `*x` which is behind a raw pointer";
+    // `ptr::read` is the legal way). An INDEX (`x[i]`, i.e. `(*x)[i]`) is Logos's
+    // pointer-arithmetic read and stays allowed. The one place a deref-move is
+    // DEFINED is `logos.lang.ptr` itself (`read`, `drop_in_place`), exempt below.
+    bool moves_through_raw_deref(const bir::Place& p) const {
+        TypeRef t = b_.locals[p.local].type;
+        bool synth = b_.locals[p.local].synth_ref;
+        for (size_t k = 0; k < p.proj.size(); ++k) {
+            const auto& pj = p.proj[k];
+            if (pj.k == bir::Proj::K::Deref) {
+                if (synth) { synth = false; t = pj.ty ? pj.ty : b_.locals[p.local].synth_pointee; continue; }
+                if (t && (t.kind() == LogosType::Kind::Ptr || t.raw_fat()))
+                    return !(k + 1 < p.proj.size() && p.proj[k + 1].k == bir::Proj::K::Index);
+                t = pj.ty ? pj.ty : (t && t.kind() != LogosType::Kind::Slice ? t.pointee() : TypeRef{});
+            } else if (pj.k == bir::Proj::K::Field) {
+                t = pj.ty ? pj.ty : field_type_(t, pj.field);
+            } else {
+                t = pj.ty ? pj.ty : (t && t.kind() == LogosType::Kind::Array ? t.elem() : TypeRef{});
+            }
+        }
+        return false;
+    }
+    bool is_raw_pointer_primitive() const {
+        return b_.name.find("logos.lang.ptr$") != std::string::npos;
     }
     bool through_raw_pointer(const bir::Place& p) const {
         TypeRef t = b_.locals[p.local].type;
@@ -5628,6 +5662,13 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("move_ref_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
+            if (facts.raw_move_paths_.count(num(sym(row[0]))))
+                // The path stops at the pointer itself; the place moved out of
+                // is its deref, which rustc prints as `*x`.
+                v.errors.push_back(std::format("cannot move out of '*{}', which is behind a raw pointer (line {})",
+                                               facts.path_str(num(sym(row[0]))),
+                                               facts.point_line(num(sym(row[1])))));
+            else
             v.errors.push_back(std::format("cannot move out of '{}', which is behind a reference (line {})",
                                            facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));

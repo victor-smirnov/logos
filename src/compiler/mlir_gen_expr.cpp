@@ -2145,6 +2145,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     // genuine pointer-INTO-storage (a container accessor return, `HashMap::get →
     // *const Box<dyn>`), in which case `*p` must LOAD the stored handle. See
     // deref_operand_is_ptr_to_dyn_handle for the provenance discriminator.
+    // `*p` over a RAW pointer whose result is a bare UNSIZED `dyn` (T bound to
+    // `dyn Trait` in a generic body — `ptr::drop_in_place::<dyn Tr>`, #463): an
+    // unsized value is represented as a POINTER TO its {data, vtable} pair, and
+    // the raw fat pointer IS that pointer. Loading through it read the data word
+    // as if it were the pair, and the vtable drop then called through garbage.
+    if (type && TypeRef(type).kind() == LogosType::Kind::UnsizedDyn) {
+        TypeRef ot = v.operand().type(pool_impl());
+        if (ot && (TypeRef(ot).kind() == LogosType::Kind::Ptr ||
+                   (TypeRef(ot).kind() == LogosType::Kind::TraitObject && TypeRef(ot).raw_fat())))
+            return ptr;
+    }
     if (type && TypeRef(type).kind() == LogosType::Kind::TraitObject &&
         deref_operand_is_ptr_to_dyn_handle(v.operand())) {
         auto pointee = logos_to_mlir(type);

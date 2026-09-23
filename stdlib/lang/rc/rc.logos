@@ -121,7 +121,7 @@ impl<T: ?Sized> Rc<T> {
         if self.inner == 0 as *mut RcInner<T> { return; }
         self.inner.strong = self.inner.strong - 1;
         if self.inner.strong == 0 {
-            { let _v: T = self.inner.val; }   // move-out → fires T's Drop
+            logos.lang.ptr::drop_in_place((&mut self.inner.val) as *mut T);   // fires T's Drop; T may be unsized (#463)
             // Release the collective implicit weak; free if it was the last.
             self.inner.weak = self.inner.weak - 1;
             if self.inner.weak == 0 {

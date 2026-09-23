@@ -61,7 +61,10 @@ pub fn null_mut<T>() -> *mut T {
 // that the original location isn't read again (Rust's by-value-move
 // semantics).
 pub unsafe fn read<T>(src: *const T) -> T {
-    unsafe { return src[0]; }
+    // A DEREF, not `src[0]`: for `T = [U; N]` an index on `*const T` reads
+    // INTO the array. This module is where a move out of a raw pointer is
+    // DEFINED; the borrow checker refuses it everywhere else (E0507, #463).
+    unsafe { return *src; }
 }
 
 /// Writes `src` to `dst` without reading or dropping the previous pointee.
@@ -161,12 +164,16 @@ pub unsafe fn replace<T>(dst: *mut T, src: T) -> T {
 /// the wrapper's whole job is to have suppressed the automatic owner, and
 /// `OnceCell::{set, get_or_init}`, where the destroyed slot is overwritten by
 /// the very next statement.
-// Lowers to a regular `let _v: T = p[0];` so the borrow checker triggers the
+// Lowers to a regular `let _v: T = *p;` so the borrow checker triggers the
 // drop at the end of the statement — equivalent observable effect, which is
 // also why the recursion is total: it is the ordinary local-drop path.
-pub unsafe fn drop_in_place<T>(p: *mut T) {
+// `T: ?Sized` (#463): an unsized pointee — `dyn Trait`, a slice — is moved out
+// through the FAT pointer and dropped by its own glue (a trait object's vtable
+// slot 0), exactly as `Rc<dyn Trait>` drops its value. A deref, not `p[0]`,
+// for the reason `read` gives.
+pub unsafe fn drop_in_place<T: ?Sized>(p: *mut T) {
     unsafe {
-        let _v: T = p[0];
+        let _v: T = *p;
         // _v falls out of scope → Drop fires.
     }
 }

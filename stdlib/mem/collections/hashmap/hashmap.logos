@@ -181,8 +181,8 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         while i < self.cap {
             if self.states[i] == SLOT_OCCUPIED {
                 let e: *mut Entry<K, V> = &mut self.entries[i];
-                let _k: K = e.key;   // move-and-drop the live entry
-                let _v: V = e.val;
+                let _k: K = logos.lang.ptr::read(&e.key as *const K);   // move-and-drop the live entry (#463)
+                let _v: V = logos.lang.ptr::read(&e.val as *const V);
             }
             self.states[i] = SLOT_EMPTY;
             i = i + 1;
@@ -212,7 +212,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         while j < old_cap {
             if old_states[j] == SLOT_OCCUPIED {
                 let e: *mut Entry<K, V> = &mut old_entries[j];
-                self.insert(e.key, e.val);
+                self.insert(logos.lang.ptr::read(&e.key as *const K), logos.lang.ptr::read(&e.val as *const V));   // #463
             }
             j = j + 1 as i64;
         }
@@ -355,8 +355,8 @@ impl<K, V> Drop for HashMap<K, V> {
                 while i < self.cap {
                     if self.states[i] == SLOT_OCCUPIED {
                         let e: *mut Entry<K, V> = &mut self.entries[i];
-                        let _k: K = e.key;   // move-and-drop
-                        let _v: V = e.val;
+                        let _k: K = logos.lang.ptr::read(&e.key as *const K);   // move-and-drop (#463)
+                        let _v: V = logos.lang.ptr::read(&e.val as *const V);
                     }
                     i = i + 1 as i64;
                 }

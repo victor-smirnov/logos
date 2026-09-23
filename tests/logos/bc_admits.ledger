@@ -1905,8 +1905,6 @@
 #
 anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 
-borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
-
 # ── tests/ui/drop ─────────────────────────────────────────
 
 
@@ -2506,5 +2504,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 12
-# SYNC-HASH 41fa085ea8d6855b97d42ffd2a754706
+# TOTAL 11
+# SYNC-HASH 3f1ea2a55a2f2f8a7d0a515004b86488

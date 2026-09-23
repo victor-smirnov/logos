@@ -335,7 +335,7 @@ unsafe fn warr_push<T: WArrTag>(a: *mut WArray<T>, alloc: *mut Allocator, v: T) 
         let nbuf: *mut T = allocator_alloc(alloc, newcap * (sizeof::<T>() as i64), align_of::<T>() as i64) as *mut T;
         let obuf: *mut T = a.data;
         let mut i: i64 = 0i64;
-        while i < a.len { *(nbuf.add(i)) = *(obuf.add(i)); i = i + 1i64; }
+        while i < a.len { *(nbuf.add(i)) = logos.lang.ptr::read(obuf.add(i) as *const T); i = i + 1i64; }   // #463
         a.data = nbuf;
         a.cap  = newcap;
     }

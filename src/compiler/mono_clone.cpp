@@ -550,6 +550,24 @@ bool Mono::let_init_is_owned_dyn_tail(const std::string& var, const SubstMap& s)
     auto it = type_let_inits_.find(var);
     if (it == type_let_inits_.end() || !it->second) return false;
     lir_view::ExprRef rhs = it->second;
+    // `let _v: T = *p;` with `p: *mut T` and T bound to `dyn` — the body of
+    // `ptr::drop_in_place::<dyn Trait>` (#463). A RAW pointer to a trait object
+    // is the fat pair already, and what it points at is an OWNED unsized value
+    // being dropped in place: the same case as the DST-tail field below. (A
+    // borrowed `&dyn` is not a raw pointer, so it never takes this arm.)
+    if (rhs.kind() == lir_schema::expr::Code::Deref) {
+        auto op = lir_view::EDerefView{rhs}.operand();
+        if (!op) return false;
+        TypeRef pt = subst_type(op.type(out_.type_pool.impl()), s);
+        if (!pt) return false;
+        auto pk = TypeRef(pt).kind();
+        if (pk == LogosType::Kind::TraitObject && TypeRef(pt).raw_fat()) return true;
+        if (pk == LogosType::Kind::Ptr && TypeRef(pt).pointee()) {
+            auto qk = TypeRef(TypeRef(pt).pointee()).kind();
+            return qk == LogosType::Kind::UnsizedDyn || qk == LogosType::Kind::TraitObject;
+        }
+        return false;
+    }
     if (rhs.kind() != lir_schema::expr::Code::FieldRead) return false;
     lir_view::EFieldReadView fr{rhs};
     auto recv = fr.receiver();

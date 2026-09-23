@@ -476,7 +476,7 @@ pub trait Iterator<Item> {
                 // (measured: 3 destructor calls for 2 values, rc 134) and must
                 // be deleted the day the provenance over-refusal closes.
                 unsafe {
-                    let init: Item = *((&v) as *const Item);
+                    let init: Item = logos.lang.ptr::read((&v) as *const Item);   // #463
                     let acc: Item = it.fold::<Item, ReduceFn>(init, g);
                     return Option::Some(acc);
                 }
