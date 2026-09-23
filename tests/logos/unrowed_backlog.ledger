@@ -490,11 +490,9 @@ elided_result_not_enforced_in_body 2026-09-22 borrow-check tests/logos/fail/bc_e
 
 static_bound_on_type_param_lost_by_mono 2026-09-22 borrow-check tests/imported/admit/regions/regions-pattern-typing-issue-19552
 
-move_out_of_raw_pointer_admitted 2026-09-22 borrow-check tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
-
 writ_cycle_needs_raw_edge_under_borrow_carrying_wany 2026-09-22 writ tests/logos/pass/wql_graph_null_root_row
 
 hidden_field_lifetimes_make_no_claim 2026-09-22 borrow-check tests/imported/fail/nll/capture-ref-in-struct--t08
 
-# TOTAL 30
-# SYNC-HASH 0fa25d2aee71a8ae06334c94a26bbf8d
+# TOTAL 29
+# SYNC-HASH 4f8d6731c78f727dbce2287214f60299
