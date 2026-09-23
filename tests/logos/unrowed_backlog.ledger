@@ -490,13 +490,11 @@ elided_result_not_enforced_in_body 2026-09-22 borrow-check tests/logos/fail/bc_e
 
 static_bound_on_type_param_lost_by_mono 2026-09-22 borrow-check tests/imported/admit/regions/regions-pattern-typing-issue-19552
 
-writ_cycle_needs_raw_edge_under_borrow_carrying_wany 2026-09-22 writ tests/logos/pass/wql_graph_null_root_row
-
 elided_param_regions_relate_freely 2026-09-23 borrow-check tests/logos/fail/bc_d1r5_h0_alias_out_param
 
 fnptr_coercion_not_general_enough_admitted 2026-09-23 types tests/logos/fail/bc_d1r6_g1_fnptr_outparam
 
 boxed_dyn_drop_is_not_a_use_of_its_region 2026-09-23 borrow-check tests/logos/pass/bc_d1r2_dyn_erasure_admits
 
-# TOTAL 31
-# SYNC-HASH 961cbb5fcdfc2e584a4a40ca8e9e8c73
+# TOTAL 30
+# SYNC-HASH 46477c0bf0805da87088039ddc3a285d
