@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row call_static_bound_empty_arg_region_admits; closed 2026-09-23: a callee's `where 'x: 'y` binds its arguments at the call.
 // SOUNDNESS QUEUE row call_static_bound_empty_arg_region_admits (tier 2).
 // NEIGHBOUR of bc_admits regions-static-bound, ROWED — reason 3 (its own cost is
 // measured non-zero). A callee's `where 'a: 'static` is checked at every call site
@@ -7,7 +8,7 @@
 // programs whose 'static argument reaches the call through a carrier that drops the
 // region: `let o: Option<&i64> = Some(&V)`, `Vec<&i64>` + push(&V), `&CONST`,
 // `let arr: [&i64; 2] = [&V, &V2]; arr[1]`. Rust: E0597 `n` does not live long enough.
-package call_static_bound_empty_arg_region_admits;
+package call_static_bound_empty_arg_region_fail;
 fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
 fn f() -> i64 {
     let n: i64 = 1i64;

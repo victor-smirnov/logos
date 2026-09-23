@@ -4208,6 +4208,26 @@ private:
         if (auto st = named_origin_.find("'static"); st != named_origin_.end())
             for (auto& sr : srcs)
                 if (sr.label == "'static") subset(sr.origin, st->second, p);
+        // THE CALLEE'S `where 'x: 'y` BINDS ITS ARGUMENTS: what the caller passes
+        // at `'x` must outlive what it passes at `'y` (`check(x, y)` with
+        // `'a: 'b`), and `'x: 'static` makes the `'x` argument 'static.
+        if (!indirect && t.callee_fn) {
+            auto q = [](std::string_view n) { std::string r(n); if (!r.empty() && r[0] != '\'') r = "'" + r; return r; };
+            for (auto [lo, sh] : t.callee_fn.lifetime_outlives()) {
+                if (lo.starts_with("T:")) continue;
+                const std::string L = q(lo), S = q(sh);
+                if (L == S) continue;
+                if (S == "'static") {
+                    if (auto st = named_origin_.find("'static"); st != named_origin_.end())
+                        for (auto& sr : srcs) if (sr.label == L) subset(sr.origin, st->second, p);
+                    continue;
+                }
+                for (auto& a : srcs) {
+                    if (a.label != L) continue;
+                    for (auto& b : srcs) if (b.label == S) subset(a.origin, b.origin, p);
+                }
+            }
+        }
         if (t.trait_decl) {
             for (auto& sr : srcs)
                 if (uint32_t no = caller_named(sr.label); no != UINT32_MAX) subset(sr.origin, no, p);

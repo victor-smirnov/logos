@@ -211,8 +211,6 @@ vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_d
 
 static_arg_pins_shared_callee_region_refused 3 tests/soundness/open/static_arg_pins_shared_callee_region_refused refuses
 
-call_static_bound_empty_arg_region_admits 2 tests/soundness/open/call_static_bound_empty_arg_region_admits admits
-
 fn_item_pointer_call_where_static_admits 2 tests/soundness/open/fn_item_pointer_call_where_static_admits admits
 
 impl_method_ret_renamed_header_binder_refused 3 tests/soundness/open/impl_method_ret_renamed_header_binder_refused refuses
@@ -366,8 +364,6 @@ let_at_binding_struct_pattern_moved_variable_refused 3 tests/soundness/open/let_
 
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
 
-cell_typearg_region_invariance_admits 2 tests/soundness/open/cell_typearg_region_invariance_admits admits
-
 unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_binds_deref_admits admits
 
 # ⚠ RE-OBSERVED 2026-09-17j-ptrland2, NOT FIXED AND NOT CLOSED. The collect_param_regions_ Ptr arm landed in that
@@ -474,5 +470,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 156
-# SYNC-HASH cfee46b5b8b8fe13fe8bfccb4c98c0d6
+# TOTAL 154
+# SYNC-HASH fefd5085518e2c552be350e2ce932dee

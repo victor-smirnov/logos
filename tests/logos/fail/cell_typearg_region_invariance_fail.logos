@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row cell_typearg_region_invariance_admits; closed 2026-09-23: a callee's `where 'x: 'y` binds its arguments at the call.
 // SOUNDNESS QUEUE row cell_typearg_region_invariance_admits (tier 2, `admits`).
 // AN ILLEGAL PROGRAM COMPILES. This is the hole opened by the callee-outlives
 // pin arm landed in this same commit, and it is rowed here rather than left as
@@ -38,7 +39,7 @@
 // unsatisfied bound — and closing it must not move the sibling fixture
 // tests/logos/pass/bc_0916h_hb_n08_pass, whose `Co<'a> { r: &'a i64 }` carries
 // the region COVARIANTLY and must keep compiling.
-package cell_typearg_region_invariance_admits;
+package cell_typearg_region_invariance_fail;
 use logos.lang.cell;
 
 fn check<'a, 'b>(x: Cell<&'a i64>, y: Cell<&'b i64>) -> i64 where 'a: 'b { return 1i64; }
