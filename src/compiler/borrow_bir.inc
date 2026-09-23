@@ -4141,8 +4141,21 @@ private:
         for (auto& a : accesses_) {
             for (uint32_t i = 0; i < loans_.size(); ++i) {
                 const Loan& L = loans_[i];
-                if (int32_t(i) == a.self_loan) continue;
-                if (L.issue == a.point) continue;          // the borrow itself
+                // ⚠ THE BORROW ITSELF, ONE ITERATION AGO. A loan is in its origin
+                // from its own issue point on, so checking it against the access
+                // that issues it would refuse every borrow. But in a LOOP the
+                // same statement issues the same loan again, and the previous
+                // one may still be held (`strings.push(foo.get_string())`:
+                // rustc E0499). At the statement's START the new loan does not
+                // exist yet — only one carried round the back edge can be there
+                // — so the self-conflict is checked at START (Mid - 1).
+                // Only at the ISSUE point: a two-phase loan's ACTIVATION is an
+                // access that names the same loan later, where it is certainly
+                // live — that one is still skipped.
+                if (int32_t(i) == a.self_loan && L.issue != a.point) continue;
+                const bool self = L.issue == a.point;
+                const uint32_t at = self ? a.point - 1 : a.point;
+                if (self && a.point == 0) continue;
                 if (!overlap(a.place, L.place)) continue;
                 bool hit = false;
                 switch (a.kind) {
@@ -4170,7 +4183,7 @@ private:
                         break;
                 }
                 if (hit) {
-                    row("loan_invalidated_at", {l(i), pt(a.point)});
+                    row("loan_invalidated_at", {l(i), pt(at)});
                     // ⚠ WHY the loan died is what the MESSAGE is made of, and it
                     // is known only here. The Datalog fact carries (loan,
                     // point); the kind of access, and whether that access was
@@ -4180,7 +4193,7 @@ private:
                     // uses. Keeping the first one per (loan, point): a later
                     // access at the same point cannot make the diagnosis more
                     // specific than the one that already fired.
-                    why_.try_emplace({i, a.point}, a);
+                    why_.try_emplace({i, at}, a);
                 }
             }
         }

@@ -1,3 +1,6 @@
+// 2026-09-22: THIS PORT IS LEGAL RUST and lands under pass/. MEASURED with rustc
+// 1.98.1 --edition 2024 by path: it compiles clean — RFC 2229: the closure captures the disjoint place `self.number`, not `self`, so it does not conflict with `&mut self.thing`.
+// The row's upstream error belongs to an older edition or rustc.
 // rustc nll/issue-51268.rs — upstream E0502
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.NEW-CAPLOAN — RE-PORTED AS-IS 2026-09-07 (stage 4)

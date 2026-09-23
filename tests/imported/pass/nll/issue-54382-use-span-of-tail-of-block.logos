@@ -1,3 +1,6 @@
+// 2026-09-22: THIS PORT IS LEGAL RUST and lands under pass/. MEASURED with rustc
+// 1.98.1 --edition 2024 by path: it compiles clean — under edition 2024 a TAIL expression's temporaries drop before the block's locals, so `D(3i64).next(&_thing1)` no longer outlives `_thing1`.
+// The row's upstream error belongs to an older edition or rustc.
 // rustc nll/issue-54382-use-span-of-tail-of-block.rs — upstream E0597
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.D

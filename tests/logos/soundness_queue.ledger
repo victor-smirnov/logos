@@ -285,10 +285,6 @@ where_struct_literal_instantiation_rigid_refused 3 tests/soundness/open/where_st
 
 struct_lit_invariant_binder_first_wins_covariant_region_refused 3 tests/soundness/open/struct_lit_invariant_binder_first_wins_covariant_region_refused refuses
 
-# ── 2026-09-14f-thrurefland: defects the landing round's hand battery found beside the pointer-comparison arm and the
-# overwrite-through-reference readers, each reproducing on base baa2a38e8b650fb3 43 before any edit; hands in each header.
-loop_second_iteration_mut_alias_through_retargeted_ref_admits 2 tests/soundness/open/loop_second_iteration_mut_alias_through_retargeted_ref_admits admits
-
 rawptr_int_zero_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_int_zero_compare_mlir_verifier_refused refuses
 
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
@@ -474,6 +470,9 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
+# ── 2026-09-14f-thrurefland: defects the landing round's hand battery found beside the pointer-comparison arm and the
+# overwrite-through-reference readers, each reproducing on base baa2a38e8b650fb3 43 before any edit; hands in each header.
+
 # ── 2026-09-17d-arrlit: TWO ESCAPE CARRIERS THE ArrLit ARM DOES NOT REACH ──
 # Both reproduce on the binary this commit ships (the ArrLit arm INSTALLED) and both were
 # MEASURED unmoved by it — they are rowed, not deferred, each with its reason:
@@ -515,5 +514,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 178
-# SYNC-HASH 3bebbd60f56e22213cab3fdc27a3ffaf
+# TOTAL 177
+# SYNC-HASH da7fd7aac1743bb761974295b6f0a093

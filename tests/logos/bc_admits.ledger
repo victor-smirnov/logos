@@ -1915,8 +1915,6 @@ borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-mov
 
 ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): `Mine` is all-Copy-fields with no Drop, so A16 makes it Copy and `make_bar(start)` MOVES NOTHING — there is no use-after-move to refuse. The move checker itself is not the hole: the identical program with `impl Drop for Mine` added is REFUSED "use of moved variable 'start'", at BOTH the whole-value and the `start.test` projection spelling (two hand pairs). Third row of the same A16 class. Owner's. See PROBES.md 2026-09-12e
 
-two-phase-across-loop bck.NEW-L tests/imported/admit/borrowck/two-phase-across-loop  #  ⚠ PREDICTED BY NAME AND DID NOT CLOSE, 2026-09-12i (build ccac360a27d1b9c8). It was grouped with `borrowck-lend-flow-loop` under one property — a loan raised inside a loop body whose holder is an OUTER binding must be live at the back edge — and the door-1 + door-2 change that closed that row leaves this one ADMITTED, measured directly on the landed binary. So the grouping is refuted for this row too, as it was for `nllmoves.R3` the round before: the class as MEASURED is one ledger row plus one field-path twin with no row. Its loan is not raised by an assignment to a holder at all — `strings.push(foo.get_string())` deposits a two-phase RECEIVER reservation on `foo` into a Vec, and `release_dead_borrows` never sees a BorrowRecord whose raise_point it could compare. Whatever closes it is on the reservation plane, not the last-use plane.
-
 # ── tests/ui/drop ─────────────────────────────────────────
 
 
@@ -1935,15 +1933,7 @@ trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/
 
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 
-impl-trait-captures nllmoves.NEW-N1 tests/imported/admit/nll/impl-trait-captures
-
-issue-51268 nllmoves.NEW-CAPLOAN tests/imported/admit/nll/issue-51268  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was nllmoves.C)  ⚠ CONTRADICTED 2026-09-11 BY ITS OWN SUCCESSOR ROUND: not a defect under our own rule. Upstream pins `edition:2015..2021`, where the closure captures the WHOLE `self`; Logos captures `self.number` precisely per `borrow.closure.disjoint-field-capture`, so the paths are disjoint and Rust 2024 ACCEPTS this program. RETIRE CANDIDATE — the owner's call, not a round's; the 09-07 verdict above is stale and is kept so the two readings are visible together. ⚠ MEASURED 2026-09-15f-rustcaudit with rustc 1.98.1: the port COMPILES under --edition 2024 and 2021 (twin src/compiler/probes/2026-09-15f-rustcaudit/rust/bcnote_issue-51268.rs); upstream's own tests/ui/nll/issue-51268.rs is E0502 under 2015 and 2018 and COMPILES under 2021 and 2024 — `//@ edition:2015..2021` is half-open, so whole-`self` capture is 2015/2018 only, not 2021.
-
-issue-54382-use-span-of-tail-of-block nllmoves.D tests/imported/admit/nll/issue-54382-use-span-of-tail-of-block
-
 issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephaneyfx
-
-issue-54556-temps-in-tail-diagnostic nllmoves.D tests/imported/admit/nll/issue-54556-temps-in-tail-diagnostic
 
 issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issue-62007-assign-differing-fields--c
 
@@ -2544,5 +2534,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 31
-# SYNC-HASH 8d74f74522d0ea164c9050b584737534
+# TOTAL 26
+# SYNC-HASH fc9700df822be7e76e51771e197ffe7c
