@@ -1,0 +1,34 @@
+// Binders shadowing an outer local, dropped by SLOT: a slice-pattern arm, an enum payload,
+// a nested tuple, and a closure parameter shadowed in a nested block. rustc 1.98.1 prints the same line.
+package shadow_binders_drop_by_slot;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+enum E { A(D, i64), B }
+fn sl(p: *mut i64) -> i64 {
+    let a: D = D { v: 1i64, c: p };
+    let arr: [D; 2] = [D { v: 2i64, c: p }, D { v: 3i64, c: p }];
+    match arr { [a, b] => { return a.v + b.v; } }
+}
+fn en(p: *mut i64) -> i64 {
+    let x: D = D { v: 4i64, c: p };
+    let e: E = E::A(D { v: 5i64, c: p }, 1i64);
+    match e { E::A(x, k) => { return x.v + k; }, E::B => { return 0i64; } }
+}
+fn tu(p: *mut i64) -> i64 {
+    let y: D = D { v: 6i64, c: p };
+    let t: ((D, i64), i64) = ((D { v: 7i64, c: p }, 1i64), 2i64);
+    match t { ((y, k), j) => { return y.v + k + j; } }
+}
+fn cl(p: *mut i64) -> i64 {
+    let f = |x: D| -> i64 { { let x: D = D { v: 9i64, c: x.c }; let _ = x.v; } return x.v; };
+    return f(D { v: 8i64, c: p });
+}
+fn main() -> i32 {
+    let mut n1: i64 = 0i64; let r1: i64 = sl(&mut n1);
+    let mut n2: i64 = 0i64; let r2: i64 = en(&mut n2);
+    let mut n3: i64 = 0i64; let r3: i64 = tu(&mut n3);
+    let mut n4: i64 = 0i64; let r4: i64 = cl(&mut n4);
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, n1, r2, n2, r3, n3, r4, n4); }
+    return 0i32;
+}

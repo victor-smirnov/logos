@@ -1739,6 +1739,11 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
         for (uint8_t m : c.capture_modes) array_push(md_off, put_u8(m));
         put(map_off, ck::CAPTURE_MODES, mref_addr(md_off));
     }
+    if (!c.param_slots.empty()) {
+        auto ps_off = make_array(c.param_slots.size());
+        for (uint32_t sl : c.param_slots) array_push(ps_off, put_u32(sl));
+        put(map_off, ck::PARAM_SLOTS, mref_addr(ps_off));
+    }
     if (c.capture_widened.size() == c.captures.size() && !c.captures.empty()) {
         auto wd_off = make_array(c.capture_widened.size());
         for (uint8_t w : c.capture_widened) array_push(wd_off, put_bool(w != 0));

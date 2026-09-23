@@ -258,17 +258,6 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 
 let_ref_bind_annotated_refused 3 tests/soundness/open/let_ref_bind_annotated_refused refuses
 
-# ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
-# Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
-# src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md. Five of the six CLOSED at the 2026-09-15 landing
-# (below); closure_param_shadow_double_drop stays, reason 1 (a closure parameter carries no slot).
-closure_param_shadow_double_drop 1 tests/soundness/open/closure_param_shadow_double_drop run 1
-
-# ── 2026-09-15 shadowslot LANDING (tier 1: a drop resolves its binding by SLOT; a shadowed binding keeps its name-keyed records) ──
-# Eight rows CLOSED (shadowed_binding_never_dropped, shadow_over_param_double_drop, shadow_rebind_after_move_refused and five of
-# 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
-match_arm_nested_binder_shadow_double_drop 1 tests/soundness/open/match_arm_nested_binder_shadow_double_drop run 1
-
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 let_double_ref_str_annotation_refused 3 tests/soundness/open/let_double_ref_str_annotation_refused refuses
 
@@ -364,6 +353,14 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
+# ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
+# Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
+# src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md. Five of the six CLOSED at the 2026-09-15 landing
+# (below); closure_param_shadow_double_drop stays, reason 1 (a closure parameter carries no slot).
+# ── 2026-09-15 shadowslot LANDING (tier 1: a drop resolves its binding by SLOT; a shadowed binding keeps its name-keyed records) ──
+# Eight rows CLOSED (shadowed_binding_never_dropped, shadow_over_param_double_drop, shadow_rebind_after_move_refused and five of
+# 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
+
 # ⚠ RE-OBSERVED 2026-09-17j-ptrland2, NOT FIXED AND NOT CLOSED. The collect_param_regions_ Ptr arm landed in that
 # commit opens this program's FIRST door, so it no longer reads 'variance mismatch — expected &*mut &'static i64'.
 # It now COMPILES and ANSWERS 1 where rustc 1.98.1 answers 0 (MEASURED, twin 2026-09-16l-refptee/rust/r01_rawptr.rs).
@@ -446,5 +443,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 141
-# SYNC-HASH abb456a9f8194a3c60bf77ffe6fb8eac
+# TOTAL 139
+# SYNC-HASH 468eb044adaed4917485482d2bc085ae

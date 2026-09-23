@@ -1917,6 +1917,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         for (size_t i = 0; i < params.size(); ++i) {
             scope_[params[i].first] = entry->getArgument(i);
             register_array_param_subscript(params[i].first, params[i].second);
+            shadow_register_slot(v.param_slot(i), params[i].first);  // a shadowing local must not answer for it
         }
         bool saved_in_llvm = in_llvm_func_;
         in_llvm_func_ = true;
@@ -2267,6 +2268,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     for (size_t i = 0; i < params.size(); ++i) {
         scope_[params[i].first] = entry->getArgument(i + 1);
         register_array_param_subscript(params[i].first, params[i].second);
+        shadow_register_slot(v.param_slot(i), params[i].first);  // a shadowing local must not answer for it
     }
 
     // Generate body (inside llvm.func — use llvm.return)

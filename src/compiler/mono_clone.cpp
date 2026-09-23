@@ -4829,6 +4829,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // ADR 0028: carry the per-capture MODE and the widening bit.
             nc->capture_modes.resize(nc->captures.size(), 0);
             nc->capture_widened.resize(nc->captures.size(), 0);
+            for (size_t i = 0; i < nc->params.size(); ++i) nc->param_slots.push_back(v.param_slot(i));
             for (size_t i = 0; i < nc->captures.size(); ++i) {
                 nc->capture_modes[i]   = v.capture_mode(i);
                 nc->capture_widened[i] = v.capture_widened(i) ? 1 : 0;

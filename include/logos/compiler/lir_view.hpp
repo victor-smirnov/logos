@@ -2210,6 +2210,17 @@ public:
     }
     // True when capture i's recorded PATH is an LCA widening of what the body
     // touches, so a MutBorrow there is known only for a wider place.
+    // Parameter i's binding slot (CL_PARAM_SLOTS); 0xFFFFFFFF when not carried.
+    uint32_t param_slot(uint64_t i) const noexcept {
+        auto* m = cl_map();
+        if (!m) return 0xFFFFFFFFu;
+        auto av = m->get(lir_schema::closure_keys::PARAM_SLOTS.code);
+        if (av.is_null()) return 0xFFFFFFFFu;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        if (i >= arr->size()) return 0xFFFFFFFFu;
+        auto el = arr->get(i);
+        return el.is_null() ? 0xFFFFFFFFu : el.as_value<uint32_t>();
+    }
     bool capture_widened(uint64_t i) const noexcept {
         auto* m = cl_map();
         if (!m) return false;

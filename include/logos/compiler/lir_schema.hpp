@@ -344,6 +344,9 @@ inline constexpr Key CAPTURE_WIDENED   {"CL_CAPTURE_WIDENED", 14}; // Array<u8>
 // parameter's (sema's (H)/(C) arms). Without it a closure signature is not
 // elided: returning a parameter's data is "lifetime may not live long enough".
 inline constexpr Key RET_TIED          {"CL_RET_TIED",      15}; // u8
+// Each parameter's binding SLOT (parallel to PARAM_NAMES): an SDrop resolves its
+// binding by slot, and a local shadowing a parameter must not answer for it.
+inline constexpr Key PARAM_SLOTS       {"CL_PARAM_SLOTS",   16}; // Array<u32>
 } // namespace closure_keys
 
 // Keys for the EPtrDiff LExpr variant map (in addition to expr_common::TYPE,

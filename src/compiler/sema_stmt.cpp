@@ -6548,7 +6548,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             current_pat_mut_names_->insert(wname);
     }
     lir::Pattern p_;
-    p_.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, wname, 0xFFFFFFFFu,
+    // A named binder reserves its slot like make_pat_wild's: mlir-gen resolves
+    // a drop by slot, and without one an arm binder shadowing an outer local
+    // was dropped in the outer's place.
+    p_.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, wname,
+        (wname == "_" || wname.empty()) ? 0xFFFFFFFFu : reserve_pat_slot(wname),
         wname != "_" && pat_byval_mut(pnode));
     return p_;
 }

@@ -18537,6 +18537,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         if (mut_synth_names.count(p.name)) continue;
         define(p.name, p.type);
     }
+    std::vector<uint32_t> closure_param_slots;   // CL_PARAM_SLOTS, parallel to `params`
+    for (auto& p : params) closure_param_slots.push_back(lookup_slot(p.name));
     // `|mut x|` — register the user-visible mutable binding.
     for (auto& mb : mut_binds)
         define(mb.user, mb.ty, /*is_mut=*/true);
@@ -19333,6 +19335,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     auto ec = lir::alloc_closure(*cur_prog_);
     ec->closure_id    = closure_id;
     ec->params        = std::move(params);
+    ec->param_slots   = std::move(closure_param_slots);
     ec->ret_type      = ret_type;
     ec->body          = lir_mirror_block(*cur_prog_, body);
     ec->is_move       = is_move;
