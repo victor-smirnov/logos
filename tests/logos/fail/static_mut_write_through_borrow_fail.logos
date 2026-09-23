@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row static_mut_write_through_borrow_admits; closed: a write into a static's storage demands 'static data (E0597).
 // SOUNDNESS QUEUE row static_mut_write_through_borrow_admits (tier 2).
 // NEIGHBOUR of bc_admits issue-69114-static-mut-ty, ROWED — reason 2 (doors in
 // series). A write to a `static mut` is checked against its declared type with
@@ -8,7 +9,7 @@
 // `pick(SR, &n)`, `eqr(SR, &n)`, `W { r: SR }.set(&n)`) through the queue row
 // static_arg_pins_shared_callee_region_refused, which must open first.
 // Rust: E0597 `n` does not live long enough.
-package static_mut_write_through_borrow_admits;
+package static_mut_write_through_borrow_fail;
 static FOO: u8 = 4u8;
 static mut BAR: &u8 = &FOO;
 fn set() {

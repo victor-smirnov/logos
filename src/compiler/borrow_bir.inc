@@ -996,6 +996,11 @@ private:
     // ── expressions into a destination ──
     void lower_into(bir::Place dest, lir_view::ExprRef e) {
         if (!e) return;
+        // A local given a STATIC's address (`let p = &mut BAR`, sema's
+        // `__static_addr:` spelling) points into 'static storage.
+        if (e.kind() == ECode::VarRef && dest.proj.empty() && dest.local < body_.locals.size() &&
+            lir_view::EVarRefView{e}.name().starts_with("__static_addr:"))
+            body_.locals[dest.local].static_addr = true;
         // Extending positions are `&E` itself and the operands of a braced
         // struct / tuple / array literal; anything else (a call's arguments,
         // an operator's operands) ends the extension.
@@ -5365,6 +5370,20 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             switch (s.k) {
                 case bir::Stmt::K::Assign: {
                     OList dst = place_origins(s.dest);
+                    // A WRITE INTO A STATIC's storage (through a local holding its
+                    // address): the value lives for ever, so what it holds must be
+                    // 'static — `BAR = s.as_str()`, `*p = &n` are E0597 in rustc.
+                    if (!s.dest.proj.empty() && s.dest.proj[0].k == bir::Proj::K::Deref &&
+                        b_.locals[s.dest.local].static_addr) {
+                        auto st = named_origin_.find("'static");
+                        if (st != named_origin_.end()) {
+                            if (s.rv.k == bir::Rvalue::K::Ref && loan_at[bi][si] >= 0)
+                                subset(loans_[loan_at[bi][si]].origin, st->second, p);
+                            for (auto& op : s.rv.ops)
+                                if (op.k != bir::Operand::K::Const && op.place.valid())
+                                    for (uint32_t oo : place_origins(op.place).os) subset(oo, st->second, p);
+                        }
+                    }
                     if (s.rv.k == bir::Rvalue::K::Ref && loan_at[bi][si] < 0) {
                         // A borrow through a raw pointer: no loan, but still a
                         // use of the pointer and a value flowing into dest.

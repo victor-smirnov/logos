@@ -213,13 +213,7 @@ static_arg_pins_shared_callee_region_refused 3 tests/soundness/open/static_arg_p
 
 call_static_bound_empty_arg_region_admits 2 tests/soundness/open/call_static_bound_empty_arg_region_admits admits
 
-static_mut_write_through_borrow_admits 2 tests/soundness/open/static_mut_write_through_borrow_admits admits
-
-static_mut_elided_struct_region_write_admits 2 tests/soundness/open/static_mut_elided_struct_region_write_admits admits
-
 fn_item_pointer_call_where_static_admits 2 tests/soundness/open/fn_item_pointer_call_where_static_admits admits
-
-static_mut_str_slice_write_admits 2 tests/soundness/open/static_mut_str_slice_write_admits admits
 
 impl_method_ret_renamed_header_binder_refused 3 tests/soundness/open/impl_method_ret_renamed_header_binder_refused refuses
 
@@ -487,5 +481,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 163
-# SYNC-HASH ac5cea530ad53e7f33da2e9ff95605f3
+# TOTAL 160
+# SYNC-HASH 9db7d77927ac31f3a8188d45bf6d8553

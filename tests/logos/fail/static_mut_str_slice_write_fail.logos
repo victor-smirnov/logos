@@ -1,10 +1,11 @@
+// Was SOUNDNESS QUEUE row static_mut_str_slice_write_admits; closed: a write into a static's storage demands 'static data (E0597).
 // SOUNDNESS QUEUE row static_mut_str_slice_write_admits (tier 2).
 // NEIGHBOUR of bc_admits issue-69114-static-mut-ty, ROWED — reason 1 (the fact has
 // no carrier there). The write to the `static mut` IS checked (2026-09-13d) and the
 // declared `&str` is filled 'static, but the comparator reads no region on a borrowed
 // slice: `let r: &'static str = s.as_str()` compiles too. Same fact as bc_admits
 // better-blame-constraint-for-outlives-static. Rust: E0597 `s` does not live long enough.
-package static_mut_str_slice_write_admits;
+package static_mut_str_slice_write_fail;
 static mut NAME: &str = "init";
 fn set() {
     let s = String::from("local");

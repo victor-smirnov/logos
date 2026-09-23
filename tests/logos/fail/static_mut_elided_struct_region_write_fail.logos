@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row static_mut_elided_struct_region_write_admits; closed: a write into a static's storage demands 'static data (E0597).
 // SOUNDNESS QUEUE row static_mut_elided_struct_region_write_admits (tier 2).
 // NEIGHBOUR of bc_admits issue-69114-static-mut-ty, ROWED — reason 1 (the fact has
 // no carrier there). `static mut HS: H` with `struct H<'a>` elides the struct's
@@ -5,7 +6,7 @@
 // fill of Struct lifetime args at the write closed nothing (measured 2026-09-13d),
 // while the same program with `H<'static>` written is refused. Both writes below,
 // the whole value and the field, are E0597 in Rust.
-package static_mut_elided_struct_region_write_admits;
+package static_mut_elided_struct_region_write_fail;
 static V: i64 = 5i64;
 struct H<'a> { r: &'a i64 }
 static mut HS: H = H { r: &V };
