@@ -1,3 +1,5 @@
+// 2026-09-22: THIS PORT IS LEGAL RUST and lands under pass/. MEASURED with rustc
+// 1.98.1 --edition 2024 by path: it compiles clean — `W` holds no reference, so `Box<W>` coerces to `Box<dyn Anyish + 'a>` for any `'a`; the upstream error needed a borrowing value the port does not have.
 // rustc regions/explicit-static-bound-on-trait.rs — upstream E0478 / E0310
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root lifereg.NEW-4

@@ -1,3 +1,5 @@
+// 2026-09-22: THIS PORT IS LEGAL RUST and lands under pass/. MEASURED with rustc
+// 1.98.1 --edition 2024 by path: it compiles clean — `require(c2, t2)` needs only `T: Anything<'b, 'c>`, which the where-clause gives; the region error upstream reported came from an older rustc's projection handling.
 // rustc nll/ty-outlives/projection-two-region-trait-bound-closure.rs — upstream may not live long enough
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root nllmoves.NEW-N2

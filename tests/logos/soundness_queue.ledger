@@ -193,10 +193,6 @@ localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_n
 
 localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
 
-sliceref_read_of_local_array_says_dangling 3 tests/soundness/open/sliceref_read_of_local_array_says_dangling refuses
-
-lifereg_slice_elem_field_store_admits 2 tests/soundness/open/lifereg_slice_elem_field_store_admits admits
-
 loop_init_before_break_refuses 3 tests/soundness/open/loop_init_before_break_refuses refuses
 
 anon_region_let_annotation_refuses_named_region 3 tests/soundness/open/anon_region_let_annotation_refuses_named_region refuses
@@ -514,5 +510,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 177
-# SYNC-HASH da7fd7aac1743bb761974295b6f0a093
+# TOTAL 175
+# SYNC-HASH 2805848aef0807cb968debd36ddb42a6

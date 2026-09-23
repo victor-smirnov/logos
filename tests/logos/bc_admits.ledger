@@ -1925,19 +1925,13 @@ elided-self-lifetime-in-trait-fn lifereg.L1 tests/imported/admit/lifetimes/elide
 
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 
-mut-slice-struct-lifetime-transmute--t17 lifereg.NEW-B2 tests/imported/admit/lifetimes/mut-slice-struct-lifetime-transmute--t17  # 2026-09-12d DECLINED, AND THE NUMBER IS TWO LEGAL PROGRAMS. `liferegslicehop` refuses `s[0u64] = s[1u64]` and `dwderefhop` refuses `(*r).a = (*r).b` (both legal — every element/field is `&'a i64`), each with `cannot return reference to local variable '?': dangling reference`, a DIFFERENT sentence from the one this row closes with. ONE OVER-REFUSAL PER HOP, so the "cheaper half" variant ships one too (rule 18). 12c's 14 hand shapes all varied the DESTINATION and never the SOURCE; varying the RHS to a place READ through the same pointer/slice is what breaks it. NOT SEPARABLE: a probe that opens both hops and skips `add_ref_sources` entirely still refuses both legal programs AND still closes this row — the live consumer is `note_holder_escape_prov` further down the same block, so the deposit that buys the row IS the deposit that over-refuses. Two other causes were BUILT and REFUTED: an additive `store_ref_sources` arm (identical in all 27 columns) and "pairs is empty" (fire log says pairs=1 both times). The repair lives in the DANGLING channel, on the `'?'` population — its own round. CLASS, by `tools/dlog` place_walkers.dl at fixpoint (selftest green on 28fc7c75 first): projection domain is FIVE (Deref FieldRead IndexRead TupleIndex SliceIndex); the §B6 walk handles 2. ⚠ dlog scores `visit_stmt` 5/5 because it keys on the FUNCTION and that function holds several walks — the per-site read says 2/5; both numbers reported, the tool is coarse here. A class member the hop does NOT close is now queue row `lifereg_slice_elem_field_store_admits` (`s[0u64].v = y`). PRIOR: 2026-09-12c LOWERING NAMED BY CENSUS, AND IT REFUTES THE ARM THREE ROUNDS AIMED HERE: `s[0u64] = y` is SDerefWrite(AddrOfTemp(SliceIndex(VarRef s))) — node kind EC::SliceIndex (24), NOT EC::IndexRead (15). The probe-gated widening in the same §B6/holder walk (`lifereg_indexstore`) tests `IndexRead && pointee Kind::Array`: BOTH conjuncts miss, so "widen Kind::Array to Slice" was never the change. A `SliceIndex` hop added to that walk (`liferegslicehop`) prices CEILING 1 = THIS ROW, cost 0 on pass(ledger+legal) + fail(text, 0/1494) + stdlib(4 of 4) + runtime(6672 run fixtures, 0 lost / 0 added / 1 changed = cast-region-to-uint, subtracted by name), 14 legal hand shapes unmoved. FUNDABLE — see PROBES.md 2026-09-12c. PRIOR: 2026-09-11d RE-ROOTED lifereg.B -> lifereg.NEW-B2 on an arrival census: the slice-element store reaches NONE of the five holder-deposit doors (0 arrivals, incl. the index_mut receiver door), so no fact carried to a door helps it; --c17's field door arrives and closes at ceiling 1. The two rows are TWO mechanisms. PRIOR: STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT lifereg.B CONFIRMED by the same pair as --c17: root-local store REFUSED, through an INDEX admitted. The two rows are one mechanism at two projections and are now two DIFFERENT programs (field vs index), which they were not before
-
 trait-method-lifetime-suggestion lifereg.NEW-N1 tests/imported/admit/lifetimes/trait-method-lifetime-suggestion
 
 trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
 
 capture-ref-in-struct--t08 nllmoves.B tests/imported/admit/nll/capture-ref-in-struct--t08
 
-issue-54556-stephaneyfx nllmoves.E tests/imported/admit/nll/issue-54556-stephaneyfx
-
 issue-62007-assign-differing-fields--c nllmoves.R3 tests/imported/admit/nll/issue-62007-assign-differing-fields--c
-
-projection-two-region-trait-bound-closure nllmoves.NEW-N2 tests/imported/admit/nll/projection-two-region-trait-bound-closure
 
 projection-where-clause-none--b nllmoves.NEW-2 tests/imported/admit/nll/projection-where-clause-none--b
 
@@ -1947,11 +1941,7 @@ propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/n
 
 var-appears-twice nllmoves.NEW-4 tests/imported/admit/nll/var-appears-twice
 
-explicit-static-bound-on-trait lifereg.NEW-4 tests/imported/admit/regions/explicit-static-bound-on-trait
-
 region-bounds-on-objects-and-type-parameters lifereg.NEW-E0226 tests/imported/admit/regions/region-bounds-on-objects-and-type-parameters
-
-regions-infer-bound-from-trait-self lifereg.N1 tests/imported/admit/regions/regions-infer-bound-from-trait-self  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ONE-ROW root, no separating pair measured — do not group it. Upstream's four LEGAL contrast traits need a lifetime SUPERTRAIT bound (`trait T: 'static`), which does not parse here -> unrowed_backlog lifetime_supertrait_bound
 
 regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. Old port had dropped upstream's `for<'z>` HRTB; restored (it parses) and nothing changed, so the BOUND is not read either way. ROOT RE-CHECKED, lifereg.C SPLITS: this row is a CAPTURED enclosing local escaping through the closure's return. PAIR: a closure returning a borrow of its OWN local is REFUSED (`cannot return reference to local variable 'w'`); the same closure returning a borrow of the ENCLOSING fn's local is ADMITTED — the dangling check is frame-local
 
@@ -2534,5 +2524,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 26
-# SYNC-HASH fc9700df822be7e76e51771e197ffe7c
+# TOTAL 21
+# SYNC-HASH 976f3d1a174ee4e942b3d3696aec104d

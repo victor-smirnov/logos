@@ -4892,7 +4892,18 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                             }
                             if (op.k != bir::Operand::K::Const && op.place.valid()) {
                                 OList src = place_origins(op.place);
-                                if (s.rv.k == bir::Rvalue::K::Use) relate(src, dst, p);
+                                // AN UNSIZING `slice(&mut [T; N], N)` (a SliceLit — an
+                                // Aggregate, not an Op) KEEPS THE SHAPE:
+                                // the borrow stays the borrow and the element stays the
+                                // element — and behind `&mut` the element is INVARIANT.
+                                // Related all-to-all, `(*s)[0] = y` flowed into `s`'s
+                                // element region and never back into the array's, so
+                                // `let s: &mut [&i64] = &mut out; s[0] = y; out[0]` was
+                                // admitted (rustc E0621 on `y`).
+                                const bool unsize = s.rv.k == bir::Rvalue::K::Aggregate && s.rv.what == "slice" &&
+                                                    &op == &s.rv.ops[0] && src.exact && dst.exact &&
+                                                    src.os.size() == dst.os.size();
+                                if (s.rv.k == bir::Rvalue::K::Use || unsize) relate(src, dst, p);
                                 else if (auto sub = aggregate_slot(s, size_t(&op - s.rv.ops.data()), dst)) relate(src, *sub, p);
                                 else { src.exact = false; relate(src, dst, p); }
                             }
