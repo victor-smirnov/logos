@@ -1927,8 +1927,6 @@ regions-nested-fns-2 lifereg.C tests/imported/admit/regions/regions-nested-fns-2
 
 regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
 
-regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/regions-pattern-typing-issue-19552
-
 # ── tests/ui/moves ─────────────────────────────────────────
 
 
@@ -2504,5 +2502,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 11
-# SYNC-HASH 3f1ea2a55a2f2f8a7d0a515004b86488
+# TOTAL 10
+# SYNC-HASH 9d341854124cded45aed6205a5d0a299

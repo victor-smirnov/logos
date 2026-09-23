@@ -5461,9 +5461,19 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
             for (auto lp : lps) la.push_str(lp);
         }
         auto los = fn.lifetime_outlives();
-        if (!los.empty()) {
+        // A TYPE PARAMETER'S lifetime bound (`T: 'static`) rides along as the
+        // pair ("T:<name>", lt): the instance keeps `T` in its declared
+        // parameter types (the borrow checker labels those regions `T:<name>:k`)
+        // but loses its type parameters, and with them the bound (#462).
+        std::vector<std::pair<std::string, std::string>> tp_los;
+        if (!s.empty())
+            for (auto tp : fn.type_params())
+                for (auto lt : tp.lifetime_outlives())
+                    tp_los.emplace_back("T:" + std::string(tp.name()), std::string(lt));
+        if (!los.empty() || !tp_los.empty()) {
             auto lo = nf.array(dk::LIFETIME_OUTLIVES);
             for (auto& [a, b] : los) { lo.push_str(a); lo.push_str(b); }
+            for (auto& [a, b] : tp_los) { lo.push_str(a); lo.push_str(b); }
         }
     }
     {
@@ -5573,9 +5583,19 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
             for (auto lp : lps) la.push_str(lp);
         }
         auto los = fn.lifetime_outlives();
-        if (!los.empty()) {
+        // A TYPE PARAMETER'S lifetime bound (`T: 'static`) rides along as the
+        // pair ("T:<name>", lt): the instance keeps `T` in its declared
+        // parameter types (the borrow checker labels those regions `T:<name>:k`)
+        // but loses its type parameters, and with them the bound (#462).
+        std::vector<std::pair<std::string, std::string>> tp_los;
+        if (!s.empty())
+            for (auto tp : fn.type_params())
+                for (auto lt : tp.lifetime_outlives())
+                    tp_los.emplace_back("T:" + std::string(tp.name()), std::string(lt));
+        if (!los.empty() || !tp_los.empty()) {
             auto lo = nf.array(dk::LIFETIME_OUTLIVES);
             for (auto& [a, b] : los) { lo.push_str(a); lo.push_str(b); }
+            for (auto& [a, b] : tp_los) { lo.push_str(a); lo.push_str(b); }
         }
     }
     {

@@ -381,6 +381,7 @@ public:
             });
         });
         for (auto& [lo, sh] : fn.lifetime_outlives()) {
+            if (lo.starts_with("T:")) continue;   // a type parameter's bound (mono, #462): read at the call
             auto q = [](std::string_view n) { std::string r(n); if (!r.empty() && r[0] != '\'') r = "'" + r; return r; };
             body_.outlives.emplace_back(q(lo), q(sh));
         }
@@ -3930,6 +3931,22 @@ private:
         // names is the CALLER's: passing `&t` where `f: &dyn Fn(&'q i64)` asks
         // for `&'q i64` requires `t` to be borrowed for all of `'q`. (A direct
         // call's labels are the callee's own late-bound names and bind fresh.)
+        // A TYPE PARAMETER BOUNDED BY 'static (`fn f<T: 'static>(t: T)`): what
+        // the argument holds in T's positions must be `'static` — rustc E0597
+        // for `f(&local)`. Mono carries the bound as ("T:<name>", "'static")
+        // (#462); the argument's labels are `T:<name>:<k>`.
+        if (!indirect) {
+            std::set<std::string> static_tps;
+            for (auto [lo, sh] : t.callee_fn.lifetime_outlives())
+                if (lo.starts_with("T:") && (sh == "'static" || sh == "static"))
+                    static_tps.insert(std::string(lo.substr(2)));
+            if (!static_tps.empty())
+                for (auto& sr : srcs) {
+                    if (!sr.label.starts_with("T:")) continue;
+                    std::string nm = sr.label.substr(2, sr.label.find(':', 2) - 2);
+                    if (static_tps.count(nm)) subset(sr.origin, named_origin_["'static"], p);
+                }
+        }
         if (indirect)
             for (auto& sr : srcs)
                 if (auto it = named_origin_.find(sr.label); it != named_origin_.end())
