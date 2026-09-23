@@ -1732,10 +1732,6 @@
 #
 # 91 -> 97. THE ACTIONABLE LEDGER GROWING HERE IS THE CORRECT RESULT: these are
 # real defects again, and a ledger that hid them would be lying about the language.
-borrowck-move-out-of-tuple-struct-with-dtor--r13 bck.NEW-A16 tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--r13  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). ⚠ SECOND BLOCKER, unchanged from the 2026-08-28 record and re-verified 2026-09-08: the moved field has type `struct Inner { a: i64 }`, which DIVERGENCES A16 structural auto-Copy makes `Copy`, so the checker sees NO MOVE at all (zero E0509 fires). Retiring the drop clause does not reach it; A16 does. Its own body also exits 1 with DROPS=0 (`impl Drop for S` never runs) — that soundness_queue row (letstruct_destructure_skips_user_drop) was CLOSED 2026-09-08 and its program is now tests/logos/fail/letstruct_destructure_drop_owner_e0509.logos; the DROPS=0 residual here is A16's, not that row's
-
-borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admit/borrowck/borrowck-move-out-of-tuple-struct-with-dtor--t13  # 2026-09-08 RETURNED from bc_admits_blocked (was BUCKET-3 DIVERGENCE-DROP). Twin of --r13: same A16 second blocker, same zero-fire measurement, same run-time DROPS=0
-
 # ── 2026-09-08 — FOUR OF THE SIX CLOSED THE SAME DAY THEY RETURNED ──────────
 # The E0509 landing refuses all four, at three separate doors (dotted path,
 # field-init from a base, FRU) plus the `match` struct-pattern door, and each is
@@ -1909,11 +1905,7 @@ borrowck-move-out-of-tuple-struct-with-dtor--t13 bck.NEW-A16 tests/imported/admi
 #
 anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
 
-augmented-assignments bck.NEW-1 tests/imported/admit/borrowck/augmented-assignments  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): upstream's `struct Int(i32)` is a MOVE type and the error is E0505 "cannot move out of `x` because it is borrowed"; the port's `struct Int { v: i32 }` is auto-Copy under DIVERGENCES A16, so the RHS `x` is a COPY — and a READ of a place held by a two-phase RESERVATION is exactly what the reservation permits (`v.push(v.len())`). The illegality upstream rests on the operand being a MOVE. Same second blocker as bck.NEW-A16's two rows. NOT closable at the checker; A16 is what must move. Owner's. See PROBES.md 2026-09-12e
-
 borrowck-move-from-unsafe-ptr bck.NEW tests/imported/admit/borrowck/borrowck-move-from-unsafe-ptr
-
-ownership-struct-update-moved-error bck.NEW-4 tests/imported/admit/borrowck/ownership-struct-update-moved-error  # ⚠ A16-BLOCKED, MEASURED 2026-09-12 (build 130dc833802735ea): `Mine` is all-Copy-fields with no Drop, so A16 makes it Copy and `make_bar(start)` MOVES NOTHING — there is no use-after-move to refuse. The move checker itself is not the hole: the identical program with `impl Drop for Mine` added is REFUSED "use of moved variable 'start'", at BOTH the whole-value and the `start.test` projection spelling (two hand pairs). Third row of the same A16 class. Owner's. See PROBES.md 2026-09-12e
 
 # ── tests/ui/drop ─────────────────────────────────────────
 
@@ -2516,5 +2508,5 @@ regions-pattern-typing-issue-19552 lifereg.NEW-4 tests/imported/admit/regions/re
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 17
-# SYNC-HASH 1ef01a9899bc29ab3a3c3d2406f7495f
+# TOTAL 13
+# SYNC-HASH 813f07da8bb4e226e4e6dea186cdedd4

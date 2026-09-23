@@ -1,3 +1,7 @@
+// 2026-09-22: RE-PORTED FAITHFULLY. Under DIVERGENCES A16 (a struct of Copy
+// fields is itself Copy) the port's i64 payload made the moved value Copy, so the
+// program no longer tested upstream's subject. `Inner` now holds a `String`, so destructuring moves it out of a Drop type. With that the ADR 0028
+// checker refuses it as rustc does; the row was never a checker defect.
 // rustc borrowck/borrowck-move-out-of-tuple-struct-with-dtor.rs — upstream E0509
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: admit · root bck.NEW
@@ -42,11 +46,12 @@
 // The file stays on the admit shelf and keeps its row in
 // tests/logos/bc_admits_blocked.ledger; it is not a hole and never was.
 package borrowck_move_out_of_tuple_struct_with_dtor_t13;
-struct Inner { a: i64 }
+use logos.mem.string;
+struct Inner { a: String }
 struct S { f: Inner }
 impl Drop for S { fn drop(self: &mut S) {} }
 fn main() -> i32 {
-    let s = S { f: Inner { a: 1i64 } };
+    let s = S { f: Inner { a: String::from("x") } };
     let S { f: inner } = s;
-    return inner.a as i32;
+    return inner.a.len() as i32;
 }

@@ -1,0 +1,16 @@
+// 2026-09-22: RE-PORTED FAITHFULLY. Under DIVERGENCES A16 (a struct of Copy
+// fields is itself Copy) the port's i64 payload made the moved value Copy, so the
+// program no longer tested upstream's subject. `Int` now holds a `Box<i32>`, as upstream's `Int(i32)` is a MOVE type. With that the ADR 0028
+// checker refuses it as rustc does; the row was never a checker defect.
+// rustc borrowck/augmented-assignments.rs — upstream E0505 move out of borrowed
+// imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// shelf: admit · root bck.NEW-1
+package augmented_assignments;
+use logos.mem.boxed;
+struct Int { v: Box<i32> }
+impl AddAssign for Int { fn add_assign(self: &mut Self, o: Int) { } }
+fn main() -> i32 {
+    let mut x: Int = Int { v: Box::new(1i32) };
+    x += x;
+    return 0i32;
+}
