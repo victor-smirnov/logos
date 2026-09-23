@@ -9405,6 +9405,7 @@ sym	logos_lang..logos.lang.writ.array.WArray$G1$WAny__push__f__refmut_WArray$G1$
 sym	logos_lang..logos.lang.writ.array.WArray$G1$WAny__push__f__refmut_WArray$G1$WAny__u8
 sym	logos_lang..logos.lang.writ.array.Writ__array__f__ref_Writ__i64
 sym	logos_lang..logos.lang.writ.array.Writ__array_of__f__ref_Writ__WAny
+sym	logos_lang..logos.lang.writ.array.Writ__link__f__ref_Writ__ref_WArray$G1$WAny
 sym	logos_lang..logos.lang.writ.array.f32__arr_code__f__void
 sym	logos_lang..logos.lang.writ.array.f64__arr_code__f__void
 sym	logos_lang..logos.lang.writ.array.i16__arr_code__f__void
@@ -9422,6 +9423,7 @@ sym	logos_lang..logos.lang.writ.container.HeldAny__resolve__f__ref_HeldAny
 sym	logos_lang..logos.lang.writ.container.HeldAny__val__f__ref_HeldAny
 sym	logos_lang..logos.lang.writ.container.Writ__float__f__ref_Writ__f64
 sym	logos_lang..logos.lang.writ.container.Writ__int__f__ref_Writ__i64
+sym	logos_lang..logos.lang.writ.container.Writ__link_ptr__f__ref_Writ__pcst_u8
 sym	logos_lang..logos.lang.writ.container.Writ__root__f__ref_Writ
 sym	logos_lang..logos.lang.writ.container.Writ__set_root__f__ref_Writ__WAny
 sym	logos_lang..logos.lang.writ.decimal.WAny__as_decimal__f__WAny
@@ -9571,6 +9573,7 @@ sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Wu6$WAny__schema_type_code__f__ref_
 sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Wu6$WAny__set__f__refmut_WMap$G2$Wu6$WAny__u8__WAny
 sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Wu6$WAny__set_schema_type_code__f__refmut_WMap$G2$Wu6$WAny__u64
 sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Wu6$WAny__size__f__ref_WMap$G2$Wu6$WAny
+sym	logos_lang..logos.lang.writ.wmap.Writ__link__f__ref_Writ__ref_WMap$G2$WString$WAny
 sym	logos_lang..logos.lang.writ.wmap.Writ__make_schema__f__ref_Writ__i64__u64
 sym	logos_lang..logos.lang.writ.wmap.Writ__make_schema_h__f__ref_Writ__i64__u64
 sym	logos_lang..logos.lang.writ.wmap.Writ__map__f__ref_Writ__i64
@@ -10463,8 +10466,24 @@ sym	logos_lang.logos.lang.panic$assert__f__bool__slice_u8
 sym	logos_lang.logos.lang.panic$catch_unwind__f__fn() -> void
 sym	logos_lang.logos.lang.panic$location__f__slice_u8__u32__u32
 sym	logos_lang.logos.lang.panic$panic__f__slice_u8
+sym	logos_lang.logos.lang.ptr$drop_in_place__g__pmut_T__MemorySnapshot
+sym	logos_lang.logos.lang.ptr$drop_in_place__g__pmut_T__MemoryStore
+sym	logos_lang.logos.lang.ptr$drop_in_place__g__pmut_T__Writ
+sym	logos_lang.logos.lang.ptr$drop_in_place__g__pmut_T__dyn Resident
+sym	logos_lang.logos.lang.ptr$drop_in_place__g__pmut_T__dyn Snapshot
 sym	logos_lang.logos.lang.ptr$null_mut__g__void__Segment
 sym	logos_lang.logos.lang.ptr$null_mut__g__void__u8
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__&[u8]
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], &[u8])
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], &[u8], &[u8])
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], &[u8], &[u8], &[u8])
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], &[u8], &[u8], &[u8], &[u8])
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], i64, &[u8])
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], i64, &[u8], &[u8], i64)
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__Vec$G1$i64
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__i64
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u64
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u8
 sym	logos_lang.logos.lang.range$range_from_i32__f__i32
 sym	logos_lang.logos.lang.range$range_from_i64__f__i64
 sym	logos_lang.logos.lang.range$range_full__f__void
@@ -10530,6 +10549,7 @@ sym	logos_lang.logos.lang.vlen$vlen_write__f__pmut_u8__u64
 sym	logos_lang.logos.lang.writ.allocator$allocator_alloc__f__pmut_Allocator__i64__i64
 sym	logos_lang.logos.lang.writ.allocator$allocator_free__f__pmut_Allocator
 sym	logos_lang.logos.lang.writ.allocator$allocator_new__f__i64
+sym	logos_lang.logos.lang.writ.allocator$allocator_owns__f__pcst_Allocator__pcst_u8
 sym	logos_lang.logos.lang.writ.anyval$fits_i56__f__i64
 sym	logos_lang.logos.lang.writ.anyval$w_type_code__f__pcst_u8
 sym	logos_lang.logos.lang.writ.comp_builder$writ_coerce_bool__f__bool
