@@ -1917,8 +1917,6 @@ trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/
 
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
 
-regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regions/regions-normalize-in-where-clause-list
-
 # ── tests/ui/moves ─────────────────────────────────────────
 
 
@@ -2494,5 +2492,5 @@ regions-normalize-in-where-clause-list lifereg.NEW-N2 tests/imported/admit/regio
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 6
-# SYNC-HASH be01d1e34090ee5eb05127af671e0f46
+# TOTAL 5
+# SYNC-HASH 195832aa944eb54e76a510ad07870c13

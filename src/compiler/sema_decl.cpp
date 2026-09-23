@@ -1525,6 +1525,80 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         for (auto& pr : lifetime_outlives) { a.push_str(pr.first); a.push_str(pr.second); }
     }
     current_outlives_ = lifetime_outlives;  // B64/B65: visible to coercion sites
+    // WF OF A QUALIFIED PROJECTION IN THE SIGNATURE: `<U as Project<'a, 'b>>::Item`
+    // normalises through `impl<'a, 'b> Project<'a, 'b> for U where 'a: 'b`, so the
+    // signature must prove that impl's lifetime bounds for ITS arguments —
+    // rustc refuses `fn bar<'a, 'b>(x: <U as Project<'a, 'b>>::Item)`
+    // (regions-normalize-in-where-clause-list).
+    {
+        const auto adj_ = outlives_adj(lifetime_outlives);
+        std::function<void(TinyMapView, int)> walk_ = [&](TinyMapView tn, int d) {
+            if (tn.is_null() || d > 16) return;
+            if (code_of(tn) == la::ASSOC_TYPE_REF && tn.has_key(la::NAME) && tn.has_key(la::RECEIVER)) {
+                auto qn = map_of(tn.get(la::NAME.code));
+                if (!qn.is_null() && qn.has_key(la::NAME)) {
+                    std::string qtrait(str_of(qn.get(la::NAME.code)));
+                    std::vector<std::string> written;
+                    if (qn.has_key(la::ITEMS)) {
+                        auto its = arr_of(qn.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < its.size(); ++i) {
+                            auto it = map_of(its.get(i));
+                            if (code_of(it) == la::LIFETIME_PARAM) written.emplace_back(str_of(it.get(la::NAME.code)));
+                        }
+                    }
+                    TypeRef base = resolve_type(map_of(tn.get(la::RECEIVER.code)));
+                    using KP = LogosType::Kind;
+                    if (base && base.kind() != KP::TypeVar && base.kind() != KP::AssocType && !written.empty()) {
+                        auto iit = impls_.find(impl_key(qtrait, type_str(base)));
+                        if (iit != impls_.end()) {
+                            const auto& info = iit->second;
+                            std::unordered_map<std::string, std::string> map_;
+                            for (size_t i = 0; i < info.trait_lifetime_args.size() && i < written.size(); ++i)
+                                map_[info.trait_lifetime_args[i]] = written[i];
+                            for (auto& [lo, sh] : info.impl_lifetime_outlives) {
+                                auto a_ = map_.find(lo), b_ = map_.find(sh);
+                                if (a_ == map_.end() || b_ == map_.end()) continue;
+                                const std::string& L = a_->second; const std::string& S = b_->second;
+                                if (L == S || outlives_is_static(L)) continue;
+                                if (!outlives(L, S, adj_, /*permissive_empty=*/false))
+                                    error(std::format("lifetime may not live long enough: `<{} as {}<..>>` "
+                                                      "requires `{}: {}` (the impl's bound), which this "
+                                                      "signature does not declare",
+                                                      type_str(base), qtrait, L, S));
+                            }
+                        }
+                    }
+                }
+            }
+            const int32_t c_ = code_of(tn);
+            if ((c_ == la::REF_TYPE || c_ == la::MUT_REF_TYPE) && tn.has_key(la::POINTEE)) {
+                auto v = tn.get(la::POINTEE.code);
+                if (!v.is_null()) walk_(map_of(v), d + 1);
+            } else if ((c_ == la::GENERIC_INST || c_ == la::TUPLE_TYPE) && tn.has_key(la::ITEMS)) {
+                auto its = arr_of(tn.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < its.size(); ++i) {
+                    auto e = map_of(its.get(i));
+                    if (code_of(e) != la::LIFETIME_PARAM) walk_(e, d + 1);
+                }
+            }
+        };
+        if (node.has_key(la::PARAMS)) {
+            auto pv = node.get(la::PARAMS.code);
+            if (pv.is_pointer() && map_of(pv).has_key(la::ITEMS)) {
+                auto ps = arr_of(map_of(pv).get(la::ITEMS.code));
+                for (uint64_t i = 0; i < ps.size(); ++i) {
+                    auto pm = map_of(ps.get(i));
+                    if (code_of(pm) != la::PARAM || !pm.has_key(la::TYPE)) continue;
+                    auto tv = pm.get(la::TYPE.code);
+                    if (tv.is_pointer()) walk_(map_of(tv), 0);
+                }
+            }
+        }
+        if (node.has_key(la::RET_TYPE)) {
+            auto rv = node.get(la::RET_TYPE.code);
+            if (rv.is_pointer()) walk_(map_of(rv), 0);
+        }
+    }
     {   // The binders of THIS scope — see outlives.hpp::current_lt_binders().
         auto& lb_ = current_lt_binders();
         lb_.clear();

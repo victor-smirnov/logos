@@ -1,6 +1,6 @@
 // rustc regions/regions-normalize-in-where-clause-list.rs — upstream cannot infer (needs `'a: 'b`)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
-// shelf: admit · root lifereg.NEW-N2
+// shelf: pin (was admit · root lifereg.NEW-N2; closed: a qualified projection in a signature must prove its impl's lifetime bounds)
 package regions_normalize_in_where_clause_list;
 trait Project<'a, 'b> { type Item; }
 struct U;
