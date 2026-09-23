@@ -1,1 +1,1 @@
-cannot move out of 'local.inner' because it is borrowed
+'local.inner' does not live long enough

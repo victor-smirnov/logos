@@ -5813,6 +5813,15 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                     msg = facts.at_drop(P) && std::any_of(loan.place.proj.begin(), loan.place.proj.end(),
                                                           [](const bir::Proj& pj) { return pj.k == bir::Proj::K::Deref; })
                         ? std::format("borrow may still be in use when destructor runs: '{}' (E0713)", nm)
+                        // A DROP of a still-borrowed value: rustc's E0716 for a
+                        // temporary, E0597 for a named local — the drop is the
+                        // "does not live long enough" point, not a move.
+                        : facts.at_drop(P) && (body.locals[loan.place.local].kind == bir::LocalKind::Temp ||
+                                               body.locals[loan.place.local].name.starts_with("__rtmp"))
+                        ? std::string("temporary value dropped while borrowed")
+                        : facts.at_drop(P)
+                        ? std::format("'{}' does not live long enough: it is borrowed here and "
+                                      "used after '{}' goes out of scope", nm, nm)
                         : std::format("cannot move out of '{}' because it is borrowed", nm);
                     break;
                 case 6:  msg = std::format("cannot use '{}' because it was mutably borrowed", nm); break;

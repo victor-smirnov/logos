@@ -1,0 +1,18 @@
+// #464, the runtime half: `Writ::link` refuses a node that lies outside this
+// document's arena segments (by address range; everything not ours is foreign)
+// and panics — exit 134 is the abort. The own-arena link before it must pass.
+package writ_link_foreign_arena_panics;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+fn main() -> i32 {
+    let a: Writ = writ_new(4096i64);
+    let b: Writ = writ_new(4096i64);
+    let ma: &mut WMap<WString, WAny> = a.map(4i64);
+    let mb: &mut WMap<WString, WAny> = b.map(4i64);
+    mb.set("x", 1i64);
+    ma.set("own", a.link(&*ma));        // own arena: fine
+    ma.set("foreign", a.link(&*mb));    // another arena: panics
+    return 0i32;
+}

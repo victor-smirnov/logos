@@ -19,6 +19,7 @@ use logos.lang.writ.allocator;
 use logos.lang.writ.anyval;
 use logos.lang.rc;
 use logos.lang.cell;
+use logos.lang.panic;
 
 // The root container: owns the segment arena by value (the container is the
 // stable root — it does not move; only never-move segments hang off it).
@@ -181,6 +182,14 @@ pub unsafe fn make_int(a: *mut Allocator, v: i64) -> WAny {
 }
 
 impl Writ {
+    /// A `WAny` for the object at `p` that carries THIS document's region, not a borrow of the object.
+    /// Panics when `p` is not inside this arena.
+    pub unsafe fn link_ptr(self: &Writ, p: *const u8) -> WAny {
+        if !allocator_owns(self.allocator.get() as *const Allocator, p) {
+            panic("Writ::link: the object belongs to another arena");
+        }
+        return WAny::ref_to(p);
+    }
     // Build a scalar WAny in THIS arena (boxing wide values). For walkers that
     // hold a `&Writ` (parse / wbs_read / compactify).
     /// Makes an integer `WAny` in this arena: inline Pod when `v` fits i56, else boxed.

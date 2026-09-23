@@ -6304,8 +6304,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                pass/let_mutref_annotation_to_meet_struct_admit, #223 enum_payload_binding_declared_binder_name_collision
 #                -> fail/…_fail), so their fixtures cancel their squeue tests in ALL; plus the new twin
 #                pass/let_underscore_lifetime_annotation_admit + fail/let_underscore_lifetime_annotation_escape_fail (+2).
-REGISTRY-ALL         11113
-REGISTRY-NOIMPORTED  6561
+#                ALL 11113 -> 11116 (+3), NOIMPORTED 6561 -> 6564 (+3), TIERCOMMIT 245 -> 245 (0) — 2026-09-23,
+#                #464 `Writ::link`: pass/writ_link_cycle_admit, pass/writ_link_foreign_arena_panics,
+#                fail/writ_link_outlives_document_fail.
+REGISTRY-ALL         11116
+REGISTRY-NOIMPORTED  6564
 REGISTRY-TIERCOMMIT  245
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

@@ -152,6 +152,18 @@ pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut 
     return na as *mut u8;
 }
 
+/// Whether `p` lies inside one of this allocator's segment data regions.
+pub unsafe fn allocator_owns(a: *const Allocator, p: *const u8) -> bool {
+    let x: i64 = p as i64;
+    let mut seg: *mut Segment = a.head;
+    while !seg.is_null() {
+        let base: i64 = (seg as i64) + (sizeof::<Segment>() as i64);
+        if x >= base && x < base + seg.cap { return true; }
+        seg = seg.next;
+    }
+    return false;
+}
+
 /// Frees all segments en masse. The allocator must not be used afterwards.
 /// Idempotent: nulls `head`/`current`, so a second call (or the `Drop` impl after
 /// an explicit free) walks a null list and is a no-op — no double-free.

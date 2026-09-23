@@ -851,3 +851,24 @@ E0521 против E0515), часть требует разбора.
 ## tests/imported/fail/nll/issue-53773.expected
 - было (move out while borrowed, at the return): `cannot move out of '*child.raw' because it is borrowed`
 - стало (E0713, as upstream: the return REBORROWS the `&mut` field and `C`'s destructor runs over it): `borrow may still be in use when destructor runs: '*child.raw' (E0713)`
+
+## #464/#465 drop-while-borrowed wording (17 fixtures)
+- было (a DROP reported as a move): `cannot move out of 'X' because it is borrowed`
+- стало (as rustc: E0716 for a temporary, E0597 for a named local): `temporary value dropped while borrowed` / `'X' does not live long enough`
+  - tests/logos/fail/borrow_temp_dropped_while_borrowed.expected
+  - tests/logos/fail/bc_0914o_autoreffund_hb_i03_refuse.expected
+  - tests/logos/fail/bc_0914o_autoreffund_hb_i04_refuse.expected
+  - tests/logos/fail/bc_e716argtemp_rtmp_drop_fail.expected
+  - tests/logos/fail/bc_esc_fnptr_param_dangle.expected
+  - tests/logos/fail/bc_esc_generic_outparam_dangle.expected
+  - tests/logos/fail/bc_esc_holder_return_method_dangle.expected
+  - tests/imported/fail/borrowck/borrowck-borrowed-uniq-rvalue.expected
+  - tests/imported/fail/borrowck/borrowck-fn-in-const-c.expected
+  - tests/imported/fail/dropck/drop-with-active-borrows-2.expected
+  - tests/imported/fail/drop/if-let-rescope-borrowck-suggestions.expected
+  - tests/imported/fail/borrowck/issue-36082.expected
+  - tests/imported/fail/nll/issue-54556-used-vs-unused-tails.expected
+  - tests/imported/fail/lifetimes/return-reference-local-variable-13497.expected
+  - tests/imported/fail/borrowck/rvalue-borrow-scope-error.expected
+  - tests/logos/fail/wany_escapes_rc_container.expected
+  - tests/spec/fail/borrow_diag_2__ref-from-temp.expected

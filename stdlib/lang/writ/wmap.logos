@@ -211,6 +211,10 @@ unsafe fn om_get_slot(m: *mut WMap<WString, WAny>, key: str) -> *zoned mut WAny 
 
 // ── Direct-reference surface (like WArray<WAny>) ────────────────────────────────
 impl Writ {
+    /// A `WAny` for map `m` of THIS document: it borrows the document, not `m`. Panics if `m` is foreign.
+    pub fn link(self: &Writ, m: &WMap<WString, WAny>) -> WAny {
+        return unsafe { self.link_ptr(m as *const WMap<WString, WAny> as *const u8) };
+    }
     /// Creates an empty string-keyed map with at least `cap` slots (power-of-two rounded, min 8).
     /// `&self` interior-mut allocation into never-move storage; the fat `&mut` carries the zone.
     pub fn map<'a>(self: &'a Writ, cap: i64) -> &'a mut WMap<WString, WAny> {

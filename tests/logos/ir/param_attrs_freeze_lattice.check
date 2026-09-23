@@ -77,6 +77,11 @@
 ; cached on the enum name.
 ; AXIS axis_opt_plain
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_opt_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(16) %0)
+; AXIS axis_arena_node
+; An arena node (#[zone_mut]) has plain fields yet is interior-mutable by
+; design (#464): the shared `&` carries neither noalias nor readonly.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_arena_node{{[^(]*}}(ptr noundef align 8 dereferenceable(24) %0)
+
 ; AXIS axis_opt_cell
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_opt_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
 

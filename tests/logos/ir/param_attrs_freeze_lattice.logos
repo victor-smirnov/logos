@@ -64,6 +64,9 @@ package param_attrs_freeze_lattice;
 
 use logos.lang.cell;
 use logos.lang.option;
+use logos.lang.writ.container;
+use logos.lang.writ.array;
+use logos.lang.writ.anyval;
 
 // ── AXIS 1: array element recursion. Both pointees are 32 bytes, align 8. ───
 fn axis_array_cell(a: &[Cell<i64>; 4]) -> i64 { return a[0].get(); }
@@ -89,6 +92,10 @@ fn axis_generic<T>(b: &Box2<T>) -> i64 { return 0i64; }
 // ── AXIS 5: two Option instances alive in ONE program. ─────────────────────
 fn axis_opt_plain(o: &Option<i64>) -> i64 { return 0i64; }
 fn axis_opt_cell(o: &Option<Cell<i64>>) -> i64 { return 0i64; }
+
+// ── AXIS: an ARENA NODE (#[zone_mut]) is interior-mutable by design (#464):
+//    its fields are plain, yet `&WArray<WAny>` must carry neither attribute. ──
+fn axis_arena_node(a: &WArray<WAny>) -> i64 { return 0i64; }
 
 // ── AXIS 6: tuple element recursion. Both pointees are 16 bytes, align 8. ───
 //    THIS IS THE MEASURED ONE: with `case K::Tuple: return true;` in place of
@@ -185,6 +192,8 @@ fn main() -> i32 {
     let sx: i64 = 0i64;
     let uc: UnsafeCell<i64> = UnsafeCell::new(0i64);
     let av: AnyVal = AnyVal { raw: 0i64 };
+    let wd: Writ = writ_new(1024i64);
+    let wa: &mut WArray<WAny> = wd.array(2i64);
 
     let acc: i64 = axis_array_cell(&ac) + axis_array_plain(&ap) + axis_nested2(&o)
                  + axis_ptr_field(&pf) + axis_generic::<i64>(&bi)
@@ -196,7 +205,7 @@ fn main() -> i32 {
                  + axis_clike(&ck)
                  + axis_selfref_cell(&sc) + axis_selfref_plain(&sp)
                  + axis_scalar(&sx) + axis_unsafecell_item(&uc)
-                 + axis_anyval(&av);
+                 + axis_anyval(&av) + axis_arena_node(&*wa);
     if acc != 0i64 { return 1; }
     return run::<Id>(Id { _x: 0i32 });
 }

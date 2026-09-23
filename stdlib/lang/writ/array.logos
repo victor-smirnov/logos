@@ -166,6 +166,10 @@ unsafe fn array_get(a: *const WArray<WAny>, i: i64) -> WAny {
 // (The residency `holder` for ESCAPING references, and the enforced borrow-tie
 // ref ≤ holder + mutation-exclusivity, are the next steps of this model.)
 impl Writ {
+    /// A `WAny` for array `a` of THIS document: it borrows the document, not `a`. Panics if `a` is foreign.
+    pub fn link(self: &Writ, a: &WArray<WAny>) -> WAny {
+        return unsafe { self.link_ptr(a as *const WArray<WAny> as *const u8) };
+    }
     /// Creates an empty heterogeneous array in this container; returns a fresh fat `&mut` to it.
     /// Interior-mut `&self` allocation into never-move storage: multiple `array` calls coexist.
     pub fn array<'a>(self: &'a Writ, cap: i64) -> &'a mut WArray<WAny> {

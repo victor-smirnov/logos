@@ -1,0 +1,13 @@
+// #464, the static half: a `WAny` from `Writ::link` borrows the DOCUMENT, so it
+// cannot outlive it. Twin: pass/writ_link_cycle_admit.
+package writ_link_outlives_document_fail;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+fn make() -> WAny {
+    let d: Writ = writ_new(4096i64);
+    let m: &mut WMap<WString, WAny> = d.map(4i64);
+    return d.link(&*m);
+}
+fn main() -> i32 { let v: WAny = make(); if v.is_map() { return 0i32; } return 1i32; }

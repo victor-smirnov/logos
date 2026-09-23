@@ -47,7 +47,7 @@ WStaticLit
 # `<Kind>\t<arm ordinal>` — which verdict site each explicitly-cased Kind
 # reaches first. The ordinal is the site's position in the ARMS section below.
 #
-# NOTE ON `Struct`/`ZonedStruct` = 8 and `Enum` = 14: the ordinal is the FIRST
+# NOTE ON `Struct`/`ZonedStruct` = 8 and `Enum` = 15: the ordinal is the FIRST
 # verdict inside the block the case label opens (the UnsafeCell lang-item test
 # and the payload-loop rejection respectively), not the block's final answer.
 # That is the mechanical rule — first verdict at or after the label — and it is
@@ -58,7 +58,7 @@ Bool	3
 Char	3
 Closure	4
 DstRef	4
-Enum	14
+Enum	15
 F32	3
 F64	3
 FloatLit	3
@@ -118,12 +118,13 @@ ARMS
 9	struct-cycle-guard	NO-AXIS:unreachable from source — a Logos struct cannot contain itself by value, so every self-reference passes through an indirection and arm 4 returns before `seen` is consulted; axis_selfref_cell/plain pin the ANSWER for a recursive shape but not this branch	return true;
 10	struct-init	axis_selfref_plain	bool frozen = true;
 11	struct-unresolved	NO-AXIS:UNPROBED, not proven unreachable — no source shape has been found that reaches `find_struct_def_it == end()` for a Kind::Struct; the answer (false) is conservative, so a miss here costs an optimization, never soundness	frozen = false;
-12	struct-field-nonfreeze	axis_nested2,axis_selfref_cell,axis_tuple_field	frozen = false;
-13	struct-verdict	axis_tuple_field_plain	return frozen;
-14	enum-payload-nonfreeze	axis_opt_cell	return false;
-15	enum-payload-freeze	axis_opt_plain	return true;
-16	enum-clike-fallback	axis_clike	return true;
-17	default-unknown-kind	axis_residue	return false;
+12	struct-arena-node	axis_arena_node	frozen = false;
+13	struct-field-nonfreeze	axis_nested2,axis_selfref_cell,axis_tuple_field	frozen = false;
+14	struct-verdict	axis_tuple_field_plain	return frozen;
+15	enum-payload-nonfreeze	axis_opt_cell	return false;
+16	enum-payload-freeze	axis_opt_plain	return true;
+17	enum-clike-fallback	axis_clike	return true;
+18	default-unknown-kind	axis_residue	return false;
 #
 # ── SECTION `EXTRA_AXES` ─────────────────────────────────────────────────────
 # Axes that pin a PROPERTY of the predicate rather than one verdict site. They

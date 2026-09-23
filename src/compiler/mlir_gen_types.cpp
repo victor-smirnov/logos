@@ -847,6 +847,13 @@ bool MLIRGenImpl::type_is_freeze(TypeRef t,
         auto it = find_struct_def_it(t);
         if (it == all_struct_defs_.end()) {
             frozen = false;                            // unresolved → conservative
+        } else if (it->second.zone_mut()) {
+            // AN ARENA NODE IS INTERIOR-MUTABLE BY DESIGN (#464): a Writ node
+            // is mutated through a `&mut` fat ref while `Writ::link` handles to
+            // it coexist, and a `WAnyMut` reaches it as `&mut` too. A shared
+            // `&` to one is therefore not readonly — the arena is the cell,
+            // as Rust's arena graphs make their nodes `Cell`-bearing.
+            frozen = false;
         } else {
             const TypePoolImpl* lo_pool = pool_impl();
             for (auto f : it->second.fields()) {

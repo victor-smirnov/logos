@@ -409,10 +409,10 @@ fn main() -> i32 {
     shared.set("x", 7i64);
     let left: &mut WMap<WString, WAny> = d3.map(4i64);
     left.set("seven", 7i64);
-    left.set("s", WAny::from(&*shared));
+    left.set("s", d3.link(&*shared));
     let right: &mut WMap<WString, WAny> = d3.map(4i64);
     right.set("seven", 7i64);
-    right.set("s", WAny::from(&*shared));
+    right.set("s", d3.link(&*shared));
     let meta: Meta = d3.make::<Meta>();
     meta.alpha = 100i64;
     meta.beta = 200i64;
@@ -420,18 +420,14 @@ fn main() -> i32 {
     arr.push(10i64);
     arr.push(20i64);
     let r3: &mut WMap<WString, WAny> = d3.map(8i64);
-    // THE BACK EDGE FIRST, AND RAW (like `meta` below). `WAny` is
-    // #[borrow_carrying]: once `r3` holds `WAny::from(&*right)` it holds a shared
-    // loan of `*right`, and no `right.set(..)` may follow — a cycle cannot be
-    // built out of tracked borrows. This line came AFTER `r3.set("right", ..)`
-    // and passed only because `WMap::set` (a stdlib body with no flow summary)
-    // had no out-parameter relation. (#464)
-    right.set("back", unsafe { WAny::ref_to((r3 as *const WMap<WString, WAny>) as *const u8) });   // closes the cycle
-    r3.set("left", WAny::from(&*left));
-    r3.set("right", WAny::from(&*right));
+    // Links carry the DOCUMENT's region, not a borrow of the node (#464), so
+    // `right` stays mutable after `r3` refers to it and the cycle closes last.
+    r3.set("left", d3.link(&*left));
+    r3.set("right", d3.link(&*right));
+    right.set("back", d3.link(&*r3));   // closes the cycle
     r3.set("meta", unsafe { WAny::ref_to((meta.m as i64) as *const u8) });
-    r3.set("arr", WAny::from(&*arr));
-    let rv3: WAny = WAny::from(&*r3);
+    r3.set("arr", d3.link(&*arr));
+    let rv3: WAny = d3.link(&*r3);
     d3.set_root(rv3);
     if !d3.root().is_map() { return 93i32; }             // setup, not the subject
 

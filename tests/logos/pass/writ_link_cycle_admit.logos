@@ -1,0 +1,24 @@
+// #464: a `WAny` made by `Writ::link` carries the DOCUMENT's region, not a
+// borrow of the node, so a node stays mutable after another node refers to it
+// and a cycle is built from linked edges alone (arena semantics, as a Rust
+// graph over an arena's `&'arena` handles). Twins: fail/writ_link_outlives_document_fail
+// (the static half: a link cannot outlive its document) and
+// pass/writ_link_foreign_arena_panics (the runtime half: a node of another arena).
+package writ_link_cycle_admit;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+fn main() -> i32 {
+    let d: Writ = writ_new(4096i64);
+    let a: &mut WMap<WString, WAny> = d.map(4i64);
+    let b: &mut WMap<WString, WAny> = d.map(4i64);
+    a.set("next", d.link(&*b));
+    b.set("next", d.link(&*a));      // `b` is written after `a` refers to it
+    b.set("n", 7i64);
+    a.set("n", 5i64);
+    let back: WAny = d.link(&*a).as_map().get("next").as_map().get("next");
+    if back.as_map().get("n").as_i64() != 5i64 { return 1i32; }
+    if d.link(&*a).as_map().get("next").as_map().get("n").as_i64() != 7i64 { return 2i32; }
+    return 0i32;
+}
