@@ -3474,7 +3474,13 @@ lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
     // PROBE lifereg_varassign: the same missing consumer at the OTHER
     // assignment path. check_variance IS called at let-init (permissive=false)
     // and is not called one statement later at the re-assignment.
-    if (logos::probe::on("lifereg_varassign") && var_type && rhs)
+    // A FN-POINTER local's elided regions are binders, not inference variables:
+    // re-assigning it a less general pointer is refused as at its `let`.
+    if (var_type && rhs && TypeRef(var_type).kind() == LogosType::Kind::FnPtr)
+        check_variance(expr_type(rhs), var_type,
+                       std::format("assignment to '{}'", name),
+                       /*permissive=*/false);
+    else if (logos::probe::on("lifereg_varassign") && var_type && rhs)
         check_variance(expr_type(rhs), var_type,
                        std::format("assignment to '{}'", name),
                        /*permissive=*/false);

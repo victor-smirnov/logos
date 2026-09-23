@@ -253,8 +253,6 @@ rawptr_int_zero_compare_mlir_verifier_refused 3 tests/soundness/open/rawptr_int_
 
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
 
-rawptr_mixed_mutability_eq_admitted 1 tests/soundness/open/rawptr_mixed_mutability_eq_admitted admits
-
 tuple_of_rawptr_ordering_mlir_verifier_refused 3 tests/soundness/open/tuple_of_rawptr_ordering_mlir_verifier_refused refuses
 
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
@@ -267,15 +265,6 @@ listcomp_value_elem_type_refused 3 tests/soundness/open/listcomp_value_elem_type
 tuple_elem_shared_borrow_through_ref_dangles_run 1 tests/soundness/open/tuple_elem_shared_borrow_through_ref_dangles_run run 1
 
 elided_param_regions_invariant_compare_admits 2 tests/soundness/open/elided_param_regions_invariant_compare_admits admits
-
-# ── 2026-09-14j-fnptrbinder: defects the pricing round's hand battery found around a fn-pointer type's own regions (an elided
-# slot read as a wildcard, a `for<..>` binder read as the enclosing scope's name), each reproducing on build c52dcb19dff987ff 43
-# before any edit; the reason a neighbour is rowed rather than moved is in each program's header.
-fnptr_elided_param_struct_literal_admits 2 tests/soundness/open/fnptr_elided_param_struct_literal_admits admits
-
-fnptr_elided_param_call_arg_admits 2 tests/soundness/open/fnptr_elided_param_call_arg_admits admits
-
-fnptr_assign_named_to_elided_admits 2 tests/soundness/open/fnptr_assign_named_to_elided_admits admits
 
 user_type_alias_shadows_stdlib_type_param_refused 3 tests/soundness/open/user_type_alias_shadows_stdlib_type_param_refused refuses
 
@@ -434,6 +423,10 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
+# ── 2026-09-14j-fnptrbinder: defects the pricing round's hand battery found around a fn-pointer type's own regions (an elided
+# slot read as a wildcard, a `for<..>` binder read as the enclosing scope's name), each reproducing on build c52dcb19dff987ff 43
+# before any edit; the reason a neighbour is rowed rather than moved is in each program's header.
+
 # ── 2026-09-14b-ptrcoerceland: the landing's five rowed neighbours (reason in each program's header) and nine
 # defects its hand battery found, each reproducing identically on base 6d1bbee8344b2a81 and landed 33067b51ad15d447.
 
@@ -481,5 +474,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 160
-# SYNC-HASH 9db7d77927ac31f3a8188d45bf6d8553
+# TOTAL 156
+# SYNC-HASH cfee46b5b8b8fe13fe8bfccb4c98c0d6

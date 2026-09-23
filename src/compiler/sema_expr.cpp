@@ -2591,6 +2591,18 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
     }
 
+    // RAW POINTER EQUALITY is `PartialEq for *mut T` / `*const T` — one
+    // mutability, one T: `*mut i64 == *const i64` is E0308, and under `*mut`
+    // (invariant) the pointees' regions must be the same region.
+    if ((op == "==" || op == "!=") && lt && rt &&
+        TypeRef(lt).kind() == LogosType::Kind::Ptr && TypeRef(rt).kind() == LogosType::Kind::Ptr) {
+        if (TypeRef(lt).mut_ptr() != TypeRef(rt).mut_ptr())
+            error(std::format("mismatched types (E0308): `{}` compared with `{}` — raw pointers of "
+                              "different mutability are different types", type_str(lt), type_str(rt)));
+        else if (TypeRef(lt).mut_ptr())
+            check_variance(rt, lt, std::format("`{}` operand", op), /*permissive=*/false);
+    }
+
     TypeRef result_type = error_t();
 
     // CP-cm-08b: tuple `==` / `!=` desugars to Eq-trait method call on

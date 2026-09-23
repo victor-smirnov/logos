@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row fnptr_elided_param_struct_literal_admits; closed 2026-09-23 (rustc E0308).
 // SOUNDNESS QUEUE row fnptr_elided_param_struct_literal_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: A FN POINTER WITH A NAMED PARAMETER REGION INITIALISES A `fn(&i64) -> i64` STRUCT FIELD.
 //
@@ -9,7 +10,7 @@
 // c37 (an if-join of items into a for<'z> pointer, then called) and c39 (a fn(&i64) local passed to a for<'x> parameter,
 // pinned as bc_0914k_fnptrbinderland_hb_c39_admit). The narrower fnptrstrictf (the '%f placeholder only) moved nothing.
 // Found: hand i08, round 2026-09-14j-fnptrbinder.
-package fnptr_elided_param_struct_literal_admits;
+package fnptr_elided_param_struct_literal_fail;
 struct H { f: fn(&i64) -> i64 }
 fn mk<'r>(g: fn(&'r i64) -> i64) -> H {
     return H { f: g };

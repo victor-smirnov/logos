@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row fnptr_assign_named_to_elided_admits; closed 2026-09-23 (rustc E0308).
 // SOUNDNESS QUEUE row fnptr_assign_named_to_elided_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: A LOCAL OF TYPE `fn(&i64) -> i64` IS RE-ASSIGNED A FN POINTER WITH A NAMED PARAMETER REGION.
 //
@@ -7,7 +8,7 @@
 // value (hand i02) is refused by the priced arm, the assignment is never asked (dlog fnptr_subtype_deciders: cv_site
 // lower_assign 2 sites, both gated).
 // Found: hand i11, round 2026-09-14j-fnptrbinder.
-package fnptr_assign_named_to_elided_admits;
+package fnptr_assign_named_to_elided_fail;
 fn ida(x: &i64) -> i64 { return *x; }
 fn t<'r>(g: fn(&'r i64) -> i64) -> i32 {
     let mut f: fn(&i64) -> i64 = ida;

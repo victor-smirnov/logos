@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row fnptr_elided_param_call_arg_admits; closed 2026-09-23 (rustc E0308).
 // SOUNDNESS QUEUE row fnptr_elided_param_call_arg_admits (tier 2).
 // ILLEGAL PROGRAM ADMITTED: A FN POINTER WITH A NAMED PARAMETER REGION IS PASSED FOR A `fn(&i64) -> i64` PARAMETER.
 //
@@ -7,7 +8,7 @@
 // closes it (census fnptr.strict2.refuse 1), with fnptr_elided_param_struct_literal_admits, and refuses 2 legal hand
 // programs, c37 and c39 (PROBES.md 2026-09-14k-fnptrbinderland).
 // Found: hand i09, round 2026-09-14j-fnptrbinder.
-package fnptr_elided_param_call_arg_admits;
+package fnptr_elided_param_call_arg_fail;
 fn want(g: fn(&i64) -> i64) -> i64 { return 0i64; }
 fn t<'r>(g: fn(&'r i64) -> i64) -> i64 {
     return want(g);

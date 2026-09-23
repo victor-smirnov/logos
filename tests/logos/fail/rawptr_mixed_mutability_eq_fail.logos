@@ -1,3 +1,4 @@
+// Was SOUNDNESS QUEUE row rawptr_mixed_mutability_eq_admitted; closed 2026-09-23 (rustc E0308).
 // SOUNDNESS QUEUE row rawptr_mixed_mutability_eq_admitted (tier 1).
 // AN ILLEGAL PROGRAM COMPILES AND RUNS. `*mut i64 == *const i64` is a TYPE ERROR in Rust —
 // `impl PartialEq for *const T` / `*mut T` are two separate single-type impls and there is no
@@ -12,7 +13,7 @@
 // Found by round 2026-09-17p-ordcmpland (hand w01) while pricing the ordering arm: the arm had
 // to carry a TYPE-IDENTITY gate precisely so it would not inherit this admission.
 // Rust: refused (E0308). Observed: run 1.
-package rawptr_mixed_mutability_eq_admitted;
+package rawptr_mixed_mutability_eq_fail;
 fn main() -> i32 {
     let mut v: i64 = 1i64;
     let p: *mut i64 = &mut v as *mut i64;

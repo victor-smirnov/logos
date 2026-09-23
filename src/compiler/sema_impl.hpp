@@ -7825,6 +7825,29 @@ private:
         if (!from || !to) return;
         if (TypeRef(from).kind() == LogosType::Kind::Error ||
             TypeRef(to).kind() == LogosType::Kind::Error) return;
+        // A FN POINTER WHOSE PARAMETER NAMES ONE OF THIS FUNCTION'S OWN LIFETIMES
+        // (`g: fn(&'r i64)`) given where the target's parameter is elided (`fn(&i64)`
+        // — `for<'a>`): not general enough (rustc E0308), at any site. Only a
+        // declared binder of the enclosing scope counts, so a target elided by
+        // instantiation (`Item = &i32`) is not mistaken for a binder.
+        if (permissive && TypeRef(to).kind() == LogosType::Kind::FnPtr &&
+            (TypeRef(from).kind() == LogosType::Kind::FnPtr || TypeRef(from).kind() == LogosType::Kind::FnItem)) {
+            auto tp = TypeRef(to).closure_params(), fp = TypeRef(from).closure_params();
+            for (size_t i = 0; i < tp.size() && i < fp.size(); ++i) {
+                TypeRef a = tp[i], b = fp[i];
+                if (!a || !b) continue;
+                const bool ar = a.kind() == LogosType::Kind::Ref || a.kind() == LogosType::Kind::MutRef;
+                const bool br = b.kind() == LogosType::Kind::Ref || b.kind() == LogosType::Kind::MutRef;
+                if (!ar || !br || !a.lifetime().empty()) continue;
+                std::string bl(b.lifetime());
+                if (bl.empty() || lt_is_minted(bl) || outlives_is_static(bl) || bl == "'_") continue;
+                if (!current_lt_binders().count(outlives_norm(bl))) continue;
+                error(std::format("{}: variance mismatch — expected {}, got {} — a fn pointer over `{}` is not "
+                                  "general enough for one over any region (E0308)",
+                                  ctx, type_str(to), type_str(from), bl));
+                return;
+            }
+        }
         // These two `permissive` flags are not two mechanisms: they are two
         // doors onto ONE line in include/logos/compiler/outlives.hpp, and a
         // careful round belongs at that line, not here. The adjudication and
