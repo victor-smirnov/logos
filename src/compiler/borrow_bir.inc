@@ -154,6 +154,7 @@ struct Term {
     // decl_type) says which argument positions the result borrows from.
     lir_view::FunctionView callee_fn;
     bool trait_decl = false;   // callee_fn is a trait method's `$traitdecl$` signature
+    int  recv_bound = -1;      // …reached through the receiver type parameter's bound #recv_bound
     TypeRef              callee_fty;   // indirect call: the fn-pointer's TYPE is its contract
     int8_t               closure_recv = -1;  // ClosureCall: leading origins of args[0]
                                              // that are the AUTOREF, not the captures
@@ -176,6 +177,10 @@ struct Body {
     uint32_t                 n_captures = 0;   // a closure: locals 1..n_captures are its captures
     std::set<std::string>    lifetime_params;   // the function's declared `'a`s
     std::vector<std::pair<std::string, std::string>> outlives;   // declared `'long: 'short`
+    // A type parameter's trait bounds as (trait identity, the bound's type
+    // arguments): the regions a value of that type is known to carry
+    // (`F: Foo<&'x i64>`). A closure body inherits its parent's.
+    std::map<std::string, std::vector<std::pair<std::string, std::vector<TypeRef>>>> tv_bounds;
     std::vector<std::string> unsupported;
     // Two-phase loans: (block, stmt) of the Ref and (block) of the Call that
     // activates it, recorded while lowering the receiver.
@@ -379,6 +384,11 @@ public:
             tp.each_bound([&](lir_view::FnTraitBoundView b) {
                 if (lir_is_copy_lang_item(b.identity_trait()))
                     copy_tvs_.insert(std::string(tp.name()));
+                // A HIGHER-RANKED bound (`for<'z> Foo<&'z i64>`) or an Fn-family
+                // one names regions fresh per use, not regions of the value.
+                if (b.hrtb_binders().empty() && !b.is_fn_family())
+                    body_.tv_bounds[std::string(tp.name())].emplace_back(std::string(b.identity_trait()),
+                                                                          b.type_args(pool_));
             });
         });
         for (auto& [lo, sh] : fn.lifetime_outlives()) {
@@ -422,9 +432,12 @@ public:
     // too; taking it again here would count one borrow twice and refuse programs
     // that only ever borrow once. What this body checks is what the body DOES
     // with what it was given.
+    decltype(bir::Body::tv_bounds) parent_tv_bounds_;
+    void set_parent_tv_bounds(const decltype(bir::Body::tv_bounds)& tb) { parent_tv_bounds_ = tb; }
     bir::Body build_closure(lir_view::ExprRef e) {
         lir_view::EClosureBoxView v{e};
         body_ = {};
+        body_.tv_bounds = parent_tv_bounds_;
         body_.name = "closure " + std::string(v.closure_id());
         body_.is_closure = true;
         body_.ret_tied = v.ret_tied();
@@ -1474,7 +1487,7 @@ private:
                     t.sig_to_result = signature_mask(f);
                     t.callee_fn = f;
                     t.sig_mut_params = mut_param_mask_of_fn(f);
-                } else if (auto df = resolve_trait_decl_(v)) {
+                } else if (auto df = resolve_trait_decl_(v, &t.recv_bound)) {
                     // A trait DEFAULT body's `self.m()`: the trait's declared
                     // signature. Its trait-level lifetimes are this body's own.
                     t.has_sig = true;
@@ -1872,8 +1885,28 @@ private:
     // Inside a trait DEFAULT template (`<pkg>.$traitdef$<Trait>__<m>…`), a
     // method call the L-IR left unresolved is the trait's own method: its
     // `<pkg>.$traitdecl$<Trait>__<method>` signature.
-    lir_view::FunctionView resolve_trait_decl_(lir_view::EMethodCallView v) const {
+    lir_view::FunctionView resolve_trait_decl_(lir_view::EMethodCallView v, int* bound_idx = nullptr) const {
         if (!v.resolved_symbol().empty()) return {};
+        // A receiver of a TYPE PARAMETER's type: the method of one of its bounds.
+        if (auto r = v.receiver()) {
+            TypeRef rt = r.type(pool_);
+            if (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef)) rt = rt.pointee();
+            if (rt && rt.kind() == LogosType::Kind::TypeVar) {
+                auto it = body_.tv_bounds.find(std::string(rt.type_var_name()));
+                if (it != body_.tv_bounds.end())
+                    for (size_t bi = 0; bi < it->second.size(); ++bi) {
+                        const std::string& id = it->second[bi].first;
+                        std::string pkg, tn = id;
+                        if (auto c = id.rfind("::"); c != std::string::npos) { pkg = id.substr(0, c); tn = id.substr(c + 2); }
+                        std::string want = (pkg.empty() ? std::string() : pkg + ".") + "$traitdecl$" + tn + "__" +
+                                           std::string(v.method());
+                        if (auto f = idx_.by_name.find(want); f != idx_.by_name.end()) {
+                            if (bound_idx) *bound_idx = int(bi);
+                            return f->second;
+                        }
+                    }
+            }
+        }
         const std::string& bn = body_.name;
         auto td = bn.find("$traitdef$");
         if (td == std::string::npos) return {};
@@ -3185,6 +3218,20 @@ private:
                 out.os.push_back(fresh_origin()); out.inv.push_back(invariant);
                 return;
             }
+            case LogosType::Kind::TypeVar: {
+                // A TYPE PARAMETER carries the regions its bounds name: a value of
+                // `F: Foo<&'x i64>` is only usable at `'x` (`foo.bar(baz)` needs
+                // `baz: &'x i64`). One origin per region of each bound's type
+                // arguments, in bound order — what relate_call maps a trait
+                // method's `T:<param>:k` labels onto.
+                auto it = b_.tv_bounds.find(std::string(t.type_var_name()));
+                if (it == b_.tv_bounds.end()) return;
+                // INVARIANT: the bound's regions are parameters of the type
+                // itself — moving the value changes none of them.
+                for (auto& [trait, args] : it->second)
+                    for (auto a : args) walk_type(a, true, out, depth + 1);
+                return;
+            }
             default:
                 return;
         }
@@ -3991,7 +4038,13 @@ private:
             OList ao = place_origins(a.place);
             std::vector<std::string> pl;
             size_t pi = i >= arg_off ? i - arg_off : ~size_t(0);
-            if (pi != ~size_t(0) && pi < pdecl.size()) labels(pdecl[pi], pact[pi], pl);
+            if (pi != ~size_t(0) && pi < pdecl.size()) {
+                // A trait method's GENERIC signature: the regions are laid out
+                // by the argument's own type (a type parameter's are its bounds').
+                TypeRef act = pact[pi];
+                if (t.trait_decl && a.place.proj.empty()) act = b_.locals[a.place.local].type;
+                labels(pdecl[pi], act, pl);
+            }
             if (!ao.exact || pl.size() != ao.os.size()) pl.assign(ao.os.size(), "?");
             bool is_self = !indirect && i == 0 && !ps.empty() && ps[0].name() == "self";
             TypeRef d0 = is_self ? pdecl[0] : TypeRef{};
@@ -4052,6 +4105,39 @@ private:
             auto it = named_origin_.find(l);
             return it == named_origin_.end() ? UINT32_MAX : it->second;
         };
+        // THROUGH THE RECEIVER'S BOUND: `foo.bar(baz)` with `foo: F`, `F: Foo<&'x
+        // i64>` and `fn bar(self, baz: T)` — `T` IS the bound's `&'x i64`, whose
+        // region the receiver carries (walk_type's TypeVar arm), so what `baz`
+        // holds must live in it.
+        if (t.trait_decl && t.recv_bound >= 0 && !t.args.empty() && t.args[0].place.valid() &&
+            t.args[0].place.proj.empty()) {
+            TypeRef rt = b_.locals[t.args[0].place.local].type;
+            if (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef)) rt = rt.pointee();
+            auto bit = rt && rt.kind() == LogosType::Kind::TypeVar
+                ? b_.tv_bounds.find(std::string(rt.type_var_name())) : b_.tv_bounds.end();
+            if (bit != b_.tv_bounds.end() && size_t(t.recv_bound) < bit->second.size()) {
+                size_t base = 0;
+                for (int bi = 0; bi < t.recv_bound; ++bi)
+                    for (auto a : bit->second[bi].second) { size_t n = 0; count_only(a, n); base += n; }
+                const auto& bargs = bit->second[t.recv_bound].second;
+                std::vector<size_t> arg_off;
+                { size_t o = base; for (auto a : bargs) { arg_off.push_back(o); size_t n = 0; count_only(a, n); o += n; } }
+                std::vector<uint32_t> recv;
+                for (auto& sr : srcs) if (sr.label.starts_with("T:Self:")) recv.push_back(sr.origin);
+                std::vector<std::string> ttps;
+                for (auto tp : t.callee_fn.type_params()) ttps.emplace_back(tp.name());
+                for (auto& sr : srcs) {
+                    if (!sr.label.starts_with("T:") || sr.label.starts_with("T:Self:")) continue;
+                    auto c2 = sr.label.find(':', 2);
+                    if (c2 == std::string::npos) continue;
+                    std::string tpn = sr.label.substr(2, c2 - 2);
+                    size_t k = size_t(std::stoul(sr.label.substr(c2 + 1)));
+                    for (size_t i = 1; i < ttps.size() && i - 1 < bargs.size(); ++i)
+                        if (ttps[i] == tpn && arg_off[i - 1] + k < recv.size())
+                            subset(sr.origin, recv[arg_off[i - 1] + k], p);
+                }
+            }
+        }
         if (t.trait_decl) {
             for (auto& sr : srcs)
                 if (uint32_t no = caller_named(sr.label); no != UINT32_MAX) subset(sr.origin, no, p);
@@ -5062,6 +5148,26 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         uint32_t next_loan = 1000000;   // placeholder loans never meet a real loan's id
         for (auto& u : us) if (claims(u)) row("placeholder", {o(u.origin), l(next_loan++)});
         auto elided = [](const std::string& l) { return l.empty() || l.starts_with("'%"); };
+        // THE ELISION SOURCE of an elided result, from the signature itself
+        // (sema mints it only for some declarations): `&self`'s own region
+        // (rule 3), else the one input region (rule 2). #461.
+        uint32_t elision_src = UINT32_MAX, self_outer = UINT32_MAX;
+        if (!b_.is_closure) {
+            std::vector<uint32_t> ins;
+            bir::LocalId self_l = bir::kNoLocal;
+            for (bir::LocalId li = 0; li < b_.locals.size(); ++li) {
+                const auto& L = b_.locals[li];
+                if (L.kind != bir::LocalKind::Param) continue;
+                const OList& os = local_origins(li);
+                if (L.name == "self" && L.type && (L.type.kind() == LogosType::Kind::Ref ||
+                                                   L.type.kind() == LogosType::Kind::MutRef) && !os.os.empty())
+                    self_l = li;
+                for (auto o : os.os) ins.push_back(o);
+            }
+            if (self_l != bir::kNoLocal) elision_src = local_origins(self_l).os[0];
+            else if (ins.size() == 1) elision_src = ins[0];
+            self_outer = self_l != bir::kNoLocal ? elision_src : UINT32_MAX;
+        }
         auto related = [&](const U& a, const U& b) {   // may a's data flow into b?
             // ⚠ A CLOSURE PARAMETER'S REGION IS BOUND BY THE CALL; A CAPTURE'S
             // IS THE PARENT FRAME'S. That asymmetry IS E0521: the parent chose
@@ -5110,6 +5216,16 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             // rule 3, the one input region by rule 2), so a MINTED result label
             // admits exactly that source — `fn thru(&self, s: &str) -> &str { s }`
             // is "lifetime may not live long enough", as rustc says.
+            // Nothing is ever stored INTO the receiver's own borrow `&'s self`
+            // (fields are other regions): relating another parameter's data to
+            // it only BRIDGES — `s -> self -> result` let `fn thru(&self, s:
+            // &str) -> &str { s }` through.
+            if (!b_.is_closure && b.origin == self_outer && a.origin != b.origin && !a.ret)
+                return false;
+            if (!b_.is_closure && b.ret && b.label.empty() && !a.ret && !a.capture &&
+                elision_src != UINT32_MAX && a.origin != elision_src && elided(a.label) &&
+                !outl.count({a.label, b.label}))
+                return false;
             if (!b_.is_closure && b.ret && b.label.starts_with("'%") && a.label != b.label &&
                 !a.label.starts_with("T:") && a.label != "'static" && !outl.count({a.label, b.label}))
                 return false;
@@ -6139,6 +6255,19 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                     body.locals[ua->local].name, ub->label, line));
                 continue;
             }
+            // A parameter's elided region returned through an elided RESULT
+            // whose source is another input (`fn thru(&self, s: &str) -> &str
+            // { s }`): rustc "lifetime may not live long enough … returning
+            // this value requires that '2 must outlive '1".
+            if (la_ok && lb_ok && !named_a && !named_b &&
+                body.locals[ua->local].kind == bir::LocalKind::Param &&
+                body.locals[ub->local].kind == bir::LocalKind::Return) {
+                v.errors.push_back(std::format(
+                    "lifetime may not live long enough: returning data from '{}' requires its region "
+                    "to outlive the elided result's (line {})",
+                    body.locals[ua->local].name, line));
+                continue;
+            }
             // Two PARAMETERS' elided regions: rustc's "lifetime may not live
             // long enough … requires that '2 must outlive '1" — each elided
             // region is its own late-bound lifetime (#465).
@@ -6205,6 +6334,7 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
     std::vector<bir::Body> cbodies;
     for (size_t qi = 0; qi < queue.size(); ++qi) {
         BirBuilder cb(prog, ts, idx, flows);
+        cb.set_parent_tv_bounds(body.tv_bounds);
         bir::Body cbody = cb.build_closure(queue[qi]);
         // ⚠ «CONSERVATIVE» HAS A DIRECTION. A closure body this lowering cannot
         // express makes the ENCLOSING function's verdict incomplete too, so the

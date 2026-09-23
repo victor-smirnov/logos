@@ -251,9 +251,10 @@ def main() -> int:
                  "SIMULATED channel. Drop --write to see what it would do, or add --force "
                  "if you genuinely mean to write from that payload.")
 
-    if not rows and old:
+    if not rows and old and not a.force:
         sys.exit(f"REFUSED: the issue list came back EMPTY while {path} holds {len(old)} rows. "
-                 "An empty channel is not an empty ledger.")
+                 "An empty channel is not an empty ledger. If the ledger IS now empty "
+                 "(its last row closed), pass --force and say so in the commit.")
     lost = [i for i in old if i not in {r['id'] for r in rows}]
     if old and len(lost) > max(1, len(old) // 4) and not a.force:
         sys.exit(f"REFUSED: this pull would remove {len(lost)} of {len(old)} rows "

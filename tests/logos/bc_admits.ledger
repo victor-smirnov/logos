@@ -1903,8 +1903,6 @@
 # position with no borrow-carrying struct anywhere, and nothing measured this
 # round says one change moves both.
 #
-anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admit/borrowck/anonymous-region-in-apit--closure-param-escapes  # STAGE-4 2026-09-07 re-ported as-is, STILL ADMITTED, still a defect. Root re-checked against the restored construct and REPLACED (was bck.C)
-
 # ── tests/ui/drop ─────────────────────────────────────────
 
 
@@ -2485,5 +2483,5 @@ anonymous-region-in-apit--closure-param-escapes bck.NEW-CESC tests/imported/admi
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 1
-# SYNC-HASH 969ac073132b05b8dca880fd52a841f5
+# TOTAL 0
+# SYNC-HASH 06b564510dd07a8480a2382969988e60

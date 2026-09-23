@@ -1,1 +1,1 @@
-cannot return reference to local variable 'o': dangling reference
+return type mismatch: variance mismatch — expected W, got W — lifetime structure incom

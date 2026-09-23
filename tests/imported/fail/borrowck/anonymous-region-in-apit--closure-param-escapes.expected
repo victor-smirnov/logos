@@ -1,0 +1,1 @@
+borrowed data escapes outside of closure: 'baz' escapes the closure body here

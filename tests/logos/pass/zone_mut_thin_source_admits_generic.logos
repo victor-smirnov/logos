@@ -22,7 +22,7 @@ fn greborrow<T>(r: &mut T) -> &mut T { return &mut *r; }
 
 struct Holder<T> { n: i64 }
 impl<T> Holder<T> {
-    fn pass(&mut self, r: &mut T) -> &mut T { return &mut *r; }
+    fn pass<'b>(&mut self, r: &'b mut T) -> &'b mut T { return &mut *r; }
 }
 
 unsafe fn gmint<T>(p: *mut T) -> &mut T { return &mut *p; }

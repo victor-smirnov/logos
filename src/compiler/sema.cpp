@@ -11250,7 +11250,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         // lifetimes are the caller's, see relate_call).
                         bool _any_default = false;
                         for (auto& m : _tit->methods) _any_default |= m.has_default;
-                        if (_any_default && !_has_impl && !logos::probe::on("trdefnogen")) {
+                        // Every USER trait's signatures (a `self.m()` on a type
+                        // parameter bounded by it resolves to them too); the
+                        // stdlib's stay out of its archives and ABI.
+                        (void)_any_default;
+                        if (!cur_package_.starts_with("logos.") && !logos::probe::on("trdefnogen")) {
                             namespace dk = lir_schema::decl_keys;
                             for (auto& mm : _tit->methods) {
                                 DeclBuilder d(*cur_prog_, lir_schema::decl::Code::Func, /*cap=*/40);

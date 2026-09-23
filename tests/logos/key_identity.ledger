@@ -253,7 +253,10 @@
 # (2) `struct_name() == "UnsafeCell"` in struct_tp_invariant, GUARDED on the
 # owning package (`pkg_name() == "logos.lang.cell"`), as mlir_gen_types.cpp's
 # type_is_freeze recognises the lang item: a user struct of that name is not it.
-#SCAN borrow_bir.inc 7 42dd008b
+# 2026-09-23, ADR 0028: borrow_bir.inc 7 -> 8, roster 42dd008b -> f8ebbaef. The
+# elision source of an elided result (#461) is `&self`'s region when parameter
+# 1 is named `self` — the receiver keyword, the same sentinel as above.
+#SCAN borrow_bir.inc 8 f8ebbaef
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
 # 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
 # (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is

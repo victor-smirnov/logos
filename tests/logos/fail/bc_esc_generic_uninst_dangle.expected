@@ -1,1 +1,1 @@
-cannot return reference to local variable 'o': dangling reference
+lifetime may not live long enough: returning data from 's' requires its region to outlive 

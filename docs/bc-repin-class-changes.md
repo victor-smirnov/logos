@@ -872,3 +872,15 @@ E0521 против E0515), часть требует разбора.
   - tests/imported/fail/borrowck/rvalue-borrow-scope-error.expected
   - tests/logos/fail/wany_escapes_rc_container.expected
   - tests/spec/fail/borrow_diag_2__ref-from-temp.expected
+
+## tests/logos/fail/bc_esc_generic_recv_dangle.expected
+- было (at the generic caller `bad`, through an unresolved call): `cannot return reference to local variable 'o': dangling reference`
+- стало (at the impl method body, as rustc — the call is judged by the trait signature): `lifetime may not live long enough: returning data from 's' requires its region to outlive `
+
+## tests/logos/fail/bc_esc_generic_uninst_dangle.expected
+- было (at the generic caller `bad`, through an unresolved call): `cannot return reference to local variable 'o': dangling reference`
+- стало (at the impl method body, as rustc — the call is judged by the trait signature): `lifetime may not live long enough: returning data from 's' requires its region to outlive `
+
+## tests/logos/fail/bc_esc_holder_return_generic_dangle.expected
+- было (at the generic caller `bad`, through an unresolved call): `cannot return reference to local variable 'o': dangling reference`
+- стало (at the impl method body, as rustc — the call is judged by the trait signature): `return type mismatch: variance mismatch — expected W, got W — lifetime structure incom`

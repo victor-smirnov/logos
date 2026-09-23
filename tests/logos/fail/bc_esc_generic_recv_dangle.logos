@@ -36,6 +36,9 @@
 // answers come from `K::thru`'s summary (`result<-0x2` — it retains the
 // ARGUMENT, never `self`), not from the shape of the receiver: the fix is
 // precise, not conservative, so the admit half still admits.
+// 2026-09-23: rustc judges `bad<T: Tr>` by the trait's SIGNATURE (the result is `&self`'s by elision) and
+// refuses the IMPL body that returns its parameter; the pin moved there (the old pin relied on
+// an unresolved generic call relating every argument to the result).
 package bc_esc_generic_recv_dangle;
 
 use logos.mem.string;
