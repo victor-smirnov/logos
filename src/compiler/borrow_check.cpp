@@ -257,7 +257,11 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     // sema's, so it is a second door IN SERIES with the seeding site.
     for (auto& impl : prog.impls)
         if (lir_is_copy_lang_item(impl.identity_trait()))
+        {
             ts.copy_types.insert(std::string(impl.target_type()));
+            if (!impl.pkg().empty())
+                ts.copy_types.insert(std::string(impl.pkg()) + "::" + std::string(impl.target_type()));
+        }
     // strip_generic: ONLY for DIRECT (attribute) marks — the spec's flag is
     // a verbatim copy of the template's (mono_clone), so registering the
     // `$G`-stripped template base is exact. The MAIN borrow check runs
@@ -576,6 +580,26 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     return ts;
 }
 
+// The definition a struct TYPE denotes: by its package first, then by the
+// bare name (a module-folded or generic instance name carries its own
+// identity). A bare name alone is not an identity: the stdlib has two `Bytes`,
+// and first-def-wins handed a user's `struct Bytes` their fields.
+template <class Map>
+static auto struct_def_find(const Map& map, TypeRef t, const std::string& want) {
+    if (t) if (std::string_view pk = t.pkg_name(); !pk.empty())
+        if (auto it = map.find(std::string(pk) + "::" + want); it != map.end()) return it;
+    return map.find(want);
+}
+
+// Copy impls are keyed `pkg::Target` (and bare, for a package-less TypeRef:
+// a mono-produced instance). A bare key alone read the stdlib `TypeId`'s Copy
+// verdict for a user `struct TypeId` holding a Drop field.
+static bool copy_type_has(const TypeSets& ts, TypeRef t, std::string_view name) {
+    if (t) if (std::string_view pk = t.pkg_name(); !pk.empty())
+        return ts.copy_types.count(std::string(pk) + "::" + std::string(name)) > 0;
+    return ts.copy_types.count(std::string(name)) > 0;
+}
+
 static bool has_droppable_fields(TypeRef, const lir::LProgram&, const TypeSets&);
 
 static bool needs_drop(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
@@ -600,9 +624,9 @@ static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
             if (needs_drop(f.type(prog.type_pool.impl()), prog, ts)) return true;
         return false;
     };
-    auto sit = ts.struct_by_name.find(want);
-    if (sit != ts.struct_by_name.end() && def_has_drop(sit->second)) return true;
-    auto pit = ts.spec_by_name.find(want);
+    auto sit = struct_def_find(ts.struct_by_name, t, want);
+    if (sit != ts.struct_by_name.end()) return def_has_drop(sit->second);
+    auto pit = struct_def_find(ts.spec_by_name, t, want);
     if (pit != ts.spec_by_name.end() && def_has_drop(pit->second)) return true;
     return false;
 }
@@ -625,6 +649,9 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         // AddrOfTemp(Deref(r)), which the AddrOfTemp handler routes to a
         // borrow on r — they don't pass through the move path.
         if (x && x.kind() == LogosType::Kind::MutRef) return true;
+        // An OWNING `Box<dyn Tr>`, `Box<[T]>` or custom-DST box owns its heap
+        // data; the borrowed forms are Copy. sema's leaf carries the twin.
+        if (x && (x.owning_trait_object() || x.owning_slice() || x.owning_dst())) return true;
         // A callable whose ONLY Fn-family capability is `FnOnce` is AFFINE, for
         // the same reason `&mut T` above is: `call_once` takes self BY VALUE, so
         // the call consumes it. ⚠ OWNED FORM ONLY — calling through
@@ -650,13 +677,26 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         }
         return std::nullopt;
     };
+    // A struct is Copy when it says so, or (Logos auto-Copy, sema's
+    // compute_auto_copy_types) when it has no Drop impl and every field is
+    // Copy. Asking only `needs_drop` made `struct S<'a> { r: &'a mut i32 }`
+    // Copy: it owns nothing droppable, yet its `&mut` field is affine.
     auto struct_is_move = [&](TypeRef x) {
-        return needs_drop(x, prog, ts) &&
-               !ts.copy_types.count(std::string(TypeRef(x).struct_name()));
+        if (copy_type_has(ts, x, TypeRef(x).struct_name())) return false;
+        if (needs_drop(x, prog, ts)) return true;
+        std::string want = concrete_struct_name(x);
+        auto sit = struct_def_find(ts.struct_by_name, x, want);
+        auto def = sit != ts.struct_by_name.end() ? sit->second : lir_view::StructView{};
+        if (!def) if (auto pit = struct_def_find(ts.spec_by_name, x, want); pit != ts.spec_by_name.end()) def = pit->second;
+        if (!def) return false;
+        for (auto& f : def.fields())
+            if (TypeRef ft = f.type(prog.type_pool.impl()); ft && !(ft == x) &&
+                is_move_type(ft, prog, ts, copy_tvs)) return true;
+        return false;
     };
     auto enum_is_move = [&](TypeRef x) -> bool {
         std::string en(TypeRef(x).enum_name());
-        if (ts.copy_types.count(en)) return false;     // explicitly Copy enum
+        if (copy_type_has(ts, x, en)) return false;    // explicitly Copy enum
         if (ts.drop_types.count(en)) return true;       // has a Drop impl
         // A generic enum INSTANCE's def is keyed by the name mono composed
         // (`Option__String`), not by the base, so the bare key missed and the

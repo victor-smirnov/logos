@@ -200,17 +200,6 @@ struct Body {
 static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
                                    int depth = 0);
 
-// The definition a struct TYPE denotes: by its package first, then by the
-// bare name (a module-folded or generic instance name carries its own
-// identity). A bare name alone is not an identity: the stdlib has two `Bytes`,
-// and first-def-wins handed a user's `struct Bytes` their fields.
-template <class Map>
-static auto struct_def_find(const Map& map, TypeRef t, const std::string& want) {
-    if (t) if (std::string_view pk = t.pkg_name(); !pk.empty())
-        if (auto it = map.find(std::string(pk) + "::" + want); it != map.end()) return it;
-    return map.find(want);
-}
-
 // A struct's fields, read from its definition (the instance, else the base).
 static std::optional<std::vector<TypeRef>> bir_struct_fields(TypeRef t, const lir::LProgram& prog,
                                                              const TypeSets& ts) {
@@ -1089,6 +1078,24 @@ private:
             }
             case ECode::BinOp: {
                 lir_view::EBinOpView v{e};
+                // `&&` / `||` SHORT-CIRCUIT: the right operand runs on one arm
+                // only, as MIR builds it. As a strict op, an assignment in the
+                // right operand read as definite (`false && { i = 5; true }`).
+                if (v.op() == "&&" || v.op() == "||") {
+                    bir::Operand c = operand(v.lhs());
+                    bir::BlockId rhs = new_block(), done = new_block(), join = new_block();
+                    bool is_and = v.op() == "&&";
+                    branch(bir::Operand(c), is_and ? std::vector<bir::BlockId>{rhs, done}
+                                                   : std::vector<bir::BlockId>{done, rhs});
+                    cur_ = rhs; lower_into(dest, v.rhs()); goto_(join);
+                    cur_ = done;
+                    bir::Rvalue use(bir::Rvalue::K::Use);
+                    use.ops.push_back(as_read(std::move(c)));
+                    assign(dest, std::move(use));
+                    goto_(join);
+                    cur_ = join;
+                    return;
+                }
                 bir::Rvalue rv(bir::Rvalue::K::Op);
                 rv.what = std::string(v.op());
                 // Operands are read, not consumed: comparison operators take
@@ -1144,6 +1151,43 @@ private:
                 return;
             }
             case ECode::StructLit: {
+                // CoerceUnsized (`rc as Rc<dyn Tr>`): sema rebuilds the SAME
+                // struct at new type arguments from the source's one pointer
+                // field, `Rc { inner: rc.inner as *mut RcInner<dyn Tr> }`. The
+                // coercion consumes `rc`; the raw field read alone is a Copy.
+                if (TypeRef tt = e.type(pool_); tt && tt.kind() == LogosType::Kind::Struct) {
+                    lir_view::ExprRef only; std::string_view only_name; int n = 0;
+                    lir_view::EStructLitView{e}.each_field([&](std::string_view fname, lir_view::ExprRef fv) {
+                        ++n; only = fv; only_name = fname;
+                    });
+                    lir_view::ExprRef fr = only;
+                    if (n == 1 && fr && fr.kind() == ECode::Cast) fr = lir_view::ECastView{fr}.operand();
+                    if (n == 1 && fr && fr.kind() == ECode::FieldRead &&
+                        lir_view::EFieldReadView{fr}.field() == only_name) {
+                        lir_view::ExprRef src = lir_view::EFieldReadView{fr}.receiver();
+                        TypeRef sty = src ? src.type(pool_) : TypeRef{};
+                        if (sty && sty.kind() == LogosType::Kind::Struct &&
+                            sty.struct_name() == tt.struct_name() && !(sty == tt)) {
+                            bir::LocalId whole = temp(sty);
+                            bir::Rvalue mv(bir::Rvalue::K::Use);
+                            mv.ops.push_back(read_place(place_or_temp(src), sty));
+                            assign({whole, {}}, std::move(mv));
+                            bir::Proj pf(bir::Proj::K::Field, std::string(only_name));
+                            pf.ty = fr.type(pool_);
+                            bir::LocalId fld = temp(only.type(pool_));
+                            bir::Rvalue cast(bir::Rvalue::K::Op);
+                            cast.what = "cast";
+                            cast.ops.push_back(read_place(bir::Place{whole, {}}.with(std::move(pf)), fr.type(pool_)));
+                            assign({fld, {}}, std::move(cast));
+                            bir::Rvalue rv(bir::Rvalue::K::Aggregate);
+                            rv.what = std::string(lir_view::EStructLitView{e}.name());
+                            rv.ops.push_back(read_place({fld, {}}, only.type(pool_)));
+                            rv.field_names.emplace_back(only_name);
+                            assign(dest, std::move(rv));
+                            return;
+                        }
+                    }
+                }
                 bir::Rvalue rv(bir::Rvalue::K::Aggregate);
                 rv.what = std::string(lir_view::EStructLitView{e}.name());
                 lir_view::EStructLitView{e}.each_field([&](std::string_view fname, lir_view::ExprRef fv) {
@@ -3104,6 +3148,7 @@ public:
         return std::string(pending_deref, '*') + s;
     }
     std::string path_str(uint32_t id) const { return paths_[id].first; }
+    uint32_t path_parent(uint32_t id) const { return paths_[id].second; }
 
     // Which PARAM or RETURN local a universal region belongs to. A subset error
     // between two of them is a claim about those two locals, and the reader
@@ -3119,6 +3164,17 @@ private:
     std::map<std::string, uint32_t> named_origin_;   // declared `'a` -> its own universal origin
 public:
     std::set<uint32_t> raw_move_paths_;   // move_out_of_ref rows behind a RAW pointer deref
+    // (path, point) pairs where a MOVE (not the declaration's entry state)
+    // may reach an access: rustc's E0382 "use of moved value" rather than
+    // E0381 "used binding isn't initialized".
+    std::set<std::pair<uint32_t, uint32_t>> maybe_moved_;
+    bool maybe_moved(uint32_t path, uint32_t point) const { return maybe_moved_.count({path, point}) > 0; }
+    std::set<std::pair<uint32_t, uint32_t>> entry_uninit_;   // (root path, entry point)
+    // partial_reinit (path, point) whose uninitialised ancestor may be MOVED
+    // (E0382 "assign to part of moved value") rather than never initialised
+    // (E0381 "partially assigned binding"); and every point that reports one.
+    std::set<std::pair<uint32_t, uint32_t>> partial_moved_;
+    std::set<uint32_t> partial_points_;
 private:
     const ClosureReqs* creqs_ = nullptr;
     uint32_t fresh_origin() { return n_origins_++; }
@@ -4948,9 +5004,12 @@ private:
         auto bit_set = [&](std::vector<uint64_t>& v, size_t pt, uint32_t x) { v[pt * W + x / 64] |= 1ull << (x % 64); };
         auto bit_get = [&](const std::vector<uint64_t>& v, size_t pt, uint32_t x) {
             return (v[pt * W + x / 64] >> (x % 64)) & 1ull; };
-        std::vector<uint64_t> g_asg(npt * W, 0), g_mov(npt * W, 0), g_dead(npt * W, 0);
+        std::vector<uint64_t> g_asg(npt * W, 0), g_mov(npt * W, 0), g_dead(npt * W, 0),
+                              g_realmov(npt * W, 0);
         for (auto& [x, q] : assigned) subtree(x, [&](uint32_t y) { bit_set(g_asg, q, y); });
         for (auto& [x, q] : moved)    subtree(x, [&](uint32_t y) { bit_set(g_mov, q, y); });
+        for (auto& [x, q] : moved)
+            if (!entry_uninit_.count({x, q})) subtree(x, [&](uint32_t y) { bit_set(g_realmov, q, y); });
         for (auto& [v, q] : dead_var)
             if (auto it = var_paths.find(v); it != var_paths.end())
                 for (uint32_t y : it->second) bit_set(g_dead, q, y);
@@ -4978,9 +5037,10 @@ private:
                     for (uint32_t s2 : succs[q]) if (!queued[s2]) { queued[s2] = 1; work.push_back(s2); }
             }
         };
-        std::vector<uint64_t> init_exit, uninit_exit;
+        std::vector<uint64_t> init_exit, uninit_exit, moved_exit;
         solve(g_asg, g_mov, g_dead, init_exit);
         solve(g_mov, g_asg, g_dead, uninit_exit);
+        solve(g_realmov, g_asg, g_dead, moved_exit);
         auto on_entry = [&](const std::vector<uint64_t>& exit, uint32_t q, uint32_t x) {
             for (uint32_t p : preds[q]) if (bit_get(exit, p, x)) return true;
             return false;
@@ -4988,15 +5048,22 @@ private:
         std::set<std::pair<uint32_t, uint32_t>> seen;
         for (auto& [xb, q] : accessed)
             subtree(xb, [&](uint32_t y) {
-                if (on_entry(uninit_exit, q, y) && seen.emplace(y, q).second)
+                if (on_entry(uninit_exit, q, y) && seen.emplace(y, q).second) {
                     row("path_maybe_uninitialized_on_entry", {pa(y), pt(q)});
+                    if (on_entry(moved_exit, q, y)) maybe_moved_.insert({y, q});
+                }
             });
         for (auto& [x, q] : assigned)
             if (paths_[x].second == ~0u && on_entry(init_exit, q, x))
                 row("path_maybe_initialized_on_entry", {pa(x), pt(q)});
         for (auto& [x, q] : assigned)
             for (uint32_t a = paths_[x].second; a != ~0u; a = paths_[a].second)
-                if (on_entry(uninit_exit, q, a)) { row("partial_reinit", {pa(x), pt(q)}); break; }
+                if (on_entry(uninit_exit, q, a)) {
+                    row("partial_reinit", {pa(x), pt(q)});
+                    partial_points_.insert(q);
+                    if (on_entry(moved_exit, q, a)) partial_moved_.insert({x, q});
+                    break;
+                }
         for (uint32_t v : drop_vars) {
             auto it = var_paths.find(v);
             if (it == var_paths.end()) continue;
@@ -5100,8 +5167,10 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         }
         if (L.kind == bir::LocalKind::Param)
             row("path_assigned_at_base", {pa(path_of({li, {}})), pt(entry)});
-        else
+        else {
             row("path_moved_at_base", {pa(path_of({li, {}})), pt(entry)});
+            entry_uninit_.insert({path_of({li, {}}), entry});
+        }
         if (L.is_mut) row("var_mut", {var(li)});
         if (bir_drop_observes_borrow(L.type, prog_, ts_))
             for (uint32_t oo : os.os) row("drop_of_var_derefs_origin", {var(li), o(oo)});
@@ -6342,9 +6411,11 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("move_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
-            v.errors.push_back(std::format("use of moved or uninitialised '{}' at line {}",
-                                           facts.path_str(num(sym(row[0]))),
-                                           facts.point_line(num(sym(row[1])))));
+            const uint32_t x = num(sym(row[0])), q = num(sym(row[1]));
+            v.errors.push_back(facts.maybe_moved(x, q)
+                ? std::format("use of moved value: '{}' at line {}", facts.path_str(x), facts.point_line(q))
+                : std::format("used binding '{}' isn't initialized at line {}", facts.path_str(x),
+                              facts.point_line(q)));
         }
     }
     {
@@ -6360,6 +6431,8 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("mut_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
+            // A field write into an uninitialised binding is E0381 alone.
+            if (facts.partial_points_.count(num(sym(row[1])))) continue;
             // rustc's wording, and the corpus's: the reader wants "you cannot
             // borrow this as mutable, because it was not declared `mut`".
             v.errors.push_back(std::format("line {}: cannot borrow '{}' as mutable, as it is "
@@ -6514,9 +6587,16 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("partial_reinit_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
-            v.errors.push_back(std::format("assign to part of moved value '{}' at line {}",
-                                           facts.path_str(num(sym(row[0]))),
-                                           facts.point_line(num(sym(row[1])))));
+            const uint32_t x = num(sym(row[0])), q = num(sym(row[1]));
+            if (facts.partial_moved_.count({x, q}))
+                v.errors.push_back(std::format("assign to part of moved value '{}' at line {}",
+                                               facts.path_str(x), facts.point_line(q)));
+            else {
+                uint32_t r = x;
+                while (facts.path_parent(r) != ~0u) r = facts.path_parent(r);
+                v.errors.push_back(std::format("partially assigned binding '{}' isn't fully initialized "
+                                               "at line {}", facts.path_str(r), facts.point_line(q)));
+            }
         }
     }
     {

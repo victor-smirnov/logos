@@ -1,1 +1,1 @@
-use of possibly uninitialised binding 'last_error'
+used binding 'last_error' isn't initialized

@@ -831,16 +831,40 @@ private:
         std::unordered_set<std::string>               ref_params;
         std::unordered_set<std::string>               ptr_family;
         std::unordered_set<std::string>               ref_slot_vars;
+        // B8 uninit drop state: restored only for names RE-BOUND inside the
+        // scope — an outer binding's own assignment in a nested block persists.
+        std::unordered_map<std::string, mlir::Value>  uninit_flag;
+        std::unordered_set<std::string>               uninit_static;
+        std::unordered_set<std::string>               uninit_assigned;
+        std::unordered_map<std::string, uint32_t>     uninit_owner;
     };
     VarScopeSnapshot snapshot_var_scope() const {
         return { scope_, var_dyn_trait_, var_struct_, var_elem_types_, var_subscript_,
                  var_local_ptrs_, var_slice_, let_vars_, var_tuple_, var_tagged_enum_,
                  var_tagged_enum_ptr_, var_raw_dyn_, dyn_ptr_to_handle_vars_,
-                 ref_param_names_, ptr_family_param_, ref_slot_vars_ };
+                 ref_param_names_, ptr_family_param_, ref_slot_vars_,
+                 uninit_drop_flag_, uninit_static_, uninit_assigned_, uninit_owner_slot_ };
     }
     // Restore by full assignment: erases bindings introduced inside the scope AND
     // re-instates any shadowed outer bindings — exact lexical-scope semantics.
     void restore_var_scope(const VarScopeSnapshot& s) {
+        // A name bound inside the scope (a shadow, or a fresh inner name) takes
+        // back the outer binding's uninit state: the inner `let x: T; x = …`
+        // must not read as the OUTER `x` being assigned.
+        for (auto& [n, v] : scope_) {
+            auto o = s.scope.find(n);
+            if (o != s.scope.end() && o->second == v) continue;
+            auto put_map = [&](auto& cur, const auto& old) {
+                if (auto f = old.find(n); f != old.end()) cur[n] = f->second; else cur.erase(n);
+            };
+            auto put_set = [&](auto& cur, const auto& old) {
+                if (old.count(n)) cur.insert(n); else cur.erase(n);
+            };
+            put_map(uninit_drop_flag_, s.uninit_flag);
+            put_set(uninit_static_, s.uninit_static);
+            put_set(uninit_assigned_, s.uninit_assigned);
+            put_map(uninit_owner_slot_, s.uninit_owner);
+        }
         scope_                  = s.scope;
         var_dyn_trait_          = s.dyn_trait;
         var_struct_             = s.var_struct;

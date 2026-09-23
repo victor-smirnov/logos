@@ -943,15 +943,9 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         error(std::format("undefined variable '{}'", name));
         return error_expr();
     }
-    if (moved_vars_.count(std::string(name)))
-        error(std::format("use of moved variable '{}'", name));
-    // logos-core 2.7: definite-assignment — reading a binding that's currently
-    // uninitialised on this path is rejected (Rust's E0381). The
-    // `currently_uninit_vars_` set tracks vars after `let x: T;` until the
-    // first definite assignment; at if/match merge points it's the union
-    // across branches (uninit if uninit on ANY incoming path).
-    if (currently_uninit_vars_.count(std::string(name)))
-        error(std::format("use of possibly uninitialised binding '{}'", name));
+    // Use after move (E0382) and use of an uninitialised binding (E0381) are
+    // the borrow checker's: it judges them per CFG path. `moved_vars_` /
+    // `currently_uninit_vars_` remain sema's drop-elision bookkeeping.
     // §6.2: reading a `static mut` requires `unsafe` (Rust spec
     // `items.static.mut.safety`). Skip when this var-ref is the LHS
     // of a place-assign (the write site emits its own gate, and we
@@ -1525,7 +1519,6 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
             }
-            if (borrow_of_uninit_binding(var_name)) return error_expr();
             // A `#[zone_mut]` value has no zone to hand out from a PLACE (a
             // local/static is not in a Writ arena and names no allocator).
             if (reject_thin_zone_mut_ref(vt, /*src_ref_t=*/nullptr))
@@ -3706,7 +3699,6 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 error(std::format("'&': undefined variable '{}'", var_name));
                 return error_expr();
             }
-            if (borrow_of_uninit_binding(var_name)) return error_expr();
             // §6.2 statics (S25): `&STATIC` IS the global's address (stable,
             // `'static`). The "__static_addr:<sym>" VarRef lowers to
             // llvm.mlir.addressof in mlir-gen — the reference value itself.
@@ -4278,11 +4270,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // the normal var-use move check — so verify it here: a callable already
         // moved (into another binding, or CONSUMED by a prior `FnOnce` call —
         // see fn_once_consume below) cannot be invoked.
-        if (moved_vars_.count(std::string(callee)))
-            error(std::format(
-                "use of moved value '{}': the callable was already moved or "
-                "consumed (an `FnOnce` is consumed by the call and cannot be "
-                "called again)", callee));
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = args_array();
@@ -6085,43 +6072,18 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
                 try_coerce_slice_to_array_ref(arg_exprs[i], pt);
-                // ── CEILING PROBE `mrgenerictv` (producer half; the consumer
-                // is the `mutrefargmove` arm in borrow_check's visit_args).
-                // `pt` is the SUBSTITUTED formal, so `generic<T>(x: T)` called
-                // with a `&mut X` arrives here with pt = `&mut X` and
-                // try_implicit_reborrow_mut wraps the argument into
-                // AddrOfTemp(Deref(VarRef)). Rust reborrows at a formal that IS
-                // a reference; a BY-VALUE type parameter MOVES the `&mut`.
-                // That wrap is why `mutrefargmove` counted 335,227 arrivals and
-                // never matched inside a user function — by the time
-                // borrow_check looks, the argument is not a bare VarRef.
-                // `mrgtvsema` arms the PRODUCER ALONE (no consumer), so the
-                // two halves are priced separately the way `recvresvbare`'s
-                // were; `mrgenerictv` arms both.
-                // ── MEASURED 2026-08-29: BOTH 0 / 0, AND THIS SITE IS THE
-                // NEGATIVE RESULT. `mrgtvsema` fires TWICE over the whole
-                // compile of moved-value-...--t32 and ONCE over a five-line
-                // repro whose only call is `generic(s)` — so the arrival is
-                // this call and no other. The decline nevertheless changed
-                // nothing: with `mrgenerictv` armed, borrow_check's
-                // `mutrefargmove` arm traced only its two prelude matches and
-                // never `generic(s)`. The reading that survives is that
-                // `fi.param_types[i]` HERE IS ALREADY SUBSTITUTED — it is
-                // `&mut X`, not `T` — so `subst_type_sema` is a no-op at this
-                // position and a TypeVar test can never fire. That is a
-                // property of `fi`, not of Rust's rule, and it is why FOUR
-                // probes in this family have now priced zero. Whoever funds
-                // this next must read the formal off the callee's DECLARATION
-                // and prove the read differs from `pt` before spending a build.
-                if (!((logos::probe::on("mrgenerictv") ||
-                       logos::probe::on("mrgtvsema")) &&
-                      TypeRef(fi.param_types[i]).kind() ==
-                          LogosType::Kind::TypeVar))
+                // A BY-VALUE type-parameter formal (`fn generic<T>(x: T)`)
+                // takes a `&mut` argument by MOVE; Rust reborrows only at a
+                // formal that is itself a reference. `fi.param_types` is the
+                // DECLARED signature here, so `T` is still a TypeVar.
+                if (TypeRef(fi.param_types[i]).kind() != LogosType::Kind::TypeVar)
                     try_implicit_reborrow_mut(arg_exprs[i], pt);
                 try_struct_unsize_coerce(arg_exprs[i], pt);  // Rc<A> → Rc<dyn Tr>
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = expr_type(arg_exprs[i]);
-                expect_type(arg_exprs[i], pt, CoercePos::CallArg,
+                expect_type(arg_exprs[i], pt,
+                            TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar
+                                ? CoercePos::GenericArg : CoercePos::CallArg,
                                 std::format("call to '{}' arg {}:", callee_diag, i + 1),
                                 call_param_shown_(fi.param_types[i],
                                                   fi.lifetime_params, fi.param_types, fi.ret_type, subst));
@@ -8168,7 +8130,6 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         // String` and `struct H<F> where F: FnOnce() -> String`, each compiling
         // rc 0 and aborting 134 (#440). The mode is already in hand here.
         auto invoke_mode = callable_call_mode({}, rt);
-        check_callable_place_not_consumed(expr_ref_of(recv));   // #440
         if (invoke_mode == lir_schema::expr::CallMode::Once)
             mark_moved_expr(expr_ref_of(recv));
         return builder().closure_call(std::move(recv),
@@ -10968,7 +10929,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             return builder().fn_ptr_call(
                                 std::move(fr), std::move(arg_exprs), ret);
                         auto fld_mode = callable_call_mode({}, ft);
-                        check_callable_place_not_consumed(expr_ref_of(fr));  // #440
                         if (fld_mode == lir_schema::expr::CallMode::Once)
                             mark_moved_expr(expr_ref_of(fr));   // #440
                         return builder().closure_call(
@@ -15974,6 +15934,9 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     case CoercePos::ClosureArg:
         return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
                CFLAG_SKIP_UNRESOLVED;
+    case CoercePos::GenericArg:
+        return (CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
+                CFLAG_SKIP_UNRESOLVED) & ~uint32_t(CFLAG_IMPLICIT_REBORROW);
     case CoercePos::MethodArg:
         // Order pinned by the suite (widen-last equivalence argued at the
         // former inline site).
@@ -15986,22 +15949,24 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     case CoercePos::PlaceWrite:
     case CoercePos::TupleElem:
     case CoercePos::BranchArm:
+        // ARG_TO_DYN: `&i64` -> `&dyn Tr` is a coercion at every site (Rust);
+        // a struct pointee is unsized by codegen, a scalar needs the cast.
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_SLICE_TO_ARRAY | CFLAG_IMPLICIT_REBORROW |
-               CFLAG_WIDEN_INT |
+               CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN |
                (pos == CoercePos::PlaceWrite ? CFLAG_CHECK_DYN_BOUNDS : 0u);
     case CoercePos::StructLitField:
         // Rust MOVES into a struct literal: no reborrow. Everything else
         // applies.
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
-               CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT;
+               CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN;
     case CoercePos::ArrayElem:
         return CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT;
     case CoercePos::Return:
         // + the Box→dyn consume, handled in expect_type itself (it rewrites
         // the expr, not just its type).
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
-               CFLAG_WIDEN_INT;
+               CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN;
     case CoercePos::ConstInit:
     case CoercePos::Operand:
         return CFLAG_WIDEN_INT;
@@ -16490,6 +16455,7 @@ bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
     // a generic `pt = &mut Self` (TypeVar pointee) is fine — the reborrow
     // doesn't reify Self.
     if (!arg || !pt) return false;
+    if (no_reborrow_arg_ && expr_ref_of(arg).addr() == no_reborrow_arg_) return false;
     if (TypeRef(expr_type(arg)).kind() != LogosType::Kind::MutRef) return false;
     auto pkind = TypeRef(pt).kind();
     bool dest_mut;
@@ -18881,9 +18847,30 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // Record a capture of `root` via the precise field `path` (e.g. "p.x.y").
     // For a fresh capture, the path is stored; for an existing one it is LCA-
     // widened with the prior path.
-    auto add_capture_path = [&](const std::string& root, const std::string& path) {
+    auto add_capture_path = [&](const std::string& root, const std::string& path_in) {
         if (param_names.count(root)) return;
         if (is_body_local(root)) return;   // #444
+        // A BY-VALUE capture cannot move out of a type with `impl Drop`, so
+        // rustc truncates its path at the first such place (upvar analysis,
+        // restrict_precision_for_drop_types): `move || t.v` with `B: Drop`
+        // captures `t` whole, and a second such closure is a use after move.
+        std::string path = path_in;
+        if (is_move)
+            if (TypeRef cur = lookup(root)) {
+                auto has_drop = [&](TypeRef x) {
+                    return x && TypeRef(x).kind() == LogosType::Kind::Struct &&
+                           !drop_fn_for(x).empty();
+                };
+                size_t at = root.size();
+                while (!has_drop(cur) && at < path.size()) {
+                    size_t nx = path.find('.', at + 1);
+                    if (nx == std::string::npos) nx = path.size();
+                    cur = field_type_for_path(cur, root + path.substr(at, nx - at), root);
+                    if (!cur) break;
+                    at = nx;
+                }
+                if (has_drop(cur)) path.resize(at);
+            }
         if (auto it = seen.find(root); it != seen.end()) {
             for (size_t i = 0; i < captures.size(); ++i) if (captures[i] == root) {
                 std::string widened = path_lca(capture_paths[i], path);

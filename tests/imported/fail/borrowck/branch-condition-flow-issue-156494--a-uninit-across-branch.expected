@@ -1,1 +1,1 @@
-use of possibly uninitialised binding 'y'
+used binding 'y' isn't initialized

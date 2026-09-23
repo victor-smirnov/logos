@@ -1,1 +1,1 @@
-[fn f]: use of moved variable 'x'
+[fn f]: use of moved value: 'x'

@@ -91,6 +91,15 @@ def split_file(path: str) -> tuple[list[str], list[str]]:
     for i, ln in enumerate(all_lines):
         if ln.strip() and not ln.startswith("#"):
             return all_lines[:i], all_lines[i:]
+    # NO ROWS (an emptied ledger): the generator's own `# TOTAL` / `# SYNC-HASH`
+    # tail is still the body. Left in the header, `--verify` never saw the hash
+    # and every `--write` appended a second tail after the first.
+    for i in range(len(all_lines) - 1, -1, -1):
+        if all_lines[i].startswith("# TOTAL"):
+            j = i
+            while j > 0 and not all_lines[j - 1].strip():
+                j -= 1
+            return all_lines[:j], all_lines[j:]
     return all_lines, []
 
 

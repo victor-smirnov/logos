@@ -10,6 +10,6 @@ fn main() -> i32 {
     s.a = 0u8;
     u.a = 0u8;
     let _sa: u8 = s.a;
-    let _ua: u8 = u.a;
+    let _ua: u8 = unsafe { u.a };
     return 0i32;
 }

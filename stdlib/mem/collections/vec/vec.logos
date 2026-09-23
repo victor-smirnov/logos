@@ -244,6 +244,11 @@ impl<T> Vec<T> {
         unsafe { return slice_from_raw::<T>(self.ptr as *const T, self.len); }
     }
 
+    /// Borrows the whole vector as `&mut [T]` (Rust's `Vec::as_mut_slice`).
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        unsafe { return slice_from_raw::<T>(self.ptr as *const T, self.len) as &mut [T]; }
+    }
+
     /// Returns a borrowing iterator yielding `&T`.
     pub fn iter<'a>(self: &'a Vec<T>) -> VecIter<'a, T> {
         return VecIter {

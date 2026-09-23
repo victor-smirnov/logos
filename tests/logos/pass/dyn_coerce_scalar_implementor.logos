@@ -1,0 +1,20 @@
+// `&i64` unsizes to `&dyn Tr` when `impl Tr for i64` (Rust). The coercion
+// rule accepted only a struct pointee and refused a scalar implementor with
+// "type mismatch — expected &dyn Foo, got &i64".
+package dyn_coerce_scalar_implementor;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Foo { fn get(self: &Self) -> i64; }
+impl Foo for i64 { fn get(self: &Self) -> i64 { return *self + 1i64; } }
+impl Foo for bool { fn get(self: &Self) -> i64 { if *self { return 7i64; } return 0i64; } }
+
+fn via(f: &dyn Foo) -> i64 { return f.get(); }
+
+fn main() -> i32 {
+    let v: i64 = 41i64;
+    let x: &i64 = &v;
+    let y: &dyn Foo = x;
+    let b: bool = true;
+    unsafe { printf("%lld %lld\n".as_ptr(), y.get(), via(&b)); }
+    return 0i32;
+}

@@ -3,6 +3,6 @@ package core_2_1_use_after_move;
 fn main() -> i32 {
     let s: String = String::new();
     let _t: String = s;
-    let _l: usize = s.len();
+    let _l: i64 = s.len();
     return 0i32;
 }

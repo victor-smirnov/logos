@@ -1,1 +1,1 @@
-use of moved variable 'self'
+use of moved value: 'self'

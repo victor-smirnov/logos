@@ -1,1 +1,1 @@
-use of moved or uninitialised 'x.0' at line 18
+use of moved value: 'x.0' at line 18

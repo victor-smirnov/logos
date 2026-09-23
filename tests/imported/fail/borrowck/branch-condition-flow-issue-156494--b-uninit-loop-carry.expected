@@ -1,1 +1,1 @@
-use of possibly uninitialised binding 'following'
+used binding 'following' isn't initialized

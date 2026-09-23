@@ -1,1 +1,1 @@
-use of moved or uninitialised 'bx.*.s' at line 9
+use of moved value: 'bx.*.s' at line 9

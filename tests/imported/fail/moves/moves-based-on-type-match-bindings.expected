@@ -1,1 +1,1 @@
-use of moved or uninitialised 'x.f' at line 13
+use of moved value: 'x.f' at line 13

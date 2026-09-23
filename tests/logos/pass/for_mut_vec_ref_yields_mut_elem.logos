@@ -1,0 +1,19 @@
+// `for n in &mut v` over a `Vec<T>` is `IntoIterator for &mut Vec<T>`: each
+// `n` is a `&mut T` (Rust), so the loop can write the elements. The desugar
+// used to route both `&Vec` and `&mut Vec` through `as_slice` and yield `&T`,
+// refusing `*n = …`. PAIR with fail/bc_mutvecfor_mut_vec_looped_twice: a
+// NAMED `&mut Vec` is moved into the loop, a fresh `&mut vals` is not.
+package for_mut_vec_ref_yields_mut_elem;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn main() -> i32 {
+    let mut vals: Vec<i64> = Vec::<i64>::new();
+    vals.push(3i64);
+    vals.push(5i64);
+    for n in &mut vals { *n = *n * 10i64; }
+    for n in &mut vals { *n = *n + 1i64; }
+    let r: &mut Vec<i64> = &mut vals;
+    for n in r { *n = *n + 100i64; }
+    unsafe { printf("%lld %lld\n".as_ptr(), vals[0], vals[1]); }
+    return 0i32;
+}

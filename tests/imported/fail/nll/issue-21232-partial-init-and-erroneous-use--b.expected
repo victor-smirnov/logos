@@ -1,1 +1,1 @@
-use of moved variable 'd'
+assign to part of moved value 'd.x'

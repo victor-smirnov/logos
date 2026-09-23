@@ -1,1 +1,1 @@
-use of moved or uninitialised 'o.Some#0' at line 13
+use of moved value: 'o.Some#0' at line 13

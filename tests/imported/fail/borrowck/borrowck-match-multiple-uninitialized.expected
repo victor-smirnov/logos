@@ -1,1 +1,1 @@
-use of possibly uninitialised binding 'message'
+used binding 'message' isn't initialized

@@ -1,1 +1,1 @@
-use of possibly uninitialised binding 'internal_code'
+used binding 'internal_code' isn't initialized

@@ -1,1 +1,1 @@
-assignment to immutable variable 'x'
+cannot borrow 'x' as mutable, as it is not declared as mutable

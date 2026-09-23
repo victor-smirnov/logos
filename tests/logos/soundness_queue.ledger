@@ -120,8 +120,6 @@ match_tuple_door_nested_slice_binds_nothing 3 tests/soundness/open/match_tuple_d
 
 struct_pattern_name_check_skipped_under_ref 2 tests/soundness/open/struct_pattern_name_check_skipped_under_ref admits
 
-letstruct_partial_destructure_moves_whole_source 3 tests/soundness/open/letstruct_partial_destructure_moves_whole_source refuses
-
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
@@ -134,8 +132,6 @@ sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_wr
 let_underscore_defers_drop_to_block_end 3 tests/soundness/open/let_underscore_defers_drop_to_block_end run 1
 
 nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
-
-self_assign_refused_as_moved 3 tests/soundness/open/self_assign_refused_as_moved refuses
 
 boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
 
@@ -163,8 +159,6 @@ fnitem_to_fnptr_array_elem_admits 2 tests/soundness/open/fnitem_to_fnptr_array_e
 
 unsized_local_binds_place_dropped_after_free 2 tests/soundness/open/unsized_local_binds_place_dropped_after_free admits
 
-coerce_unsize_field_source_use_admitted 2 tests/soundness/open/coerce_unsize_field_source_use_admitted admits
-
 zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref_struct_field_layout_abort refuses
 
 fatslice_field_match_binder_invalid_mlir 3 tests/soundness/open/fatslice_field_match_binder_invalid_mlir refuses
@@ -188,8 +182,6 @@ stdlib_drop_uninhabited_enum_byvalue_consumer 3 tests/soundness/open/stdlib_drop
 localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_names_stdlib_as_slice diag expected &Vec<i64>, got &Vec<i64>
 
 localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
-
-loop_init_before_break_refuses 3 tests/soundness/open/loop_init_before_break_refuses refuses
 
 index_through_ref_to_vec_let_refuses 3 tests/soundness/open/index_through_ref_to_vec_let_refuses refuses
 
@@ -283,8 +275,6 @@ closure_param_shadow_double_drop 1 tests/soundness/open/closure_param_shadow_dou
 # 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
 match_arm_nested_binder_shadow_double_drop 1 tests/soundness/open/match_arm_nested_binder_shadow_double_drop run 1
 
-deferred_init_after_inner_shadow_refused 3 tests/soundness/open/deferred_init_after_inner_shadow_refused refuses
-
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 let_double_ref_str_annotation_refused 3 tests/soundness/open/let_double_ref_str_annotation_refused refuses
 
@@ -355,8 +345,6 @@ variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tu
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses
 
 at_binding_or_subpattern_enum_segfaults_run 1 tests/soundness/open/at_binding_or_subpattern_enum_segfaults_run run 139
-
-let_at_binding_struct_pattern_moved_variable_refused 3 tests/soundness/open/let_at_binding_struct_pattern_moved_variable_refused refuses
 
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
 
@@ -466,5 +454,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 152
-# SYNC-HASH aea9c2fc73257c096c03351a33cb4eea
+# TOTAL 146
+# SYNC-HASH 1adface7595010f5500600b2b290055a

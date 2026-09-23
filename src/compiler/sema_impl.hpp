@@ -1819,6 +1819,9 @@ private:
     bool try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target);
     // Its SHAPE half, asked by the method-candidate selector too.
     bool struct_unsize_shape_ok(TypeRef src, TypeRef target);
+    // The one argument node a by-value `IntoIterator::into_iter(v)` desugar
+    // passes: a `&mut` there MOVES, so try_implicit_reborrow_mut leaves it be.
+    const uint8_t* no_reborrow_arg_ = nullptr;
     bool try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
                                    bool allow_downgrade = true);
 
@@ -1892,6 +1895,8 @@ private:
     // may CALL this; it may not re-implement any part of it.
     enum class CoercePos : uint8_t {
         CallArg,          // plain fn call argument
+        GenericArg,       // call argument at a by-value type-parameter formal
+                          // (`fn g<T>(x: T)`): no reborrow, Rust MOVES a `&mut`
         MethodArg,        // struct/trait method argument (order pinned by suite)
         ClosureArg,       // closure / fn-ptr call argument
         LetInit,          // let x: T = e
@@ -4098,7 +4103,14 @@ private:
     struct VarInfo { TypeRef type; bool is_mut = false; bool owning_dyn = false;
                      uint32_t slot = 0xFFFFFFFFu;  // no slot unless a frame record assigns one (0 is binding 0)
                      std::string closure_id;  // set when the binding's RHS is a closure literal
-                     bool regions_inferred = false; };  // a `let` whose type names no region: inference variables (#465)
+                     bool regions_inferred = false;  // a `let` whose type names no region: inference variables (#465)
+                     bool deferred_init = false; };  // `let x: T;` — its writes are judged by the borrow checker (E0384)
+    // Is `name` (the binding it denotes NOW) a declared-uninitialised `let x: T;`?
+    // Per binding: a shadow's initialisation must not answer for the outer one.
+    bool is_deferred_init(std::string_view name) const {
+        const VarInfo* vi = lookup_var_info(name);
+        return vi && vi->deferred_init;
+    }
     // A closure LITERAL's captures, by closure_id (per literal — the
     // signature-keyed closure_capture_env_ is a union and answers a different
     // question). By-ref capture of a SHARED reference is the reborrow `&'a T`
@@ -4882,28 +4894,6 @@ private:
         return path;
     }
 
-    // #440: A CALLABLE REACHED THROUGH A PLACE IS CHECKED LIKE ONE REACHED
-    // THROUGH A NAME. `lower_call` refuses `f()` after `f` was moved or
-    // consumed, but it asks `moved_vars_` about the NAME, and the callee of an
-    // expression-call is a PLACE — `h.f`, `t.0`, a chain. The consuming side
-    // was already symmetric: `mark_moved_expr`'s FieldRead arm records the
-    // path. Only the reading side was not, so `(h.f)()` twice marked `h.f`
-    // moved TWICE and refused nothing, and the second call freed the capture
-    // the first had moved out. Measured rc 134 on the Rust-shaped carrier
-    // `struct H<F> where F: FnOnce() -> String`, which rustc refuses with
-    // E0382 `use of moved value: h.f`.
-    //
-    // The message is lower_call's, verbatim and with the PATH in place of the
-    // name: two spellings of one refusal must not become two diagnostics.
-    void check_callable_place_not_consumed(lir_view::ExprRef er) {
-        if (!er) return;
-        std::string path = move_path_of(er);
-        if (path.empty() || !moved_vars_.count(path)) return;
-        error(std::format(
-            "use of moved value '{}': the callable was already moved or "
-            "consumed (an `FnOnce` is consumed by the call and cannot be "
-            "called again)", path));
-    }
     // Does this type mention a closure type anywhere in its structure? Used by
     // expect_type to choose the SOURCE rendering, which is the only one that
     // states a `dyn Fn*`'s spelling and a literal's Fn-family.
@@ -6102,18 +6092,6 @@ private:
         return true;
     }
 
-    // Definite assignment at a BARE-BINDING address mint
-    // (`borrow.var-ref.definite-assignment`, Rust E0381). `lower_var_ref` asks
-    // this question of every VALUE use; the arms that build a binding's ADDRESS
-    // from its NAME route around that function and so ask nowhere — the same
-    // hole the static-unsafe pair was repaired in, one question later. Asked
-    // ONCE here, and DIAGNOSED here, because four call sites spelling the same
-    // sentence is how copies drift apart. Returns true when it refused.
-    bool borrow_of_uninit_binding(std::string_view name) {
-        if (currently_uninit_vars_.count(std::string(name)) == 0) return false;
-        error(std::format("use of possibly uninitialised binding '{}'", name));
-        return true;
-    }
 
     bool is_module_static_unshadowed(std::string_view name) const {
         if (module_statics_.find(std::string(name)) == module_statics_.end())

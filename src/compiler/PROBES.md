@@ -41593,7 +41593,7 @@ both directions.
 # ═══ UNDER THE PROBE THAT WAS RECOMMENDED FOR LANDING ════════════════════════
 
 ## uninitborrow — LANDED, NO LONGER ENV-GATED, AND WIDENED TO THE WHOLE CLASS
-site: src/compiler/sema_impl.hpp::borrow_of_uninit_binding — asked at four call
+RETIRED 2026-09-23 (was site: sema_impl.hpp borrow_of_uninit_binding, DELETED with sema's other flow-insensitive E0381/E0382 checks; the BIR judges an address-of an uninitialised binding per CFG path) — asked at four call
       sites: sema_expr.cpp `lower_expr_inner` (`&mut` VAR_REF arm) and
       `lower_unary` (`&` VAR_REF arm), sema_stmt.cpp `try_index_mut_assign` and
       `lower_place_compound_assign`.

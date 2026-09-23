@@ -1,1 +1,1 @@
-use of moved or uninitialised 'maybe.Some#0' at line 15
+use of moved value: 'maybe.Some#0' at line 15

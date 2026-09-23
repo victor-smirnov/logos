@@ -1,1 +1,1 @@
-use of moved or uninitialised 'value' at line 13
+use of moved value: 'value' at line 13

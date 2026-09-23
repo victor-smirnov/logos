@@ -1,1 +1,1 @@
-use of moved or uninitialised 'f.moved' at line 9
+use of moved value: 'f.moved' at line 9

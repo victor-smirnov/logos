@@ -884,3 +884,11 @@ E0521 против E0515), часть требует разбора.
 ## tests/logos/fail/bc_esc_holder_return_generic_dangle.expected
 - было (at the generic caller `bad`, through an unresolved call): `cannot return reference to local variable 'o': dangling reference`
 - стало (at the impl method body, as rustc — the call is judged by the trait signature): `return type mismatch: variance mismatch — expected W, got W — lifetime structure incom`
+
+## 2026-09-23: сема больше не судит перемещения и инициализацию; E0382/E0381 — только BIR
+
+Семины «use of moved variable» / «use of possibly uninitialised binding» проверялись по ИМЕНИ и без потока (из-за них отвергались четыре строки tier-3 squeue). 240 пинов перепиннены на формулировки BIR: `use of moved value: '<место>'` (E0382), `used binding '<место>' isn't initialized` (E0381), `partially assigned binding '<x>' isn't fully initialized` (E0381). BIR называет точное место (`b.x`, `a[0]`, `o.Some#0`), где сема называла корень. Класс сменился у одной:
+
+## tests/imported/fail/nll/match-cfg-fake-edges--a-move-in-unreachable-arm.expected
+- было (E0382 moved): `use of moved variable 'x'`
+- стало (other): `unreachable match arm: a previous '_' arm matches all values` — Logos отвергает рукав после catch-all (спека `expr.match.arm-after-catchall-unreachable`); rustc там лишь предупреждает и сообщает перемещение по фальш-ребру. Раньше семина ошибка стояла первой, и эта под ней не была видна.

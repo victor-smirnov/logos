@@ -1,1 +1,1 @@
-use of moved or uninitialised 'a[1]' at line 22
+use of moved value: 'a[1]' at line 22

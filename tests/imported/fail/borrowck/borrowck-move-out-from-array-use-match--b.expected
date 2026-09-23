@@ -1,1 +1,1 @@
-use of moved or uninitialised 'a[2]'
+use of moved value: 'a[2]'

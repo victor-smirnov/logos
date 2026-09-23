@@ -1,1 +1,1 @@
-use of possibly uninitialised binding 'd'
+partially assigned binding 'd' isn't fully initialized

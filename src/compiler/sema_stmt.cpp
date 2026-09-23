@@ -1169,7 +1169,7 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
         auto vt = lookup(nm);
         if (!vt) { error(std::format(
             "destructuring assignment to undefined variable '{}'", nm)); return; }
-        if (!lookup_is_mut(nm))
+        if (!lookup_is_mut(nm) && !is_deferred_init(nm))
             error(std::format("assignment to immutable variable '{}'", nm));
         // logos-core 2.7: destructuring assignment initialises each LHS
         // place — clear from currently_uninit_vars_ same as a scalar
@@ -2983,6 +2983,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 if (!l.empty() && l[0] != '\x01' && l != "'_" && !lt_is_minted(l)) { names_region = true; break; }
         }
         scope_.back().vars[std::string(name)].regions_inferred = !names_region;
+        scope_.back().vars[std::string(name)].deferred_init = (!rhs && ann);
     }
     if (rhs && expr_ref_of(rhs).kind() == lir_schema::expr::Code::ClosureBox && !scope_.empty())
         scope_.back().vars[std::string(name)].closure_id =
@@ -3095,36 +3096,6 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     }
     if (!lookup_is_mut(name))
         error(std::format("compound assignment to immutable variable '{}'", name));
-
-    // ── E0381: `v += 1` READS `v`. The definite-assignment tracker
-    // (`currently_uninit_vars_`) was consulted only at the VarRef USE site in
-    // sema_expr, and this form never lowers its place through that site — the
-    // desugar below MINTS a fresh `var_ref` for the read half — so
-    // `let mut v: i64; v += 1i64;` compiled and read uninitialised storage.
-    // The check has to be here, at the place, before the desugar.
-    //
-    // ⚠ THE READ IS ALL THAT IS CHECKED. `v += 1` also WRITES `v`, and a write
-    // to an uninitialised binding is how a `let mut v: i64;` gets initialised
-    // in the first place — so this asks the uninit question and nothing else,
-    // and `currently_uninit_vars_` is left to the assignment path to clear.
-    //
-    // ── PRICED BEFORE IT WAS WRITTEN (scripts/ceiling-probe.sh opeqinitread,
-    // 2026-08-28): 4 fires over 389 ledger compiles, CEILING 1, COST 0.
-    // Predicted ONE row and closed exactly that one:
-    //   borrowck_borrowck-init-op-equal   E0381
-    // It completes the definite-init group the tree had already priced at 3 of
-    // 4 (`scinitcond`: ceiling 3, cost 0).
-    // ⚠ FOUR FIRES IS THE SMALLEST POPULATION IN ITS BATCH (rule 4), so the
-    // corpus reading is nearly worthless on its own and the counter-examples
-    // are the evidence: ten hand-written programs, nine of which fired once
-    // each and stayed green — assign-then-op=, both-branches-then-op=,
-    // diverging-else-then-op=, match-arms-then-op=, init-at-decl, loop-carried
-    // op=, and a shadowed rebind. The tenth (`s.n += 1`) never reaches here at
-    // all: a non-VarRef place routes through lower_place_compound_assign
-    // above. That is a silence, and it is recorded as one — the field spelling
-    // is UNCHECKED by this rule and would need its own.
-    if (currently_uninit_vars_.count(std::string(name)))
-        error(std::format("use of possibly uninitialised binding '{}'", name));
 
     // Desugar: `x op= expr` → `x = x op expr`
     auto lhs_ref = builder().var_ref(std::string(name), var_type);
@@ -3242,7 +3213,6 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                 if (has_im) {
                     if (!lookup_is_mut(arr_name))
                         error(std::format("index compound assign to immutable struct '{}'", arr_name));
-                    borrow_of_uninit_binding(arr_name);
                     const SemaFuncInfo* fit_im = nullptr;
                     for (auto* c : find_func_candidates(type_name + "__index_mut"))
                         if (c->param_types.size() == 2) { fit_im = c; break; }
@@ -3392,12 +3362,10 @@ lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
                 "write to mutable static `{}` requires `unsafe` block "
                 "(Rust `items.static.mut.safety`)", name));
     } else if (!lookup_is_mut(name)) {
-        // T2-25: deferred initialization of a non-mut local. A `let x: T;`
-        // (declared without an initializer) may be assigned EXACTLY ONCE
-        // without `mut` (Rust's variable.init example). currently_uninit_vars_
-        // holds it until that first write, which erases it below — a SECOND
-        // assignment then correctly errors.
-        if (!currently_uninit_vars_.count(std::string(name)))
+        // A declared-uninitialised `let x: T;` may be assigned once without
+        // `mut`; the borrow checker judges "assigned twice" per CFG path and
+        // per binding (E0384).
+        if (!is_deferred_init(name))
             error(std::format("assignment to immutable variable '{}'", name));
     }
 
@@ -7884,11 +7852,15 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         TypeRef(iter_type).pointee() &&
         is_stdlib_vec(TypeRef(iter_type).pointee())) {
         TypeRef vec_ty = TypeRef(iter_type).pointee();
-        if (auto fit = find_func_candidates("Vec__as_slice"); fit.size() == 1) {
+        // `&mut Vec<T>` is `IntoIterator<Item = &mut T>` through
+        // `as_mut_slice`; `&Vec<T>` yields `&T` through `as_slice`.
+        const bool iter_mut = TypeRef(iter_type).kind() == LogosType::Kind::MutRef;
+        const char* acc = iter_mut ? "Vec__as_mut_slice" : "Vec__as_slice";
+        if (auto fit = find_func_candidates(acc); fit.size() == 1) {
             const SemaFuncInfo* as_slice_fn = fit[0];
             TypeRef elem_t = !TypeRef(vec_ty).type_args().empty()
                                  ? TypeRef(vec_ty).type_args()[0] : i32_t();
-            TypeRef slice_ty = make_slice_type(elem_t);
+            TypeRef slice_ty = make_slice_type(elem_t, iter_mut);
             std::vector<lir::LExprPtr> pargs;
             // `for n in v` with `v: &mut Vec<T>` MOVES `v` in Rust —
             // `IntoIterator for &mut Vec` takes self by value — while this
@@ -7905,23 +7877,28 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                 if (ier && ier.kind() == lir_schema::expr::Code::VarRef)
                     mark_moved(std::string(lir_view::EVarRefView{ier}.name()));
             }
+            // `IntoIterator for &mut Vec` takes self BY VALUE: a named `&mut`
+            // is moved into the loop, not reborrowed (issue-83924, E0382).
+            const uint8_t* saved_nr = no_reborrow_arg_;
+            if (iter_mut) no_reborrow_arg_ = expr_ref_of(iter).addr();
             pargs.push_back(std::move(iter));
             lir::LExprPtr slice_call = nullptr;
             if (!as_slice_fn->type_params.empty())
                 slice_call = finish_generic_call(
-                    as_slice_fn->symbol_name.empty() ? std::string("Vec__as_slice")
+                    as_slice_fn->symbol_name.empty() ? std::string(acc)
                                                      : as_slice_fn->symbol_name,
                     *as_slice_fn, {elem_t}, std::move(pargs));
             else
                 slice_call = builder().call(
-                    as_slice_fn->symbol_name.empty() ? std::string("Vec__as_slice")
+                    as_slice_fn->symbol_name.empty() ? std::string(acc)
                                                      : as_slice_fn->symbol_name,
                     {}, std::move(pargs), slice_ty);
+            no_reborrow_arg_ = saved_nr;
 
             push_scope();
-            define(var_name, make_ref(false, elem_t), for_var_mut);  // yields &T
+            define(var_name, make_ref(iter_mut, elem_t), for_var_mut);  // yields &T / &mut T
             uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
-            auto pat_pro = build_for_pat(make_ref(false, elem_t));
+            auto pat_pro = build_for_pat(make_ref(iter_mut, elem_t));
             std::vector<lir_view::StmtRef> body;
             if (node.has_key(la::BODY)) {
                 ++loop_depth_;
@@ -8439,7 +8416,10 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
             error(std::format("assignment to immutable static '{}'", name));
             return false;
         }
-        if (!lookup_is_mut(name)) {
+        // A field write into a never-initialised binding is E0381 (the
+        // borrow checker's "partially assigned binding"), whatever its
+        // mutability: rustc judges initialisation first.
+        if (!lookup_is_mut(name) && !is_deferred_init(name)) {
             error(std::format("assignment to immutable variable '{}'", name));
             return false;
         }
@@ -8562,7 +8542,6 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     if (!has_im) return std::nullopt;
     if (!lookup_is_mut(arr_name))
         error(std::format("index write to immutable struct '{}'", arr_name));
-    borrow_of_uninit_binding(arr_name);
     auto mangled = type_name + "__index_mut";
     lir::LExprPtr idx_e = lower_expr(idx_node);
     lir::LExprPtr val_e = lower_expr(val_node);
