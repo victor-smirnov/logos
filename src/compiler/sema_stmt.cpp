@@ -4337,8 +4337,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             bool b = sub.get(la::VALUE.code).as_value<int32_t>() != 0;
             value = builder().lit_bool(b, bool_t());
         } else if (sc == la::PAT_CHAR && sub.has_key(la::VALUE)) {
-            auto sv = str_of(sub.get(la::VALUE.code));
-            int64_t v = sv.empty() ? 0 : (int64_t)(uint8_t)sv[0];
+            int64_t v = decode_char_lit_(str_of(sub.get(la::VALUE.code)));
             value = builder().lit_int(v, prim(LogosType::Kind::Char));
         } else {
             return std::string();  // not a supported refutable
@@ -5298,6 +5297,90 @@ TypeRef SemaChecker::pat_scrut_scalar_core(TypeRef scrut_type) {
     return scrut_type;
 }
 
+// A CHAR_LIT's spelling (`'x'`, `'\n'`, `'\u{1F600}'`, a multi-byte UTF-8
+// scalar) to its Unicode scalar value. One decoder for every pattern site: the
+// payload guards took the spelling's first BYTE — the quote — and never matched.
+int64_t SemaChecker::decode_char_lit_(std::string_view sv) {
+    if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
+        error(std::format("malformed char literal '{}'", sv));
+        return 0;
+    }
+    std::string_view body = sv.substr(1, sv.size() - 2);
+    if (!body.empty() && body[0] == '\\') {
+        if (body.size() < 2) {
+            error(std::format("malformed char literal '{}'", sv));
+            return 0;
+        }
+        auto hex = [&](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        };
+        switch (body[1]) {
+            case 'n': return '\n';
+            case 't': return '\t';
+            case 'r': return '\r';
+            case '0': return 0;
+            case '\\': return '\\';
+            case '\'': return '\'';
+            case '"': return '"';
+            case 'x': {
+                if (body.size() != 4) {
+                    error(std::format("char literal '{}': '\\x' requires exactly 2 hex digits", sv));
+                    return 0;
+                }
+                int h1 = hex(body[2]), h2 = hex(body[3]);
+                if (h1 < 0 || h2 < 0) {
+                    error(std::format("char literal '{}': '\\x' requires hex digits", sv));
+                    return 0;
+                }
+                return (int64_t)((h1 << 4) | h2);
+            }
+            case 'u': {
+                if (body.size() < 5 || body[2] != '{' || body.back() != '}') {
+                    error(std::format("char literal '{}': '\\u' requires '{{HEX}}' form", sv));
+                    return 0;
+                }
+                uint32_t cp = 0;
+                size_t end = body.size() - 1;
+                for (size_t i = 3; i < end; ++i) {
+                    int h = hex(body[i]);
+                    if (h < 0) {
+                        error(std::format("char literal '{}': '\\u' requires hex digits", sv));
+                        return 0;
+                    }
+                    cp = (cp << 4) | (uint32_t)h;
+                }
+                if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+                    error(std::format("char literal '{}': invalid Unicode scalar U+{:X}", sv, cp));
+                    return 0;
+                }
+                return (int64_t)cp;
+            }
+            default:
+                error(std::format("char literal '{}': unknown escape '\\{}'",
+                      sv, body[1]));
+                return 0;
+        }
+    }
+    unsigned char c0 = (unsigned char)body[0];
+    if (c0 < 0x80) return (int64_t)c0;
+    int64_t cp = 0;
+    int nbytes = 0;
+    if      ((c0 & 0xE0) == 0xC0) { cp = c0 & 0x1F; nbytes = 2; }
+    else if ((c0 & 0xF0) == 0xE0) { cp = c0 & 0x0F; nbytes = 3; }
+    else if ((c0 & 0xF8) == 0xF0) { cp = c0 & 0x07; nbytes = 4; }
+    else { error(std::format("char literal '{}': invalid UTF-8", sv)); return 0; }
+    if ((int)body.size() < nbytes) {
+        error(std::format("char literal '{}': truncated UTF-8", sv));
+        return 0;
+    }
+    for (int i = 1; i < nbytes; ++i)
+        cp = (cp << 6) | ((unsigned char)body[i] & 0x3F);
+    return cp;
+}
+
 lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode);
     // ONE LAYER IS ALL A DOOR WAS EVER WRITTEN FOR — collapsed here, once, for
@@ -5458,89 +5541,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     // Decode CHAR_LIT to its Unicode scalar value and lower as an
     // integer pattern (Logos char is a 4-byte Unicode scalar so the
     // u32 equality / range comparison works directly).
-    auto decode_char_lit = [&](std::string_view sv) -> int64_t {
-        if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
-            error(std::format("malformed char literal '{}'", sv));
-            return 0;
-        }
-        std::string_view body = sv.substr(1, sv.size() - 2);
-        if (!body.empty() && body[0] == '\\') {
-            if (body.size() < 2) {
-                error(std::format("malformed char literal '{}'", sv));
-                return 0;
-            }
-            auto hex = [&](char c) -> int {
-                if (c >= '0' && c <= '9') return c - '0';
-                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                return -1;
-            };
-            switch (body[1]) {
-                case 'n': return '\n';
-                case 't': return '\t';
-                case 'r': return '\r';
-                case '0': return 0;
-                case '\\': return '\\';
-                case '\'': return '\'';
-                case '"': return '"';
-                case 'x': {
-                    if (body.size() != 4) {
-                        error(std::format("char literal '{}': '\\x' requires exactly 2 hex digits", sv));
-                        return 0;
-                    }
-                    int h1 = hex(body[2]), h2 = hex(body[3]);
-                    if (h1 < 0 || h2 < 0) {
-                        error(std::format("char literal '{}': '\\x' requires hex digits", sv));
-                        return 0;
-                    }
-                    return (int64_t)((h1 << 4) | h2);
-                }
-                case 'u': {
-                    if (body.size() < 5 || body[2] != '{' || body.back() != '}') {
-                        error(std::format("char literal '{}': '\\u' requires '{{HEX}}' form", sv));
-                        return 0;
-                    }
-                    uint32_t cp = 0;
-                    size_t end = body.size() - 1;
-                    for (size_t i = 3; i < end; ++i) {
-                        int h = hex(body[i]);
-                        if (h < 0) {
-                            error(std::format("char literal '{}': '\\u' requires hex digits", sv));
-                            return 0;
-                        }
-                        cp = (cp << 4) | (uint32_t)h;
-                    }
-                    if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
-                        error(std::format("char literal '{}': invalid Unicode scalar U+{:X}", sv, cp));
-                        return 0;
-                    }
-                    return (int64_t)cp;
-                }
-                default:
-                    error(std::format("char literal '{}': unknown escape '\\{}'",
-                          sv, body[1]));
-                    return 0;
-            }
-        }
-        unsigned char c0 = (unsigned char)body[0];
-        if (c0 < 0x80) return (int64_t)c0;
-        int64_t cp = 0;
-        int nbytes = 0;
-        if      ((c0 & 0xE0) == 0xC0) { cp = c0 & 0x1F; nbytes = 2; }
-        else if ((c0 & 0xF0) == 0xE0) { cp = c0 & 0x0F; nbytes = 3; }
-        else if ((c0 & 0xF8) == 0xF0) { cp = c0 & 0x07; nbytes = 4; }
-        else { error(std::format("char literal '{}': invalid UTF-8", sv)); return 0; }
-        if ((int)body.size() < nbytes) {
-            error(std::format("char literal '{}': truncated UTF-8", sv));
-            return 0;
-        }
-        for (int i = 1; i < nbytes; ++i)
-            cp = (cp << 6) | ((unsigned char)body[i] & 0x3F);
-        return cp;
-    };
     if (pc == la::PAT_CHAR) {
         auto sv = str_of(pnode.get(la::VALUE.code));
-        int64_t v = decode_char_lit(sv);
+        int64_t v = decode_char_lit_(sv);
         if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
             auto sk = TypeRef(scrut_type).kind();
             if (sk != LogosType::Kind::Char && !is_integer(scrut_type))
@@ -5554,8 +5557,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_CHAR_RANGE) {
         auto lo_sv = str_of(pnode.get(la::LHS.code));
         auto hi_sv = str_of(pnode.get(la::RHS.code));
-        int64_t lo = decode_char_lit(lo_sv);
-        int64_t hi = decode_char_lit(hi_sv);
+        int64_t lo = decode_char_lit_(lo_sv);
+        int64_t hi = decode_char_lit_(hi_sv);
         if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
             auto sk = TypeRef(scrut_type).kind();
             if (sk != LogosType::Kind::Char && !is_integer(scrut_type))
@@ -6212,8 +6215,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 else if (sknode == la::PAT_BOOL && sub_node.has_key(la::VALUE))
                                     value = builder().lit_bool(sub_node.get(la::VALUE.code).as_value<int32_t>() != 0, bool_t());
                                 else if (sknode == la::PAT_CHAR && sub_node.has_key(la::VALUE)) {
-                                    auto sv = str_of(sub_node.get(la::VALUE.code));
-                                    value = builder().lit_int(sv.empty() ? 0 : (int64_t)(uint8_t)sv[0], prim(LogosType::Kind::Char));
+                                    value = builder().lit_int(decode_char_lit_(str_of(sub_node.get(la::VALUE.code))), prim(LogosType::Kind::Char));
                                 }
                                 if (value) {
                                     auto guard = builder().bin_op("==",

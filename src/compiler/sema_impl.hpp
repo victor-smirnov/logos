@@ -4107,6 +4107,7 @@ private:
                      bool deferred_init = false; };  // `let x: T;` — its writes are judged by the borrow checker (E0384)
     // Is `name` (the binding it denotes NOW) a declared-uninitialised `let x: T;`?
     // Per binding: a shadow's initialisation must not answer for the outer one.
+    int64_t decode_char_lit_(std::string_view sv);
     bool is_deferred_init(std::string_view name) const {
         const VarInfo* vi = lookup_var_info(name);
         return vi && vi->deferred_init;

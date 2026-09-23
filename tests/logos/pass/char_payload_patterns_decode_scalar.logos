@@ -1,0 +1,24 @@
+// Char literal patterns in variant payloads — escapes, a 2-byte and a 4-byte scalar, a
+// non-matching control, `if let`, and a struct-shaped payload field — all decoded by
+// decode_char_lit_ (they compared against the spelling's first byte, the quote).
+package char_payload_patterns_decode_scalar;
+extern fn printf(fmt: *const u8, ...) -> i32;
+enum K { P { c: char, n: i64 }, Q }
+fn m(o: Option<char>) -> i64 {
+    match o {
+        Option::Some('x') => { return 1i64; },
+        Option::Some('\n') => { return 2i64; },
+        Option::Some('é') => { return 3i64; },
+        Option::Some('\u{1F600}') => { return 4i64; },
+        _ => { return 0i64; }
+    }
+}
+fn k(v: K) -> i64 {
+    match v { K::P { c: 'z', n } => { return n; }, _ => { return -1i64; } }
+}
+fn main() -> i32 {
+    let mut il: i64 = 0i64;
+    if let Option::Some('q') = Option::Some('q') { il = 1i64; }
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), m(Option::Some('x')), m(Option::Some('\n')), m(Option::Some('é')), m(Option::Some('\u{1F600}')), m(Option::Some('y')), il, k(K::P { c: 'z', n: 9i64 }), k(K::P { c: 'w', n: 9i64 })); }
+    return 0i32;
+}
