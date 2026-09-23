@@ -5105,6 +5105,14 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
             if (b_.is_closure && !a.capture && !b.capture && !a.ret && !b.ret &&
                 elided(a.label) && elided(b.label) && a.label != b.label)
                 return false;
+            // AN ELIDED RESULT IS BOUND TO ITS ELISION SOURCE IN THE BODY TOO
+            // (#461): sema minted it the source's own name (`&self`'s region by
+            // rule 3, the one input region by rule 2), so a MINTED result label
+            // admits exactly that source — `fn thru(&self, s: &str) -> &str { s }`
+            // is "lifetime may not live long enough", as rustc says.
+            if (!b_.is_closure && b.ret && b.label.starts_with("'%") && a.label != b.label &&
+                !a.label.starts_with("T:") && a.label != "'static" && !outl.count({a.label, b.label}))
+                return false;
             if (elided(b.label) && !(b_.is_closure && b.ret)) return true;
             // A region a TYPE PARAMETER brought in: in an instance `iter_max<I
             // = SliceIter<'x, i32>, T = &'x i32>` the two are one region, but

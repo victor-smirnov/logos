@@ -1,0 +1,8 @@
+// #461: an elided result is bound to its elision source inside the body too —
+// rule 3 gives `thru`'s result `&self`'s region, so returning `s` is refused
+// (rustc: lifetime may not live long enough).
+package elided_result_body_source_fail;
+trait Tr { fn thru(&self, s: &i64) -> &i64; }
+struct K { v: i64 }
+impl Tr for K { fn thru(&self, s: &i64) -> &i64 { return s; } }
+fn main() -> i32 { return 0i32; }
