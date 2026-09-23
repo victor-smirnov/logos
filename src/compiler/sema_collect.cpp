@@ -3348,6 +3348,9 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 mi.ret_type = m.has_key(la::RET_TYPE)
                     ? resolve_type(map_of(m.get(la::RET_TYPE.code))) : void_t();
             }
+            for (auto pt : mi.param_types)
+                check_struct_bound_lifetimes_(pt, std::format("trait {}: method '{}'", tname, mi.name));
+            check_struct_bound_lifetimes_(mi.ret_type, std::format("trait {}: method '{}'", tname, mi.name));
             // P2-15: a `where Self: Sized` method is excluded from the vtable, so
             // it never affects object-safety (the trait-method where-clause is now
             // captured under WHERE — grammar fix). Scan for a `Self: Sized` bound.

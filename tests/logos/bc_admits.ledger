@@ -1913,8 +1913,6 @@ dropck-only-error lifereg.NEW-PROJBOUND tests/imported/admit/dropck/dropck-only-
 
 issue-74400 lifereg.NEW-N3 tests/imported/admit/lifetimes/issue-74400
 
-trait-method-return-lifetime-mismatch lifereg.L1 tests/imported/admit/lifetimes/trait-method-return-lifetime-mismatch  # STAGE-6 2026-09-08 RE-PORTED AS IS, STILL ADMITTED, STILL A DEFECT. ROOT RE-CHECKED, lifereg.L1 SPLITS: this row is a DECLARATION-site elision (a trait method's elided return lifetime), not a call. CONTROL: writing `BVH<'a, R>` explicitly is legal Rust and also admits, so the ELIDED slot is the variable
-
 propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/nll/propagate-fail-to-approximate-longer-no-bounds
 
 # ── tests/ui/moves ─────────────────────────────────────────
@@ -2492,5 +2490,5 @@ propagate-fail-to-approximate-longer-no-bounds nllmoves.A tests/imported/admit/n
 # Spec: `borrow.assign.borrowed-lhs` extended with the reservation sentence.
 # Full numbers: PROBES.md 2026-09-12f.
 
-# TOTAL 5
-# SYNC-HASH 195832aa944eb54e76a510ad07870c13
+# TOTAL 4
+# SYNC-HASH ac98e31f50a70ec79c879f9b00c20389

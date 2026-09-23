@@ -2196,6 +2196,65 @@ private:
     bool cfg_attrs_drop_item(std::vector<writ::TinyMapView>& pending_annots);
     // logos-core 1.3: fill `_` holes in a let-annotation from the RHS type.
     TypeRef fill_inferred_from_rhs(TypeRef ann, TypeRef rhs);
+    // WF of a struct type in a SIGNATURE whose type argument is a type
+    // parameter the struct bounds by a trait carrying the struct's own
+    // lifetime (`struct H<'a, R: Tr<'a>>`): `H<'l, R>` needs `R: Tr<'l>` in
+    // scope. An elided `'l` is a fresh region no declared `R: Tr<'a>` names
+    // (rustc E0308, trait-method-return-lifetime-mismatch).
+    void check_struct_bound_lifetimes_(TypeRef t, const std::string& where, int depth = 0) {
+        using K = LogosType::Kind;
+        if (!t || depth > 16) return;
+        if (t.pointee()) check_struct_bound_lifetimes_(t.pointee(), where, depth + 1);
+        if (t.elem()) check_struct_bound_lifetimes_(t.elem(), where, depth + 1);
+        for (auto e : t.tuple_elems()) check_struct_bound_lifetimes_(e, where, depth + 1);
+        if (t.kind() != K::Struct) return;
+        for (auto a : t.type_args()) check_struct_bound_lifetimes_(a, where, depth + 1);
+        auto [sp_, si] = struct_of(t);
+        (void)sp_;
+        if (!si || si->lifetime_params.empty()) return;
+        auto la = t.lifetime_args();
+        auto elided = [](std::string_view l) { return l.empty() || l == "'_" || l == "_" || lt_is_minted(l); };
+        auto norm = [](std::string_view l) { std::string q(l); if (!q.empty() && q[0] != '\'') q = "'" + q; return q; };
+        auto ta = t.type_args();
+        for (size_t i = 0; i < si->type_params.size() && i < ta.size(); ++i) {
+            TypeRef a = ta[i];
+            if (!a || a.kind() != K::TypeVar) continue;
+            std::string rn(a.type_var_name());
+            auto bit = current_type_bounds_.find(rn);
+            if (bit == current_type_bounds_.end()) continue;
+            for (auto& need : si->type_params[i].bounds) {
+                if (need.lifetime_args.empty()) continue;
+                // The struct's lifetime params, as this use spells them.
+                std::vector<std::string> want;
+                bool any_elided = false, mapped = true;
+                for (auto& nl : need.lifetime_args) {
+                    auto pit = std::find(si->lifetime_params.begin(), si->lifetime_params.end(), nl);
+                    if (pit == si->lifetime_params.end()) { mapped = false; break; }
+                    size_t k = size_t(pit - si->lifetime_params.begin());
+                    std::string u = k < la.size() ? std::string(la[k]) : std::string();
+                    if (elided(u)) any_elided = true;
+                    want.push_back(elided(u) ? std::string() : norm(u));
+                }
+                if (!mapped) continue;
+                bool same_trait = false, ok = false;
+                std::string have;
+                for (auto& hb : bit->second) {
+                    if (hb.trait_def != need.trait_def) continue;
+                    same_trait = true;
+                    if (hb.lifetime_args.size() != want.size()) continue;
+                    bool eq = !any_elided;
+                    for (size_t j = 0; eq && j < want.size(); ++j) eq = norm(hb.lifetime_args[j]) == want[j];
+                    if (eq) { ok = true; break; }
+                    if (have.empty()) for (auto& l : hb.lifetime_args) have += (have.empty() ? "" : ", ") + l;
+                }
+                if (same_trait && !ok)
+                    error(std::format("{}: mismatched types (E0308) — `{}` requires `{}: {}<{}>`, and only "
+                                      "`{}: {}<{}>` is in scope",
+                                      where, type_str(t, true), rn, need.trait_name,
+                                      any_elided ? std::string("'_") : want.front(), rn, need.trait_name, have));
+            }
+        }
+    }
     unsigned alias_hole_n_ = 0;                                    // named `_` holes of generic aliases
     logos::compiler::StrMap<TypeRef> alias_hole_bind_;             // their bindings, per `let`
     // True when t contains a `_` (InferredType) hole at any depth.

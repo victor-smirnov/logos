@@ -1599,6 +1599,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             if (rv.is_pointer()) walk_(map_of(rv), 0);
         }
     }
+    for (auto& p_ : params) check_struct_bound_lifetimes_(p_.type, std::format("fn '{}'", fn_name));
+    check_struct_bound_lifetimes_(ret_type, std::format("fn '{}'", fn_name));
     {   // The binders of THIS scope — see outlives.hpp::current_lt_binders().
         auto& lb_ = current_lt_binders();
         lb_.clear();

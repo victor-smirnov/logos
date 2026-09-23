@@ -1,0 +1,12 @@
+// Twin of imported/fail/lifetimes/trait-method-return-lifetime-mismatch: a
+// struct bounding its type parameter by a trait over its OWN lifetime
+// (`BufferViewHandle<'a, R: Resources<'a>>`) is well-formed in a signature
+// when the use names the lifetime the bound in scope carries.
+package struct_bound_lifetime_in_signature_admit;
+trait Resources<'a> { fn n(self: &Self) -> i64; }
+struct BufferViewHandle<'a, R: Resources<'a>> { r: &'a R }
+trait Buffer<'a, R: Resources<'a>> {
+    fn select(self: &'a Self) -> BufferViewHandle<'a, R>;
+}
+fn view<'a, R: Resources<'a>>(r: &'a R) -> BufferViewHandle<'a, R> { return BufferViewHandle { r: r }; }
+fn main() -> i32 { return 0i32; }

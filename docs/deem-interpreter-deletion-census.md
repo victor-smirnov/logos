@@ -6327,9 +6327,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                -> fail/trait_default_body_{type,call}_fail; new pass/trait_default_body_template_admit.
 #                ALL 11121 (0), NOIMPORTED 6564 -> 6563 (-1), TIERCOMMIT 235 -> 234 (-1) — 2026-09-23: BC row
 #                regions-normalize-in-where-clause-list (#77) moved admit -> imported/fail/regions.
-REGISTRY-ALL         11121
+#                ALL 11121 -> 11122 (+1), NOIMPORTED 6563 (0), TIERCOMMIT 234 -> 233 (-1) — 2026-09-23: BC row
+#                trait-method-return-lifetime-mismatch (#47) admit -> imported/fail; new pass/struct_bound_lifetime_in_signature_admit.
+REGISTRY-ALL         11122
 REGISTRY-NOIMPORTED  6563
-REGISTRY-TIERCOMMIT  234
+REGISTRY-TIERCOMMIT  233
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
