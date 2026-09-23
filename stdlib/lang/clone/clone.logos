@@ -48,3 +48,19 @@ impl Copy for f32   {}
 impl Copy for f64   {}
 impl Copy for bool  {}
 impl Copy for char  {}
+
+// Tuples of Copy / Clone elements are Copy / Clone (Rust's per-arity impls).
+impl<A: Copy, B: Copy> Copy for (A, B) {}
+impl<A: Copy, B: Copy, C: Copy> Copy for (A, B, C) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy> Copy for (A, B, C, D) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy> Copy for (A, B, C, D, E) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy> Copy for (A, B, C, D, E, F) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy> Copy for (A, B, C, D, E, F, G) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy, H: Copy> Copy for (A, B, C, D, E, F, G, H) {}
+impl<A: Clone, B: Clone> Clone for (A, B) { fn clone(&self) -> (A, B) { return (self.0.clone(), self.1.clone()); } }
+impl<A: Clone, B: Clone, C: Clone> Clone for (A, B, C) { fn clone(&self) -> (A, B, C) { return (self.0.clone(), self.1.clone(), self.2.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> Clone for (A, B, C, D) { fn clone(&self) -> (A, B, C, D) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> Clone for (A, B, C, D, E) { fn clone(&self) -> (A, B, C, D, E) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> Clone for (A, B, C, D, E, F) { fn clone(&self) -> (A, B, C, D, E, F) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone> Clone for (A, B, C, D, E, F, G) { fn clone(&self) -> (A, B, C, D, E, F, G) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone, H: Clone> Clone for (A, B, C, D, E, F, G, H) { fn clone(&self) -> (A, B, C, D, E, F, G, H) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone()); } }

@@ -1578,6 +1578,15 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         // logic against the element type.
                         std::string e_str = type_str(e);
                         if (impls_.count(ImplKey{bid_def, e_str})) continue;
+                        // The built-in Copy handle kinds (see the Copy arm above)
+                        // are Copy as tuple elements too: `(&i64, i64): Copy`.
+                        if (bound_is_copy_lang_item(bound.trait_name, bound.canonical_trait)) {
+                            auto ek = TypeRef(e).kind();
+                            if (ek == LogosType::Kind::Ref || ek == LogosType::Kind::Ptr ||
+                                ek == LogosType::Kind::Slice || LogosType::is_fn_value_kind(ek) ||
+                                ek == LogosType::Kind::TraitObject)
+                                continue;
+                        }
                         // Tuple element is itself a tuple → arity key.
                         if (TypeRef(e).kind() == LogosType::Kind::Tuple) {
                             size_t a2 = TypeRef(e).tuple_elems().size();

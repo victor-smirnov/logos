@@ -6429,6 +6429,17 @@ bool SemaChecker::is_type_uninhabited(TypeRef t, int depth) {
 
 TypeRef SemaChecker::fill_inferred_from_rhs(TypeRef ann, TypeRef rhs) {
     if (!ann) return rhs;
+    // A named alias hole (see the generic-alias expansion): its first fill
+    // binds it, every later position takes that binding.
+    if (ann.kind() == LogosType::Kind::TypeVar && std::string_view(ann.type_var_name()).starts_with("?")) {
+        std::string hn(ann.type_var_name());
+        if (auto it = alias_hole_bind_.find(hn); it != alias_hole_bind_.end()) return it->second;
+        TypeRef b = (!rhs || rhs.kind() == LogosType::Kind::Error) ? ann
+                  : rhs.kind() == LogosType::Kind::IntLit ? prim(LogosType::Kind::I32)
+                  : rhs.kind() == LogosType::Kind::FloatLit ? prim(LogosType::Kind::F64) : rhs;
+        alias_hole_bind_[hn] = b;
+        return b;
+    }
     if (ann.kind() == LogosType::Kind::InferredType) {
         if (!rhs || rhs.kind() == LogosType::Kind::Error) return ann;
         if (rhs.kind() == LogosType::Kind::IntLit)   return prim(LogosType::Kind::I32);
@@ -7715,8 +7726,29 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 return result;
             }
             SemaSubst s;
-            for (size_t i = 0; i < expected && i < args.size(); ++i)
-                s[ait->second.type_params[i].name] = args[i];
+            for (size_t i = 0; i < expected && i < args.size(); ++i) {
+                TypeRef a = args[i];
+                // ONE `_` FOR ONE PARAMETER, HOWEVER OFTEN IT APPEARS: `type
+                // DoubleCell<A> = Cell<(A, A)>` with `DoubleCell<_>` is ONE
+                // inference variable in two positions (rustc: both must be
+                // the same type, regions included — var-appears-twice). A
+                // named hole keeps that identity for fill_inferred_from_rhs.
+                if (a && a.kind() == LogosType::Kind::InferredType) {
+                    const std::string& tpn = ait->second.type_params[i].name;
+                    size_t occ = 0;
+                    std::function<void(TypeRef, int)> count = [&](TypeRef t, int d) {
+                        if (!t || d > 24) return;
+                        if (t.kind() == LogosType::Kind::TypeVar && std::string_view(t.type_var_name()) == tpn) ++occ;
+                        if (t.pointee()) count(t.pointee(), d + 1);
+                        if (t.elem()) count(t.elem(), d + 1);
+                        for (auto x : t.type_args()) count(x, d + 1);
+                        for (auto x : t.tuple_elems()) count(x, d + 1);
+                    };
+                    count(ait->second.type, 0);
+                    if (occ >= 2) a = make_typevar(std::format("?{}#{}", tpn, ++alias_hole_n_));
+                }
+                s[ait->second.type_params[i].name] = a;
+            }
             SemaLifetimeSubst ls;
             auto& lparams = ait->second.lifetime_params;
             for (size_t i = 0; i < lparams.size() && i < lt_args.size(); ++i)

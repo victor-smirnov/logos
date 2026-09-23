@@ -1,0 +1,14 @@
+// Twin of imported/fail/nll/var-appears-twice: `DoubleCell<_>` is ONE
+// inference variable in two positions, so a value whose two positions carry
+// the SAME region fits it (rustc accepts).
+package alias_hole_twice_same_region_admit;
+use logos.lang.cell;
+type DoubleCell<A> = Cell<(A, A)>;
+fn make_cell<'b>(x: &'b i64) -> Cell<(&'b i64, &'b i64)> { return Cell::new((x, x)); }
+fn main() -> i32 {
+    let b: i64 = 44i64;
+    let x: DoubleCell<_> = make_cell(&b);
+    let p: (&i64, &i64) = x.into_inner();
+    if *p.0 + *p.1 != 88i64 { return 1i32; }
+    return 0i32;
+}

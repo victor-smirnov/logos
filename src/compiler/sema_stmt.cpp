@@ -2703,6 +2703,27 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // impl Trait annotation: any concrete struct that was returned from an
         // impl-Trait-returning function is acceptable — treat the variable type as the
         // concrete rhs type so method calls work.
+        // Named alias holes (`DoubleCell<_>`) are filled BEFORE the type check:
+        // the first position binds, the others take that binding, and the
+        // variance check below then holds the value to it (#465 neighbour).
+        bool alias_holes_ = false;
+        {
+            std::function<bool(TypeRef, int)> has_hole = [&](TypeRef t, int d) -> bool {
+                if (!t || d > 24) return false;
+                if (t.kind() == LogosType::Kind::TypeVar && std::string_view(t.type_var_name()).starts_with("?")) return true;
+                if (t.pointee() && has_hole(t.pointee(), d + 1)) return true;
+                if (t.elem() && has_hole(t.elem(), d + 1)) return true;
+                for (auto x : t.type_args()) if (has_hole(x, d + 1)) return true;
+                for (auto x : t.tuple_elems()) if (has_hole(x, d + 1)) return true;
+                return false;
+            };
+            if (rhs && ann && rhs_type && has_hole(ann, 0)) {
+                alias_hole_bind_.clear();
+                ann = fill_inferred_from_rhs(ann, rhs_type);
+                alias_hole_bind_.clear();
+                alias_holes_ = true;
+            }
+        }
         bool ann_is_impl = TypeRef(ann).kind() == LogosType::Kind::ImplTrait;
         if (!ann_is_impl && !rhs_is_expr_blob &&
             TypeRef(ann).kind() != LogosType::Kind::Error &&
@@ -2864,6 +2885,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // (`let v: Vec<_> = vec![1]` binds as Vec<i32> — the hole used to
         // leak into mono as a literal `Vec$G1$_` instantiation).
         var_type = ann_is_impl ? rhs_type : fill_inferred_from_rhs(ann, rhs_type);
+        (void)alias_holes_;
         // LANDED 2026-09-02p (was PROBE stland/stfacts L): an ELIDED annotation
         // region is an inference variable — the binding takes the initializer's region.
         if (rhs && var_type && rhs_type &&

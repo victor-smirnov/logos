@@ -2196,6 +2196,8 @@ private:
     bool cfg_attrs_drop_item(std::vector<writ::TinyMapView>& pending_annots);
     // logos-core 1.3: fill `_` holes in a let-annotation from the RHS type.
     TypeRef fill_inferred_from_rhs(TypeRef ann, TypeRef rhs);
+    unsigned alias_hole_n_ = 0;                                    // named `_` holes of generic aliases
+    logos::compiler::StrMap<TypeRef> alias_hole_bind_;             // their bindings, per `let`
     // True when t contains a `_` (InferredType) hole at any depth.
     bool type_has_inferred(TypeRef t);
 

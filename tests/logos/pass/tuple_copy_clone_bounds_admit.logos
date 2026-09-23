@@ -1,0 +1,13 @@
+// Tuples of Copy / Clone elements are Copy / Clone (Rust's per-arity impls),
+// references included as Copy elements.
+package tuple_copy_clone_bounds_admit;
+fn dup<T: Copy>(t: T) -> (T, T) { return (t, t); }
+fn cl<T: Clone>(t: &T) -> T { return t.clone(); }
+fn main() -> i32 {
+    let b: i64 = 5i64;
+    let p: ((i64, bool), (i64, bool)) = dup((3i64, true));
+    let q: ((&i64, i64), (&i64, i64)) = dup((&b, 1i64));
+    let r: (i64, i64, i64) = cl(&(1i64, 2i64, 3i64));
+    if (p.0).0 + *(q.1).0 + r.2 != 11i64 { return 1i32; }
+    return 0i32;
+}

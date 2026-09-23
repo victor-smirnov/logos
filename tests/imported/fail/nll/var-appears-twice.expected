@@ -1,0 +1,1 @@
+let 'x': variance mismatch — expected Cell<(&'static i64, &'static i64)>
