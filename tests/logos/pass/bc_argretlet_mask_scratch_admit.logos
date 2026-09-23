@@ -8,7 +8,7 @@
 // refuses this program.
 package bc_argretlet_mask_scratch_admit;
 struct W<'a> { p: &'a mut i64 }
-fn keep(src: &mut i64, scratch: &mut i64) -> W {
+fn keep<'a>(src: &'a mut i64, scratch: &mut i64) -> W<'a> {
     *scratch = *scratch + 1i64;
     return W { p: src };
 }

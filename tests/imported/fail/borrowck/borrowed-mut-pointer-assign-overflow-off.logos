@@ -4,7 +4,7 @@
 //   argument now holds that argument for the binding's lifetime)
 package borrowed_mut_pointer_assign_overflow_off;
 struct S<'a> { pointer: &'a mut i64 }
-fn copy_borrowed_ptr(p: &mut S) -> S { return S { pointer: &mut *p.pointer }; }
+fn copy_borrowed_ptr<'a>(p: &'a mut S<'a>) -> S<'a> { return S { pointer: &mut *p.pointer }; }
 fn main() -> i32 {
     let mut x: i64 = 1i64;
     let mut y: S = S { pointer: &mut x };

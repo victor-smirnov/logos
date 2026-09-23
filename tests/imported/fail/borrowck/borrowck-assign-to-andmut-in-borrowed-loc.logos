@@ -5,7 +5,7 @@
 // upstream: borrowck-assign-to-andmut-in-borrowed-loc.rs E0503/E0506
 package borrowck_assign_to_andmut_in_borrowed_loc;
 struct S<'a> { pointer: &'a mut i64 }
-fn copy_borrowed_ptr(p: &mut S) -> S {
+fn copy_borrowed_ptr<'a>(p: &'a mut S<'a>) -> S<'a> {
     return S { pointer: &mut *p.pointer };
 }
 fn main() -> i32 {

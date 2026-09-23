@@ -1468,6 +1468,14 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                  k == LogosType::Kind::TraitObject) &&
                 TypeRef(t).lifetime().empty())
                 return true;
+            // A lifetime-carrying ADT with an elided argument (`-> B` for
+            // `struct B<'a>`, or `B<'_>`) is an elided output region too (#465).
+            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct ||
+                k == LogosType::Kind::Enum) {
+                auto la = TypeRef(t).lifetime_args();
+                if (la.size() < decl_lt_arity_(t)) return true;
+                for (auto& l : la) if (l == "'_" || l == "_") return true;
+            }
             if (TypeRef(t).pointee() && has_elided_ref(TypeRef(t).pointee())) return true;
             if (TypeRef(t).elem() && has_elided_ref(TypeRef(t).elem())) return true;
             for (auto e : TypeRef(t).tuple_elems()) if (has_elided_ref(e)) return true;
@@ -1496,10 +1504,12 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             // annotation / the dangling-borrow check, to avoid flagging
             // legitimate `'static`-source functions.)
             if (!has_self_ref && distinct_input_lts_(ptypes) >= 2) {
-                error("missing lifetime specifier (E0106): this function's return "
+                error(std::format("missing lifetime specifier (E0106): this function's return "
                       "type contains a borrowed value with an elided lifetime, but "
                       "the signature has more than one input lifetime and no `&self` "
-                      "— annotate which input the result borrows from (e.g. `&'a`)");
+                      "— annotate which input the result borrows from (e.g. `&'a`); "
+                      "the return type is `{}`",
+                      type_str(ret_type, true)));
             }
         }
     }

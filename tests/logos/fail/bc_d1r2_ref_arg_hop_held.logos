@@ -16,7 +16,7 @@ impl C {
     fn mk(&self) -> B { return B { p: &self.v }; }
     fn bump(&mut self) { self.v = self.v + 1i64; }
 }
-fn thru(b: &B) -> B { return B { p: b.p }; }
+fn thru<'a>(b: &B<'a>) -> B<'a> { return B { p: b.p }; }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let b0: B = c.mk();

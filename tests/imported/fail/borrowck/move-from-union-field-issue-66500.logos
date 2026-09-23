@@ -3,6 +3,6 @@
 // shelf: fail — REFUSED since 2026-08-27 (E0507 is asked where `consuming` is already computed, at the deref itself, instead of at five hand-listed positions over a `VarRef`-spelled operand)
 package move_from_union_field_issue_66500;
 use logos.mem.string;
-union Pointers { a: &String, c: *const String }
+union Pointers<'a> { a: &'a String, c: *const String }
 unsafe fn move_ref(u: Pointers) -> String { return *u.a; }
 fn main() -> i32 { return 0i32; }

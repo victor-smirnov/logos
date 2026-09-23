@@ -87,7 +87,7 @@ impl<'a> Iterator<(u64, u64)> for SeamIter<'a> {
     }
 }
 
-pub fn seam_rows(s: &SeamSrc) -> SeamIter {
+pub fn seam_rows<'a>(s: &SeamSrc<'a>) -> SeamIter<'a> {
     return SeamIter { rows: s.rows, i: 0i64, ctr: s.ctr };
 }
 
