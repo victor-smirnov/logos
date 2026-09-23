@@ -494,5 +494,7 @@ move_out_of_raw_pointer_admitted 2026-09-22 borrow-check tests/imported/admit/bo
 
 writ_cycle_needs_raw_edge_under_borrow_carrying_wany 2026-09-22 writ tests/logos/pass/wql_graph_null_root_row
 
-# TOTAL 29
-# SYNC-HASH 5bfd7765dbc4dbe14ccd35dee1a41d52
+hidden_field_lifetimes_make_no_claim 2026-09-22 borrow-check tests/imported/fail/nll/capture-ref-in-struct--t08
+
+# TOTAL 30
+# SYNC-HASH 0fa25d2aee71a8ae06334c94a26bbf8d
