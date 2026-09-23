@@ -1,0 +1,15 @@
+// let-else over or-patterns of scalar literals: int, range, negative, bool and char
+// alternatives, each with a non-matching control (codegen tested only the first alternative).
+package letelse_or_pattern_scalar_kinds;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn a(v: i64) -> i64 { let (3i64 | 7i64) = v else { return 0i64; }; return 1i64; }
+fn r(v: i64) -> i64 { let (1i64..=2i64 | 10i64) = v else { return 0i64; }; return 1i64; }
+fn n(v: i64) -> i64 { let (-5i64 | 5i64) = v else { return 0i64; }; return 1i64; }
+fn b(v: bool) -> i64 { let (true | false) = v else { return 0i64; }; return 1i64; }
+fn c(v: char) -> i64 { let ('a' | 'z') = v else { return 0i64; }; return 1i64; }
+fn main() -> i32 {
+    unsafe { printf("%lld%lld%lld %lld%lld%lld %lld%lld%lld %lld %lld%lld\n".as_ptr(),
+        a(3i64), a(7i64), a(8i64), r(2i64), r(10i64), r(5i64), n(-5i64), n(5i64), n(4i64),
+        b(false), c('z'), c('b')); }
+    return 0i32;
+}

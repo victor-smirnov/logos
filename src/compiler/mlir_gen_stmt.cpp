@@ -6137,19 +6137,39 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         }
         if (mlir::isa<mlir::IntegerType>(sc_val.getType())) {
             auto styp = sc_val.getType();
-            if (pat_kind == pc::Code::Int) {
-                auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
-                    loc_, lir_view::PatIntView{pat_ref}.value(), 64), styp);
-                lit_cond = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
-            } else if (pat_kind == pc::Code::Bool) {
-                auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
-                    loc_, lir_view::PatBoolView{pat_ref}.value() ? 1 : 0, 64), styp);
-                lit_cond = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
-            } else if (pat_kind == pc::Code::Range) {
-                lir_view::PatRangeView pr{pat_ref};
-                lit_cond = emit_range_test(sc_val, sc_ty, pr.lo(), pr.hi());
+            auto alt_test = [&](lir_view::PatRef a) -> mlir::Value {
+                auto k = a.kind();
+                if (k == pc::Code::Int) {
+                    auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
+                        loc_, lir_view::PatIntView{a}.value(), 64), styp);
+                    return builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
+                }
+                if (k == pc::Code::Bool) {
+                    auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
+                        loc_, lir_view::PatBoolView{a}.value() ? 1 : 0, 64), styp);
+                    return builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
+                }
+                if (k == pc::Code::Range) {
+                    lir_view::PatRangeView pr{a};
+                    return emit_range_test(sc_val, sc_ty, pr.lo(), pr.hi());
+                }
+                return {};
+            };
+            // An OR-pattern of scalar literals (`let (3 | 7) = v else`) matches
+            // when ANY alternative does; `pat_ref` above is only its first alt.
+            if (v.pat() && v.pat().kind() == pc::Code::Or) {
+                bool all = true;
+                lir_view::PatOrView{v.pat()}.each_alt([&](lir_view::PatRef a) {
+                    if (!all) return;
+                    mlir::Value t = alt_test(a);
+                    if (!t) { all = false; return; }
+                    lit_cond = lit_cond ? builder_.create<mlir::arith::OrIOp>(loc_, lit_cond, t).getResult() : t;
+                });
+                if (!all) lit_cond = {};
+            } else {
+                lit_cond = alt_test(pat_ref);
             }
         }
         if (lit_cond)

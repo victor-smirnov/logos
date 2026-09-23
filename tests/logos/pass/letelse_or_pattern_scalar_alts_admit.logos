@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #119): SLetElse codegen tested only an or-pattern's FIRST scalar alternative; it now ORs every alternative's test.
 // SOUNDNESS QUEUE row letelse_or_pattern_takes_else (tier 1). `let 3 | 7 = v else { … };`
 // is legal Rust — an or-pattern is a pattern, and the scrutinee 7 matches its second
 // alternative — and TODAY it compiles clean and TAKES THE ELSE BRANCH: the value is 7,

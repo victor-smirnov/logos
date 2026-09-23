@@ -106,8 +106,6 @@ at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_pay
 
 let_at_binding_type_annot_syntax 3 tests/soundness/open/let_at_binding_type_annot_syntax refuses
 
-letelse_or_pattern_takes_else 1 tests/soundness/open/letelse_or_pattern_takes_else run 1
-
 fnparam_struct_ref_mut_field_binds_byvalue 3 tests/soundness/open/fnparam_struct_ref_mut_field_binds_byvalue refuses
 
 closure_param_struct_pattern_syntax 3 tests/soundness/open/closure_param_struct_pattern_syntax refuses
@@ -450,5 +448,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 144
-# SYNC-HASH c7321664b03ac94c726768b8b38810bd
+# TOTAL 143
+# SYNC-HASH aa29acde92f719a20458a005875d86f1
