@@ -262,11 +262,6 @@ letelse_ref_pattern_binding_undefined_refused 3 tests/soundness/open/letelse_ref
 
 method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_autoderef_double_ref_option_infer_refused refuses
 
-# ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
-#    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each
-#    measured on base 72c2afc955f79321 43 and on the probe build 8477d9e792aadea6 43 unarmed and armed; the reason is in each program's header.
-generic_operator_mono_redispatch_operands_double_drop 1 tests/soundness/open/generic_operator_mono_redispatch_operands_double_drop run 1
-
 array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
 
 operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses
@@ -310,6 +305,10 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
+
+# ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
+#    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each
+#    measured on base 72c2afc955f79321 43 and on the probe build 8477d9e792aadea6 43 unarmed and armed; the reason is in each program's header.
 
 # ── 2026-09-16j-arrpath2 (LANDING, tier 1: the move PATH under an array element, at BOTH pattern doors) ── Two rows CLOSE
 #    (match_array_nested_destructure_elem_double_drop, let_array_pattern_field_base_unbound_elem_leak); their programs are now pass fixtures.
@@ -414,5 +413,5 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 123
-# SYNC-HASH 52ab00494385f03b6db35c03d850e22e
+# TOTAL 122
+# SYNC-HASH dca8f76308a6f89c512234dd16d17482

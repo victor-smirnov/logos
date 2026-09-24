@@ -3674,6 +3674,20 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         error(std::format("unknown binary operator '{}'", op));
     }
 
+    // Over a TYPE VARIABLE the operator is the trait method, and `Add::add` /
+    // `Sub::sub` / … take BOTH operands BY VALUE (Rust): `x + y` moves `x` and
+    // `y` unless `T: Copy` (is_move_type answers that). mono re-dispatches the
+    // BinOp to `D__add(x, y)` after substitution; without the move record the
+    // operands' own drops ran too. Comparisons take references and are not here.
+    {
+        const bool by_value_op = op == "+" || op == "-" || op == "*" || op == "/" || op == "%" ||
+                                 op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>";
+        auto is_tv = [](TypeRef t) { return t && TypeRef(t).kind() == LogosType::Kind::TypeVar; };
+        if (by_value_op && (is_tv(lt) || is_tv(rt))) {
+            if (lhs && is_move_type(lt)) mark_moved_expr(expr_ref_of(lhs));
+            if (rhs && is_move_type(rt)) mark_moved_expr(expr_ref_of(rhs));
+        }
+    }
     return builder().bin_op(std::string(op), std::move(lhs), std::move(rhs), result_type);
 }
 

@@ -1098,11 +1098,21 @@ private:
                 }
                 bir::Rvalue rv(bir::Rvalue::K::Op);
                 rv.what = std::string(v.op());
-                // Operands are read, not consumed: comparison operators take
-                // references and arithmetic is on Copy scalars. (A by-value
-                // Add on a move type is a known gap of v1.)
-                rv.ops.push_back(as_read(operand(v.lhs())));
-                rv.ops.push_back(as_read(operand(v.rhs())));
+                // Comparison operators take references: their operands are
+                // read. An arithmetic / bitwise operator over a MOVE type is the
+                // trait method, which takes both operands BY VALUE (`Add::add(self,
+                // rhs)`): they are moved (`x + y; x` is E0382). On Copy scalars
+                // the operand is a copy either way.
+                const std::string_view opn = v.op();
+                const bool by_value = opn == "+" || opn == "-" || opn == "*" || opn == "/" ||
+                                      opn == "%" || opn == "&" || opn == "|" || opn == "^" ||
+                                      opn == "<<" || opn == ">>";
+                auto side = [&](lir_view::ExprRef x) {
+                    bir::Operand o = operand(x);
+                    return by_value ? o : as_read(std::move(o));
+                };
+                rv.ops.push_back(side(v.lhs()));
+                rv.ops.push_back(side(v.rhs()));
                 assign(dest, std::move(rv));
                 return;
             }

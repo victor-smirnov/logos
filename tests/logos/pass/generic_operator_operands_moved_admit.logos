@@ -1,3 +1,4 @@
+// CLOSED 2026-09-24 (squeue #284): an arithmetic/bitwise operator over a type variable moves its operands (the trait method takes them by value) — sema records it, and the BIR moves them too.
 // SOUNDNESS QUEUE row generic_operator_mono_redispatch_operands_double_drop (tier 1). `x + y` IN A GENERIC BODY OVER `T: Add`, INSTANTIATED
 // WITH A DROP TYPE WHOSE `add` TAKES ITS OPERANDS BY VALUE, DESTROYS BOTH OPERANDS TWICE.
 // `fn sum<T: Add>(x: T, y: T) -> T { let s: T = x + y; return s; }` over D: Rust 1 + 10 (inside add) + 100 (s) = 111, exit 0. TODAY 122, exit 1.
