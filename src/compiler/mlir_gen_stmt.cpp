@@ -1166,6 +1166,11 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
         auto pay_ptr = enum_payload_ptr(value_ptr, *te);
         auto* region = builder_.getBlock()->getParent();
         for (auto* vp : dvs) {
+            // `#<disc>` names this variant's payload in a skip path; `#<disc>.<i>`
+            // one field of it (moved out by a match arm that alone reaches the
+            // variant — sema's mark_match_scrutinee_moved).
+            std::set<std::string> variant_skips;
+            if (split_skip_paths(skip_paths, "#" + std::to_string(vp->disc), variant_skips)) continue;
             auto pay = variant_payload_struct(*vp);
             auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, vp->disc, 32);
             auto eq = builder_.create<mlir::arith::CmpIOp>(
@@ -1181,7 +1186,10 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
                 auto fk = ft ? TypeRef(ft).kind() : K::Error;
                 if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
                 if (!value_needs_drop(ft)) continue;
-                gen_drop_value(child_value_ptr(pay_ptr, pay, (int)fi, fk), ft);
+                std::set<std::string> child_skips;
+                if (split_skip_paths(&variant_skips, std::to_string(fi), child_skips)) continue;
+                gen_drop_value(child_value_ptr(pay_ptr, pay, (int)fi, fk), ft, /*run_user_drop=*/true,
+                               child_skips.empty() ? nullptr : &child_skips);
             }
             builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
             builder_.setInsertionPointToStart(cont_blk);
@@ -1587,7 +1595,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             // `&& drop_fn.empty()` instead, which skipped the PAYLOAD recursion
             // entirely for every enum with a user Drop — soundness_queue row
             // `enum_user_drop_skips_payload_glue`, a leak at every site.
-            gen_drop_value(it->second, st, /*run_user_drop=*/drop_fn.empty());
+            // A payload field moved out by a match arm is a `#<disc>.<i>` path in
+            // `moved`, forwarded so the variant switch skips it.
+            gen_drop_value(it->second, st, /*run_user_drop=*/drop_fn.empty(),
+                           moved.empty() ? nullptr : &moved);
         } else if (k == K::Array) {
             // Inline array: it->second points at the `[T; N]` storage.
             // The moved set is FORWARDED: an array element moved out by a pattern

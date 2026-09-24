@@ -4179,7 +4179,8 @@ void SemaChecker::emit_cond_move_field_drops(
 
 std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
         const std::string& name, const VarInfo& info,
-        const std::vector<std::string>* extra_moved) const {
+        const std::vector<std::string>* extra_moved,
+        const std::set<std::string>* not_moved) const {
     // #123 — `#[no_auto_drop]`: EMIT NOTHING. This is the origin of every
     // compiler-emitted scope drop; `has_droppable_fields` below already answers
     // false for the field-glue half, so the only thing that reached here was
@@ -4265,6 +4266,8 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
             if (!seen) moved_fields.push_back(std::move(path));
         }
     }
+    if (not_moved)
+        std::erase_if(moved_fields, [&](const std::string& f) { return not_moved->count(f) != 0; });
     if (!cur_prog_) return lir_view::StmtRef{};
     return lir_view::StmtRef(cur_prog_->type_pool.arena(),
         lir_mirror_emit_drop(*cur_prog_, node_line_, shadow_user_name(name), dfn, info.type, df, moved_fields,
@@ -4343,7 +4346,59 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         // else { break; } }`, rc 0, a live double free with no ancestor/
         // descendant overlap anywhere in the program.
         std::vector<std::string> fd = flagged_descendants(frame, n);
-        if (auto cf = frame.cond_move_flags.find(n);
+        // AN ENUM PAYLOAD FIELD MOVED ON SOME PATHS (a guarded arm, or one an
+        // earlier arm of the same variant can pre-empt). The place `e.#<d>.<i>`
+        // exists only under tag d, so its flag cannot guard a field drop; it
+        // guards the WHOLE drop instead: flag set → the field is still owned,
+        // drop `e` entire; flag clear → drop `e` skipping that field.
+        bool enum_path_pair = false;
+        if (!frame.cond_move_flags.count(n)) {
+            std::vector<std::pair<std::string, std::string>> hps;   // (relative path, flag)
+            const std::string hpre = n + ".#";
+            for (auto& [path, flag] : frame.cond_move_flags)
+                if (path.size() > hpre.size() && path.compare(0, hpre.size(), hpre) == 0)
+                    hps.emplace_back(path.substr(n.size() + 1), flag);
+            if (!hps.empty() && hps.size() <= 4)
+                if (auto* info = eligible(n)) {
+                    auto* self = const_cast<SemaChecker*>(this);
+                    std::set<std::string> all_hp;
+                    for (auto& h : hps) all_hp.insert(h.first);
+                    // Level k: under flag k set the path is still owned (not skipped),
+                    // under it clear the path is skipped; one whole drop per leaf.
+                    std::function<std::vector<lir_view::StmtRef>(size_t, std::vector<std::string>)> build =
+                        [&](size_t k, std::vector<std::string> skips) -> std::vector<lir_view::StmtRef> {
+                        std::vector<lir_view::StmtRef> out;
+                        if (k == hps.size()) {
+                            std::vector<std::string> fdk = fd;
+                            fdk.insert(fdk.end(), skips.begin(), skips.end());
+                            std::set<std::string> keep;
+                            for (auto& h : all_hp)
+                                if (std::find(skips.begin(), skips.end(), h) == skips.end()) keep.insert(h);
+                            if (auto d = make_drop_stmt(n, *info, &fdk, &keep)) out.push_back(std::move(*d));
+                            return out;
+                        }
+                        auto boolt = self->prim(LogosType::Kind::Bool);
+                        for (int neg = 0; neg < 2; ++neg) {
+                            auto sk = skips;
+                            if (neg) sk.push_back(hps[k].first);
+                            auto inner = build(k + 1, sk);
+                            if (inner.empty()) continue;
+                            lir::SIf sif;
+                            auto fv = self->builder().var_ref(hps[k].second, boolt);
+                            sif.cond = neg ? self->builder().unary(std::string("!"), std::move(fv), boolt)
+                                           : std::move(fv);
+                            sif.then_ = lir_mirror_block(*cur_prog_, inner);
+                            out.push_back(self->make_stmt_emit(node_line_, std::move(sif)));
+                        }
+                        return out;
+                    };
+                    for (auto& st : build(0, {})) drops.push_back(std::move(st));
+                    enum_path_pair = true;
+                }
+        }
+        if (enum_path_pair) {
+            // the closure drop group below still runs
+        } else if (auto cf = frame.cond_move_flags.find(n);
             cf != frame.cond_move_flags.end() &&
             (!closure_owned_drop_.count(n) || frame.cond_release_flagged.count(n))) {
             // ⚠ `extra_skip` is DELIBERATELY not consulted here. Its one

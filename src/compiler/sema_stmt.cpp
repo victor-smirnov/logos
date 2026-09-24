@@ -2395,7 +2395,9 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
     // place) is marked moved so its scope-exit drop does not fire a second time
     // over a payload a binding already dropped. After the else block, which
     // may still read the scrutinee (no move happened on that path).
-    mark_match_scrutinee_moved(scrut, scrut_type, pat_ref_of(pat));
+    // Exact: the else path diverges, so the pattern's variant is the tag here.
+    mark_match_scrutinee_moved(scrut, scrut_type, pat_ref_of(pat), /*variant_exact=*/true);
+    exact_variant_moves_.clear();   // the only continuing path moved it: already static
 
     // 4. Add pattern bindings to outer scope
     {
@@ -9621,9 +9623,17 @@ bool SemaChecker::pattern_moves_out(lir_view::PatRef pr, TypeRef ty) {
     }
 }
 
+bool SemaChecker::arm_may_match_variant(lir_view::PatRef p, int64_t disc) {
+    namespace ps = lir_schema::pat;
+    if (!p) return true;
+    if (p.kind() == ps::Code::VariantData) return lir_view::PatVariantDataView{p}.disc() == disc;
+    if (p.kind() == ps::Code::Variant) return lir_view::PatVariantView{p}.disc() == disc;
+    return true;
+}
+
 void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                                               TypeRef scrut_type,
-                                              lir_view::PatRef pat) {
+                                              lir_view::PatRef pat, bool variant_exact) {
     namespace ec = lir_schema::expr;
     // The scrutinee may be a plain VAR (`match o`) or a PLACE — a struct field
     // (`match s.o`) / tuple element (`match a.1`) / an element behind an index
@@ -9767,6 +9777,46 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     if (!(scrut && scrut_type && is_move_type(scrut_type) &&
           lir_view::is_place_expr(expr_ref_of(scrut)) && pattern_moves_out(pat, scrut_type)))
         return;
+    // A PAYLOAD FIELD, NOT THE WHOLE ENUM (squeue enum_payload_partial_move_leak).
+    // `match e { E::V(a, _) => eat(a), E::W => {} }` moves ONE payload field; marking
+    // all of `e` moved skipped its scope-exit drop and leaked the rest of the
+    // payload. When the arm alone reaches the variant, the moved fields are marked
+    // as `e.#<disc>.<i>` paths, which the enum drop glue skips under that tag.
+    // Flat bindings only: a nested sub-pattern (a synthesized `__` binding) keeps
+    // the whole mark.
+    {
+        namespace ps = lir_schema::pat;
+        if (pat && pat.kind() == ps::Code::VariantData &&
+            TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
+            lir_view::PatVariantDataView vd{pat};
+            std::vector<std::string> names;
+            vd.each_binding([&](std::string_view n) { names.emplace_back(n); });
+            std::vector<TypeRef> tys;
+            vd.each_binding_type(cur_prog_->type_pool.impl(), [&](TypeRef t) { tys.push_back(t); });
+            auto modes = vd.bind_ref_modes();
+            bool synth = false;
+            for (auto& n : names) if (n.size() > 1 && n[0] == '_' && n[1] == '_') synth = true;
+            if (!synth && tys.size() == names.size()) {
+                std::string base = expr_ref_of(scrut).kind() == ec::Code::VarRef
+                    ? std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name())
+                    : move_path_of(expr_ref_of(scrut));
+                if (!base.empty()) {
+                    for (size_t i = 0; i < names.size(); ++i) {
+                        bool by_value = i >= modes.size() || modes[i] == 0;
+                        if (names[i].empty() || names[i] == "_" || !by_value) continue;
+                        if (!tys[i] || !is_move_type(tys[i])) continue;
+                        std::string path = base + ".#" + std::to_string(vd.disc()) + "." + std::to_string(i);
+                        mark_moved(path);
+                        // Exact: static over every arm. Otherwise the path is moved on this
+                        // arm only and the branch merge gives it a drop flag, which
+                        // emit_frame_drops turns into a guarded pair of whole drops.
+                        if (variant_exact) exact_variant_moves_.push_back(path);
+                    }
+                    return;
+                }
+            }
+        }
+    }
     if (expr_ref_of(scrut).kind() == ec::Code::VarRef)
         mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name()));
     else
@@ -10636,6 +10686,9 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         // through path is considered moved post-match).
         auto pre_moves = moved_vars_;
         const auto owned_pre_m = closure_owned_drop_;   // move-closure releases, merged per arm
+        // Variants an EARLIER arm could match (for variant-exact payload moves).
+        std::set<int64_t> earlier_discs; bool earlier_any = false;
+        const size_t exact_mark = exact_variant_moves_.size();
         std::set<std::string> post_moves;
         // #118 — per-arm bookkeeping for conditional-move drop flags: the
         // arm's own statement vector (kept so a flag clear can be spliced in
@@ -11144,8 +11197,22 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             // path only (the arm is one CondMoveBranch; an arm that binds
             // nothing leaves the scrutinee a flagged drop). After the guard,
             // which may still read the scrutinee.
-            if (arm.has_key(la::LHS))
-                mark_match_scrutinee_moved(smatch.scrut, scrut_type, pat_ref_of(pat));
+            {
+                namespace ps_ = lir_schema::pat;
+                auto pr_ = pat_ref_of(pat);
+                bool exact_ = false;
+                if (pr_ && pr_.kind() == ps_::Code::VariantData) {
+                    int64_t d_ = lir_view::PatVariantDataView{pr_}.disc();
+                    exact_ = !arm_has_user_guard && !earlier_any && !earlier_discs.count(d_);
+                }
+                if (arm.has_key(la::LHS))
+                    mark_match_scrutinee_moved(smatch.scrut, scrut_type, pr_, exact_);
+                if (pr_ && pr_.kind() == ps_::Code::VariantData)
+                    earlier_discs.insert(lir_view::PatVariantDataView{pr_}.disc());
+                else if (pr_ && pr_.kind() == ps_::Code::Variant)
+                    earlier_discs.insert(lir_view::PatVariantView{pr_}.disc());
+                else earlier_any = true;
+            }
 
             std::vector<lir_view::StmtRef> body;
             if (arm.has_key(la::BODY)) {
@@ -11280,6 +11347,17 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         {
             std::vector<size_t> sizes;
             for (auto& b : arm_bodies) sizes.push_back(b.size());
+            // Variant-exact payload moves are moved on EVERY path (static).
+            for (size_t xi = exact_mark; xi < exact_variant_moves_.size(); ++xi) {
+                const std::string& xp = exact_variant_moves_[xi];
+                // Still moved at the end of the arm that moved it (an arm may re-initialise it).
+                bool live = false;
+                for (auto& b : arm_branches) if (b.moves.count(xp)) { live = true; break; }
+                if (!live) continue;
+                moved_vars_.insert(xp);
+                for (auto& b : arm_branches) b.moves.insert(xp);
+            }
+            exact_variant_moves_.resize(exact_mark);
             elaborate_cond_moves(pre_moves_kept, arm_branches, &owned_pre_m);
             for (size_t i = 0; i < arm_bodies.size(); ++i)
                 if (arm_bodies[i].size() != sizes[i])
@@ -11629,6 +11707,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // Post-match state = union over non-diverging arms.
         auto pre_moves = moved_vars_;
         const auto owned_pre_m = closure_owned_drop_;   // move-closure releases, merged per arm
+        // Variants an EARLIER arm could match (for variant-exact payload moves).
+        std::set<int64_t> earlier_discs; bool earlier_any = false;
+        const size_t exact_mark = exact_variant_moves_.size();
         std::set<std::string> post_moves;
         auto pre_uninit = currently_uninit_vars_;
         std::set<std::string> post_uninit;
@@ -11940,8 +12021,22 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // skipped during type unification; non-diverging block arms use
             // their last expression as the value.
             // The arm owns what its pattern binds by value — see lower_match.
-            if (arm.has_key(la::LHS))
-                mark_match_scrutinee_moved(me.scrut, scrut_type, pat_ref_of(pat));
+            {
+                namespace ps_ = lir_schema::pat;
+                auto pr_ = pat_ref_of(pat);
+                bool exact_ = false;
+                if (pr_ && pr_.kind() == ps_::Code::VariantData) {
+                    int64_t d_ = lir_view::PatVariantDataView{pr_}.disc();
+                    exact_ = !arm_has_user_guard && !earlier_any && !earlier_discs.count(d_);
+                }
+                if (arm.has_key(la::LHS))
+                    mark_match_scrutinee_moved(me.scrut, scrut_type, pr_, exact_);
+                if (pr_ && pr_.kind() == ps_::Code::VariantData)
+                    earlier_discs.insert(lir_view::PatVariantDataView{pr_}.disc());
+                else if (pr_ && pr_.kind() == ps_::Code::Variant)
+                    earlier_discs.insert(lir_view::PatVariantView{pr_}.disc());
+                else earlier_any = true;
+            }
 
             lir::LExprPtr val = nullptr;
             bool arm_diverges = false;   // move/uninit merge below
@@ -12187,6 +12282,17 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // be addressed and rebuilt in place.
         for (size_t i = 0; i < arm_branches.size(); ++i)
             arm_branches[i].val = &me.arms[arm_slot[i]].value;
+        // Variant-exact payload moves are moved on EVERY path (static).
+        for (size_t xi = exact_mark; xi < exact_variant_moves_.size(); ++xi) {
+            const std::string& xp = exact_variant_moves_[xi];
+            // Still moved at the end of the arm that moved it (an arm may re-initialise it).
+            bool live = false;
+            for (auto& b : arm_branches) if (b.moves.count(xp)) { live = true; break; }
+            if (!live) continue;
+            moved_vars_.insert(xp);
+            for (auto& b : arm_branches) b.moves.insert(xp);
+        }
+        exact_variant_moves_.resize(exact_mark);
         elaborate_cond_moves(pre_moves_kept, arm_branches, &owned_pre_m);
     }
 

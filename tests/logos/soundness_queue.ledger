@@ -80,8 +80,6 @@ layout_verify_recursive_ref   3 tests/soundness/open/layout_verify_recursive_ref
 
 match_tmp_wild_mut_addrof     3 tests/soundness/open/match_tmp_wild_mut_addrof     refuses
 
-enum_payload_partial_move_leak 1 tests/soundness/open/enum_payload_partial_move_leak run 1
-
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 
 labeled_foreach_label_lost    3 tests/soundness/open/labeled_foreach_label_lost    refuses
@@ -405,5 +403,5 @@ arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_par
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 117
-# SYNC-HASH 58693db4828a726ba87feb719170f2a9
+# TOTAL 116
+# SYNC-HASH 58e6ea30ad443590bc7890a0228442f8

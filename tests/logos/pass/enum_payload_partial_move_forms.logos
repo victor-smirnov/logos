@@ -1,0 +1,30 @@
+// Partial moves of an enum payload: match statement/expression, if-let, let-else, a guarded arm, both fields, a struct-field scrutinee; under both tags (rustc 1.98.1).
+package enum_payload_partial_move_forms;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { v: i64, i: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.i = *self.i * 10i64 + self.v; } } }
+fn eat(s: S) -> i64 { return s.v; }
+enum E { V(S, S), W(S) }
+struct H { e: E, k: i64 }
+fn mkv(p: *mut i64) -> E { return E::V(S { v: 1i64, i: p }, S { v: 2i64, i: p }); }
+fn mkw(p: *mut i64) -> E { return E::W(S { v: 3i64, i: p }); }
+fn m_stmt(w: bool, p: *mut i64) { let e: E = if w { mkw(p) } else { mkv(p) }; match e { E::V(a, _) => { let _k: i64 = eat(a); }, E::W(_) => {} } }
+fn m_expr(w: bool, p: *mut i64) -> i64 { let e: E = if w { mkw(p) } else { mkv(p) }; let r: i64 = match e { E::V(_, b) => eat(b), E::W(_) => 0i64 }; return r; }
+fn m_iflet(w: bool, p: *mut i64) { let e: E = if w { mkw(p) } else { mkv(p) }; if let E::V(a, _) = e { let _k: i64 = eat(a); } }
+fn m_guard(w: bool, p: *mut i64) { let e: E = if w { mkw(p) } else { mkv(p) }; let g: bool = true; match e { E::V(a, _) if g => { let _k: i64 = eat(a); }, _ => {} } }
+fn m_both(w: bool, p: *mut i64) { let e: E = if w { mkw(p) } else { mkv(p) }; match e { E::V(a, b) => { let _k: i64 = eat(b) + eat(a); }, E::W(c) => { let _k: i64 = eat(c); } } }
+fn m_field(w: bool, p: *mut i64) { let h: H = H { e: if w { mkw(p) } else { mkv(p) }, k: 0i64 }; match h.e { E::V(a, _) => { let _k: i64 = eat(a); }, E::W(_) => {} } }
+fn m_letelse(p: *mut i64) -> i64 { let e: E = mkv(p); let E::V(a, _) = e else { return 0i64; }; return eat(a); }
+fn run(n: i64, w: bool, p: *mut i64) -> i64 {
+    unsafe { *p = 0i64; }
+    if n == 0i64 { m_stmt(w, p); } else if n == 1i64 { let _r: i64 = m_expr(w, p); } else if n == 2i64 { m_iflet(w, p); }
+    else if n == 3i64 { m_guard(w, p); } else if n == 4i64 { m_both(w, p); } else if n == 5i64 { m_field(w, p); } else { let _r: i64 = m_letelse(p); }
+    return unsafe { *p };
+}
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let p: *mut i64 = &mut q;
+    let mut n: i64 = 0i64;
+    while n < 7i64 { unsafe { printf("%lld/%lld ".as_ptr(), run(n, false, p), run(n, true, p)); } n = n + 1i64; }
+    unsafe { printf("\n".as_ptr()); }
+    return 0i32;
+}

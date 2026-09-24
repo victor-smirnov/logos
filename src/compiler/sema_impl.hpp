@@ -4669,7 +4669,11 @@ private:
         // inventing a drop for a place the emitter cannot address.
         TypeRef pt = info.type;
         bool path_owning_dyn = info.owning_dyn;
-        for (size_t p = root.size(); p < name.size(); ) {
+        // An enum payload path (`e.#<disc>.<i>`) guards a pair of WHOLE drops of
+        // `e` (emit_frame_drops), never a place drop: `e`'s own type decides.
+        const bool enum_payload_path = name.find(".#") != std::string::npos &&
+                                       TypeRef(pt).kind() == LogosType::Kind::Enum;
+        for (size_t p = enum_payload_path ? name.size() : root.size(); p < name.size(); ) {
             size_t e = name.find('.', p + 1);
             if (e == std::string::npos) e = name.size();
             std::string seg = name.substr(p + 1, e - p - 1);
@@ -5129,9 +5133,12 @@ private:
     //     once unguarded by the container and once by its flag.
     // The two rules are one rule: a subtree's ownership is not one bit, and
     // whoever holds the bit for a sub-place owns it alone.
+    // `not_moved`: relative paths that are NOT skipped even when recorded moved
+    // (an enum payload path whose flag says it is still owned on this branch).
     std::optional<lir_view::StmtRef> make_drop_stmt(
         const std::string& name, const VarInfo& info,
-        const std::vector<std::string>* extra_moved = nullptr) const;
+        const std::vector<std::string>* extra_moved = nullptr,
+        const std::set<std::string>* not_moved = nullptr) const;
 
     // #121-A — the paths under `root` that no ENCLOSING drop may recurse into,
     // spelled RELATIVE to `root`: those carrying their OWN drop flag (destroyed
@@ -9509,8 +9516,18 @@ private:
     // state, by the statement and expression match paths (so an arm that binds
     // nothing leaves the scrutinee a flagged drop — the `_ => {}` arm over an
     // unmatched payload used to leak it) and once by let-else for its pattern.
+    // `variant_exact`: this arm is the ONLY way the scrutinee's tag can be the
+    // pattern's variant (no guard, no earlier arm that could match it), so a
+    // payload field moved here is moved exactly when the tag says so: marked as
+    // the path `<scrut>.#<disc>.<i>` and appended to `exact_variant_moves_`,
+    // which the caller makes STATIC over every arm (the enum's drop glue skips
+    // that field only under that tag; under any other tag the skip is vacuous).
     void mark_match_scrutinee_moved(const lir::LExprPtr& scrut, TypeRef scrut_type,
-                                    lir_view::PatRef pat);
+                                    lir_view::PatRef pat, bool variant_exact = false);
+    std::vector<std::string> exact_variant_moves_;
+    // Could an arm with pattern `p` match the variant `disc`? (conservative: any
+    // pattern that is not a variant pattern of ANOTHER variant may.)
+    static bool arm_may_match_variant(lir_view::PatRef p, int64_t disc);
     // Does `pat`, matched against a value of type `ty`, bind a MOVE-TYPE part
     // of it BY VALUE (mode 0, a real name)? Read off the LIR pattern — the one
     // place the binding modes live — never re-derived from the AST: the AST
