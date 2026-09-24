@@ -3274,6 +3274,21 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 }
             }
         }
+        if (!target_struct_tmpl && node.has_key(la::TYPE) &&
+            code_of(map_of(node.get(la::TYPE.code))) == la::GENERIC_INST) {
+            // The struct the target NAME RESOLVES to: two packages may declare
+            // it (`logos.lang.rc::Weak` / `logos.mem.sync::Weak`), and the
+            // impl belongs to the one in scope, not the first by name.
+            if (auto tt = resolve_type(map_of(node.get(la::TYPE.code)));
+                tt && TypeRef(tt).kind() == LogosType::Kind::Struct) {
+                auto tpkg = TypeRef(tt).pkg_name();
+                if (!tpkg.empty())
+                    for (auto& sd : prog.structs)
+                        if (sd.name() == target && sd.pkg() == tpkg) {
+                            target_struct_tmpl = &sd; break;
+                        }
+            }
+        }
         if (!target_struct_tmpl) {
             // Prefer struct in the impl's pkg (cur_package_) over a same-named
             // struct from another pkg (e.g. stdlib's Box vs user's Box).

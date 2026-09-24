@@ -106,6 +106,32 @@ impl<A...: Eq> Eq for (A...) {
     }
 }
 
+/// Element-wise equality of two slices (Rust's `impl PartialEq for [T]`): equal
+/// lengths and `a[i] == b[i]` for every `i`. The lowering of `==` / `!=` over
+/// slices whose elements are not primitives.
+pub fn slice_eq<T: Eq>(a: &[T], b: &[T]) -> bool {
+    let n: i64 = a.len() as i64;
+    if n != b.len() as i64 { return false; }
+    unsafe { return slice_eq_raw::<T>(a.as_ptr() as *const T, b.as_ptr() as *const T, n); }
+}
+
+/// `n` elements at `pa` equal `n` elements at `pb`, compared through
+/// references (no element is copied or moved). The lowering of `==` / `!=`
+/// over arrays — nested ones included, whose elements are contiguous — of
+/// non-primitive elements.
+/// SAFETY: `pa` and `pb` each point at `n` initialized `T`s.
+pub unsafe fn slice_eq_raw<T: Eq>(pa: *const T, pb: *const T, n: i64) -> bool {
+    let esz: i64 = sizeof::<T>() as i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let x: &T = &*((pa as i64 + i * esz) as *const T);
+        let y: &T = &*((pb as i64 + i * esz) as *const T);
+        if !(x == y) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
 // NOTE on `ref` and on the `*`: `self`/`other` are `&Self`, so the payload
 // bindings must be borrows — a plain `Some(a)` bound BY VALUE would move the
 // payload out of the borrow and drop it at arm exit (a double free for an owned

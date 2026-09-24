@@ -1137,6 +1137,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             auto p = base.find("$G");
             if (p == std::string::npos) continue;  // not a generic instance
             base = base.substr(0, p);
+            // An ambiguous name (two packages declare `Weak`) carries a "$M<tag>"
+            // coexistence run before "$G"; the impl's target is the bare name.
+            if (auto m = base.find("$M"); m != std::string::npos) base.resize(m);
             auto cit = concrete_struct_types_.find(sd_name);
             if (cit == concrete_struct_types_.end()) continue;
             for (auto& impl : out_.impls) {
@@ -1212,6 +1215,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         std::string base = sd_name;
         if (auto p = base.find("$G"); p != std::string::npos)
             base = base.substr(0, p);
+        if (auto m = base.find("$M"); m != std::string::npos) base.resize(m);   // ambiguous-name tag
         for (auto& impl : out_.impls) {
             if (impl.is_blanket()) continue;  // those use a different path
             std::string impl_trait(impl.trait_name());

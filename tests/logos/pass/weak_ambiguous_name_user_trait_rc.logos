@@ -1,0 +1,24 @@
+// The same over `logos.lang.rc::Weak`: the impl binds to the `Weak` the name resolves to, not the first declared.
+package weak_ambiguous_name_user_trait_rc;
+use logos.lang.rc;
+extern fn printf(fmt: *const u8, ...) -> i32;
+trait Probe { fn alive(&self) -> i32; }
+impl<T> Probe for Weak<T> {
+    fn alive(&self) -> i32 { match self.upgrade() { Option::Some(_a) => { return 1i32; } Option::None => { return 0i32; } } }
+}
+fn wcr(a: &Rc<i32>) -> i32 { unsafe { let q: *mut Rc<i32> = a as *const Rc<i32> as *mut Rc<i32>; return q.weak_count(); } }
+fn main() -> i32 {
+    let a: Rc<i32> = rc_new::<i32>(20);
+    let mut c0: i32 = 0i32;
+    let mut al: i32 = 0i32;
+    {
+        let w: Weak<i32> = a.downgrade();
+        let w2: Weak<i32> = w.clone();
+        c0 = wcr(&a);
+        let d: &dyn Probe = &w2;
+        al = d.alive();
+    }
+    let c1: i32 = wcr(&a);
+    unsafe { printf("%d %d %d\n".as_ptr(), c0, al, c1); }
+    return 0i32;
+}

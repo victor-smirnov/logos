@@ -56,8 +56,6 @@ array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_bi
 
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
 
-weak_local_never_dropped      1 tests/soundness/open/weak_local_never_dropped      run 1
-
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 
 rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable     diag no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'
@@ -233,20 +231,11 @@ let_ref_bind_annotated_refused 3 tests/soundness/open/let_ref_bind_annotated_ref
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 let_double_ref_str_annotation_refused 3 tests/soundness/open/let_double_ref_str_annotation_refused refuses
 
-generic_struct_impl_ref_eq_compares_addresses_run 1 tests/soundness/open/generic_struct_impl_ref_eq_compares_addresses_run run 1
-
 ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_missing_refused refuses
-
-# ── 2026-09-15b-refeqland (tier 1: a comparison of two references compares THROUGH them, sema lower_binop) ──
-# Five rows CLOSED (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq, generic_ref_typevar_eq, ref_pair_ordering). Five rows
-# OPENED by the landing's hand battery (ref_pair_nonprim_tuple is ref_pair_aggregate's PART 4, re-rowed), each measured on base 854d99ae9a2e2fbd AND the landed binary; reason in each header.
-array_nonprim_elem_eq_compares_addresses_run 1 tests/soundness/open/array_nonprim_elem_eq_compares_addresses_run run 1
 
 generic_ref_typevar_ordering_mlir_verifier_refused 3 tests/soundness/open/generic_ref_typevar_ordering_mlir_verifier_refused refuses
 
 tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tuple_enum_elem_eq_variadic_impl_return_lost_refused refuses
-
-ref_pair_nonprim_tuple_eq_compares_addresses_run 1 tests/soundness/open/ref_pair_nonprim_tuple_eq_compares_addresses_run run 1
 
 ref_to_slice_ref_param_unsized_refused 3 tests/soundness/open/ref_to_slice_ref_param_unsized_refused refuses
 
@@ -303,6 +292,10 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
+
+# ── 2026-09-15b-refeqland (tier 1: a comparison of two references compares THROUGH them, sema lower_binop) ──
+# Five rows CLOSED (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq, generic_ref_typevar_eq, ref_pair_ordering). Five rows
+# OPENED by the landing's hand battery (ref_pair_nonprim_tuple is ref_pair_aggregate's PART 4, re-rowed), each measured on base 854d99ae9a2e2fbd AND the landed binary; reason in each header.
 
 # ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
 #    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each
@@ -411,5 +404,5 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 121
-# SYNC-HASH aff967a8d1a20745bd1d19c283020e88
+# TOTAL 117
+# SYNC-HASH 5cca8c990ced859fc36740be738d3cd2

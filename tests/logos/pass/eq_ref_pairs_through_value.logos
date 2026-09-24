@@ -1,0 +1,19 @@
+// Reference pairs compare through their pointees: &S, &W<i64> (a generic impl), &[S; 2], &(S, i64); values alike (rustc 1.98.1).
+package eq_ref_pairs_through_value;
+use logos.lang.cmp;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { v: i64 }
+impl Eq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+struct W<T> { x: T }
+impl<T: Eq> Eq for W<T> { fn eq(&self, other: &W<T>) -> bool { return self.x == other.x; } }
+fn b(x: bool) -> i32 { if x { return 1i32; } return 0i32; }
+fn main() -> i32 {
+    let s1: S = S { v: 1i64 }; let s2: S = S { v: 1i64 };
+    let w1: W<i64> = W::<i64> { x: 5i64 }; let w2: W<i64> = W::<i64> { x: 5i64 };
+    let a1: [S; 2] = [S { v: 1i64 }, S { v: 2i64 }]; let a2: [S; 2] = [S { v: 1i64 }, S { v: 2i64 }];
+    let t1: (S, i64) = (S { v: 5i64 }, 6i64); let t2: (S, i64) = (S { v: 5i64 }, 6i64);
+    unsafe { printf("%d %d %d %d %d %d %d %d\n".as_ptr(),
+        b(s1 == s2), b(&s1 == &s2), b(w1 == w2), b(&w1 == &w2),
+        b(a1 == a2), b(&a1 == &a2), b(t1 == t2), b(&t1 == &t2)); }
+    return 0i32;
+}

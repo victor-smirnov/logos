@@ -1,0 +1,23 @@
+// Nested arrays compare as their contiguous innermost elements: primitive, struct, float, by reference, zero-length (rustc 1.98.1).
+package eq_nested_arrays_flattened;
+use logos.lang.cmp;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { v: i64 }
+impl Eq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+fn b(x: bool) -> i32 { if x { return 1i32; } return 0i32; }
+fn main() -> i32 {
+    let x: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    let x2: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    let y: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 5i64]];
+    let rx: &[[i64; 2]; 2] = &x; let rx2: &[[i64; 2]; 2] = &x2;
+    let z1: [S; 0] = []; let z2: [S; 0] = [];
+    let q1: [[S; 2]; 2] = [[S { v: 1i64 }, S { v: 2i64 }], [S { v: 3i64 }, S { v: 4i64 }]];
+    let q2: [[S; 2]; 2] = [[S { v: 1i64 }, S { v: 2i64 }], [S { v: 3i64 }, S { v: 4i64 }]];
+    let q3: [[S; 2]; 2] = [[S { v: 1i64 }, S { v: 2i64 }], [S { v: 3i64 }, S { v: 9i64 }]];
+    let f1: [[f64; 2]; 1] = [[1.5, 2.5]]; let f2: [[f64; 2]; 1] = [[1.5, 2.5]];
+    printf_all(b(x == x2), b(x != x2), b(x == y), b(rx == rx2), b(z1 == z2), b(q1 == q2), b(q1 == q3), b(&q1 != &q3), b(f1 == f2));
+    return 0i32;
+}
+fn printf_all(a: i32, b: i32, c: i32, d: i32, e: i32, f: i32, g: i32, h: i32, i: i32) {
+    unsafe { printf("%d %d %d %d %d %d %d %d %d\n".as_ptr(), a, b, c, d, e, f, g, h, i); }
+}

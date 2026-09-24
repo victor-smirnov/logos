@@ -1086,21 +1086,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
             default: return false;
             }
         };
-        if (n == rn && n > 0 && is_prim(et)) {
-            mlir::Type arr_ty  = logos_to_mlir(lhs_ty);   // LLVM [N x elem]
+        // A nested array is contiguous: `[[T; M]; N]` compares as N*M `T`s.
+        uint64_t total = n;
+        while (et && et.kind() == LogosType::Kind::Array) {
+            total *= (uint64_t)et.arr_size();
+            et = et.elem();
+        }
+        if (n == rn && total == 0 && types_equal(lhs_ty, rhs_ty)) {   // `[T; 0]`: equal
+            auto c = builder_.create<mlir::arith::ConstantIntOp>(loc_, op == "==" ? 1LL : 0LL, 1);
+            return c;
+        }
+        if (n == rn && total > 0 && is_prim(et) && types_equal(lhs_ty, rhs_ty)) {
             auto       elem_t  = logos_to_mlir(et);
-            if (arr_ty && elem_t) {
+            if (elem_t) {
                 mlir::Value lb = lhs, rb = rhs;
                 if (lb.getType() != ptr_type()) lb = spill_to_alloca(lb);
                 if (rb.getType() != ptr_type()) rb = spill_to_alloca(rb);
                 mlir::Value acc;
-                for (uint64_t i = 0; i < n; ++i) {
+                for (uint64_t i = 0; i < total; ++i) {
                     auto l_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), arr_ty, lb,
-                        llvm::ArrayRef<mlir::LLVM::GEPArg>{0, (int32_t)i});
+                        loc_, ptr_type(), elem_t, lb,
+                        llvm::ArrayRef<mlir::LLVM::GEPArg>{(int32_t)i});
                     auto r_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), arr_ty, rb,
-                        llvm::ArrayRef<mlir::LLVM::GEPArg>{0, (int32_t)i});
+                        loc_, ptr_type(), elem_t, rb,
+                        llvm::ArrayRef<mlir::LLVM::GEPArg>{(int32_t)i});
                     auto l_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_t, l_ptr);
                     auto r_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_t, r_ptr);
                     mlir::Value cmp;

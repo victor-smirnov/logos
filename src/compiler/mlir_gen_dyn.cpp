@@ -823,8 +823,11 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
         auto record = [&](std::string_view concrete) {
             auto g_pos = concrete.find("$G");
             if (g_pos == std::string_view::npos) return;
-            concrete_targets_by_base[std::string(concrete.substr(0, g_pos))]
-                .insert(std::string(concrete));
+            // An ambiguous or module-local name carries a "$M<tag>" run before
+            // "$G"; the impl's target base is the bare name.
+            auto base = concrete.substr(0, g_pos);
+            if (auto m = base.find("$M"); m != std::string_view::npos) base = base.substr(0, m);
+            concrete_targets_by_base[std::string(base)].insert(std::string(concrete));
         };
         auto bare = [](std::string_view n) {
             if (auto dot = n.rfind('.'); dot != std::string_view::npos)

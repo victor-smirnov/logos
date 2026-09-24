@@ -1,0 +1,17 @@
+// A `Weak` local drops at scope exit (squeue weak_local_never_dropped). Two
+// stdlib packages declare `Weak`, so its instance name carries a "$M<tag>"
+// run; mono's lazy Drop pin compared that tagged base with the impl's bare
+// target and never instantiated `drop` (rustc 1.98.1: exit 0).
+package weak_local_never_dropped;
+use logos.mem.sync;
+
+fn main() -> i32 {
+    let a: Arc<i32> = arc_new::<i32>(20);
+    { let w: Weak<i32> = a.downgrade(); }
+    let wc: i32 = unsafe {
+        let q: *mut Arc<i32> = &a as *const Arc<i32> as *mut Arc<i32>;
+        q.weak_count()
+    };
+    if wc != 0i32 { return 1i32; }
+    return 0i32;
+}

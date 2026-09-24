@@ -1,0 +1,16 @@
+// Weak handles release their weak count on every drop path: a named local, a local next to an upgraded Arc temporary, a `let _`.
+package weak_drop_forms;
+use logos.mem.sync;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn wc(a: &Arc<i32>) -> i32 { unsafe { let q: *mut Arc<i32> = a as *const Arc<i32> as *mut Arc<i32>; return q.weak_count(); } }
+fn main() -> i32 {
+    let a: Arc<i32> = arc_new::<i32>(20);
+    { let w: Weak<i32> = a.downgrade(); }
+    let c1: i32 = wc(&a);
+    { let w2: Weak<i32> = a.downgrade(); let _u = w2.upgrade(); }
+    let c2: i32 = wc(&a);
+    { let _ = a.downgrade(); }
+    let c3: i32 = wc(&a);
+    unsafe { printf("%d %d %d\n".as_ptr(), c1, c2, c3); }
+    return 0i32;
+}

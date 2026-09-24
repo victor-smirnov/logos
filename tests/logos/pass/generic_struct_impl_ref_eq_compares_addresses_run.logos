@@ -1,0 +1,19 @@
+// `==` over non-primitive operands compares VALUES through the elements' `Eq`, never addresses (squeue row; rustc 1.98.1: exit 0).
+package generic_struct_impl_ref_eq_compares_addresses_run;
+use logos.lang.cmp;
+struct W<T> { x: T }
+impl<T: Eq> Eq for W<T> {
+    fn eq(&self, other: &W<T>) -> bool {
+        return self.x == other.x;
+    }
+}
+fn main() -> i32 {
+    let a: W<i64> = W::<i64> { x: 5i64 };
+    let b: W<i64> = W::<i64> { x: 5i64 };
+    let ra: &W<i64> = &a;
+    let rb: &W<i64> = &b;
+    if ra == rb {
+        return 0i32;
+    }
+    return 1i32;
+}

@@ -2472,15 +2472,31 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // A raw or fn pointer is a Copy scalar compared by address: `&*mut T == &*mut T`
             // compares the pointers, not the references to them.
             if (p.kind() == K::Ptr || p.kind() == K::FnPtr) return true;
-            if (p.kind() == K::Array) return prim(p.elem());
+            if (p.kind() == K::Array) {   // nested arrays: the innermost element
+                TypeRef e = p.elem();
+                while (e && e.kind() == K::Array) e = e.elem();
+                return prim(e);
+            }
             if (p.kind() == K::Slice) return p.elem() && p.elem().kind() == K::U8;
             if (p.kind() != K::Tuple || p.tuple_elems().empty()) return false;
             for (auto e : p.tuple_elems())
                 if (!prim(e)) return false;
             return true;
         };
+        // `PartialEq for &A` delegates to `A`: a pair of references to tuples, or
+        // to instances of a generic struct (whose impl is a template the by-ref
+        // lookup below cannot see), compares the PLACES they point at through
+        // the value path — the tuple `Eq` impl / mono's operator dispatch, both
+        // of which take the operands by reference again.
+        auto through_value = [&](TypeRef p) {
+            using K = LogosType::Kind;
+            return p && ((op == "==" || op == "!=") &&
+                         (p.kind() == K::Tuple ||
+                          (p.kind() == K::Struct && !p.type_args().empty())));
+        };
         TypeRef pl = TypeRef(lt).pointee(), pr = TypeRef(rt).pointee();
-        if (in_place(pl) && in_place(pr) && pl.kind() == pr.kind()) {
+        if ((in_place(pl) && in_place(pr) && pl.kind() == pr.kind()) ||
+            (through_value(pl) && through_value(pr) && pl.kind() == pr.kind())) {
             lhs = builder().deref(std::move(lhs), pl);
             lt = pl;
             rhs = builder().deref(std::move(rhs), pr);
@@ -2603,6 +2619,80 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     }
 
     TypeRef result_type = error_t();
+
+    // `==` / `!=` over arrays and slices whose elements are not primitives is
+    // element-wise through the elements' `Eq` (Rust: `[T; N]: PartialEq` via
+    // `[T]: PartialEq`). A slice pair lowers to `logos.lang.cmp::slice_eq::<T>`;
+    // an array pair — nested arrays flattened, their elements being contiguous —
+    // to `slice_eq_raw::<E>(base_a, base_b, total)` over the innermost element.
+    // The operands are borrowed, never moved. Primitive innermost elements keep
+    // the mlir-gen value compare.
+    if (op == "==" || op == "!=") {
+        using K = LogosType::Kind;
+        auto prim_elem = [](TypeRef e) {
+            return e && e.kind() != K::Enum &&
+                   (is_integer_kind(e.kind()) || e.kind() == K::F32 || e.kind() == K::F64 ||
+                    e.kind() == K::Bool || e.kind() == K::Char);
+        };
+        auto is_ref = [](TypeRef t) { return t && (t.kind() == K::Ref || t.kind() == K::MutRef); };
+        // {sequence type (Array / Slice), operand is a reference}
+        auto seq_of = [&](TypeRef t) -> std::pair<TypeRef, bool> {
+            if (t && t.kind() == K::Array) return {t, false};
+            if (is_ref(t) && t.pointee() &&
+                (t.pointee().kind() == K::Array || t.pointee().kind() == K::Slice))
+                return {t.pointee(), true};
+            return {};
+        };
+        auto [lsq, lref] = seq_of(lt);
+        auto [rsq, rref] = seq_of(rt);
+        auto find_cmp_fn = [&](std::string_view base) -> const SemaFuncInfo* {
+            for (auto* c : find_func_candidates(base))
+                if (c && c->package == "logos.lang.cmp") return c;
+            return nullptr;
+        };
+        if (lsq && rsq && lref == rref && lsq.kind() == rsq.kind()) {
+            if (lsq.kind() == K::Slice) {
+                TypeRef le = lsq.elem();
+                const SemaFuncInfo* fi = nullptr;
+                if (le && !prim_elem(le) && types_equal(le, rsq.elem()) &&
+                    (fi = find_cmp_fn("slice_eq"))) {
+                    std::vector<lir::LExprPtr> args;
+                    args.push_back(std::move(lhs));
+                    args.push_back(std::move(rhs));
+                    auto call = finish_generic_call(fi->symbol_name.empty() ? std::string("slice_eq") : fi->symbol_name,
+                                                    *fi, {le}, std::move(args));
+                    if (op == "!=") return builder().unary(std::string("!"), std::move(call), bool_t());
+                    return call;
+                }
+            } else if (types_equal(lsq, rsq)) {
+                TypeRef inner = lsq;
+                int64_t total = 1;
+                while (inner && inner.kind() == K::Array) { total *= (int64_t)inner.arr_size(); inner = inner.elem(); }
+                const SemaFuncInfo* fi = nullptr;
+                if (inner && !prim_elem(inner) && (fi = find_cmp_fn("slice_eq_raw"))) {
+                    TypeRef elem_ptr = make_ptr(false, inner);
+                    auto base_ptr = [&](lir::LExprPtr e) {
+                        if (!lref) e = autoref_operand(std::move(e), false, make_ref(false, lsq),
+                                                       BorrowOrigin::OperatorAutoref);
+                        e = builder().cast(std::move(e), make_ptr(false, lsq));
+                        return builder().cast(std::move(e), elem_ptr);
+                    };
+                    std::vector<lir::LExprPtr> args;
+                    args.push_back(base_ptr(std::move(lhs)));
+                    args.push_back(base_ptr(std::move(rhs)));
+                    args.push_back(builder().lit_int(total, prim(LogosType::Kind::I64)));
+                    // The base pointers are the operands' own; the unsafe call is the lowering's.
+                    const bool was_unsafe = inside_unsafe_;
+                    inside_unsafe_ = true;
+                    auto call = finish_generic_call(fi->symbol_name.empty() ? std::string("slice_eq_raw") : fi->symbol_name,
+                                                    *fi, {inner}, std::move(args));
+                    inside_unsafe_ = was_unsafe;
+                    if (op == "!=") return builder().unary(std::string("!"), std::move(call), bool_t());
+                    return call;
+                }
+            }
+        }
+    }
 
     // CP-cm-08b: tuple `==` / `!=` desugars to Eq-trait method call on
     // the tuple impl. Routes through `$tuple$N`/`$tuple$N$<…>` keys

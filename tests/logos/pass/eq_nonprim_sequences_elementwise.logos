@@ -1,0 +1,35 @@
+// Element-wise `==` / `!=` over arrays and slices of Drop structs, (i64, String) tuples, Strings, Options; no operand moved or dropped (rustc 1.98.1).
+package eq_nonprim_sequences_elementwise;
+use logos.lang.cmp;
+use logos.mem.string;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { v: i64, c: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.c = *self.c + 1i64; } } }
+impl Eq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+fn b(x: bool) -> i32 { if x { return 1i32; } return 0i32; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut out: i32 = 0i32;
+    {
+        let a: [S; 2] = [S { v: 1i64, c: p }, S { v: 2i64, c: p }];
+        let c: [S; 2] = [S { v: 1i64, c: p }, S { v: 3i64, c: p }];
+        let sa: &[S] = &a;
+        let sc: &[S] = &c;
+        out = b(a != c) * 1000i32 + b(sa == sc) * 100i32 + b(sa != sc) * 10i32 + b(&a == &a);
+    }
+    let x: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    let y: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 5i64]];
+    let t1: [(i64, String); 2] = [(1i64, String::from("a")), (2i64, String::from("b"))];
+    let t2: [(i64, String); 2] = [(1i64, String::from("a")), (2i64, String::from("b"))];
+    let s1: [String; 2] = [String::from("x"), String::from("y")];
+    let s2: [String; 2] = [String::from("x"), String::from("z")];
+    let o1: [Option<i64>; 3] = [Option::Some(1i64), Option::<i64>::None, Option::Some(3i64)];
+    let o2: [Option<i64>; 3] = [Option::Some(1i64), Option::<i64>::None, Option::Some(3i64)];
+    let f1: [f64; 2] = [1.5, 2.5];
+    let f2: [f64; 2] = [1.5, 2.5];
+    let got: i64 = unsafe { n };
+    unsafe { printf("%d %lld | %d %d %d %d %d %d %d\n".as_ptr(), out, got,
+        b(x == x), b(x != y), b(t1 == t2), b(s1 == s2), b(s1 != s2), b(o1 == o2), b(f1 == f2)); }
+    return 0i32;
+}
