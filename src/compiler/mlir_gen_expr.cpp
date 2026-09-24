@@ -1676,6 +1676,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef addr_t) 
             it->second = alloca;
             ref_param_names_.erase(var_name);
             ptr_family_param_.erase(var_name);
+            // From here the binding is a SLOT holding the pointer, exactly like a
+            // reference-typed `let` local: every later read must LOAD it (a cast
+            // `x as *const D` after `&x` read the slot address itself).
+            let_vars_.insert(var_name);
+            var_elem_types_[var_name] = ptr_type();
+            ref_slot_vars_.insert(var_name);
         }
         return alloca;
     }

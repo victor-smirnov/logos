@@ -869,6 +869,10 @@ mlir::Value MLIRGenImpl::get_struct_ptr(const std::string& name) {
     // For struct receivers we need the pointee pointer value, not the slot address.
     if (var_local_ptrs_.count(name) && let_vars_.count(name))
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+    // A reference binding whose scope_ entry is a SLOT holding the pointer (a
+    // `&Struct` parameter spilled by `&x`): the struct lives at the loaded value.
+    if (ref_slot_vars_.count(name) && let_vars_.count(name))
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
     return it->second;
 }
 

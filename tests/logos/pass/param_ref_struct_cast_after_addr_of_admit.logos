@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #281): a `&Struct` param rebound to a spill slot by `&x` is registered as a slot-holding reference, and get_struct_ptr loads such a slot.
 // SOUNDNESS QUEUE row param_ref_struct_cast_after_addr_of_reads_slot_run (tier 1). WRONG VALUE AT RUN TIME.
 // `h(&x) == x as *const D` with `x: &D` a PARAMETER: MLIRGenImpl::gen_expr_kind(EAddrOfView)'s parameter arm spills `x` and REBINDS
 // scope_[x] to the slot (ref_param_names_ erased), and the `x as *const D` cast that follows in the same block reads scope_[x] raw — the

@@ -274,12 +274,6 @@ field_read_through_ref_to_box_refused 3 tests/soundness/open/field_read_through_
 
 let_ref_struct_pattern_irrefutable_refused 3 tests/soundness/open/let_ref_struct_pattern_irrefutable_refused refuses
 
-# ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
-# Six rows CLOSED (addr_of_struct_ref_local_arg, addr_of_ref_foreach_elem, addr_of_ref_match_binder, addr_of_ref_closure_capture,
-# addr_of_ref_closure_param _passes_referent_run, struct_pattern_over_double_ref_reads_slot_run) -> pass/bc_argrefland_*_admit. Four rows
-# OPENED by the landing's hand battery, each measured on base b96b980fb AND the candidate; the reason is in each program's header.
-param_ref_struct_cast_after_addr_of_reads_slot_run 1 tests/soundness/open/param_ref_struct_cast_after_addr_of_reads_slot_run run 1
-
 letelse_ref_pattern_binding_undefined_refused 3 tests/soundness/open/letelse_ref_pattern_binding_undefined_refused refuses
 
 method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_autoderef_double_ref_option_infer_refused refuses
@@ -330,6 +324,11 @@ bc_patmovebind_at_ref_binding_twin 3 tests/soundness/open/bc_patmovebind_at_ref_
 vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
+
+# ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
+# Six rows CLOSED (addr_of_struct_ref_local_arg, addr_of_ref_foreach_elem, addr_of_ref_match_binder, addr_of_ref_closure_capture,
+# addr_of_ref_closure_param _passes_referent_run, struct_pattern_over_double_ref_reads_slot_run) -> pass/bc_argrefland_*_admit. Four rows
+# OPENED by the landing's hand battery, each measured on base b96b980fb AND the candidate; the reason is in each program's header.
 
 # 2026-09-14i-harvest2: y3 (2026-09-12r-escroot) made exit-visible by a clobbering call; r22 (2026-09-14e-thruref) still admitted.
 # Both reproduce on build c52dcb19dff987ff 43; legality by reading. R6 (2026-09-09g) joined impl_fn_return_stack_env_dangles as its PART 3.
@@ -424,5 +423,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 129
-# SYNC-HASH 2427c2a5fbd02a2a98dcc78ee2d735fd
+# TOTAL 128
+# SYNC-HASH a29d4c92c2f11e0262377e5197796d06
