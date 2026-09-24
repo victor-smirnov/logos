@@ -1,0 +1,21 @@
+// A nested array pattern over `[[D; 2]; 1]` binds its element and the rest is dropped (rustc 1.98.1: k=1 n=12).
+package match_array_nested_array_subpattern_mlirgen_malfunction;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn g(p: *mut i64) -> i64 {
+    let arr: [[D; 2]; 1] = [[D { v: 1i64, c: p }, D { v: 2i64, c: p }]];
+    match arr {
+        [[x, _]] => { return x.v; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p);
+    let got: i64 = unsafe { n };
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, got); }
+    if k != 1i64 { return 2i32; }
+    if got != 12i64 { return 1i32; }
+    return 0i32;
+}

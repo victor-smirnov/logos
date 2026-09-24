@@ -4985,6 +4985,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         if (bind_name.empty() || bind_name == "_") return;
                         auto fp = gep_field(sptr, sinfo, field_name);
                         if (!fp) return;
+                        // An ARRAY field keeps its shape (`v[0]` strides): the
+                        // canonical binder copies it and registers the element type.
+                        {
+                            TypeRef fty;
+                            if (sd) for (auto lf : sd.fields())
+                                if (std::string(lf.name()) == field_name) { fty = lf.type(pool_impl()); break; }
+                            if (fty && TypeRef(fty).kind() == LogosType::Kind::Array) {
+                                bind_name_at_slot(bind_name, fp, fty, nullptr);
+                                added.push_back(bind_name);
+                                return;
+                            }
+                        }
                         mlir::Type fmlir;
                         for (auto& sf : sinfo.fields)
                             if (sf.name == field_name) { fmlir = sf.type; break; }

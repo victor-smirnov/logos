@@ -1,0 +1,13 @@
+// An array-typed binder (array element, array field, nested array pattern) keeps its shape and binds its names (rustc 1.98.1).
+package match_array_elem_array_binder_shape_lost_run;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let m: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    let mut out: i64 = 0i64;
+    match m {
+        [_, y] => { out = y[1]; }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), out); }
+    if out != 4i64 { return 1i32; }
+    return 0i32;
+}

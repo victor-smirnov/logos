@@ -321,6 +321,14 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             added.push_back(bindings[bi]);
             continue;
         }
+        // An ARRAY payload bound by value: a copy with its element shape, so
+        // `arr[i]` strides (it read 0 in match-expression position).
+        if (lt && TypeRef(lt).kind() == LogosType::Kind::Array) {
+            evict_shapes(bindings[bi]);
+            bind_name_at_slot(bindings[bi], fp, lt, shared);
+            added.push_back(bindings[bi]);
+            continue;
+        }
         // Trait-object payload (e.g. `Option<&dyn T>`'s Some arm): bind the
         // 8-byte handle directly (mirrors extract_payload / gen_let).
         bool is_ref_to_trait = lt &&
@@ -4611,6 +4619,26 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
                 elem_mlir = te->llvm_type;
         // Aggregate (struct/tuple lowers to a struct/ptr): bind the slot
         // pointer directly. Scalars: load + store into a fresh/shared alloca.
+        // An ARRAY binder: a copy of the matched array, registered with its
+        // element type so `y[i]` strides — it fell to the scalar path and lost
+        // its shape (`match m { [_, y] => y[1] }` over `[[i64; 2]; 2]`).
+        if (ty && TypeRef(ty).kind() == LogosType::Kind::Array)
+            if (auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(logos_to_mlir(ty))) {
+                mlir::Value target;
+                if (shared)
+                    if (auto it = shared->find(name); it != shared->end())
+                        if (auto al = it->second.getDefiningOp<mlir::LLVM::AllocaOp>())
+                            if (al.getElemType() == arr_t) target = it->second;
+                if (!target) target = create_entry_alloca(arr_t);
+                auto szv = builder_.create<mlir::LLVM::ConstantOp>(
+                    loc_, builder_.getI64Type(), builder_.getI64IntegerAttr((int64_t)mlir_abi_size(arr_t)));
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, target, slot_ptr, szv, /*isVolatile=*/false);
+                scope_[name] = target;
+                let_vars_.insert(name);
+                var_elem_types_[name] = arr_t.getElementType();
+                var_subscript_[name]  = arr_t.getElementType();
+                return;
+            }
         bool is_struct = ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
             TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
         bool aggregate = is_struct || (ty && TypeRef(ty).kind() == LogosType::Kind::Tuple);
@@ -4881,6 +4909,30 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
             }
             pat_bind(sub, fp, fty, shared);
         });
+        break;
+    }
+    case pc::Code::Slice: {
+        // A nested ARRAY pattern bound BY VALUE (`([a, b], c)` over `([i64; 2],
+        // i64)`): each prefix / suffix element at its index, through the array's
+        // own storage, exactly as pat_test's Slice case reaches them. Only a
+        // by-value array: under a reference the element binders are references
+        // and take a different convention (sema defines no names for that shape).
+        if (!ty || TypeRef(ty).kind() != LogosType::Kind::Array || !TypeRef(ty).elem()) break;
+        lir_view::PatSliceView sv{pat};
+        auto arr_mlir = logos_to_mlir(ty);
+        if (!arr_mlir) break;
+        TypeRef elem_t = TypeRef(ty).elem();
+        const size_t total = (size_t)TypeRef(ty).arr_size();
+        auto at_idx = [&](lir_view::PatRef sp, int32_t idx) {
+            if (!sp || sp.kind() == pc::Code::Wild && lir_view::PatWildView{sp}.name().empty()) return;
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
+            auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), arr_mlir, slot_ptr, gi);
+            pat_bind(sp, ep, elem_t, shared);
+        };
+        int32_t idx = 0;
+        sv.each_prefix([&](lir_view::PatRef sp){ at_idx(sp, idx++); });
+        int32_t sidx = (int32_t)(total - sv.suffix_count());
+        sv.each_suffix([&](lir_view::PatRef sp){ at_idx(sp, sidx++); });
         break;
     }
     case pc::Code::RefBind: {
@@ -5273,6 +5325,12 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         scope_[bind_name] = fp;
                         let_vars_.insert(bind_name);
                         var_struct_[bind_name] = mlir_struct_key(fty);
+                        return;
+                    }
+                    // An array field keeps its shape (`v[0]` strides): the
+                    // canonical binder copies it and registers the element type.
+                    if (fty && TypeRef(fty).kind() == LogosType::Kind::Array) {
+                        bind_name_at_slot(bind_name, fp, fty, nullptr);
                         return;
                     }
                     mlir::Type fmlir;

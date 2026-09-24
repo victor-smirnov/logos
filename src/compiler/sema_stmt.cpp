@@ -6618,7 +6618,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 sk == ps2::Code::Variant || sk == ps2::Code::VariantData ||
                                 sk == ps2::Code::Tuple || sk == ps2::Code::Or ||
                                 sk == ps2::Code::Range || sk == ps2::Code::Int ||
-                                sk == ps2::Code::Bool || sk == ps2::Code::Struct;
+                                sk == ps2::Code::Bool || sk == ps2::Code::Struct ||
+                                // an ARRAY pattern over a by-value array field: the
+                                // matcher's Slice cases (pat_test / pat_bind) reach it
+                                (sk == ps2::Code::Slice && ftype &&
+                                 TypeRef(ftype).kind() == LogosType::Kind::Array && !dbm_ref);
                             if (!sub_ok)
                                 error("struct pattern: refutable field sub-pattern "
                                       "not yet supported");
@@ -7410,13 +7414,17 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
             // (measured: prints 0, PROBES.md 2026-09-16p). RefPat IS here since
             // pat_bind gained its RefPat case; the two halves are a door in
             // SERIES and neither may be armed alone (PROBES.md 2026-09-17f).
+            // A nested SLICE pattern over a BY-VALUE ARRAY element: pat_bind binds
+            // exactly that shape now (its Slice case), so its names are defined.
+            const bool array_slice = sp && sp.kind() == ps::Code::Slice && idx < types.size() &&
+                                     types[idx] && TypeRef(types[idx]).kind() == LogosType::Kind::Array;
             if (sp && (sp.kind() == ps::Code::VariantData ||
                        sp.kind() == ps::Code::Or ||
                        sp.kind() == ps::Code::At ||
                        sp.kind() == ps::Code::RefBind ||
                        sp.kind() == ps::Code::Struct ||
                        sp.kind() == ps::Code::RefPat ||
-                       sp.kind() == ps::Code::Tuple)) {
+                       sp.kind() == ps::Code::Tuple || array_slice)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);
             }

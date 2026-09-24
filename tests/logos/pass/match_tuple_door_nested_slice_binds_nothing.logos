@@ -1,0 +1,14 @@
+// An array-typed binder (array element, array field, nested array pattern) keeps its shape and binds its names (rustc 1.98.1).
+package match_tuple_door_nested_slice_binds_nothing;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let arr: [i64; 2] = [3i64, 4i64];
+    let sv: ([i64; 2], i64) = (arr, 5i64);
+    let mut got: i64 = 0i64;
+    match sv {
+        ([a, b], c) => { got = a + b + c; }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), got); }
+    if got != 12i64 { return 1i32; }
+    return 0i32;
+}
