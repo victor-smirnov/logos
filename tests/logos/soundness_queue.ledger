@@ -335,8 +335,6 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
-while_body_return_move_leaks_on_fallthrough_run 1 tests/soundness/open/while_body_return_move_leaks_on_fallthrough_run run 1
-
 # ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
 # Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
 # src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md. Five of the six CLOSED at the 2026-09-15 landing
@@ -427,5 +425,5 @@ while_body_return_move_leaks_on_fallthrough_run 1 tests/soundness/open/while_bod
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 131
-# SYNC-HASH 05c9ff28b69587369f7c4b3d0df33166
+# TOTAL 130
+# SYNC-HASH ab8bffdf1ef3afa4a82c810ddfb2b6b0

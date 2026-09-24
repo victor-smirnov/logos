@@ -109,6 +109,39 @@ bool SemaChecker::loop_has_targeting_break(TinyMapView loop_node) {
     return found;
 }
 
+// Does this subtree contain ANY `break` / `continue` (labelled or not, at any
+// depth; closures and nested fns are function boundaries)? Deliberately wider
+// than loop_has_targeting_break: its caller only needs a sound "none", and a
+// loop reached through a label wrapper it cannot see would be missed there.
+bool SemaChecker::ast_has_break_or_continue(TinyMapView root) {
+    namespace lh = logos::writ;
+    bool found = false;
+    std::function<void(TinyMapView)> walk = [&](TinyMapView n) {
+        if (found || n.is_null()) return;
+        int32_t c = code_of(n);
+        if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;
+        if (c == la::BREAK || c == la::BREAK_EXPR || c == la::CONTINUE || c == la::CONTINUE_EXPR) {
+            found = true; return;
+        }
+        uint64_t bm = n.bitmap();
+        for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            AnyVal av = n.get(key);
+            if (av.is_null() || !av.is_pointer()) continue;
+            const uint8_t* pv = av.resolve();
+            if (!pv) continue;
+            uint64_t tc = lh::TypeTag::read_before(pv).type_code();
+            if (tc == lh::type_hash::TinyObjectMap) walk(map_of(av));
+            else if (tc == lh::type_hash::Array) {
+                auto arr = arr_of(av);
+                for (uint64_t i = 0; i < arr.size() && !found; ++i) walk(map_of(arr.get(i)));
+            }
+        }
+    };
+    walk(root);
+    return found;
+}
+
 // The two spellings of `'a: loop { ... }`, and ONLY those. `loop_expr`
 // (grammar `LIFETIME COLON KW_LOOP block_body`) puts the BLOCK under BODY;
 // `labeled_loop_stmt` (`LIFETIME COLON (for_stmt / while_stmt / loop_stmt)`)
@@ -7617,6 +7650,8 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
     } else { cond = error_expr(); }
 
     std::vector<lir_view::StmtRef> body;
+    auto pre_loop_moves = moved_vars_;
+    const size_t loop_clear_mark = flag_clear_log_.size();   // #118
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
@@ -7626,6 +7661,7 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
         loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
+        merge_loop_exit_moves(body, map_of(node.get(la::BODY.code)), pre_loop_moves, loop_clear_mark);
     }
     lir::SWhile sw;
     sw.cond  = std::move(cond);
@@ -7704,6 +7740,8 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     define(var_name, var_t, hdr_mut);
     uint32_t _for_slot = lookup_slot(var_name);  // Phase-1: capture before pop_scope
     std::vector<lir_view::StmtRef> body;
+    auto pre_loop_moves = moved_vars_;
+    const size_t loop_clear_mark = flag_clear_log_.size();   // #118
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
@@ -7713,6 +7751,7 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
         loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
+        merge_loop_exit_moves(body, map_of(node.get(la::BODY.code)), pre_loop_moves, loop_clear_mark);
     }
     pop_scope();
 

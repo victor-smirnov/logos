@@ -4108,6 +4108,31 @@ private:
     // Is `name` (the binding it denotes NOW) a declared-uninitialised `let x: T;`?
     // Per binding: a shadow's initialisation must not answer for the outer one.
     int64_t decode_char_lit_(std::string_view sv);
+    bool ast_has_break_or_continue(writ::TinyMapView root);
+    // A loop body that ENDS in an unconditional `return` and holds no `break` /
+    // `continue` is left normally only without running: its moves never reach
+    // the loop exit, whose move state is then exactly the pre-loop one.
+    // A while / range-for body may run ZERO times: at the loop exit a local it
+    // moves is moved on SOME paths only. Merge like an `if` without `else`
+    // (#118 drop flag, cleared in the body), except that a body which ENDS in
+    // an unconditional `return` and holds no `break` / `continue` never reaches
+    // the exit with its moves — the exit state is then exactly the pre-loop one.
+    void merge_loop_exit_moves(std::vector<lir_view::StmtRef>& body,
+                               writ::TinyMapView body_ast,
+                               const std::set<std::string>& pre, size_t clear_mark) {
+        if (!body.empty()) {
+            auto br = stmt_ref_of(body.back());
+            if (br && br.kind() == lir_schema::stmt::Code::Return &&
+                !ast_has_break_or_continue(body_ast)) {
+                moved_vars_ = pre;
+                return;
+            }
+        }
+        std::vector<CondMoveBranch> reaching;
+        reaching.push_back({&body, nullptr, moved_vars_, clear_mark, flag_clear_log_.size()});
+        reaching.push_back({nullptr, nullptr, pre, clear_mark, clear_mark});
+        elaborate_cond_moves(pre, reaching);
+    }
     bool is_deferred_init(std::string_view name) const {
         const VarInfo* vi = lookup_var_info(name);
         return vi && vi->deferred_init;

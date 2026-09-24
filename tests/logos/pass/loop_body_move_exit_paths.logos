@@ -1,0 +1,26 @@
+// A local moved inside a loop body is dropped on every exit path that did not move it: while
+// with return / break / a conditional break, range-for with return / a zero-trip range, and loop.
+// rustc 1.98.1 prints the same lines.
+package loop_body_move_exit_paths;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn sink(d: D) { }
+fn wr(d: D, b: bool) { while b { sink(d); return; } }
+fn wb(d: D, b: bool) { while b { sink(d); break; } }
+fn wbc(d: D, b: bool) { let mut k: i64 = 0i64; while k < 3i64 { k = k + 1i64; if b { sink(d); break; } } }
+fn fr(d: D, b: bool) { for i in 0i64..3i64 { if b { sink(d); return; } } }
+fn fb(d: D, n: i64) { for i in 0i64..n { sink(d); break; } }
+fn lp(d: D, b: bool) { loop { if b { sink(d); } break; } }
+fn run(f: fn(D, bool)) {
+    let mut n: i64 = 0i64; f(D { v: 1000i64, c: &mut n }, false);
+    let mut k: i64 = 0i64; f(D { v: 1i64, c: &mut k }, true);
+    unsafe { printf("%lld %lld\n".as_ptr(), n, k); }
+}
+fn main() -> i32 {
+    run(wr); run(wb); run(wbc); run(fr); run(lp);
+    let mut n: i64 = 0i64; fb(D { v: 7i64, c: &mut n }, 0i64);
+    let mut m: i64 = 0i64; fb(D { v: 9i64, c: &mut m }, 2i64);
+    unsafe { printf("%lld %lld\n".as_ptr(), n, m); }
+    return 0i32;
+}

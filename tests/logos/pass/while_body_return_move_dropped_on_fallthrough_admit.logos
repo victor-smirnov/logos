@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #470): the exit of a while / range-for merges the body's moves with the zero-iteration path (#118 flags); a body ending in `return` with no break/continue leaves the pre-loop state.
 // SOUNDNESS QUEUE row while_body_return_move_leaks_on_fallthrough_run (tier 1, run 1). A LOCAL MOVED INSIDE A `while` BODY THAT
 // ENDS IN `return` IS NEVER DROPPED WHEN THE LOOP DOES NOT RUN. `fn inner(d: D, b: bool) { while b { sink(d); return; } }` with
 // b = false leaks `d`: rustc n=1000 (dropped on fall-through), TODAY n=0, exit 1.
