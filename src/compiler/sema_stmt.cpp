@@ -1561,6 +1561,43 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         pc == la::PAT_SLICE &&
         TypeRef(rhs_type).kind() == LogosType::Kind::Array &&
         TypeRef(rhs_type).elem();
+    // A struct / tuple-struct pattern with a field that is not a plain binder
+    // (`t: (a, b)`, `ref mut x`, `w @ W { .. }`) binds through the let-else
+    // lowering, which reaches every nested kind (the field-by-field path
+    // below binds names only); a refutable one is E0005.
+    if (pc == la::PAT_STRUCT || is_tuple_struct_pat) {
+        auto flag = [](TinyMapView n, const la::Key& k) {
+            return n.has_key(k) && n.get(k.code).is_value() && n.get(k.code).as_value<uint8_t>() != 0;
+        };
+        auto list_of = [&](uint8_t key) -> ArrayView {
+            if (!pat_node.has_key(key)) return ArrayView{};
+            auto av = pat_node.get(key);
+            if (av.is_null() || !av.is_pointer()) return ArrayView{};
+            auto w = map_of(av);
+            return (!w.is_null() && w.has_key(la::ITEMS)) ? arr_of(w.get(la::ITEMS.code)) : arr_of(av);
+        };
+        bool nested = false;
+        auto items = list_of(is_tuple_struct_pat ? la::ARGS.code : la::ITEMS.code);
+        for (uint64_t i = 0; i < items.size() && !nested; ++i) {
+            auto f = map_of(items.get(i));
+            if (code_of(f) == la::PAT_REST) continue;
+            if (flag(f, la::IS_REF)) { nested = true; break; }
+            auto sub = is_tuple_struct_pat ? f
+                     : f.has_key(la::VALUE) ? map_of(f.get(la::VALUE.code)) : TinyMapView{};
+            if (sub.is_null()) continue;
+            if (code_of(sub) == la::PAT_OR && sub.has_key(la::ITEMS) &&
+                arr_of(sub.get(la::ITEMS.code)).size() == 1)
+                sub = map_of(arr_of(sub.get(la::ITEMS.code)).get(0));
+            if (code_of(sub) == la::PAT_REST) continue;
+            if (code_of(sub) != la::PAT_WILD || flag(sub, la::IS_REF)) nested = true;
+        }
+        if (nested) {
+            lir::Pattern probe = build_pattern(pat_node, rhs_type);
+            if (!pattern_irrefutable(pat_ref_of(probe), rhs_type))
+                return refuse_refutable_let(probe, std::move(rhs), rhs_type);
+            return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
+        }
+    }
     if (pc != la::PAT_STRUCT && !is_tuple_struct_pat && !is_array_slice_pat &&
         !is_single_variant_struct_pat) {
         // Any other IRREFUTABLE shape (a tuple, `(a, S { x, .. })`, …) binds
@@ -2404,8 +2441,8 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
 // the rhs is kept for its effects.
 lir_view::StmtRef SemaChecker::refuse_refutable_let(lir::Pattern& probe, lir::LExprPtr rhs,
                                                      TypeRef rhs_type) {
-    if (let_pat_in_for_)
-        error("refutable pattern in `for` loop binding: match the element in the body");
+    if (let_pat_site_)
+        error(std::format("refutable pattern in {}: match the value in the body", let_pat_site_));
     else
         error("refutable pattern in local binding: use `let … else { … }` or `match`");
     bind_pattern_ref(pat_ref_of(probe), rhs_type);
@@ -2438,9 +2475,18 @@ bool SemaChecker::pattern_irrefutable(lir_view::PatRef p, TypeRef ty) {
             return ok;
         }
         case ps::Code::Struct: {
+            // Each field's sub-pattern against the FIELD's type: an array
+            // sub-pattern is irrefutable only against an array of its length.
+            const SemaStructInfo* si = nullptr;
+            if (t && TypeRef(t).kind() == LogosType::Kind::Struct)
+                si = find_struct_by_name(std::string(TypeRef(t).struct_name())).second;
             bool ok = true;
             lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView f) {
-                if (auto sp = f.sub(); sp && !pattern_irrefutable(sp, TypeRef(nullptr))) ok = false;
+                TypeRef ft;
+                if (si)
+                    for (auto& sf : si->fields)
+                        if (sf.name == f.field_name()) { ft = sf.type; break; }
+                if (auto sp = f.sub(); sp && !pattern_irrefutable(sp, ft)) ok = false;
             });
             return ok;
         }
@@ -6645,6 +6691,19 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             TypeRef(sst).struct_name() != sname && TypeRef(sst).struct_name() != "")
             error(std::format("struct pattern: '{}' != scrutinee '{}'",
                   sname, type_str(scrut_type)));
+        // …and against a value that can never be a struct (a scalar, a tuple,
+        // an array, a slice, an enum): rustc E0308.
+        if (sst && sinfo) {
+            using K = LogosType::Kind;
+            const K sk = TypeRef(sst).kind();
+            const bool never_struct =
+                sk == K::Tuple || sk == K::Array || sk == K::Slice || sk == K::Enum ||
+                sk == K::Bool || sk == K::IntLit || sk == K::FloatLit ||
+                sk == K::F32 || sk == K::F64 || (sk >= K::I32 && sk <= K::U128 && sk != K::Bool);
+            if (never_struct)
+                error(std::format("struct pattern '{}': the matched value of type '{}' is not a struct",
+                                  sname, type_str(scrut_type)));
+        }
         lir::PatStruct ps;
         ps.struct_name = sname;
         ps.has_rest    = false;
@@ -7558,13 +7617,17 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         v.each_binding([&](std::string_view n) { names.push_back(n); });
         v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
         auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
-        for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-            if (names[i] != "_") {
+        // ONE pass in ELEMENT order: a direct name and a nested sub-pattern's
+        // names are defined as they appear, so `((p, q), r)` declares p, q, r
+        // and drops them r, q, p, as Rust does (two passes put `r` first).
+        auto define_direct = [&](size_t i) {
+            if (i < names.size() && i < types.size() && names[i] != "_") {
                 bool m = pat_mut_name(names[i]);
                 if (m) modifier_under_ref_scrutinee(names[i], scrut_type);  // Rust 2024, tuple door
                 define(std::string(names[i]), types[i], m,
                        i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
             }
+        };
         // P4-pm-24 / G144-1: recurse into refutable sub-patterns so any nested
         // bindings (`(E::Foo { x }, _)`, `((true,y)|(y,true), z)`, `((a,b), w)`)
         // reach the outer arm scope. Codegen (pat_test/pat_bind) extracts them.
@@ -7593,9 +7656,12 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                        sp.kind() == ps::Code::Tuple || array_slice)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);
+            } else {
+                define_direct(idx);
             }
             ++idx;
         });
+        for (size_t i = idx; i < names.size(); ++i) define_direct(i);  // no sub recorded
     } else if (k == ps::Code::Or) {
         // G144-1: an or-pattern (possibly nested as a tuple element). All alts
         // bind the same names+types (build_pattern_or enforced this); declare
@@ -9957,18 +10023,26 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // rest. A named `rest` binds a sub-slice here, not the elements, so it marks nothing.
     {
         namespace ps = lir_schema::pat;
+        // …and a TUPLE / STRUCT / `@` pattern at the top is the same fact: the
+        // leaves it binds by value are moved, its `_` parts stay the owner's
+        // (a whole-scrutinee mark leaked them: `let (d, _) = t`, a parameter
+        // `(d, _): (D, D)`; and marked nothing under a nested array).
+        const bool top_structural = pat &&
+            (pat.kind() == ps::Code::Tuple || pat.kind() == ps::Code::Struct ||
+             pat.kind() == ps::Code::At);
         if (scrut && scrut_type && pat &&
-            pat.kind() == ps::Code::Slice &&
-            TypeRef(scrut_type).kind() == LogosType::Kind::Array &&
+            ((pat.kind() == ps::Code::Slice &&
+              TypeRef(scrut_type).kind() == LogosType::Kind::Array) || top_structural) &&
             lir_view::is_place_expr(expr_ref_of(scrut))) {
             std::string base =
                 expr_ref_of(scrut).kind() == ec::Code::VarRef
                     ? std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name())
                     : move_path_of(expr_ref_of(scrut));
+            const bool is_arr = TypeRef(scrut_type).kind() == LogosType::Kind::Array;
             lir_view::PatSliceView sv{pat};
-            TypeRef et = TypeRef(scrut_type).elem();
-            const uint64_t n  = TypeRef(scrut_type).arr_size();
-            const uint64_t sc = sv.suffix_count();
+            TypeRef et = is_arr ? TypeRef(scrut_type).elem() : TypeRef(nullptr);
+            const uint64_t n  = is_arr ? TypeRef(scrut_type).arr_size() : 0;
+            const uint64_t sc = is_arr ? sv.suffix_count() : 0;
             // MARK EVERY MOVED LEAF, NOT ONLY A WHOLE ELEMENT (2026-09-16j-arrpath2).
             // A nested sub-pattern moves only PART of its element, so the path it owes is the
             // FULL dotted path of each leaf it binds by value — `arr.0.a` for a struct sub,
@@ -10060,9 +10134,21 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                         // RefBind / RefPat bind THROUGH a reference and move nothing; Variant /
                         // Int / Bool / Range bind nothing. A VariantData payload under an array
                         // element is the variant door's fact, not this one.
+                        // Under a top-level tuple / struct / `@` there is no variant door: a
+                        // sub-pattern that moves out (`(Some(r), _)`) owes its WHOLE element,
+                        // the mark the whole-scrutinee rule made before this walk reached it.
+                        if (top_structural && pty && is_move_type(pty) && pattern_moves_out(sp, pty))
+                            mark_moved(path);
                         return;
                 }
             };
+            // A place with no dotted path (an array element, a deref) is not the
+            // leaf walk's: it falls through to the whole-place rule below, which
+            // refuses a move out of an array element (E0508).
+            if (top_structural && !base.empty()) {
+                emit_moved_leaves(pat, base, scrut_type);
+                return;
+            }
             if (!base.empty() && n > 0) {
                 logos::probe::census("armelem.slice.door");
                 uint64_t i = 0;
@@ -10509,9 +10595,9 @@ bool SemaChecker::emit_for_pattern_destructure(
     // `for PAT in it` binds as `let PAT = <element>;` in the body: any
     // irrefutable pattern, with the default binding mode through a `&`
     // element; a refutable one is E0005, as rustc says.
-    let_pat_in_for_ = true;
+    let_pat_site_ = "`for` loop binding";
     out.push_back(lower_let_pat_rhs(pat, builder().var_ref(src_var, src_type), src_type));
-    let_pat_in_for_ = false;
+    let_pat_site_ = nullptr;
     return true;
 }
 

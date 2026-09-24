@@ -269,25 +269,26 @@ Evidence: `src/compiler/sema_render.cpp#L1375-L1398`
 
 ## Function parameters
 
-### `item.fn-param.struct-pattern` — Struct-pattern function parameter
+### `item.fn-param.struct-pattern` — Pattern function parameter
 
-A parameter may be an irrefutable struct pattern `Name { a, b, ... }: Name`. Each named field (or its `f: binding` rename, skipping `..` rest and unnamed items) becomes a body-visible binding typed from the matching struct field; binding name `_` is not registered. Desugared to a synthetic parameter plus a prologue `let bind = synth.field;` per binding.
+A parameter may be any irrefutable pattern with its type, `PAT: T` — struct, tuple-struct, tuple, array (with or without `..`), `&`, `n @ sub`, nested to any depth, with `mut` / `ref` / `ref mut` binders. It lowers to a synthetic by-value parameter and a body prologue `let mut __own = synth; let PAT = __own;`: the `let` door's lowering, so binding modes, moved-part tracking and drops are those of `let`. A refutable pattern is `refutable pattern in function argument` (rustc E0005).
 
 ```logos
 fn f(Point { x, y }: Point) -> i32 { x + y }
+fn g(P { ref mut x, t: (a, _) }: P) -> i64 { *x = *x + a; *x }
 ```
 
-Evidence: `src/compiler/sema_decl.cpp#L604-L649`, `src/compiler/sema_decl.cpp#L996-L1046`
+Evidence: `src/compiler/sema_decl.cpp (SemaChecker::bind_param_pattern, SemaChecker::param_pattern_node)`
 
 ### `item.fn-param.tuple-pattern` — Tuple-destructure function parameter
 
-A parameter may be an irrefutable tuple pattern `(a, b, ...): (T1, T2, ...)`. Each non-`_` element name becomes a body-visible binding of the corresponding tuple-element type, desugared to a synthetic parameter plus prologue `let a = synth.0; let b = synth.1; ...` (tuple_index reads).
+`(a, b, ...): (T1, T2, ...)` is the tuple spelling of a pattern parameter (`item.fn-param.struct-pattern`); nested tuples, arrays and struct sub-patterns are allowed at any depth. A closure parameter takes the same patterns, typed (`|(a, b): (T, U)|`) or untyped (`|(a, b)|`, `|&(a, b)|`, typed from the expected closure type); a refutable one is `refutable pattern in closure argument`.
 
 ```logos
 fn f((a, b): (i32, i32)) -> i32 { a + b }
 ```
 
-Evidence: `src/compiler/sema_decl.cpp#L651-L684`, `src/compiler/sema_decl.cpp#L974-L995`
+Evidence: `src/compiler/sema_expr.cpp (closure parameter door)`, `src/compiler/sema_decl.cpp (SemaChecker::bind_param_pattern)`
 
 ### `item.fn-param.self-reserved` — `self` reserved for impl receivers
 

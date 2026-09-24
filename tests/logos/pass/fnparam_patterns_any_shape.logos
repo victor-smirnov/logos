@@ -1,0 +1,32 @@
+// Every irrefutable pattern binds at a function / closure parameter as `let PAT = param`: `ref mut` fields, nested tuples in fields, arrays with `..`, tuple structs, `&` patterns, `@`, `mut` (rustc 1.98.1: 44 567 5 136 89 59 7 21 12 1123).
+package fnparam_patterns_any_shape;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct P { x: i64, y: i64 }
+struct W { d: D, t: (i64, i64) }
+struct T2(i64, D);
+fn f1(P { ref mut x, y }: P) -> i64 { *x = *x + 1i64; return *x * 10i64 + y; }
+fn f2(W { d, t: (a, b) }: W) -> i64 { return d.v * 100i64 + a * 10i64 + b; }
+fn f3(((a, _), [b, .., c]): ((i64, i64), [i64; 4])) -> i64 { return a * 100i64 + b * 10i64 + c; }
+fn f4(T2(k, D { v, .. }): T2) -> i64 { return k * 10i64 + v; }
+fn f5(&P { x, y }: &P) -> i64 { return x - y; }
+fn f6(w @ P { x, .. }: P) -> i64 { return w.y * 10i64 + x; }
+fn f7((mut a, b): (i64, i64)) -> i64 { a = a * b; return a; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64; let c: *mut i64 = &mut n;
+    let r1 = f1(P { x: 3i64, y: 4i64 });
+    let r2 = f2(W { d: D { v: 5i64, c: c }, t: (6i64, 7i64) });
+    let m2 = unsafe { *c };
+    let r3 = f3(((1i64, 2i64), [3i64, 4i64, 5i64, 6i64]));
+    let r4 = f4(T2(8i64, D { v: 9i64, c: c }));
+    let m4 = unsafe { *c };
+    let p = P { x: 9i64, y: 2i64 };
+    let r5 = f5(&p);
+    let r6 = f6(P { x: 1i64, y: 2i64 });
+    let r7 = f7((3i64, 4i64));
+    let cl = |(a, (b, c)): (i64, (i64, i64)), P { x, .. }: P| a * 100i64 + b * 10i64 + c + x;
+    let r8 = cl((1i64, (2i64, 3i64)), P { x: 1000i64, y: 0i64 });
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, r2, m2, r3, r4, m4, r5, r6, r7, r8); }
+    return 0i32;
+}

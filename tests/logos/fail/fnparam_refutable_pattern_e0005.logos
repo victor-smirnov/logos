@@ -1,0 +1,4 @@
+// rustc 1.98.1: error[E0005]: refutable pattern in function argument
+package fnparam_refutable_pattern_e0005;
+fn f(Option::Some(x): Option<i64>) -> i64 { return x; }
+fn main() -> i32 { let c = |Option::Some(y): Option<i64>| y; return (f(Option::Some(1i64)) + c(Option::Some(2i64))) as i32; }

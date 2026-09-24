@@ -32144,7 +32144,7 @@ INSTALLATIONS are independent — measured, three times, by a cross-door control
 nothing.
 
 ## 2026-09-09c — LANDED: ONE RECURSIVE BINDER WALK AT EVERY PARAMETER DOOR; TWO ROWS CLOSED, FOUR SILENT `admits` CLOSED WITH THEM, AND THE CLOSURE DOOR WAS THE SIBLING THAT WOULD HAVE LEFT THE CLASS OPEN
-site: src/compiler/sema_decl.cpp::walk_param_pat (the walk itself)
+site: src/compiler/sema_decl.cpp::bind_param_pattern (successor of the walk, retired 2026-09-24: a pattern parameter binds as `let PAT = param`)
       src/compiler/sema_decl.cpp::lower_fn (declare phase + body prologue, BOTH fn-param doors)
       src/compiler/sema_expr.cpp (the closure-param door, same walk)
 build: BASE b917cf69ace435e6 43 (HEAD 97f91695c) -> ARMED dbba03ec947a58c7 43 (the fn-param half alone read a726287fabbf7fe8 43)

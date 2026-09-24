@@ -40,10 +40,6 @@ at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_pay
 
 let_at_binding_type_annot_syntax 3 tests/soundness/open/let_at_binding_type_annot_syntax refuses
 
-fnparam_struct_ref_mut_field_binds_byvalue 3 tests/soundness/open/fnparam_struct_ref_mut_field_binds_byvalue refuses
-
-closure_param_struct_pattern_syntax 3 tests/soundness/open/closure_param_struct_pattern_syntax refuses
-
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
@@ -197,6 +193,8 @@ arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_par
 
 deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_admitted admits
 
+let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused refuses
+
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
 # ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
@@ -348,5 +346,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 87
-# SYNC-HASH 3d943b19eb63e200e3e2d7df3291f0a7
+# TOTAL 86
+# SYNC-HASH 4070696bb20c7be1bb103bd0e398f718

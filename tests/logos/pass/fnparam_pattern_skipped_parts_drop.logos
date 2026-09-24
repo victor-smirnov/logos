@@ -1,0 +1,33 @@
+// Parts a parameter pattern skips (`_`, `..`, nested under a field) are dropped with the parameter, each once (rustc 1.98.1: 13 312 4 456 108 897 1 12 200231).
+package fnparam_pattern_skipped_parts_drop;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct H { a: [D; 3], k: i64 }
+fn g1([a, _, c]: [D; 3]) -> i64 { return a.v * 10i64 + c.v; }
+fn g2([a, ..]: [D; 3]) -> i64 { return a.v; }
+fn g3(H { a: [_, b, _], k }: H) -> i64 { return b.v + k; }
+fn g4((d, _): (D, D)) -> i64 { return d.v; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64; let c: *mut i64 = &mut n;
+    let r1 = g1([D { v: 1i64, c: c }, D { v: 2i64, c: c }, D { v: 3i64, c: c }]);
+    let m1 = unsafe { *c };
+    unsafe { *c = 0i64; }
+    let r2 = g2([D { v: 4i64, c: c }, D { v: 5i64, c: c }, D { v: 6i64, c: c }]);
+    let m2 = unsafe { *c };
+    unsafe { *c = 0i64; }
+    let r3 = g3(H { a: [D { v: 7i64, c: c }, D { v: 8i64, c: c }, D { v: 9i64, c: c }], k: 100i64 });
+    let m3 = unsafe { *c };
+    unsafe { *c = 0i64; }
+    let r4 = g4((D { v: 1i64, c: c }, D { v: 2i64, c: c }));
+    let m4 = unsafe { *c };
+    unsafe { *c = 0i64; }
+    {
+        let ds = [D { v: 1i64, c: c }, D { v: 2i64, c: c }, D { v: 3i64, c: c }];
+        let [_, b, ..] = ds;
+        unsafe { *c = *c * 10i64 + b.v * 100i64; }
+    }
+    let m5 = unsafe { *c };
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, m1, r2, m2, r3, m3, r4, m4, m5); }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// Pattern binders drop in reverse SOURCE order at every depth — nested tuple and struct sub-patterns at a parameter and in a match (rustc 1.98.1).
+package pattern_binders_drop_reverse_source_order;
+use logos.std.fmt;
+struct D { n: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("DROP {}", self.n); } }
+struct W { a: (D, i64), b: D, c: D }
+fn by_tuple(((p, q), r): ((D, i64), D)) -> i64 { return p.n + q + r.n; }
+fn by_struct(W { a: (p, _), b, c: D { n } }: W) -> i64 { return p.n + b.n + n; }
+fn main() -> i32 {
+    println!("{}", by_tuple(((D { n: 3i64 }, 10i64), D { n: 4i64 })));
+    println!("{}", by_struct(W { a: (D { n: 5i64 }, 0i64), b: D { n: 6i64 }, c: D { n: 7i64 } }));
+    let t = (D { n: 7i64 }, (D { n: 8i64 }, D { n: 9i64 }));
+    match t { (a, (b, c)) => { println!("{}", a.n + b.n + c.n); } }
+    return 0i32;
+}

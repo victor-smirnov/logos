@@ -1,9 +1,6 @@
-// `name @ ..` at a function parameter. The 2026-09-09c walk refuses it BY NAME
-// rather than reproducing the defect it closes one spelling over: the sub-slice
-// it would bind is a `&[T]` view into a by-value parameter, which is a
-// different mechanism from a projection read, and silently binding nothing (or
-// binding index 1) is exactly what the row said was wrong. The plain `..`
-// spellings work and are asserted in pass/fnparam_array_rest_positions.
+// `name @ ..` at a function parameter: the parameter binds as `let PAT = param`,
+// and the `let` door refuses a named rest in an array pattern. Rust binds it by
+// value as the sub-array (squeue let_array_named_rest_refused).
 package fnparam_array_named_rest;
 fn probe([a, xs @ ..]: [i64; 3]) -> i32 {
     if a != 1i64 { return 1i32; }

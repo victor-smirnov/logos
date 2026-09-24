@@ -1,0 +1,15 @@
+// A `..` in an array parameter pattern whose ELEMENT TYPE IS DROPPABLE: the
+// parameter binds as `let [a, ..] = <param>;`, which marks only `a` moved, so
+// the skipped elements are dropped with the parameter (rustc 1.98.1: DROP 1,
+// DROP 2, DROP 4). It was refused while the parameter door had its own walk
+// that could only mark the whole array.
+package fnparam_array_drop_rest_unbound;
+use logos.std.fmt;
+struct D { pub n: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("DROP {}", self.n); } }
+fn probe([a, ..]: [D; 3]) -> i64 { return a.n; }
+fn main() -> i32 {
+    let arr: [D; 3] = [D { n: 1i64 }, D { n: 2i64 }, D { n: 4i64 }];
+    if probe(arr) != 1i64 { return 1i32; }
+    return 0i32;
+}

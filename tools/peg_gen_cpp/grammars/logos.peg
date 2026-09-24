@@ -1674,11 +1674,7 @@
                / param (COMMA param)* (COMMA !DOTDOTDOT)?
               => { ITEMS: $... }
 
-    param <- AMP KW_MUT IDENT
-          => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
-           / AMP IDENT
-          => { CODE: PARAM, NAME: $2, IS_REF: true }
-           / KW_REF IDENT COLON type_ref
+    param <- KW_REF IDENT COLON type_ref
           => { CODE: PARAM, NAME: $2, TYPE: $4, IS_REF: true }
            // `fn f(mut x: T)` — the parameter is a *mutable local binding*
            // (Rust-style; the mutability is invisible to callers, it just
@@ -1686,29 +1682,6 @@
            // it as a normal `x: T` param whose local binding is mutable.
            / KW_MUT IDENT COLON type_ref
           => { CODE: PARAM, NAME: $2, TYPE: $4, IS_MUT: true }
-           // P4-pm-19 / C5-cl-07: `(a, b, ...): (T1, T2, ...)` tuple-
-           // destructure parameter. Reuses `pat_binding_list` (which
-           // emits an `{ITEMS: [PAT_WILD{NAME}…]}` sub-map already used
-           // by LET_DESTRUCT). Sema fn-collect / closure-expr detects
-           // NAMES presence, generates a synth tuple-typed parameter
-           // `__tup_param_<N>` and prepends a body-prologue
-           // `let user_k = __tup_param_<N>.k;` for each binding so the
-           // user-visible names see the destructured tuple elements.
-           / LPAREN pat_binding_list RPAREN COLON type_ref
-          => { CODE: PARAM, NAMES: $2, TYPE: $5 }
-           // logos-core 4.5: fn-params accept arbitrary irrefutable
-           // patterns. Struct shape `Point { x, y }: Point` and slice
-           // shape `[head, tail]: [i32; 2]`. Must come BEFORE the
-           // bare-IDENT alt so the trailing `{` / `[` token isn't
-           // swallowed by IDENT-COLON. Refutability is rejected in
-           // sema via the existing `is_irrefutable_pattern` predicate
-           // (§4.1) — refutable patterns at the fn boundary emit the
-           // same diagnostic as for `let`. Sub-pattern node lives in
-           // the PAT slot (sema's collect_fn detects it and desugars
-           // to a synth temp + body-prologue destructure, mirroring
-           // the existing pat_binding_list path).
-           / pat_param COLON type_ref
-          => { CODE: PARAM, PAT: $1, TYPE: $3 }
            / IDENT COLON type_ref DOTDOTDOT
           => { CODE: PARAM, NAME: $1, TYPE: $3, IS_VARIADIC: true }
            // Antiquot param name (`#col: T`) — only inside quote_*! bodies; the
@@ -1719,17 +1692,18 @@
           => { CODE: PARAM, NAME_VAR: $2, TYPE: $4 }
            / IDENT COLON type_ref
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
-
-    // logos-core 4.5: struct / slice pattern shapes accepted at fn-param
-    // position. Refutability check happens in sema (§4.1).
-    pat_param <- IDENT LBRACE pat_field_list RBRACE
-              => { CODE: PAT_STRUCT, NAME: $1, ITEMS: $3 }
-               / IDENT LBRACE RBRACE
-              => { CODE: PAT_STRUCT, NAME: $1 }
-               / LBRACKET pat_slice_elems RBRACKET
-              => { CODE: PAT_SLICE, ITEMS: $2 }
-               / LBRACKET RBRACKET
-              => { CODE: PAT_SLICE }
+           // Any other irrefutable pattern: `P { x, t: (a, b) }: P`,
+           // `T2(k, _): T2`, `((a, _), [b, ..]): (…)`, `&P { x, y }: &P`,
+           // `w @ P { .. }: P`. LAST, so `x: T` stays a plain parameter.
+           // Sema binds it as `let PAT = <param>;` at the top of the body.
+           / pat_single COLON type_ref
+          => { CODE: PARAM, PAT: $1, TYPE: $3 }
+           // `&self` / `&mut self` shorthand — AFTER the pattern alternative,
+           // which would otherwise lose `&P { x, y }: &P` to `& IDENT`.
+           / AMP KW_MUT IDENT
+          => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
+           / AMP IDENT
+          => { CODE: PARAM, NAME: $2, IS_REF: true }
 
     // ── Type reference ───────────────────────────────────────────
     // assoc_type_ref must come before simple_type to match T::Item before T
@@ -3503,23 +3477,28 @@
     // infers the closure-param type from the surrounding `fn(T)->R`
     // formal at the call site. `closure_param_list` is used by
     // `closure_expr` instead of the strict `param_list`.
-    closure_param <- AMP KW_MUT IDENT
-                  => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
-                   / AMP IDENT
-                  => { CODE: PARAM, NAME: $2, IS_REF: true }
-                   / KW_REF IDENT COLON type_ref
+    closure_param <- KW_REF IDENT COLON type_ref
                   => { CODE: PARAM, NAME: $2, TYPE: $4, IS_REF: true }
                    // `|mut x: T|` / `|mut x|` — mutable closure-param binding.
                    / KW_MUT IDENT COLON type_ref
                   => { CODE: PARAM, NAME: $2, TYPE: $4, IS_MUT: true }
                    / KW_MUT IDENT
                   => { CODE: PARAM, NAME: $2, IS_MUT: true }
-                   / LPAREN pat_binding_list RPAREN COLON type_ref
-                  => { CODE: PARAM, NAMES: $2, TYPE: $5 }
                    / IDENT COLON type_ref
                   => { CODE: PARAM, NAME: $1, TYPE: $3 }
+                   // Any other irrefutable pattern with its type, as at `param`.
+                   / pat_single COLON type_ref
+                  => { CODE: PARAM, PAT: $1, TYPE: $3 }
+                   / AMP KW_MUT IDENT
+                  => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
+                   / AMP IDENT
+                  => { CODE: PARAM, NAME: $2, IS_REF: true }
                    / IDENT
                   => { CODE: PARAM, NAME: $1 }
+                   // `|(a, b)|`, `|&(a, b)|`: an untyped pattern, typed from the
+                   // call site's expected closure type as an untyped name is.
+                   / pat_single
+                  => { CODE: PARAM, PAT: $1 }
     closure_param_list <- closure_param (COMMA closure_param)* COMMA?
                        => { ITEMS: $... }
 

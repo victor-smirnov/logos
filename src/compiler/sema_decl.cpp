@@ -21,250 +21,35 @@ using writ::MemHolder;
 
 // Declaration lowering methods
 
-// ONE recursive binder walk for destructuring fn-parameter patterns, at any
-// depth and at both doors. Class + shape lattice: PROBES.md 2026-09-09c.
-std::string SemaChecker::param_pat_path(const std::string& root,
-                                        const std::vector<ParamPatStep>& p,
-                                        size_t upto) {
-    std::string s = root;
-    for (size_t i = 0; i < upto && i < p.size(); ++i) {
-        if (p[i].kind == 0)      s += "." + p[i].field;
-        else if (p[i].kind == 1) s += "." + std::to_string(p[i].idx);
-        else                     return {};   // an array slot has no move path
-    }
-    return s;
+// `let mut __pat_own = synth; let PAT = __pat_own;` — the pattern binds from a
+// MUTABLE local, because a parameter is its pattern's place: `ref mut x` in
+// `fn f(P { ref mut x, .. }: P)` borrows it mutably, with no `mut` written.
+lir_view::StmtRef SemaChecker::bind_param_pattern(TinyMapView pat, const std::string& synth,
+                                                  TypeRef ty, const char* site) {
+    std::string own = std::format("__pat_own_{}", tmp_var_count_++);
+    define(own, ty, /*is_mut=*/true);
+    lir::SLet sl;
+    sl.name = own; sl.type = ty; sl.is_mut = true;
+    sl.value = builder().var_ref(synth, ty);
+    if (is_move_type(ty)) mark_moved(synth);
+    std::vector<lir_view::StmtRef> blk;
+    blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+    let_pat_site_ = site;
+    blk.push_back(lower_let_pat_rhs(pat, builder().var_ref(own, ty), ty));
+    let_pat_site_ = nullptr;
+    lir::SBlock sb;
+    sb.transparent = true;
+    sb.body = lir_mirror_block(*cur_prog_, blk);
+    return make_stmt_emit(node_line_, std::move(sb));
 }
 
-bool SemaChecker::walk_param_pat(TinyMapView pat, TypeRef ty, bool tuple_list,
-                                 std::vector<ParamPatStep>& path,
-                                 std::vector<ParamPatBind>& out,
-                                 std::vector<std::string>& moved,
-                                 bool suppress, const std::string& root,
-                                 const std::string& pname) {
-    auto fail = [&](const std::string& m) {
-        error(std::format("parameter pattern '{}': {}", pname, m));
-        return false;
-    };
-    auto flag = [](TinyMapView n, const ast::Key& k) {
-        return n.has_key(k) && n.get(k.code).is_value() &&
-               n.get(k.code).as_value<uint8_t>() != 0;
-    };
-    // A move-typed leaf under an ARRAY step has no dotted move path, so its
-    // container's scope-exit drop cannot be told to skip it: refuse instead of
-    // emitting a double free (same rule lower_let applies to `arr[i]`).
-    auto note_move = [&](TypeRef lt) -> bool {
-        if (suppress || !is_move_type(lt)) return true;
-        std::string mp = param_pat_path(root, path, path.size());
-        if (mp.empty())
-            return fail(std::format(
-                "binding a value of the droppable type '{}' out of an array "
-                "element is not supported at a function parameter",
-                type_str(lt)));
-        moved.push_back(mp);
-        return true;
-    };
-    if (!ty || TypeRef(ty).kind() == LogosType::Kind::Error) return true;
-
-    int32_t c = tuple_list ? la::PAT_TUPLE.code : code_of(pat);
-
-    if (!tuple_list && c == la::PAT_WILD.code) {
-        if (!pat.has_key(la::NAME)) return true;
-        std::string bname(str_of(pat.get(la::NAME.code)));
-        if (bname == "_") return true;
-        if (flag(pat, la::IS_REF))
-            return fail(std::format(
-                "binding '{}': `ref` / `ref mut` binding modes are not supported "
-                "at a function parameter — take the parameter by reference instead",
-                bname));
-        if (!note_move(ty)) return false;
-        out.push_back({bname, ty, pat_byval_mut(pat), path});
-        return true;
-    }
-    if (!tuple_list && c == la::PAT_UNIT.code) return true;
-
-    if (c == la::PAT_TUPLE.code) {
-        TinyMapView list = pat;
-        if (!tuple_list) {
-            if (!pat.has_key(la::NAMES)) return true;
-            auto nav = pat.get(la::NAMES.code);
-            if (nav.is_null() || !nav.is_pointer()) return true;
-            list = map_of(nav);
-        }
-        if (TypeRef(ty).kind() != LogosType::Kind::Tuple)
-            return fail(std::format(
-                "a tuple pattern cannot destructure a value of type '{}'",
-                type_str(ty)));
-        auto elems = TypeRef(ty).tuple_elems();
-        if (!list.has_key(la::ITEMS)) return true;
-        auto items = arr_of(list.get(la::ITEMS.code));
-        std::vector<TinyMapView> subs;
-        int64_t rest_at = -1;
-        for (uint64_t i = 0; i < items.size(); ++i) {
-            auto en = map_of(items.get(i));
-            if (code_of(en) == la::PAT_REST.code) {
-                if (rest_at >= 0)
-                    return fail("a tuple pattern may contain at most one `..`");
-                rest_at = (int64_t)subs.size();
-                continue;
-            }
-            subs.push_back(en);
-        }
-        if (rest_at < 0 && subs.size() != elems.size())
-            return fail(std::format(
-                "expected a tuple with {} element(s), the pattern has {}",
-                elems.size(), subs.size()));
-        if (rest_at >= 0 && subs.size() > elems.size())
-            return fail(std::format(
-                "expected a tuple with {} element(s), the pattern names {} "
-                "besides `..`", elems.size(), subs.size()));
-        size_t head = (rest_at < 0) ? subs.size() : (size_t)rest_at;
-        for (size_t j = 0; j < subs.size(); ++j) {
-            size_t idx = (j < head) ? j : elems.size() - (subs.size() - j);
-            path.push_back({1, {}, (uint32_t)idx, elems[idx]});
-            bool ok = walk_param_pat(subs[j], elems[idx], false, path, out,
-                                     moved, suppress, root, pname);
-            path.pop_back();
-            if (!ok) return false;
-        }
-        return true;
-    }
-
-    if (c == la::PAT_STRUCT.code) {
-        if (TypeRef(ty).kind() != LogosType::Kind::Struct)
-            return fail(std::format(
-                "a struct pattern cannot destructure a value of type '{}'",
-                type_str(ty)));
-        std::string sname(TypeRef(ty).struct_name());
-        if (pat.has_key(la::NAME)) {
-            std::string pn(str_of(pat.get(la::NAME.code)));
-            if (pn != sname)
-                return fail(std::format(
-                    "struct '{}' does not match the parameter type '{}'",
-                    pn, type_str(ty)));
-        }
-        auto [_spkg, sinfo] = find_struct_by_name(sname);
-        if (!pat.has_key(la::ITEMS)) return true;
-        auto iav = pat.get(la::ITEMS.code);
-        if (!iav.is_pointer()) return true;
-        auto fm = map_of(iav);
-        if (!fm.has_key(la::ITEMS)) return true;
-        auto farr = arr_of(fm.get(la::ITEMS.code));
-        for (uint64_t k = 0; k < farr.size(); ++k) {
-            auto fnode = map_of(farr.get(k));
-            if (code_of(fnode) == la::PAT_REST.code) continue;
-            if (!fnode.has_key(la::NAME)) continue;
-            std::string fname(str_of(fnode.get(la::NAME.code)));
-            TypeRef ftype = error_t();
-            bool found = false;
-            if (sinfo)
-                for (auto& f : sinfo->fields)
-                    if (f.name == fname) { ftype = f.type; found = true; break; }
-            if (!found)
-                return fail(std::format("struct '{}' has no field '{}'",
-                                        sname, fname));
-            if (flag(fnode, la::IS_REF))
-                return fail(std::format(
-                    "field '{}': `ref` / `ref mut` binding modes are not supported "
-                    "at a function parameter — take the parameter by reference instead",
-                    fname));
-            path.push_back({0, fname, 0, ftype});
-            bool ok = true;
-            if (fnode.has_key(la::VALUE)) {
-                ok = walk_param_pat(map_of(fnode.get(la::VALUE.code)), ftype,
-                                    false, path, out, moved, suppress, root, pname);
-            } else if (!note_move(ftype)) {
-                ok = false;
-            } else {
-                out.push_back({fname, ftype, pat_byval_mut(fnode), path});
-            }
-            path.pop_back();
-            if (!ok) return false;
-        }
-        return true;
-    }
-
-    if (c == la::PAT_SLICE.code) {
-        if (TypeRef(ty).kind() != LogosType::Kind::Array)
-            return fail(std::format(
-                "an array pattern cannot destructure a value of type '{}'",
-                type_str(ty)));
-        size_t n = (size_t)TypeRef(ty).arr_size();
-        TypeRef et = TypeRef(ty).elem();
-        std::vector<TinyMapView> subs;
-        int64_t rest_at = -1;
-        if (pat.has_key(la::ITEMS)) {
-            auto iav = pat.get(la::ITEMS.code);
-            if (iav.is_pointer()) {
-                auto lm = map_of(iav);
-                if (lm.has_key(la::ITEMS)) {
-                    auto items = arr_of(lm.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i) {
-                        auto en = map_of(items.get(i));
-                        if (code_of(en) == la::PAT_REST.code) {
-                            if (rest_at >= 0)
-                                return fail("an array pattern may contain at "
-                                            "most one `..`");
-                            if (en.has_key(la::NAME))
-                                return fail(std::format(
-                                    "`{} @ ..` sub-slice binding is not supported "
-                                    "at a function parameter",
-                                    std::string(str_of(en.get(la::NAME.code)))));
-                            rest_at = (int64_t)subs.size();
-                            continue;
-                        }
-                        subs.push_back(en);
-                    }
-                }
-            }
-        }
-        if (rest_at < 0 && subs.size() != n)
-            return fail(std::format(
-                "expected an array with {} element(s), the pattern has {}",
-                n, subs.size()));
-        if (rest_at >= 0 && subs.size() > n)
-            return fail(std::format(
-                "expected an array with {} element(s), the pattern names {} "
-                "besides `..`", n, subs.size()));
-        // An array slot cannot be marked moved one at a time, so the WHOLE
-        // array place is: which is sound only when every element is bound.
-        if (!suppress && is_move_type(et)) {
-            std::string mp = param_pat_path(root, path, path.size());
-            if (mp.empty())
-                return fail(std::format(
-                    "an array of the droppable element type '{}' cannot be "
-                    "destructured through another array's element", type_str(et)));
-            if (rest_at >= 0)
-                return fail(std::format(
-                    "`..` in an array pattern of the droppable element type '{}': "
-                    "the elements it skips would never be dropped — name every "
-                    "element", type_str(et)));
-            for (auto& s : subs)
-                if (code_of(s) == la::PAT_WILD.code &&
-                    (!s.has_key(la::NAME) ||
-                     std::string(str_of(s.get(la::NAME.code))) == "_"))
-                    return fail(std::format(
-                        "`_` in an array pattern of the droppable element type "
-                        "'{}': the element it skips would never be dropped",
-                        type_str(et)));
-            moved.push_back(mp);
-            suppress = true;
-        }
-        size_t head = (rest_at < 0) ? subs.size() : (size_t)rest_at;
-        for (size_t j = 0; j < subs.size(); ++j) {
-            size_t idx = (j < head) ? j : n - (subs.size() - j);
-            path.push_back({2, {}, (uint32_t)idx, et});
-            bool ok = walk_param_pat(subs[j], et, false, path, out, moved,
-                                     suppress, root, pname);
-            path.pop_back();
-            if (!ok) return false;
-        }
-        return true;
-    }
-
-    if (!tuple_list && c == la::PAT_REST.code)
-        return fail("`..` is not a pattern on its own here");
-    return fail("only identifier, tuple, struct and array patterns are "
-                "irrefutable and can appear at a function parameter");
+// A parameter's destructuring pattern as a `let` pattern node (the grammar's
+// single-alternative PAT_OR wrapper removed).
+TinyMapView SemaChecker::param_pattern_node(TinyMapView pnode) {
+    if (code_of(pnode) == la::PAT_OR && pnode.has_key(la::ITEMS) &&
+        arr_of(pnode.get(la::ITEMS.code)).size() == 1)
+        pnode = map_of(arr_of(pnode.get(la::ITEMS.code)).get(0));
+    return pnode;
 }
 
 
@@ -1272,7 +1057,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     struct PatFnParam {
         std::string                 synth;
         TypeRef                     ty;
-        std::vector<ParamPatBind>   binds;
+        lir_view::StmtRef           pro;    // `let PAT = synth;`
     };
     std::vector<PatFnParam> fn_pat_params;
 
@@ -1312,46 +1097,17 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                         pt = error_t();
                     }
 
-                    // BOTH destructuring parameter doors — `(a, b): (T, U)`
-                    // (PARAM.NAMES) and `S { x }: S` / `[a, b]: [T; 2]`
-                    // (PARAM.PAT) — run ONE recursive binder walk. It declares
-                    // every leaf at any depth, checks the pattern's shape
-                    // against the parameter TYPE, and records the move paths;
-                    // lower_fn replays `binds` into the body prologue.
-                    bool pat_door  = false;
-                    TinyMapView pnode{};
-                    bool as_tuple_list = false;
-                    if (p.has_key(la::PAT)) {
-                        auto pav = p.get(la::PAT.code);
-                        if (!pav.is_null() && pav.is_pointer()) {
-                            pnode = map_of(pav); pat_door = true;
-                        }
-                    }
-                    if (!pat_door && p.has_key(la::NAMES)) {
-                        auto nav = p.get(la::NAMES.code);
-                        if (!nav.is_null() && nav.is_pointer()) {
-                            pnode = map_of(nav); pat_door = true;
-                            as_tuple_list = true;
-                        }
-                    }
-                    if (pat_door) {
-                        std::string synth =
-                            as_tuple_list
-                                ? std::format("__tup_param_{}__{}", mangled, i)
-                                : std::format("__pat_param_{}__{}", mangled, i);
+                    // A destructuring parameter (`(a, b): (T, U)`, `S { x }: S`,
+                    // any irrefutable pattern; PARAM.PAT) is `let PAT = synth;`
+                    // at the top of the body: the `let` door's lowering; a
+                    // refutable one is E0005.
+                    if (p.has_key(la::PAT) && p.get(la::PAT.code).is_pointer()) {
+                        std::string synth = std::format("__pat_param_{}__{}", mangled, i);
                         define(synth, pt);
-                        std::vector<ParamPatStep>  ppath;
-                        std::vector<ParamPatBind>  binds;
-                        std::vector<std::string>   moved;
-                        std::string where = std::format("#{}", i);
-                        if (p.has_key(la::NAME))
-                            where = std::string(str_of(p.get(la::NAME.code)));
-                        walk_param_pat(pnode, pt, as_tuple_list, ppath, binds,
-                                       moved, false, synth, where);
-                        for (auto& b : binds) define(b.name, b.ty, b.is_mut);
-                        for (auto& m : moved) mark_moved(m);
+                        auto pro = bind_param_pattern(param_pattern_node(map_of(p.get(la::PAT.code))),
+                                                      synth, pt, "function argument");
                         params.push_back({synth, pt, false});
-                        fn_pat_params.push_back({synth, pt, std::move(binds)});
+                        fn_pat_params.push_back({synth, pt, pro});
                         continue;
                     }
 
@@ -1782,34 +1538,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         body = lower_block(body_node);
         tail_as_return_ = saved_tail_as_return;
         match_in_tail_position_ = false;
-        // Replay the recursive walk's leaf bindings as a body prologue:
-        // `let <name> = <synth><projection>;` for each, at any depth and at
-        // both destructuring parameter doors.
+        // The parameter patterns' `let PAT = synth;` statements open the body.
         if (!fn_pat_params.empty()) {
             std::vector<lir_view::StmtRef> prologue;
-            for (auto& pp : fn_pat_params) {
-                for (auto& b : pp.binds) {
-                    lir::LExprPtr e = builder().var_ref(pp.synth, pp.ty);
-                    for (auto& st : b.path) {
-                        if (st.kind == 0)
-                            e = builder().field_read(std::move(e), st.field, st.ty);
-                        else if (st.kind == 1)
-                            e = builder().tuple_index(std::move(e), st.idx, st.ty);
-                        else
-                            e = builder().index_read(
-                                std::move(e),
-                                builder().lit_int((int64_t)st.idx,
-                                                  prim(LogosType::Kind::I64)),
-                                st.ty);
-                    }
-                    lir::SLet sl;
-                    sl.name   = b.name;
-                    sl.type   = b.ty;
-                    sl.is_mut = b.is_mut;
-                    sl.value  = std::move(e);
-                    prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                }
-            }
+            for (auto& pp : fn_pat_params) prologue.push_back(pp.pro);
             body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
             body = lir_mirror_block(*cur_prog_, prologue);
         }

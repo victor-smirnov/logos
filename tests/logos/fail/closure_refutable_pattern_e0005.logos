@@ -1,0 +1,3 @@
+// rustc 1.98.1: error[E0005]: refutable pattern in closure argument
+package closure_refutable_pattern_e0005;
+fn main() -> i32 { let c = |Option::Some(y): Option<i64>| y; return c(Option::Some(2i64)) as i32; }

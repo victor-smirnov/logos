@@ -1,0 +1,12 @@
+// Untyped closure pattern parameters `|(x, y)|`, `|&(x, y)|`, typed from the expected closure type (rustc 1.98.1: 12 11 7).
+package closure_untyped_pattern_params;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn ap(f: impl Fn((i64, i64)) -> i64, t: (i64, i64)) -> i64 { return f(t); }
+fn apr(f: impl Fn(&(i64, i64)) -> i64, t: &(i64, i64)) -> i64 { return f(t); }
+fn main() -> i32 {
+    let a = ap(|(x, y)| x * y, (3i64, 4i64));
+    let b = apr(|&(x, y)| x + y, &(5i64, 6i64));
+    let c = apr(|(x, y)| *x - *y, &(9i64, 2i64));
+    unsafe { printf("%lld %lld %lld\n".as_ptr(), a, b, c); }
+    return 0i32;
+}

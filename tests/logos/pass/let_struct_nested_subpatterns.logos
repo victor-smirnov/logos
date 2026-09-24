@@ -1,0 +1,12 @@
+// `let P { x, t: (a, b) } = p` and `let P { ref mut x, .. } = p` bind through the structural let lowering (rustc 1.98.1: exit 0).
+package let_struct_nested_subpatterns;
+struct P { x: i64, t: (i64, i64) }
+fn main() -> i32 {
+    let mut p = P { x: 1i64, t: (2i64, 3i64) };
+    let P { x, t: (a, b) } = p;
+    let q = ((4i64, 5i64), [6i64, 7i64]);
+    let ((c, _), [d, ..]) = q;
+    let P { ref mut x, .. } = p;
+    *x = *x + 1i64;
+    return (*x + a + b + c + d - 17i64) as i32;
+}

@@ -9197,7 +9197,7 @@ private:
     lir_view::StmtRef lower_let_pat(writ::TinyMapView node);
     lir_view::StmtRef lower_let_pat_rhs(writ::TinyMapView pat_node, lir::LExprPtr rhs, TypeRef rhs_type);
     lir_view::StmtRef refuse_refutable_let(lir::Pattern& probe, lir::LExprPtr rhs, TypeRef rhs_type);
-    bool let_pat_in_for_ = false;   // lower_let_pat_rhs runs for a `for` header (E0005 wording)
+    const char* let_pat_site_ = nullptr;   // E0005 wording: null = `let`; else "`for` loop binding", "function argument", …
     // The body of lower_let_pat once the source EXPRESSION is already lowered:
     // the `let n @ SUB = e` delegation re-enters it with the sub-pattern and a
     // reference to the name it just bound.
@@ -9583,20 +9583,11 @@ private:
     // builder is complete on return.
     DeclBuilder lower_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
                          std::vector<TypeParam>* out_type_params = nullptr);
-    // ONE recursive binder walk for every destructuring FUNCTION-PARAMETER
-    // pattern, at any depth. Rationale + the shape lattice: PROBES.md 2026-09-09c.
-    struct ParamPatStep { uint8_t kind; std::string field; uint32_t idx; TypeRef ty; };
-    struct ParamPatBind { std::string name; TypeRef ty; bool is_mut;
-                          std::vector<ParamPatStep> path; };
-    static std::string param_pat_path(const std::string& root,
-                                      const std::vector<ParamPatStep>& p,
-                                      size_t upto);
-    bool walk_param_pat(writ::TinyMapView pat, TypeRef ty, bool tuple_list,
-                        std::vector<ParamPatStep>& path,
-                        std::vector<ParamPatBind>& out,
-                        std::vector<std::string>& moved,
-                        bool suppress, const std::string& root,
-                        const std::string& pname);
+    // A parameter's destructuring pattern as a `let` pattern node; bound as
+    // `let PAT = synth;` (bind_param_pattern).
+    writ::TinyMapView param_pattern_node(writ::TinyMapView pnode);
+    lir_view::StmtRef bind_param_pattern(writ::TinyMapView pat, const std::string& synth, TypeRef ty,
+                                         const char* site);
     // Derive `lifetime_outlives` from the fn's params/return implied bounds
     // plus its where-clause (and merge where-clause type-param lifetime
     // bounds). Reads `node` + the fn's signature locals; appends to

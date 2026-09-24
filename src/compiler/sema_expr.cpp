@@ -18610,9 +18610,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // The param itself takes a synth tuple-typed name; a body prologue
     // emits `let (a, b, …) = __tup_param_*;` so user code sees the
     // destructured names.
-    struct TupleParam { std::vector<ParamPatBind> binds;
-                        std::vector<std::string>  moved;
-                        std::string synth; TypeRef ty; };
+    struct TupleParam { writ::TinyMapView pat; std::string synth; TypeRef ty;
+                        lir_view::StmtRef pro; };
     std::vector<TupleParam> tuple_params;
     std::vector<lir::LParam> params;
     std::vector<TypeRef> param_types;
@@ -18649,7 +18648,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     TypeRef ptype = p.has_key(la::TYPE)
                         ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
                     // CP-cm-14: apply hint when the param is untyped.
-                    if (!p.has_key(la::TYPE) && !p.has_key(la::NAMES) &&
+                    if (!p.has_key(la::TYPE) &&
                         i < hint_param_types.size() && hint_param_types[i])
                         ptype = hint_param_types[i];
                     // Census of the closure-parameter population itself —
@@ -18708,37 +18707,18 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                         }
                         if (!mregs_.empty()) clos_in_regs_.push_back(mregs_[0]);
                     }
-                    // C5-cl-07: tuple-destructure param `(a, b): (T1, T2)`.
-                    // Grammar emits PARAM with NAMES = {ITEMS: [name, …]}
-                    // and TYPE = tuple type. Synthesise a single param,
-                    // collect the binding names + tuple type for the
-                    // body-prologue rewrite below.
-                    // THE SAME recursive binder walk the fn-parameter door
-                    // runs (sema_decl.cpp walk_param_pat): a closure parameter
-                    // is a parameter, and its door was a verbatim copy of the
-                    // one-level whitelist that bound a nested sub-pattern to
-                    // nothing. PROBES.md 2026-09-09c.
-                    if (p.has_key(la::NAMES)) {
-                        auto nav = p.get(la::NAMES.code);
-                        if (!nav.is_null() && nav.is_pointer()) {
-                            auto nmap = map_of(nav);
-                            if (nmap.has_key(la::ITEMS)) {
-                                std::string synth = std::format(
-                                    "__tup_param_{}__{}", closure_id, i);
-                                std::vector<ParamPatStep> ppath;
-                                std::vector<ParamPatBind> binds;
-                                std::vector<std::string>  moved;
-                                walk_param_pat(nmap, ptype, true, ppath, binds,
-                                               moved, false, synth,
-                                               std::format("#{}", i));
-                                tuple_params.push_back({std::move(binds),
-                                                        std::move(moved),
-                                                        synth, ptype});
-                                params.push_back({synth, ptype});
-                                param_types.push_back(ptype);
-                                continue;
-                            }
-                        }
+                    // A destructuring parameter `|(a, b): (T1, T2)|`,
+                    // `|P { x, .. }: P|` (PARAM.PAT): a synth parameter, and the
+                    // pattern binds as `let PAT = synth;` at the top of the body,
+                    // as the fn-parameter door does.
+                    if (p.has_key(la::PAT) && p.get(la::PAT.code).is_pointer()) {
+                        std::string synth = std::format(
+                            "__tup_param_{}__{}", closure_id, i);
+                        tuple_params.push_back({param_pattern_node(map_of(p.get(la::PAT.code))),
+                                                synth, ptype, {}});
+                        params.push_back({synth, ptype});
+                        param_types.push_back(ptype);
+                        continue;
                     }
                     // C5-cl-03: `|ref x: T|` — grammar emits PARAM with
                     // IS_REF=true AND a TYPE. `&self` / `&mut self` emit
@@ -18893,16 +18873,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // C5-cl-03: register user-visible `ref`-bound names as &T aliases.
     for (auto& rb : ref_binds)
         define(rb.user, make_ref(false, rb.ty));
-    // C5-cl-07: register tuple-destructure parameter user-names with
-    // their element types.
-    for (auto& tp : tuple_params) {
-        for (auto& b : tp.binds) define(b.name, b.ty, b.is_mut);
-        // The prologue's `let <name> = <synth><projection>;` MOVES the place
-        // out of the synth param — mark it so the synth's scope-exit Drop skips
-        // it (double-free else). HERE, before the body is lowered: that
-        // lowering is where the scope-exit drops are built.
-        for (auto& m : tp.moved) mark_moved(m);
-    }
+    // A pattern parameter's `let PAT = synth;`: it defines the names.
+    // A pattern parameter is `let PAT = synth;` at the top of the body (the
+    // `let` door's lowering). HERE, before the body is lowered: the moves it
+    // records out of the synth are what the scope-exit drops read.
+    for (auto& tp : tuple_params)
+        tp.pro = bind_param_pattern(tp.pat, tp.synth, tp.ty, "closure argument");
 
     // Collect current scope variables (for capture detection)
     StrSet param_names;
@@ -18963,29 +18939,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             sl.value  = builder().addr_of(rb.synth, sl.type, BorrowOrigin::Explicit);
             prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
-        for (auto& tp : tuple_params) {
-            for (auto& b : tp.binds) {
-                lir::LExprPtr e = builder().var_ref(tp.synth, tp.ty);
-                for (auto& st : b.path) {
-                    if (st.kind == 0)
-                        e = builder().field_read(std::move(e), st.field, st.ty);
-                    else if (st.kind == 1)
-                        e = builder().tuple_index(std::move(e), st.idx, st.ty);
-                    else
-                        e = builder().index_read(
-                            std::move(e),
-                            builder().lit_int((int64_t)st.idx,
-                                              prim(LogosType::Kind::I64)),
-                            st.ty);
-                }
-                lir::SLet sl;
-                sl.name   = b.name;
-                sl.type   = b.ty;
-                sl.is_mut = b.is_mut;
-                sl.value  = std::move(e);
-                prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
-            }
-        }
+        for (auto& tp : tuple_params) prologue.push_back(tp.pro);
         prologue.insert(prologue.end(),
                         std::make_move_iterator(body.begin()),
                         std::make_move_iterator(body.end()));
@@ -25189,8 +25143,7 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
                 auto p = map_of(parr.get(i));
                 if (p.is_null() || code_of(p) != la::PARAM) continue;
                 if (!p.has_key(la::NAME.code) || !p.has_key(la::TYPE.code)
-                        || p.has_key(la::PAT.code)
-                        || p.has_key(la::NAMES.code)) {
+                        || p.has_key(la::PAT.code)) {
                     out.err = std::format(
                         "mapping '{}': parameters must be simple "
                         "`name: Type` bindings", mname);
@@ -25643,8 +25596,7 @@ bool SemaChecker::reconstruct_container_clauses(writ::ArrayView carr,
                         if (p.is_null() || code_of(p) != la::PARAM) continue;
                         if (!p.has_key(la::NAME.code)
                                 || !p.has_key(la::TYPE.code)
-                                || p.has_key(la::PAT.code)
-                                || p.has_key(la::NAMES.code)) {
+                                || p.has_key(la::PAT.code)) {
                             err = std::format(
                                 "container '{}': entry columns must be "
                                 "simple `name: type` bindings", cname);
@@ -26039,8 +25991,7 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
                 auto pv = map_of(parr.get(i));
                 if (pv.is_null() || code_of(pv) != la::PARAM) continue;
                 if (!pv.has_key(la::NAME.code) || !pv.has_key(la::TYPE.code)
-                        || pv.has_key(la::PAT.code)
-                        || pv.has_key(la::NAMES.code)) {
+                        || pv.has_key(la::PAT.code)) {
                     error(std::format(
                         "deem '{}': parameters must be simple `name: Type` "
                         "bindings", qname));

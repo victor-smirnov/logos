@@ -606,11 +606,11 @@ A bare identifier pattern that matches a `use Type.{V, ..}` variant alias and na
 
 *Source: src/compiler/sema_stmt.cpp#L5106-L5132*
 
-### `pat.param.struct-slice-shape` — Struct/slice pattern shapes at fn-parameter position
+### `pat.param.struct-slice-shape` — Any pattern at fn-parameter position
 
-At fn-parameter position (as PAT in the pattern-typed param form), a pattern may be a struct shape `IDENT { fields }` / `IDENT {}`, or a slice shape `[elems]` / `[]`; refutability of the overall pattern is checked in sema, not the grammar.
+At fn-parameter and closure-parameter position, a pattern `pat_single` followed by `: T` is a pattern parameter (PARAM.PAT); it is the last alternative, so `x: T` stays a plain parameter, and the `&self` / `&mut self` shorthands follow it so `&P { .. }: &P` is a pattern. A closure parameter may also be an untyped `pat_single`. Refutability is checked in sema, not the grammar.
 
-*Source: tools/peg_gen_cpp/grammars/logos.peg#L1444-L1453*
+*Source: tools/peg_gen_cpp/grammars/logos.peg (param, closure_param)*
 
 ### `pat.wild.ident` — Identifier / wildcard pattern
 

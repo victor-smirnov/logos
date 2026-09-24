@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+DROP 1
+DROP 2
+DROP 4

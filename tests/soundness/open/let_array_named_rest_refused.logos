@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row let_array_named_rest_refused (tier 3). LEGAL RUST REFUSED.
+// A named rest `xs @ ..` in an ARRAY pattern at a let-position door — `let`, a
+// function or closure parameter — is refused: "let array pattern: a named rest
+// (`xs @ ..`) is not supported at let-position". Over a fixed-size array Rust
+// binds `xs` BY VALUE as the sub-array `[T; N - k]` (here `[i64; 2]`), not as a
+// slice. The match door binds a named rest as a sub-slice, which is the wrong
+// type here. Rowed 2026-09-24 when the parameter door became `let PAT = param`
+// (reason 3: a by-value sub-array binder is its own lowering, cost unpriced).
+// Legality MEASURED with rustc 1.98.1 --edition 2024: compiles, exit 0.
+package let_array_named_rest_refused;
+fn probe([a, xs @ ..]: [i64; 3]) -> i64 { return a * 100i64 + xs[0] * 10i64 + xs[1]; }
+fn main() -> i32 {
+    let arr = [1i64, 2i64, 3i64];
+    let [p, rest @ ..] = arr;
+    let r = probe(arr) + p + rest.len() + rest[1];
+    return (r - 129i64) as i32;
+}
