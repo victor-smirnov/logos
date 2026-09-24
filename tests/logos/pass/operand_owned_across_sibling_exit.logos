@@ -1,0 +1,34 @@
+// An evaluated operand (binary operator, call argument, struct/tuple field) is dropped when a LATER sibling returns / continues / `?`s, and handed to its consumer exactly once when none does (rustc 1.98.1).
+package operand_owned_across_sibling_exit;
+use logos.lang.cmp;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
+impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+struct P { a: D, b: D }
+fn mk(v: i64, s: *mut i64) -> D { return D { v: v, s: s }; }
+fn two(a: D, b: D) -> i64 { return a.v + b.v; }
+fn rd(s: *mut i64) -> i64 { return unsafe { *s }; }
+fn opt(x: bool) -> Option<i64> { if x { return Option::Some(1i64); } return Option::None; }
+fn t_binop(e: bool, s: *mut i64) -> i64 { let r: bool = mk(2i64, s) == { if e { return 5i64; } mk(3i64, s) }; if r { return 0i64; } return 1i64; }
+fn t_call(e: bool, s: *mut i64) -> i64 { return two(mk(2i64, s), { if e { return 5i64; } mk(3i64, s) }); }
+fn t_struct(e: bool, s: *mut i64) -> i64 { let p: P = P { a: mk(2i64, s), b: { if e { return 5i64; } mk(3i64, s) } }; return p.a.v + p.b.v; }
+fn t_tuple(e: bool, s: *mut i64) -> i64 { let p: (D, D) = (mk(2i64, s), { if e { return 5i64; } mk(3i64, s) }); return p.0.v + p.1.v; }
+fn t_cont(e: bool, s: *mut i64) -> i64 { let mut n: i64 = 0i64; let mut k: i64 = 0i64; while n < 2i64 { n = n + 1i64; let r: bool = mk(2i64, s) == { if e { continue; } mk(3i64, s) }; if !r { k = k + 1i64; } } return k; }
+fn t_try(e: bool, s: *mut i64) -> Option<i64> { let v: i64 = two(mk(2i64, s), mk(opt(!e)? + 2i64, s)); return Option::Some(v); }
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let s: *mut i64 = &mut q;
+    let mut i: i32 = 0i32;
+    while i < 2i32 {
+        let e: bool = i == 0i32;
+        let r1: i64 = t_binop(e, s); let c1: i64 = rd(s); unsafe { *s = 0i64; }
+        let r2: i64 = t_call(e, s); let c2: i64 = rd(s); unsafe { *s = 0i64; }
+        let r3: i64 = t_struct(e, s); let c3: i64 = rd(s); unsafe { *s = 0i64; }
+        let r4: i64 = t_tuple(e, s); let c4: i64 = rd(s); unsafe { *s = 0i64; }
+        let r5: i64 = t_cont(e, s); let c5: i64 = rd(s); unsafe { *s = 0i64; }
+        let r6: i64 = match t_try(e, s) { Option::Some(x) => x, Option::None => -1i64 }; let c6: i64 = rd(s); unsafe { *s = 0i64; }
+        unsafe { printf("%lld %lld | %lld %lld | %lld %lld | %lld %lld | %lld %lld | %lld %lld\n".as_ptr(), r1, c1, r2, c2, r3, c3, r4, c4, r5, c5, r6, c6); }
+        i = i + 1i32;
+    }
+    return 0i32;
+}

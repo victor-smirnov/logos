@@ -1,0 +1,20 @@
+// A generic enum ctor that fixes no argument (`None`, `Option::None`) takes them from its position: an annotated array/tuple element, an earlier or later concrete array element, a `vec!` element (rustc 1.98.1).
+package generic_enum_ctor_inferred_in_literals;
+use logos.mem.collections.vec;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn o(x: &Option<i64>) -> i64 { match x { Option::Some(v) => { return *v; } Option::None => { return -1i64; } } }
+fn main() -> i32 {
+    let a1: [Option<i64>; 2] = [Option::None, Option::Some(1i64)];
+    let a2 = [Option::Some(2i64), Option::None];
+    let a3 = [None, Some(3i64), None];
+    let t1: (Option<i64>, i64) = (Option::None, 4i64);
+    let n1: [(Option<i64>, i64); 2] = [(Option::None, 5i64), (Option::Some(6i64), 7i64)];
+    let n2: [[Option<i64>; 1]; 2] = [[Option::None], [Option::Some(8i64)]];
+    let v1: Vec<Option<i64>> = vec![Option::Some(9i64), Option::None];
+    let v2: Vec<Result<i64, bool>> = vec![Result::Ok(10i64), Result::Err(true)];
+    let r2: i64 = match &v2[1] { Result::Ok(x) => *x, Result::Err(b) => { if *b { 11i64 } else { 0i64 } } };
+    unsafe { printf("%lld %lld | %lld %lld | %lld %lld %lld | %lld %lld | %lld %lld %lld | %lld %lld | %lld %lld | %lld %lld\n".as_ptr(),
+        o(&a1[0]), o(&a1[1]), o(&a2[0]), o(&a2[1]), o(&a3[0]), o(&a3[1]), o(&a3[2]), o(&t1.0), t1.1,
+        o(&n1[0].0), n1[0].1, o(&n1[1].0), o(&n2[0][0]), o(&n2[1][0]), o(&v1[0]), o(&v1[1]), v2.len() as i64, r2); }
+    return 0i32;
+}

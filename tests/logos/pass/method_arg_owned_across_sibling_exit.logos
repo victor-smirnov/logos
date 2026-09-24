@@ -1,0 +1,18 @@
+// Method-call and associated-fn arguments: the earlier argument is dropped when a later one returns (rustc 1.98.1).
+package method_arg_owned_across_sibling_exit;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
+struct K { w: i64 }
+impl K { fn two(&self, a: D, b: D) -> i64 { return a.v + b.v + self.w; } fn mk2(v: i64, s: *mut i64) -> D { return D { v: v, s: s }; } }
+fn mk(v: i64, s: *mut i64) -> D { return D { v: v, s: s }; }
+fn t_m(e: bool, s: *mut i64) -> i64 { let k: K = K { w: 0i64 }; return k.two(mk(2i64, s), { if e { return 5i64; } mk(3i64, s) }); }
+fn t_s(e: bool, s: *mut i64) -> i64 { let k: K = K { w: 0i64 }; return k.two(K::mk2(2i64, s), { if e { return 5i64; } K::mk2(3i64, s) }); }
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let s: *mut i64 = &mut q;
+    let r1: i64 = t_m(true, s); let c1: i64 = unsafe { *s }; unsafe { *s = 0i64; }
+    let r2: i64 = t_m(false, s); let c2: i64 = unsafe { *s }; unsafe { *s = 0i64; }
+    let r3: i64 = t_s(true, s); let c3: i64 = unsafe { *s }; unsafe { *s = 0i64; }
+    unsafe { printf("%lld %lld | %lld %lld | %lld %lld\n".as_ptr(), r1, c1, r2, c2, r3, c3); }
+    return 0i32;
+}

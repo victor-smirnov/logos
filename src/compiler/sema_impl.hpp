@@ -4109,6 +4109,17 @@ private:
     // Per binding: a shadow's initialisation must not answer for the outer one.
     int64_t decode_char_lit_(std::string_view sv);
     bool ast_has_break_or_continue(writ::TinyMapView root);
+    bool ast_has_exit(writ::TinyMapView root);
+    // AN EVALUATED OPERAND IS OWNED BEFORE A LATER SIBLING CAN EXIT. Operands of
+    // a binary operator, a call, a struct / tuple / array literal evaluate left
+    // to right; a sibling that `return`s / `break`s / `continue`s / `?`s after
+    // an earlier one produced a droppable temporary must drop that temporary on
+    // its way out (Rust). The earlier operands of such a list (by AST node) are
+    // owned by a statement temp the moment they are lowered, so the exit's
+    // scope drops include it; the temp is released (marked moved) once the
+    // whole list is lowered, and the consumer takes the value over.
+    std::unordered_set<const void*> own_on_sibling_exit_;
+    std::vector<std::string> sibling_owned_temps_;
     // A loop body that ENDS in an unconditional `return` and holds no `break` /
     // `continue` is left normally only without running: its moves never reach
     // the loop exit, whose move state is then exactly the pre-loop one.
@@ -8283,6 +8294,34 @@ private:
     // type — `let x: &[T] = if c { &a3 } else { &a5 }` — had nothing to be
     // coerced TO and simply errored.
     TypeRef hint_expected_type_ = nullptr;
+    // The position hints for ONE element of a literal whose element type is
+    // known (`[T; N]` / `(A, B)` annotation, or an earlier array element):
+    // enum (a nullary generic ctor `Option::None` takes its arguments from
+    // it), tuple, array element. Restored on scope exit.
+    struct ElemHintScope {
+        SemaChecker& s;
+        TypeRef enum_, tuple_, arr_;
+        // `scalar_arr`: also hint an array of primitive scalars. A tuple
+        // position does not: its own element check reports an out-of-range
+        // literal with the tuple context (`tuple element 0: array element 1`).
+        ElemHintScope(SemaChecker& sc, TypeRef expected, bool scalar_arr = true)
+            : s(sc), enum_(sc.hint_enum_type_), tuple_(sc.hint_tuple_type_),
+              arr_(sc.hint_arr_elem_type_) {
+            using K = LogosType::Kind;
+            TypeRef e = expected;
+            s.hint_enum_type_  = e && e.kind() == K::Enum ? e : TypeRef(nullptr);
+            s.hint_tuple_type_ = e && e.kind() == K::Tuple ? e : TypeRef(nullptr);
+            TypeRef ae = e && (e.kind() == K::Array || e.kind() == K::Slice) ? e.elem() : TypeRef(nullptr);
+            if (ae && !scalar_arr &&
+                (is_integer_kind(ae.kind()) || ae.kind() == K::F32 || ae.kind() == K::F64 ||
+                 ae.kind() == K::Bool || ae.kind() == K::Char) && ae.kind() != K::Enum)
+                ae = nullptr;
+            s.hint_arr_elem_type_ = ae;
+        }
+        ~ElemHintScope() {
+            s.hint_enum_type_ = enum_; s.hint_tuple_type_ = tuple_; s.hint_arr_elem_type_ = arr_;
+        }
+    };
 
     // T2-28: when a call is written with an explicit package qualifier
     // (`logos.lang.mem::replace(...)`), this holds the dotted package

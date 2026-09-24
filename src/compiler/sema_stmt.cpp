@@ -113,6 +113,35 @@ bool SemaChecker::loop_has_targeting_break(TinyMapView loop_node) {
 // depth; closures and nested fns are function boundaries)? Deliberately wider
 // than loop_has_targeting_break: its caller only needs a sound "none", and a
 // loop reached through a label wrapper it cannot see would be missed there.
+// Any control exit out of an expression: `return`, `break`, `continue`, `?`
+// (closures and nested fns excluded — their exits are their own).
+bool SemaChecker::ast_has_exit(TinyMapView root) {
+    if (ast_has_break_or_continue(root)) return true;
+    bool found = false;
+    std::function<void(TinyMapView)> walk = [&](TinyMapView n) {
+        if (found || n.is_null()) return;
+        int32_t c = code_of(n);
+        if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;
+        if (c == la::RETURN || c == la::RETURN_EXPR || c == la::TRY_EXPR) { found = true; return; }
+        uint64_t bm = n.bitmap();
+        for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            AnyVal av = n.get(key);
+            if (av.is_null() || !av.is_pointer()) continue;
+            const uint8_t* pv = av.resolve();
+            if (!pv) continue;
+            uint64_t tc = logos::writ::TypeTag::read_before(pv).type_code();
+            if (tc == logos::writ::type_hash::TinyObjectMap) walk(map_of(av));
+            else if (tc == logos::writ::type_hash::Array) {
+                auto arr = arr_of(av);
+                for (uint64_t i = 0; i < arr.size() && !found; ++i) walk(map_of(arr.get(i)));
+            }
+        }
+    };
+    walk(root);
+    return found;
+}
+
 bool SemaChecker::ast_has_break_or_continue(TinyMapView root) {
     namespace lh = logos::writ;
     bool found = false;

@@ -1079,12 +1079,27 @@ bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
 
 lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     int32_t c = code_of(expr); (void)c;
-    lir::LExprPtr inner = expr.has_key(la::VALUE)
-        ? lower_expr(map_of(expr.get(la::VALUE.code)))
-        : error_expr();
-    TypeRef target = expr.has_key(la::TYPE)
-        ? resolve_type(map_of(expr.get(la::TYPE.code)))
-        : error_t();
+    // `[] as [T; 0]` / `[a, b] as [T; 2]`: an array literal takes its element
+    // type from the cast target, as from any expected-type position.
+    const bool arr_lit_operand = expr.has_key(la::VALUE) && expr.has_key(la::TYPE) &&
+                                 code_of(map_of(expr.get(la::VALUE.code))) == la::ARR_LIT;
+    TypeRef target = arr_lit_operand ? resolve_type(map_of(expr.get(la::TYPE.code))) : TypeRef(nullptr);
+    lir::LExprPtr inner;
+    if (arr_lit_operand && target && TypeRef(target).kind() == LogosType::Kind::Array) {
+        TypeRef saved = hint_arr_elem_type_;
+        hint_arr_elem_type_ = TypeRef(target).elem();
+        inner = lower_expr(map_of(expr.get(la::VALUE.code)));
+        hint_arr_elem_type_ = saved;
+        if (inner && types_equal(expr_type(inner), target)) return inner;   // identity cast
+    } else {
+        inner = expr.has_key(la::VALUE)
+            ? lower_expr(map_of(expr.get(la::VALUE.code)))
+            : error_expr();
+    }
+    if (!arr_lit_operand)
+        target = expr.has_key(la::TYPE)
+            ? resolve_type(map_of(expr.get(la::TYPE.code)))
+            : error_t();
 
     // Struct → struct unsize coercion (Rust CoerceUnsized): `Rc<A> as Rc<dyn
     // Tr>` rebuilds the target struct, unsizing the changed field. Shared with
@@ -1405,7 +1420,61 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
 // diagnostics; only the post-return value is restored.
 lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     uint32_t saved_line = node_line_;
+    // The operand list of this node, in evaluation order; every operand before
+    // the LAST one that can exit must be owned while its later siblings run.
+    if (cur_stmt_temp_hoist_ && !expr.is_null()) {
+        std::vector<TinyMapView> ops;
+        int32_t c = code_of(expr);
+        auto items_of = [&](const auto& key, bool value_field) {
+            if (!expr.has_key(key)) return;
+            AnyVal av = expr.get(key.code);
+            if (av.is_null() || !av.is_pointer()) return;
+            const uint8_t* pv = av.resolve();
+            if (!pv || logos::writ::TypeTag::read_before(pv).type_code() != logos::writ::type_hash::Array)
+                return;   // not a list (a single node / an arg-list map): no siblings to order
+            auto arr = arr_of(av);
+            for (uint64_t i = 0; i < arr.size(); ++i) {
+                auto m = map_of(arr.get(i));
+                if (value_field) {
+                    if (!m.is_null() && m.has_key(la::VALUE)) ops.push_back(map_of(m.get(la::VALUE.code)));
+                } else ops.push_back(m);
+            }
+        };
+        if (c == la::BINOP) {
+            if (expr.has_key(la::LHS)) ops.push_back(map_of(expr.get(la::LHS.code)));
+            if (expr.has_key(la::RHS)) ops.push_back(map_of(expr.get(la::RHS.code)));
+        } else if (c == la::CALL || c == la::GENERIC_CALL || c == la::METHOD_CALL ||
+                   c == la::STATIC_CALL) {
+            items_of(la::ARGS, false);
+        } else if (c == la::STRUCT_LIT) {
+            items_of(la::ITEMS, true);
+        } else if (c == la::TUPLE_LIT || c == la::ARR_LIT) {
+            items_of(la::ITEMS, false);
+        }
+        if (ops.size() > 1) {
+            size_t last_exit = 0;
+            for (size_t i = 1; i < ops.size(); ++i)
+                if (!ops[i].is_null() && ast_has_exit(ops[i])) last_exit = i;
+            for (size_t i = 0; i < last_exit; ++i)
+                if (!ops[i].is_null()) own_on_sibling_exit_.insert(ops[i].ptr());
+        }
+    }
+    const size_t owned_mark = sibling_owned_temps_.size();
     auto r = lower_expr_inner(expr);
+    // This node's list is lowered: its owned operands are released to it.
+    for (size_t i = owned_mark; i < sibling_owned_temps_.size(); ++i)
+        mark_moved(sibling_owned_temps_[i]);
+    sibling_owned_temps_.resize(owned_mark);
+    if (!expr.is_null() && own_on_sibling_exit_.erase(expr.ptr()) && r && cur_stmt_temp_hoist_ &&
+        expr_type(r) && is_move_type(expr_type(r)) && is_hoistable_temp_rvalue(expr_ref_of(r))) {
+        std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+        TypeRef rt = expr_type(r);
+        register_stmt_temp(nm, rt, nullptr, false);
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(builder().stmt_assign(nm, std::move(r), node_line_));
+        r = builder().block_expr(lir_mirror_block(*cur_prog_, blk), builder().var_ref(nm, rt), rt);
+        sibling_owned_temps_.push_back(nm);
+    }
     node_line_ = saved_line;
     return r;
 }
@@ -2246,10 +2315,12 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         for (uint64_t i = 0; i < items.size(); ++i) {
             // Nested tuple element inherits its own slice of the hint; a
             // non-tuple element clears it (a scalar/struct element below).
-            hint_tuple_type_ = (i < hint_elems.size() && hint_elems[i] &&
-                                TypeRef(hint_elems[i]).kind() == LogosType::Kind::Tuple)
-                               ? hint_elems[i] : TypeRef(nullptr);
-            auto e = lower_expr(map_of(items.get(i)));
+            lir::LExprPtr e;
+            {
+                ElemHintScope eh(*this, i < hint_elems.size() ? hint_elems[i] : TypeRef(nullptr),
+                                 /*scalar_arr=*/false);
+                e = lower_expr(map_of(items.get(i)));
+            }
             hint_tuple_type_ = tuple_hint;
             // Widen an int-literal element to the expected element type.
             if (i < hint_elems.size() && hint_elems[i])
@@ -2669,7 +2740,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 int64_t total = 1;
                 while (inner && inner.kind() == K::Array) { total *= (int64_t)inner.arr_size(); inner = inner.elem(); }
                 const SemaFuncInfo* fi = nullptr;
-                if (inner && !prim_elem(inner) && (fi = find_cmp_fn("slice_eq_raw"))) {
+                // A zero-length array compares no element: mlir-gen folds it.
+                if (inner && !prim_elem(inner) && total > 0 && (fi = find_cmp_fn("slice_eq_raw"))) {
                     TypeRef elem_ptr = make_ptr(false, inner);
                     auto base_ptr = [&](lir::LExprPtr e) {
                         if (!lref) e = autoref_operand(std::move(e), false, make_ref(false, lsq),
@@ -13697,12 +13769,78 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     // is (`[a, b]` moves a and b; `[src[0]]` is E0508 — rows
     // return_array_lit_of_moved_locals_double_drop, array_lit_index_elem_move_out_admits,
     // generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits).
+    // Each element is lowered against the expected element type: the
+    // annotation's, else element 0's once it is concrete (`[Some(1), None]`).
+    const TypeRef arr_hint = hint_arr_elem_type_;
+    // An element type another element can be inferred from: an enum whose
+    // arguments are all known — no type variable (a bare `None` lowers to
+    // `Option<T>`), no error hole.
+    std::function<bool(TypeRef)> open_type = [&](TypeRef t) -> bool {
+        using K = LogosType::Kind;
+        if (!t) return true;
+        if (t.kind() == K::TypeVar || t.kind() == K::Error) return true;
+        for (auto a : t.type_args()) if (open_type(a)) return true;
+        if (t.kind() == K::Tuple) for (auto e : t.tuple_elems()) if (open_type(e)) return true;
+        if ((t.kind() == K::Array || t.kind() == K::Slice) && open_type(t.elem())) return true;
+        if ((t.kind() == K::Ref || t.kind() == K::MutRef || t.kind() == K::Ptr) && open_type(t.pointee())) return true;
+        return false;
+    };
+    auto concrete_enum = [&](TypeRef t) {
+        return t && t.kind() == LogosType::Kind::Enum && !t.type_args().empty() && !open_type(t);
+    };
     for (uint64_t i = 0; i < items.size(); ++i) {
-        elems.push_back(lower_expr(map_of(items.get(i))));
+        TypeRef expect = arr_hint;
+        if (!expect && i > 0 && concrete_enum(expr_type(elems[0]))) expect = expr_type(elems[0]);
+        {
+            ElemHintScope eh(*this, expect);
+            elems.push_back(lower_expr(map_of(items.get(i))));
+        }
         mark_moved_expr(expr_ref_of(elems.back()));
+    }
+    // A nullary generic ctor BEFORE the first concrete element (`[None,
+    // Some(1)]`) is re-lowered against that element's type. Only a nullary
+    // ctor is re-lowered: it is a pure literal.
+    if (!arr_hint) {
+        TypeRef conc = nullptr;
+        for (auto& e : elems)
+            if (e && concrete_enum(expr_type(e))) { conc = expr_type(e); break; }
+        if (conc)
+            for (uint64_t i = 0; i < elems.size(); ++i) {
+                TypeRef t = elems[i] ? expr_type(elems[i]) : TypeRef(nullptr);
+                auto code = code_of(map_of(items.get(i)));
+                if (t && t.kind() == LogosType::Kind::Enum && (t.type_args().empty() || open_type(t)) &&
+                    t.enum_name() == TypeRef(conc).enum_name() &&
+                    (code == la::ENUM_LIT || code == la::VAR_REF)) {
+                    ElemHintScope eh(*this, conc);
+                    elems[i] = lower_expr(map_of(items.get(i)));
+                }
+            }
     }
 
     TypeRef elem_type = expr_type(elems[0]);
+    // An OPEN element 0 (`Option<T>` from a ctor that fixed no argument) does
+    // not name the layout: take the first concrete enum element of the same
+    // enum. An element left open beside it has no layout to be stored at —
+    // refused rather than stored as the wrong type.
+    if (elem_type && TypeRef(elem_type).kind() == LogosType::Kind::Enum && open_type(elem_type)) {
+        for (auto& e : elems)
+            if (e && concrete_enum(expr_type(e)) &&
+                TypeRef(expr_type(e)).enum_name() == TypeRef(elem_type).enum_name()) {
+                elem_type = expr_type(e); break;
+            }
+    }
+    if (elem_type && concrete_enum(elem_type))
+        for (uint64_t i = 0; i < elems.size(); ++i) {
+            TypeRef t = elems[i] ? expr_type(elems[i]) : TypeRef(nullptr);
+            if (t && t.kind() == LogosType::Kind::Enum && open_type(t) &&
+                t.enum_name() == TypeRef(elem_type).enum_name()) {
+                error(std::format("array literal: element {} has type {}, whose arguments cannot be "
+                                  "inferred from the other elements; type annotations needed "
+                                  "(annotate the array, e.g. `let v: [{}; N] = ...`)",
+                                  i, type_str(t), type_str(elem_type)));
+                break;
+            }
+        }
     // T0-5: a CONCRETE scalar element hint (a `&[i64]` formal / annotation,
     // via hint_arr_elem_type_) retypes an all-literal array's elements up
     // front. Slices alias raw memory, so the buffer must be BUILT at the
@@ -23106,7 +23244,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
                 is_stdlib_vec(hint_call_return_type_) &&
                 TypeRef(hint_call_return_type_).type_args().size() == 1)
                 elem_hint = TypeRef(hint_call_return_type_).type_args()[0];
-            std::string elem_str = elem_hint ? type_str(elem_hint) : std::string{};
+            std::string elem_str = elem_hint ? type_str(elem_hint, /*source_form=*/true) : std::string{};
             // A `_` hole anywhere in the hint (Vec<_>, Vec<Vec<_>>) is NOT
             // renderable — `vec_new::<_>()` is argless so the hole has no
             // inference source, and pre-fix the hole leaked into mono as a

@@ -1,0 +1,39 @@
+// An operator's left temporary is dropped when its right operand returns (squeue #262; rustc 1.98.1: "r=5 seq=26").
+package operator_operand_owner_after_sibling_exit_leak;
+use logos.lang.cmp;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v + 4i64; } } }
+impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v > 0i64 && other.v > 0i64; } }
+fn mk(v: i64, s: *mut i64) -> D {
+    unsafe { *s = *s * 10i64 + v; }
+    return D { v: v, s: s };
+}
+fn side(s: *mut i64) -> i64 {
+    unsafe { *s = *s * 10i64 + 1i64; }
+    return 1i64;
+}
+fn pick<'a>(d: &'a D, s: *mut i64) -> &'a D {
+    unsafe { *s = *s * 10i64 + 1i64; }
+    return d;
+}
+fn rd(s: *mut i64) -> i64 { return unsafe { *s }; }
+
+fn body(k: i64, s: *mut i64) -> i64 {
+    let r: bool = mk(2i64, s) == {
+        if k > 0i64 { return 5i64; }
+        mk(3i64, s)
+    };
+    if r { return 0i64; }
+    return 1i64;
+}
+fn main() -> i32 {
+    let mut q: i64 = 0i64;
+    let s: *mut i64 = &mut q;
+    let r: i64 = body(1i64, s);
+    let got: i64 = rd(s);
+    unsafe { printf("r=%ld seq=%ld\n".as_ptr(), r, got); }
+    if r != 5i64 { return 2i32; }
+    if got != 26i64 { return 1i32; }
+    return 0i32;
+}
