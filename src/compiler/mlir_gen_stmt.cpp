@@ -263,7 +263,9 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             // binding. Source drop is suppressed by
             // mark_match_scrutinee_moved, so copy + skip = correct.
             mlir::Value bind_ptr = fp;
-            if (value_needs_drop(lt)) {
+            // Copy types too: `e = E::W;` inside the arm must not rewrite a
+            // by-value binding (it read 0 for 6).
+            {
                 auto sit = struct_types_.find(mlir_struct_key(lt));
                 if (sit != struct_types_.end() && sit->second.llvm_type) {
                     auto fresh = create_entry_alloca(sit->second.llvm_type);
@@ -291,7 +293,7 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         // elements (a struct field), the Option<(Struct, …)> mis-read.
         if (lt && TypeRef(lt).kind() == LogosType::Kind::Tuple) {
             mlir::Value bind_ptr = fp;
-            if (value_needs_drop(lt)) {
+            {   // Copy types too, as the inline-struct case above.
                 auto tty = tuple_llvm_type(lt);
                 if (tty) {
                     auto fresh = create_entry_alloca(tty);
@@ -4613,6 +4615,34 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
             TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
         bool aggregate = is_struct || (ty && TypeRef(ty).kind() == LogosType::Kind::Tuple);
         if (aggregate) {
+            // A BY-VALUE binding is a COPY of the matched place, never an alias
+            // of it: `match a { [_, y] => { a[1].v = 50; y.v } }` over a Copy
+            // `P` read 50 where Rust reads 2 (squeue
+            // match_array_elem_struct_binder_aliases_source), and a moved-out
+            // element whose place is re-assigned must keep its old value too.
+            // (A reference-mode binding has a `&` type and never reaches here.)
+            mlir::Type agg_t = nullptr;
+            if (is_struct) {
+                auto sit = find_struct_it(ty);
+                if (sit != struct_types_.end()) agg_t = sit->second.llvm_type;
+            } else {
+                agg_t = tuple_llvm_type(ty);
+            }
+            if (agg_t) {
+                mlir::Value target;
+                // An or-pattern's shared slot is reused only when it IS this
+                // aggregate's storage (it may have been sized for a pointer).
+                if (shared)
+                    if (auto it = shared->find(name); it != shared->end())
+                        if (auto al = it->second.getDefiningOp<mlir::LLVM::AllocaOp>())
+                            if (al.getElemType() == agg_t) target = it->second;
+                if (!target) target = create_entry_alloca(agg_t);
+                uint64_t sz = mlir_abi_size(agg_t);
+                auto szv = builder_.create<mlir::LLVM::ConstantOp>(
+                    loc_, builder_.getI64Type(), builder_.getI64IntegerAttr((int64_t)sz));
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, target, slot_ptr, szv, /*isVolatile=*/false);
+                slot_ptr = target;
+            }
             scope_[name] = slot_ptr;
             let_vars_.insert(name);
             // Track the SHAPE so `name.field` / `name.N` GEPs through the bound
@@ -4817,6 +4847,19 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
                     (fty && TypeRef(fty).kind() == LogosType::Kind::Tuple);
                 evict_var_shapes(fname);
                 if (aggregate) {
+                    // A by-value field binding is a COPY of the field (the arm
+                    // may write the scrutinee: `h.p.v = 70; p.v` reads the old
+                    // value in Rust).
+                    mlir::Type agg_t = nullptr;
+                    if (field_is_struct) {
+                        auto fsit = find_struct_it(fty);
+                        if (fsit != struct_types_.end()) agg_t = fsit->second.llvm_type;
+                    } else agg_t = tuple_llvm_type(fty);
+                    if (agg_t) {
+                        auto fresh = create_entry_alloca(agg_t);
+                        builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, fp, size_const(fty), /*isVolatile=*/false);
+                        fp = fresh;
+                    }
                     scope_[fname] = fp; let_vars_.insert(fname);
                     // Track the shape (mirrors the Wild case): without it,
                     // `x.field` / `x.N` on the shorthand binding mis-resolves —
@@ -5211,6 +5254,22 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         if (lf.name() == field_name) { fty = lf.type(pool_impl()); break; }
                     if (fty && (TypeRef(fty).kind() == LogosType::Kind::Struct ||
                                 TypeRef(fty).kind() == LogosType::Kind::ZonedStruct)) {
+                        // …but only under a REFERENCE scrutinee (the binding is a
+                        // reference, default binding mode). Over a VALUE the binding
+                        // is a by-value COPY: `match h { H { p, .. } => { h.p.v = 70;
+                        // p.v } }` reads the old 4 in Rust.
+                        const bool by_value = scrut_ty &&
+                            TypeRef(scrut_ty).kind() != LogosType::Kind::Ref &&
+                            TypeRef(scrut_ty).kind() != LogosType::Kind::MutRef;
+                        if (by_value) {
+                            auto fsit = find_struct_it(fty);
+                            if (fsit != struct_types_.end() && fsit->second.llvm_type) {
+                                auto fresh = create_entry_alloca(fsit->second.llvm_type);
+                                builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, fp, size_const(fty),
+                                                                      /*isVolatile=*/false);
+                                fp = fresh;
+                            }
+                        }
                         scope_[bind_name] = fp;
                         let_vars_.insert(bind_name);
                         var_struct_[bind_name] = mlir_struct_key(fty);

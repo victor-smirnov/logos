@@ -16,8 +16,6 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
-match_array_elem_struct_binder_aliases_source 3 tests/soundness/open/match_array_elem_struct_binder_aliases_source run 1
-
 match_array_elem_array_binder_shape_lost_run 3 tests/soundness/open/match_array_elem_array_binder_shape_lost_run run 1
 
 foreach_array_field_gep_verifier_refused 3 tests/soundness/open/foreach_array_field_gep_verifier_refused refuses
@@ -71,13 +69,6 @@ match_tuple_door_nested_slice_binds_nothing 3 tests/soundness/open/match_tuple_d
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
-
-# ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
-# Read on the binary of build 10f55b7c2fa44145 43 (HEAD 69210911f): every cell
-# compiled, linked, RUN, and its DESTRUCTOR COUNT read off a raw-pointer counter —
-# a count for "how many", a `*c = *c * 10 + v` sequence counter for "in what order".
-# Six roots, named by symbol in each program's header, not by spelling.
-let_underscore_defers_drop_to_block_end 3 tests/soundness/open/let_underscore_defers_drop_to_block_end run 1
 
 nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
 
@@ -245,6 +236,12 @@ arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_par
 
 deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_admitted admits
 
+# ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
+# Read on the binary of build 10f55b7c2fa44145 43 (HEAD 69210911f): every cell
+# compiled, linked, RUN, and its DESTRUCTOR COUNT read off a raw-pointer counter —
+# a count for "how many", a `*c = *c * 10 + v` sequence counter for "in what order".
+# Six roots, named by symbol in each program's header, not by spelling.
+
 # (delete the row, decrement `# TOTAL`, land the program as a pass/fail fixture,
 # all in the same commit) or was never real. Before this file existed the queue
 # lived in prose and failed twice in four days: one defect was recorded under an
@@ -388,5 +385,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 108
-# SYNC-HASH 67cb1f80a1c0553e0817019519f40bd4
+# TOTAL 106
+# SYNC-HASH 3598bc6e7575efe86307fdf23316810f

@@ -1,0 +1,21 @@
+// The same as match EXPRESSIONS, and the reference-mode twin: under `&mut` the binder is a reference and a write through it reaches the scrutinee (rustc 1.98.1).
+package byvalue_aggregate_binders_copy_expr;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { v: i64 }
+struct H { p: P, q: P }
+enum E { V(P), W }
+fn main() -> i32 {
+    let mut a: [P; 2] = [P { v: 1i64 }, P { v: 2i64 }];
+    let r1: i64 = match a { [x, _] => { a[0].v = 50i64; x.v } };
+    let mut t: (P, i64) = (P { v: 3i64 }, 0i64);
+    let r2: i64 = match t { (x, _) => { t.0.v = 60i64; x.v } };
+    let mut h: H = H { p: P { v: 4i64 }, q: P { v: 5i64 } };
+    let r3: i64 = match h { H { p, q: _ } => { h.p.v = 70i64; p.v } };
+    let mut e: E = E::V(P { v: 6i64 });
+    let r4: i64 = match e { E::V(x) => { e = E::W; x.v } E::W => 0i64 };
+    let mut m: H = H { p: P { v: 1i64 }, q: P { v: 1i64 } };
+    match &mut m { H { p, q: _ } => { p.v = 9i64; } }
+    let r5: i64 = match &mut m { H { p, q: _ } => { p.v = p.v + 1i64; p.v } };
+    unsafe { printf("%lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, r2, r3, r4, r5, m.p.v); }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// `let _` over an rvalue (plain and annotated) drops at once; over a place it neither moves nor drops; `e;` likewise (rustc 1.98.1: 12 12 21 12).
+package let_underscore_binds_nothing;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct O { v: i64, s: *mut i64 }
+impl Drop for O { fn drop(self: &mut O) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
+fn mk(v: i64, s: *mut i64) -> O { return O { v: v, s: s }; }
+fn t1(s: *mut i64) { let _ = mk(1i64, s); let _a: O = mk(2i64, s); }
+fn t2(s: *mut i64) { mk(1i64, s); let _a: O = mk(2i64, s); }
+fn t3(s: *mut i64) { let x: O = mk(1i64, s); let _ = x; let _a: O = mk(2i64, s); }
+fn t4(s: *mut i64) { let _: O = mk(1i64, s); let _a: O = mk(2i64, s); }
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let s: *mut i64 = &mut q;
+    t1(s); let a: i64 = unsafe { *s }; unsafe { *s = 0i64; }
+    t2(s); let b: i64 = unsafe { *s }; unsafe { *s = 0i64; }
+    t3(s); let c: i64 = unsafe { *s }; unsafe { *s = 0i64; }
+    t4(s); let d: i64 = unsafe { *s };
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), a, b, c, d); }
+    return 0i32;
+}

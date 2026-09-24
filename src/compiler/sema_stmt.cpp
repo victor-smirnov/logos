@@ -3190,6 +3190,52 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         }
     }
 
+    // `let _ = e` BINDS NOTHING (Rust). Over a PLACE it neither reads nor moves
+    // (`let _ = x;` leaves `x` owned where it is); over an rvalue the value is a
+    // temporary dropped at the end of THIS statement, exactly as `e;` — not a
+    // local named `_` living to the end of the block (squeue
+    // let_underscore_defers_drop_to_block_end: `let _ = O(1); let a = O(2);`
+    // dropped 2 before 1).
+    const auto vk_ = var_type ? TypeRef(var_type).kind() : LogosType::Kind::Error;
+    const bool unit_ = vk_ == LogosType::Kind::Tuple && TypeRef(var_type).tuple_elems().empty();
+    if (name == "_" && rhs && vk_ != LogosType::Kind::Never && vk_ != LogosType::Kind::Void &&
+        vk_ != LogosType::Kind::Error && !unit_) {
+        namespace ec = lir_schema::expr;
+        auto ek = expr_ref_of(rhs).kind();
+        const bool is_place = ek == ec::Code::VarRef || ek == ec::Code::FieldRead ||
+                              ek == ec::Code::IndexRead || ek == ec::Code::Deref ||
+                              ek == ec::Code::TupleIndex || ek == ec::Code::SliceIndex;
+        if (is_place) {
+            // A FAKE READ of the place (MIR's `FakeRead(ForLet)`): it keeps the
+            // borrows the place goes through live and conflicts with a `&mut`
+            // of it (`let _ = *a;` after `&mut x.0` is E0502), but moves
+            // nothing. A discarded shared borrow of the place is exactly that.
+            // For a COPY place a plain read is that use (rustc's sentence is
+            // "cannot use", E0503); for a move type a read would MOVE, so a
+            // discarded shared borrow stands in for it.
+            if (!is_move_type(var_type)) return builder().stmt_expr(std::move(rhs), node_line_);
+            auto rt = make_ref(false, var_type);
+            return builder().stmt_expr(
+                builder().addr_of_temp(std::move(rhs), false, rt, lir_schema::expr::BorrowOrigin::Explicit),
+                node_line_);
+        }
+        if (is_move_type(var_type)) {
+            std::string synth = std::format("__stmt_tmp_{}", destruct_counter_++);
+            if (auto drop = make_drop_stmt(synth, VarInfo{var_type, false})) {
+                std::vector<lir_view::StmtRef> blk;
+                lir::SLet sl;
+                sl.name = synth; sl.type = var_type; sl.is_mut = false;
+                sl.value = std::move(rhs);
+                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                blk.push_back(std::move(*drop));
+                lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
+                sb.transparent = true;
+                return make_stmt_emit(node_line_, std::move(sb));
+            }
+        }
+        // A value with no destructor: when it dies is unobservable — the
+        // ordinary `let` below is kept.
+    }
     // `let x = x` (or `x.f`): the move is of the binding the name denotes BEFORE this let, so record it before define.
     bool self_rooted_move = false;
     if (rhs && is_move_type(rhs_type)) {

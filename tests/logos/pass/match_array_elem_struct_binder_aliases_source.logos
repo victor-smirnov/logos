@@ -1,0 +1,14 @@
+// A by-value element binder is a COPY of the element, not an alias of the matched array (rustc 1.98.1: got=2).
+package match_array_elem_struct_binder_aliases_source;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { v: i64 }
+fn main() -> i32 {
+    let mut a: [P; 2] = [P { v: 1i64 }, P { v: 2i64 }];
+    let mut out: i64 = 0i64;
+    match a {
+        [_, y] => { a[1].v = 50i64; out = y.v; }
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), out); }
+    if out != 2i64 { return 1i32; }
+    return 0i32;
+}

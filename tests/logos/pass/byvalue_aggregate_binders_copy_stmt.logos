@@ -1,0 +1,25 @@
+// By-value binders over a place are COPIES, match statement: slice element, tuple element, struct field, enum payload (the arm then overwrites the scrutinee), or-pattern (rustc 1.98.1).
+package byvalue_aggregate_binders_copy_stmt;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { v: i64 }
+struct H { p: P, q: P }
+enum E { V(P), W }
+fn main() -> i32 {
+    let mut a: [P; 2] = [P { v: 1i64 }, P { v: 2i64 }];
+    let mut r1: i64 = 0i64;
+    match a { [x, _] => { a[0].v = 50i64; r1 = x.v; } }
+    let mut t: (P, i64) = (P { v: 3i64 }, 0i64);
+    let mut r2: i64 = 0i64;
+    match t { (x, _) => { t.0.v = 60i64; r2 = x.v; } }
+    let mut h: H = H { p: P { v: 4i64 }, q: P { v: 5i64 } };
+    let mut r3: i64 = 0i64;
+    match h { H { p, q: _ } => { h.p.v = 70i64; r3 = p.v; } }
+    let mut e: E = E::V(P { v: 6i64 });
+    let mut r4: i64 = 0i64;
+    match e { E::V(x) => { e = E::W; r4 = x.v; } E::W => {} }
+    let mut o: (P, P) = (P { v: 7i64 }, P { v: 8i64 });
+    let mut r5: i64 = 0i64;
+    match o { (x, _) | (_, x) => { o.0.v = 80i64; r5 = x.v; } }
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), r1, r2, r3, r4, r5); }
+    return 0i32;
+}
