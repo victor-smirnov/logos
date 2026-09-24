@@ -1,0 +1,24 @@
+// `@` over a structural payload sub in a match EXPRESSION (by value and through `&`) and in while-let (rustc 1.98.1: 32 2 9 345).
+package variant_payload_at_expr_and_while_let;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct W { a: D, b: i64 }
+struct Q { x: i64, y: i64 }
+enum E { V(W), Z }
+fn main() -> i32 {
+    let mut n: i64 = 0i64; let p: *mut i64 = &mut n;
+    let e = E::V(W { a: D { v: 2i64, c: p }, b: 3i64 });
+    let r1 = match e { E::V(y @ W { .. }) => y.b * 10i64 + y.a.v, E::Z => 0i64 };
+    let m1 = unsafe { *p };
+    let e2 = E::V(W { a: D { v: 4i64, c: p }, b: 5i64 });
+    let r2 = match &e2 { E::V(y @ W { b, .. }) => y.a.v + *b, E::Z => 0i64 };
+    let mut o = Option::Some(Q { x: 1i64, y: 2i64 });
+    let mut r3: i64 = 0i64;
+    while let Option::Some(q @ Q { x, .. }) = o {
+        r3 = r3 * 10i64 + q.y + x;
+        o = if x < 3i64 { Option::Some(Q { x: x + 1i64, y: q.y }) } else { Option::None };
+    }
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), r1, m1, r2, r3); }
+    return 0i32;
+}

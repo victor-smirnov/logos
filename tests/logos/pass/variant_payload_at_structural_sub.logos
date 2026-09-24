@@ -1,0 +1,41 @@
+// `V(y @ W { .. })`, `V(t @ (p, _))`, `V(q @ Q { x, y })` in match statements by value and through `&`, and in if-let (rustc 1.98.1: 3 2 10 2 131513).
+package variant_payload_at_structural_sub;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct W { a: D, b: i64 }
+struct Q { x: i64, y: i64 }
+enum E { V(W), Z }
+enum F { T((i64, i64)), S(Q), N }
+fn g(e: E) -> i64 {
+    match e {
+        E::V(y @ W { .. }) => { return y.b; }
+        E::Z => { return 0i64; }
+    }
+}
+fn h(e: &E) -> i64 {
+    match e {
+        E::V(y @ W { b, .. }) => { return y.b + *b; }
+        E::Z => { return 0i64; }
+    }
+}
+fn k(f: F) -> i64 {
+    match f {
+        F::T(t @ (p, _)) => { return t.0 * 10i64 + t.1 + p; }
+        F::S(q @ Q { x, y }) => { return q.x + x * y; }
+        F::N => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64; let p: *mut i64 = &mut n;
+    let r1 = g(E::V(W { a: D { v: 2i64, c: p }, b: 3i64 }));
+    let m1 = unsafe { *p };
+    let e2 = E::V(W { a: D { v: 4i64, c: p }, b: 5i64 });
+    let r2 = h(&e2);
+    let m2 = unsafe { *p };
+    let mut r3 = k(F::T((1i64, 2i64))) * 100i64 + k(F::S(Q { x: 3i64, y: 4i64 }));
+    let o = Option::Some(Q { x: 6i64, y: 7i64 });
+    if let Option::Some(z @ Q { x, .. }) = o { r3 = r3 * 100i64 + z.y + x; }
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), r1, m1, r2, m2, r3); }
+    return 0i32;
+}

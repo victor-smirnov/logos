@@ -5104,6 +5104,26 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             binding_from_wild.push_back(true);  // named binding
                             continue;
                         }
+                        // `V(y @ W { .. })` / `V(t @ (a, _))`: an IRREFUTABLE
+                        // structural sub needs no guard. The `@` name takes the
+                        // payload exactly as the synth of a bare structural sub
+                        // (above), and the sub's own binders destructure from it.
+                        int32_t sc = code_of(subnode);
+                        if (sc == la::PAT_OR && subnode.has_key(la::ITEMS) &&
+                            arr_of(subnode.get(la::ITEMS.code)).size() == 1) {
+                            subnode = map_of(arr_of(subnode.get(la::ITEMS.code)).get(0));
+                            sc = code_of(subnode);
+                        }
+                        if ((sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) && current_pat_nested_subs_) {
+                            // A WRITTEN binder: under a `&` scrutinee the default
+                            // binding mode (below) makes it `&W`, as a bare name.
+                            bindings.push_back(atname);
+                            binding_is_ref.push_back(false);
+                            binding_is_mut.push_back(pat_byval_mut(bnode));
+                            binding_from_wild.push_back(true);
+                            current_pat_nested_subs_->push_back({atname, subnode});
+                            continue;
+                        }
                     }
                     // P4-pm-01 refutable inner (tuple-shape parallel) —
                     // `Option::Some(1)` / `Result::Err(false)` / `Num(1..=5)`.
@@ -12044,111 +12064,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // guard (B170-D/E) — see the lower_match twin.
             auto build_nested_destructure =
                 [&](std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
-            for (auto& nsub : nested_subs) {
-                TypeRef synth_t = lookup(nsub.synth_name);
-                if (!synth_t) continue;
-                if (code_of(nsub.sub_pat_node) == la::PAT_VARIANT_DATA) {
-                    // A nested-variant payload destructure uses a refutable
-                    // `let … else { loop {} }` that ASSUMES the arm already
-                    // matched (its own synth guard ran). It must NOT be hoisted
-                    // into the guard (for_guard) — running it before the synth
-                    // guard confirms the variant would hit `loop {}` on a
-                    // non-matching scrutinee (infinite loop).
-                    if (!for_guard)
-                        emit_nested_variant_lets(nsub.synth_name, synth_t,
-                                                 nsub.sub_pat_node, nested_destructure_stmts);
-                    continue;
-                }
-                // B170: nested TUPLE sub-pattern in a variant payload
-                // (`Some((a, b))`, `Some((a, _))`, `Ok((a, (b, c)))`). The
-                // synth holds the payload tuple; emit `let <name> = __synth.<i>`
-                // element reads (recursing into nested tuples). Previously only
-                // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
-                // so a tuple-payload binding was left undefined.
-                if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
-                    std::function<void(lir::LExprPtr, TypeRef, writ::TinyMapView)>
-                    emit_tuple_lets =
-                        [&](lir::LExprPtr src, TypeRef tty, writ::TinyMapView tnode) {
-                        if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
-                        if (!tnode.has_key(la::ITEMS)) return;
-                        auto items = arr_of(tnode.get(la::ITEMS.code));
-                        auto elems = TypeRef(tty).tuple_elems();
-                        // Spill the source to a temp so each element read
-                        // references it once.
-                        std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
-                        define(stmp, tty);
-                        {
-                            lir::SLet s; s.name = stmp; s.type = tty;
-                            s.is_mut = false; s.value = std::move(src);
-                            nested_destructure_stmts.push_back(
-                                make_stmt_emit(node_line_, std::move(s)));
-                        }
-                        for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
-                            auto en = map_of(items.get(i));
-                            auto et = elems[i];
-                            auto elem_expr = builder().tuple_index(
-                                builder().var_ref(stmp, tty), (uint32_t)i, et);
-                            // Tuple elements are wrapped in a (usually single-alt)
-                            // PAT_OR by the grammar (`pat_single (PIPE pat_single)*`).
-                            // Unwrap a single alternative to reach the bare binding.
-                            if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
-                                auto alts = arr_of(en.get(la::ITEMS.code));
-                                if (alts.size() == 1) en = map_of(alts.get(0));
-                            }
-                            int32_t ec = code_of(en);
-                            if (ec == la::PAT_TUPLE) {
-                                emit_tuple_lets(std::move(elem_expr), et, en);
-                            } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
-                                std::string nm(str_of(en.get(la::NAME.code)));
-                                if (nm == "_") continue;
-                                define(nm, et);
-                                lir::SLet el; el.name = nm; el.type = et;
-                                el.is_mut = false; el.value = std::move(elem_expr);
-                                nested_destructure_stmts.push_back(
-                                    make_stmt_emit(node_line_, std::move(el)));
-                            }
-                            // Other element kinds (struct/refutable) inside a
-                            // payload tuple are handled by build_pattern's own
-                            // synth/guard channels, not here.
-                        }
-                    };
-                    emit_tuple_lets(builder().var_ref(nsub.synth_name, synth_t),
-                                    synth_t, nsub.sub_pat_node);
-                    continue;
-                }
-                if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
-                if (!nsub.sub_pat_node.has_key(la::ITEMS)) continue;
-                auto fitems_av = nsub.sub_pat_node.get(la::ITEMS.code);
-                if (!fitems_av.is_pointer()) continue;
-                auto fitems_m = map_of(fitems_av);
-                if (!fitems_m.has_key(la::ITEMS)) continue;
-                auto fields = arr_of(fitems_m.get(la::ITEMS.code));
-                std::string sname_s(TypeRef(synth_t).struct_name());
-                auto [_skpkg, sinfo] = find_struct_by_name(sname_s);
-                if (!sinfo) continue;
-                for (uint64_t k = 0; k < fields.size(); ++k) {
-                    auto fnode = map_of(fields.get(k));
-                    if (!fnode.has_key(la::NAME)) continue;
-                    std::string fname(str_of(fnode.get(la::NAME.code)));
-                    std::string bind = fname;
-                    if (fnode.has_key(la::VALUE)) {
-                        auto sub = map_of(fnode.get(la::VALUE.code));
-                        if (code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME))
-                            bind = std::string(str_of(sub.get(la::NAME.code)));
-                    }
-                    TypeRef ftype = error_t();
-                    for (auto& sf : sinfo->fields)
-                        if (sf.name == fname) { ftype = sf.type; break; }
-                    define(bind, ftype);
-                    auto sref = builder().var_ref(nsub.synth_name, synth_t);
-                    auto fr = builder().field_read(std::move(sref), fname, ftype);
-                    lir::SLet sl;
-                    sl.name = bind; sl.type = ftype; sl.is_mut = false;
-                    sl.value = std::move(fr);
-                    nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                }
-            }
-            };  // build_nested_destructure
+                emit_nested_pat_destructure(nested_subs, nested_destructure_stmts, for_guard);
+            };
             std::vector<lir_view::StmtRef> nested_destructure_stmts;
             build_nested_destructure(nested_destructure_stmts, /*for_guard=*/false);
             bool arm_has_user_guard = arm.has_key(la::GUARD);

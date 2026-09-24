@@ -175,8 +175,6 @@ variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tu
 
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses
 
-variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
-
 # ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
 # array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
 # moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
@@ -350,5 +348,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 88
-# SYNC-HASH 7d240d3b30a57b9c88cd45fc775e0aa9
+# TOTAL 87
+# SYNC-HASH 3d943b19eb63e200e3e2d7df3291f0a7

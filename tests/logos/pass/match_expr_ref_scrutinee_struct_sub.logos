@@ -1,0 +1,10 @@
+// A match expression over `&E` binds a struct payload sub's fields by reference (it was "undefined variable").
+package match_expr_ref_scrutinee_struct_sub;
+struct W { a: i64, b: i64 }
+enum E { V(W), Z }
+fn main() -> i32 {
+    let e2 = E::V(W { a: 4i64, b: 5i64 });
+    let r2 = match &e2 { E::V(W { b, .. }) => *b, E::Z => 0i64 };
+    let r3 = match e2 { E::V(W { b, .. }) => b, E::Z => 0i64 };
+    return (r2 + r3 - 10i64) as i32;
+}
