@@ -187,8 +187,6 @@ enum_payload_rewrap_carries_declared_region_refuses 3 tests/soundness/open/enum_
 
 struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses 3 tests/soundness/open/struct_variant_field_under_ref_scrutinee_binds_byvalue_refuses refuses
 
-static_array_whole_borrow_reads_garbage 1 tests/soundness/open/static_array_whole_borrow_reads_garbage run 1
-
 vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_dropped refuses
 
 static_arg_pins_shared_callee_region_refused 3 tests/soundness/open/static_arg_pins_shared_callee_region_refused refuses
@@ -429,5 +427,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 132
-# SYNC-HASH 40cea4b078b222fe435df753038ce57d
+# TOTAL 131
+# SYNC-HASH 66e5b1cc3c0688baa019a7ab724beade

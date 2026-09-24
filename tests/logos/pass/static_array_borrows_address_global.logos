@@ -1,0 +1,21 @@
+// Borrows of array statics address the global: iteration, slice coercion, `&mut` of a `static mut`
+// array written through a callee, an array of structs, and address identity. rustc 1.98.1 prints the same.
+package static_array_borrows_address_global;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { a: i64, b: i64 }
+static ARR: [i64; 3] = [5i64, 2i64, 7i64];
+static mut MA: [i64; 2] = [1i64, 2i64];
+static PS: [P; 2] = [P { a: 1i64, b: 2i64 }, P { a: 3i64, b: 4i64 }];
+fn sum(s: &[i64]) -> i64 { let mut t: i64 = 0i64; for x in s { t = t + *x; } return t; }
+fn bump(m: &mut [i64; 2]) { m[1] = m[1] + 40i64; }
+fn main() -> i32 {
+    let mut it: i64 = 0i64;
+    for x in &ARR { it = it + *x; }
+    let sl: &[i64] = &ARR;
+    unsafe { bump(&mut MA); }
+    let ps: &[P; 2] = &PS;
+    let same: bool = (&ARR as *const [i64; 3]) == (&ARR as *const [i64; 3]);
+    let m1: i64 = unsafe { MA[1] };
+    unsafe { printf("%lld %lld %lld %lld %lld %d\n".as_ptr(), it, sum(sl), sl.len(), m1, ps[1].b, same as i32); }
+    return 0i32;
+}

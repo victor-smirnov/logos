@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #192): `&ARR` / `&mut ARR` of an array static is the global's address (the array case was excluded and took the address of a stack copy's slot).
 // SOUNDNESS QUEUE row static_array_whole_borrow_reads_garbage (tier 1).
 // `&ARR` of a `static ARR: [i64; 3]` indexes garbage: the whole-array borrow
 // of a static does not address the global's elements (`ARR[2]` and `&ARR[2]`

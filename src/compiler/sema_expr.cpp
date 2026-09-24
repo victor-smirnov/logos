@@ -1525,8 +1525,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 return error_expr();
             // §6.2 statics (S25): `&mut STATIC` (a `static mut`) IS the global's
             // address. Same routing as the shared-`&` path (see there).
-            if (is_module_static_unshadowed(var_name) &&
-                TypeRef(vt).kind() != LogosType::Kind::Array) {
+            // Array statics included: `&[T; N]` / `&mut [T; N]` is the pointer to
+            // the array's first element, i.e. the global's address. Excluded, they
+            // took the address of a stack COPY's slot (a pointer to a pointer).
+            if (is_module_static_unshadowed(var_name)) {
                 // E0596 — `&mut S` IS the global's address, and until this
                 // landed NOTHING anywhere checked the `mut`: the branch's own
                 // comment asserted "`&mut STATIC` (a `static mut`) IS the
@@ -3708,8 +3710,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             // (Routes BEFORE addr_of(var_name), which would materialise a
             // fresh stack copy and break address identity.) Array statics
             // build a slice over that address; scalars/structs return `&T`.
-            if (is_module_static_unshadowed(var_name) &&
-                TypeRef(vt).kind() != LogosType::Kind::Array) {
+            // Array statics included: `&[T; N]` / `&mut [T; N]` is the pointer to
+            // the array's first element, i.e. the global's address. Excluded, they
+            // took the address of a stack COPY's slot (a pointer to a pointer).
+            if (is_module_static_unshadowed(var_name)) {
                 bool smut = module_static_muts_.count(std::string(var_name)) != 0;
                 // The SHARED half of the same hole: `&S` on a mutable static
                 // also routes around `lower_var_ref`, so it too never asked.
@@ -3734,15 +3738,6 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             // slice is EXPECTED (try_coerce_array_ref_to_slice), not here —
             // eager decay is what made `&a` and `&s.c` answer differently.
             if (TypeRef(vt).kind() == LogosType::Kind::Array) {
-                // The static-address branch above is guarded `kind() != Array`,
-                // so `&ARR` over a module static ARRAY reached here and was
-                // typed with NO region while `&SCALAR` got 'static: the region
-                // is a property of the STORAGE, not of the pointee's kind.
-                if (is_module_static_unshadowed(var_name)) {
-                    logos::probe::census("static.array.region");
-                    return builder().addr_of(std::string(var_name),
-                                             make_ref(false, vt, std::string("static")), BorrowOrigin::Explicit);
-                }
                 return builder().addr_of(std::string(var_name), make_ref(false, vt), BorrowOrigin::Explicit);
             }
             // &Box<[T]> → borrowed &[T] (Deref coercion). An owning slice shares
