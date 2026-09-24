@@ -9224,6 +9224,12 @@ private:
     // alternative (`Some(P|Q)` → `Some(P) | Some(Q)`), each re-evaluating the
     // guard with its own bindings (rustc backtracks alts under a failing guard).
     int32_t payload_or_alt_ = -1;
+    // The default binding mode of the scrutinee a PAT_VARIANT_DATA door is built
+    // for (build_pattern_impl peels one layer before handing it the type, so the
+    // door cannot see it): the tuple-struct door `TS(a, b)` under `match &t`
+    // binds `&T` like every other container door.
+    struct DbmCtx { bool ref = false; bool mut_ = false; };
+    DbmCtx variant_data_dbm_;
     // `y @ (P | Q)` fanned out one arm per alternative (as a top-level or-arm
     // is): the PAT_AT builder takes alternative `at_or_alt_` of its sub-pattern,
     // so each alternative's refutable-inner guard stays its own arm's.

@@ -3999,7 +3999,41 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                                             ? tsi_p->fields[pos].type : nullptr;
                             lir::PatFieldBinding fb;
                             fb.field_name = std::to_string(pos);
-                            fb.sub.push_back(build_pattern(bnode, ftype));
+                            // Default binding mode (spec pat.binding.default-by-ref-mode),
+                            // exactly as the STRUCT door `TS { 0: a }` applies it.
+                            const auto dbm = variant_data_dbm_;
+                            variant_data_dbm_ = {};
+                            auto leaf = bnode;
+                            if (code_of(leaf) == la::PAT_OR && leaf.has_key(la::ITEMS)) {
+                                auto a1 = arr_of(leaf.get(la::ITEMS.code));
+                                if (a1.size() == 1) leaf = map_of(a1.get(0));
+                            }
+                            auto lflag = [&](const la::Key& k) {
+                                return leaf.has_key(k) && leaf.get(k.code).is_value() &&
+                                       leaf.get(k.code).as_value<uint8_t>() != 0;
+                            };
+                            const bool leaf_wild = code_of(leaf) == la::PAT_WILD.code && leaf.has_key(la::NAME);
+                            const std::string leaf_nm = leaf_wild ? std::string(str_of(leaf.get(la::NAME.code))) : std::string();
+                            const bool eligible = ftype && TypeRef(ftype).kind() != LogosType::Kind::Error &&
+                                TypeRef(ftype).kind() != LogosType::Kind::TypeVar &&
+                                TypeRef(ftype).kind() != LogosType::Kind::Array &&
+                                TypeRef(ftype).kind() != LogosType::Kind::Slice;
+                            if (dbm.ref && leaf_wild && !leaf_nm.empty() && leaf_nm != "_" &&
+                                (lflag(la::IS_REF) || lflag(la::IS_MUT))) {
+                                // Rust 2024: a written modifier under a by-reference default mode.
+                                modifier_under_ref_scrutinee(leaf_nm, make_ref(dbm.mut_, ftype ? ftype : error_t()),
+                                                             /*known_ref=*/true);
+                                fb.sub.push_back(build_pattern(bnode, ftype));
+                            } else if (dbm.ref && leaf_wild && !leaf_nm.empty() && leaf_nm != "_" && eligible) {
+                                lir::Pattern rp;
+                                rp.mirror_ptr_ = lir_mirror_emit_pat_ref_bind(
+                                    *cur_prog_, leaf_nm, dbm.mut_, make_ref(dbm.mut_, ftype), reserve_pat_slot(leaf_nm));
+                                fb.sub.push_back(std::move(rp));
+                            } else {
+                                fb.sub.push_back(build_pattern(bnode,
+                                    (dbm.ref && !leaf_wild && eligible) ? make_ref(dbm.mut_, ftype) : ftype));
+                            }
+                            variant_data_dbm_ = dbm;
                             ps.fields.push_back(std::move(fb));
                         }
                         if (rest_idx < 0 && non_rest != arity)
@@ -5552,7 +5586,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         pc == la::PAT_CHAR_RANGE || pc == la::PAT_BOOL || pc == la::PAT_RANGE)
         scrut_type = pat_scrut_scalar_core(scrut_type);
     if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
-    if (pc == la::PAT_VARIANT_DATA) return build_pattern_variant_data(pnode, scrut_type);
+    if (pc == la::PAT_VARIANT_DATA) {
+        auto saved = variant_data_dbm_;
+        variant_data_dbm_ = {dbm_ref, dbm_mut};
+        auto r = build_pattern_variant_data(pnode, scrut_type);
+        variant_data_dbm_ = saved;
+        return r;
+    }
     if (pc == la::PAT_FLOAT) {
         // B-pt-06: parse but reject — IEEE-equality patterns need a
         // language-level decision before we wire them through codegen.

@@ -1,3 +1,4 @@
+// CLOSED 2026-09-24 (squeue #144): the tuple-struct door `TS(a, b)` applies the scrutinee's default binding mode (carried into build_pattern_variant_data), as the struct door does.
 // SOUNDNESS QUEUE row tuplestruct_door_default_ref_mode_not_carried (tier 1, `run 2`).
 // A DOUBLE FREE. Found 2026-09-09f by a counter-example written for the Rust-2024
 // binding-modifier round, not by any probe: `match &t { TS(ref a, b) }` was NOT refused by

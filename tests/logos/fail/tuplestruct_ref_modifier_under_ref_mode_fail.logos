@@ -1,0 +1,7 @@
+// Rust 2024: `ref` written at a tuple-struct binder under a by-reference default binding mode is an error.
+package tuplestruct_ref_modifier_under_ref_mode_fail;
+struct P(i64, i64);
+fn main() -> i32 {
+    let p: P = P(1i64, 2i64);
+    match &p { P(ref a, b) => { return *a as i32; } }
+}

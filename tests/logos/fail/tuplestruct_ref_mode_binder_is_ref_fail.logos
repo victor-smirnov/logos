@@ -1,0 +1,7 @@
+// Under `match &p`, `P(a, b)` binds `a: &i64` (Rust default binding modes): using it as an `i64` is E0308.
+package tuplestruct_ref_mode_binder_is_ref_fail;
+struct P(i64, i64);
+fn main() -> i32 {
+    let p: P = P(1i64, 2i64);
+    match &p { P(a, b) => { let x: i64 = a; return x as i32; } }
+}

@@ -1,0 +1,27 @@
+// Tuple-struct patterns under `&` / `&mut` scrutinees bind by reference: a droppable element,
+// a write through `&mut`, a nested variant, and a by-value control. rustc 1.98.1 prints the same line.
+package tuplestruct_default_binding_modes;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct TS(D, i64);
+struct P(i64, i64);
+struct Q(Option<i64>, i64);
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let mut m: i64 = 0i64;
+    let mut w: i64 = 0i64;
+    {
+        let t: TS = TS(D { v: 1i64, c: &mut n }, 5i64);
+        match &t { TS(d, k) => { m = d.v + *k; } }
+    }
+    let mut p: P = P(1i64, 2i64);
+    match &mut p { P(a, _) => { *a = 40i64; } }
+    let q: Q = Q(Option::Some(3i64), 4i64);
+    match &q { Q(Option::Some(x), y) => { w = *x * 10i64 + *y; }, Q(Option::None, _) => {} }
+    let mut n2: i64 = 0i64;
+    let t2: TS = TS(D { v: 2i64, c: &mut n2 }, 6i64);
+    match t2 { TS(d, k) => { let _ = d.v + k; } }
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), n, m, p.0, w, n2); }
+    return 0i32;
+}
