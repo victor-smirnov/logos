@@ -22,7 +22,10 @@ tests/groups.rules (committed) and may overlap; levels never do.
   lt run --level 0|1|2 [--upto]        run a level (--upto: L0..level, stop at a red level)
   lt run --plus PCT                    run L0, then PCT% of EVERYTHING ELSE (L1 + L2):
                                        stratified by category, least recently run first,
-                                       so successive runs rotate through the suite
+                                       so successive runs rotate through the suite. Only
+                                       a NEW L0 red (not red in its previous run) stops
+                                       the sample; pre-existing reds are listed and the
+                                       exit code stays red (--keep-going: never stop)
   lt run --group G... [--except G...]  run groups (or --all [--except G...])
   lt run --failed                      rerun what failed in the last run
   lt run --same-as RUN                 rerun exactly the tests of run RUN (before/after)
@@ -613,8 +616,27 @@ def cmd_run(con, build, args):
         l0, l1, l2, _ = levels(con, task)
         rc = run_set(con, build, l0, args, task, f"task {task} L0")
         if rc and not args.keep_going:
-            print("lt: L0 is red; not running the sample")
-            return rc
+            # Only a NEW red stops the sample. A test that was already red in its
+            # previous recorded result is a known failure of the tree, not of this
+            # change — blocking on it made `--plus` unusable while the tree carried
+            # any pre-existing red at all.
+            l0_run = con.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+            reds = [t for (t,) in con.execute(
+                "SELECT test FROM results WHERE run=? AND status IN ('failed','notrun')", (l0_run,))]
+            new_reds = []
+            for t in reds:
+                prev = con.execute("SELECT status FROM results WHERE test=? AND run<? "
+                                   "ORDER BY run DESC LIMIT 1", (t, l0_run)).fetchone()
+                if not prev or prev[0] not in ("failed", "notrun"):
+                    new_reds.append(t)
+            if new_reds:
+                print(f"lt: L0 is red — {len(new_reds)} NEW red (was not red in its previous run); "
+                      "not running the sample:")
+                for t in sorted(new_reds)[:20]:
+                    print(f"  {t}")
+                return rc
+            print(f"lt: L0 red only with {len(reds)} PRE-EXISTING red (red in its previous run too); "
+                  "running the sample")
         # The sample is drawn from EVERYTHING the task's own tests are not:
         # L1 (the groups they belong to) and L2 (the rest), which are disjoint
         # from L0 by construction. Drawing from L2 alone meant that the better
