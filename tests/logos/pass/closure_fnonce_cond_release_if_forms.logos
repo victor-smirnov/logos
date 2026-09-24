@@ -1,0 +1,38 @@
+package closure_fnonce_cond_release_if_forms;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn a(c: bool, p: *mut i64) -> i64 {
+    let mut r: i64 = 0i64;
+    { let x: D = D { v: 1i64, c: p }; let f = move || -> i64 { let t: D = x; return t.v; };
+      if c { r = f(); } }
+    return r;
+}
+fn b(c: bool, p: *mut i64) -> i64 {
+    let mut r: i64 = 0i64;
+    { let x: D = D { v: 2i64, c: p }; let f = move || -> i64 { let t: D = x; return t.v; };
+      if c { r = 9i64; } else { r = f(); } }
+    return r;
+}
+fn n(c: bool, d: bool, p: *mut i64) -> i64 {
+    let mut r: i64 = 0i64;
+    { let x: D = D { v: 3i64, c: p }; let f = move || -> i64 { let t: D = x; return t.v; };
+      if c { if d { r = f(); } } }
+    return r;
+}
+fn rt(c: bool, p: *mut i64) -> i64 {
+    let x: D = D { v: 4i64, c: p };
+    let f = move || -> i64 { let t: D = x; return t.v; };
+    if c { return f(); }
+    return 0i64;
+}
+fn main() -> i32 {
+    let mut k1: i64 = 0i64; let mut k2: i64 = 0i64; let mut k3: i64 = 0i64; let mut k4: i64 = 0i64;
+    let mut k5: i64 = 0i64; let mut k6: i64 = 0i64; let mut k7: i64 = 0i64; let mut k8: i64 = 0i64;
+    let r1: i64 = a(true, &mut k1); let r2: i64 = a(false, &mut k2);
+    let r3: i64 = b(true, &mut k3); let r4: i64 = b(false, &mut k4);
+    let r5: i64 = n(true, false, &mut k5); let r6: i64 = n(true, true, &mut k6);
+    let r7: i64 = rt(true, &mut k7); let r8: i64 = rt(false, &mut k8);
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld | %lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, k1, r2, k2, r3, k3, r4, k4, r5, k5, r6, k6, r7, k7, r8, k8); }
+    return 0i32;
+}

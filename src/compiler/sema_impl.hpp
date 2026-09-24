@@ -4190,6 +4190,10 @@ private:
         // Recorded here instead, on the frame that owns the root, so it
         // survives exactly as long as the local it describes.
         std::set<std::string> cond_move_static_moves;
+        // Locals whose `cond_move_flags` flag guards a RELEASE of a move-closure
+        // capture (the closure was consumed on SOME paths only): their drop stays
+        // with the frame (closure_owned_drop_) and is emitted guarded.
+        std::set<std::string> cond_release_flagged;
         // (outer frame, name, hidden key) of an outer binding this frame shadows; restored at pop_scope.
         std::vector<std::tuple<size_t, std::string, std::string>> shadow_outer_renames;
     };
@@ -4719,9 +4723,19 @@ private:
         std::set<std::string> moves;
         size_t clear_mark = 0;   // flag_clear_log_ size before this branch
         size_t clear_end  = 0;   // ... and after it
+        // closure_owned_drop_ at the end of this branch (read only when the
+        // caller passes `owned_pre`).
+        std::set<std::string> owned;
     };
+    // `owned_pre` (closure_owned_drop_ before the branches) also merges the
+    // RELEASES of move-closure captures — a closure consumed on some reaching
+    // paths only: the capture stays owned by the frame, flagged, the flag
+    // cleared in the releasing branches. Sets closure_owned_drop_ to the merge.
     void elaborate_cond_moves(const std::set<std::string>& pre,
-                              std::vector<CondMoveBranch>& reaching);
+                              std::vector<CondMoveBranch>& reaching,
+                              const std::set<std::string>* owned_pre = nullptr);
+    void elaborate_cond_releases(const std::set<std::string>& owned_pre,
+                                 std::vector<CondMoveBranch>& reaching);
 
     // #118 — append a statement AFTER an expression's evaluation without
     // changing its value: `{ let t = <v>; <s>; t }`. Used to clear a drop flag

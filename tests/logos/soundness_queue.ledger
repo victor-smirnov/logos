@@ -129,8 +129,6 @@ boxed_closure_struct_field_not_callable 3 tests/soundness/open/boxed_closure_str
 
 box_dyn_fn_shared_ref_arg_refused 3 tests/soundness/open/box_dyn_fn_shared_ref_arg_refused refuses
 
-closure_fnonce_cond_call_untaken_leak 1 tests/soundness/open/closure_fnonce_cond_call_untaken_leak run 1
-
 slice_rest_ref_binder_syntax 3 tests/soundness/open/slice_rest_ref_binder_syntax refuses
 
 fnitem_to_fnptr_array_elem_admits 2 tests/soundness/open/fnitem_to_fnptr_array_elem_admits admits
@@ -413,5 +411,5 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 122
-# SYNC-HASH dca8f76308a6f89c512234dd16d17482
+# TOTAL 121
+# SYNC-HASH aff967a8d1a20745bd1d19c283020e88

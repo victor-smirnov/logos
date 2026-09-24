@@ -4320,6 +4320,9 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         // tests/logos/pass are unconditional, and the dedicated regression
         // fixture `move_closure_capture_drop_once.logos` puts its closure in a
         // plain block. One `if` away from red, and green.
+        // The one exception is `cond_release_flagged`: a capture whose closure
+        // was CONSUMED on some paths only (elaborate_cond_releases) — its flag
+        // tracks exactly that release, so the frame's drop is guarded by it.
         // #121 — A FIELD PATH ROOTED AT THIS LOCAL CARRIES ITS OWN FLAG. The
         // container's SDrop below already SKIPS the path statically (the union
         // merge put `h.p` in moved_vars_, and make_drop_stmt turns that into a
@@ -4341,7 +4344,8 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         // descendant overlap anywhere in the program.
         std::vector<std::string> fd = flagged_descendants(frame, n);
         if (auto cf = frame.cond_move_flags.find(n);
-            cf != frame.cond_move_flags.end() && !closure_owned_drop_.count(n)) {
+            cf != frame.cond_move_flags.end() &&
+            (!closure_owned_drop_.count(n) || frame.cond_release_flagged.count(n))) {
             // ⚠ `extra_skip` is DELIBERATELY not consulted here. Its one
             // caller passes `body_ever_moved_` — the fn-epilogue's
             // conservative "a param moved on ANY branch gets no drop at all"
@@ -4362,8 +4366,17 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         if (auto g = closure_drop_group_.find(n); g != closure_drop_group_.end())
             for (auto& c : g->second)
                 if (auto* cinfo = eligible(c))
-                    if (auto d = make_drop_stmt(c, *cinfo))
-                        drops.push_back(std::move(*d));
+                    if (auto d = make_drop_stmt(c, *cinfo)) {
+                        // A capture released on SOME paths (the closure consumed
+                        // in one branch) drops under its flag.
+                        std::string fl;
+                        for (size_t i = scope_.size(); i-- > 0 && fl.empty(); )
+                            if (scope_[i].cond_release_flagged.count(c))
+                                if (auto cf = scope_[i].cond_move_flags.find(c);
+                                    cf != scope_[i].cond_move_flags.end()) fl = cf->second;
+                        if (!fl.empty()) drops.push_back(guard_with_flag(fl, std::move(*d)));
+                        else drops.push_back(std::move(*d));
+                    }
     }
 }
 
@@ -4381,7 +4394,9 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
 // local moved on none keeps today's unguarded drop. Cost is therefore one i8
 // and one branch per CONDITIONALLY-moved local, zero for the rest.
 void SemaChecker::elaborate_cond_moves(const std::set<std::string>& pre,
-                                       std::vector<CondMoveBranch>& reaching) {
+                                       std::vector<CondMoveBranch>& reaching,
+                                       const std::set<std::string>* owned_pre) {
+    if (owned_pre) elaborate_cond_releases(*owned_pre, reaching);
     if (reaching.size() < 2) return;
     std::set<std::string> cand;
     for (auto& b : reaching)
@@ -4423,6 +4438,31 @@ void SemaChecker::elaborate_cond_moves(const std::set<std::string>& pre,
             flag_clear_log_.push_back(n);
         }
     }
+}
+
+void SemaChecker::elaborate_cond_releases(const std::set<std::string>& owned_pre,
+                                          std::vector<CondMoveBranch>& reaching) {
+    if (reaching.empty()) { closure_owned_drop_ = owned_pre; return; }   // nothing reaches the merge
+    if (reaching.size() == 1) { closure_owned_drop_ = reaching[0].owned; return; }
+    std::set<std::string> merged;
+    for (auto& b : reaching) merged.insert(b.owned.begin(), b.owned.end());
+    for (const auto& n : owned_pre) {
+        size_t released = 0;
+        for (auto& b : reaching) if (!b.owned.count(n)) ++released;
+        if (released == 0) continue;
+        if (released == reaching.size()) { merged.erase(n); continue; }   // released on every path
+        std::string fl = cond_move_flag_for(n);
+        if (fl.empty()) { merged.erase(n); continue; }
+        for (size_t i = scope_.size(); i-- > 0; )
+            if (scope_[i].vars.count(n)) { scope_[i].cond_release_flagged.insert(n); break; }
+        merged.insert(n);   // the frame still owns it on the other paths
+        for (auto& b : reaching) {
+            if (b.owned.count(n)) continue;
+            if (b.blk)      splice_flag_clear(*b.blk, cond_move_clear_stmt(fl));
+            else if (b.val) *b.val = append_stmt_to_value(*b.val, cond_move_clear_stmt(fl));
+        }
+    }
+    closure_owned_drop_ = std::move(merged);
 }
 
 // #118 — `if <flag> { <drop> }`. const like its only caller (emit_frame_drops

@@ -7683,6 +7683,8 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     std::set<std::string> if_post_uninit;
     bool if_post_uninit_initialized = false;
 
+    const auto owned_pre = closure_owned_drop_;   // move-closure capture releases, merged below
+    std::set<std::string> owned_then = owned_pre, owned_else = owned_pre;
     std::vector<lir_view::StmtRef> then_block;
     if (node.has_key(la::THEN)) {
         moved_vars_ = if_pre_moves;
@@ -7691,6 +7693,8 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
         then_moves = moved_vars_;
         then_end   = flag_clear_log_.size();
         then_div = branch_div_kind(then_block);
+        owned_then = closure_owned_drop_;
+        closure_owned_drop_ = owned_pre;
         if (!branch_diverges(then_block)) {
             if_any_non_diverging = true;
             for (auto& m : moved_vars_) if_post_moves.insert(m);
@@ -7725,6 +7729,8 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
         else_moves = moved_vars_;
         else_end   = flag_clear_log_.size();
         else_div = branch_div_kind(*else_opt);
+        owned_else = closure_owned_drop_;
+        closure_owned_drop_ = owned_pre;
         if (!branch_diverges(*else_opt)) {
             if_any_non_diverging = true;
             for (auto& m : moved_vars_) if_post_moves.insert(m);
@@ -7748,15 +7754,15 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     {
         std::vector<CondMoveBranch> reaching;
         if (then_div != 1)
-            reaching.push_back({&then_block, nullptr, then_moves, then_mark, then_end});
+            reaching.push_back({&then_block, nullptr, then_moves, then_mark, then_end, owned_then});
         if (else_opt) {
             if (else_div != 1)
-                reaching.push_back({&*else_opt, nullptr, else_moves, else_mark, else_end});
+                reaching.push_back({&*else_opt, nullptr, else_moves, else_mark, else_end, owned_else});
         } else {
-            // No `else` ≡ a fall-through path that moves nothing.
-            reaching.push_back({nullptr, nullptr, if_pre_moves, then_mark, then_mark});
+            // No `else` ≡ a fall-through path that moves (and releases) nothing.
+            reaching.push_back({nullptr, nullptr, if_pre_moves, then_mark, then_mark, owned_pre});
         }
-        elaborate_cond_moves(if_pre_moves, reaching);
+        elaborate_cond_moves(if_pre_moves, reaching, &owned_pre);
     }
 
     lir::SIf sif;
@@ -10600,6 +10606,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         // non-diverging arms (conservative: a var moved on any falling-
         // through path is considered moved post-match).
         auto pre_moves = moved_vars_;
+        const auto owned_pre_m = closure_owned_drop_;   // move-closure releases, merged per arm
         std::set<std::string> post_moves;
         // #118 — per-arm bookkeeping for conditional-move drop flags: the
         // arm's own statement vector (kept so a flag clear can be spliced in
@@ -10724,6 +10731,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
 
             // Reset moves to pre-match state at each arm boundary.
             moved_vars_ = pre_moves;
+            closure_owned_drop_ = owned_pre_m;
             size_t arm_clear_mark = flag_clear_log_.size();   // #118
             // logos-core 2.7: reset definite-assignment state too — each arm
             // sees the same scrutinee-side pre-state.
@@ -11226,7 +11234,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             if (!arm_returns) {
                 arm_bodies.push_back(body);
                 arm_branches.push_back({nullptr, nullptr, moved_vars_,
-                                        arm_clear_mark, flag_clear_log_.size()});
+                                        arm_clear_mark, flag_clear_log_.size(), closure_owned_drop_});
                 arm_slot.push_back(smatch.arms.size());
             }
 
@@ -11243,7 +11251,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         {
             std::vector<size_t> sizes;
             for (auto& b : arm_bodies) sizes.push_back(b.size());
-            elaborate_cond_moves(pre_moves_kept, arm_branches);
+            elaborate_cond_moves(pre_moves_kept, arm_branches, &owned_pre_m);
             for (size_t i = 0; i < arm_bodies.size(); ++i)
                 if (arm_bodies[i].size() != sizes[i])
                     smatch.arms[arm_slot[i]].body =
@@ -11591,6 +11599,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         //   d.use();   // d is NOT moved on this path
         // Post-match state = union over non-diverging arms.
         auto pre_moves = moved_vars_;
+        const auto owned_pre_m = closure_owned_drop_;   // move-closure releases, merged per arm
         std::set<std::string> post_moves;
         auto pre_uninit = currently_uninit_vars_;
         std::set<std::string> post_uninit;
@@ -11607,6 +11616,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // Reset moves / definite-assignment to the pre-match state at
             // each arm boundary (stmt-form parity).
             moved_vars_ = pre_moves;
+            closure_owned_drop_ = owned_pre_m;
             currently_uninit_vars_ = pre_uninit;
             size_t arm_clear_mark = flag_clear_log_.size();   // #118
 
@@ -12135,7 +12145,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (!arm_diverges ||
                 expr_arm_div_kind(me.arms.back().value) == 2) {
                 arm_branches.push_back({nullptr, nullptr, moved_vars_,
-                                        arm_clear_mark, flag_clear_log_.size()});
+                                        arm_clear_mark, flag_clear_log_.size(), closure_owned_drop_});
                 arm_slot.push_back(me.arms.size() - 1);
             }
         }
@@ -12148,7 +12158,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // be addressed and rebuilt in place.
         for (size_t i = 0; i < arm_branches.size(); ++i)
             arm_branches[i].val = &me.arms[arm_slot[i]].value;
-        elaborate_cond_moves(pre_moves_kept, arm_branches);
+        elaborate_cond_moves(pre_moves_kept, arm_branches, &owned_pre_m);
     }
 
     {

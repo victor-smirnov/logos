@@ -2409,6 +2409,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // lowering's site and needs its own name.
     bool sc_fork = (op == "&&" || op == "||");
     auto uninit_pre = currently_uninit_vars_;
+    const auto owned_pre = closure_owned_drop_;
     auto rhs = sc_fork
         ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
         : lower_expr(map_of(node.get(la::RHS.code)));
@@ -2419,12 +2420,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // `if` / `match` / loops already carry for this tracker.
     if (sc_fork)
         for (auto& n : uninit_pre) currently_uninit_vars_.insert(n);
-    if ((op == "&&" || op == "||") && moved_vars_ != rhs_pre) {
+    if (sc_fork && (moved_vars_ != rhs_pre || closure_owned_drop_ != owned_pre)) {
         size_t rm = flag_clear_log_.size();
         std::vector<CondMoveBranch> rb;
-        rb.push_back({nullptr, &rhs, moved_vars_, rm, rm});   // RHS evaluated
-        rb.push_back({nullptr, nullptr, rhs_pre, rm, rm});    // short-circuited
-        elaborate_cond_moves(rhs_pre, rb);
+        rb.push_back({nullptr, &rhs, moved_vars_, rm, rm, closure_owned_drop_});   // RHS evaluated
+        rb.push_back({nullptr, nullptr, rhs_pre, rm, rm, owned_pre});              // short-circuited
+        elaborate_cond_moves(rhs_pre, rb, &owned_pre);
     }
     auto lt = expr_type(lhs);
     auto rt = expr_type(rhs);
@@ -18089,6 +18090,8 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     // the union over the non-diverging ones (a var moved on any reaching path
     // is maybe-moved after).
     auto ifx_pre_moves = moved_vars_;
+    const auto ifx_owned_pre = closure_owned_drop_;   // move-closure releases, merged below
+    std::set<std::string> ifx_owned_then = ifx_owned_pre, ifx_owned_else = ifx_owned_pre;
     std::set<std::string> ifx_post_moves;
     bool ifx_any_non_diverging = false;
     std::set<std::string> ifx_then_moves, ifx_else_moves;
@@ -18120,6 +18123,8 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         }
         ifx_then_end = flag_clear_log_.size();
         ifx_then_div = ifx_merge(then_val, ifx_then_moves);
+        ifx_owned_then = closure_owned_drop_;
+        closure_owned_drop_ = ifx_owned_pre;
     } else {
         ifx_then_moves = ifx_pre_moves;
         ifx_any_non_diverging = true;
@@ -18140,6 +18145,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     }
     ifx_else_end = flag_clear_log_.size();
     ifx_else_div = ifx_merge(else_val, ifx_else_moves);
+    ifx_owned_else = closure_owned_drop_;
 
     moved_vars_ = ifx_any_non_diverging ? ifx_post_moves : ifx_pre_moves;
 
@@ -18158,11 +18164,11 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     // settled at its own unwind. Mirrors lower_if's `branch_div_kind != 1`.
     if (!ifx_then_div || expr_arm_div_kind(then_val) == 2)
         ifx_reaching.push_back({nullptr, &then_val, ifx_then_moves,
-                                ifx_then_mark, ifx_then_end});
+                                ifx_then_mark, ifx_then_end, ifx_owned_then});
     if (!ifx_else_div || expr_arm_div_kind(else_val) == 2)
         ifx_reaching.push_back({nullptr, &else_val, ifx_else_moves,
-                                ifx_else_mark, ifx_else_end});
-    elaborate_cond_moves(ifx_pre_moves, ifx_reaching);
+                                ifx_else_mark, ifx_else_end, ifx_owned_else});
+    elaborate_cond_moves(ifx_pre_moves, ifx_reaching, &ifx_owned_pre);
 
     // Determine result type: pick the more concrete type when IntLit vs concrete int.
     // A diverging (Never) branch contributes no type — the if-expression's type
