@@ -145,8 +145,6 @@ box_dyn_fn_shared_ref_arg_refused 3 tests/soundness/open/box_dyn_fn_shared_ref_a
 
 closure_fnonce_cond_call_untaken_leak 1 tests/soundness/open/closure_fnonce_cond_call_untaken_leak run 1
 
-index_place_through_refmut_never_drops_old 1 tests/soundness/open/index_place_through_refmut_never_drops_old run 1
-
 tuplestruct_door_default_ref_mode_not_carried 1 tests/soundness/open/tuplestruct_door_default_ref_mode_not_carried run 2
 
 slice_rest_ref_binder_syntax 3 tests/soundness/open/slice_rest_ref_binder_syntax refuses
@@ -439,5 +437,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 137
-# SYNC-HASH 81d06c9f9f4bf06e8ea7a47c5a7c4291
+# TOTAL 136
+# SYNC-HASH 899648d84d3817a91ec326a7086501f4

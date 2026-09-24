@@ -1,0 +1,26 @@
+// Index stores through `&mut` drop the overwritten element: the local spelling, index-then-field,
+// a nested array, and a raw-pointer store that must NOT drop (ptr::write). rustc 1.98.1 prints the same.
+package index_store_through_refmut_drop_old;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct W { d: D, k: i64 }
+fn loc(p: *mut i64) {
+    let mut a: [D; 2] = [D { v: 1i64, c: p }, D { v: 2i64, c: p }];
+    let q: &mut [D; 2] = &mut a;
+    q[1] = D { v: 3i64, c: p };
+}
+fn fld(q: &mut [W; 1], p: *mut i64) { q[0].d = D { v: 5i64, c: p }; }
+fn nest(q: &mut [[D; 1]; 2], p: *mut i64) { q[1][0] = D { v: 8i64, c: p }; }
+fn raw(q: *mut [D; 1], p: *mut i64) { unsafe { (*q)[0] = D { v: 9i64, c: p }; } }
+fn main() -> i32 {
+    let mut n1: i64 = 0i64; loc(&mut n1);
+    let mut n2: i64 = 0i64;
+    { let mut w: [W; 1] = [W { d: D { v: 4i64, c: &mut n2 }, k: 0i64 }]; fld(&mut w, &mut n2); }
+    let mut n3: i64 = 0i64;
+    { let mut m: [[D; 1]; 2] = [[D { v: 6i64, c: &mut n3 }], [D { v: 7i64, c: &mut n3 }]]; nest(&mut m, &mut n3); }
+    let mut n4: i64 = 0i64;
+    { let mut r: [D; 1] = [D { v: 1i64, c: &mut n4 }]; raw(&mut r as *mut [D; 1], &mut n4); }
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), n1, n2, n3, n4); }
+    return 0i32;
+}

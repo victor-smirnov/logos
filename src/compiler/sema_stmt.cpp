@@ -8827,6 +8827,10 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                 // the overlap check answer for the whole root.
                 auto recv_n = unwrap_paren_node(map_of(cur.get(la::RECEIVER.code)));
                 TypeRef recv_t = resolve_place_type(recv_n);
+                // `q[i]` with `q: &mut [T; N]` indexes the referent array.
+                if (recv_t && TypeRef(recv_t).kind() == LogosType::Kind::MutRef &&
+                    TypeRef(recv_t).pointee())
+                    recv_t = TypeRef(recv_t).pointee();
                 if (!recv_t || TypeRef(recv_t).kind() != LogosType::Kind::Array)
                     break;
                 through_index = true;
