@@ -1,3 +1,4 @@
+// CLOSED 2026-09-24 (squeue #115): `let (a, b) = &t;` destructures under the by-reference default binding mode (`a: &T`).
 // SOUNDNESS QUEUE row let_tuple_destructure_ref_scrutinee (tier 3). `let (a, b) =
 // &t;` is legal Rust — default binding modes apply to a destructuring `let` as they
 // do to `match`, and `a: &i64`. TODAY refused "let (...) = ...: right-hand side

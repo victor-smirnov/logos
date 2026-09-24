@@ -1,0 +1,27 @@
+// Nested struct / tuple payloads under `&` / `&mut` scrutinees (match, if-let) bind references into
+// the payload; a by-value control moves. rustc 1.98.1 prints the same line.
+package variant_payload_nested_binding_modes;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { n: i64, c: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.c = *self.c * 10i64 + self.n; } } }
+struct W { s: S, k: i64 }
+enum Outer { V(W), T((S, i64)), Z }
+fn main() -> i32 {
+    let mut n1: i64 = 0i64; let mut r1: i64 = 0i64;
+    { let e: Outer = Outer::V(W { s: S { n: 1i64, c: &mut n1 }, k: 2i64 });
+      match &e { Outer::V(W { s, k }) => { r1 = s.n + *k; }, _ => {} } }
+    let mut n2: i64 = 0i64; let mut r2: i64 = 0i64;
+    { let e: Outer = Outer::T((S { n: 3i64, c: &mut n2 }, 4i64));
+      match &e { Outer::T((s, k)) => { r2 = s.n * 10i64 + *k; }, _ => {} } }
+    let mut n3: i64 = 0i64;
+    { let mut e: Outer = Outer::V(W { s: S { n: 5i64, c: &mut n3 }, k: 6i64 });
+      match &mut e { Outer::V(W { s, k }) => { s.n = 7i64; *k = 8i64; }, _ => {} } }
+    let mut n4: i64 = 0i64; let mut r4: i64 = 0i64;
+    { let e: Outer = Outer::V(W { s: S { n: 9i64, c: &mut n4 }, k: 1i64 });
+      if let Outer::V(W { s, k }) = &e { r4 = s.n + *k; } }
+    let mut n5: i64 = 0i64; let mut r5: i64 = 0i64;
+    { let e: Outer = Outer::V(W { s: S { n: 2i64, c: &mut n5 }, k: 3i64 });
+      match e { Outer::V(W { s, k }) => { r5 = s.n + k; }, _ => {} } }
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, n1, r2, n2, n3, r4, n4, r5, n5); }
+    return 0i32;
+}

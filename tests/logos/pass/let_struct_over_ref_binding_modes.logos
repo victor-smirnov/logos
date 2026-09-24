@@ -1,0 +1,19 @@
+// `let S { … } = &s` / `&mut s`: field binders are references (rename, write-through, `..`, a
+// droppable field). rustc 1.98.1 prints the same line.
+package let_struct_over_ref_binding_modes;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { n: i64, c: *mut i64 }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.c = *self.c * 10i64 + self.n; } } }
+struct W { s: S, k: i64, z: i64 }
+fn main() -> i32 {
+    let mut n1: i64 = 0i64;
+    let mut out: i64 = 0i64;
+    {
+        let mut w: W = W { s: S { n: 3i64, c: &mut n1 }, k: 4i64, z: 1i64 };
+        { let W { s, k: kk, .. } = &mut w; *kk = 50i64; s.n = 6i64; }
+        let W { s, k, z } = &w;
+        out = s.n * 1000i64 + *k * 10i64 + *z;
+    }
+    unsafe { printf("%lld %lld\n".as_ptr(), out, n1); }
+    return 0i32;
+}

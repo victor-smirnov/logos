@@ -1,3 +1,4 @@
+// CLOSED 2026-09-24 (squeue #135): under a by-reference default binding mode the variant door binds a nested struct/tuple payload's synth BY REFERENCE and the body prologue binds `&(*synth).f`.
 // SOUNDNESS QUEUE row variant_payload_nested_struct_sub_double_drops (tier 1). An
 // ENUM-VARIANT payload matched with a nested STRUCT or TUPLE pattern under a
 // by-reference scrutinee — `match &e { Outer::V(W { s }) => … }` — runs the payload's

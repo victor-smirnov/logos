@@ -1060,7 +1060,14 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
     TypeRef rhs_type = expr_type(rhs);
-    if (TypeRef(rhs_type).kind() != LogosType::Kind::Tuple) {
+    // A reference to a tuple destructures under the by-reference DEFAULT BINDING
+    // MODE (Rust): `let (s, b) = &p;` binds `s: &S`, `b: &i64` into `p`.
+    auto is_ref_to_tuple = [](TypeRef t) {
+        return t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                     TypeRef(t).kind() == LogosType::Kind::MutRef) &&
+               TypeRef(t).pointee() && TypeRef(t).pointee().kind() == LogosType::Kind::Tuple;
+    };
+    if (TypeRef(rhs_type).kind() != LogosType::Kind::Tuple && !is_ref_to_tuple(rhs_type)) {
         error(std::format("let (...) = ...: right-hand side must be a tuple, got {}",
               type_str(rhs_type)));
         return builder().stmt_expr(std::move(rhs), node_line_);
@@ -1095,8 +1102,11 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
         [&](TinyMapView nlist, lir::LExprPtr src, TypeRef src_ty) {
         if (!nlist.has_key(la::ITEMS)) return;
         auto arr = arr_of(nlist.get(la::ITEMS.code));
-        size_t arity = TypeRef(src_ty).kind() == LogosType::Kind::Tuple
-                           ? TypeRef(src_ty).tuple_elems().size() : 0;
+        const bool ref_mode = is_ref_to_tuple(src_ty);
+        const bool rmut = ref_mode && TypeRef(src_ty).kind() == LogosType::Kind::MutRef;
+        const TypeRef tup_ty = ref_mode ? TypeRef(src_ty).pointee() : src_ty;
+        size_t arity = TypeRef(tup_ty).kind() == LogosType::Kind::Tuple
+                           ? TypeRef(tup_ty).tuple_elems().size() : 0;
         // G140-4: a single `..` rest absorbs the unmatched middle positions.
         // Names before the rest bind low positions; names after bind the tail.
         int rest_idx = -1;
@@ -1144,7 +1154,33 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
                 pos = arity - trailing + after_k;
             }
             if (pos >= arity) continue;
-            auto elem_t = TypeRef(src_ty).tuple_elems()[pos];
+            auto elem_t = TypeRef(tup_ty).tuple_elems()[pos];
+            if (ref_mode) {
+                // `(*src).pos`, borrowed: every binder is a reference into it.
+                auto place = builder().tuple_index(
+                    builder().deref(builder().var_ref(src_tmp, src_ty), tup_ty), (uint32_t)pos, elem_t);
+                TypeRef rt = make_ref(rmut, elem_t);
+                auto addr = builder().addr_of_temp(std::move(place), rmut, rt,
+                                                   lir_schema::expr::BorrowOrigin::Explicit);
+                if (code_of(bnode) == la::PAT_TUPLE && bnode.has_key(la::NAMES)) {
+                    bind_list(map_of(bnode.get(la::NAMES.code)), std::move(addr), rt);
+                    continue;
+                }
+                std::string nm(str_of(bnode.get(la::NAME.code)));
+                auto flag = [&](const la::Key& k) {
+                    return bnode.has_key(k) && bnode.get(k.code).is_value() &&
+                           bnode.get(k.code).as_value<uint8_t>() != 0;
+                };
+                if (!nm.empty() && nm != "_" && (flag(la::IS_REF) || flag(la::IS_MUT)))
+                    modifier_under_ref_scrutinee(nm, src_ty, /*known_ref=*/true);
+                if (nm.empty() || nm == "_") continue;
+                all_names.push_back(nm);
+                define(nm, rt, false);
+                lir::SLet el;
+                el.name = nm; el.type = rt; el.is_mut = false; el.value = std::move(addr);
+                blk.push_back(make_stmt_emit(node_line_, std::move(el)));
+                continue;
+            }
             auto elem_expr = builder().tuple_index(
                 builder().var_ref(src_tmp, src_ty), (uint32_t)pos, elem_t);
             if (code_of(bnode) == la::PAT_TUPLE && bnode.has_key(la::NAMES)) {
@@ -1877,6 +1913,75 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         lir::SBlock sb;
         sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper
         sb.body = lir_mirror_block(*cur_prog_, eblk);
+        return make_stmt_emit(node_line_, std::move(sb));
+    }
+    // `let S { a, b: x } = &s;` — the by-reference DEFAULT BINDING MODE (Rust):
+    // every binder is a reference into the borrowed struct, `&(*tmp).f`.
+    if ((TypeRef(rhs_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(rhs_type).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(rhs_type).pointee() &&
+        TypeRef(rhs_type).pointee().kind() == LogosType::Kind::Struct &&
+        std::string_view(TypeRef(rhs_type).pointee().struct_name()) ==
+            std::string_view(str_of(pat_node.get(la::NAME.code)))) {
+        const bool rm = TypeRef(rhs_type).kind() == LogosType::Kind::MutRef;
+        const TypeRef obj = TypeRef(rhs_type).pointee();
+        auto [opkg, osi] = struct_of(obj);
+        std::vector<lir_view::StmtRef> blk;
+        std::string tmp = std::format("__dst_{}", destruct_counter_++);
+        define(tmp, rhs_type);
+        {
+            lir::SLet sl; sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
+            sl.value = std::move(rhs);
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        if (osi && pat_node.has_key(la::ITEMS)) {
+            AnyVal iav = pat_node.get(la::ITEMS.code);
+            ArrayView fitems;
+            if (!iav.is_null() && iav.is_pointer()) {
+                auto fl = map_of(iav);
+                fitems = fl.has_key(la::ITEMS) ? arr_of(fl.get(la::ITEMS.code)) : arr_of(iav);
+            }
+            for (uint64_t i = 0; i < fitems.size(); ++i) {
+                auto fnode = map_of(fitems.get(i));
+                if (code_of(fnode) == la::PAT_REST || !fnode.has_key(la::NAME)) continue;
+                std::string fname(str_of(fnode.get(la::NAME.code)));
+                TypeRef ftype = nullptr;
+                for (auto& f : osi->fields) if (f.name == fname) { ftype = f.type; break; }
+                if (!ftype) { error(std::format("let pattern: struct '{}' has no field '{}'", type_str(obj), fname)); continue; }
+                std::string bind = fname;
+                writ::TinyMapView leaf = fnode;
+                if (fnode.has_key(la::VALUE)) {
+                    leaf = map_of(fnode.get(la::VALUE.code));
+                    if (code_of(leaf) == la::PAT_OR && leaf.has_key(la::ITEMS)) {
+                        auto a1 = arr_of(leaf.get(la::ITEMS.code));
+                        if (a1.size() == 1) leaf = map_of(a1.get(0));
+                    }
+                    if (code_of(leaf) != la::PAT_WILD || !leaf.has_key(la::NAME)) {
+                        error(std::format("let pattern over a reference: field '{}' supports a plain "
+                                          "binding only (bind the field and destructure it next)", fname));
+                        continue;
+                    }
+                    bind = std::string(str_of(leaf.get(la::NAME.code)));
+                }
+                auto lf = [&](writ::TinyMapView n, const la::Key& k) {
+                    return n.has_key(k) && n.get(k.code).is_value() && n.get(k.code).as_value<uint8_t>() != 0;
+                };
+                if (bind != "_" && (lf(fnode, la::IS_REF) || lf(fnode, la::IS_MUT) ||
+                                    lf(leaf, la::IS_REF) || lf(leaf, la::IS_MUT)))
+                    modifier_under_ref_scrutinee(bind, rhs_type, /*known_ref=*/true);
+                if (bind == "_") continue;
+                TypeRef rt = make_ref(rm, ftype);
+                define(bind, rt, false);
+                lir::SLet el; el.name = bind; el.type = rt; el.is_mut = false;
+                el.value = builder().addr_of_temp(
+                    builder().field_read(builder().deref(builder().var_ref(tmp, rhs_type), obj), fname, ftype),
+                    rm, rt, lir_schema::expr::BorrowOrigin::Explicit);
+                blk.push_back(make_stmt_emit(node_line_, std::move(el)));
+            }
+        }
+        lir::SBlock sb;
+        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper
+        sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
     if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
@@ -4680,8 +4785,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         std::string synth = std::format(
                             "__pat_pld_{}_{}", pvname, tmp_var_count_++);
                         bindings.push_back(synth);
-                        binding_is_ref.push_back(false);
-                        binding_is_mut.push_back(false);
+                        // Under a by-reference default binding mode the payload is
+                        // BORROWED, not moved: the synth binds `&P` and the body
+                        // destructure binds references into it (the payload stays
+                        // the scrutinee's; binding it by value dropped it twice).
+                        binding_is_ref.push_back(variant_data_dbm_.ref);
+                        binding_is_mut.push_back(variant_data_dbm_.ref && variant_data_dbm_.mut_);
                         binding_from_wild.push_back(false);
                         current_pat_nested_subs_->push_back({synth, bnode});
                         continue;
@@ -9823,6 +9932,42 @@ void SemaChecker::emit_nested_pat_destructure(
             std::function<void(lir::LExprPtr, TypeRef, writ::TinyMapView)>
             emit_tuple_lets =
                 [&](lir::LExprPtr src, TypeRef tty, writ::TinyMapView tnode) {
+                // BY-REFERENCE source (`&(A, B)`): every leaf binds `&(*src).i`.
+                if (tty && (TypeRef(tty).kind() == LogosType::Kind::Ref ||
+                            TypeRef(tty).kind() == LogosType::Kind::MutRef) &&
+                    TypeRef(tty).pointee() && TypeRef(tty).pointee().kind() == LogosType::Kind::Tuple) {
+                    const bool rm = TypeRef(tty).kind() == LogosType::Kind::MutRef;
+                    TypeRef tup = TypeRef(tty).pointee();
+                    if (!tnode.has_key(la::ITEMS)) return;
+                    std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
+                    define(stmp, tty);
+                    {
+                        lir::SLet sl0; sl0.name = stmp; sl0.type = tty; sl0.is_mut = false; sl0.value = std::move(src);
+                        nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl0)));
+                    }
+                    auto items = arr_of(tnode.get(la::ITEMS.code));
+                    auto elems = TypeRef(tup).tuple_elems();
+                    for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
+                        auto en = map_of(items.get(i));
+                        if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
+                            auto alts = arr_of(en.get(la::ITEMS.code));
+                            if (alts.size() == 1) en = map_of(alts.get(0));
+                        }
+                        TypeRef rt = make_ref(rm, elems[i]);
+                        auto addr = builder().addr_of_temp(
+                            builder().tuple_index(builder().deref(builder().var_ref(stmp, tty), tup),
+                                                  (uint32_t)i, elems[i]),
+                            rm, rt, lir_schema::expr::BorrowOrigin::Explicit);
+                        if (code_of(en) == la::PAT_TUPLE) { emit_tuple_lets(std::move(addr), rt, en); continue; }
+                        if (code_of(en) != la::PAT_WILD || !en.has_key(la::NAME)) continue;
+                        std::string nm(str_of(en.get(la::NAME.code)));
+                        if (nm == "_") continue;
+                        define(nm, rt, false);
+                        lir::SLet el; el.name = nm; el.type = rt; el.is_mut = false; el.value = std::move(addr);
+                        nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(el)));
+                    }
+                    return;
+                }
                 if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
                 if (!tnode.has_key(la::ITEMS)) return;
                 auto items = arr_of(tnode.get(la::ITEMS.code));
@@ -9888,8 +10033,14 @@ void SemaChecker::emit_nested_pat_destructure(
         auto fitems_m = map_of(fitems_av);
         if (!fitems_m.has_key(la::ITEMS)) continue;
         auto fields = arr_of(fitems_m.get(la::ITEMS.code));
+        // A BY-REFERENCE synth (`&W`, default binding mode): bind `&(*synth).f`.
+        const bool s_ref = (TypeRef(synth_t).kind() == LogosType::Kind::Ref ||
+                            TypeRef(synth_t).kind() == LogosType::Kind::MutRef) &&
+                           TypeRef(synth_t).pointee();
+        const bool s_rm = s_ref && TypeRef(synth_t).kind() == LogosType::Kind::MutRef;
+        const TypeRef s_obj = s_ref ? TypeRef(synth_t).pointee() : synth_t;
         // Look up struct info from synth's struct name.
-        std::string sname_s(TypeRef(synth_t).struct_name());
+        std::string sname_s(TypeRef(s_obj).struct_name());
         auto [_skpkg, sinfo] = find_struct_by_name(sname_s);
         if (!sinfo) continue;
         for (uint64_t k = 0; k < fields.size(); ++k) {
@@ -9911,6 +10062,19 @@ void SemaChecker::emit_nested_pat_destructure(
             const bool bmut_ =
                 (pat_byval_mut(fnode) ||
                  (fnode.has_key(la::VALUE) && pat_byval_mut(map_of(fnode.get(la::VALUE.code)))));
+            if (s_ref) {
+                if (bind == "_") continue;
+                TypeRef rt = make_ref(s_rm, ftype);
+                define(bind, rt, false);
+                auto addr = builder().addr_of_temp(
+                    builder().field_read(builder().deref(builder().var_ref(nsub.synth_name, synth_t), s_obj),
+                                         fname, ftype),
+                    s_rm, rt, lir_schema::expr::BorrowOrigin::Explicit);
+                lir::SLet sl;
+                sl.name = bind; sl.type = rt; sl.is_mut = false; sl.value = std::move(addr);
+                nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                continue;
+            }
             define(bind, ftype, bmut_);
             auto sref = builder().var_ref(nsub.synth_name, synth_t);
             auto fr = builder().field_read(std::move(sref), fname, ftype);

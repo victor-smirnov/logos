@@ -96,8 +96,6 @@ typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike       
 
 labeled_foreach_label_lost    3 tests/soundness/open/labeled_foreach_label_lost    refuses
 
-let_tuple_destructure_ref_scrutinee 3 tests/soundness/open/let_tuple_destructure_ref_scrutinee refuses
-
 paren_var_assign_target       3 tests/soundness/open/paren_var_assign_target       refuses
 
 at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
@@ -128,8 +126,6 @@ let_underscore_defers_drop_to_block_end 3 tests/soundness/open/let_underscore_de
 nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
 
 boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
-
-variant_payload_nested_struct_sub_double_drops 1 tests/soundness/open/variant_payload_nested_struct_sub_double_drops run 2
 
 impl_fn_return_stack_env_dangles 1 tests/soundness/open/impl_fn_return_stack_env_dangles run 1
 
@@ -421,5 +417,5 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 127
-# SYNC-HASH 1151fa833dced6c4ee16df47065eabe5
+# TOTAL 125
+# SYNC-HASH 8fce98bf256c34e758707596e84a3f4f
