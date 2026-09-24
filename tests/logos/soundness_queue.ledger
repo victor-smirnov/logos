@@ -40,8 +40,6 @@ match_tmp_wild_mut_addrof     3 tests/soundness/open/match_tmp_wild_mut_addrof  
 
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 
-paren_var_assign_target       3 tests/soundness/open/paren_var_assign_target       refuses
-
 at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
 
 let_at_binding_type_annot_syntax 3 tests/soundness/open/let_at_binding_type_annot_syntax refuses
@@ -55,8 +53,6 @@ for_header_pattern_tuple_only 3 tests/soundness/open/for_header_pattern_tuple_on
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
-
-nested_tuple_field_assign_unimplemented 3 tests/soundness/open/nested_tuple_field_assign_unimplemented refuses
 
 boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
 
@@ -369,5 +365,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 98
-# SYNC-HASH 8d84c4a3646e2b7920f02c836de6561c
+# TOTAL 96
+# SYNC-HASH 4e0cd650e595f7f6926060372cdbc00c

@@ -1,0 +1,17 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package nested_tuple_field_assign_unimplemented;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct Wt { t: (D, D), n: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let mut w: Wt = Wt { t: (D { v: 1i64, c: p }, D { v: 2i64, c: p }), n: 5i64 };
+        w.t.0 = D { v: 1000i64, c: p };
+        r = w.t.0.v;
+    }
+    if r != 1000i64 { return 2i32; }
+    return 0i32;
+}

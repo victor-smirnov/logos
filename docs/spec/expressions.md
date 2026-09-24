@@ -2536,7 +2536,7 @@ For a type implementing `IndexMut`, `a[i] = v` desugars to a store through the t
 
 ### `expr.assign.place-nesting-bound` — Deeply-nested assignment targets rejected
 
-A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable or `*p` bottoming out a recursion, INDEX_READ recursing to arbitrary depth over its receiver, and FIELD_READ/TUPLE_INDEX bounded to a receiver that is itself var/deref, a field chain over one, or an index into a supported place. Deeper/other nestings are rejected with 'assignment target too deeply nested to assign in place yet' (suggesting an intermediate `&mut` binding) rather than mis-lowered.
+A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable or `*p` bottoming out a recursion, INDEX_READ recursing to arbitrary depth over its receiver, and FIELD_READ/TUPLE_INDEX over a receiver that is itself var/deref, a field / tuple-index chain over one, or an index into a supported place (`w.t.0 = v`, `t.0.0 = v`, `a[i].t.1 += v`). A place rooted in a call result (`pm(&mut t).0 = v`, legal Rust through auto-deref) and other shapes are rejected with 'assignment target too deeply nested to assign in place yet' (suggesting an intermediate `&mut` binding) rather than mis-lowered.
 
 *Divergence:* Compiler-side lowering limitation: Rust places arbitrary-depth field/index/tuple-index nesting; this compiler's general place-write path currently accepts only the bounded shapes above, erroring (with a workaround) on deeper nestings rather than treating the program as ill-formed.
 
@@ -2628,7 +2628,7 @@ In the read-modify-write path, the rhs type must be compatible with the place ty
 
 ### `expr.compound-assign.place-too-nested` — Compound-assign target nesting limit
 
-A compound-assign target too deeply nested to write in place is rejected with guidance to bind an intermediate `&mut` reference.
+A compound-assign target outside the place-write shapes of `expr.assign.place-nesting-bound` (e.g. rooted in a call result, `pm(&mut t).1 += v`) is rejected with guidance to bind an intermediate `&mut` reference.
 
 *Note:* Implementation-capability limit rather than a designed language restriction.
 

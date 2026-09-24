@@ -1255,6 +1255,22 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
         AnyVal av = node.get(la::OP.code);
         if (!av.is_null() && av.is_value()) op = (int)av.as_value<int32_t>();
     }
+    // `(x) = e` IS `x = e`: the tuple form's binding list takes no trailing
+    // comma, so ONE place is a parenthesized place, never a 1-tuple.
+    if (op == 0 && node.has_key(la::NAMES)) {
+        AnyVal nav = node.get(la::NAMES.code);
+        if (!nav.is_null() && nav.is_pointer()) {
+            auto nl = map_of(nav);
+            auto items = nl.has_key(la::ITEMS) ? arr_of(nl.get(la::ITEMS.code)) : arr_of(nav);
+            if (items.size() == 1) {
+                auto b = map_of(items.get(0));
+                if (!b.is_null() && b.has_key(la::NAME)) {
+                    std::string_view nm = str_of(b.get(la::NAME.code));
+                    if (!nm.empty() && nm != "_") return lower_assign_to(nm, node);
+                }
+            }
+        }
+    }
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
@@ -3610,7 +3626,10 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
 }
 
 lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
-    auto name = str_of(node.get(la::NAME.code));
+    return lower_assign_to(str_of(node.get(la::NAME.code)), node);
+}
+
+lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapView node) {
     auto var_type = lookup(name);
     if (!var_type) {
         error(std::format("assignment to undefined variable '{}'", name));
@@ -8786,8 +8805,10 @@ bool SemaChecker::place_write_supported(TinyMapView place) {
     if (pc == la::VAR_REF || pc == la::DEREF) return true;
     if (pc == la::INDEX_READ)
         return place_write_supported(map_of(place.get(la::RECEIVER.code)));
+    // A tuple element under a field chain / an index (`w.t.0 = v`): the same
+    // bases a field write accepts — gen_lvalue_addr walks both.
     if (pc == la::TUPLE_INDEX)
-        return place_recv_is_simple(map_of(place.get(la::RECEIVER.code)));
+        return place_field_base_ok(map_of(place.get(la::RECEIVER.code)));
     if (pc == la::FIELD_READ)
         return place_field_base_ok(map_of(place.get(la::RECEIVER.code)));
     return false;

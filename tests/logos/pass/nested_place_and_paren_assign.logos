@@ -1,0 +1,27 @@
+// Nested tuple places (through a field, through an array element), a compound assignment on one, and `(x) = D` dropping the old value (rustc 1.98.1: 216 12 52 8 7).
+package nested_place_and_paren_assign;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct Wt { t: (D, i64), n: i64 }
+struct Arr { a: [(i64, i64); 2] }
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let p: *mut i64 = &mut q;
+    let mut r1: i64 = 0i64;
+    {
+        let mut w: Wt = Wt { t: (D { v: 1i64, c: p }, 5i64), n: 0i64 };
+        w.t.0 = D { v: 2i64, c: p };
+        w.t.1 = 6i64;
+        w.t.1 += 10i64;
+        r1 = w.t.0.v * 100i64 + w.t.1;
+    }
+    let d1: i64 = unsafe { *p }; unsafe { *p = 0i64; }
+    let mut ar: Arr = Arr { a: [(1i64, 2i64), (3i64, 4i64)] };
+    ar.a[1].0 = 30i64;
+    ar.a[0].1 += 20i64;
+    let mut x: D = D { v: 7i64, c: p };
+    (x) = D { v: 8i64, c: p };
+    let d2: i64 = unsafe { *p };
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), r1, d1, ar.a[1].0 + ar.a[0].1, x.v, d2); }
+    return 0i32;
+}

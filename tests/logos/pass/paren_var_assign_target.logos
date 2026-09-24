@@ -1,0 +1,8 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package paren_var_assign_target;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    (x) = 7i64;
+    if x != 7i64 { return 1i32; }
+    return 0i32;
+}

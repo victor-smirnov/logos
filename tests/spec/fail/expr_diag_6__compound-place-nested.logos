@@ -1,8 +1,8 @@
 // @rule expr.compound-assign.place-too-nested
 package expr_diag_6_compound_place_nested;
-
+fn pm(t: &mut ((i32, i32), i32)) -> &mut (i32, i32) { return &mut t.0; }
 fn main() -> i32 {
     let mut t: ((i32, i32), i32) = ((1i32, 2i32), 3i32);
-    t.0.1 += 1i32;
+    pm(&mut t).1 += 1i32;
     return 0i32;
 }

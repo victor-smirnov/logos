@@ -1,0 +1,8 @@
+// A tuple element of a tuple element is a writable place: `t.0.0 = v`, `t.0.1 += v` (rustc 1.98.1: exit 0).
+package tuple_in_tuple_place_assign;
+fn main() -> i32 {
+    let mut t: ((i32, i32), i32) = ((1i32, 2i32), 3i32);
+    t.0.0 = 9i32;
+    t.0.1 += 1i32;
+    return t.0.0 * 100i32 + t.0.1 * 10i32 + t.1 - 933i32;
+}

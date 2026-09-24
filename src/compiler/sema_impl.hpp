@@ -9209,6 +9209,9 @@ private:
                                            const std::string& base_op);
     std::string render_place_node(writ::TinyMapView n);
     lir_view::StmtRef lower_assign(writ::TinyMapView node);
+    // `name = <node's VALUE>`: lower_assign with the target NAMED by the caller
+    // (a parenthesized `(x) = e` arrives as a one-place destructuring assign).
+    lir_view::StmtRef lower_assign_to(std::string_view name, writ::TinyMapView node);
     lir_view::StmtRef lower_destructure_assign(writ::TinyMapView node);
     lir_view::StmtRef lower_return(writ::TinyMapView node);
     lir::Pattern build_pattern(writ::TinyMapView pnode, TypeRef scrut_type);
