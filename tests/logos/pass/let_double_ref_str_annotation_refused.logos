@@ -1,0 +1,11 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+// `x.len() != 2`: Logos `len()` is i64 (divergence), Rust infers usize; the unsuffixed literal fits both.
+package let_double_ref_str_annotation_refused;
+fn main() -> i32 {
+    let a: &str = "ab";
+    let x: &&str = &a;
+    if x.len() != 2 {
+        return 1i32;
+    }
+    return 0i32;
+}

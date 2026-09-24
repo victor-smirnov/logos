@@ -151,18 +151,11 @@ user_type_alias_shadows_stdlib_type_param_refused 3 tests/soundness/open/user_ty
 
 refcell_interior_push_block_local_dangle_admits 2 tests/soundness/open/refcell_interior_push_block_local_dangle_admits admits
 
-let_ref_bind_annotated_refused 3 tests/soundness/open/let_ref_bind_annotated_refused refuses
-
-# ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
-let_double_ref_str_annotation_refused 3 tests/soundness/open/let_double_ref_str_annotation_refused refuses
-
 ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_missing_refused refuses
 
 generic_ref_typevar_ordering_mlir_verifier_refused 3 tests/soundness/open/generic_ref_typevar_ordering_mlir_verifier_refused refuses
 
 tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tuple_enum_elem_eq_variadic_impl_return_lost_refused refuses
-
-ref_to_slice_ref_param_unsized_refused 3 tests/soundness/open/ref_to_slice_ref_param_unsized_refused refuses
 
 ref_to_dyn_ref_type_parse_refused 3 tests/soundness/open/ref_to_dyn_ref_type_parse_refused refuses
 
@@ -207,6 +200,8 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_partial_generic_enum_elems_internal refuses
 
 deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_admitted admits
+
+# ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
 # ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
 # Read on the binary of build 10f55b7c2fa44145 43 (HEAD 69210911f): every cell
@@ -357,5 +352,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 92
-# SYNC-HASH 6d564edc7c227d0844ce1f3feb2ffe2b
+# TOTAL 89
+# SYNC-HASH a26e002af4f396f286b90616be9fb89e

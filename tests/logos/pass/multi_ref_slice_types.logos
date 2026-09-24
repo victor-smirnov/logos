@@ -1,0 +1,16 @@
+// A reference to a slice reference (`&&str`, `&mut &[T]`, `&&&[T]`) is a sized parameter/let type; methods see through it (rustc 1.98.1: 3 5 10 3).
+package multi_ref_slice_types;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn p1(a: &&str) -> i64 { return a.len(); }
+fn p2(a: &mut &[i64]) -> i64 { let x: &[i64] = *a; return x[0]; }
+fn p3(a: &&&[i64]) -> i64 { return a.len() + (**a)[2]; }
+fn main() -> i32 {
+    let s: &str = "abc";
+    let arr: [i64; 3] = [5i64, 6i64, 7i64];
+    let mut sl: &[i64] = &arr; let v2 = p2(&mut sl);
+    let r: &&[i64] = &sl;
+    let rr = &r;
+    let q: &&&[i64] = rr;
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), p1(&s), v2, p3(q), r.len()); }
+    return 0i32;
+}

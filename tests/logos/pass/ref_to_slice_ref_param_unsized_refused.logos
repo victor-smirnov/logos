@@ -1,0 +1,11 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package ref_to_slice_ref_param_unsized_refused;
+fn inner(a: &&[i64]) -> i64 {
+    let x: &[i64] = *a;
+    return x[1];
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [5i64, 6i64, 7i64];
+    let s: &[i64] = &arr;
+    return (inner(&s) - 6i64) as i32;
+}

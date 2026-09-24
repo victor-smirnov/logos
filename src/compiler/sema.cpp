@@ -8515,23 +8515,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     }
 
     // Sprint 6.2 / B-ty-07: `&&T` and `&&mut T` — lexer collapses `&&`.
-    if (tc == la::DOUBLE_REF_TYPE) {
-        auto inner = node.has_key(la::POINTEE)
-                      ? resolve_type(map_of(node.get(la::POINTEE.code)))
-                      : error_t();
-        std::string lt;
-        if (node.has_key(la::LIFETIME))
-            lt = std::string(str_of(node.get(la::LIFETIME.code)));
-        return make_ref(false, make_ref(false, inner, std::move(lt)));
-    }
-    if (tc == la::DOUBLE_REF_MUT_TYPE) {
-        auto inner = node.has_key(la::POINTEE)
-                      ? resolve_type(map_of(node.get(la::POINTEE.code)))
-                      : error_t();
-        std::string lt;
-        if (node.has_key(la::LIFETIME))
-            lt = std::string(str_of(node.get(la::LIFETIME.code)));
-        return make_ref(false, make_ref(true, inner, std::move(lt)));
+    // `&&T` / `&&mut T` (one `&&` token) IS `& (&T)` / `& (&mut T)`: the inner
+    // reference resolves exactly as a written one, so `&str` / `&[T]` / `&dyn`
+    // inside it fold to their fat forms (`&&str` was `&&&[u8]`).
+    if (tc == la::DOUBLE_REF_TYPE || tc == la::DOUBLE_REF_MUT_TYPE) {
+        if (!node.has_key(la::POINTEE)) return make_ref(false, error_t());
+        const int32_t ic = tc == la::DOUBLE_REF_TYPE ? la::REF_TYPE.code : la::MUT_REF_TYPE.code;
+        auto inner_node = node.has_key(la::LIFETIME)
+            ? synth_node(ic, get_line(node), {{la::POINTEE.code, node.get(la::POINTEE.code)},
+                                              {la::LIFETIME.code, node.get(la::LIFETIME.code)}})
+            : synth_node(ic, get_line(node), {{la::POINTEE.code, node.get(la::POINTEE.code)}});
+        return make_ref(false, resolve_type(map_of(inner_node)));
     }
 
     if (tc == la::SLICE_TYPE) {

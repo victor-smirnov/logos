@@ -9327,6 +9327,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef inner = TypeRef(expr_type(recv)).pointee();
         recv = builder().deref(std::move(recv), inner);
     }
+    // …and a reference to a SLICE (`x.len()` for `x: &&str` / `&&[T]`): the
+    // slice value is itself the reference (`&[T]` is the fat pointer), so the
+    // extra layer peels onto it and slice-method dispatch sees `[T]`'s receiver.
+    if (recv && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind()) &&
+        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
+        TypeRef(expr_type(recv)).pointee() &&
+        TypeRef(TypeRef(expr_type(recv)).pointee()).kind() == LogosType::Kind::Slice) {
+        TypeRef inner = TypeRef(expr_type(recv)).pointee();
+        recv = builder().deref(std::move(recv), inner);
+    }
 
     // G168-B: `Vec::get(i) -> T` reads `self.ptr[i]` BY VALUE behind a shared
     // `&self`. For a move/Drop element that is a move-OUT of a borrow (Rust's

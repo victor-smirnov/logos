@@ -2760,6 +2760,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     // rvalue-producing call/literal forms; PLACE expressions (VAR_REF,
     // DEREF, INDEX_READ, FIELD_READ) keep the borrow-in-place paths in
     // lower_unary / ADDR_OF_MUT.
+    bool ref_ann_wrapped = false;   // `let ref y: T`: ann already rewritten to `&T`
     if (node.has_key(la::VALUE)) {
         auto val_node = map_of(node.get(la::VALUE.code));
         bool ext_mut = false;
@@ -2767,7 +2768,9 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         TinyMapView ext_inner;
         bool have_ext = false;
         bool ext_ref_bind = false;
-        if (!ann && node.has_key(la::IS_REF)) {
+        // (annotated too: `let ref a: D = mk();` binds a temporary that lives
+        // to the end of the block, exactly as the unannotated form — it leaked)
+        if (node.has_key(la::IS_REF)) {
             AnyVal rav = node.get(la::IS_REF.code);
             ext_ref_bind = !rav.is_null() && rav.is_value() && rav.as_value<uint8_t>() != 0;
         }
@@ -2775,6 +2778,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
             // `let ref y = <rvalue>` is `let y = &<rvalue>` (P4-pm-14 below).
             ext_inner = val_node;
             have_ext = true;
+            // the annotation types the VALUE; the binding is `&T`
+            if (ann) { ann = make_ref(false, ann); ref_ann_wrapped = true; }
         } else if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
             val_node.has_key(la::VALUE)) {
             auto ext_op = str_of(val_node.get(la::OP.code));
@@ -2951,6 +2956,9 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
             rhs      = builder().addr_of_temp(std::move(rhs), /*is_mut=*/false,
                                               make_ref(false, inner_t), BorrowOrigin::Explicit);
             rhs_type = expr_type(rhs);
+            // `let ref y: T = e`: the annotation types the VALUE (Rust: the
+            // pattern `ref y` matches a `T`), so the binding is `&T`.
+            if (ann && !ref_ann_wrapped) ann = make_ref(false, ann);
         }
         // E0507: `let s = *r` moving a MOVE-typed value out of a `&`/`&mut`
         // deref of a reference variable — the source doesn't own the value, so
