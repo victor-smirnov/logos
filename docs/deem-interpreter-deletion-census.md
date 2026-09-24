@@ -6405,9 +6405,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11177 -> 11179 (+2), NOIMPORTED 6614 -> 6616 (+2), TIERCOMMIT 177 -> 173 (-4) — 2026-09-24: squeue
 #                #159 #217 #296 #82 closed (4 rows -> fail fixtures) + pass/tier2_refusal_admit_twins, pass/array_repeat_operand_evaluated_once.
 #                TIERCOMMIT 173 -> 174 (+1) — 2026-09-24: #159 reopened (deref_of_non_reference_admitted back to the queue; its fail fixture withdrawn).
-REGISTRY-ALL         11179
-REGISTRY-NOIMPORTED  6616
-REGISTRY-TIERCOMMIT  174
+#                ALL 11179 -> 11180 (+1), NOIMPORTED 6616 -> 6617 (+1), TIERCOMMIT 174 -> 172 (-2) — 2026-09-24: squeue
+#                #124 #310 closed (2 rows -> fail fixtures) + pass/struct_pat_ref_and_local_shadow_twins.
+#                TIERCOMMIT 172 -> 171 (-1) — 2026-09-24: squeue #311 closed (A16: not a defect) -> fail/double_ref_move_while_borrowed_refused.
+REGISTRY-ALL         11180
+REGISTRY-NOIMPORTED  6617
+REGISTRY-TIERCOMMIT  171
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

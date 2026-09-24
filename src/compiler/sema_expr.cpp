@@ -4959,6 +4959,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                                          /*is_method_recv=*/false);
     }
     if (!git) git = find_generic_func(callee, n_args);
+    // A LOCAL ITEM SHADOWS A GLOB-IMPORTED ONE (Rust). When this package defines a
+    // function of this name, another package's same-named generic is not a
+    // candidate: `fn read(p: &W)` called with `&i64` resolved to the prelude's
+    // `logos.lang.ptr::read<T>` and was admitted (rustc: E0308 against the local
+    // `read`). The local definition's own check reports the mismatch.
+    if (git && !cur_package_.empty() && git->package != cur_package_ && call_pkg_qualifier_.empty()) {
+        for (auto* c : all_cands)
+            if (c && c->package == cur_package_) { git = nullptr; break; }
+    }
 
     // Resolve the "best" SemaFuncInfo to try.
     // Priority:

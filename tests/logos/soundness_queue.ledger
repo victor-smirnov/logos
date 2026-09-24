@@ -68,8 +68,6 @@ for_header_pattern_tuple_only 3 tests/soundness/open/for_header_pattern_tuple_on
 
 match_tuple_door_nested_slice_binds_nothing 3 tests/soundness/open/match_tuple_door_nested_slice_binds_nothing refuses
 
-struct_pattern_name_check_skipped_under_ref 2 tests/soundness/open/struct_pattern_name_check_skipped_under_ref admits
-
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
@@ -228,10 +226,6 @@ call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercio
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
 
 unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_binds_deref_admits admits
-
-arg_ref_primitive_for_ref_struct_admits 2 tests/soundness/open/arg_ref_primitive_for_ref_struct_admits admits
-
-double_ref_move_while_borrowed_admits 2 tests/soundness/open/double_ref_move_while_borrowed_admits admits
 
 # ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
 # array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
@@ -398,5 +392,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 113
-# SYNC-HASH 36fc57bb424782d6cf515b92cf28ae49
+# TOTAL 110
+# SYNC-HASH 8d9adede8d2e42741be948dffecfdeea

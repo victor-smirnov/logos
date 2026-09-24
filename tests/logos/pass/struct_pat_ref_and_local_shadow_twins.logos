@@ -1,0 +1,21 @@
+// Legal neighbours: a struct pattern through `&`, `&&` and over a generic struct; a call to the LOCAL `read`, which shadows the prelude's `ptr::read`; the package-qualified `logos.lang.ptr::read` still reaching the stdlib one (rustc 1.98.1: 3 4 3 9 5).
+package struct_pat_ref_and_local_shadow_twins;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i64 }
+struct G<T> { t: T }
+struct W { p: i64 }
+fn read(w: &W) -> i64 { return w.p; }
+fn main() -> i32 {
+    let p: P = P { x: 3i64 };
+    let g: G<i64> = G { t: 4i64 };
+    let a: i64 = match &p { P { x } => *x };
+    let b: i64 = match &g { G { t } => *t };
+    let rp: &&P = &&p;
+    let c: i64 = match rp { P { x } => *x };
+    let w: W = W { p: 9i64 };
+    let d: i64 = read(&w);
+    let v: i64 = 5i64;
+    let e: i64 = unsafe { logos.lang.ptr::read(&v as *const i64) };
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), a, b, c, d, e); }
+    return 0i32;
+}

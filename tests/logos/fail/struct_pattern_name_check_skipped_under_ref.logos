@@ -1,0 +1,11 @@
+// Refused as rustc 1.98.1 refuses it (E0308; squeue row of the same name).
+package struct_pattern_name_check_skipped_under_ref;
+struct P { x: i64 }
+struct Q { x: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 3i64 };
+    match &p {
+        Q { x } => { if *x != 3i64 { return 1i32; } }
+    }
+    return 0i32;
+}

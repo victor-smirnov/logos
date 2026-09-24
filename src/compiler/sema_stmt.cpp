@@ -2034,6 +2034,14 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
     }
     if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
         TypeRef(rhs_type).kind() != LogosType::Kind::ZonedStruct) {
+        // A reference to ANOTHER struct (the same struct took the branch above).
+        TypeRef pte = (TypeRef(rhs_type).kind() == LogosType::Kind::Ref ||
+                       TypeRef(rhs_type).kind() == LogosType::Kind::MutRef) ? TypeRef(rhs_type).pointee()
+                                                                              : TypeRef(nullptr);
+        if (pte && TypeRef(pte).kind() == LogosType::Kind::Struct)
+            error(std::format("let pattern: struct '{}' does not match rhs type '{}'",
+                  str_of(pat_node.get(la::NAME.code)), type_str(rhs_type)));
+        else
         error(std::format("let <struct-pat> = expr: rhs must be a struct, got '{}'",
               type_str(rhs_type)));
         return builder().stmt_expr(std::move(rhs), node_line_);
@@ -6387,9 +6395,15 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         }
         if (!sinfo)
             error(std::format("struct pattern: unknown struct '{}'", sname));
-        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error &&
-            TypeRef(scrut_type).kind() == LogosType::Kind::Struct &&
-            TypeRef(scrut_type).struct_name() != sname && TypeRef(scrut_type).struct_name() != "")
+        // Through references too: `match &p { Q { x } => … }` over `p: P` is E0308
+        // (default binding modes peel the reference; the struct must still match).
+        TypeRef sst = scrut_type;
+        while (sst && (TypeRef(sst).kind() == LogosType::Kind::Ref ||
+                       TypeRef(sst).kind() == LogosType::Kind::MutRef) && TypeRef(sst).pointee())
+            sst = TypeRef(sst).pointee();
+        if (sst && TypeRef(sst).kind() != LogosType::Kind::Error &&
+            TypeRef(sst).kind() == LogosType::Kind::Struct &&
+            TypeRef(sst).struct_name() != sname && TypeRef(sst).struct_name() != "")
             error(std::format("struct pattern: '{}' != scrutinee '{}'",
                   sname, type_str(scrut_type)));
         lir::PatStruct ps;

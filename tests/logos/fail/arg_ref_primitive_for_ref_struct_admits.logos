@@ -1,0 +1,11 @@
+// Refused as rustc 1.98.1 refuses it (E0308; squeue row of the same name).
+package arg_ref_primitive_for_ref_struct_admits;
+struct W { p: i64 }
+unsafe fn read(p: &W) -> i64 {
+    return p.p;
+}
+unsafe fn main() -> i32 {
+    let v: i64 = 7i64;
+    let r: &i64 = &v;
+    return read(r) as i32;
+}
