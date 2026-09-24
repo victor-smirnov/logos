@@ -97,8 +97,6 @@ slice_rest_ref_binder_syntax 3 tests/soundness/open/slice_rest_ref_binder_syntax
 
 fnitem_to_fnptr_array_elem_admits 2 tests/soundness/open/fnitem_to_fnptr_array_elem_admits admits
 
-unsized_local_binds_place_dropped_after_free 2 tests/soundness/open/unsized_local_binds_place_dropped_after_free admits
-
 zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref_struct_field_layout_abort refuses
 
 fatslice_field_match_binder_invalid_mlir 3 tests/soundness/open/fatslice_field_match_binder_invalid_mlir refuses
@@ -224,8 +222,6 @@ variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tu
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses
 
 variant_payload_nested_at_pattern_refused 3 tests/soundness/open/variant_payload_nested_at_pattern_refused refuses
-
-unsized_dyn_local_binds_deref_admits 2 tests/soundness/open/unsized_dyn_local_binds_deref_admits admits
 
 # ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
 # array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
@@ -392,5 +388,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 110
-# SYNC-HASH 8d9adede8d2e42741be948dffecfdeea
+# TOTAL 108
+# SYNC-HASH 67cb1f80a1c0553e0817019519f40bd4

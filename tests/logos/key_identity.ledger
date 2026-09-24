@@ -497,6 +497,7 @@ sema.cpp	current_type_bounds_	D	1	type_str(result)
 sema_expr.cpp	closure_capture_env_	D	1	type_str(ctype)
 sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
 sema_expr.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(t).type_var_name())
+sema_stmt.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(ann).type_var_name())
 sema_impl.hpp	current_type_bounds_	D	2	std::string(TypeRef(t).type_var_name())
 
 # ── FACT 5 (task #106) — BARE ENTITY NAME IN CALL-ARGUMENT POSITION ─────────

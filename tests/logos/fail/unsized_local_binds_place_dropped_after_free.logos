@@ -1,0 +1,32 @@
+// Refused as rustc 1.98.1 refuses it (E0277, an unsized local; squeue row of the same name).
+package unsized_local_binds_place_dropped_after_free;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+trait Tr { fn v(&self) -> i64; }
+struct A { x: i64, c: *mut i64 }
+impl Tr for A { fn v(&self) -> i64 { return self.x; } }
+impl Drop for A { fn drop(self: &mut A) { unsafe { self.c[0] = self.c[0] + 1i64; } } }
+
+struct Inner<T: ?Sized> { strong: i32, val: T }
+struct MyRc<T: ?Sized> { inner: *mut Inner<T> }
+
+impl<T: ?Sized> MyRc<T> {
+    fn drop_me(&mut self) {
+        unsafe {
+            let _v: T = self.inner.val;      // UNSIZED LOCAL — rustc: E0277
+            free(self.inner as *mut u8);     // ... and `_v` is dropped after this
+        }
+    }
+}
+
+unsafe fn main() -> i32 {
+    let cb: *mut u8 = malloc(8); let c: *mut i64 = cb as *mut i64; c[0] = 0i64;
+    let raw: *mut u8 = malloc(64);
+    let ic: *mut Inner<A> = raw as *mut Inner<A>;
+    ic.strong = 1; ic.val = A { x: 5i64, c: c };
+    let mut r: MyRc<dyn Tr> = MyRc::<A> { inner: ic } as MyRc<dyn Tr>;
+    r.drop_me();
+    free(cb);
+    return 0i32;
+}

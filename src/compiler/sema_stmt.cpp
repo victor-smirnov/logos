@@ -2509,6 +2509,33 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         auto tnode = map_of(node.get(la::TYPE.code));
         ann = resolve_type(tnode);
         if (ann) check_written_type_wf(ann, "let annotation", current_outlives_, /*decl_site=*/false);
+        // E0277: A LOCAL MUST BE `Sized`. `let y: dyn Tr = *x;` and `let v: T = …`
+        // with `T: ?Sized` bind an unsized value (rustc refuses both). The stdlib
+        // keeps the idiom internally — `Box`'s drop and `ptr::drop_in_place` move
+        // an unsized pointee out through its fat pointer and let its own glue
+        // destroy it — the way Rust's own `unsized_locals` is internal-only.
+        if (ann && !cur_package_.starts_with("logos.")) {
+            // A BARE `dyn`: the grammar folds `&dyn` / `&mut dyn` into the same
+            // node and marks them IS_REF.
+            auto is_ref_flag = [&]() {
+                if (!tnode.has_key(la::IS_REF)) return false;
+                AnyVal av = tnode.get(la::IS_REF.code);
+                return !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+            };
+            bool unsized = code_of(tnode) == la::DYN_TYPE && !is_ref_flag();
+            // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+            // checked — see SemaChecker::normalize_assoc_eq for the full ground.
+            if (!unsized && TypeRef(ann).kind() == LogosType::Kind::TypeVar &&
+                current_type_relaxed_sized_.count(std::string(TypeRef(ann).type_var_name())))
+                unsized = true;
+            if (unsized) {
+                std::string ts = type_str(ann);
+                if (code_of(tnode) == la::DYN_TYPE && ts.starts_with("&")) ts.erase(0, 1);   // the written `dyn Tr`
+                error(std::format("the size for values of type `{}` cannot be known at compilation time: "
+                                  "a local variable must have a statically known size (bind a reference, or box it)",
+                                  ts));
+            }
+        }
         // Did the annotation WRITE a lifetime? Asked of the resolved
         // annotation, before inference touches the binding's type.
         {

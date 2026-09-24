@@ -2,7 +2,7 @@
 // MyRc<T:?Sized>{inner:*mut Inner<T>} == Rc shape. Exercises the full owning
 // lifecycle through generic methods on `MyRc<dyn Tr>`: clone (strong++ prefix
 // write), payload (tail dispatch), and drop_me — which on the last ref does
-// `let _v: T = self.inner.val` (move-out drop of the UNSIZED dyn tail) then
+// `logos.lang.ptr::drop_in_place(&mut self.inner.val as *mut T)` (the dyn tail dropped in place; an unsized local is E0277) then
 // `free(self.inner as *mut u8)`. The move-out is re-lowered per-instance to a
 // vtable[0] drop-in-place (run A::Drop, NO free); the cast `DstRef as *mut u8`
 // extracts the data half (heap block). A is dropped exactly once at refcount 0.
@@ -30,7 +30,8 @@ impl<T: ?Sized> MyRc<T> {
         unsafe {
             self.inner.strong = self.inner.strong - 1;
             if self.inner.strong == 0 {
-                let _v: T = self.inner.val;     // move-out drop of the (dyn) tail
+                // drop the (dyn) tail in place, then free — an unsized LOCAL is E0277
+                logos.lang.ptr::drop_in_place((&mut self.inner.val) as *mut T);
                 free(self.inner as *mut u8);
             }
         }
