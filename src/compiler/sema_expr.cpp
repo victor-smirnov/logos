@@ -2682,11 +2682,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // (invariant) the pointees' regions must be the same region.
     if ((op == "==" || op == "!=") && lt && rt &&
         TypeRef(lt).kind() == LogosType::Kind::Ptr && TypeRef(rt).kind() == LogosType::Kind::Ptr) {
+        // (The pointees' regions are judged by the operator's region meet
+        // below, which names the two regions and the invariance.)
         if (TypeRef(lt).mut_ptr() != TypeRef(rt).mut_ptr())
             error(std::format("mismatched types (E0308): `{}` compared with `{}` — raw pointers of "
                               "different mutability are different types", type_str(lt), type_str(rt)));
-        else if (TypeRef(lt).mut_ptr())
-            check_variance(rt, lt, std::format("`{}` operand", op), /*permissive=*/false);
     }
 
     TypeRef result_type = error_t();

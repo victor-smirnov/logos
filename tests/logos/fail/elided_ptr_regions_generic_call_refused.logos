@@ -1,0 +1,7 @@
+// Two elided regions inside `*mut &i64` parameters are two regions: `same(x, y)`
+// asks one `T` for both, and `*mut` is invariant over its pointee (rustc 1.98.1:
+// "lifetime may not live long enough"). Neighbour of fail/elided_param_regions_invariant_compare_admits.
+package elided_ptr_regions_generic_call_refused;
+fn same<T>(a: T, b: T) {}
+fn f(x: *mut &i64, y: *mut &i64) { same(x, y); }
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,5 @@
+// The legal twin: one named region on both `*mut &'a i64` parameters compares and passes through (rustc 1.98.1: exit 0).
+package ptr_same_region_compare_ok;
+fn f<'a>(x: *mut &'a i64, y: *mut &'a i64) -> bool { return x == y; }
+fn g(x: *mut &i64) -> *mut &i64 { return x; }
+fn main() -> i32 { let mut a: i64 = 1i64; let mut r: &i64 = &a; let p: *mut &i64 = &mut r; if !f(p, p) { return 1i32; } if g(p) != p { return 2i32; } return 0i32; }

@@ -255,6 +255,20 @@ the Polonius extractor narrows the result's sources by the callee's flow
 summary (a superset even when over-approximate) and otherwise ties the result
 to every input. Found by the S5 shadow run, 2026-09-18.
 
+O5. Location-sensitive subsets accept what NLL refuses. The rules are
+Polonius's: a subset holds at a point and flows along the CFG only while its
+origins are live. rustc's NLL gives a local's type ONE region set for the whole
+body. So `fn g<'a, 'b>(x: &mut &'a i64, y: &mut &'b i64) { let mut z = x;
+z = y; let _w = z; }` is refused by rustc 1.98.1 ("lifetime may not live long
+enough": `z`'s invariant inner region must equal both `'a` and `'b`) and
+accepted here. `z`'s first value is dead before the reassignment, so `'a ⊆ z`
+at p1 and `z ⊆ 'b` at p3 never meet. Polonius accepts it too; the program is
+sound (no reference outlives its referent). It is a divergence in what is
+accepted, not a hole. The same holds for an `if`/`else` merging two such
+values. Measured 2026-09-24 (the elided `*mut &i64` pair; the named pair
+behaves identically). Not closed: NLL's location-insensitive local regions
+would be a second rule set, and it would refuse only sound programs.
+
 ## Decisions taken during S4/S5 (2026-09-18)
 
 - Signatures are read as DECLARED. Mono records the pre-substitution types

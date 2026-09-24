@@ -765,6 +765,13 @@ private:
             return ne == t.elem() ? t
                                   : make_array(ne, t.arr_size(), t.arr_size_var());
         }
+        // A raw pointer has no region of its own, but its pointee's elided
+        // slots are the signature's like any others: `*mut &i64` and a second
+        // `*mut &i64` are two regions (Rust elision), not one spelling.
+        case K::Ptr: {
+            auto ne = mint_type_lts_(t.pointee(), out, fixed, depth + 1);
+            return ne == t.pointee() ? t : make_ptr(t.mut_ptr(), ne, t.zoned_ptr());
+        }
         case K::DstRef: {
             if (t.dst_owning_kind() == TypeRef::OwningKind::Borrow && !t.raw_fat()) {
                 std::string dlt(t.lifetime());
