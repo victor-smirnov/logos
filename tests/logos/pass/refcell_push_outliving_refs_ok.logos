@@ -1,0 +1,17 @@
+// The legal twin of fail/refcell_interior_push_block_local_dangle_admits: references that outlive the cell
+// go in through a RefMut guard (rustc 1.98.1: exit 0).
+package refcell_push_outliving_refs_ok;
+use logos.lang.cell;
+fn main() -> i32 {
+    let d: i64 = 2i64;
+    let e: i64 = 5i64;
+    let cell: RefCell<Vec<&i64>> = RefCell::<Vec<&i64>>::new(Vec::<&i64>::new());
+    {
+        let mut gd = cell.borrow_mut();
+        gd.get_mut().push(&d);
+        gd.get_mut().push(&e);
+    }
+    let n: i64 = cell.borrow().get().len() as i64;
+    let s: i64 = *cell.borrow().get().get(1u64);
+    return (n * 10i64 + s - 25i64) as i32;
+}

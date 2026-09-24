@@ -36,6 +36,8 @@ use logos.lang.drop;
 // `logos.lang.option`, which this module already imports, so the edge is
 // cycle-free.
 use logos.lang.ptr;
+// `PhantomData` — RefMut's variance marker (below).
+use logos.lang.marker;
 
 // `#[repr(transparent)]` — same layout / ABI as `T`. Required for
 // `UnsafeCell::from_mut` to be a sound `&mut T → &mut UnsafeCell<T>`
@@ -225,9 +227,15 @@ pub struct Ref<T> {
 }
 
 /// Guards an exclusive borrow of a `RefCell` value; access via `get`/`get_mut`, released on drop.
+/// INVARIANT in `T`, as Rust's `RefMut<'b, T>` (it is an exclusive borrow of
+/// `T`): a raw `*mut T` alone reads as covariant, so a guard of
+/// `RefCell<Vec<&'b i64>>` would accept a shorter-lived `&i64` and the cell
+/// would keep it past its end. `_inv` carries the variance, as Rust's
+/// `PhantomData<&'b mut T>` marker does.
 pub struct RefMut<T> {
     value: *mut T,
     state: *mut i32,
+    _inv: PhantomData<UnsafeCell<T>>,
 }
 
 impl<T> RefCell<T> {
@@ -295,6 +303,7 @@ impl<T> RefCell<T> {
             return Result::Ok(RefMut {
                 value: self.value.get(),
                 state: sp,
+                _inv: PhantomData::<UnsafeCell<T>> {},
             });
         }
     }
@@ -310,6 +319,7 @@ impl<T> RefCell<T> {
             return RefMut {
                 value: self.value.get(),
                 state: self.state.get(),
+                _inv: PhantomData::<UnsafeCell<T>> {},
             };
         }
     }
@@ -434,6 +444,7 @@ pub fn ref_mut_map<T, U>(orig: RefMut<T>, f: fn(&mut T) -> &mut U) -> RefMut<U> 
         return RefMut::<U> {
             value: target as *mut U,
             state: orig.state,
+            _inv: PhantomData::<UnsafeCell<U>> {},
         };
     }
 }

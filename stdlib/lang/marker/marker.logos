@@ -91,8 +91,11 @@ impl StableLayout for isize {}
 pub struct PhantomPinned {}
 
 /// A zero-sized type-anchor for `T`.
-/// Unlike Rust, does not drive dropck/variance/auto-traits here — serves only as a
-/// type anchor, equivalent to a `_t: T` field without needing an actual `T` value.
+/// Drives VARIANCE as Rust's does: the borrow checker reads its argument as a
+/// field holding it would be read (`PhantomData<UnsafeCell<T>>` makes the
+/// containing type invariant in `T`). Unlike Rust, does not drive dropck or
+/// auto-traits — otherwise a type anchor, equivalent to a `_t: T` field
+/// without needing an actual `T` value.
 /// Construct with the empty struct literal `PhantomData::<T>{}`.
 pub struct PhantomData<T> {}
 

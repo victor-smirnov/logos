@@ -137,8 +137,6 @@ elided_param_regions_invariant_compare_admits 2 tests/soundness/open/elided_para
 
 user_type_alias_shadows_stdlib_type_param_refused 3 tests/soundness/open/user_type_alias_shadows_stdlib_type_param_refused refuses
 
-refcell_interior_push_block_local_dangle_admits 2 tests/soundness/open/refcell_interior_push_block_local_dangle_admits admits
-
 ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_missing_refused refuses
 
 generic_ref_typevar_ordering_mlir_verifier_refused 3 tests/soundness/open/generic_ref_typevar_ordering_mlir_verifier_refused refuses
@@ -336,5 +334,5 @@ let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 81
-# SYNC-HASH c0c79b182c00ee6a1297006c6ca84e1a
+# TOTAL 80
+# SYNC-HASH 04b43e453844836bb0f059727500258a
