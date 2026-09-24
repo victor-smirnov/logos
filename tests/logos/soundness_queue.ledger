@@ -175,8 +175,6 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
-field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
-
 arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_partial_generic_enum_elems_internal refuses
 
 let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused refuses
@@ -332,5 +330,5 @@ let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 79
-# SYNC-HASH 7c489f85a52f44502078477008755b52
+# TOTAL 78
+# SYNC-HASH c210ae4c47b4caeb3c39d4d468ee3136

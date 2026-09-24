@@ -230,6 +230,38 @@ void SemaChecker::register_stmt_temp(const std::string& nm, TypeRef rt,
     }
 }
 
+// Source order across a hoist. A statement temporary (hoist_stmt_temp: a
+// droppable field-read base, `mk(2, s).v`) is built BEFORE the statement, so an
+// operand evaluated EARLIER in source (`side(s) + mk(2, s).v`) would run after
+// it. When lowering a later operand grew the collector past `mark`, an earlier
+// operand with effects is spilled into a temporary inserted AT `mark` — ahead of
+// the later operand's temporaries — and read back. Copy-typed operands only (a
+// spilled move-typed value would need the temp's drop suppressed); literals and
+// plain places have no effect to order.
+void SemaChecker::spill_before_hoist(lir::LExprPtr& e, size_t mark) {
+    if (!cur_stmt_temp_hoist_ || !e || mark >= cur_stmt_temp_hoist_->size()) return;
+    TypeRef t = expr_type(e);
+    if (!t || is_move_type(t)) return;
+    const auto k = TypeRef(t).kind();
+    if (k == LogosType::Kind::Error || k == LogosType::Kind::Void || k == LogosType::Kind::Never) return;
+    using C = lir_schema::expr::Code;
+    switch (expr_ref_of(e).kind()) {
+        case C::LitInt: case C::LitFloat: case C::LitBool: case C::LitStr:
+        case C::VarRef: case C::EnumLit:
+            return;
+        default: break;
+    }
+    std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+    cur_stmt_temp_hoist_->insert(cur_stmt_temp_hoist_->begin() + (std::ptrdiff_t)mark,
+                                 {nm, t, std::move(e), false});
+    if (cur_stmt_temp_hoist_frame_ < scope_.size()) {
+        auto& fr = scope_[cur_stmt_temp_hoist_frame_];
+        if (!fr.vars.count(nm)) fr.var_order.push_back(nm);
+        fr.vars[nm] = {t, false, false, next_slot_++};
+    }
+    e = builder().var_ref(nm, t);
+}
+
 lir::LExprPtr SemaChecker::hoist_stmt_temp(lir::LExprPtr v, bool is_mut) {
     std::string nm = std::format("__rtmp_{}", destruct_counter_++);
     TypeRef rt = expr_type(v);
@@ -2481,9 +2513,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     bool sc_fork = (op == "&&" || op == "||");
     auto uninit_pre = currently_uninit_vars_;
     const auto owned_pre = closure_owned_drop_;
+    const size_t hoist_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
     auto rhs = sc_fork
         ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
         : lower_expr(map_of(node.get(la::RHS.code)));
+    if (!sc_fork) spill_before_hoist(lhs, hoist_mark_);
     // LANDED 2026-08-30 (was `scinitcond`): an initialization performed in the
     // RHS is CONDITIONAL, so the names uninitialised before the RHS are
     // RESTORED after it. Strictly conservative — a name is only ever put BACK
@@ -4675,7 +4709,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 hint_tuple_type_ = th;
             if (TypeRef ah = slice_elem_hint_for((size_t)i))
                 hint_arr_elem_type_ = ah;
+            const size_t arg_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+            // Arguments run left to right: an earlier one with effects goes ahead
+            // of the temporaries this argument hoisted (spill_before_hoist).
+            if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > arg_mark_) {
+                size_t at = arg_mark_;
+                for (size_t j = 0; j + 1 < arg_exprs.size(); ++j) {
+                    const size_t before = cur_stmt_temp_hoist_->size();
+                    spill_before_hoist(arg_exprs[j], at);
+                    at += cur_stmt_temp_hoist_->size() - before;
+                }
+            }
             hint_closure_formal_ = saved;
             hint_enum_type_ = saved_eh;
             hint_tuple_type_ = saved_th;
@@ -11961,7 +12006,25 @@ std::string SemaChecker::place_base_region(lir_view::ExprRef e) {
     return {};
 }
 
+// A Copy field of a droppable TEMPORARY base, read as a value (`side(s) +
+// mk(2, s).v`): the base is built IN PLACE, `{ __rtmp = base; __rtmp.v }`, where
+// the read is evaluated — so it runs in source order in every context, as Rust
+// runs it — and the temporary still drops at the end of the statement. (A
+// hoisted `let __rtmp = base;` ran before everything else in the statement.)
+// A move-typed field keeps the hoist: its consumers may need the PLACE.
 lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
+    auto saved = pending_field_base_init_;
+    pending_field_base_init_ = lir_view::StmtRef{};
+    auto res = lower_field_read_impl(node);
+    auto init = pending_field_base_init_;
+    pending_field_base_init_ = saved;
+    if (!init || !res) return res;
+    std::vector<lir_view::StmtRef> blk{init};
+    TypeRef rt = expr_type(res);
+    return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(res), rt);
+}
+
+lir::LExprPtr SemaChecker::lower_field_read_impl(TinyMapView node) {
     // Substituted antiquot at field-name position lands in NAME (after
     // NAME_VAR(idx)→NAME(string) rewrite); FIELD isn't set in that path.
     auto field_name = str_of(node.get(la::FIELD.code));
@@ -11988,8 +12051,18 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         // Under an EXTENDING borrow of this field (`let k: &D = &W { .. }.y;`) the
         // temporary lives to the end of the BLOCK, not of the statement — otherwise `k`
         // reads a dropped value (row extended_field_base_temp_dropped_at_let_end_run).
-        recv = ext_here ? hoist_block_temp(std::move(recv), false)
-                        : hoist_stmt_temp(std::move(recv), false);  // field recv = &self
+        TypeRef fty = ext_here || mut_ctx ? TypeRef(nullptr)
+                                          : field_type_of_for_type(expr_type(recv), field_name);
+        if (fty && TypeRef(fty).kind() != LogosType::Kind::Error && !is_move_type(fty)) {
+            std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+            TypeRef rt = expr_type(recv);
+            register_stmt_temp(nm, rt, nullptr, false);
+            pending_field_base_init_ = builder().stmt_assign(nm, std::move(recv), node_line_);
+            recv = builder().var_ref(nm, rt);
+        } else {
+            recv = ext_here ? hoist_block_temp(std::move(recv), false)
+                            : hoist_stmt_temp(std::move(recv), false);  // field recv = &self
+        }
     }
     TypeRef recv_base_t = expr_type(recv);
     // Auto-deref field access: a receiver whose own type lacks `field_name`

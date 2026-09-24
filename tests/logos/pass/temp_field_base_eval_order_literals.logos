@@ -1,0 +1,24 @@
+// The same order at method arguments and struct, tuple and array literals (rustc 1.98.1).
+package temp_field_base_eval_order_literals;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v + 4i64; } } }
+fn mk(v: i64, s: *mut i64) -> D { unsafe { *s = *s * 10i64 + v; } return D { v: v, s: s }; }
+fn side(v: i64, s: *mut i64) -> i64 { unsafe { *s = *s * 10i64 + v; } return v; }
+struct P { a: i64, b: i64 }
+struct O { k: i64 }
+impl O { fn two(&self, a: i64, b: i64) -> i64 { return self.k + a * 10i64 + b; } }
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let s: *mut i64 = &mut q;
+    let o = O { k: 100i64 };
+    let a = o.two(side(1i64, s), mk(2i64, s).v);
+    let r1 = q; q = 0i64;
+    let p = P { a: side(1i64, s), b: mk(2i64, s).v };
+    let r2 = q; q = 0i64;
+    let t = (side(1i64, s), mk(2i64, s).v);
+    let r3 = q; q = 0i64;
+    let arr = [side(1i64, s), mk(2i64, s).v];
+    let r4 = q;
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), a, r1, p.a + p.b, r2, t.0 + t.1, r3, arr[0] + arr[1], r4); }
+    return 0i32;
+}

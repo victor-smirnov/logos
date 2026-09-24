@@ -9394,6 +9394,9 @@ private:
     // caller substitutes the VarRef for the rvalue; the installer emits the
     // `let`s and the scope drops.
     lir::LExprPtr hoist_stmt_temp(lir::LExprPtr v, bool is_mut);
+    void spill_before_hoist(lir::LExprPtr& e, size_t mark);
+    lir::LExprPtr lower_field_read_impl(writ::TinyMapView node);
+    lir_view::StmtRef pending_field_base_init_;   // lower_field_read: `__rtmp = base` for an in-place Copy-field temporary
     // Implicit auto-ref of an operand: a fresh droppable rvalue is owned by the
     // temp scope and initialised where it is evaluated (see PROBES.md 2026-09-14o).
     lir::LExprPtr autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef ref_type,
