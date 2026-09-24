@@ -1,0 +1,10 @@
+// A turbofish struct literal takes a `..base` in every position the plain one does (grammar:
+// generic_struct_update_lit). Rust: `G::<i64> { a: 3, ..g }`.
+package generic_struct_update_turbofish;
+struct G<T> { a: T, b: T }
+fn main() -> i32 {
+    let g: G<i64> = G::<i64> { a: 1i64, b: 2i64 };
+    let h: G<i64> = G::<i64> { a: 3i64, ..g };
+    let k: G<i64> = G { a: 3i64, ..G::<i64> { a: 1i64, b: 2i64 } };
+    return (h.b + k.b) as i32;
+}

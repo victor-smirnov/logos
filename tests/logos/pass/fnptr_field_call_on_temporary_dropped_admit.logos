@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #294): the fn-pointer field-call arm hoists a droppable fresh rvalue receiver into a statement temporary, as a field read of a temporary does.
 // SOUNDNESS QUEUE row fnptr_field_call_on_temporary_never_dropped_run (tier 1, run 1). A FUNCTION-POINTER FIELD CALLED ON A TEMPORARY LEAKS THE TEMPORARY.
 // `Q { f: seven, d: D{1} }.f(p)` must drop the Q temporary at the end of the statement: rustc n=1. TODAY n=0, exit 1.
 // NEIGHBOUR of round 2026-09-15g-aggtemp's class (same fact: a fresh move-type rvalue receiver of a field projection), named by

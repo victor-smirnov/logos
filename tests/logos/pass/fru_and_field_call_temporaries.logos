@@ -1,0 +1,27 @@
+// Functional record update and fn-pointer field calls over temporaries: `..make()` evaluated once,
+// a generic turbofish base, a local base, a base whose droppable fields are all taken, and a
+// fn-pointer field called on a returned struct. rustc 1.98.1 prints the same line.
+package fru_and_field_call_temporaries;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct W { x: D, y: D, z: i64 }
+struct G<T> { a: T, b: T }
+struct Q { f: fn(*mut i64) -> i64, d: D }
+fn seven(p: *mut i64) -> i64 { return 7i64; }
+fn make(p: *mut i64, calls: *mut i64) -> W { unsafe { *calls = *calls + 1i64; } return W { x: D { v: 1i64, c: p }, y: D { v: 2i64, c: p }, z: 3i64 }; }
+fn mkq(p: *mut i64) -> Q { return Q { f: seven, d: D { v: 4i64, c: p } }; }
+fn main() -> i32 {
+    let mut n1: i64 = 0i64; let p1: *mut i64 = &mut n1; let mut calls: i64 = 0i64; let pc: *mut i64 = &mut calls;
+    { let w: W = W { x: D { v: 5i64, c: p1 }, ..make(p1, pc) }; let _ = w.z; }
+    let mut n2: i64 = 0i64; let p2: *mut i64 = &mut n2;
+    { let g: G<D> = G::<D> { a: D { v: 6i64, c: p2 }, ..G::<D> { a: D { v: 7i64, c: p2 }, b: D { v: 8i64, c: p2 } } }; let _ = g.b.v; }
+    let mut n3: i64 = 0i64; let p3: *mut i64 = &mut n3;
+    { let base: W = W { x: D { v: 1i64, c: p3 }, y: D { v: 2i64, c: p3 }, z: 0i64 }; let w: W = W { z: 9i64, ..base }; let _ = w.z; }
+    let mut n4: i64 = 0i64; let p4: *mut i64 = &mut n4;
+    { let w: W = W { z: 1i64, ..W { x: D { v: 3i64, c: p4 }, y: D { v: 4i64, c: p4 }, z: 0i64 } }; let _ = w.z; }
+    let mut n5: i64 = 0i64; let p5: *mut i64 = &mut n5;
+    { let k: i64 = mkq(p5).f(p5); let _ = k; }
+    unsafe { printf("%lld %lld %lld %lld %lld %lld\n".as_ptr(), n1, calls, n2, n3, n4, n5); }
+    return 0i32;
+}

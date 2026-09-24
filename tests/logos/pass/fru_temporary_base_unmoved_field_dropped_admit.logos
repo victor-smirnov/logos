@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #295): a non-variable `..base` is evaluated ONCE into a statement temporary; the fields the literal takes are marked moved out of it and it drops the rest (it was re-lowered per field and every copy leaked).
 // SOUNDNESS QUEUE row fru_temporary_base_unmoved_field_never_dropped_run (tier 1, run 1). FUNCTIONAL RECORD UPDATE FROM A TEMPORARY NEVER DROPS THE BASE'S UNUSED FIELDS.
 // `W { x: D{100}, ..W { x: D{1}, y: D{10}, z: 3 } }` moves `y` out of the temporary base; its `x` (weight 1) must drop at the end
 // of the statement: rustc n=111. TODAY n=110, exit 1 — the base temporary's un-moved field is never destroyed.

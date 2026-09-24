@@ -10926,6 +10926,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (LogosType::is_fn_value_kind(ftk) ||
                         ftk == LogosType::Kind::Closure) {
                         TypeRef ret = TypeRef(ft).closure_ret();
+                        // A droppable fresh rvalue receiver (`Q { f, d }.f(p)`)
+                        // lives to the end of the statement and drops there, as
+                        // for any field read of a temporary.
+                        if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
+                            is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv))
+                            recv = hoist_stmt_temp(std::move(recv), false);
                         auto fr = builder().field_read(
                             std::move(recv), std::string(method_name), ft);
                         if (LogosType::is_fn_value_kind(ftk))
@@ -12778,6 +12784,15 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (er.kind() == lir_schema::expr::Code::VarRef)
                     base_var = std::string(lir_view::EVarRefView{er}.name());
             }
+            // Evaluated once into a statement temporary, after the explicit
+            // fields (see the non-generic path).
+            TypeRef base_t = expr_type(base_expr);
+            lir::LExprPtr pending_base = nullptr;
+            if (base_var.empty() && cur_stmt_temp_hoist_ && base_t) {
+                base_var = std::format("__rtmp_{}", destruct_counter_++);
+                register_stmt_temp(base_var, base_t, nullptr, false);
+                pending_base = std::move(base_expr);
+            }
             SemaSubst fsu_sb;
             for (size_t i = 0; i < sinfo.type_params.size() && i < args.size(); ++i)
                 fsu_sb[sinfo.type_params[i].name] = args[i];
@@ -12790,10 +12805,18 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (ft && !fsu_sb.empty()) ft = subst_type_sema(ft, fsu_sb);
                 lir::LExprPtr recv = base_var.empty()
                     ? lower_expr(base_node)
-                    : builder().var_ref(base_var, expr_type(base_expr));
-                fields.push_back({std::string(fname),
-                    builder().field_read(std::move(recv), std::string(fname),
-                                         ft ? ft : error_t())});
+                    : builder().var_ref(base_var, base_t);
+                lir::LExprPtr field_val = builder().field_read(std::move(recv), std::string(fname),
+                                                               ft ? ft : error_t());
+                if (pending_base) {
+                    std::vector<lir_view::StmtRef> blk;
+                    blk.push_back(builder().stmt_assign(base_var, std::move(pending_base), node_line_));
+                    pending_base = nullptr;
+                    field_val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(field_val),
+                                                     ft ? ft : error_t());
+                }
+                if (ft && is_move_type(ft) && !base_var.empty()) mark_moved(base_var + "." + std::string(fname));
+                fields.push_back({std::string(fname), std::move(field_val)});
             }
         }
 
@@ -13045,18 +13068,38 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if (er.kind() == lir_schema::expr::Code::VarRef)
                 base_var = std::string(lir_view::EVarRefView{er}.name());
         }
+        // A non-variable base (`..W { … }`, `..make()`) is evaluated ONCE into a
+        // statement temporary, assigned inside the FIRST field taken from it —
+        // after every explicit field, which is Rust's order. The fields taken
+        // are marked moved out of it and its scope-exit drop destroys the rest.
+        // Re-lowering it per field built it N times and leaked each copy.
+        TypeRef base_t = expr_type(base_expr);
+        lir::LExprPtr pending_base = nullptr;
+        if (base_var.empty() && cur_stmt_temp_hoist_ && base_t) {
+            base_var = std::format("__rtmp_{}", destruct_counter_++);
+            register_stmt_temp(base_var, base_t, nullptr, false);
+            pending_base = std::move(base_expr);
+        }
         for (auto& [fname, inited] : initialized) {
             if (!inited) {
                 inited = true;
                 auto ft = field_type_of(std::string(sname), fname);
                 lir::LExprPtr recv = nullptr;
                 if (!base_var.empty()) {
-                    recv = builder().var_ref(base_var, expr_type(base_expr));
+                    recv = builder().var_ref(base_var, base_t);
                 } else {
-                    // Complex base: re-lower (might evaluate twice, but rare)
+                    // No statement temp-scope here: re-lower (evaluates per field).
                     recv = lower_expr(base_node);
                 }
-                auto field_val = builder().field_read(std::move(recv), fname, ft ? ft : error_t());
+                lir::LExprPtr field_val = builder().field_read(std::move(recv), fname, ft ? ft : error_t());
+                if (pending_base) {
+                    std::vector<lir_view::StmtRef> blk;
+                    blk.push_back(builder().stmt_assign(base_var, std::move(pending_base), node_line_));
+                    pending_base = nullptr;
+                    field_val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(field_val),
+                                                     ft ? ft : error_t());
+                }
+                if (ft && is_move_type(ft) && !base_var.empty()) mark_moved(base_var + "." + fname);
                 fields.push_back({fname, std::move(field_val)});
             }
         }

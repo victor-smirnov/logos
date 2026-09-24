@@ -3212,6 +3212,7 @@
 
     // ── Primary expressions (base of a postfix chain) ─────────────
     primary_expr <- writ_lit    // @{...} @[...] @scalar — Writ SDN literal (before IDENT)
+                  / generic_struct_update_lit // IDENT::<T> { fields, ..base } — before generic_struct_lit
                   / generic_struct_lit // IDENT::<T> { fields } — before struct_lit
                   / struct_update_lit  // IDENT { fields, ..base } — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
@@ -3337,6 +3338,15 @@
     // Generic form: TypeName::<T, U> { field: expr, ... }
     generic_struct_lit <- IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
                        => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, ITEMS: $... }
+
+    // Generic struct update: TypeName::<T> { field: val, ..base } (and the two
+    // other base positions, as struct_update_lit below).
+    generic_struct_update_lit <- IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LBRACE field_init (COMMA field_init)* COMMA DOTDOT expr RBRACE
+                              => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, ITEMS: $..., BASE: $11 }
+                               / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LBRACE DOTDOT expr COMMA field_init (COMMA field_init)* COMMA? RBRACE
+                              => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, BASE: $8, ITEMS: $... }
+                               / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LBRACE DOTDOT expr RBRACE
+                              => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, BASE: $8 }
 
     // Struct update syntax: TypeName { field: val, ..base } or TypeName { ..base }
     // or TypeName { ..base, field: val } (B-li-04; field-order doesn't change
