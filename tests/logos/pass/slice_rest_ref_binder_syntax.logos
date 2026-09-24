@@ -1,0 +1,9 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package slice_rest_ref_binder_syntax;
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    match a {
+        [_, _, ref x @ ..] => { }
+    }
+    return 0i32;
+}

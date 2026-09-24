@@ -1,0 +1,30 @@
+// A struct-shaped variant inside a tuple variant's payload binds its fields, by value and through `&`, in match statements and expressions (rustc 1.98.1: 1236 1 39 5).
+package nested_struct_variant_in_tuple_payload;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
+enum Inn { S { f: D, k: i64 }, N }
+enum Outer { V(Inn), Z }
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let s: *mut i64 = &mut q;
+    let mut out: i64 = 0i64;
+    {
+        let x = Outer::V(Inn::S { f: D { v: 1i64, s: s }, k: 2i64 });
+        match &x { Outer::V(Inn::S { f, k }) => { out = f.v * 10i64 + *k; }, _ => {} }
+    }
+    let r1 = q; q = 0i64;
+    {
+        let x = Outer::V(Inn::S { f: D { v: 3i64, s: s }, k: 4i64 });
+        match x { Outer::V(Inn::S { f, .. }) => { out = out * 10i64 + f.v; }, _ => {} }
+        unsafe { *s = *s * 10i64 + 9i64; }
+    }
+    let r2 = q; q = 0i64;
+    {
+        let x = Outer::V(Inn::S { f: D { v: 5i64, s: s }, k: 6i64 });
+        let e = match &x { Outer::V(Inn::S { k, .. }) => *k, _ => 0i64 };
+        out = out * 10i64 + e;
+    }
+    let r3 = q;
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), out, r1, r2, r3); }
+    return 0i32;
+}

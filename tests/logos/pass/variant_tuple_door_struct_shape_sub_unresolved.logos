@@ -1,0 +1,12 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package variant_tuple_door_struct_shape_sub_unresolved;
+struct S { pub n: i64 }
+enum Inn { S { f: S }, N }
+enum Outer { V(Inn), Z }
+fn inner() -> i64 {
+    let x = Outer::V(Inn::S { f: S { n: 5i64 } });
+    let mut out: i64 = 0i64;
+    match &x { Outer::V(Inn::S { f }) => { out = f.n; }, _ => {} }
+    return out;
+}
+fn main() -> i32 { return inner() as i32; }

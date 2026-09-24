@@ -1,0 +1,36 @@
+// Generic struct / tuple-struct lets bind at the instantiated types (also through `&`); `ref` / `ref mut` array binders borrow (rustc 1.98.1: 31 1045 158 12).
+package let_generic_and_ref_array_patterns;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
+struct Wrap<T>(T, i64);
+struct P<T> { a: T, b: T, k: i64 }
+fn main() -> i32 {
+    let mut q: i64 = 0i64; let s: *mut i64 = &mut q;
+    {
+        let w: Wrap<D> = Wrap(D { v: 1i64, s: s }, 2i64);
+        let Wrap(d, n) = w;
+        unsafe { *s = *s * 10i64 + d.v + n; }
+    }
+    let r1 = q; q = 0i64;
+    {
+        let p: P<D> = P { a: D { v: 4i64, s: s }, b: D { v: 5i64, s: s }, k: 6i64 };
+        let P { a, k, .. } = p;
+        unsafe { *s = *s * 10i64 + a.v + k; }
+    }
+    let r2 = q; q = 0i64;
+    {
+        let mut xs = [D { v: 7i64, s: s }, D { v: 8i64, s: s }];
+        let [ref mut x, ref y] = xs;
+        x.v = x.v + y.v;
+    }
+    let r3 = q; q = 0i64;
+    {
+        let p = P { a: 1i64, b: 2i64, k: 3i64 };
+        let P { a, b, .. } = &p;
+        unsafe { *s = *a * 10i64 + *b; }
+    }
+    let r4 = q;
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), r1, r2, r3, r4); }
+    return 0i32;
+}

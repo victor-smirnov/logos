@@ -2444,7 +2444,13 @@
 
     // ── Single element in a slice pattern ────────────────────────────────
     // G149-4: `xs @ ..` binds the trailing/middle sub-slice to a name.
-    pat_slice_elem <- IDENT AT DOTDOT
+    // `ref xs @ ..` / `ref mut xs @ ..` bind the sub-slice by reference (a named
+    // rest over an owned array is already a borrowed view in Logos).
+    pat_slice_elem <- KW_REF KW_MUT IDENT AT DOTDOT
+                   => { CODE: PAT_REST, NAME: $3, IS_REF: true, IS_MUT: true }
+                    / KW_REF IDENT AT DOTDOT
+                   => { CODE: PAT_REST, NAME: $2, IS_REF: true }
+                    / IDENT AT DOTDOT
                    => { CODE: PAT_REST, NAME: $1 }
                     / DOTDOT
                    => { CODE: PAT_REST }

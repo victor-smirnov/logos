@@ -4726,6 +4726,34 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
 // load/copy (`ref x`, `ref n @ sub`, default-mode refs). A ref-to-struct /
 // ref-to-tuple binds the pointer and records the shape so `x.f` / `x.0` GEP
 // through it; a scalar ref alloca-wraps so `*x` derefs one level.
+// A named rest over an ARRAY place (`[_, xs @ .., _]`): the sub-slice
+// {base + pre, total - pre - suf}, bound as a `&[T]` place (var_slice_) the way
+// the dynamic-slice door binds one. Every array door (pat_bind, the match
+// statement's and the match expression's) bound the prefix and suffix and
+// skipped the rest: the name read an unset slot.
+std::string MLIRGenImpl::bind_array_rest(lir_view::PatRef rest, mlir::Type arr_mlir, mlir::Type elem_mlir,
+                                         mlir::Value aptr, size_t pre, size_t len) {
+    namespace pc = lir_schema::pat;
+    if (!rest || rest.kind() != pc::Code::Wild) return {};
+    std::string rn(lir_view::PatWildView{rest}.name());
+    if (rn.empty() || rn == "_") return {};
+    auto rdata = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), arr_mlir, aptr,
+        llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(pre)});
+    auto rlen = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)len, 64).getResult();
+    auto sdtype = slice_llvm_type();
+    auto sub = create_entry_alloca(sdtype);
+    auto sdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
+        llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
+    builder_.create<mlir::LLVM::StoreOp>(loc_, rdata, sdp);
+    auto slp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
+        llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
+    builder_.create<mlir::LLVM::StoreOp>(loc_, rlen, slp);
+    evict_var_shapes(rn);
+    scope_[rn] = sub;
+    var_slice_[rn] = elem_mlir;
+    return rn;
+}
+
 void MLIRGenImpl::bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty) {
     evict_var_shapes(name);  // gap C: fresh binding drops stale peer shapes
     bool ref_to_struct = ty &&
@@ -4982,6 +5010,9 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         sv.each_prefix([&](lir_view::PatRef sp){ at_idx(sp, idx++); });
         int32_t sidx = (int32_t)(total - sv.suffix_count());
         sv.each_suffix([&](lir_view::PatRef sp){ at_idx(sp, sidx++); });
+        if (auto rest = sv.rest())
+            bind_array_rest(rest, arr_mlir, logos_to_mlir(elem_t), slot_ptr, (size_t)idx,
+                            total - (size_t)idx - sv.suffix_count());
         break;
     }
     case pc::Code::RefBind: {
@@ -5479,6 +5510,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     size_t suf_n  = psl.suffix_count();
                     int32_t sidx  = (int32_t)(total - suf_n);
                     psl.each_suffix([&](lir_view::PatRef sp){ bind_elem(sp, sidx++); });
+                    if (auto rest = psl.rest())
+                        bind_array_rest(rest, arr_mlir, elem_mlir, aptr, (size_t)idx,
+                                        total - (size_t)idx - suf_n);
                 }
             } else if (atype && TypeRef(atype).kind() == LogosType::Kind::Slice &&
                        TypeRef(atype).elem()) {
@@ -5706,6 +5740,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     // and free a bogus address (SIGSEGV). The scrutinee var is
                     // marked moved in sema (lower_match), so it isn't dropped
                     // a second time.
+                    // A TEMPORARY scrutinee (`match mk() { mut s => … }`) arrives
+                    // as the struct VALUE, not a pointer: give it a slot first,
+                    // so `&mut s` / `s.v = …` have storage to address.
+                    if (sv && sv.getType() != ptr_type()) {
+                        auto slot = create_entry_alloca(sv.getType());
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, sv, slot);
+                        sv = slot;
+                    }
                     evict_var_shapes(pwn);
                     scope_[pwn] = sv;
                     var_struct_[pwn] = mlir_struct_key(st);

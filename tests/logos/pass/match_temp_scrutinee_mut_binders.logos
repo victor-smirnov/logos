@@ -1,0 +1,12 @@
+// `mut` binders over a temporary scrutinee have storage: statement, expression, and inside a tuple (rustc 1.98.1: exit 0).
+package match_temp_scrutinee_mut_binders;
+struct S { v: i64 }
+fn mk() -> S { return S { v: 1i64 }; }
+fn bump(p: &mut S) { p.v = p.v + 7i64; }
+fn main() -> i32 {
+    let a = match mk() { mut s => { bump(&mut s); s.v } };
+    let mut b: i64 = 0i64;
+    match mk() { mut t => { t.v = 5i64; b = t.v; } }
+    let c = match (mk(), 2i64) { (mut u, k) => { u.v = u.v + k; u.v } };
+    return (a * 100i64 + b * 10i64 + c - 853i64) as i32;
+}

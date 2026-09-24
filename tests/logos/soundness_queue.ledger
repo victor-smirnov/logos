@@ -32,8 +32,6 @@ box_vec_new_infer             3 tests/soundness/open/box_vec_new_infer          
 
 layout_verify_recursive_ref   3 tests/soundness/open/layout_verify_recursive_ref   refuses
 
-match_tmp_wild_mut_addrof     3 tests/soundness/open/match_tmp_wild_mut_addrof     refuses
-
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
@@ -51,8 +49,6 @@ str_annot_loses_static_for_dyn_fn 3 tests/soundness/open/str_annot_loses_static_
 boxed_closure_struct_field_not_callable 3 tests/soundness/open/boxed_closure_struct_field_not_callable refuses
 
 box_dyn_fn_shared_ref_arg_refused 3 tests/soundness/open/box_dyn_fn_shared_ref_arg_refused refuses
-
-slice_rest_ref_binder_syntax 3 tests/soundness/open/slice_rest_ref_binder_syntax refuses
 
 zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref_struct_field_layout_abort refuses
 
@@ -157,8 +153,6 @@ ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_exten
 
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
 
-variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tuple_door_struct_shape_sub_unresolved refuses
-
 call_arg_deref_coercion_double_ref 3 tests/soundness/open/call_arg_deref_coercion_double_ref refuses
 
 # ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
@@ -169,11 +163,7 @@ ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_i
 
 closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
 
-let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
-
 vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
-
-let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
 arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_partial_generic_enum_elems_internal refuses
 
@@ -330,5 +320,5 @@ let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 78
-# SYNC-HASH c210ae4c47b4caeb3c39d4d468ee3136
+# TOTAL 73
+# SYNC-HASH 90ee3ec039d5edcdf1be0024f9d9c701

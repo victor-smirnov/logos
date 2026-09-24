@@ -1514,7 +1514,16 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             if (code_of(sub) == la::PAT_REST) continue;
             if (code_of(sub) != la::PAT_WILD || flag(sub, la::IS_REF)) nested = true;
         }
-        if (nested || force_structural_let_) {
+        // A GENERIC struct / tuple struct: the field-by-field path binds each
+        // name at the field's DECLARED type (`T`); the structural lowering
+        // builds the pattern against the instantiated scrutinee type.
+        TypeRef gst = rhs_type;
+        while (gst && (TypeRef(gst).kind() == LogosType::Kind::Ref ||
+                       TypeRef(gst).kind() == LogosType::Kind::MutRef) && TypeRef(gst).pointee())
+            gst = TypeRef(gst).pointee();
+        const bool generic_scrut = gst && TypeRef(gst).kind() == LogosType::Kind::Struct &&
+                                   !TypeRef(gst).type_args().empty();
+        if (nested || force_structural_let_ || generic_scrut) {
             force_structural_let_ = false;   // this level only
             lir::Pattern probe = build_pattern(pat_node, rhs_type);
             if (!pattern_irrefutable(pat_ref_of(probe), rhs_type))
@@ -1649,8 +1658,12 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
                     auto elist = map_of(items_av);
                     auto eitems = elist.has_key(la::ITEMS) ? arr_of(elist.get(la::ITEMS.code)) : arr_of(items_av);
                     for (uint64_t i = 0; i < eitems.size(); ++i) {
-                        auto c = code_of(map_of(eitems.get(i)));
-                        if (c != la::PAT_WILD && c != la::PAT_REST) { nested = true; break; }
+                        auto en = map_of(eitems.get(i));
+                        auto c = code_of(en);
+                        // a `ref` / `ref mut` binder borrows the element: not a plain copy-out
+                        const bool is_ref = en.has_key(la::IS_REF) && en.get(la::IS_REF.code).is_value() &&
+                                            en.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+                        if ((c != la::PAT_WILD && c != la::PAT_REST) || is_ref) { nested = true; break; }
                     }
                 }
             }
@@ -4540,6 +4553,16 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // A bindingless variant inner check, reused for plain PAT_VARIANT_DATA
         // and for each alternative of a PAT_OR.
         std::function<bool(TinyMapView)> data_has_binding = [&](TinyMapView dn) -> bool {
+            // A STRUCT-SHAPED variant (`Inn::S { f }`) keeps its fields under
+            // ITEMS: a shorthand field binds its name, a `f: sub` binds what
+            // `sub` binds.
+            if (dn.has_key(la::variant::IS_STRUCT_SHAPE) &&
+                dn.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0) {
+                std::vector<std::string> names;
+                collect_ast_pat_bindings(dn, names);
+                for (auto& n : names) if (!n.empty() && n != "_") return true;
+                return false;
+            }
             if (!dn.has_key(la::ARGS)) return false;
             auto av = dn.get(la::ARGS.code);
             if (av.is_null() || !av.is_pointer()) return false;
@@ -6923,6 +6946,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             std::string rest_name = "_";
                             if (enode.has_key(la::NAME))
                                 rest_name = std::string(str_of(enode.get(la::NAME.code)));
+                            // `ref xs @ ..` under a by-reference default mode: the
+                            // modifier is a Rust 2024 error, as at every leaf.
+                            if (dbm_ref && rest_name != "_" && enode.has_key(la::IS_REF) &&
+                                enode.get(la::IS_REF.code).is_value() &&
+                                enode.get(la::IS_REF.code).as_value<uint8_t>() != 0)
+                                modifier_under_ref_scrutinee(rest_name, scrut_orig, /*known_ref=*/true);
                             psl.rest.push_back(make_pat_wild(rest_name));
                             continue;
                         }

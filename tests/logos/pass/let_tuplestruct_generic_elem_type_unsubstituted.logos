@@ -1,0 +1,9 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package let_tuplestruct_generic_elem_type_unsubstituted;
+struct Wrap<T>(T, i64);
+fn main() -> i32 {
+    let w: Wrap<i64> = Wrap(5i64, 2i64);
+    let Wrap(s, n) = w;
+    if s + n != 7i64 { return 1i32; }
+    return 0i32;
+}

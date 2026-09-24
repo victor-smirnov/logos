@@ -4868,6 +4868,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     size_t suf_n = psl.suffix_count();
                     int32_t sidx = (int32_t)(total - suf_n);
                     psl.each_suffix([&](lir_view::PatRef sp){ bind_elem(sp, sidx++); });
+                    if (auto rest = psl.rest()) {
+                        auto rn = bind_array_rest(rest, arr_mlir, logos_to_mlir(atype.elem()), aptr,
+                                                  (size_t)idx, total - (size_t)idx - suf_n);
+                        if (!rn.empty()) added.push_back(rn);
+                    }
                 }
             } else if (atype && atype.kind() == LogosType::Kind::Slice && atype.elem()) {
                 // Dynamic-slice bindings: GEP through the data pointer (field 0

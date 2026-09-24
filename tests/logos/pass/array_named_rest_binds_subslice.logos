@@ -1,0 +1,14 @@
+// A named rest over an owned ARRAY binds the sub-slice (it read garbage), with and without `ref`, in match statements and expressions and
+// as a prefix rest (rustc 1.98.1: 223 223 312).
+package array_named_rest_binds_subslice;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let mut n: i64 = 0i64;
+    match a { [_, y @ .., _] => { n = y.len() * 100i64 + y[0] * 10i64 + y[1]; } }
+    let v: &[i64] = &a;
+    let m = match v { [_, z @ .., _] => z.len() * 100i64 + z[0] * 10i64 + z[1], _ => 0i64 };
+    let t = match a { [y @ .., _] => y.len() * 100i64 + y[0] * 10i64 + y[1] };
+    unsafe { printf("%lld %lld %lld\n".as_ptr(), n, m, t); }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package let_array_pattern_ref_mut_binding_is_raw_pointer_refuses;
+fn main() -> i32 {
+    let mut xs: [i64; 2] = [1i64, 2i64];
+    let [ref mut a, ref mut b] = xs;
+    *a = 3i64;
+    *b = 4i64;
+    return (xs[0u64] + xs[1u64] - 7i64) as i32;
+}
