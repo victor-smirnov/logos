@@ -1878,14 +1878,16 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             }
         }
         if (!body_terminated) {
-            // §7.1 follow-up: a param that was EVER moved (on any branch) is
-            // a conditional-move shape — emitting a static drop at the merge
-            // would re-free on the move-path. Conservative skip (sound, may
-            // leak on the non-move path). Proper fix = B8-style drop-flag
-            // elaboration extended to params.
+            // The fall-through state decides: `moved_vars_` after the body is
+            // the divergence-aware merge (a branch ending in `return` does not
+            // reach here), and a move on SOME non-diverging path carries a #118
+            // drop flag. The old "moved on ANY branch → no drop" skip leaked a
+            // param on every path that did not move it (`if b { return f(d); }`),
+            // and was only needed while `return <void call>` lost its return
+            // in codegen and fell into this very epilogue.
             auto& frame = scope_.back();
             std::vector<lir_view::StmtRef> epilogue_drops;
-            emit_frame_drops(frame, epilogue_drops, &body_ever_moved_);
+            emit_frame_drops(frame, epilogue_drops, nullptr);
             for (auto& d : epilogue_drops)
                 body_stmts.push_back(std::move(d));
             body = lir_mirror_block(*cur_prog_, body_stmts);

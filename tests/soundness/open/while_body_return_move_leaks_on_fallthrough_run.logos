@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row while_body_return_move_leaks_on_fallthrough_run (tier 1, run 1). A LOCAL MOVED INSIDE A `while` BODY THAT
+// ENDS IN `return` IS NEVER DROPPED WHEN THE LOOP DOES NOT RUN. `fn inner(d: D, b: bool) { while b { sink(d); return; } }` with
+// b = false leaks `d`: rustc n=1000 (dropped on fall-through), TODAY n=0, exit 1.
+// Found 2026-09-23 as the neighbour of self_call_in_return_kills_param_drops (closed the same day: an `if` branch ending in
+// `return` is handled by lower_if's divergence-aware merge + #118 flags). ROWED, REASON 1: SemaChecker::lower_while keeps the
+// body's moved_vars_ unconditionally at the loop exit — the loop's exit state (zero iterations, `break` paths, a body ending
+// in `return`) has no merge of its own, unlike lower_if's; the same holds for lower_loop / lower_for.
+package while_body_return_move_leaks_on_fallthrough_run;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn sink(d: D) { }
+fn inner(d: D, b: bool) {
+    while b { sink(d); return; }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    inner(D { v: 1000i64, c: &mut n }, false);
+    let got: i64 = unsafe { n };
+    if got != 1000i64 { return 1i32; }
+    return 0i32;
+}

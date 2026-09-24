@@ -2860,6 +2860,24 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
         }
         return;
     }
+    // `return f(x)` where the value is VOID (a void fn returning a void call):
+    // evaluate it for its effects, then an operand-less return. The value arm
+    // below lowers a void value to nothing and falls through WITHOUT a return,
+    // so the branch joined the fall-through path and ran its drops a second
+    // time (`if b { return sink(d); }` dropped `d` twice).
+    if (val_er) {
+        TypeRef vt = val_er.type(pool_impl());
+        if (vt && TypeRef(vt).kind() == LogosType::Kind::Void) {
+            gen_expr(val_er);
+            if (!is_terminated(builder_.getBlock())) {
+                if (in_llvm_func_)
+                    builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+                else
+                    builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{});
+            }
+            return;
+        }
+    }
     if (val_er) {
         TypeRef s_val_ty = val_er.type(pool_impl());
         // R2 — the RETURN position of the silent-drop guard that SExprStmt and

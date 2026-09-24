@@ -6371,8 +6371,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                #294, #295 closed (4 pass fixtures).
 #                ALL 11141 -> 11142 (+1), NOIMPORTED 6578 -> 6579 (+1), TIERCOMMIT 193 -> 192 (-1) — 2026-09-23: squeue
 #                static_array_whole_borrow_reads_garbage closed (2 pass fixtures).
-REGISTRY-ALL         11142
-REGISTRY-NOIMPORTED  6579
+#                ALL 11142 -> 11144 (+2), NOIMPORTED 6579 -> 6581 (+2), TIERCOMMIT 192 (0) — 2026-09-23: squeue #86 closed
+#                (2 pass fixtures), #470 opened (its neighbour, the `while` shape).
+REGISTRY-ALL         11144
+REGISTRY-NOIMPORTED  6581
 REGISTRY-TIERCOMMIT  192
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

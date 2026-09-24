@@ -1,0 +1,20 @@
+// A by-value parameter moved on ONE branch is dropped on every path that does not move it: a
+// `return` of a self-call, a `return` of a void call, a plain call, a move then `return`, an
+// if/else and a match. Each fn runs with b = false (n) and b = true (m); rustc 1.98.1: 1000 1.
+package param_moved_on_one_branch_drops_on_others;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn sink(d: D) { }
+fn a(d: D, b: bool) { if b { return a(d, false); } }
+fn r(d: D, b: bool) { if b { return sink(d); } }
+fn c(d: D, b: bool) { if b { sink(d); } }
+fn l(d: D, b: bool) { if b { let _x: D = d; return; } }
+fn e(d: D, b: bool) { if b { sink(d); } else { } }
+fn m(d: D, b: bool) { match b { true => { sink(d); }, false => {} } }
+fn run(f: fn(D, bool)) {
+    let mut n: i64 = 0i64; f(D { v: 1000i64, c: &mut n }, false);
+    let mut k: i64 = 0i64; f(D { v: 1i64, c: &mut k }, true);
+    unsafe { printf("%lld %lld\n".as_ptr(), n, k); }
+}
+fn main() -> i32 { run(a); run(r); run(c); run(l); run(e); run(m); return 0i32; }
