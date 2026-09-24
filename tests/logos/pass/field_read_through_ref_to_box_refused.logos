@@ -1,0 +1,8 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package field_read_through_ref_to_box_refused;
+struct D { v: i64 }
+fn main() -> i32 {
+    let b: Box<D> = Box::new(D { v: 6i64 });
+    let rb: &Box<D> = &b;
+    return (rb.v - 6i64) as i32;
+}

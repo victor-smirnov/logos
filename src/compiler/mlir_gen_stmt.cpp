@@ -5078,6 +5078,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     auto* merge_block = new mlir::Block();
 
     auto scrut = gen_expr(v.scrut());
+    // The scrutinee VALUE as written, before the collapse / enum peel below
+    // rewrite `scrut`: what a whole-scrutinee binder through a reference takes.
+    mlir::Value scrut_written = scrut;
     if (!scrut) {
         region->push_back(merge_block);
         if (!is_terminated(builder_.getBlock()))
@@ -5618,6 +5621,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     (binder_bty.kind() == LogosType::Kind::Ref ||
                      binder_bty.kind() == LogosType::Kind::MutRef ||
                      binder_bty.kind() == LogosType::Kind::Ptr);
+                // (the reference value as written, not the fully peeled `scrut_ptr`)
+                if (binder_via_ref && scrut_written && !pa.ref_mode()) sv = scrut_written;
                 if (pa.ref_mode()) {
                     // `ref n @ sub`: n borrows the matched place. An owned
                     // scrutinee's address, or a spilled scalar value's.
@@ -5692,9 +5697,11 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 lir_view::PatRef rq; mlir::Value rv; TypeRef rt;
                 if (!scrut_ptr && !te_info && ref_pat_core_scrut(p, scrut, scrut_ty, rq, rv, rt)) {
                     auto saved_scrut = scrut; auto saved_coll = collapsed_scrut; TypeRef saved_ty = scrut_ty;
-                    scrut = rv; collapsed_scrut = rv; scrut_ty = rt;
+                    auto saved_written = scrut_written;
+                    scrut = rv; collapsed_scrut = rv; scrut_ty = rt; scrut_written = rv;
                     extract_payload(rq);
                     scrut = saved_scrut; collapsed_scrut = saved_coll; scrut_ty = saved_ty;
+                    scrut_written = saved_written;
                     return;
                 }
             }
@@ -5725,6 +5732,12 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     (st.kind() == LogosType::Kind::Ref ||
                      st.kind() == LogosType::Kind::MutRef ||
                      st.kind() == LogosType::Kind::Ptr);
+                // Through a reference the binder takes the REFERENCE VALUE as
+                // written (`other: &&Option<T>`), not `scrut_ptr`, which the
+                // tagged-enum detection peeled through EVERY layer: storing that
+                // made `other` one level short and `other.is_some()` read the
+                // discriminant as a pointer (SIGSEGV).
+                if (wild_via_ref && scrut_written) sv = scrut_written;
                 if (sv && sv.getType() == ptr_type() && !wild_via_ref) {
                     bind_name_at_slot(pwn, sv, st, nullptr);
                 } else if (st && (st.kind() == LogosType::Kind::Struct ||

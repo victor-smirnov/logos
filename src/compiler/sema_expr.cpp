@@ -10444,6 +10444,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
         auto tname = type_str_regions_erased(expr_type(recv))   /* impl keys carry no regions */;
         auto mangled_prim = tname + "__" + std::string(method_name);
+        bool generic_via_pointee = false;   // fi_ptr found generically by a `&T` receiver's pointee name
         const SemaFuncInfo* fi_ptr = nullptr;
         {
             std::vector<TypeRef> types;
@@ -10605,6 +10606,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 fi_ptr = gfit;
                                 mangled_prim = deref_mangled;
                                 tname = pname;
+                                generic_via_pointee = true;
                             }
                         }
                     }
@@ -10629,8 +10631,35 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     while (m_type_args.size() < fi_ptr->type_params.size())
                         m_type_args.push_back(error_t());
                 } else {
+                    // A generic method found by the POINTEE's name for a `&T`
+                    // receiver (`p.is_none()` with `p: &Option<i64>`): `Self` is
+                    // the pointee, and a by-value `self` takes `*p` (Rust
+                    // autoderef; Copy pointees only reach here legally).
+                    if (generic_via_pointee && expr_type(recv) &&
+                        is_ref_like(TypeRef(expr_type(recv)).kind()) &&
+                        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
+                        !fi_ptr->param_types.empty() && fi_ptr->param_types[0] &&
+                        !is_ref_like(TypeRef(fi_ptr->param_types[0]).kind()))
+                        recv = builder().deref(std::move(recv), TypeRef(expr_type(recv)).pointee());
                     SemaSubst seed;
-                    seed["Self"] = expr_type(recv);
+                    seed["Self"] = (generic_via_pointee && expr_type(recv) &&
+                                    is_ref_like(TypeRef(expr_type(recv)).kind()) &&
+                                    TypeRef(expr_type(recv)).pointee())
+                                   ? TypeRef(expr_type(recv)).pointee() : expr_type(recv);
+                    // …and the receiver type's OWN parameters (`Option<T>`'s T)
+                    // from its arguments, as the main method path seeds them.
+                    if (generic_via_pointee) {
+                        TypeRef st = seed["Self"];
+                        if (st && TypeRef(st).kind() == LogosType::Kind::Enum && !TypeRef(st).type_args().empty()) {
+                            if (auto [ep, esi] = enum_of(TypeRef(st)); esi)
+                                for (size_t i = 0; i < esi->type_params.size() && i < TypeRef(st).type_args().size(); ++i)
+                                    seed[esi->type_params[i].name] = TypeRef(st).type_args()[i];
+                        } else if (st && TypeRef(st).kind() == LogosType::Kind::Struct && !TypeRef(st).type_args().empty()) {
+                            if (auto [sp, ssi] = struct_of(TypeRef(st)); ssi)
+                                for (size_t i = 0; i < ssi->type_params.size() && i < TypeRef(st).type_args().size(); ++i)
+                                    seed[ssi->type_params[i].name] = TypeRef(st).type_args()[i];
+                        }
+                    }
                     if (!infer_type_args(*fi_ptr, arg_exprs, m_type_args, seed, 1)) {
                         error(std::format("could not infer type arguments for generic method '{}'",
                                           mangled_prim));
@@ -12070,6 +12099,20 @@ lir::LExprPtr SemaChecker::lower_field_read_impl(TinyMapView node) {
     // the old Box-only `.ptr` path to Box/Rc/Arc/any user Deref type uniformly
     // (the deref step is resolved through the generic-aware method machinery).
     {
+        // Autoderef peels REFERENCE layers first when the pointee lacks the field
+        // itself: `rb.v` with `rb: &Box<D>` is `(**rb).v` (Rust). A pointee
+        // that has the field keeps the reference receiver (read through it).
+        for (int rg = 0; rg < 8 && recv_base_t &&
+                         (TypeRef(recv_base_t).kind() == LogosType::Kind::Ref ||
+                          TypeRef(recv_base_t).kind() == LogosType::Kind::MutRef); ++rg) {
+            TypeRef pt = TypeRef(recv_base_t).pointee();
+            if (!pt || (TypeRef(pt).kind() != LogosType::Kind::Struct &&
+                        TypeRef(pt).kind() != LogosType::Kind::Ref &&
+                        TypeRef(pt).kind() != LogosType::Kind::MutRef)) break;
+            if (TypeRef(pt).kind() == LogosType::Kind::Struct && field_type_of_for_type(pt, field_name)) break;
+            recv = builder().deref(std::move(recv), pt);
+            recv_base_t = pt;
+        }
         int deref_guard = 0;
         while (deref_guard++ < 16 && recv_base_t &&
                (TypeRef(recv_base_t).kind() == LogosType::Kind::Struct ||
@@ -13518,6 +13561,17 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     auto recv_node = map_of(node.get(la::RECEIVER.code));
     auto recv = lower_expr(recv_node);
     auto arr_type = expr_type(recv);
+    // A receiver that is a REFERENCE to the struct (`v: &mut Vec<T>`) is the
+    // `&self` / `&mut self` the index call wants (`&mut` only through `&mut`).
+    bool recv_is_ref = false;
+    if ((TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(arr_type).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(arr_type).pointee() &&
+        TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Struct) {
+        if (is_mut && TypeRef(arr_type).kind() != LogosType::Kind::MutRef) return nullptr;
+        arr_type = TypeRef(arr_type).pointee();
+        recv_is_ref = true;
+    }
     if (TypeRef(arr_type).kind() != LogosType::Kind::Struct) return nullptr;
 
     auto type_name = concrete_struct_name(arr_type);
@@ -13552,7 +13606,9 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     // pre-existing behaviour).
     auto self_ref_t = make_ref(is_mut, arr_type);
     lir::LExprPtr recv_ref = nullptr;
-    if (code_of(recv_node) == la::VAR_REF) {
+    if (recv_is_ref) {
+        recv_ref = std::move(recv);
+    } else if (code_of(recv_node) == la::VAR_REF) {
         auto var_name = std::string(str_of(recv_node.get(la::NAME.code)));
         recv_ref = builder().addr_of(var_name, self_ref_t, BorrowOrigin::OperatorAutoref);
     } else if (is_ref_like(TypeRef(arr_type).kind())) {
@@ -13690,6 +13746,25 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     lir::LExprPtr idx = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
+
+    // Autoderef through REFERENCES to a struct receiver: `v[i]` with
+    // `v: &Vec<T>` / `&mut Vec<T>` indexes the Vec (Rust). Left alone, the
+    // built-in index below read the reference as a POINTER to an array of Vecs:
+    // `v[1]` typed `Vec<T>` and addressed one Vec past the referent.
+    for (int rg = 0; rg < 8 && arr_type &&
+                     (TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
+                      TypeRef(arr_type).kind() == LogosType::Kind::MutRef) &&
+                     TypeRef(arr_type).pointee() &&
+                     (TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Struct ||
+                      TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Ref ||
+                      TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::MutRef); ++rg) {
+        TypeRef pt = TypeRef(arr_type).pointee();
+        if ((TypeRef(pt).kind() == LogosType::Kind::Ref || TypeRef(pt).kind() == LogosType::Kind::MutRef) &&
+            !(TypeRef(pt).pointee() && TypeRef(TypeRef(pt).pointee()).kind() == LogosType::Kind::Struct))
+            break;
+        recv = builder().deref(std::move(recv), pt);
+        arr_type = pt;
+    }
 
     // User-defined Index dispatch: `a[i]` for struct a where a impls
     // Index<Idx, Out> → `*(a.index(i))`. Tried before the built-in
@@ -16368,7 +16443,7 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     case CoercePos::CallArg:
     case CoercePos::ClosureArg:
         return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
-               CFLAG_SKIP_UNRESOLVED;
+               CFLAG_SKIP_UNRESOLVED | CFLAG_DEREF_COERCE;
     case CoercePos::GenericArg:
         return (CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
                 CFLAG_SKIP_UNRESOLVED) & ~uint32_t(CFLAG_IMPLICIT_REBORROW);
@@ -16379,29 +16454,32 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
                CFLAG_ARRAY_TO_SLICE |
                CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT |
                CFLAG_CHECK_E0507 | CFLAG_CHECK_DYN_BOUNDS |
-               CFLAG_SKIP_UNRESOLVED;
+               CFLAG_SKIP_UNRESOLVED | CFLAG_DEREF_COERCE;
     case CoercePos::LetInit:
     case CoercePos::PlaceWrite:
     case CoercePos::TupleElem:
     case CoercePos::BranchArm:
         // ARG_TO_DYN: `&i64` -> `&dyn Tr` is a coercion at every site (Rust);
         // a struct pointee is unsized by codegen, a scalar needs the cast.
+        // DEREF_COERCE: Rust's coercion sites are `let` with a type and what
+        // propagates into it (tuple elements, branch arms) — not an assignment.
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_SLICE_TO_ARRAY | CFLAG_IMPLICIT_REBORROW |
                CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN |
-               (pos == CoercePos::PlaceWrite ? CFLAG_CHECK_DYN_BOUNDS : 0u);
+               (pos == CoercePos::PlaceWrite ? CFLAG_CHECK_DYN_BOUNDS : CFLAG_DEREF_COERCE);
     case CoercePos::StructLitField:
         // Rust MOVES into a struct literal: no reborrow. Everything else
         // applies.
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
-               CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN;
+               CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN |
+               CFLAG_DEREF_COERCE;
     case CoercePos::ArrayElem:
-        return CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT;
+        return CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT | CFLAG_DEREF_COERCE;
     case CoercePos::Return:
         // + the Box→dyn consume, handled in expect_type itself (it rewrites
         // the expr, not just its type).
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
-               CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN;
+               CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN | CFLAG_DEREF_COERCE;
     case CoercePos::ConstInit:
     case CoercePos::Operand:
         return CFLAG_WIDEN_INT;
@@ -16622,6 +16700,49 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     return false;
 }
 
+// DEREF COERCION (Rust): `&U` where `&T` is expected and `U` derefs to `T` in
+// one or more steps — a reference (`&&T`) or a `Deref` type (`&Box<T>`,
+// `&Rc<T>`) — becomes `&**…u`. `&mut` only through `&mut` / `DerefMut` steps.
+// Tried only when the types still disagree; the speculative nodes of a failed
+// walk are left unused (LExprPtr is an arena pointer, nothing is consumed).
+bool SemaChecker::try_deref_coerce(lir::LExprPtr& e, TypeRef pt) {
+    if (!e || !pt) return false;
+    using K = LogosType::Kind;
+    auto is_ref = [](TypeRef t) { return t && (t.kind() == K::Ref || t.kind() == K::MutRef); };
+    TypeRef at = expr_type(e);
+    if (!is_ref(pt) || !is_ref(at) || !TypeRef(at).pointee() || !TypeRef(pt).pointee()) return false;
+    if (types_compatible(at, pt)) return false;
+    const bool want_mut = TypeRef(pt).kind() == K::MutRef;
+    if (want_mut && TypeRef(at).kind() != K::MutRef) return false;
+    TypeRef target = TypeRef(pt).pointee();
+    if (target.kind() == K::TypeVar || target.kind() == K::Error) return false;
+    TypeRef ct = TypeRef(at).pointee();
+    lir::LExprPtr cur = builder().deref(e, ct);
+    for (int step = 0; step < 8 && ct; ++step) {
+        if (is_ref(ct)) {
+            if (want_mut && ct.kind() != K::MutRef) return false;
+            TypeRef nt = ct.pointee();
+            if (!nt) return false;
+            cur = builder().deref(cur, nt);
+            ct = nt;
+        } else if (ct.kind() == K::Struct) {
+            bool degraded = false;
+            auto nx = emit_generic_deref_step(cur, want_mut, &degraded);
+            if (!nx || degraded || !*nx || !expr_type(*nx)) return false;
+            cur = *nx;
+            ct = expr_type(cur);
+        } else {
+            return false;
+        }
+        if (types_compatible(make_ref(want_mut, ct), pt)) {
+            e = builder().addr_of_temp(cur, want_mut, make_ref(want_mut, ct),
+                                       lir_schema::expr::BorrowOrigin::Reborrow);
+            return true;
+        }
+    }
+    return false;
+}
+
 void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                                        uint32_t flags) {
     if (!arg || !pt) return;
@@ -16633,6 +16754,7 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
     if (flags & CFLAG_DYN_UPCAST)       coerce_dyn_upcast(arg, pt);
     if (flags & CFLAG_ARG_TO_DYN)       coerce_arg_to_dyn(arg, pt);
     if (flags & CFLAG_IMPLICIT_REBORROW) try_implicit_reborrow_mut(arg, pt);
+    if (flags & CFLAG_DEREF_COERCE)     try_deref_coerce(arg, pt);
     // Implicit CoerceUnsized for a smart-pointer struct arg (`Rc<A>` →
     // `Rc<dyn Tr>`). Unconditional (not flag-gated): a no-op unless `arg` is
     // the same wrapper struct as `pt` with a field unsizing sized→dyn — so it

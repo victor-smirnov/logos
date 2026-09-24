@@ -1,0 +1,17 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package call_arg_deref_coercion_double_ref;
+enum List<'a, T> { Cons { head: T, tail: &'a List<'a, T> }, Nil }
+fn sum(l: &List<i64>) -> i64 {
+    match l {
+        List::Cons { head: h, tail: t } => { return *h + sum(t); }
+        List::Nil => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let n: List<i64> = List::Nil;
+    let c3: List<i64> = List::Cons { head: 3i64, tail: &n };
+    let c2: List<i64> = List::Cons { head: 2i64, tail: &c3 };
+    let c1: List<i64> = List::Cons { head: 1i64, tail: &c2 };
+    if sum(&c1) == 6i64 { return 0i32; }
+    return 1i32;
+}

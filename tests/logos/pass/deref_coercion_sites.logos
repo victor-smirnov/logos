@@ -1,0 +1,18 @@
+// Deref coercion at the coercion sites: arguments, typed let, struct field, return; through `&&A`, `&Box<A>`, `&mut Box<A>` (rustc 1.98.1: 3 11 11 11 11).
+package deref_coercion_sites;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct A { v: i64 }
+struct H<'a> { r: &'a A }
+fn rd(a: &A) -> i64 { return a.v; }
+fn bump(a: &mut A) { a.v = a.v + 1i64; }
+fn back<'a>(b: &'a Box<A>) -> &'a A { return b; }
+fn main() -> i32 {
+    let a = A { v: 3i64 };
+    let ra = &a;
+    let mut b: Box<A> = Box::new(A { v: 10i64 });
+    bump(&mut b);
+    let x: &A = &b;
+    let h = H { r: &b };
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), rd(&ra), rd(&b), x.v, h.r.v, back(&b).v); }
+    return 0i32;
+}

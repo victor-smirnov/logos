@@ -4640,6 +4640,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     auto* merge_block = new mlir::Block();
 
     auto scrut = gen_expr(v.scrut());
+    // The scrutinee VALUE as written, before the collapse / enum peel below
+    // rewrite `scrut`: what a whole-scrutinee binder through a reference takes.
+    mlir::Value scrut_written = scrut;
     if (!scrut) {
         region->push_back(merge_block);
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -4782,6 +4785,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     (wild_bty.kind() == LogosType::Kind::Ref ||
                      wild_bty.kind() == LogosType::Kind::MutRef ||
                      wild_bty.kind() == LogosType::Kind::Ptr);
+                // (the reference value as written, not the fully peeled
+                // `scrut_ptr` — see the statement door's Wild case)
+                if (wild_via_ref && scrut_written) sv = scrut_written;
                 if (sv && sv.getType() == ptr_type() && !wild_via_ref) {
                     bind_name_at_slot(name, sv, scrut_ty, nullptr);
                 } else {
@@ -5119,9 +5125,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             } else if (lir_view::PatRef rq; !scrut_ptr && !te_info &&
                        ref_pat_core_scrut(pat_ref, scrut, scrut_ty, rq, rcv, rct)) {
                 auto saved_scrut = scrut; TypeRef saved_ty = scrut_ty;
-                scrut = rcv; scrut_ty = rct;
+                auto saved_written = scrut_written;
+                scrut = rcv; scrut_ty = rct; scrut_written = rcv;
                 added = extract_arm_payload(rq);
-                scrut = saved_scrut; scrut_ty = saved_ty;
+                scrut = saved_scrut; scrut_ty = saved_ty; scrut_written = saved_written;
             } else if (auto inner = lir_view::PatRefPatView{pat_ref}.inner()) {
                 added = extract_arm_payload(inner);
             }
@@ -5144,6 +5151,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     (binder_bty.kind() == LogosType::Kind::Ref ||
                      binder_bty.kind() == LogosType::Kind::MutRef ||
                      binder_bty.kind() == LogosType::Kind::Ptr);
+                // (the reference value as written, not the fully peeled `scrut_ptr`)
+                if (binder_via_ref && scrut_written && !pa.ref_mode()) sv = scrut_written;
                 if (pa.ref_mode()) {
                     // `ref n @ sub`: n borrows the matched place. An owned
                     // scrutinee's address, or a spilled scalar value's.

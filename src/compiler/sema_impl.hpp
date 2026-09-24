@@ -1885,6 +1885,7 @@ private:
                                            // annotation is judged HERE (the
                                            // gat_bounds_violation refusal
                                            // vanished when this was universal)
+        CFLAG_DEREF_COERCE     = 1u << 13, // try_deref_coerce: `&&T` / `&Box<T>` → `&T` (Rust deref coercion)
         CFLAG_ACCEPT_SD_THIN   = 1u << 10, // accept sd_thin_compatible pairs
                                            // (thin one-repr receiver forms) —
                                            // the call family's extra acceptor
@@ -1919,6 +1920,7 @@ private:
                           // no sense for `place op rhs`
     };
     static uint32_t mask_for(CoercePos pos);
+    bool try_deref_coerce(lir::LExprPtr& e, TypeRef pt);
 
     // Runs the coercion pipeline for `pos`, then verdicts. On mismatch emits
     //   "{ctx}: expected {}, got {}"

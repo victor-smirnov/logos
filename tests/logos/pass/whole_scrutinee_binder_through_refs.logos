@@ -1,0 +1,22 @@
+// A whole-scrutinee binder (`y =>`, `y @ …`) through `&W`, `&&W`, `&&Option`, `&&i64` holds the reference as written (rustc 1.98.1: 4 7 43 1 2 9 5 7).
+package whole_scrutinee_binder_through_refs;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct W { a: i64, b: i64 }
+fn f1(w: &W) -> i64 { match w { y => y.b } }
+fn f2(w: &&W) -> i64 { match w { y => y.a + y.b } }
+fn f3(w: &W) -> i64 { match w { y @ W { a, .. } => y.b * 10i64 + *a } }
+fn f4(o: &&Option<i64>) -> i64 { match o { other => { if other.is_some() { 1i64 } else { 2i64 } } } }
+fn f5(v: &&i64) -> i64 { let mut r: i64 = 0i64; match v { x => { r = **x; } } return r; }
+fn f6(o: &&Option<i64>) -> i64 { match o { &&Option::Some(x) => x, other => { if other.is_none() { 7i64 } else { 8i64 } } } }
+fn main() -> i32 {
+    let w = W { a: 3i64, b: 4i64 };
+    let rw = &w;
+    let o = Option::Some(5i64);
+    let ro = &o;
+    let n: Option<i64> = Option::None;
+    let rn = &n;
+    let v = 9i64;
+    let rv = &v;
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), f1(&w), f2(&rw), f3(&w), f4(&ro), f4(&rn), f5(&rv), f6(&ro), f6(&rn)); }
+    return 0i32;
+}

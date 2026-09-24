@@ -1,0 +1,8 @@
+// Generic enum methods on `&Option` / `&&Option` receivers, `&self` and by value (rustc 1.98.1: 1 1 5 5).
+package option_methods_through_refs;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn g0(p: &Option<i64>) -> i64 { if p.is_some() { return 1i64; } return 0i64; }
+fn g1(pp: &&Option<i64>) -> i64 { if pp.is_some() { return 1i64; } return 0i64; }
+fn g2(pp: &&Option<i64>) -> i64 { match pp { &&Option::Some(x) => x, _ => 9i64 } }
+fn g3(p: &Option<i64>) -> i64 { return p.unwrap_or(4i64); }
+fn main() -> i32 { let o = Option::Some(5i64); let r = &o; unsafe { printf("%lld\n".as_ptr(), g0(&o)); printf("%lld\n".as_ptr(), g1(&r)); printf("%lld\n".as_ptr(), g2(&r)); printf("%lld\n".as_ptr(), g3(&o)); } return 0i32; }

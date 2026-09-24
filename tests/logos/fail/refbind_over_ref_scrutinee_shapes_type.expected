@@ -1,1 +1,1 @@
-error [fn main]: call to 'thru' arg 1: expected &i64, got &&i64
+let 'x': type mismatch — expected i64, got &i64

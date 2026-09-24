@@ -1,0 +1,17 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package method_autoderef_double_ref_option_infer_refused;
+fn get(pp: &&Option<i64>) -> i64 {
+    match pp {
+        &&Option::Some(x) => x,
+        other => { if other.is_some() { 66i64 } else { 77i64 } }
+    }
+}
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(5i64);
+    let r: &Option<i64> = &o;
+    if get(&r) != 5i64 { return 1i32; }
+    let n: Option<i64> = Option::None;
+    let rn: &Option<i64> = &n;
+    if get(&rn) != 77i64 { return 2i32; }
+    return 0i32;
+}

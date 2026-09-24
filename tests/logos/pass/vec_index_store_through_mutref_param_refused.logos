@@ -1,0 +1,11 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package vec_index_store_through_mutref_param_refused;
+fn set(v: &mut Vec<i64>, i: u64) {
+    v[i] = 9i64;
+}
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    set(&mut v, 0u64);
+    return (v[0u64] - 9i64) as i32;
+}

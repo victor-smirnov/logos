@@ -1,0 +1,17 @@
+// Indexing through `&Vec` / `&mut Vec` / `&&Vec`: reads, borrows and writes reach the Vec (it read a Vec past the referent; rustc 1.98.1: 20 40 9 33 33).
+package index_through_vec_refs;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn a(v: &Vec<i64>) -> i64 { return v[1u64]; }
+fn b(v: &Vec<i64>) -> i64 { let r = &v[1u64]; return *r * 2i64; }
+fn c(v: &mut Vec<i64>) { v[0u64] = 9i64; }
+fn d(v: &mut Vec<i64>) { let r = &mut v[2u64]; *r = *r + 30i64; }
+fn e(v: &&Vec<i64>) -> i64 { return v[2u64]; }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(20i64); v.push(3i64);
+    c(&mut v);
+    d(&mut v);
+    let r = &v;
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), a(&v), b(&v), v[0u64], v[2u64], e(&r)); }
+    return 0i32;
+}

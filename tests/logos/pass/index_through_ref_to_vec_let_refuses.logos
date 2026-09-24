@@ -1,0 +1,15 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package index_through_ref_to_vec_let_refuses;
+
+fn foo<'a>(v: &'a Vec<i64>) -> i64 {
+    let r: &'a i64 = &v[1];
+    return *r;
+}
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64);
+    v.push(80i64);
+    if foo(&v) != 80i64 { return 1i32; }
+    return 0i32;
+}
