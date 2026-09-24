@@ -244,8 +244,6 @@ refcell_interior_push_block_local_dangle_admits 2 tests/soundness/open/refcell_i
 # 2026-09-14o-autoreffund: the autoref landing's neighbours rowed with a named reason, and out-of-class defects its battery caught
 operator_operand_owner_after_sibling_exit_leak 1 tests/soundness/open/operator_operand_owner_after_sibling_exit_leak run 1
 
-field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
-
 let_ref_bind_annotated_refused 3 tests/soundness/open/let_ref_bind_annotated_refused refuses
 
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
@@ -324,6 +322,8 @@ bc_patmovebind_at_ref_binding_twin 3 tests/soundness/open/bc_patmovebind_at_ref_
 vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
+
+field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
 
 # ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
 # Six rows CLOSED (addr_of_struct_ref_local_arg, addr_of_ref_foreach_elem, addr_of_ref_match_binder, addr_of_ref_closure_capture,
@@ -424,4 +424,4 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
 # TOTAL 128
-# SYNC-HASH a29d4c92c2f11e0262377e5197796d06
+# SYNC-HASH ddb33a4842fbd5139adf0ab70f0d7bb4

@@ -1,0 +1,28 @@
+// Field reads of droppable temporaries: a field moved out, a nested chain, a method on a temporary's
+// field, a field passed by value, and temporaries in an `if` condition (a terminating scope).
+// rustc 1.98.1 prints the same line.
+package field_base_temporaries_order_and_moves;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
+impl D { fn get(&self) -> i64 { return self.v; } }
+struct O { d: D, e: D, k: i64 }
+fn mk(v: i64, s: *mut i64) -> D { return D { v: v, s: s }; }
+fn mko(s: *mut i64) -> O { return O { d: D { v: 1i64, s: s }, e: D { v: 2i64, s: s }, k: 3i64 }; }
+fn take(d: D) -> i64 { return d.v; }
+fn id(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let mut n1: i64 = 0i64; let p1: *mut i64 = &mut n1;
+    { let d: D = mko(p1).d; let _ = d.v; }
+    let mut n2: i64 = 0i64; let p2: *mut i64 = &mut n2;
+    let k2: i64 = mko(p2).d.v + mko(p2).k;
+    let mut n3: i64 = 0i64; let p3: *mut i64 = &mut n3;
+    let g3: i64 = mko(p3).e.get();
+    let mut n4: i64 = 0i64; let p4: *mut i64 = &mut n4;
+    let t4: i64 = take(mko(p4).e);
+    let mut n5: i64 = 0i64; let p5: *mut i64 = &mut n5;
+    let mut c5: i64 = 0i64;
+    if mk(4i64, p5).v == 4i64 { c5 = id(mk(5i64, p5).v); }
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), n1, k2, n2, g3, n3, t4, n4, c5, n5); }
+    return 0i32;
+}

@@ -1,0 +1,13 @@
+// Temporaries of an `if` EXPRESSION's condition drop before its branch runs (rustc: 5 45).
+package if_expr_cond_temporaries_drop_first;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, s: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
+fn mk(v: i64, s: *mut i64) -> D { return D { v: v, s: s }; }
+fn id(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64; let p: *mut i64 = &mut n;
+    let x: i64 = if mk(4i64, p).v == 4i64 { id(mk(5i64, p).v) } else { 0i64 };
+    unsafe { printf("%lld %lld\n".as_ptr(), x, n); }
+    return 0i32;
+}

@@ -7465,7 +7465,9 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     // ── regular if cond { ... } ────────────────────────────────────
     lir::LExprPtr cond = nullptr;
     if (node.has_key(la::COND)) {
-        cond = lower_expr(map_of(node.get(la::COND.code)));
+        // An `if` condition is a TERMINATING SCOPE (Rust): its temporaries drop
+        // before the block runs, not at the end of the whole `if` statement.
+        cond = lower_expr_temp_scoped(map_of(node.get(la::COND.code)));
         if (TypeRef(expr_type(cond)).kind() != LogosType::Kind::Bool &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Never)  // G160-10: `if (return x){}`

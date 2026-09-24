@@ -17934,7 +17934,8 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
 
     lir::LExprPtr cond = nullptr;
     if (node.has_key(la::COND)) {
-        cond = lower_expr(map_of(node.get(la::COND.code)));
+        // A terminating scope (Rust), as in the statement form.
+        cond = lower_expr_temp_scoped(map_of(node.get(la::COND.code)));
         if (TypeRef(expr_type(cond)).kind() != LogosType::Kind::Bool &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Never)  // G160-10
