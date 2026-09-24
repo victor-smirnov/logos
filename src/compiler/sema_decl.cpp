@@ -2748,6 +2748,44 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         push_type_params(impl_tps);
         impl_type_params_ = impl_tps;  // so lower_fn includes them in fn.type_params
     }
+    // E0207: an impl type parameter must appear in the self type or the trait
+    // reference (a where-clause projection can also constrain it — such impls
+    // are left alone). `impl<U> Tr for S` names a `U` nothing can ever fix.
+    auto has_where_preds = [&]() {
+        if (!node.has_key(la::WHERE)) return false;
+        AnyVal wav = node.get(la::WHERE.code);
+        if (wav.is_null() || !wav.is_pointer()) return false;
+        const uint8_t* pv = wav.resolve();
+        if (!pv) return false;
+        if (logos::writ::TypeTag::read_before(pv).type_code() != logos::writ::type_hash::Array) return true;
+        return arr_of(wav).size() > 0;
+    };
+    if (!impl_tps.empty() && !has_where_preds() && node.has_key(la::TYPE)) {
+        std::set<std::string> seen;
+        std::function<void(AnyVal)> walk = [&](AnyVal av) {
+            if (av.is_null() || !av.is_pointer()) return;
+            const uint8_t* pv = av.resolve();
+            if (!pv) return;
+            uint64_t tc = logos::writ::TypeTag::read_before(pv).type_code();
+            if (tc == logos::writ::type_hash::WritString) { seen.insert(std::string(str_of(av))); return; }
+            if (tc == logos::writ::type_hash::TinyObjectMap) {
+                auto m = map_of(av);
+                uint64_t bm = m.bitmap();
+                for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key)
+                    if (bm & (1ULL << key)) walk(m.get(key));
+            } else if (tc == logos::writ::type_hash::Array) {
+                auto arr = arr_of(av);
+                for (uint64_t i = 0; i < arr.size(); ++i) walk(arr.get(i));
+            }
+        };
+        walk(node.get(la::TYPE.code));
+        if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) walk(node.get(la::TYPE_PARAMS.code));
+        node_line_ = get_line(node);
+        for (auto& tp : impl_tps)
+            if (!tp.name.empty() && !seen.count(tp.name))
+                error(std::format("the type parameter `{}` is not constrained by the impl trait, self type, "
+                                  "or predicates", tp.name));
+    }
     if (getenv("LOGOS_DBG_BSPEC")) {
         size_t nb = 0; for (auto& tp : impl_tps) nb += tp.bounds.size();
         fprintf(stderr, "[implE] trait=%s tps=%zu bounds=%zu\n",

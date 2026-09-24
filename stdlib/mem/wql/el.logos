@@ -16,6 +16,7 @@ package logos.std.wql.el;
 
 use logos.lang.str;
 use logos.mem.string;   // String — wql_upper/wql_lower/wql_f64_to_str results
+use logos.mem.collections.vec;   // ElTypes.tns
 use logos.lang.option;  // Option — checked_* return type (el_add/…/el_neg)
 use logos.lang.result;  // Result — the error-returning el_* arithmetic
 use logos.lang.cmp;     // i64 checked_add/sub/mul/div/rem/neg
@@ -1687,7 +1688,7 @@ pub struct ElTypes {
     // representative, so a `u64` column produced `i64` literals and an `i64` row
     // type. The class is a VIEW now (`ty_of` = `el_ty_of_name` of this), so there
     // is no second column to disagree with.
-    pub tns: [String; 256],   // OWNED — the table is WRITTEN from names it
+    pub tns: Vec<String>,     // OWNED — the table is WRITTEN from names it
                               // itself handed out (`set_ty_named(v, infer_ty_name(e, self))`),
                               // so a view here would make the table borrow itself.
     pub n:      i64,
@@ -1744,12 +1745,9 @@ pub fn EL_TY_CAP() -> i64 { return 256i64; }
 
 pub fn el_types_new() -> ElTypes {
     return ElTypes {
-        // `[expr; N]` over a non-Copy element. Rust requires `Copy` here; Logos
-        // RE-LOWERS the operand once per slot (sema_expr: "re-lower for each
-        // slot"), so the 256 slots are 256 separate values and nothing is
-        // shared. `String::new()` over `from_str("")` only to avoid 256
-        // one-byte allocations for a table that is usually sparse.
-        tns:    [String::new(); 256],
+        // Grown by `set_ty_named` in step with `n` (a `[String; 256]` repeat
+        // would need `String: Copy`, as in Rust).
+        tns:    vec_new::<String>(),
         names:  [""; 256],
         n:      0i64,
         udf_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -1805,7 +1803,7 @@ impl ElTypes {
         }
         if self.n >= EL_TY_CAP() { self.note_overflow("", name); return; }
         self.names[self.n] = name;
-        self.tns[self.n]   = String::from_str(ty_name);
+        self.tns.push(String::from_str(ty_name));
         self.n = self.n + 1i64;
     }
 

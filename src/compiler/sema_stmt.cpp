@@ -5744,12 +5744,38 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT || pc == la::PAT_CHAR ||
         pc == la::PAT_CHAR_RANGE || pc == la::PAT_BOOL || pc == la::PAT_RANGE)
         scrut_type = pat_scrut_scalar_core(scrut_type);
-    if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
+    // E0308: an ENUM VARIANT pattern over a scalar scrutinee. Checked on the built pattern, whose enum name is the
+    // resolved one (prelude `Some` / `None` / `Ok` / `Err` included).
+    auto check_variant_scrut = [&](const lir::Pattern& r) {
+        namespace ps = lir_schema::pat;
+        auto pr = pat_ref_of(r);
+        if (!pr || (pr.kind() != ps::Code::Variant && pr.kind() != ps::Code::VariantData)) return;
+        std::string_view en = pr.kind() == ps::Code::Variant ? lir_view::PatVariantView{pr}.enum_name()
+                                                             : lir_view::PatVariantDataView{pr}.enum_name();
+        TypeRef st = scrut_type;
+        while (st && (st.kind() == LogosType::Kind::Ref || st.kind() == LogosType::Kind::MutRef) && st.pointee())
+            st = st.pointee();
+        if (!st || en.empty()) return;
+        using K = LogosType::Kind;
+        auto k = st.kind();
+        const bool scalar = (is_integer_kind(k) && k != K::Enum) || k == K::F32 || k == K::F64 ||
+                            k == K::Bool || k == K::Char;
+        // (another ENUM is refused where the variant is resolved against it)
+        if (scalar)
+            error(std::format("mismatched types: this pattern matches enum `{}`, but the scrutinee has type `{}`",
+                              en, type_str(scrut_type)));
+    };
+    if (pc == la::PAT_VARIANT) {
+        auto r = build_pattern_variant(pnode, scrut_type);
+        check_variant_scrut(r);
+        return r;
+    }
     if (pc == la::PAT_VARIANT_DATA) {
         auto saved = variant_data_dbm_;
         variant_data_dbm_ = {dbm_ref, dbm_mut};
         auto r = build_pattern_variant_data(pnode, scrut_type);
         variant_data_dbm_ = saved;
+        check_variant_scrut(r);
         return r;
     }
     if (pc == la::PAT_FLOAT) {

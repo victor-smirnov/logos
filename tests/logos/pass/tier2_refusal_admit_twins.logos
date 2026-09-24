@@ -1,0 +1,26 @@
+// The legal neighbours of four refusals: `[K; 3]` over a const item and `[x; 1]` over a Drop value (E0277 is for N >= 2 and a non-const operand), `*` through a reference, a variant pattern through `&Option` (E0308 is for a scalar scrutinee), and generic impls whose parameters the self type or trait constrains (E0207).
+package tier2_refusal_admit_twins;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct K0 { v: i64 }
+const K: K0 = K0 { v: 5i64 };
+struct W<T> { t: T }
+trait Tr<A> { fn f(&self) -> i64; }
+impl<T> W<T> { fn g(&self) -> i64 { return 1i64; } }
+impl<T> Tr<T> for W<T> { fn f(&self) -> i64 { return 2i64; } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let ks: [K0; 3] = [K; 3];
+    { let one: [D; 1] = [D { v: 7i64, c: p }; 1]; if one[0].v != 7i64 { return 1i32; } }
+    let x: i64 = 4i64;
+    let r: &i64 = &x;
+    let rr: &&i64 = &r;
+    let o: Option<i64> = Option::Some(6i64);
+    let got: i64 = match &o { Some(v) => *v, None => 0i64 };
+    let w: W<i64> = W { t: 0i64 };
+    let tr: i64 = w.f() + w.g();
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), ks[2].v, n, **rr, got, tr); }
+    return 0i32;
+}

@@ -1,3 +1,4 @@
+// Refused as rustc 1.98.1 refuses it (squeue row of the same name).
 package enum_variant_pattern_on_integer_scrutinee_admits;
 fn main() -> i32 {
     let x: i64 = 7i64;
@@ -14,4 +15,3 @@ fn main() -> i32 {
 // compiler instead dies in mlir_gen ("initializer produced no value", COMPILE FAILED, no error
 // line). Found 2026-09-14b-ptrcoerceland (hand programs V06, Z01, Z03, Z05, Z07), reproducing on
 // base 6d1bbee8344b2a81.
-// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0308]: mismatched types / error[E0308]: mismatched types. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/enum_variant_pattern_on_integer_scrutinee_admits.rs.

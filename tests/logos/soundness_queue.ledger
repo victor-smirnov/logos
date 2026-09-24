@@ -22,36 +22,6 @@ match_array_elem_array_binder_shape_lost_run 3 tests/soundness/open/match_array_
 
 foreach_array_field_gep_verifier_refused 3 tests/soundness/open/foreach_array_field_gep_verifier_refused refuses
 
-# (delete the row, decrement `# TOTAL`, land the program as a pass/fail fixture,
-# all in the same commit) or was never real. Before this file existed the queue
-# lived in prose and failed twice in four days: one defect was recorded under an
-# innocent program, and a "five owner fixtures wall this" verdict was carried six
-# rounds after four of the five had been repaired.
-#
-# ⚠ THE RECORDED BEHAVIOUR IS A MEASUREMENT WITH A DATE. It was read on the
-# binary of 2026-09-04 (HEAD ac27d1a99): compiled, linked, RUN, exit code and
-# stdout read, valgrind where a heap error was possible. A row's wrong behaviour
-# was never copied from a description — three of the five 2026-09-04 tier-1
-# candidates and the "type with both drops runs the inherent one" candidate did
-# not survive re-running and are not here.
-#
-# Format:  <id> <tier> <path relative to the repo root, no .logos> <observed...>
-#
-# `observed` is the WRONG behaviour today, machine-checkable, one of:
-#   admits          compiles with no diagnostic; rustc refuses the program
-#   refuses         does not compile clean (a diagnostic, or the compiler died);
-#                   the program is legal Rust
-#   run <rc>        compiles clean, links, and the binary exits <rc> (wrong)
-#   diag <text...>  refused, and stderr contains <text> — the program is
-#                   illegal, the SENTENCE is the defect
-# The reader compiles the way the pass tier does (LOGOS_VERIFY_LAYOUT=1), so a
-# compiler crash the fixture corpus would meet is a `refuses` here.
-#
-# `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
-#          3 legal Rust refused                        4 diagnostics and hygiene
-#
-e0207_unconstrained_impl_type_param 2 tests/soundness/open/e0207_unconstrained_impl_type_param admits
-
 array_typed_field_binding_shape_lost 3 tests/soundness/open/array_typed_field_binding_shape_lost refuses
 
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
@@ -145,8 +115,6 @@ inherent_clash_bound_dispatch_refused 3 tests/soundness/open/inherent_clash_boun
 
 fnparam_tuple_with_unit_elem_segv 3 tests/soundness/open/fnparam_tuple_with_unit_elem_segv refuses
 
-deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_admitted admits
-
 overload_set_arg_mismatch_says_no_method 4 tests/soundness/open/overload_set_arg_mismatch_says_no_method diag 'C' has no method 'put'
 
 stdlib_drop_uninhabited_enum_byvalue_consumer 3 tests/soundness/open/stdlib_drop_uninhabited_enum_byvalue_consumer refuses
@@ -190,8 +158,6 @@ vec_index_store_through_mutref_param_refused 3 tests/soundness/open/vec_index_st
 static_ref_nested_borrow_region_not_static_refused 3 tests/soundness/open/static_ref_nested_borrow_region_not_static_refused refuses
 
 struct_lit_field_vec_new_infer_refused 3 tests/soundness/open/struct_lit_field_vec_new_infer_refused refuses
-
-enum_variant_pattern_on_integer_scrutinee_admits 2 tests/soundness/open/enum_variant_pattern_on_integer_scrutinee_admits admits
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
@@ -249,8 +215,6 @@ operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_
 
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 
-array_repeat_rvalue_noncopy_len3_admits 2 tests/soundness/open/array_repeat_rvalue_noncopy_len3_admits admits
-
 ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_extended_field_borrow_refused refuses
 
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
@@ -288,6 +252,37 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
 
 arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_partial_generic_enum_elems_internal refuses
+
+deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_admitted admits
+
+# (delete the row, decrement `# TOTAL`, land the program as a pass/fail fixture,
+# all in the same commit) or was never real. Before this file existed the queue
+# lived in prose and failed twice in four days: one defect was recorded under an
+# innocent program, and a "five owner fixtures wall this" verdict was carried six
+# rounds after four of the five had been repaired.
+#
+# ⚠ THE RECORDED BEHAVIOUR IS A MEASUREMENT WITH A DATE. It was read on the
+# binary of 2026-09-04 (HEAD ac27d1a99): compiled, linked, RUN, exit code and
+# stdout read, valgrind where a heap error was possible. A row's wrong behaviour
+# was never copied from a description — three of the five 2026-09-04 tier-1
+# candidates and the "type with both drops runs the inherent one" candidate did
+# not survive re-running and are not here.
+#
+# Format:  <id> <tier> <path relative to the repo root, no .logos> <observed...>
+#
+# `observed` is the WRONG behaviour today, machine-checkable, one of:
+#   admits          compiles with no diagnostic; rustc refuses the program
+#   refuses         does not compile clean (a diagnostic, or the compiler died);
+#                   the program is legal Rust
+#   run <rc>        compiles clean, links, and the binary exits <rc> (wrong)
+#   diag <text...>  refused, and stderr contains <text> — the program is
+#                   illegal, the SENTENCE is the defect
+# The reader compiles the way the pass tier does (LOGOS_VERIFY_LAYOUT=1), so a
+# compiler crash the fixture corpus would meet is a `refuses` here.
+#
+# `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
+#          3 legal Rust refused                        4 diagnostics and hygiene
+#
 
 # 2026-09-14n-autoreftemp: seven spill sites of one class (an rvalue auto-borrowed with no owner) + an order guard + two unrelated defects its battery caught
 # 2026-09-14o-autoreffund: the autoref landing's neighbours rowed with a named reason, and out-of-class defects its battery caught
@@ -403,5 +398,5 @@ arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_par
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 116
-# SYNC-HASH 58e6ea30ad443590bc7890a0228442f8
+# TOTAL 113
+# SYNC-HASH 36fc57bb424782d6cf515b92cf28ae49

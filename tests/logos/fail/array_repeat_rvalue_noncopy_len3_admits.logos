@@ -1,0 +1,16 @@
+// Refused as rustc 1.98.1 refuses it (squeue row of the same name).
+package array_repeat_rvalue_noncopy_len3_admits;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let arr: [D; 3] = [D { v: 1i64, c: p }; 3];
+        if arr[2].v != 1i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    return 0i32;
+}

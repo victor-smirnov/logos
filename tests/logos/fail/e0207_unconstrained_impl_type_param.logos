@@ -1,0 +1,14 @@
+// Refused as rustc 1.98.1 refuses it (squeue row of the same name).
+package e0207_unconstrained_impl_type_param;
+struct S { n: i64 }
+trait Tr { type Item; fn go(self: Self) -> i64; }
+impl<U> Tr for S {
+    type Item = U;
+    fn go(self: Self) -> i64 { return 5i64; }
+}
+// `main` does NOT call `go`: the unconstrained `U` makes the method generic in a
+// parameter no receiver can determine, and a call is refused as "could not infer
+// type arguments" — a SECOND defect downstream of this one, which would hide the
+// admission behind an unrelated refusal. The claim here is that the IMPL is
+// accepted at all.
+fn main() -> i32 { return 0i32; }

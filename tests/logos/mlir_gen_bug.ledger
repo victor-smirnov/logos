@@ -39,29 +39,8 @@
 #   find_struct_it / find_struct_def_it (mlir_gen_impl.hpp pat_struct_ty), so
 #   the concrete instance resolves. The program is held to the R2 rule with the
 #   rest of the corpus.
-# intrinsic_2
-#   `unsupported cast: no lowering from 'i32' to '!llvm.array<0 x Type>'` at
-#   line 95: `if args_of::<Plain>() != [] as [Type; 0] { return 28; }`. An EMPTY
-#   ARRAY LITERAL has no element type — sema says so out loud one line earlier
-#   ("warning: empty array literal: element type unknown") and lowers it as a
-#   placeholder i32, which no cast can turn into a zero-length aggregate. So the
-#   comparison lowered to nothing and the `@rule intrinsic.reflect.args-of`
-#   assertion "non-generic => empty" HAS NEVER BEEN EVALUATED, on any compiler,
-#   since it was written. An EMPTY-ARRAY-LITERAL TYPING arc (the element type
-#   must come from the cast/annotation before mlir-gen, not from a cast after
-#   it), not a cast-lowering one — teaching `coerce_to` to answer here would be
-#   inventing a value for an expression sema declined to type.
-#
-#   ⚠ THIS ROW IS NOT A REGRESSION AND NOT A NEW DEFECT. It is the R2 channel
-#   finally SEEING a miscompile that has always been there: the raw `fprintf` at
-#   the unsupported-cast site never reached the exit code, so the program
-#   compiled, ran, and passed with the assertion silently absent. Routing that
-#   site through `bug_null` is what made it visible, exactly as turning the rule
-#   on originally made seven others visible. The generated object is byte-for-
-#   byte what it was — this row restores the STATUS QUO of the artifact while
-#   putting the defect under re-measurement.
-#
 # ── CLOSED SINCE, rows DELETED (each now compiles clean and RUNS correctly) ──
+# intrinsic_2 — ROW DELETED 2026-09-24. `[] as [Type; 0]`: the empty array literal now takes its element type from the cast target (lower_cast hints the literal, and the identity cast is dropped), so the `@rule intrinsic.reflect.args-of` assertion is evaluated for the first time.
 # empty-struct-braces-b151  — `E::Empty4 {}` is a BRACE-EMPTY variant: no
 #   payload, so the enum is plain C-style and has no tagged representation to
 #   resolve. The syntax said "data variant"; the payload is the fact.
@@ -77,4 +56,3 @@
 issue-41888-b170                     1 tests/imported/pass/match/issue-41888-b170
 nested-tuple-in-variant-payload-b170 1 tests/imported/pass/match/nested-tuple-in-variant-payload-b170
 res-and-or-comb-or                   4 tests/imported/pass/option-result/res-and-or-comb-or
-intrinsic_2                          1 tests/spec/pass/intrinsic_2

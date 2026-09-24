@@ -708,7 +708,7 @@ fn pk_pack_leaves<P: NodeProfile>(m: &PkMerged, donor: *mut u8, snp: u64,
     let kd: PdtDescr = pk_slot(&da, 0u32).descr();
     let vd: PdtDescr = pk_slot(&da, 1u32).descr();
     let total: u64 = pk_merged_len(m);
-    let budget: u32 = (*da).block_size() * 9u32 / 10u32;
+    let budget: u32 = da.block_size() * 9u32 / 10u32;
     let mut done: u64 = 0u64;
     while done < total {
         let cap: u64 = pk_leaf_rows_cap::<P>(m, done, total - done, &kd, &vd, budget);
@@ -1152,7 +1152,7 @@ fn pk_leaves_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     let mut ws: Vec<u32> = vec_new::<u32>();
     ws.push(kw);
     ws.push(vw);
-    return pack_node_weight(&ws) <= (*la).block_size();
+    return pack_node_weight(&ws) <= la.block_size();
 }
 
 // Append every row of leaf `src` (read-only — may be shared) to leaf `dst`
@@ -1236,7 +1236,7 @@ fn pk_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     ws.push(w);
     ws.push(w);
     ws.push(w);
-    return pack_node_weight(&ws) <= (*la).block_size();
+    return pack_node_weight(&ws) <= la.block_size();
 }
 
 // Append every (sep, cnt, child) row of branch `src` to branch `dst`

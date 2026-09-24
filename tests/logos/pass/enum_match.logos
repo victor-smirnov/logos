@@ -7,11 +7,13 @@ enum Color { Red = 1, Green = 2, Blue = 3 }
 
 fn color_code(c: i32) -> i32 {
     let mut result: i32 = 0;
+    // An integer is compared with a discriminant through `as` (rustc refuses an
+    // enum-variant pattern over an integer scrutinee, E0308).
     match c {
-        Color::Red   => { result = 1; }
-        Color::Green => { result = 2; }
-        Color::Blue  => { result = 3; }
-        _            => { result = 0; }
+        x if x == Color::Red as i32   => { result = 1; }
+        x if x == Color::Green as i32 => { result = 2; }
+        x if x == Color::Blue as i32  => { result = 3; }
+        _                             => { result = 0; }
     }
     return result;
 }

@@ -2684,7 +2684,7 @@ fn bf_leaves_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
         // pricing without them under-counts the layout table (pack_node_weight).
         let mut total: u32 = PkdAlloc::empty_size_for(3u32 + META_SLOTS);
         total = total + round_up_bytes(kw) + round_up_bytes(vw) + round_up_bytes(sw);
-        if total > (*la).block_size() {
+        if total > la.block_size() {
             return false;
         }
         // stash nothing: the absorb below recomputes the same list
@@ -2783,7 +2783,7 @@ fn bf_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
         let cw: u32 = pdtbuf_compute_block_size(&cd, n, &pdt_payload_zero(&cd));
         let mut total: u32 = PkdAlloc::empty_size_for(BR_SLOTS + META_SLOTS);  // + the metadata slots
         total = total + round_up_bytes(pw) + round_up_bytes(cw);
-        return total <= (*la).block_size();
+        return total <= la.block_size();
     }
 }
 

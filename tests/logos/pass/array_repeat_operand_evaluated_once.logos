@@ -1,0 +1,10 @@
+// `[f(); 3]` evaluates `f()` once and copies the value into every slot (rustc 1.98.1: 1 1 1 1).
+package array_repeat_operand_evaluated_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn f(c: *mut i64) -> i64 { unsafe { *c = *c + 1i64; return *c; } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64; let p: *mut i64 = &mut n;
+    let a: [i64; 3] = [f(p); 3];
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), a[0], a[1], a[2], *p); }
+    return 0i32;
+}

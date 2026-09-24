@@ -4154,13 +4154,14 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
         TypeRef(vt).kind() != LogosType::Kind::MutRef) {
-        // B3-bg-07: `for i in &v` (where v: &Vec<T>) yields T directly in
-        // Logos, not &T as in Rust. Faithful imports of Rust loops often
-        // spell the read as `*i`, which would otherwise reject as
-        // "dereference of non-pointer type". Treat `*x` over a non-pointer
-        // value as identity so the import compiles — the read returns the
-        // same value `x`. Type-soundness is preserved (pointers stay
-        // typed; this only relaxes the diagnostic on already-loaded values).
+        // E0614 IS NOT ENFORCED YET, and `*x` over a non-pointer value reads as
+        // the identity. The for-each over `&v` binds `&T` now, but several
+        // BINDING MODES still type a Rust `&T` binding as `T`: a slice pattern
+        // over `&[T]`, a `ref x @ pat` binding, a tuple destructured by a
+        // for-each over `&Vec<(A, B)>` — measured 2026-09-24 (full run 419:
+        // 17 legal programs refused when this was an error). Doors in series:
+        // those bindings must carry their reference first (squeue
+        // deref_of_non_reference_admitted, reason 2).
         return operand;
     }
     // Raw pointer deref requires unsafe context
@@ -14792,6 +14793,34 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
         return builder().arr_lit(std::move(one), arr_t);
     }
     int64_t n = static_cast<int64_t>(len.value);
+    // `[f(); 3]` EVALUATES `f()` ONCE and copies the value into every slot
+    // (Rust; the per-slot re-lowering below called it three times — measured
+    // `1 2 3` for `1 1 1`). A copyable operand that is not a plain literal or
+    // path is bound once in a block and read per slot; literals and paths keep
+    // the re-lowering (an unresolved IntLit element is widened later from it).
+    {
+        auto oc = code_of(val_node);
+        const bool plain = oc == la::LIT_INT || oc == la::LIT_FLOAT || oc == la::LIT_BOOL ||
+                           oc == la::LIT_CHAR || oc == la::LIT_STR || oc == la::VAR_REF ||
+                           oc == la::ENUM_LIT;
+        auto ek = elem_type ? TypeRef(elem_type).kind() : LogosType::Kind::Error;
+        if (n >= 2 && !plain && elem_type && !is_move_type(elem_type) &&
+            ek != LogosType::Kind::IntLit && ek != LogosType::Kind::FloatLit &&
+            ek != LogosType::Kind::Error) {
+            std::string tn = std::format("__rep_{}", tmp_var_count_++);
+            define(tn, elem_type, false);
+            lir::SLet sl;
+            sl.name = tn; sl.type = elem_type; sl.is_mut = false;
+            sl.value = std::move(fill_val);
+            std::vector<lir_view::StmtRef> blk;
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            std::vector<lir::LExprPtr> reads;
+            for (int64_t i = 0; i < n; ++i) reads.push_back(builder().var_ref(tn, elem_type));
+            TypeRef arr_t = make_array(elem_type, (size_t)n);
+            return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                        builder().arr_lit(std::move(reads), arr_t), arr_t);
+        }
+    }
     // Keep IntLit unresolved so that struct-literal type inference (hint_struct_type_)
     // can widen the element to the correct concrete type (e.g. i64 for Vec<i64>).
     std::vector<lir::LExprPtr> elems;
@@ -14810,6 +14839,29 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     // not held. Row array_repeat_len2_noncopy_says_use_of_moved, which stays
     // OPEN: rustc's sentence is E0277 "the trait bound `D: Copy` is not
     // satisfied", and this restores the refusal, not yet the wording.
+    // E0277: above one slot the operand is COPIED, so it must be `Copy` — or a
+    // path to a `const` item, which is re-evaluated per slot (rustc 1.98.1:
+    // `[D { v: 1 }; 2]` refused, `[K; 3]` with `const K: D` admitted, lengths 0
+    // and 1 admitted).
+    if (n >= 2 && elem_type && is_move_type(elem_type) &&
+        TypeRef(elem_type).kind() != LogosType::Kind::Error) {
+        bool const_path = false;
+        if (code_of(val_node) == la::VAR_REF && val_node.has_key(la::NAME))
+        {
+            std::string_view vn = str_of(val_node.get(la::NAME.code));
+            bool local = false;
+            for (auto it = scope_.rbegin(); it != scope_.rend() && !local; ++it)
+                local = it->vars.count(std::string(vn)) != 0;
+            if (!local) {
+                std::string ck = resolve_const_key(vn);
+                const_path = !ck.empty() && module_consts_.count(ck);
+            }
+        }
+        if (!const_path)
+            error(std::format("the trait bound `{}: Copy` is not satisfied: a repeat expression `[x; {}]` "
+                              "copies its operand (use a `const` item, or build the array element by element)",
+                              type_str(elem_type), n));
+    }
     if (n >= 1 && elem_type && is_move_type(elem_type))
         for (auto& el : elems) mark_moved_expr(expr_ref_of(el));
     return builder().arr_lit(std::move(elems), make_array(elem_type, (size_t)n));
