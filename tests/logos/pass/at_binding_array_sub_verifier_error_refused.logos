@@ -1,0 +1,22 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package at_binding_array_sub_verifier_error_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
+fn g(p: *mut i64) -> i64 {
+    let arr: [D; 1] = [D { v: 2i64, c: p }];
+    match arr {
+        y @ [_] => { return 7i64; }
+    }
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let k: i64 = g(p);
+    let got: i64 = rd(p);
+    unsafe { printf("k=%ld n=%ld\n".as_ptr(), k, got); }
+    if k != 7i64 { return 2i32; }
+    if got != 2i64 { return 1i32; }
+    return 0i32;
+}

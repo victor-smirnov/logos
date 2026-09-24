@@ -3392,6 +3392,14 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
 
     auto arr_alloca = gen_expr(s.iter);
     if (!arr_alloca) return;
+    // An array VALUE (`for x in s.arr` — a field read loads the aggregate):
+    // the loop walks storage, so spill it; iterating an array by value is a
+    // copy of it in Rust too.
+    if (!s.is_slice && arr_alloca.getType() != ptr_type()) {
+        auto spill = create_entry_alloca(arr_alloca.getType());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, arr_alloca, spill);
+        arr_alloca = spill;
+    }
 
     // gap C: element var + body are their own lexical scope; restored at each
     // path's exit. Eviction at the bind site clears any outer same-named shape.
@@ -4917,12 +4925,19 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // own storage, exactly as pat_test's Slice case reaches them. Only a
         // by-value array: under a reference the element binders are references
         // and take a different convention (sema defines no names for that shape).
-        if (!ty || TypeRef(ty).kind() != LogosType::Kind::Array || !TypeRef(ty).elem()) break;
+        // Under a REFERENCE (`match &arr { [x, _] => … }`) `slot_ptr` is the
+        // array's address and the element binders are sema's RefBind subs —
+        // they bind the element ADDRESS; pat_test walks the same way.
+        TypeRef aty = ty;
+        if (aty && (TypeRef(aty).kind() == LogosType::Kind::Ref ||
+                    TypeRef(aty).kind() == LogosType::Kind::MutRef) && TypeRef(aty).pointee())
+            aty = TypeRef(aty).pointee();
+        if (!aty || TypeRef(aty).kind() != LogosType::Kind::Array || !TypeRef(aty).elem()) break;
         lir_view::PatSliceView sv{pat};
-        auto arr_mlir = logos_to_mlir(ty);
+        auto arr_mlir = logos_to_mlir(aty);
         if (!arr_mlir) break;
-        TypeRef elem_t = TypeRef(ty).elem();
-        const size_t total = (size_t)TypeRef(ty).arr_size();
+        TypeRef elem_t = TypeRef(aty).elem();
+        const size_t total = (size_t)TypeRef(aty).arr_size();
         auto at_idx = [&](lir_view::PatRef sp, int32_t idx) {
             if (!sp || sp.kind() == pc::Code::Wild && lir_view::PatWildView{sp}.name().empty()) return;
             llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
@@ -5916,6 +5931,23 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         builder_.setInsertionPointToStart(test_block);
                         auto both = emit_range_test(sc_scrut, sc_scrut_ty, pr.lo(), pr.hi());
                         builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
+                    }
+                    else_block = test_block;
+                } else if (sub.kind() != pc::Code::Int && sub.kind() != pc::Code::Bool &&
+                           sub.kind() != pc::Code::Variant) {
+                    // A STRUCTURED sub-pattern (`y @ [_]`, `t @ (1, _)`, `s @ S { .. }`):
+                    // the general test on the scrutinee's PLACE, as the or-alternative
+                    // path above does — the scalar compare below read the pointer.
+                    auto* test_block = new mlir::Block();
+                    region->push_back(test_block);
+                    {
+                        mlir::OpBuilder::InsertionGuard ig(builder_);
+                        builder_.setInsertionPointToStart(test_block);
+                        mlir::Value sp = scrut_ptr ? scrut_ptr
+                                       : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
+                        if (!scrut_ptr && !collapsed_scrut) sp = aggregate_scrut_base(v.scrut(), sp);
+                        auto cond = pat_test(sub, sp, scrut_ty);
+                        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
                     }
                     else_block = test_block;
                 } else {

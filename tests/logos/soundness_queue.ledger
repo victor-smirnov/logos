@@ -16,8 +16,6 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
-foreach_array_field_gep_verifier_refused 3 tests/soundness/open/foreach_array_field_gep_verifier_refused refuses
-
 let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
 
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
@@ -27,8 +25,6 @@ rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable
 boxref_sized_struct_deref_coercion_missing 3 tests/soundness/open/boxref_sized_struct_deref_coercion_missing refuses
 
 boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_wrong_error_code diag the trait bound `Box<dyn Sp>: Sp` is not satisfied
-
-match_ref_array_nested_struct_sub_refused 3 tests/soundness/open/match_ref_array_nested_struct_sub_refused refuses
 
 let_array_pattern_nested_subpattern_refused 3 tests/soundness/open/let_array_pattern_nested_subpattern_refused refuses
 
@@ -197,8 +193,6 @@ struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open
 ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_extended_field_borrow_refused refuses
 
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
-
-at_binding_array_sub_verifier_error_refused 3 tests/soundness/open/at_binding_array_sub_verifier_error_refused refuses
 
 variant_tuple_door_struct_shape_sub_unresolved 3 tests/soundness/open/variant_tuple_door_struct_shape_sub_unresolved refuses
 
@@ -377,5 +371,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 102
-# SYNC-HASH 3d2f2fc0c857a41d8feadd1f138f523f
+# TOTAL 99
+# SYNC-HASH 43adc897826278d196cf02b02e5468f0

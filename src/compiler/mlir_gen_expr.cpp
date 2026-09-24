@@ -4826,6 +4826,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             // this the bindings were never created and the arm read garbage.
             // Mirrors the match-statement extract_payload Slice case.
             TypeRef atype(scrut_ty);
+            // Over a REFERENCE to an array the scrutinee value is the array's
+            // address: pat_bind's Slice case walks it (sema's RefBind subs bind
+            // the element addresses).
+            if (atype && (atype.kind() == LogosType::Kind::Ref || atype.kind() == LogosType::Kind::MutRef) &&
+                atype.pointee() && TypeRef(atype.pointee()).kind() == LogosType::Kind::Array) {
+                std::vector<std::pair<std::string, TypeRef>> binds;
+                collect_pat_bindings(pat_ref, scrut_ty, binds);
+                for (auto& b : binds) added.push_back(b.first);
+                pat_bind(pat_ref, scrut, scrut_ty);
+            } else
             if (atype && atype.kind() == LogosType::Kind::Array && atype.elem()) {
                 auto elem_mlir = logos_to_mlir(atype.elem());
                 auto arr_mlir  = logos_to_mlir(atype);
@@ -5484,6 +5494,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 sv.each_prefix([&](lir_view::PatRef sp){ chk_at(sp, idx++); });
                 int32_t sidx = (int32_t)(total - suf_n);
                 sv.each_suffix([&](lir_view::PatRef sp){ chk_at(sp, sidx++); });
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
+        } else if (arm_pat_ref.kind() == pc::Code::Slice && scrut_ty &&
+                   (TypeRef(scrut_ty).kind() == LogosType::Kind::Ref ||
+                    TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef) &&
+                   TypeRef(scrut_ty).pointee() &&
+                   TypeRef(TypeRef(scrut_ty).pointee()).kind() == LogosType::Kind::Array) {
+            // An array pattern over a REFERENCE to an array (`match &arr {
+            // [W { a: x, .. }] => … }`): the scrutinee value is the array's
+            // address — the general structural test (pat_test peels the `&`).
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                auto cond = pat_test(arm_pat_ref, scrut, scrut_ty);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;

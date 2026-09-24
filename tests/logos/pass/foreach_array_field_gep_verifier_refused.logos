@@ -1,0 +1,14 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package foreach_array_field_gep_verifier_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { arr: [i64; 3], tag: i64 }
+fn main() -> i32 {
+    let s: S = S { arr: [1i64, 2i64, 3i64], tag: 7i64 };
+    let mut acc: i64 = 0i64;
+    for x in s.arr {
+        acc = acc + x;
+    }
+    unsafe { printf("got=%ld\n".as_ptr(), acc); }
+    if acc != 6i64 { return 1i32; }
+    return 0i32;
+}

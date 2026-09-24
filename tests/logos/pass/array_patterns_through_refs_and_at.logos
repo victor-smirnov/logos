@@ -1,0 +1,23 @@
+// Array patterns through `&` / `&mut` (struct and scalar elements, both match forms) and `@` over structured sub-patterns (rustc 1.98.1).
+package array_patterns_through_refs_and_at;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct W { a: i64, b: i64 }
+fn main() -> i32 {
+    let arr: [W; 2] = [W { a: 1i64, b: 2i64 }, W { a: 3i64, b: 4i64 }];
+    let r1: i64 = match &arr { [W { a: x, b: _ }, _] => *x };
+    let mut r2: i64 = 0i64;
+    match &arr { [_, W { a: _, b: y }] => { r2 = *y; } }
+    let ints: [i64; 3] = [5i64, 6i64, 7i64];
+    let r3: i64 = match &ints { [x, _, z] => *x + *z };
+    let mut m: [W; 2] = [W { a: 1i64, b: 2i64 }, W { a: 3i64, b: 4i64 }];
+    match &mut m { [W { a: x, b: _ }, _] => { *x = 50i64; } }
+    let r4: i64 = m[0].a;
+    let r5: i64 = match ints { y @ [_, _, _] => y[1] };
+    let mut r6: i64 = 0i64;
+    let t: (i64, i64) = (1i64, 9i64);
+    match t { u @ (1, _) => { r6 = u.1; } _ => {} }
+    let mut r7: i64 = 0i64;
+    match arr { v @ [_, _] => { r7 = v[1].b; } }
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, r2, r3, r4, r5, r6, r7); }
+    return 0i32;
+}
