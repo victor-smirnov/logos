@@ -3353,9 +3353,10 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         int64_t            arr_size;
         bool               is_slice;
         lir_view::BlockRef body;
+        std::string        label;
     };
     ForEachCtx s{std::string(v.var()), v.iter(), v.elem_type(pool_impl()),
-                 v.arr_size(), v.is_slice(), v.body()};
+                 v.arr_size(), v.is_slice(), v.body(), std::string(v.label())};
     // Evaluate the iter (array/slice) expression.
     mlir::Type elem_mlir = logos_to_mlir(s.elem_type);
     if (!elem_mlir) return;
@@ -3464,7 +3465,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         var_subscript_[s.var]  = elem_mlir;
         ref_param_names_.insert(s.var);
 
-        loop_stack_.push_back({incr_block, exit_block, {}, {}});
+        loop_stack_.push_back({incr_block, exit_block, {}, s.label});
         gen_block(s.body);
         loop_stack_.pop_back();
 
@@ -3593,7 +3594,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         };
     }
     shadow_register_slot(v.var_slot(), s.var);
-    loop_stack_.push_back({incr_block, exit_block, {}, {}, emit_tail_drop});
+    loop_stack_.push_back({incr_block, exit_block, {}, s.label, emit_tail_drop});
     gen_block(s.body);
     loop_stack_.pop_back();
 

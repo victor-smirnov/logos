@@ -8096,6 +8096,10 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
 }
 
 lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
+    // `'l: for x in v` — the label LOWER_STMT's LABELED_LOOP left for this loop
+    // (it was dropped here, so `break 'l` was "label not in scope").
+    std::string my_label = std::move(pending_loop_label_);
+    pending_loop_label_.clear();
     // logos-core 2.7: for-each may not run at all; restore tracker on exit.
     struct ForEachUninitGuard {
         std::set<std::string>& slot;
@@ -8200,11 +8204,13 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         std::vector<lir_view::StmtRef> body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
-            loop_break_frames_.push_back({"", nullptr, false});
+            if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+            loop_break_frames_.push_back({my_label, nullptr, false});
             pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             pending_loop_body_init_ = bind_loop_var;
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
             loop_break_frames_.pop_back();
+            if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
         } else {
             bind_loop_var();
@@ -8213,6 +8219,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         pop_scope();
 
         lir::SForEach sfe;
+        sfe.label = my_label;
         sfe.var       = std::string(var_name);
         sfe.iter      = std::move(iter);
         sfe.elem_type = elem_type;
@@ -8238,15 +8245,18 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         std::vector<lir_view::StmtRef> body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
-            loop_break_frames_.push_back({"", nullptr, false});
+            if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+            loop_break_frames_.push_back({my_label, nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
             loop_break_frames_.pop_back();
+            if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
         }
         prepend_for_pat(body, pat_pro);
         pop_scope();
         lir::SForEach sfe;
+        sfe.label = my_label;
         sfe.var       = std::string(var_name);
         sfe.iter      = std::move(iter);
         sfe.elem_type = elem_type;
@@ -8317,15 +8327,18 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             std::vector<lir_view::StmtRef> body;
             if (node.has_key(la::BODY)) {
                 ++loop_depth_;
-                loop_break_frames_.push_back({"", nullptr, false});
+                if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+            loop_break_frames_.push_back({my_label, nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
                 lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
                 loop_break_frames_.pop_back();
+            if (!my_label.empty()) active_loop_labels_.pop_back();
                 --loop_depth_;
             }
             prepend_for_pat(body, pat_pro);
             pop_scope();
             lir::SForEach sfe;
+        sfe.label = my_label;
             sfe.var       = std::string(var_name);
             sfe.iter      = std::move(slice_call);
             sfe.elem_type = elem_t;
@@ -8641,9 +8654,11 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         std::vector<lir_view::StmtRef> then_body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
-            loop_break_frames_.push_back({"", nullptr, false});
+            if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+            loop_break_frames_.push_back({my_label, nullptr, false});
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
             loop_break_frames_.pop_back();
+            if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
         }
         prepend_for_pat(then_body, pat_pro);
@@ -8669,7 +8684,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
 
         std::vector<lir_view::StmtRef> loop_body;
         loop_body.push_back(make_stmt_emit(node_line_, std::move(sm)));
-        lir::SLoop sl; sl.body = lir_mirror_block(*cur_prog_, loop_body);
+        lir::SLoop sl; sl.body = lir_mirror_block(*cur_prog_, loop_body); sl.label = my_label;
         outer_block.push_back(make_stmt_emit(node_line_, std::move(sl)));
         for (auto& d : iter_drops) outer_block.push_back(std::move(d));
 

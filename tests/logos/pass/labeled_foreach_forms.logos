@@ -1,0 +1,20 @@
+// Labeled for-each over an array, a slice, a Vec iterator (the desugared loop), `continue` to the label, and an inner loop leaving the outer labeled for-each (rustc 1.98.1: 3 8 11 6).
+package labeled_foreach_forms;
+use logos.mem.collections.vec;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let v: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let mut a: i64 = 0i64;
+    'l: for x in v { if x == 3i64 { break 'l; } a = a + x; }
+    let mut b: i64 = 0i64;
+    'm: for x in &v { if *x == 2i64 { continue 'm; } b = b + *x; }
+    let w: Vec<i64> = vec![5i64, 6i64, 7i64];
+    let mut c: i64 = 0i64;
+    'n: for x in w.iter() { if *x == 7i64 { break 'n; } c = c + *x; }
+    let mut d: i64 = 0i64;
+    'outer: for x in v {
+        for y in v { if y > x { continue 'outer; } if x == 4i64 { break 'outer; } d = d + 1i64; }
+    }
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), a, b, c, d); }
+    return 0i32;
+}

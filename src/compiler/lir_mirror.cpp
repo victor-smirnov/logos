@@ -959,11 +959,14 @@ public:
                                                  bool is_slice,
                                                  lir_view::BlockRef body,
                                                  uint32_t slot = 0xFFFFFFFFu,
-                                                 bool var_mut = false) {
+                                                 bool var_mut = false,
+                                                 std::string_view label = {}) {
         auto var_av  = put_string(var);
         auto iter_av = expr_av(iter);
         auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
-        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::ForEach), 9);  // + sk::IS_MUT
+        writ::AnyVal label_av;
+        if (!label.empty()) label_av = put_string(label);
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::ForEach), 10);  // + sk::IS_MUT, sk::LABEL
         put(map_off, sk::VAR,       var_av);
         put(map_off, sk::ITER,      iter_av);
         put(map_off, sk::ELEM_TYPE, type_av(elem_type));
@@ -972,6 +975,7 @@ public:
         put(map_off, sk::BODY,      body_av);
         if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
         if (var_mut) put(map_off, sk::IS_MUT, put_bool(true));  // sparse: `for mut x`
+        if (!label.empty()) put(map_off, sk::LABEL, label_av);  // sparse: `'l: for x in v`
         put_line(map_off, line);
         return map_off;
     }
@@ -2385,10 +2389,10 @@ const uint8_t* lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t line, li
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_match_stmt_direct(line, scrut, arms);
 }
-const uint8_t* lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot, bool var_mut) {
+const uint8_t* lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot, bool var_mut, std::string_view label) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body, slot, var_mut);
+    return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body, slot, var_mut, label);
 }
 const uint8_t* lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, lir_view::ExprRef ptr, lir_view::ExprRef value, bool drop_old) {
     auto& ctr = prog.type_pool.ctr_or_init();

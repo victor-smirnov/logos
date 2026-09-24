@@ -40,8 +40,6 @@ match_tmp_wild_mut_addrof     3 tests/soundness/open/match_tmp_wild_mut_addrof  
 
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 
-labeled_foreach_label_lost    3 tests/soundness/open/labeled_foreach_label_lost    refuses
-
 paren_var_assign_target       3 tests/soundness/open/paren_var_assign_target       refuses
 
 at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
@@ -371,5 +369,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 99
-# SYNC-HASH 43adc897826278d196cf02b02e5468f0
+# TOTAL 98
+# SYNC-HASH 8d84c4a3646e2b7920f02c836de6561c

@@ -3080,6 +3080,7 @@ struct SForEachView {
     BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
     bool             is_slice() const noexcept { return detail::read_bool(self, sk::IS_SLICE.code); }
     bool             var_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }  // `for mut x` (sparse)
+    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }       // `'l: for` (sparse)
     int64_t          arr_size() const noexcept { return detail::read_i64(self, sk::ARR_SIZE.code); }
     TypeRef          elem_type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::ELEM_TYPE.code, pool);

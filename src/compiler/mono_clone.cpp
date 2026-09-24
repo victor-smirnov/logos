@@ -5371,7 +5371,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             arr_size = (int64_t)iter_t.arr_size();
         auto body = subst_child_block(v.body());
         ns.mirror_ptr_ = lir_mirror_emit_for_each(
-            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot(), v.var_mut());  // Phase-1
+            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot(), v.var_mut(), v.label());  // Phase-1
         break;
     }
     case SCode::LetElse: {

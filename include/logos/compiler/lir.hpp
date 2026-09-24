@@ -604,6 +604,7 @@ struct SForEach {
     bool             var_mut  = false;  // `for mut x in …` (sk::IS_MUT, sparse)
     LBlockPtr        body = {};
     uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
+    std::string      label;       // optional loop label (`'l: for x in v`), empty = unlabeled
 };
 
 struct SMatch {
