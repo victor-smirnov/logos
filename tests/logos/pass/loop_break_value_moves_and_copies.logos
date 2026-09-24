@@ -1,0 +1,29 @@
+// `loop { break <value> }` with an aggregate or a moved local: a struct literal, a tuple, a local
+// struct, an int array, a conditional break (both branches) and a labelled break. rustc 1.98.1 prints the same.
+package loop_break_value_moves_and_copies;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+fn st(p: *mut i64) -> i64 { let d: D = loop { break D { v: 1i64, c: p }; }; return d.v; }
+fn tu(p: *mut i64) -> i64 { let a: D = D { v: 2i64, c: p }; let t: (D, i64) = loop { break (a, 5i64); }; return t.0.v + t.1; }
+fn lo(p: *mut i64) -> i64 { let s: D = D { v: 3i64, c: p }; let r: D = loop { break s; }; return r.v; }
+fn ia() -> i64 { let a: [i64; 3] = loop { break [4i64, 5i64, 6i64]; }; return a[0] + a[2]; }
+fn cond(p: *mut i64, c: bool) -> i64 {
+    let a: D = D { v: 7i64, c: p }; let b: D = D { v: 8i64, c: p };
+    let r: D = loop { if c { break a; } else { break b; } };
+    return r.v;
+}
+fn lab(p: *mut i64) -> i64 {
+    let r: [D; 1] = 'o: loop { loop { break 'o [D { v: 9i64, c: p }]; } };
+    return r[0].v;
+}
+fn main() -> i32 {
+    let mut n1: i64 = 0i64; let r1: i64 = st(&mut n1);
+    let mut n2: i64 = 0i64; let r2: i64 = tu(&mut n2);
+    let mut n3: i64 = 0i64; let r3: i64 = lo(&mut n3);
+    let mut n5: i64 = 0i64; let r5: i64 = cond(&mut n5, true);
+    let mut n6: i64 = 0i64; let r6: i64 = lab(&mut n6);
+    let mut n7: i64 = 0i64; let r7: i64 = cond(&mut n7, false);
+    unsafe { printf("%lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld\n".as_ptr(), r1, n1, r2, n2, r3, n3, ia(), r5, n5, r6, n6, r7, n7); }
+    return 0i32;
+}

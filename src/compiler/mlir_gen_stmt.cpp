@@ -3268,6 +3268,14 @@ void MLIRGenImpl::gen_break(lir_view::SBreakView v) {
     auto val_er = v.value();
     if (val_er && target->break_slot) {
         mlir::Value val = gen_expr(val_er);
+        // An aggregate break value (`break [a]`, a struct) arrives as a POINTER
+        // to its storage while the slot holds the aggregate itself: copy the
+        // VALUE. Storing the pointer made the loop's result read garbage.
+        if (val && val.getType() == ptr_type())
+            if (auto al = target->break_slot.getDefiningOp<mlir::LLVM::AllocaOp>())
+                if (mlir::Type et = al.getElemType(); et && et != ptr_type() &&
+                    (mlir::isa<mlir::LLVM::LLVMArrayType>(et) || mlir::isa<mlir::LLVM::LLVMStructType>(et)))
+                    val = builder_.create<mlir::LLVM::LoadOp>(loc_, et, val);
         if (val)
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
     }

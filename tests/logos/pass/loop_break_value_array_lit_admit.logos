@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #285): an aggregate break value arrives as a pointer; gen_break now copies the VALUE into the loop's result slot (it stored the pointer).
 // SOUNDNESS QUEUE row loop_break_value_array_lit_uninit_drop_run (tier 1, run 139). `let arr: [D; 1] = loop { break [a]; };` SEGFAULTS.
 // valgrind: 2x "Use of uninitialised value of size 8" at D__drop called from main's scope exit. Rust: a moved into the array, one drop: 1, exit 0.
 // NOT the array-literal consumption fact of round 2026-09-15e-consume: arrmove / consumex leave it at 139 with the same valgrind records

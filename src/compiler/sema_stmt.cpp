@@ -620,6 +620,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         lir::LExprPtr bval = nullptr;
         if (stmt.has_key(la::VALUE)) {
             bval = lower_expr(map_of(stmt.get(la::VALUE.code)));
+            // The break value MOVES into the loop's result (`break s`), so the
+            // source's own drop — on this path's unwind and at its scope end —
+            // must not run a second time.
+            if (bval) mark_moved_expr(expr_ref_of(bval));
             if (target && target->without_value) {
                 error("loop break mixes value and no-value breaks");
             } else if (target && bval && expr_type(bval) &&

@@ -297,8 +297,6 @@ method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_a
 #    measured on base 72c2afc955f79321 43 and on the probe build 8477d9e792aadea6 43 unarmed and armed; the reason is in each program's header.
 generic_operator_mono_redispatch_operands_double_drop 1 tests/soundness/open/generic_operator_mono_redispatch_operands_double_drop run 1
 
-loop_break_value_array_lit_uninit_drop_run 1 tests/soundness/open/loop_break_value_array_lit_uninit_drop_run run 139
-
 array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
 
 operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses
@@ -435,5 +433,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 135
-# SYNC-HASH 38d8fcd9bc8e0f89573e2627eec3a6f9
+# TOTAL 134
+# SYNC-HASH 0837fa9f29de16a2d16997080df2e534
