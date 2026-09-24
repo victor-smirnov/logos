@@ -5,35 +5,31 @@
   "source_hash": "44491007364baac9",
   "rules": [
     {
-      "id": "pat.for-loop.tuple-only",
+      "id": "pat.for-loop.irrefutable",
       "domain": "pat",
-      "title": "for-loop pattern restricted to tuple of names/nested-tuples",
-      "statement": "A `for <pat> in <iter>` loop pattern that is destructured in place must be a tuple pattern `(p0, ..., pn)` over a tuple-typed element; each element pattern must be a name, `_`, or a nested tuple pattern (recursed). Any other element sub-pattern (literal, struct, variant, range, etc.) is rejected; a non-tuple top-level pattern over a non-tuple element is rejected (`bind a name and destructure in the body`).",
+      "title": "a refutable for-loop pattern is an error",
+      "statement": "A `for PATTERN in iter` header binds as `let PATTERN = <element>;` over the per-element local (any irrefutable pattern, nested to any depth). A refutable header pattern (a variant, a literal, a range, an or-pattern, an array of the wrong length) is rejected as `refutable pattern in `for` loop binding` (rustc E0005).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8292-L8297",
-        "src/compiler/sema_stmt.cpp#L8311-L8330"
+        "src/compiler/sema_stmt.cpp (SemaChecker::emit_for_pattern_destructure, SemaChecker::refuse_refutable_let)"
       ],
-      "divergence": "B4",
-      "uncertainty": "Restriction is implementation-current, not a designed permanent language limit."
+      "testability": "diagnostic"
     },
     {
       "id": "pat.for-loop.ref-element-deref",
       "domain": "pat",
-      "title": "by-ref for-loop element is dereferenced before destructure",
-      "statement": "When the iterated element type is `&T`/`&mut T`, the loop binding is dereferenced to a value temporary of type `T` and the tuple pattern destructures that value (by-ref default binding modes are not applied).",
+      "title": "by-ref for-loop element binds with the default binding mode",
+      "statement": "When the iterated element type is `&T`/`&mut T` and the pattern is not a `&` pattern, the pattern matches through the reference and its binders bind `&U`/`&mut U` to the parts (Rust's default binding mode); `for &P { x, y } in &ps` binds the parts by value.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8277-L8291"
-      ],
-      "divergence": "B4",
-      "uncertainty": "Inferred limitation per code comment (\"default-binding-mode by-ref is a follow-up\")."
+        "src/compiler/sema_stmt.cpp (SemaChecker::lower_let_else_core, SemaChecker::bind_pattern_ref)"
+      ]
     },
     {
       "id": "pat.for-loop.discard-underscore",
       "domain": "pat",
       "title": "underscore element binds nothing",
-      "statement": "A `_` element in a for-loop tuple pattern introduces no binding (the tuple element is discarded).",
+      "statement": "A `_` element in a for-loop pattern introduces no binding (the element is not moved out and is dropped with the source).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8319-L8321"
+        "src/compiler/sema_stmt.cpp (SemaChecker::lower_let_pat_rhs)"
       ]
     },
     {

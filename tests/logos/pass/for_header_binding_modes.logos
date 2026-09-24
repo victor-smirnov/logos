@@ -1,0 +1,19 @@
+// For-header patterns over `&mut` elements bind `&mut` parts (default binding mode); `mut` binders; nested
+// tuple/struct elements through `&` (rustc 1.98.1: 8305 7 40).
+package for_header_binding_modes;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut ps = [P { x: 1i64, y: 2i64 }, P { x: 3i64, y: 4i64 }];
+    for P { x, y } in &mut ps { *x = *x + *y; }
+    let mut ts = [(1i64, 10i64), (2i64, 20i64)];
+    for (a, b) in &mut ts { *a = *a * *b; }
+    let px = ps[1].x;
+    let mut acc: i64 = 0i64;
+    for (mut a, b) in ts { a = a + 1i64; acc = acc + a + b; }
+    for P { mut x, y: yy } in ps { x = x * 2i64; acc = acc * 10i64 + x + yy; }
+    let vs = [((1i64, 2i64), P { x: 5i64, y: 6i64 })];
+    for ((a, _), P { y, .. }) in &vs { acc = acc + *a + *y; }
+    unsafe { printf("%lld %lld %lld\n".as_ptr(), acc, px, ts[1].0); }
+    return 0i32;
+}

@@ -1468,33 +1468,29 @@ A match using Writ scalar/structural patterns (null/bool/int/str/map/arr/typed-a
 
 ## Let, let-else, and for-loop patterns
 
-### `pat.for-loop.destructure-pattern` — `for PATTERN in iter` destructures non-trivial patterns via body-prologue lets
+### `pat.for-loop.destructure-pattern` — `for PATTERN in iter` binds as `let PATTERN = <element>;`
 
-A `for PATTERN in iter` loop variable that is not a bare single identifier (the NAME fast-path, handled by the caller before this reaches here) is bound by emitting body-prologue destructure `let`s against the per-element local, via the same nested-destructure mechanism used for match/if-let payloads. A PATTERN shape this path does not (yet) handle fails with a diagnostic rather than miscompiling silently.
+A `for PATTERN in iter` loop variable that is not a bare single identifier (the NAME fast path) binds as a body-prologue `let PATTERN = <element>;` over the per-element local, through the same lowering as a `let` statement (`pat.let` rules): any irrefutable pattern, nested to any depth — tuple, struct, tuple-struct, fixed-size array (with or without `..`), `&`, `n @ sub`.
 
-*Source: src/compiler/sema_impl.hpp#L4232-L4240*
+*Source: src/compiler/sema_stmt.cpp (SemaChecker::emit_for_pattern_destructure, SemaChecker::lower_let_pat_rhs)*
 
 ### `pat.for-loop.discard-underscore` — underscore element binds nothing
 
-A `_` element in a for-loop tuple pattern introduces no binding (the tuple element is discarded).
+A `_` element in a for-loop pattern introduces no binding (the element is not moved out and is dropped with the source).
 
-*Source: src/compiler/sema_stmt.cpp#L8319-L8321*
+*Source: src/compiler/sema_stmt.cpp (SemaChecker::lower_let_pat_rhs)*
 
-### `pat.for-loop.ref-element-deref` — by-ref for-loop element is dereferenced before destructure
+### `pat.for-loop.ref-element-deref` — by-ref for-loop element binds with the default binding mode
 
-When the iterated element type is `&T`/`&mut T`, the loop binding is dereferenced to a value temporary of type `T` and the tuple pattern destructures that value (by-ref default binding modes are not applied).
+When the iterated element type is `&T`/`&mut T` and the pattern is not a `&` pattern, the pattern matches through the reference and its binders bind `&U`/`&mut U` to the parts (Rust's default binding mode): `for (a, b) in &pairs` binds `a: &A`, `b: &B`; `for P { x, .. } in &mut ps` binds `x: &mut X`. `for &P { x, y } in &ps` binds the parts by value.
 
-**Divergence from Rust:** B4
+*Source: src/compiler/sema_stmt.cpp (SemaChecker::lower_let_else_core, SemaChecker::bind_pattern_ref)*
 
-*Source: src/compiler/sema_stmt.cpp#L8277-L8291*
+### `pat.for-loop.irrefutable` — a refutable for-loop pattern is an error
 
-### `pat.for-loop.tuple-only` — for-loop pattern restricted to tuple of names/nested-tuples
+A refutable `for` header pattern (a variant, a literal, a range, an or-pattern, an array of the wrong length) is rejected as `refutable pattern in \`for\` loop binding` (rustc E0005); match the element in the body instead.
 
-A `for <pat> in <iter>` loop pattern that is destructured in place must be a tuple pattern `(p0, ..., pn)` over a tuple-typed element; each element pattern must be a name, `_`, or a nested tuple pattern (recursed). Any other element sub-pattern (literal, struct, variant, range, etc.) is rejected; a non-tuple top-level pattern over a non-tuple element is rejected (`bind a name and destructure in the body`).
-
-**Divergence from Rust:** B4
-
-*Source: src/compiler/sema_stmt.cpp#L8292-L8297; src/compiler/sema_stmt.cpp#L8311-L8330*
+*Source: src/compiler/sema_stmt.cpp (SemaChecker::refuse_refutable_let)*
 
 ### `pat.let-else.or-pattern-uniform-bindings` — or-pattern alternatives in let-else bind identical names/types
 

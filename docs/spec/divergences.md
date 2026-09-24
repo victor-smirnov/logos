@@ -940,20 +940,15 @@ Registered: `docs/DIVERGENCES.md` §B row **B2** — custom-DST tail-slice + own
 
 Registered: `docs/DIVERGENCES.md` §B row **B4** — accumulated unsupported-syntax gaps surfaced by imports (rolling row). 4 rule(s).
 
-### `pat.for-loop.ref-element-deref` — by-ref for-loop element is dereferenced before destructure
-- **Divergence**: B4
-- **Rule**: When the iterated element type is `&T`/`&mut T`, the loop binding is dereferenced to a value temporary of type `T` and the tuple pattern destructures that value (by-ref default binding modes are not applied).
-- **Source**: `src/compiler/sema_stmt.cpp#L8277-L8291`
+### `pat.for-loop.ref-element-deref` — by-ref for-loop element binds with the default binding mode
+- **Divergence**: B4 — CLOSED 2026-09-24 (Rust parity: default binding mode through `&T` / `&mut T`).
+- **Rule**: see docs/spec/patterns.md.
 
 ### `pat.for-loop.tuple-only` — for-loop pattern restricted to tuple of names/nested-tuples
-- **Divergence**: B4
-- **Rule**: A `for <pat> in <iter>` loop pattern that is destructured in place must be a tuple pattern `(p0, ..., pn)` over a tuple-typed element; each element pattern must be a name, `_`, or a nested tuple pattern (recursed). Any other element sub-pattern (literal, struct, variant, range, etc.) is rejected; a non-tuple top-level pattern over a non-tuple element is rejected (`bind a name and destructure in the body`).
-- **Source**: `src/compiler/sema_stmt.cpp#L8292-L8297`, `src/compiler/sema_stmt.cpp#L8311-L8330`
+- **Divergence**: B4 — CLOSED 2026-09-24 (Rust parity: every irrefutable pattern binds as `let PAT = <element>;`; a refutable one is E0005, rule `pat.for-loop.irrefutable`).
 
 ### `stmt.let-pat.array-fixed-no-rest` — let [p0,p1,...] = arr requires exact fixed-length match, no rest
-- **Divergence**: B4
-- **Rule**: `let [p0, p1, ...] = arr;` is treated as irrefutable, and thus legal at `let`, only when arr's static type is a fixed-size Array and the pattern's element count equals the array length exactly; a `..` rest in this position is a compile error (refutable-shape restriction), and an element-count mismatch is a compile error. Each element position must bind a plain identifier or `_` to skip — any other element-pattern shape is a compile error.
-- **Source**: `src/compiler/sema_stmt.cpp#L1120-L1136`, `src/compiler/sema_stmt.cpp#L1238-L1269`, `src/compiler/sema_stmt.cpp#L1286-L1317`
+- **Divergence**: B4 — CLOSED 2026-09-24 (Rust parity: a `..` rest and nested irrefutable elements are accepted; a length mismatch stays an error).
 
 ### `stmt.let-pat.struct-shapes-only` — let &lt;pattern&gt; = expr accepts only shapes provable irrefutable here
 - **Divergence**: B4 — CLOSED 2026-09-24 (Rust parity: every irrefutable pattern; a refutable one is E0005).

@@ -1,0 +1,31 @@
+// Every irrefutable for-header pattern binds as `let PAT = <element>`: struct, tuple-struct, array, array with `..`,
+// `@`, `_`, `&` patterns, and struct patterns through `&` with Drop fields (rustc 1.98.1: 805 0 12).
+package for_header_irrefutable_patterns;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10i64 + self.v; } } }
+struct P { x: i64, y: i64 }
+struct T2(i64, i64);
+struct W { d: D, k: i64 }
+fn main() -> i32 {
+    let mut n: i64 = 0i64; let c: *mut i64 = &mut n;
+    let mut acc: i64 = 0i64;
+    for P { x, y } in [P { x: 3i64, y: 4i64 }] { acc = acc + x + y; }
+    for T2(a, b) in [T2(1i64, 2i64), T2(3i64, 4i64)] { acc = acc * 10i64 + a + b; }
+    for [a, b] in [[1i64, 2i64], [3i64, 4i64]] { acc = acc + a * b; }
+    for [a, ..] in [[5i64, 6i64, 7i64]] { acc = acc + a; }
+    for w @ (a, _) in [(1i64, 2i64)] { acc = acc + w.1 + a; }
+    for _ in [1i64, 2i64] { acc = acc + 1i64; }
+    let ps = [P { x: 1i64, y: 2i64 }];
+    for &P { x, y } in &ps { acc = acc + x * y; }
+    for P { x, .. } in &ps { acc = acc + *x; }
+    let ws = [W { d: D { v: 1i64, c: c }, k: 5i64 }, W { d: D { v: 2i64, c: c }, k: 6i64 }];
+    for W { d, k } in &ws { acc = acc + d.v + *k; }
+    let mid = unsafe { *c };
+    for W { d, k } in ws { acc = acc + d.v * k; }
+    let ts = [(D { v: 3i64, c: c }, 7i64)];
+    for (d, k) in &ts { acc = acc + d.v + *k; }
+    let after = unsafe { *c };
+    unsafe { printf("%lld %lld %lld\n".as_ptr(), acc, mid, after); }
+    return 0i32;
+}

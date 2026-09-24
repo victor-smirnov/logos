@@ -9195,6 +9195,9 @@ private:
     lir_view::BlockRef lower_block(writ::TinyMapView block);
     lir_view::StmtRef lower_let_destruct(writ::TinyMapView node);
     lir_view::StmtRef lower_let_pat(writ::TinyMapView node);
+    lir_view::StmtRef lower_let_pat_rhs(writ::TinyMapView pat_node, lir::LExprPtr rhs, TypeRef rhs_type);
+    lir_view::StmtRef refuse_refutable_let(lir::Pattern& probe, lir::LExprPtr rhs, TypeRef rhs_type);
+    bool let_pat_in_for_ = false;   // lower_let_pat_rhs runs for a `for` header (E0005 wording)
     // The body of lower_let_pat once the source EXPRESSION is already lowered:
     // the `let n @ SUB = e` delegation re-enters it with the sub-pattern and a
     // reference to the name it just bound.

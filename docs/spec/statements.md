@@ -246,9 +246,9 @@ Source: `src/compiler/sema_stmt.cpp#L758-L767`
 
 ### `stmt.let-pat.array-fixed-no-rest` — let [p0,p1,...] = arr requires exact fixed-length match, no rest
 
-`let [p0, p1, ...] = arr;` is treated as irrefutable, and thus legal at `let`, only when arr's static type is a fixed-size Array and the pattern's element count equals the array length exactly; a `..` rest in this position is a compile error (refutable-shape restriction), and an element-count mismatch is a compile error. Each element position must bind a plain identifier or `_` to skip — any other element-pattern shape is a compile error.
+`let [p0, p1, ...] = arr;` is irrefutable, and thus legal at `let`, when arr's static type is a fixed-size Array and the pattern covers its length: exactly, or with a `..` rest (`let [x, ..] = arr`, `let [.., z] = arr`). An element-count mismatch is a compile error. Element positions take any irrefutable sub-pattern (`stmt.let-pat.struct-shapes-only`).
 
-**Divergence.** B4
+**Divergence.** B4 — CLOSED 2026-09-24 (Rust parity).
 
 Source: `src/compiler/sema_stmt.cpp#L1120-L1136; src/compiler/sema_stmt.cpp#L1238-L1269; src/compiler/sema_stmt.cpp#L1286-L1317`
 

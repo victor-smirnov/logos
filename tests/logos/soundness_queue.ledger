@@ -44,8 +44,6 @@ fnparam_struct_ref_mut_field_binds_byvalue 3 tests/soundness/open/fnparam_struct
 
 closure_param_struct_pattern_syntax 3 tests/soundness/open/closure_param_struct_pattern_syntax refuses
 
-for_header_pattern_tuple_only 3 tests/soundness/open/for_header_pattern_tuple_only refuses
-
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
@@ -352,5 +350,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 89
-# SYNC-HASH a26e002af4f396f286b90616be9fb89e
+# TOTAL 88
+# SYNC-HASH 7d240d3b30a57b9c88cd45fc775e0aa9

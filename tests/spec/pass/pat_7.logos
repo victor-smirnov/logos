@@ -220,13 +220,12 @@ fn main() -> i64 {
     }
 
     // @rule pat.for-loop.ref-element-deref
-    // iterating &T elements derefs the binding to a value temporary of type T;
-    // the tuple pattern destructures that value (no by-ref default modes).
+    // iterating &T elements binds with the default binding mode: a, b are &i64.
     {
         let pairs: [(i64, i64); 2] = [(1i64, 2i64), (3i64, 4i64)];
         let mut sum: i64 = 0i64;
-        for (a, b) in &pairs {                // element is &(i64,i64), deref'd
-            sum = sum + a + b;                // a,b are i64 values, not refs
+        for (a, b) in &pairs {                // element is &(i64,i64)
+            sum = sum + *a + *b;              // a,b are &i64
         }
         if sum != 10i64 { return 24; }
     }

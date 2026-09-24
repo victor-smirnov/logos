@@ -1,0 +1,10 @@
+// @rule pat.for-loop.irrefutable
+package pat_diag_3_for_loop_irrefutable;
+
+fn main() -> i32 {
+    let xs = [Option::Some(1i32), Option::None];
+    for Option::Some(a) in xs {
+        return a;
+    }
+    return 0i32;
+}

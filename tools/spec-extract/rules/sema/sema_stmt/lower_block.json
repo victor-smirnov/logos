@@ -103,10 +103,11 @@
     {
       "id": "stmt.let-pat.struct-shapes-only",
       "domain": "stmt",
-      "title": "let <pattern> = expr accepts only shapes provable irrefutable here",
-      "statement": "`let <pattern> = expr;` accepts only pattern shapes this lowering can prove irrefutable: plain struct patterns, tuple-struct patterns (rewritten via synthesized \"0\",\"1\",... field names), fixed-size array patterns whose element count matches the array length exactly (no rest), and struct-shaped single-variant-enum patterns; any other pattern shape at this position is rejected with a diagnostic directing the user to `match`/`let-else`.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1079-L1136"],
-      "divergence": "B4",
+      "title": "let <pattern> = expr accepts every irrefutable pattern",
+      "statement": "`let <pattern> = expr;` accepts every IRREFUTABLE pattern, as in Rust: struct, tuple-struct, tuple and fixed-size array patterns (with or without a `..` rest), `&` patterns, `n @ sub`, nested to any depth, provided every part is irrefutable. A refutable pattern (a variant, a literal, a range, an or-pattern, an array of the wrong length) is rejected as `refutable pattern in local binding` (rustc E0005).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp (SemaChecker::lower_let_pat_bound, SemaChecker::pattern_irrefutable, SemaChecker::refuse_refutable_let)"
+      ],
       "testability": "diagnostic"
     },
     {
@@ -152,10 +153,11 @@
     {
       "id": "stmt.let-pat.array-fixed-no-rest",
       "domain": "stmt",
-      "title": "let [p0,p1,...] = arr requires exact fixed-length match, no rest",
-      "statement": "`let [p0, p1, ...] = arr;` is treated as irrefutable, and thus legal at `let`, only when arr's static type is a fixed-size Array and the pattern's element count equals the array length exactly; a `..` rest in this position is a compile error (refutable-shape restriction), and an element-count mismatch is a compile error. Each element position must bind a plain identifier or `_` to skip — any other element-pattern shape is a compile error.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1120-L1136", "src/compiler/sema_stmt.cpp#L1238-L1269", "src/compiler/sema_stmt.cpp#L1286-L1317"],
-      "divergence": "B4",
+      "title": "let [p0,p1,...] = arr must cover the array's length",
+      "statement": "`let [p0, p1, ...] = arr;` is irrefutable, and thus legal at `let`, when arr's static type is a fixed-size Array and the pattern covers its length: exactly, or with a `..` rest. An element-count mismatch is a compile error. Element positions take any irrefutable sub-pattern.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp (SemaChecker::lower_let_pat_bound)"
+      ],
       "testability": "behavioral"
     },
     {

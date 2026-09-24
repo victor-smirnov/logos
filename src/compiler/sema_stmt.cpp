@@ -1457,7 +1457,13 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         error("internal: LET_PAT PAT not a node");
         return builder().stmt_expr(std::move(rhs), node_line_);
     }
-    auto pat_node = map_of(pat_av);
+    return lower_let_pat_rhs(map_of(pat_av), std::move(rhs), rhs_type);
+}
+
+// `let PAT = <rhs>` over an already-lowered rhs: the `let` statement and the
+// `for PAT in …` header (its element variable is the rhs) share it.
+lir_view::StmtRef SemaChecker::lower_let_pat_rhs(TinyMapView pat_node, lir::LExprPtr rhs,
+                                                 TypeRef rhs_type) {
     // ── `let n @ SUB = e` IS `let n = e;` FOLLOWED BY `let SUB = n;` ──────
     // A DELEGATION, not a fifth branch in the shape whitelist: bind the name,
     // then hand SUB to the same lowering with that name as its source. The loop
@@ -1562,8 +1568,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         // one is E0005, as rustc says.
         lir::Pattern probe = build_pattern(pat_node, rhs_type);
         if (!pattern_irrefutable(pat_ref_of(probe), rhs_type)) {
-            error("refutable pattern in local binding: use `let … else { … }` or `match`");
-            return builder().stmt_expr(std::move(rhs), node_line_);
+            return refuse_refutable_let(probe, std::move(rhs), rhs_type);
         }
         return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
     }
@@ -1691,8 +1696,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             if (nested) {
                 lir::Pattern probe = build_pattern(pat_node, rhs_type);
                 if (!pattern_irrefutable(pat_ref_of(probe), rhs_type)) {
-                    error("refutable pattern in local binding: use `let … else { … }` or `match`");
-                    return builder().stmt_expr(std::move(rhs), node_line_);
+                    return refuse_refutable_let(probe, std::move(rhs), rhs_type);
                 }
                 return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
             }
@@ -2393,6 +2397,19 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
     sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
     sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
+}
+
+// E0005: a refutable pattern where an irrefutable one is required. The names
+// are still defined (so the body does not cascade into "undefined variable");
+// the rhs is kept for its effects.
+lir_view::StmtRef SemaChecker::refuse_refutable_let(lir::Pattern& probe, lir::LExprPtr rhs,
+                                                     TypeRef rhs_type) {
+    if (let_pat_in_for_)
+        error("refutable pattern in `for` loop binding: match the element in the body");
+    else
+        error("refutable pattern in local binding: use `let … else { … }` or `match`");
+    bind_pattern_ref(pat_ref_of(probe), rhs_type);
+    return builder().stmt_expr(std::move(rhs), node_line_);
 }
 
 // Is the built pattern IRREFUTABLE against a value of type `ty`? Structural: a
@@ -10469,70 +10486,12 @@ bool SemaChecker::emit_for_pattern_destructure(
         auto alts = arr_of(pat.get(la::ITEMS.code));
         if (alts.size() == 1) pat = map_of(alts.get(0));
     }
-    // For a by-ref element (`for (a,b) in &v`), deref to a value temp and
-    // destructure from it (default-binding-mode by-ref is a follow-up).
-    TypeRef vt = src_type;
-    std::string base_var = src_var;
-    if (vt && (TypeRef(vt).kind() == LogosType::Kind::Ref ||
-               TypeRef(vt).kind() == LogosType::Kind::MutRef) &&
-        TypeRef(vt).pointee()) {
-        TypeRef pe = TypeRef(vt).pointee();
-        std::string tmp = std::format("__fe_deref_{}", tmp_var_count_++);
-        define(tmp, pe);
-        lir::SLet s; s.name = tmp; s.type = pe; s.is_mut = false;
-        s.value = builder().deref(builder().var_ref(src_var, vt), pe);
-        out.push_back(make_stmt_emit(node_line_, std::move(s)));
-        base_var = tmp; vt = pe;
-        // A bitwise copy of BORROWED data: it owns nothing and must never drop.
-        mark_moved(tmp);
-    }
-    if (code_of(pat) != la::PAT_TUPLE || !vt ||
-        TypeRef(vt).kind() != LogosType::Kind::Tuple) {
-        error("for-loop pattern: only tuple patterns `for (a, b) in …` are "
-              "supported here; bind a name and destructure in the body");
-        return false;
-    }
-    if (!pat.has_key(la::ITEMS)) return true;
-    auto items = arr_of(pat.get(la::ITEMS.code));
-    auto elems = TypeRef(vt).tuple_elems();
-    for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
-        auto en = map_of(items.get(i));
-        TypeRef et = elems[i];
-        if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
-            auto alts = arr_of(en.get(la::ITEMS.code));
-            if (alts.size() == 1) en = map_of(alts.get(0));
-        }
-        auto elem_expr = builder().tuple_index(
-            builder().var_ref(base_var, vt), (uint32_t)i, et);
-        int32_t ec = code_of(en);
-        // A by-value element binding MOVES `base.i` out of the source tuple:
-        // record it, so the source's drop (it is a local of the loop body
-        // frame) skips the part a binding now owns.
-        if (!(ec == la::PAT_WILD && en.has_key(la::NAME) && str_of(en.get(la::NAME.code)) == "_") &&
-            et && is_move_type(et))
-            mark_moved(base_var + "." + std::to_string(i));
-        if (ec == la::PAT_TUPLE) {
-            // Nested tuple: spill this element to a temp + recurse.
-            std::string tmp = std::format("__fe_tup_{}", tmp_var_count_++);
-            define(tmp, et);
-            lir::SLet s; s.name = tmp; s.type = et; s.is_mut = false;
-            s.value = std::move(elem_expr);
-            out.push_back(make_stmt_emit(node_line_, std::move(s)));
-            if (!emit_for_pattern_destructure(en, tmp, et, out)) return false;
-        } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
-            std::string nm(str_of(en.get(la::NAME.code)));
-            if (nm == "_") continue;  // discard
-            const bool fmut_ = pat_byval_mut(en);  // `for (mut a, b)`
-            define(nm, et, fmut_);
-            lir::SLet s; s.name = nm; s.type = et; s.is_mut = fmut_;
-            s.value = std::move(elem_expr);
-            out.push_back(make_stmt_emit(node_line_, std::move(s)));
-        } else {
-            error("for-loop tuple pattern: element must be a name or nested "
-                  "tuple; richer sub-patterns are a follow-up");
-            return false;
-        }
-    }
+    // `for PAT in it` binds as `let PAT = <element>;` in the body: any
+    // irrefutable pattern, with the default binding mode through a `&`
+    // element; a refutable one is E0005, as rustc says.
+    let_pat_in_for_ = true;
+    out.push_back(lower_let_pat_rhs(pat, builder().var_ref(src_var, src_type), src_type));
+    let_pat_in_for_ = false;
     return true;
 }
 
