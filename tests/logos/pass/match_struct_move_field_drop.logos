@@ -9,7 +9,7 @@ use logos.mem.string;
 struct Pair { a: String, b: i64 }
 
 fn by_ref(p: &Pair) -> i64 {
-    match *p { Pair { a: ref a, b } => { return a.len() + *b; } }   // a: &String
+    match *p { Pair { a: ref a, b } => { return a.len() + b; } }   // a: &String
 }
 
 fn main() -> i64 {

@@ -58,7 +58,7 @@ fn main() -> i32 {
     let r1: &Option<i32> = &opt2;
     let r2: &&Option<i32> = &r1;
     let bound2: i32 = match r2 {
-        Some(z) => *(*z),
+        Some(z) => *z,   // z: &i32 (the default binding mode collapses `&&`)
         None => 0i32,
     };
     if bound2 != 15i32 { return 4i32; }
@@ -69,7 +69,7 @@ fn main() -> i32 {
     let s2: &&Option<i32> = &s1;
     let s3: &&&Option<i32> = &s2;
     let bound3: i32 = match s3 {
-        Some(z) => *(*(*z)),
+        Some(z) => *z,   // z: &i32 (the default binding mode collapses every `&`)
         None => 0i32,
     };
     if bound3 != 99i32 { return 5i32; }

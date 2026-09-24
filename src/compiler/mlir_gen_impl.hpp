@@ -2259,6 +2259,7 @@ private:
     // scope_; for an or-pattern it dispatches per-alt and binds into the
     // pre-created `shared` allocas (name→alloca) so the join sees one slot.
     mlir::Value pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty);
+    void        bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty);
     void        pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
                          const std::unordered_map<std::string, mlir::Value>* shared = nullptr);
     // THE ONE PLACE a pattern's NAME is bound to a place. `n` (a PatWild) and

@@ -119,6 +119,7 @@ struct PatAt {
     std::vector<Pattern> sub;   // exactly 1 element: the inner pattern
     TypeRef     type;
     bool        is_mut = false; // `mut n @ sub` — the by-value binding modifier
+    uint8_t     ref_mode = 0;   // 1 `ref n @ sub`, 2 `ref mut n @ sub` (pat_keys::AT_REF_MODE)
 };
 struct PatRefPat {
     std::vector<Pattern> inner;  // exactly 1 element: the dereferenced pattern

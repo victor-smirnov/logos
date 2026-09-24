@@ -175,7 +175,7 @@ fn main() -> i64 {
         let o: Opt = Opt::Some(21i64);
         let r: &&Opt = &(&o);
         let got: i64 = match r {
-            Opt::Some(v) => **v,   // &&Opt peeled to enum; payload binds as &&i64
+            Opt::Some(v) => *v,    // &&Opt peeled to enum; payload binds as &i64 (one `&`)
             Opt::None => -1i64,
         };
         if got != 21i64 { return 19; }

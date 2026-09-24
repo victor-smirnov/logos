@@ -2707,7 +2707,9 @@ private:
             case PCode::At: {
                 lir_view::PatAtView v{pat};
                 bind_pattern(p, t, v.sub(), default_ref);
-                bind_to(p, v.type(pool_), v.name(), v.bind_slot(), v.is_mut(), default_ref);
+                // `ref n @ sub` borrows the place, as a RefBind does (TYPE is `&T`).
+                bind_to(p, v.type(pool_), v.name(), v.bind_slot(), v.is_mut(),
+                        v.ref_mode() ? int(v.ref_mode()) : default_ref);
                 return;
             }
             case PCode::VariantData: {

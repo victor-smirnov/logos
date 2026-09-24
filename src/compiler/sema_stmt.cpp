@@ -4520,6 +4520,9 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // (by-ref-ergonomics nested-variant synth). The caller reads it to set
     // binding_is_ref for that synth.
     bool synth_wants_ref = false;
+    // Set by a caller whose synth is a `ref n @ sub` name: it binds `&T`, so a
+    // scalar guard compares the POINTEE (as under a by-reference scrutinee).
+    bool synth_forced_ref = false;
     auto synth_refutable_inner =
         [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field,
             std::string_view explicit_name = {}) -> std::string {
@@ -4723,7 +4726,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // lookup() is null here — derive its by-ref-ness from the
                     // scrutinee mode. Under match ergonomics the payload binds
                     // `&rt`; deref to compare the pointee.
-                    if (pat_scrut_by_ref) {
+                    if (pat_scrut_by_ref || synth_forced_ref) {
                         TypeRef rty = make_ref(false, rt);
                         return builder().deref(builder().var_ref(synth, rty), rt);
                     }
@@ -4790,7 +4793,9 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                 ? ftype
                 : (value ? expr_type(value) : error_t());
-            auto vref = builder().var_ref(synth, rt);
+            auto vref = synth_forced_ref
+                ? builder().deref(builder().var_ref(synth, make_ref(false, rt)), rt)
+                : builder().var_ref(synth, rt);
             auto guard = builder().bin_op("==", std::move(vref),
                                           std::move(value), bool_t());
             current_pat_refutable_guards_->push_back(std::move(guard));
@@ -5067,9 +5072,13 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         bnode.has_key(la::VALUE)) {
                         auto atname = std::string(str_of(bnode.get(la::NAME.code)));
                         auto subnode = map_of(bnode.get(la::VALUE.code));
+                        synth_forced_ref = bnode.has_key(la::IS_REF) &&
+                            bnode.get(la::IS_REF.code).is_value() &&
+                            bnode.get(la::IS_REF.code).as_value<uint8_t>() != 0;
                         std::string r = synth_refutable_inner(
                             subnode, pat_field_type(j),
                             std::format("{}", j), atname);
+                        synth_forced_ref = false;
                         if (!r.empty()) {
                             auto atflag = [&](const la::Key& k) {
                                 return bnode.has_key(k) && bnode.get(k.code).is_value() &&
@@ -5085,8 +5094,10 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             if (pat_scrut_by_ref && atflag(la::IS_REF))
                                 modifier_under_ref_scrutinee(atname, scrut_type, /*known_ref=*/true);
                             bindings.push_back(atname);
-                            binding_is_ref.push_back(false);  // `ref n @ sub` binds by value here (soundness queue)
-                            binding_is_mut.push_back(atflag(la::IS_MUT) && !atflag(la::IS_REF));
+                            // `ref n @ sub` / `ref mut n @ sub` bind the payload BY
+                            // REFERENCE, as a `ref n` payload binder does.
+                            binding_is_ref.push_back(atflag(la::IS_REF));
+                            binding_is_mut.push_back(atflag(la::IS_MUT));
                             binding_from_wild.push_back(true);  // named binding
                             continue;
                         }
@@ -5876,9 +5887,14 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     const TypeRef scrut_orig = scrut_type;
     scrut_type = pat_scrut_one_layer(scrut_type);
     // Default binding mode: spec pat.binding.default-by-ref-mode. 2026-09-06j.
+    // A `&[T]` / `&str` IS its reference (the fat `Slice` kind), so a slice
+    // pattern over it binds its elements by reference too: `[x, ..]` binds
+    // `x: &T`, as Rust does.
     const bool dbm_ref = scrut_orig &&
         (TypeRef(scrut_orig).kind() == LogosType::Kind::Ref ||
-         TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef);
+         TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef ||
+         (pc == la::PAT_SLICE && TypeRef(scrut_orig).kind() == LogosType::Kind::Slice &&
+          !(place_deref_scrut_type_ && scrut_orig == place_deref_scrut_type_)));
     const bool dbm_mut = dbm_ref &&
         TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef;
     // A plain named binder: PAT_WILD + NAME, neither modifier (`ref` has its own
@@ -6506,7 +6522,23 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         pa.is_mut = pat_byval_mut(pnode);
         if (current_pat_mut_names_ && pa.name != "_" && pa.is_mut)
             current_pat_mut_names_->insert(pa.name);
-        auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type, _at_slot, pa.is_mut);
+        // `ref n @ sub` / `ref mut n @ sub`: n is a REFERENCE to the matched
+        // place (`&T`), as a `ref n` binder is. Under a by-reference default
+        // mode the modifier is an error (Rust 2024).
+        {
+            auto af = [&](const la::Key& k) {
+                return pnode.has_key(k) && pnode.get(k.code).is_value() &&
+                       pnode.get(k.code).as_value<uint8_t>() != 0;
+            };
+            if (af(la::IS_REF) && pa.name != "_" && !pa.name.empty()) {
+                if (dbm_ref) modifier_under_ref_scrutinee(pa.name, scrut_orig, /*known_ref=*/true);
+                pa.ref_mode = af(la::IS_MUT) ? 2 : 1;
+                pa.type = make_ref(pa.ref_mode == 2, pa.type);
+                pa.is_mut = false;
+            }
+        }
+        auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type, _at_slot, pa.is_mut,
+                                         pa.ref_mode);
         lir::Pattern p_;
         p_.mirror_ptr_ = mo;
         return p_;
@@ -6671,6 +6703,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         if (sinfo) {
                             for (auto& f : sinfo->fields)
                                 if (f.name == fname) { ftype = f.type; break; }
+                            // A GENERIC struct's field under the scrutinee's type
+                            // arguments (`&GPair<u8, u16>`'s `a` is `u8`, not `A`):
+                            // the default binding mode can mint `&u8` only then.
+                            if (sst && TypeRef(sst).kind() == LogosType::Kind::Struct &&
+                                !TypeRef(sst).type_args().empty())
+                                if (TypeRef sub_t = field_type_of_for_type(sst, fname))
+                                    ftype = sub_t;
                         }
                         // Bug fix: emit error when field not found in struct.
                         if (sinfo) {
@@ -7623,8 +7662,10 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         lir_view::PatAtView v{pr};
         TypeRef ty = v.type(pool);
         auto n = v.name();
-        if (ty && n != "_") define(std::string(n), ty, pat_mut_name(n), v.bind_slot());  // Phase-1
-        if (auto sub = v.sub()) bind_pattern_ref(sub, ty);
+        if (ty && n != "_") define(std::string(n), ty, v.ref_mode() ? false : pat_mut_name(n), v.bind_slot());  // Phase-1
+        // `ref n @ sub`: n is `&T`; sub matches the place itself, a `T`.
+        TypeRef sub_t = (v.ref_mode() && ty && TypeRef(ty).pointee()) ? TypeRef(ty).pointee() : ty;
+        if (auto sub = v.sub()) bind_pattern_ref(sub, sub_t);
     } else if (k == ps::Code::RefPat) {
         lir_view::PatRefPatView v{pr};
         TypeRef inner_t = error_t();
@@ -7682,9 +7723,9 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                         return any;
                     }
                     case ps::Code::At:
-                        // PatAt carries no mode field at all, so `ref b @ …`
-                        // and `b @ …` are the same node — only the SUB-pattern,
-                        // whose own node may carry a mode, is walked.
+                        // The `@` name itself is judged where the name is (its
+                        // AT_REF_MODE); only the SUB-pattern, whose own node may
+                        // carry a mode, is walked here.
                         return byval_(lir_view::PatAtView{p}.sub(), false);
                     // `&(P { d }, k)` moves `d` out of a shared ref: E0507. The
                     // tuple door recurses into Struct subs, so this walk must too
@@ -9917,7 +9958,7 @@ bool SemaChecker::pattern_moves_out(lir_view::PatRef pr, TypeRef ty) {
             return false;
         case ps::Code::At: {
             lir_view::PatAtView v{pr};
-            if (named(v.name()) && ty && is_move_type(ty)) return true;   // the whole value, by value
+            if (!v.ref_mode() && named(v.name()) && ty && is_move_type(ty)) return true;   // the whole value, by value
             return pattern_moves_out(v.sub(), ty);
         }
         case ps::Code::Or: {
@@ -10013,7 +10054,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                         return;
                     case ps::Code::At: {
                         lir_view::PatAtView av{sp};
-                        if (is_named(av.name()) && pty && is_move_type(pty)) {
+                        if (!av.ref_mode() && is_named(av.name()) && pty && is_move_type(pty)) {
                             mark_moved(path);   // the whole value, by value
                             return;
                         }
@@ -10707,6 +10748,14 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         mut_place_ctx_ = false;
         scrut_type = expr_type(scrut);
     } else { scrut = error_expr(); }
+    // `match *s { [ref a, ..] => … }` over `s: &[T]`: the scrutinee is the
+    // slice PLACE, not a reference to it, though `*s` keeps the fat type.
+    // The slice door's default binding mode reads this.
+    const TypeRef saved_spd_ = place_deref_scrut_type_;
+    place_deref_scrut_type_ = (node.has_key(la::VALUE) &&
+                               code_of(map_of(node.get(la::VALUE.code))) == la::DEREF)
+                              ? scrut_type : TypeRef(nullptr);
+    struct SpdRestore { TypeRef& r; TypeRef v; ~SpdRestore() { r = v; } } spd_restore_{place_deref_scrut_type_, saved_spd_};
 
     // ADR 0011 — a `match` over a `schema enum` desugars to an if-chain on the
     // pointee's schema_type_code (the variant discriminant is NOT stored; it is
@@ -11497,7 +11546,11 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             } else if (arm.has_key(la::EXPR)) {
                 auto val = lower_expr(map_of(arm.get(la::EXPR.code)));
                 if (match_in_tail_position_) {
-                    // Tail-position match: EXPR arms produce the function's return value.
+                    // Tail-position match: EXPR arms produce the function's return
+                    // value, and are judged against the return type as a `return`
+                    // is (an `&i64` arm of an `-> i64` fn reached codegen).
+                    if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait)
+                        expect_type(val, ret_type_, CoercePos::Return, "return type mismatch —");
                     lir::SReturn ret; ret.value = std::move(val);
                     body.push_back(make_stmt_emit(node_line_, std::move(ret)));
                 } else {
@@ -11690,6 +11743,14 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         mut_place_ctx_ = false;
         scrut_type = expr_type(scrut);
     } else { scrut = error_expr(); }
+    // `match *s { [ref a, ..] => … }` over `s: &[T]`: the scrutinee is the
+    // slice PLACE, not a reference to it, though `*s` keeps the fat type.
+    // The slice door's default binding mode reads this.
+    const TypeRef saved_spd_ = place_deref_scrut_type_;
+    place_deref_scrut_type_ = (node.has_key(la::VALUE) &&
+                               code_of(map_of(node.get(la::VALUE.code))) == la::DEREF)
+                              ? scrut_type : TypeRef(nullptr);
+    struct SpdRestore { TypeRef& r; TypeRef v; ~SpdRestore() { r = v; } } spd_restore_{place_deref_scrut_type_, saved_spd_};
     // Drop a droppable TEMPORARY scrutinee (rvalue, not a place) of a match
     // EXPRESSION — `let n = match make() { E::Txt(_) => 1 … }` otherwise leaks
     // the temporary's payload. Mirror of lower_match's stmt hoist: bind the temp

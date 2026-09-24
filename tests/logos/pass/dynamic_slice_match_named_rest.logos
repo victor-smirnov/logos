@@ -11,7 +11,7 @@ fn sum_tail(v: &[i64]) -> i64 {
 fn head(v: &[i64]) -> i64 {
     match v {
         [] => { return -1; }
-        [x, ..] => { return x; }
+        [x, ..] => { return *x; }
     }
 }
 fn main() -> i64 {

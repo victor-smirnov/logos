@@ -9201,6 +9201,7 @@ private:
     lir_view::StmtRef lower_let_pat_rhs(writ::TinyMapView pat_node, lir::LExprPtr rhs, TypeRef rhs_type);
     bool ast_pattern_has_ref_binder(writ::TinyMapView n);
     std::set<std::string> reported_dup_bindings_;   // E0416 dedup: "line:name"
+    TypeRef place_deref_scrut_type_;   // the match scrutinee is written `*e`: its type names a slice PLACE, not a reference
     bool force_structural_let_ = false;   // lower_let_pat_bound: a struct pattern over a synth temporary takes the structural lowering
     lir_view::StmtRef refuse_refutable_let(lir::Pattern& probe, lir::LExprPtr rhs, TypeRef rhs_type);
     const char* let_pat_site_ = nullptr;   // E0005 wording: null = `let`; else "`for` loop binding", "function argument", …

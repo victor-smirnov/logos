@@ -4154,15 +4154,18 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
         TypeRef(vt).kind() != LogosType::Kind::MutRef) {
-        // E0614 IS NOT ENFORCED YET, and `*x` over a non-pointer value reads as
-        // the identity. The for-each over `&v` binds `&T` now, but several
-        // BINDING MODES still type a Rust `&T` binding as `T`: a slice pattern
-        // over `&[T]`, a `ref x @ pat` binding, a tuple destructured by a
-        // for-each over `&Vec<(A, B)>` — measured 2026-09-24 (full run 419:
-        // 17 legal programs refused when this was an error). Doors in series:
-        // those bindings must carry their reference first (squeue
-        // deref_of_non_reference_admitted, reason 2).
-        return operand;
+        // E0614: `*x` over a value that is not a pointer, a reference or a
+        // `Deref` type. An unresolved type variable / projection passes (mono
+        // re-judges the instance).
+        const auto vk = TypeRef(vt).kind();
+        // A `&str` / `&[T]` / `&dyn Tr` IS its fat pointer: `*s` is the unsized
+        // value, which has that same representation — the identity.
+        if (vk == LogosType::Kind::TypeVar || vk == LogosType::Kind::AssocType ||
+            vk == LogosType::Kind::ImplTrait || vk == LogosType::Kind::Slice ||
+            vk == LogosType::Kind::TraitObject)
+            return operand;
+        error(std::format("type `{}` cannot be dereferenced", type_str(vt)));
+        return error_expr();
     }
     // Raw pointer deref requires unsafe context
     if (TypeRef(vt).kind() == LogosType::Kind::Ptr && !inside_unsafe_)
@@ -13914,6 +13917,20 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     // FnPtr. Each FnItem → FnPtr coerces via types_compatible; adopt the
     // hint as the element type so the homogeneity check below sees FnPtr,
     // not the per-element FnItem.
+    // An array-literal ELEMENT is a coercion site like a call argument or a
+    // let-init: its type must be a subtype of the annotated element type in
+    // its REGIONS too (`[baz]` where `baz: for<'a> fn(&'a S) -> &'a S` under
+    // `[fn(&S) -> &'static S; 1]` is E0308). The element site was the one
+    // position that never asked.
+    if (hint_arr_elem_type_ && TypeRef(hint_arr_elem_type_).kind() != LogosType::Kind::Error) {
+        for (size_t ei = 0; ei < elems.size(); ++ei) {
+            TypeRef et = elems[ei] ? expr_type(elems[ei]) : TypeRef(nullptr);
+            if (!et || TypeRef(et).kind() == LogosType::Kind::Error) continue;
+            if (types_compatible(et, hint_arr_elem_type_))
+                check_variance(et, hint_arr_elem_type_, std::format("array element {}", ei),
+                               /*permissive=*/false);
+        }
+    }
     bool fnptr_elem_hint = false;
     if (hint_arr_elem_type_ &&
         TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::FnPtr) {

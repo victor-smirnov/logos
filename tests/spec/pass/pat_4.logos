@@ -46,7 +46,7 @@ fn sf_refmut(p: &mut Pt) -> i64 { match *p { Pt { x: ref mut rx, .. } => { *rx =
 fn sl_named_mid(v: &[i64]) -> i64 {
     match v { [first, mid @ .., last] => first + last + (mid.len() as i64), _ => -1i64 }
 }
-fn sl_anon_rest(v: &[i64]) -> i64 { match v { [x, ..] => x, [] => -1i64 } }
+fn sl_anon_rest(v: &[i64]) -> i64 { match v { [x, ..] => *x, [] => -1i64 } }
 
 // ── pat.tuple.elem-rest ──────────────────────────────────────────────────────
 // a tuple element may be `..` (skips preserving fixed arity) or an or-pattern.

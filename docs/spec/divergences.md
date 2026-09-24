@@ -2099,10 +2099,8 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: In the general (non-`*Assign`-impl) place-compound-assign path, the rhs is implicitly widened to the place's integer type before combining with the base operator.
 - **Source**: `src/compiler/sema_stmt.cpp#L2528`
 
-### `expr.deref.non-pointer-identity` — `*x` on a non-pointer, non-Deref type is the identity
-- **Divergence**: Not in docs/DIVERGENCES.md as a blessed item; Rust rejects unary `*` on a type without Deref/a pointer kind. This is a permissive relaxation admitting faithfully-ported Rust source that spells an already-loaded read as `*i` (e.g. `for i in &v` sites); soundness is preserved since it only relaxes the diagnostic, never changes which value is produced.
-- **Rule**: `*x` where x's type is none of Ptr/Ref/MutRef and has no generic Deref impl returns x unchanged (identity) rather than a diagnostic error.
-- **Source**: `src/compiler/sema_expr.cpp#L2702-L2713`
+### `expr.deref.non-pointer-identity` — `*x` on a non-pointer, non-Deref type
+- **Divergence**: CLOSED 2026-09-24 (Rust parity: E0614).
 
 ### `expr.fmt.precision-requires-number` — Precision dot requires a number
 - **Divergence**: Rust additionally permits `.*` and `.N$` precision forms; Logos here requires a literal number after `.`.

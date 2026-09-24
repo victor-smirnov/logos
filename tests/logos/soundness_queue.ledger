@@ -36,8 +36,6 @@ match_tmp_wild_mut_addrof     3 tests/soundness/open/match_tmp_wild_mut_addrof  
 
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 
-at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
-
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
@@ -55,8 +53,6 @@ boxed_closure_struct_field_not_callable 3 tests/soundness/open/boxed_closure_str
 box_dyn_fn_shared_ref_arg_refused 3 tests/soundness/open/box_dyn_fn_shared_ref_arg_refused refuses
 
 slice_rest_ref_binder_syntax 3 tests/soundness/open/slice_rest_ref_binder_syntax refuses
-
-fnitem_to_fnptr_array_elem_admits 2 tests/soundness/open/fnitem_to_fnptr_array_elem_admits admits
 
 zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref_struct_field_layout_abort refuses
 
@@ -179,8 +175,6 @@ closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_fie
 
 let_tuplestruct_generic_elem_type_unsubstituted 3 tests/soundness/open/let_tuplestruct_generic_elem_type_unsubstituted refuses
 
-bc_patmovebind_at_ref_binding_twin 3 tests/soundness/open/bc_patmovebind_at_ref_binding_twin refuses
-
 vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
@@ -188,8 +182,6 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
 
 arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_partial_generic_enum_elems_internal refuses
-
-deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_admitted admits
 
 let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused refuses
 
@@ -344,5 +336,5 @@ let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 85
-# SYNC-HASH 80a251a69c630cd630260cec41d4b49c
+# TOTAL 81
+# SYNC-HASH c0c79b182c00ee6a1297006c6ca84e1a

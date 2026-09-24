@@ -1,0 +1,17 @@
+// The by-value twin of pass/bc_patmovebind_at_ref_binding_twin: `b @ E::B` under `match *r` moves out of
+// a borrow (rustc 1.98.1: E0507 cannot move out of `*r` which is behind a shared reference).
+package match_deref_at_byvalue_move_e0507;
+struct P { n: i64 }
+impl Drop for P { fn drop(self: &mut P) {} }
+enum E { A(P), B }
+fn main() -> i32 {
+    let e = E::A(P { n: 1i64 });
+    let r: &E = &e;
+    match *r {
+        E::A(ref d) => {
+            let v: i64 = d.n;
+            return (v - 1i64) as i32;
+        }
+        b @ E::B => { return 1i32; }
+    }
+}

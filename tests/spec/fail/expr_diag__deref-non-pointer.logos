@@ -1,0 +1,8 @@
+// @rule expr.deref.non-pointer-identity
+package expr_diag_deref_non_pointer;
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let y: i64 = *x;
+    return y as i32;
+}

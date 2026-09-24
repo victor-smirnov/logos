@@ -249,7 +249,7 @@ fn main() -> i64 {
         let r1: &Opt = &o;
         let r2: &&Opt = &r1;
         let got: i64 = match r2 {
-            Opt::Some(v) => **v,       // both & layers peeled; v: &&i64
+            Opt::Some(v) => *v,        // both & layers peeled; v: &i64 (one `&`)
             Opt::None    => 0i64,
         };
         if got != 11i64 { return 21; }

@@ -2848,6 +2848,11 @@ struct PatAtView {
     PatRef self;
     std::string_view name() const noexcept { return detail::read_string(self, pk::NAME.code); }
     bool             is_mut() const noexcept { return detail::read_bool(self, pk::IS_MUT.code); }
+    // 0 by value, 1 `ref n @ sub`, 2 `ref mut n @ sub`.
+    uint8_t          ref_mode() const noexcept {
+        auto v = detail::read_i64_opt(self, pk::AT_REF_MODE.code);
+        return v ? static_cast<uint8_t>(*v) : 0;
+    }
     PatRef           sub()  const noexcept { return detail::first_pat(self, pk::SUB.code); }
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::pat_type(self, pk::TYPE.code, pool);

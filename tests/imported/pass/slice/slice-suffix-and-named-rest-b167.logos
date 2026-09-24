@@ -16,7 +16,7 @@ package t11_slice_middle_rest;
 fn first_last_sum(v: &[i64]) -> i64 {
     match v {
         [] => { return 0i64; }
-        [x] => { return x; }
+        [x] => { return *x; }
         [first, .., last] => { return first + last; }
     }
 }

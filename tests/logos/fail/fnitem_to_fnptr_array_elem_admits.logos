@@ -1,0 +1,12 @@
+// Refused as rustc 1.98.1 refuses it (squeue row of the same name).
+package fnitem_to_fnptr_array_elem_admits;
+struct S { n: i64 }
+static GS: S = S { n: 0i64 };
+fn foo<'a>(x: &'a S) -> &'static S { return &GS; }   // legal in this slot
+fn baz<'a>(x: &'a S) -> &'a S { return x; }          // NOT legal in this slot
+fn main() -> i32 {
+  // upstream-illegal, admitted here: the element type is checked for TYPE
+  // structure and never for LIFETIME structure.
+  let a: [fn(&S) -> &'static S; 1] = [baz];
+  return 0i32;
+}

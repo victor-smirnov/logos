@@ -5139,7 +5139,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     (binder_bty.kind() == LogosType::Kind::Ref ||
                      binder_bty.kind() == LogosType::Kind::MutRef ||
                      binder_bty.kind() == LogosType::Kind::Ptr);
-                if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
+                if (pa.ref_mode()) {
+                    // `ref n @ sub`: n borrows the matched place. An owned
+                    // scrutinee's address, or a spilled scalar value's.
+                    mlir::Value addr = sv;
+                    if (!(sv && sv.getType() == ptr_type() && !binder_via_ref)) {
+                        addr = create_entry_alloca(sv.getType());
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, sv, addr);
+                    }
+                    bind_ref_name(aname, addr, scrut_ty);
+                } else if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
                     bind_name_at_slot(aname, sv, scrut_ty, nullptr);
                 } else {
                     auto alloca = create_entry_alloca(sv.getType());

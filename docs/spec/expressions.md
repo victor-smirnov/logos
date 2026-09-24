@@ -1633,15 +1633,11 @@ A tagged (payload-carrying) enum is pointer-to-inline-storage, so `*p` over a `&
 
 *Source:* `src/compiler/sema_expr.cpp#L2696-L2701`, `src/compiler/sema_expr.cpp#L2582-L2584`
 
-### `expr.deref.non-pointer-identity` — `*x` on a non-pointer, non-Deref type is the identity
+### `expr.deref.non-pointer-identity` — `*x` on a value that is not a pointer, reference or Deref type is an error
 
-`*x` where x's type is none of Ptr/Ref/MutRef and has no generic Deref impl returns x unchanged (identity) rather than a diagnostic error.
+`*x` where x's type is none of Ptr/Ref/MutRef, has no `Deref` impl, and is not an unresolved type variable/projection (re-judged by mono) is rejected: `type `T` cannot be dereferenced` (rustc E0614). A `&str` / `&[T]` / `&dyn Tr` is its own fat pointer, so `*s` is the unsized value in the same representation (the identity).
 
-*Divergence:* Not in docs/DIVERGENCES.md as a blessed item; Rust rejects unary `*` on a type without Deref/a pointer kind. This is a permissive relaxation admitting faithfully-ported Rust source that spells an already-loaded read as `*i` (e.g. `for i in &v` sites); soundness is preserved since it only relaxes the diagnostic, never changes which value is produced.
-
-*Note:* The call sites that feed an already-non-pointer value into this deref (and whether other units reject it earlier) are outside this slice.
-
-*Source:* `src/compiler/sema_expr.cpp#L2702-L2713`
+*Source: src/compiler/sema_expr.cpp (SemaChecker::lower_unary, the `*` operator)*
 
 ### `expr.deref.raw-ptr-unsafe` — Raw-pointer deref requires `unsafe`
 

@@ -1309,7 +1309,7 @@ public:
     const uint8_t* emit_pat_at_direct(std::string_view name,
                                                const std::vector<lir::Pattern>& sub,
                                                TypeRef type, uint32_t slot = 0xFFFFFFFFu,
-                                               bool is_mut = false) {
+                                               bool is_mut = false, uint8_t ref_mode = 0) {
         auto name_av = put_string(name);
         auto sub_av  = pat_array(sub);
         auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::At));
@@ -1318,6 +1318,7 @@ public:
         put(map_off, pk::SUB,  sub_av);
         put(map_off, pk::TYPE, type_av(type));
         if (slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)slot));
+        if (ref_mode != 0) put(map_off, pk::AT_REF_MODE, put_i64((int64_t)ref_mode));
         return map_off;
     }
     const uint8_t* emit_pat_ref_bind_direct(std::string_view name,
@@ -2523,10 +2524,10 @@ const uint8_t* lir_mirror_emit_pat_slice(lir::LProgram& prog, const std::vector<
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_slice_direct(prefix, rest, suffix);
 }
-const uint8_t* lir_mirror_emit_pat_at(lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type, uint32_t slot, bool is_mut) {
+const uint8_t* lir_mirror_emit_pat_at(lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type, uint32_t slot, bool is_mut, uint8_t ref_mode) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_at_direct(name, sub, type, slot, is_mut);
+    return em.emit_pat_at_direct(name, sub, type, slot, is_mut, ref_mode);
 }
 const uint8_t* lir_mirror_emit_pat_ref_bind(lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type, uint32_t slot) {
     auto& ctr = prog.type_pool.ctr_or_init();

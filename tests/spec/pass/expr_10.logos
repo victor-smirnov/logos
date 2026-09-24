@@ -47,14 +47,6 @@ unsafe fn isnull(hs: WritStatic) -> bool { let v = wview2_from_ptr(hs.ptr); retu
 fn main() -> i64 {
     // ── deref ────────────────────────────────────────────────────────────────
 
-    // @rule expr.deref.non-pointer-identity
-    // `*x` on a plain (non-pointer, non-reference, no-Deref) value is identity.
-    {
-        let x: i64 = 5i64;
-        let y: i64 = *x;
-        if y != 5i64 { return 1; }
-    }
-
     // @rule expr.deref.box-move-out
     // `*b` for Box<NonCopy> moves the value out (consumes b); for Box<Copy> it
     // copies out and leaves b live.

@@ -268,7 +268,9 @@
 # (it refuses to classify; a human classifies at the pin move) and this is that
 # classification: a wildcard sentinel, not a name intercept, and no package can
 # qualify `_` because no package owns it.
-#SCAN mlir_gen_stmt.cpp 3 13158b82
+# 2026-09-24: mlir_gen_stmt.cpp 3 -> 4, REGEX ONLY (wildcard test, no entity key): pat_bind's At case skips a
+#   `_` name before binding `ref n @ sub` by reference (`av.name() != "_"`).
+#SCAN mlir_gen_stmt.cpp 4 a8faf251
 #SCAN mlir_gen_types.cpp 1 95c89e84
 #SCAN module_loader.cpp 1 dfda2a6a
 #SCAN mono_clone.cpp 104 410af9da
@@ -469,7 +471,9 @@
 # 2026-09-24: sema_stmt.cpp 27 -> 26, REGEX ONLY (wildcard tests, no entity key): lower_let_destruct is deleted
 #   (its two `_` tests) — `let (…) = e` is LET_PAT now; build_pattern's top-level E0416 check adds one
 #   (`nm == "_"`: a `_` binds nothing, so it is never a duplicate).
-#SCAN sema_stmt.cpp 26 942188f9
+# 2026-09-24: sema_stmt.cpp 26 -> 27, REGEX ONLY (wildcard test, no entity key): build_pattern's PAT_AT
+#   `pa.name != "_"` before minting `ref n @ sub` (AT_REF_MODE). A `_` binds nothing.
+#SCAN sema_stmt.cpp 27 21c4e7fe
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)

@@ -920,6 +920,9 @@ inline constexpr Key HI_HI             {"HI_HI",           26};   // i64 (PatRan
 // type_3, type_8) — a legal list walk, since assigning the LOCAL cannot
 // invalidate a borrow of its POINTEE.
 inline constexpr Key BINDING_REF_MODES {"BINDING_REF_MODES",27};   // Array<u32> parallel to BINDINGS
+// PatAt's binding mode: absent / 0 by value, 1 `ref n @ sub`, 2 `ref mut n @ sub`
+// (the name binds the ADDRESS of the matched place; TYPE is then `&T` / `&mut T`).
+inline constexpr Key AT_REF_MODE       {"AT_REF_MODE",      28};   // i64 (PatAt)
 } // namespace pat_keys
 
 } // namespace logos::compiler::lir_schema

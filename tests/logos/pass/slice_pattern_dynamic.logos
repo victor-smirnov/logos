@@ -6,8 +6,8 @@ package slice_pattern_dynamic;
 
 fn f(s: &[i64]) -> i64 {
     return match s {
-        [a, b] => a * 100i64 + b,   // exactly two elements
-        [h, ..] => h,                // one-or-more, bind the head
+        [a, b] => *a * 100i64 + *b, // exactly two elements (a, b: &i64)
+        [h, ..] => *h,               // one-or-more, bind the head
         _ => -1i64,                  // empty
     };
 }

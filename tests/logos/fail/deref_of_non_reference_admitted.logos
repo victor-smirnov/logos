@@ -1,0 +1,7 @@
+// Refused as rustc 1.98.1 refuses it (squeue row of the same name).
+package deref_of_non_reference_admitted;
+fn main() -> i32 {
+    let n: i64 = 6i64;
+    if **n != 6i64 { return 1i32; }
+    return 0i32;
+}

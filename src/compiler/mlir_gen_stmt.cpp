@@ -4722,6 +4722,35 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
     }
 }
 
+// Bind `name : &T` to the ADDRESS of a place of type `ty` — a borrow, no
+// load/copy (`ref x`, `ref n @ sub`, default-mode refs). A ref-to-struct /
+// ref-to-tuple binds the pointer and records the shape so `x.f` / `x.0` GEP
+// through it; a scalar ref alloca-wraps so `*x` derefs one level.
+void MLIRGenImpl::bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty) {
+    evict_var_shapes(name);  // gap C: fresh binding drops stale peer shapes
+    bool ref_to_struct = ty &&
+        (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+         TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
+    // The tuple is the SECOND aggregate shape; without it `p.0` GEPs
+    // through the alloca-wrap and the write lands nowhere. 2026-09-06j.
+    bool ref_to_tuple = ty && TypeRef(ty).kind() == LogosType::Kind::Tuple;
+    if (ref_to_struct) {
+        scope_[name] = slot_ptr;
+        let_vars_.insert(name);
+        var_struct_[name] = mlir_struct_key(ty);
+    } else if (ref_to_tuple) {
+        scope_[name] = slot_ptr;
+        let_vars_.insert(name);
+        var_tuple_.insert(name);
+    } else {
+        auto alloca = create_entry_alloca(ptr_type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, slot_ptr, alloca);
+        scope_[name] = alloca;
+        let_vars_.insert(name);
+        var_elem_types_[name] = ptr_type();
+    }
+}
+
 void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
                            const std::unordered_map<std::string, mlir::Value>* shared) {
     namespace pc = lir_schema::pat;
@@ -4737,7 +4766,11 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
     // SAME slot. Spec pat.at.binds-at-every-position.
     case pc::Code::At: {
         lir_view::PatAtView av{pat};
-        bind_name_at_slot(std::string(av.name()), slot_ptr, ty, shared);
+        // `ref n @ sub`: n borrows the place (RefBind's convention).
+        if (av.ref_mode() && !av.name().empty() && av.name() != "_")
+            bind_ref_name(std::string(av.name()), slot_ptr, ty);
+        else
+            bind_name_at_slot(std::string(av.name()), slot_ptr, ty, shared);
         pat_bind(av.sub(), slot_ptr, ty, shared);
         break;
     }
@@ -4962,29 +4995,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // alloca-wraps so `*x` derefs one level.
         auto n = lir_view::PatRefBindView{pat}.name();
         if (n.empty() || n == "_") return;
-        std::string name(n);
-        evict_var_shapes(name);  // gap C: fresh binding drops stale peer shapes
-        bool ref_to_struct = ty &&
-            (TypeRef(ty).kind() == LogosType::Kind::Struct ||
-             TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
-        // The tuple is the SECOND aggregate shape; without it `p.0` GEPs
-        // through the alloca-wrap and the write lands nowhere. 2026-09-06j.
-        bool ref_to_tuple = ty && TypeRef(ty).kind() == LogosType::Kind::Tuple;
-        if (ref_to_struct) {
-            scope_[name] = slot_ptr;
-            let_vars_.insert(name);
-            var_struct_[name] = mlir_struct_key(ty);
-        } else if (ref_to_tuple) {
-            scope_[name] = slot_ptr;
-            let_vars_.insert(name);
-            var_tuple_.insert(name);
-        } else {
-            auto alloca = create_entry_alloca(ptr_type());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, slot_ptr, alloca);
-            scope_[name] = alloca;
-            let_vars_.insert(name);
-            var_elem_types_[name] = ptr_type();
-        }
+        bind_ref_name(std::string(n), slot_ptr, ty);
         break;
     }
     case pc::Code::RefPat: {
@@ -5573,7 +5584,16 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     (binder_bty.kind() == LogosType::Kind::Ref ||
                      binder_bty.kind() == LogosType::Kind::MutRef ||
                      binder_bty.kind() == LogosType::Kind::Ptr);
-                if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
+                if (pa.ref_mode()) {
+                    // `ref n @ sub`: n borrows the matched place. An owned
+                    // scrutinee's address, or a spilled scalar value's.
+                    mlir::Value addr = sv;
+                    if (!(sv && sv.getType() == ptr_type() && !binder_via_ref)) {
+                        addr = create_entry_alloca(sv.getType());
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, sv, addr);
+                    }
+                    bind_ref_name(aname, addr, scrut_ty);
+                } else if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
                     bind_name_at_slot(aname, sv, scrut_ty, nullptr);
                 } else {
                     auto alloca = create_entry_alloca(sv.getType());
