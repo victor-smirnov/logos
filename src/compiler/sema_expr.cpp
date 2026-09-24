@@ -2278,7 +2278,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                     int32_t lc = code_of(s);
                     if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
                         result = lower_expr(map_of(s.get(la::VALUE.code)));
-                    } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
+                    } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_PAT && lc != la::RETURN) {
                         result = lower_expr(s);
                     } else {
                         push_stmt_with_unwind(block, lower_stmt(s));  // #122
@@ -18126,7 +18126,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 continue;
             }
             if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR
-                && lc != la::LET && lc != la::LET_DESTRUCT
+                && lc != la::LET && lc != la::LET_PAT
                 && lc != la::RETURN && !is_stmt_only_code(lc)) {
                 result = lower_expr(s);
                 continue;
@@ -18316,7 +18316,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                         result = lower_expr_temp_scoped(val_node);
                     }
                 } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR &&
-                           lc != la::LET && lc != la::LET_DESTRUCT &&
+                           lc != la::LET && lc != la::LET_PAT &&
                            lc != la::RETURN && lc != la::BREAK && lc != la::CONTINUE) {
                     result = lower_expr_temp_scoped(s);
                 } else {

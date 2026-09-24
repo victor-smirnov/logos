@@ -4522,9 +4522,13 @@ private:
     void push_closure_scope() { scope_.emplace_back(); scope_.back().closure_boundary = true; }
     void pop_scope() {
         if (!scope_.empty()) {
-            // Remove popped variables from moved set
+            // Remove popped variables from moved set — and every PATH rooted at
+            // one (`t.0`): a later binding of the same name in a sibling block
+            // would inherit it and skip dropping that part (a leak).
             for (auto& name : scope_.back().var_order)
-                moved_vars_.erase(name);
+                for (auto it = moved_vars_.lower_bound(name);
+                     it != moved_vars_.end() && it->compare(0, name.size(), name) == 0;)
+                    it = shadow_is_path_of(*it, name) ? moved_vars_.erase(it) : std::next(it);
             auto shadow_ren = std::move(scope_.back().shadow_outer_renames);
             scope_.pop_back();
             for (auto it = shadow_ren.rbegin(); it != shadow_ren.rend(); ++it) {
@@ -9193,9 +9197,11 @@ private:
     lir_view::StmtRef lower_stmt(writ::TinyMapView stmt);
     lir_view::StmtRef lower_stmt_inner(writ::TinyMapView stmt);
     lir_view::BlockRef lower_block(writ::TinyMapView block);
-    lir_view::StmtRef lower_let_destruct(writ::TinyMapView node);
     lir_view::StmtRef lower_let_pat(writ::TinyMapView node);
     lir_view::StmtRef lower_let_pat_rhs(writ::TinyMapView pat_node, lir::LExprPtr rhs, TypeRef rhs_type);
+    bool ast_pattern_has_ref_binder(writ::TinyMapView n);
+    std::set<std::string> reported_dup_bindings_;   // E0416 dedup: "line:name"
+    bool force_structural_let_ = false;   // lower_let_pat_bound: a struct pattern over a synth temporary takes the structural lowering
     lir_view::StmtRef refuse_refutable_let(lir::Pattern& probe, lir::LExprPtr rhs, TypeRef rhs_type);
     const char* let_pat_site_ = nullptr;   // E0005 wording: null = `let`; else "`for` loop binding", "function argument", …
     // The body of lower_let_pat once the source EXPRESSION is already lowered:

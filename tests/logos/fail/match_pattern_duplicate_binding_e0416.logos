@@ -1,0 +1,3 @@
+// rustc 1.98.1: error[E0416]: identifier `x` is bound more than once in the same pattern
+package match_pattern_duplicate_binding_e0416;
+fn main() -> i32 { let t = (1i64, 2i64); match t { (x, x) => { return x as i32; } } }

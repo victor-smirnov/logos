@@ -1,0 +1,35 @@
+// A tuple `let` binds through the pattern door: a place keeps its unbound parts (dropped with it, in declaration order);
+// a temporary drops them at the end of the statement; typed and `ref` forms (rustc 1.98.1).
+package tuple_let_drop_timing;
+use logos.std.fmt;
+struct D { n: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("DROP {}", self.n); } }
+fn mk(n: i64) -> D { return D { n: n }; }
+fn main() -> i32 {
+    {
+        let t = (mk(1), mk(2));
+        let x = mk(3);
+        let (d, _) = t;
+        println!("a {}", d.n + x.n);
+    }
+    {
+        let (d, _) = (mk(4), mk(5));
+        println!("b {}", d.n);
+    }
+    {
+        let (p, (q, _)): (D, (D, i64)) = (mk(6), (mk(7), 8));
+        println!("c {}", p.n + q.n);
+    }
+    {
+        let t = (mk(9), mk(10), 11i64);
+        let (_, ref r, k): (D, D, i64) = t;
+        println!("d {}", r.n + k);
+    }
+    {
+        let (a, b) = (1, 2);
+        let (mut m, n): (i64, i64) = (a + b, 4);
+        m = m * n;
+        println!("e {}", m);
+    }
+    return 0i32;
+}

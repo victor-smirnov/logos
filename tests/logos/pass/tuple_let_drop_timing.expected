@@ -1,0 +1,16 @@
+exit: 0
+stdout:
+a 4
+DROP 1
+DROP 3
+DROP 2
+DROP 5
+b 4
+DROP 4
+c 13
+DROP 7
+DROP 6
+d 21
+DROP 9
+DROP 10
+e 12

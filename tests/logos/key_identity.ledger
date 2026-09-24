@@ -466,7 +466,10 @@
 #   `nm == "_"` is gone — `for PAT in it` binds through `let PAT = <element>` (emit_for_pattern_destructure).
 # 2026-09-24: sema_stmt.cpp 28 -> 27, REGEX ONLY (wildcard test, no entity key): lower_match_expr's copy of the
 #   nested payload destructure (its `nm == "_"`) is gone — it calls emit_nested_pat_destructure, as lower_match does.
-#SCAN sema_stmt.cpp 27 21c4e7fe
+# 2026-09-24: sema_stmt.cpp 27 -> 26, REGEX ONLY (wildcard tests, no entity key): lower_let_destruct is deleted
+#   (its two `_` tests) — `let (…) = e` is LET_PAT now; build_pattern's top-level E0416 check adds one
+#   (`nm == "_"`: a `_` binds nothing, so it is never a duplicate).
+#SCAN sema_stmt.cpp 26 942188f9
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)

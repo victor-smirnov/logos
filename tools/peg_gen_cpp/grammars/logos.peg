@@ -2700,11 +2700,7 @@
     let_else_stmt <- KW_LET pattern ASSIGN expr KW_ELSE block_body SEMI
                   => { CODE: LET_ELSE, PAT: $2, VALUE: $4, BODY: $6 }
 
-    let_stmt <- KW_LET LPAREN pat_binding_list RPAREN COLON type_ref ASSIGN expr SEMI
-             => { CODE: LET_DESTRUCT, NAMES: $3, TYPE: $6, VALUE: $8 }
-              / KW_LET LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
-             => { CODE: LET_DESTRUCT, NAMES: $3, VALUE: $6 }
-              // `let #n: T = e;` — BINDING-NAME antiquot (NAME_VAR), valid only
+    // `let #n: T = e;` — BINDING-NAME antiquot (NAME_VAR), valid only
               // inside quote_*! bodies (the generic subst walk rewrites
               // NAME_VAR(idx) → NAME before sema ever sees the node; outside a
               // quote the name never resolves and sema reports it).
@@ -2716,7 +2712,8 @@
               // Without this an emitter cannot build a fragment that declares a
               // binding whose NAME it computes (`__j0`, `__m1`, …) — the single
               // thing that kept the wql! emitters on push_text.
-              / KW_LET KW_MUT HASH IDENT COLON type_ref ASSIGN expr SEMI
+    let_stmt <-
+                KW_LET KW_MUT HASH IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, IS_MUT: true, NAME_VAR: $4, TYPE: $6, VALUE: $8 }
               / KW_LET KW_MUT HASH IDENT COLON type_ref SEMI
              => { CODE: LET, IS_MUT: true, NAME_VAR: $4, TYPE: $6 }
@@ -2752,6 +2749,10 @@
               // Tried last because the IDENT-prefixed alts above cover the
               // common path; this picks up forms the simpler alts reject.
               // Refutability is checked at sema time.
+              // `let (a, b): (T, U) = e;` and every other typed pattern: the
+              // annotation types the matched value.
+              / KW_LET pat_single COLON type_ref ASSIGN expr SEMI
+             => { CODE: LET_PAT, PAT: $2, TYPE: $4, VALUE: $6 }
               / KW_LET pat_single ASSIGN expr SEMI
              => { CODE: LET_PAT, PAT: $2, VALUE: $4 }
 

@@ -38,8 +38,6 @@ typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike       
 
 at_binding_ref_mut_payload_refuses 3 tests/soundness/open/at_binding_ref_mut_payload_refuses refuses
 
-let_at_binding_type_annot_syntax 3 tests/soundness/open/let_at_binding_type_annot_syntax refuses
-
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
 sharedref_deref_write_says_raw_pointer 4 tests/soundness/open/sharedref_deref_write_says_raw_pointer diag write through raw pointer requires unsafe context
@@ -346,5 +344,5 @@ let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 86
-# SYNC-HASH 4070696bb20c7be1bb103bd0e398f718
+# TOTAL 85
+# SYNC-HASH 80a251a69c630cd630260cec41d4b49c

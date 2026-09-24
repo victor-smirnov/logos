@@ -1,0 +1,27 @@
+// Temporaries under tuple / struct / array / `ref` let patterns: unbound parts drop at statement end, a `ref` binder extends the temporary (rustc 1.98.1).
+package let_pattern_temporary_drops;
+use logos.std.fmt;
+struct D { n: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("DROP {}", self.n); } }
+struct P { a: D, b: D }
+fn mk(n: i64) -> D { return D { n: n }; }
+fn mkp() -> P { return P { a: mk(1), b: mk(2) }; }
+fn main() -> i32 {
+    {
+        let (ref a, _) = (mk(3), mk(4));
+        println!("a {}", a.n);
+    }
+    {
+        let P { a, .. } = mkp();
+        println!("b {}", a.n);
+    }
+    {
+        let [x, _] = [mk(5), mk(6)];
+        println!("c {}", x.n);
+    }
+    {
+        let (_, (y, _)) = (mk(7), (mk(8), mk(9)));
+        println!("d {}", y.n);
+    }
+    return 0i32;
+}

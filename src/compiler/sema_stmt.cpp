@@ -500,7 +500,6 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
 
     if (c == la::LET)          return lower_let(stmt);
     if (c == la::LET_ELSE)     return lower_let_else(stmt);
-    if (c == la::LET_DESTRUCT) return lower_let_destruct(stmt);
     if (c == la::LET_PAT)      return lower_let_pat(stmt);
     if (c == la::NESTED_FN)    return lower_nested_fn(stmt);
     if (c == la::ASSIGN)          return lower_assign(stmt);
@@ -1084,164 +1083,6 @@ std::vector<lir_view::StmtRef> SemaChecker::make_return_with_drops(lir::LExprPtr
     return out;
 }
 
-lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
-    lir::LExprPtr rhs = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code)))
-        : error_expr();
-    TypeRef rhs_type = expr_type(rhs);
-    // A reference to a tuple destructures under the by-reference DEFAULT BINDING
-    // MODE (Rust): `let (s, b) = &p;` binds `s: &S`, `b: &i64` into `p`.
-    auto is_ref_to_tuple = [](TypeRef t) {
-        return t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
-                     TypeRef(t).kind() == LogosType::Kind::MutRef) &&
-               TypeRef(t).pointee() && TypeRef(t).pointee().kind() == LogosType::Kind::Tuple;
-    };
-    if (TypeRef(rhs_type).kind() != LogosType::Kind::Tuple && !is_ref_to_tuple(rhs_type)) {
-        error(std::format("let (...) = ...: right-hand side must be a tuple, got {}",
-              type_str(rhs_type)));
-        return builder().stmt_expr(std::move(rhs), node_line_);
-    }
-
-    std::vector<lir_view::StmtRef> blk;
-
-    // Spilling the RHS into __destruct_0 MOVES it — mark the original source
-    // place (e.g. a named `tup` in `let (a,b) = tup;`) moved so its scope-exit
-    // drop is suppressed, else it double-frees the elements now owned by the
-    // bindings. bind_list below marks only the spilled temp, never the original
-    // source, so it must be marked here (mirrors lower_let_pat's array path).
-    // mark_moved_expr self-gates to VarRef/FieldRead/TupleIndex, so a tuple
-    // LITERAL rhs is a no-op (already correct).
-    if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
-
-    // let __destruct_N = rhs
-    std::string tmp = std::format("__destruct_{}", destruct_counter_++);
-    define(tmp, rhs_type);
-    lir::SLet tmp_let;
-    tmp_let.name    = tmp;
-    tmp_let.type    = rhs_type;
-    tmp_let.is_mut  = false;
-    tmp_let.value   = std::move(rhs);
-    blk.push_back(make_stmt_emit(node_line_, std::move(tmp_let)));
-
-    // Recursively bind a tuple-binding list against a source expr of tuple type.
-    // Each element is either a PAT_WILD (leaf name binding) or a PAT_TUPLE
-    // (nested `(b, c)`), stored under NAMES — closes nested `let (a,(b,c)) = …`.
-    std::vector<std::string> all_names;  // for uniqueness check
-    std::function<void(TinyMapView, lir::LExprPtr, TypeRef)> bind_list =
-        [&](TinyMapView nlist, lir::LExprPtr src, TypeRef src_ty) {
-        if (!nlist.has_key(la::ITEMS)) return;
-        auto arr = arr_of(nlist.get(la::ITEMS.code));
-        const bool ref_mode = is_ref_to_tuple(src_ty);
-        const bool rmut = ref_mode && TypeRef(src_ty).kind() == LogosType::Kind::MutRef;
-        const TypeRef tup_ty = ref_mode ? TypeRef(src_ty).pointee() : src_ty;
-        size_t arity = TypeRef(tup_ty).kind() == LogosType::Kind::Tuple
-                           ? TypeRef(tup_ty).tuple_elems().size() : 0;
-        // G140-4: a single `..` rest absorbs the unmatched middle positions.
-        // Names before the rest bind low positions; names after bind the tail.
-        int rest_idx = -1;
-        size_t n_named = 0;
-        for (uint64_t i = 0; i < arr.size(); ++i) {
-            if (code_of(map_of(arr.get(i))) == la::PAT_REST) {
-                if (rest_idx >= 0)
-                    error("let (...) = ...: at most one `..` rest allowed");
-                rest_idx = (int)i;
-            } else {
-                ++n_named;
-            }
-        }
-        if (rest_idx < 0) {
-            if (arr.size() != arity)
-                error(std::format("let (...) = ...: expected {} bindings, got {}",
-                      arity, arr.size()));
-        } else if (n_named > arity) {
-            error(std::format("let (...) = ...: {} bindings exceed tuple arity {}",
-                  n_named, arity));
-        }
-        // Spill the source to a temp so each element read references it once.
-        // Spilling MOVES `src` into src_tmp — mark the source place moved so its
-        // owner's scope-exit drop is suppressed (else double-free). At the top
-        // level `src` is var_ref(tmp) → the whole tuple is marked moved; at a
-        // nested level it is tuple_index(parent_src_tmp, pos) → that one element.
-        if (is_move_type(src_ty)) mark_moved_expr(expr_ref_of(src));
-        std::string src_tmp = std::format("__destruct_{}", destruct_counter_++);
-        define(src_tmp, src_ty);
-        lir::SLet sl;
-        sl.name = src_tmp; sl.type = src_ty; sl.is_mut = false; sl.value = std::move(src);
-        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        // names after the rest occupy the tail: first such name maps to
-        // position (arity - trailing_count).
-        size_t trailing = rest_idx < 0 ? 0 : (arr.size() - 1 - (size_t)rest_idx);
-        for (uint64_t i = 0; i < arr.size(); ++i) {
-            auto bnode = map_of(arr.get(i));
-            if (code_of(bnode) == la::PAT_REST) continue;
-            // Map pattern-item index → tuple position.
-            size_t pos;
-            if (rest_idx < 0 || (int)i < rest_idx) {
-                pos = i;                                  // before the rest
-            } else {
-                size_t after_k = i - (size_t)rest_idx - 1;  // 0-based after rest
-                pos = arity - trailing + after_k;
-            }
-            if (pos >= arity) continue;
-            auto elem_t = TypeRef(tup_ty).tuple_elems()[pos];
-            if (ref_mode) {
-                // `(*src).pos`, borrowed: every binder is a reference into it.
-                auto place = builder().tuple_index(
-                    builder().deref(builder().var_ref(src_tmp, src_ty), tup_ty), (uint32_t)pos, elem_t);
-                TypeRef rt = make_ref(rmut, elem_t);
-                auto addr = builder().addr_of_temp(std::move(place), rmut, rt,
-                                                   lir_schema::expr::BorrowOrigin::Explicit);
-                if (code_of(bnode) == la::PAT_TUPLE && bnode.has_key(la::NAMES)) {
-                    bind_list(map_of(bnode.get(la::NAMES.code)), std::move(addr), rt);
-                    continue;
-                }
-                std::string nm(str_of(bnode.get(la::NAME.code)));
-                auto flag = [&](const la::Key& k) {
-                    return bnode.has_key(k) && bnode.get(k.code).is_value() &&
-                           bnode.get(k.code).as_value<uint8_t>() != 0;
-                };
-                if (!nm.empty() && nm != "_" && (flag(la::IS_REF) || flag(la::IS_MUT)))
-                    modifier_under_ref_scrutinee(nm, src_ty, /*known_ref=*/true);
-                if (nm.empty() || nm == "_") continue;
-                all_names.push_back(nm);
-                define(nm, rt, false);
-                lir::SLet el;
-                el.name = nm; el.type = rt; el.is_mut = false; el.value = std::move(addr);
-                blk.push_back(make_stmt_emit(node_line_, std::move(el)));
-                continue;
-            }
-            auto elem_expr = builder().tuple_index(
-                builder().var_ref(src_tmp, src_ty), (uint32_t)pos, elem_t);
-            if (code_of(bnode) == la::PAT_TUPLE && bnode.has_key(la::NAMES)) {
-                // Nested tuple — recurse.
-                bind_list(map_of(bnode.get(la::NAMES.code)), std::move(elem_expr), elem_t);
-            } else {
-                std::string nm(str_of(bnode.get(la::NAME.code)));
-                all_names.push_back(nm);
-                define(nm, elem_t, pat_byval_mut(bnode));
-                // Binding moves the element OUT of src_tmp — mark src_tmp.<pos>
-                // moved so src_tmp's scope-exit drop skips it (double-free else).
-                if (is_move_type(elem_t)) mark_moved_expr(expr_ref_of(elem_expr));
-                lir::SLet el;
-                el.name = nm; el.type = elem_t; el.is_mut = pat_byval_mut(bnode); el.value = std::move(elem_expr);
-                blk.push_back(make_stmt_emit(node_line_, std::move(el)));
-            }
-        }
-    };
-    if (node.has_key(la::NAMES))
-        bind_list(map_of(node.get(la::NAMES.code)),
-                  builder().var_ref(tmp, rhs_type), rhs_type);
-    // Tuple-pattern binding-name uniqueness (closes B-pt-01)
-    check_unique_names(all_names,
-                       [](auto& n) -> std::string_view { return n; },
-                       "binding", "let (...) destructure");
-
-    lir::SBlock sb;
-    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
-    sb.body = lir_mirror_block(*cur_prog_, blk);
-    return make_stmt_emit(node_line_, std::move(sb));
-}
-
 // G149-7 (RFC 2909): destructuring assignment into EXISTING places.
 //   (a, b) = e;          →  let __da = e; a = __da.0; b = __da.1;
 //   [a, b] = e;          →  let __da = e; a = __da[0]; b = __da[1];
@@ -1444,10 +1285,40 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
 // match lowering, which we layer on top of this basic destructure path
 // in a later sprint.
 lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
+    // `let PAT: T = e`: the annotation types the matched VALUE. It hints the
+    // rhs as `let x: T = e` does (tuple elements, generic literals, the
+    // expected type) and the rhs must coerce to it.
+    TypeRef ann = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : TypeRef(nullptr);
+    const bool ann_hint = ann && TypeRef(ann).kind() != LogosType::Kind::Error && !type_has_inferred(ann);
+    auto saved_tuple = hint_tuple_type_;
+    auto saved_expected = hint_expected_type_;
+    auto saved_ret = hint_call_return_type_;
+    auto saved_struct = hint_struct_type_;
+    auto saved_enum = hint_enum_type_;
+    if (ann_hint) {
+        hint_expected_type_ = ann;
+        hint_call_return_type_ = ann;
+        if (TypeRef(ann).kind() == LogosType::Kind::Tuple) hint_tuple_type_ = ann;
+        if (TypeRef(ann).kind() == LogosType::Kind::Struct && !TypeRef(ann).type_args().empty())
+            hint_struct_type_ = ann;
+        if (TypeRef(ann).kind() == LogosType::Kind::Enum && !TypeRef(ann).type_args().empty())
+            hint_enum_type_ = ann;
+    }
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
+    hint_tuple_type_ = saved_tuple;
+    hint_expected_type_ = saved_expected;
+    hint_call_return_type_ = saved_ret;
+    hint_struct_type_ = saved_struct;
+    hint_enum_type_ = saved_enum;
     TypeRef rhs_type = expr_type(rhs);
+    // The binders take the ANNOTATION's types (a `(i64, i64)` over an rhs of
+    // unsuffixed literals binds i64s).
+    if (ann_hint && expect_type(rhs, ann, CoercePos::LetInit, "let pattern: type mismatch —")) {
+        if (expr_type(rhs) != ann) builder().retype_expr(rhs, ann);
+        rhs_type = ann;
+    }
     if (!node.has_key(la::PAT)) {
         error("internal: LET_PAT missing PAT");
         return builder().stmt_expr(std::move(rhs), node_line_);
@@ -1502,7 +1373,59 @@ lir_view::StmtRef SemaChecker::lower_let_pat_rhs(TinyMapView pat_node, lir::LExp
         sb.body = lir_mirror_block(*cur_prog_, at_pre);
         return make_stmt_emit(node_line_, std::move(sb));
     }
+    // A TEMPORARY rhs (not a place) of a droppable type under a tuple or struct
+    // pattern (the struct one then takes the structural lowering, which records
+    // leaf moves on the synth; the array shape spills its own): bind from a synth
+    // local and drop what the pattern did not take at the END OF THE
+    // STATEMENT, as Rust drops a temporary (`let (d, _) = (mk(4), mk(5));`
+    // drops the 5 before the next statement). Nothing owned it before: the
+    // parts a pattern skipped leaked. A pattern with a `ref` binder extends
+    // the temporary to the block instead (Rust's temporary lifetime
+    // extension), so it keeps the synth local's block-end drop.
+    if (rhs && rhs_type && is_move_type(rhs_type) &&
+        !lir_view::is_place_expr(expr_ref_of(rhs)) &&
+        (code_of(pat_node) == la::PAT_TUPLE || code_of(pat_node) == la::PAT_STRUCT)) {
+        std::string tmp = std::format("__let_tmp_{}", tmp_var_count_++);
+        define(tmp, rhs_type, /*is_mut=*/true);
+        std::vector<lir_view::StmtRef> blk;
+        {
+            lir::SLet sl; sl.name = tmp; sl.type = rhs_type; sl.is_mut = true; sl.value = std::move(rhs);
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        force_structural_let_ = true;
+        blk.push_back(lower_let_pat_bound(pat_node, builder().var_ref(tmp, rhs_type), rhs_type));
+        force_structural_let_ = false;
+        if (!ast_pattern_has_ref_binder(pat_node)) {
+            if (auto it = scope_.back().vars.find(tmp); it != scope_.back().vars.end())
+                if (auto d = make_drop_stmt(tmp, it->second)) blk.push_back(*d);
+            mark_moved(tmp);
+        }
+        lir::SBlock sb;
+        sb.transparent = true;
+        sb.body = lir_mirror_block(*cur_prog_, blk);
+        return make_stmt_emit(node_line_, std::move(sb));
+    }
     return lower_let_pat_bound(pat_node, std::move(rhs), rhs_type);
+}
+
+// Does a pattern (AST) contain a `ref` / `ref mut` binder anywhere?
+bool SemaChecker::ast_pattern_has_ref_binder(TinyMapView n) {
+    if (n.is_null()) return false;
+    if (n.has_key(la::IS_REF) && n.get(la::IS_REF.code).is_value() &&
+        n.get(la::IS_REF.code).as_value<uint8_t>() != 0)
+        return true;
+    for (uint8_t key : {la::ITEMS.code, la::ARGS.code, la::NAMES.code}) {
+        if (!n.has_key(key)) continue;
+        auto av = n.get(key);
+        if (av.is_null() || !av.is_pointer()) continue;
+        auto w = map_of(av);
+        ArrayView items = (!w.is_null() && w.has_key(la::ITEMS)) ? arr_of(w.get(la::ITEMS.code)) : arr_of(av);
+        for (uint64_t i = 0; i < items.size(); ++i)
+            if (ast_pattern_has_ref_binder(map_of(items.get(i)))) return true;
+    }
+    if (n.has_key(la::VALUE) && n.get(la::VALUE.code).is_pointer())
+        return ast_pattern_has_ref_binder(map_of(n.get(la::VALUE.code)));
+    return false;
 }
 
 lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
@@ -1591,7 +1514,8 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             if (code_of(sub) == la::PAT_REST) continue;
             if (code_of(sub) != la::PAT_WILD || flag(sub, la::IS_REF)) nested = true;
         }
-        if (nested) {
+        if (nested || force_structural_let_) {
+            force_structural_let_ = false;   // this level only
             lir::Pattern probe = build_pattern(pat_node, rhs_type);
             if (!pattern_irrefutable(pat_ref_of(probe), rhs_type))
                 return refuse_refutable_let(probe, std::move(rhs), rhs_type);
@@ -4282,7 +4206,23 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
     // (depth 0) so Or-pattern alternatives within ONE pattern share slots while
     // distinct patterns (separate match arms / lets) start fresh. A depth guard
     // auto-detects the top entry regardless of caller.
-    if (pattern_build_depth_++ == 0) clear_pat_bind_slots();
+    if (pattern_build_depth_++ == 0) {
+        clear_pat_bind_slots();
+        // E0416 at every pattern door (match, if/while-let, let, let-else,
+        // for, parameters): a name bound twice in ONE pattern. An or-pattern's
+        // alternatives bind the same names by design; the walker reads its
+        // first alternative only. Reported once per pattern site (a door may
+        // build the same pattern twice: a probe, then the lowering).
+        std::vector<std::string> names;
+        collect_ast_pat_bindings(pnode, names);
+        std::set<std::string> seen;
+        for (auto& nm : names) {
+            if (nm.empty() || nm == "_") continue;
+            if (!seen.insert(nm).second &&
+                reported_dup_bindings_.insert(std::format("{}:{}", node_line_, nm)).second)
+                error(std::format("identifier `{}` is bound more than once in the same pattern", nm));
+        }
+    }
     struct DepthGuard { uint32_t& d; ~DepthGuard() { --d; } } _g{pattern_build_depth_};
     return build_pattern_impl(pnode, scrut_type);
 }
@@ -12312,7 +12252,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                             if ((sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
                                 last_expr = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
                             else if (sc != la::EXPR_STMT && sc != la::TAIL_EXPR && sc != la::LET &&
-                                     sc != la::LET_DESTRUCT && sc != la::RETURN &&
+                                     sc != la::LET_PAT && sc != la::RETURN &&
                                      !is_stmt_only_code(sc))
                                 last_expr = lower_expr_temp_scoped(s);
                             else

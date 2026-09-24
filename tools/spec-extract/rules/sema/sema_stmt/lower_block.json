@@ -39,41 +39,51 @@
     {
       "id": "stmt.let-destruct.tuple-required",
       "domain": "stmt",
-      "title": "let (...) = rhs requires a tuple-typed rhs",
-      "statement": "`let (p0, p1, ...) = rhs;` requires rhs's static type to have Tuple kind; any other kind is a compile error (\"right-hand side must be a tuple, got <T>\") and lowering degrades to a bare expression statement.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L758-L767"],
+      "title": "A tuple pattern needs a tuple value",
+      "statement": "A tuple pattern over a value that is not a tuple (or a reference to one) is an error: `tuple pattern requires tuple scrutinee, got <T>` (rustc E0308). `let (a, b): (T, U) = e` types the value by the annotation, which the rhs must coerce to.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp (SemaChecker::build_pattern_impl, SemaChecker::lower_let_pat)"
+      ],
       "testability": "diagnostic"
     },
     {
       "id": "stmt.let-destruct.rest-and-arity",
       "domain": "stmt",
-      "title": "Tuple destructuring-let: single `..` rest, arity checks, position mapping",
-      "statement": "In a tuple destructuring-let binding list: at most one `..` rest element is allowed (else error); without a rest the binding-list length must equal the tuple arity exactly (else \"expected N bindings, got M\"); with a rest, the named-binding count must not exceed the arity (else \"N bindings exceed tuple arity M\"). Names before the rest bind positions 0.. in order; names after the rest bind the trailing `arity - trailing_count ..` positions, so the rest absorbs the unmatched middle.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L800-L820", "src/compiler/sema_stmt.cpp#L832-L846"],
+      "title": "Tuple pattern arity and `..`",
+      "statement": "A tuple pattern takes at most one `..`; without it the element count must equal the tuple's arity (`tuple pattern: expected N elements, got M`), with it the named elements may not exceed the arity. Elements before the rest match positions 0.., those after it the trailing positions.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp (SemaChecker::build_pattern_impl, PAT_TUPLE)"
+      ],
       "testability": "behavioral"
     },
     {
       "id": "stmt.let-destruct.nested-tuple",
       "domain": "stmt",
-      "title": "Tuple destructuring-let binds nested tuple sub-patterns recursively",
-      "statement": "A tuple destructuring-let binding-list element may itself be a nested tuple binding list (`PAT_TUPLE` with `NAMES`), recursively bound against that position's tuple-typed element, closing `let (a, (b, c)) = ...;` (and deeper nesting) over arbitrary depth.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L790-L793", "src/compiler/sema_stmt.cpp#L850-L852"],
+      "title": "A tuple `let` takes any irrefutable sub-pattern",
+      "statement": "`let (a, (b, c)) = …`, `let (a, S { x, .. }) = …`, `let (_, ref r, [p, ..]) = …`: a tuple `let` is `let PAT = e` (LET_PAT), so its elements are any irrefutable patterns at any depth; names are declared in source order and drop in reverse.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp (SemaChecker::lower_let_pat, SemaChecker::bind_pattern_ref)"
+      ],
       "testability": "behavioral"
     },
     {
       "id": "stmt.let-destruct.binding-uniqueness",
       "domain": "stmt",
-      "title": "Tuple destructuring-let binding names must be pairwise distinct",
-      "statement": "All leaf binding names introduced across an entire (possibly nested) tuple destructuring-let must be pairwise distinct across the whole pattern; a repeated name is a compile error in the `let (...) destructure` binding context.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L793", "src/compiler/sema_stmt.cpp#L855", "src/compiler/sema_stmt.cpp#L869-L872"],
+      "title": "A name is bound at most once in one pattern",
+      "statement": "At every pattern door — `let`, let-else, `for`, function and closure parameters, `match` / `if let` / `while let` arms — the names a pattern binds must be pairwise distinct across the whole pattern at any depth; a repeated name is `identifier `x` is bound more than once in the same pattern` (rustc E0416). An or-pattern's alternatives bind the same names by design and are counted once.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp (SemaChecker::build_pattern, top-level entry)"
+      ],
       "testability": "diagnostic"
     },
     {
       "id": "stmt.let-destruct.move-on-bind",
       "domain": "stmt",
-      "title": "Tuple destructuring-let marks each consumed source place moved",
-      "statement": "Destructuring a move-typed source marks the source place moved at every level it is consumed: the original rhs expression when spilled into the top temporary, each nested level's source place when spilled into its own temporary, and each leaf element's source expression when bound to a name — so no level's temporary double-frees a value now owned by a deeper binding. The move-marking helper self-gates to VarRef/FieldRead/TupleIndex places, so a tuple-literal rhs is a no-op.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L771-L778", "src/compiler/sema_stmt.cpp#L821-L826", "src/compiler/sema_stmt.cpp#L856-L859"],
+      "title": "A tuple `let` moves exactly the parts it binds by value",
+      "statement": "`let (…) = place;` binds through the structural pattern lowering: the leaves bound by value are marked moved one by one (`t.0`, `t.1.0`); parts under `_`, `..` or a `ref` binder stay the source's and drop with it, in declaration order. A TEMPORARY rhs is held in a synth local whose remaining parts drop at the END OF THE STATEMENT, as Rust drops a temporary; with a `ref` binder the temporary is extended to the block.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp (SemaChecker::lower_let_pat_rhs, SemaChecker::mark_match_scrutinee_moved)"
+      ],
       "testability": "behavioral"
     },
     {

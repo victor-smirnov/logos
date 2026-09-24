@@ -1,0 +1,7 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package let_at_binding_type_annot_syntax;
+fn main() -> i32 {
+    let n @ _: i64 = 5i64;
+    if n != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -22053,7 +22053,7 @@ gates tier. Builds 746 (unarmed) → 747…751 (one identity per armed name).
 
     probe      site                                       fires  ceiling  cost  cfail  std
     bxfldmv    sema_impl.hpp::is_unowned_move_source          2      0      1      0    ok
-    dstrbind   sema_stmt.cpp::lower_let_destruct             56      0      1      0    ok
+    dstrbind   sema_stmt.cpp::lower_let_pat_rhs              56      0      1      0    ok
     dropident  sema.cpp::drop_fn_for                    170 680      0     58      0    ok
     clowndyn   mlir_gen_dyn.cpp::emit_closure                 0      —      —      —     —
     derefclos  mlir_gen_expr.cpp::gen_expr_kind(EDerefView)  16      0     12      0    ok
@@ -22484,7 +22484,7 @@ note: the crude arm makes the Box deref-call hop OPAQUE inside `recv_unowned_`, 
   destructor is an ordinary user fn and `SDrop.moved_fields` cannot steer it.
 
 ## dstrbind
-site: src/compiler/sema_stmt.cpp::lower_let_destruct
+site: src/compiler/sema_stmt.cpp::lower_let_pat_rhs (lower_let_destruct was retired 2026-09-24: a tuple `let` is `let PAT = e`)
 build: 37c8cddb14adb561
 measured: 2026-09-04
 fires: 56
