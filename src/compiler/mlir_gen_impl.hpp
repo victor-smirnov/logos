@@ -938,7 +938,16 @@ private:
         mlir::Block*  exit;
         mlir::Value   break_slot;  // alloca for break-value; null if loop is void
         std::string   label;       // loop label (e.g. "'outer"), empty = unlabeled
+        // Cleanup owed when control LEAVES this loop other than through its own
+        // exit block (a `return`, or a `break`/`continue` to an enclosing loop):
+        // a by-value array for-each drops the elements it has not handed out.
+        std::function<void()> unwind;
     };
+    // Run the unwind hooks of every loop above index `keep` (innermost first).
+    void unwind_loops_above(size_t keep) {
+        for (size_t i = loop_stack_.size(); i-- > keep; )
+            if (loop_stack_[i].unwind) loop_stack_[i].unwind();
+    }
     std::vector<LoopBlocks> loop_stack_;
 
     int str_counter_ = 0;

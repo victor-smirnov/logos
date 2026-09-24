@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #293): the loop variable of a by-value array for-each is a local of the loop BODY frame (dropped every iteration and on break/continue/return); codegen drops the untaken tail at the loop exit and on return / outer break (LoopBlocks::unwind). The in_foreach_iterable_ scaffold is deleted.
 // SOUNDNESS QUEUE row foreach_array_rvalue_elements_never_dropped_run (tier 1, run 1). `for d in [D{1}, D{10}]` NEVER DESTROYS ANY ELEMENT.
 // Each iteration moves one element into `d` and drops it at the end of the body: rustc s=11 n=11. TODAY s=11 n=0, exit 1 — neither
 // the loop variable nor the iterable is destroyed. With LOCAL elements (`for d in [a, b]`, pass/bc_0915f_consumeland_hb_k10_admit)

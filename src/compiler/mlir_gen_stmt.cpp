@@ -476,6 +476,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
     if (label.empty()) { gen_continue(); return; }
     for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
         if (loop_stack_[i].label == label) {
+            unwind_loops_above((size_t)i + 1);
             builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_[i].cont);
             return;
         }
@@ -2837,6 +2838,9 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
+    // Leaving every enclosing loop: run their unwind hooks (the value is
+    // sema's hoisted return temp, which no hook's elements can reach).
+    unwind_loops_above(0);
     auto val_er = v.value();
     // A function whose return type is the never type `!` has a void (0-result)
     // MLIR signature (logos_to_mlir(Never)=nullptr). A `return <e>` in such a
@@ -3267,6 +3271,7 @@ void MLIRGenImpl::gen_break(lir_view::SBreakView v) {
         if (val)
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
     }
+    unwind_loops_above((size_t)(target - loop_stack_.data()) + 1);
     builder_.create<mlir::cf::BranchOp>(loc_, target->exit);
 }
 
@@ -3489,8 +3494,38 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     auto* incr_block = new mlir::Block();
     region->push_back(incr_block);
 
+    std::function<void()> emit_tail_drop;
+    if (s.elem_type && value_needs_drop(s.elem_type)) {
+        emit_tail_drop = [this, arr_alloca, i_alloca, hi = mlir::Value(hi_val), region, et = s.elem_type,
+                          arr_t = mlir::LLVM::LLVMArrayType::get(gep_elem_mlir, s.arr_size)]() {
+            auto j_alloca = create_entry_alloca(builder_.getI32Type());
+            auto i_now = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
+            auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 32);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, builder_.create<mlir::arith::AddIOp>(loc_, i_now, one).getResult(), j_alloca);
+            auto* t_cond = new mlir::Block();
+            auto* t_body = new mlir::Block();
+            auto* t_exit = new mlir::Block();
+            region->push_back(t_cond);
+            region->push_back(t_body);
+            region->push_back(t_exit);
+            builder_.create<mlir::cf::BranchOp>(loc_, t_cond);
+            builder_.setInsertionPointToStart(t_cond);
+            auto j = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), j_alloca);
+            auto more = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::slt, j, hi);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, more, t_body, t_exit);
+            builder_.setInsertionPointToStart(t_body);
+            auto jj = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), j_alloca);
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), mlir::Value(jj)};
+            auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), arr_t, arr_alloca, gi);
+            gen_drop_value(ep, et);
+            auto jn = builder_.create<mlir::arith::AddIOp>(loc_, jj, builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 32));
+            builder_.create<mlir::LLVM::StoreOp>(loc_, jn.getResult(), j_alloca);
+            builder_.create<mlir::cf::BranchOp>(loc_, t_cond);
+            builder_.setInsertionPointToStart(t_exit);
+        };
+    }
     shadow_register_slot(v.var_slot(), s.var);
-    loop_stack_.push_back({incr_block, exit_block, {}, {}});
+    loop_stack_.push_back({incr_block, exit_block, {}, {}, emit_tail_drop});
     gen_block(s.body);
     loop_stack_.pop_back();
 
@@ -3512,6 +3547,11 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     }
 
     builder_.setInsertionPointToStart(exit_block);
+    // IntoIterator for [T; N] owns the elements not yet handed out. The one at
+    // `i` was moved into the loop variable (dropped by the body frame), so a
+    // `break` leaves [i+1, N) to drop here; a completed loop has i == N and
+    // drops nothing. The same drop runs on a `return` / outer break (unwind).
+    if (emit_tail_drop) emit_tail_drop();
     restore_var_scope(foreach_scope);
 }
 

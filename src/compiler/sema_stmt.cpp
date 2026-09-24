@@ -844,6 +844,11 @@ lir_view::BlockRef SemaChecker::lower_block(TinyMapView block) {
         scope_.back().loop_boundary = true;
         pending_loop_body_scope_ = false;
     }
+    if (pending_loop_body_init_) {
+        auto init = std::move(pending_loop_body_init_);
+        pending_loop_body_init_ = nullptr;
+        init();
+    }
     bool warned_dead = false;  // Sprint 5.2: B-st-08 dead-code-after-terminator lint
     if (block.has_key(la::ITEMS)) {
         auto stmts = arr_of(block.get(la::ITEMS.code));
@@ -7777,12 +7782,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                                     // else `if (!iter)` below reads an indeterminate
                                     // value and skips lowering the iterable.
     if (node.has_key(la::ITER)) {
-        // ⚠ SCAFFOLD carrier — row foreach_array_rvalue_elements_never_dropped_run: an
-        // array literal that IS the iterable does not consume its elements, because
-        // nothing here drops the iterable or the loop variable. Delete with that row.
-        in_foreach_iterable_ = true;
         iter = lower_expr(map_of(node.get(la::ITER.code)));
-        in_foreach_iterable_ = false;
     } else {
         iter = error_expr();
     }
@@ -7812,18 +7812,31 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         int64_t arr_size = (int64_t)TypeRef(iter_type).arr_size();
         TypeRef elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
 
+        // `for d in arr` is IntoIterator for [T; N]: each element is MOVED into
+        // `d`, which owns it for one iteration. `d` is therefore a local of the
+        // loop BODY frame (dropped at every iteration's end and on
+        // break/continue/return); the untaken tail after a `break` is dropped
+        // by codegen at the loop exit. The iterable itself is consumed.
+        mark_moved_expr(iter);
         push_scope();
-        define(var_name, elem_type, for_var_mut);
-        uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
-        auto pat_pro = build_for_pat(elem_type);
+        uint32_t _fe_slot = 0xFFFFFFFFu;
+        std::vector<lir_view::StmtRef> pat_pro;
+        auto bind_loop_var = [&]() {
+            define(var_name, elem_type, for_var_mut);
+            _fe_slot = lookup_slot(var_name);
+            pat_pro = build_for_pat(elem_type);
+        };
         std::vector<lir_view::StmtRef> body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
-        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
+            pending_loop_body_scope_ = true;  // G167-4: tag the body frame
+            pending_loop_body_init_ = bind_loop_var;
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
             loop_break_frames_.pop_back();
             --loop_depth_;
+        } else {
+            bind_loop_var();
         }
         prepend_for_pat(body, pat_pro);
         pop_scope();
@@ -9850,6 +9863,8 @@ bool SemaChecker::emit_for_pattern_destructure(
         s.value = builder().deref(builder().var_ref(src_var, vt), pe);
         out.push_back(make_stmt_emit(node_line_, std::move(s)));
         base_var = tmp; vt = pe;
+        // A bitwise copy of BORROWED data: it owns nothing and must never drop.
+        mark_moved(tmp);
     }
     if (code_of(pat) != la::PAT_TUPLE || !vt ||
         TypeRef(vt).kind() != LogosType::Kind::Tuple) {
@@ -9870,6 +9885,12 @@ bool SemaChecker::emit_for_pattern_destructure(
         auto elem_expr = builder().tuple_index(
             builder().var_ref(base_var, vt), (uint32_t)i, et);
         int32_t ec = code_of(en);
+        // A by-value element binding MOVES `base.i` out of the source tuple:
+        // record it, so the source's drop (it is a local of the loop body
+        // frame) skips the part a binding now owns.
+        if (!(ec == la::PAT_WILD && en.has_key(la::NAME) && str_of(en.get(la::NAME.code)) == "_") &&
+            et && is_move_type(et))
+            mark_moved(base_var + "." + std::to_string(i));
         if (ec == la::PAT_TUPLE) {
             // Nested tuple: spill this element to a temp + recurse.
             std::string tmp = std::format("__fe_tup_{}", tmp_var_count_++);

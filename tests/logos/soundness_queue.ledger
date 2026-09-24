@@ -305,8 +305,6 @@ operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_
 
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 
-foreach_array_rvalue_elements_never_dropped_run 1 tests/soundness/open/foreach_array_rvalue_elements_never_dropped_run run 1
-
 fnptr_field_call_on_temporary_never_dropped_run 1 tests/soundness/open/fnptr_field_call_on_temporary_never_dropped_run run 1
 
 fru_temporary_base_unmoved_field_never_dropped_run 1 tests/soundness/open/fru_temporary_base_unmoved_field_never_dropped_run run 1
@@ -437,5 +435,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 136
-# SYNC-HASH 899648d84d3817a91ec326a7086501f4
+# TOTAL 135
+# SYNC-HASH 38d8fcd9bc8e0f89573e2627eec3a6f9

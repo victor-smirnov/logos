@@ -4188,6 +4188,10 @@ private:
     // consumed by the next push_scope (lower_block) to tag its frame as the
     // loop body for break/continue drop-glue.
     bool pending_loop_body_scope_ = false;
+    // One-shot: run right after lower_block pushes the loop BODY frame, so a
+    // by-value for-each's loop variable is a local OF THAT FRAME — dropped at
+    // the end of every iteration and on break / continue / return.
+    std::function<void()> pending_loop_body_init_;
 
     std::set<std::string> moved_vars_;   // variables consumed by move
     // §7.1 follow-up: EVER-moved across branches (lifted per-fn). Per-branch
@@ -9298,7 +9302,6 @@ private:
     // that place chain is the operand of an EXTENDING borrow the owner is the enclosing
     // BLOCK instead (Rust r[destructors.scope.lifetime-extension.exprs]).
     bool ext_borrow_place_ctx_ = false;   // an extending borrow's PLACE operand chain is being lowered
-    bool in_foreach_iterable_ = false;    // a for-each ITERABLE is being lowered
     lir::LExprPtr hoist_block_temp(lir::LExprPtr v, bool is_mut);
     lir::LExprPtr autoref_block_temp(lir::LExprPtr v, bool is_mut, TypeRef ref_type,
                                      lir_schema::expr::BorrowOrigin origin);

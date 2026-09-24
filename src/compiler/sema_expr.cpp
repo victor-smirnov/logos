@@ -13554,16 +13554,9 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     // is (`[a, b]` moves a and b; `[src[0]]` is E0508 — rows
     // return_array_lit_of_moved_locals_double_drop, array_lit_index_elem_move_out_admits,
     // generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits).
-    // ⚠ SCAFFOLD, owned by row foreach_array_rvalue_elements_never_dropped_run: the
-    // elements of a for-each ITERABLE are NOT marked, because `for d in [a, b]` drops
-    // neither the iterable nor the loop variable — marking there turns a program that is
-    // right by cancellation into a leak (measured: pass/bc_0915f_consumeland_hb_k10_admit
-    // n 11 -> 0). When that row closes, delete the exception and the carrier with it.
-    const bool in_foreach = in_foreach_iterable_;
-    in_foreach_iterable_ = false;
     for (uint64_t i = 0; i < items.size(); ++i) {
         elems.push_back(lower_expr(map_of(items.get(i))));
-        if (!in_foreach) mark_moved_expr(expr_ref_of(elems.back()));
+        mark_moved_expr(expr_ref_of(elems.back()));
     }
 
     TypeRef elem_type = expr_type(elems[0]);
@@ -14493,9 +14486,6 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
 
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     auto val_node = map_of(node.get(la::VALUE.code));
-    // The for-each scaffold of lower_arr_lit applies here too (`for d in [a; 1]`).
-    const bool in_foreach = in_foreach_iterable_;
-    in_foreach_iterable_ = false;
     auto fill_val = lower_expr(val_node);
     TypeRef elem_type = expr_type(fill_val);
     // ONE resolver, shared with the type position — which is what makes
@@ -14539,7 +14529,7 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     // not held. Row array_repeat_len2_noncopy_says_use_of_moved, which stays
     // OPEN: rustc's sentence is E0277 "the trait bound `D: Copy` is not
     // satisfied", and this restores the refusal, not yet the wording.
-    if (n >= 1 && !in_foreach && elem_type && is_move_type(elem_type))
+    if (n >= 1 && elem_type && is_move_type(elem_type))
         for (auto& el : elems) mark_moved_expr(expr_ref_of(el));
     return builder().arr_lit(std::move(elems), make_array(elem_type, (size_t)n));
 }
