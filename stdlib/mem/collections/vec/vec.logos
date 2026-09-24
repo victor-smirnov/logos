@@ -259,7 +259,7 @@ impl<T> Vec<T> {
 
     /// Returns a mutable iterator yielding `&mut T`.
     pub fn iter_mut<'a>(self: &'a mut Vec<T>) -> VecIterMut<'a, T> {
-        return VecIterMut { data: self.ptr, len: self.len, idx: 0 };
+        return VecIterMut { data: self.ptr, len: self.len, idx: 0, _inv: PhantomData::<&'a mut T> {} };
     }
 }
 
@@ -387,6 +387,10 @@ pub struct VecIterMut<'a, T> {
     data: *mut T,
     len:  i64,
     idx:  i64,
+    // INVARIANT in `T`, as Rust's `IterMut<'a, T>` (an exclusive borrow of the
+    // elements): a raw `*mut T` alone reads as covariant, so `*r = &x` through
+    // the iterator would put a shorter-lived reference into the Vec unseen.
+    _inv: PhantomData<&'a mut T>,
 }
 
 impl<'a, T> Iterator<&'a mut T> for VecIterMut<'a, T> {

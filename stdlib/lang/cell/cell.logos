@@ -231,11 +231,12 @@ pub struct Ref<T> {
 /// `T`): a raw `*mut T` alone reads as covariant, so a guard of
 /// `RefCell<Vec<&'b i64>>` would accept a shorter-lived `&i64` and the cell
 /// would keep it past its end. `_inv` carries the variance, as Rust's
-/// `PhantomData<&'b mut T>` marker does.
+/// `PhantomData<&'b mut T>` marker does; behind a pointer, so it does not make
+/// `RefMut` non-Freeze (the UnsafeCell is the cell's, not the guard's).
 pub struct RefMut<T> {
     value: *mut T,
     state: *mut i32,
-    _inv: PhantomData<UnsafeCell<T>>,
+    _inv: PhantomData<*mut UnsafeCell<T>>,
 }
 
 impl<T> RefCell<T> {
@@ -303,7 +304,7 @@ impl<T> RefCell<T> {
             return Result::Ok(RefMut {
                 value: self.value.get(),
                 state: sp,
-                _inv: PhantomData::<UnsafeCell<T>> {},
+                _inv: PhantomData::<*mut UnsafeCell<T>> {},
             });
         }
     }
@@ -319,7 +320,7 @@ impl<T> RefCell<T> {
             return RefMut {
                 value: self.value.get(),
                 state: self.state.get(),
-                _inv: PhantomData::<UnsafeCell<T>> {},
+                _inv: PhantomData::<*mut UnsafeCell<T>> {},
             };
         }
     }
@@ -444,7 +445,7 @@ pub fn ref_mut_map<T, U>(orig: RefMut<T>, f: fn(&mut T) -> &mut U) -> RefMut<U> 
         return RefMut::<U> {
             value: target as *mut U,
             state: orig.state,
-            _inv: PhantomData::<UnsafeCell<U>> {},
+            _inv: PhantomData::<*mut UnsafeCell<U>> {},
         };
     }
 }

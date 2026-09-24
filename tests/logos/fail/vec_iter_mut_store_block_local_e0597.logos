@@ -1,0 +1,12 @@
+// A block local stored through Vec::iter_mut outlives its block in the Vec: rustc 1.98.1 E0597 (`x` does not live long enough).
+package vec_iter_mut_store_block_local_e0597;
+fn main() -> i32 {
+    let d: i64 = 2i64;
+    let mut v: Vec<&i64> = Vec::<&i64>::new();
+    v.push(&d);
+    {
+        let x: i64 = 5i64;
+        for r in v.iter_mut() { *r = &x; }
+    }
+    return *v.get(0u64) as i32;
+}

@@ -29,7 +29,8 @@ Three readers, one per thing the old sed-based lint got wrong:
 
   transitive — the types that are non-Freeze only THROUGH a root, computed with
                the SAME indirection stop `type_is_freeze` uses (a field behind
-               `*`/`&`/`fn` does not infect its container). A syntactic closure
+               `*`/`&`/`fn`, or a fieldless `PhantomData<…>`, does not infect
+               its container). A syntactic closure
                without that stop would report Rc/Arc as interior-mutable, which
                is exactly backwards.
 """
@@ -376,12 +377,18 @@ def interior_roots(stdlib_root: str, repo_root: str):
             if name == ROOT_NAME and rel.endswith("lang/cell/cell.logos"):
                 out.append((rel, name))   # the lang item itself
                 continue
-            if any(ROOT_NAME in t for t in field_types(body)):
+            # A DIRECT field: behind `*`/`&`/`fn` or inside a fieldless
+            # `PhantomData<…>` it is not in the inline bytes (INDIRECT_RE).
+            if any(ROOT_NAME in t and not INDIRECT_RE.match(t) for t in field_types(body)):
                 out.append((rel, name))
     return sorted(set(out))
 
 
-INDIRECT_RE = re.compile(r"^\s*(\*|&|fn\s*\()")
+# `PhantomData<…>` is a stop too: it has no fields, so `type_is_freeze` finds
+# no inline bytes in it whatever its argument names (Rust: `impl Freeze for
+# PhantomData<T>`). A variance marker `PhantomData<*mut UnsafeCell<T>>` does not
+# make its container interior-mutable.
+INDIRECT_RE = re.compile(r"^\s*(\*|&|fn\s*\(|PhantomData\s*<)")
 
 
 def transitive(stdlib_root: str, repo_root: str):
