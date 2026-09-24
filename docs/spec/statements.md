@@ -278,9 +278,9 @@ Source: `src/compiler/sema_stmt.cpp#L1407-L1418`
 
 ### `stmt.let-pat.struct-shapes-only` — `let <pattern> = expr` accepts only shapes provable irrefutable here
 
-`let <pattern> = expr;` accepts only pattern shapes this lowering can prove irrefutable: plain struct patterns, tuple-struct patterns (rewritten via synthesized "0","1",... field names), fixed-size array patterns whose element count matches the array length exactly (no rest), and struct-shaped single-variant-enum patterns; any other pattern shape at this position is rejected with a diagnostic directing the user to `match`/`let-else`.
+`let <pattern> = expr;` accepts every IRREFUTABLE pattern, as in Rust: struct, tuple-struct, tuple and fixed-size array patterns (with or without a `..` rest), `&` patterns, `n @ sub`, nested to any depth, provided every part is irrefutable (a binder, `_`, or one of these shapes). Shapes the direct lowering does not cover bind through the let-else lowering with an unreachable else. A refutable pattern (a variant, a literal, a range, an or-pattern, an array of the wrong length) is rejected as `refutable pattern in local binding` (rustc E0005), directing the user to `let-else` or `match`.
 
-**Divergence.** B4
+**Divergence.** None since 2026-09-24 (was B4: only struct / tuple-struct / exact-length array shapes).
 
 Source: `src/compiler/sema_stmt.cpp#L1079-L1136`
 

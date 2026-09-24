@@ -1557,9 +1557,15 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         TypeRef(rhs_type).elem();
     if (pc != la::PAT_STRUCT && !is_tuple_struct_pat && !is_array_slice_pat &&
         !is_single_variant_struct_pat) {
-        error("'let <pattern> = expr;' currently supports struct patterns only "
-              "(other shapes are refutable; use 'match' or 'let-else')");
-        return builder().stmt_expr(std::move(rhs), node_line_);
+        // Any other IRREFUTABLE shape (a tuple, `(a, S { x, .. })`, …) binds
+        // through the let-else lowering with an unreachable else; a refutable
+        // one is E0005, as rustc says.
+        lir::Pattern probe = build_pattern(pat_node, rhs_type);
+        if (!pattern_irrefutable(pat_ref_of(probe), rhs_type)) {
+            error("refutable pattern in local binding: use `let … else { … }` or `match`");
+            return builder().stmt_expr(std::move(rhs), node_line_);
+        }
+        return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
     }
     if (is_single_variant_struct_pat) {
         // P4-pm-01: `let E::V { f1, f2 } = rhs;` for a single-variant enum.
@@ -1666,6 +1672,31 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         return make_stmt_emit(node_line_, std::move(sb));
     }
     if (is_array_slice_pat) {
+        // An element that is not a plain binder (`let [W { a: x, .. }] = arr`):
+        // the whole pattern binds through the let-else lowering, which reaches
+        // nested sub-patterns (pat_bind's Slice case); refutable is E0005.
+        {
+            bool nested = false;
+            if (pat_node.has_key(la::ITEMS)) {
+                auto items_av = pat_node.get(la::ITEMS.code);
+                if (!items_av.is_null() && items_av.is_pointer()) {
+                    auto elist = map_of(items_av);
+                    auto eitems = elist.has_key(la::ITEMS) ? arr_of(elist.get(la::ITEMS.code)) : arr_of(items_av);
+                    for (uint64_t i = 0; i < eitems.size(); ++i) {
+                        auto c = code_of(map_of(eitems.get(i)));
+                        if (c != la::PAT_WILD && c != la::PAT_REST) { nested = true; break; }
+                    }
+                }
+            }
+            if (nested) {
+                lir::Pattern probe = build_pattern(pat_node, rhs_type);
+                if (!pattern_irrefutable(pat_ref_of(probe), rhs_type)) {
+                    error("refutable pattern in local binding: use `let … else { … }` or `match`");
+                    return builder().stmt_expr(std::move(rhs), node_line_);
+                }
+                return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
+            }
+        }
         auto elem_t = TypeRef(rhs_type).elem();
         size_t arr_n = (size_t)TypeRef(rhs_type).arr_size();
         // A fixed-length array pattern is irrefutable with or without a `..`
@@ -2364,7 +2395,66 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
+// Is the built pattern IRREFUTABLE against a value of type `ty`? Structural: a
+// binder / wildcard, and tuples, structs, `&` patterns, `@`, and arrays of the
+// right length whose parts are all irrefutable. A variant, a literal, a range
+// or an or-pattern is refutable here (a one-variant enum is too rare to model).
+bool SemaChecker::pattern_irrefutable(lir_view::PatRef p, TypeRef ty) {
+    namespace ps = lir_schema::pat;
+    if (!p) return true;
+    TypeRef t = ty;
+    while (t && (TypeRef(t).kind() == LogosType::Kind::Ref || TypeRef(t).kind() == LogosType::Kind::MutRef) &&
+           TypeRef(t).pointee())
+        t = TypeRef(t).pointee();
+    switch (p.kind()) {
+        case ps::Code::Wild: case ps::Code::RefBind: return true;
+        case ps::Code::At: return pattern_irrefutable(lir_view::PatAtView{p}.sub(), ty);
+        case ps::Code::RefPat: return pattern_irrefutable(lir_view::PatRefPatView{p}.inner(), ty);
+        case ps::Code::Tuple: {
+            bool ok = true; size_t i = 0;
+            auto elems = t ? TypeRef(t).tuple_elems() : std::vector<TypeRef>{};
+            lir_view::PatTupleView{p}.each_sub([&](lir_view::PatRef sp) {
+                TypeRef et = i < elems.size() ? elems[i] : TypeRef(nullptr);
+                ++i;
+                if (sp && !pattern_irrefutable(sp, et)) ok = false;
+            });
+            return ok;
+        }
+        case ps::Code::Struct: {
+            bool ok = true;
+            lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView f) {
+                if (auto sp = f.sub(); sp && !pattern_irrefutable(sp, TypeRef(nullptr))) ok = false;
+            });
+            return ok;
+        }
+        case ps::Code::Slice: {
+            if (!t || TypeRef(t).kind() != LogosType::Kind::Array) return false;
+            lir_view::PatSliceView sv{p};
+            const uint64_t n = sv.prefix_count() + sv.suffix_count();
+            if (!sv.rest() && n != (uint64_t)TypeRef(t).arr_size()) return false;
+            bool ok = true;
+            auto chk = [&](lir_view::PatRef sp) { if (sp && !pattern_irrefutable(sp, TypeRef(t).elem())) ok = false; };
+            sv.each_prefix(chk); sv.each_suffix(chk);
+            return ok;
+        }
+        default: return false;
+    }
+}
+
 lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
+    lir::LExprPtr scrut = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        : error_expr();
+    return lower_let_else_core(std::move(scrut), map_of(node.get(la::PAT.code)),
+                               node.has_key(la::BODY) ? map_of(node.get(la::BODY.code)) : TinyMapView{});
+}
+
+// The let-else lowering over an already-lowered scrutinee. A null `else_node`
+// is an IRREFUTABLE `let PAT = e;` routed here: its else is `{ loop {} }`,
+// unreachable, and the pattern binds into the enclosing scope exactly as a
+// let-else's does.
+lir_view::StmtRef SemaChecker::lower_let_else_core(lir::LExprPtr scrut, TinyMapView pat_node_in,
+                                                   TinyMapView else_node) {
     // let Pat = expr else { block };
     // The pattern's bindings go into the outer scope after this statement.
     // Lowering:
@@ -2374,14 +2464,11 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
     //   4. Add pattern bindings to outer scope.
     //   5. Emit SLetElse { pat, scrut, else_block }.
 
-    // 1. Lower scrutinee
-    lir::LExprPtr scrut = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code)))
-        : error_expr();
+    // 1. The scrutinee arrives lowered.
     TypeRef scrut_type = expr_type(scrut);
 
     // 2. Build pattern (this also validates binding types)
-    auto pat_node = map_of(node.get(la::PAT.code));
+    auto pat_node = pat_node_in;
     // pattern rule wraps everything in PAT_OR, so unwrap single-element PAT_OR
     TinyMapView pat_inner = pat_node;
     if (code_of(pat_node) == la::PAT_OR && pat_node.has_key(la::ITEMS)) {
@@ -2405,8 +2492,13 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
     // 3. Lower else block in nested scope (must diverge — closes B-st-03).
     push_scope();
     lir_view::BlockRef else_blk;
-    if (node.has_key(la::BODY)) {
-        auto body_node = map_of(node.get(la::BODY.code));
+    if (else_node.is_null()) {
+        auto spin = synth_block({synth_node(la::LOOP.code, node_line_,
+                                            {{la::BODY.code, synth_block({}, node_line_)}})},
+                                node_line_);
+        else_blk = lower_block(map_of(spin));
+    } else {
+        auto body_node = else_node;
         if (!block_always_diverts(body_node)) {
             error("'let-else' else-block must diverge "
                   "(end in 'return', 'break', 'continue', 'panic', or 'loop {}')");
@@ -2469,7 +2561,17 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
             }
             // PatVariant (no bindings) — nothing to define
         };
-        define_bindings(pat_ref_of(pat));
+        // An irrefutable `let PAT = e` routed here (no written else) may nest any
+        // binding sub-pattern (`[W { a: x, .. }]`, `w @ (a, b)`): the match
+        // arms' full definer reaches every kind.
+        // …and so may a written let-else over a STRUCTURAL pattern
+        // (`let (Some(x), y) = t else { … }`): codegen's structural let-else
+        // path binds every nested name through pat_bind.
+        auto pk_ = pat_ref_of(pat) ? pat_ref_of(pat).kind() : ps::Code(-1);
+        const bool structural = pk_ == ps::Code::Tuple || pk_ == ps::Code::Struct ||
+                                pk_ == ps::Code::Slice || pk_ == ps::Code::At || pk_ == ps::Code::RefPat;
+        if (else_node.is_null() || structural) bind_pattern_ref(pat_ref_of(pat), scrut_type);
+        else define_bindings(pat_ref_of(pat));
     }
     current_pat_mut_names_ = saved_pat_muts;
 

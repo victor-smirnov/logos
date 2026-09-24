@@ -6285,6 +6285,54 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         return;
     }
 
+    // ── A STRUCTURAL pattern (tuple / struct / array / `@` / `&`) — the
+    // irrefutable `let PAT = e` sema routes here, and a let-else over such a
+    // shape: the general matcher tests it on the place (refutable subs
+    // included) and binds every nested name; the refutable-inner guards run
+    // after the bindings, as below.
+    if (pat_kind == pc::Code::Tuple || pat_kind == pc::Code::Struct || pat_kind == pc::Code::Slice ||
+        pat_kind == pc::Code::At || pat_kind == pc::Code::RefPat) {
+        mlir::Value place = scrut_val;
+        // An `&P` pattern reads the reference out of a SLOT (pat_test / pat_bind
+        // RefPat load it), so the reference value is spilled into one; the
+        // other shapes take an aggregate's address, which a by-value tuple /
+        // struct / array value already is.
+        if (place.getType() != ptr_type() || pat_kind == pc::Code::RefPat) {
+            auto a = create_entry_alloca(place.getType());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, place, a);
+            place = a;
+        }
+        auto* bind_blk = new mlir::Block();
+        auto* else_blk = new mlir::Block();
+        auto* cont_blk = new mlir::Block();
+        region->push_back(bind_blk);
+        region->push_back(else_blk);
+        region->push_back(cont_blk);
+        auto cond = pat_test(pat_ref, place, scrut_ty);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, bind_blk, else_blk);
+        {
+            mlir::OpBuilder::InsertionGuard ig(builder_);
+            builder_.setInsertionPointToStart(else_blk);
+            gen_block(v.else_block());
+            if (!is_terminated(builder_.getBlock()))
+                builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        }
+        builder_.setInsertionPointToStart(bind_blk);
+        pat_bind(pat_ref, place, scrut_ty);
+        mlir::Value guard_cond;
+        v.each_guard([&](lir_view::ExprRef g) {
+            if (!g) return;
+            auto gv = gen_expr(g);
+            if (!gv) return;
+            if (gv.getType() != builder_.getI1Type()) gv = coerce_int(gv, builder_.getI1Type());
+            guard_cond = guard_cond ? builder_.create<mlir::arith::AndIOp>(loc_, guard_cond, gv).getResult() : gv;
+        });
+        if (guard_cond) builder_.create<mlir::cf::CondBranchOp>(loc_, guard_cond, cont_blk, else_blk);
+        else            builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+        builder_.setInsertionPointToStart(cont_blk);
+        return;
+    }
+
     // ── Enum patterns: need discriminant test ─────────────────────────────
     const TaggedEnumInfo* te_info = nullptr;
     mlir::Value scrut_ptr;

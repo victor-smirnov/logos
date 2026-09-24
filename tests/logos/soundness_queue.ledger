@@ -16,8 +16,6 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
-let_at_binding_tuple_sub_unsupported 3 tests/soundness/open/let_at_binding_tuple_sub_unsupported refuses
-
 boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
 
 rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable     diag no vtable for 'Rc$G1$udyn_Sp' as '&dyn Sp'
@@ -25,8 +23,6 @@ rcdyn_borrow_arg_no_vtable     4 tests/soundness/open/rcdyn_borrow_arg_no_vtable
 boxref_sized_struct_deref_coercion_missing 3 tests/soundness/open/boxref_sized_struct_deref_coercion_missing refuses
 
 boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_wrong_error_code diag the trait bound `Box<dyn Sp>: Sp` is not satisfied
-
-let_array_pattern_nested_subpattern_refused 3 tests/soundness/open/let_array_pattern_nested_subpattern_refused refuses
 
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 
@@ -171,10 +167,6 @@ ref_to_slice_ref_param_unsized_refused 3 tests/soundness/open/ref_to_slice_ref_p
 ref_to_dyn_ref_type_parse_refused 3 tests/soundness/open/ref_to_dyn_ref_type_parse_refused refuses
 
 field_read_through_ref_to_box_refused 3 tests/soundness/open/field_read_through_ref_to_box_refused refuses
-
-let_ref_struct_pattern_irrefutable_refused 3 tests/soundness/open/let_ref_struct_pattern_irrefutable_refused refuses
-
-letelse_ref_pattern_binding_undefined_refused 3 tests/soundness/open/letelse_ref_pattern_binding_undefined_refused refuses
 
 method_autoderef_double_ref_option_infer_refused 3 tests/soundness/open/method_autoderef_double_ref_option_infer_refused refuses
 
@@ -365,5 +357,5 @@ deref_of_non_reference_admitted 2 tests/soundness/open/deref_of_non_reference_ad
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 96
-# SYNC-HASH 4e0cd650e595f7f6926060372cdbc00c
+# TOTAL 92
+# SYNC-HASH 6d564edc7c227d0844ce1f3feb2ffe2b

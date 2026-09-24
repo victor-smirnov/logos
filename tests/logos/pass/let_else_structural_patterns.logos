@@ -1,0 +1,10 @@
+// A let-else over a structural pattern with refutable parts: both paths (rustc 1.98.1: 9 -1 7 -2 8 -3).
+package let_else_structural_patterns;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn f(t: (Option<i64>, i64)) -> i64 { let (Option::Some(x), y) = t else { return -1i64; }; return x + y; }
+fn g(a: [i64; 2]) -> i64 { let [1, b] = a else { return -2i64; }; return b; }
+fn h(t: (i64, i64)) -> i64 { let (3, z) = t else { return -3i64; }; return z; }
+fn main() -> i32 {
+    unsafe { printf("%lld %lld %lld %lld %lld %lld\n".as_ptr(), f((Option::Some(4i64), 5i64)), f((Option::<i64>::None, 5i64)), g([1i64, 7i64]), g([2i64, 7i64]), h((3i64, 8i64)), h((4i64, 8i64))); }
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+// A refutable pattern in a plain `let` is E0005 (rustc 1.98.1).
+package let_refutable_pattern_e0005;
+fn main() -> i32 {
+    let t: (Option<i64>, i64) = (Option::Some(1i64), 2i64);
+    let (Option::Some(x), y) = t;
+    return (x + y) as i32;
+}

@@ -1,0 +1,9 @@
+// An irrefutable `let` pattern with nested sub-patterns binds every name (rustc 1.98.1).
+package let_at_binding_tuple_sub_unsupported;
+fn main() -> i32 {
+    let t: (i64, i64) = (3i64, 4i64);
+    let w @ (a, b) = t;
+    if a + b != 7i64 { return 1i32; }
+    if w.0 != 3i64 { return 2i32; }
+    return 0i32;
+}

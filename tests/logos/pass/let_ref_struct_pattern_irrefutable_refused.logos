@@ -1,0 +1,13 @@
+// A `&` pattern in `let` / let-else binds through the reference (rustc 1.98.1: exit 0).
+package let_ref_struct_pattern_irrefutable_refused;
+struct P { x: i32 }
+fn deref2(p: &&P) -> i32 {
+    let &&P { x } = p;
+    return x;
+}
+fn main() -> i32 {
+    let p = P { x: 5i32 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    return deref2(pp) - 5i32;
+}

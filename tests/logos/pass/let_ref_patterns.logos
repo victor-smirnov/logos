@@ -1,0 +1,17 @@
+// `&` patterns in `let` / let-else: over a tuple, a `&&` struct, an array, and a refutable `&Some(v)` let-else on both paths (rustc 1.98.1: 1 2 3 5 7 -1).
+package let_ref_patterns;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { x: i64, y: i64 }
+fn f(o: &Option<i64>) -> i64 { let &Option::Some(v) = o else { return -1i64; }; return v; }
+fn main() -> i32 {
+    let t: (i64, i64) = (1i64, 2i64);
+    let &(a, b) = &t;
+    let p: P = P { x: 3i64, y: 4i64 };
+    let r: &P = &p;
+    let pp: &&P = &r;
+    let &&P { x, y: _ } = pp;
+    let arr: [i64; 2] = [5i64, 6i64];
+    let &[c, _] = &arr;
+    unsafe { printf("%lld %lld %lld %lld %lld %lld\n".as_ptr(), a, b, x, c, f(&Option::Some(7i64)), f(&Option::<i64>::None)); }
+    return 0i32;
+}
