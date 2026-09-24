@@ -1,0 +1,17 @@
+// `&mut h.r.N` with `h.r: &mut (i64, i64)` a struct field writes the referent tuple. The place
+// address used the FIELD's slot as the tuple base (writes lost: 1 2 before the fix). rustc: 7 12.
+package tuple_elem_through_field_ref_writes;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct H<'x> { r: &'x mut (i64, i64) }
+fn bump(p: &mut i64) { *p = *p + 10i64; }
+fn main() -> i32 {
+    let mut s: (i64, i64) = (1i64, 2i64);
+    {
+        let h: H = H { r: &mut s };
+        bump(&mut h.r.1);
+        let q: &mut i64 = &mut h.r.0;
+        *q = 7i64;
+    }
+    unsafe { printf("%lld %lld\n".as_ptr(), s.0, s.1); }
+    return 0i32;
+}

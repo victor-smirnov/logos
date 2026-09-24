@@ -1504,15 +1504,20 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         lir_view::ETupleIndexView tv{e};
         if (!tv.receiver()) return nullptr;
         TypeRef recv_t = tv.receiver().type(pool_impl());
+        bool through_ref = false;
         if (recv_t && TypeRef(recv_t).pointee() &&
             TypeRef(recv_t).pointee().kind() == LogosType::Kind::Tuple &&
             (TypeRef(recv_t).kind() == LogosType::Kind::Ref ||
              TypeRef(recv_t).kind() == LogosType::Kind::MutRef ||
-             TypeRef(recv_t).kind() == LogosType::Kind::Ptr))
+             TypeRef(recv_t).kind() == LogosType::Kind::Ptr)) {
             recv_t = TypeRef(recv_t).pointee();
-        // Tuple base address: for a Deref/ref receiver it is the pointer value;
-        // otherwise the receiver's own place address.
-        mlir::Value tup_ptr = (tv.receiver().kind() == ec::Code::Deref)
+            through_ref = true;
+        }
+        // Tuple base address: for a Deref receiver, or one whose TYPE is a
+        // reference / pointer, it is the pointer VALUE — the place address of a
+        // `h.r` field holding `&(i64, i64)` is the field's slot, not the tuple.
+        // Otherwise the receiver's own place address.
+        mlir::Value tup_ptr = (tv.receiver().kind() == ec::Code::Deref || through_ref)
             ? gen_expr(tv.receiver())
             : gen_lvalue_addr(tv.receiver());
         if (!tup_ptr) tup_ptr = gen_expr(tv.receiver());
@@ -1824,11 +1829,37 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
     // pointer-field indexed), so we fall through to the legacy handler then.
     // TupleIndex stays gated to is_mut — the immutable `&x.N` value-copy path
     // is relied on by the variadic-tuple Eq/Debug recursion.
+    // A SCALAR tuple element's shared borrow is its real address too: `&t.1`
+    // with `t: &'a (i64, i64)` is a `&'a i64` into the caller's tuple, and the
+    // spilled copy it used to get dangled once handed out of the frame. The
+    // value-copy stays for AGGREGATE elements (the variadic Eq/Debug recursion).
+    auto scalar_elem = [&](lir_view::ExprRef e) {
+        TypeRef et = e.type(pool_impl());
+        if (!et) return false;
+        auto k = TypeRef(et).kind();
+        if (k == LogosType::Kind::Ptr || k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef)
+            return true;
+        if (k == LogosType::Kind::Enum || k == LogosType::Kind::Struct) return false;
+        mlir::Type mt = logos_to_mlir(et);
+        return mt && (mlir::isa<mlir::IntegerType>(mt) || mlir::isa<mlir::FloatType>(mt));
+    };
     if (inner_ref.kind() == ec::Code::IndexRead ||
         inner_ref.kind() == ec::Code::SliceIndex ||
-        (v.is_mut() && inner_ref.kind() == ec::Code::TupleIndex)) {
-        if (auto addr = gen_lvalue_addr(inner_ref))
-            return addr;
+        (inner_ref.kind() == ec::Code::TupleIndex && (v.is_mut() || scalar_elem(inner_ref)))) {
+        // Only an ADDRESSABLE tuple: behind a reference / pointer, or a named
+        // local. A tuple VALUE (a call result, a loaded element) has no address
+        // to GEP into — the value-copy below is its only reference.
+        bool addressable = true;
+        if (!v.is_mut() && inner_ref.kind() == ec::Code::TupleIndex) {
+            auto rcv = lir_view::ETupleIndexView{inner_ref}.receiver();
+            TypeRef rt = rcv ? rcv.type(pool_impl()) : TypeRef{};
+            auto rk = rt ? TypeRef(rt).kind() : LogosType::Kind::Error;
+            addressable = rcv && (rk == LogosType::Kind::Ref || rk == LogosType::Kind::MutRef ||
+                                  rk == LogosType::Kind::Ptr || rcv.kind() == ec::Code::VarRef);
+        }
+        if (addressable)
+            if (auto addr = gen_lvalue_addr(inner_ref))
+                return addr;
     }
 
     // Reborrow / pointer-identity peephole: `&[mut] *r` ≡ r when r already

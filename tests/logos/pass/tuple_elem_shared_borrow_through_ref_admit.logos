@@ -1,3 +1,4 @@
+// CLOSED 2026-09-23 (squeue #243): a shared borrow of a SCALAR tuple element is the element's address (gen_lvalue_addr), not a spilled copy that dangled once handed out.
 // SOUNDNESS QUEUE row tuple_elem_shared_borrow_through_ref_dangles_run (tier 1).
 // A SHARED BORROW OF A TUPLE ELEMENT TAKEN THROUGH A REFERENCE AND HANDED OUT OF THE FUNCTION POINTS AT DEAD STACK.
 //

@@ -1,0 +1,15 @@
+// Aggregate tuple elements borrowed through a reference keep their address (struct and nested tuple).
+package tuple_aggregate_elem_borrow_identity;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct P { a: i64, b: i64 }
+fn g<'a>(t: &'a (P, i64)) -> &'a P { return &t.0; }
+fn h<'a>(t: &'a ((i64, i64), i64)) -> &'a (i64, i64) { return &t.0; }
+fn clobber(x: i64) -> i64 { let mut a: [i64; 8] = [x; 8]; a[3] = a[2] + 1i64; return a[3]; }
+fn main() -> i32 {
+    let t: (P, i64) = (P { a: 1i64, b: 2i64 }, 3i64); let p: &P = g(&t);
+    let u: ((i64, i64), i64) = ((4i64, 5i64), 6i64); let q: &(i64, i64) = h(&u);
+    let _ = clobber(99i64);
+    let same: bool = (p as *const P) == (&t.0 as *const P);
+    unsafe { printf("%lld %lld %lld %d\n".as_ptr(), p.b, q.0, q.1, same as i32); }
+    return 0i32;
+}

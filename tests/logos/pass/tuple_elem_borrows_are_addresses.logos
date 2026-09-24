@@ -1,0 +1,20 @@
+// Shared borrows of tuple elements handed out of their frame: bool, f64, char and reference
+// elements, a local tuple, and through `&mut` — read after a clobbering call. rustc 1.98.1 prints the same.
+package tuple_elem_borrows_are_addresses;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn b<'a>(t: &'a (bool, i64)) -> &'a bool { return &t.0; }
+fn f<'a>(t: &'a (i64, f64)) -> &'a f64 { return &t.1; }
+fn c<'a>(t: &'a (char, i64)) -> &'a char { return &t.0; }
+fn r<'a>(t: &'a (&'a i64, i64)) -> &'a &'a i64 { return &t.0; }
+fn clobber(x: i64) -> i64 { let mut a: [i64; 8] = [x; 8]; a[3] = a[2] + 1i64; return a[3]; }
+fn main() -> i32 {
+    let tb: (bool, i64) = (true, 5i64); let pb: &bool = b(&tb);
+    let tf: (i64, f64) = (1i64, 2.5); let pf: &f64 = f(&tf);
+    let tc: (char, i64) = ('q', 1i64); let pc: &char = c(&tc);
+    let v: i64 = 41i64; let tr: (&i64, i64) = (&v, 2i64); let pr: &&i64 = r(&tr);
+    let lt: (i64, i64) = (7i64, 8i64); let pl: &i64 = &lt.1;
+    let mut mt: (i64, i64) = (3i64, 4i64); let m: &mut (i64, i64) = &mut mt; let pm: &i64 = &(*m).1;
+    let _ = clobber(99i64);
+    unsafe { printf("%d %.1f %d %lld %lld %lld\n".as_ptr(), *pb as i32, *pf, *pc as i32, **pr, *pl, *pm); }
+    return 0i32;
+}

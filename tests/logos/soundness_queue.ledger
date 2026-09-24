@@ -234,10 +234,6 @@ tuple_of_rawptr_ordering_mlir_verifier_refused 3 tests/soundness/open/tuple_of_r
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 listcomp_value_elem_type_refused 3 tests/soundness/open/listcomp_value_elem_type_refused refuses
 
-# 2026-09-14i-harvest2: y3 (2026-09-12r-escroot) made exit-visible by a clobbering call; r22 (2026-09-14e-thruref) still admitted.
-# Both reproduce on build c52dcb19dff987ff 43; legality by reading. R6 (2026-09-09g) joined impl_fn_return_stack_env_dangles as its PART 3.
-tuple_elem_shared_borrow_through_ref_dangles_run 1 tests/soundness/open/tuple_elem_shared_borrow_through_ref_dangles_run run 1
-
 elided_param_regions_invariant_compare_admits 2 tests/soundness/open/elided_param_regions_invariant_compare_admits admits
 
 user_type_alias_shadows_stdlib_type_param_refused 3 tests/soundness/open/user_type_alias_shadows_stdlib_type_param_refused refuses
@@ -335,6 +331,9 @@ vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/ope
 
 let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/let_array_pattern_ref_mut_binding_is_raw_pointer_refuses refuses
 
+# 2026-09-14i-harvest2: y3 (2026-09-12r-escroot) made exit-visible by a clobbering call; r22 (2026-09-14e-thruref) still admitted.
+# Both reproduce on build c52dcb19dff987ff 43; legality by reading. R6 (2026-09-09g) joined impl_fn_return_stack_env_dangles as its PART 3.
+
 # ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
 # Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
 # src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md. Five of the six CLOSED at the 2026-09-15 landing
@@ -425,5 +424,5 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 130
-# SYNC-HASH ab8bffdf1ef3afa4a82c810ddfb2b6b0
+# TOTAL 129
+# SYNC-HASH 2427c2a5fbd02a2a98dcc78ee2d735fd
