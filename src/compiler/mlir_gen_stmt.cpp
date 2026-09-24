@@ -1200,13 +1200,26 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
         // Without this an array was the one aggregate whose drop could not skip a
         // moved child, so the only sound mark at the match-arm door was a
         // whole-array one, which leaks every element the pattern does not bind.
+        // rustc's drop elaboration for a partially moved array (measured,
+        // rustc 1.98.1): in index order, the untouched elements form RUNS
+        // between the moved indices, and a partially moved element is a unit of
+        // its own; the units drop from the LAST to the FIRST, a run in forward
+        // order. `let [_, y, _] = arr` drops y, then arr[2], then arr[0]. With
+        // no move the whole array is one run: plain forward order.
+        struct Unit { uint64_t lo, hi; std::set<std::string> skips; };
+        std::vector<Unit> units;
         for (uint64_t i = 0; i < n; ++i) {
             std::set<std::string> child_skips;
-            if (split_skip_paths(skip_paths, std::to_string(i), child_skips)) continue;
-            gen_drop_value(child_value_ptr(value_ptr, atype, (int)i, ek), et,
-                           /*run_user_drop=*/true,
-                           child_skips.empty() ? nullptr : &child_skips);
+            if (split_skip_paths(skip_paths, std::to_string(i), child_skips)) continue;   // moved whole
+            if (!child_skips.empty()) { units.push_back({i, i + 1, std::move(child_skips)}); continue; }
+            if (!units.empty() && units.back().skips.empty() && units.back().hi == i) units.back().hi = i + 1;
+            else units.push_back({i, i + 1, {}});
         }
+        for (size_t u = units.size(); u-- > 0; )
+            for (uint64_t i = units[u].lo; i < units[u].hi; ++i)
+                gen_drop_value(child_value_ptr(value_ptr, atype, (int)i, ek), et,
+                               /*run_user_drop=*/true,
+                               units[u].skips.empty() ? nullptr : &units[u].skips);
         return;
     }
     if (k == K::Closure) {

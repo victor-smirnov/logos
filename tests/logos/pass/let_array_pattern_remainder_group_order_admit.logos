@@ -1,3 +1,4 @@
+// CLOSED 2026-09-24 (squeue #92): a partially moved array drops its units (runs of untouched elements, partially moved elements) from the last to the first, a run forward — rustc's order.
 // SOUNDNESS QUEUE row let_array_pattern_remainder_group_order_run (tier 1, run 1). AFTER A PARTIAL
 // MOVE OUT OF AN ARRAY, THE ELEMENTS THE PATTERN DID NOT BIND ARE DESTROYED IN THE WRONG GROUP ORDER.
 //

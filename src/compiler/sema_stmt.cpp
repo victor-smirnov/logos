@@ -1623,7 +1623,12 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
     if (is_array_slice_pat) {
         auto elem_t = TypeRef(rhs_type).elem();
         size_t arr_n = (size_t)TypeRef(rhs_type).arr_size();
+        // A fixed-length array pattern is irrefutable with or without a `..`
+        // rest: names before the rest bind the low indices, names after it the
+        // tail (as the tuple destructure maps them). `sub_pats` is padded to the
+        // array's length with wildcards, so index j IS element j below.
         std::vector<writ::TinyMapView> sub_pats;
+        std::vector<writ::TinyMapView> before, after;
         bool has_rest = false;
         if (pat_node.has_key(la::ITEMS)) {
             auto items_av = pat_node.get(la::ITEMS.code);
@@ -1633,25 +1638,30 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
                     auto eitems = arr_of(elist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < eitems.size(); ++i) {
                         auto en = map_of(eitems.get(i));
-                        if (code_of(en) == la::PAT_REST) { has_rest = true; continue; }
-                        sub_pats.push_back(en);
+                        if (code_of(en) == la::PAT_REST) {
+                            if (has_rest) error("let array pattern: at most one `..` rest allowed");
+                            if (en.has_key(la::NAME)) {
+                                error("let array pattern: a named rest (`xs @ ..`) is not supported "
+                                      "at let-position; bind the elements by index");
+                                return builder().stmt_expr(std::move(rhs), node_line_);
+                            }
+                            has_rest = true;
+                            continue;
+                        }
+                        (has_rest ? after : before).push_back(en);
                     }
                 }
             }
         }
-        if (has_rest) {
-            error("`let [..]` pattern: `..` rest at let-position is "
-                  "currently not supported (refutable shape — use a "
-                  "fully-enumerated pattern that covers the array's "
-                  "length)");
-            return builder().stmt_expr(std::move(rhs), node_line_);
-        }
-        if (sub_pats.size() != arr_n) {
+        if (before.size() + after.size() > arr_n || (!has_rest && before.size() != arr_n)) {
             error(std::format(
                 "let array pattern: expected {} elements, got {}",
-                arr_n, sub_pats.size()));
+                arr_n, before.size() + after.size()));
             return builder().stmt_expr(std::move(rhs), node_line_);
         }
+        sub_pats = before;
+        while (sub_pats.size() + after.size() < arr_n) sub_pats.push_back(writ::TinyMapView{});
+        for (auto& en : after) sub_pats.push_back(en);
         // E0507 for the array destructure: `let [_, e, _, _] = *a` where
         // `a: &[D; N]` binds a move-typed element BY VALUE out of borrowed
         // memory — the array behind the reference doesn't own the moved slot,
@@ -1662,7 +1672,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         if (rhs && is_move_type(elem_t) && is_unowned_move_source(rhs)) {
             bool binds_by_value = false;
             for (auto& en : sub_pats)
-                if (code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
+                if (!en.is_null() && code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
                     std::string(str_of(en.get(la::NAME.code))) != "_") {
                     binds_by_value = true;
                     break;
@@ -1674,14 +1684,21 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         }
         std::vector<lir_view::StmtRef> blk;
         std::string tmp = std::format("__dst_{}", destruct_counter_++);
-        define(tmp, rhs_type);
-        // P4-pm-15 Drop case: when element type carries Drop, the bytewise
-        // slice_index reads below copy the bytes but transfer ownership
-        // into the per-element bindings. Suppress the temp's drop and
-        // also any source-var drop, otherwise the array's [T;N] tail-drop
-        // double-frees the same payload.
-        if (rhs) mark_moved_expr(expr_ref_of(rhs));
-        {
+        // A FRESH rvalue source (`let [_, y] = mk(p);`) is a statement
+        // temporary (spec stmt.scope.temp-drop-at-stmt-end): the elements the
+        // pattern does not bind drop at the END OF THE LET, not at scope exit.
+        const bool temp_source = rhs && cur_stmt_temp_hoist_ && is_move_type(rhs_type) &&
+                                 is_hoistable_temp_rvalue(rhs);
+        if (temp_source) {
+            register_stmt_temp(tmp, rhs_type, std::move(rhs), false);
+        } else {
+            define(tmp, rhs_type);
+            // P4-pm-15 Drop case: when element type carries Drop, the bytewise
+            // slice_index reads below copy the bytes but transfer ownership
+            // into the per-element bindings. Suppress the temp's drop and
+            // also any source-var drop, otherwise the array's [T;N] tail-drop
+            // double-frees the same payload.
+            if (rhs) mark_moved_expr(expr_ref_of(rhs));
             lir::SLet sl;
             sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
             sl.value = std::move(rhs);
@@ -1701,6 +1718,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         // opposite failure direction from the leak being fixed here.
         for (size_t j = 0; j < sub_pats.size(); ++j) {
             auto en = sub_pats[j];
+            if (en.is_null()) continue;   // covered by the `..` rest
             if (code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
                 std::string(str_of(en.get(la::NAME.code))) != "_" &&
                 is_move_type(elem_t))
@@ -1708,6 +1726,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         }
         for (size_t j = 0; j < sub_pats.size(); ++j) {
             auto en = sub_pats[j];
+            if (en.is_null()) continue;   // covered by the `..` rest
             int32_t ec = code_of(en);
             if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
                 auto vname = std::string(str_of(en.get(la::NAME.code)));

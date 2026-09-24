@@ -66,14 +66,6 @@ boxref_sized_struct_deref_coercion_missing 3 tests/soundness/open/boxref_sized_s
 
 boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_wrong_error_code diag the trait bound `Box<dyn Sp>: Sp` is not satisfied
 
-# ── 2026-09-16j-arrpath2 (LANDING, tier 1: the move PATH under an array element, at BOTH pattern doors) ── Two rows CLOSE
-#    (match_array_nested_destructure_elem_double_drop, let_array_pattern_field_base_unbound_elem_leak); their programs are now pass fixtures.
-#    FIVE rows OPEN, every one of them a hand program of that round measured on BOTH binaries. The two `run 1` rows have the RIGHT destructor
-#    COUNT and the WRONG order/timing — they were INVISIBLE until the count was fixed, and no count- or rc-based oracle can see them.
-let_array_pattern_remainder_group_order_run 1 tests/soundness/open/let_array_pattern_remainder_group_order_run run 1
-
-let_array_pattern_temp_source_remainder_late_run 1 tests/soundness/open/let_array_pattern_temp_source_remainder_late_run run 1
-
 match_ref_array_nested_struct_sub_refused 3 tests/soundness/open/match_ref_array_nested_struct_sub_refused refuses
 
 match_array_nested_array_subpattern_mlirgen_malfunction 3 tests/soundness/open/match_array_nested_array_subpattern_mlirgen_malfunction refuses
@@ -319,6 +311,11 @@ let_array_pattern_ref_mut_binding_is_raw_pointer_refuses 3 tests/soundness/open/
 
 field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_built_before_sibling_run run 1
 
+# ── 2026-09-16j-arrpath2 (LANDING, tier 1: the move PATH under an array element, at BOTH pattern doors) ── Two rows CLOSE
+#    (match_array_nested_destructure_elem_double_drop, let_array_pattern_field_base_unbound_elem_leak); their programs are now pass fixtures.
+#    FIVE rows OPEN, every one of them a hand program of that round measured on BOTH binaries. The two `run 1` rows have the RIGHT destructor
+#    COUNT and the WRONG order/timing — they were INVISIBLE until the count was fixed, and no count- or rc-based oracle can see them.
+
 # ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
 # Six rows CLOSED (addr_of_struct_ref_local_arg, addr_of_ref_foreach_elem, addr_of_ref_match_binder, addr_of_ref_closure_capture,
 # addr_of_ref_closure_param _passes_referent_run, struct_pattern_over_double_ref_reads_slot_run) -> pass/bc_argrefland_*_admit. Four rows
@@ -417,5 +414,5 @@ field_base_temp_built_before_sibling_run 1 tests/soundness/open/field_base_temp_
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 125
-# SYNC-HASH 8fce98bf256c34e758707596e84a3f4f
+# TOTAL 123
+# SYNC-HASH 52ab00494385f03b6db35c03d850e22e

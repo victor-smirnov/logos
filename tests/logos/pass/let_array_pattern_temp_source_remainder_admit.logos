@@ -1,3 +1,4 @@
+// CLOSED 2026-09-24 (squeue #93): a fresh rvalue source of a `let` array pattern is a statement temporary — the unbound elements drop at the end of the let.
 // SOUNDNESS QUEUE row let_array_pattern_temp_source_remainder_late_run (tier 1, run 1). WHEN THE
 // SOURCE OF A `let` ARRAY PATTERN IS A TEMPORARY, THE UNBOUND ELEMENTS ARE DESTROYED TOO LATE.
 //
