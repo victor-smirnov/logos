@@ -1,0 +1,22 @@
+// Promoted 128-bit literals read after another frame has overwritten the
+// stack: 2^64, a negative beyond 64 bits, u128::MAX, i128 in an array and in a
+// struct — the boundary where the old sign-extended high half was wrong code.
+// rustc 1.98.1: exit 0. Twin: tests/logos/pass/i128_literal_promotion_refused.logos.
+package const_promotion_wide_integers;
+struct S { a: i128, b: u8 }
+fn p1() -> &'static i128 { return &18446744073709551616i128; }
+fn p2() -> &'static i128 { return &-18446744073709551617i128; }
+fn p3() -> &'static u128 { return &340282366920938463463374607431768211455u128; }
+fn p4() -> &'static [i128; 2] { return &[-1i128, 170141183460469231731687303715884105727i128]; }
+fn p5() -> &'static S { return &S { a: -36893488147419103232i128, b: 7u8 }; }
+fn smash() -> i64 { let a: [i64; 32] = [77i64; 32]; return a[5]; }
+fn main() -> i32 {
+    let a: &i128 = p1(); let b: &i128 = p2(); let c: &u128 = p3(); let d: &[i128; 2] = p4(); let e: &S = p5();
+    let s: i64 = smash();
+    if *a != 18446744073709551616i128 { return 1i32; }
+    if *b != -18446744073709551617i128 { return 2i32; }
+    if *c != 340282366920938463463374607431768211455u128 { return 3i32; }
+    if d[0] != -1i128 || d[1] != 170141183460469231731687303715884105727i128 { return 4i32; }
+    if e.a != -36893488147419103232i128 || e.b != 7u8 { return 5i32; }
+    return (s - 77i64) as i32;
+}

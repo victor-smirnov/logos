@@ -1810,12 +1810,7 @@ mlir::Value MLIRGenImpl::gen_promoted_const(lir_view::ExprRef e, TypeRef t) {
                 {(int64_t)elems.size()}, elem_ty);
             if (auto ity = mlir::dyn_cast<mlir::IntegerType>(elem_ty)) {
                 llvm::SmallVector<llvm::APInt> vals;
-                for (auto el : elems) {
-                    int64_t x = el.kind() == ec::Code::LitBool
-                        ? (lir_view::ELitBoolView{el}.value() ? 1 : 0)
-                        : lir_view::ELitIntView{el}.value();
-                    vals.emplace_back(ity.getWidth(), (uint64_t)x, /*isSigned=*/true);
-                }
+                for (auto el : elems) vals.push_back(promoted_int_(el, ity.getWidth()));
                 init = mlir::DenseElementsAttr::get(shaped, vals);
             } else if (auto fty = mlir::dyn_cast<mlir::FloatType>(elem_ty)) {
                 llvm::SmallVector<llvm::APFloat> vals;
@@ -1838,10 +1833,7 @@ mlir::Value MLIRGenImpl::gen_promoted_const(lir_view::ExprRef e, TypeRef t) {
         auto sty = t ? logos_to_mlir(t) : mlir::Type{};
         if (!sty) return nullptr;
         if (auto ity = mlir::dyn_cast<mlir::IntegerType>(sty)) {
-            int64_t x = e.kind() == ec::Code::LitBool
-                ? (lir_view::ELitBoolView{e}.value() ? 1 : 0)
-                : lir_view::ELitIntView{e}.value();
-            init = builder_.getIntegerAttr(ity, x);
+            init = builder_.getIntegerAttr(ity, promoted_int_(e, ity.getWidth()));
         } else if (auto fty = mlir::dyn_cast<mlir::FloatType>(sty)) {
             if (e.kind() != ec::Code::LitFloat) return nullptr;
             init = builder_.getFloatAttr(fty, lir_view::ELitFloatView{e}.value());
@@ -1858,6 +1850,19 @@ mlir::Value MLIRGenImpl::gen_promoted_const(lir_view::ExprRef e, TypeRef t) {
         gname, init, align);
     builder_.restoreInsertionPoint(save_pt);
     return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), gname);
+}
+
+// An integer / bool literal at `width` bits — a 128-bit one from BOTH halves
+// (low = value, high = value_hi), as the ordinary literal emitter builds it.
+llvm::APInt MLIRGenImpl::promoted_int_(lir_view::ExprRef e, unsigned width) {
+    if (e.kind() == lir_schema::expr::Code::LitBool)
+        return llvm::APInt(width, lir_view::ELitBoolView{e}.value() ? 1 : 0);
+    lir_view::ELitIntView v{e};
+    if (width > 64) {
+        uint64_t words[2] = { (uint64_t)v.value(), (uint64_t)v.value_hi() };
+        return llvm::APInt(128, llvm::ArrayRef<uint64_t>(words, 2)).zextOrTrunc(width);
+    }
+    return llvm::APInt(width, (uint64_t)v.value(), /*isSigned=*/true);
 }
 
 mlir::Type MLIRGenImpl::promoted_llvm_type_(lir_view::ExprRef e, TypeRef t) {
@@ -1882,9 +1887,8 @@ mlir::Value MLIRGenImpl::build_promoted_value_(lir_view::ExprRef e, TypeRef t, m
     case ec::Code::LitInt: case ec::Code::LitBool: {
         auto ity = mlir::dyn_cast<mlir::IntegerType>(lty);
         if (!ity) return nullptr;
-        int64_t x = e.kind() == ec::Code::LitBool ? (lir_view::ELitBoolView{e}.value() ? 1 : 0)
-                                                  : lir_view::ELitIntView{e}.value();
-        return builder_.create<mlir::LLVM::ConstantOp>(loc_, ity, builder_.getIntegerAttr(ity, x));
+        return builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, ity, builder_.getIntegerAttr(ity, promoted_int_(e, ity.getWidth())));
     }
     case ec::Code::LitFloat: {
         auto fty = mlir::dyn_cast<mlir::FloatType>(lty);

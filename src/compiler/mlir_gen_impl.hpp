@@ -2196,6 +2196,7 @@ private:
     // built inside a global's initializer region (undef + insertvalue).
     mlir::Type  promoted_llvm_type_(lir_view::ExprRef e, TypeRef t);
     std::string decode_str_lit_(std::string raw);
+    llvm::APInt promoted_int_(lir_view::ExprRef e, unsigned width);
     std::string str_global_(const std::string& text);
     mlir::Value build_promoted_value_(lir_view::ExprRef e, TypeRef t, mlir::Type lty);
     mlir::Value gen_expr_kind(lir_view::EDerefView v, TypeRef type);

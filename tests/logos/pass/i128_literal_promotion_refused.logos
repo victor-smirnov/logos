@@ -1,0 +1,11 @@
+// `&36893488147419103232i128` is const-promoted ('static), as in Rust. The
+// shared predicate excluded >64-bit literals while the emitter re-derived the
+// high half by sign extension; the emitter now reads both halves
+// (ELitIntView::value_hi, MLIRGenImpl::promoted_int_). rustc 1.98.1: exit 0.
+// Twin: tests/logos/pass/const_promotion_wide_integers.logos.
+package i128_literal_promotion_refused;
+fn g() -> &'static i128 { return &36893488147419103232i128; }
+fn main() -> i32 {
+    if *g() != 36893488147419103232i128 { return 1i32; }
+    return 0i32;
+}

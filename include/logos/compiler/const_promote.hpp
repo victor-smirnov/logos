@@ -35,29 +35,16 @@ namespace logos::compiler::const_promote {
 
 // A literal with no storage of its own.
 //
-// ⚠ AN INTEGER LITERAL WIDER THAN 64 BITS IS NOT PROMOTABLE, and the reason is
-// that we cannot READ it: `ELitIntView::value()` returns `int64_t`, so
-// `gen_promoted_const` re-derived the high half by SIGN EXTENSION and the
-// promoted global held a different number from the same literal anywhere else.
-// Measured: `let bv: i128 = V; let fr = &bv; let pr = f();` with V = 2^64, 2^65
-// and i128::MAX — `*fr == bv` passes and `*pr != bv` fails, boundary exactly at
-// 64 bits; 2^64-1 is fine. That is WRONG CODE, not a refusal, so the emitter's
-// fail-closed guard never fired: it could build an initializer, just the wrong
-// one. Excluding the shape here restores the design's own promise — what this
-// predicate says NO to keeps today's frame lowering AND today's refusal — and
-// it does so in the SHARED predicate, so the checker and the emitter cannot
-// disagree. Lifting it needs a full-width literal accessor first.
+// An integer literal wider than 64 bits is promotable: the emitter reads BOTH
+// halves (ELitIntView::value / value_hi). It was excluded while the emitter
+// re-derived the high half by sign extension (wrong code: `*pr != bv` for
+// V = 2^64); the full-width read closed that (2026-09-25).
 inline bool is_const_scalar(lir_view::ExprRef e,
                             const TypePoolImpl* pool) noexcept {
     using EC = lir_schema::expr::Code;
     if (!e) return false;
     switch (e.kind()) {
-        case EC::LitInt: {
-            TypeRef t = e.type(pool);
-            if (t && (t.kind() == LogosType::Kind::I128 ||
-                      t.kind() == LogosType::Kind::U128)) return false;
-            return true;
-        }
+        case EC::LitInt:
         case EC::LitFloat:
         case EC::LitBool:
             return true;
