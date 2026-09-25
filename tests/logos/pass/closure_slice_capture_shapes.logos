@@ -1,0 +1,6 @@
+// A slice PARAMETER captured by a non-move and a move closure: the env carries
+// the {ptr, len} pair by value, the body binds the address of a copy.
+package closure_slice_capture_shapes;
+fn g(s: &str) -> i64 { let c = || -> i64 { return s.len() as i64; }; return c() + c(); }
+fn h(s: &str) -> i64 { let c = move || -> i64 { return s.len() as i64; }; return c(); }
+fn main() -> i32 { return (g("abc") + h("hello")) as i32; }

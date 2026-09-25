@@ -4083,6 +4083,11 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
             // unwraps Box/&dyn; the closure-literal site peels again.
             if (ret_type_ && peel_to_callable(ret_type_))
                 hint_closure_formal_ = ret_type_;
+            // A closure literal that IS the returned value outlives this frame
+            // (`fn mk() -> impl Fn() { move || k }`): its env must be heap.
+            auto saved_ret_value_ = returned_closure_node_;
+            returned_closure_node_ = unwrap_paren_node(map_of(vav)).ptr();
+            struct RetValGuard_ { const void*& f; const void* v; ~RetValGuard_() { f = v; } } ret_val_guard_{returned_closure_node_, saved_ret_value_};
             // Element-type hint for an array literal returned where a slice/array
             // (possibly behind `&`) is expected, so `return &[];` builds an empty
             // `[T; 0]` instead of an untyped-element error.

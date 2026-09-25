@@ -1,0 +1,19 @@
+// An `FnOnce` literal (its body moves a capture out) stored in a field typed
+// `|| -> String` and called twice freed the capture twice (abort 134; rustc
+// E0382). A written closure type states no family and is callable through its
+// place any number of times, so it takes a Fn / FnMut literal and refuses an
+// FnOnce one — spelled `impl FnOnce`, a bound or `Box<dyn FnOnce>`, as in Rust.
+package closure_field_fnonce_called_twice_double_free;
+use logos.mem.string;
+
+struct H { f: || -> String }
+
+fn main() -> i32 {
+    let s: String = String::from("abcd");
+    let h = H { f: move || -> String { return s; } };
+    let a: String = h.f();
+    let b: String = h.f();
+    if a.len() != 4i64 { return 1i32; }
+    if b.len() != 4i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,25 @@
+// An owned Box<dyn> capture of an escaping move closure is dropped exactly once:
+// by the env glue when the Box<dyn Fn> drops (called twice, or never). drops=2.
+package closure_owned_dyn_capture_drops_once;
+extern fn printf(fmt: *const u8, ...) -> i32;
+trait Tr { fn m(self: &Self) -> i64; }
+struct S { v: i64, c: *mut i64 }
+impl Tr for S { fn m(self: &Self) -> i64 { return self.v; } }
+impl Drop for S { fn drop(self: &mut S) { unsafe { *self.c = *self.c + 1i64; } } }
+fn f(b: Box<dyn Tr>, k: i64) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || { return b.m() + k; });
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let g: Box<dyn Fn() -> i64> = f(Box::new(S { v: 59i64, c: p }), 1i64);
+        if g() != 60i64 { return 1i32; }
+        if g() != 60i64 { return 2i32; }
+        let _h: Box<dyn Fn() -> i64> = f(Box::new(S { v: 1i64, c: p }), 0i64);
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("drops=%ld\n".as_ptr(), got); }
+    if got != 2i64 { return 3i32; }
+    return 0i32;
+}

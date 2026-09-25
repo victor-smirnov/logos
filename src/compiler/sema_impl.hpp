@@ -8549,6 +8549,9 @@ private:
     // hint. Set by the call-site path (lower_call / lower_method_call)
     // when the corresponding formal is a `fn(T,...)->R` / `Closure`.
     TypeRef hint_closure_formal_ = nullptr;
+    // The node lower_return is lowering as the returned VALUE: a closure
+    // literal that IS it escapes the frame (heap env).
+    const void* returned_closure_node_ = nullptr;
     // g6b: expected ELEMENT type for an array/slice literal, from a `let
     // arr: [&dyn Trait; N] = [...]` annotation (or analogous context). Lets
     // lower_arr_lit type a HETEROGENEOUS `[&Sq, &Ci]` as `[&dyn Trait; N]` —

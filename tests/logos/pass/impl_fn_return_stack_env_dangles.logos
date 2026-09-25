@@ -1,0 +1,54 @@
+// `fn mk() -> impl Fn() -> i64 { let k = 7; return move || k; }`: a closure
+// literal that IS the returned value escapes its frame, so its env is heap
+// (the stack env dangled: wrong values). ⚠ The heap env is not yet freed when
+// the caller's closure value goes out of scope — rowed as
+// impl_fn_return_env_leaks (a leak, not a dangle).
+package impl_fn_return_stack_env_dangles;
+
+// ── PART 1: the row's original spelling. Exits 0 today with the right answer
+// and two valgrind uninitialised-read records. Kept so the evidence runs.
+fn mk() -> impl Fn() -> i64 {
+    let k: i64 = 7i64;
+    return move || -> i64 { return k; };
+}
+
+// ── PART 2: the replacement carrier. Two envs at the same frame depth.
+fn mk_a() -> impl Fn() -> i64 {
+    let k: i64 = 3i64;
+    return move || -> i64 { return k; };
+}
+fn mk_b() -> impl Fn() -> i64 {
+    let k: i64 = 40i64;
+    return move || -> i64 { return k; };
+}
+
+// ── PART 3 (added 2026-09-14i-harvest2): the same two-env carrier with a FAT capture (`s: &str`, 16 bytes).
+// It is hand R6 of round 2026-09-09g-closureenv ("THE INTERACTION CELL — a FAT capture in a closure returned as
+// `impl Fn`"), which the 2026-09-14h harvest left unlanded because it exits 0 while valgrind reports two "Use of
+// uninitialised value of size 8". Two such closures held at once make it an exit code: PART 3 ALONE exits 3 on build
+// c52dcb19dff987ff 43 (and the same program on base baa2a38e8b650fb3), valgrind flagged. Same defect as PART 2 —
+// the env lives in a dead frame — so it is this row, not a new one. It is reached only once PARTS 1-2 are fixed, and
+// then it separates the FAT door R6's header names (an 8-byte slot for a 16-byte capture) from the thin one: a fix
+// that heap-allocates thin envs only turns this row's exit from 1 into 3, which reds the gate by design.
+fn mk_sa(s: &str) -> impl Fn() -> i64 {
+    return move || -> i64 { return s.len() as i64; };
+}
+fn mk_sb(s: &str) -> impl Fn() -> i64 {
+    return move || -> i64 { return s.len() as i64; };
+}
+
+fn main() -> i32 {
+    let h = mk();
+    let a: i64 = h();
+    let b: i64 = h();
+    if a + b != 14i64 { return 2i32; }
+
+    let f = mk_a();
+    let g = mk_b();
+    if f() + g() != 43i64 { return 1i32; }
+
+    let fs = mk_sa("abc");
+    let gs = mk_sb("abcdefghijklmnopqrstuvwxyzabcdefghijklmn");
+    if fs() + gs() != 43i64 { return 3i32; }
+    return 0i32;
+}

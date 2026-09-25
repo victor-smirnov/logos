@@ -2007,9 +2007,9 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             // closure read its defining fn's dead slot. The owning bit is on the
             // capture's own TypeRef (trait_owning_kind), read at
             // gen_drop_owning_dyn_handle already.
-            if (capture_is_dyn[i] &&
-                !(logos::probe::on("clowndyn") &&
-                  TypeRef(capture_types[i]).owning_trait_object()))
+            // An OWNING `Box<dyn Tr>` IS owned storage; a `&dyn` stays a
+            // borrow. Must match sema's `owned_by_closure` exactly.
+            if (capture_is_dyn[i] && !TypeRef(capture_types[i]).owning_trait_object())
                 continue;  // dyn handle is a borrow
             if (capture_is_mut_ref[i]) continue;
             capture_own_inline[i] = true;
@@ -2025,6 +2025,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             if (capture_field_ts[i]) capture_own_inline[i] = true;
     }
 
+    auto capture_is_fat_slice = [&](size_t i) {
+        TypeRef ct = capture_types[i];
+        return !capture_own_inline[i] && !capture_is_pointer_repr[i] && !capture_is_mut_ref[i] &&
+               !capture_is_env_mut[i] && ct && TypeRef(ct).kind() == LogosType::Kind::Slice &&
+               TypeRef(ct).slice_owning_kind() == TypeRef::OwningKind::Borrow && !TypeRef(ct).raw_fat();
+    };
     // Build capture struct type.
     // ENV FIELD 0 is reserved for a `drop_glue: ptr` slot (uniform drop
     // protocol — see __closure_drop__ glue). Captures occupy fields 1..N.
@@ -2062,6 +2068,15 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), tv))
                 return te->llvm_type;
             return logos_to_mlir(ct);
+        case LogosType::Kind::Slice:
+            // A `&str` / `&[T]` moved in BY VALUE: its 16-byte {ptr, len} pair.
+            return slice_llvm_type();
+        case LogosType::Kind::TraitObject:
+            // An owned `Box<dyn Tr>` moved in BY VALUE: its 16-byte {data,
+            // vtable} pair (the creation site memcpys size_const = 16 bytes; an
+            // 8-byte handle slot overflowed the env).
+            return mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(),
+                                                          {ptr_type(), ptr_type()});
         default:
             return logos_to_mlir(ct);
         }
@@ -2083,6 +2098,11 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             }
         } else if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
             ft = ptr_type();
+        else if (capture_is_fat_slice(i))
+            // A `&str` / `&[T]` handle is Copy: the env carries its 16-byte
+            // {ptr, len} pair BY VALUE — an 8-byte slot overflowed the env, and a
+            // pointer to the creator's pair dangles once the closure escapes.
+            ft = slice_llvm_type();
         else
             ft = logos_to_mlir(ct);
         if (!ft) ft = builder_.getI32Type();
@@ -2258,6 +2278,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             scope_[captures[i]] = val;
             let_vars_.insert(captures[i]);
             var_elem_types_[captures[i]] = cap_value_types[i];
+        } else if (capture_is_fat_slice(i)) {
+            // The env holds the slice's {ptr, len} pair BY VALUE; the binding is
+            // the address of a copy of it — a slice parameter's representation.
+            auto slot = create_entry_alloca(slice_llvm_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
+            scope_[captures[i]] = slot;
         } else {
             auto alloca = create_entry_alloca(cap_fields[i + 1]);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
@@ -2418,7 +2444,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
                 loc_, dst, src, sz, /*isVolatile=*/false);
             continue;
         }
-        if (pointer_repr)
+        if (capture_is_fat_slice(i)) {
+            // The pair's VALUE: loaded when the binding holds its address.
+            cap_val = it->second;
+            if (cap_val && mlir::isa<mlir::LLVM::LLVMPointerType>(cap_val.getType()))
+                cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, slice_llvm_type(), cap_val);
+        } else if (pointer_repr)
             cap_val = it->second;
         else if (mut_ref)
             // Outer alloca pointer goes verbatim into the env field; the

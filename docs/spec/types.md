@@ -1677,6 +1677,8 @@ Every closure value (the `Closure` kind, which also covers `dyn Fn`/`FnMut`/`FnO
 
 **Divergence:** A6: Rust spells closures via Fn-family bounds; Logos has a dedicated `|..|->R` closure type syntax.
 
+A written `|..| -> R` states no Fn-family, and a slot of that type is callable through its place any number of times (nothing there consumes the callable), so it is read as `FnMut`: it takes an `Fn` or `FnMut` closure literal and refuses an `FnOnce` one (a literal whose body moves a capture out) — the `FnOnce` spellings are `impl FnOnce(..) -> R`, a `F: FnOnce(..) -> R` bound and `Box<dyn FnOnce(..) -> R>`, as in Rust (`tests/logos/fail/closure_field_fnonce_called_twice_double_free.logos`: an `FnOnce` literal stored in `f: || -> String` and called twice freed its capture twice).
+
 **Source:** `tools/peg_gen_cpp/grammars/logos.peg#L1657-L1664`
 
 

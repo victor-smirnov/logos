@@ -2163,9 +2163,16 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
             if (!types_equal(fp[i], tp[i])) sig = false;
         if (sig) {
             // When the slot STATES a family, the literal's must fit it:
-            // Fn <= FnMut <= FnOnce. A slot that states none takes any.
+            // Fn <= FnMut <= FnOnce. A slot that states NONE (a written
+            // `|T| -> R`) is callable any number of times through its place —
+            // nothing there consumes it — so it takes a Fn or FnMut literal and
+            // not an FnOnce one (row closure_field_fnonce_called_twice_double_free:
+            // an FnOnce literal stored in `f: || -> String` was called twice
+            // and freed its capture twice). An FnOnce is spelled `impl FnOnce`,
+            // a bound or `Box<dyn FnOnce>`, as in Rust.
             auto ff = TypeRef(from).closure_fn_family(), tf = TypeRef(to).closure_fn_family();
-            if (tf == TypeRef::FnFamily::Unstated || uint8_t(ff) <= uint8_t(tf))
+            if (tf == TypeRef::FnFamily::Unstated ? ff != TypeRef::FnFamily::FnOnce
+                                                   : uint8_t(ff) <= uint8_t(tf))
                 return true;
         }
     }

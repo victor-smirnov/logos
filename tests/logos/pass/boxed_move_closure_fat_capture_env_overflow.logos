@@ -1,0 +1,17 @@
+// An escaping `move` closure capturing two `&str`s: each is carried BY VALUE as
+// its 16-byte {ptr, len} pair (the env had 8-byte slots and the pairs overflowed
+// the malloc'd block — abort 134). valgrind clean. Twin:
+// tests/logos/pass/closure_slice_capture_shapes.logos.
+package boxed_move_closure_fat_capture_env_overflow;
+
+fn f() -> Box<dyn Fn() -> i64> {
+    let s = "abc";
+    let t = "de";
+    return Box::new(move || { return (s.len() + t.len()) as i64; });
+}
+
+fn main() -> i32 {
+    let a: Box<dyn Fn() -> i64> = f();
+    if a() != 5i64 { return 1i32; }
+    return 0i32;
+}

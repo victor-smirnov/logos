@@ -20513,6 +20513,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             peel_to_callable(hint_closure_formal_))
             ec->escapes = true;
     }
+    // RETURNED as the function's value (`-> impl Fn`): the closure outlives the
+    // frame whose locals its env would hold (row impl_fn_return_stack_env_dangles).
+    if (returned_closure_node_ && returned_closure_node_ == node.ptr())
+        ec->escapes = true;
 
     {
         // Scan ec->body's mirror after the move so &ec->body is the stable
@@ -20614,7 +20618,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                          k == LogosType::Kind::ZonedStruct ||
                          k == LogosType::Kind::Array ||
                          k == LogosType::Kind::Tuple ||
-                         k == LogosType::Kind::Enum);
+                         k == LogosType::Kind::Enum ||
+                         // An OWNING `Box<dyn Tr>` is owned storage too (row
+                         // closure_owned_dyn_capture): moved into the env and
+                         // dropped by its glue, as mlir-gen's capture_own_inline.
+                         (k == LogosType::Kind::TraitObject && ct.owning_trait_object()));
                 }
                 if (owned_by_closure) continue;
                 // NON-escaping (stack-env) move closure: the env only borrows the

@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row impl_fn_return_env_leaks (tier 2, run 1).
+// A closure literal returned as `impl Fn` escapes its frame, so its env is heap
+// (2026-09-25, closing impl_fn_return_stack_env_dangles — it dangled on the
+// stack before). The caller's closure VALUE is never dropped through its env
+// glue: the env leaks (valgrind "definitely lost") and an owned capture's
+// destructor never runs — observable here as the drop count staying 0.
+// The fix is a drop of a closure value whose env is known heap-owned; a value
+// passed through `fn id(c) -> c` must not also be dropped by its source, which
+// is why it was not bolted on. rustc 1.98.1: exit 0 (D dropped with `h`).
+package impl_fn_return_env_leaks;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1i64; } } }
+fn mk(p: *mut i64) -> impl Fn() -> i64 {
+    let d: D = D { v: 7i64, c: p };
+    return move || -> i64 { return d.v; };
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let h = mk(p);
+        if h() != 7i64 { return 2i32; }
+    }
+    if unsafe { n } != 1i64 { return 1i32; }
+    return 0i32;
+}

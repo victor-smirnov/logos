@@ -16,12 +16,6 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
-boxed_move_closure_fat_capture_env_overflow 1 tests/soundness/open/boxed_move_closure_fat_capture_env_overflow run 134
-
-closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
-
-impl_fn_return_stack_env_dangles 1 tests/soundness/open/impl_fn_return_stack_env_dangles run 1
-
 boxed_escaping_fnonce_capture_double_free 1 tests/soundness/open/boxed_escaping_fnonce_capture_double_free run 2
 
 localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
@@ -33,8 +27,6 @@ enum_ctor_partial_turbofish_underscore_internal 3 tests/soundness/open/enum_ctor
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
-
-closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
 
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
@@ -190,6 +182,8 @@ array_debug_format_unimplemented_refused 3 tests/soundness/open/array_debug_form
 
 format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrenderable_form_refused refuses
 
+impl_fn_return_env_leaks 2 tests/soundness/open/impl_fn_return_env_leaks run 1
+
 # ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
 # array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
 # moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
@@ -199,5 +193,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 12
-# SYNC-HASH eff487f6ceb656b6dde5ea1cfaf114c7
+# TOTAL 9
+# SYNC-HASH 1993215f33a6e222fa18a96982dfdff0
