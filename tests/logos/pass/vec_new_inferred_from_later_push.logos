@@ -1,0 +1,7 @@
+// A later use fixes Vec::new's element type (`v.push(4u8)`), as in Rust.
+package vec_new_inferred_from_later_push;
+fn main() -> i32 {
+    let mut v = Vec::new();
+    v.push(4u8);
+    return v[0] as i32 - 4i32;
+}

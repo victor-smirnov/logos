@@ -1,0 +1,13 @@
+// A partial turbofish `Ok::<i64, _>` leaves E to inference; the annotated let fixes it.
+package enum_ctor_partial_turbofish_underscore_inferred;
+
+fn main() -> i32 {
+    let r = Result::Ok::<i64, _>(6i64);
+    let q: Result<i64, i32> = r;
+    let v = match q {
+        Result::Ok(x) => x,
+        Result::Err(_) => 0i64,
+    };
+    if v != 6i64 { return 1i32; }
+    return 0i32;
+}

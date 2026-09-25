@@ -8552,6 +8552,56 @@ private:
     // The node lower_return is lowering as the returned VALUE: a closure
     // literal that IS it escapes the frame (heap env).
     const void* returned_closure_node_ = nullptr;
+
+    // ── LOCAL TYPE INFERENCE ────────────────────────────────────────────
+    // A generic call that leaves a type argument unbound outside a generic
+    // context (`Vec::new()` with no hint) takes a fresh INFERENCE VARIABLE
+    // `?iN` (a TypeVar by that name) instead of leaking the callee's own
+    // parameter. A later use that fixes it — an argument, an annotated `let`,
+    // any expect_type — solves it (infer_unify_); the variables in scope are
+    // refreshed (so later expressions see the concrete type); at the end of
+    // the function an unsolved one is E0282 and the solutions go to mono
+    // (LProgram::infer_substs), which substitutes them in every node.
+    std::unordered_map<std::string, TypeRef> infer_solved_;   // ?iN -> solution (null: open)
+    std::unordered_map<std::string, std::string> infer_origin_;  // ?iN -> what minted it
+    uint32_t infer_counter_ = 0;
+    static bool is_infer_var_name_(std::string_view n) { return n.starts_with("?i"); }
+    bool has_infer_var_(TypeRef t, int d = 0) const {
+        if (!t || d > 24) return false;
+        TypeRef tr(t);
+        if (tr.kind() == LogosType::Kind::TypeVar) return is_infer_var_name_(tr.type_var_name());
+        if (tr.pointee() && has_infer_var_(tr.pointee(), d + 1)) return true;
+        if (tr.elem() && has_infer_var_(tr.elem(), d + 1)) return true;
+        for (auto a : tr.type_args()) if (has_infer_var_(a, d + 1)) return true;
+        for (auto e : tr.tuple_elems()) if (has_infer_var_(e, d + 1)) return true;
+        return false;
+    }
+    TypeRef mint_infer_var_(std::string origin) {
+        std::string n = "?i" + std::to_string(infer_counter_++);
+        infer_solved_[n] = nullptr;
+        infer_origin_[n] = std::move(origin);
+        return make_typevar(n);
+    }
+    // The solutions applied (to a fixed point: a solution may name another var).
+    TypeRef zonk_(TypeRef t) {
+        if (!t || infer_solved_.empty() || !has_infer_var_(t)) return t;
+        SemaSubst sub;
+        for (auto& [n, v] : infer_solved_) if (v) sub[n] = v;
+        if (sub.empty()) return t;
+        for (int i = 0; i < 8 && has_infer_var_(t); ++i) {
+            TypeRef nt = subst_type_sema(t, sub);
+            if (nt == t) break;
+            t = nt;
+        }
+        return t;
+    }
+    // Solve the open variables `a` and `b` disagree on (either side may carry
+    // them). Returns true when something new was solved.
+    bool infer_unify_(TypeRef a, TypeRef b);
+    bool infer_unify_rec_(TypeRef a, TypeRef b, int d);
+    lir::LExprPtr lower_typed_const_(sema_detail::TinyMapView ast, TypeRef declared);
+    // Close the function: E0282 for an open variable, the solutions to mono.
+    void infer_close_fn_(const std::string& fn_name);
     // g6b: expected ELEMENT type for an array/slice literal, from a `let
     // arr: [&dyn Trait; N] = [...]` annotation (or analogous context). Lets
     // lower_arr_lit type a HETEROGENEOUS `[&Sq, &Ci]` as `[&dyn Trait; N]` —

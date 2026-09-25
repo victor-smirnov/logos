@@ -1,0 +1,13 @@
+// A unit variant in a generic struct literal takes the caller's type parameter.
+package local_infer_unit_variant_generic_struct_field;
+use logos.lang.option;
+struct P<T> { v: T, o: Option<T> }
+fn mk<T>(v: T) -> P<T> { return P::<T> { v: v, o: Option::None }; }
+struct Q { o: Option<i64> }
+fn main() -> i32 {
+    let q = Q { o: Option::None };
+    let p = mk(3);
+    match q.o { Option::None => {}, Option::Some(_) => { return 1; } }
+    match p.o { Option::None => {}, Option::Some(_) => { return 2; } }
+    return 0;
+}

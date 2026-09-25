@@ -2229,8 +2229,33 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         auto fa = from.type_args();
         auto ta = to.type_args();
         if (fa.size() == ta.size()) {
-            for (size_t i = 0; i < fa.size(); ++i)
+            // The ENUM rule below, for the same reason: a by-VALUE widening of a
+            // TYPE ARGUMENT reinterprets the instance's layout — `Vec<i32>` is
+            // not a `Vec<i64>` (Rust: mismatched types). Two concrete scalar
+            // args must be EQUAL; an unresolved one (TypeVar / `_` / literal)
+            // still unifies, and nested generics / dyn go through the lenient
+            // rule. Vec's invariance used to refuse this ONE LAYER UP (the
+            // variance check) and masked it; a covariant Vec exposed it.
+            auto unresolved = [](TypeRef t) {
+                auto k = TypeRef(t).kind();
+                return k == LogosType::Kind::TypeVar || k == LogosType::Kind::InferredType ||
+                       k == LogosType::Kind::CfgSlotType || k == LogosType::Kind::Error ||
+                       k == LogosType::Kind::IntLit || k == LogosType::Kind::FloatLit;
+            };
+            auto concrete_scalar = [](LogosType::Kind k) {
+                return (is_integer_kind(k) && k != LogosType::Kind::IntLit &&
+                        k != LogosType::Kind::Enum) ||
+                       k == LogosType::Kind::F32  || k == LogosType::Kind::F64 ||
+                       k == LogosType::Kind::Bool || k == LogosType::Kind::Char;
+            };
+            for (size_t i = 0; i < fa.size(); ++i) {
+                if (unresolved(fa[i]) || unresolved(ta[i])) continue;
+                if (concrete_scalar(TypeRef(fa[i]).kind()) && concrete_scalar(TypeRef(ta[i]).kind())) {
+                    if (!types_equal(fa[i], ta[i])) goto struct_mismatch;
+                    continue;
+                }
                 if (!types_compatible(fa[i], ta[i])) goto struct_mismatch;
+            }
             return true;
         }
     }
@@ -2758,7 +2783,10 @@ std::string type_str(TypeRef t, bool source_form) {
         }
         return r; }
     case LogosType::Kind::TaggedPtr:   return "&tagged<" + std::string(TypeRef(t).struct_name()) + "> " + std::string(TypeRef(t).trait_name());
-    case LogosType::Kind::TypeVar:     return std::string(TypeRef(t).type_var_name());
+    case LogosType::Kind::TypeVar:
+        // An open local-inference variable reads as Rust's hole, `_`.
+        if (std::string_view(TypeRef(t).type_var_name()).starts_with("?i")) return "_";
+        return std::string(TypeRef(t).type_var_name());
     case LogosType::Kind::ConstVar: {
         // A deferred const-arg EXPRESSION rides a postfix-encoded ConstVar name
         // — decode it back to infix for diagnostics.

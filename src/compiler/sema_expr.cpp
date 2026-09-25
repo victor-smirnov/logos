@@ -13479,6 +13479,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     expect_type(fval, ft, CoercePos::StructLitField,
                                 std::format("struct literal '{}' field '{}':",
                                             sname, fname));
+                else if (ft && has_infer_var_(expr_type(fval))) {
+                    // The comparison defers to mono, the SOLUTION cannot:
+                    // `P::<T> { o: None }` fixes `?i` = the caller's `T`.
+                    infer_unify_(ft, expr_type(fval));
+                    builder().retype_expr(fval, zonk_(expr_type(fval)));
+                }
                 // B68.2: variance check at struct-lit field-init. Permissive
                 // mode — the struct's lifetime args are bound at this
                 // construction site (struct-scope), not fn-scope, so caller's
@@ -14458,6 +14464,18 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
             }
     }
 
+    // Local inference: the elements are ONE type, so their open variables
+    // unify with each other (`[Err(s), Ok(5i64)]`).
+    if (!infer_solved_.empty() && elems.size() > 1) {
+        bool any = false;
+        for (auto& e : elems) if (e && has_infer_var_(expr_type(e))) { any = true; break; }
+        if (any) {
+            for (size_t i = 1; i < elems.size(); ++i)
+                if (elems[0] && elems[i]) infer_unify_(expr_type(elems[0]), expr_type(elems[i]));
+            for (auto& e : elems)
+                if (e && has_infer_var_(expr_type(e))) builder().retype_expr(e, zonk_(expr_type(e)));
+        }
+    }
     // Elements that each fix only PART of a generic enum's arguments
     // (`[Result::Ok(1i64), Result::Err(true)]`: `Result<i64, ?>` and
     // `Result<?, bool>`) unify, as in rustc: the arguments are merged position
@@ -15708,7 +15726,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
-                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
                     if (cit->second.type) builder().retype_expr(val, cit->second.type);
                     cit->second.cached_value = val;
                 }
@@ -15726,7 +15744,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
-                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
                     if (cit->second.type) builder().retype_expr(val, cit->second.type);
                     cit->second.cached_value = val;
                 }
@@ -15792,7 +15810,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         auto cit = assoc_const_impls_.find(key);
         if (cit != assoc_const_impls_.end()) {
             if (!cit->second.cached_value) {
-                auto val = lower_expr(map_of(cit->second.value_ast));
+                auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
                 if (cit->second.type) builder().retype_expr(val, cit->second.type);
                 cit->second.cached_value = val;
             }
@@ -15852,6 +15870,30 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             lt_args.push_back(std::string{});
         }
         result_t = make_generic_enum(std::string(ename), std::move(targs), std::move(lt_args));
+    } else if (!einfo_for_hint.type_params.empty()) {
+        // No hint: each type argument is an INFERENCE VARIABLE a later use
+        // solves (`let mut a = None; a = Some(5)`), not a bare `Option`.
+        // A written turbofish (`None::<i32>`) fixes its positions; `_` and the
+        // rest are variables.
+        std::vector<TypeRef> written;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                for (size_t i = 0; i < items.size(); ++i) written.push_back(resolve_type(map_of(items.get(i))));
+            }
+        }
+        std::vector<TypeRef> targs;
+        for (size_t i = 0; i < einfo_for_hint.type_params.size(); ++i) {
+            TypeRef w = i < written.size() ? written[i] : TypeRef(nullptr);
+            if (w && TypeRef(w).kind() != LogosType::Kind::Error &&
+                TypeRef(w).kind() != LogosType::Kind::InferredType) { targs.push_back(w); continue; }
+            targs.push_back(mint_infer_var_(std::format(
+                "the type argument `{}` of `{}::{}` — give the binding a type",
+                einfo_for_hint.type_params[i].name, ename, vname)));
+        }
+        std::vector<std::string> lt_args(einfo_for_hint.lifetime_params.size());
+        result_t = make_generic_enum(std::string(ename), std::move(targs), std::move(lt_args));
     }
     // A unit variant spelled `Self::V` has no values to type it: it IS Self, regions included.
     if (self_spelled_enum && TypeRef(self_spelled_enum).enum_name() == std::string(ename) &&
@@ -15905,7 +15947,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
-                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
                     if (cit->second.type) builder().retype_expr(val, cit->second.type);
                     cit->second.cached_value = val;
                 }
@@ -16316,7 +16358,15 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         std::vector<TypeRef> type_args;
         for (auto& tp : einfo.type_params) {
             auto sit = subst.find(tp.name);
-            type_args.push_back(sit != subst.end() ? sit->second : error_t());
+            if (sit == subst.end() || !sit->second ||
+                TypeRef(sit->second).kind() == LogosType::Kind::InferredType) {
+                // Nothing here fixes it (`Result::Ok::<i64, _>(6)`, a bare
+                // `None`): an INFERENCE VARIABLE a later use solves.
+                subst[tp.name] = mint_infer_var_(std::format(
+                    "the type argument `{}` of the enum `{}` — give the binding a type", tp.name, ename));
+                sit = subst.find(tp.name);
+            }
+            type_args.push_back(sit->second);
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
         // B81: emit lifetime_args from lt_subst (enum's lifetime_params
@@ -16622,7 +16672,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (size_t i = 0; i < items.size() && i < einfo.type_params.size(); ++i) {
                     auto ta = resolve_type(map_of(items.get(i)));
-                    if (ta && TypeRef(ta).kind() != LogosType::Kind::Error)
+                    // `_` is left to the payload / hint / inference passes below.
+                    if (ta && TypeRef(ta).kind() != LogosType::Kind::Error &&
+                        TypeRef(ta).kind() != LogosType::Kind::InferredType)
                         subst[einfo.type_params[i].name] = ta;
                 }
             }
@@ -16725,7 +16777,15 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         std::vector<TypeRef> type_args;
         for (auto& tp : einfo.type_params) {
             auto sit = subst.find(tp.name);
-            type_args.push_back(sit != subst.end() ? sit->second : error_t());
+            if (sit == subst.end() || !sit->second ||
+                TypeRef(sit->second).kind() == LogosType::Kind::InferredType) {
+                // Nothing here fixes it (`Result::Ok::<i64, _>(6)`, a bare
+                // `None`): an INFERENCE VARIABLE a later use solves.
+                subst[tp.name] = mint_infer_var_(std::format(
+                    "the type argument `{}` of the enum `{}` — give the binding a type", tp.name, ename));
+                sit = subst.find(tp.name);
+            }
+            type_args.push_back(sit->second);
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
         std::vector<std::string> lt_args;
@@ -17111,6 +17171,14 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
 
 bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
                               std::string_view ctx, TypeRef shown) {
+    // Local type inference: a use that fixes an open `?iN` solves it here —
+    // the one judgment every expecting position goes through.
+    if (!infer_solved_.empty() && e && expected &&
+        (has_infer_var_(expected) || has_infer_var_(expr_type(e)))) {
+        infer_unify_(expected, expr_type(e));
+        expected = zonk_(expected);
+        if (has_infer_var_(expr_type(e))) builder().retype_expr(e, zonk_(expr_type(e)));
+    }
     if (!e || !expected) return true;
     if (TypeRef(expected).kind() == LogosType::Kind::Error) return true;
     // An unresolved formal (a type parameter or an un-normalized projection)
@@ -18574,7 +18642,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             auto cit = assoc_const_impls_.find(ikey);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
-                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
                     if (cit->second.type) builder().retype_expr(val, cit->second.type);
                     cit->second.cached_value = val;
                 }
@@ -18592,7 +18660,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             auto cit = assoc_const_impls_.find(key);
             if (cit != assoc_const_impls_.end()) {
                 if (!cit->second.cached_value) {
-                    auto val = lower_expr(map_of(cit->second.value_ast));
+                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
                     if (cit->second.type) builder().retype_expr(val, cit->second.type);
                     cit->second.cached_value = val;
                 }
@@ -18893,7 +18961,14 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     type_var_args = std::move(inferred);
                 else
                     for (auto& tp : fi.type_params)
-                        type_var_args.push_back(make_typevar(tp.name));
+                        // Outside a generic body an unbound parameter is an
+                        // INFERENCE VARIABLE a later use solves (`let v =
+                        // Vec::new(); v.push(4u8)`); inside one it stays the
+                        // callee's parameter for mono to rename.
+                        type_var_args.push_back(in_generic_context
+                            ? make_typevar(tp.name)
+                            : mint_infer_var_(std::format("the type argument `{}` of `{}::{}` — give the binding a type (`let x: {}<…> = …`)",
+                                                          tp.name, class_name, method_name, class_name)));
             }
             SemaSubst subst;
             for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
@@ -28265,4 +28340,89 @@ bool SemaChecker::explicit_destructor_call(TypeRef recv_type) {
     }
     return from_drop;
 }
+} // namespace logos::compiler
+
+namespace logos::compiler {
+
+// ── LOCAL TYPE INFERENCE (see sema_impl.hpp) ─────────────────────────────────
+bool SemaChecker::infer_unify_(TypeRef a, TypeRef b) {
+    if (!a || !b || infer_solved_.empty()) return false;
+    bool solved = infer_unify_rec_(a, b, 0);
+    if (solved)
+        for (auto& fr : scope_)
+            for (auto& [nm, vi] : fr.vars)
+                if (vi.type && has_infer_var_(vi.type)) vi.type = zonk_(vi.type);
+    return solved;
+}
+
+// Structural: an OPEN variable on either side takes the other side's type at
+// the same position (`Result<i64, ?a>` ~ `Result<?b, String>` solves both).
+// A shape disagreement solves nothing — the expecting judgment reports it.
+bool SemaChecker::infer_unify_rec_(TypeRef a, TypeRef b, int d) {
+    a = zonk_(a); b = zonk_(b);
+    if (!a || !b || d > 24) return false;
+    auto open = [&](TypeRef t) {
+        if (TypeRef(t).kind() != LogosType::Kind::TypeVar) return false;
+        auto it = infer_solved_.find(std::string(TypeRef(t).type_var_name()));
+        return it != infer_solved_.end() && !it->second;
+    };
+    auto bind = [&](TypeRef v, TypeRef t) {
+        auto k = TypeRef(t).kind();
+        if (k == LogosType::Kind::InferredType || k == LogosType::Kind::Error) return false;
+        if (open(t) && TypeRef(t).type_var_name() == TypeRef(v).type_var_name()) return false;
+        std::string n(TypeRef(v).type_var_name());
+        if (k == LogosType::Kind::IntLit) t = prim(LogosType::Kind::I32);  // an unsuffixed literal's default
+        else if (k == LogosType::Kind::FloatLit) t = prim(LogosType::Kind::F64);
+        else {
+            std::function<bool(TypeRef, int)> occurs = [&](TypeRef x, int dd) -> bool {
+                if (!x || dd > 24) return false;
+                TypeRef tx(x);
+                if (tx.kind() == LogosType::Kind::TypeVar) return tx.type_var_name() == n;
+                if (occurs(tx.pointee(), dd + 1) || occurs(tx.elem(), dd + 1)) return true;
+                for (auto y : tx.type_args()) if (occurs(y, dd + 1)) return true;
+                for (auto y : tx.tuple_elems()) if (occurs(y, dd + 1)) return true;
+                return false;
+            };
+            if (occurs(t, 0)) return false;
+        }
+        infer_solved_[n] = t;
+        return true;
+    };
+    if (open(a)) return bind(a, b);
+    if (open(b)) return bind(b, a);
+    bool solved = false;
+    TypeRef ta(a), tb(b);
+    if (ta.pointee() && tb.pointee()) solved |= infer_unify_rec_(ta.pointee(), tb.pointee(), d + 1);
+    if (ta.elem() && tb.elem()) solved |= infer_unify_rec_(ta.elem(), tb.elem(), d + 1);
+    auto xa = ta.type_args(), xb = tb.type_args();
+    if (xa.size() == xb.size())
+        for (size_t i = 0; i < xa.size(); ++i) solved |= infer_unify_rec_(xa[i], xb[i], d + 1);
+    auto ea = ta.tuple_elems(), eb = tb.tuple_elems();
+    if (ea.size() == eb.size())
+        for (size_t i = 0; i < ea.size(); ++i) solved |= infer_unify_rec_(ea[i], eb[i], d + 1);
+    return solved;
+}
+
+// A const's value is inlined at its use and typed by its DECLARATION — the
+// declared type is its expectation, so an open variable inside is solved here.
+lir::LExprPtr SemaChecker::lower_typed_const_(TinyMapView ast, TypeRef declared) {
+    auto v = lower_expr(ast);
+    if (declared && v && has_infer_var_(expr_type(v))) infer_unify_(declared, expr_type(v));
+    return v;
+}
+
+void SemaChecker::infer_close_fn_(const std::string& fn_name) {
+    if (infer_solved_.empty()) return;
+    std::vector<std::pair<std::string, TypeRef>> sols;
+    for (auto& [n, v] : infer_solved_) {
+        if (v) { sols.emplace_back(n, zonk_(v)); continue; }
+        auto o = infer_origin_.find(n);
+        error(std::format("type annotations needed: cannot infer {} (E0282)",
+                          o != infer_origin_.end() ? o->second : std::string("a type argument")));
+    }
+    if (!sols.empty()) cur_prog_->infer_substs[fn_name] = std::move(sols);
+    infer_solved_.clear();
+    infer_origin_.clear();
+}
+
 } // namespace logos::compiler

@@ -1,0 +1,17 @@
+// `&mut m(q)[1]` where `m` returns a `*mut i64`: the element is a PLACE through
+// the returned pointer (raw-pointer indexing, a Logos extension in unsafe code).
+// The index-of-rvalue path borrowed a COPY of the element — a silent miscompile
+// found while moving Vec's buffer to a `*const T` field (2026-09-25); mlir-gen's
+// place-address now takes a raw-pointer value as its own base.
+package rawptr_rvalue_index_borrow_is_place;
+fn m(p: *mut i64) -> *mut i64 { return p; }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let q: *mut i64 = &mut a as *mut i64;
+    unsafe {
+        let r: &mut i64 = &mut m(q)[1];
+        *r = 9i64;
+        m(q)[2] = 7i64;
+    }
+    return (a[1] + a[2]) as i32;
+}

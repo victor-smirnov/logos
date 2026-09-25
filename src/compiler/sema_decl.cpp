@@ -1049,6 +1049,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     pending_closure_deferred_moves_.clear();
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
     currently_uninit_vars_.clear();  // logos-core 2.7: reset definite-assignment tracker per fn
+    infer_solved_.clear();      // local type inference is per function body
+    infer_origin_.clear();
 
     // P4-pm-19: tuple-destructure parameters. Track synth-name +
     // user-name list for each; after the body is lowered, prepend
@@ -1639,6 +1641,9 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     }
     pop_type_params(type_params);
 
+    // Local type inference: E0282 for a variable nothing fixed; the solutions
+    // go to mono under this function's LIR name.
+    infer_close_fn_(std::string(fn_name));
     // Emit the values held in working locals into the mirror, now final.
     fn.str_always(dk::NAME, fn_name);
     // Carry the source-level `pub` visibility from the AST onto the LIR decl

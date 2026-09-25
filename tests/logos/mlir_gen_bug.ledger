@@ -22,10 +22,10 @@
 # itself an instance of the defect the CMake comment records.)
 #
 # ── the cause, per entry ────────────────────────────────────────────────────
-# issue-41888-b170 / nested-tuple-in-variant-payload-b170
-#   `unknown tagged enum '<name>__<args>'` — mono never emitted the demanded
-#   generic-enum instance (the args include `<error>` residue, i.e. a type that
-#   never resolved). A MONO instantiation defect, not a naming one.
+# issue-41888-b170 / nested-tuple-in-variant-payload-b170 — ROWS DELETED 2026-09-25.
+#   `unknown tagged enum '<name>__<args>'` — the `<error>` residue was an enum
+#   argument no ctor fixed; local type inference now solves it from a later use
+#   or refuses it (E0282, as rustc does for `match Ok(..)` with no `E`).
 # res-and-or-comb-or
 #   the same, plus the `let` that consumed the missing instance being dropped.
 #   `Result__i32__F` — `F` is an unsubstituted fn-type param.
@@ -53,6 +53,4 @@
 #   KIND LIST (Void, Never). `()` is a zero-arity Tuple and an empty struct is
 #   a Struct — both zero-width. The predicate is now the structural one its
 #   sibling guard already used (`logos_to_mlir(ty)` non-null).
-issue-41888-b170                     1 tests/imported/pass/match/issue-41888-b170
-nested-tuple-in-variant-payload-b170 1 tests/imported/pass/match/nested-tuple-in-variant-payload-b170
 res-and-or-comb-or                   4 tests/imported/pass/option-result/res-and-or-comb-or

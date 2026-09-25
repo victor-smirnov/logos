@@ -1,0 +1,6 @@
+// E0282: nothing fixes Vec::new's element type.
+package local_infer_unconstrained_e0282;
+fn main() -> i32 {
+    let v = Vec::new();
+    return v.len() as i32;
+}

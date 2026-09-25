@@ -1593,6 +1593,26 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         auto recv     = irv.receiver();
         if (!irv.index()) return nullptr;
         TypeRef recv_t = recv.type(pool_impl());
+        // A raw-pointer VALUE that is not a place (`m(q)[i]`, a call's
+        // `*mut T`): the pointer itself is the base. Falling back to the
+        // value-copy handler made `&mut m(q)[i]` borrow a COPY of the element.
+        if (recv && recv.kind() != ec::Code::VarRef && recv.kind() != ec::Code::FieldRead &&
+            recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Ptr && TypeRef(recv_t).pointee()) {
+            mlir::Value pbase = gen_expr(recv);
+            if (!pbase) return nullptr;
+            TypeRef pe = TypeRef(recv_t).pointee();
+            TypeRef et = (TypeRef(pe).kind() == LogosType::Kind::Array && TypeRef(pe).elem())
+                             ? TypeRef(pe).elem() : pe;
+            mlir::Type pstride = place_slot_type(et);
+            if (!pstride) pstride = builder_.getI32Type();
+            auto pidx = gen_expr(irv.index());
+            if (!pidx) return nullptr;
+            TypeRef pit = irv.index().type(pool_impl());
+            if (pit && LogosType::is_unsigned_repr_kind(pit.kind()) && pidx.getType() != builder_.getI64Type())
+                pidx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), pidx);
+            llvm::SmallVector<mlir::LLVM::GEPArg> pgi{pidx};
+            return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), pstride, pbase, pgi);
+        }
         mlir::Value base = gen_lvalue_addr(recv);
         if (!base) return nullptr;
         // Element stride = the receiver's element type's slot type. ASKED

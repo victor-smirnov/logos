@@ -5535,9 +5535,16 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
 
 // ── Clone a function with substitution (empty SubstMap = verbatim copy) ─
 
-DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
+DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
                          const PackMap& packs) {
     namespace dk = lir_schema::decl_keys;
+    // Local type inference: the body's solved inference variables (`?iN`) join
+    // the substitution, each read through the instance's own (a solution may
+    // name the template's parameters).
+    SubstMap s = s_in;
+    if (auto it = in_.infer_substs.find(std::string(fn.name())); it != in_.infer_substs.end())
+        for (auto& [n, t] : it->second)
+            if (!s.count(n)) s[n] = s_in.empty() ? t : subst_type(t, s_in);
     cur_packs_ = packs;  // make available to subst_expr
     // Stage E: read the template via its FunctionView mirror. Type reads MUST
     // use out_.type_pool.impl() — mono moved in_.type_pool into out_ at run()

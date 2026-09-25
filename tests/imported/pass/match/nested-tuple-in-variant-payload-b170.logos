@@ -20,7 +20,7 @@ fn main() -> i32 {
         _ => { return 5i32; }
     }
     // Nested tuple inside the payload.
-    match Ok((1i64, (2i64, 3i64))) {
+    match Ok::<_, i32>((1i64, (2i64, 3i64))) {
         Ok((a, (b, c))) => {
             if a != 1i64 { return 6i32; }
             if b != 2i64 { return 7i32; }

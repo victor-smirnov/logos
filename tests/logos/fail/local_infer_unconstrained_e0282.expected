@@ -1,0 +1,1 @@
+type annotations needed: cannot infer the type argument `T` of `Vec::new`

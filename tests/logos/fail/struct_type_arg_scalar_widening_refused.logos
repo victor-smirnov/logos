@@ -1,0 +1,10 @@
+// `Vec<i32>` is not a `Vec<i64>` (Rust E0308): two concrete scalar TYPE ARGUMENTS
+// must be equal — a by-value widening of a type argument reinterprets the
+// instance's layout. The lenient struct-argument rule accepted this; Vec's
+// invariance refused only the region-carrying spellings one layer up.
+package struct_type_arg_scalar_widening_refused;
+fn main() -> i32 {
+    let a: Vec<i32> = Vec::new();
+    let b: Vec<i64> = a;
+    return b.len() as i32;
+}

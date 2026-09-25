@@ -1,0 +1,23 @@
+// Local inference: a unit variant's type arguments from a later assignment or the return type.
+package local_infer_unit_variant_later_use;
+use logos.lang.option;
+use logos.lang.result;
+fn mk() -> Option<i64> {
+    let x = Option::None;
+    return x;
+}
+fn wrap<T>(v: T) -> Option<T> { return Option::Some(v); }
+fn main() -> i32 {
+    let mut a = Option::None;
+    a = Option::Some(5i64);
+    let r = Result::Ok::<i64, _>(6i64);
+    let q: Result<i64, i32> = r;
+    let v: i64 = match q { Result::Ok(x) => x, Result::Err(_) => 0i64 };
+    let b = mk();
+    let w = wrap(3u8);
+    let mut total: i64 = v;
+    match a { Option::Some(x) => { total = total + x; } Option::None => {} }
+    if b.is_none() { total = total + 1i64; }
+    match w { Option::Some(x) => { total = total + x as i64; } Option::None => {} }
+    return total as i32;
+}

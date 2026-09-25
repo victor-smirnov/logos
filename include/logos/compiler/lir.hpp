@@ -825,6 +825,13 @@ struct LProgram {
     // are the ambiguous bare names; values null. (Stage E: heap-free ObjectMap.)
     lir_view::ObjectMapRef ambiguous_type_names;
 
+    // LOCAL TYPE INFERENCE (sema → mono, in-process): per function NAME, the
+    // solutions of the inference variables (`?iN`) its body minted where a
+    // generic call left a type argument unbound (`let v = Vec::new();`) and a
+    // later use fixed it (`v.push(4u8)`). mono substitutes them like any type
+    // argument when it clones the function, which rewrites every node's type.
+    std::unordered_map<std::string, std::vector<std::pair<std::string, TypeRef>>> infer_substs;
+
     // ADR 0007 slice 1c: pools for WritVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
     // underlying deque (SemaCache holds a ref so cached raw handles survive past
