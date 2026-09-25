@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row struct_lit_const_promotion_refused (tier 3, refuses).
+// LEGAL RUST REFUSED. `&D { v: 1 }` whose operands are all constants and whose
+// type has no Drop / interior mutability is CONST-PROMOTED (Rust reference
+// `destructors.scope.const-promotion`): its region is 'static, so passing it
+// through a call and using the result later is fine. Logos promotes only a
+// bare literal (`&1i64`), so the struct literal's temporary dies at the end of
+// the statement: "temporary value dropped while borrowed". rustc 1.98.1: exit 1.
+// Found 2026-09-25 beside squeue #297 (tests/logos/fail/
+// ifexpr_arm_temp_in_call_arg_not_extended.logos needed a RUNTIME operand to
+// test extension rather than promotion). Rowed: a separate mechanism
+// (promotion of a constant aggregate), not the extension rule #297 closed.
+package struct_lit_const_promotion_refused;
+struct D { v: i64 }
+fn id(x: &D) -> &D { return x; }
+fn main() -> i32 {
+    let k: &D = id(&D { v: 1i64 });
+    return k.v as i32;
+}

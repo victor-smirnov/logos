@@ -204,6 +204,8 @@ array_debug_format_unimplemented_refused 3 tests/soundness/open/array_debug_form
 
 format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrenderable_form_refused refuses
 
+struct_lit_const_promotion_refused 3 tests/soundness/open/struct_lit_const_promotion_refused refuses
+
 # ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
 # array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
 # moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
@@ -213,5 +215,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 19
-# SYNC-HASH c21163093a15a44e8b1137c8dee37468
+# TOTAL 20
+# SYNC-HASH 7782cbe639cce88df9128a97d5f3ce58
