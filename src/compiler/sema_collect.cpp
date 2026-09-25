@@ -1207,6 +1207,12 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         std::string unwrapped_name;
         if ((cv.kind() == LogosType::Kind::Ptr || cv.kind() == LogosType::Kind::Ref || cv.kind() == LogosType::Kind::MutRef) && cv.pointee()) {
             TypeRef iv = cv.pointee();
+            // Every REFERENCE layer (`&&D` at `T: Eq` is Rust's
+            // `impl PartialEq<&B> for &A` applied twice); a raw pointer stays one.
+            while (cv.kind() != LogosType::Kind::Ptr && iv &&
+                   (iv.kind() == LogosType::Kind::Ref || iv.kind() == LogosType::Kind::MutRef) &&
+                   iv.pointee())
+                iv = iv.pointee();
             if (iv.kind() == LogosType::Kind::Struct)
                 unwrapped_name = concrete_struct_name(iv);
         } else if (cv.kind() == LogosType::Kind::Struct) {

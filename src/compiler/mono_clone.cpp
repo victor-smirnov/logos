@@ -4182,6 +4182,47 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         if (sym_exists(inner_key + "__" + method)) cname = inner_key;
                     }
                 }
+                // A COMPARISON over a reference type argument (`T: Eq` at
+                // `T = &D`: the receiver is `&&D`) with no impl for the reference
+                // itself: Rust's blanket `impl PartialEq<&B> for &A` (and Ord's)
+                // compares the POINTEES, so peel the extra layers off the
+                // receiver and the argument and call D's own method.
+                std::vector<lir::LExprPtr> call_args;
+                std::vector<TypeRef> call_arg_types;
+                bool args_cloned = false;
+                int cmp_peel_ = 0;
+                if (!cname.empty() && cname[0] == '&' && rt &&
+                    (method == "eq" || method == "ne" || method == "lt" || method == "le" ||
+                     method == "gt" || method == "ge" || method == "cmp" || method == "partial_cmp") &&
+                    (TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                     TypeRef(rt).kind() == LogosType::Kind::MutRef)) {
+                    TypeRef p = TypeRef(rt).pointee();
+                    while (p && (p.kind() == LogosType::Kind::Ref || p.kind() == LogosType::Kind::MutRef) &&
+                           p.pointee()) {
+                        ++cmp_peel_;
+                        p = p.pointee();
+                    }
+                    if (cmp_peel_ && p) {
+                        cname = (p.kind() == LogosType::Kind::Struct || p.kind() == LogosType::Kind::ZonedStruct)
+                                    ? concrete_struct_name(p)
+                              : p.kind() == LogosType::Kind::Enum ? enum_cname(p) : type_str(p);
+                        LirBuilder lb(out_);
+                        auto peel = [&](lir::LExprPtr e) {
+                            for (int i = 0; i < cmp_peel_ && e; ++i) {
+                                TypeRef et = e.type(out_.type_pool.impl());
+                                if (!et || !et.pointee()) break;
+                                e = lb.deref(std::move(e), et.pointee());
+                            }
+                            return e;
+                        };
+                        new_recv = peel(std::move(new_recv));
+                        v.each_arg([&](lir_view::ExprRef ar) {
+                            call_args.push_back(peel(child_husk(subst_child_expr(ar))));
+                            call_arg_types.push_back(call_args.back().type(out_.type_pool.impl()));
+                        });
+                        args_cloned = true;
+                    }
+                }
                 // Trait-aware method mangling: when sema flagged this dispatch
                 // as ambiguous-by-name (tag_trait carries the chosen trait),
                 // prefer the trait-qualified base `<cname>__<trait>__<method>`
@@ -4206,9 +4247,6 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 if (!cname.empty()) {
                     lir::ECall nc;
-                    std::vector<lir::LExprPtr> call_args;
-                    std::vector<TypeRef> call_arg_types;
-                    bool args_cloned = false;
                     std::string base_fn = cname + "__" + method_q;
                     std::string tmpl_key = base_fn;
                     if (!templates_.count(tmpl_key) && !specs_.count(tmpl_key)) {
@@ -4440,10 +4478,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // The ARGUMENTS' types too: two impls of one trait at
                         // different type arguments (`Add<V>` / `Add<&V>`) share
                         // owner, method and arity.
-                        v.each_arg([&](lir_view::ExprRef ar) {
-                            call_args.push_back(child_husk(subst_child_expr(ar)));
-                            call_arg_types.push_back(call_args.back().type(out_.type_pool.impl()));
-                        });
+                        if (!args_cloned)
+                            v.each_arg([&](lir_view::ExprRef ar) {
+                                call_args.push_back(child_husk(subst_child_expr(ar)));
+                                call_arg_types.push_back(call_args.back().type(out_.type_pool.impl()));
+                            });
                         args_cloned = true;
                         if (std::string sym = declared_method_symbol(cname, rpkg, method_q, arity,
                                                                      &call_arg_types);

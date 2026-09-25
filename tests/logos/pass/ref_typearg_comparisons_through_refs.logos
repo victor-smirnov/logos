@@ -1,0 +1,26 @@
+// Comparisons through reference type arguments, one and two layers deep:
+// `T: Eq` at `&D` / `&&D`, `T: Ord` (`<`) at `&D` / `&&D`, and `Option<&D> ==`.
+// rustc 1.98.1: exit 0. Twin: tests/logos/pass/ref_typearg_eq_impl_missing_refused.logos.
+package ref_typearg_comparisons_through_refs;
+use logos.lang.cmp;
+use logos.lang.option;
+struct D { v: i64 }
+impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+impl Ord for D { fn cmp(&self, other: &D) -> Ordering { if self.v < other.v { return Ordering::Less; } if self.v > other.v { return Ordering::Greater; } return Ordering::Equal; } }
+fn same<T: Eq>(a: T, b: T) -> bool { return a == b; }
+fn less<T: Ord>(a: T, b: T) -> bool { return a < b; }
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    let c: D = D { v: 9i64 };
+    if !same::<&D>(&a, &b) { return 1i32; }
+    if same::<&D>(&a, &c) { return 2i32; }
+    let ra: &D = &a; let rc: &D = &c;
+    if !same::<&&D>(&ra, &ra) { return 3i32; }
+    if !less::<&D>(&a, &c) { return 4i32; }
+    if less::<&&D>(&rc, &ra) { return 5i32; }
+    let oa: Option<&D> = Option::Some(&a);
+    let ob: Option<&D> = Option::Some(&b);
+    if !(oa == ob) { return 6i32; }
+    return 0i32;
+}

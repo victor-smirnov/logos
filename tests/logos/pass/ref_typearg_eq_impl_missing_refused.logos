@@ -1,0 +1,26 @@
+// `fn same2<T: Eq>(a: T, b: T) { a == b }` at `T = &D`: Rust's blanket
+// `impl PartialEq<&B> for &A` compares the POINTEES. mono named `&D__eq`
+// (no such function, MLIR verifier); a comparison over a reference receiver
+// with no impl for the reference itself now peels the extra layers off the
+// receiver and the argument and calls D's own method. rustc 1.98.1: exit 0.
+// Twins: tests/logos/pass/ref_typearg_comparisons_through_refs.logos,
+// tests/logos/fail/ref_typearg_eq_pointee_without_eq.logos.
+package ref_typearg_eq_impl_missing_refused;
+use logos.lang.cmp;
+struct D { v: i64 }
+impl Eq for D {
+    fn eq(&self, other: &D) -> bool {
+        return self.v == other.v;
+    }
+}
+fn same2<T: Eq>(a: T, b: T) -> bool {
+    return a == b;
+}
+fn main() -> i32 {
+    let a: D = D { v: 4i64 };
+    let b: D = D { v: 4i64 };
+    if same2::<&D>(&a, &b) {
+        return 0i32;
+    }
+    return 1i32;
+}

@@ -1,0 +1,12 @@
+// `same::<&E>` where `E` has no `Eq`: a reference satisfies a comparison
+// bound only through its pointee (Rust E0277). Twin of
+// tests/logos/pass/ref_typearg_comparisons_through_refs.logos.
+package ref_typearg_eq_pointee_without_eq;
+use logos.lang.cmp;
+struct E { v: i64 }
+fn same<T: Eq>(a: T, b: T) -> bool { return a == b; }
+fn main() -> i32 {
+    let e: E = E { v: 1i64 };
+    if same::<&E>(&e, &e) { return 0i32; }
+    return 1i32;
+}
