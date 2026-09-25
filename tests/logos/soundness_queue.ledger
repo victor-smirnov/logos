@@ -24,8 +24,6 @@ closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture  
 
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
 
-arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
-
 impl_fn_return_stack_env_dangles 1 tests/soundness/open/impl_fn_return_stack_env_dangles run 1
 
 boxed_escaping_fnonce_capture_double_free 1 tests/soundness/open/boxed_escaping_fnonce_capture_double_free run 2
@@ -247,5 +245,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 36
-# SYNC-HASH 58f4749434b6614c463ea83013a44c03
+# TOTAL 35
+# SYNC-HASH c07db0ee97bbd368e96f3134fb371ff3

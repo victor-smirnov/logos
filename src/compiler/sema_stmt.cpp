@@ -6047,9 +6047,6 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         }
         auto k = TypeRef(t).kind();
         if (k == LogosType::Kind::Error || k == LogosType::Kind::TypeVar) return t;
-        // Array/Slice held back for mint_dbm_ref's reason: no codegen ref-bind
-        // carries an array shape (queue row arrayelem_default_ref_mode_not_minted).
-        if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice) return t;
         return make_ref(dbm_mut, t);
     };
     auto mint_dbm_ref = [&](const std::string& nm, TypeRef bt,
@@ -6057,11 +6054,6 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (!dbm_ref || nm.empty()) return false;  // `_` is filtered by dbm_named_bind
         if (!bt || TypeRef(bt).kind() == LogosType::Kind::Error ||
             TypeRef(bt).kind() == LogosType::Kind::TypeVar) return false;
-        // ⚠ SOUNDNESS: Array/Slice held back — no codegen ref-bind carries an
-        // array shape, so minting here writes nowhere and exits 0 (measured).
-        // Soundness queue row arrayelem_default_ref_mode_not_minted.
-        if (TypeRef(bt).kind() == LogosType::Kind::Array ||
-            TypeRef(bt).kind() == LogosType::Kind::Slice) return false;
         out.mirror_ptr_ = lir_mirror_emit_pat_ref_bind(
             *cur_prog_, nm, dbm_mut, make_ref(dbm_mut, bt), reserve_pat_slot(nm));
         return true;

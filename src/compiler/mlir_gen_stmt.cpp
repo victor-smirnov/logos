@@ -117,6 +117,7 @@ std::string MLIRGenImpl::bind_match_ref_binder(lir_view::PatRef pat,
         scope_[prbn] = alloca;
         let_vars_.insert(prbn);
         var_elem_types_[prbn] = ptr_type();
+        ref_slot_vars_.insert(prbn);   // see bind_ref_name
     }
     return prbn;
 }
@@ -227,6 +228,9 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             scope_[bindings[bi]] = bind_slot;
             let_vars_.insert(bindings[bi]);
             var_elem_types_[bindings[bi]] = ptr_type();
+            // Depth 1: the slot holds the reference to the payload place (see
+            // bind_ref_name); deeper chains are peeled by explicit derefs.
+            if (ref_bind_depth == 1) ref_slot_vars_.insert(bindings[bi]);
             added.push_back(bindings[bi]);
             continue;
         }
@@ -4791,6 +4795,11 @@ void MLIRGenImpl::bind_ref_name(const std::string& name, mlir::Value slot_ptr, T
         scope_[name] = alloca;
         let_vars_.insert(name);
         var_elem_types_[name] = ptr_type();
+        // The slot HOLDS the reference, as a `let r: &T = …` local's does: a
+        // place built on `name` (`xs[0] = v` with `xs: &mut [i64; 2]`) starts at
+        // the loaded pointer, not at this wrapper (rule
+        // expr.place.ref-local-slot-load).
+        ref_slot_vars_.insert(name);
     }
 }
 
@@ -5446,6 +5455,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                                 scope_[prbn] = alloca;
                                 let_vars_.insert(prbn);
                                 var_elem_types_[prbn] = ptr_type();
+                                ref_slot_vars_.insert(prbn);   // see bind_ref_name
                             }
                         }
                     }
@@ -5551,6 +5561,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             evict_var_shapes(prbn);
                             scope_[prbn] = a; let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
+                            ref_slot_vars_.insert(prbn);   // see bind_ref_name
                         }
                     };
                     auto i64c = [&](int64_t k){

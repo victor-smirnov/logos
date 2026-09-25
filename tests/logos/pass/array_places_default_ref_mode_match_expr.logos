@@ -1,0 +1,15 @@
+// The same writes through the match EXPRESSION door (the statement door's twin).
+// rustc 1.98.1: exit 0.
+package array_places_default_ref_mode_match_expr;
+struct A { xs: [i64; 2], n: i64 }
+enum E { V([i64; 2]), N }
+fn main() -> i32 {
+    let mut a: A = A { xs: [1, 2], n: 3 };
+    let r1: i64 = match &mut a { A { xs, .. } => { xs[0] = 10; xs[1] } };
+    let mut e: E = E::V([3, 4]);
+    let r2: i64 = match &mut e { E::V(zs) => { zs[1] = 40; zs[0] } E::N => 0 };
+    let mut g: [[i64; 2]; 2] = [[1, 1], [2, 2]];
+    let r3: i64 = match &mut g { [row, _] => { row[1] = 7; row[0] } };
+    let ev: i64 = match &e { E::V(zs) => zs[1], E::N => 0 };
+    return (a.xs[0] + r1 + r2 + ev + g[0][1] + r3 - 63) as i32;
+}

@@ -4947,6 +4947,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             scope_[prbn] = alloca;
                             let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
+                            ref_slot_vars_.insert(prbn);   // see bind_ref_name
                             added.push_back(prbn);
                         }
                     };
@@ -5085,6 +5086,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                                     scope_[bn] = alloca;
                                     let_vars_.insert(bn);
                                     var_elem_types_[bn] = ptr_type();
+                                    ref_slot_vars_.insert(bn);   // see bind_ref_name
                                 }
                                 added.push_back(bn);
                             }

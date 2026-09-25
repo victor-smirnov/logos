@@ -1,0 +1,22 @@
+// Array places bound in the default `ref mut` mode — struct field, `let` over `&mut`, tuple
+// element, nested-array element, variant payload — and written through; reads under `&`.
+// rustc 1.98.1: exit 0.
+package array_places_default_ref_mode_written;
+struct A { xs: [i64; 2], n: i64 }
+enum E { V([i64; 2]), N }
+fn main() -> i32 {
+    let mut a: A = A { xs: [1, 2], n: 3 };
+    match &mut a { A { xs, n } => { xs[0] = xs[0] + 1; *n = *n + 1; } }
+    let A { xs, .. } = &mut a;
+    xs[1] = 9;
+    let mut t: ([i64; 2], i64) = ([5, 6], 7);
+    match &mut t { (ys, _) => { ys[1] = ys[1] * 10; } }
+    let mut g: [[i64; 2]; 2] = [[1, 1], [2, 2]];
+    match &mut g { [row, _] => { row[0] = 40; } }
+    let mut e: E = E::V([3, 4]);
+    match &mut e { E::V(zs) => { zs[0] = 30; } E::N => {} }
+    let ez: i64 = match &e { E::V(zs) => zs[0] + zs[1], E::N => 0 };
+    let rd: i64 = match &a { A { xs, .. } => xs[0] + xs[1] };
+    let s: i64 = a.xs[0] + a.xs[1] + a.n + t.0[1] + g[0][0] + ez + rd;
+    return (s - 160) as i32;
+}
