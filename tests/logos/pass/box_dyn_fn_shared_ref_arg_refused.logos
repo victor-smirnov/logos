@@ -1,0 +1,13 @@
+// Compiles and runs as in rustc 1.98.1; valgrind clean (squeue row of the same name).
+package box_dyn_fn_shared_ref_arg_refused;
+
+use logos.mem.boxed;
+
+fn call_dyn(f: &dyn Fn() -> i64) -> i64 { return f(); }
+
+fn main() -> i32 {
+    let k: i64 = 7i64;
+    let b: Box<dyn Fn() -> i64> = Box::new(move || -> i64 { return k; });
+    if call_dyn(&b) != 7i64 { return 1i32; }
+    return 0i32;
+}

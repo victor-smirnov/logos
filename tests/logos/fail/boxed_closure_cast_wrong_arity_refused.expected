@@ -1,0 +1,1 @@
+cast: expected Box<dyn Fn() -> i64>, got Box<|i64| -> i64

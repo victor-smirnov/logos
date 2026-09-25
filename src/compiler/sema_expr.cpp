@@ -1137,6 +1137,17 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     // Tr>` rebuilds the target struct, unsizing the changed field. Shared with
     // the implicit coercion points via try_struct_unsize_coerce.
     if (try_struct_unsize_coerce(inner, target)) return inner;
+    // `Box::new(f) as Box<dyn Fn() -> R>`: the cast IS the unsizing coercion
+    // an annotated `let` performs (Rust: `as` admits every coercion). A
+    // closure's box and the erased one share a representation; there is no
+    // value cast to lower.
+    if (inner && target && is_stdlib_box(expr_type(inner)) && is_stdlib_box(target) &&
+        TypeRef(expr_type(inner)).type_args().size() == 1 && TypeRef(target).type_args().size() == 1 &&
+        TypeRef(TypeRef(target).type_args()[0]).kind() == LogosType::Kind::Closure &&
+        TypeRef(TypeRef(expr_type(inner)).type_args()[0]).kind() == LogosType::Kind::Closure) {
+        if (expect_type(inner, target, CoercePos::LetInit, "cast:")) return inner;
+        return error_expr();
+    }
 
     // `&arr as *const [T]` / `as &[T]` — a ref-to-array source decays to the
     // slice BEFORE the cast machinery, which expects a fat value for any
@@ -16932,6 +16943,22 @@ bool SemaChecker::try_deref_coerce(lir::LExprPtr& e, TypeRef pt) {
     using K = LogosType::Kind;
     auto is_ref = [](TypeRef t) { return t && (t.kind() == K::Ref || t.kind() == K::MutRef); };
     TypeRef at = expr_type(e);
+    // `&Box<dyn Fn(..)>` at a borrowed `dyn Fn(..)` slot: `Box<F>: Fn` for
+    // `F: Fn` (the Fn family's own Box impl — unlike a user trait's `&Box<dyn
+    // Tr>`, which stays E0277), so the slot takes the box's callable, as `&*b`.
+    if (pt.kind() == K::Closure && is_ref(at) && TypeRef(at).pointee() &&
+        is_stdlib_box(TypeRef(at).pointee()) &&
+        TypeRef(TypeRef(at).pointee()).type_args().size() == 1 &&
+        TypeRef(TypeRef(TypeRef(at).pointee()).type_args()[0]).kind() == K::Closure) {
+        bool degraded = false;
+        auto nx = emit_generic_deref_step(builder().deref(e, TypeRef(at).pointee()),
+                                          /*want_mut=*/false, &degraded);
+        if (nx && !degraded && *nx && expr_type(*nx) && types_compatible(expr_type(*nx), pt)) {
+            e = *nx;
+            return true;
+        }
+        return false;
+    }
     if (!is_ref(pt) || !is_ref(at) || !TypeRef(at).pointee() || !TypeRef(pt).pointee()) return false;
     if (types_compatible(at, pt)) return false;
     const bool want_mut = TypeRef(pt).kind() == K::MutRef;

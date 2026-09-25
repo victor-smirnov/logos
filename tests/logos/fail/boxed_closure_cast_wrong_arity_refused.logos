@@ -1,0 +1,8 @@
+// `as Box<dyn Fn() -> i64>` is a coercion, so a closure of another arity is refused
+// (rustc 1.98.1: E0593).
+package boxed_closure_cast_wrong_arity_refused;
+use logos.mem.boxed;
+fn main() -> i32 {
+    let g: Box<dyn Fn() -> i64> = Box::new(|x: i64| -> i64 { return x; }) as Box<dyn Fn() -> i64>;
+    return g() as i32;
+}

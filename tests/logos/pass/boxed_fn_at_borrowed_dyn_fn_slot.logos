@@ -1,0 +1,15 @@
+// A boxed Fn / FnMut at a borrowed `dyn Fn` / `&mut dyn FnMut` slot: an argument and an
+// annotated `let` (`Box<F>: Fn` for `F: Fn`). rustc 1.98.1: exit 0; valgrind clean.
+package boxed_fn_at_borrowed_dyn_fn_slot;
+use logos.mem.boxed;
+fn call_dyn(f: &dyn Fn(i64) -> i64, x: i64) -> i64 { return f(x); }
+fn call_mut(f: &mut dyn FnMut() -> i64) -> i64 { return f(); }
+fn main() -> i32 {
+    let k: i64 = 7;
+    let b: Box<dyn Fn(i64) -> i64> = Box::new(move |x: i64| -> i64 { return x + k; });
+    let r: &dyn Fn(i64) -> i64 = &b;
+    let mut c: i64 = 0;
+    let mut m: Box<dyn FnMut() -> i64> = Box::new(move || -> i64 { c = c + 1; return c; });
+    let s: i64 = call_dyn(&b, 1) + r(2) + call_mut(&mut m) + call_mut(&mut m);
+    return (s - 20) as i32;
+}

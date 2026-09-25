@@ -32,15 +32,11 @@ typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike       
 
 arrayelem_default_ref_mode_not_minted 3 tests/soundness/open/arrayelem_default_ref_mode_not_minted refuses
 
-boxed_closure_to_dyn_fn_cast_internal 3 tests/soundness/open/boxed_closure_to_dyn_fn_cast_internal refuses
-
 impl_fn_return_stack_env_dangles 1 tests/soundness/open/impl_fn_return_stack_env_dangles run 1
 
 boxed_escaping_fnonce_capture_double_free 1 tests/soundness/open/boxed_escaping_fnonce_capture_double_free run 2
 
 str_annot_loses_static_for_dyn_fn 3 tests/soundness/open/str_annot_loses_static_for_dyn_fn refuses
-
-box_dyn_fn_shared_ref_arg_refused 3 tests/soundness/open/box_dyn_fn_shared_ref_arg_refused refuses
 
 zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref_struct_field_layout_abort refuses
 
@@ -265,5 +261,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 45
-# SYNC-HASH 1ff02cdf1db052fcc8d7082a50727417
+# TOTAL 43
+# SYNC-HASH e811314d6fa1b1fa8298e5d3c1eafaf5
