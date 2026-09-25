@@ -32,8 +32,6 @@ str_annot_loses_static_for_dyn_fn 3 tests/soundness/open/str_annot_loses_static_
 
 zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref_struct_field_layout_abort refuses
 
-wrapper_unsize_missing_impl_backend_diag 4 tests/soundness/open/wrapper_unsize_missing_impl_backend_diag diag no vtable for 'A' as '&dyn Other'
-
 overload_set_arg_mismatch_says_no_method 4 tests/soundness/open/overload_set_arg_mismatch_says_no_method diag 'C' has no method 'put'
 
 stdlib_drop_uninhabited_enum_byvalue_consumer 3 tests/soundness/open/stdlib_drop_uninhabited_enum_byvalue_consumer refuses
@@ -243,5 +241,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 34
-# SYNC-HASH 647550fbd17afc194d2f4b5ae2092bca
+# TOTAL 33
+# SYNC-HASH 61761f75b1b345bab5fe391257a4a799

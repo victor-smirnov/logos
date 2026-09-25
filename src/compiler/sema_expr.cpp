@@ -1102,6 +1102,34 @@ bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
         if (i < sa.size()) src_s[ssi->type_params[i].name] = sa[i];
         if (i < ta.size()) tgt_s[ssi->type_params[i].name] = ta[i];
     }
+    // The erased argument must implement the trait (E0277) — asked HERE, at
+    // the coercion, as rustc asks it; codegen otherwise found no vtable.
+    for (size_t i = 0; i < sa.size() && i < ta.size(); ++i) {
+        TypeRef d = ta[i], c = sa[i];
+        if (!d || !c) continue;
+        const auto dk = TypeRef(d).kind(), ck = TypeRef(c).kind();
+        if (dk != LogosType::Kind::TraitObject && dk != LogosType::Kind::UnsizedDyn) continue;
+        if (ck == LogosType::Kind::TypeVar || ck == LogosType::Kind::TraitObject ||
+            ck == LogosType::Kind::UnsizedDyn || ck == LogosType::Kind::Error) continue;
+        std::string trait(TypeRef(d).trait_name());
+        if (trait.empty()) continue;
+        std::string bare, conc;
+        if (ck == LogosType::Kind::Struct || ck == LogosType::Kind::ZonedStruct) {
+            bare = std::string(TypeRef(c).struct_name()); conc = concrete_struct_name(c);
+        } else if (ck == LogosType::Kind::Enum) {
+            bare = std::string(TypeRef(c).enum_name()); conc = bare;
+        } else {
+            bare = type_str(c); conc = bare;
+        }
+        logos::compiler::StrSet seen;
+        if (!sema_has_impl_recursive(trait, conc, bare, seen)) {
+            error(std::format("the trait bound `{}: {}` is not satisfied — required for the "
+                              "unsize from `{}` to `{}<dyn {}>` (E0277)",
+                              type_str(c), trait, type_str(et), sname, trait));
+            e = error_expr();
+            return true;
+        }
+    }
     std::vector<TypeRef> sft(1), tft(1);
     sft[0] = src_s.empty() ? TypeRef(ssi->fields[0].type)
                            : subst_type_sema(ssi->fields[0].type, src_s);
@@ -9529,6 +9557,17 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
         }
     }
+    // A receiver that already failed (and said why) has no method to find;
+    // "receiver is not a struct (got <error>)" would only repeat the cause.
+    if (recv && expr_type(recv) && TypeRef(expr_type(recv)).kind() == LogosType::Kind::Error) {
+        if (node.has_key(la::ARGS) && node.get(la::ARGS.code).is_pointer()) {
+            auto args_av = node.get(la::ARGS.code);
+            auto am = map_of(args_av);
+            auto items = (!am.is_null() && am.has_key(la::ITEMS)) ? arr_of(am.get(la::ITEMS.code)) : arr_of(args_av);
+            for (uint64_t i = 0; i < items.size(); ++i) (void)lower_expr(map_of(items.get(i)));
+        }
+        return error_expr();
+    }
     // E0040: `x.drop()` naming the destructor. PROBES.md 2026-09-02u.
     if (method_name == "drop" && recv && explicit_destructor_call(expr_type(recv))) {
         error("explicit use of destructor method (E0040)");
@@ -16863,6 +16902,9 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         if (mentions_error(mentions_error, TypeRef(expr_type(e)), 0)) return true;
     }
     coerce_arg_to_param(e, expected, mask_for(pos));
+    // A coercion step that REFUSED (and said why) leaves an error value; the
+    // mismatch below would only repeat it.
+    if (e && expr_type(e) && TypeRef(expr_type(e)).kind() == LogosType::Kind::Error) return false;
     // A raw `*mut T` / `*const T` / `&T` is accepted wherever a `&mut T` is
     // expected (types_compatible treats a pointer and a thin reference as the
     // same 8 bytes). For a `#[zone_mut]` T the expected value is a 16-byte

@@ -1,0 +1,15 @@
+// The legal twin: `Rc<A>` to `Rc<dyn Sp>` with `A: Sp` (rustc 1.98.1: exit 0).
+package wrapper_unsize_with_impl;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+trait Other { fn w(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn main() -> i32 {
+    let rc: Rc<A> = rc_new(A { x: 17i64 });
+    let d: Rc<dyn Sp> = rc;
+    if d.v() != 17i64 { return 10i32; }
+    return 0i32;
+}
