@@ -188,6 +188,9 @@ void SemaChecker::mark_extending_borrows(TinyMapView e) {
             kids(la::ITEMS);
             return;
         case la::FIELD_INIT:
+        // A block's value: its TAIL (`let k = if c { &T {..} } else { .. };` —
+        // the arm is a BLOCK whose last item is the extending borrow).
+        case la::TAIL_EXPR:
             kid(la::VALUE);
             return;
         // Tuple-enum-variant constructor arguments.
@@ -206,6 +209,7 @@ void SemaChecker::mark_extending_borrows(TinyMapView e) {
         case la::MATCH_ARM:
             kid(la::BODY);
             kid(la::VALUE);
+            kid(la::EXPR);   // an expression arm, `pat => &T {..},`
             return;
         default:
             // Not an extending form — a plain CALL, a binop, a method call.
@@ -292,6 +296,10 @@ lir::LExprPtr SemaChecker::autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef
 lir::LExprPtr SemaChecker::hoist_block_temp(lir::LExprPtr v, bool is_mut) {
     std::string nm = std::format("__lit_temp_{}", destruct_counter_++);
     TypeRef rt = expr_type(v);
+    if (route_ext_temp_(nm, rt)) {
+        pending_ext_init_.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
+        return builder().var_ref(nm, rt);
+    }
     register_stmt_temp(nm, rt, std::move(v), is_mut);
     return builder().var_ref(nm, rt);
 }
@@ -299,7 +307,7 @@ lir::LExprPtr SemaChecker::autoref_block_temp(lir::LExprPtr v, bool is_mut, Type
                                               lir_schema::expr::BorrowOrigin origin) {
     std::string nm = std::format("__lit_temp_{}", destruct_counter_++);
     TypeRef rt = expr_type(v);
-    register_stmt_temp(nm, rt, nullptr, is_mut);
+    if (!route_ext_temp_(nm, rt)) register_stmt_temp(nm, rt, nullptr, is_mut);
     std::vector<lir_view::StmtRef> blk;
     blk.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
     auto addr = builder().addr_of_temp(builder().var_ref(nm, rt), is_mut, ref_type, origin);
@@ -1799,7 +1807,11 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // An extending `&mut <place chain>` carries the extension DOWN the chain: the
         // rvalue base of `&mut mk().f` / `&mut mk()[0]` is the borrow's own temporary.
         ext_borrow_place_ctx_ = extending_borrow_nodes_.count(expr.ptr()) && is_place_node(child);
+        auto saved_pei = std::move(pending_ext_init_);
+        pending_ext_init_.clear();
         auto inner = lower_mut_place(child);
+        auto ext_init = std::move(pending_ext_init_);
+        pending_ext_init_ = std::move(saved_pei);
         ext_borrow_place_ctx_ = false;
         mut_place_ctx_ = saved_mut_place;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
@@ -1818,8 +1830,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // spill: row aggregate_extended_borrow_temp_never_dropped (2026-09-15g).
             if (cur_stmt_temp_hoist_ && inner && expr_type(inner) &&
                 needs_drop(expr_type(inner)) && is_hoistable_temp_rvalue(inner))
-                return autoref_block_temp(std::move(inner), true, __ty_inner, BorrowOrigin::Explicit);
-            return builder().addr_of_temp(std::move(inner), true, __ty_inner, BorrowOrigin::Explicit);
+                return wrap_ext_init_(std::move(ext_init), autoref_block_temp(std::move(inner), true, __ty_inner, BorrowOrigin::Explicit));
+            return wrap_ext_init_(std::move(ext_init), builder().addr_of_temp(std::move(inner), true, __ty_inner, BorrowOrigin::Explicit));
         }
         return materialize_recv_ref(std::move(inner), true, __ty_inner, BorrowOrigin::Explicit);
     }
@@ -4184,7 +4196,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // base of `&mk().f` / `&mk()[0]` is the borrow's own temporary and outlives the
         // statement (row extended_field_base_temp_dropped_at_let_end_run).
         ext_borrow_place_ctx_ = extending_borrow_nodes_.count(node.ptr()) && is_place_node(child);
+        auto saved_pei = std::move(pending_ext_init_);
+        pending_ext_init_.clear();
         auto inner = lower_expr(child);
+        auto ext_init = std::move(pending_ext_init_);
+        pending_ext_init_ = std::move(saved_pei);
         ext_borrow_place_ctx_ = false;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         // Rust: `&a[..]` / `&v[1..3]` — indexing by RANGE yields the slice
@@ -4225,8 +4241,8 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             // spill: row aggregate_extended_borrow_temp_never_dropped (2026-09-15g).
             if (cur_stmt_temp_hoist_ && inner && expr_type(inner) &&
                 needs_drop(expr_type(inner)) && is_hoistable_temp_rvalue(inner))
-                return autoref_block_temp(std::move(inner), false, __ty_inner, BorrowOrigin::Explicit);
-            return builder().addr_of_temp(std::move(inner), false, __ty_inner, BorrowOrigin::Explicit);
+                return wrap_ext_init_(std::move(ext_init), autoref_block_temp(std::move(inner), false, __ty_inner, BorrowOrigin::Explicit));
+            return wrap_ext_init_(std::move(ext_init), builder().addr_of_temp(std::move(inner), false, __ty_inner, BorrowOrigin::Explicit));
         }
         return materialize_recv_ref(std::move(inner), false, __ty_inner, BorrowOrigin::Explicit);
     }

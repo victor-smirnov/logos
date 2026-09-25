@@ -46,8 +46,6 @@ operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_
 
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 
-ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_extended_field_borrow_refused refuses
-
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
 
 closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
@@ -215,5 +213,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 20
-# SYNC-HASH 4d073396a9399c55320b062ddc10b2d6
+# TOTAL 19
+# SYNC-HASH c21163093a15a44e8b1137c8dee37468

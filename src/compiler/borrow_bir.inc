@@ -1243,12 +1243,20 @@ private:
                 assign(dest, std::move(rv));
                 return;
             }
+            // The arms of an extending `if` / `match` and the tail of an
+            // extending block are extending positions too (Rust 1.79,
+            // `destructors.scope.lifetime-extension.exprs`): `let k = if c {
+            // &T {..} } else { .. };` keeps the arm's temporary to the end of
+            // the let's block. The condition, the scrutinee and a block's
+            // statements are not.
             case ECode::IfExpr: {
                 lir_view::EIfExprView v{e};
                 bir::Operand c = operand(v.cond());
                 bir::BlockId bt = new_block(), bf = new_block(), join = new_block();
                 branch(std::move(c), {bt, bf});
+                extending_ = ext_guard.v;
                 cur_ = bt; lower_into(dest, v.then_val()); goto_(join);
+                extending_ = ext_guard.v;
                 cur_ = bf; lower_into(dest, v.else_val()); goto_(join);
                 cur_ = join;
                 return;
@@ -1257,12 +1265,14 @@ private:
                 lir_view::EBlockExprView v{e};
                 push_scope();
                 if (auto b = v.block()) lower_block_stmts(b);
+                extending_ = ext_guard.v;
                 if (v.result()) lower_into(dest, v.result());
                 pop_scope();
                 return;
             }
             case ECode::MatchExpr: {
                 lir_view::EMatchExprView v{e};
+                match_arm_ext_ = ext_guard.v;
                 lower_match(v.scrut(), [&](auto&& f) { v.each_arm(f); }, &dest);
                 return;
             }
@@ -2255,19 +2265,28 @@ private:
         if (!simple) { lower_stmt_(s); return; }
         push_scope();
         bool saved_scoped = stmt_scoped_, saved_ext = extending_;
+        size_t saved_outer = outer_scope_;
         stmt_scoped_ = true;
         extending_   = s.kind() == SCode::Let;
+        outer_scope_ = scopes_.size() - 1;
         lower_stmt_(s);
         stmt_scoped_ = saved_scoped;
         extending_   = saved_ext;
+        outer_scope_ = saved_outer;
         pop_scope();
     }
+    bool match_arm_ext_ = false;   // the next lower_match's arms extend (see IfExpr)
+    // The scope the innermost simple statement opened: an extended temporary
+    // lives in the scope ENCLOSING it, however many arm / block scopes the
+    // initializer has opened since.
+    size_t outer_scope_ = 0;
     bool stmt_scoped_ = false;   // the innermost scope is a statement's
     bool extending_   = false;   // lowering a `let` initializer in an extending position
     // A local that outlives the statement being lowered: the `let`'s own
     // binding, and an extended temporary.
     void declare_outer(bir::LocalId l) {
-        if (stmt_scoped_ && scopes_.size() >= 2) scopes_[scopes_.size() - 2].locals.push_back(l);
+        if (stmt_scoped_ && outer_scope_ >= 1 && outer_scope_ < scopes_.size())
+            scopes_[outer_scope_ - 1].locals.push_back(l);
         else declare(l);
     }
     void lower_stmt_(lir_view::StmtRef s) {
@@ -2961,6 +2980,8 @@ private:
 
     template <class EachArm>
     void lower_match(lir_view::ExprRef scrut, EachArm each_arm, const bir::Place* dest) {
+        const bool arm_ext = match_arm_ext_;
+        match_arm_ext_ = false;
         bir::Place sp = place_or_temp(scrut);
         TypeRef stype = scrut.type(pool_);
         std::vector<lir_view::EMatchArmRef> arms;
@@ -3035,7 +3056,12 @@ private:
                 cur_ = yes;
             }
             bind_pattern(sp, stype, arms[i].pat(), 0);
-            if (dest && arms[i].value()) lower_into(*dest, arms[i].value());
+            if (dest && arms[i].value()) {
+                bool saved_ext = extending_;
+                extending_ = arm_ext;
+                lower_into(*dest, arms[i].value());
+                extending_ = saved_ext;
+            }
             if (auto b = arms[i].body()) lower_block_stmts(b);
             pop_scope();
             if (!body_.blocks[cur_].terminated) goto_(join);

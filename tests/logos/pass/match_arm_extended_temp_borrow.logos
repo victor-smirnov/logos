@@ -1,0 +1,31 @@
+// Temporary lifetime extension through the arms of a `match` and an `if` in
+// a `let` initializer (Rust 1.79 `destructors.scope.lifetime-extension.exprs`):
+// each arm's `&T {..}` / `&T {..}.f` temporary lives to the end of the let's
+// block, and only the arm that ran is dropped (its drop flag). Twin of
+// tests/logos/pass/ifexpr_arm_extended_field_borrow_refused.logos.
+package match_arm_extended_temp_borrow;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+struct W { x: D, y: D }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let sel: i64 = 2i64;
+    {
+        let k: &D = match sel {
+            1 => &D { v: 1i64, c: p },
+            2 => &W { x: D { v: 10i64, c: p }, y: D { v: 100i64, c: p } }.y,
+            _ => &D { v: 1000i64, c: p },
+        };
+        if k.v != 100i64 { return 3i32; }
+        let c: bool = false;
+        let j: &D = if c { &D { v: 10000i64, c: p } } else { &D { v: 100000i64, c: p } };
+        if j.v != 100000i64 { return 4i32; }
+        if n != 0i64 { return 5i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 100110i64 { return 1i32; }
+    return 0i32;
+}

@@ -433,7 +433,92 @@ void MLIRGenImpl::prescan_uninit_flags(lir_view::BlockRef block, int depth,
         case C::LetElse: prescan_uninit_flags(lir_view::SLetElseView{s}.else_block(), depth + 1, decl_depth); break;
         default: break;
         }
+        // An assignment can also sit in a block nested inside the statement's
+        // EXPRESSIONS — the arm of an if/match expression (`let r = if c { x =
+        // D {..}; 5 } else { 6 };`, or sema's extended temporary of `let k =
+        // if c { &T {..} } else { .. };`). Without this the slot was taken as
+        // statically initialised and its scope-exit drop ran on garbage.
+        namespace sk = lir_schema::stmt_keys;
+        prescan_uninit_expr(s.sub_expr(sk::VALUE.code), depth, decl_depth);
+        prescan_uninit_expr(s.sub_expr(sk::EXPR.code), depth, decl_depth);
+        prescan_uninit_expr(s.sub_expr(sk::SCRUT.code), depth, decl_depth);
+        prescan_uninit_expr(s.sub_expr(sk::ITER.code), depth, decl_depth);
+        prescan_uninit_expr(s.sub_expr(sk::COND.code),
+                            s.kind() == C::While ? depth + 1 : depth, decl_depth);
     });
+}
+
+void MLIRGenImpl::prescan_uninit_expr(lir_view::ExprRef e, int depth,
+                                      std::unordered_map<std::string, int>& decl_depth) {
+    if (!e) return;
+    using C = lir_schema::expr::Code;
+    namespace ek = lir_schema::expr_keys;
+    switch (e.kind()) {
+    case C::IfExpr: {
+        lir_view::EIfExprView v{e};
+        prescan_uninit_expr(v.cond(), depth, decl_depth);
+        prescan_uninit_expr(v.then_val(), depth + 1, decl_depth);
+        prescan_uninit_expr(v.else_val(), depth + 1, decl_depth);
+        return;
+    }
+    case C::BlockExpr: {
+        lir_view::EBlockExprView v{e};
+        prescan_uninit_flags(v.block(), depth, decl_depth);
+        prescan_uninit_expr(v.result(), depth, decl_depth);
+        return;
+    }
+    // Call shapes: a Call's CALLEE is a symbol, not an expression.
+    case C::Call:
+        lir_view::ECallView{e}.each_arg([&](lir_view::ExprRef a) { prescan_uninit_expr(a, depth, decl_depth); });
+        return;
+    case C::MethodCall: {
+        lir_view::EMethodCallView v{e};
+        prescan_uninit_expr(v.receiver(), depth, decl_depth);
+        v.each_arg([&](lir_view::ExprRef a) { prescan_uninit_expr(a, depth, decl_depth); });
+        return;
+    }
+    case C::ClosureCall: {
+        lir_view::EClosureCallView v{e};
+        prescan_uninit_expr(v.callee(), depth, decl_depth);
+        v.each_arg([&](lir_view::ExprRef a) { prescan_uninit_expr(a, depth, decl_depth); });
+        return;
+    }
+    case C::FnPtrCall: {
+        lir_view::EFnPtrCallView v{e};
+        prescan_uninit_expr(v.callee(), depth, decl_depth);
+        v.each_arg([&](lir_view::ExprRef a) { prescan_uninit_expr(a, depth, decl_depth); });
+        return;
+    }
+    case C::AddrOf: case C::GenericRef: case C::VarRef:
+        return;
+    default: break;
+    }
+    // Every other form: its sub-expressions at the same depth, a match's arms
+    // one deeper (the same key set the reachability walk in mlir_gen.cpp reads).
+    for (auto k : {ek::LHS.code, ek::RHS.code, ek::OPERAND.code, ek::RECEIVER.code,
+                   ek::INDEX.code, ek::CALLEE.code, ek::FMT.code, ek::COND.code})
+        prescan_uninit_expr(e.sub_expr(k), depth, decl_depth);
+    prescan_uninit_expr(e.sub_expr(ek::SCRUT.code), depth, decl_depth);
+    for (auto k : {ek::ARGS.code, ek::ELEMS.code, ek::FIELD_VALUES.code, ek::PAYLOAD.code}) {
+        auto av = e.mirror()->get(k);
+        if (av.is_null()) continue;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i)
+            if (auto el = arr->get(i); !el.is_null())
+                prescan_uninit_expr(lir_view::detail::make_sub_ref<lir_view::ExprRef>(e, el),
+                                    depth, decl_depth);
+    }
+    auto av = e.mirror()->get(ek::ARMS.code);
+    if (av.is_null()) return;
+    auto* arr = av.as_ptr<const writ::ObjectArray>();
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i);
+        if (el.is_null()) continue;
+        auto arm = lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el);
+        prescan_uninit_expr(arm.guard(), depth + 1, decl_depth);
+        prescan_uninit_expr(arm.value(), depth + 1, decl_depth);
+        prescan_uninit_flags(arm.body(), depth + 1, decl_depth);
+    }
 }
 
 // ---------------------------------------------------------------------------

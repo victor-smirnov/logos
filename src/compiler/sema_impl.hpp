@@ -9606,6 +9606,26 @@ private:
     // collect_drops_to_loop — the wrap's fall-through drops are unreachable past
     // a terminator. SIZE_MAX ⇒ no collector installed.
     size_t cur_stmt_temp_hoist_frame_ = SIZE_MAX;
+    // The innermost STATEMENT's collector and frame — not a lazily evaluated
+    // sub-scope's (lower_expr_temp_scoped). An extended temporary made inside
+    // such a sub-scope (the arm of `let k = if c { &T {..}.f } else { .. };`)
+    // is declared here, uninitialised, and assigned where it is built: the arm
+    // runs conditionally, the declaration's runtime drop flag decides the drop.
+    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>>* stmt_ext_hoist_ = nullptr;
+    size_t stmt_ext_hoist_frame_ = SIZE_MAX;
+    // Declare an extended temporary `nm` in the statement's collector when the
+    // current collector is a sub-scope's; false when it is the statement's own.
+    bool route_ext_temp_(const std::string& nm, TypeRef rt) {
+        if (!stmt_ext_hoist_ || stmt_ext_hoist_ == cur_stmt_temp_hoist_) return false;
+        stmt_ext_hoist_->push_back({nm, rt, nullptr, true});
+        if (stmt_ext_hoist_frame_ < scope_.size()) {
+            auto& fr = scope_[stmt_ext_hoist_frame_];
+            if (!fr.vars.count(nm)) fr.var_order.push_back(nm);
+            fr.vars[nm] = {rt, true, false, next_slot_++};
+        }
+        decl_uninit_vars_.insert(nm);
+        return true;
+    }
     // Hoist a fresh droppable rvalue into the active statement/expression
     // temp-scope: appends (name,type,value,is_mut) to the collector, defines the
     // synth local in the collector's frame, and returns a VarRef to it. The
@@ -9615,6 +9635,15 @@ private:
     void spill_before_hoist(lir::LExprPtr& e, size_t mark);
     lir::LExprPtr lower_field_read_impl(writ::TinyMapView node);
     lir_view::StmtRef pending_field_base_init_;   // lower_field_read: `__rtmp = base` for an in-place Copy-field temporary
+    // hoist_block_temp, routed (route_ext_temp_): the extended temporary's
+    // assignment, emitted by the extending borrow around the finished borrow —
+    // `{ __lit_temp = W {..}; &__lit_temp.y }` keeps the operand a PLACE.
+    std::vector<lir_view::StmtRef> pending_ext_init_;
+    lir::LExprPtr wrap_ext_init_(std::vector<lir_view::StmtRef> init, lir::LExprPtr r) {
+        if (init.empty() || !r) return r;
+        TypeRef t = expr_type(r);
+        return builder().block_expr(lir_mirror_block(*cur_prog_, init), std::move(r), t);
+    }
     // Implicit auto-ref of an operand: a fresh droppable rvalue is owned by the
     // temp scope and initialised where it is evaluated (see PROBES.md 2026-09-14o).
     lir::LExprPtr autoref_operand(lir::LExprPtr v, bool is_mut, TypeRef ref_type,

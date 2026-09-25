@@ -778,6 +778,8 @@ private:
     std::unordered_set<std::string>               uninit_assigned_;
     void prescan_uninit_flags(lir_view::BlockRef block, int depth,
                               std::unordered_map<std::string, int>& decl_depth);
+    void prescan_uninit_expr(lir_view::ExprRef e, int depth,
+                             std::unordered_map<std::string, int>& decl_depth);
     // Per-function: let-vars bound directly from a container accessor returning
     // `*const/*mut dyn` (e.g. `let p = map.get(&k);` → `*const Box<dyn>`). Such a
     // var holds a pointer-INTO-storage, so `*p` must LOAD the stored handle —

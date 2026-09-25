@@ -1,0 +1,13 @@
+// The arm of an `if` that is a CALL ARGUMENT is not an extending position
+// (Rust: E0716, temporary value dropped while borrowed): the extension through
+// if/match arms applies only where the if itself extends. Twin:
+// tests/logos/pass/ifexpr_arm_extended_field_borrow_refused.logos.
+package ifexpr_arm_temp_in_call_arg_not_extended;
+struct D { v: i64 }
+fn id(x: &D) -> &D { return x; }
+fn main() -> i32 {
+    let c: bool = true;
+    let n: i64 = 1i64;   // a runtime value: `&D { v: 1 }` would be const-promoted
+    let k: &D = id(if c { &D { v: n } } else { &D { v: n + 1i64 } });
+    return k.v as i32;
+}

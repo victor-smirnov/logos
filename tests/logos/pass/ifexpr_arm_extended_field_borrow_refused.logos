@@ -1,10 +1,12 @@
-// SOUNDNESS QUEUE row ifexpr_arm_extended_field_borrow_refused (tier 3, refuses). AN EXTENDED FIELD BORROW OF A TEMPORARY IN AN `if` ARM OF A `let` INITIALISER IS REFUSED (E0597).
-// `let k: &D = if c { &W{..}.y } else { &W{..}.x };` — the arm tails are extending (mark_extending_borrows covers IF), rustc n=11.
-// TODAY "'__rtmp_0' does not live long enough ... (E0597)": the arm is lowered by SemaChecker::lower_expr_temp_scoped, whose own
-// installer owns and drops the base at the arm's end.
-// Found BESIDE round 2026-09-15g-aggtemp's extension arm (hand d04): NOT CLOSED by `ptext` (E0597 under every arm) — doors in
-// series (reason 2): the extended owner registered inside a temp-scoped arm is dropped by that scope's installer before the
-// borrow checker sees the block; lower_expr_temp_scoped must learn the extension first.
+// `let k: &D = if c { &W {..}.y } else { &W {..}.x };` — the arm's temporary
+// is EXTENDED to the end of the let's block (Rust 1.79 extends through if/else
+// and match arms and a block's tail). Three layers were short: sema's mark walk
+// did not enter a block TAIL_EXPR or an expression arm; an extended temporary
+// made inside an arm's own temporary scope was dropped at the arm's end (now
+// declared uninitialised in the statement's collector, assigned in the arm —
+// `route_ext_temp_`); the BIR reset the extension at the if/match/block and
+// placed it one scope out instead of the let's. rustc 1.98.1: n=11.
+// Twin: tests/logos/pass/match_arm_extended_temp_borrow.logos.
 package ifexpr_arm_extended_field_borrow_refused;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct D { v: i64, c: *mut i64 }

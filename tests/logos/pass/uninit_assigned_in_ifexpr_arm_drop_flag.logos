@@ -1,0 +1,31 @@
+// A declared-uninitialised local assigned inside the arm of an if / match
+// EXPRESSION gets a runtime drop flag: mlir-gen's prescan walked statements
+// only, took `x` as statically initialised, and its scope-exit drop ran on an
+// uninitialised slot (SIGSEGV when the arm did not run). Rust: legal; `x` is
+// dropped iff its arm ran. Found beside tests/logos/pass/
+// ifexpr_arm_extended_field_borrow_refused.logos (the extended temporary rides
+// the same flag).
+package uninit_assigned_in_ifexpr_arm_drop_flag;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let c: bool = false;
+    let sel: i64 = 2i64;
+    {
+        let x: D;
+        let y: D;
+        let r: i64 = if c { x = D { v: 1i64, c: p }; 5i64 } else { 6i64 };
+        let s: i64 = match sel {
+            1 => { y = D { v: 10i64, c: p }; 7i64 }
+            _ => { let z: D = D { v: 100i64, c: p }; z.v }
+        };
+        if r != 6i64 || s != 100i64 { return 3i32; }
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("n=%ld\n".as_ptr(), got); }
+    if got != 100i64 { return 1i32; }
+    return 0i32;
+}

@@ -425,11 +425,17 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
     // ERASED from the frame after the fall-through drops below, so the
     // enclosing block's own scope-exit drops never see them (no double drop).
     cur_stmt_temp_hoist_frame_ = scope_.empty() ? SIZE_MAX : scope_.size() - 1;
+    auto* saved_ext = stmt_ext_hoist_;
+    size_t saved_ext_frame = stmt_ext_hoist_frame_;
+    stmt_ext_hoist_ = cur_stmt_temp_hoist_;
+    stmt_ext_hoist_frame_ = cur_stmt_temp_hoist_frame_;
     auto saved_ret_bind = std::move(pending_ret_bind_);
     pending_ret_bind_.reset();
     lir_view::StmtRef s = lower_stmt_inner(stmt);
     cur_stmt_temp_hoist_ = saved_hoist;
     cur_stmt_temp_hoist_frame_ = saved_frame;
+    stmt_ext_hoist_ = saved_ext;
+    stmt_ext_hoist_frame_ = saved_ext_frame;
     auto ret_bind = std::move(pending_ret_bind_);
     pending_ret_bind_ = std::move(saved_ret_bind);
     if (hoisted.empty()) return s;
