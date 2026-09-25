@@ -1,0 +1,7 @@
+// `&&x` of a LOCAL is not `& &'static` (rustc 1.98.1: E0597).
+package nested_borrow_of_local_not_static_refused;
+fn main() -> i32 {
+    let x: i64 = 3;
+    let r: & &'static i64 = &&x;
+    return **r as i32;
+}

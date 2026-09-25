@@ -4011,6 +4011,23 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     // Mirrors DOUBLE_REF_TYPE at the type level.
     if (op == "&&") {
         auto child = map_of(node.get(la::VALUE.code));
+        // `&&STATIC`: the inner `&STATIC` is the global's address and `'static`,
+        // exactly as a single `&STATIC` (below) — the generic path took the
+        // address of a stack copy and typed it elided.
+        if (code_of(child) == la::VAR_REF) {
+            auto var_name = str_of(child.get(la::NAME.code));
+            if (auto vt = lookup(var_name); vt && is_module_static_unshadowed(var_name)) {
+                bool smut = module_static_muts_.count(std::string(var_name)) != 0;
+                bool is_extern = false;
+                if (!inside_unsafe_ && static_access_needs_unsafe(var_name, is_extern))
+                    error(std::format("borrow of {} static `{}` requires `unsafe` block",
+                                      is_extern ? "extern" : "mutable", var_name));
+                auto inner_ref_t = make_ref(smut, static_item_regions_(vt), std::string("static"));
+                auto inner_addr = builder().var_ref(static_addr_name(var_name), inner_ref_t);
+                return builder().addr_of_temp(std::move(inner_addr), false,
+                                              make_ref(false, inner_ref_t), BorrowOrigin::Explicit);
+            }
+        }
         auto inner = lower_expr(child);
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         auto inner_ref_t = make_ref(false, expr_type(inner));
@@ -4057,9 +4074,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                                 "block (Rust `items.static.mut.safety`)", var_name));
                     }
                 }
-                // `&STATIC` IS 'static — say so in the type (2026-09-02s).
+                // `&STATIC` IS 'static — say so in the type (2026-09-02s) — and
+                // so is every elided region of the static's own type
+                // (`static R: &i64` is `&'static i64`): `&R` is `&'static &'static`.
                 return builder().var_ref(static_addr_name(var_name),
-                                         make_ref(smut, vt, std::string("static")));
+                                         make_ref(smut, static_item_regions_(vt), std::string("static")));
             }
             // &array → &[T; N] (Rust). The decay to `&[T]` happens where a
             // slice is EXPECTED (try_coerce_array_ref_to_slice), not here —

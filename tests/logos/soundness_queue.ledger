@@ -28,8 +28,6 @@ impl_fn_return_stack_env_dangles 1 tests/soundness/open/impl_fn_return_stack_env
 
 boxed_escaping_fnonce_capture_double_free 1 tests/soundness/open/boxed_escaping_fnonce_capture_double_free run 2
 
-str_annot_loses_static_for_dyn_fn 3 tests/soundness/open/str_annot_loses_static_for_dyn_fn refuses
-
 overload_set_arg_mismatch_says_no_method 4 tests/soundness/open/overload_set_arg_mismatch_says_no_method diag 'C' has no method 'put'
 
 localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_names_stdlib_as_slice diag expected &Vec<i64>, got &Vec<i64>
@@ -41,8 +39,6 @@ closure_elided_param_called_with_field_ref_refuses 3 tests/soundness/open/closur
 vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_dropped refuses
 
 enum_ctor_partial_turbofish_underscore_internal 3 tests/soundness/open/enum_ctor_partial_turbofish_underscore_internal refuses
-
-static_ref_nested_borrow_region_not_static_refused 3 tests/soundness/open/static_ref_nested_borrow_region_not_static_refused refuses
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
@@ -225,5 +221,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 25
-# SYNC-HASH daf8d09036eb255fd8a68411ef862f4e
+# TOTAL 23
+# SYNC-HASH 5594bee5797f78da607c2639654ccfb4

@@ -1,0 +1,11 @@
+// `let s: str = owned.as_str()` keeps the LOCAL borrow's region: the `move` closure is not
+// `'static` and cannot become a `Box<dyn Fn>` (rustc 1.98.1: E0515).
+package str_annot_local_borrow_not_static_refused;
+use logos.mem.boxed;
+use logos.mem.string;
+fn mk() -> Box<dyn Fn() -> i64> {
+    let owned: String = String::from("abc");
+    let s: str = owned.as_str();
+    return Box::new(move || -> i64 { return s.len() as i64; });
+}
+fn main() -> i32 { return 0; }

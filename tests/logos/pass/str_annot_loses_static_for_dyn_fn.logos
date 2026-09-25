@@ -1,0 +1,15 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package str_annot_loses_static_for_dyn_fn;
+
+use logos.mem.boxed;
+
+fn mk() -> Box<dyn Fn() -> i64> {
+    let s: str = "abc";
+    return Box::new(move || -> i64 { return s.len() as i64; });
+}
+
+fn main() -> i32 {
+    let f: Box<dyn Fn() -> i64> = mk();
+    if f() != 3i64 { return 1i32; }
+    return 0i32;
+}

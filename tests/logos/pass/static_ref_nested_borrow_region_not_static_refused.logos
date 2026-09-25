@@ -1,0 +1,12 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package static_ref_nested_borrow_region_not_static_refused;
+static G: i64 = 9i64;
+static R: &i64 = &G;
+fn take(x: & &'static i64) -> i64 {
+    return **x;
+}
+fn main() -> i32 {
+    let r: & &'static i64 = &&G;
+    let a: i64 = take(&R);
+    return (**r + a - 18i64) as i32;
+}

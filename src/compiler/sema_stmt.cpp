@@ -3298,6 +3298,21 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                                 TypeRef(var_type).pointee(),
                                 std::string(TypeRef(rhs_type).lifetime()));
         }
+        // The FAT-REFERENCE twin: `let s: str = "abc";` (or `&[T]`) keeps the
+        // initializer's region — the literal's `'static` — instead of pinning
+        // the elided one (a `move` closure capturing `s` must be `'static`).
+        if (rhs && var_type && rhs_type &&
+            TypeRef(var_type).kind() == LogosType::Kind::Slice &&
+            TypeRef(rhs_type).kind() == LogosType::Kind::Slice &&
+            TypeRef(var_type).slice_owning_kind() == TypeRef::OwningKind::Borrow &&
+            TypeRef(rhs_type).slice_owning_kind() == TypeRef::OwningKind::Borrow &&
+            TypeRef(var_type).lifetime().empty() && !TypeRef(rhs_type).lifetime().empty() &&
+            types_equal(TypeRef(var_type).elem(), TypeRef(rhs_type).elem())) {
+            logos::probe::census("stfacts.let.slice_region");
+            var_type = make_slice_type(TypeRef(var_type).elem(), TypeRef(var_type).mut_ptr(),
+                                       TypeRef::OwningKind::Borrow,
+                                       std::string(TypeRef(rhs_type).lifetime()));
+        }
         // LANDED 2026-09-09 — the STRUCT/ENUM twin of the Ref hop above: one
         // predicate ("an elided annotation region is an inference variable"),
         // asked at both kinds it can be asked at.

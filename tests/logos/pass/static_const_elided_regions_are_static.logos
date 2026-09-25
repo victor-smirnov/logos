@@ -1,0 +1,12 @@
+// `static R: &i64` / `const C: &i64` are `&'static i64`, and `&&G` is `& &'static i64`.
+// rustc 1.98.1: exit 0.
+package static_const_elided_regions_are_static;
+static G: i64 = 9i64;
+static R: &i64 = &G;
+const C: &i64 = &G;
+fn get() -> &'static i64 { return R; }
+fn getc() -> &'static i64 { return C; }
+fn main() -> i32 {
+    let r: & &'static i64 = &&G;
+    return (*get() + *getc() + **r - 27) as i32;
+}
