@@ -1,0 +1,8 @@
+// Compiles under the pass tier's LOGOS_VERIFY_LAYOUT=1: every layout engine sizes a
+// `&mut` to a #[zone_mut] struct as the 16-byte {data, zone} pair (squeue row of the same name).
+package zonemut_fat_ref_struct_field_layout_abort;
+#[zone_mut] struct Box2 { v: i64 }
+struct H<'a> { r: &'a mut Box2 }
+fn main() -> i32 {
+    return 0i32;
+}

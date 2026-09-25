@@ -313,7 +313,11 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
             // *Struct / &Struct / &mut Struct field — pointer to struct.
             // Set fsname so gen_recv_struct can chain field access through
             // it; mark is_pointer so the auto-Drop pass skips it.
-            ft = ptr_type();
+            // A `&mut` to a #[zone_mut] struct is the 16-byte {data, zone}
+            // pair (ref_repr_of, as layout_of sizes it); its data word is at
+            // offset 0, so a chained read through the field is unchanged.
+            ft = ref_repr_of(fv) == RefReprKind::FatZoneMut
+                     ? repr_storage_type(RefReprKind::FatZoneMut) : ptr_type();
             fsname = mlir_struct_key(fv.pointee());
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, {}, /*is_pointer=*/true});
             field_types.push_back(ft);

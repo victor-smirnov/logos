@@ -1,0 +1,29 @@
+// A fat zone_mut `&mut` in a named field, a tuple-struct field, a nested field and a generic
+// struct's field: built, read, its zone read back, written through — under the three layout
+// engines' cross-check (LOGOS_VERIFY_LAYOUT=1 in the pass tier).
+package zone_mut_fat_ref_in_struct_fields;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+struct H<'a> { r: &'a mut Box2, n: i64 }
+struct H2<'a>(&'a mut Box2);
+struct Inner<'a> { r: &'a mut Box2 }
+struct Outer<'a> { i: Inner<'a>, k: i64 }
+struct W<T> { r: T }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let h: H = H { r: zone_mut_ref::<Box2>(p, 777i64 as *mut u8), n: 5 };
+    if h.r.v != 42i64 { return 1; }
+    if (zone_of(h.r) as i64) != 777i64 { return 2; }
+    h.r.v = 43;
+    if (*p).v != 43i64 { return 3; }
+    if h.n != 5 { return 4; }
+    let h2: H2 = H2(zone_mut_ref::<Box2>(p, 888i64 as *mut u8));
+    if (zone_of(h2.0) as i64) != 888i64 { return 5; }
+    let o: Outer = Outer { i: Inner { r: zone_mut_ref::<Box2>(p, 999i64 as *mut u8) }, k: 9 };
+    if (zone_of(o.i.r) as i64) != 999i64 { return 6; }
+    if o.i.r.v != 43i64 || o.k != 9 { return 7; }
+    let w: W<&mut Box2> = W { r: zone_mut_ref::<Box2>(p, 111i64 as *mut u8) };
+    if (zone_of(w.r) as i64) != 111i64 { return 8; }
+    return 0;
+}

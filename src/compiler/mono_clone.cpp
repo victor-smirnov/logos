@@ -394,6 +394,14 @@ Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
         lay::record_declined("mono_abi_layout", "<null type>", "no type to size");
         return {8, 8};
     }
+    // `&mut` to a #[zone_mut] struct is the {data, zone} pair (mlir-gen's
+    // RefReprKind::FatZoneMut) — every engine must size it so.
+    if (t.kind() == K::MutRef && t.pointee() &&
+        (TypeRef(t.pointee()).kind() == K::Struct || TypeRef(t.pointee()).kind() == K::ZonedStruct)) {
+        SubstMap zm;
+        auto zsv = resolve_struct_layout(t.pointee(), zm);
+        if (zsv.valid() && zsv.zone_mut()) return {16, 8};
+    }
     // Leaf kinds: the ONE table, at the enum (LogosType::scalar_layout).
     if (auto sl = LogosType::scalar_layout(t.kind()); sl.align != 0)
         return {sl.size, sl.align};

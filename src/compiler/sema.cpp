@@ -5563,6 +5563,10 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
     using K = LogosType::Kind;
     if (!t) return {8, 8};
     TypeRef tv{t};
+    // `&mut` to a #[zone_mut] struct is the {data, zone} pair (mlir-gen's
+    // RefReprKind::FatZoneMut) — every engine must size it so.
+    if (tv.kind() == K::MutRef && tv.pointee() && zone_mut_pointee(tv.pointee()))
+        return {16, 8};
     // Leaf kinds: the ONE table, at the enum (LogosType::scalar_layout).
     if (auto sl = LogosType::scalar_layout(tv.kind()); sl.align != 0)
         return {sl.size, sl.align};
