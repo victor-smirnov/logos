@@ -1,0 +1,8 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package box_vec_new_infer;
+fn main() -> i32 {
+    let mut b: Box<Vec<i64>> = Box::new(Vec::new());
+    let v: &mut Vec<i64> = &mut *b;
+    v.push(1i64);
+    return 0i32;
+}

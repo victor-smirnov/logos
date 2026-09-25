@@ -1,0 +1,18 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package generic_user_indexmut_store_refused;
+struct G2<T> { d: Vec<T> }
+impl<T> Index<u64> for G2<T> {
+    type Output = T;
+    fn index(self: &G2<T>, i: u64) -> &T { return &self.d[i]; }
+}
+impl<T> IndexMut<u64> for G2<T> {
+    fn index_mut(self: &mut G2<T>, i: u64) -> &mut T { return &mut self.d[i]; }
+}
+fn main() -> i32 {
+    let mut d: Vec<i64> = Vec::new();
+    d.push(1i64);
+    d.push(2i64);
+    let mut g: G2<i64> = G2 { d: d };
+    g[1u64] = 5i64;
+    return (g.d[1u64] - 5i64) as i32;
+}

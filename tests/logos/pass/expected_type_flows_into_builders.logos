@@ -1,0 +1,19 @@
+// The expected type flows into what builds a value: struct fields (generic under an annotation too), a generic call's arguments (`Box::new(Vec::new())`), a variant's payload; a Rust-style `Index<Idx>` with `type Output` on a generic struct (rustc 1.98.1: 1 3 11 0).
+package expected_type_flows_into_builders;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct S { v: Vec<i64>, o: Option<Vec<i64>> }
+struct G2<T> { d: Vec<T> }
+impl<T> Index<u64> for G2<T> { type Output = T; fn index(self: &G2<T>, i: u64) -> &T { return &self.d[i]; } }
+impl<T> IndexMut<u64> for G2<T> { fn index_mut(self: &mut G2<T>, i: u64) -> &mut T { return &mut self.d[i]; } }
+fn main() -> i32 {
+    let mut b: Box<Vec<i64>> = Box::new(Vec::new());
+    (*b).push(4i64);
+    let mut s = S { v: Vec::new(), o: Option::Some(Vec::new()) };
+    s.v.push(3i64);
+    let mut g: G2<i64> = G2 { d: Vec::new() };
+    g.d.push(1i64); g.d.push(2i64);
+    g[1u64] = g[0u64] + 10i64;
+    let on = match s.o { Option::Some(ref w) => w.len(), Option::None => 99i64 };
+    unsafe { printf("%lld %lld %lld %lld\n".as_ptr(), b.len(), s.v[0u64], g[1u64], on); }
+    return 0i32;
+}

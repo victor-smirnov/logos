@@ -1921,6 +1921,21 @@ private:
     };
     static uint32_t mask_for(CoercePos pos);
     bool try_deref_coerce(lir::LExprPtr& e, TypeRef pt);
+    // No type variable / projection / error anywhere inside: usable as an
+    // expected-type hint (`let` annotations, struct fields, call arguments).
+    static bool type_is_concrete(TypeRef t, int d = 0) {
+        if (!t || d > 12) return true;
+        const auto k = TypeRef(t).kind();
+        if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::AssocType ||
+            k == LogosType::Kind::Error) return false;
+        if (TypeRef(t).pointee() && !type_is_concrete(TypeRef(t).pointee(), d + 1)) return false;
+        if ((k == LogosType::Kind::Array || k == LogosType::Kind::Slice) &&
+            !type_is_concrete(TypeRef(t).elem(), d + 1)) return false;
+        for (auto a : TypeRef(t).type_args()) if (!type_is_concrete(a, d + 1)) return false;
+        if (k == LogosType::Kind::Tuple)
+            for (auto e : TypeRef(t).tuple_elems()) if (!type_is_concrete(e, d + 1)) return false;
+        return true;
+    }
 
     // Runs the coercion pipeline for `pos`, then verdicts. On mismatch emits
     //   "{ctx}: expected {}, got {}"
