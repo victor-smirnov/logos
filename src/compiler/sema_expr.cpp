@@ -3951,6 +3951,15 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         };
         deref_if_ref_scalar(lhs, lt);
         deref_if_ref_scalar(rhs, rt);
+        // Over a type parameter bounded by the operator trait, the operator is
+        // the trait method and the result its `Output` (op_output_type_).
+        const char* bit_trait = op == "&" ? "BitAnd" : op == "|" ? "BitOr" : op == "^" ? "BitXor"
+                              : op == "<<" ? "Shl" : "Shr";
+        if (TypeRef bit_out = op_output_type_(lt, bit_trait)) {
+            result_type = bit_out;
+            goto binop_bounded_tv;
+        }
+        {
         auto ok_operand = [&](LogosType::Kind k) {
             if (is_integer_kind(k)) return true;
             if (k == LogosType::Kind::IntLit) return true;
@@ -4014,9 +4023,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 if (!intlit_fits(*v, TypeRef(lt).kind()))
                     error(std::format("operator '{}': right value {} does not fit in {}",
                           op, *v, type_str(lt)));
+        }
     } else {
         error(std::format("unknown binary operator '{}'", op));
     }
+binop_bounded_tv:
 
     // Over a TYPE VARIABLE the operator is the trait method, and `Add::add` /
     // `Sub::sub` / … take BOTH operands BY VALUE (Rust): `x + y` moves `x` and

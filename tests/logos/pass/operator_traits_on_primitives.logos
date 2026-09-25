@@ -1,0 +1,21 @@
+// The operator traits are implemented for the primitives, as in Rust
+// (`impl Add for i64 { type Output = i64; … }`, stdlib/lang/ops/ops.logos), so a
+// generic operator bound is instantiable at i64 / f64 / u8 / u32 / i32, bitwise and
+// shift bounds included, and `4i64.add(5)` resolves. rustc 1.98.1: exit 38.
+package operator_traits_on_primitives;
+use logos.lang.ops;
+fn sum<T: Add<Output = T>>(a: T, b: T) -> T { return a + b; }
+fn neg<T: Neg<Output = T>>(a: T) -> T { return -a; }
+fn acc<T: AddAssign + Copy>(x: &mut T, y: T) { *x += y; }
+fn mask<T: BitAnd<Output = T> + Shl<Output = T>>(a: T, b: T, s: T) -> T { return (a & b) << s; }
+fn main() -> i32 {
+    let a: i64 = sum(2i64, 3i64);
+    let b: f64 = sum(1.5, 2.5);
+    let c: i32 = neg(7i32);
+    let mut d: u8 = 10u8;
+    acc(&mut d, 5u8);
+    let e: u32 = mask(12u32, 10u32, 1u32);
+    let f: i64 = 4i64.add(5i64);
+    if b != 4.0 { return 99i32; }
+    return (a + (c as i64) + (d as i64) + (e as i64) + f) as i32;
+}

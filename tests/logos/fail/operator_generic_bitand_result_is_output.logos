@@ -1,0 +1,7 @@
+// `fn f<T: BitAnd>(a: T, b: T) -> T { a & b }` is E0308 in Rust (`a & b` is
+// `T::Output`); the bitwise operators take the same bound-aware path as the
+// arithmetic ones. Twin: tests/logos/pass/operator_traits_on_primitives.logos.
+package operator_generic_bitand_result_is_output;
+use logos.lang.ops;
+fn f<T: BitAnd>(a: T, b: T) -> T { return a & b; }
+fn main() -> i32 { return f(6i32, 3i32); }
