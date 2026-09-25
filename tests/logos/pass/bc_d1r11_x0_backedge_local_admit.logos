@@ -20,7 +20,7 @@ fn main() -> i64 {
         i = i + 1i64;
         let mut vs: Vec<B> = Vec::new();
         vs.push(c.mk());
-        n = n + *vs.get(0u64).p;
+        n = n + *vs.get(0i64).p;
     }
     return n;
 }

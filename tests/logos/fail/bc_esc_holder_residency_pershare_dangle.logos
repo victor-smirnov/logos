@@ -34,8 +34,8 @@ fn bad() -> HeldAny {
     let mut h: Rc<Writ> = writ_rc(64i64);
     let mut h2: Rc<Writ> = writ_rc(64i64);
     let doc: &mut WArray<WAny> = h.array(2i64);
-    doc.push(WAny::from(101i64));
-    doc.push(WAny::from(303i64));
+    doc.push(WAny::from(101));
+    doc.push(WAny::from(303));
     let e: WAny = WAny::from(&*doc);
     return hold_any(&h2, e);          // h2's share; e points into h
 }

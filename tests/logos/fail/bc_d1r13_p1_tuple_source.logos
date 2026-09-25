@@ -21,5 +21,5 @@ fn main() -> i64 {
     let s: &mut Vec<B> = t.0;
     s.push(c.mk());
     c.bump();                        // must be REFUSED
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

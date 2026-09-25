@@ -17,5 +17,5 @@ fn main() -> i64 {
     let mut vs: Vec<B> = Vec::new();
     stashd(&mut vs, &c);
     c.bump();                        // must be REFUSED
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

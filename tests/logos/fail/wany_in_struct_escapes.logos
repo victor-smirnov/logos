@@ -13,7 +13,7 @@ struct Wrap { a: WAny }
 fn make() -> Wrap {
     let h: Writ = writ_new(64i64);
     let nested: &mut WArray<WAny> = h.array(2i64);
-    nested.push(WAny::from(99i64));
+    nested.push(WAny::from(99));
     return Wrap { a: WAny::from(&*nested) };   // ERROR: Wrap holds a Ref into local arena
 }
 fn main() -> i32 { return 0; }

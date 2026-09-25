@@ -18,7 +18,7 @@ fn body() -> Option<i64> {
     let s: &mut Vec<B> = pickd(&mut vs);
     s.push(c.mk());
     c.bump();                        // must be REFUSED
-    return Option::Some(*vs.get(0u64).p);
+    return Option::Some(*vs.get(0i64).p);
 }
 fn main() -> i64 {
     match body() { Option::Some(n) => { return n; } Option::None => { return 0i64; } }

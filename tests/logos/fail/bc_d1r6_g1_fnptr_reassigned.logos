@@ -27,5 +27,5 @@ fn main() -> i64 {
     g = mkd2;
     vs.push(g(&c));
     c.bump();
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

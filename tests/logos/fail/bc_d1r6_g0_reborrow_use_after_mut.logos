@@ -25,5 +25,5 @@ fn main() -> i64 {
     let r: &mut Vec<B> = &mut vs;
     r.push(c.mk());
     c.bump();                        // must refuse: `r` is used below, so `vs` is still borrowed
-    return *r.get(0u64).p;
+    return *r.get(0i64).p;
 }

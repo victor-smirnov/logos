@@ -1,0 +1,1 @@
+borrowed data escapes outside of closure: 'q' escapes the closure body here

@@ -34,7 +34,7 @@ fn main() -> i64 {
         let mut h: Outer = Outer { i: Inner { r: &mut vs } };
         h.i.r.push(c.mk());
     }
-    let x: i64 = *vs.get(0u64).p;    // read BEFORE the mutation
+    let x: i64 = *vs.get(0i64).p;    // read BEFORE the mutation
     c.bump();
 
     // ── shape 2: the inner aggregate as its OWN binding, then nested
@@ -46,7 +46,7 @@ fn main() -> i64 {
         let mut h2: Outer = Outer { i: inn };
         h2.i.r.push(c2.mk());
     }
-    let x2: i64 = *vs2.get(0u64).p;
+    let x2: i64 = *vs2.get(0i64).p;
     c2.bump();
 
     // ── shape 3: the aggregate copied back OUT of the nested place
@@ -58,7 +58,7 @@ fn main() -> i64 {
         let mut inner: Inner = h3.i;
         inner.r.push(c3.mk());
     }
-    let x3: i64 = *vs3.get(0u64).p;
+    let x3: i64 = *vs3.get(0i64).p;
     c3.bump();
 
     return (x + c.v) + (x2 + c2.v) + (x3 + c3.v);

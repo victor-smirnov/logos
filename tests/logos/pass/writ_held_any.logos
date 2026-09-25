@@ -10,9 +10,9 @@ use logos.lang.rc;
 fn make_elem() -> HeldAny {
     let mut h: Rc<Writ> = writ_rc(64i64);
     let arr: &mut WArray<WAny> = h.array(2i64);
-    arr.push(WAny::from(7i64));
+    arr.push(WAny::from(7));
     let nested: &mut WArray<WAny> = h.array(2i64);
-    nested.push(WAny::from(99i64));
+    nested.push(WAny::from(99));
     let e: WAny = WAny::from(&*nested);     // a Ref WAny into the arena
     return hold_any(&h, e);             // escape: carry the Writ holder
     // local `h` Rc drops here; HeldAny's holder keeps the arena alive

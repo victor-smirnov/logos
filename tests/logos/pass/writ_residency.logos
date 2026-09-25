@@ -15,9 +15,9 @@ fn root_array(w: &Writ) -> &WArray<WAny> { return w.array_of(w.root()); }
 fn make_doc() -> Held<WArray<WAny>> {
     let h: Rc<Writ> = writ_rc(48i64);
     let root: &mut WArray<WAny> = h.array(2i64);     // build via Rc (auto-deref)
-    root.push(WAny::from(10i64));
-    root.push(WAny::from(20i64));
-    root.push(WAny::from(30i64));             // forces a grow too
+    root.push(WAny::from(10));
+    root.push(WAny::from(20));
+    root.push(WAny::from(30));             // forces a grow too
     h.set_root(WAny::from(&*root));
     return hold(&h, root_array);              // escape: carry the holder
     // local `h` drops here (-1); the Held's holder keeps the container alive

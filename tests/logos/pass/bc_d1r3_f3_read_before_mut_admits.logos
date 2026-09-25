@@ -19,7 +19,7 @@ fn main() -> i32 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();
     stash2(&c, &mut vs);
-    let n: i64 = *vs.get(0u64).p;
+    let n: i64 = *vs.get(0i64).p;
     c.bump();
     if n != 1i64 { return 1; }
     if c.v != 2i64 { return 2; }

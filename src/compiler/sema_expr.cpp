@@ -4670,7 +4670,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 coerce_arg_to_param(arg_exprs[i], TypeRef(callee_type).closure_params()[i],
                                     CFLAG_STANDARD);
                 auto at = expr_type(arg_exprs[i]);
-                auto pt = TypeRef(callee_type).closure_params()[i];
+                auto pt = closure_call_formal_(TypeRef(callee_type).closure_params()[i]);
                 expect_type(arg_exprs[i], pt, CoercePos::ClosureArg,
                             std::format("{} arg {}:", kind_str, i + 1));
                 check_variance(at, pt, std::format("{} arg {}", kind_str, i + 1));
@@ -8546,7 +8546,7 @@ lir::LExprPtr SemaChecker::lower_invoke_on(lir::LExprPtr recv, std::vector<lir::
             for (uint64_t i = 0; i < n_args; ++i) {
                 coerce_arg_to_param(arg_exprs[i], TypeRef(rt).closure_params()[i],
                                     CFLAG_STANDARD);
-                auto pt = TypeRef(rt).closure_params()[i];
+                auto pt = closure_call_formal_(TypeRef(rt).closure_params()[i]);
                 expect_type(arg_exprs[i], pt, CoercePos::ClosureArg,
                             std::format("closure call arg {}:", i + 1));
                 check_variance(expr_type(arg_exprs[i]), pt,
@@ -11513,6 +11513,19 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         } else if (mwhy_cands_ > 0 && mwhy_ == MWHY_RECV) {
             mwhy_said_ = !expect_type(recv, mwhy_exp_, CoercePos::Operand,
                                       std::format("method '{}' receiver:", mangled));
+        } else if (mwhy_cands_ > 0 && mwhy_ == MWHY_ARG &&
+                   mwhy_argi_ >= 1 && mwhy_argi_ <= arg_exprs.size() &&
+                   mwhy_act_ && TypeRef(mwhy_act_).kind() == LogosType::Kind::IntLit &&
+                   mwhy_exp_ && is_integer_kind(TypeRef(mwhy_exp_).kind()) &&
+                   get_intlit_value(arg_exprs[mwhy_argi_ - 1]) &&
+                   !intlit_fits(*get_intlit_value(arg_exprs[mwhy_argi_ - 1]),
+                                TypeRef(mwhy_exp_).kind())) {
+            // The selector decides an unsuffixed literal by its VALUE: the
+            // slot that refused it is a range, not a type.
+            error(std::format("method '{}' arg {}: value {} does not fit in {}", mangled,
+                              mwhy_argi_, *get_intlit_value(arg_exprs[mwhy_argi_ - 1]),
+                              type_str(mwhy_exp_)));
+            mwhy_said_ = true;
         } else if (mwhy_cands_ > 0 && mwhy_ == MWHY_ARG &&
                    mwhy_argi_ >= 1 && mwhy_argi_ <= arg_exprs.size()) {
             mwhy_said_ = !expect_type(arg_exprs[mwhy_argi_ - 1], mwhy_exp_,

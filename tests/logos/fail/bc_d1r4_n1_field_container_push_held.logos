@@ -31,5 +31,5 @@ fn main() -> i64 {
     let mut k: Keep = Keep { v: e };
     k.v.push(c.mk());
     c.bump();
-    return *k.v.get(0u64).p;
+    return *k.v.get(0i64).p;
 }

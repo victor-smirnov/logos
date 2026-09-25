@@ -84,9 +84,9 @@ fn deep_sum(h: &Writ, a: &WArray<WAny>) -> i64 {
 fn make_held_doc() -> HeldAny {
     let mut h: Rc<Writ> = writ_rc(64i64);
     let doc: &mut WArray<WAny> = h.array(2i64);
-    doc.push(WAny::from(101i64));
-    doc.push(WAny::from(202i64));
-    doc.push(WAny::from(303i64));                 // grows past cap 2
+    doc.push(WAny::from(101));
+    doc.push(WAny::from(202));
+    doc.push(WAny::from(303));                 // grows past cap 2
     let e: WAny = WAny::from(&*doc);              // a Ref to the doc array
     return hold_any(&h, e);                   // escape via the Writ holder
     // the local `h` (Rc) drops here; the HeldAny's holder keeps the arena alive
@@ -95,7 +95,7 @@ fn make_held_doc() -> HeldAny {
 fn main() -> i32 {
     // 1 ── WAny: inline Pod values (no allocation; the value lives in the word).
     section("1. WAny — inline Pod (i56 / bool)");
-    let p_int:  WAny = WAny::from(-7i64);
+    let p_int:  WAny = WAny::from(-7);
     let p_bool: WAny = WAny::from(true);
     yn("int  is_i56", p_int.is_i56());
     say("int  as_i56", p_int.as_i56());
@@ -116,7 +116,7 @@ fn main() -> i32 {
     //      (the old buffer is never freed; the Ref re-anchors on grow).
     section("3. Never-move — read survives growth");
     let before: i64 = arr.get(1i64).as_i56();     // arr[1] == 10
-    arr.push(WAny::from(999i64));                  // may grow again
+    arr.push(WAny::from(999));                  // may grow again
     let after: i64 = arr.get(1i64).as_i56();
     yn("arr[1] stable across grow", before == after);
     say("arr[1]", after);
@@ -125,11 +125,11 @@ fn main() -> i32 {
     section("4. Nested document — deep_sum");
     let root: &mut WArray<WAny> = h.array(2i64);
     let a: &mut WArray<WAny> = h.array(2i64);
-    a.push(WAny::from(1i64)); a.push(WAny::from(2i64)); a.push(WAny::from(3i64));
+    a.push(WAny::from(1)); a.push(WAny::from(2)); a.push(WAny::from(3));
     let b: &mut WArray<WAny> = h.array(2i64);
-    b.push(WAny::from(10i64)); b.push(WAny::from(20i64));
+    b.push(WAny::from(10)); b.push(WAny::from(20));
     root.push(WAny::from(&*a));                    // Ref to child a   (sum 6)
-    root.push(WAny::from(100i64));                 // inline Pod       (100)
+    root.push(WAny::from(100));                 // inline Pod       (100)
     root.push(WAny::from(&*b));                    // Ref to child b   (sum 30)
     say("deep_sum(root)", deep_sum(&h, &*root));   // 6 + 100 + 30 = 136
 

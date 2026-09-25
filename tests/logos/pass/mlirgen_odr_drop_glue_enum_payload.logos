@@ -9,7 +9,7 @@ fn main() -> i32 {
     let mut ys: Vec<Wrap> = Vec::<Wrap>::new();
     ys.push(Wrap::W(String{a:9i64}));
     let mut n: i64 = 0i64;
-    match ys.borrow(0u64) {
+    match ys.borrow(0i64) {
         Wrap::W(s) => { n = s.a; }
         Wrap::N => { n = 1i64; }
     }

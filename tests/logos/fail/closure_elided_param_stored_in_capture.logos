@@ -1,0 +1,13 @@
+// The other half of a higher-ranked closure parameter: the call no longer ties
+// `q`'s region to the argument's, so storing `q` into a capture that outlives
+// the call must be refused in the BODY (Rust: E0521, borrowed data escapes
+// outside of closure). Twin: tests/logos/pass/closure_elided_param_called_with_named_ref.
+package closure_elided_param_stored_in_capture;
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let mut keep: &i64 = &a;
+    let mut put = |q: &i64| { keep = q; };
+    let b: i64 = 2i64;
+    put(&b);
+    return *keep as i32;
+}

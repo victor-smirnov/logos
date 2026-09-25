@@ -8,5 +8,5 @@ fn main() -> i32 {
         let x: i64 = 5i64;
         for r in v.iter_mut() { *r = &d; }
     }
-    return (*v.get(0u64) - 2i64) as i32;
+    return (*v.get(0i64) - 2i64) as i32;
 }

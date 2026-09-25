@@ -17,7 +17,7 @@ fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();
     stash(&c, &mut vs);
-    let x: i64 = *vs.get(0u64).p;
+    let x: i64 = *vs.get(0i64).p;
     c.bump();
     return x;
 }

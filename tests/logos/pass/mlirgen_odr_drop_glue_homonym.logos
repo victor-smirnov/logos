@@ -20,6 +20,6 @@ fn main() -> i32 {
     let mut xs: Vec<String> = Vec::<String>::new();
     xs.push(String{a:5i64});
     xs.push(String{a:6i64});
-    let s: i64 = xs.borrow(0u64).a + xs.borrow(1u64).a;
+    let s: i64 = xs.borrow(0i64).a + xs.borrow(1i64).a;
     return s as i32;
 }

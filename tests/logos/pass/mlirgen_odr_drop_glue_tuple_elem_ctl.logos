@@ -8,6 +8,6 @@ struct ZqStr { pub a: i64 }
 fn main() -> i32 {
     let mut ys: Vec<(ZqStr, i64)> = Vec::<(ZqStr, i64)>::new();
     ys.push((ZqStr{a:5i64}, 1i64));
-    let n: i64 = ys.borrow(0u64).0.a;
+    let n: i64 = ys.borrow(0i64).0.a;
     return n as i32;
 }

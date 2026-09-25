@@ -20,8 +20,8 @@ unsafe fn dispatch(za: WAny) -> i64 {
 fn main() -> i32 {
     let h: Writ = writ_new(48i64);
     let arr: &mut WArray<WAny> = h.array(2i64);
-    arr.push(WAny::from(1i64));
-    arr.push(WAny::from(2i64));
+    arr.push(WAny::from(1));
+    arr.push(WAny::from(2));
     unsafe {
         // a tagged Pair object in the arena (raw) + a Ref element to it
         let hraw: *mut Writ = &h as *const Writ as *mut Writ;
@@ -30,7 +30,7 @@ fn main() -> i32 {
         write_tag(pair_at, type_code_of::<Pair>());
         let p: *mut Pair = pair_at as *mut Pair;  p.a = 30i64;  p.b = 12i64;
         arr.push(unsafe { WAny::ref_to(pair_at as *const u8) });   // forces grow
-        arr.push(WAny::from(99i64));
+        arr.push(WAny::from(99));
 
         if arr.len() != 4i64 { return 1; }
         let e0: WAny = arr.get(0i64);

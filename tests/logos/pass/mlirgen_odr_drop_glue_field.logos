@@ -13,6 +13,6 @@ struct Holder { pub s: String, pub t: String }
 fn main() -> i32 {
     let mut ys: Vec<Holder> = Vec::<Holder>::new();
     ys.push(Holder{ s: String{a:1i64}, t: String{a:2i64} });
-    let n: i64 = ys.borrow(0u64).s.a + ys.borrow(0u64).t.a;
+    let n: i64 = ys.borrow(0i64).s.a + ys.borrow(0i64).t.a;
     return n as i32;
 }

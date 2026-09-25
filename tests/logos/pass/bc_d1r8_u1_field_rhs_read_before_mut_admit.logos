@@ -31,7 +31,7 @@ fn main() -> i32 {
     let mut h: RB = RB { r: &mut vs };
     let mut r2: &mut Vec<B> = h.r;        // U1's shape
     r2.push(c.mk());
-    let out: i64 = *vs.get(0u64).p;       // the loan dies HERE
+    let out: i64 = *vs.get(0i64).p;       // the loan dies HERE
     c.bump();                             // must be ADMITTED
     if out != 1i64 { return 1i32; }
     if c.v != 2i64 { return 2i32; }
@@ -41,7 +41,7 @@ fn main() -> i32 {
     let mut h2: RB = RB { r: &mut vs2 };
     let RB { r } = h2;                    // U3's shape, through the copy temporary
     r.push(c2.mk());
-    let out2: i64 = *vs2.get(0u64).p;     // the loan dies HERE
+    let out2: i64 = *vs2.get(0i64).p;     // the loan dies HERE
     c2.bump();                            // must be ADMITTED
     if out2 != 3i64 { return 3i32; }
     if c2.v != 4i64 { return 4i32; }

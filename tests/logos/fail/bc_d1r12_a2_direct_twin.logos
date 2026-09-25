@@ -20,5 +20,5 @@ fn main() -> i64 {
     t.x = &mut vs;
     t.x.push(c.mk());
     c.bump();                        // must be REFUSED
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

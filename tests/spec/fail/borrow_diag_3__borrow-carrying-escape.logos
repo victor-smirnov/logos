@@ -7,7 +7,7 @@ use logos.lang.writ.array;
 fn make() -> WAny {
     let h: Writ = writ_new(64i64);
     let nested: &mut WArray<WAny> = h.array(2i64);
-    nested.push(WAny::from(99i64));
+    nested.push(WAny::from(99));
     return WAny::from(&*nested);
 }
 

@@ -26,13 +26,9 @@ impl_fn_return_stack_env_dangles 1 tests/soundness/open/impl_fn_return_stack_env
 
 boxed_escaping_fnonce_capture_double_free 1 tests/soundness/open/boxed_escaping_fnonce_capture_double_free run 2
 
-overload_set_arg_mismatch_says_no_method 4 tests/soundness/open/overload_set_arg_mismatch_says_no_method diag 'C' has no method 'put'
-
 localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_names_stdlib_as_slice diag expected &Vec<i64>, got &Vec<i64>
 
 localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
-
-closure_elided_param_called_with_field_ref_refuses 3 tests/soundness/open/closure_elided_param_called_with_field_ref_refuses refuses
 
 vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_dropped refuses
 
@@ -219,5 +215,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 22
-# SYNC-HASH 88cd7cb20961577ef81a9bc47382cc75
+# TOTAL 20
+# SYNC-HASH 4d073396a9399c55320b062ddc10b2d6

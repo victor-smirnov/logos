@@ -24,5 +24,5 @@ fn main() -> i64 {
     let mut k: Keep = Keep { i: Inner { v: e } };
     k.i.v.push(c.mk());
     c.bump();
-    return *k.i.v.get(0u64).p;
+    return *k.i.v.get(0i64).p;
 }

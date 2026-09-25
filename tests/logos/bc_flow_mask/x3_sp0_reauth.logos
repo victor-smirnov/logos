@@ -33,5 +33,5 @@ fn main() -> i64 {
     let mut ws: Vec<B> = Vec::new();
     stash2(&c, &mut vs, &mut ws);
     c.bump();                        // must be REFUSED
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

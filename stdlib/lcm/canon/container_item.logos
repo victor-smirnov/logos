@@ -3248,10 +3248,9 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
             /// columns, same exactness — which is the point: the pull unit is a
             /// property of the PRODUCER, and it travels as the natspec `b` flag
             /// (`producer_batches_`), not as a second vocabulary. The landings'
-            /// PARAMETER TYPES are `u64` for the same reason they were before
-            /// the switch: the emitter types a pushdown literal from the
-            /// DECLARED column (`pos: i64`), so the emitted call is unchanged
-            /// apart from the producer's name.
+            /// PARAMETER TYPE is the DECLARED column's (`pos: i64`): the emitter
+            /// types a pushdown literal from it, and a suffixed literal does
+            /// not narrow to the seek's `u64` — each landing converts.
             ///
             /// NO `size row =` HERE, and that is a property of the TRAIT, not an
             /// omission: `PositionalSource` declares one member (`rel row`) and
@@ -3569,12 +3568,13 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                                clo: 0u32, chi: 0u32, cp0: 0u64 };
             }
             /// A POINT probe on POSITION: at most one row, so the ordinal bound
-            /// is the landing plus a hit. `p: u64` — the ordinal is the seek
-            /// column and `seek` takes it unsigned; the declared column is `i64`
-            /// and the emitter types the pushdown literal from the DECLARED
-            /// column, which is why the landing is called with an `i64` literal
-            /// and this signature is unchanged from the per-row producer's.
-            pub fn #batfn(c: &#nm, p: u64) -> #bsid {
+            /// is the landing plus a hit. `pi: i64` — the emitter types the
+            /// pushdown literal from the DECLARED column (`pos: i64`), and a
+            /// suffixed literal does not narrow; `seek` takes the ordinal
+            /// unsigned, so a negative bound is clamped here (no row at a
+            /// negative position: the probe lands past the end).
+            pub fn #batfn(c: &#nm, pi: i64) -> #bsid {
+                let p: u64 = if pi < 0i64 { c.size() } else { pi as u64 };
                 let cu: #cid = c.seek(p);
                 let mut e: u64 = p;
                 if cu.valid() { e = p + 1u64; }
@@ -3584,7 +3584,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
             }
             /// A SUFFIX: land on the position in one descent, then take leaves
             /// to the end. EXACT for `>=`.
-            pub fn #bfromfn(c: &#nm, p: u64) -> #bsid {
+            pub fn #bfromfn(c: &#nm, pi: i64) -> #bsid {
+                let p: u64 = if pi < 0i64 { 0u64 } else { pi as u64 };
                 let cu: #cid = c.seek(p);
                 let n: u64 = c.size();
                 let st: u64 = if p > n { n } else { p };
@@ -3596,10 +3597,10 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
             /// position, which is what makes it EXACT for `<=`. The bound is an
             /// ordinal, so no second descent is needed to make `size()` honest:
             /// `min(p + 1, size)` is the count, computed in arithmetic.
-            pub fn #buptofn(c: &#nm, p: u64) -> #bsid {
+            pub fn #buptofn(c: &#nm, pi: i64) -> #bsid {
                 let c0: #cid = c.seek(0u64);
                 let n: u64 = c.size();
-                let e: u64 = if p >= n { n } else { p + 1u64 };
+                let e: u64 = if pi < 0i64 { 0u64 } else if pi as u64 >= n { n } else { pi as u64 + 1u64 };
                 return #bsid { c: c as *const #nm, nv: node_view_at(c0.leaf_block()),
                                at: 0u64, base: 0u64, endr: e, n0: e,
                                clo: 0u32, chi: 0u32, cp0: 0u64 };
@@ -3612,9 +3613,9 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
             /// at all. One-line forwards, not a second implementation.
             impl #nm {
                 pub fn leaf_batches(self: &#nm) -> #bsid { return #browsfn(self); }
-                pub fn leaf_batches_at(self: &#nm, p: u64) -> #bsid { return #batfn(self, p); }
-                pub fn leaf_batches_from(self: &#nm, p: u64) -> #bsid { return #bfromfn(self, p); }
-                pub fn leaf_batches_upto(self: &#nm, p: u64) -> #bsid { return #buptofn(self, p); }
+                pub fn leaf_batches_at(self: &#nm, p: u64) -> #bsid { return #batfn(self, p as i64); }
+                pub fn leaf_batches_from(self: &#nm, p: u64) -> #bsid { return #bfromfn(self, p as i64); }
+                pub fn leaf_batches_upto(self: &#nm, p: u64) -> #bsid { return #buptofn(self, p as i64); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&lq); }

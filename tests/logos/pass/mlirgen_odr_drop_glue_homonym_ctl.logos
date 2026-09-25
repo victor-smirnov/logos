@@ -8,6 +8,6 @@ fn main() -> i32 {
     let mut xs: Vec<Strng9x> = Vec::<Strng9x>::new();
     xs.push(Strng9x{a:5i64});
     xs.push(Strng9x{a:6i64});
-    let s: i64 = xs.borrow(0u64).a + xs.borrow(1u64).a;
+    let s: i64 = xs.borrow(0i64).a + xs.borrow(1i64).a;
     return s as i32;
 }

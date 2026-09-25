@@ -30,5 +30,5 @@ fn main() -> i64 {
     wire(&mut t, &mut vs);
     t.x.push(c.mk());                // loan raised AFTER the call
     c.bump();                        // must be REFUSED
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

@@ -26,5 +26,5 @@ fn main() -> i32 {
     let mut h: H = H { r: &mut vs };
     wrap(&mut h, &c);
     c.bump();
-    return *vs.get(0u64).p as i32;
+    return *vs.get(0i64).p as i32;
 }

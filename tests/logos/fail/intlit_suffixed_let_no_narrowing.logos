@@ -1,0 +1,8 @@
+// `let a: u8 = 9u64;` is E0308 in Rust: a suffixed literal does not adopt the
+// annotation's narrower width. Same gate as a call argument (see
+// tests/logos/fail/overload_set_arg_mismatch_says_no_method.logos).
+package intlit_suffixed_let_no_narrowing;
+fn main() -> i32 {
+    let a: u8 = 9u64;
+    return a as i32;
+}

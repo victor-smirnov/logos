@@ -12,6 +12,6 @@ fn main() -> i32 {
         gd.get_mut().push(&e);
     }
     let n: i64 = cell.borrow().get().len() as i64;
-    let s: i64 = *cell.borrow().get().get(1u64);
+    let s: i64 = *cell.borrow().get().get(1i64);
     return (n * 10i64 + s - 25i64) as i32;
 }

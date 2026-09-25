@@ -20,5 +20,5 @@ fn main() -> i64 {
     let mut h: Outer = Outer { i: inn };
     h.i.r.push(c.mk());
     c.bump();                        // must be REFUSED
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

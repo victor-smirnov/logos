@@ -8,6 +8,6 @@ struct String { pub a: i64 }
 fn main() -> i32 {
     let mut ys: Vec<(String, i64)> = Vec::<(String, i64)>::new();
     ys.push((String{a:5i64}, 1i64));
-    let n: i64 = ys.borrow(0u64).0.a;
+    let n: i64 = ys.borrow(0i64).0.a;
     return n as i32;
 }

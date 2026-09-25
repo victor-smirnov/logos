@@ -17,7 +17,7 @@ fn main() -> i32 {
     let mut vs: Vec<i64> = Vec::new();
     fill(&mut vs, &c);
     c.bump();
-    if vs.get(0u64) != 1i64 { return 1; }
+    if vs.get(0i64) != 1i64 { return 1; }
     if c.v != 2i64 { return 2; }
     return 0;
 }

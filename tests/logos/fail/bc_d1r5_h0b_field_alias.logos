@@ -19,5 +19,5 @@ fn main() -> i64 {
     let mut k: K = K { v: kv };
     k.stash(&c);
     c.bump();
-    return *k.v.get(0u64).p;
+    return *k.v.get(0i64).p;
 }

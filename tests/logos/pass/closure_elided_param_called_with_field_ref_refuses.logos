@@ -1,0 +1,21 @@
+// A closure parameter annotated with an ELIDED reference type is
+// higher-ranked (Rust): its region is the closure's own binder, taken at each
+// call's argument, so `mk(self.r)` with `self.r: &'_ i64` is legal (rustc
+// 1.98.1: exit 69). The call now checks the argument against the formal with
+// the closure's minted regions erased (`closure_call_formal_`, both call
+// forms). Neighbour, a free fn's named region: tests/logos/pass/
+// closure_elided_param_called_with_named_ref.logos.
+package closure_elided_param_called_with_field_ref_refuses;
+struct Foo<'s> { r: &'s i64 }
+impl Foo<'_> {
+    fn remake(self: &Self) -> i64 {
+        let mk = |q: &i64| -> i64 { return *q; };
+        return mk(self.r);
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 69i64;
+    let f = Foo { r: &v };
+    return f.remake() as i32;
+}
+// rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): COMPILES and RUNS exit 69. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/closure_elided_param_called_with_field_ref_refuses.rs.

@@ -19,5 +19,5 @@ fn main() -> i32 {
     let mut vs: Vec<B> = Vec::new();
     vs.push(c.mk());
     c.bump();
-    return *vs.get(0u64).p as i32;
+    return *vs.get(0i64).p as i32;
 }

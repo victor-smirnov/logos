@@ -27,5 +27,5 @@ fn main() -> i64 {
     let mut h: RB = RB { r: &mut vs };
     h.r.push(c.mk());
     c.bump();                        // must refuse: `vs` — reached as `h.r` — holds c's borrow
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

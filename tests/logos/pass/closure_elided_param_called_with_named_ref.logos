@@ -1,0 +1,15 @@
+// A closure with an elided `&i64` parameter called with a reference of a NAMED
+// region (`'a`) and with a local one, through a local closure var `mk(x)` and a
+// parenthesised call `(mk)(x)` — the two call forms. Legal Rust (the parameter
+// is higher-ranked). Twin: closure_elided_param_called_with_field_ref_refuses.
+package closure_elided_param_called_with_named_ref;
+fn pick<'a>(x: &'a i64, y: &'a i64) -> i64 {
+    let mk = |q: &i64| -> i64 { return *q; };
+    let loc: i64 = 5i64;
+    return mk(x) + (mk)(y) + mk(&loc);
+}
+fn main() -> i32 {
+    let a: i64 = 30i64;
+    let b: i64 = 7i64;
+    return pick(&a, &b) as i32;
+}

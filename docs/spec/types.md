@@ -3294,7 +3294,7 @@ widen_int_expr(e, target): if e's int kind ek differs from target kind tk, e is 
 
 ### `coerce.intlit.dispatch-unsuffixed-fits-narrower` — Unsuffixed int literal dispatches to any param it numerically fits
 
-In overload/dispatch argument compatibility, an arg of Kind IntLit (unsuffixed literal) is compatible with param type P iff P is an integer kind ≠ Enum and the literal's value fits P (intlit_fits). A SUFFIXED literal (`9u64`) has a concrete int type and must match by type equality/compatibility only — it does not narrow-flex to other widths that also happen to fit the value (Rust parity: `9u64` is `u64`, period). A param whose kind is Enum can never be hit by a bare integer literal (would reinterpret the int as the enum's by-pointer storage).
+In overload/dispatch argument compatibility, an arg of Kind IntLit (unsuffixed literal) is compatible with param type P iff P is an integer kind ≠ Enum and the literal's value fits P (intlit_fits). A SUFFIXED literal (`9u64`) has a concrete int type and must match by type equality/compatibility only — it does not narrow-flex to other widths that also happen to fit the value (Rust parity: `9u64` is `u64`, period). A param whose kind is Enum can never be hit by a bare integer literal (would reinterpret the int as the enum's by-pointer storage). The literal is decided by value BEFORE type compatibility, and the coercion judgment (`widen_int_expr`, every `expect_type` position) applies the same gate, so a suffixed literal is refused at a narrower `let`, call or method slot with the mismatch verdict (2026-09-25).
 
 **Source:** `src/compiler/sema_impl.hpp#L4465-L4486`
 

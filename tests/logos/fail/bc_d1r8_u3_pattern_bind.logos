@@ -37,5 +37,5 @@ fn main() -> i64 {
     let RB { r } = h;            // binds through sema's destructure temporary
     r.push(c.mk());
     c.bump();                    // must be REFUSED
-    return *vs.get(0u64).p;
+    return *vs.get(0i64).p;
 }

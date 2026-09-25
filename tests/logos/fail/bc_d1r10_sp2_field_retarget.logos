@@ -35,5 +35,5 @@ fn main() -> i64 {
     let mut ws: Vec<B> = Vec::new();
     retarget(&c, &mut vs, &mut ws);
     c.bump();                        // must be REFUSED
-    return *ws.get(0u64).p;
+    return *ws.get(0i64).p;
 }

@@ -17,7 +17,7 @@ fn main() -> i64 {
     let e: Vec<B> = Vec::new();
     let mut k: Keep = Keep { v: e };
     stash3(&c, &mut k);
-    let n: i64 = *k.v.get(0u64).p;
+    let n: i64 = *k.v.get(0i64).p;
     c.bump();
     if n != 1i64 { return 1i64; }
     return 0i64;

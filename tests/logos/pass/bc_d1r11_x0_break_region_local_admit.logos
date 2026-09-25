@@ -22,7 +22,7 @@ fn main() -> i64 {
         if i > 0i64 {
             let mut vs: Vec<B> = Vec::new();
             stash(&c, &mut vs);
-            n = n + *vs.get(0u64).p;
+            n = n + *vs.get(0i64).p;
             break;
         }
         i = i + 1i64;

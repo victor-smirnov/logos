@@ -7869,6 +7869,17 @@ private:
         }
         return t;
     }
+    // A closure parameter's elided regions were minted for it alone: they are
+    // the closure's own binders (Rust: an annotated `&T` parameter is
+    // higher-ranked), each taken at the argument's region by a call — erased in
+    // the formal a call checks against, so only a region the user NAMED relates
+    // the argument to anything.
+    TypeRef closure_call_formal_(TypeRef pt) {
+        auto own_ = [&](std::string_view lt) -> std::string {
+            return closure_minted_lts().count(std::string(lt)) ? std::string() : std::string(lt);
+        };
+        return fpv_walk_(pt, own_);
+    }
     TypeRef fpv_fn_(TypeRef t, std::vector<TypeRef> ps, TypeRef r) {
         LogosTypeBuilder nt;
         nt.kind = TypeRef(t).kind();
@@ -9969,10 +9980,12 @@ private:
         // arg_compatible_for_dispatch ("pt is guarded too"). This is how the
         // refusal pinned by coerce_diag_1__enum-to-integer-discriminant
         // vanished: the old let path never ran this adoption; the expect_type
-        // pipeline does.
-        if (!ok && ek != LogosType::Kind::Enum &&
+        // pipeline does. Only an UNSUFFIXED literal adopts: `9u64` is `u64`
+        // (Rust), the same gate arg_compatible_for_dispatch applies — the
+        // selector and this judgment must agree on what a literal may become.
+        if (!ok && ek == LogosType::Kind::IntLit &&
             TypeRef(target).kind() != LogosType::Kind::Enum &&
-            is_integer_kind(ek) && is_integer_kind(TypeRef(target).kind())) {
+            is_integer_kind(TypeRef(target).kind())) {
             if (auto v = get_intlit_value(e))
                 if (intlit_fits(*v, TypeRef(target).kind()))
                     ok = true;
@@ -9984,7 +9997,15 @@ private:
                                      TypeRef at,
                                      TypeRef pt) {
         if (types_equal(at, pt)) return true;
-        if (types_compatible(at, pt)) return true;
+        // An unsuffixed literal against an integer slot is decided by its VALUE
+        // (below), before types_compatible, which admits IntLit at every
+        // integer width: `put(u8)`/`put(i64)` called with `300` must reach the
+        // i64 overload, not pick u8 and then report that 300 does not fit.
+        bool lit_at_int = arg && at && pt &&
+            TypeRef(at).kind() == LogosType::Kind::IntLit &&
+            is_integer_kind(TypeRef(pt).kind()) &&
+            TypeRef(pt).kind() != LogosType::Kind::Enum && get_intlit_value(arg);
+        if (!lit_at_int && types_compatible(at, pt)) return true;
         // A `&[E; N]` argument dispatches against a `&[E]` slice param: the
         // call site will decay it (CFLAG_ARRAY_TO_SLICE). The selector must
         // accept what the coercion pipeline can produce, or the candidate is

@@ -31,7 +31,7 @@ fn main() -> i32 {
     let mut vs: Vec<B> = Vec::new();
     let s: for<'a> fn(&'a C, &mut Vec<B<'a>>) = stash;
     s(&c, &mut vs);
-    let x: i64 = *vs.get(0u64).p;                   // the read happens BEFORE the mutation
+    let x: i64 = *vs.get(0i64).p;                   // the read happens BEFORE the mutation
     c.bump();                                       // admitted
     if x != 2i64 { return 2i32; }
     if c.v != 3i64 { return 3i32; }

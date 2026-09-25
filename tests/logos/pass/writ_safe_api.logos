@@ -10,12 +10,12 @@ use logos.lang.writ.array;
 fn main() -> i32 {
     let h: Writ = writ_new(48i64);
     let nested: &mut WArray<WAny> = h.array(2i64);
-    nested.push(WAny::from(1i64));
-    nested.push(WAny::from(2i64));
-    nested.push(WAny::from(3i64));
+    nested.push(WAny::from(1));
+    nested.push(WAny::from(2));
+    nested.push(WAny::from(3));
     let root: &mut WArray<WAny> = h.array(2i64);
-    root.push(WAny::from(10i64));
-    root.push(WAny::from(20i64));
+    root.push(WAny::from(10));
+    root.push(WAny::from(20));
     root.push(WAny::from(true));
     if root.len() != 3i64 { return 1; }
     let mut s: i64 = 0i64;
