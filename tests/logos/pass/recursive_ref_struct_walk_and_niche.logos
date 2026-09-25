@@ -1,0 +1,17 @@
+// A struct recursive through `Option<&'a Self>`: a linked walk, and the reference's niche
+// kept (`Option<&Node>` is 8 bytes). rustc 1.98.1: exit 0.
+package recursive_ref_struct_walk_and_niche;
+struct Node<'a> { v: i64, next: Option<&'a Node<'a>> }
+fn sum(n: &Node) -> i64 {
+    let mut s: i64 = n.v;
+    let mut cur: Option<&Node> = n.next;
+    while let Some(x) = cur { s = s + x.v; cur = x.next; }
+    return s;
+}
+fn main() -> i32 {
+    let c: Node = Node { v: 3, next: None };
+    let b: Node = Node { v: 2, next: Some(&c) };
+    let a: Node = Node { v: 1, next: Some(&b) };
+    if sizeof::<Option<&Node>>() != 8 { return 9; }
+    return (sum(&a) - 6) as i32;
+}

@@ -1235,6 +1235,8 @@ private:
     // #438: the DECLARED non-generic method `<owner>__<method>__f__<sig>` of a
     // concrete owner (see the definition). Empty when there is not exactly one.
     // `arity` (receiver included), when known, filters the candidates first.
+    // Pointees whose layout mono_niche_arm is computing (a cycle guard).
+    std::unordered_set<uint64_t> niche_pointee_in_progress_;
     std::string declared_method_symbol(std::string_view owner, std::string_view pkg,
                                        std::string_view method, int64_t arity = -1);
     // #438: `eq` for a concrete element type, matched by SIGNATURE (see the

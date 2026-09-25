@@ -1,0 +1,8 @@
+// Compiles and runs under the pass tier's LOGOS_VERIFY_LAYOUT=1 (squeue row of the same name).
+package layout_verify_recursive_ref;
+struct Node<'a> { v: i64, next: Option<&'a Node<'a>> }
+fn main() -> i32 {
+    let n: Node = Node { v: 1i64, next: None };
+    if n.v != 1i64 { return 1i32; }
+    return 0i32;
+}

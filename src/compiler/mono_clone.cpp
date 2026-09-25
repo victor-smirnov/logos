@@ -535,8 +535,19 @@ lay::ArmDesc Mono::mono_niche_arm(TypeRef t) {
     using K = LogosType::Kind;
     auto k = TypeRef(t).kind();
     uint64_t pointee_align = 0;
-    if ((k == K::Ref || k == K::MutRef) && TypeRef(t).pointee())
-        pointee_align = mono_abi_layout(TypeRef(t).pointee()).align;
+    if ((k == K::Ref || k == K::MutRef) && TypeRef(t).pointee()) {
+        // A pointee already being laid out is on a cycle THROUGH this
+        // reference (`struct Node<'a> { next: Option<&'a Node<'a>> }`): it
+        // holds a pointer, so its alignment is at least a pointer's — all the
+        // niche rule asks (≥ 2). Recomputing it recursed without end.
+        const uint64_t pk = uint64_t(TypeRef(TypeRef(t).pointee()).offset().value());
+        if (niche_pointee_in_progress_.insert(pk).second) {
+            pointee_align = mono_abi_layout(TypeRef(t).pointee()).align;
+            niche_pointee_in_progress_.erase(pk);
+        } else {
+            pointee_align = 8;
+        }
+    }
     bool nonnull_wrapper = false;
     if (k == K::Struct || k == K::ZonedStruct) {
         SubstMap m;
