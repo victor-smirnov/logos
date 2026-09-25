@@ -1705,6 +1705,10 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         std::vector<writ::TinyMapView> sub_pats;
         std::vector<writ::TinyMapView> before, after;
         bool has_rest = false;
+        // A NAMED rest over an array binds BY VALUE the sub-array `[T; N - k]`
+        // (Rust's typing at a let-position door; the match door's sub-slice
+        // is a different binding mode).
+        writ::TinyMapView rest_node{};
         if (pat_node.has_key(la::ITEMS)) {
             auto items_av = pat_node.get(la::ITEMS.code);
             if (!items_av.is_null() && items_av.is_pointer()) {
@@ -1715,11 +1719,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
                         auto en = map_of(eitems.get(i));
                         if (code_of(en) == la::PAT_REST) {
                             if (has_rest) error("let array pattern: at most one `..` rest allowed");
-                            if (en.has_key(la::NAME)) {
-                                error("let array pattern: a named rest (`xs @ ..`) is not supported "
-                                      "at let-position; bind the elements by index");
-                                return builder().stmt_expr(std::move(rhs), node_line_);
-                            }
+                            if (en.has_key(la::NAME)) rest_node = en;
                             has_rest = true;
                             continue;
                         }
@@ -1830,6 +1830,27 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
                 error(std::format(
                     "let array pattern: only plain identifier bindings "
                     "are supported at element {} (got non-PAT_WILD)", j));
+            }
+        }
+        if (!rest_node.is_null()) {
+            auto rname = std::string(str_of(rest_node.get(la::NAME.code)));
+            const size_t lo = before.size(), hi = arr_n - after.size();
+            if (rname != "_" && lo <= hi) {
+                std::vector<lir::LExprPtr> relems;
+                for (size_t j = lo; j < hi; ++j) {
+                    if (is_move_type(elem_t)) mark_moved(tmp + "." + std::to_string(j));
+                    relems.push_back(builder().index_read(
+                        builder().var_ref(tmp, rhs_type),
+                        builder().lit_int((int64_t)j, prim(LogosType::Kind::I64)), elem_t));
+                }
+                TypeRef rt = make_array(elem_t, (int64_t)(hi - lo));
+                lir::SLet sl;
+                sl.name   = rname;
+                sl.type   = rt;
+                sl.is_mut = pat_byval_mut(rest_node);
+                sl.value  = builder().arr_lit(std::move(relems), rt);
+                define(rname, rt, pat_byval_mut(rest_node));
+                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
         }
         lir::SBlock sb;

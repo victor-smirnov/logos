@@ -1,0 +1,12 @@
+// `name @ ..` at a function parameter: the parameter binds as `let PAT = param`, and a
+// named rest there binds the sub-array BY VALUE, as in Rust (rustc 1.98.1: exit 0). Was a
+// fail fixture pinning the let door's refusal until let_array_named_rest_refused closed.
+package fnparam_array_named_rest;
+fn probe([a, xs @ ..]: [i64; 3]) -> i32 {
+    if a != 1i64 { return 1i32; }
+    return 0i32;
+}
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 4i64];
+    return probe(arr);
+}

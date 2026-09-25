@@ -2453,6 +2453,8 @@
                    => { CODE: PAT_REST, NAME: $3, IS_REF: true, IS_MUT: true }
                     / KW_REF IDENT AT DOTDOT
                    => { CODE: PAT_REST, NAME: $2, IS_REF: true }
+                    / KW_MUT IDENT AT DOTDOT
+                   => { CODE: PAT_REST, NAME: $2, IS_MUT: true }
                     / IDENT AT DOTDOT
                    => { CODE: PAT_REST, NAME: $1 }
                     / DOTDOT

@@ -1,0 +1,19 @@
+// A named rest at a let-position door binds the sub-array BY VALUE: first / middle / last,
+// empty, a parameter, String elements moved out. rustc 1.98.1: exit 0; valgrind clean.
+package let_array_named_rest_by_value;
+use logos.mem.string;
+fn tail_sum([_, rest @ ..]: [i64; 4]) -> i64 { return rest[0] + rest[1] + rest[2]; }
+fn main() -> i32 {
+    let arr: [i64; 5] = [1, 2, 3, 4, 5];
+    let [first, mid @ .., last] = arr;
+    let [head @ .., z] = arr;
+    let [a, b, c, d, e, empty @ ..] = arr;
+    let [m0 @ .., _y] = [7i64, 8];
+    let mut m = m0;
+    m[0] = m[0] + 1;
+    let ss: [String; 3] = [String::from("a"), String::from("bb"), String::from("ccc")];
+    let [s0, srest @ ..] = ss;
+    let total: i64 = first + last + mid[0] + mid[2] + head[3] + z + a + b + c + d + e
+        + empty.len() + m[0] + tail_sum([1, 2, 3, 4]) + s0.len() + srest[1].len() + srest.len();
+    return (total - 59) as i32;
+}

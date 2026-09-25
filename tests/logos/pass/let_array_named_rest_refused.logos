@@ -1,0 +1,9 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package let_array_named_rest_refused;
+fn probe([a, xs @ ..]: [i64; 3]) -> i64 { return a * 100i64 + xs[0] * 10i64 + xs[1]; }
+fn main() -> i32 {
+    let arr = [1i64, 2i64, 3i64];
+    let [p, rest @ ..] = arr;
+    let r = probe(arr) + p + rest.len() + rest[1];
+    return (r - 129i64) as i32;
+}

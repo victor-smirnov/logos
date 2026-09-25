@@ -1,1 +1,0 @@
-let array pattern: a named rest (`xs @ ..`) is not supported
