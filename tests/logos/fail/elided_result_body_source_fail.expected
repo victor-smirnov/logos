@@ -1,1 +1,1 @@
-return type mismatch: variance mismatch — expected &i64, got &i64
+return type mismatch: variance mismatch — expected &'1 i64, got &'2 i64

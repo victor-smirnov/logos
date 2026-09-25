@@ -631,6 +631,43 @@ private:
             return t;
         }
     }
+    // Elided (minted) regions renamed `'1`, `'2`, … in first-seen order over
+    // one shared map, so two distinct elided regions stop printing alike
+    // (`expected &i64, got &i64`) — rustc's own spelling for them.
+    TypeRef number_minted_lts_(TypeRef t, std::unordered_map<std::string, std::string>& nm, int d = 0) {
+        if (!t || d > 24) return t;
+        using K = LogosType::Kind;
+        auto num = [&](const std::string& l) -> std::string {
+            if (!lt_is_minted(l)) return l;
+            auto it = nm.find(l);
+            if (it != nm.end()) return it->second;
+            std::string n = "'" + std::to_string(nm.size() + 1);
+            nm.emplace(l, n);
+            return n;
+        };
+        switch (t.kind()) {
+        case K::Ref:
+        case K::MutRef: {
+            std::string l = num(std::string(t.lifetime()));
+            return make_ref(t.kind() == K::MutRef, number_minted_lts_(t.pointee(), nm, d + 1), l);
+        }
+        case K::Struct:
+        case K::ZonedStruct:
+        case K::Enum: {
+            std::vector<std::string> ls = t.lifetime_args();
+            for (auto& l : ls) l = num(l);
+            std::vector<TypeRef> as;
+            for (auto a : t.type_args()) as.push_back(number_minted_lts_(a, nm, d + 1));
+            if (t.kind() == K::Enum)
+                return make_generic_enum(t.enum_name(), std::move(as), std::move(ls), t.pkg_name());
+            if (t.kind() == K::ZonedStruct)
+                return make_generic_datatype(t.struct_name(), std::move(as), std::move(ls));
+            return make_generic_struct(t.struct_name(), std::move(as), std::move(ls), t.pkg_name());
+        }
+        default:
+            return t;
+        }
+    }
     TypeRef number_impl_anon_lts_(TypeRef t, int d = 0) {
         if (!t || d > 24) return t;
         using K = LogosType::Kind;
@@ -8212,8 +8249,25 @@ private:
         const bool numbered_ = impl_anon_ && es == gs;
         if (numbered_)
             es = type_str(number_impl_anon_lts_(to), true), gs = type_str(number_impl_anon_lts_(from), true);
+        // Two DISTINCT elided regions still print alike: number them (`'1`, `'2`).
+        bool minted_numbered_ = false;
+        if (!numbered_ && es == gs) {
+            std::unordered_map<std::string, std::string> nm_;
+            auto to_n = number_minted_lts_(to, nm_);
+            auto from_n = number_minted_lts_(from, nm_);
+            if (nm_.size() >= 2) {
+                es = type_str(to_n, true); gs = type_str(from_n, true);
+                minted_numbered_ = es != gs;
+            }
+        }
         es = fnptr_binder_prefix_(to, from) + es;
         gs = fnptr_binder_prefix_(from, to) + gs;
+        if (minted_numbered_) {
+            error(std::format("{}: variance mismatch — expected {}, got {} — `'1`, `'2`, … are "
+                              "the elided lifetimes, in order of appearance: distinct regions, "
+                              "and no bound relates them", ctx, es, gs));
+            return;
+        }
         error(std::format("{}: variance mismatch — expected {}, got {} — "
                           "lifetime structure incompatible "
                           "(check &mut invariance / contravariance rules){}",

@@ -1,0 +1,13 @@
+// Two DISTINCT elided regions print as `'1` / `'2` in the variance mismatch (rustc's
+// spelling), not alike as `expected &i64, got &i64` (squeue row of the same name).
+package typestr_minted_alike;
+fn store(slot: &mut &i64, x: &i64) { *slot = x; }
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let mut r: &i64 = &a;
+    {
+        let s: i64 = 2i64;
+        store(&mut r, &s);
+    }
+    return 0i32;
+}

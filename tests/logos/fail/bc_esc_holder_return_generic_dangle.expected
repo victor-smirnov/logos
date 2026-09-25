@@ -1,1 +1,1 @@
-return type mismatch: variance mismatch — expected W, got W — lifetime structure incom
+return type mismatch: variance mismatch — expected W<'1>, got W<'2>

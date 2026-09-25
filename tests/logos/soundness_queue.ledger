@@ -22,8 +22,6 @@ boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_
 
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 
-typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
-
 impl_fn_return_stack_env_dangles 1 tests/soundness/open/impl_fn_return_stack_env_dangles run 1
 
 boxed_escaping_fnonce_capture_double_free 1 tests/soundness/open/boxed_escaping_fnonce_capture_double_free run 2
@@ -221,5 +219,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 23
-# SYNC-HASH 5594bee5797f78da607c2639654ccfb4
+# TOTAL 22
+# SYNC-HASH 88cd7cb20961577ef81a9bc47382cc75
