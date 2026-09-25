@@ -3384,6 +3384,26 @@ private:
         auto pkg = TypeRef(t).pkg_name();
         return pkg.empty() || pkg == "logos.mem.boxed";
     }
+    // The stdlib shared owners, FQN-checked like is_stdlib_box. `Rc<dyn Tr>` /
+    // `Arc<dyn Tr>` stay STRUCTS (B3 stage-2b), unlike the collapsed Box<dyn>.
+    static bool is_stdlib_rc_or_arc(TypeRef t) {
+        if (is_named_struct(t, "Rc")) return TypeRef(t).pkg_name() == "logos.lang.rc";
+        if (is_named_struct(t, "Arc")) return TypeRef(t).pkg_name() == "logos.mem.sync";
+        return false;
+    }
+    // The `dyn` inside `&Rc<dyn Tr>` / `&Arc<dyn Tr>` when `want` is a borrowed
+    // (non-owning) trait object; nullptr otherwise.
+    static TypeRef shared_owner_dyn_pointee_(TypeRef got, TypeRef want) {
+        using K = LogosType::Kind;
+        if (!got || !want || TypeRef(want).kind() != K::TraitObject ||
+            TypeRef(want).owning_trait_object()) return nullptr;
+        if (TypeRef(got).kind() != K::Ref && TypeRef(got).kind() != K::MutRef) return nullptr;
+        TypeRef p = TypeRef(got).pointee();
+        if (!p || !is_stdlib_rc_or_arc(p) || TypeRef(p).type_args().size() != 1) return nullptr;
+        TypeRef d = TypeRef(p).type_args()[0];
+        return d && (TypeRef(d).kind() == K::TraitObject || TypeRef(d).kind() == K::UnsizedDyn)
+                   ? d : TypeRef(nullptr);
+    }
     // FQN-checked, the same shape and for the same reason as is_stdlib_box.
     // `AnyVal` is the one member of this family with NO declaration anywhere:
     // MEASURED over stdlib/, tests/ and the 6132 generated units under

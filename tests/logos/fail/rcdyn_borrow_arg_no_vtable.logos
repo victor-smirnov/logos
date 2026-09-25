@@ -1,0 +1,16 @@
+// `&Rc<dyn Sp>` at a `&dyn Sp` parameter is E0277 (rustc 1.98.1), refused by sema with the
+// ruling's sentence — no longer an mlir-gen "no vtable" (squeue row of the same name).
+package rcdyn_borrow_arg_no_vtable;
+use logos.lang.rc;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn use_ref(r: &dyn Sp) -> i64 { return r.v(); }
+
+fn main() -> i32 {
+    let r: Rc<dyn Sp> = rc_new(A { x: 42i64 });
+    if use_ref(&r) != 42i64 { return 3i32; }
+    return 0i32;
+}

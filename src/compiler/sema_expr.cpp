@@ -16819,6 +16819,11 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         mark_moved_expr(expr_ref_of(e));
         e = builder().cast(std::move(e), expected);
     }
+    // `&Rc<dyn Tr>` at a `&dyn Tr` slot: types_compatible's Struct → dyn arm
+    // accepts any struct ("impl check deferred to codegen"), and codegen then
+    // has no vtable for `Rc<dyn Tr>` as `Tr`. It is the E0277 verdict below.
+    const bool shared_owner_dyn = shared_owner_dyn_pointee_(expr_type(e), expected) != nullptr;
+    if (!shared_owner_dyn) {
     if (types_compatible(expr_type(e), expected)) return true;
     if (ptr_rel_compatible(expr_type(e), expected)) return true;   // #[rel_ptr] ↔ *T
     if ((mask_for(pos) & CFLAG_ACCEPT_SD_THIN) &&
@@ -16830,6 +16835,7 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     // any position — the return path had it and the tail path did not, which
     // is exactly the per-site drift this function exists to end.
     if (types_compatible(normalize_assoc_eq(expr_type(e)), expected)) return true;
+    }
     if (std::getenv("LOGOS_DEBUG_ASSOC_MISMATCH")) {
         auto dump = [](const char* tag, TypeRef t) {
             std::fprintf(stderr, "  [%s] kind=%d trait='%s' assoc='%s' base_kind=%d base='%s'\n",
@@ -16853,13 +16859,20 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         !TypeRef(expected).owning_trait_object()) {
         TypeRef g(expr_type(e));
         auto gk = g.kind();
+        // `Rc<dyn Tr>` / `Arc<dyn Tr>` are STRUCTS over an unsized dyn, not a
+        // collapsed owning trait object; the same verdict, the same sentence.
+        TypeRef rc_dyn = shared_owner_dyn_pointee_(g, expected);
         if ((gk == LogosType::Kind::Ref || gk == LogosType::Kind::MutRef) &&
             g.pointee() &&
-            TypeRef(g.pointee()).kind() == LogosType::Kind::TraitObject &&
-            TypeRef(g.pointee()).owning_trait_object()) {
-            TypeRef po(g.pointee());
+            (rc_dyn || (TypeRef(g.pointee()).kind() == LogosType::Kind::TraitObject &&
+                        TypeRef(g.pointee()).owning_trait_object()))) {
+            TypeRef po(rc_dyn ? rc_dyn : g.pointee());
             std::string owner;
-            switch (po.trait_owning_kind()) {
+            if (rc_dyn) {
+                owner = std::string(TypeRef(g.pointee()).struct_name());
+                if (auto p = owner.find('$'); p != std::string::npos) owner.resize(p);
+            }
+            else switch (po.trait_owning_kind()) {
             case TypeRef::OwningKind::Box: owner = "Box"; break;
             case TypeRef::OwningKind::Rc:  owner = "Rc";  break;
             case TypeRef::OwningKind::Arc: owner = "Arc"; break;
