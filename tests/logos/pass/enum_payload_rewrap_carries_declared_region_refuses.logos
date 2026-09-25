@@ -1,0 +1,16 @@
+// Compiles and runs as in rustc 1.98.1: exit 35 (squeue row of the same name).
+package enum_payload_rewrap_carries_declared_region_refuses;
+enum E<'s> { A(&'s i64), B }
+fn keep<'a>(e: E<'a>) -> E<'a> {
+    match e {
+        E::A(r) => { return E::A(r); }
+        E::B => { return E::B; }
+    }
+}
+fn main() -> i32 {
+    let v: i64 = 35i64;
+    match keep(E::A(&v)) {
+        E::A(r) => { return *r as i32; }
+        E::B => { return 1i32; }
+    }
+}

@@ -1,0 +1,11 @@
+// A trait impl's header `where X: Tr` is enforced at the call: `P<bool>` has no `sum`
+// (rustc 1.98.1: E0599, the trait bound is not satisfied).
+package trait_impl_where_bound_enforced_at_call_refused;
+trait Tr { fn t(self: &Self) -> i64; }
+impl Tr for i64 { fn t(self: &Self) -> i64 { return *self; } }
+trait Sum { fn sum(self: &Self) -> i64; }
+struct P<X> { x: X }
+impl<X> Sum for P<X> where X: Tr {
+    fn sum(self: &Self) -> i64 { return self.x.t(); }
+}
+fn main() -> i32 { let p = P { x: true }; return p.sum() as i32; }

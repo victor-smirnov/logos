@@ -1,0 +1,13 @@
+// Compiles and runs: the collection holds the VALUES (blessed divergence A6; squeue row of the same name).
+package listcomp_value_elem_type_refused;
+use logos.mem.collections.vec;
+
+struct P {
+    k: i64
+}
+
+fn main() -> i32 {
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v = [P { k: x } for x in src];
+    return v.len() as i32;
+}

@@ -1,0 +1,14 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package tuple_of_rawptr_ordering_mlir_verifier_refused;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let arr: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let lo: *const i64 = &arr[0u64] as *const i64;
+    let hi: *const i64 = &arr[3u64] as *const i64;
+    let t1: (*const i64, i64) = (lo, 1i64);
+    let t2: (*const i64, i64) = (hi, 1i64);
+    let lt: bool = t1 < t2;
+    unsafe { printf("lt=%d\n".as_ptr(), lt as i32); }
+    if !lt { return 1i32; }
+    return 0i32;
+}

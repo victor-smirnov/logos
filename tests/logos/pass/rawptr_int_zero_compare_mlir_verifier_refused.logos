@@ -1,0 +1,10 @@
+// Compiles and runs under spec clause expr.binop.ptr-null-compare (squeue row of the same name; a Logos addition, rustc has no pointer-vs-0 compare).
+package rawptr_int_zero_compare_mlir_verifier_refused;
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let p: *mut i64 = &mut v as *mut i64;
+    if p == 0 {
+        return 1i32;
+    }
+    return 3i32;
+}

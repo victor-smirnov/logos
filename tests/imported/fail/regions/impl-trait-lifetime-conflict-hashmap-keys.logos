@@ -1,5 +1,10 @@
 // rustc regions/impl-trait-lifetime-conflict-hashmap-keys.rs — upstream E0308 mismatched types (impl vs trait sig)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// ⚠ 2026-09-24: RE-PINNED TO THE BODY. rustc 1.98.1 on this shape ACCEPTS the signature
+// (`Subject<'static, K>` is a subtype of the trait's `Subject<'a, K>`; compare_impl_method
+// relates by subtyping) and refuses the BODY — "lifetime may not live long enough",
+// `'a` must outlive `'static` (plus E0310 on K). logosc now relates a return whose regions
+// are impl-header binders by subtyping too, so the body error is what it reports.
 // ⚠ 2026-09-07b: IT NOW REFUSES FOR THE UPSTREAM REASON. M-SIG landed (the
 // impl-vs-trait comparator reads lifetime structure at the receiver, every
 // parameter and the return), so the E0308 signature mismatch is what is

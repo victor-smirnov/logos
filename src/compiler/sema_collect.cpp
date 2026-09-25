@@ -3583,6 +3583,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (node.has_key(la::IMPL_TYPE_PARAMS)) {
         impl_tps = read_type_params_from(node, la::IMPL_TYPE_PARAMS.code);
         push_type_params(impl_tps);
+        fold_impl_where_bounds_(node, impl_tps);
         impl_type_params_ = impl_tps;
         extract_impl_lt(la::IMPL_TYPE_PARAMS.code);
         impl_lt_outlives = read_lifetime_outlives_from(node, la::IMPL_TYPE_PARAMS.code);
@@ -5075,10 +5076,22 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         TypeRef tra = m.ret_type;
                         if (!trait_arg_subst.empty())
                             tra = subst_type_sema(tra, trait_arg_subst);
+                        // Under the impl's trait-reference arguments (`impl<'z>
+                        // Get<'z>` makes the trait's `&'a i64` a `&'z i64`, as
+                        // compare_impl_method substitutes them), a return whose
+                        // regions are all impl-header binders is related by
+                        // SUBTYPING under the header's outlives, in the block
+                        // below — not by name here. Only that test sees the
+                        // renamed type: the alpha map is built over every slot
+                        // in the trait's OWN names.
+                        TypeRef tra_r = rename_trait_regions_(tra, tit->lifetime_params, trait_lt_args);
+                        const bool by_subtyping =
+                            tra_r && regions_all_impl_header_(tra_r, c->ret_type, impl_lt_params) &&
+                            region_positions_(tra_r) == region_positions_(c->ret_type);
                         if (!is_generic_param(tra) &&
                             !is_generic_param(c->ret_type) &&
                             !(_asub && _self_shape_artefact(m.ret_type, tra, c->ret_type)) &&
-                            (!_alpha_ok(tra, c->ret_type, check_end, true) ||
+                            ((!by_subtyping && !_alpha_ok(tra, c->ret_type, check_end, true)) ||
                              !types_equal(tra, c->ret_type))) {
                             if (_asub && self_mismatch_note.empty())
                                 self_mismatch_note = std::format(

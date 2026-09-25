@@ -2477,6 +2477,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     if (node.has_key(la::IMPL_TYPE_PARAMS)) {
         impl_tps = read_type_params_from(node, la::IMPL_TYPE_PARAMS.code);
         push_type_params(impl_tps);
+        fold_impl_where_bounds_(node, impl_tps);
         impl_type_params_ = impl_tps;
     } else if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
         impl_tps = read_type_params(node);

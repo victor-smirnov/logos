@@ -1,1 +1,1 @@
-deref-write: '=' left side must be a pointer or mutable reference
+cannot assign to '*item': 'item' is behind a `&` reference

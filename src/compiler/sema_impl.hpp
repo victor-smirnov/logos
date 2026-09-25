@@ -7139,6 +7139,25 @@ private:
                 current_type_lt_outlives_.erase(tp.name);
         }
     }
+    // An impl header's `where` clause folded onto its (already pushed) type
+    // parameters: `impl<X, Y> Tr for P<X, Y> where X: A` bounds X exactly as
+    // `impl<X: A, Y>` does. The params must be in scope first so a bound's
+    // arguments can name a sibling. Refreshes the pushed frame's bounds in place.
+    void fold_impl_where_bounds_(writ::TinyMapView node, std::vector<TypeParam>& tps) {
+        // A subject that is not one of these params (`where Self: Sized`) is
+        // not this fold's question.
+        const bool saved_defer = where_subject_check_deferred_;
+        where_subject_check_deferred_ = true;
+        fold_where_bounds(node, tps);
+        where_subject_check_deferred_ = saved_defer;
+        for (auto& tp : tps) {
+            finalize_relaxed_bounds(tp);
+            if (!tp.bounds.empty()) current_type_bounds_[tp.name] = tp.bounds;
+            if (!tp.implicit_sized) current_type_relaxed_sized_.insert(tp.name);
+            if (!tp.lifetime_outlives.empty())
+                current_type_lt_outlives_[tp.name] = tp.lifetime_outlives;
+        }
+    }
     void pop_type_params(const std::vector<TypeParam>& /*tps*/) {
         if (type_param_shadow_stack_.empty()) return;
         auto& frames = type_param_shadow_stack_.back();
@@ -7260,6 +7279,19 @@ private:
     }
     // A trait item's type with the trait's binders renamed POSITIONALLY to the impl's trait-reference
     // lifetime args; nullptr when the counts differ (not decided here).
+    // An enum's declared lifetime params onto a (peeled) scrutinee's lifetime
+    // ARGUMENTS; an omitted or elided argument maps nothing.
+    SemaLifetimeSubst enum_region_subst_(const SemaEnumInfo& einfo, TypeRef scrut) {
+        SemaLifetimeSubst ls;
+        if (!scrut || TypeRef(scrut).kind() != LogosType::Kind::Enum) return ls;
+        auto args = TypeRef(scrut).lifetime_args();
+        for (size_t k = 0; k < einfo.lifetime_params.size() && k < args.size(); ++k) {
+            if (args[k].empty()) continue;
+            ls[einfo.lifetime_params[k]] = std::string(args[k]);
+            ls[outlives_norm(einfo.lifetime_params[k])] = std::string(args[k]);
+        }
+        return ls;
+    }
     TypeRef rename_trait_regions_(TypeRef t, const std::vector<std::string>& trait_lts,
                                   const std::vector<std::string>& trait_lt_args) {
         if (!t || trait_lts.size() != trait_lt_args.size()) return nullptr;
@@ -7295,6 +7327,27 @@ private:
             }
         };
         return subtype(have, want, adj, variance_table_, 0, false) && slice_ok(have, want, 0);
+    }
+    // How many region positions a type carries, a struct's lifetime ARGUMENTS
+    // included: an omitted `Subject<T>` against `Subject<'a, T>` differs here
+    // though regions_all_impl_header_ sees no elided region on either side.
+    static size_t region_positions_(TypeRef t, int d = 0) {
+        using K = LogosType::Kind;
+        if (!t || d > 24) return 0;
+        switch (t.kind()) {
+        case K::Ref: case K::MutRef: return 1 + region_positions_(t.pointee(), d + 1);
+        case K::Slice:
+            return (t.slice_owning_kind() == TypeRef::OwningKind::Borrow && !t.raw_fat() ? 1 : 0) +
+                   region_positions_(t.elem(), d + 1);
+        case K::Array: return region_positions_(t.elem(), d + 1);
+        case K::Tuple: { size_t n = 0; for (auto e : t.tuple_elems()) n += region_positions_(e, d + 1); return n; }
+        case K::Struct: case K::ZonedStruct: case K::Enum: {
+            size_t n = t.lifetime_args().size();
+            for (auto x : t.type_args()) n += region_positions_(x, d + 1);
+            return n;
+        }
+        default: return 0;
+        }
     }
     // Every region either side names is an impl-header binder or 'static, and none is elided.
     static bool regions_all_impl_header_(TypeRef a, TypeRef b, const std::vector<std::string>& impl_lts) {
@@ -9135,6 +9188,7 @@ public:
     // do not modify sema state. Public so dump-driver code outside the
     // class can render arbitrary sub-trees.
     std::string render_expr_src(writ::TinyMapView node);
+    std::string shared_ref_write_msg(writ::TinyMapView place);
     // The marker an expression form render_expr_src cannot spell renders as. A
     // caller that RE-PARSES what it renders must refuse on it: the comment
     // reparses as nothing, and `(<nothing>).fmt(…)` prints nothing.

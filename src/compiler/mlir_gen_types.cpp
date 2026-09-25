@@ -167,11 +167,13 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
         // Tuples are anonymous LLVM struct types, passed by pointer.
         // We discard the literal struct type here (return ptr_type) but
         // tuple_llvm_type() builds it on demand for return-by-value.
-        llvm::SmallVector<mlir::Type> fields;
+        // A `()` / `!` element is zero-sized (tuple_llvm_type), not a reason
+        // for the tuple to have no representation.
         for (auto e : tv.tuple_elems()) {
-            auto ft = logos_to_mlir(e);
-            if (!ft) return nullptr;
-            fields.push_back(ft);
+            if (e && (TypeRef(e).kind() == LogosType::Kind::Void ||
+                      TypeRef(e).kind() == LogosType::Kind::Never))
+                continue;
+            if (!logos_to_mlir(e)) return nullptr;
         }
         return cache_ret(ptr_type());
     }
@@ -1333,6 +1335,13 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
             // layout), like a nested struct element; logos_to_mlir would collapse
             // it to an 8-byte ptr and under-size the slot.
             ft = tuple_llvm_type(e);
+        } else if (e && (TypeRef(e).kind() == LogosType::Kind::Void ||
+                         TypeRef(e).kind() == LogosType::Kind::Never)) {
+            // A `()` / `!` element is zero-sized, as the same struct FIELD is
+            // (register_struct): `logos_to_mlir` is nullptr for it, which
+            // failed the whole tuple type — `fn f(t: (i64, ()))` read `t.0`
+            // as no value.
+            ft = mlir::LLVM::LLVMArrayType::get(builder_.getI8Type(), 0);
         }
         if (!ft) ft = logos_to_mlir(e);
         if (!ft) return nullptr;

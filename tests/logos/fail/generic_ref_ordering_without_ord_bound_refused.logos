@@ -1,0 +1,6 @@
+// `&T` is ordered only through an ordering bound on T: E0369 (rustc 1.98.1). Without
+// the refusal the pair compared the references' ADDRESSES.
+package generic_ref_ordering_without_ord_bound_refused;
+use logos.lang.cmp;
+fn lt_eq<T: Eq>(a: &T, b: &T) -> bool { return a < b; }
+fn main() -> i32 { return 0; }

@@ -1154,6 +1154,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
             case K::F32: case K::F64: case K::Bool: case K::Char:
             case K::Usize: case K::Isize:
             case K::IntLit: case K::FloatLit: return true;
+            // A thin raw pointer orders by address (Rust's `Ord for *const T`).
+            // (Kind::Ptr is always thin: a raw FAT pointer is Slice/TraitObject/
+            // DstRef with raw_fat().)
+            case K::Ptr: return true;
             default: return false;
             }
         };
@@ -1191,6 +1195,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
                     if (mlir::isa<mlir::FloatType>(elem_t)) {
                         lt_i = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLT, lv, rv);
                         eq_i = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, lv, rv);
+                    } else if (mlir::isa<mlir::LLVM::LLVMPointerType>(elem_t)) {
+                        lt_i = builder_.create<mlir::LLVM::ICmpOp>(loc_, mlir::LLVM::ICmpPredicate::ult, lv, rv);
+                        eq_i = builder_.create<mlir::LLVM::ICmpOp>(loc_, mlir::LLVM::ICmpPredicate::eq, lv, rv);
                     } else {
                         auto pred = is_unsigned(TypeRef(le[i]).kind())
                             ? mlir::arith::CmpIPredicate::ult : mlir::arith::CmpIPredicate::slt;
@@ -3696,7 +3703,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) 
         if (!ok) return;
         if (!er) { ok = false; return; }
         auto val = gen_expr(er);
-        if (!val) { ok = false; return; }
+        if (!val) {
+            // A `()` element has no value and a zero-sized slot: nothing to
+            // store (its side effects, if any, were emitted by gen_expr).
+            TypeRef et = (i < TypeRef(type).tuple_elems().size())
+                             ? TypeRef(type).tuple_elems()[i] : TypeRef(nullptr);
+            if (et && TypeRef(et).kind() == LogosType::Kind::Void) { ++i; return; }
+            ok = false; return;
+        }
         // The element slot type from the tuple layout. A Struct/ZonedStruct
         // element is embedded INLINE (tuple_llvm_type), so its slot is an
         // LLVMStructType, but gen_expr returns the struct BY POINTER. Load the

@@ -1,0 +1,11 @@
+// ptr-null-compare both ways round, `!=`, and a `*const` null (spec clause
+// expr.binop.ptr-null-compare).
+package rawptr_null_compare_forms;
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let p: *mut i64 = &mut v as *mut i64;
+    let q: *const i64 = 0 as *const i64;
+    if 0 == p { return 1i32; }
+    if p != 0 { if q == 0 { return 3i32; } }
+    return 2i32;
+}

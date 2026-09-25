@@ -1,0 +1,28 @@
+// A pattern binds a payload / field at the SCRUTINEE's regions, not the declaration's:
+// struct- and tuple-shaped variants in a match, a lifetime-only struct in a `let`.
+// rustc 1.98.1: exit 0.
+package pattern_payload_regions_from_scrutinee;
+enum E<'s> { V { r: &'s i64 }, T(&'s i64), N }
+struct S<'s> { r: &'s i64 }
+fn again<'a>(e: &E<'a>) -> E<'a> {
+    match e {
+        E::V { r } => { let x: &'a i64 = *r; return E::V { r: x }; }
+        E::T(r) => { return E::T(*r); }
+        E::N => { return E::N; }
+    }
+}
+fn field<'a>(s: &S<'a>) -> &'a i64 {
+    let S { r } = s;
+    return *r;
+}
+fn main() -> i32 {
+    let v: i64 = 5;
+    let w: i64 = 9;
+    let a = again(&E::V { r: &v });
+    let b = again(&E::T(&w));
+    let s = S { r: &v };
+    let mut t: i64 = *field(&s);
+    match a { E::V { r } => { t = t + *r; } _ => { return 1; } }
+    match b { E::T(r) => { t = t + *r; } _ => { return 2; } }
+    return (t - 19) as i32;
+}

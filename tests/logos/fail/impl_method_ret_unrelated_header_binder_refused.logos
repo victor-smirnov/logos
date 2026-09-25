@@ -1,0 +1,10 @@
+// The trait's `'a` is the impl's `'z`; returning the unrelated `'y` is E0308
+// "method not compatible with trait" (rustc 1.98.1). Twin of
+// pass/impl_method_ret_renamed_header_binder_refused.
+package impl_method_ret_unrelated_header_binder_refused;
+trait Get<'a> { fn get(self: &Self) -> &'a i64; }
+struct H<'q> { r: &'q i64 }
+impl<'z, 'y> Get<'z> for H<'y> {
+    fn get(self: &Self) -> &'y i64 { return self.r; }
+}
+fn main() -> i32 { return 0i32; }

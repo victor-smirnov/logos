@@ -494,6 +494,17 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
+// E0594's sentence for `*p = v` / `*p op= v` through a SHARED reference, in
+// the borrow checker's wording for the same refusal.
+std::string SemaChecker::shared_ref_write_msg(TinyMapView place) {
+    if (!place.is_null() && code_of(place) == la::VAR_REF) {
+        std::string n(str_of(place.get(la::NAME.code)));
+        return std::format("cannot assign to '*{}': '{}' is behind a `&` reference", n, n);
+    }
+    return "cannot assign to a place behind a `&` reference";
+}
+
+
 lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     node_line_ = get_line(stmt);
     int32_t c = code_of(stmt);
@@ -764,6 +775,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 ptr = lower_mut_place(ptr_node);
             }
         }
+        if (TypeRef(pt).kind() == LogosType::Kind::Ref) {
+            error(shared_ref_write_msg(ptr_node));
+            return builder().stmt_expr(error_expr(), node_line_);
+        }
         if (!elem || (TypeRef(pt).kind() != LogosType::Kind::Ptr &&
                       TypeRef(pt).kind() != LogosType::Kind::MutRef)) {
             error("deref-compound: left side must be a pointer or mutable reference");
@@ -830,10 +845,14 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         auto pt = expr_type(ptr);
         // Writing through &mut T is safe; writing through raw *mut/*const T requires unsafe
         bool is_mut_ref = TypeRef(pt).kind() == LogosType::Kind::MutRef;
-        if (!is_mut_ref && !inside_unsafe_)
-            error("write through raw pointer requires unsafe context");
-        if (TypeRef(pt).kind() != LogosType::Kind::Ptr && TypeRef(pt).kind() != LogosType::Kind::MutRef) {
-            error("deref-write: '=' left side must be a pointer or mutable reference");
+        if (TypeRef(pt).kind() == LogosType::Kind::Ref) {
+            // E0594: a shared reference is not writable, in or out of `unsafe`.
+            error(shared_ref_write_msg(map_of(stmt.get(la::NAME.code))));
+        } else {
+            if (!is_mut_ref && !inside_unsafe_)
+                error("write through raw pointer requires unsafe context");
+            if (TypeRef(pt).kind() != LogosType::Kind::Ptr && !is_mut_ref)
+                error("deref-write: '=' left side must be a pointer or mutable reference");
         }
         // *const T is read-only; only *mut T or &mut T can be written through
         if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
@@ -1515,14 +1534,16 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             if (code_of(sub) != la::PAT_WILD || flag(sub, la::IS_REF)) nested = true;
         }
         // A GENERIC struct / tuple struct: the field-by-field path binds each
-        // name at the field's DECLARED type (`T`); the structural lowering
-        // builds the pattern against the instantiated scrutinee type.
+        // name at the field's DECLARED type (`T`, `&'s i64`); the structural
+        // lowering builds the pattern against the instantiated scrutinee type,
+        // its lifetime arguments included.
         TypeRef gst = rhs_type;
         while (gst && (TypeRef(gst).kind() == LogosType::Kind::Ref ||
                        TypeRef(gst).kind() == LogosType::Kind::MutRef) && TypeRef(gst).pointee())
             gst = TypeRef(gst).pointee();
         const bool generic_scrut = gst && TypeRef(gst).kind() == LogosType::Kind::Struct &&
-                                   !TypeRef(gst).type_args().empty();
+                                   (!TypeRef(gst).type_args().empty() ||
+                                    !TypeRef(gst).lifetime_args().empty());
         if (nested || force_structural_let_ || generic_scrut) {
             force_structural_let_ = false;   // this level only
             lir::Pattern probe = build_pattern(pat_node, rhs_type);
@@ -4468,6 +4489,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // binding_types pass below still runs — it's the canonical input
     // to lir_mirror_emit_pat_variant_data.)
     SemaSubst pat_subst;
+    SemaLifetimeSubst pat_lt_subst;
     {
         // Deref `&Enum` / `&mut Enum` / `*Enum` (match ergonomics) so the
         // per-position payload types are concrete even for a by-ref scrutinee
@@ -4492,6 +4514,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                                  k < TypeRef(pat_scrut).type_args().size(); ++k)
                 pat_subst[einfo.type_params[k].name] = TypeRef(pat_scrut).type_args()[k];
         }
+        if (vinfo && eit != enums_.end()) pat_lt_subst = enum_region_subst_(eit->second, pat_scrut);
     }
     // True when the scrutinee is by-reference (match ergonomics): a nested
     // payload binding then binds by-ref, so synth types wrap in &.
@@ -4518,7 +4541,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     auto pat_field_type = [&](size_t idx) -> TypeRef {
         if (!vinfo || idx >= vinfo->payload_types.size()) return error_t();
         auto pt = vinfo->payload_types[idx];
-        return pat_subst.empty() ? pt : subst_type_sema(pt, pat_subst);
+        return pat_subst.empty() && pat_lt_subst.empty() ? pt : subst_type_sema(pt, pat_subst, pat_lt_subst);
     };
     // Synthesize a binding + guard for a refutable inner sub-pat. Returns
     // the synth binding name (caller stores it at the correct position
@@ -5250,8 +5273,13 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             };
             return rec(rec, t);
         };
+        // The payload's regions are the SCRUTINEE's: `match e` with `e: &E<'a>`
+        // binds `V { r }`'s `r: &'s i64` field as `&&'a i64`, not at the
+        // declaration's `'s`.
+        const SemaLifetimeSubst lt_subst =
+            eit != enums_.end() ? enum_region_subst_(eit->second, enum_scrut) : SemaLifetimeSubst{};
         for (auto pt : vinfo->payload_types) {
-            auto ct = subst.empty() ? pt : subst_type_sema(pt, subst);
+            auto ct = subst.empty() && lt_subst.empty() ? pt : subst_type_sema(pt, subst, lt_subst);
             if (TypeRef(ct).kind() == LogosType::Kind::Void) continue;  // () unit — no field
             if (mentions_unresolved_param(ct)) ct = error_t();
             binding_types.push_back(ct);
@@ -6729,8 +6757,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             // A GENERIC struct's field under the scrutinee's type
                             // arguments (`&GPair<u8, u16>`'s `a` is `u8`, not `A`):
                             // the default binding mode can mint `&u8` only then.
+                            // Its lifetime arguments likewise: `S { r }` over
+                            // `&S<'a>` binds `r: &&'a i64`, not the declared `'s`.
                             if (sst && TypeRef(sst).kind() == LogosType::Kind::Struct &&
-                                !TypeRef(sst).type_args().empty())
+                                (!TypeRef(sst).type_args().empty() ||
+                                 !TypeRef(sst).lifetime_args().empty()))
                                 if (TypeRef sub_t = field_type_of_for_type(sst, fname))
                                     ftype = sub_t;
                         }

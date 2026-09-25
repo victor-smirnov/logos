@@ -1,0 +1,8 @@
+// Only the literal 0 is the null pointer (spec clause expr.binop.ptr-null-compare).
+package rawptr_compare_nonzero_int_refused;
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let p: *mut i64 = &mut v as *mut i64;
+    if p == 1 { return 1i32; }
+    return 0i32;
+}

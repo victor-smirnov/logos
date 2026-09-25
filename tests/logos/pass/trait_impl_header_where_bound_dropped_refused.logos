@@ -1,0 +1,35 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package trait_impl_header_where_bound_dropped_refused;
+
+trait Tr {
+    fn t(self: &Self) -> i64;
+}
+
+impl Tr for i64 {
+    fn t(self: &Self) -> i64 {
+        return *self;
+    }
+}
+
+trait Sum {
+    fn sum(self: &Self) -> i64;
+}
+
+struct P<X, Y> {
+    x: X,
+    y: Y,
+}
+
+impl<X, Y> Sum for P<X, Y>
+where X: Tr, Y: Tr
+{
+    fn sum(self: &Self) -> i64 {
+        return self.x.t() + self.y.t();
+    }
+}
+
+fn main() -> i32 {
+    let p = P { x: 1i64, y: 2i64 };
+    if p.sum() != 3i64 { return 1i32; }
+    return 0i32;
+}

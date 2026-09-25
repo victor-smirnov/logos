@@ -1,0 +1,1 @@
+the return type is declared '&'z i64' and the impl declares '&'y i64' (lifetime mismatch)

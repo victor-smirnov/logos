@@ -1,0 +1,11 @@
+// `()` elements of a tuple: a parameter, a returned tuple destructured with a `()`
+// sub-pattern, a literal with units around a value, a unit read. rustc 1.98.1: exit 0.
+package tuple_unit_elements_zero_sized;
+fn mk(k: i64) -> (i64, (), i64) { return (k, (), k + 1); }
+fn probe(t: (i64, ())) -> i64 { let u: () = t.1; return t.0; }
+fn main() -> i32 {
+    let (a, (), b) = mk(4);
+    let w: ((), i64, ()) = ((), 3i64, ());
+    let s: i64 = probe((7i64, ())) + a + b + w.1;
+    return (s - 19i64) as i32;
+}

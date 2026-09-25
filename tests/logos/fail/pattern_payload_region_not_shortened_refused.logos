@@ -1,0 +1,11 @@
+// The payload keeps the scrutinee's `'a`: returning it as `E<'b>` with no `'a: 'b`
+// is refused (rustc 1.98.1: lifetime may not live long enough).
+package pattern_payload_region_not_shortened_refused;
+enum E<'s> { V { r: &'s i64 }, N }
+fn shorter<'a, 'b>(e: &E<'a>, y: &'b i64) -> E<'b> {
+    match e {
+        E::V { r } => { return E::V { r: *r }; }
+        E::N => { return E::N; }
+    }
+}
+fn main() -> i32 { return 0; }

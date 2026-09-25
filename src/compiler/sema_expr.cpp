@@ -3266,6 +3266,65 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // No eq-providing bound — fall through to the generic operator check.
     }
 
+    // The ordering operators on a type variable bounded by `Ord` (directly or
+    // through a supertrait), or on a pair of references to one: `a < b` is
+    // `a.cmp(&b).is_lt()`, dispatched by mono to the concrete impl — the same
+    // desugaring the `==` arm above does with `eq`. A raw LBinOp survived to
+    // mlir-gen and compared the operands' ADDRESSES (`fn less<T: Ord>(a: &T,
+    // b: &T) { a < b }`, a verifier failure).
+    const bool ord_op = op == "<" || op == "<=" || op == ">" || op == ">=";
+    const bool tv_ord_ref_pair = ord_op && ref_pair_to(LogosType::Kind::TypeVar);
+    if (ord_op && (tv_ord_ref_pair || TypeRef(lt).kind() == LogosType::Kind::TypeVar)) {
+        std::string tv_name(TypeRef(tv_ord_ref_pair ? TypeRef(lt).pointee() : TypeRef(lt)).type_var_name());
+        TypeRef ord_t = nullptr;
+        if (auto bit = current_type_bounds_.find(tv_name); bit != current_type_bounds_.end()) {
+            StrSet seen;
+            std::function<void(const std::string&)> walk = [&](const std::string& tn) {
+                if (ord_t || !seen.insert(tn).second) return;
+                auto* it = find_trait_iter_scoped(tn);
+                if (!it) return;
+                for (auto& m : it->methods)
+                    if (m.name == "cmp" && m.param_types.size() == 2 && m.ret_type &&
+                        TypeRef(m.ret_type).kind() == LogosType::Kind::Enum) {
+                        ord_t = m.ret_type; return;
+                    }
+                for (auto& st : it->supertraits) walk(st.trait_name);
+            };
+            for (auto& b : bit->second) walk(b.trait_name);
+        }
+        const SemaFuncInfo* isfit = nullptr;
+        std::string is_mangled;
+        if (ord_t) {
+            is_mangled = std::string(TypeRef(ord_t).enum_name()) + "__" +
+                         (op == "<" ? "is_lt" : op == "<=" ? "is_le" : op == ">" ? "is_gt" : "is_ge");
+            isfit = find_func_by_base_and_signature(is_mangled, {ord_t}, false);
+        }
+        if (isfit) {
+            auto lref = tv_ord_ref_pair ? std::move(lhs) : take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
+            auto rref = tv_ord_ref_pair ? std::move(rhs) : take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
+            lir::EMethodCall mc;
+            mc.receiver = std::move(lref);
+            mc.method   = "cmp";
+            mc.args.push_back(std::move(rref));
+            mc.vtable_index = -1;
+            mc.tag_trait = "Ord";
+            auto cmp_call = builder().method_call_v(std::move(mc), ord_t);
+            std::vector<lir::LExprPtr> isargs;
+            isargs.push_back(std::move(cmp_call));
+            return builder().call(isfit->symbol_name.empty() ? is_mangled : isfit->symbol_name,
+                                  {}, std::move(isargs), bool_t());
+        }
+        // A reference pair with no ordering bound would compare ADDRESSES after
+        // substitution. Rust: E0369, `&T` is ordered only through `T: PartialOrd`.
+        if (tv_ord_ref_pair) {
+            error(std::format("binary operation `{}` cannot be applied to type `{}`: "
+                              "the type parameter '{}' has no `Ord` bound", op,
+                              type_str(lt), tv_name));
+            return error_expr();
+        }
+        // By value: fall through to the generic operator check.
+    }
+
     // G150-2: `==` / `!=` on an enum. A payload-carrying enum needs a
     // structural Eq/PartialEq impl; the historic fall-through compared the
     // enum's heap pointer (or bare discriminant), silently returning the
@@ -3587,12 +3646,17 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             }
         }
         if (ptr_null_cmp) {
-            lir::LExprPtr lit_expr = (TypeRef(lt).kind() == LogosType::Kind::IntLit) ? lhs : rhs;
+            bool lit_left = TypeRef(lt).kind() == LogosType::Kind::IntLit;
+            lir::LExprPtr& lit_expr = lit_left ? lhs : rhs;
             if (auto v = get_intlit_value(lit_expr)) {
                 if (*v != 0)
                     error(std::format(
                         "operator '{}': pointer can only be compared with integer literal 0", op));
             }
+            // The `0` IS the null pointer of the other side's type: compare two
+            // pointers (codegen has no pointer-vs-integer compare).
+            builder().retype_expr(lit_expr, usize_t());
+            lit_expr = builder().cast(std::move(lit_expr), lit_left ? rt : lt);
         }
         // Detect comparisons against IntLit values that can't fit in the other operand.
         // E.g. x: i32 == 10000000000 — the literal can never equal any i32 value.
@@ -3668,6 +3732,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 case RK_::F32: case RK_::F64: case RK_::Bool: case RK_::Char:
                 case RK_::Usize: case RK_::Isize:
                 case RK_::IntLit: case RK_::FloatLit: return true;
+                case RK_::Ptr: return true;   // thin; an address order (Rust `Ord for *const T`)
                 default: return false;
                 }
             };
@@ -14503,30 +14568,38 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    TypeRef vec_t = make_synth_generic_struct("Vec", {elem_type});
-
     std::string vec_var = "__lc_v_" + std::to_string(tmp_var_count_++);
 
-    // SLet: let mut vec_var: Vec<T> = vec_new::<T>();
-    // Use symbol_name (may include __g__... suffix for method-level generics).
-    std::string vec_new_sym = vec_new_fi->symbol_name.empty() ? "vec_new"
-                                                              : vec_new_fi->symbol_name;
-    auto call_new = builder().call(vec_new_sym, {elem_type}, {}, vec_t);
-    lir::SLet let_v;
-    let_v.name   = vec_var;
-    let_v.type   = vec_t;
-    let_v.is_mut = true;
-    let_v.value  = std::move(call_new);
-
-    // Lower VALUE + optional GUARD with var_name in scope.
+    // Lower VALUE + optional GUARD with var_name in scope. The collection holds
+    // the VALUES (A6: `expr.list-comp.desugar-vec`, "T is the type of
+    // `value`"): `[P { k: x } for x in src]` is a Vec<P>. An untyped literal
+    // value keeps the iterator's element type, as before.
     push_scope();
-    define(vec_var, vec_t, true);
     define(std::string(var_name), elem_type, false);
     auto elem_expr = lower_expr(map_of(node.get(la::VALUE.code)));
     lir::LExprPtr guard_expr = nullptr;
     if (node.has_key(la::GUARD))
         guard_expr = lower_expr(map_of(node.get(la::GUARD.code)));
     pop_scope();
+    TypeRef val_type = elem_expr ? expr_type(elem_expr) : TypeRef(nullptr);
+    if (!val_type || TypeRef(val_type).kind() == LogosType::Kind::IntLit ||
+        TypeRef(val_type).kind() == LogosType::Kind::FloatLit ||
+        TypeRef(val_type).kind() == LogosType::Kind::Error)
+        val_type = elem_type;
+
+    TypeRef vec_t = make_synth_generic_struct("Vec", {val_type});
+
+    // SLet: let mut vec_var: Vec<T> = vec_new::<T>();
+    // Use symbol_name (may include __g__... suffix for method-level generics).
+    std::string vec_new_sym = vec_new_fi->symbol_name.empty() ? "vec_new"
+                                                              : vec_new_fi->symbol_name;
+    auto call_new = builder().call(vec_new_sym, {val_type}, {}, vec_t);
+    lir::SLet let_v;
+    let_v.name   = vec_var;
+    let_v.type   = vec_t;
+    let_v.is_mut = true;
+    let_v.value  = std::move(call_new);
+
 
     // Call Vec::push(&mut vec_var, elem) as a direct ECall.
     // Emit with callee "Vec__push" and type_args=[elem_type]; mono_clone will
@@ -14535,7 +14608,7 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     std::vector<lir::LExprPtr> push_args;
     push_args.push_back(std::move(recv));
     push_args.push_back(std::move(elem_expr));
-    auto push_call = builder().call("Vec__push", {elem_type}, std::move(push_args), void_t());
+    auto push_call = builder().call("Vec__push", {val_type}, std::move(push_args), void_t());
 
     lir::SExprStmt push_stmt;
     push_stmt.expr = std::move(push_call);

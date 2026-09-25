@@ -1,0 +1,9 @@
+// Without `'a: 'b` in the header `&'a i64` is not a `&'b i64`: E0308 (rustc
+// 1.98.1). Twin of pass/impl_method_ret_longer_region_under_header_bound_refused.
+package impl_method_ret_longer_region_without_header_bound_refused;
+trait Get<'a, 'b> { fn get(self: &Self) -> &'b i64; }
+struct H<'a> { r: &'a i64 }
+impl<'a, 'b> Get<'a, 'b> for H<'a> {
+    fn get(self: &Self) -> &'a i64 { return self.r; }
+}
+fn main() -> i32 { return 0i32; }

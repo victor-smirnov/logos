@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+true false true true true
+3 false true 2 30 true

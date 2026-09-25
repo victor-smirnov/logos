@@ -1,0 +1,21 @@
+// Raw pointers in ordered tuples (address order, rustc 1.98.1: the first line), and list
+// comprehensions whose values are bool, a struct under a guard, a tuple (A6).
+package tuple_rawptr_order_and_listcomp_values;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct P { k: i64 }
+fn main() -> i32 {
+    let arr: [i64; 2] = [1, 2];
+    let lo: *const i64 = &arr[0u64] as *const i64;
+    let hi: *const i64 = &arr[1u64] as *const i64;
+    let a: (*const i64, i64) = (lo, 5);
+    let b: (*const i64, i64) = (lo, 7);
+    let c: (*const i64, i64) = (hi, 0);
+    println!("{} {} {} {} {}", a < b, b <= a, c > b, a >= a, (lo, 1i64) < (hi, 0i64));
+    let src: [i64; 3] = [1, 2, 3];
+    let bs: Vec<bool> = [x > 1 for x in src];
+    let ps = [P { k: x * 10 } for x in src if x != 2];
+    let ts = [(x, x > 2) for x in src];
+    println!("{} {} {} {} {} {}", bs.len(), bs[0], bs[2], ps.len(), ps[1].k, ts[2].1);
+    return 0;
+}

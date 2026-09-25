@@ -1,0 +1,29 @@
+// The ordering operators on an Ord-bounded type variable, by value, over references,
+// and through a supertrait bound; a user type ordered by its `cmp`. rustc 1.98.1 (the
+// struct derives PartialOrd/Ord there): the same output.
+package generic_ord_bound_ordering_operators;
+use logos.lang.cmp;
+use logos.std.fmt;
+struct S { k: i64 }
+impl Ord for S {
+    fn cmp(&self, other: &S) -> Ordering {
+        if self.k < other.k { return Ordering::Less; }
+        if self.k > other.k { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+trait Ranked: Ord {}
+impl Ranked for S {}
+fn lt_ref<T: Ord>(a: &T, b: &T) -> bool { return a < b; }
+fn ge_val<T: Ord>(a: T, b: T) -> bool { return a >= b; }
+fn gt_super<T: Ranked>(a: &T, b: &T) -> bool { return a > b; }
+fn le_ref<T: Ord>(a: &T, b: &T) -> bool { return a <= b; }
+fn main() -> i32 {
+    let x: i64 = 3;
+    let y: i64 = 8;
+    let s1: S = S { k: 1 };
+    let s2: S = S { k: 2 };
+    println!("{} {} {} {} {} {} {}", lt_ref(&x, &y), lt_ref(&y, &x), ge_val(x, x), ge_val(x, y),
+             gt_super(&s2, &s1), le_ref(&s1, &s1), le_ref(&s2, &s1));
+    return 0;
+}

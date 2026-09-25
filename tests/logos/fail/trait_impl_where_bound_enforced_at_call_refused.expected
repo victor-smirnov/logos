@@ -1,0 +1,1 @@
+type 'bool' does not implement trait 'Tr' required by parameter 'X'

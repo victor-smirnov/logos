@@ -1,0 +1,9 @@
+// A header `where X: Clone` does not provide `t` (rustc 1.98.1: E0599).
+package trait_impl_where_bound_wrong_trait_refused;
+trait Tr { fn t(self: &Self) -> i64; }
+trait Sum { fn sum(self: &Self) -> i64; }
+struct P<X> { x: X }
+impl<X> Sum for P<X> where X: Clone {
+    fn sum(self: &Self) -> i64 { return self.x.t(); }
+}
+fn main() -> i32 { return 0i32; }
