@@ -1,0 +1,21 @@
+// Fields bound BY VALUE out of a struct, by `let` and by `match`: a slice, a `&str`, a
+// `&dyn`, an array, a nested struct, a scalar. The `let` form bound only the fat pair's data
+// word and crashed. rustc 1.98.1: exit 0; valgrind clean.
+package struct_fat_fields_bound_by_value;
+trait Tr { fn g(self: &Self) -> i64; }
+struct D { v: i64 }
+impl Tr for D { fn g(self: &Self) -> i64 { return self.v; } }
+struct In { k: i64 }
+struct H<'a> { s: &'a [i64], t: &'a str, d: &'a dyn Tr, a: [i64; 2], i: In, n: i64 }
+fn main() -> i32 {
+    let arr: [i64; 3] = [1, 2, 3];
+    let dd: D = D { v: 40 };
+    let h: H = H { s: &arr, t: "hey", d: &dd, a: [5, 6], i: In { k: 7 }, n: 8 };
+    let H { s, t, d, a, i, n } = h;
+    let mut total: i64 = s[2] + t.len() + d.g() + a[1] + i.k + n;
+    let h2: H = H { s: &arr, t: "hi", d: &dd, a: [5, 6], i: In { k: 7 }, n: 8 };
+    match h2 {
+        H { s, t, d, a, i, n } => { total = total + s[0] + t.len() + d.g() + a[0] + i.k + n; }
+    }
+    return (total - 130) as i32;
+}

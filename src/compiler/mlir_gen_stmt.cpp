@@ -4700,6 +4700,21 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
             (TypeRef(ty).kind() == LogosType::Kind::Slice ||
              TypeRef(ty).kind() == LogosType::Kind::Closure ||
              TypeRef(ty).kind() == LogosType::Kind::TraitObject);
+        // Unshared: the binder is a LOCAL of that kind, so it takes the local's
+        // own slot and shape (declare_local_place — the pair storage, with
+        // var_tuple_ / var_dyn_trait_), and the pair is copied in. The
+        // pointer-in-an-alloca form below reads right for a slice but a `&dyn`
+        // call takes the slot AS the pair: `let (d, n) = t; d.g()` over
+        // `(&dyn Tr, i64)` called through garbage.
+        if (slice_closure && !shared) {
+            if (auto a = declare_local_place(name, ty)) {
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, a, slot_ptr,
+                    builder_.create<mlir::LLVM::ConstantOp>(loc_, builder_.getI64Type(),
+                                                            builder_.getI64IntegerAttr(16)),
+                    /*isVolatile=*/false);
+                return;
+            }
+        }
         if (slice_closure) {
             mlir::Value target;
             if (shared) { auto it = shared->find(name); if (it != shared->end()) target = it->second; }
@@ -4934,47 +4949,13 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
                 if (lf.name() == fname) { fty = lf.type(pool_impl()); break; }
             auto sub = pfb.sub();
             if (!sub) {
-                // Shorthand `{x}` → bind field value to `x`. Mirror the Wild
-                // binding logic: aggregates bind the slot ptr, scalars load+store.
-                auto fmlir = fty ? logos_to_mlir(fty) : ptr_type();
-                if (!fmlir) fmlir = ptr_type();
-                bool field_is_struct = fty &&
-                    (TypeRef(fty).kind() == LogosType::Kind::Struct ||
-                     TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
-                bool aggregate = field_is_struct ||
-                    (fty && TypeRef(fty).kind() == LogosType::Kind::Tuple);
-                evict_var_shapes(fname);
-                if (aggregate) {
-                    // A by-value field binding is a COPY of the field (the arm
-                    // may write the scrutinee: `h.p.v = 70; p.v` reads the old
-                    // value in Rust).
-                    mlir::Type agg_t = nullptr;
-                    if (field_is_struct) {
-                        auto fsit = find_struct_it(fty);
-                        if (fsit != struct_types_.end()) agg_t = fsit->second.llvm_type;
-                    } else agg_t = tuple_llvm_type(fty);
-                    if (agg_t) {
-                        auto fresh = create_entry_alloca(agg_t);
-                        builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, fp, size_const(fty), /*isVolatile=*/false);
-                        fp = fresh;
-                    }
-                    scope_[fname] = fp; let_vars_.insert(fname);
-                    // Track the shape (mirrors the Wild case): without it,
-                    // `x.field` / `x.N` on the shorthand binding mis-resolves —
-                    // pre-eviction it only worked when a same-shaped outer
-                    // binding happened to leak its entry.
-                    if (field_is_struct) var_struct_[fname] = mlir_struct_key(fty);
-                    else                 var_tuple_.insert(fname);
-                } else {
-                    auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
-                    mlir::Value target;
-                    if (shared) { auto it = shared->find(fname); if (it != shared->end()) target = it->second; }
-                    if (!target) target = create_entry_alloca(fmlir);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, target);
-                    scope_[fname] = target; let_vars_.insert(fname);
-                    var_elem_types_[fname] = fmlir;
-                    register_thin_ref_struct_binding(fname, fty);  // D3 (task #50)
-                }
+                // Shorthand `{x}` binds the field BY VALUE under its own name —
+                // the canonical binder, as a Wild rename does: an aggregate is
+                // copied with its shape, an array keeps its stride, a slice /
+                // closure / `&dyn` fat pair binds at its address (loading it as
+                // a scalar kept only the data word: `let H { s, n } = h; s[2]`
+                // crashed), a scalar loads.
+                bind_name_at_slot(fname, fp, fty, shared);
                 return;
             }
             pat_bind(sub, fp, fty, shared);
@@ -5398,6 +5379,21 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     for (auto& sf : sinfo.fields)
                         if (sf.name == field_name) { fmlir = sf.type; break; }
                     if (!fmlir) return;
+                    // A slice / closure / `&dyn` field is an inline fat PAIR whose
+                    // value convention is its address: copy the pair (the binder
+                    // owns its own copy of the reference) and bind that the way
+                    // every fat-pair binder is bound. Loading it as a scalar left
+                    // an `!llvm.struct<(ptr, i64)>` where `s[i]` wants the address.
+                    if (fty && (TypeRef(fty).kind() == LogosType::Kind::Slice ||
+                                TypeRef(fty).kind() == LogosType::Kind::Closure ||
+                                TypeRef(fty).kind() == LogosType::Kind::TraitObject) &&
+                        mlir::isa<mlir::LLVM::LLVMStructType>(fmlir)) {
+                        auto fresh = create_entry_alloca(fmlir);
+                        builder_.create<mlir::LLVM::StoreOp>(
+                            loc_, builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp), fresh);
+                        bind_name_at_slot(bind_name, fresh, fty, nullptr);
+                        return;
+                    }
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
                     auto alloca = create_entry_alloca(fmlir);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
