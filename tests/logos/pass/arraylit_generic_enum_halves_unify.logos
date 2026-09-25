@@ -1,0 +1,14 @@
+// Elements fixing different halves of `Result<i64, String>` unify; String payloads drop
+// once each. rustc 1.98.1: exit 0; valgrind clean.
+package arraylit_generic_enum_halves_unify;
+use logos.mem.string;
+fn main() -> i32 {
+    let v = [Result::Err(String::from("no")), Result::Ok(5i64), Result::Err(String::from("x"))];
+    let mut s: i64 = 0;
+    let mut i: u64 = 0;
+    while i < 3 {
+        match &v[i] { Result::Ok(n) => { s = s + *n; } Result::Err(m) => { s = s + m.len(); } }
+        i = i + 1;
+    }
+    return (s - 8) as i32;
+}

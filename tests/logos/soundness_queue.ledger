@@ -70,8 +70,6 @@ array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field
 
 closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
 
-arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_partial_generic_enum_elems_internal refuses
-
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
 # ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
@@ -235,5 +233,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 30
-# SYNC-HASH a6c97e32c0f811eb25c91e411326e885
+# TOTAL 29
+# SYNC-HASH 75dccfd6c7b2eb46ff6e3dc8002edef7

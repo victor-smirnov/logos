@@ -14242,6 +14242,48 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
             }
     }
 
+    // Elements that each fix only PART of a generic enum's arguments
+    // (`[Result::Ok(1i64), Result::Err(true)]`: `Result<i64, ?>` and
+    // `Result<?, bool>`) unify, as in rustc: the arguments are merged position
+    // by position, and every element whose own arguments are open or equal is
+    // retyped to the merged instance (its payload is already typed; only the
+    // open halves were unknown).
+    if (!arr_hint && !elems.empty()) {
+        TypeRef first = nullptr;
+        for (auto& e : elems)
+            if (e && expr_type(e) && TypeRef(expr_type(e)).kind() == LogosType::Kind::Enum &&
+                !TypeRef(expr_type(e)).type_args().empty()) { first = expr_type(e); break; }
+        if (first && open_type(first)) {
+            std::vector<TypeRef> merged = TypeRef(first).type_args();
+            bool conflict = false;
+            for (auto& e : elems) {
+                TypeRef t = e ? expr_type(e) : TypeRef(nullptr);
+                if (!t || TypeRef(t).kind() != LogosType::Kind::Enum ||
+                    TypeRef(t).enum_name() != TypeRef(first).enum_name()) continue;
+                auto ta = TypeRef(t).type_args();
+                if (ta.size() != merged.size()) { conflict = true; break; }
+                for (size_t i = 0; i < ta.size(); ++i) {
+                    if (open_type(ta[i])) continue;
+                    if (open_type(merged[i])) merged[i] = ta[i];
+                    else if (!types_equal(merged[i], ta[i])) conflict = true;
+                }
+            }
+            bool concrete = !conflict;
+            for (auto a : merged) if (open_type(a)) concrete = false;
+            if (concrete) {
+                std::vector<std::string> lts;
+                for (auto l : TypeRef(first).lifetime_args()) lts.emplace_back(l);
+                TypeRef mt = make_generic_enum(TypeRef(first).enum_name(), merged, std::move(lts),
+                                               TypeRef(first).pkg_name());
+                for (auto& e : elems) {
+                    TypeRef t = e ? expr_type(e) : TypeRef(nullptr);
+                    if (t && TypeRef(t).kind() == LogosType::Kind::Enum &&
+                        TypeRef(t).enum_name() == TypeRef(first).enum_name() && !types_equal(t, mt))
+                        builder().retype_expr(expr_ref_of(e), mt);
+                }
+            }
+        }
+    }
     TypeRef elem_type = expr_type(elems[0]);
     // An OPEN element 0 (`Option<T>` from a ctor that fixed no argument) does
     // not name the layout: take the first concrete enum element of the same
@@ -14461,6 +14503,15 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         if (TypeRef(t).kind() != LogosType::Kind::Error && TypeRef(elem_type).kind() != LogosType::Kind::Error) {
             if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
                 { auto [es, gs] = type_str_pair(t, elem_type);
+                  // Two instances of one generic spell alike by name; show the
+                  // arguments that differ (`Result<bool, ?>` vs `Result<i64, ?>`).
+                  if (es == gs) {
+                      es = type_str(t, true); gs = type_str(elem_type, true);
+                      // An argument no element fixed prints as Rust's `_`.
+                      for (auto* str : {&es, &gs})
+                          for (size_t p = str->find("<error>"); p != std::string::npos; p = str->find("<error>"))
+                              str->replace(p, 7, "_");
+                  }
                   error(std::format("array literal: element {} has type {}, expected {}",
                       i, es, gs)); }
             } else {

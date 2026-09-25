@@ -1,0 +1,6 @@
+// Two elements fixing the SAME argument differently do not unify (rustc 1.98.1: E0308).
+package arraylit_generic_enum_conflict_refused;
+fn main() -> i32 {
+    let v = [Result::Ok(1i64), Result::Ok(true)];
+    return 0;
+}
