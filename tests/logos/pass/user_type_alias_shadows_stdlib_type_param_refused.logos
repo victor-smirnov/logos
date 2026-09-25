@@ -1,0 +1,6 @@
+// Compiles and runs as in rustc 1.98.1: exit 3 (squeue row of the same name).
+package user_type_alias_shadows_stdlib_type_param_refused;
+type T = i64;
+fn main() -> i32 {
+    return 3i32;
+}

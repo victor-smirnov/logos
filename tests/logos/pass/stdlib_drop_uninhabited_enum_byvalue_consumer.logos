@@ -1,0 +1,12 @@
+// Compiles and runs as in rustc 1.98.1 (upstream drop-uninhabited-enum.rs; squeue row of the same name).
+package stdlib_drop_uninhabited_enum_byvalue_consumer;
+
+enum Foo {}
+
+impl Drop for Foo {
+    fn drop(self: &mut Self) {}
+}
+
+fn foo(x: Foo) {}
+
+fn main() -> i32 { return 0i32; }

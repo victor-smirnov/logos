@@ -1,0 +1,21 @@
+// User aliases named like stdlib type parameters (T F I U E R) used through Vec and a
+// reversed iterator — none leaks into a stdlib body. rustc 1.98.1: exit 0.
+package user_aliases_named_like_type_params;
+use logos.mem.collections.vec;
+type T = i64;
+type F = i64;
+type I = i64;
+type U = i64;
+type E = i64;
+type R = i64;
+fn main() -> i32 {
+    let a: T = 1;
+    let b: F = 2;
+    let c: I = 3;
+    let mut v: Vec<U> = Vec::new();
+    v.push(a); v.push(b); v.push(c);
+    let mut s: E = 0;
+    for x in v.iter().rev() { s = s * 10 + *x; }
+    let r: R = s;
+    return (r - 321) as i32;
+}

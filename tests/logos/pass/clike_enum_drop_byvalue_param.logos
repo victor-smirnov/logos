@@ -1,0 +1,20 @@
+// A C-like enum with Drop, passed by value and dropped in the callee: its bare
+// discriminant is spilled so `drop(&mut self)` gets an address. rustc 1.98.1: same output.
+package clike_enum_drop_byvalue_param;
+use logos.std.fmt;
+enum Color { R, G }
+impl Drop for Color {
+    fn drop(self: &mut Self) {
+        match *self { Color::R => { println!("drop R"); } Color::G => { println!("drop G"); } }
+    }
+}
+fn eat(c: Color) {}
+fn keep(c: Color) -> i64 { return match c { Color::R => 1, Color::G => 2 }; }
+fn main() -> i32 {
+    eat(Color::R);
+    let g = Color::G;
+    eat(g);
+    let k: i64 = keep(Color::G);
+    println!("k={}", k);
+    return 0;
+}

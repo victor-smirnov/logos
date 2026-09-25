@@ -3188,7 +3188,10 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
         // `type MemDestroyer` shadows a same-name stdlib alias that holds the
         // bare slot (Rust scoping). Then the bare slot, then wildcard imports.
         if (!cur_package_.empty()) if (auto t = check_alias(sema_key(cur_package_, ukey))) return t;
-        if (auto t = check_alias(ukey)) return t;
+        // The bare slot answers only where its owner is visible (alias_owner_visible_).
+        if (auto bit = type_aliases_.find(ukey);
+            bit != type_aliases_.end() && alias_owner_visible_(bit->second.package))
+            if (auto t = check_alias(ukey)) return t;
         for (auto& pkg : cur_imports_.wildcard_packages)
             if (auto t = check_alias(sema_key(pkg, ukey))) return t;
     }

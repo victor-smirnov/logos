@@ -6104,12 +6104,23 @@ private:
             if (it != type_aliases_.end()) return it;
         }
         auto it = type_aliases_.find(name);
-        if (it != type_aliases_.end()) return it;
+        if (it != type_aliases_.end() && alias_owner_visible_(it->second.package)) return it;
         for (auto& pkg : cur_imports_.wildcard_packages) {
             auto qit = type_aliases_.find(sema_key(pkg, name));
             if (qit != type_aliases_.end()) return qit;
         }
         return type_aliases_.end();
+    }
+    // The bare alias slot holds the FIRST alias of that name from ANY package;
+    // it answers only where its owner is visible — this package or an import.
+    // A user crate's `type T = i64;` is not in scope inside a stdlib body (it
+    // used to replace `swap<T>`'s own `T`, and made the declaration look like a
+    // specialisation), as in Rust.
+    bool alias_owner_visible_(const std::string& owner) const {
+        if (owner.empty() || owner == cur_package_) return true;
+        for (auto& pkg : cur_imports_.wildcard_packages)
+            if (pkg == owner) return true;
+        return false;
     }
     // G156-1: package-scoped consts (Rust parity). module_consts_ /
     // module_const_values_ are keyed by the PACKAGE-QUALIFIED key

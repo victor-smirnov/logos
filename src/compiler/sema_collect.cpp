@@ -6172,8 +6172,9 @@ bool SemaChecker::is_known_type_name(std::string_view name) const {
         return map.count(type_id({}, ukey)) != 0;
     };
     if (has_in(structs_) || has_in(datatypes_) || has_in(enums_)) return true;
-    // Type aliases: check unqualified, current package, and imports
-    if (type_aliases_.count(ukey)) return true;
+    // Type aliases: check unqualified (its owner visible), current package, and imports
+    if (auto bit = type_aliases_.find(ukey);
+        bit != type_aliases_.end() && alias_owner_visible_(bit->second.package)) return true;
     if (!cur_package_.empty() && type_aliases_.count(sema_key(cur_package_, ukey))) return true;
     for (auto& pkg : cur_imports_.wildcard_packages)
         if (type_aliases_.count(sema_key(pkg, ukey))) return true;

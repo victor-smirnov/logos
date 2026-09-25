@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+drop R
+drop G
+drop G
+k=2

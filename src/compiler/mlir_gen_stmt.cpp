@@ -1076,6 +1076,14 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
     // Closure drop is driven explicitly (Box<Closure>), not via value_needs_drop
     // (which reports false for Closure to avoid struct-field over-recursion).
     if (k != K::Closure && !value_needs_drop(ty)) return;
+    // Drop glue takes the value's ADDRESS (`Drop::drop(&mut self)`). A value
+    // that lives in no slot — a C-like / uninhabited enum parameter is its bare
+    // i32 discriminant — is spilled first, or the call passed the i32.
+    if (value_ptr.getType() != ptr_type()) {
+        auto slot = create_entry_alloca(value_ptr.getType());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, value_ptr, slot);
+        value_ptr = slot;
+    }
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     // Child VALUE ptr from an aggregate ptr + slot index: inline children
     // (struct/tuple/array) → the GEP; heap children (enum heap ptr) → load it.
@@ -1517,8 +1525,18 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
                     fn = find_func_op(mod, resolved);
             }
         }
-        if (fn)
-            builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
+        if (fn) {
+            // `Drop::drop(&mut self)` takes the ADDRESS; a var with no slot (a
+            // C-like / uninhabited enum parameter is its bare discriminant)
+            // is spilled first — the call passed the i32.
+            mlir::Value self_ptr = it->second;
+            if (self_ptr && self_ptr.getType() != ptr_type()) {
+                auto slot = create_entry_alloca(self_ptr.getType());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, self_ptr, slot);
+                self_ptr = slot;
+            }
+            builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{self_ptr});
+        }
     }
 
     // 2. Recursively drop the var's owned sub-values — struct fields, tuple
