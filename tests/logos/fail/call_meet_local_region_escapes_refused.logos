@@ -1,0 +1,10 @@
+// The meet of `'static` and a local region is local: returning `pick(&V, &n)` as
+// `&'static` is refused (rustc 1.98.1: E0515).
+package call_meet_local_region_escapes_refused;
+static V: i64 = 5i64;
+fn pick<'a>(x: &'a i64, y: &'a i64) -> &'a i64 { return y; }
+fn leak() -> &'static i64 {
+    let n: i64 = 5i64;
+    return pick(&V, &n);
+}
+fn main() -> i32 { return 0; }

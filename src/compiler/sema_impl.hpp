@@ -887,6 +887,9 @@ private:
                                            TypeRef ret = {}) {
         SemaLifetimeSubst ls;
         LtCands cands;
+        // Binders offered an ELIDED argument region (`&n` of a local): a region
+        // local to the caller that every named candidate outlives.
+        std::unordered_set<std::string> elided_offer;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef pt, TypeRef at) {
             if (!pt || !at) return;
             using K = LogosType::Kind;
@@ -898,6 +901,7 @@ private:
                     cands[p].push_back(a);
                     if (!ls.count(p)) ls.emplace(p, a);
                 }
+                if (!p.empty() && a.empty()) elided_offer.insert(p);
                 walk(pt.pointee(), at.pointee());
                 return;
             }
@@ -952,6 +956,16 @@ private:
                 if (!logos::probe::callmeet_unguarded() && !co) continue;
                 logos::probe::census("meet.call.applied");
                 ls[lp] = mint_meet_token(it->second);   // the meet keeps its candidates (outlives.hpp::lt_is_meet)
+            }
+            // A covariant binder offered a named region AND an elided one
+            // (`eqr(s, &n)` with `s: &'static i64`) meets at the elided, local
+            // region — its only obligation, that each offered region outlive
+            // it, holds by construction. First-wins pinned `'a` to `'static`
+            // and refused the local.
+            for (auto& lp : lifetime_params) {
+                if (!elided_offer.count(lp) || !ls.count(lp) || ls[lp].empty()) continue;
+                auto v = fn_binder_variance_(param_types, ret, lp);
+                if (v && (*v == Variance::Co || *v == Variance::BiVar)) ls[lp] = "";
             }
         }
         std::unordered_set<std::string> mentioned;

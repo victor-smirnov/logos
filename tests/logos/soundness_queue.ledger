@@ -40,8 +40,6 @@ closure_elided_param_called_with_field_ref_refuses 3 tests/soundness/open/closur
 
 vec_new_uninferred_push_dropped 3 tests/soundness/open/vec_new_uninferred_push_dropped refuses
 
-static_arg_pins_shared_callee_region_refused 3 tests/soundness/open/static_arg_pins_shared_callee_region_refused refuses
-
 enum_ctor_partial_turbofish_underscore_internal 3 tests/soundness/open/enum_ctor_partial_turbofish_underscore_internal refuses
 
 static_ref_nested_borrow_region_not_static_refused 3 tests/soundness/open/static_ref_nested_borrow_region_not_static_refused refuses
@@ -227,5 +225,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 26
-# SYNC-HASH a6eb4a586d8a9f394709df2b8dd86ba5
+# TOTAL 25
+# SYNC-HASH daf8d09036eb255fd8a68411ef862f4e
