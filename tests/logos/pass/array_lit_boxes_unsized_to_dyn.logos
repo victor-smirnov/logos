@@ -1,0 +1,18 @@
+// Boxes of DIFFERENT types unsized into one `[Box<dyn Tr>; 3]`, dispatched, and dropped
+// once each. rustc 1.98.1: exit 0; valgrind clean.
+package array_lit_boxes_unsized_to_dyn;
+use logos.mem.boxed;
+trait Tr { fn get(self: &Self) -> i64; }
+struct D { v: i64 }
+struct F { a: i64, b: i64 }
+impl Tr for D { fn get(self: &Self) -> i64 { return self.v; } }
+impl Tr for F { fn get(self: &Self) -> i64 { return self.a * self.b; } }
+fn main() -> i32 {
+    let b1: Box<D> = Box::new(D { v: 1 });
+    let b2: Box<F> = Box::new(F { a: 3, b: 4 });
+    let arr: [Box<dyn Tr>; 3] = [b1, b2, Box::new(D { v: 100 })];
+    let mut s: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 3 { s = s + arr[i as u64].get(); i = i + 1; }
+    return (s - 113) as i32;
+}

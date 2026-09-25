@@ -14294,6 +14294,35 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                                /*permissive=*/false);
         }
     }
+    // `[b1, b2]` under `[Box<dyn Tr>; N]`: each `Box<Concrete>` element is
+    // consumed and unsized, as the explicit `b as Box<dyn Tr>` does (the
+    // return position's rule, expect_type). Without it the literal kept the
+    // thin boxes and codegen had no vtable for `Box<D>` as `dyn Tr`.
+    if (hint_arr_elem_type_ && TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::TraitObject &&
+        TypeRef(hint_arr_elem_type_).owning_trait_object()) {
+        bool any = false;
+        for (size_t ei = 0; ei < elems.size(); ++ei) {
+            auto& e = elems[ei];
+            if (!e || !expr_type(e) || !is_stdlib_box(expr_type(e))) continue;
+            // The erased type must implement the trait (E0277), asked here —
+            // codegen would otherwise find no vtable.
+            auto bta = TypeRef(expr_type(e)).type_args();
+            TypeRef payload = bta.size() == 1 ? bta[0] : TypeRef(nullptr);
+            if (payload && TypeRef(payload).kind() != LogosType::Kind::TypeVar &&
+                TypeRef(payload).kind() != LogosType::Kind::TraitObject &&
+                !ref_arg_satisfies_dyn(make_ref(false, payload), hint_arr_elem_type_)) {
+                error(std::format("array element {}: the trait `{}` is not implemented for `{}` "
+                                  "(required for the unsize to `Box<dyn {}>`, E0277)", ei,
+                                  TypeRef(hint_arr_elem_type_).trait_name(), type_str(payload),
+                                  TypeRef(hint_arr_elem_type_).trait_name()));
+                continue;
+            }
+            mark_moved_expr(expr_ref_of(e));
+            e = builder().cast(std::move(e), hint_arr_elem_type_);
+            any = true;
+        }
+        if (any) elem_type = hint_arr_elem_type_;
+    }
     bool fnptr_elem_hint = false;
     if (hint_arr_elem_type_ &&
         TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::FnPtr) {

@@ -68,8 +68,6 @@ ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_m
 
 tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tuple_enum_elem_eq_variadic_impl_return_lost_refused refuses
 
-array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
-
 operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses
 
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
@@ -245,5 +243,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 35
-# SYNC-HASH c07db0ee97bbd368e96f3134fb371ff3
+# TOTAL 34
+# SYNC-HASH 647550fbd17afc194d2f4b5ae2092bca

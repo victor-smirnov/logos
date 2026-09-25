@@ -1,0 +1,12 @@
+// A box whose type does not implement the trait: E0277 in sema (rustc 1.98.1), not an
+// mlir-gen "no vtable".
+package array_lit_box_elem_unsize_missing_impl_refused;
+use logos.mem.boxed;
+trait Tr { fn get(self: &Self) -> i64; }
+struct D { v: i64 }
+struct N { v: i64 }
+impl Tr for D { fn get(self: &Self) -> i64 { return self.v; } }
+fn main() -> i32 {
+    let arr: [Box<dyn Tr>; 2] = [Box::new(D { v: 1 }), Box::new(N { v: 2 })];
+    return arr[0].get() as i32;
+}
