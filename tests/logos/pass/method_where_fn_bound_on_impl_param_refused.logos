@@ -1,0 +1,20 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package method_where_fn_bound_on_impl_param_refused;
+
+struct Run<F> {
+    f: F,
+}
+
+impl<F> Run<F> {
+    fn go(self: &Self) -> i64
+    where F: Fn(i64) -> i64
+    {
+        return (self.f)(2i64);
+    }
+}
+
+fn main() -> i32 {
+    let r = Run { f: |x: i64| x + 7i64 };
+    if r.go() != 9i64 { return 1i32; }
+    return 0i32;
+}

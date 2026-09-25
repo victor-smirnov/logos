@@ -1,0 +1,19 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package inherent_clash_bound_dispatch_refused;
+use logos.std.fmt;
+struct S { pub v: i64 }
+impl S {
+    fn m(self: &Self, k: i64) -> i64 { return self.v + k; }
+}
+trait Tr { fn m(self: &Self) -> i64; }
+impl Tr for S {
+    fn m(self: &Self) -> i64 { return 100i64; }
+}
+fn viabound<X: Tr>(x: &X) -> i64 { return x.m(); }
+fn main() -> i32 {
+    let s: S = S { v: 5i64 };
+    let a: i64 = s.m(1i64);
+    let b: i64 = viabound(&s);
+    println!("inherent={} bound={}", a, b);
+    return 0i32;
+}

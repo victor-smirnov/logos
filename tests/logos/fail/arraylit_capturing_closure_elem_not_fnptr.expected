@@ -1,0 +1,1 @@
+array element 0 expected fn(i64) -> i64, got |i64| -> i64

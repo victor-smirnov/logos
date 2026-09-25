@@ -4408,6 +4408,26 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         callee_is_box_closure = true;
     }
 
+    // `rb(args)` where `rb: &Box<dyn Fn(…)>`: the call operator autoderefs the
+    // reference, then calls through the Box — the expression-callee path.
+    if (callee_type &&
+        (TypeRef(callee_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(callee_type).kind() == LogosType::Kind::MutRef) &&
+        is_stdlib_box(TypeRef(callee_type).pointee()) &&
+        TypeRef(TypeRef(callee_type).pointee()).type_args().size() == 1 &&
+        TypeRef(TypeRef(TypeRef(callee_type).pointee()).type_args()[0]).kind() ==
+            LogosType::Kind::Closure) {
+        std::vector<lir::LExprPtr> args_v;
+        if (node.has_key(la::ARGS)) {
+            auto args = arr_of(node.get(la::ARGS.code));
+            for (uint64_t i = 0; i < args.size(); ++i)
+                args_v.push_back(lower_expr(map_of(args.get(i))));
+        }
+        auto recv = builder().deref(builder().var_ref(std::string(callee), callee_type),
+                                    TypeRef(callee_type).pointee());
+        return lower_invoke_on(std::move(recv), std::move(args_v));
+    }
+
     // `x(args)` where `x: &fn(…)->R` / `&mut fn(…)` (or `&` to a closure) — the
     // call operator auto-derefs a reference to a callable (unboxed-closures-call-
     // fn-autoderef). Peel the Ref/MutRef to expose the inner FnPtr/Closure and
@@ -8299,6 +8319,12 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         for (uint64_t i = 0; i < args.size(); ++i)
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
     }
+    return lower_invoke_on(std::move(recv), std::move(arg_exprs));
+}
+
+// The call operator on an already-lowered callee VALUE: a closure, a fn
+// pointer, an Fn-bounded type variable, or a Box of one of those.
+lir::LExprPtr SemaChecker::lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs) {
     auto rt = recv ? expr_type(recv) : nullptr;
     // Mirror lower_call's Sprint 5.7c special case: if the receiver
     // expression has TypeVar type bounded by Fn / FnMut / FnOnce
@@ -8310,6 +8336,18 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
     // overwrite the TypeVar with Closure here, the rewrite never
     // fires for F=fn-ptr (the call would be lowered as a closure
     // call against a raw fn-pointer value, segfaulting at runtime).
+    // A BOXED callable (`(h.f)()` with `f: Box<dyn Fn() -> i64>`): Rust calls
+    // through the Box (`Box<F>: Fn` for `F: Fn`). Deref to the callable first.
+    if (rt && is_stdlib_box(rt) && !TypeRef(rt).type_args().empty() && TypeRef(rt).type_args()[0]) {
+        TypeRef inner = TypeRef(rt).type_args()[0];
+        if (TypeRef(inner).kind() == LogosType::Kind::Closure ||
+            LogosType::is_fn_value_kind(TypeRef(inner).kind())) {
+            if (auto st = emit_generic_deref_step(recv, /*want_mut=*/false)) {
+                recv = *st;
+                rt = expr_type(recv);
+            }
+        }
+    }
     TypeRef synth_for_typecheck = nullptr;
     if (rt && TypeRef(rt).kind() == LogosType::Kind::TypeVar) {
         std::string tvname(TypeRef(rt).type_var_name());
@@ -14129,6 +14167,12 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     bool fnptr_elem_hint = false;
     if (hint_arr_elem_type_ &&
         TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::FnPtr) {
+        // A non-capturing closure element coerces to the fn pointer, as at
+        // every other position with a fn-pointer expectation.
+        for (size_t ei = 0; ei < elems.size(); ++ei)
+            if (elems[ei] && TypeRef(expr_type(elems[ei])).kind() == LogosType::Kind::Closure)
+                expect_type(elems[ei], hint_arr_elem_type_, CoercePos::ArrayElem,
+                            std::format("array element {}", ei));
         bool all_coerce = true;
         for (auto& e : elems) {
             TypeRef et = expr_type(e);
@@ -15159,6 +15203,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             TypeRef(sit->second).kind() == LogosType::Kind::Enum) {
             ename_buf = std::string(TypeRef(sit->second).enum_name());
             self_spelled_enum = sit->second;
+        } else if (sit != current_type_params_.end() && sit->second &&
+                   TypeRef(sit->second).kind() == LogosType::Kind::Struct) {
+            // `Self::CONST` in a method body (a trait default body lowered for
+            // this impl, or an inherent one): the associated item of the self type.
+            ename_buf = std::string(TypeRef(sit->second).struct_name());
         }
     }
     // G160-2: peel a non-generic type-alias to an enum (`type A = Foo; A::Qux`).
@@ -16571,7 +16620,8 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
                CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN |
                CFLAG_DEREF_COERCE;
     case CoercePos::ArrayElem:
-        return CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT | CFLAG_DEREF_COERCE;
+        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT |
+               CFLAG_DEREF_COERCE;
     case CoercePos::Return:
         // + the Box→dyn consume, handled in expect_type itself (it rewrites
         // the expr, not just its type).
@@ -24312,6 +24362,16 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
                         auto arg_view = writ::TinyMapView(
                             arg_avs[value_idx], holder_);
                         std::string arg_src = render_expr_src(arg_view);
+                        if (arg_src.find(kRenderUnsupported) != std::string::npos) {
+                            error(std::format(
+                                "{}!: argument {} is an expression form the format "
+                                "expansion cannot carry yet (AST code {}); bind it to a "
+                                "local first",
+                                callee_name, idx,
+                                std::atoi(arg_src.c_str() + arg_src.find(kRenderUnsupported) +
+                                          std::strlen(kRenderUnsupported))));
+                            continue;
+                        }
                         const char* dispatcher = format_trait_dispatcher(seg.spec.trait_kind);
 
                         // Spec field writes. Reset every placeholder so

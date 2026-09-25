@@ -1,0 +1,10 @@
+// A `where F: FnMut(..)` bound is read like an inline one: calling `f` borrows
+// it mutably, so a non-`mut` binding is E0596 (rustc 1.98.1). The `mut f` twin
+// is imported/…/hrtb-fnmut-via-Fn-family.
+package fnmut_where_bound_call_needs_mut_binding;
+fn run<F>(f: F) -> i32 where F: FnMut(&i32) -> i32 {
+    let v: i32 = 9i32;
+    return f(&v);
+}
+fn id_sum(x: &i32) -> i32 { return *x; }
+fn main() -> i32 { return run(id_sum) - 9i32; }

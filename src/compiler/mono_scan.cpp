@@ -1292,14 +1292,18 @@ std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method)
 // that is never emitted, which is how the by-signature attempt (548027547)
 // broke eight iterator fixtures. Ambiguity is reported as no answer: two
 // candidates mean the owner/method pair does not determine the callee, and
-// picking one would be the guess this replaces.
+// picking one would be the guess this replaces. A candidate that cannot take
+// the call's argument count is not a candidate: an inherent `m(&self, k)` and a
+// trait `m(&self)` on one owner are both `<owner>__m`, and a bound call
+// `x.m()` names only the one it can call.
 std::string Mono::declared_method_symbol(std::string_view owner, std::string_view pkg,
-                                         std::string_view method) {
+                                         std::string_view method, int64_t arity) {
     if (owner.empty() || method.empty()) return {};
     std::string best;
     bool ambiguous = false;
     auto consider = [&](lir_view::FunctionView fn) {
         if (!fn || fn.method_base() != method) return;
+        if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) return;
         std::string_view n = fn.name();
         auto tail = mname::sig_of(n, owner, method);
         if (!tail || !tail->starts_with("__f__")) return;

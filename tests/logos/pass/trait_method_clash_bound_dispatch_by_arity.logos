@@ -1,0 +1,27 @@
+// A trait method sharing its name with an inherent method or another trait's
+// method, at another arity, reached through its bound in both declaration
+// orders; non-capturing closures beside fn items in a `[fn(i64) -> i64; N]`.
+// rustc 1.98.1: the same output.
+package trait_method_clash_bound_dispatch_by_arity;
+use logos.std.fmt;
+struct S { pub v: i64 }
+trait Tr { fn m(self: &Self) -> i64; }
+impl Tr for S { fn m(self: &Self) -> i64 { return 100; } }
+impl S { fn m(self: &Self, k: i64) -> i64 { return self.v + k; } }
+trait A { fn n(self: &Self) -> i64; }
+trait B { fn n(self: &Self, a: i64, b: i64) -> i64; }
+impl B for S { fn n(self: &Self, a: i64, b: i64) -> i64 { return a * b; } }
+impl A for S { fn n(self: &Self) -> i64 { return 3; } }
+fn viabound<X: Tr>(x: &X) -> i64 { return x.m(); }
+fn fa<X: A>(x: &X) -> i64 { return x.n(); }
+fn fb<X: B>(x: &X) -> i64 { return x.n(4, 5); }
+fn inc(x: i64) -> i64 { return x + 1; }
+fn main() -> i32 {
+    let s: S = S { v: 5 };
+    let fs: [fn(i64) -> i64; 3] = [inc, |x: i64| -> i64 { return x * 10; }, inc];
+    println!("{} {} {} {}", s.m(1), viabound(&s), fa(&s), fb(&s));
+    let a: i64 = fs[1](4);
+    let b: i64 = fs[0](fs[2](1));
+    println!("{} {}", a, b);
+    return 0;
+}

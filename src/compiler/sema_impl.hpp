@@ -8646,6 +8646,7 @@ private:
         std::string_view method_name,
         const std::string& type_name);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
+    lir::LExprPtr lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs);
     lir::LExprPtr lower_field_read(writ::TinyMapView node);
     // ADR 0011 — convert a WAny (from a schema `get`) to the field's declared
     // type via the matching WAny accessor (as_bool/as_i64/as_u64/as_f64/resolve).
@@ -9134,6 +9135,10 @@ public:
     // do not modify sema state. Public so dump-driver code outside the
     // class can render arbitrary sub-trees.
     std::string render_expr_src(writ::TinyMapView node);
+    // The marker an expression form render_expr_src cannot spell renders as. A
+    // caller that RE-PARSES what it renders must refuse on it: the comment
+    // reparses as nothing, and `(<nothing>).fmt(…)` prints nothing.
+    static constexpr const char* kRenderUnsupported = "/* render_expr: unsupported AST code ";
     std::string render_stmt_src(writ::TinyMapView node);
     std::string render_block_src(writ::TinyMapView node);
     std::string render_type_src(writ::TinyMapView node);

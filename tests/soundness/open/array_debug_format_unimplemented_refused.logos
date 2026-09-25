@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row array_debug_format_unimplemented_refused (tier 3,
+// `refuses`). `{:?}` OF AN ARRAY IS REFUSED: `[T; N]` has no `Debug` impl —
+//     error [fn main]: 'fmt_debug': type '[i64; 3]' does not implement trait
+//     'Debug' required by parameter 'T'
+// Rust's `impl<T: Debug, const N: usize> Debug for [T; N]` prints `[0, 0, 0]`.
+// A local and a literal argument are refused alike, so this is the stdlib
+// impl missing, not the format expansion.
+// FOUND 2026-09-24 while giving the format expansion `[v; N]` arguments; that
+// rendering was the neighbour, and it is closed — this is a separate root (an
+// impl over a const-length array), rowed rather than closed with it.
+package array_debug_format_unimplemented_refused;
+use logos.std.fmt;
+fn main() -> i32 {
+    let a: [i64; 3] = [0i64; 3];
+    println!("{:?}", a);
+    println!("{:?}", [1i64, 2]);
+    return 0i32;
+}

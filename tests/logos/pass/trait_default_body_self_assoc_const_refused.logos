@@ -1,0 +1,21 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package trait_default_body_self_assoc_const_refused;
+
+trait Named {
+    const NAME: &'static str;
+    fn name(self: &Self) -> &'static str {
+        return Self::NAME;
+    }
+}
+
+struct S { }
+
+impl Named for S {
+    const NAME: &'static str = "abcd";
+}
+
+fn main() -> i32 {
+    let s = S { };
+    if s.name().len() != 4 { return 1i32; }
+    return 0i32;
+}

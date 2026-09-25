@@ -1,5 +1,5 @@
 package hrtb_fnmut_via_fn_family;
-fn run<F>(f: F) -> i32 where F: for<'a> FnMut(&'a i32) -> i32 {
+fn run<F>(mut f: F) -> i32 where F: for<'a> FnMut(&'a i32) -> i32 {
     let v: i32 = 9i32;
     return f(&v);
 }

@@ -4402,7 +4402,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 pt = TypeRef(pt).pointee();
                             if (pt) rpkg = std::string(TypeRef(pt).pkg_name());
                         }
-                        if (std::string sym = declared_method_symbol(cname, rpkg, method_q);
+                        int64_t arity = 1;   // the receiver
+                        v.each_arg([&](lir_view::ExprRef) { ++arity; });
+                        if (std::string sym = declared_method_symbol(cname, rpkg, method_q, arity);
                             !sym.empty())
                             tmpl_key = std::move(sym);
                     }

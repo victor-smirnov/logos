@@ -1,0 +1,13 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package boxed_closure_struct_field_not_callable;
+
+use logos.mem.boxed;
+
+struct H { f: Box<dyn Fn() -> i64> }
+
+fn main() -> i32 {
+    let k: i64 = 7i64;
+    let h: H = H { f: Box::new(move || -> i64 { return k; }) };
+    if (h.f)() != 7i64 { return 1i32; }
+    return 0i32;
+}

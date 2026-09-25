@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row format_arg_unrenderable_form_refused (tier 3, `refuses`).
+// The format family expands by RENDERING each argument back to source and
+// re-parsing the block; an argument whose AST form render_expr_src cannot
+// spell is refused —
+//     println!: argument 0 is an expression form the format expansion cannot
+//     carry yet (AST code …); bind it to a local first
+// Rust prints `5`. Until 2026-09-24 such an argument rendered as a comment and
+// printed NOTHING (`(f)(1)`, a closure call, `format!`/`vec!` arguments — those
+// forms are rendered now and pinned by pass/format_args_render_every_callee);
+// the refusal replaced the silent wrong output for what is left: the loop and
+// jump forms, comprehensions, chained comparisons, quotes, metacalls.
+// The root is the render-and-reparse design, not a missing case: each case
+// added closes one spelling. The fix that closes the class carries the lowered
+// argument rather than its text.
+package format_arg_unrenderable_form_refused;
+use logos.std.fmt;
+fn main() -> i32 {
+    println!("{}", loop { break 5i64; });
+    return 0i32;
+}

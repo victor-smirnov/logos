@@ -1,0 +1,18 @@
+// FnMut through a Box: by name, through `&mut Box`, and as a field `(s.m)()`.
+// rustc 1.98.1: exit 0; valgrind clean.
+package boxed_fnmut_call_through_box;
+
+use logos.mem.boxed;
+
+struct M { m: Box<dyn FnMut() -> i64> }
+fn bump(r: &mut Box<dyn FnMut() -> i64>) -> i64 { return r(); }
+fn main() -> i32 {
+    let mut c: i64 = 0;
+    let mut b: Box<dyn FnMut() -> i64> = Box::new(move || -> i64 { c = c + 1; return c; });
+    if b() != 1 { return 1; }
+    if bump(&mut b) != 2 { return 2; }
+    let mut s: M = M { m: Box::new(move || -> i64 { c = c + 10; return c; }) };
+    if (s.m)() != 10 { return 3; }
+    if (s.m)() != 20 { return 4; }
+    return 0;
+}

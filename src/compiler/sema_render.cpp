@@ -734,9 +734,88 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         return render_stmt_src(node);
     }
 
-    default:
-        return std::format("/* render_expr: unsupported AST code {} */", c);
+    case la::INVOKE_EXPR: {
+        // `(callee)(args)` — the callee is any expression.
+        std::string s = "(";
+        s += render_expr_src(map_of(node.get(la::RECEIVER.code)));
+        s += ")(";
+        if (node.has_key(la::ARGS)) {
+            auto items = arr_of(node.get(la::ARGS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                if (i > 0) s += ", ";
+                s += render_expr_src(map_of(items.get(i)));
+            }
+        }
+        s += ")";
+        return s;
     }
+    case la::CLOSURE_EXPR: {
+        // `[move] |p: T, ref q: U, mut r, PAT: V| [-> R] body`
+        auto flag = [&](TinyMapView m, const auto& key) {
+            if (!m.has_key(key)) return false;
+            auto av = m.get(key.code);
+            return !av.is_null() && !av.is_pointer() && av.template as_value<uint8_t>() != 0;
+        };
+        std::string s = flag(node, la::IS_MOVE) ? "move |" : "|";
+        if (node.has_key(la::PARAMS) && node.get(la::PARAMS.code).is_pointer()) {
+            auto plist = map_of(node.get(la::PARAMS.code));
+            if (plist.has_key(la::ITEMS)) {
+                auto items = arr_of(plist.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto p = map_of(items.get(i));
+                    if (i > 0) s += ", ";
+                    if (p.has_key(la::PAT) && p.get(la::PAT.code).is_pointer()) {
+                        s += render_pat_src(map_of(p.get(la::PAT.code)));
+                    } else {
+                        if (flag(p, la::IS_REF) && p.has_key(la::TYPE)) s += "ref ";
+                        else if (flag(p, la::IS_MUT)) s += "mut ";
+                        s += std::string(str_of(p.get(la::NAME.code)));
+                    }
+                    if (p.has_key(la::TYPE))
+                        s += ": " + render_type_src(map_of(p.get(la::TYPE.code)));
+                }
+            }
+        }
+        s += "|";
+        if (node.has_key(la::RET_TYPE))
+            s += " -> " + render_type_src(map_of(node.get(la::RET_TYPE.code)));
+        s += " ";
+        if (node.has_key(la::BODY)) {
+            auto body = map_of(node.get(la::BODY.code));
+            if (code_of(body) != la::BLOCK) break;
+            s += render_block_src(body);
+        } else if (node.has_key(la::VALUE)) {
+            s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        } else {
+            break;
+        }
+        return s;
+    }
+    case la::LIT_BYTES:
+        // VALUE is the source spelling, `b"…"` with its escapes.
+        return std::string(str_of(node.get(la::VALUE.code)));
+    case la::ARR_FILL_LIT: {
+        // The length is an ARR_LEN node: a literal SIZE or a const NAME here.
+        if (!node.has_key(la::SIZE)) break;
+        auto ln = map_of(node.get(la::SIZE.code));
+        std::string len;
+        if (ln.has_key(la::OP) || ln.has_key(la::BODY)) break;
+        if (ln.has_key(la::SIZE)) len = std::string(str_of(ln.get(la::SIZE.code)));
+        else if (ln.has_key(la::NAME)) len = std::string(str_of(ln.get(la::NAME.code)));
+        if (len.empty()) break;
+        return std::format("[{}; {}]", render_expr_src(map_of(node.get(la::VALUE.code))), len);
+    }
+    case la::FN_MACRO_CALL: {
+        // `name!(…)`: the argument token text is kept verbatim as RAW_TEXT.
+        if (!node.has_key(la::RAW_TEXT)) break;
+        return std::format("{}!({})", str_of(node.get(la::CALLEE.code)),
+                           str_of(node.get(la::RAW_TEXT.code)));
+    }
+
+    default:
+        break;
+    }
+    return std::format("{}{} */", kRenderUnsupported, c);
 }
 
 std::string SemaChecker::render_pat_src(TinyMapView node) {

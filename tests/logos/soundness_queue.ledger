@@ -42,21 +42,13 @@ boxed_escaping_fnonce_capture_double_free 1 tests/soundness/open/boxed_escaping_
 
 str_annot_loses_static_for_dyn_fn 3 tests/soundness/open/str_annot_loses_static_for_dyn_fn refuses
 
-boxed_closure_struct_field_not_callable 3 tests/soundness/open/boxed_closure_struct_field_not_callable refuses
-
 box_dyn_fn_shared_ref_arg_refused 3 tests/soundness/open/box_dyn_fn_shared_ref_arg_refused refuses
 
 zonemut_fat_ref_struct_field_layout_abort 3 tests/soundness/open/zonemut_fat_ref_struct_field_layout_abort refuses
 
 fatslice_field_match_binder_invalid_mlir 3 tests/soundness/open/fatslice_field_match_binder_invalid_mlir refuses
 
-arraylit_closure_elem_fnptr_refused 3 tests/soundness/open/arraylit_closure_elem_fnptr_refused refuses
-
 wrapper_unsize_missing_impl_backend_diag 4 tests/soundness/open/wrapper_unsize_missing_impl_backend_diag diag no vtable for 'A' as '&dyn Other'
-
-two_traits_same_method_diff_arity_refused 3 tests/soundness/open/two_traits_same_method_diff_arity_refused refuses
-
-inherent_clash_bound_dispatch_refused 3 tests/soundness/open/inherent_clash_bound_dispatch_refused refuses
 
 fnparam_tuple_with_unit_elem_segv 3 tests/soundness/open/fnparam_tuple_with_unit_elem_segv refuses
 
@@ -84,11 +76,7 @@ impl_method_ret_longer_region_under_header_bound_refused 3 tests/soundness/open/
 
 trait_impl_header_where_bound_dropped_refused 3 tests/soundness/open/trait_impl_header_where_bound_dropped_refused refuses
 
-trait_default_body_self_assoc_const_refused 3 tests/soundness/open/trait_default_body_self_assoc_const_refused refuses
-
 enum_ctor_partial_turbofish_underscore_internal 3 tests/soundness/open/enum_ctor_partial_turbofish_underscore_internal refuses
-
-method_where_fn_bound_on_impl_param_refused 3 tests/soundness/open/method_where_fn_bound_on_impl_param_refused refuses
 
 static_ref_nested_borrow_region_not_static_refused 3 tests/soundness/open/static_ref_nested_borrow_region_not_static_refused refuses
 
@@ -295,6 +283,9 @@ let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused
 #    it is refused by take_field_borrow_path_'s FIELD-PATH guard, and the store-liveness query returns false by its
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
+array_debug_format_unimplemented_refused 3 tests/soundness/open/array_debug_format_unimplemented_refused refuses
 
-# TOTAL 61
-# SYNC-HASH b2fa74fd593ba61d331b6d02d03a73c6
+format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrenderable_form_refused refuses
+
+# TOTAL 57
+# SYNC-HASH 5cc3629e197bec901058c7bbaeeceb7a

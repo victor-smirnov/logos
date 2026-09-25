@@ -1,0 +1,15 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package two_traits_same_method_diff_arity_refused;
+use logos.std.fmt;
+struct S { pub v: i64 }
+trait A { fn m(self: &Self) -> i64; }
+trait B { fn m(self: &Self, k: i64) -> i64; }
+impl A for S { fn m(self: &Self) -> i64 { return 1i64; } }
+impl B for S { fn m(self: &Self, k: i64) -> i64 { return 2i64 + k; } }
+fn fa<X: A>(x: &X) -> i64 { return x.m(); }
+fn fb<X: B>(x: &X) -> i64 { return x.m(7i64); }
+fn main() -> i32 {
+    let s: S = S { v: 0i64 };
+    println!("a={} b={}", fa(&s), fb(&s));
+    return 0i32;
+}

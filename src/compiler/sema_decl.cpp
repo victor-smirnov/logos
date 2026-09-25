@@ -1004,6 +1004,9 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                         if (code_of(inode) != la::TRAIT_BOUND) continue;
                         TraitBound tb;
                         tb.trait_name = std::string(str_of(inode.get(la::NAME.code)));
+                        // The bound's ARGUMENTS too (`Fn(i64) -> i64`'s signature,
+                        // `Tr<A>`'s args): a call through `F` reads them.
+                        read_trait_bound_args(inode, tb);
                         resolve_bound_trait_(tb);
                         where_scope_bounds.emplace_back(tname, std::move(tb));
                     }

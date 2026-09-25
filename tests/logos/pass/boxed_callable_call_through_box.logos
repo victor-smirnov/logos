@@ -1,0 +1,23 @@
+// Calls through a Box: a boxed Fn in a field (`(h.f)()`), through `&H`, a boxed
+// local by name and parenthesised, and through `&Box`.
+// rustc 1.98.1: exit 0; valgrind clean.
+package boxed_callable_call_through_box;
+
+use logos.mem.boxed;
+
+struct H { f: Box<dyn Fn() -> i64> }
+struct G { g: Box<dyn Fn(i64) -> i64> }
+fn call_ref(h: &H) -> i64 { return (h.f)(); }
+fn main() -> i32 {
+    let k: i64 = 7;
+    let h: H = H { f: Box::new(move || -> i64 { return k; }) };
+    if call_ref(&h) != 7 { return 1; }
+    let g: G = G { g: Box::new(|x: i64| -> i64 { return x * 2; }) };
+    if (g.g)(21) != 42 { return 2; }
+    let b: Box<dyn Fn(i64) -> i64> = Box::new(|x: i64| -> i64 { return x + 1; });
+    if b(1) != 2 { return 3; }
+    if (b)(2) != 3 { return 4; }
+    let rb: &Box<dyn Fn(i64) -> i64> = &b;
+    if rb(3) != 4 { return 5; }
+    return 0;
+}

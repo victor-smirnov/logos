@@ -1,0 +1,8 @@
+// A CAPTURING closure is not a fn pointer: as an array element under
+// `[fn(i64) -> i64; N]` it is E0308 (rustc 1.98.1), as at a `let`.
+package arraylit_capturing_closure_elem_not_fnptr;
+fn main() -> i32 {
+    let k: i64 = 3;
+    let fs: [fn(i64) -> i64; 1] = [|x: i64| -> i64 { return x + k; }];
+    return fs[0](1) as i32;
+}

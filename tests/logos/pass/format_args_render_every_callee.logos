@@ -1,0 +1,22 @@
+// Format arguments of every callee form: a closure literal called in place,
+// a `move` closure, an indexed fn pointer, nested `format!` / `vec!`, `if let`,
+// `match`, a byte string. Each used to render as a comment and print nothing.
+// rustc 1.98.1: the same output.
+package format_args_render_every_callee;
+use logos.std.fmt;
+fn inc(x: i64) -> i64 { return x + 1; }
+fn main() -> i32 {
+    let k: i64 = 5;
+    let fs: [fn(i64) -> i64; 2] = [inc, |x: i64| -> i64 { return x * 10; }];
+    let o: Option<i64> = Some(4);
+    println!("{}", (|| -> i64 { return 3; })());
+    println!("{}", (move |a: i64, b: i64| -> i64 { return a + b + k; })(1, 2));
+    println!("{} {}", fs[1](4), fs[0](fs[0](1)));
+    println!("{}", format!("<{}>", (|x: i64| x * 2)(21)));
+    println!("{:?}", vec![5, 6]);
+    println!("{}", if let Some(x) = o { x } else { 0 });
+    println!("{}", match o { Some(x) => x + 1, None => 0 });
+    println!("{}", b"ab".len());
+    println!("{}", 1 < 2 && 3 > 2);
+    return 0;
+}
