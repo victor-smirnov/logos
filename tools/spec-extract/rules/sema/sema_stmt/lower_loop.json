@@ -117,14 +117,15 @@
     {
       "id": "expr.assign.place-nesting-bound",
       "domain": "expr",
-      "title": "Deeply-nested assignment targets rejected",
-      "statement": "A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable or `*p` bottoming out a recursion, INDEX_READ recursing to arbitrary depth over its receiver, and FIELD_READ/TUPLE_INDEX bounded to a receiver that is itself var/deref, a field chain over one, or an index into a supported place. Deeper/other nestings are rejected with 'assignment target too deeply nested to assign in place yet' (suggesting an intermediate `&mut` binding) rather than mis-lowered.",
+      "title": "Assignment targets rooted in a temporary",
+      "statement": "A place-write target whose chain (field / tuple-index / index) is rooted in a variable or `*p` is written in place. A chain rooted in a TEMPORARY — an array / tuple / struct literal, a call or method-call result, or a `&` / `&mut` borrow — is `{ let __v = v; let mut __t = R; __t.path = __v; }`: the value first (Rust's assignment order), the write through `__t` (a `&` root is E0594, a `&mut` root writes the referent), an owned temporary dropped at the end of the statement. Any other root (an `if` / `match` / block expression) is rejected with 'assignment target too deeply nested to assign in place yet'.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L6927-L6964",
-        "src/compiler/sema_stmt.cpp#L7455-L7463"
+        "tests/logos/pass/array_temp_elem_field_store_refused.logos",
+        "tests/logos/pass/temp_rooted_place_assign_shapes.logos",
+        "tests/logos/fail/temp_rooted_place_assign_through_shared_ref.logos",
+        "tests/spec/pass/expr_diag_5__assign-place-nesting-bound.logos"
       ],
-      "divergence": "Compiler-side lowering limitation: Rust places arbitrary-depth field/index/tuple-index nesting; this compiler's general place-write path currently accepts only the bounded shapes above, erroring (with a workaround) on deeper nestings rather than treating the program as ill-formed.",
-      "uncertainty": "The exact accepted shape set is defined by place_write_supported/place_field_base_ok recursion; bound is an implementation limitation, not a language-design boundary."
+      "divergence": ""
     },
     {
       "id": "expr.assign.dataref-field-unsafe",

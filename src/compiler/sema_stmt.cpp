@@ -8013,6 +8013,68 @@ writ::AnyVal SemaChecker::synth_node(int32_t code, uint32_t line,
     writ::AnyVal a; a.set_ref(m); return a;
 }
 
+writ::AnyVal SemaChecker::synth_with_key(writ::TinyMapView n, uint8_t key, writ::AnyVal v) {
+    if (synth_doc_.is_null()) synth_doc_ = writ::make_doc(1u << 20).get();  // MultiChunk: never moves
+    auto* m = synth_doc_.make_tiny_map(n.size() + 2).get();
+    auto& ar = synth_doc_.arena();
+    const uint64_t bits = n.bitmap();
+    for (uint8_t k = 0; k < 64; ++k) {
+        if (!(bits & (1ull << k))) continue;
+        writ::AnyVal val = k == key ? v : n.get(k);
+        if (!val.is_null()) m->put(k, val, ar).get();
+    }
+    if (!(bits & (1ull << key)) && !v.is_null()) m->put(key, v, ar).get();
+    writ::AnyVal a; a.set_ref(m); return a;
+}
+
+std::optional<lir_view::StmtRef> SemaChecker::lower_temp_rooted_place_assign_(TinyMapView node,
+                                                                             TinyMapView place) {
+    // Walk the place chain to its root.
+    std::vector<TinyMapView> chain;
+    TinyMapView cur = unwrap_paren_node(place);
+    while (!cur.is_null() && (code_of(cur) == la::FIELD_READ || code_of(cur) == la::TUPLE_INDEX ||
+                              code_of(cur) == la::INDEX_READ)) {
+        chain.push_back(cur);
+        cur = unwrap_paren_node(map_of(cur.get(la::RECEIVER.code)));
+    }
+    if (chain.empty() || cur.is_null()) return std::nullopt;
+    const int32_t rc = code_of(cur);
+    // A borrow root (`(&x)[0].v = …`, `(&mut x)[0].v = …`) binds the same way:
+    // the write then goes through the reference and is judged as such (E0594
+    // for a shared one).
+    const bool borrow_root = rc == la::ADDR_OF_MUT ||
+        (rc == la::UNARY && str_of(cur.get(la::OP.code)) == "&");
+    if (rc != la::ARR_LIT && rc != la::TUPLE_LIT && rc != la::STRUCT_LIT &&
+        rc != la::CALL && rc != la::METHOD_CALL && !borrow_root)
+        return std::nullopt;
+    const uint32_t line = node_line_;
+    std::string tname = std::format("__atmp_{}", tmp_var_count_++);
+    writ::AnyVal tref = synth_node(la::VAR_REF.code, line, {{la::NAME.code, synth_str(tname)}});
+    // Rebuild the chain innermost-out over the temporary.
+    writ::AnyVal rebuilt = tref;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+        rebuilt = synth_with_key(*it, la::RECEIVER.code, rebuilt);
+    std::vector<writ::AnyVal> stmts;
+    writ::AnyVal value = node.get(la::VALUE.code);
+    const int32_t vc = code_of(map_of(value));
+    const bool lit = vc == la::LIT_INT || vc == la::LIT_FLOAT || vc == la::LIT_BOOL ||
+                     vc == la::LIT_STR || vc == la::LIT_CHAR;
+    if (!lit) {   // the value is evaluated FIRST (Rust's assignment order)
+        std::string vname = std::format("__aval_{}", tmp_var_count_++);
+        stmts.push_back(synth_node(la::LET.code, line, {{la::NAME.code, synth_str(vname)},
+                                                        {la::VALUE.code, value}}));
+        value = synth_node(la::VAR_REF.code, line, {{la::NAME.code, synth_str(vname)}});
+    }
+    writ::AnyVal root; root.set_ref(cur.ptr());
+    stmts.push_back(synth_node(la::LET.code, line, {{la::NAME.code, synth_str(tname)},
+                                                    {la::IS_MUT.code, writ::AnyVal::from_value(uint8_t(1))},
+                                                    {la::VALUE.code, root}}));
+    writ::AnyVal asg = synth_with_key(node, la::RECEIVER.code, rebuilt);
+    stmts.push_back(synth_with_key(map_of(asg), la::VALUE.code, value));
+    return lower_stmt(map_of(synth_node(la::BLOCK_STMT.code, line,
+                                        {{la::BODY.code, synth_block(stmts, line)}})));
+}
+
 writ::AnyVal SemaChecker::synth_str(std::string_view text) {
     if (synth_doc_.is_null()) synth_doc_ = writ::make_doc(1u << 20).get();  // MultiChunk: never moves
     auto* str = writ::ArenaString::create(synth_doc_.arena(), text).get();
@@ -9151,7 +9213,12 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
         if (!t) return true;  // undefined var — surfaced elsewhere
         auto k = TypeRef(t).kind();
         if (k == LogosType::Kind::Ref) {  // `&T` shared ref — not writable
-            error(std::format("assignment through a shared reference (variable '{}' is `&`)", name));
+            // A temporary-rooted place (lower_temp_rooted_place_assign_) has no
+            // user-visible name: Rust's sentence for `(&x)[0].v = …`.
+            if (name.starts_with("__atmp_"))
+                error("cannot assign to data in a `&` reference (E0594)");
+            else
+                error(std::format("assignment through a shared reference (variable '{}' is `&`)", name));
             return false;
         }
         if (k == LogosType::Kind::MutRef) return true;  // `&mut T` — writable
@@ -9664,6 +9731,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // deeper nestings hit a pre-existing read-side limitation — reject cleanly
     // (with a workaround) rather than miscompile/crash.
     if (!place_write_supported(place_node)) {
+        if (auto t = lower_temp_rooted_place_assign_(node, place_node)) return *t;
         error("assignment target too deeply nested to assign in place yet; "
               "bind an intermediate (e.g. `let r = &mut <inner>; r[i] = …`)");
         lir::SExprStmt es; es.expr = error_expr();

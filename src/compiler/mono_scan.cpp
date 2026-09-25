@@ -1244,6 +1244,40 @@ std::string Mono::eq_instance_for(TypeRef et, TypeRef et_ref) {
     if (sym.empty())
         for (auto& fn : in_.functions)
             if (matches(fn, in_.type_pool.impl())) { sym = std::string(fn.name()); break; }
+    // A GENERIC impl (`impl<T: Eq> Eq for Option<T>`) has no instance until one
+    // is demanded: unify its `eq` template's `&Option<T>` with the element and
+    // request that instance, named as a generic call names it.
+    if (sym.empty() && et && !by_value &&
+        (TypeRef(et).kind() == LogosType::Kind::Enum || TypeRef(et).kind() == LogosType::Kind::Struct) &&
+        !TypeRef(et).type_args().empty()) {
+        // Template decls are read through the OUTPUT pool, as the scan reads
+        // them (impl_target_pattern etc.).
+        const TypePoolImpl* ipool = out_.type_pool.impl();
+        for (auto& [kn, fp] : templates_) {
+            if (!fp || fp.method_base() != "eq") continue;
+            auto ps = fp.params();
+            if (ps.size() != 2) continue;
+            TypeRef p0 = ps[0].type(ipool);
+            if (!p0 || TypeRef(p0).kind() != LogosType::Kind::Ref || !TypeRef(p0).pointee()) continue;
+            SubstMap sb;
+            if (!unify_impl_target(et, TypeRef(p0).pointee(), sb)) continue;
+            std::vector<TypeRef> targs;
+            bool all = true;
+            for (auto& tp : fp.type_params()) {
+                auto it = sb.find(std::string(tp.name()));
+                if (it == sb.end()) { all = false; break; }
+                targs.push_back(it->second);
+            }
+            if (!all || targs.empty()) continue;
+            std::string mangled = mangle(std::string(fp.name()), targs);
+            if (!done_.count(mangled)) {
+                done_.insert(mangled);
+                worklist_.push_back({mangled, fp, std::move(sb), {}, depth_ + 1, {}});
+            }
+            sym = std::move(mangled);
+            break;
+        }
+    }
     eq_instance_cache_.emplace(key, sym);
     return sym;
 }

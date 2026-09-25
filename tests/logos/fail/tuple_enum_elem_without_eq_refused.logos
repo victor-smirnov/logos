@@ -1,0 +1,10 @@
+// A tuple holding an enum with no `Eq` is not comparable (Rust E0369). Twin
+// of tests/logos/pass/tuple_enum_elem_eq_shapes.logos.
+package tuple_enum_elem_without_eq_refused;
+enum K { A, B(i64) }
+fn main() -> i32 {
+    let a: (K, i64) = (K::A, 1i64);
+    let b: (K, i64) = (K::B(2i64), 1i64);
+    if a == b { return 1i32; }
+    return 0i32;
+}

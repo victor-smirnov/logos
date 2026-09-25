@@ -1,0 +1,9 @@
+// `(&mut a)[1].v = 40` writes through the `&mut` root into `a` (rustc: exit 41).
+// Twin: tests/logos/fail/temp_rooted_place_assign_through_shared_ref.logos.
+package temp_rooted_place_assign_mut_ref;
+struct D { v: i64 }
+fn main() -> i32 {
+    let mut a: [D; 2] = [D { v: 1i64 }, D { v: 2i64 }];
+    (&mut a)[1].v = 40i64;
+    return (a[0].v + a[1].v) as i32;
+}

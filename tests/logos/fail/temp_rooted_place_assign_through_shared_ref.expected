@@ -1,0 +1,1 @@
+cannot assign to data in a `&` reference (E0594)

@@ -3336,6 +3336,14 @@ private:
     writ::AnyVal synth_node(int32_t code, uint32_t line,
                             std::initializer_list<std::pair<uint8_t, writ::AnyVal>> keys);
     writ::AnyVal synth_array(const std::vector<writ::AnyVal>& items);
+    // A copy of `n` with `key` replaced by `v` (every other key referenced as is).
+    writ::AnyVal synth_with_key(writ::TinyMapView n, uint8_t key, writ::AnyVal v);
+    // `R.f[i] = v` whose place chain is rooted in an RVALUE `R` (an array /
+    // tuple / struct literal, a call): `{ let __v = v; let mut __t = R;
+    // __t.f[i] = __v; }` — Rust's order (the value first), and the temporary
+    // drops at the end of the statement. Null when the root is a place.
+    std::optional<lir_view::StmtRef> lower_temp_rooted_place_assign_(writ::TinyMapView node,
+                                                                    writ::TinyMapView place);
     writ::AnyVal synth_str(std::string_view text);
     writ::AnyVal synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line);
     writ::AnyVal synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ::AnyVal guard,
@@ -6933,6 +6941,7 @@ private:
     static constexpr std::string_view kDropLangPkg = "logos.lang.drop";
     static constexpr std::string_view kDerefLangPkg = "logos.lang.ops";
     static constexpr std::string_view kFnLangPkg    = "logos.lang.ops";
+    static constexpr std::string_view kCmpLangPkg   = "logos.lang.cmp";
     static std::string_view trait_last_seg(std::string_view s) noexcept {
         auto p = s.find_last_of(":.");
         return p == std::string_view::npos ? s : s.substr(p + 1);

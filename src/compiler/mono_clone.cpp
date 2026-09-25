@@ -2728,7 +2728,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         rb.pointee = et;
                         TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
                         lir::LExprPtr cmp = nullptr;
-                        if (et.kind() == LogosType::Kind::Tuple) {
+                        if (et.kind() == LogosType::Kind::Ptr) {
+                            // A raw pointer compares by ADDRESS (Rust's
+                            // `impl PartialEq for *const T`): the builtin `==`.
+                            cmp = lb.bin_op("==", a_f, b_f, bool_t);
+                        } else if (et.kind() == LogosType::Kind::Tuple) {
                             // Nested — inline the inner chain. Use the
                             // field refs as the new receivers.
                             auto inner_a_ref = lb.addr_of_temp(a_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
@@ -2768,10 +2772,20 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 cmp = lb.call(callee_sym, {}, dargs, bool_t);
                             } else {
                                 auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
+                                if (et.kind() == LogosType::Kind::Enum) {
+                                    // An ENUM element (`Option<i64>`): `eq(&self,
+                                    // &other)` called directly with both sides
+                                    // borrowed — a by-value enum receiver on the
+                                    // method-call path lowers to no value.
+                                    auto a_f_ref = lb.addr_of_temp(a_f, false, et_ref,
+                                                                   lir_schema::expr::BorrowOrigin::Desugar);
+                                    cmp = lb.call(callee_sym, {}, {a_f_ref, b_f_ref}, bool_t);
+                                } else {
                                 std::vector<lir::LExprPtr> margs;
                                 margs.push_back(b_f_ref);
                                 cmp = lb.method_call(a_f, "eq", callee_sym, {},
                                                       margs, -1, bool_t);
+                                }
                             }
                         }
                         ch = ch ? lb.bin_op("&&", ch, cmp, bool_t) : cmp;
@@ -4180,6 +4194,40 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         std::string inner_key =
                             (inner.kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") + base_c;
                         if (sym_exists(inner_key + "__" + method)) cname = inner_key;
+                    }
+                }
+                // A COMPARISON whose receiver is, through its reference layers,
+                // a RAW POINTER (`T: Eq` at `*mut i64`, `Option<*mut T>`'s own
+                // `eq`): Rust's `impl PartialEq for *const T` compares ADDRESSES,
+                // so it is the builtin operator on the dereferenced values.
+                if (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                           TypeRef(rt).kind() == LogosType::Kind::MutRef)) {
+                    const char* pop = method == "eq" ? "==" : method == "ne" ? "!=" :
+                                      method == "lt" ? "<"  : method == "le" ? "<=" :
+                                      method == "gt" ? ">"  : method == "ge" ? ">=" : nullptr;
+                    int layers = 0;
+                    TypeRef p = rt;
+                    while (p && (p.kind() == LogosType::Kind::Ref || p.kind() == LogosType::Kind::MutRef) &&
+                           p.pointee()) { ++layers; p = p.pointee(); }
+                    int nargs = 0;
+                    v.each_arg([&](lir_view::ExprRef) { ++nargs; });
+                    if (pop && p && p.kind() == LogosType::Kind::Ptr && nargs == 1) {
+                        LirBuilder lb(out_);
+                        auto strip = [&](lir::LExprPtr e) {
+                            for (int i = 0; i < 8 && e; ++i) {
+                                TypeRef et = e.type(out_.type_pool.impl());
+                                if (!et || (et.kind() != LogosType::Kind::Ref &&
+                                            et.kind() != LogosType::Kind::MutRef) || !et.pointee()) break;
+                                e = lb.deref(std::move(e), et.pointee());
+                            }
+                            return e;
+                        };
+                        lir::LExprPtr lhs = strip(std::move(new_recv));
+                        lir::LExprPtr rhs;
+                        v.each_arg([&](lir_view::ExprRef ar) { rhs = strip(child_husk(subst_child_expr(ar))); });
+                        (void)layers;
+                        mp_ = lir_mirror_emit_bin_op(out_, rt_, pop, lhs, rhs);
+                        break;
                     }
                 }
                 // A COMPARISON over a reference type argument (`T: Eq` at

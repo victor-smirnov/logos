@@ -1,0 +1,16 @@
+// `(Option<i64>, i64) == (Option<i64>, i64)`: the variadic tuple `Eq` chain
+// asks mono for each element's `eq` instance, and a GENERIC impl (`impl<T: Eq>
+// Eq for Option<T>`) has none until one is demanded — eq_instance_for now
+// unifies the template's `&Option<T>` with the element and enqueues the
+// instance; an enum element is compared by a direct call with both sides
+// borrowed. rustc 1.98.1: exit 0. Twins: tests/logos/pass/
+// tuple_enum_elem_eq_shapes.logos, tests/logos/fail/tuple_enum_elem_without_eq_refused.logos.
+package tuple_enum_elem_eq_variadic_impl_return_lost_refused;
+use logos.lang.cmp;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: (Option<i64>, i64) = (Option::Some(2i64), 2i64);
+    let b: (Option<i64>, i64) = (Option::Some(2i64), 2i64);
+    if !(a == b) { return 1i32; }
+    return 0i32;
+}

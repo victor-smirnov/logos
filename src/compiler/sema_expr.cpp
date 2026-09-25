@@ -2587,9 +2587,23 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     auto uninit_pre = currently_uninit_vars_;
     const auto owned_pre = closure_owned_drop_;
     const size_t hoist_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
+    // A comparison's right operand is expected at the LEFT's type (Rust
+    // `PartialEq<Rhs = Self>`): a literal there (`c == (Option::None, 2)`,
+    // `r == (Result::Ok(5), true)`) takes its enum / tuple arguments from it,
+    // instead of defaulting them and comparing two different layouts.
+    const bool cmp_op_ = op == "==" || op == "!=" || op == "<" || op == "<=" ||
+                         op == ">" || op == ">=";
+    std::optional<ElemHintScope> rhs_hint_;
+    if (cmp_op_ && lhs) {
+        TypeRef lht = expr_type(lhs);
+        if (lht && (TypeRef(lht).kind() == LogosType::Kind::Tuple ||
+                    TypeRef(lht).kind() == LogosType::Kind::Enum))
+            rhs_hint_.emplace(*this, lht);
+    }
     auto rhs = sc_fork
         ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
         : lower_expr(map_of(node.get(la::RHS.code)));
+    rhs_hint_.reset();
     if (!sc_fork) spill_before_hoist(lhs, hoist_mark_);
     // LANDED 2026-08-30 (was `scinitcond`): an initialization performed in the
     // RHS is CONDITIONAL, so the names uninitialised before the RHS are

@@ -1,0 +1,26 @@
+// Raw-pointer comparisons: tuples of *mut / *const, a literal right side,
+// Option<*mut i64> ==, and `T: Eq` instantiated at a raw pointer. rustc 1.98.1:
+// exit 0. Twin: tests/logos/pass/rawptr_tuple_eq_no_eq_impl_refused.logos.
+package rawptr_comparison_shapes;
+use logos.lang.cmp;
+use logos.lang.option;
+fn same<T: Eq>(a: T, b: T) -> bool { return a == b; }
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let mut w: i64 = 2i64;
+    let p: *mut i64 = &mut v as *mut i64;
+    let q: *mut i64 = &mut w as *mut i64;
+    let t1: (*mut i64, i64) = (p, 1i64);
+    let t2: (*mut i64, i64) = (q, 1i64);
+    if t1 == t2 { return 1i32; }
+    if !(t1 == (p, 1i64)) { return 2i32; }
+    let c1: (*const i64, bool) = (p as *const i64, true);
+    let c2: (*const i64, bool) = (p as *const i64, true);
+    if !(c1 == c2) { return 3i32; }
+    let o1: Option<*mut i64> = Option::Some(p);
+    let o2: Option<*mut i64> = Option::Some(q);
+    if o1 == o2 { return 4i32; }
+    if !same::<*mut i64>(p, p) { return 5i32; }
+    if same::<*mut i64>(p, q) { return 6i32; }
+    return 0i32;
+}

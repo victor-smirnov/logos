@@ -2,7 +2,7 @@
 
 Cross-cutting view over the extracted rule corpus (`tools/spec-extract/rules/**`): every spec rule whose `divergence` field is non-empty, grouped by divergence tag/kind. This register is *derived from compiler evidence*; the policy source of truth is [`docs/DIVERGENCES.md`](../DIVERGENCES.md) — a tag here that matches a §A/§B row there is registered; anything without a matching row is flagged **unregistered — needs triage** per the "no silent divergence" rule.
 
-**497 divergence-carrying rules** — §A blessed: 165 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 203 · unregistered (triage): 71 · conformance notes: 37.
+**496 divergence-carrying rules** — §A blessed: 165 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 203 · unregistered (triage): 70 · conformance notes: 37.
 
 ---
 
@@ -2032,7 +2032,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 
 ## Unregistered — needs triage
 
-Untagged behavioral differences from Rust that are neither marked as additions nor tied to any `docs/DIVERGENCES.md` row. Per the register's rule, each must be triaged into a §A blessed row (with a tag) or a §B catch-up TODO — none may remain a silent divergence. Notable clusters: implicit integer widening, structural auto-`Copy`, free-fn signature overloading, `str` = `Slice<u8>`, `i64` where Rust uses `usize`, lifetimes not structurally tracked. 71 rule(s).
+Untagged behavioral differences from Rust that are neither marked as additions nor tied to any `docs/DIVERGENCES.md` row. Per the register's rule, each must be triaged into a §A blessed row (with a tag) or a §B catch-up TODO — none may remain a silent divergence. Notable clusters: implicit integer widening, structural auto-`Copy`, free-fn signature overloading, `str` = `Slice<u8>`, `i64` where Rust uses `usize`, lifetimes not structurally tracked. 70 rule(s).
 
 ### `borrow.closure.capture-by-ref-loan` — Non-move closure captures register field-path (RFC-2229) borrows
 - **Divergence**: RFC-2229 disjoint closure capture: field-path precision, but a whole-var SHARED capture is a liveness check only (not a recorded shared borrow) to avoid blocking sibling mutation
@@ -2068,11 +2068,6 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Divergence**: usize/isize fixed at 64-bit (target-specific).
 - **Rule**: &lt;&lt; or &gt;&gt; whose shift count is a literal value &gt;= the bit-width of the left operand's type is a compile-time error (shifting by &gt;= width is undefined); widths: i8/u8=8, i16/u16=16, i24/u24=24, i32/u32=32, i56/u56=56, i64/u64=64, i128/u128=128, usize/isize=64.
 - **Source**: `src/compiler/sema_expr.cpp#L2424-L2453`
-
-### `expr.assign.place-nesting-bound` — Deeply-nested assignment targets rejected
-- **Divergence**: Compiler-side lowering limitation: Rust places arbitrary-depth field/index/tuple-index nesting; this compiler's general place-write path currently accepts only the bounded shapes above, erroring (with a workaround) on deeper nestings rather than treating the program as ill-formed.
-- **Rule**: A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable or `*p` bottoming out a recursion, INDEX_READ recursing to arbitrary depth over its receiver, and FIELD_READ/TUPLE_INDEX over a receiver that is itself var/deref, a field / tuple-index chain over one, or an index into a supported place (`w.t.0 = v`, `t.0.0 = v`, `a[i].t.1 += v`). A place rooted in a call result (`pm(&mut t).0 = v`, legal Rust through auto-deref) and other shapes are rejected with 'assignment target too deeply nested to assign in place yet' (suggesting an intermediate `&mut` binding) rather than mis-lowered.
-- **Source**: `src/compiler/sema_stmt.cpp#L6927-L6964`, `src/compiler/sema_stmt.cpp#L7455-L7463`
 
 ### `expr.block.tail-return-adopts-value-type` — Block ending in `return e` adopts e's type
 - **Divergence**: No real `!`/never subtyping for tail-return; the return-value's type is adopted as a block-type proxy instead of `!`.

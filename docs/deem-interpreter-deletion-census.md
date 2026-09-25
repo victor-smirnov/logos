@@ -6522,9 +6522,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                (+ 1 pass, 1 fail).
 #                ALL 11315 -> 11317 (+2), NOIMPORTED 6752 -> 6754 (+2), TIERCOMMIT 77 -> 76 (-1) — 2026-09-25: squeue
 #                #270 closed (a pass fixture now; + 1 pass, 1 fail).
-REGISTRY-ALL         11317
-REGISTRY-NOIMPORTED  6754
-REGISTRY-TIERCOMMIT  76
+#                ALL 11317 -> 11319 (+2), NOIMPORTED 6754 -> 6756 (+2), TIERCOMMIT 76 -> 75 (-1) — 2026-09-25: squeue
+#                #274 closed (a pass fixture now; + 1 pass, 1 fail).
+#                ALL 11319 -> 11323 (+4), NOIMPORTED 6756 -> 6760 (+4), TIERCOMMIT 75 -> 73 (-2) — 2026-09-25: squeue
+#                #239 #298 closed (both pass fixtures now; + 3 pass, 1 fail).
+REGISTRY-ALL         11323
+REGISTRY-NOIMPORTED  6760
+REGISTRY-TIERCOMMIT  73
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

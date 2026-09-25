@@ -2536,15 +2536,12 @@ For a type implementing `IndexMut`, `a[i] = v` desugars to a store through the t
 
 *Source:* `src/compiler/sema_stmt.cpp#L7130-L7187`, `src/compiler/sema_stmt.cpp#L7140-L7141`, `src/compiler/sema_stmt.cpp#L7364-L7373`
 
-### `expr.assign.place-nesting-bound` — Deeply-nested assignment targets rejected
+### `expr.assign.place-nesting-bound` — Assignment targets rooted in a temporary
 
-A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable or `*p` bottoming out a recursion, INDEX_READ recursing to arbitrary depth over its receiver, and FIELD_READ/TUPLE_INDEX over a receiver that is itself var/deref, a field / tuple-index chain over one, or an index into a supported place (`w.t.0 = v`, `t.0.0 = v`, `a[i].t.1 += v`). A place rooted in a call result (`pm(&mut t).0 = v`, legal Rust through auto-deref) and other shapes are rejected with 'assignment target too deeply nested to assign in place yet' (suggesting an intermediate `&mut` binding) rather than mis-lowered.
+A place-write target whose chain (field / tuple-index / index) is rooted in a variable or `*p` is written in place. A chain rooted in a TEMPORARY — an array / tuple / struct literal, a call or method-call result, or a `&` / `&mut` borrow (`[D{..}][0].v = v`, `mk().k[1] = v`, `pm(&mut t).0 = v`, `(&mut a)[1].v = v`) — is `{ let __v = v; let mut __t = R; __t.path = __v; }`: the value is evaluated first (Rust's assignment order), the write goes through `__t` (so a `&` root is E0594 and a `&mut` root writes the referent), and an owned temporary drops at the end of the statement. Any other root (an `if` / `match` / block expression) is rejected with 'assignment target too deeply nested to assign in place yet'.
 
-*Divergence:* Compiler-side lowering limitation: Rust places arbitrary-depth field/index/tuple-index nesting; this compiler's general place-write path currently accepts only the bounded shapes above, erroring (with a workaround) on deeper nestings rather than treating the program as ill-formed.
+*Evidence:* `tests/logos/pass/array_temp_elem_field_store_refused.logos`, `tests/logos/pass/temp_rooted_place_assign_shapes.logos`, `tests/logos/pass/temp_rooted_place_assign_mut_ref.logos`, `tests/logos/fail/temp_rooted_place_assign_through_shared_ref.logos`, `tests/spec/pass/expr_diag_5__assign-place-nesting-bound.logos`.
 
-*Note:* The exact accepted shape set is defined by place_write_supported/place_field_base_ok recursion; bound is an implementation limitation, not a language-design boundary.
-
-*Source:* `src/compiler/sema_stmt.cpp#L6927-L6964`, `src/compiler/sema_stmt.cpp#L7455-L7463`
 
 ### `expr.assign.dataref-field-unsafe` — DataRef&lt;ZonedStruct&gt; field write desugars via mut_ptr and needs unsafe
 

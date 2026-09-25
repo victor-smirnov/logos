@@ -1,0 +1,8 @@
+// `(&[..])[0].v = 5`: the temporary is borrowed SHARED, so the store is Rust's
+// E0594 (the `&mut` spelling is legal: tests/logos/pass/temp_rooted_place_assign_mut_ref.logos).
+package temp_rooted_place_assign_through_shared_ref;
+struct D { v: i64 }
+fn main() -> i32 {
+    (&[D { v: 1i64 }, D { v: 2i64 }])[0].v = 5i64;
+    return 0i32;
+}

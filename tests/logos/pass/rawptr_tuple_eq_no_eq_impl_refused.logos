@@ -1,0 +1,17 @@
+// `(p, 1) == (p, 1)` with `p: *mut i64`: raw pointers compare by ADDRESS
+// (Rust's core::ptr PartialEq/Eq/PartialOrd/Ord). The bound check accepts a raw
+// pointer at the cmp lang items; the tuple chain compares a pointer element with
+// the builtin `==`; a comparison method reaching a raw-pointer receiver
+// (`Option<*mut T>`'s `eq`, `T: Eq` at `*mut i64`) is the builtin operator.
+// rustc 1.98.1: exit 4. Twin: tests/logos/pass/rawptr_comparison_shapes.logos.
+package rawptr_tuple_eq_no_eq_impl_refused;
+fn main() -> i32 {
+    let mut v: i64 = 1i64;
+    let p: *mut i64 = &mut v as *mut i64;
+    let t1: (*mut i64, i64) = (p, 1i64);
+    let t2: (*mut i64, i64) = (p, 1i64);
+    if t1 == t2 {
+        return 4i32;
+    }
+    return 1i32;
+}

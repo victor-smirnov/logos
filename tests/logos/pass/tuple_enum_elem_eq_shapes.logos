@@ -1,0 +1,30 @@
+// Tuple equality over enum elements: unequal payloads, None vs Some, Result
+// Ok vs Err, a droppable payload (Option<String>, valgrind clean), a nested
+// tuple, and a LITERAL right operand (`c == (Option::None, 2)`): a
+// comparison's right side is expected at the left's type, so the literal
+// takes its enum / tuple arguments from it (it compared two layouts, wrongly,
+// before). rustc 1.98.1: exit 0.
+package tuple_enum_elem_eq_shapes;
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.string;
+fn main() -> i32 {
+    let a: (Option<i64>, i64) = (Option::Some(2i64), 2i64);
+    let b: (Option<i64>, i64) = (Option::Some(3i64), 2i64);
+    let c: (Option<i64>, i64) = (Option::None, 2i64);
+    if a == b { return 1i32; }
+    if a == c { return 2i32; }
+    if !(c == (Option::None, 2i64)) { return 3i32; }
+    let r1: (Result<i64, i32>, bool) = (Result::Ok(5i64), true);
+    let r2: (Result<i64, i32>, bool) = (Result::Err(5i32), true);
+    if r1 == r2 { return 4i32; }
+    if !(r1 == (Result::Ok(5i64), true)) { return 5i32; }
+    let s1: (Option<String>, i64) = (Option::Some(String::from("ab")), 1i64);
+    let s2: (Option<String>, i64) = (Option::Some(String::from("ab")), 1i64);
+    if !(s1 == s2) { return 6i32; }
+    let n1: ((Option<i64>, i64), i64) = ((Option::Some(1i64), 2i64), 3i64);
+    let n2: ((Option<i64>, i64), i64) = ((Option::Some(1i64), 2i64), 3i64);
+    if !(n1 == n2) { return 7i32; }
+    return 0i32;
+}

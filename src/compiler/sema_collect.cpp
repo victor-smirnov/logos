@@ -1242,6 +1242,13 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // bound is admitted as a no-op (matches `T: Sized` being
             // implicit in Rust). `?Sized` opt-out isn't expressible yet.
             if (bound.trait_name == "Sized") continue;
+            // A RAW POINTER compares by address: Rust's core::ptr implements
+            // PartialEq / Eq / PartialOrd / Ord for `*const T` / `*mut T`. The
+            // lang items of logos.lang.cmp, by identity.
+            if (cv.kind() == LogosType::Kind::Ptr &&
+                (trait_key_is_lang_item(btn, "Eq", kCmpLangPkg) ||
+                 trait_key_is_lang_item(btn, "Ord", kCmpLangPkg)))
+                continue;
             // `Copy` is built-in for the bitwise-copyable handle kinds: a shared
             // reference `&T` (incl. `&dyn Trait`), a raw pointer `*const/*mut T`,
             // a slice `&[T]`, a fn pointer, and a trait-object fat pointer — none
