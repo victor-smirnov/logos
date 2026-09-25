@@ -4949,6 +4949,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             nc->ret_tied  = v.ret_tied();
             nc->as_fn_ptr = v.as_fn_ptr();
             nc->escapes   = v.escapes();  // G167-3b: preserve heap-env flag
+            nc->fn_once   = v.fn_once();
             v.each_capture_name([&](std::string_view cn) {
                 nc->captures.push_back(std::string(cn));
             });
@@ -4964,9 +4965,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             nc->capture_modes.resize(nc->captures.size(), 0);
             nc->capture_widened.resize(nc->captures.size(), 0);
             for (size_t i = 0; i < nc->params.size(); ++i) nc->param_slots.push_back(v.param_slot(i));
+            nc->capture_body_moved.resize(nc->captures.size(), 0);
             for (size_t i = 0; i < nc->captures.size(); ++i) {
                 nc->capture_modes[i]   = v.capture_mode(i);
                 nc->capture_widened[i] = v.capture_widened(i) ? 1 : 0;
+                nc->capture_body_moved[i] = v.capture_body_moved(i) ? 1 : 0;
             }
             // RFC-2229: carry per-capture field PATH across substitution (else
             // post-mono borrow-check reads only the root and disjoint sibling

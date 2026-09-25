@@ -708,6 +708,13 @@ struct EClosure {
     // lifetime). Non-escaping closures (iterator-adapter args, locals) keep
     // the cheap stack env.
     bool                            escapes = false;
+    // The literal is `FnOnce` (its body moves a capture out) and, per capture,
+    // whether the BODY moves it out. A heap-env FnOnce closure's call is
+    // Rust's `call_once(self)`: the body drops what it did not move and frees
+    // the env (mlir-gen's once-epilogue), so the consuming call frees nothing
+    // but the box that held the callable.
+    bool                            fn_once = false;
+    std::vector<uint8_t>            capture_body_moved;
 };
 
 

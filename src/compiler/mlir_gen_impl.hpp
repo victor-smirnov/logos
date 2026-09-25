@@ -1017,7 +1017,8 @@ private:
         // env actually owns), not the root.
         const std::vector<TypeRef>& capture_field_types,
         const std::vector<bool>& capture_drops,
-        bool heap_env);
+        bool heap_env,
+                                       const char* prefix = "__closure_drop__");
 
     // ── MLIR helpers ─────────────────────────────────────────────
 
@@ -2192,6 +2193,18 @@ private:
     // #92 const promotion — read-only static storage for `&<const expr>`.
     // Null iff the shape is outside const_promote::is_const_value.
     mlir::Value gen_promoted_const(lir_view::ExprRef e, TypeRef t);
+    // A heap-env FnOnce closure body (EClosure::fn_once): before each return it
+    // calls its once-epilogue — drops the captures the body did not move out
+    // and frees the env (Rust's call_once owning self). Empty outside one.
+    std::string closure_once_sym_;
+    mlir::Value closure_once_env_;
+    void emit_llvm_return_(mlir::ValueRange vals) {
+        if (!closure_once_sym_.empty() && closure_once_env_)
+            builder_.create<mlir::LLVM::CallOp>(loc_, mlir::TypeRange{},
+                mlir::SymbolRefAttr::get(builder_.getContext(), closure_once_sym_),
+                mlir::ValueRange{closure_once_env_});
+        builder_.create<mlir::LLVM::ReturnOp>(loc_, vals);
+    }
     // The static-storage type of a promotable aggregate and its constant value,
     // built inside a global's initializer region (undef + insertvalue).
     mlir::Type  promoted_llvm_type_(lir_view::ExprRef e, TypeRef t);

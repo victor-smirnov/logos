@@ -1,0 +1,29 @@
+// Boxed FnOnce closures: one called (its body moves `x` out and drops it; the
+// once-epilogue drops `y` and the String and frees the env; the call site frees
+// the box), one never called (its glue drops everything). rustc 1.98.1:
+// r=15 n=22. valgrind clean, no leaks.
+package boxed_fnonce_consume_shapes;
+use logos.mem.boxed;
+use logos.mem.string;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
+fn mk(p: *mut i64) -> Box<dyn FnOnce() -> i64> {
+    let x: D = D { v: 1i64, c: p };
+    let y: D = D { v: 10i64, c: p };
+    let s: String = String::from("heap");
+    return Box::new(move || -> i64 { let t: D = x; return t.v + y.v + s.len(); });
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut r: i64 = 0i64;
+    {
+        let f: Box<dyn FnOnce() -> i64> = mk(p);
+        r = f();
+        let _g: Box<dyn FnOnce() -> i64> = mk(p);
+    }
+    let got: i64 = unsafe { n };
+    unsafe { printf("r=%ld n=%ld\n".as_ptr(), r, got); }
+    return 0i32;
+}

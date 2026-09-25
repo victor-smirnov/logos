@@ -2995,7 +2995,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
         if (val_er) gen_expr(val_er);
         if (!is_terminated(builder_.getBlock())) {
             if (in_llvm_func_)
-                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+                emit_llvm_return_(mlir::ValueRange{});
             else
                 builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{});
         }
@@ -3012,7 +3012,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             gen_expr(val_er);
             if (!is_terminated(builder_.getBlock())) {
                 if (in_llvm_func_)
-                    builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+                    emit_llvm_return_(mlir::ValueRange{});
                 else
                     builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{});
             }
@@ -3073,7 +3073,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             auto dyn_struct = dyn_llvm_type();
             auto fat_val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, fat_ptr);
             if (in_llvm_func_)
-                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{fat_val});
+                emit_llvm_return_(mlir::ValueRange{fat_val});
             else
                 builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fat_val});
             return;
@@ -3091,7 +3091,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             if (val.getType() == ptr_type())
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, val);
             if (in_llvm_func_)
-                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
+                emit_llvm_return_(mlir::ValueRange{val});
             else
                 builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
             return;
@@ -3111,7 +3111,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             if (val.getType() == ptr_type())
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, stype, val);
             if (in_llvm_func_)
-                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
+                emit_llvm_return_(mlir::ValueRange{val});
             else
                 builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
             return;
@@ -3154,12 +3154,12 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
         else if (cur_ret_type_)
             val = coerce_numeric(val, cur_ret_type_, s_val_ty);
         if (in_llvm_func_)
-            builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
+            emit_llvm_return_(mlir::ValueRange{val});
         else
             builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
     } else {
         if (in_llvm_func_)
-            builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+            emit_llvm_return_(mlir::ValueRange{});
         else
             builder_.create<mlir::func::ReturnOp>(loc_);
     }

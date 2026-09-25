@@ -4874,6 +4874,42 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // open with this measurement in its header.
         if (consumes_callee && !callee_is_ref_fn && !callee_is_box_closure)
             mark_moved(std::string(callee));
+        // A `Box<dyn FnOnce>` is consumed by its call (Rust's call_once for a
+        // boxed FnOnce): the closure body drops what it did not move out and
+        // frees its heap env (mlir-gen's once-epilogue, EClosure::fn_once), so
+        // what is left here is the BOX block itself — `dealloc(b.ptr)`, and no
+        // drop of `b` at its scope end (the env glue would drop the captures a
+        // second time). Row boxed_escaping_fnonce_capture_double_free.
+        if (consumes_callee && callee_is_box_closure && !callee_is_ref_fn) {
+            const SemaFuncInfo* dfi = nullptr;
+            for (auto* c : find_func_candidates("dealloc"))
+                if (c && c->package == "logos.lang.mem") { dfi = c; break; }
+            TypeRef box_t = lookup(callee);
+            if (dfi && box_t) {
+                mark_moved(std::string(callee));
+                TypeRef u8p = make_ptr(true, prim(LogosType::Kind::U8));
+                TypeRef inner_p = make_ptr(true, callee_type);
+                auto raw = builder().cast(
+                    builder().field_read(builder().var_ref(std::string(callee), box_t), "ptr", inner_p), u8p);
+                std::vector<lir_view::StmtRef> blk;
+                const bool void_ret = !ret || TypeRef(ret).kind() == LogosType::Kind::Void;
+                std::string rn = std::format("__once_ret_{}", tmp_var_count_++);
+                if (void_ret) {
+                    blk.push_back(builder().stmt_expr(std::move(closure_call_e), node_line_));
+                } else {
+                    lir::SLet sl;
+                    sl.name = rn; sl.type = ret; sl.is_mut = false;
+                    sl.value = std::move(closure_call_e);
+                    blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                }
+                blk.push_back(builder().stmt_expr(
+                    builder().call(dfi->symbol_name.empty() ? std::string("dealloc") : dfi->symbol_name,
+                                   {}, {std::move(raw)}, void_t()), node_line_));
+                return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                            void_ret ? lir::LExprPtr{} : builder().var_ref(rn, ret),
+                                            void_ret ? void_t() : ret);
+            }
+        }
         return closure_call_e;
     }
 
@@ -20835,6 +20871,18 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // signature — "does calling THIS callable consume it?" (see
         // callable_is_fn_once). No max: a literal has exactly one kind.
         closure_kind_by_id_[closure_id] = kind;
+        ec->fn_once = kind == 2;
+    }
+    // Per capture: does the BODY move it out (the root, or a path under it —
+    // the RFC-2229 narrow spelling records `x.d`; segment-wise prefix).
+    ec->capture_body_moved.assign(ec->captures.size(), 0);
+    for (size_t i = 0; i < ec->captures.size(); ++i) {
+        const std::string& c = ec->captures[i];
+        for (const auto& mv : body_moved_outer)
+            if (mv == c || (mv.size() > c.size() && mv.compare(0, c.size(), c) == 0 && mv[c.size()] == '.')) {
+                ec->capture_body_moved[i] = 1;
+                break;
+            }
     }
     return builder().closure_box(std::move(ec), ctype);
 }

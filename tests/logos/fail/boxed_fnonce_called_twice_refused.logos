@@ -1,0 +1,11 @@
+// A `Box<dyn FnOnce>` is consumed by its call: a second call is a use after move
+// (rustc: E0382). Twin of tests/logos/pass/boxed_escaping_fnonce_capture_double_free.logos.
+package boxed_fnonce_called_twice_refused;
+use logos.mem.boxed;
+fn main() -> i32 {
+    let v: i64 = 3i64;
+    let f: Box<dyn FnOnce() -> i64> = Box::new(move || -> i64 { return v; });
+    let a: i64 = f();
+    let b: i64 = f();
+    return (a + b) as i32;
+}

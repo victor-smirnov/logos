@@ -2139,6 +2139,22 @@ public:
         return av.as_value<uint8_t>() != 0;
     }
 
+    bool fn_once() const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::FN_ONCE.code);
+        return !av.is_null() && av.as_value<uint8_t>() != 0;
+    }
+    bool capture_body_moved(uint64_t i) const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::BODY_MOVES.code);
+        if (av.is_null()) return false;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        if (i >= arr->size()) return false;
+        auto el = arr->get(i);
+        return !el.is_null() && el.as_value<uint8_t>() != 0;
+    }
     // G167-3b: closure value is boxed → its env must be heap-allocated.
     bool escapes() const noexcept {
         auto* m = cl_map();

@@ -1722,6 +1722,12 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
     if (c.ret_tied) put(map_off, ck::RET_TIED, put_bool(true));
     put(map_off, ck::AS_FN_PTR, put_bool(c.as_fn_ptr));
     if (c.escapes) put(map_off, ck::ESCAPES, put_bool(c.escapes));
+    if (c.fn_once) put(map_off, ck::FN_ONCE, put_bool(true));
+    if (c.capture_body_moved.size() == c.captures.size() && !c.captures.empty()) {
+        auto bm_off = make_array(c.capture_body_moved.size());
+        for (uint8_t b : c.capture_body_moved) array_push(bm_off, put_bool(b != 0));
+        put(map_off, ck::BODY_MOVES, mref_addr(bm_off));
+    }
     // C5-cl-08: per-capture mut flag — emit as parallel Array<u8> only when
     // at least one capture is mutated, so untouched closures keep the
     // existing schema footprint.

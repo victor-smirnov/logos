@@ -347,6 +347,9 @@ inline constexpr Key RET_TIED          {"CL_RET_TIED",      15}; // u8
 // Each parameter's binding SLOT (parallel to PARAM_NAMES): an SDrop resolves its
 // binding by slot, and a local shadowing a parameter must not answer for it.
 inline constexpr Key PARAM_SLOTS       {"CL_PARAM_SLOTS",   16}; // Array<u32>
+// The literal is FnOnce; per capture, 1 when the BODY moves it out (EClosure).
+inline constexpr Key FN_ONCE           {"CL_FN_ONCE",       17}; // u8
+inline constexpr Key BODY_MOVES        {"CL_BODY_MOVES",    18}; // Array<u8>
 } // namespace closure_keys
 
 // Keys for the EPtrDiff LExpr variant map (in addition to expr_common::TYPE,

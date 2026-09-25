@@ -1136,15 +1136,17 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
         const std::vector<TypeRef>& capture_types,
         const std::vector<TypeRef>& capture_field_types,
         const std::vector<bool>& capture_drops,
-        bool heap_env) {
+        bool heap_env,
+        const char* prefix) {
     DebugScopeSuspend _dbg(this);  // -g: its own function, not the caller's scope
-    if (auto it = closure_drop_glue_.find(closure_id);
+    const std::string cache_key = std::string(prefix) + closure_id;
+    if (auto it = closure_drop_glue_.find(cache_key);
         it != closure_drop_glue_.end())
         return it->second;
-    std::string sym = "__closure_drop__";
+    std::string sym = prefix;
     for (char c : closure_id)
         sym += (std::isalnum((unsigned char)c) || c == '_') ? c : '_';
-    closure_drop_glue_[closure_id] = sym;
+    closure_drop_glue_[cache_key] = sym;
     auto parent_mod =
         builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     if (parent_mod.lookupSymbol(sym)) return sym;
@@ -2168,6 +2170,28 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     bool ret_is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(llvm_ret);
     cur_ret_type_ = ret_is_void ? mlir::Type{} : llvm_ret;
 
+    // FnOnce + heap env: the body is call_once(self) — at every return it drops
+    // the owned captures it did NOT move out and frees the env, and the
+    // consuming call site frees only the box (sema). The owned-droppable
+    // predicate is the glue's (capture_drops at the creation site).
+    auto saved_once_sym = closure_once_sym_;
+    auto saved_once_env = closure_once_env_;
+    closure_once_sym_.clear();
+    closure_once_env_ = {};
+    if (v.fn_once() && v.is_move() && v.escapes() && !captures.empty()) {
+        std::vector<bool> once_drops(captures.size(), false);
+        for (size_t i = 0; i < captures.size(); ++i) {
+            if (v.capture_body_moved(i)) continue;
+            if (!capture_own_inline[i] && (capture_is_pointer_repr[i] || capture_is_mut_ref[i])) continue;
+            TypeRef drop_t = capture_field_ts[i] ? capture_field_ts[i] : capture_types[i];
+            once_drops[i] = drop_t && value_needs_drop(drop_t);
+        }
+        closure_once_sym_ = emit_closure_drop_glue(closure_id, cap_struct, captures, capture_types,
+                                                   capture_field_ts, once_drops, /*heap_env=*/true,
+                                                   "__closure_once__");
+        closure_once_env_ = entry->getArgument(0);
+    }
+
     // Unpack captures from env pointer (arg 0)
     auto env_ptr = entry->getArgument(0);
     for (size_t i = 0; i < captures.size(); ++i) {
@@ -2305,8 +2329,10 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     in_llvm_func_ = true;
     if (body_blk) gen_block(body_blk);
     if (!is_terminated(builder_.getBlock()))
-        builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+        emit_llvm_return_(mlir::ValueRange{});
     in_llvm_func_ = saved_in_llvm;
+    closure_once_sym_ = saved_once_sym;
+    closure_once_env_ = saved_once_env;
 
     // Restore state
     scope_              = saved_scope;
