@@ -1,0 +1,5 @@
+// A generic struct whose type parameter is named like an existing struct (`struct T`, `struct W<T>`) is an ordinary generic, annotated and inferred (rustc 1.98.1: exit 0).
+package type_param_named_like_struct_annotated;
+struct T { z: i64 }
+struct W<T> { v: T }
+fn main() -> i32 { let w: W<i64> = W { v: 5i64 }; return (w.v - 5i64) as i32; }

@@ -1,0 +1,17 @@
+// Constructors as values: tuple variants (`E::V`, `E::P`, `Option::Some`) as functions, passed as `fn` arguments; `Self(x)` in a tuple struct's impl (rustc 1.98.1: 4 12 9 7 42).
+package constructors_as_values;
+extern fn printf(fmt: *const u8, ...) -> i32;
+enum E { V(i64), P(i64, i64), Z }
+fn apply(f: fn(i64) -> E, x: i64) -> E { return f(x); }
+fn val(e: E) -> i64 { return match e { E::V(a) => a, E::P(a, b) => a * 10i64 + b, E::Z => 0i64 }; }
+struct T(i64);
+impl T { fn mk(x: i64) -> Self { return Self(x * 2i64); } }
+fn main() -> i32 {
+    let f = E::V;
+    let g = E::P;
+    let s: fn(i64) -> Option<i64> = Option::Some;
+    let o = s(7i64);
+    let k = match o { Option::Some(x) => x, Option::None => 0i64 };
+    unsafe { printf("%lld %lld %lld %lld %lld\n".as_ptr(), val(f(4i64)), val(g(1i64, 2i64)), val(apply(E::V, 9i64)), k, T::mk(21i64).0); }
+    return 0i32;
+}

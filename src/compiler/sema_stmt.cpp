@@ -7942,6 +7942,14 @@ writ::AnyVal SemaChecker::synth_node(int32_t code, uint32_t line,
     writ::AnyVal a; a.set_ref(m); return a;
 }
 
+writ::AnyVal SemaChecker::synth_str(std::string_view text) {
+    if (synth_doc_.is_null()) synth_doc_ = writ::make_doc(1u << 20).get();  // MultiChunk: never moves
+    auto* str = writ::ArenaString::create(synth_doc_.arena(), text).get();
+    writ::AnyVal av;
+    av.set_ref(reinterpret_cast<const uint8_t*>(str));
+    return av;
+}
+
 writ::AnyVal SemaChecker::synth_array(const std::vector<writ::AnyVal>& items) {
     if (synth_doc_.is_null()) synth_doc_ = writ::make_doc(1u << 20).get();
     auto arr = synth_doc_.make_array(items.empty() ? 1 : items.size()).get();

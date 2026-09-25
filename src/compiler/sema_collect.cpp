@@ -6260,6 +6260,17 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
         if (sit2 != structs_.end() && sit2->second.is_schema) base_is_schema = true;
         if (dit2 != datatypes_.end() && dit2->second.is_schema) base_is_schema = true;
     }
+    // The FIRST declaration of a name is never a specialisation of itself (the
+    // probe runs again when the decl is lowered, when `structs_` already holds it).
+    bool is_first_decl_all = false;
+    if (node.has_key(la::NAME.code)) {
+        auto sname0 = std::string(str_of(node.get(la::NAME.code)));
+        auto fit0 = first_struct_decl_.find(sema_key(cur_package_, sname0));
+        uint32_t off0 = static_cast<uint32_t>(node.offset().value());
+        is_first_decl_all = fit0 != first_struct_decl_.end() &&
+                            fit0->second.first == static_cast<void*>(holder_) &&
+                            fit0->second.second == off0;
+    }
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto n = map_of(items.get(i));
         int32_t c = code_of(n);
@@ -6270,9 +6281,17 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
                           // VLE family of a packed array)
         if (c == la::TYPE_PARAM && !n.has_key(la::ITEMS)) {
             auto name = str_of(n.get(la::NAME.code));
-            if (try_resolve_as_known_type(name))
-                return true;  // primitive name → specialisation
-            if (base_exists && pass0_decl_names_
+            // A PRIMITIVE (or alias) name → specialisation. A user struct /
+            // enum / datatype name only when a generic base exists (below): a
+            // fresh `struct W<T>` next to a `struct T` is an ordinary generic.
+            if (TypeRef kt = try_resolve_as_known_type(name)) {
+                const auto kk = TypeRef(kt).kind();
+                const bool user_type = kk == LogosType::Kind::Struct ||
+                                       kk == LogosType::Kind::ZonedStruct ||
+                                       kk == LogosType::Kind::Enum;
+                if (!user_type || (base_exists && !is_first_decl_all)) return true;
+            }
+            if (base_exists && !is_first_decl_all && pass0_decl_names_
                 && pass0_decl_names_->count(std::string(name)))
                 return true;  // user-type name AND base exists → spec
         }

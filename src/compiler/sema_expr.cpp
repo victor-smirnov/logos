@@ -4304,6 +4304,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return lower_static_call(node);
     }
 
+    // `Self(a, b)` inside a tuple struct's impl is that struct's constructor
+    // (Rust 1.32+): the impl header's self type names it.
+    // (`current_type_params_["Self"]`, as a `Self { .. }` literal resolves it.)
+    std::string self_ctor_name_;
+    if (callee == "Self") {
+        auto svit = current_type_params_.find("Self");
+        if (svit != current_type_params_.end() && svit->second &&
+            TypeRef(svit->second).kind() == LogosType::Kind::Struct) {
+            self_ctor_name_ = std::string(TypeRef(svit->second).struct_name());
+            callee = self_ctor_name_;
+        }
+    }
     // B-ts-01: tuple-struct constructor `Foo(a, b)` → struct literal
     // with positional fields named "0", "1", …. Routes through the
     // existing struct-lit lowering so codegen / drop / move logic
@@ -15231,6 +15243,37 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         }
         error(std::format("enum '{}' has no variant '{}'", ename, vname));
         return error_expr();
+    }
+    // A TUPLE variant WITH a payload named without arguments (`let f = E::V;`,
+    // `map(Some)`) is its constructor used as a function value (Rust). It
+    // lowers as the closure `|a0, …| E::V(a0, …)`, its parameters typed from
+    // the variant's payload (or from the caller's expected closure type). It
+    // was an enum value with NO payload written.
+    {
+        const SemaVariantInfo* vi_ = nullptr;
+        for (auto& v : eit->second.variants) if (v.name == vname) { vi_ = &v; break; }
+        if (vi_ && !vi_->payload_types.empty() && !vi_->is_struct_shape && !vi_->is_variadic) {
+            const uint32_t ln = node_line_;
+            std::vector<writ::AnyVal> params, args;
+            for (size_t i = 0; i < vi_->payload_types.size(); ++i) {
+                auto nm = synth_str(std::format("__ctor_a{}", i));
+                params.push_back(synth_node(la::PARAM.code, ln, {{la::NAME.code, nm}}));
+                args.push_back(synth_node(la::VAR_REF.code, ln, {{la::NAME.code, nm}}));
+            }
+            auto data = synth_node(la::ENUM_LIT_DATA.code, ln,
+                                   {{la::NAME.code, node.get(la::NAME.code)},
+                                    {la::FIELD.code, node.get(la::FIELD.code)},
+                                    {la::ARGS.code, synth_array(args)}});
+            auto clo = synth_node(la::CLOSURE_EXPR.code, ln,
+                                  {{la::PARAMS.code, synth_node(la::BLOCK.code, ln, {{la::ITEMS.code, synth_array(params)}})},
+                                   {la::VALUE.code, data}});
+            auto saved_hint = hint_closure_formal_;
+            if (!hint_closure_formal_ && eit->second.type_params.empty())
+                hint_closure_formal_ = make_fn_ptr_type(vi_->payload_types, make_enum_type(ename, epkg_el));
+            auto res = lower_expr(map_of(clo));
+            hint_closure_formal_ = saved_hint;
+            return res;
+        }
     }
     // SL-sl-03: a payload-less variant (`Option::None`) on a generic enum
     // has no inference source for its type-args. Consult `hint_enum_type_`

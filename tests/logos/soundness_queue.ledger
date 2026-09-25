@@ -70,8 +70,6 @@ localvec_for_ref_names_stdlib_as_slice 4 tests/soundness/open/localvec_for_ref_n
 
 localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
 
-self_tuple_struct_ctor_refused 3 tests/soundness/open/self_tuple_struct_ctor_refused refuses
-
 closure_elided_param_called_with_field_ref_refuses 3 tests/soundness/open/closure_elided_param_called_with_field_ref_refuses refuses
 
 enum_payload_rewrap_carries_declared_region_refuses 3 tests/soundness/open/enum_payload_rewrap_carries_declared_region_refuses refuses
@@ -93,10 +91,6 @@ trait_default_body_self_assoc_const_refused 3 tests/soundness/open/trait_default
 enum_ctor_partial_turbofish_underscore_internal 3 tests/soundness/open/enum_ctor_partial_turbofish_underscore_internal refuses
 
 method_where_fn_bound_on_impl_param_refused 3 tests/soundness/open/method_where_fn_bound_on_impl_param_refused refuses
-
-struct_named_like_type_param_refused 3 tests/soundness/open/struct_named_like_type_param_refused refuses
-
-enum_tuple_ctor_as_fn_value_refused 3 tests/soundness/open/enum_tuple_ctor_as_fn_value_refused refuses
 
 static_ref_nested_borrow_region_not_static_refused 3 tests/soundness/open/static_ref_nested_borrow_region_not_static_refused refuses
 
@@ -308,5 +302,5 @@ let_array_named_rest_refused 3 tests/soundness/open/let_array_named_rest_refused
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
 
-# TOTAL 67
-# SYNC-HASH 222adb25be2a83d8809590f438a24d3b
+# TOTAL 64
+# SYNC-HASH 96e2dfef777e97ff504fe489e31c8b94

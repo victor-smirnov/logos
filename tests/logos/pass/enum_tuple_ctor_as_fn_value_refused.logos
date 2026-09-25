@@ -1,0 +1,14 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package enum_tuple_ctor_as_fn_value_refused;
+
+enum E {
+    V(i64),
+}
+
+fn main() -> i32 {
+    let f = E::V;
+    let e = f(4i64);
+    return match e {
+        E::V(x) => if x == 4i64 { 0i32 } else { 1i32 },
+    };
+}

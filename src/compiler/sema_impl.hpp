@@ -3230,6 +3230,7 @@ private:
     writ::AnyVal synth_node(int32_t code, uint32_t line,
                             std::initializer_list<std::pair<uint8_t, writ::AnyVal>> keys);
     writ::AnyVal synth_array(const std::vector<writ::AnyVal>& items);
+    writ::AnyVal synth_str(std::string_view text);
     writ::AnyVal synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line);
     writ::AnyVal synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ::AnyVal guard,
                              writ::AnyVal then_body, writ::AnyVal else_body, uint32_t line);
