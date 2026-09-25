@@ -1,6 +1,4 @@
-// SOUNDNESS QUEUE row dyn_paren_region_bound (tier 3). The parenthesised object
-// type with a region bound, &'a (dyn Tr + 'b), is legal Rust and TODAY is a syntax
-// error (2026-09-02x §6 x11/x12).
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
 package dyn_paren_region_bound;
 trait Tr { fn m(self: &Self) -> i64; }
 struct S { v: i64 }

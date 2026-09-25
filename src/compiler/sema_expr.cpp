@@ -418,6 +418,18 @@ bool SemaChecker::is_place_node(TinyMapView n) noexcept {
            c == la::TUPLE_INDEX;
 }
 
+bool SemaChecker::place_chain_has_index_(TinyMapView n) {
+    for (int d = 0; d < 32 && !n.is_null(); ++d) {
+        auto c = code_of(n);
+        if (c == la::PAREN_EXPR) { n = map_of(n.get(la::VALUE.code)); continue; }
+        if (c == la::INDEX_READ) return true;
+        if (c == la::FIELD_READ || c == la::TUPLE_INDEX) { n = map_of(n.get(la::RECEIVER.code)); continue; }
+        if (c == la::DEREF) { n = map_of(n.get(la::VALUE.code)); continue; }
+        return false;
+    }
+    return false;
+}
+
 lir::LExprPtr SemaChecker::lower_mut_place(TinyMapView n) {
     mut_place_ctx_ = is_place_node(n);
     auto e = lower_expr(n);
@@ -9482,7 +9494,41 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tuple(
 
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
-    auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+    const auto recv_node = map_of(node.get(la::RECEIVER.code));
+    const size_t diags_before = result_.diags.size();
+    auto recv = lower_expr(recv_node);
+    // An INDEXED place receiving a `&mut self` method is a mutable use, so
+    // the index is `IndexMut` (Rust's rule for a method receiver): `v[0].bump()`
+    // and `vs[0].push(x)` with `vs: Vec<&mut Vec<_>>` took the SHARED `index`
+    // and handed the method a place behind `&`. The receiver is a pure place,
+    // so lowering it again in the mutable context repeats no effect; a first
+    // lowering that already reported is not repeated.
+    if (recv && result_.diags.size() == diags_before && place_chain_has_index_(recv_node)) {
+        TypeRef et = expr_type(recv);
+        while (et && is_ref_like(TypeRef(et).kind()) && TypeRef(et).pointee())
+            et = TypeRef(et).pointee();
+        if (et && (TypeRef(et).kind() == LogosType::Kind::Struct ||
+                   TypeRef(et).kind() == LogosType::Kind::ZonedStruct)) {
+            const std::string m(method_name);
+            auto wants_mut = [&](const std::string& key) {
+                for (auto* fi : find_func_candidates(key))
+                    if (fi && !fi->param_types.empty() &&
+                        TypeRef(fi->param_types[0]).kind() == LogosType::Kind::MutRef)
+                        return true;
+                return false;
+            };
+            const std::string sb(TypeRef(et).struct_name());
+            if (wants_mut(concrete_struct_name(et) + "__" + m) ||
+                (!sb.empty() && wants_mut(sb + "__" + m))) {
+                recv = lower_mut_place(recv_node);
+                // An `Index`-only base is refused right there (E0596's
+                // IndexMut sentence); nothing further to say about the call.
+                if (!recv || !expr_type(recv) ||
+                    TypeRef(expr_type(recv)).kind() == LogosType::Kind::Error)
+                    return error_expr();
+            }
+        }
+    }
     // E0040: `x.drop()` naming the destructor. PROBES.md 2026-09-02u.
     if (method_name == "drop" && recv && explicit_destructor_call(expr_type(recv))) {
         error("explicit use of destructor method (E0040)");
@@ -10437,8 +10483,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef saved_enum    = hint_enum_type_;
         TypeRef saved_struct  = hint_struct_type_;
         TypeRef saved_tuple   = hint_tuple_type_;
+        TypeRef saved_ret     = hint_call_return_type_;
+        TypeRef saved_expect  = hint_expected_type_;
         if (arg_idx < formals_hint.size() && formals_hint[arg_idx]) {
             TypeRef f = formals_hint[arg_idx];
+            // A concrete formal is the argument's expected type, as at a
+            // generic static call: `w.push(Vec::new())` on `Vec<Vec<i64>>`
+            // builds a `Vec<i64>`.
+            if (type_is_concrete(f)) { hint_call_return_type_ = f; hint_expected_type_ = f; }
             // Strip a single Ref/MutRef/Ptr wrapper for hint purposes;
             // bare variant literals don't carry a wrapper, but the formal
             // may (e.g. `fn or(&self, other: &Option<T>)`).
@@ -10464,6 +10516,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         hint_enum_type_      = saved_enum;
         hint_struct_type_    = saved_struct;
         hint_tuple_type_     = saved_tuple;
+        hint_call_return_type_ = saved_ret;
+        hint_expected_type_    = saved_expect;
         return out;
     };
     std::vector<lir::LExprPtr> arg_exprs;

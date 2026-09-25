@@ -1,0 +1,17 @@
+// Reference types over a trait object: `&'a (dyn Tr + 'a)`, `&'a mut (dyn Tr + 'a)`,
+// `& &dyn Tr`, `&mut &dyn Tr`. rustc 1.98.1: exit 0.
+package ref_over_dyn_type_forms;
+trait Tr { fn get(self: &Self) -> i64; fn put(self: &mut Self, v: i64); }
+struct D { v: i64 }
+impl Tr for D { fn get(self: &Self) -> i64 { return self.v; } fn put(self: &mut Self, v: i64) { self.v = v; } }
+fn a<'a>(x: &'a (dyn Tr + 'a)) -> i64 { return x.get(); }
+fn b<'a>(x: &'a mut (dyn Tr + 'a)) { x.put(5); }
+fn c(x: & &dyn Tr) -> i64 { return (*x).get(); }
+fn d(x: &mut &dyn Tr) -> i64 { return (*x).get(); }
+fn main() -> i32 {
+    let mut o: D = D { v: 1 };
+    b(&mut o);
+    let r: &dyn Tr = &o;
+    let mut r2: &dyn Tr = &o;
+    return (a(&o) + c(&r) + d(&mut r2) - 15) as i32;
+}

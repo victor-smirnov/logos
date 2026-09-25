@@ -1,0 +1,14 @@
+// Compiles and runs as in rustc 1.98.1 (squeue row of the same name).
+package ref_to_dyn_ref_type_parse_refused;
+trait Tr { fn get(self: &Self) -> i64; }
+struct D { v: i64 }
+impl Tr for D { fn get(self: &Self) -> i64 { return self.v; } }
+fn inner(a: & &dyn Tr) -> i64 {
+    let x: &dyn Tr = *a;
+    return x.get();
+}
+fn main() -> i32 {
+    let d: D = D { v: 6i64 };
+    let rd: &dyn Tr = &d;
+    return (inner(&rd) - 6i64) as i32;
+}

@@ -9603,6 +9603,8 @@ private:
     // Lower `n` as a PLACE in a mutable-use position: arms `mut_place_ctx_`
     // for a place node, lowers, and leaves the context cleared.
     lir::LExprPtr lower_mut_place(writ::TinyMapView n);
+    // A place chain (`a.b[i].c`, `*p`) that goes through an INDEX anywhere.
+    bool place_chain_has_index_(writ::TinyMapView n);
 
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);

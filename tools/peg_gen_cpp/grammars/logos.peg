@@ -1977,7 +1977,10 @@
     // routes through the AND token.
     // G158-2: `&fn(T)->R` / `&mut fn()->R` — a reference to a fn-pointer type.
     // `fn_ptr_type` precedes `simple_type` (simple_type can't start with `fn`).
-    ref_pointee <- ptr_type / ref_type / arr_type / tuple_type / unit_type / qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type
+    // A bare `dyn Trait` pointee (`& &dyn Tr` = `&` over `&dyn Tr`, the inner
+    // `&dyn` taken by ref_type then this) and a parenthesised one
+    // (`&'a (dyn Tr + 'b)`, Rust's spelling of a region-bounded object).
+    ref_pointee <- ptr_type / ref_type / dyn_type / arr_type / tuple_type / paren_type / unit_type / qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*

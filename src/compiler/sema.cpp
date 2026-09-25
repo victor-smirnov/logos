@@ -8386,7 +8386,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // and break the Box<T: Sized> bound check).
         bool ref_pointee_unsized = false;
         if (node.has_key(la::POINTEE)) {
-            int32_t pc = code_of(map_of(node.get(la::POINTEE.code)));
+            // `&'a (dyn Tr + 'b)`: the parentheses group, they do not change
+            // what the pointee is.
+            auto pn0 = map_of(node.get(la::POINTEE.code));
+            while (code_of(pn0) == la::PAREN_TYPE && pn0.has_key(la::TYPE))
+                pn0 = map_of(pn0.get(la::TYPE.code));
+            int32_t pc = code_of(pn0);
             ref_pointee_unsized = (pc == la::UNSIZED_SLICE_TYPE || pc == la::DYN_TYPE);
             // §6 Wave 9 — `&str` parses as REF_TYPE wrapping TYPE_REF{name="str"}.
             // Without the unsized-ok flag, `str` resolves to Sized Slice<u8>,
@@ -8464,7 +8469,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // `&mut [T]` / `&mut dyn` — same gated unsized-pointee allowance as `&`.
         bool ref_pointee_unsized = false;
         if (node.has_key(la::POINTEE)) {
-            int32_t pc = code_of(map_of(node.get(la::POINTEE.code)));
+            // `&'a (dyn Tr + 'b)`: the parentheses group, they do not change
+            // what the pointee is.
+            auto pn0 = map_of(node.get(la::POINTEE.code));
+            while (code_of(pn0) == la::PAREN_TYPE && pn0.has_key(la::TYPE))
+                pn0 = map_of(pn0.get(la::TYPE.code));
+            int32_t pc = code_of(pn0);
             ref_pointee_unsized = (pc == la::UNSIZED_SLICE_TYPE || pc == la::DYN_TYPE);
         }
         bool was_ok = unsized_ok_;

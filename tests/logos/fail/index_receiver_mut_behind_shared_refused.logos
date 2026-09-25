@@ -1,0 +1,7 @@
+// Through `&Vec<C>` the element is not a mutable place: `v[0].bump()` is refused
+// (rustc 1.98.1: E0596).
+package index_receiver_mut_behind_shared_refused;
+struct C { n: i64 }
+impl C { fn bump(self: &mut C) { self.n = self.n + 1i64; } }
+fn f(v: &Vec<C>) { v[0u64].bump(); }
+fn main() -> i32 { return 0; }

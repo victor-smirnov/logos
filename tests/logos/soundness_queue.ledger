@@ -22,8 +22,6 @@ boxdyn_double_deref_wrong_error_code 4 tests/soundness/open/boxdyn_double_deref_
 
 closure_owned_dyn_capture     1 tests/soundness/open/closure_owned_dyn_capture     run 1
 
-dyn_paren_region_bound        3 tests/soundness/open/dyn_paren_region_bound        refuses
-
 layout_verify_recursive_ref   3 tests/soundness/open/layout_verify_recursive_ref   refuses
 
 typestr_minted_alike          4 tests/soundness/open/typestr_minted_alike          diag expected &i64, got &i64
@@ -76,8 +74,6 @@ ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_m
 
 tuple_enum_elem_eq_variadic_impl_return_lost_refused 3 tests/soundness/open/tuple_enum_elem_eq_variadic_impl_return_lost_refused refuses
 
-ref_to_dyn_ref_type_parse_refused 3 tests/soundness/open/ref_to_dyn_ref_type_parse_refused refuses
-
 array_lit_box_elem_unsize_to_dyn_no_vtable 3 tests/soundness/open/array_lit_box_elem_unsize_to_dyn_no_vtable refuses
 
 operator_trait_rhs_type_param_refused 3 tests/soundness/open/operator_trait_rhs_type_param_refused refuses
@@ -89,8 +85,6 @@ ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_exten
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
 
 closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
-
-vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
 
 arraylit_partial_generic_enum_elems_internal 3 tests/soundness/open/arraylit_partial_generic_enum_elems_internal refuses
 
@@ -259,5 +253,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 42
-# SYNC-HASH ede927a6a0f6d5876d0765b75e12847e
+# TOTAL 39
+# SYNC-HASH ef2ba2191a53665f03be569b2c4a8f48

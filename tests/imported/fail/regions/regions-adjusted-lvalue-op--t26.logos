@@ -28,3 +28,4 @@ fn main() -> i32 {
   v[0u64].oh_no(&v);          // THE DEFECT: admitted, upstream E0502
   return 0i32;
 }
+// 2026-09-25: `v[0u64]` now takes IndexMut for the `&mut self` receiver, so the refusal is upstream's own E0502 (the `&v` argument while `v` is mutably borrowed), re-pinned from the shared-index sentence.

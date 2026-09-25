@@ -1,0 +1,25 @@
+// An indexed place receiving a `&mut self` method takes IndexMut (`v[0].bump()`,
+// `w[0].push(5)`, through `Vec<&mut Vec<_>>`); a method argument expects its concrete
+// formal (`w.push(Vec::new())`, `bs.push(Box::new(Vec::new()))`). rustc 1.98.1: exit 0.
+package index_receiver_mut_and_method_arg_expected;
+use logos.mem.boxed;
+struct C { n: i64 }
+impl C { fn bump(self: &mut C) { self.n = self.n + 1i64; } }
+fn main() -> i32 {
+    let mut v: Vec<C> = Vec::new();
+    v.push(C { n: 1 });
+    v[0u64].bump();
+    let mut w: Vec<Vec<i64>> = Vec::new();
+    w.push(Vec::new());
+    w[0u64].push(5);
+    w[0u64].push(6);
+    let mut bs: Vec<Box<Vec<i64>>> = Vec::new();
+    bs.push(Box::new(Vec::new()));
+    let mut inner: Vec<i64> = Vec::new();
+    {
+        let mut vs: Vec<&mut Vec<i64>> = Vec::new();
+        vs.push(&mut inner);
+        vs[0u64].push(9);
+    }
+    return (v[0u64].n + w[0u64][1u64] + inner[0u64] + bs.len() - 18) as i32;
+}

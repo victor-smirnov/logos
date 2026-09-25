@@ -1,0 +1,16 @@
+// `vs[0u64].push(&c)` takes IndexMut (a `&mut self` receiver), so the only refusal left is the
+// one rustc 1.98.1 gives: E0502 at `c.bump()` (squeue row of the same name).
+package vec_of_mutref_elem_receiver_store_loan_unheld_admits;
+struct C { n: i64 }
+impl C { fn bump(self: &mut C) { self.n = self.n + 1i64; } }
+fn main() -> i32 {
+    let mut c: C = C { n: 1i64 };
+    let mut inner: Vec<&C> = Vec::new();
+    {
+        let mut vs: Vec<&mut Vec<&C>> = Vec::new();
+        vs.push(&mut inner);
+        vs[0u64].push(&c);
+    }
+    c.bump();
+    return inner.len() as i32;
+}
