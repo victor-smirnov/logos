@@ -938,23 +938,6 @@ private:
         assign({t, {}}, std::move(rv));
         return read_place({t, {}}, e.type(pool_));
     }
-    // A literal, or an array of them (`&[]`, `&[1, 2]`): what Rust promotes to
-    // a `'static` place under a shared borrow.
-    bool is_promotable_literal(lir_view::ExprRef e, int depth = 0) const {
-        if (!e || depth > 4) return false;
-        switch (e.kind()) {
-            case ECode::LitInt: case ECode::LitFloat: case ECode::LitBool: case ECode::LitStr:
-                return true;
-            case ECode::ArrLit: {
-                lir_view::EArrLitView a{e};
-                for (uint64_t i = 0; i < a.count(); ++i)
-                    if (!is_promotable_literal(a.elem(i), depth + 1)) return false;
-                return true;
-            }
-            default:
-                return false;
-        }
-    }
     bool is_constant(lir_view::ExprRef e) const {
         switch (e.kind()) {
             case ECode::LitInt: case ECode::LitFloat: case ECode::LitBool:
@@ -1033,12 +1016,15 @@ private:
                     return;
                 }
                 // Rvalue static promotion (Rust reference, "constant
-                // promotion"): a SHARED borrow of a literal is a `&'static` to
+                // promotion"): a SHARED borrow of a constant is a `&'static` to
                 // a promoted constant, not a loan of a temporary — `return
-                // &5i32;` is legal. Literals only; a named const or a constant
-                // call is not claimed here.
+                // &5i32;` is legal. The SHARED predicate the emitter reads
+                // (const_promote.hpp): a shape claimed here that the emitter
+                // puts in the frame is an admitted dangle — measured with a
+                // private copy that took nested arrays and `&"s"`.
                 if (!v.is_mut() && v.inner() && t && t.kind() != LogosType::Kind::Ptr &&
-                    is_promotable_literal(v.inner())) {
+                    const_promote::is_const_value(v.inner(), pool_,
+                        [this](TypeRef st) { return needs_drop(st, prog_, ts_); })) {
                     assign(std::move(dest), bir::Rvalue(bir::Rvalue::K::Use));
                     return;
                 }

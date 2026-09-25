@@ -2216,6 +2216,10 @@ class BorrowChecker {
     std::string          fn_name_;
     const lir::LProgram& prog_;
     const TypeSets&      ts_;
+    // const_promote's drop query, answered from this program's drop facts.
+    auto promote_has_drop_() const {
+        return [this](TypeRef t) { return needs_drop(t, prog_, ts_); };
+    }
     const FnIndex&       fn_index_;
 
     StateMap                 states_;
@@ -8811,7 +8815,7 @@ private:
                 // there is nothing for any of them to be about.
                 // Imported witnesses: pass/regions/regions-bot (`&0i64`),
                 // pass/array-slice-vec/empty-slice-return-b172 (`&[]`).
-                if (const_promote::is_promoted_borrow(e, pool)) return {};
+                if (const_promote::is_promoted_borrow(e, pool, promote_has_drop_())) return {};
                 // B74 gap: `&literal` / `&<temp_expr>` whose inner expr
                 // is rooted in a temporary (literal, fresh struct lit,
                 // call result, etc.) yields a dangling reference when
@@ -13823,7 +13827,7 @@ private:
                 // See src/compiler/PROBES.md 2026-09-03e.
                 if (is_ref_assign && val &&
                     val.kind() == lir_schema::expr::Code::AddrOfTemp &&
-                    !const_promote::is_promoted_borrow(val, pool) &&
+                    !const_promote::is_promoted_borrow(val, pool, promote_has_drop_()) &&
                     is_temporary_value_expr(
                         lir_view::EAddrOfTempView{val}.inner()))
                     dangling_[name] =

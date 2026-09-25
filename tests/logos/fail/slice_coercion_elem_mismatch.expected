@@ -1,1 +1,1 @@
-type mismatch — expected &[i64], got &[i32; 4]
+type mismatch — expected &[i64], got &'static [i32; 4]

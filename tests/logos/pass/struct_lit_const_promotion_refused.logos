@@ -1,0 +1,15 @@
+// `&D { v: 1 }` — a struct literal of constants whose type has no destructor —
+// is CONST-PROMOTED (Rust `destructors.scope.const-promotion`): 'static, so
+// its borrow survives the call it passes through. The shared predicate
+// (const_promote::is_const_value) now takes array / tuple / struct literals of
+// constants to any depth; sema takes the promoted form before its temporary
+// hoist, and the emitter builds the value in a global's initializer region.
+// rustc 1.98.1: exit 1. Twins: tests/logos/pass/const_promotion_aggregates.logos,
+// tests/logos/fail/const_promotion_drop_type_not_promoted.logos.
+package struct_lit_const_promotion_refused;
+struct D { v: i64 }
+fn id(x: &D) -> &D { return x; }
+fn main() -> i32 {
+    let k: &D = id(&D { v: 1i64 });
+    return k.v as i32;
+}

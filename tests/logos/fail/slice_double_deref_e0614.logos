@@ -1,0 +1,9 @@
+// `**s` with `s: &str`: `*s` is the unsized `str` place — E0614 (rustc: type
+// `str` cannot be dereferenced; Logos spells `str` as `[u8]`). Twin of
+// tests/logos/fail/boxdyn_double_deref_wrong_error_code.logos.
+package slice_double_deref_e0614;
+fn main() -> i32 {
+    let s: &str = "ab";
+    let t: &str = &**s;
+    return t.len() as i32;
+}

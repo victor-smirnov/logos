@@ -1,0 +1,32 @@
+// Const promotion of aggregates, returned as `&'static` and read after another
+// frame has overwritten the stack (`smash`): nested arrays, a nested tuple, a
+// struct holding a struct, an array and a tuple, and the same passed through a
+// call. ⚠ THE NESTED ARRAY WAS A LIVE DANGLE: the BIR kept a private copy of
+// the promotion predicate that admitted `&[[1, 2], [3, 4]]` while the emitter
+// put it in the frame — the caller read another frame's bytes (r[1][0] != 3).
+// One predicate for all consumers now (const_promote.hpp). rustc 1.98.1: exit 0.
+package const_promotion_aggregates;
+struct P { a: u8, b: i64, c: bool }
+struct Q { p: P, xs: [i32; 3], t: (u8, f64) }
+fn id(x: &Q) -> &Q { return x; }
+fn f() -> &'static [[i64; 2]; 2] { return &[[1i64, 2i64], [3i64, 4i64]]; }
+fn t() -> &'static (i64, (u8, bool)) { return &(7i64, (8u8, true)); }
+fn q() -> &'static Q { return &Q { p: P { a: 1u8, b: 2i64, c: true }, xs: [3i32, 4i32, 5i32], t: (6u8, 7.5) }; }
+fn st() -> &'static &'static str { return &"abc"; }
+fn tp() -> &'static (i64, &'static str) { return &(5i64, "xy"); }
+fn smash() -> i64 { let a: [i64; 32] = [77i64; 32]; return a[5]; }
+fn main() -> i32 {
+    let r: &[[i64; 2]; 2] = f();
+    let u: &(i64, (u8, bool)) = t();
+    let w: &Q = q();
+    let k: &Q = id(&Q { p: P { a: 9u8, b: 10i64, c: false }, xs: [11i32, 12i32, 13i32], t: (14u8, 0.5) });
+    let sa: &&str = st();
+    let sb: &(i64, &str) = tp();
+    let s: i64 = smash();
+    if r[1][0] != 3i64 { return 1i32; }
+    if u.0 != 7i64 || (u.1).0 != 8u8 || !(u.1).1 { return 2i32; }
+    if w.p.a != 1u8 || w.p.b != 2i64 || !w.p.c || w.xs[2] != 5i32 || w.t.0 != 6u8 || w.t.1 != 7.5 { return 3i32; }
+    if k.p.b != 10i64 || k.xs[0] != 11i32 || k.t.1 != 0.5 { return 4i32; }
+    if (*sa).len() != 3i64 || sb.0 != 5i64 || sb.1.len() != 2i64 { return 5i32; }
+    return (s - 77i64) as i32;
+}

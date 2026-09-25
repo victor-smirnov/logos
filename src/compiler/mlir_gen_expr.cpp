@@ -360,8 +360,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitBoolView v, TypeRef) {
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, v.value() ? 1 : 0, 1);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
-    std::string raw{v.value()};
+// A string literal's source text (quotes, raw delimiters, escapes) as bytes.
+std::string MLIRGenImpl::decode_str_lit_(std::string raw) {
     bool is_raw = raw.size() >= 3 && raw[0] == 'r' &&
                   (raw[1] == '"' || raw[1] == '#');
     if (is_raw) {
@@ -447,6 +447,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
             }
         }
     }
+    return text;
+}
+
+// An internal NUL-terminated global holding `text`; its symbol.
+std::string MLIRGenImpl::str_global_(const std::string& text) {
     // LLVM requires string globals to include a null terminator in the array type.
     // The fat pointer's `len` field holds the content length (without the null byte).
     auto global_name = ".str." + std::to_string(str_counter_++);
@@ -462,6 +467,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
         loc_, arr_type, true, mlir::LLVM::Linkage::Internal, global_name, str_attr);
 
     builder_.restoreInsertionPoint(save_pt);
+    return global_name;
+}
+
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
+    std::string text = decode_str_lit_(std::string(v.value()));
+    auto global_name = str_global_(text);
     auto raw_ptr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
 
     // Build fat pointer {ptr, len} on the stack and return pointer to it.
@@ -1751,6 +1762,38 @@ mlir::Value MLIRGenImpl::gen_promoted_const(lir_view::ExprRef e, TypeRef t) {
     mlir::Attribute init;
     uint64_t align = 8;
 
+    // An AGGREGATE of constants — a struct / tuple literal, or an array whose
+    // elements are not all scalars: its value is built in the global's
+    // initializer region, at the same LLVM type the frame temporary would have.
+    bool flat = e.kind() != ec::Code::StructLit && e.kind() != ec::Code::TupleLit &&
+                e.kind() != ec::Code::LitStr;
+    if (e.kind() == ec::Code::ArrLit)
+        lir_view::EArrLitView{e}.each_elem([&](lir_view::ExprRef el) {
+            if (el.kind() != ec::Code::LitInt && el.kind() != ec::Code::LitFloat &&
+                el.kind() != ec::Code::LitBool) flat = false;
+        });
+    if (!flat) {
+        gty = promoted_llvm_type_(e, t);
+        if (!gty) return nullptr;
+        auto save_pt = builder_.saveInsertionPoint();
+        builder_.setInsertionPointToStart(parent_mod.getBody());
+        auto g = builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, gty, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
+            gname, mlir::Attribute{}, align);
+        mlir::Block* blk = new mlir::Block();
+        g.getInitializerRegion().push_back(blk);
+        builder_.setInsertionPointToStart(blk);
+        mlir::Value val = build_promoted_value_(e, t, gty);
+        if (!val) {
+            builder_.restoreInsertionPoint(save_pt);
+            g.erase();
+            return nullptr;
+        }
+        builder_.create<mlir::LLVM::ReturnOp>(loc_, val);
+        builder_.restoreInsertionPoint(save_pt);
+        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), gname);
+    }
+
     if (e.kind() == ec::Code::ArrLit) {
         std::vector<lir_view::ExprRef> elems;
         lir_view::EArrLitView{e}.each_elem(
@@ -1817,6 +1860,110 @@ mlir::Value MLIRGenImpl::gen_promoted_const(lir_view::ExprRef e, TypeRef t) {
     return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), gname);
 }
 
+mlir::Type MLIRGenImpl::promoted_llvm_type_(lir_view::ExprRef e, TypeRef t) {
+    namespace ec = lir_schema::expr;
+    if (!e || !t) return {};
+    if (e.kind() == ec::Code::TupleLit) return tuple_llvm_type(t);
+    if (e.kind() == ec::Code::LitStr) return slice_llvm_type();
+    if (e.kind() == ec::Code::StructLit) {
+        auto sit = struct_types_.find(mlir_struct_key(t));
+        return sit == struct_types_.end() ? mlir::Type{} : sit->second.llvm_type;
+    }
+    return logos_to_mlir(t);
+}
+
+// The value of a promotable constant at LLVM type `lty`, emitted at the current
+// insertion point (a global's initializer block). Null when a shape escapes
+// const_promote::is_const_value's promise — the caller then fails closed.
+mlir::Value MLIRGenImpl::build_promoted_value_(lir_view::ExprRef e, TypeRef t, mlir::Type lty) {
+    namespace ec = lir_schema::expr;
+    if (!e || !lty) return nullptr;
+    switch (e.kind()) {
+    case ec::Code::LitInt: case ec::Code::LitBool: {
+        auto ity = mlir::dyn_cast<mlir::IntegerType>(lty);
+        if (!ity) return nullptr;
+        int64_t x = e.kind() == ec::Code::LitBool ? (lir_view::ELitBoolView{e}.value() ? 1 : 0)
+                                                  : lir_view::ELitIntView{e}.value();
+        return builder_.create<mlir::LLVM::ConstantOp>(loc_, ity, builder_.getIntegerAttr(ity, x));
+    }
+    case ec::Code::LitFloat: {
+        auto fty = mlir::dyn_cast<mlir::FloatType>(lty);
+        if (!fty) return nullptr;
+        return builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, fty, builder_.getFloatAttr(fty, lir_view::ELitFloatView{e}.value()));
+    }
+    case ec::Code::LitStr: {   // the `{ptr, len}` pair over the literal's own global
+        auto sty = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(lty);
+        if (!sty || sty.getBody().size() != 2) return nullptr;
+        std::string text = decode_str_lit_(std::string(lir_view::ELitStrView{e}.value()));
+        auto gname = str_global_(text);
+        mlir::Value v = builder_.create<mlir::LLVM::UndefOp>(loc_, sty);
+        auto p = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), gname);
+        auto i64 = builder_.getIntegerType(64);
+        auto n = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, i64, builder_.getIntegerAttr(i64, (int64_t)text.size()));
+        v = builder_.create<mlir::LLVM::InsertValueOp>(loc_, v, p, llvm::ArrayRef<int64_t>{0});
+        return builder_.create<mlir::LLVM::InsertValueOp>(loc_, v, n, llvm::ArrayRef<int64_t>{1});
+    }
+    case ec::Code::ArrLit: {
+        auto aty = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(lty);
+        if (!aty || !t) return nullptr;
+        mlir::Value v = builder_.create<mlir::LLVM::UndefOp>(loc_, aty);
+        int64_t i = 0;
+        bool ok = true;
+        lir_view::EArrLitView{e}.each_elem([&](lir_view::ExprRef el) {
+            if (!ok) return;
+            auto ev = build_promoted_value_(el, TypeRef(t).elem(), aty.getElementType());
+            if (!ev) { ok = false; return; }
+            v = builder_.create<mlir::LLVM::InsertValueOp>(loc_, v, ev, llvm::ArrayRef<int64_t>{i++});
+        });
+        return ok ? v : nullptr;
+    }
+    case ec::Code::TupleLit: {
+        auto sty = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(lty);
+        if (!sty || !t) return nullptr;
+        auto ets = TypeRef(t).tuple_elems();
+        if (ets.size() != sty.getBody().size()) return nullptr;
+        mlir::Value v = builder_.create<mlir::LLVM::UndefOp>(loc_, sty);
+        int64_t i = 0;
+        bool ok = true;
+        lir_view::ETupleLitView{e}.each_elem([&](lir_view::ExprRef el) {
+            if (!ok || i >= (int64_t)ets.size()) { ok = false; return; }
+            auto ev = build_promoted_value_(el, ets[i], sty.getBody()[i]);
+            if (!ev) { ok = false; return; }
+            v = builder_.create<mlir::LLVM::InsertValueOp>(loc_, v, ev, llvm::ArrayRef<int64_t>{i});
+            ++i;
+        });
+        return ok ? v : nullptr;
+    }
+    case ec::Code::StructLit: {
+        auto sit = struct_types_.find(mlir_struct_key(t));
+        if (sit == struct_types_.end()) return nullptr;
+        auto& info = sit->second;
+        auto sty = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(lty);
+        if (!sty) return nullptr;
+        mlir::Value v = builder_.create<mlir::LLVM::UndefOp>(loc_, sty);
+        size_t n = 0;
+        bool ok = true;
+        lir_view::EStructLitView{e}.each_field([&](std::string_view fname, lir_view::ExprRef fv) {
+            if (!ok) return;
+            const FieldInfo* fi = nullptr;
+            for (auto& f : info.fields) if (f.name == fname) { fi = &f; break; }
+            if (!fi || fi->index >= sty.getBody().size() || !fv) { ok = false; return; }
+            auto ev = build_promoted_value_(fv, fv.type(pool_impl()), sty.getBody()[fi->index]);
+            if (!ev) { ok = false; return; }
+            v = builder_.create<mlir::LLVM::InsertValueOp>(loc_, v, ev,
+                                                           llvm::ArrayRef<int64_t>{(int64_t)fi->index});
+            ++n;
+        });
+        // Every slot written: an unwritten one would be undef in the global.
+        return ok && n == sty.getBody().size() ? v : nullptr;
+    }
+    default:
+        return nullptr;
+    }
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef result_t) {
     namespace ec = lir_schema::expr;
     auto inner_ref = v.inner();
@@ -1830,7 +1977,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
     // borrow_check has already stopped refusing this borrow on the strength
     // of the SAME predicate and a silent fall-through to the alloca would be
     // an admitted dangle.
-    if (!v.is_mut() && logos::compiler::const_promote::is_const_value(inner_ref, pool_impl())) {
+    // The emitter asks NO drop question: it promotes the superset, so whatever a
+    // checker admits under its own drop facts is in static storage here (the
+    // permissive-direction agreement the header demands). A droppable literal
+    // temporary is hoisted into a named local by sema and never reaches this arm.
+    if (!v.is_mut() && logos::compiler::const_promote::is_const_value(
+                           inner_ref, pool_impl(), [](TypeRef) { return false; })) {
         if (auto g = gen_promoted_const(inner_ref, inner_t)) return g;
         return bug_null("const promotion selected a shape the emitter cannot "
                         "materialise in static storage — borrow_check has "

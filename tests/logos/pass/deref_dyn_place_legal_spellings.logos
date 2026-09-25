@@ -1,0 +1,19 @@
+// The legal spellings next to E0614: `&*b` borrows the `dyn` pointee of a
+// `Box<dyn>`, `**r` with `r: &&dyn Tr` is one deref per reference layer, and
+// `(*b).v()` calls through the unsized place. Twin of tests/logos/fail/
+// boxdyn_double_deref_wrong_error_code.logos.
+package deref_dyn_place_legal_spellings;
+use logos.mem.boxed;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn use_ref(r: &dyn Sp) -> i64 { return r.v(); }
+fn main() -> i32 {
+    let b: Box<dyn Sp> = box_new(A { x: 40i64 });
+    let r1: &dyn Sp = &*b;
+    let r2: &&dyn Sp = &r1;
+    let s: &str = "ab";
+    let ss: &&str = &s;
+    let n: i64 = use_ref(&*b) + use_ref(&**r2) - 40i64 + (*b).v() - 40i64 + (**ss).len();
+    return n as i32;
+}

@@ -18,10 +18,17 @@
 // the set the emitter can materialise: any shape this says NO to keeps
 // today's frame lowering AND today's refusal, which is safe by construction.
 //
-// SCOPE, STATED: scalar literals and arrays of scalar literals (the empty
-// array included). A struct/tuple literal (`&S{n:1}`, `&(1i64,2i64)`) is NOT
-// promoted — it stays refused exactly as before, a KNOWN residual divergence
-// from Rust, not a new hole.
+// SCOPE, STATED: scalar and `str` literals, and array / tuple / struct literals whose
+// every element is itself promotable, nested to any depth (the empty array
+// included) — `&[[1, 2], [3, 4]]`, `&(1i64, 2.0)`, `&S { n: 1, a: [0; 2] }`.
+// A struct is promoted only when its type has NO DESTRUCTOR (asked of the
+// caller: `has_drop`) and is not `UnsafeCell` (interior mutability: a promoted
+// `&Cell` would write into read-only storage) — Rust's conditions.
+//
+// ⚠ THE BORROW CHECKER'S BIR ONCE KEPT A PRIVATE COPY of this predicate that
+// took nested arrays and `&"s"`: `fn f() -> &'static [[i64; 2]; 2] { &[[1, 2],
+// [3, 4]] }` was admitted and returned a FRAME address (measured: the caller
+// read another frame's bytes). A third consumer is a third copy; there is one.
 #include <logos/compiler/lir_view.hpp>
 
 namespace logos::compiler::const_promote {
@@ -59,31 +66,63 @@ inline bool is_const_scalar(lir_view::ExprRef e,
     }
 }
 
+inline bool is_unsafe_cell(TypeRef t) noexcept {
+    if (!t || (t.kind() != LogosType::Kind::Struct && t.kind() != LogosType::Kind::ZonedStruct))
+        return false;
+    std::string_view n = t.struct_name();
+    n = n.substr(0, n.find('$'));   // a mono instance: `UnsafeCell$G1$i64`
+    return t.pkg_name() == "logos.lang.cell" && n == "UnsafeCell";
+}
+
 // A value that can be materialised whole in read-only static storage.
-inline bool is_const_value(lir_view::ExprRef e,
-                           const TypePoolImpl* pool) noexcept {
+// `has_drop(TypeRef)` answers whether a STRUCT type has a destructor (its own
+// or a field's); each consumer asks its own drop facts.
+template <class HasDrop>
+bool is_const_value(lir_view::ExprRef e, const TypePoolImpl* pool,
+                    const HasDrop& has_drop, int depth = 0) noexcept {
     using EC = lir_schema::expr::Code;
-    if (!e) return false;
+    if (!e || depth > 16) return false;
     if (is_const_scalar(e, pool)) return true;
-    if (e.kind() == EC::ArrLit) {
-        bool all = true;
-        lir_view::EArrLitView{e}.each_elem([&](lir_view::ExprRef el) {
-            if (!el || !is_const_scalar(el, pool)) all = false;
-        });
-        return all;   // an EMPTY array literal answers YES — `&[]`
+    bool all = true;
+    auto each = [&](lir_view::ExprRef el) {
+        if (all && !is_const_value(el, pool, has_drop, depth + 1)) all = false;
+    };
+    switch (e.kind()) {
+        case EC::LitStr:     // a `&str` value: `{ptr, len}` over its own global
+            return true;
+        case EC::ArrLit:     // an EMPTY array literal answers YES — `&[]`
+            lir_view::EArrLitView{e}.each_elem(each);
+            return all;
+        case EC::TupleLit:
+            if (lir_view::ETupleLitView{e}.count() == 0) return false;
+            lir_view::ETupleLitView{e}.each_elem(each);
+            return all;
+        case EC::StructLit: {
+            TypeRef t = e.type(pool);
+            if (!t || t.kind() != LogosType::Kind::Struct || is_unsafe_cell(t) || has_drop(t))
+                return false;
+            bool any = false;
+            lir_view::EStructLitView{e}.each_field([&](std::string_view, lir_view::ExprRef v) {
+                any = true;
+                each(v);
+            });
+            return any && all;
+        }
+        default:
+            return false;
     }
-    return false;
 }
 
 // Is `e` the whole borrow of a promotable constant? `&mut` is excluded: it
 // needs unique WRITABLE storage, and read-only static storage is neither.
-inline bool is_promoted_borrow(lir_view::ExprRef e,
-                               const TypePoolImpl* pool) noexcept {
+template <class HasDrop>
+bool is_promoted_borrow(lir_view::ExprRef e, const TypePoolImpl* pool,
+                        const HasDrop& has_drop) noexcept {
     using EC = lir_schema::expr::Code;
     if (!e || e.kind() != EC::AddrOfTemp) return false;
     lir_view::EAddrOfTempView v{e};
     if (v.is_mut()) return false;
-    return is_const_value(v.inner(), pool);
+    return is_const_value(v.inner(), pool, has_drop);
 }
 
 }  // namespace logos::compiler::const_promote

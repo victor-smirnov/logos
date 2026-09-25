@@ -142,6 +142,7 @@ inline std::string lt_written(std::string_view lt) {
         auto it = fnptr_binder_names().find(std::string(lt));
         if (it != fnptr_binder_names().end()) return it->second;
     }
+    if (lt == "static") return "'static";   // the promoted/literal region's internal spelling
     return std::string(lt);
 }
 

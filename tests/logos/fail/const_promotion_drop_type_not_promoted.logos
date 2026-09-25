@@ -1,0 +1,8 @@
+// A literal of a type WITH A DESTRUCTOR is not promoted (Rust: E0515, cannot
+// return reference to temporary value): the promoted form would never run the
+// destructor. Twin: tests/logos/pass/struct_lit_const_promotion_refused.logos.
+package const_promotion_drop_type_not_promoted;
+struct D { v: i64 }
+impl Drop for D { fn drop(self: &mut D) { } }
+fn f() -> &'static D { return &D { v: 1i64 }; }
+fn main() -> i32 { return f().v as i32; }

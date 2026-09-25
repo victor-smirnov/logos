@@ -9639,6 +9639,15 @@ private:
     // assignment, emitted by the extending borrow around the finished borrow —
     // `{ __lit_temp = W {..}; &__lit_temp.y }` keeps the operand a PLACE.
     std::vector<lir_view::StmtRef> pending_ext_init_;
+    // lower_deref returned its operand as the UNSIZED place (`*r`, r: &dyn /
+    // Box<dyn> / &[T]); read and cleared by the enclosing deref (E0614).
+    bool deref_yielded_unsized_ = false;
+    std::string unsized_place_name_(TypeRef t) {
+        if (t && TypeRef(t).kind() == LogosType::Kind::TraitObject)
+            return std::format("dyn {}", TypeRef(t).trait_name());
+        std::string s = type_str(t);
+        return s.starts_with("&") ? s.substr(1) : s;
+    }
     lir::LExprPtr wrap_ext_init_(std::vector<lir_view::StmtRef> init, lir::LExprPtr r) {
         if (init.empty() || !r) return r;
         TypeRef t = expr_type(r);

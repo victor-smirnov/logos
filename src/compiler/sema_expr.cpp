@@ -1,6 +1,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include "sema_impl.hpp"
+#include <logos/compiler/const_promote.hpp>
 #include "ctfe.hpp"
 #include "logos_parser.hpp"  // re-parse RAW_TEXT for fn-macro args
 #include "wql_surface_parser.hpp"        // the compiler parses deem! rule bodies itself
@@ -1747,6 +1748,15 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // steps the inner `*bb` through `deref_mut` too.
             auto operand = lower_mut_place(map_of(child.get(la::VALUE.code)));
             auto op_t = expr_type(operand);
+            const bool operand_unsized =
+                code_of(unwrap_paren_node(map_of(child.get(la::VALUE.code)))) == la::DEREF &&
+                deref_yielded_unsized_;
+            deref_yielded_unsized_ = false;
+            if (operand_unsized && (TypeRef(op_t).kind() == LogosType::Kind::TraitObject ||
+                                    TypeRef(op_t).kind() == LogosType::Kind::Slice)) {
+                error(std::format("type `{}` cannot be dereferenced (E0614)", unsized_place_name_(op_t)));
+                return error_expr();
+            }
             // `&mut *b` over an owning `Box<dyn Trait>` — the mutable twin of
             // the shared arm below; same root, same repair (queue row
             // boxdyn_mut_explicit_deref_arg_no_vtable, tier 3 `refuses`).
@@ -4135,6 +4145,15 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
             auto operand = lower_expr(map_of(child.get(la::VALUE.code)));
             auto op_t = expr_type(operand);
+            const bool operand_unsized =
+                code_of(unwrap_paren_node(map_of(child.get(la::VALUE.code)))) == la::DEREF &&
+                deref_yielded_unsized_;
+            deref_yielded_unsized_ = false;
+            if (operand_unsized && (TypeRef(op_t).kind() == LogosType::Kind::TraitObject ||
+                                    TypeRef(op_t).kind() == LogosType::Kind::Slice)) {
+                error(std::format("type `{}` cannot be dereferenced (E0614)", unsized_place_name_(op_t)));
+                return error_expr();
+            }
             // `&*b` where `b: Box<dyn Trait>` — THE legal spelling (owner ruling
             // 2026-09-15), and it was BROKEN in every shape: an owning trait
             // object is not Ptr/Ref/MutRef and has no user `Deref` impl, so the
@@ -4154,9 +4173,16 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             // `r: &dyn Tr`. Skipping the arm leaves `&**b` at exactly its base
             // behaviour (mlir-gen internal error — right verdict, wrong sentence,
             // queue row wrapper_unsize_missing_impl_backend_diag's class).
-            bool inner_is_deref =
-                code_of(map_of(child.get(la::VALUE.code))) == la::DEREF;
-            if (!inner_is_deref &&
+            // ⚠ SUPERSEDED 2026-09-25: the unsized-place signal
+            // (deref_yielded_unsized_, above) now tells `&**b` (E0614) from the
+            // legal `&*r` / `&**rr`, so the arm keys on it instead of the syntax.
+            // A BORROWED trait object's reborrow `&*r` is `r` itself; it used to
+            // fall to the address-of below and be typed `&&dyn` ("no vtable").
+            if (!operand_unsized &&
+                TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
+                !TypeRef(op_t).owning_trait_object())
+                return operand;
+            if (!operand_unsized &&
                 TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
                 TypeRef(op_t).owning_trait_object()) {
                 auto a = TypeRef(op_t).type_args();
@@ -4216,13 +4242,27 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // decay to `&[T]` happens where a slice is EXPECTED.
         // `&<literal>` is a promoted constant: its region is 'static (Rust
         // `destructors.scope.const-promotion`; a literal only — 2026-09-02s).
+        // A borrow of a CONSTANT — a literal, or an array / tuple / struct
+        // literal of constants whose type has no destructor — is promoted
+        // (Rust `destructors.scope.const-promotion`): 'static, in read-only
+        // storage, never a temporary. One predicate with the checkers and the
+        // emitter (const_promote.hpp); taken BEFORE the temporary hoists below,
+        // which would give it a frame local.
         auto __lit = expr_ref_of(inner).kind();
+        const bool __promo = const_promote::is_const_value(
+            expr_ref_of(inner), cur_prog_->type_pool.impl(),
+            [this](TypeRef t) { return needs_drop(t); });
         auto __ty_inner = make_ref(false, expr_type(inner),
-                                   (__lit == lir_schema::expr::Code::LitInt ||
+                                   (__promo ||
+                                    __lit == lir_schema::expr::Code::LitInt ||
                                     __lit == lir_schema::expr::Code::LitFloat ||
                                     __lit == lir_schema::expr::Code::LitBool)
                                        ? std::string("static")
                                        : place_base_region(inner));
+        if (__promo)
+            return wrap_ext_init_(std::move(ext_init),
+                                  builder().addr_of_temp(std::move(inner), false, __ty_inner,
+                                                         BorrowOrigin::Explicit));
         // Rust temporary scope: `f(&make_vec())` materializes a DROPPABLE
         // rvalue whose stack slot nothing else owns. Without the statement-scope
         // hoist it is spilled and never dropped — one leaked allocation per
@@ -4323,6 +4363,12 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     // The position carries down to a base that is itself a place (`**bb`).
     auto operand = mut_ctx ? lower_mut_place(operand_node) : lower_expr(operand_node);
     mut_place_ctx_ = false;
+    // The operand is itself `*x` over a `&dyn` / `Box<dyn>` / `&[T]`: it is the
+    // UNSIZED place, which has no `*` (E0614). The type cannot say so — `dyn Tr`
+    // and `&dyn Tr` are one Kind — so the inner deref reports it.
+    const bool operand_unsized = code_of(unwrap_paren_node(operand_node)) == la::DEREF &&
+                                 deref_yielded_unsized_;
+    deref_yielded_unsized_ = false;
     auto vt = expr_type(operand);
     if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return builder().deref(std::move(operand), error_t());
@@ -4345,9 +4391,17 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
         const auto vk = TypeRef(vt).kind();
         // A `&str` / `&[T]` / `&dyn Tr` IS its fat pointer: `*s` is the unsized
         // value, which has that same representation — the identity.
+        if ((vk == LogosType::Kind::Slice || vk == LogosType::Kind::TraitObject) &&
+            operand_unsized) {
+            error(std::format("type `{}` cannot be dereferenced (E0614)", unsized_place_name_(vt)));
+            return error_expr();
+        }
+        if (vk == LogosType::Kind::Slice || vk == LogosType::Kind::TraitObject) {
+            deref_yielded_unsized_ = true;
+            return operand;
+        }
         if (vk == LogosType::Kind::TypeVar || vk == LogosType::Kind::AssocType ||
-            vk == LogosType::Kind::ImplTrait || vk == LogosType::Kind::Slice ||
-            vk == LogosType::Kind::TraitObject)
+            vk == LogosType::Kind::ImplTrait)
             return operand;
         error(std::format("type `{}` cannot be dereferenced", type_str(vt)));
         return error_expr();

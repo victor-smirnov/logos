@@ -2192,6 +2192,12 @@ private:
     // #92 const promotion — read-only static storage for `&<const expr>`.
     // Null iff the shape is outside const_promote::is_const_value.
     mlir::Value gen_promoted_const(lir_view::ExprRef e, TypeRef t);
+    // The static-storage type of a promotable aggregate and its constant value,
+    // built inside a global's initializer region (undef + insertvalue).
+    mlir::Type  promoted_llvm_type_(lir_view::ExprRef e, TypeRef t);
+    std::string decode_str_lit_(std::string raw);
+    std::string str_global_(const std::string& text);
+    mlir::Value build_promoted_value_(lir_view::ExprRef e, TypeRef t, mlir::Type lty);
     mlir::Value gen_expr_kind(lir_view::EDerefView v, TypeRef type);
     // True when `*operand` over a `*const/*mut dyn` is a genuine pointer-INTO-
     // storage (a container accessor return, e.g. `HashMap::get → *const Box<dyn>`)
