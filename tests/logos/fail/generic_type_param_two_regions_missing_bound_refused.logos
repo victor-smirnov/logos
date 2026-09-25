@@ -1,0 +1,6 @@
+// Without `'b: 'a`, returning `first(x, y)` at `'a` is refused by the borrow checker in
+// rustc's words (rustc 1.98.1: lifetime may not live long enough).
+package generic_type_param_two_regions_missing_bound_refused;
+fn first<T>(a: T, b: T) -> T { return a; }
+fn go<'a, 'b>(x: &'a i64, y: &'b i64) -> &'a i64 { return first(x, y); }
+fn main() -> i32 { return 0; }

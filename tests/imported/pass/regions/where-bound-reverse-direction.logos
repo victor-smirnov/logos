@@ -1,0 +1,14 @@
+// B78: caller declares `'b: 'a` but struct needs `'a: 'b`.
+// 2026-09-25: MOVED fail -> pass. This PORT is legal: rustc 1.98.1 compiles it (the struct's
+// `where` bound is implied by the signature's `Pair<..>`, and a literal's regions are fresh).
+// It pinned sema's rigid literal instantiation, retired with squeue
+// where_struct_literal_instantiation_rigid_refused.
+package where_bound_reverse_direction;
+
+struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
+
+fn bad<'a, 'b>(x: &'a i32, y: &'b i32) -> Pair<'a, 'b>
+    where 'b: 'a
+{ return Pair { x: x, y: y }; }
+
+fn main() -> i32 { return 0i32; }

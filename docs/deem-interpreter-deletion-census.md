@@ -6489,9 +6489,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                #248 #161 closed (4 pass fixtures, the 2 rows among them).
 #                ALL 11280 -> 11282 (+2), NOIMPORTED 6717 -> 6719 (+2), TIERCOMMIT 91 -> 90 (-1) — 2026-09-25: squeue
 #                #471 closed (2 pass fixtures, the row among them; 1 fail).
-REGISTRY-ALL         11282
-REGISTRY-NOIMPORTED  6719
-REGISTRY-TIERCOMMIT  90
+#                ALL 11282 -> 11285 (+3), NOIMPORTED 6719 -> 6722 (+3), TIERCOMMIT 90 -> 88 (-2) — 2026-09-25: squeue
+#                #226 #229 closed (3 pass fixtures, the 2 rows among them; 2 fail); imported
+#                nll/where-clauses-in-structs moved fail -> pass (RENAMED-FIXTURE, net 0).
+#                ALL 11285 -> 11287 (+2), NOIMPORTED 6722 -> 6724 (+2), TIERCOMMIT 88 -> 87 (-1) — 2026-09-25: squeue
+#                #230 closed (1 pass fixture is the row; + 2 fail); 7 imported regions/*where* ports
+#                moved fail -> pass (RENAMED-FIXTURE, net 0).
+REGISTRY-ALL         11287
+REGISTRY-NOIMPORTED  6724
+REGISTRY-TIERCOMMIT  87
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
@@ -9693,6 +9699,14 @@ RENAMED-FIXTURE  tests/imported/pass/nll/tpb-three-args.logos  tests/imported/fa
 RENAMED-FIXTURE  tests/imported/pass/nll/tpb-with-field-args.logos  tests/imported/fail/nll/tpb-with-field-args.logos  2026-09-19 ADR 0028: an explicit `&mut` argument is not two-phase in Rust (E0503); the program is held as an imported fail
 RENAMED-FIXTURE  tests/imported/admit/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args.logos  tests/imported/fail/borrowck/two-phase-nonrecv-autoref--c-mut-and-shared-args.logos  2026-09-19 ADR 0028: the bc_admits row it carried (bck.D, #38) was CLOSED, so the program leaves the admit shelf and is held as an imported fail
 RENAMED-FIXTURE  tests/imported/admit/borrowck/two-phase-nonrecv-autoref--d-index-two-phase.logos  tests/imported/fail/borrowck/two-phase-nonrecv-autoref--d-index-two-phase.logos  2026-09-19 ADR 0028: the bc_admits row it carried (bck.D, #39) was CLOSED, so the program leaves the admit shelf and is held as an imported fail
+RENAMED-FIXTURE  tests/imported/fail/nll/where-clauses-in-structs.logos  tests/imported/pass/nll/where-clauses-in-structs.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — a struct literal's regions are fresh and shrink until the declared `'a: 'b` holds); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
+RENAMED-FIXTURE  tests/imported/fail/regions/region-struct-where-violation.logos  tests/imported/pass/regions/region-struct-where-violation.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — the struct's `where` bound is implied by the signature's type, a literal's regions are fresh); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
+RENAMED-FIXTURE  tests/imported/fail/regions/regions-struct-where-bound.logos  tests/imported/pass/regions/regions-struct-where-bound.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — the struct's `where` bound is implied by the signature's type, a literal's regions are fresh); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
+RENAMED-FIXTURE  tests/imported/fail/regions/where-bound-inverted-pair.logos  tests/imported/pass/regions/where-bound-inverted-pair.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — the struct's `where` bound is implied by the signature's type, a literal's regions are fresh); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
+RENAMED-FIXTURE  tests/imported/fail/regions/where-bound-missing-where.logos  tests/imported/pass/regions/where-bound-missing-where.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — the struct's `where` bound is implied by the signature's type, a literal's regions are fresh); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
+RENAMED-FIXTURE  tests/imported/fail/regions/where-bound-reverse-direction.logos  tests/imported/pass/regions/where-bound-reverse-direction.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — the struct's `where` bound is implied by the signature's type, a literal's regions are fresh); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
+RENAMED-FIXTURE  tests/imported/fail/regions/where-bound-static-fail.logos  tests/imported/pass/regions/where-bound-static-fail.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — the struct's `where` bound is implied by the signature's type, a literal's regions are fresh); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
+RENAMED-FIXTURE  tests/imported/fail/regions/where-bound-three-params.logos  tests/imported/pass/regions/where-bound-three-params.logos  2026-09-25: the PORT is legal (rustc 1.98.1 compiles it — the struct's `where` bound is implied by the signature's type, a literal's regions are fresh); it pinned sema's rigid literal instantiation, retired with squeue where_struct_literal_instantiation_rigid_refused
 
 # The population rule, executable, in the form FACT 6 now uses. ⚠ THIS LIST WAS
 # CORRECTED BEFORE THE FACT WAS RE-AIMED, because its own comment used to assert

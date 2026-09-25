@@ -1,4 +1,8 @@
 // B78: three-lifetime struct with `where 'a: 'c` — caller missing it.
+// 2026-09-25: MOVED fail -> pass. This PORT is legal: rustc 1.98.1 compiles it (the struct's
+// `where` bound is implied by the signature's `Pair<..>`, and a literal's regions are fresh).
+// It pinned sema's rigid literal instantiation, retired with squeue
+// where_struct_literal_instantiation_rigid_refused.
 package where_bound_three_params;
 
 struct Trip<'a, 'b, 'c> where 'a: 'c { x: &'a i32, y: &'b i32, z: &'c i32 }

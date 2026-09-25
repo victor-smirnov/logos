@@ -1,0 +1,13 @@
+// The fresh region of `T` still outlives each argument: a short-lived local escapes
+// through `second` and is refused (rustc 1.98.1: E0597).
+package generic_type_param_short_arg_escapes_refused;
+fn second<T>(a: T, b: T) -> T { return b; }
+fn main() -> i32 {
+    let x: i64 = 1;
+    let r: &i64;
+    {
+        let z: i64 = 5;
+        r = second(&x, &z);
+    }
+    return *r as i32;
+}

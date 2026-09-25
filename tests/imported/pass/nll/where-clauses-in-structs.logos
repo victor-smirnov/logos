@@ -1,6 +1,10 @@
 // rustc nll/where_clauses_in_structs.rs — upstream (region)
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// 2026-09-25: MOVED fail -> pass. This PORT (plain `&'a i64` / `&'b i64` fields) is legal:
+// rustc 1.98.1 compiles it (the literal's regions are fresh and shrink until the declared
+// `'a: 'b` holds). It pinned sema's rigid literal instantiation, now retired: a struct
+// literal's `where` bounds are checked only for WRITTEN region arguments.
 package where_clauses_in_structs;
 struct Foo<'a, 'b> where 'a: 'b { x: &'a i64, y: &'b i64 }
 fn bar<'a, 'b>(x: &'a i64, y: &'b i64) {

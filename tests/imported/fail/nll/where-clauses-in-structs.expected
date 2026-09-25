@@ -1,1 +1,0 @@
-struct literal 'Foo': caller does not satisfy declared outlives bound `'a: 'b` (under lifetime substitution: `'a: 'b` required)

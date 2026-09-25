@@ -1,0 +1,12 @@
+// Compiles and runs as in rustc 1.98.1: exit 4 (squeue row of the same name).
+package where_struct_literal_instantiation_rigid_refused;
+struct W<'a, 'b> where 'b: 'a { lo: &'a i64, hi: &'b i64 }
+fn go<'a, 'c>(x: &'a i64, z: &'c i64) -> i64 {
+    let w = W { lo: x, hi: z };
+    return *w.lo + *w.hi;
+}
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let c: i64 = 3i64;
+    return go(&a, &c) as i32;
+}

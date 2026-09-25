@@ -1409,7 +1409,13 @@ private:
         logos::compiler::StrMap<std::string> flt;
         LtCands cands;
         std::unordered_set<std::string> bare;
+        // A binder met in an INVARIANT position (under a `&mut` / raw pointer's
+        // pointee) must EQUAL the region there; its covariant occurrences only
+        // need to outlive it. `C { r: r, m: m }` for `C<'a> { r: &'a i64, m: &'a
+        // mut &'a i64 }` takes `'a` from `m`, not from whichever field came first.
+        logos::compiler::StrMap<std::string> inv_pick;
         if (lifetime_params.empty()) return flt;
+        bool inv = false;
         std::function<void(TypeRef, TypeRef)> walk = [&](TypeRef dt, TypeRef at) {
             if (!dt || !at) return;
             using K = LogosType::Kind;
@@ -1420,8 +1426,12 @@ private:
                 if (!d.empty() && !a.empty()) {
                     cands[d].push_back(a);
                     if (!flt.count(d)) flt.emplace(d, a);
+                    if (inv && !inv_pick.count(d)) inv_pick.emplace(d, a);
                 }
+                const bool saved_inv = inv;
+                if (dk2 == K::MutRef) inv = true;
                 walk(dt.pointee(), at.pointee());
+                inv = saved_inv;
                 return;
             }
             // `&'a str` / `&'a [T]` / `&'a dyn` / `&'a Dst`: the fat-pointer
@@ -1464,7 +1474,10 @@ private:
                 return;
             }
             if (dk2 == K::Ptr && at.kind() == K::Ptr) {   // a raw pointer's pointee regions pair too
+                const bool saved_inv = inv;
+                inv = true;
                 walk(dt.pointee(), at.pointee());
+                inv = saved_inv;
                 return;
             }
         };
@@ -1482,6 +1495,7 @@ private:
                 if (bare.count(lp)) out[lp] = std::string{};
                 continue;
             }
+            if (auto ip = inv_pick.find(lp); ip != inv_pick.end()) { out[lp] = ip->second; continue; }
             std::unordered_set<std::string> d(it->second.begin(), it->second.end());
             // THE MEET. Two DIFFERENT regions were offered for one binder and
             // the binder is covariant: it is instantiated at the region both
@@ -7295,6 +7309,22 @@ private:
         }
     }
     // E0107 at a VALUE path: a turbofish's lifetime args against the declaration (complete at lowering).
+    // A struct literal's region arguments are its OWN only when written — a
+    // turbofish `Pair::<'a, 'b> { .. }` or an annotated expectation. Otherwise
+    // they are fresh inference regions that shrink to what the values allow, so
+    // a declared `where 'b: 'a` always holds of them (rustc accepts `W { lo: x,
+    // hi: z }` for any `x`, `z`); the obligation lands where the type is named.
+    bool struct_lit_regions_written_(sema_detail::TinyMapView node) {
+        using namespace sema_detail;
+        if (hint_struct_type_ && !TypeRef(hint_struct_type_).lifetime_args().empty()) return true;
+        if (!node.has_key(la::TYPE_PARAMS)) return false;
+        AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+        if (tpav.is_null() || !tpav.is_pointer() || !map_of(tpav).has_key(la::ITEMS)) return false;
+        auto its = arr_of(map_of(tpav).get(la::ITEMS.code));
+        for (uint64_t i = 0; i < its.size(); ++i)
+            if (code_of(map_of(its.get(i))) == la::LIFETIME_PARAM) return true;
+        return false;
+    }
     void check_turbofish_lifetime_arity_(sema_detail::TinyMapView node, std::string_view name,
                                          const std::vector<std::string>& decl_lts) {
         using namespace sema_detail;
@@ -8731,6 +8761,7 @@ private:
         const std::string& type_name);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
     lir::LExprPtr lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs);
+    bool finish_call_targs_written_ = false;   // lower_generic_call → finish_generic_call
     lir::LExprPtr lower_field_read(writ::TinyMapView node);
     // ADR 0011 — convert a WAny (from a schema `get`) to the field's declared
     // type via the matching WAny accessor (as_bool/as_i64/as_u64/as_f64/resolve).

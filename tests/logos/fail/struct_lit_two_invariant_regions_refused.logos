@@ -1,0 +1,9 @@
+// Two INVARIANT occurrences at different regions cannot both pin the binder (rustc
+// 1.98.1: lifetime may not live long enough).
+package struct_lit_two_invariant_regions_refused;
+struct D<'a> { m: &'a mut &'a i64, n: &'a mut &'a i64 }
+fn mk<'a, 'b>(m: &'a mut &'a i64, n: &'b mut &'b i64) -> i64 {
+    let d = D { m: m, n: n };
+    return 0;
+}
+fn main() -> i32 { return 0; }

@@ -1,0 +1,8 @@
+// `T` instantiated at two regions with `'b: 'a` returns at `'a` (rustc 1.98.1: exit 0).
+package generic_type_param_two_regions_outlives_ok;
+fn first<T>(a: T, b: T) -> T { return a; }
+fn go<'a, 'b: 'a>(x: &'a i64, y: &'b i64) -> &'a i64 { return first(x, y); }
+fn main() -> i32 {
+    let a: i64 = 4; let b: i64 = 5;
+    return (*go(&a, &b) - 4) as i32;
+}

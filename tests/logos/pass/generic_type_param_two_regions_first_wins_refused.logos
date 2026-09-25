@@ -1,0 +1,12 @@
+// Compiles and runs as in rustc 1.98.1: exit 6 (squeue row of the same name).
+package generic_type_param_two_regions_first_wins_refused;
+fn first<T>(a: T, b: T) -> T { return a; }
+fn go<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 {
+    let r = first(x, y);
+    return *r;
+}
+fn main() -> i32 {
+    let a: i64 = 6i64;
+    let b: i64 = 7i64;
+    return go(&a, &b) as i32;
+}

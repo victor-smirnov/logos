@@ -6062,6 +6062,14 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                       std::vector<TypeRef> type_args,
                                       std::vector<lir::LExprPtr> arg_exprs) {
     std::string callee{callee_sv};
+    // Type parameters the caller WROTE (turbofish, not `_`): their regions are
+    // the written ones, not fresh (see the argument check below).
+    std::unordered_set<std::string> written_tparams;
+    const bool targs_written = finish_call_targs_written_;
+    finish_call_targs_written_ = false;
+    for (size_t i = 0; targs_written && i < type_args.size() && i < fi.type_params.size(); ++i)
+        if (type_args[i] && TypeRef(type_args[i]).kind() != LogosType::Kind::InferredType)
+            written_tparams.insert(fi.type_params[i].name);
     std::string callee_diag = callee;
     if (auto p = callee_diag.find("__g__"); p != std::string::npos)
         callee_diag.resize(p);
@@ -6468,8 +6476,37 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                 std::format("call to '{}' arg {}:", callee_diag, i + 1),
                                 call_param_shown_(fi.param_types[i],
                                                   fi.lifetime_params, fi.param_types, fi.ret_type, subst));
+                // A formal DECLARED as a bare type parameter (`fn first<T>(a: T,
+                // b: T)`) is instantiated with a FRESH region, which every such
+                // argument must outlive — not with the first argument's region,
+                // which the substitution happens to carry. That constraint is
+                // the borrow checker's (its outlives facts); comparing the second
+                // argument's region to the first's refused `first(x, y)` with
+                // `x: &'a`, `y: &'b`.
+                // ⚠ Only where every region of the argument sits in a COVARIANT
+                // position (a chain of shared references): an invariant one
+                // (`*mut &'1 i64` for `same<T>(a: T, b: T)`) pins the fresh region
+                // to BOTH arguments' regions, which must then be equal — that is
+                // still asked here.
+                auto covariant_regions_only = [](TypeRef t) {
+                    using K = LogosType::Kind;
+                    for (int d = 0; t && d < 32; ++d) {
+                        switch (TypeRef(t).kind()) {
+                        case K::Ref: t = TypeRef(t).pointee(); continue;
+                        case K::MutRef: case K::Ptr: case K::Struct: case K::ZonedStruct:
+                        case K::Enum: case K::Tuple: case K::Array: case K::Slice:
+                        case K::TraitObject: case K::Closure: case K::FnPtr:
+                            return false;
+                        default: return true;
+                        }
+                    }
+                    return false;
+                };
                 if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                    TypeRef(pt).kind() != LogosType::Kind::AssocType)
+                    TypeRef(pt).kind() != LogosType::Kind::AssocType &&
+                    !(TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar &&
+                      !written_tparams.count(std::string(TypeRef(fi.param_types[i]).type_var_name())) &&
+                      TypeRef(at).kind() == LogosType::Kind::Ref && covariant_regions_only(at)))
                     check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::TypeVar)
@@ -8269,6 +8306,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
     }
 
+    finish_call_targs_written_ = true;   // the turbofish list IS written
     return finish_generic_call(
         fi_ptr->symbol_name.empty() ? callee : fi_ptr->symbol_name,
         *fi_ptr, std::move(type_args), std::move(arg_exprs));
@@ -13441,7 +13479,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 }
             }
         }
-        // B77: verify generic-struct's `where 'a: 'b` constraints.
+        // B77: verify generic-struct's `where 'a: 'b` constraints — of WRITTEN
+        // region arguments only (struct_lit_regions_written_).
+        if (struct_lit_regions_written_(node))
         check_struct_lit_outlives(std::string(sname),
                                   sinfo.lifetime_params,
                                   sinfo.lifetime_outlives,
@@ -13756,8 +13796,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             auto bl_ng = structlit_lt_subst_(sinfo.lifetime_params, sinfo.fields, fields,
                                              sinfo.package.empty() ? std::string(sname)
                                                                    : sinfo.package + "." + std::string(sname));
+            // The meet token — and a binder pinned by an INVARIANT occurrence —
+            // replace the first region met (structlit_lt_subst_).
             for (auto& [k, v] : bl_ng)
-                if (lt_is_meet(v)) flt[k] = v;
+                if (lt_is_meet(v) || (!v.empty() && flt.count(k) && flt[k] != v)) flt[k] = v;
         }
         logos::probe::census("lit.mint.sized");
         ng_lt_args.assign(sinfo.lifetime_params.size(), std::string{});
@@ -13780,7 +13822,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }
         }
     }
-    // B77: verify struct's `where 'a: 'b` against caller's outlives graph.
+    // B77: verify struct's `where 'a: 'b` against caller's outlives graph — of
+    // WRITTEN region arguments only (struct_lit_regions_written_).
+    if (struct_lit_regions_written_(node))
     check_struct_lit_outlives(std::string(sname),
                               sinfo.lifetime_params,
                               sinfo.lifetime_outlives,

@@ -48,12 +48,6 @@ static_ref_nested_borrow_region_not_static_refused 3 tests/soundness/open/static
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
-generic_type_param_two_regions_first_wins_refused 3 tests/soundness/open/generic_type_param_two_regions_first_wins_refused refuses
-
-where_struct_literal_instantiation_rigid_refused 3 tests/soundness/open/where_struct_literal_instantiation_rigid_refused refuses
-
-struct_lit_invariant_binder_first_wins_covariant_region_refused 3 tests/soundness/open/struct_lit_invariant_binder_first_wins_covariant_region_refused refuses
-
 rawptr_tuple_eq_no_eq_impl_refused 3 tests/soundness/open/rawptr_tuple_eq_no_eq_impl_refused refuses
 
 ref_typearg_eq_impl_missing_refused 3 tests/soundness/open/ref_typearg_eq_impl_missing_refused refuses
@@ -233,5 +227,5 @@ format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrendera
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 29
-# SYNC-HASH 75dccfd6c7b2eb46ff6e3dc8002edef7
+# TOTAL 26
+# SYNC-HASH a6eb4a586d8a9f394709df2b8dd86ba5

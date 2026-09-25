@@ -1,4 +1,8 @@
 // B78: `Pair { x = (with 'short), y = (with 'long) }` requires 'short: 'long.
+// 2026-09-25: MOVED fail -> pass. This PORT is legal: rustc 1.98.1 compiles it (the struct's
+// `where` bound is implied by the signature's `Pair<..>`, and a literal's regions are fresh).
+// It pinned sema's rigid literal instantiation, retired with squeue
+// where_struct_literal_instantiation_rigid_refused.
 package where_bound_inverted_pair;
 
 struct Pair<'a, 'b> where 'a: 'b { x: &'a i32, y: &'b i32 }
