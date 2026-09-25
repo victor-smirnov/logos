@@ -10,7 +10,7 @@ package bc_0915f_consumeland_operator_operands_moved_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct A { v: i64, c: *mut i64 }
 impl Drop for A { fn drop(self: &mut A) { unsafe { *self.c = *self.c + self.v; } } }
-impl Add for A { fn add(self: A, o: A) -> i64 { return self.v + o.v; } }
+impl Add for A { type Output = i64; fn add(self: A, o: A) -> i64 { return self.v + o.v; } }
 
 fn main() -> i32 {
     let mut n: i64 = 0i64;

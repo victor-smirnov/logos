@@ -5,8 +5,8 @@ package dyn_trait_shadowing;
 trait Add { fn base(&self) -> i64; }            // shadows ops::Add
 trait Sub: Add { fn describe(&self) -> i64; }   // shadows ops::Sub, supertrait = shadowed Add
 struct W { v: i64 }
-impl Add for W { fn base(&self) -> i64 { return 100i64; } }
-impl Sub for W { fn describe(&self) -> i64 { return self.v; } }
+impl Add for W { type Output = W; fn base(&self) -> i64 { return 100i64; } }
+impl Sub for W { type Output = W; fn describe(&self) -> i64 { return self.v; } }
 fn main() -> i64 {
     let w: W = W { v: 42i64 };
     let d: &dyn Sub = &w;

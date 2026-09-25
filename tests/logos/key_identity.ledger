@@ -37,7 +37,10 @@
 # keyed by DefId, so a type reaches its declaration by its own (package, name)
 # and there is no bare-name lookup left to pin. That takes every B#98 row with
 # it — the cell whose ground was "bare and reachable, a KNOWN OPEN DEFECT".
-# 29 rows / 31 sites. Cells: O 13, D 7, B#90 2, Q 3, B#98 0.
+# 30 rows / 32 sites. Cells: O 13, D 8, B#90 2, Q 3, B#98 0.
+# (+1 D row 2026-09-25: sema_impl.hpp op_output_type_, a by-value operator's
+#  `Output` over a type parameter — keyed by TYPE-PARAMETER name like the rows
+#  beside it, in the signature being checked.)
 # (+1 Q row 2026-09-17q: mlir_gen_fn.cpp `fn_param_arg_index_`, make_fn_type's
 #  record of each param's MLIR argument index — keyed by `link_name(fn)`, the
 #  mangled link symbol, so it is qualified by construction, exactly as mono's
@@ -525,6 +528,7 @@ sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
 sema_expr.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(t).type_var_name())
 sema_stmt.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(ann).type_var_name())
 sema_impl.hpp	current_type_bounds_	D	2	std::string(TypeRef(t).type_var_name())
+sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 
 # ── FACT 5 (task #106) — BARE ENTITY NAME IN CALL-ARGUMENT POSITION ─────────
 # One row per CALLEE: how many nominal-entity-shaped string literals it is

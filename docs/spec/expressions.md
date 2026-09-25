@@ -974,6 +974,12 @@ Unary operators (`&`, `!`, `-`, etc.) are prefix and bind directly to their oper
 
 ## Binary operators (`expr.binop`)
 
+### `expr.binop.operator-trait-rhs-output` — Operator traits are `Trait<Rhs = Self>` with an `Output`
+
+The binary operator traits (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`) are declared as in Rust: `trait Add<Rhs = Self> { type Output; fn add(self, rhs: Rhs) -> Self::Output; }`; `Neg` / `Not` have `type Output; fn neg(self) -> Self::Output`; the `*Assign` traits take `<Rhs = Self>`. Every impl states `type Output` (E0046 otherwise). An impl that omits `Rhs` implements `Trait<Self>`, and its method is checked against that (`impl Add for V { fn add(self, rhs: i64) }` does not match). `a OP b` on a concrete struct calls the impl selected by the operand types — two impls of one trait at different `Rhs` (`Add<V>`, `Add<&V>`) are distinct. Over a type parameter bounded by the trait, `a OP b` has type `<T as Trait>::Output` — the bound's written `Output = X`, else the projection, resolved per instance — so `fn f<T: Add>(a: T, b: T) -> T { a + b }` is refused (E0308) and is written `T: Add<Output = T>`.
+
+*Evidence:* `tests/logos/pass/operator_trait_rhs_type_param_refused.logos`, `tests/logos/pass/operator_trait_output_shapes.logos`, `tests/logos/pass/operator_generic_output_projection.logos`, `tests/logos/fail/operator_generic_result_is_output_not_self.logos`, `tests/logos/fail/operator_impl_omitted_rhs_is_self.logos`, `tests/logos/fail/operator_impl_missing_output_refused.logos`.
+
 ### `expr.binop.short-circuit-logical` — Logical && / || short-circuit
 
 For `a && b`: if `a` is false the result is false and `b` is not evaluated; otherwise the result is `b`. For `a || b`: if `a` is true the result is true and `b` is not evaluated; otherwise the result is `b`. Both produce a bool (i1).
@@ -2606,7 +2612,7 @@ For a place of struct type S, if an impl of the operator's *Assign trait exists 
 
 ### `expr.compound-assign.opassign-fallback-binop` — Compound-assign without *Assign impl desugars to read-modify-write
 
-Absent a matching *Assign impl, `place op= rhs` desugars to `place = (place) op rhs` (read-twice / double-eval of the place), dispatching `op` through the corresponding binary-operator trait (Add/Sub/…), which constructs a fresh Self.
+Absent a matching *Assign impl, `place op= rhs` desugars to `place = (place) op rhs` (read-twice / double-eval of the place), dispatching `op` through the corresponding binary-operator trait (Add/Sub/…), whose `Output` is assigned back to the place (see `expr.binop.operator-trait-rhs-output`).
 
 *Source:* `src/compiler/sema_stmt.cpp#L2313-L2314`, `src/compiler/sema_stmt.cpp#L2370-L2373`, `src/compiler/sema_stmt.cpp#L2520-L2534`
 

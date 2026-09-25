@@ -6,7 +6,7 @@ struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
 fn eat(d: D) -> i64 { return d.v * 0i64; }
-impl Add for D { fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
+impl Add for D { type Output = D; fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
 trait Tk { fn take(self: &Self, d: D) -> i64; }
 struct K { k: i64 }
 impl Tk for K { fn take(self: &K, d: D) -> i64 { return d.v * 0i64 + self.k; } }

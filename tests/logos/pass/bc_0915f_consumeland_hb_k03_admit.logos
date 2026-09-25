@@ -6,11 +6,13 @@ struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
 struct W { x: D, y: D, z: i64 }
 impl Add for D {
+    type Output = D;
     fn add(self: D, o: D) -> D {
         return D { v: 100i64, c: self.c };
     }
 }
 impl Neg for D {
+    type Output = D;
     fn neg(self: D) -> D {
         return D { v: 1000i64, c: self.c };
     }

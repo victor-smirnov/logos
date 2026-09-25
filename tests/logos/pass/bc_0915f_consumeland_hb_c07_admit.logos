@@ -10,8 +10,8 @@ enum E { V(D, D), U }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
 fn eat(d: D) -> i64 { return d.v * 0i64; }
 fn eat2(a: [D; 2]) -> i64 { return a[0].v * 0i64; }
-impl Add for D { fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
-impl Not for D { fn not(self: D) -> i64 { return self.v; } }
+impl Add for D { type Output = D; fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
+impl Not for D { type Output = i64; fn not(self: D) -> i64 { return self.v; } }
 impl AddAssign for D { fn add_assign(self: &mut D, o: D) { self.v = self.v + 0i64 * o.v; } }
 fn g(p: *mut i64) -> i64 {
     let a: D = D { v: 1i64, c: p };

@@ -5,6 +5,7 @@ trait Rem { fn rem(self: Self, rhs: Self) -> Self; }
 struct Modular { val: i32, modulus: i32, }
 
 impl Rem for Modular {
+    type Output = Modular;
     fn rem(self: Modular, rhs: Modular) -> Modular {
         return Modular { val: self.val % rhs.val, modulus: self.modulus };
     }

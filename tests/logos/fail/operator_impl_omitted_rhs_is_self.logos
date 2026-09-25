@@ -1,0 +1,8 @@
+// `impl Add for V` is `impl Add<V> for V` (the trait's `Rhs = Self` default,
+// read with `Self` the impl's type): `fn add(self, rhs: i64)` does not match it
+// (Rust: E0053). Twin: tests/logos/pass/operator_trait_output_shapes.logos.
+package operator_impl_omitted_rhs_is_self;
+use logos.lang.ops;
+struct V { x: i64 }
+impl Add for V { type Output = V; fn add(self: V, rhs: i64) -> V { return V { x: self.x + rhs }; } }
+fn main() -> i32 { return 0i32; }

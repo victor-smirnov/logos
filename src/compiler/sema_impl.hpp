@@ -2669,6 +2669,32 @@ private:
             t.const_val = int64_t(packed);
         return pool_->alloc(std::move(t));
     }
+    // `a OP b` over a TYPE PARAMETER is `<T as Trait<Rhs>>::Output` (Rust): the
+    // bound's written `Output = X`, else the projection, resolved per instance by
+    // the impl's `type Output`. Null when `tv` has no bound naming `trait` — the
+    // caller keeps its old answer. (Before the ops traits had an `Output`, the
+    // operand type WAS the result; with `Output` free, typing it `T` read an
+    // `i64` result as a struct.)
+    TypeRef op_output_type_(TypeRef tv, std::string_view trait) {
+        if (!tv || TypeRef(tv).kind() != LogosType::Kind::TypeVar) return nullptr;
+        // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+        // checked — see SemaChecker::normalize_assoc_eq for the full ground.
+        auto bit = current_type_bounds_.find(std::string(TypeRef(tv).type_var_name()));
+        if (bit == current_type_bounds_.end()) return nullptr;
+        for (auto& b : bit->second) {
+            if (b.trait_name != trait) continue;
+            for (auto& [n, ty] : b.assoc_eqs)
+                if (n == "Output" && ty) return ty;
+            LogosTypeBuilder t;
+            t.kind            = LogosType::Kind::AssocType;
+            t.assoc_base      = tv;
+            t.trait_name      = std::string(trait) + trait_targ_suffix(b.type_args);
+            if (auto* ti = resolve_trait(std::string(trait))) t.pkg_name = ti->package;
+            t.assoc_type_name = "Output";
+            return pool_->alloc(std::move(t));
+        }
+        return nullptr;
+    }
     // ADR 0028: the raw-pointer twin of a fat reference type (Slice /
     // TraitObject / DstRef), `*mut` when `is_mut`, else `*const`. Anything else
     // is returned unchanged.
@@ -3980,9 +4006,13 @@ private:
                     if (tps2.empty()) continue;  // no type params → no arity
                     bool last_var = tps2.back().is_variadic;
                     size_t got = b.type_args.size();
+                    // Trailing parameters with a DEFAULT (`trait Add<Rhs = Self>`)
+                    // may be omitted: `T: Add` is `T: Add<T>`.
+                    size_t required = tps2.size();
+                    while (required > 0 && tps2[required - 1].default_type) --required;
                     bool ok;
                     if (last_var) ok = got + 1 >= tps2.size();
-                    else          ok = got == tps2.size();
+                    else          ok = got >= required && got <= tps2.size();
                     if (!ok) {
                         ctx_ = std::string(ctx);
                         error(std::format(

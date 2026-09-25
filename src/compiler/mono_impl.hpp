@@ -1238,7 +1238,8 @@ private:
     // Pointees whose layout mono_niche_arm is computing (a cycle guard).
     std::unordered_set<uint64_t> niche_pointee_in_progress_;
     std::string declared_method_symbol(std::string_view owner, std::string_view pkg,
-                                       std::string_view method, int64_t arity = -1);
+                                       std::string_view method, int64_t arity = -1,
+                                       const std::vector<TypeRef>* arg_types = nullptr);
     // #438: `eq` for a concrete element type, matched by SIGNATURE (see the
     // definition). Empty when no implementation exists — the caller reports it.
     std::string eq_instance_for(TypeRef et, TypeRef et_ref);

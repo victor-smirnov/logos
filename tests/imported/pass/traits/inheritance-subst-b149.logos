@@ -13,6 +13,7 @@ trait MyNum : Add<Self, Self> { }
 struct MyInt { val: isize }
 
 impl Add<MyInt, MyInt> for MyInt {
+    type Output = MyInt;
     fn add(self: &Self, other: &MyInt) -> MyInt { return mi(self.val + other.val); }
 }
 

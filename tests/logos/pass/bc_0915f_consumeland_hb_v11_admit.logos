@@ -6,6 +6,7 @@ struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
 impl Neg for D {
+    type Output = i64;
     fn neg(self: D) -> i64 {
         return 0i64 - self.v;
     }

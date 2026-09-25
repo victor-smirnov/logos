@@ -50,8 +50,8 @@ trait Add { fn add(self: Self, rhs: Self) -> Self; }
 trait Eq  { fn eq(self: Self, rhs: Self) -> bool; }
 trait Ord { fn lt(self: Self, rhs: Self) -> bool; }
 struct Num { v: i64 }
-impl Neg for Num { fn neg(self: Num) -> Num { return Num { v: 0i64 - self.v }; } }
-impl Add for Num { fn add(self: Num, rhs: Num) -> Num { return Num { v: self.v + rhs.v }; } }
+impl Neg for Num { type Output = Num; fn neg(self: Num) -> Num { return Num { v: 0i64 - self.v }; } }
+impl Add for Num { type Output = Num; fn add(self: Num, rhs: Num) -> Num { return Num { v: self.v + rhs.v }; } }
 impl Eq  for Num { fn eq(self: Num, rhs: Num) -> bool { return self.v == rhs.v; } }
 impl Ord for Num { fn lt(self: Num, rhs: Num) -> bool { return self.v < rhs.v; } }
 // Drive the operators through a generic fn so substitution precedes the rewrite.

@@ -9,9 +9,9 @@ package issue_22258_add_output_assoc_is2;
 use logos.lang.ops;
 
 struct P { v: i64 }
-impl Add for P { fn add(self: P, rhs: P) -> P { return P { v: self.v + rhs.v }; } }
+impl Add for P { type Output = P; fn add(self: P, rhs: P) -> P { return P { v: self.v + rhs.v }; } }
 
-fn sum<T: Add>(a: T, b: T) -> T { return a + b; }
+fn sum<T: Add<Output = T>>(a: T, b: T) -> T { return a + b; }
 
 fn main() -> i32 {
     let r = sum::<P>(P { v: 10i64 }, P { v: 20i64 });

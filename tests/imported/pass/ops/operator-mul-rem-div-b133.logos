@@ -14,12 +14,15 @@ struct Int {
 }
 
 impl Mul for Int {
+    type Output = Int;
     fn mul(self: Self, rhs: Self) -> Int { return Int { v: self.v * rhs.v }; }
 }
 impl Div for Int {
+    type Output = Int;
     fn div(self: Self, rhs: Self) -> Int { return Int { v: self.v / rhs.v }; }
 }
 impl Rem for Int {
+    type Output = Int;
     fn rem(self: Self, rhs: Self) -> Int { return Int { v: self.v % rhs.v }; }
 }
 fn main() -> i32 {

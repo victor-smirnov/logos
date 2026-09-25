@@ -16,21 +16,27 @@ struct Mask {
 }
 
 impl Mul for Mask {
+    type Output = Mask;
     fn mul(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits * rhs.bits }; }
 }
 impl Shl for Mask {
+    type Output = Mask;
     fn shl(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits << rhs.bits }; }
 }
 impl Shr for Mask {
+    type Output = Mask;
     fn shr(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits >> rhs.bits }; }
 }
 impl BitAnd for Mask {
+    type Output = Mask;
     fn bitand(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits & rhs.bits }; }
 }
 impl BitOr for Mask {
+    type Output = Mask;
     fn bitor(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits | rhs.bits }; }
 }
 impl BitXor for Mask {
+    type Output = Mask;
     fn bitxor(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits ^ rhs.bits }; }
 }
 

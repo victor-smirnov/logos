@@ -4734,6 +4734,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // WHOLE by is_generic_param below and the impl may declare any
                 // type in that slot. PROBES.md 2026-09-04y.
                 if (impl_self_ty) trait_arg_subst["Self"] = impl_self_ty;
+                // An OMITTED trait argument is its default, read with `Self` the
+                // impl's type: `impl Add for V` is `impl Add<V> for V`, so
+                // `fn add(self, rhs: i64)` does not match it (Rust).
+                {
+                    auto& tps = tit->type_params;
+                    for (size_t ti = trait_type_args.size(); ti < tps.size(); ++ti)
+                        if (tps[ti].default_type && !trait_arg_subst.count(tps[ti].name))
+                            trait_arg_subst[tps[ti].name] =
+                                subst_type_sema(tps[ti].default_type, trait_arg_subst);
+                }
                 std::string self_mismatch_note;
                 const SemaFuncInfo* matching = nullptr;
                 // PROBES.md 2026-09-05z: a candidate reached the signature compare.
@@ -5320,8 +5330,20 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     // `trait T { type Item = i32; }`); only error when the
                     // trait declared NO default and the impl didn't provide.
                     if (at.default_type) {
+                        // The default is written in the TRAIT's terms: `Self` is
+                        // this impl's type, a trait parameter this impl's
+                        // argument (or that parameter's own default).
+                        SemaSubst dsub;
+                        if (impl_self_ty) dsub["Self"] = impl_self_ty;
+                        auto& tps = tit->type_params;
+                        for (size_t ti = 0; ti < tps.size(); ++ti) {
+                            if (ti < trait_type_args.size() && trait_type_args[ti])
+                                dsub[tps[ti].name] = trait_type_args[ti];
+                            else if (tps[ti].default_type)
+                                dsub[tps[ti].name] = subst_type_sema(tps[ti].default_type, dsub);
+                        }
                         AssocTypeEntry ae;
-                        ae.type = at.default_type;
+                        ae.type = subst_type_sema(at.default_type, dsub);
                         assoc_type_impls_[key] = std::move(ae);
                     } else
                         error(std::format("impl {} for {}: missing associated type '{}'",

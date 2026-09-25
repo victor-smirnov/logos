@@ -7,6 +7,7 @@ impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
 struct H { b: Box<D> }
 impl Add for H {
+    type Output = i64;
     fn add(self: H, o: H) -> i64 {
         return self.b.v + o.b.v;
     }

@@ -9,6 +9,7 @@ use logos.lang.ops;
 struct Point { x: i64, y: i64 }
 
 impl Neg for Point {
+    type Output = Point;
     fn neg(self: Point) -> Point {
         return Point { x: -self.x, y: -self.y };
     }

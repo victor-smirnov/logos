@@ -1297,11 +1297,12 @@ std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method)
 // trait `m(&self)` on one owner are both `<owner>__m`, and a bound call
 // `x.m()` names only the one it can call.
 std::string Mono::declared_method_symbol(std::string_view owner, std::string_view pkg,
-                                         std::string_view method, int64_t arity) {
+                                         std::string_view method, int64_t arity,
+                                         const std::vector<TypeRef>* arg_types) {
     if (owner.empty() || method.empty()) return {};
-    std::string best;
-    bool ambiguous = false;
-    auto consider = [&](lir_view::FunctionView fn) {
+    std::string best, best_exact;
+    bool ambiguous = false, ambiguous_exact = false;
+    auto consider = [&](lir_view::FunctionView fn, const TypePoolImpl* pool) {
         if (!fn || fn.method_base() != method) return;
         if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) return;
         std::string_view n = fn.name();
@@ -1310,10 +1311,20 @@ std::string Mono::declared_method_symbol(std::string_view owner, std::string_vie
         if (!pkg.empty() && !fn.package().empty() && fn.package() != pkg) return;
         if (best.empty()) best = std::string(n);
         else if (best != n) ambiguous = true;
+        // Exact on the arguments (after the receiver): two impls of one trait at
+        // different type arguments (`Add<V>` / `Add<&V>`) differ only here.
+        if (!arg_types) return;
+        auto ps = fn.params();
+        if (ps.size() != arg_types->size() + 1) return;
+        for (size_t i = 0; i < arg_types->size(); ++i)
+            if (!(*arg_types)[i] || !types_equal(ps[i + 1].type(pool), (*arg_types)[i])) return;
+        if (best_exact.empty()) best_exact = std::string(n);
+        else if (best_exact != n) ambiguous_exact = true;
     };
-    for (auto& fn : out_.functions) consider(fn);
-    for (auto& fn : in_.functions) consider(fn);
-    return ambiguous ? std::string() : best;
+    for (auto& fn : out_.functions) consider(fn, out_.type_pool.impl());
+    for (auto& fn : in_.functions) consider(fn, in_.type_pool.impl());
+    if (!ambiguous) return best;
+    return ambiguous_exact ? std::string() : best_exact;
 }
 
 std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,

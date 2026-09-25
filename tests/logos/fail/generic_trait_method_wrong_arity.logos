@@ -7,6 +7,7 @@ trait Add {
 struct S {}
 
 impl Add for S {
+    type Output = i32;
     fn add(self: S, x: i32) -> i32 { return x + 1; }
 }
 

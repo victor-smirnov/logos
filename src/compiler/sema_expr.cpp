@@ -3902,7 +3902,16 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 error(std::format("operator '{}': type mismatch ({} vs {})",
                       op, type_str(lt), type_str(rt)));
             // If one side is TypeVar and the other is IntLit, result is the TypeVar
-            if (TypeRef(lt).kind() == LogosType::Kind::TypeVar) result_type = lt;
+            // — or, for a by-value operator trait the TypeVar is bounded by, its
+            // `Output` (op_output_type_).
+            static const std::pair<const char*, const char*> kOpTrait[] = {
+                {"+", "Add"}, {"-", "Sub"}, {"*", "Mul"}, {"/", "Div"}, {"%", "Rem"},
+                {"&", "BitAnd"}, {"|", "BitOr"}, {"^", "BitXor"}, {"<<", "Shl"}, {">>", "Shr"}};
+            TypeRef op_out = nullptr;
+            for (auto& [o, tr] : kOpTrait)
+                if (op == o) { op_out = op_output_type_(lt, tr); break; }
+            if (op_out) result_type = op_out;
+            else if (TypeRef(lt).kind() == LogosType::Kind::TypeVar) result_type = lt;
             else if (TypeRef(rt).kind() == LogosType::Kind::TypeVar) result_type = rt;
             // FloatLit/IntLit on LHS defers to the concrete type on RHS (e.g. 1.0 + x_f32 → f32).
             else result_type = unify_numeric(lt, rt);

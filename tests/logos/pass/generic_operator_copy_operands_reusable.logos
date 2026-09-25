@@ -5,6 +5,6 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 struct P { v: i64 }
 impl Clone for P { fn clone(&self) -> P { return P { v: self.v }; } }
 impl Copy for P {}
-impl Add for P { fn add(self: P, o: P) -> P { return P { v: self.v + o.v }; } }
-fn sumc<T: Add + Copy>(x: T, y: T) -> T { let s: T = x + y; let t: T = x + s; return t; }
+impl Add for P { type Output = P; fn add(self: P, o: P) -> P { return P { v: self.v + o.v }; } }
+fn sumc<T: Add<Output = T> + Copy>(x: T, y: T) -> T { let s: T = x + y; let t: T = x + s; return t; }
 fn main() -> i32 { unsafe { printf("%lld\n".as_ptr(), sumc(P { v: 1i64 }, P { v: 2i64 }).v); } return 0i32; }

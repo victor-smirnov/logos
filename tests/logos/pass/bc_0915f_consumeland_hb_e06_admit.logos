@@ -6,7 +6,7 @@ struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
 struct W { x: D, y: D }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
-impl Neg for D { fn neg(self: D) -> D { return D { v: 100i64, c: self.c }; } }
+impl Neg for D { type Output = D; fn neg(self: D) -> D { return D { v: 100i64, c: self.c }; } }
 impl AddAssign for D { fn add_assign(self: &mut D, o: D) { self.v = self.v + 0i64 * o.v; } }
 trait Tr { fn get(self: &Self) -> i64; }
 impl Tr for D { fn get(self: &D) -> i64 { return self.v; } }

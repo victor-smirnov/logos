@@ -1,0 +1,25 @@
+// Rust-shaped operator traits: `Add<V>` and `Add<&V>` on one type, `Mul<i64>`,
+// `Neg` with `Output = i64`, `AddAssign<i64>`, and a generic `T: Add<Output = T>`
+// (mono picks the impl by the operand types: two impls share owner, method
+// and arity). rustc 1.98.1: exit 49.
+package operator_trait_output_shapes;
+use logos.lang.ops;
+struct V { x: i64 }
+impl Add for V { type Output = V; fn add(self: V, o: V) -> V { return V { x: self.x + o.x }; } }
+impl Add<&V> for V { type Output = V; fn add(self: V, o: &V) -> V { return V { x: self.x + o.x * 10i64 }; } }
+impl Mul<i64> for V { type Output = V; fn mul(self: V, k: i64) -> V { return V { x: self.x * k }; } }
+impl Neg for V { type Output = i64; fn neg(self: V) -> i64 { return -self.x; } }
+impl AddAssign<i64> for V { fn add_assign(&mut self, k: i64) { self.x = self.x + k; } }
+fn sum2<T: Add<Output = T>>(a: T, b: T) -> T { return a + b; }
+fn main() -> i32 {
+    let a: V = V { x: 1i64 } + V { x: 2i64 };
+    let r: V = V { x: 3i64 };
+    let b: V = V { x: 1i64 } + &r;
+    let c: V = V { x: 2i64 } * 5i64;
+    let d: i64 = -V { x: 4i64 };
+    let mut e: V = V { x: 1i64 };
+    e += 6i64;
+    let f: V = sum2(V { x: 1i64 }, V { x: 1i64 });
+
+    return (a.x + b.x + c.x + d + e.x + f.x) as i32;
+}

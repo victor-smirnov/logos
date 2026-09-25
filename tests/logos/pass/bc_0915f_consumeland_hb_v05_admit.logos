@@ -6,11 +6,13 @@ struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
 impl BitOr for D {
+    type Output = D;
     fn bitor(self: D, o: D) -> D {
         return D { v: 100i64, c: self.c };
     }
 }
 impl Mul for D {
+    type Output = D;
     fn mul(self: D, o: D) -> D {
         return D { v: 1000i64, c: self.c };
     }

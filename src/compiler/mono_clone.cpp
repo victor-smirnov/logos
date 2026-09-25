@@ -1230,6 +1230,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string bare = concrete_struct_name(vt) + "__" + method_name;
                     std::string pkg{vt.pkg_name()};
                     std::string callee = pkg.empty() ? bare : pkg + "." + bare;
+                    if (std::string sym = declared_method_symbol(concrete_struct_name(vt), pkg,
+                                                                 method_name, 1);
+                        !sym.empty())
+                        callee = std::move(sym);
                     std::vector<lir_view::ExprRef> args; args.push_back(std::move(new_op));
                     mp_ = lir_mirror_emit_call(
                         out_, rt_, callee, {}, args);
@@ -1263,6 +1267,13 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string bare = concrete_struct_name(lt) + "__" + method_name;
                     std::string pkg{lt.pkg_name()};
                     std::string callee = pkg.empty() ? bare : pkg + "." + bare;
+                    // The DECLARED symbol, by the operand types: two impls of one
+                    // operator trait (`Add<V>` / `Add<&V>`) share the composed name.
+                    std::vector<TypeRef> rtys{new_rhs ? new_rhs.type(out_.type_pool.impl()) : TypeRef{}};
+                    if (std::string sym = declared_method_symbol(concrete_struct_name(lt), pkg,
+                                                                 method_name, 2, &rtys);
+                        !sym.empty())
+                        callee = std::move(sym);
                     std::vector<lir_view::ExprRef> args;
                     args.push_back(std::move(new_lhs));
                     args.push_back(std::move(new_rhs));
@@ -4195,6 +4206,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 if (!cname.empty()) {
                     lir::ECall nc;
+                    std::vector<lir::LExprPtr> call_args;
+                    std::vector<TypeRef> call_arg_types;
+                    bool args_cloned = false;
                     std::string base_fn = cname + "__" + method_q;
                     std::string tmpl_key = base_fn;
                     if (!templates_.count(tmpl_key) && !specs_.count(tmpl_key)) {
@@ -4423,15 +4437,27 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         }
                         int64_t arity = 1;   // the receiver
                         v.each_arg([&](lir_view::ExprRef) { ++arity; });
-                        if (std::string sym = declared_method_symbol(cname, rpkg, method_q, arity);
+                        // The ARGUMENTS' types too: two impls of one trait at
+                        // different type arguments (`Add<V>` / `Add<&V>`) share
+                        // owner, method and arity.
+                        v.each_arg([&](lir_view::ExprRef ar) {
+                            call_args.push_back(child_husk(subst_child_expr(ar)));
+                            call_arg_types.push_back(call_args.back().type(out_.type_pool.impl()));
+                        });
+                        args_cloned = true;
+                        if (std::string sym = declared_method_symbol(cname, rpkg, method_q, arity,
+                                                                     &call_arg_types);
                             !sym.empty())
                             tmpl_key = std::move(sym);
                     }
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
-                    v.each_arg([&](lir_view::ExprRef ar) {
-                        nc.args.push_back(child_husk(subst_child_expr(ar)));
-                    });
+                    if (args_cloned)
+                        for (auto& a : call_args) nc.args.push_back(std::move(a));
+                    else
+                        v.each_arg([&](lir_view::ExprRef ar) {
+                            nc.args.push_back(child_husk(subst_child_expr(ar)));
+                        });
                     for (auto ta : v.type_args(out_.type_pool.impl())) {
                         if (ta && ta.kind() == LogosType::Kind::TypeVar) {
                             auto pit = cur_packs_.find(std::string(ta.type_var_name()));

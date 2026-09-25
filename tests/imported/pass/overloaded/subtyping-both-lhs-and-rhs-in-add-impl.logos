@@ -16,6 +16,7 @@ struct Foo {
 }
 
 impl Add for Foo {
+    type Output = Foo;
     fn add(self: Self, rhs: Self) -> Foo {
         return Foo { n: self.n + rhs.n };
     }

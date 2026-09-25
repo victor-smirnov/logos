@@ -8,8 +8,8 @@
 package generic_operator_mono_redispatch_operands_double_drop;
 struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
-impl Add for D { fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
-fn sum<T: Add>(x: T, y: T) -> T { let s: T = x + y; return s; }
+impl Add for D { type Output = D; fn add(self: D, o: D) -> D { return D { v: 100i64, c: self.c }; } }
+fn sum<T: Add<Output = T>>(x: T, y: T) -> T { let s: T = x + y; return s; }
 fn main() -> i32 {
     let mut n: i64 = 0i64;
     let p: *mut i64 = &mut n;

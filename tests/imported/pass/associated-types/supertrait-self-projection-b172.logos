@@ -23,7 +23,7 @@ trait Sub : Super<<Self as Sub>::Item> {
 struct W { v: i64 }
 
 impl Super<i64> for W { fn sup(&self) -> i64 { return self.v; } }
-impl Sub for W { type Item = i64; fn item_id(&self) -> i64 { return self.v; } }
+impl Sub for W { type Output = W; type Item = i64; fn item_id(&self) -> i64 { return self.v; } }
 
 fn main() -> i32 {
     let w: W = W { v: 4i64 };

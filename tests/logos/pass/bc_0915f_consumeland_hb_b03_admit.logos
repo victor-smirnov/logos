@@ -9,9 +9,9 @@ struct W { x: D, y: D }
 #[derive_clone]
 struct P { v: i64 }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
-impl Add for D { fn add(self: D, o: D) -> D { return D { v: self.v * 0i64 + 100i64, c: self.c }; } }
-impl Neg for D { fn neg(self: D) -> i64 { return 0i64 - self.v; } }
-impl Add for P { fn add(self: P, o: P) -> P { return P { v: self.v + o.v }; } }
+impl Add for D { type Output = D; fn add(self: D, o: D) -> D { return D { v: self.v * 0i64 + 100i64, c: self.c }; } }
+impl Neg for D { type Output = i64; fn neg(self: D) -> i64 { return 0i64 - self.v; } }
+impl Add for P { type Output = P; fn add(self: P, o: P) -> P { return P { v: self.v + o.v }; } }
 fn g(p: *mut i64) -> i64 {
     let mut acc: D = D { v: 1i64, c: p };
     let d: D = D { v: 10i64, c: p };

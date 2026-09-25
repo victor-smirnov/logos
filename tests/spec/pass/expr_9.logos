@@ -37,8 +37,8 @@ impl Cnt {
 
 // ── unary operator overload helpers ─────────────────────────────────────
 struct MyNum { v: i64 }
-impl Neg for MyNum { fn neg(self: MyNum) -> MyNum { return MyNum { v: -self.v }; } }
-impl Not for MyNum { fn not(self: MyNum) -> MyNum { return MyNum { v: self.v + 100i64 }; } }
+impl Neg for MyNum { type Output = MyNum; fn neg(self: MyNum) -> MyNum { return MyNum { v: -self.v }; } }
+impl Not for MyNum { type Output = MyNum; fn not(self: MyNum) -> MyNum { return MyNum { v: self.v + 100i64 }; } }
 
 // ── callable-field helper ───────────────────────────────────────────────
 fn add_one(x: i64) -> i64 { return x + 1i64; }

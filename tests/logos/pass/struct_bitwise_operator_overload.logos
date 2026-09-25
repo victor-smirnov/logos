@@ -4,11 +4,11 @@
 package struct_bitwise_operator_overload;
 
 struct Bits { v: i64 }
-impl BitAnd for Bits { fn bitand(self: Bits, r: Bits) -> Bits { return Bits { v: self.v & r.v }; } }
-impl BitOr  for Bits { fn bitor (self: Bits, r: Bits) -> Bits { return Bits { v: self.v | r.v }; } }
-impl BitXor for Bits { fn bitxor(self: Bits, r: Bits) -> Bits { return Bits { v: self.v ^ r.v }; } }
-impl Shl    for Bits { fn shl   (self: Bits, r: Bits) -> Bits { return Bits { v: self.v << r.v }; } }
-impl Shr    for Bits { fn shr   (self: Bits, r: Bits) -> Bits { return Bits { v: self.v >> r.v }; } }
+impl BitAnd for Bits { type Output = Bits; fn bitand(self: Bits, r: Bits) -> Bits { return Bits { v: self.v & r.v }; } }
+impl BitOr  for Bits { type Output = Bits; fn bitor (self: Bits, r: Bits) -> Bits { return Bits { v: self.v | r.v }; } }
+impl BitXor for Bits { type Output = Bits; fn bitxor(self: Bits, r: Bits) -> Bits { return Bits { v: self.v ^ r.v }; } }
+impl Shl    for Bits { type Output = Bits; fn shl   (self: Bits, r: Bits) -> Bits { return Bits { v: self.v << r.v }; } }
+impl Shr    for Bits { type Output = Bits; fn shr   (self: Bits, r: Bits) -> Bits { return Bits { v: self.v >> r.v }; } }
 
 fn main() -> i32 {
     let a: Bits = Bits { v: 6i64 };

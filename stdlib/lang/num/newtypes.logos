@@ -39,128 +39,152 @@ pub struct Saturating<T> {
 // `wrapping_add::<i32>` which mlir-gen intercepts and lowers.
 
 impl Add for Wrapping<i8> {
+    type Output = Wrapping<i8>;
     fn add(self: Wrapping<i8>, rhs: Wrapping<i8>) -> Wrapping<i8> {
         return Wrapping::<i8> { v: wrapping_add::<i8>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<i8> {
+    type Output = Wrapping<i8>;
     fn sub(self: Wrapping<i8>, rhs: Wrapping<i8>) -> Wrapping<i8> {
         return Wrapping::<i8> { v: wrapping_sub::<i8>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<i8> {
+    type Output = Wrapping<i8>;
     fn mul(self: Wrapping<i8>, rhs: Wrapping<i8>) -> Wrapping<i8> {
         return Wrapping::<i8> { v: wrapping_mul::<i8>(self.v, rhs.v) };
     }
 }
 
 impl Add for Wrapping<i16> {
+    type Output = Wrapping<i16>;
     fn add(self: Wrapping<i16>, rhs: Wrapping<i16>) -> Wrapping<i16> {
         return Wrapping::<i16> { v: wrapping_add::<i16>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<i16> {
+    type Output = Wrapping<i16>;
     fn sub(self: Wrapping<i16>, rhs: Wrapping<i16>) -> Wrapping<i16> {
         return Wrapping::<i16> { v: wrapping_sub::<i16>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<i16> {
+    type Output = Wrapping<i16>;
     fn mul(self: Wrapping<i16>, rhs: Wrapping<i16>) -> Wrapping<i16> {
         return Wrapping::<i16> { v: wrapping_mul::<i16>(self.v, rhs.v) };
     }
 }
 
 impl Add for Wrapping<i32> {
+    type Output = Wrapping<i32>;
     fn add(self: Wrapping<i32>, rhs: Wrapping<i32>) -> Wrapping<i32> {
         return Wrapping::<i32> { v: wrapping_add::<i32>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<i32> {
+    type Output = Wrapping<i32>;
     fn sub(self: Wrapping<i32>, rhs: Wrapping<i32>) -> Wrapping<i32> {
         return Wrapping::<i32> { v: wrapping_sub::<i32>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<i32> {
+    type Output = Wrapping<i32>;
     fn mul(self: Wrapping<i32>, rhs: Wrapping<i32>) -> Wrapping<i32> {
         return Wrapping::<i32> { v: wrapping_mul::<i32>(self.v, rhs.v) };
     }
 }
 
 impl Add for Wrapping<i64> {
+    type Output = Wrapping<i64>;
     fn add(self: Wrapping<i64>, rhs: Wrapping<i64>) -> Wrapping<i64> {
         return Wrapping::<i64> { v: wrapping_add::<i64>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<i64> {
+    type Output = Wrapping<i64>;
     fn sub(self: Wrapping<i64>, rhs: Wrapping<i64>) -> Wrapping<i64> {
         return Wrapping::<i64> { v: wrapping_sub::<i64>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<i64> {
+    type Output = Wrapping<i64>;
     fn mul(self: Wrapping<i64>, rhs: Wrapping<i64>) -> Wrapping<i64> {
         return Wrapping::<i64> { v: wrapping_mul::<i64>(self.v, rhs.v) };
     }
 }
 
 impl Add for Wrapping<u8> {
+    type Output = Wrapping<u8>;
     fn add(self: Wrapping<u8>, rhs: Wrapping<u8>) -> Wrapping<u8> {
         return Wrapping::<u8> { v: wrapping_add::<u8>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<u8> {
+    type Output = Wrapping<u8>;
     fn sub(self: Wrapping<u8>, rhs: Wrapping<u8>) -> Wrapping<u8> {
         return Wrapping::<u8> { v: wrapping_sub::<u8>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<u8> {
+    type Output = Wrapping<u8>;
     fn mul(self: Wrapping<u8>, rhs: Wrapping<u8>) -> Wrapping<u8> {
         return Wrapping::<u8> { v: wrapping_mul::<u8>(self.v, rhs.v) };
     }
 }
 
 impl Add for Wrapping<u16> {
+    type Output = Wrapping<u16>;
     fn add(self: Wrapping<u16>, rhs: Wrapping<u16>) -> Wrapping<u16> {
         return Wrapping::<u16> { v: wrapping_add::<u16>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<u16> {
+    type Output = Wrapping<u16>;
     fn sub(self: Wrapping<u16>, rhs: Wrapping<u16>) -> Wrapping<u16> {
         return Wrapping::<u16> { v: wrapping_sub::<u16>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<u16> {
+    type Output = Wrapping<u16>;
     fn mul(self: Wrapping<u16>, rhs: Wrapping<u16>) -> Wrapping<u16> {
         return Wrapping::<u16> { v: wrapping_mul::<u16>(self.v, rhs.v) };
     }
 }
 
 impl Add for Wrapping<u32> {
+    type Output = Wrapping<u32>;
     fn add(self: Wrapping<u32>, rhs: Wrapping<u32>) -> Wrapping<u32> {
         return Wrapping::<u32> { v: wrapping_add::<u32>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<u32> {
+    type Output = Wrapping<u32>;
     fn sub(self: Wrapping<u32>, rhs: Wrapping<u32>) -> Wrapping<u32> {
         return Wrapping::<u32> { v: wrapping_sub::<u32>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<u32> {
+    type Output = Wrapping<u32>;
     fn mul(self: Wrapping<u32>, rhs: Wrapping<u32>) -> Wrapping<u32> {
         return Wrapping::<u32> { v: wrapping_mul::<u32>(self.v, rhs.v) };
     }
 }
 
 impl Add for Wrapping<u64> {
+    type Output = Wrapping<u64>;
     fn add(self: Wrapping<u64>, rhs: Wrapping<u64>) -> Wrapping<u64> {
         return Wrapping::<u64> { v: wrapping_add::<u64>(self.v, rhs.v) };
     }
 }
 impl Sub for Wrapping<u64> {
+    type Output = Wrapping<u64>;
     fn sub(self: Wrapping<u64>, rhs: Wrapping<u64>) -> Wrapping<u64> {
         return Wrapping::<u64> { v: wrapping_sub::<u64>(self.v, rhs.v) };
     }
 }
 impl Mul for Wrapping<u64> {
+    type Output = Wrapping<u64>;
     fn mul(self: Wrapping<u64>, rhs: Wrapping<u64>) -> Wrapping<u64> {
         return Wrapping::<u64> { v: wrapping_mul::<u64>(self.v, rhs.v) };
     }
@@ -174,44 +198,52 @@ impl Mul for Wrapping<u64> {
 // pass; users can promote to i32 first).
 
 impl Add for Saturating<i32> {
+    type Output = Saturating<i32>;
     fn add(self: Saturating<i32>, rhs: Saturating<i32>) -> Saturating<i32> {
         return Saturating::<i32> { v: self.v.saturating_add(rhs.v) };
     }
 }
 impl Sub for Saturating<i32> {
+    type Output = Saturating<i32>;
     fn sub(self: Saturating<i32>, rhs: Saturating<i32>) -> Saturating<i32> {
         return Saturating::<i32> { v: self.v.saturating_sub(rhs.v) };
     }
 }
 
 impl Add for Saturating<i64> {
+    type Output = Saturating<i64>;
     fn add(self: Saturating<i64>, rhs: Saturating<i64>) -> Saturating<i64> {
         return Saturating::<i64> { v: self.v.saturating_add(rhs.v) };
     }
 }
 impl Sub for Saturating<i64> {
+    type Output = Saturating<i64>;
     fn sub(self: Saturating<i64>, rhs: Saturating<i64>) -> Saturating<i64> {
         return Saturating::<i64> { v: self.v.saturating_sub(rhs.v) };
     }
 }
 
 impl Add for Saturating<u32> {
+    type Output = Saturating<u32>;
     fn add(self: Saturating<u32>, rhs: Saturating<u32>) -> Saturating<u32> {
         return Saturating::<u32> { v: self.v.saturating_add(rhs.v) };
     }
 }
 impl Sub for Saturating<u32> {
+    type Output = Saturating<u32>;
     fn sub(self: Saturating<u32>, rhs: Saturating<u32>) -> Saturating<u32> {
         return Saturating::<u32> { v: self.v.saturating_sub(rhs.v) };
     }
 }
 
 impl Add for Saturating<u64> {
+    type Output = Saturating<u64>;
     fn add(self: Saturating<u64>, rhs: Saturating<u64>) -> Saturating<u64> {
         return Saturating::<u64> { v: self.v.saturating_add(rhs.v) };
     }
 }
 impl Sub for Saturating<u64> {
+    type Output = Saturating<u64>;
     fn sub(self: Saturating<u64>, rhs: Saturating<u64>) -> Saturating<u64> {
         return Saturating::<u64> { v: self.v.saturating_sub(rhs.v) };
     }

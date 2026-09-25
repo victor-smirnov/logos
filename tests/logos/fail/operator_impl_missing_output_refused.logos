@@ -1,0 +1,8 @@
+// An operator impl must state `type Output` (Rust E0046: not all trait items
+// implemented, missing `Output`) — the ops traits carry no default for it.
+// Twin: tests/logos/pass/operator_trait_output_shapes.logos.
+package operator_impl_missing_output_refused;
+use logos.lang.ops;
+struct V { x: i64 }
+impl Add for V { fn add(self: V, o: V) -> V { return V { x: self.x + o.x }; } }
+fn main() -> i32 { return (V { x: 1i64 } + V { x: 2i64 }).x as i32; }

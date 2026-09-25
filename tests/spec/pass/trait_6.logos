@@ -79,9 +79,9 @@ impl<T> Mapper for T {}
 
 // ── struct operator overloads + autoref + partial_cmp derive ──
 struct Vec2 { a: i64, b: i64 }
-impl Add for Vec2 { fn add(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a + rhs.a, b: self.b + rhs.b }; } }
-impl Sub for Vec2 { fn sub(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a - rhs.a, b: self.b - rhs.b }; } }
-impl Mul for Vec2 { fn mul(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a * rhs.a, b: self.b * rhs.b }; } }
+impl Add for Vec2 { type Output = Vec2; fn add(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a + rhs.a, b: self.b + rhs.b }; } }
+impl Sub for Vec2 { type Output = Vec2; fn sub(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a - rhs.a, b: self.b - rhs.b }; } }
+impl Mul for Vec2 { type Output = Vec2; fn mul(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a * rhs.a, b: self.b * rhs.b }; } }
 
 // Eq with by-&self method (autoref of value operands).
 struct Pair { p: i64, q: i64 }

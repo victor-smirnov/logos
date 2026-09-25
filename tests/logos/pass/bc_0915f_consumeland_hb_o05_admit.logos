@@ -6,8 +6,8 @@ struct D { v: i64, c: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + self.v; } } }
 struct W { x: D, y: D }
 fn rd(p: *mut i64) -> i64 { return unsafe { *p }; }
-impl Add for D { fn add(self: D, o: D) -> i64 { return self.v + o.v; } }
-impl Neg for D { fn neg(self: D) -> i64 { return 0i64 - self.v; } }
+impl Add for D { type Output = i64; fn add(self: D, o: D) -> i64 { return self.v + o.v; } }
+impl Neg for D { type Output = i64; fn neg(self: D) -> i64 { return 0i64 - self.v; } }
 fn g(p: *mut i64) -> i64 {
     let a: D = D { v: 1i64, c: p };
     let s: i64 = a + D { v: 10i64, c: p };

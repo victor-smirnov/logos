@@ -17,21 +17,25 @@ trait Not { fn not(self: Self) -> Point; }
 trait IndexB { fn index(self: &Self, x: bool) -> i64; }
 
 impl Add for Point {
+    type Output = Point;
     fn add(self: Self, other: Point) -> Point {
         return Point { x: self.x + other.x, y: self.y + other.y };
     }
 }
 impl Sub for Point {
+    type Output = Point;
     fn sub(self: Self, other: Point) -> Point {
         return Point { x: self.x - other.x, y: self.y - other.y };
     }
 }
 impl Neg for Point {
+    type Output = Point;
     fn neg(self: Self) -> Point {
         return Point { x: -self.x, y: -self.y };
     }
 }
 impl Not for Point {
+    type Output = Point;
     fn not(self: Self) -> Point {
         return Point { x: !self.x, y: !self.y };
     }

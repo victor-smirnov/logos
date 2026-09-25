@@ -10,12 +10,14 @@ use logos.lang.ops;
 struct Flag { v: bool }
 
 impl Not for Flag {
+    type Output = Flag;
     fn not(self: Flag) -> Flag { return Flag { v: !self.v }; }
 }
 
 struct Mask { bits: i32 }
 
 impl Not for Mask {
+    type Output = Mask;
     fn not(self: Mask) -> Mask { return Mask { bits: !self.bits }; }
 }
 

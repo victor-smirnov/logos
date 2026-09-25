@@ -20,7 +20,7 @@ impl MulAssign for Acc { fn mul_assign(&mut self, rhs: Acc) { self.v = self.v * 
 
 // Cnt has only Add (no AddAssign) -> `+=` must desugar to `Cnt = Cnt + Cnt`.
 struct Cnt { v: i32 }
-impl Add for Cnt { fn add(self: Cnt, rhs: Cnt) -> Cnt { return Cnt { v: self.v + rhs.v }; } }
+impl Add for Cnt { type Output = Cnt; fn add(self: Cnt, rhs: Cnt) -> Cnt { return Cnt { v: self.v + rhs.v }; } }
 
 // --- uninhabited payload (exhaustive-enum-uninhabited) ---
 enum Void {}

@@ -1,0 +1,14 @@
+// `fn f<T: Add>(a: T, b: T) -> T { a + b }` is E0308 in Rust: `a + b` is
+// `T::Output`, not `T`. Logos typed it `T`; once `Output` could differ from
+// `Self`, `f(W, W)` with `Output = i64` read an `i64` as a `W` (wrong code,
+// measured: exit 0 for a field that should be 200). Twin:
+// tests/logos/pass/operator_generic_output_projection.logos.
+package operator_generic_result_is_output_not_self;
+use logos.lang.ops;
+struct W { x: i64, y: i64 }
+impl Add for W { type Output = i64; fn add(self: W, o: W) -> i64 { return self.x + o.x; } }
+fn f<T: Add>(a: T, b: T) -> T { return a + b; }
+fn main() -> i32 {
+    let w: W = f(W { x: 1i64, y: 100i64 }, W { x: 2i64, y: 200i64 });
+    return w.y as i32;
+}

@@ -22,67 +22,91 @@ use logos.lang.option;
 // add on demand.
 
 /// Overloads the binary `+` operator.
-pub trait Add {
+pub trait Add<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `+` operation.
-    fn add(self: Self, rhs: Self) -> Self;
+    fn add(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `-` operator.
-pub trait Sub {
+pub trait Sub<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `-` operation.
-    fn sub(self: Self, rhs: Self) -> Self;
+    fn sub(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `*` operator.
-pub trait Mul {
+pub trait Mul<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `*` operation.
-    fn mul(self: Self, rhs: Self) -> Self;
+    fn mul(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `/` operator.
-pub trait Div {
+pub trait Div<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `/` operation.
-    fn div(self: Self, rhs: Self) -> Self;
+    fn div(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `%` (remainder) operator.
-pub trait Rem {
+pub trait Rem<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `%` operation.
-    fn rem(self: Self, rhs: Self) -> Self;
+    fn rem(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the unary `-` (negation) operator.
 pub trait Neg {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Returns the negation of `self`.
-    fn neg(self: Self) -> Self;
+    fn neg(self: Self) -> Self::Output;
 }
 /// Overloads the binary `<<` (left-shift) operator.
-pub trait Shl {
+pub trait Shl<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `<<` operation.
-    fn shl(self: Self, rhs: Self) -> Self;
+    fn shl(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `>>` (right-shift) operator.
-pub trait Shr {
+pub trait Shr<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `>>` operation.
-    fn shr(self: Self, rhs: Self) -> Self;
+    fn shr(self: Self, rhs: Rhs) -> Self::Output;
 }
 
 // ── Bitwise ───────────────────────────────────────────────────────
 
 /// Overloads the binary `&` (bitwise AND) operator.
-pub trait BitAnd {
+pub trait BitAnd<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `&` operation.
-    fn bitand(self: Self, rhs: Self) -> Self;
+    fn bitand(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `|` (bitwise OR) operator.
-pub trait BitOr {
+pub trait BitOr<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `|` operation.
-    fn bitor(self: Self, rhs: Self) -> Self;
+    fn bitor(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `^` (bitwise XOR) operator.
-pub trait BitXor {
+pub trait BitXor<Rhs = Self> {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Performs the `^` operation.
-    fn bitxor(self: Self, rhs: Self) -> Self;
+    fn bitxor(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the unary `!` (logical/bitwise NOT) operator.
 pub trait Not {
+    /// The result type of the operation (Rust's `Output`).
+    type Output;
     /// Returns the logical/bitwise negation of `self`.
-    fn not(self: Self) -> Self;
+    fn not(self: Self) -> Self::Output;
 }
 
 // ── *Assign — in-place compound operators ─────────────────────────
@@ -101,38 +125,42 @@ pub trait Not {
 // etc. are codegen-builtin and don't consult these traits.
 
 /// Overloads the `+=` operator, adding `rhs` in place.
-pub trait AddAssign    { fn add_assign(&mut self,    rhs: Self); }
+pub trait AddAssign<Rhs = Self>    { fn add_assign(&mut self,    rhs: Rhs); }
 /// Overloads the `-=` operator, subtracting `rhs` in place.
-pub trait SubAssign    { fn sub_assign(&mut self,    rhs: Self); }
+pub trait SubAssign<Rhs = Self>    { fn sub_assign(&mut self,    rhs: Rhs); }
 /// Overloads the `*=` operator, multiplying by `rhs` in place.
-pub trait MulAssign    { fn mul_assign(&mut self,    rhs: Self); }
+pub trait MulAssign<Rhs = Self>    { fn mul_assign(&mut self,    rhs: Rhs); }
 /// Overloads the `/=` operator, dividing by `rhs` in place.
-pub trait DivAssign    { fn div_assign(&mut self,    rhs: Self); }
+pub trait DivAssign<Rhs = Self>    { fn div_assign(&mut self,    rhs: Rhs); }
 /// Overloads the `%=` operator, taking the remainder by `rhs` in place.
-pub trait RemAssign    { fn rem_assign(&mut self,    rhs: Self); }
+pub trait RemAssign<Rhs = Self>    { fn rem_assign(&mut self,    rhs: Rhs); }
 /// Overloads the `&=` operator, bitwise-ANDing with `rhs` in place.
-pub trait BitAndAssign { fn bitand_assign(&mut self, rhs: Self); }
+pub trait BitAndAssign<Rhs = Self> { fn bitand_assign(&mut self, rhs: Rhs); }
 /// Overloads the `|=` operator, bitwise-ORing with `rhs` in place.
-pub trait BitOrAssign  { fn bitor_assign(&mut self,  rhs: Self); }
+pub trait BitOrAssign<Rhs = Self>  { fn bitor_assign(&mut self,  rhs: Rhs); }
 /// Overloads the `^=` operator, bitwise-XORing with `rhs` in place.
-pub trait BitXorAssign { fn bitxor_assign(&mut self, rhs: Self); }
+pub trait BitXorAssign<Rhs = Self> { fn bitxor_assign(&mut self, rhs: Rhs); }
 /// Overloads the `<<=` operator, left-shifting by `rhs` in place.
-pub trait ShlAssign    { fn shl_assign(&mut self,    rhs: Self); }
+pub trait ShlAssign<Rhs = Self>    { fn shl_assign(&mut self,    rhs: Rhs); }
 /// Overloads the `>>=` operator, right-shifting by `rhs` in place.
-pub trait ShrAssign    { fn shr_assign(&mut self,    rhs: Self); }
+pub trait ShrAssign<Rhs = Self>    { fn shr_assign(&mut self,    rhs: Rhs); }
 
 // ── Primitive impls for bool ─────────────────────────────────────
 
 impl BitAnd for bool {
+    type Output = Self;
     fn bitand(self: Self, rhs: Self) -> Self { return self & rhs; }
 }
 impl BitOr for bool {
+    type Output = Self;
     fn bitor(self: Self, rhs: Self) -> Self { return self | rhs; }
 }
 impl BitXor for bool {
+    type Output = Self;
     fn bitxor(self: Self, rhs: Self) -> Self { return self ^ rhs; }
 }
 impl Not for bool {
+    type Output = Self;
     fn not(self: Self) -> Self { return !self; }
 }
 

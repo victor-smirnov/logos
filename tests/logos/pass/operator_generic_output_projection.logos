@@ -1,0 +1,15 @@
+// `fn f<T: Add>(a: T, b: T) -> T::Output`: the generic `a + b` is the bound's
+// `Output` projection, resolved per instance — `i64` for `W`, `V` for `V`.
+// rustc: exit 15.
+package operator_generic_output_projection;
+use logos.lang.ops;
+struct W { x: i64, y: i64 }
+impl Add for W { type Output = i64; fn add(self: W, o: W) -> i64 { return self.x + o.x; } }
+struct V { x: i64 }
+impl Add for V { type Output = V; fn add(self: V, o: V) -> V { return V { x: self.x * o.x }; } }
+fn f<T: Add>(a: T, b: T) -> T::Output { return a + b; }
+fn main() -> i32 {
+    let n: i64 = f(W { x: 1i64, y: 100i64 }, W { x: 2i64, y: 200i64 });
+    let v: V = f(V { x: 3i64 }, V { x: 4i64 });
+    return (n + v.x) as i32;
+}

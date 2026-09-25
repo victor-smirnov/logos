@@ -10,5 +10,5 @@ impl<U: Copy, T: Sub + Base> Drop for S<T, U> {
 }
 struct Z { v: i64 }
 impl Base for Z { fn b(&self) -> i64 { return self.v; } }
-impl Sub for Z { fn s(&self) -> i64 { return self.v + 1i64; } }
+impl Sub for Z { type Output = Z; fn s(&self) -> i64 { return self.v + 1i64; } }
 fn main() -> i32 { let s: S<Z, i64> = S { x: Z { v: 1i64 }, u: 0i64 }; return (s.x.s() - 2i64) as i32; }

@@ -9,7 +9,7 @@ package issue_21922_operator_ufcs_is2;
 use logos.lang.ops;
 
 struct P { v: i64 }
-impl Add for P { fn add(self: P, rhs: P) -> P { return P { v: self.v + rhs.v }; } }
+impl Add for P { type Output = P; fn add(self: P, rhs: P) -> P { return P { v: self.v + rhs.v }; } }
 
 fn main() -> i32 {
     let a = P { v: 23i64 };
