@@ -15959,7 +15959,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 // same. With the disjunct the literal COERCES (42) and the
                 // hoisted value is REFUSED.
                 (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
-                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i]))))
+                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i])) ||
+                 literal_widths_pending_(payload[i], resolved_payload_types[i])))
                 // An enum payload is a constructed aggregate's FIELD, like the
                 // tuple-struct ctor arm above — not a CoercePos::Operand.
                 expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,
@@ -16361,7 +16362,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 // same. With the disjunct the literal COERCES (42) and the
                 // hoisted value is REFUSED.
                 (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
-                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i]))))
+                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i])) ||
+                 literal_widths_pending_(payload[i], resolved_payload_types[i])))
                 // An enum payload is a constructed aggregate's FIELD, like the
                 // tuple-struct ctor arm above — not a CoercePos::Operand.
                 expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,

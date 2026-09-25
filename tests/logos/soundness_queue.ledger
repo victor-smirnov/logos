@@ -94,12 +94,6 @@ ifexpr_arm_extended_field_borrow_refused 3 tests/soundness/open/ifexpr_arm_exten
 
 array_temp_elem_field_store_refused 3 tests/soundness/open/array_temp_elem_field_store_refused refuses
 
-# ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
-# array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
-# moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
-# MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
-ptr_array_in_tuple_param_gep_verifier_refused 3 tests/soundness/open/ptr_array_in_tuple_param_gep_verifier_refused refuses
-
 closure_field_fnonce_called_twice_double_free 1 tests/soundness/open/closure_field_fnonce_called_twice_double_free run 134
 
 vec_of_mutref_elem_index_picks_index_not_index_mut_refuses 3 tests/soundness/open/vec_of_mutref_elem_index_picks_index_not_index_mut_refuses refuses
@@ -262,9 +256,14 @@ array_debug_format_unimplemented_refused 3 tests/soundness/open/array_debug_form
 
 format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrenderable_form_refused refuses
 
+# ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
+# array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
+# moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
+# MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
+
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 46
-# SYNC-HASH 0bb77129d72a005e0c38dae456f6458d
+# TOTAL 45
+# SYNC-HASH 1ff02cdf1db052fcc8d7082a50727417

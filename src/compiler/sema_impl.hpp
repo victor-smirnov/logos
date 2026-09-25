@@ -9725,10 +9725,76 @@ private:
     std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) const noexcept {
         return logos::compiler::get_intlit_value(e);
     }
+    // A tuple / array LITERAL of untyped scalar literals takes the expected
+    // aggregate's widths when every leaf fits: `([4, 5], 6)` against
+    // `([i64; 2], i64)` is BUILT as that type. Left as `([i32; 2], i32)` it
+    // was stored into the i64 slots — garbage on every read, at a struct
+    // field, an assignment, a variant payload, a return. `apply` false only
+    // asks whether every leaf adopts.
+    bool adopt_literal_widths_(lir_view::ExprRef x, TypeRef target, bool apply) {
+        using K = LogosType::Kind;
+        using C = lir_schema::expr::Code;
+        if (!x || !target) return false;
+        TypeRef xt = x.type(cur_prog_->type_pool.impl());
+        if (!xt) return false;
+        if (types_equal(xt, target)) return true;
+        const K tk = TypeRef(target).kind();
+        if (xt.kind() == K::IntLit && is_integer_kind(tk) && tk != K::IntLit && tk != K::Enum) {
+            auto v = get_intlit_value(x);
+            if (!v || !intlit_fits(*v, tk)) return false;
+            if (apply) builder().retype_expr(x, target);
+            return true;
+        }
+        if (xt.kind() == K::FloatLit && (tk == K::F32 || tk == K::F64)) {
+            if (apply) builder().retype_expr(x, target);
+            return true;
+        }
+        if (x.kind() == C::ArrLit && tk == K::Array && TypeRef(target).elem() &&
+            xt.kind() == K::Array && xt.arr_size() == TypeRef(target).arr_size()) {
+            lir_view::EArrLitView av{x};
+            bool ok = true;
+            av.each_elem([&](lir_view::ExprRef y) {
+                if (ok) ok = adopt_literal_widths_(y, TypeRef(target).elem(), apply);
+            });
+            if (ok && apply) builder().retype_expr(x, target);
+            return ok;
+        }
+        if (x.kind() == C::TupleLit && tk == K::Tuple && xt.kind() == K::Tuple &&
+            xt.tuple_elems().size() == TypeRef(target).tuple_elems().size()) {
+            lir_view::ETupleLitView tv{x};
+            auto tes = TypeRef(target).tuple_elems();
+            bool ok = true;
+            size_t i = 0;
+            tv.each_elem([&](lir_view::ExprRef y) {
+                if (ok) ok = i < tes.size() && adopt_literal_widths_(y, tes[i], apply);
+                ++i;
+            });
+            if (ok && apply) builder().retype_expr(x, target);
+            return ok;
+        }
+        return false;
+    }
+    // An aggregate literal that types_compatible accepts but whose leaves are
+    // still untyped literals of another width than the slot's: expect_type
+    // must be entered for widen_int_expr to build it at the slot's widths.
+    bool literal_widths_pending_(const lir::LExprPtr& e, TypeRef target) {
+        if (!e || !target || !expr_type(e) || types_equal(expr_type(e), target)) return false;
+        auto k = expr_ref_of(e).kind();
+        return (k == lir_schema::expr::Code::TupleLit || k == lir_schema::expr::Code::ArrLit) &&
+               adopt_literal_widths_(expr_ref_of(e), target, /*apply=*/false);
+    }
     void widen_int_expr(lir::LExprPtr& e, TypeRef target, LirBuilder b) {
         if (!e || !target || !expr_type(e)) return;
         auto ek = TypeRef(expr_type(e)).kind();
         auto tk = TypeRef(target).kind();
+        if ((ek == LogosType::Kind::Tuple || ek == LogosType::Kind::Array) && ek == tk) {
+            auto er = expr_ref_of(e);
+            if ((er.kind() == lir_schema::expr::Code::TupleLit ||
+                 er.kind() == lir_schema::expr::Code::ArrLit) &&
+                adopt_literal_widths_(er, target, /*apply=*/false))
+                adopt_literal_widths_(er, target, /*apply=*/true);
+            return;
+        }
         // G149-2 (silent miscompile): `&<int-literal>` passed where `&T` is
         // expected. The arg lowers to an AddrOfTemp whose inner literal stays
         // its default width (IntLit→i32), so codegen allocates an i32 temp and

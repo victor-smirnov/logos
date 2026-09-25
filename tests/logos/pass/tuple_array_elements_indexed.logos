@@ -1,0 +1,14 @@
+// Arrays inside tuples: indexed through a parameter, a local, a store, a by-value call
+// result, and an array of structs. rustc 1.98.1: the same output.
+package tuple_array_elements_indexed;
+use logos.std.fmt;
+struct P { k: i64 }
+fn sum(t: ([i64; 3], i64)) -> i64 { return t.0[0] + t.0[2] + t.1; }
+fn mk() -> ([i64; 2], [P; 2]) { return ([4, 5], [P { k: 6 }, P { k: 7 }]); }
+fn main() -> i32 {
+    let mut t: ([i64; 3], i64) = ([1, 2, 3], 10);
+    t.0[1] = 20;
+    let u = mk();
+    println!("{} {} {} {} {}", sum(t), t.0[1], u.0[1], u.1[0].k, mk().0[0]);
+    return 0;
+}

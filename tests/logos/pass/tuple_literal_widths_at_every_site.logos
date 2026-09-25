@@ -1,0 +1,17 @@
+// A tuple literal of untyped literals is built at the expected tuple's widths at a
+// struct field, an argument, an assignment and a variant payload (they were built
+// `([i32; 2], i32)` and stored into i64 slots). rustc 1.98.1: the same output.
+package tuple_literal_widths_at_every_site;
+use logos.std.fmt;
+struct S { t: ([i64; 2], i64) }
+enum E { V(([i64; 2], i64)) }
+fn f(t: ([i64; 2], i64)) -> i64 { return t.0[0] * 100 + t.0[1] * 10 + t.1; }
+fn main() -> i32 {
+    let s: S = S { t: ([1, 2], 3) };
+    let mut a: ([i64; 2], i64) = ([0, 0], 0);
+    a = ([4, 5], 6);
+    let e: E = E::V(([7, 8], 9));
+    let ev: i64 = match e { E::V(t) => f(t) };
+    println!("{} {} {} {}", f(s.t), f(([1, 1], 1)), f(a), ev);
+    return 0;
+}

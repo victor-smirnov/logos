@@ -4056,12 +4056,18 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
                     TypeRef(rh).elem())
                     hint_arr_elem_type_ = TypeRef(rh).elem();
             }
+            // A tuple return type hints a tuple literal's elements, as a `let`
+            // annotation does (`return ([4, 5], 1)` under `-> ([i64; 2], i64)`).
+            auto saved_tuple_hint = hint_tuple_type_;
+            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Tuple)
+                hint_tuple_type_ = ret_type_;
             // Box DerefMove in return position: `return *b;`.
             auto vnode = map_of(vav);
             if (code_of(vnode) == la::DEREF)
                 val = try_lower_box_deref_move(vnode);
             if (!val)
                 val = lower_expr(vnode);
+            hint_tuple_type_ = saved_tuple_hint;
             hint_enum_type_ = saved_hint;
             hint_struct_type_ = saved_struct_hint;
             hint_closure_formal_ = saved_closure_hint;

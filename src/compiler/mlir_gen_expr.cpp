@@ -1539,6 +1539,9 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         if (!tup_ptr) tup_ptr = gen_expr(tv.receiver());
         auto stype = tuple_llvm_type(recv_t);
         if (!tup_ptr || !stype) return nullptr;
+        // A call returning a tuple BY VALUE (`mk().0[0]`) is an SSA aggregate,
+        // not an address: spill it, as the tuple-index read does.
+        if (tup_ptr.getType() != ptr_type()) tup_ptr = spill_to_alloca(tup_ptr);
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(tv.index())};
         return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, tup_ptr, idx);
     }
@@ -3842,6 +3845,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
     // the GEP address (a tuple value is a pointer to its storage), like a struct
     // element — return it, don't load an 8-byte ptr from the inline slot.
     if (TypeRef et(type); et && et.kind() == LogosType::Kind::Tuple)
+        return gep;
+    // An array element is inline too, and an array value is its address (the
+    // by-pointer aggregate ABI): `t.0[0]` GEPs into it. Loading it produced an
+    // `!llvm.array` SSA value that the index GEP cannot take.
+    if (TypeRef et(type); et && et.kind() == LogosType::Kind::Array)
         return gep;
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
 }
