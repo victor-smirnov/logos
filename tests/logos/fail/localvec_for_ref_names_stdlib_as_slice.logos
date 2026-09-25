@@ -1,0 +1,23 @@
+// `for x in &v` over a PACKAGE-LOCAL `Vec` with no IntoIterator: rustc 1.98.1
+// E0277 "`&Vec<i64>` is not an iterator". The IntoIterator fallback looked up
+// the BARE key `$ref_Vec__into_iter` and took the stdlib's impl, then refused
+// with "expected &Vec<i64>, got &Vec<i64>". Candidates are now filtered by the
+// receiver's declaration (its `self` names the same package), and the refusal
+// names the type as written. Twins: tests/logos/pass/
+// localvec_for_ref_own_into_iter.logos, tests/logos/fail/localvec_for_mutref_not_iterator.logos.
+package localvec_for_ref_names_stdlib_as_slice;
+
+pub struct Vec<T> {
+    a: i64,
+    b: i64,
+}
+
+fn main() -> i32 {
+    let v: Vec<i64> = Vec { a: 1i64, b: 2i64 };
+    let mut t: i64 = 0i64;
+    for x in &v {
+        t = t + *x;
+    }
+    if t != 0i64 { return 1i32; }
+    return 0i32;
+}

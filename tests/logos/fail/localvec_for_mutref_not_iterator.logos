@@ -1,0 +1,10 @@
+// `for x in &mut v` over a package-local `Vec`: the `$mut_ref_Vec__into_iter`
+// and `Vec__iter_mut` keys must not reach the stdlib's (rustc: E0277). Twin of
+// tests/logos/fail/localvec_for_ref_names_stdlib_as_slice.logos.
+package localvec_for_mutref_not_iterator;
+pub struct Vec<T> { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec { a: 1i64, b: 2i64 };
+    for x in &mut v { *x = 1i64; }
+    return 0i32;
+}

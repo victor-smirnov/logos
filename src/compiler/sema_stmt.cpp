@@ -8783,10 +8783,25 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             }
             const SemaFuncInfo* ii_fn = nullptr;
             std::string ii_key_chosen;
+            // The key is a BARE name (`$ref_Vec__into_iter`): a candidate is
+            // this receiver's only when its `self` names the SAME declaration —
+            // a package-local `Vec` must not reach the stdlib's impl.
+            TypeRef ii_owner = is_ref_like(TypeRef(iter_type).kind()) ? TypeRef(iter_type).pointee()
+                                                                      : iter_type;
+            auto ii_owner_ok = [&](const SemaFuncInfo* fi) {
+                if (!fi || fi->param_types.empty() || !ii_owner) return fi != nullptr;
+                TypeRef st = fi->param_types[0];
+                while (st && is_ref_like(TypeRef(st).kind()) && TypeRef(st).pointee())
+                    st = TypeRef(st).pointee();
+                if (!st || (TypeRef(st).kind() != LogosType::Kind::Struct &&
+                            TypeRef(st).kind() != LogosType::Kind::ZonedStruct))
+                    return true;
+                return TypeRef(st).pkg_name() == TypeRef(ii_owner).pkg_name();
+            };
             for (auto& k : ii_keys) {
-                if (auto fit = find_func_by_base_and_signature(k, {}, false)) { ii_fn = fit; ii_key_chosen = k; break; }
-                if (auto git = find_generic_func(k)) { ii_fn = git; ii_key_chosen = k; break; }
-                if (auto cands = find_func_candidates(k); cands.size() == 1) { ii_fn = cands[0]; ii_key_chosen = k; break; }
+                if (auto fit = find_func_by_base_and_signature(k, {}, false); ii_owner_ok(fit)) { ii_fn = fit; ii_key_chosen = k; break; }
+                if (auto git = find_generic_func(k); ii_owner_ok(git)) { ii_fn = git; ii_key_chosen = k; break; }
+                if (auto cands = find_func_candidates(k); cands.size() == 1 && ii_owner_ok(cands[0])) { ii_fn = cands[0]; ii_key_chosen = k; break; }
             }
             if (ii_fn) {
                 // Build subst from iter_type's pointee (for ref-impl) or the
@@ -8844,7 +8859,10 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         }
 
         if (!fi_ptr) {
-            error(std::format("for-in: type '{}' has no `next()` method", sname));
+            // Rust E0277: the TYPE, as written, is not an iterator (neither
+            // `next()` nor an `into_iter()` reaching one) — not the mangled name.
+            error(std::format("for-in: `{}` is not an iterator — it has no `next()` and no "
+                              "`into_iter()` (E0277)", type_str(iter_type)));
             return builder().stmt_break(nullptr, "", node_line_);
         }
 
