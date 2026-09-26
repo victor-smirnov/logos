@@ -22,13 +22,13 @@ fn main() -> i32 {
     let mut s: Vec<Inner> = vec_new::<Inner>();
     s.push(mk(1i64)); s.push(mk(2i64));
     let t: InspectIter<VecIntoIter<Inner>, Inner> =
-        unsafe { iter_inspect::<VecIntoIter<Inner>, Inner>(s.into_iter(), vis, mk(0i64)) };
+        unsafe { iter_inspect::<VecIntoIter<Inner>, Inner>(s.into_iter(), vis) };
     println!("count={}", t.count());
     println!("-- backward");
     let mut s2: Vec<Inner> = vec_new::<Inner>();
     s2.push(mk(11i64)); s2.push(mk(12i64));
     let mut t2: InspectIter<VecIntoIter<Inner>, Inner> =
-        unsafe { iter_inspect::<VecIntoIter<Inner>, Inner>(s2.into_iter(), vis, mk(0i64)) };
+        unsafe { iter_inspect::<VecIntoIter<Inner>, Inner>(s2.into_iter(), vis) };
     match t2.next_back() { Option::Some(x) => { println!("back={}", x.n); } Option::None => { println!("none"); } }
     println!("rest={}", t2.count());
     println!("-- end");

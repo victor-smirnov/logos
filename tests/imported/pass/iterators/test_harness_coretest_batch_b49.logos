@@ -77,8 +77,8 @@ fn test_iterator_enumerate_nth() {
             let mut it = iter_enumerate::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i32);
             match it.nth(k as i64) {
                 Option::Some(p) => {
-                    assert_eq!(p.idx as i32, k);
-                    assert_eq!(p.val, k);
+                    assert_eq!(p.0 as i32, k);
+                    assert_eq!(p.1, k);
                 }
                 Option::None => { assert_eq!(true, false); }
             }
@@ -260,7 +260,7 @@ fn test_iterator_take_find() {
 fn test_iterator_take_while_count() {
     let xs: [i32; 9] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32];
     unsafe {
-        let n: i64 = iter_take_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5_ref, 0i32).count();
+        let n: i64 = iter_take_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5_ref).count();
         assert_eq!(n, 5i64);
     }
 }
@@ -269,7 +269,7 @@ fn test_iterator_take_while_count() {
 fn test_iterator_skip_while_count() {
     let xs: [i32; 9] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32];
     unsafe {
-        let n: i64 = iter_skip_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5_ref, 0i32).count();
+        let n: i64 = iter_skip_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt_5_ref).count();
         assert_eq!(n, 4i64);
     }
 }
@@ -279,7 +279,7 @@ fn test_iterator_step_by_count() {
     // 0..12 stride 3 → 0,3,6,9 → 4 items.
     let xs: [i32; 12] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32, 11i32];
     unsafe {
-        let n: i64 = iter_step_by::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 3i64, 0i32).count();
+        let n: i64 = iter_step_by::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 3i64).count();
         assert_eq!(n, 4i64);
     }
 }
@@ -288,7 +288,7 @@ fn test_iterator_step_by_count() {
 fn test_iterator_inspect_count() {
     let xs: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
     unsafe {
-        let n: i64 = iter_inspect::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), noop, 0i32).count();
+        let n: i64 = iter_inspect::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), noop).count();
         assert_eq!(n, 4i64);
     }
 }
@@ -313,8 +313,8 @@ fn test_iterator_zip_last() {
         match iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32).last() {
             Option::Some(p) => {
-                assert_eq!(p.first,  2i32);
-                assert_eq!(p.second, 12i32);
+                assert_eq!(p.0,  2i32);
+                assert_eq!(p.1, 12i32);
             }
             Option::None => { assert_eq!(true, false); }
         }

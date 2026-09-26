@@ -6,10 +6,10 @@
 // - `xs.iter().cloned().enumerate()` → `iter_enumerate(iter_over_slice
 //   (&xs), zero)` (Logos's slice iter yields T by value, .cloned
 //   isn't needed).
-// - `(i, x)` tuple yield → `EnumPair { idx, val }` struct.
+// - `(i, x)` tuple yield, read via `.0` / `.1`.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `impl DoubleEndedIterator<EnumPair<T>> for
+// Stdlib companion: `impl DoubleEndedIterator<(i64, T)> for
 // EnumIter<I, T>` (where I: DEI + ExactSizeIterator). Position
 // computed as `self.idx + inner.len()` after the back-pull.
 
@@ -27,27 +27,27 @@ fn test_double_ended_enumerate() {
     unsafe {
         let mut it = iter_enumerate::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i32);
         match it.next() {
-            Option::Some(p) => { assert_eq!(p.idx, 0i64); assert_eq!(p.val, 1i32); }
+            Option::Some(p) => { assert_eq!(p.0, 0i64); assert_eq!(p.1, 1i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next() {
-            Option::Some(p) => { assert_eq!(p.idx, 1i64); assert_eq!(p.val, 2i32); }
+            Option::Some(p) => { assert_eq!(p.0, 1i64); assert_eq!(p.1, 2i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.idx, 5i64); assert_eq!(p.val, 6i32); }
+            Option::Some(p) => { assert_eq!(p.0, 5i64); assert_eq!(p.1, 6i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.idx, 4i64); assert_eq!(p.val, 5i32); }
+            Option::Some(p) => { assert_eq!(p.0, 4i64); assert_eq!(p.1, 5i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.idx, 3i64); assert_eq!(p.val, 4i32); }
+            Option::Some(p) => { assert_eq!(p.0, 3i64); assert_eq!(p.1, 4i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.idx, 2i64); assert_eq!(p.val, 3i32); }
+            Option::Some(p) => { assert_eq!(p.0, 2i64); assert_eq!(p.1, 3i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next() {

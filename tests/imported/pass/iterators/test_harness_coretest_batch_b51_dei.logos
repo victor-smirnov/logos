@@ -130,7 +130,7 @@ fn test_double_ended_skip() {
 fn test_double_ended_inspect() {
     let xs: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
     unsafe {
-        let mut it = iter_inspect::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), noop, 0i32);
+        let mut it = iter_inspect::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), noop);
         match it.next_back() { Option::Some(v) => { assert_eq!(v, 40i32); } Option::None => { assert_eq!(true, false); } }
         match it.next()      { Option::Some(v) => { assert_eq!(v, 10i32); } Option::None => { assert_eq!(true, false); } }
         match it.next_back() { Option::Some(v) => { assert_eq!(v, 30i32); } Option::None => { assert_eq!(true, false); } }

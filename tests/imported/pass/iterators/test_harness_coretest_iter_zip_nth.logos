@@ -3,7 +3,7 @@
 //
 // Modifications:
 // - `xs.iter().zip(&ys)` → `iter_zip::<…>(…, zt, zu)`; pairs are
-//   `ZipPair<T, U>` structs with `.first` / `.second` fields.
+//   `ZipPair<T, U>` structs with `.first` / `.1`.
 // - Logos's `.nth(n)` took `self` by value when this was ported, so the
 //   chained `it.nth(0); it.nth(1); it.nth(0)` shape of the upstream test
 //   rebuilds the iter for each call. Same observable pair sequence,
@@ -30,8 +30,8 @@ fn test_zip_nth() {
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it0.nth(0i64) {
             Option::Some(p) => {
-                assert_eq!(p.first,  0i32);
-                assert_eq!(p.second, 10i32);
+                assert_eq!(p.0,  0i32);
+                assert_eq!(p.1, 10i32);
             }
             Option::None    => { assert_eq!(true, false); }
         }
@@ -40,8 +40,8 @@ fn test_zip_nth() {
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it1.nth(1i64) {
             Option::Some(p) => {
-                assert_eq!(p.first,  1i32);
-                assert_eq!(p.second, 11i32);
+                assert_eq!(p.0,  1i32);
+                assert_eq!(p.1, 11i32);
             }
             Option::None    => { assert_eq!(true, false); }
         }
@@ -50,8 +50,8 @@ fn test_zip_nth() {
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it2.nth(2i64) {
             Option::Some(p) => {
-                assert_eq!(p.first,  2i32);
-                assert_eq!(p.second, 12i32);
+                assert_eq!(p.0,  2i32);
+                assert_eq!(p.1, 12i32);
             }
             Option::None    => { assert_eq!(true, false); }
         }

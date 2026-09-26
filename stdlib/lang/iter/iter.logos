@@ -10,6 +10,7 @@ use logos.lang.result;
 use logos.lang.cmp;
 use logos.lang.ops;
 use logos.lang.clone;               // #112: Clone-bounded duplication (intersperse / repeat)
+use logos.lang.panic;               // step_by(0) panics (Rust)
 use logos.lang.mem;                 // #112: mem::replace — move OUT of a field we still own
 
 // ── FromIterator trait ───────────────────────────────────────────────────────
@@ -22,6 +23,35 @@ use logos.lang.mem;                 // #112: mem::replace — move OUT of a fiel
 pub trait FromIterator<A> {
     /// Creates `Self` by draining `iter` to exhaustion.
     fn from_iter<I: Iterator<A>>(iter: I) -> Self;
+}
+
+// ── Extend trait ─────────────────────────────────────────────────────────────
+//
+// Rust's `core::iter::Extend<A>`: a collection that can absorb items one at a
+// time. `Iterator::partition` / `unzip` build their results through it. Only
+// the single-item form is here: a generic `extend<I: IntoIterator<A>>` needs an
+// `I::Iter` projection normalised through mono, which is not there yet.
+
+/// A collection that can be extended with `A` items (Rust's `Extend`).
+pub trait Extend<A> {
+    /// Appends one item to the collection.
+    fn extend_one(self: &mut Self, item: A);
+}
+
+// ── IntoPair — the `Item = (A, B)` shape `unzip` needs ───────────────────────
+//
+// Rust writes `unzip` with `where Self: Iterator<Item = (A, B)>`; Logos's
+// `Iterator<Item>` is a type parameter, so the pair shape is asked of `Item`
+// through this trait instead. Implemented once, for `(A, B)`.
+
+/// Splits a pair value into its two halves; implemented for `(A, B)`.
+pub trait IntoPair<A, B> {
+    /// Returns the two halves.
+    fn into_pair(self: Self) -> (A, B);
+}
+
+impl<A, B> IntoPair<A, B> for (A, B) {
+    fn into_pair(self: (A, B)) -> (A, B) { return self; }
 }
 
 // ── Sum / Product traits ─────────────────────────────────────────────────────
@@ -190,7 +220,7 @@ pub trait Iterator<Item> {
     }
 
     // §8.2: `.enumerate()` — yield (idx, item) pairs.
-    /// Creates an adapter yielding `EnumPair { idx, val }` with `idx` counting from `0`.
+    /// Creates an adapter yielding `(idx, item)` tuples with `idx` counting from `0` (Rust).
     fn enumerate(self: Self) -> EnumIter<Self, Item> {
         return EnumIter::<Self, Item> { inner: self, idx: 0 as i64 };
     }
@@ -199,8 +229,8 @@ pub trait Iterator<Item> {
     fn chain<ChainOther>(self: Self, other: ChainOther) -> ChainIter<Self, ChainOther, Item> {
         return ChainIter { first: self, second: other, first_done: false };
     }
-    /// Creates an adapter yielding `ZipPair`s until either input is exhausted.
-    fn zip<ZipOther, ZipOtherItem>(self: Self, other: ZipOther) -> ZipIter<Self, ZipOther, Item, ZipOtherItem> {
+    /// Creates an adapter yielding `(a, b)` tuples until either input is exhausted.
+    fn zip<ZipOther: Iterator<ZipOtherItem>, ZipOtherItem>(self: Self, other: ZipOther) -> ZipIter<Self, ZipOther, Item, ZipOtherItem> {
         return ZipIter { left: self, right: other };
     }
 
@@ -306,44 +336,46 @@ pub trait Iterator<Item> {
         }
     }
 
-    // SL-sl-05 method shortcuts for the adapter free fns below. No
-    // fresh method-level tparams (Item is impl-bound), so the method-
-    // generic-mono machinery isn't needed here. The `unsafe` qualifier
-    // matches their free-fn counterparts which require a `zero`
-    // sentinel for raw-pointer copies in adapter bodies. The unusual
-    // 2nd-arg `zero: Item` placeholder is a workaround for Logos's
-    // lack of `mem::zeroed` / `Default` — give the adapter a typed
-    // initial value for its `_t` phantom field.
     /// Creates an adapter yielding items while `pred` holds; stops for good at the first failure.
-    /// `zero` fills the adapter's phantom field (no `Default` yet) and is never yielded.
-    unsafe fn take_while(self: Self, pred: fn(&Item) -> bool, zero: Item)
-        -> TakeWhileIter<Self, Item>
-    {
-        return TakeWhileIter { inner: self, pred: pred, done: false, _t: zero };
+    fn take_while(self: Self, pred: fn(&Item) -> bool) -> TakeWhileIter<Self, Item> {
+        return TakeWhileIter { inner: self, pred: pred, done: false };
     }
 
     /// Creates an adapter dropping items while `pred` holds, then yielding all the rest.
-    /// `zero` fills the adapter's phantom field and is never yielded.
-    unsafe fn skip_while(self: Self, pred: fn(&Item) -> bool, zero: Item)
-        -> SkipWhileIter<Self, Item>
-    {
-        return SkipWhileIter { inner: self, pred: pred, primed: false, _t: zero };
+    fn skip_while(self: Self, pred: fn(&Item) -> bool) -> SkipWhileIter<Self, Item> {
+        return SkipWhileIter { inner: self, pred: pred, primed: false };
     }
 
     /// Creates an adapter yielding the first item, then every `step`-th item after it.
-    /// `zero` fills the adapter's phantom field and is never yielded.
-    unsafe fn step_by(self: Self, step: i64, zero: Item)
-        -> StepByIter<Self, Item>
-    {
-        return StepByIter { inner: self, step: step, first: true, _t: zero };
+    /// Panics if `step` is not positive (Rust: `step_by(0)` panics).
+    fn step_by(self: Self, step: i64) -> StepByIter<Self, Item> {
+        if step <= 0i64 { iter_step_by_zero(); }
+        return StepByIter { inner: self, step: step, first: true };
     }
 
     /// Creates a pass-through adapter calling `visit` on a BORROW of each item.
-    /// `zero` fills the adapter's phantom field and is never yielded.
-    unsafe fn inspect(self: Self, visit: fn(&Item) -> (), zero: Item)
-        -> InspectIter<Self, Item>
+    fn inspect(self: Self, visit: fn(&Item) -> ()) -> InspectIter<Self, Item> {
+        return InspectIter { inner: self, visit: visit };
+    }
+
+    /// Creates an adapter copying each `&T` item into an owned `T` (Rust's `Iterator::copied`).
+    /// Only an iterator over `&T` with `T: Copy` yields anything: `Copied<I, &T>` is the
+    /// shape the `Iterator` impl is written for.
+    fn copied(self: Self) -> Copied<Self, Item> {
+        return Copied { inner: self };
+    }
+
+    /// Creates an adapter cloning each `&T` item into an owned `T` (Rust's `Iterator::cloned`).
+    fn cloned(self: Self) -> Cloned<Self, Item> {
+        return Cloned { inner: self };
+    }
+
+    /// Creates an adapter mapping each item to an iterator with `f` and yielding the
+    /// elements of those iterators in order (Rust's `Iterator::flat_map`).
+    fn flat_map<FmIter: Iterator<FmOut>, FmOut, FmFn: FnMut(Item) -> FmIter>(self: Self, f: FmFn)
+        -> FlatMapIter<Self, Item, FmFn, FmIter, FmOut>
     {
-        return InspectIter { inner: self, visit: visit, _t: zero };
+        return FlatMapIter { outer: self, f: f, cur: Option::None };
     }
 
     // Terminal: fold items into an accumulator.
@@ -475,13 +507,105 @@ pub trait Iterator<Item> {
                 // it is still here. It is UNSOUND for a droppable `Item`
                 // (measured: 3 destructor calls for 2 values, rc 134) and must
                 // be deleted the day the provenance over-refusal closes.
+                // The fold is written out rather than `it.fold::<Item, ReduceFn>(…)`: a
+                // turbofish on a trait-default call mis-maps its arguments when `Self` is
+                // a shape-selected impl (`impl … for Copied<I, &'a T>` bound `Acc` to
+                // `ReduceFn`); the loop needs no method-generic call at all.
                 unsafe {
-                    let init: Item = logos.lang.ptr::read((&v) as *const Item);   // #463
-                    let acc: Item = it.fold::<Item, ReduceFn>(init, g);
-                    return Option::Some(acc);
+                    let mut acc: Item = logos.lang.ptr::read((&v) as *const Item);   // #463
+                    loop {
+                        match it.next() {
+                            Option::None    => { return Option::Some(acc); }
+                            Option::Some(x) => { acc = g(acc, x); }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// Returns the item whose `f` key is maximal, or `None` if empty; the last of equals wins (Rust).
+    /// `f` BORROWS the item (Rust: `FnMut(&Item) -> B`); the winner goes through `iter_pick_by`
+    /// (see `min_by` for why a conditional assignment would leak the loser).
+    fn max_by_key<MaxKey: Ord, MaxKeyFn: FnMut(&Item) -> MaxKey>(self: Self, f: MaxKeyFn) -> Option<Item> {
+        let mut it: Self = self;
+        let mut g: MaxKeyFn = f;
+        let mut best: Option<Item> = Option::None;
+        let mut best_key: Option<MaxKey> = Option::None;
+        loop {
+            match it.next() {
+                Option::None    => { return best; }
+                Option::Some(v) => {
+                    let k: MaxKey = g(&v);
+                    let mut take_v: bool = true;
+                    match &best_key {
+                        Option::None     => { take_v = true; }
+                        Option::Some(bk) => {
+                            match k.cmp(bk) {
+                                Ordering::Less => { take_v = false; }
+                                _              => { take_v = true; }
+                            }
+                        }
+                    }
+                    best = iter_pick_by::<Option<Item>>(best, Option::Some(v), take_v);
+                    best_key = iter_pick_by::<Option<MaxKey>>(best_key, Option::Some(k), take_v);
+                }
+            }
+        }
+    }
+
+    /// Returns the item whose `f` key is minimal, or `None` if empty; the first of equals wins (Rust).
+    fn min_by_key<MinKey: Ord, MinKeyFn: FnMut(&Item) -> MinKey>(self: Self, f: MinKeyFn) -> Option<Item> {
+        let mut it: Self = self;
+        let mut g: MinKeyFn = f;
+        let mut best: Option<Item> = Option::None;
+        let mut best_key: Option<MinKey> = Option::None;
+        loop {
+            match it.next() {
+                Option::None    => { return best; }
+                Option::Some(v) => {
+                    let k: MinKey = g(&v);
+                    let mut take_v: bool = true;
+                    match &best_key {
+                        Option::None     => { take_v = true; }
+                        Option::Some(bk) => {
+                            match k.cmp(bk) {
+                                Ordering::Less => { take_v = true; }
+                                _              => { take_v = false; }
+                            }
+                        }
+                    }
+                    best = iter_pick_by::<Option<Item>>(best, Option::Some(v), take_v);
+                    best_key = iter_pick_by::<Option<MinKey>>(best_key, Option::Some(k), take_v);
+                }
+            }
+        }
+    }
+
+    /// Splits the items into two collections: those for which `f` returns `true`, and the
+    /// rest (Rust's `Iterator::partition`). `f` BORROWS the item; each item has one owner.
+    fn partition<PB: Default + Extend<Item>, PartFn: FnMut(&Item) -> bool>(self: Self, f: PartFn) -> (PB, PB) {
+        let mut it: Self = self;
+        let mut g: PartFn = f;
+        let mut yes: PB = PB::default();
+        let mut no: PB = PB::default();
+        loop {
+            match it.next() {
+                Option::None    => { return (yes, no); }
+                Option::Some(v) => {
+                    if g(&v) { yes.extend_one(v); } else { no.extend_one(v); }
+                }
+            }
+        }
+    }
+
+    /// Splits an iterator of pairs into two collections (Rust's `Iterator::unzip`).
+    fn unzip<UA, UB, FromA: Default + Extend<UA>, FromB: Default + Extend<UB>>(self: Self) -> (FromA, FromB)
+        where Item: IntoPair<UA, UB>
+    {
+        // Through a free fn whose own `P: IntoPair<UA, UB>` bound supplies
+        // `into_pair` (the pattern `max` uses for `Item: Ord`).
+        return iter_unzip::<Self, Item, UA, UB, FromA, FromB>(self);
     }
 
     // Terminal: count items.
@@ -601,7 +725,7 @@ pub trait Iterator<Item> {
 
     // Terminal: index of first item satisfying the predicate. `&mut self`.
     /// Returns the zero-based index (from the current position) of the first match, or `None`.
-    unsafe fn position<PosFn: FnMut(Item) -> bool>(self: &mut Self, pred: PosFn) -> Option<i64> {
+    fn position<PosFn: FnMut(Item) -> bool>(self: &mut Self, pred: PosFn) -> Option<i64> {
         let mut p: PosFn = pred;
         let mut idx: i64 = 0i64;
         loop {
@@ -682,6 +806,24 @@ pub trait DoubleEndedIterator<Item>: Iterator<Item> {
             }
         }
         return self.next_back();
+    }
+}
+
+/// Splits an iterator of pairs into two collections; free-fn form of `Iterator::unzip`.
+pub fn iter_unzip<I: Iterator<P>, P: IntoPair<A, B>, A, B,
+                  FromA: Default + Extend<A>, FromB: Default + Extend<B>>(iter: I) -> (FromA, FromB) {
+    let mut it: I = iter;
+    let mut a: FromA = FromA::default();
+    let mut b: FromB = FromB::default();
+    loop {
+        match it.next() {
+            Option::None    => { return (a, b); }
+            Option::Some(v) => {
+                let (x, y) = v.into_pair();
+                a.extend_one(x);
+                b.extend_one(y);
+            }
+        }
     }
 }
 
@@ -989,16 +1131,8 @@ pub struct CopiedIter<I, T> {
     pub _t_marker: i32,
 }
 
-// KNOWN GAP (adversarial #1, E): the METHOD form `.copied()` is absent —
-// only this free fn. Root: a trait-default `fn copied<U>(self) -> …` can't
-// deduce U (= Item's pointee): `where Self: Iterator<&U>` clauses are
-// DROPPED at default-method synthesis (sema_decl where_param_bounds keys
-// on trait params only; "Self" subjects skipped, and the stored bound
-// keeps no type-args). Re-parameterising CopiedIter by the ref item type
-// (impl … for CopiedIter<I, &T>, shape-selected) fixes inference but the
-// synthesized defaults' bodies then mis-resolve self.next() — needs the
-// synthesis-side where-Self unification. iter_copied(it) infers fully via
-// bound-driven inference (landed this session).
+// The METHOD form `.copied()` returns `Copied<Self, Item>` (below); this
+// free-fn form keeps the pointee as an explicit parameter.
 impl<I: Iterator<&T>, T> Iterator<T> for CopiedIter<I, T> {
     fn next(self: &mut CopiedIter<I, T>) -> Option<T> {
         match self.inner.next() {
@@ -1376,8 +1510,6 @@ pub struct TakeWhileIter<I, T> {
     pub pred: fn(&T) -> bool,
     /// Set once `pred` has failed; the adapter stays exhausted.
     pub done: bool,
-    /// Phantom anchor for `T`; value unused.
-    pub _t: T,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for TakeWhileIter<I, T> {
@@ -1397,9 +1529,9 @@ impl<I: Iterator<T>, T> Iterator<T> for TakeWhileIter<I, T> {
     }
 }
 
-/// Creates a `TakeWhileIter`; `zero` fills the phantom field and is never yielded.
-pub unsafe fn iter_take_while<I: Iterator<T>, T>(iter: I, pred: fn(&T) -> bool, zero: T) -> TakeWhileIter<I, T> {
-    return TakeWhileIter { inner: iter, pred: pred, done: false, _t: zero };
+/// Creates a `TakeWhileIter`; free-fn form of `Iterator::take_while`.
+pub fn iter_take_while<I: Iterator<T>, T>(iter: I, pred: fn(&T) -> bool) -> TakeWhileIter<I, T> {
+    return TakeWhileIter { inner: iter, pred: pred, done: false };
 }
 
 // ── SkipWhileIter<I, T> — skip until pred returns false, then yield rest ─────
@@ -1412,8 +1544,6 @@ pub struct SkipWhileIter<I, T> {
     pub pred: fn(&T) -> bool,
     /// Set once the prefix has been dropped.
     pub primed: bool,
-    /// Phantom anchor for `T`; value unused.
-    pub _t: T,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for SkipWhileIter<I, T> {
@@ -1438,9 +1568,9 @@ impl<I: Iterator<T>, T> Iterator<T> for SkipWhileIter<I, T> {
     }
 }
 
-/// Creates a `SkipWhileIter`; `zero` fills the phantom field and is never yielded.
-pub unsafe fn iter_skip_while<I: Iterator<T>, T>(iter: I, pred: fn(&T) -> bool, zero: T) -> SkipWhileIter<I, T> {
-    return SkipWhileIter { inner: iter, pred: pred, primed: false, _t: zero };
+/// Creates a `SkipWhileIter`; free-fn form of `Iterator::skip_while`.
+pub fn iter_skip_while<I: Iterator<T>, T>(iter: I, pred: fn(&T) -> bool) -> SkipWhileIter<I, T> {
+    return SkipWhileIter { inner: iter, pred: pred, primed: false };
 }
 
 // ── StepByIter<I, T> — yield every Nth item starting from the first ──────────
@@ -1453,8 +1583,6 @@ pub struct StepByIter<I, T> {
     pub step: i64,
     /// True until the first item has been yielded.
     pub first: bool,
-    /// Phantom anchor for `T`; value unused.
-    pub _t: T,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for StepByIter<I, T> {
@@ -1475,9 +1603,9 @@ impl<I: Iterator<T>, T> Iterator<T> for StepByIter<I, T> {
     }
 }
 
-/// Creates a `StepByIter` with stride `step`; `zero` fills the phantom field.
-pub unsafe fn iter_step_by<I: Iterator<T>, T>(iter: I, step: i64, zero: T) -> StepByIter<I, T> {
-    return StepByIter { inner: iter, step: step, first: true, _t: zero };
+/// Creates a `StepByIter` with stride `step`; free-fn form of `Iterator::step_by`.
+pub fn iter_step_by<I: Iterator<T>, T>(iter: I, step: i64) -> StepByIter<I, T> {
+    return iter.step_by(step);
 }
 
 // ── InspectIter<I, T> — observe each item without consuming it ───────────────
@@ -1488,8 +1616,6 @@ pub struct InspectIter<I, T> {
     pub inner: I,
     /// Observer invoked per item; BORROWS the item.
     pub visit: fn(&T) -> (),
-    /// Phantom anchor for `T`; value unused.
-    pub _t: T,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for InspectIter<I, T> {
@@ -1507,9 +1633,9 @@ impl<I: Iterator<T>, T> Iterator<T> for InspectIter<I, T> {
     }
 }
 
-/// Creates an `InspectIter` calling `visit` per item; `zero` fills the phantom field.
-pub unsafe fn iter_inspect<I: Iterator<T>, T>(iter: I, visit: fn(&T) -> (), zero: T) -> InspectIter<I, T> {
-    return InspectIter { inner: iter, visit: visit, _t: zero };
+/// Creates an `InspectIter` calling `visit` per item; free-fn form of `Iterator::inspect`.
+pub fn iter_inspect<I: Iterator<T>, T>(iter: I, visit: fn(&T) -> ()) -> InspectIter<I, T> {
+    return InspectIter { inner: iter, visit: visit };
 }
 
 // DEI: same shape as forward, fires the visit fn for each element
@@ -1566,7 +1692,7 @@ impl<I: Iterator<T>, T> Iterator<T> for PeekableIter<I, T> {
 impl<I: Iterator<T>, T> PeekableIter<I, T> {
     /// Borrows the next item without consuming it, or `None` if exhausted.
     /// Fills the cache on demand; the borrow is tied to `self.peeked`'s storage.
-    pub unsafe fn peek(self: &mut PeekableIter<I, T>) -> Option<&T> {
+    pub fn peek(self: &mut PeekableIter<I, T>) -> Option<&T> {
         // #112: this only asks WHETHER the cache is filled — it never needs the
         // value, so the raw duplicate it used to make was gratuitous. `as_ref`
         // answers the same question through a borrow.
@@ -1912,12 +2038,8 @@ pub fn iter_map_windows<I: Iterator<T>, T: Copy, R, F: FnMut([T; N]) -> R, const
 // Mirrors `Iterator::flat_map(self, f: F)` — combines `map(f)` then
 // `flatten()`. Each outer item `t: T` maps via closure `f: FnMut(T)
 // -> II` to an inner iterator `II: Iterator<U>`; FlatMapIter yields
-// the elements of those inner iterators in sequence.
-//
-// Two-state buffer mirrors FlattenIter's `has_cur: bool` + `cur: II`
-// pattern. `_t` / `_u` phantoms anchor the type-params through mono
-// (none of them appear in fields otherwise — needed so the impl can
-// recover T / U at substitution time).
+// the elements of those inner iterators in sequence. `cur` holds the
+// inner iterator being drained (`None` before the first outer pull).
 
 /// Map-then-flatten adapter: `f` maps each outer item to an iterator whose elements are yielded.
 pub struct FlatMapIter<I, T, F, II, U> {
@@ -1925,14 +2047,8 @@ pub struct FlatMapIter<I, T, F, II, U> {
     pub outer:   I,
     /// Mapper producing an inner iterator per outer item.
     pub f:       F,
-    /// True when `cur` holds a live inner iterator.
-    pub has_cur: bool,
-    /// Currently-draining inner iterator.
-    pub cur:     II,
-    /// Phantom anchor for `T`; value unused.
-    pub _t:      T,
-    /// Phantom anchor for `U`; value unused.
-    pub _u:      U,
+    /// Currently-draining inner iterator; `None` before the first outer pull.
+    pub cur:     Option<II>,
 }
 
 impl<I: Iterator<T>, T, F: FnMut(T) -> II, II: Iterator<U>, U>
@@ -1940,44 +2056,92 @@ impl<I: Iterator<T>, T, F: FnMut(T) -> II, II: Iterator<U>, U>
 {
     fn next(self: &mut FlatMapIter<I, T, F, II, U>) -> Option<U> {
         loop {
-            if self.has_cur {
-                let v: Option<U> = self.cur.next();
-                if v.is_some() { return v; }
-                self.has_cur = false;
-            }
-            let next_outer: Option<T> = self.outer.next();
-            match next_outer {
-                Option::None    => { return Option::None; }
-                Option::Some(t) => {
-                    self.cur     = (self.f)(t);
-                    self.has_cur = true;
+            match &mut self.cur {
+                Option::Some(inner) => {
+                    match inner.next() {
+                        Option::Some(v) => { return Option::Some(v); }
+                        Option::None    => { }
+                    }
                 }
+                Option::None => { }
+            }
+            match self.outer.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(t) => { self.cur = Option::Some((self.f)(t)); }
             }
         }
     }
 }
 
-/// Creates a `FlatMapIter`; the `zero_*` args are placeholder initialisers, never yielded.
-pub fn iter_flat_map<I: Iterator<T>, T, F: FnMut(T) -> II, II: Iterator<U>, U>(
-    iter: I, f: F, zero_t: T, zero_inner: II, zero_u: U)
+/// Creates a `FlatMapIter`; free-fn form of `Iterator::flat_map`.
+pub fn iter_flat_map<I: Iterator<T>, T, F: FnMut(T) -> II, II: Iterator<U>, U>(iter: I, f: F)
     -> FlatMapIter<I, T, F, II, U>
 {
-    return FlatMapIter {
-        outer:   iter,
-        f:       f,
-        has_cur: false,
-        cur:     zero_inner,
-        _t:      zero_t,
-        _u:      zero_u,
-    };
+    return FlatMapIter { outer: iter, f: f, cur: Option::None };
 }
 
-// cloned / copied — deferred. Rust's `iter.cloned()` and `iter.copied()`
-// take an `Iterator<Item = &T>` and yield `T` by value. Logos's iter
-// types already yield T by value (no built-in by-ref iter shape), so
-// the cloned/copied surface would only matter for `SliceIter`-style
-// adapters that yield `&T`. Add them once a `IterRef<T>` style adapter
-// exists.
+// ── Copied<I, R> / Cloned<I, R> — `Iterator<&T>` → `Iterator<T>` ─────────
+//
+// Rust's `Copied<I>` / `Cloned<I>`. The second parameter is the source's
+// item type; the `Iterator` impls are written for the by-ref SHAPE
+// `Copied<I, &'a T>`, which is how `T` is recovered from `Item = &'a T`
+// without a `where Self: Iterator<&T>` clause.
+
+/// Copying adapter over a by-ref iterator (Rust's `Copied`); yields `*item`.
+pub struct Copied<I, R> {
+    /// Underlying by-ref iterator.
+    pub inner: I,
+}
+
+impl<'a, I: Iterator<&'a T>, T: Copy> Iterator<T> for Copied<I, &'a T> {
+    fn next(self: &mut Copied<I, &'a T>) -> Option<T> {
+        match self.inner.next() {
+            Option::Some(r) => { return Option::Some(*r); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+impl<'a, I: DoubleEndedIterator<&'a T>, T: Copy> DoubleEndedIterator<T> for Copied<I, &'a T> {
+    fn next_back(self: &mut Copied<I, &'a T>) -> Option<T> {
+        match self.inner.next_back() {
+            Option::Some(r) => { return Option::Some(*r); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+impl<'a, I: ExactSizeIterator<&'a T>, T: Copy> ExactSizeIterator<T> for Copied<I, &'a T> {
+    fn len(&self) -> i64 { return self.inner.len(); }
+}
+
+/// Cloning adapter over a by-ref iterator (Rust's `Cloned`); yields `item.clone()`.
+pub struct Cloned<I, R> {
+    /// Underlying by-ref iterator.
+    pub inner: I,
+}
+
+impl<'a, I: Iterator<&'a T>, T: Clone> Iterator<T> for Cloned<I, &'a T> {
+    fn next(self: &mut Cloned<I, &'a T>) -> Option<T> {
+        match self.inner.next() {
+            Option::Some(r) => { return Option::Some(r.clone()); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+impl<'a, I: DoubleEndedIterator<&'a T>, T: Clone> DoubleEndedIterator<T> for Cloned<I, &'a T> {
+    fn next_back(self: &mut Cloned<I, &'a T>) -> Option<T> {
+        match self.inner.next_back() {
+            Option::Some(r) => { return Option::Some(r.clone()); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+impl<'a, I: ExactSizeIterator<&'a T>, T: Clone> ExactSizeIterator<T> for Cloned<I, &'a T> {
+    fn len(&self) -> i64 { return self.inner.len(); }
+}
 
 // ── ByRefIter<I> — explicit "by-ref" iterator wrapper ───────────────────
 //
@@ -2197,14 +2361,6 @@ pub unsafe fn iter_cycle<I: Iterator<T> + Clone, T>(iter: I, zero: T) -> CycleIt
 
 // ── EnumIter<I, T> — pair each item with its index ───────────────────────────
 
-/// Index/value pair yielded by `EnumIter`.
-pub struct EnumPair<T> {
-    /// Zero-based position of `val` in the source sequence.
-    pub idx: i64,
-    /// The item itself.
-    pub val: T,
-}
-
 /// Enumerating adapter pairing each item with its zero-based index.
 pub struct EnumIter<I, T> {
     /// Source iterator.
@@ -2213,14 +2369,14 @@ pub struct EnumIter<I, T> {
     pub idx: i64,
 }
 
-impl<I: Iterator<T>, T> Iterator<EnumPair<T>> for EnumIter<I, T> {
-    fn next(self: &mut EnumIter<I, T>) -> Option<EnumPair<T>> {
+impl<I: Iterator<T>, T> Iterator<(i64, T)> for EnumIter<I, T> {
+    fn next(self: &mut EnumIter<I, T>) -> Option<(i64, T)> {
         match self.inner.next() {
             Option::None => { return Option::None; }
             Option::Some(v) => {
                 let i = self.idx;
                 self.idx = self.idx + 1 as i64;
-                return Option::Some(EnumPair { idx: i, val: v });
+                return Option::Some((i, v));
             }
         }
     }
@@ -2236,20 +2392,20 @@ pub fn iter_enumerate<I: Iterator<T>, T>(iter: I, _zero: T) -> EnumIter<I, T> {
 // since inner's remaining items are at original positions
 // [idx .. idx + inner.len()) and the pulled item was at the
 // upper end of that range.
-impl<I: DoubleEndedIterator<T> + ExactSizeIterator<T>, T> DoubleEndedIterator<EnumPair<T>> for EnumIter<I, T> {
-    fn next_back(self: &mut EnumIter<I, T>) -> Option<EnumPair<T>> {
+impl<I: DoubleEndedIterator<T> + ExactSizeIterator<T>, T> DoubleEndedIterator<(i64, T)> for EnumIter<I, T> {
+    fn next_back(self: &mut EnumIter<I, T>) -> Option<(i64, T)> {
         let pulled: Option<T> = self.inner.next_back();
         match pulled {
             Option::None    => { return Option::None; }
             Option::Some(v) => {
                 let pos: i64 = self.idx + self.inner.len();
-                return Option::Some(EnumPair { idx: pos, val: v });
+                return Option::Some((pos, v));
             }
         }
     }
 }
 
-impl<I: ExactSizeIterator<T>, T> ExactSizeIterator<EnumPair<T>> for EnumIter<I, T> {
+impl<I: ExactSizeIterator<T>, T> ExactSizeIterator<(i64, T)> for EnumIter<I, T> {
     fn len(&self) -> i64 { return self.inner.len(); }
 }
 
@@ -2300,7 +2456,7 @@ impl<A: DoubleEndedIterator<T>, B: DoubleEndedIterator<T>, T> DoubleEndedIterato
 
 // ── ZipPair<A, B> ─────────────────────────────────────────────────────────────
 
-/// Item pair yielded by `ZipIter`.
+/// Named pair yielded by the map iterators (`HashMap::iter`, `BTreeMap::iter`); `zip` yields tuples.
 pub struct ZipPair<A, B> {
     /// Item pulled from the left iterator.
     pub first: A,
@@ -2308,7 +2464,7 @@ pub struct ZipPair<A, B> {
     pub second: B,
 }
 
-/// Pairing adapter yielding `ZipPair`s until either side exhausts.
+/// Pairing adapter yielding `(a, b)` tuples until either side exhausts.
 /// A left item pulled when the right side is already exhausted is dropped.
 pub struct ZipIter<A, B, T, U> {
     /// Left source.
@@ -2317,15 +2473,15 @@ pub struct ZipIter<A, B, T, U> {
     pub right: B,
 }
 
-impl<A: Iterator<T>, B: Iterator<U>, T, U> Iterator<ZipPair<T, U>> for ZipIter<A, B, T, U> {
-    fn next(self: &mut ZipIter<A, B, T, U>) -> Option<ZipPair<T, U>> {
+impl<A: Iterator<T>, B: Iterator<U>, T, U> Iterator<(T, U)> for ZipIter<A, B, T, U> {
+    fn next(self: &mut ZipIter<A, B, T, U>) -> Option<(T, U)> {
         match self.left.next() {
             Option::None => { return Option::None; }
             Option::Some(a) => {
                 match self.right.next() {
                     Option::None => { return Option::None; }
                     Option::Some(b) => {
-                        return Option::Some(ZipPair { first: a, second: b });
+                        return Option::Some((a, b));
                     }
                 }
             }
@@ -2344,8 +2500,8 @@ pub fn iter_zip<A: Iterator<T>, B: Iterator<U>, T, U>(a: A, b: B, _zt: T, _zu: U
 // both. Matches Rust's Zip<A: DEI+ESI, B: DEI+ESI> shape.
 impl<A: DoubleEndedIterator<T> + ExactSizeIterator<T>,
      B: DoubleEndedIterator<U> + ExactSizeIterator<U>,
-     T, U> DoubleEndedIterator<ZipPair<T, U>> for ZipIter<A, B, T, U> {
-    fn next_back(self: &mut ZipIter<A, B, T, U>) -> Option<ZipPair<T, U>> {
+     T, U> DoubleEndedIterator<(T, U)> for ZipIter<A, B, T, U> {
+    fn next_back(self: &mut ZipIter<A, B, T, U>) -> Option<(T, U)> {
         let alen: i64 = self.left.len();
         let blen: i64 = self.right.len();
         if alen > blen {
@@ -2372,7 +2528,7 @@ impl<A: DoubleEndedIterator<T> + ExactSizeIterator<T>,
                 match b {
                     Option::None     => { return Option::None; }
                     Option::Some(bv) => {
-                        return Option::Some(ZipPair { first: av, second: bv });
+                        return Option::Some((av, bv));
                     }
                 }
             }
@@ -2381,7 +2537,7 @@ impl<A: DoubleEndedIterator<T> + ExactSizeIterator<T>,
 }
 
 impl<A: ExactSizeIterator<T>, B: ExactSizeIterator<U>, T, U>
-    ExactSizeIterator<ZipPair<T, U>> for ZipIter<A, B, T, U> {
+    ExactSizeIterator<(T, U)> for ZipIter<A, B, T, U> {
     fn len(&self) -> i64 {
         let alen: i64 = self.left.len();
         let blen: i64 = self.right.len();
@@ -2593,6 +2749,12 @@ pub fn iter_min_by<I: Iterator<T>, T>(iter: I, cmp: fn(&T, &T) -> i32) -> Option
 // instantiated for all 81 stdlib Iterator impls makes mono emit the WHOLE
 // `impl<T> Option<T>` surface for every one of those item types: +2660 records in
 // abi/logos.abi, measured both ways. The pattern form costs nothing.
+/// Panics as Rust's `step_by(0)` does. A trait default is lowered in the IMPLEMENTOR's
+/// scope, where `panic` need not be imported; this package's own fn always resolves.
+pub fn iter_step_by_zero() {
+    panic("assertion failed: step != 0");
+}
+
 /// Returns `b` when `take_b`, else `a`; the other is destroyed here, exactly once.
 pub fn iter_pick_by<T>(a: T, b: T, take_b: bool) -> T {
     if take_b { return b; }
@@ -2760,13 +2922,6 @@ pub unsafe fn iter_sum_i64<I: Iterator<i64>>(iter: I) -> i64 {
 // free-fn constructor. Closure-taking adapters (from_fn, successors)
 // accept `fn(...) -> ...` ptr; capturing closures are not yet usable
 // until Fn-family traits land at the API surface (priority #1).
-
-// NOTE — `cloned`/`copied` adapters are intentionally omitted.
-// Rust's Cloned/Copied bridge `Iterator<Item=&T>` → `Iterator<Item=T>`
-// because Rust's slice-style iterators yield references by default.
-// In Logos, SliceIter<T> already yields T by value (Iterator yields
-// owned values throughout the stdlib), so these adapters would be
-// degenerate identity wrappers. Skipped.
 
 // ── FromFn<T> — iterator from a closure ─────────────────────────────
 //

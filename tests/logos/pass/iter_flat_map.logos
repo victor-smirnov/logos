@@ -14,12 +14,9 @@ fn fail(c: i32) -> i32 { return c; }
 fn main() -> i32 {
     // Source: [2, 3] → flat_map(make_range) → [0, 1, 0, 1, 2].
     let outer: RangeI32 = range_i32(2i32, 4i32);
-    let zero_outer: i32 = 0i32;
-    let zero_inner: RangeI32 = range_i32(0i32, 0i32);
-    let zero_u: i32 = 0i32;
     let mut fm: FlatMapIter<RangeI32, i32, fn(i32) -> RangeI32, RangeI32, i32> =
         iter_flat_map::<RangeI32, i32, fn(i32) -> RangeI32, RangeI32, i32>(
-            outer, make_range, zero_outer, zero_inner, zero_u);
+            outer, make_range);
 
     let v0: Option<i32> = fm.next();
     if !v0.is_some() { return fail(1); }

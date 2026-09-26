@@ -223,6 +223,43 @@ impl<T> Option<T> {
         }
     }
 
+    /// Zips `self` with `other`: `Some((t, u))` iff both are `Some`, otherwise `None`.
+    pub fn zip<U>(self: Option<T>, other: Option<U>) -> Option<(T, U)> {
+        match self {
+            Option::None    => { return Option::None; }
+            Option::Some(t) => {
+                match other {
+                    Option::None    => { return Option::None; }
+                    Option::Some(u) => { return Option::Some((t, u)); }
+                }
+            }
+        }
+    }
+
+    /// Inserts `value` if the option is `None`, then returns a mutable reference to the
+    /// contained value.
+    pub fn get_or_insert(self: &mut Option<T>, value: T) -> &mut T {
+        let mut empty: bool = false;
+        match self { Option::None => { empty = true; } Option::Some(_) => { } }
+        if empty { *self = Option::Some(value); }
+        match self {
+            Option::Some(v) => { return v; }
+            Option::None    => { panic("unreachable: option was just filled"); }
+        }
+    }
+
+    /// Inserts the value `f()` computes if the option is `None`, then returns a mutable
+    /// reference to the contained value; `f` runs only when the option is empty.
+    pub fn get_or_insert_with<F: FnOnce() -> T>(self: &mut Option<T>, f: F) -> &mut T {
+        let mut empty: bool = false;
+        match self { Option::None => { empty = true; } Option::Some(_) => { } }
+        if empty { *self = Option::Some(f()); }
+        match self {
+            Option::Some(v) => { return v; }
+            Option::None    => { panic("unreachable: option was just filled"); }
+        }
+    }
+
     /// Returns `Some(v)` if `self` is `Some(v)` and `pred(&v)` is `true`, otherwise `None`.
     /// `pred` BORROWS the wrapped value (Rust: `FnOnce(&T) -> bool`), so the value is never
     /// duplicated: exactly one owner, exactly one destructor call on either branch.
@@ -233,6 +270,39 @@ impl<T> Option<T> {
                 if pred(&v) { return Option::Some(v); }
                 return Option::None;
             }
+        }
+    }
+}
+
+// `Option<T: Default>` — the `unwrap_or_default` surface. A separate bounded
+// impl block (Rust puts the bound on the method's `where`; the effect is the same).
+impl<T: Default> Option<T> {
+    /// Returns the contained `Some` value or `T::default()`.
+    pub fn unwrap_or_default(self: Option<T>) -> T {
+        match self {
+            Option::Some(v) => { return v; }
+            Option::None    => { return T::default(); }
+        }
+    }
+}
+
+// `Option<&T>` — Rust's `copied` / `cloned`.
+impl<T: Copy> Option<&T> {
+    /// Maps `Option<&T>` to `Option<T>` by copying the referent.
+    pub fn copied(self: Option<&T>) -> Option<T> {
+        match self {
+            Option::Some(r) => { return Option::Some(*r); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+impl<T: Clone> Option<&T> {
+    /// Maps `Option<&T>` to `Option<T>` by cloning the referent.
+    pub fn cloned(self: Option<&T>) -> Option<T> {
+        match self {
+            Option::Some(r) => { return Option::Some(r.clone()); }
+            Option::None    => { return Option::None; }
         }
     }
 }
@@ -273,11 +343,7 @@ pub fn option_zip<T, U>(a: Option<T>, b: Option<U>) -> Option<(T, U)> {
     }
 }
 
-// `opt.unwrap_or(T::default())` analogue. Free fn form sidesteps the
-// `impl<T> Option<T> { fn unwrap_or_default() where T: Default }` shape
-// where `T::default()` doesn't resolve from the impl-T context in Logos
-// (the `where T: Default` clause on an inherent impl method doesn't yet
-// bind T to the trait for trait-static dispatch on T).
+// Free-fn form of `Option::unwrap_or_default` (kept for existing call sites).
 /// Returns the contained `Some` value or `T::default()`.
 pub fn option_unwrap_or_default<T: Default>(opt: Option<T>) -> T {
     match opt {
