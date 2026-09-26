@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row option_empty_array_annotation_internal (tier 3, `refuses`). Found 2026-09-25 by the discovery battery.
+// `let c: Option<[i64; 0]> = Some([]);`: rustc prints `Some([])`. Logos: mlir_gen "unknown tagged enum 'Option__<error>'" —
+// the empty array literal's element type is not taken from the annotation through the Some payload.
+package option_empty_array_annotation_internal;
+use logos.std.fmt;
+fn main() -> i32 {
+    let c: Option<[i64; 0]> = Some([]);
+    println!("{:?}", c);
+    return 0;
+}

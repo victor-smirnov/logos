@@ -733,6 +733,9 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     if (k == K::Slice) return TypeRef(ty).owning_slice();
     // An owning `Box<Foo>` custom-DST owns its heap block; a borrowed `&Foo` not.
     if (k == K::DstRef) return TypeRef(ty).owning_dst();
+    // A closure value that owns its heap env (a returned `impl Fn*`): its env
+    // glue drops the captures and frees the env.
+    if (k == K::Closure && TypeRef(ty).closure_owns_env()) return true;
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
         // #123 — `#[no_auto_drop]` MEANS NO AUTO DROP AT ANY STORAGE SITE, and

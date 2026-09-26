@@ -308,8 +308,8 @@ impl Drop for String {
 // malloc/free/memcpy that the rest of stdlib already extern's.
 // "%g" gives the shortest round-trippable representation, which
 // matches Rust's f64 / f32 default Display.
-extern fn logos_fmt_f64_g(buf: *mut u8, cap: i32, x: f64) -> i32;
-extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
+extern fn logos_fmt_f64_rust(buf: *mut u8, cap: i32, x: f64, debug: i32) -> i32;
+extern fn logos_fmt_f32_rust(buf: *mut u8, cap: i32, x: f32, debug: i32) -> i32;
 
 // ── ToString ──────────────────────────────────────────────────────────────
 //
@@ -415,9 +415,9 @@ impl ToString for isize {
 impl ToString for f32 {
     fn to_string(self: f32) -> String {
         let mut s: String = String::new();
-        let cap: i32 = 32i32;
+        let cap: i32 = 400i32;   // Rust's Display: positional, no exponent
         let ptr: *mut u8 = s.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, self) };
+        let n: i32 = unsafe { logos_fmt_f32_rust(ptr, cap, self, 0i32) };
         s.advance_len(n as i64);
         return s;
     }
@@ -425,9 +425,9 @@ impl ToString for f32 {
 impl ToString for f64 {
     fn to_string(self: f64) -> String {
         let mut s: String = String::new();
-        let cap: i32 = 32i32;
+        let cap: i32 = 400i32;   // Rust's Display: positional, no exponent
         let ptr: *mut u8 = s.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, self) };
+        let n: i32 = unsafe { logos_fmt_f64_rust(ptr, cap, self, 0i32) };
         s.advance_len(n as i64);
         return s;
     }

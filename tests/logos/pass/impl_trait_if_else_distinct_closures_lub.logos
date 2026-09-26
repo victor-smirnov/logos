@@ -1,0 +1,6 @@
+// An impl-Fn fn ending in `if … else …` over two non-capturing closures: the branches LUB to their fn pointer (rustc: exit 10).
+package impl_trait_if_else_distinct_closures_lub;
+fn choose(flag: bool) -> impl Fn(i64) -> i64 {
+    if flag { move |x: i64| -> i64 { return x + 1i64; } } else { move |x: i64| -> i64 { return x * 2i64; } }
+}
+fn main() -> i32 { let f = choose(true); let g = choose(false); return (f(3i64) + g(3i64)) as i32; }

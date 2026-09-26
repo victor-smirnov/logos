@@ -1,0 +1,6 @@
+// A tail `if` of an impl-Trait fn is its returned VALUE: one branch returning early, the other the tail; a diverging value fixes no hidden type.
+package impl_trait_tail_if_is_value;
+fn mk(k: i64) -> impl Fn() -> i64 { return move || -> i64 { return k; }; }
+fn f(c: bool) -> impl Fn() -> i64 { if c { return mk(1i64); } else { mk(2i64) } }
+fn g(c: bool) -> i64 { if c { 5i64 } else { 6i64 } }
+fn main() -> i32 { return (f(true)() + f(false)() * 10i64 + g(false)) as i32; }

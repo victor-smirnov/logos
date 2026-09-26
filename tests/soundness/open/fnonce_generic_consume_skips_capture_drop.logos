@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row fnonce_generic_consume_skips_capture_drop (tier 2, `run 1`). Found 2026-09-25 by the discovery battery.
+// A move closure owning a Drop capture, consumed by `fn run_once<F: FnOnce() -> i64>(f: F)`: rustc drops the capture once
+// (exit 42). Logos never runs the destructor (the count stays 0).
+// ROOT (read 2026-09-26): not a leak — the destructor runs at `main`'s scope end, AFTER the check. In Rust a closure that
+// owns a non-Copy capture is itself not Copy: passing `c` MOVES it, and `run_once` drops it (its captures) at the call.
+// Logos classifies every non-FnOnce closure as Copy (sema is_move_type's leaf; the borrow checker's twin) and leaves a
+// stack-env `move` closure's captures with their SOURCE (closure_owned_drop_), so the drop stays in `main`. The fix is
+// capture ownership as a property of the closure's TYPE — the stack-env sibling of OWNED_ENV_BIT: a move type, droppable
+// (its env glue drops the captures, no free), the source marked moved at the capture.
+package fnonce_generic_consume_skips_capture_drop;
+struct D { c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1i64; } } }
+fn run_once<F: FnOnce() -> i64>(f: F) -> i64 { return f(); }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let d = D { c: p };
+    let c = move || -> i64 { let _ = &d; return 42i64; };
+    let r = run_once(c);
+    if unsafe { n } != 1i64 { return 1i32; }
+    return r as i32;
+}

@@ -1044,12 +1044,14 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     flag_clear_log_.clear();
     closure_drop_group_.clear();  // capture-drop groups are per-fn (name-keyed)
     closure_deferred_moves_.clear();  // ditto: keyed on the binding NAME
+    closure_owned_drop_.clear();      // ditto: a name another fn's closure owned is not this fn's
     capture_owner_.clear();
     pending_closure_capture_drops_.clear();
     pending_closure_deferred_moves_.clear();
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
     currently_uninit_vars_.clear();  // logos-core 2.7: reset definite-assignment tracker per fn
     infer_solved_.clear();      // local type inference is per function body
+    infer_node_vars_.clear();
     infer_origin_.clear();
 
     // P4-pm-19: tuple-destructure parameters. Track synth-name +
@@ -1539,6 +1541,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                     auto s = map_of(stmts.get(si));
                     if (!s.is_null()) {
                         match_in_tail_position_ = (code_of(s) == la::MATCH);
+                        if (code_of(s) == la::IF && s.has_key(la::ELSE) &&
+                            TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {
+                            impl_tail_if_node_ = s.ptr();
+                            impl_tail_if_av_ = stmts.get(si);
+                        }
                         break;
                     }
                 }
@@ -1549,6 +1556,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         body = lower_block(body_node);
         tail_as_return_ = saved_tail_as_return;
         match_in_tail_position_ = false;
+        impl_tail_if_node_ = nullptr;
         // The parameter patterns' `let PAT = synth;` statements open the body.
         if (!fn_pat_params.empty()) {
             std::vector<lir_view::StmtRef> prologue;

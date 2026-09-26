@@ -579,6 +579,11 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::DESTRUCTURE_ASSIGN) return lower_destructure_assign(stmt);
     if (c == la::COMPOUND_ASSIGN) return lower_compound_assign(stmt);
     if (c == la::RETURN)       return lower_return(stmt);
+    if (c == la::IF && impl_tail_if_node_ && stmt.ptr() == impl_tail_if_node_) {
+        impl_tail_if_node_ = nullptr;
+        auto ret = synth_node(la::RETURN.code, node_line_, {{la::VALUE.code, impl_tail_if_av_}});
+        return lower_return(map_of(ret));
+    }
     if (c == la::IF)           return lower_if(stmt);
     if (c == la::IF_LET_CHAIN) {
         // §6.4: `if let P1 = e1 && … { THEN } else { ELSE }` is the nested
@@ -4210,7 +4215,9 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
                     vt = pool_->alloc(std::move(b));
                     builder().retype_expr(val, vt);
                 }
-                if (TypeRef(vt).kind() != LogosType::Kind::Error) {
+                // A diverging value (`!`) fixes no hidden type.
+                if (TypeRef(vt).kind() != LogosType::Kind::Error &&
+                    TypeRef(vt).kind() != LogosType::Kind::Never) {
                     if (!impl_ret_type_inferred_)
                         impl_ret_type_inferred_ = vt;
                     else if (!types_equal(vt, impl_ret_type_inferred_))
@@ -12658,6 +12665,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 // (FnItem→FnItem is intentionally rejected). LUB to the
                 // matching FnPtr so all arms unify under the common ptr —
                 // exactly what Rust's LUB does for fn-item arms.
+                // The arms are ONE type: open inference variables unify.
+                if (!infer_solved_.empty() &&
+                    (has_infer_var_(result_type) || has_infer_var_(expr_type(val)))) {
+                    infer_unify_(result_type, expr_type(val));
+                    result_type = zonk_(result_type);
+                    builder().retype_expr(val, zonk_(expr_type(val)));
+                }
                 bool lubbed_to_fnptr = false;
                 if (TypeRef(result_type).kind() == LogosType::Kind::FnItem &&
                     TypeRef(expr_type(val)).kind() == LogosType::Kind::FnItem) {

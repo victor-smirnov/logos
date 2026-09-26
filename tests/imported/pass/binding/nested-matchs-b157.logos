@@ -12,7 +12,7 @@ fn foo() -> i32 {
     match Some(5i64) {
         Some(_x) => {
             let mut bar: i64;
-            match None {
+            match None::<i64> {
                 None => { bar = 5i64; }
                 Some(_z) => { return 2i32; }
             }

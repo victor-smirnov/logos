@@ -2027,11 +2027,21 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             if (capture_field_ts[i]) capture_own_inline[i] = true;
     }
 
+    // A 16-byte handle captured BY VALUE: a borrowed `&str` / `&[T]` {ptr, len},
+    // or a closure value {fn, env} (a closure PARAMETER, which is not a
+    // tuple-slot local). An 8-byte slot holding the ADDRESS of the creator's
+    // pair dangles once the closure escapes.
     auto capture_is_fat_slice = [&](size_t i) {
         TypeRef ct = capture_types[i];
-        return !capture_own_inline[i] && !capture_is_pointer_repr[i] && !capture_is_mut_ref[i] &&
-               !capture_is_env_mut[i] && ct && TypeRef(ct).kind() == LogosType::Kind::Slice &&
+        if (capture_own_inline[i] || capture_is_pointer_repr[i] || capture_is_mut_ref[i] ||
+            capture_is_env_mut[i] || !ct) return false;
+        if (TypeRef(ct).kind() == LogosType::Kind::Closure) return true;
+        return TypeRef(ct).kind() == LogosType::Kind::Slice &&
                TypeRef(ct).slice_owning_kind() == TypeRef::OwningKind::Borrow && !TypeRef(ct).raw_fat();
+    };
+    auto fat_capture_type = [&](size_t i) -> mlir::Type {
+        return TypeRef(capture_types[i]).kind() == LogosType::Kind::Closure ? closure_llvm_type()
+                                                                            : slice_llvm_type();
     };
     // Build capture struct type.
     // ENV FIELD 0 is reserved for a `drop_glue: ptr` slot (uniform drop
@@ -2079,6 +2089,11 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             // 8-byte handle slot overflowed the env).
             return mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(),
                                                           {ptr_type(), ptr_type()});
+        case LogosType::Kind::Closure:
+            // A closure value moved in BY VALUE: its 16-byte {fn, env} pair
+            // (the default spelling is the 8-byte handle — an env that holds
+            // the handle reads past its end).
+            return closure_llvm_type();
         default:
             return logos_to_mlir(ct);
         }
@@ -2101,10 +2116,10 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         } else if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
             ft = ptr_type();
         else if (capture_is_fat_slice(i))
-            // A `&str` / `&[T]` handle is Copy: the env carries its 16-byte
-            // {ptr, len} pair BY VALUE — an 8-byte slot overflowed the env, and a
+            // A `&str` / `&[T]` handle (or a closure value) is carried BY VALUE:
+            // its 16-byte pair — an 8-byte slot overflowed the env, and a
             // pointer to the creator's pair dangles once the closure escapes.
-            ft = slice_llvm_type();
+            ft = fat_capture_type(i);
         else
             ft = logos_to_mlir(ct);
         if (!ft) ft = builder_.getI32Type();
@@ -2305,7 +2320,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         } else if (capture_is_fat_slice(i)) {
             // The env holds the slice's {ptr, len} pair BY VALUE; the binding is
             // the address of a copy of it — a slice parameter's representation.
-            auto slot = create_entry_alloca(slice_llvm_type());
+            auto slot = create_entry_alloca(fat_capture_type(i));
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
             scope_[captures[i]] = slot;
         } else {
@@ -2410,6 +2425,9 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         // captures borrow and are not dropped here.
         if (!capture_own_inline[i]) {
             if (capture_is_pointer_repr[i] || capture_is_mut_ref[i]) continue;
+            // A handle carried by value into a STACK env is a copy: its source
+            // keeps the obligation (sema's owned_by_closure is escaping-only).
+            if (capture_is_fat_slice(i) && !heap_env) continue;
         }
         // RFC-2229 phase-2: for a narrow capture the env owns the FIELD value
         // only; its dropability is the FIELD's, not the root's.
@@ -2474,7 +2492,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             // The pair's VALUE: loaded when the binding holds its address.
             cap_val = it->second;
             if (cap_val && mlir::isa<mlir::LLVM::LLVMPointerType>(cap_val.getType()))
-                cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, slice_llvm_type(), cap_val);
+                cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, fat_capture_type(i), cap_val);
         } else if (pointer_repr)
             cap_val = it->second;
         else if (mut_ref)

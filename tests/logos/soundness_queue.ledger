@@ -22,6 +22,16 @@ struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
+pretty_debug_array_option_ignores_alternate 1 tests/soundness/open/pretty_debug_array_option_ignores_alternate run 1
+
+fnonce_generic_consume_skips_capture_drop 2 tests/soundness/open/fnonce_generic_consume_skips_capture_drop run 1
+
+array_impl_overlap_coherence_admitted 2 tests/soundness/open/array_impl_overlap_coherence_admitted admits
+
+option_empty_array_annotation_internal 3 tests/soundness/open/option_empty_array_annotation_internal refuses
+
+tuple_of_arrays_debug_internal 3 tests/soundness/open/tuple_of_arrays_debug_internal refuses
+
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
 # ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
@@ -182,5 +192,5 @@ vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_ref
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 3
-# SYNC-HASH 030bc329793dd291780db906f8677915
+# TOTAL 8
+# SYNC-HASH 84a7b4ce06360e6172be7dd000badb9b

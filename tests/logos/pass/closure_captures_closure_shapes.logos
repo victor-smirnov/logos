@@ -1,0 +1,31 @@
+// Closures capturing closure values: escaping (owned by the env, dropped by its glue) and stack-env (the source keeps the drop); a sibling fn's same-named capture does not leak its ownership state (rustc: exit 0, valgrind clean).
+package closure_captures_closure_shapes;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1i64; } } }
+fn adder(x: i64) -> impl Fn(i64) -> i64 { return move |y: i64| -> i64 { return x + y; }; }
+fn keep(p: *mut i64, k: i64) -> impl Fn() -> i64 { let d: D = D { v: k, c: p }; return move || -> i64 { return d.v; }; }
+fn compose(f: impl Fn(i64) -> i64, g: impl Fn(i64) -> i64) -> impl Fn(i64) -> i64 {
+    return move |x: i64| -> i64 { return g(f(x)); };
+}
+fn twice(f: impl Fn(i64) -> i64) -> i64 { let h = move |x: i64| -> i64 { return f(f(x)); }; return h(1i64); }
+fn wrap(f: impl Fn() -> i64) -> impl Fn() -> i64 { return move || -> i64 { return f() * 2i64; }; }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut t: i64 = 0i64;
+    {
+        let a = adder(3i64);
+        let b = adder(4i64);
+        let c = compose(a, b);
+        t = t + c(10i64);
+        t = t + twice(adder(5i64));
+        let w = wrap(keep(p, 7i64));
+        t = t + w() + w();
+        let z = keep(p, 1i64);
+        let local = move || -> i64 { return z() + 1i64; };
+        t = t + local();
+    }
+    if unsafe { n } != 2i64 { return 1i32; }
+    if t != 58i64 { return 2i32; }
+    return 0i32;
+}

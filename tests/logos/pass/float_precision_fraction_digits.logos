@@ -1,0 +1,12 @@
+// `{:.N}` on a float formats N fraction digits (exact rounding), not a truncation of the rendered text.
+package float_precision_fraction_digits;
+use logos.std.fmt;
+use logos.mem.string;
+fn main() -> i32 {
+    if format!("{:.2}", 3.14159f64) != "3.14" { return 1i32; }
+    if format!("{:.0}", 3.7f64) != "4" { return 2i32; }
+    if format!("{:.4}", 1.0f64) != "1.0000" { return 3i32; }
+    if format!("{:+.2}", 1.5f64) != "+1.50" { return 4i32; }
+    if format!("{:>8.2}", 10.0f64 / 3.0f64) != "    3.33" { return 5i32; }
+    return 0i32;
+}

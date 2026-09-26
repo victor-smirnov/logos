@@ -1,0 +1,15 @@
+// A bare `None` (and an imported unit variant) is an inference variable a later use solves, as `Option::None` is.
+package local_infer_bare_none_later_use;
+fn pick(k: i64) -> Option<i64> { if k > 0 { return Some(k); } return None; }
+fn main() -> i32 {
+    let mut a = None;
+    a = Some(1i64);
+    let mut b = None;
+    let f = || -> i64 { return 2i64; };
+    b = Some(f());
+    let c = if true { pick(3i64) } else { None };
+    let va = match a { Some(x) => x, None => 0i64 };
+    let vb = match b { Some(x) => x, None => 0i64 };
+    let vc = match c { Some(x) => x, None => 0i64 };
+    return (va + vb + vc) as i32;
+}

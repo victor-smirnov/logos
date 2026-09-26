@@ -2142,7 +2142,9 @@ private:
                 if (!enum_arg_unresolved(aa[i]) && !types_compatible(aa[i], pa[i])) return false;
         }
         // Retype the top node (keeps LExpr.type in sync for the post-call
-        // compat check) then recurse into nested payload enum-lits.
+        // compat check) then recurse into nested payload enum-lits. An open
+        // inference variable in the old type is SOLVED by this, not dropped.
+        if (has_infer_var_(at)) infer_unify_(pt, at);
         builder().retype_expr(arg, pt);
         retype_enum_lit_recursive(expr_ref_of(arg), pt);
         return true;
@@ -8557,6 +8559,11 @@ private:
     std::unordered_set<const void*> escaping_closure_lets_;
     std::unordered_set<std::string> escaping_closure_names_;
     void collect_returned_closure_lets_(sema_detail::TinyMapView body);
+    // An `impl Trait` fn whose body ENDS in `if … else …`: that if is the
+    // returned VALUE (an if-expression, one hidden type after the branches'
+    // LUB), not two returns. Set by lower_fn for the body's last statement.
+    const void* impl_tail_if_node_ = nullptr;
+    writ::AnyVal impl_tail_if_av_{};
 
     // ── LOCAL TYPE INFERENCE ────────────────────────────────────────────
     // A generic call that leaves a type argument unbound outside a generic
@@ -8585,8 +8592,25 @@ private:
         std::string n = "?i" + std::to_string(infer_counter_++);
         infer_solved_[n] = nullptr;
         infer_origin_[n] = std::move(origin);
+        // The same AST node lowered AGAIN (a nullary ctor re-lowered under an
+        // array element's hint, a call argument lowered twice) mints its k-th
+        // variable again: the earlier one, if still open, is an alias of this
+        // one — whichever lowering is kept, the solution is shared, and a
+        // discarded lowering leaves no orphan to report as E0282.
+        if (infer_mint_node_) {
+            auto key = std::make_pair(infer_mint_node_, infer_mint_k_++);
+            auto [it, fresh] = infer_node_vars_.emplace(key, n);
+            if (!fresh) {
+                auto os = infer_solved_.find(it->second);
+                if (os != infer_solved_.end() && !os->second) os->second = make_typevar(n);
+                it->second = n;
+            }
+        }
         return make_typevar(n);
     }
+    const void* infer_mint_node_ = nullptr;
+    int infer_mint_k_ = 0;
+    std::map<std::pair<const void*, int>, std::string> infer_node_vars_;
     // The solutions applied (to a fixed point: a solution may name another var).
     TypeRef zonk_(TypeRef t) {
         if (!t || infer_solved_.empty() || !has_infer_var_(t)) return t;

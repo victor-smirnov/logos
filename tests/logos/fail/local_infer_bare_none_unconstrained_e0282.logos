@@ -1,0 +1,7 @@
+// E0282: nothing fixes a bare `None`'s type argument (`let b = a;` moves the hole along).
+package local_infer_bare_none_unconstrained_e0282;
+fn main() -> i32 {
+    let a = None;
+    let b = a;
+    return 0i32;
+}

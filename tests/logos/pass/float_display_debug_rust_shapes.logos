@@ -1,0 +1,17 @@
+// Rust's float rendering: Display is the shortest round-trip decimal, positional; Debug adds .0 and switches to
+// scientific outside [1e-4, 1e16); {:.N} is exact; inf/-inf/NaN (no + on NaN); f32 shortest for f32 (rustc output).
+package float_display_debug_rust_shapes;
+use logos.std.fmt;
+fn main() -> i32 {
+    let v: [f64; 13] = [1.0, 0.5, -0.0, 0.1 + 0.2, 1e15, 1e16, 1e17, 1e20, 1e-4, 1e-5, 1.5e-7, 123456.789, 2.5];
+    let mut i: usize = 0usize;
+    while i < 13usize { let x = v[i]; println!("{} | {:?} | {:.2} | {:.0} | {:8.3} | {:+}", x, x, x, x, x, x); i = i + 1usize; }
+    let f: f32 = 0.1f32; println!("{} {:?} {:.3}", f, f, f);
+    println!("{:?}", 1e300f64);
+    
+    let z: f64 = 0.0;
+    let w: [f64; 3] = [1.0 / z, -1.0 / z, z / z];
+    let mut j: usize = 0usize;
+    while j < 3usize { let x = w[j]; println!("{} | {:?} | {:.2} | {:.0} | {:8.3} | {:+}", x, x, x, x, x, x); j = j + 1usize; }
+        return 0;
+}

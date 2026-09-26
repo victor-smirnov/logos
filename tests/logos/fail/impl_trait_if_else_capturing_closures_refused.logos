@@ -1,0 +1,6 @@
+// rustc E0308: two CAPTURING closures in if/else have distinct types; no fn-pointer LUB.
+package impl_trait_if_else_capturing_closures_refused;
+fn choose(flag: bool, k: i64) -> impl Fn(i64) -> i64 {
+    if flag { move |x: i64| -> i64 { return x + k; } } else { move |x: i64| -> i64 { return x * k; } }
+}
+fn main() -> i32 { return choose(true, 2)(3) as i32; }

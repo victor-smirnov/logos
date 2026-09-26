@@ -932,8 +932,15 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                         // Construct via lower_enum_lit_data_from_static
                         // so generic-enum hint propagation kicks in.
                         std::vector<TypeRef> ta;
-                        for (auto& tp : esi->type_params)
-                            ta.push_back(make_typevar(tp.name));
+                        const bool hinted = hint_enum_type_ &&
+                            TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
+                            TypeRef(hint_enum_type_).enum_name() == vit->second &&
+                            TypeRef(hint_enum_type_).type_args().size() == esi->type_params.size();
+                        for (size_t i = 0; i < esi->type_params.size(); ++i)
+                            ta.push_back(hinted ? TypeRef(TypeRef(hint_enum_type_).type_args()[i])
+                                                : mint_infer_var_(std::format(
+                                                      "the type argument `{}` of `{}` — give the binding a type",
+                                                      esi->type_params[i].name, name)));
                         auto rty = ta.empty()
                             ? make_enum_type(vit->second)
                             : make_generic_enum(vit->second, std::move(ta));
@@ -967,7 +974,10 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                         !TypeRef(hint_enum_type_).type_args().empty()) {
                         ta.push_back(TypeRef(hint_enum_type_).type_args()[0]);
                     } else {
-                        ta.push_back(make_typevar("T"));
+                        // Unconstrained here: an inference variable a later
+                        // use solves (`let mut a = None; a = Some(1)`).
+                        ta.push_back(mint_infer_var_(
+                            "the type argument `T` of `None` — give the binding a type"));
                     }
                     auto rty = make_generic_enum("Option", std::move(ta));
                     return builder().enum_lit("Option", "None",
@@ -1552,7 +1562,13 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         }
     }
     const size_t owned_mark = sibling_owned_temps_.size();
+    auto saved_mint_node = infer_mint_node_;
+    auto saved_mint_k = infer_mint_k_;
+    infer_mint_node_ = expr.is_null() ? nullptr : expr.ptr();
+    infer_mint_k_ = 0;
     auto r = lower_expr_inner(expr);
+    infer_mint_node_ = saved_mint_node;
+    infer_mint_k_ = saved_mint_k;
     // This node's list is lowered: its owned operands are released to it.
     for (size_t i = owned_mark; i < sibling_owned_temps_.size(); ++i)
         mark_moved(sibling_owned_temps_[i]);
@@ -14510,7 +14526,11 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                     t.enum_name() == TypeRef(conc).enum_name() &&
                     (code == la::ENUM_LIT || code == la::VAR_REF)) {
                     ElemHintScope eh(*this, conc);
+                    TypeRef old_t = t;
                     elems[i] = lower_expr(map_of(items.get(i)));
+                    // The re-lowering REPLACES the first: its type solves the
+                    // variables the discarded one minted.
+                    if (elems[i] && has_infer_var_(old_t)) infer_unify_(old_t, expr_type(elems[i]));
                 }
             }
     }
@@ -19502,6 +19522,15 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         // — Rust's classic fn-item-to-fn-pointer coercion at if-else
         // joins. types_compatible(FnItem, FnItem) is intentionally
         // false; lift both sides to FnPtr explicitly.
+        // The branches are ONE type: their open inference variables unify
+        // (`if c { pick() } else { None }`).
+        if (!infer_solved_.empty() && then_val && else_val &&
+            (has_infer_var_(expr_type(then_val)) || has_infer_var_(expr_type(else_val)))) {
+            infer_unify_(expr_type(then_val), expr_type(else_val));
+            builder().retype_expr(then_val, zonk_(expr_type(then_val)));
+            builder().retype_expr(else_val, zonk_(expr_type(else_val)));
+            result_type = zonk_(result_type);
+        }
         bool lubbed_to_fnptr = false;
         if (TypeRef(expr_type(then_val)).kind() == LogosType::Kind::FnItem &&
             TypeRef(expr_type(else_val)).kind() == LogosType::Kind::FnItem) {
@@ -19513,6 +19542,35 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
             if (types_compatible(expr_type(then_val), fp) &&
                 types_compatible(expr_type(else_val), fp)) {
+                result_type = fp;
+                lubbed_to_fnptr = true;
+            }
+        }
+        // Two DISTINCT non-capturing closure literals: Rust's LUB coerces both
+        // to the fn pointer of their shared signature (`if c { |x| x + 1 }
+        // else { |x| x * 2 }` under `-> impl Fn(i64) -> i64`).
+        if (!lubbed_to_fnptr &&
+            TypeRef(expr_type(then_val)).kind() == LogosType::Kind::Closure &&
+            TypeRef(expr_type(else_val)).kind() == LogosType::Kind::Closure &&
+            !types_equal(expr_type(then_val), expr_type(else_val))) {
+            TypeRef ct(expr_type(then_val));
+            TypeRef fp = make_fn_ptr_type(ct.closure_params(), ct.closure_ret());
+            // A branch `{ |x| … }` is a block with no statements around the
+            // literal: coerce the literal itself.
+            auto peel = [](lir::LExprPtr e) {
+                while (e && e.kind() == lir_schema::expr::Code::BlockExpr) {
+                    lir_view::EBlockExprView bv{e};
+                    size_t n = 0;
+                    if (auto b = bv.block()) b.each_stmt([&](lir_view::StmtRef) { ++n; });
+                    if (n != 0 || !bv.result()) break;
+                    e = bv.result();
+                }
+                return e;
+            };
+            lir::LExprPtr t2 = peel(then_val), e2 = peel(else_val);
+            if (try_coerce_closure_to_fnptr(t2, fp) && try_coerce_closure_to_fnptr(e2, fp) &&
+                types_compatible(expr_type(e2), fp)) {
+                then_val = t2; else_val = e2;
                 result_type = fp;
                 lubbed_to_fnptr = true;
             }
@@ -20786,7 +20844,13 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                          // An OWNING `Box<dyn Tr>` is owned storage too (row
                          // closure_owned_dyn_capture): moved into the env and
                          // dropped by its glue, as mlir-gen's capture_own_inline.
-                         (k == LogosType::Kind::TraitObject && ct.owning_trait_object()));
+                         (k == LogosType::Kind::TraitObject && ct.owning_trait_object()) ||
+                         // A closure owning its heap env, and a type parameter
+                         // (the instance decides the representation; each is
+                         // owned by an escaping env — mlir-gen's
+                         // capture_own_inline / capture_drops per instance).
+                         (k == LogosType::Kind::Closure && ct.closure_owns_env()) ||
+                         k == LogosType::Kind::TypeVar);
                 }
                 if (owned_by_closure) continue;
                 // NON-escaping (stack-env) move closure: the env only borrows the
@@ -28519,6 +28583,7 @@ void SemaChecker::infer_close_fn_(const std::string& fn_name) {
     if (!sols.empty()) cur_prog_->infer_substs[fn_name] = std::move(sols);
     infer_solved_.clear();
     infer_origin_.clear();
+    infer_node_vars_.clear();
 }
 
 } // namespace logos::compiler

@@ -1,0 +1,13 @@
+// `compose(f: impl Fn, g: impl Fn) -> impl Fn { move |x| g(f(x)) }`: the closure params move INTO the escaping env by value (16-byte pairs).
+package compose_impl_fn_params_moved_into_env;
+fn adder(x: i64) -> impl Fn(i64) -> i64 { return move |y: i64| -> i64 { return x + y; }; }
+fn compose(f: impl Fn(i64) -> i64, g: impl Fn(i64) -> i64) -> impl Fn(i64) -> i64 {
+    return move |x: i64| -> i64 { return g(f(x)); };
+}
+fn main() -> i32 {
+    let a = adder(3i64);
+    let b = adder(4i64);
+    let c = compose(a, b);
+    if c(10i64) != 17i64 { return 1i32; }
+    return 0i32;
+}

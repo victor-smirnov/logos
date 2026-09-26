@@ -27,8 +27,9 @@ use logos.mem.collections.vec;
 // bodies that call them. (mem.string's identical decls don't
 // re-export across pkg, so we re-declare locally; the linker
 // dedupes since both bind the same C symbol.)
-extern fn logos_fmt_f64_g(buf: *mut u8, cap: i32, x: f64) -> i32;
-extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
+extern fn logos_fmt_f64_rust(buf: *mut u8, cap: i32, x: f64, debug: i32) -> i32;
+extern fn logos_fmt_f32_rust(buf: *mut u8, cap: i32, x: f32, debug: i32) -> i32;
+extern fn logos_fmt_f64_fixed(buf: *mut u8, cap: i32, x: f64, prec: i32) -> i32;
 
 // ── fmt::Error / fmt::Result ─────────────────────────────────────────
 //
@@ -595,48 +596,55 @@ impl Display for *const u8 {
 }
 
 // ── f32 / f64 ───────────────────────────────────────────────────────
-// Same extern bridge the legacy Display impls use: `snprintf("%g", x)`
-// gives the shortest round-trippable representation. Render into a
-// scratch String, then route through pad.
+// Rust's rendering (stdlib/rt/fmt_native.c): Display is the shortest
+// round-tripping decimal in positional notation, Debug the same digits with
+// `.0` on an integral value and scientific outside [1e-4, 1e16); a precision
+// (`{:.2}`) is N fraction digits, rounded exactly — NOT a truncation of the
+// rendered text, which is what `pad` does to a string, so the precision is
+// consumed here and `pad` sees none.
+fn fmt_f64_rust(x: f64, debug: bool, f: &mut Formatter) -> Result<(), Error> {
+    let prec: i64 = f.precision;
+    let mut scratch: String = String::new();
+    let cap: i32 = (if prec >= 0i64 { prec } else { 0i64 }) as i32 + 400i32;
+    let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+    let n: i32 = if prec >= 0i64 { unsafe { logos_fmt_f64_fixed(ptr, cap, x, prec as i32) } }
+                 else { unsafe { logos_fmt_f64_rust(ptr, cap, x, if debug { 1i32 } else { 0i32 }) } };
+    scratch.advance_len(n as i64);
+    f.precision = -1i64;
+    let plus: bool = f.sign_plus;
+    if x != x { f.sign_plus = false; }   // NaN carries no sign, `{:+}` included
+    let r = f.pad(scratch.as_str(), "");
+    f.sign_plus = plus;
+    f.precision = prec;
+    return r;
+}
+fn fmt_f32_rust(x: f32, debug: bool, f: &mut Formatter) -> Result<(), Error> {
+    let prec: i64 = f.precision;
+    let mut scratch: String = String::new();
+    let cap: i32 = (if prec >= 0i64 { prec } else { 0i64 }) as i32 + 400i32;
+    let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
+    let n: i32 = if prec >= 0i64 { unsafe { logos_fmt_f64_fixed(ptr, cap, x as f64, prec as i32) } }
+                 else { unsafe { logos_fmt_f32_rust(ptr, cap, x, if debug { 1i32 } else { 0i32 }) } };
+    scratch.advance_len(n as i64);
+    f.precision = -1i64;
+    let plus: bool = f.sign_plus;
+    if x != x { f.sign_plus = false; }   // NaN carries no sign, `{:+}` included
+    let r = f.pad(scratch.as_str(), "");
+    f.sign_plus = plus;
+    f.precision = prec;
+    return r;
+}
 impl Display for f64 {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let mut scratch: String = String::new();
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, *self) };
-        scratch.advance_len(n as i64);
-        return f.pad(scratch.as_str(), "");
-    }
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return fmt_f64_rust(*self, false, f); }
 }
 impl Debug for f64 {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let mut scratch: String = String::new();
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_g(ptr, cap, *self) };
-        scratch.advance_len(n as i64);
-        return f.pad(scratch.as_str(), "");
-    }
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return fmt_f64_rust(*self, true, f); }
 }
 impl Display for f32 {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let mut scratch: String = String::new();
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, *self) };
-        scratch.advance_len(n as i64);
-        return f.pad(scratch.as_str(), "");
-    }
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return fmt_f32_rust(*self, false, f); }
 }
 impl Debug for f32 {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let mut scratch: String = String::new();
-        let cap: i32 = 32i32;
-        let ptr: *mut u8 = scratch.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_g(ptr, cap, *self) };
-        scratch.advance_len(n as i64);
-        return f.pad(scratch.as_str(), "");
-    }
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return fmt_f32_rust(*self, true, f); }
 }
 
 // ── unit `()` ────────────────────────────────────────────────────────
