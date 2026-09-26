@@ -17,6 +17,8 @@ use logos.lang.cmp;
 use logos.lang.iter;
 use logos.lang.ops;
 use logos.lang.option;
+use logos.lang.marker;
+use logos.lang.default;
 use logos.mem.collections.vec;   // Vec — the relational projection's rows
 use logos.mem.bt.map;            // trait OrderedMapSource — the query plane (ADR 0024 S6)
 
@@ -244,6 +246,179 @@ impl<K, V> Drop for BTreeMap<K, V> {
             }
         }
     }
+}
+
+// ── Rust's safe surface: new / iter_mut / values_mut / first / last / pop / into_iter ──
+
+impl<K: Ord, V> BTreeMap<K, V> {
+    /// Creates an empty map (Rust's `BTreeMap::new`).
+    pub fn new() -> BTreeMap<K, V> { return btreemap_new::<K, V>(); }
+
+    /// The entry with the smallest key, or `None` if empty.
+    pub fn first_key_value(&self) -> Option<(&K, &V)> {
+        if self.len == 0 as i64 { return Option::None; }
+        unsafe {
+            let kp: *const K = &self.keys[0 as i64] as *const K;
+            let vp: *const V = &self.vals[0 as i64] as *const V;
+            return Option::Some((&*kp, &*vp));
+        }
+    }
+
+    /// The entry with the largest key, or `None` if empty.
+    pub fn last_key_value(&self) -> Option<(&K, &V)> {
+        if self.len == 0 as i64 { return Option::None; }
+        unsafe {
+            let i: i64 = self.len - 1 as i64;
+            let kp: *const K = &self.keys[i] as *const K;
+            let vp: *const V = &self.vals[i] as *const V;
+            return Option::Some((&*kp, &*vp));
+        }
+    }
+
+    /// Removes and returns the entry with the smallest key.
+    pub fn pop_first(&mut self) -> Option<(K, V)> {
+        if self.len == 0 as i64 { return Option::None; }
+        unsafe {
+            let p: *mut BTreeMap<K, V> = self as *mut BTreeMap<K, V>;
+            let k: K = p.keys[0 as i64];
+            let v: V = p.vals[0 as i64];
+            let mut j: i64 = 1 as i64;
+            while j < p.len {
+                p.keys[j - 1 as i64] = p.keys[j];
+                p.vals[j - 1 as i64] = p.vals[j];
+                j = j + 1 as i64;
+            }
+            p.len = p.len - 1 as i64;
+            return Option::Some((k, v));
+        }
+    }
+
+    /// Removes and returns the entry with the largest key.
+    pub fn pop_last(&mut self) -> Option<(K, V)> {
+        if self.len == 0 as i64 { return Option::None; }
+        unsafe {
+            let p: *mut BTreeMap<K, V> = self as *mut BTreeMap<K, V>;
+            p.len = p.len - 1 as i64;
+            let k: K = p.keys[p.len];
+            let v: V = p.vals[p.len];
+            return Option::Some((k, v));
+        }
+    }
+
+    /// Iterator yielding `ZipPair<&K, &mut V>` in ascending key order.
+    pub fn iter_mut<'a>(self: &'a mut BTreeMap<K, V>) -> BTreeMapIterMut<'a, K, V> {
+        return BTreeMapIterMut { keys: self.keys as *const K, vals: self.vals, len: self.len,
+                                 idx: 0 as i64, _inv: PhantomData::<&'a mut V> {} };
+    }
+
+    /// Iterator yielding `&mut V` in ascending key order.
+    pub fn values_mut<'a>(self: &'a mut BTreeMap<K, V>) -> BTreeMapValuesMut<'a, K, V> {
+        return BTreeMapValuesMut { vals: self.vals, len: self.len, idx: 0 as i64,
+                                   _inv: PhantomData::<&'a mut V> {} };
+    }
+}
+
+/// Iterator over `ZipPair<&K, &mut V>` entries of a `BTreeMap`, ascending.
+#[borrow_carrying]
+pub struct BTreeMapIterMut<'a, K, V> {
+    keys: *const K,
+    vals: *mut V,
+    len:  i64,
+    idx:  i64,
+    _inv: PhantomData<&'a mut V>,
+}
+
+impl<'a, K: Ord, V> Iterator<ZipPair<&'a K, &'a mut V>> for BTreeMapIterMut<'a, K, V> {
+    fn next(self: &mut BTreeMapIterMut<'a, K, V>) -> Option<ZipPair<&'a K, &'a mut V>> {
+        if self.idx >= self.len { return Option::None; }
+        unsafe {
+            let kp: *const K = &self.keys[self.idx] as *const K;
+            let vp: *mut V = &mut self.vals[self.idx] as *mut V;
+            self.idx = self.idx + 1 as i64;
+            let k: &'a K = &*kp;
+            let v: &'a mut V = &mut *vp;
+            return Option::Some(ZipPair { first: k, second: v });
+        }
+    }
+}
+
+/// Iterator over `&mut V` values of a `BTreeMap`, ascending by key.
+#[borrow_carrying]
+pub struct BTreeMapValuesMut<'a, K, V> {
+    vals: *mut V,
+    len:  i64,
+    idx:  i64,
+    _inv: PhantomData<&'a mut V>,
+}
+
+impl<'a, K: Ord, V> Iterator<&'a mut V> for BTreeMapValuesMut<'a, K, V> {
+    fn next(self: &mut BTreeMapValuesMut<'a, K, V>) -> Option<&'a mut V> {
+        if self.idx >= self.len { return Option::None; }
+        unsafe {
+            let vp: *mut V = &mut self.vals[self.idx] as *mut V;
+            self.idx = self.idx + 1 as i64;
+            let v: &'a mut V = &mut *vp;
+            return Option::Some(v);
+        }
+    }
+}
+
+/// Owning iterator over a `BTreeMap` (`for (k, v) in map`); yields `(K, V)` ascending.
+/// Un-yielded entries are dropped with the iterator, which frees the arrays.
+pub struct BTreeMapIntoIter<K, V> {
+    keys: *mut K,
+    vals: *mut V,
+    len:  i64,
+    idx:  i64,
+}
+
+impl<K, V> Iterator<(K, V)> for BTreeMapIntoIter<K, V> {
+    fn next(self: &mut BTreeMapIntoIter<K, V>) -> Option<(K, V)> {
+        if self.idx >= self.len { return Option::None; }
+        unsafe {
+            let k: K = self.keys[self.idx];
+            let v: V = self.vals[self.idx];
+            self.idx = self.idx + 1 as i64;
+            return Option::Some((k, v));
+        }
+    }
+}
+
+impl<K, V> Drop for BTreeMapIntoIter<K, V> {
+    fn drop(self: &mut BTreeMapIntoIter<K, V>) {
+        unsafe {
+            if self.keys as i64 != 0 as i64 {
+                while self.idx < self.len {
+                    let _k: K = self.keys[self.idx];
+                    let _v: V = self.vals[self.idx];
+                    self.idx = self.idx + 1 as i64;
+                }
+                dealloc(self.keys as *mut u8);
+                dealloc(self.vals as *mut u8);
+                self.keys = 0 as *mut K;
+            }
+        }
+    }
+}
+
+// `for (k, v) in map` — consumes the map: the arrays move to the iterator and the
+// map's own drop becomes a no-op (null `keys`/`vals`).
+impl<K: Ord, V> IntoIterator<(K, V)> for BTreeMap<K, V> {
+    type Iter = BTreeMapIntoIter<K, V>;
+    fn into_iter(self: BTreeMap<K, V>) -> BTreeMapIntoIter<K, V> {
+        let it: BTreeMapIntoIter<K, V> = BTreeMapIntoIter {
+            keys: self.keys, vals: self.vals, len: self.len, idx: 0 as i64,
+        };
+        let mut m: BTreeMap<K, V> = self;
+        m.keys = 0 as *mut K;
+        m.vals = 0 as *mut V;
+        m.len = 0 as i64;
+        return it;
+    }
+}
+
+impl<K: Ord, V> Default for BTreeMap<K, V> {
+    fn default() -> BTreeMap<K, V> { return btreemap_new::<K, V>(); }
 }
 
 // ── the query plane (ADR 0024 S6) ───────────────────────────────────────────

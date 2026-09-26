@@ -11,6 +11,8 @@ use logos.lang.cmp;
 use logos.lang.iter;
 use logos.lang.ops;
 use logos.lang.option;
+use logos.lang.default;
+use logos.mem.collections.vec;
 
 /// Unordered set of unique keys, backed by `HashMap<K, u8>`.
 pub struct HashSet<K> {
@@ -79,3 +81,104 @@ impl<'a, K: Hash + Eq> Iterator<&'a K> for HashSetIter<'a, K> {
 
 // No manual free (Rust parity): a HashSet auto-drops via its `inner` HashMap
 // field, whose Drop drops each live key and frees the buffers.
+
+// ── Rust's safe surface: new / set algebra / owning into_iter ────────────────
+// The set operations yield `&K` like Rust's `Union`/`Intersection`/… iterators
+// (collected up front into a Vec of references, in table order).
+
+impl<K: Hash + Eq> HashSet<K> {
+    /// Creates an empty set (Rust's `HashSet::new`).
+    pub fn new() -> HashSet<K> { return hashset_new::<K>(); }
+
+    // Membership through a shared borrow (the probe does not mutate).
+    fn has(&self, key: &K) -> bool {
+        unsafe {
+            let p: *mut HashSet<K> = self as *const HashSet<K> as *mut HashSet<K>;
+            return p.contains(key);
+        }
+    }
+
+    /// The elements of `self` or `other`, each once.
+    pub fn union<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        unsafe {
+            for k in (self as *const HashSet<K>).iter() { out.push(k); }
+            for k in (other as *const HashSet<K>).iter() { if !self.has(k) { out.push(k); } }
+        }
+        return out.into_iter();
+    }
+
+    /// The elements of both `self` and `other`.
+    pub fn intersection<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        unsafe {
+            for k in (self as *const HashSet<K>).iter() { if other.has(k) { out.push(k); } }
+        }
+        return out.into_iter();
+    }
+
+    /// The elements of `self` not in `other`.
+    pub fn difference<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        unsafe {
+            for k in (self as *const HashSet<K>).iter() { if !other.has(k) { out.push(k); } }
+        }
+        return out.into_iter();
+    }
+
+    /// The elements in exactly one of `self` and `other`.
+    pub fn symmetric_difference<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        unsafe {
+            for k in (self as *const HashSet<K>).iter() { if !other.has(k) { out.push(k); } }
+            for k in (other as *const HashSet<K>).iter() { if !self.has(k) { out.push(k); } }
+        }
+        return out.into_iter();
+    }
+
+    /// `true` if every element of `self` is in `other`.
+    pub fn is_subset(&self, other: &HashSet<K>) -> bool {
+        unsafe {
+            for k in (self as *const HashSet<K>).iter() { if !other.has(k) { return false; } }
+        }
+        return true;
+    }
+
+    /// `true` if every element of `other` is in `self`.
+    pub fn is_superset(&self, other: &HashSet<K>) -> bool { return other.is_subset(self); }
+
+    /// `true` if `self` and `other` share no element.
+    pub fn is_disjoint(&self, other: &HashSet<K>) -> bool {
+        unsafe {
+            for k in (self as *const HashSet<K>).iter() { if other.has(k) { return false; } }
+        }
+        return true;
+    }
+}
+
+/// Owning iterator over a `HashSet` (`for k in set`); yields `K` in table order.
+pub struct HashSetIntoIter<K> {
+    inner: HashMapIntoIter<K, u8>,
+}
+
+impl<K> Iterator<K> for HashSetIntoIter<K> {
+    fn next(self: &mut HashSetIntoIter<K>) -> Option<K> {
+        match self.inner.next() {
+            Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
+            Option::None     => { return Option::None; }
+        }
+    }
+}
+
+impl<K: Hash + Eq> IntoIterator<K> for HashSet<K> {
+    type Iter = HashSetIntoIter<K>;
+    fn into_iter(self: HashSet<K>) -> HashSetIntoIter<K> {
+        let s: HashSet<K> = self;
+        return HashSetIntoIter { inner: s.inner.into_iter() };
+    }
+}
+
+impl<K: Hash + Eq> Default for HashSet<K> {
+    fn default() -> HashSet<K> { return hashset_new::<K>(); }
+}
+

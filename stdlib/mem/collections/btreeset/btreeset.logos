@@ -1,0 +1,210 @@
+// Logos standard library — std.collections.btreeset
+//
+// BTreeSet<K: Ord> — an ordered set over BTreeMap<K, u8> (Rust's
+// `std::collections::BTreeSet`). Iteration is in ascending order.
+
+package logos.mem.collections.btreeset;
+
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.default;
+use logos.mem.collections.btree;
+use logos.mem.collections.vec;
+
+/// An ordered set of unique keys, backed by `BTreeMap<K, u8>`.
+pub struct BTreeSet<K> {
+    inner: BTreeMap<K, u8>,
+}
+
+impl<K: Ord> BTreeSet<K> {
+    /// Creates an empty set.
+    pub fn new() -> BTreeSet<K> { return BTreeSet { inner: btreemap_new::<K, u8>() }; }
+
+    /// The number of elements.
+    pub fn len(&self) -> i64 { return self.inner.len(); }
+
+    /// `true` if the set holds no element.
+    pub fn is_empty(&self) -> bool { return self.inner.len() == 0; }
+
+    /// Adds `key`; `true` if it was not already present (a present key is kept).
+    pub fn insert(&mut self, key: K) -> bool {
+        unsafe {
+            let p: *mut BTreeMap<K, u8> = &mut self.inner as *mut BTreeMap<K, u8>;
+            if p.contains_key(&key) { return false; }
+            p.insert(key, 0 as u8);
+            return true;
+        }
+    }
+
+    /// `true` if `key` is in the set.
+    pub fn contains(&self, key: &K) -> bool {
+        unsafe {
+            let p: *const BTreeMap<K, u8> = &self.inner as *const BTreeMap<K, u8>;
+            return p.contains_key(key);
+        }
+    }
+
+    /// Removes `key`; `true` if it was present.
+    pub fn remove(&mut self, key: &K) -> bool {
+        unsafe {
+            let p: *mut BTreeMap<K, u8> = &mut self.inner as *mut BTreeMap<K, u8>;
+            return p.remove(key).is_some();
+        }
+    }
+
+    /// Removes every element.
+    pub fn clear(&mut self) {
+        unsafe {
+            let p: *mut BTreeMap<K, u8> = &mut self.inner as *mut BTreeMap<K, u8>;
+            p.clear();
+        }
+    }
+
+    /// The smallest element, or `None` if empty.
+    pub fn first(&self) -> Option<&K> {
+        match self.inner.first_key_value() {
+            Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
+            Option::None     => { return Option::None; }
+        }
+    }
+
+    /// The largest element, or `None` if empty.
+    pub fn last(&self) -> Option<&K> {
+        match self.inner.last_key_value() {
+            Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
+            Option::None     => { return Option::None; }
+        }
+    }
+
+    /// Removes and returns the smallest element.
+    pub fn pop_first(&mut self) -> Option<K> {
+        match self.inner.pop_first() {
+            Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
+            Option::None     => { return Option::None; }
+        }
+    }
+
+    /// Removes and returns the largest element.
+    pub fn pop_last(&mut self) -> Option<K> {
+        match self.inner.pop_last() {
+            Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
+            Option::None     => { return Option::None; }
+        }
+    }
+
+    /// Borrowing iterator yielding `&K` in ascending order.
+    pub fn iter<'a>(self: &'a BTreeSet<K>) -> BTreeSetIter<'a, K> {
+        unsafe {
+            let p: *const BTreeMap<K, u8> = &self.inner as *const BTreeMap<K, u8>;
+            return BTreeSetIter { inner: p.iter() };
+        }
+    }
+
+    /// The elements of `self` or `other`, ascending, each once.
+    pub fn union<'a>(self: &'a BTreeSet<K>, other: &'a BTreeSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        let mut a = self.iter();
+        let mut b = other.iter();
+        let mut x: Option<&'a K> = a.next();
+        let mut y: Option<&'a K> = b.next();
+        loop {
+            match x {
+                Option::None => {
+                    match y { Option::None => { break; } Option::Some(yk) => { out.push(yk); y = b.next(); } }
+                }
+                Option::Some(xk) => {
+                    match y {
+                        Option::None => { out.push(xk); x = a.next(); }
+                        Option::Some(yk) => {
+                            match xk.cmp(yk) {
+                                Ordering::Less    => { out.push(xk); x = a.next(); }
+                                Ordering::Greater => { out.push(yk); y = b.next(); }
+                                Ordering::Equal   => { out.push(xk); x = a.next(); y = b.next(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out.into_iter();
+    }
+
+    /// The elements of both `self` and `other`, ascending.
+    pub fn intersection<'a>(self: &'a BTreeSet<K>, other: &'a BTreeSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        for k in self.iter() { if other.contains(k) { out.push(k); } }
+        return out.into_iter();
+    }
+
+    /// The elements of `self` not in `other`, ascending.
+    pub fn difference<'a>(self: &'a BTreeSet<K>, other: &'a BTreeSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        for k in self.iter() { if !other.contains(k) { out.push(k); } }
+        return out.into_iter();
+    }
+
+    /// The elements in exactly one of `self` and `other`, ascending.
+    pub fn symmetric_difference<'a>(self: &'a BTreeSet<K>, other: &'a BTreeSet<K>) -> VecIntoIter<&'a K> {
+        let mut out: Vec<&'a K> = Vec::new();
+        for k in self.union(other) {
+            if !(self.contains(k) && other.contains(k)) { out.push(k); }
+        }
+        return out.into_iter();
+    }
+
+    /// `true` if every element of `self` is in `other`.
+    pub fn is_subset(&self, other: &BTreeSet<K>) -> bool {
+        for k in self.iter() { if !other.contains(k) { return false; } }
+        return true;
+    }
+
+    /// `true` if every element of `other` is in `self`.
+    pub fn is_superset(&self, other: &BTreeSet<K>) -> bool { return other.is_subset(self); }
+
+    /// `true` if `self` and `other` share no element.
+    pub fn is_disjoint(&self, other: &BTreeSet<K>) -> bool {
+        for k in self.iter() { if other.contains(k) { return false; } }
+        return true;
+    }
+}
+
+/// Borrowing iterator over a `BTreeSet`, yielding `&K` in ascending order.
+pub struct BTreeSetIter<'a, K> {
+    inner: BTreeMapIter<'a, K, u8>,
+}
+
+impl<'a, K: Ord> Iterator<&'a K> for BTreeSetIter<'a, K> {
+    fn next(self: &mut BTreeSetIter<'a, K>) -> Option<&'a K> {
+        match self.inner.next() {
+            Option::Some(p) => { return Option::Some(p.first); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+/// Owning iterator over a `BTreeSet` (`for k in set`), ascending.
+pub struct BTreeSetIntoIter<K> {
+    inner: BTreeMapIntoIter<K, u8>,
+}
+
+impl<K> Iterator<K> for BTreeSetIntoIter<K> {
+    fn next(self: &mut BTreeSetIntoIter<K>) -> Option<K> {
+        match self.inner.next() {
+            Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
+            Option::None     => { return Option::None; }
+        }
+    }
+}
+
+impl<K: Ord> IntoIterator<K> for BTreeSet<K> {
+    type Iter = BTreeSetIntoIter<K>;
+    fn into_iter(self: BTreeSet<K>) -> BTreeSetIntoIter<K> {
+        let s: BTreeSet<K> = self;
+        return BTreeSetIntoIter { inner: s.inner.into_iter() };
+    }
+}
+
+impl<K: Ord> Default for BTreeSet<K> {
+    fn default() -> BTreeSet<K> { return BTreeSet::<K>::new(); }
+}

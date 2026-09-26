@@ -15,6 +15,8 @@ use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.iter;
 use logos.lang.ops;
+use logos.lang.marker;
+use logos.lang.default;
 use logos.mem.collections.vec;   // Vec — the relational projection's rows
 use logos.mem.bt.map;            // trait MapSource — the query plane (ADR 0024 S6)
 
@@ -22,7 +24,7 @@ let SLOT_EMPTY:     u8 = 0 as u8;
 let SLOT_OCCUPIED:  u8 = 1 as u8;
 let SLOT_TOMBSTONE: u8 = 2 as u8;
 
-struct Entry<K, V> {
+struct Slot<K, V> {
     key: K,
     val: V,
 }
@@ -32,7 +34,7 @@ struct Entry<K, V> {
 /// `hashmap_new` or `hashmap_with_capacity`.
 pub struct HashMap<K, V> {
     states:  *mut u8,
-    entries: *mut Entry<K, V>,
+    entries: *mut Slot<K, V>,
     len:     i64,
     cap:     i64,
 }
@@ -52,11 +54,11 @@ pub fn hashmap_with_capacity<K: Hash + Eq, V>(cap_hint: i64) -> HashMap<K, V> {
         let mut i: i64 = 0;
         while i < cap { states_raw[i] = SLOT_EMPTY; i = i + 1; }
     }
-    let entries_bytes: i64 = cap * sizeof::<Entry<K, V>>();
+    let entries_bytes: i64 = cap * sizeof::<Slot<K, V>>();
     let entries_raw: *mut u8 = alloc(entries_bytes);
     return HashMap {
         states:  states_raw,
-        entries: entries_raw as *mut Entry<K, V>,
+        entries: entries_raw as *mut Slot<K, V>,
         len:     0 as i64,
         cap:     cap,
     };
@@ -96,7 +98,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
             if st == SLOT_TOMBSTONE {
                 if first_tomb < 0 as i64 { first_tomb = idx; }
             } else {
-                let e: *mut Entry<K, V> = &mut self.entries[idx];
+                let e: *mut Slot<K, V> = &mut self.entries[idx];
                 if key.eq(&e.key) { return (idx, true); }
             }
             idx = (idx + 1 as i64) & mask;
@@ -112,7 +114,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
             self.resize(self.cap * 2 as i64);
         }
         let (idx, found) = self.probe(&key);
-        let e: *mut Entry<K, V> = &mut self.entries[idx];
+        let e: *mut Slot<K, V> = &mut self.entries[idx];
         if found {
             // Rust's `insert`: the old value is returned, the stored key kept (the
             // new `key` drops at the end of this call). A raw field write does not
@@ -138,7 +140,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     pub unsafe fn get(self: *mut HashMap<K, V>, key: &K) -> *const V {
         let (idx, found) = self.probe(key);
         if !found { return 0 as *const V; }
-        let e: *mut Entry<K, V> = &mut self.entries[idx];
+        let e: *mut Slot<K, V> = &mut self.entries[idx];
         return &e.val as *const V;
     }
 
@@ -146,7 +148,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     pub unsafe fn get_mut(self: *mut HashMap<K, V>, key: &K) -> *mut V {
         let (idx, found) = self.probe(key);
         if !found { return 0 as *mut V; }
-        let e: *mut Entry<K, V> = &mut self.entries[idx];
+        let e: *mut Slot<K, V> = &mut self.entries[idx];
         return &mut e.val as *mut V;
     }
 
@@ -159,7 +161,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
             self.resize(self.cap * 2 as i64);
         }
         let (idx, found) = self.probe(&key);
-        let e: *mut Entry<K, V> = &mut self.entries[idx];
+        let e: *mut Slot<K, V> = &mut self.entries[idx];
         if !found {
             e.key = key;
             e.val = default;
@@ -175,7 +177,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         // Rust's `remove`: the value is returned, the stored key dropped (both leaked before).
         let (idx, found) = self.probe(key);
         if !found { return Option::None; }
-        let e: *mut Entry<K, V> = &mut self.entries[idx];
+        let e: *mut Slot<K, V> = &mut self.entries[idx];
         let _k: K = logos.lang.ptr::read(&e.key as *const K);
         let v: V = logos.lang.ptr::read(&e.val as *const V);
         self.states[idx] = SLOT_TOMBSTONE;
@@ -189,7 +191,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         let mut i: i64 = 0;
         while i < self.cap {
             if self.states[i] == SLOT_OCCUPIED {
-                let e: *mut Entry<K, V> = &mut self.entries[i];
+                let e: *mut Slot<K, V> = &mut self.entries[i];
                 let _k: K = logos.lang.ptr::read(&e.key as *const K);   // move-and-drop the live entry (#463)
                 let _v: V = logos.lang.ptr::read(&e.val as *const V);
             }
@@ -202,15 +204,15 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     // Rebuild into a larger table (always a power of two).
     unsafe fn resize(self: *mut HashMap<K, V>, new_cap: i64) {
         let old_states:  *mut u8 = self.states;
-        let old_entries: *mut Entry<K, V> = self.entries;
+        let old_entries: *mut Slot<K, V> = self.entries;
         let old_cap:     i64 = self.cap;
 
         let new_states: *mut u8 = alloc(new_cap);
         let mut i: i64 = 0;
         while i < new_cap { new_states[i] = SLOT_EMPTY; i = i + 1; }
-        let new_entries_bytes: i64 = new_cap * sizeof::<Entry<K, V>>();
-        let new_entries: *mut Entry<K, V> =
-            alloc(new_entries_bytes) as *mut Entry<K, V>;
+        let new_entries_bytes: i64 = new_cap * sizeof::<Slot<K, V>>();
+        let new_entries: *mut Slot<K, V> =
+            alloc(new_entries_bytes) as *mut Slot<K, V>;
 
         self.states  = new_states;
         self.entries = new_entries;
@@ -220,7 +222,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         let mut j: i64 = 0;
         while j < old_cap {
             if old_states[j] == SLOT_OCCUPIED {
-                let e: *mut Entry<K, V> = &mut old_entries[j];
+                let e: *mut Slot<K, V> = &mut old_entries[j];
                 self.insert(logos.lang.ptr::read(&e.key as *const K), logos.lang.ptr::read(&e.val as *const V));   // #463
             }
             j = j + 1 as i64;
@@ -238,7 +240,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 // `'a` is the map's borrow: items borrow the map, not the iterator.
 pub struct HashMapIter<'a, K, V> {
     states:  *const u8,
-    entries: *const Entry<K, V>,
+    entries: *const Slot<K, V>,
     cap:     i64,
     idx:     i64,
 }
@@ -253,7 +255,7 @@ impl<'a, K: Hash + Eq, V> Iterator<ZipPair<&'a K, &'a V>> for HashMapIter<'a, K,
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
-                    let e: *const Entry<K, V> = &self.entries[i];
+                    let e: *const Slot<K, V> = &self.entries[i];
                     // Through a raw pointer the references are unbounded: 'a.
                     let kp: *const K = &e.key as *const K;
                     let vp: *const V = &e.val as *const V;
@@ -270,7 +272,7 @@ impl<'a, K: Hash + Eq, V> Iterator<ZipPair<&'a K, &'a V>> for HashMapIter<'a, K,
 /// Iterator over `&K` keys of a `HashMap`; created by `keys()`.
 pub struct HashMapKeys<'a, K, V> {
     states:  *const u8,
-    entries: *const Entry<K, V>,
+    entries: *const Slot<K, V>,
     cap:     i64,
     idx:     i64,
 }
@@ -282,7 +284,7 @@ impl<'a, K: Hash + Eq, V> Iterator<&'a K> for HashMapKeys<'a, K, V> {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
-                    let e: *const Entry<K, V> = &self.entries[i];
+                    let e: *const Slot<K, V> = &self.entries[i];
                     let kp: *const K = &e.key as *const K;
                     let k: &'a K = &*kp;
                     return Option::Some(k);
@@ -296,7 +298,7 @@ impl<'a, K: Hash + Eq, V> Iterator<&'a K> for HashMapKeys<'a, K, V> {
 /// Iterator over `&V` values of a `HashMap`; created by `values()`.
 pub struct HashMapValues<'a, K, V> {
     states:  *const u8,
-    entries: *const Entry<K, V>,
+    entries: *const Slot<K, V>,
     cap:     i64,
     idx:     i64,
 }
@@ -308,7 +310,7 @@ impl<'a, K: Hash + Eq, V> Iterator<&'a V> for HashMapValues<'a, K, V> {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
-                    let e: *const Entry<K, V> = &self.entries[i];
+                    let e: *const Slot<K, V> = &self.entries[i];
                     let vp: *const V = &e.val as *const V;
                     let v: &'a V = &*vp;
                     return Option::Some(v);
@@ -325,7 +327,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     pub unsafe fn iter<'a>(self: *const HashMap<K, V>) -> HashMapIter<'a, K, V> {
         return HashMapIter {
             states:  self.states as *const u8,
-            entries: self.entries as *const Entry<K, V>,
+            entries: self.entries as *const Slot<K, V>,
             cap:     self.cap,
             idx:     0 as i64,
         };
@@ -335,7 +337,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     pub unsafe fn keys<'a>(self: *const HashMap<K, V>) -> HashMapKeys<'a, K, V> {
         return HashMapKeys {
             states:  self.states as *const u8,
-            entries: self.entries as *const Entry<K, V>,
+            entries: self.entries as *const Slot<K, V>,
             cap:     self.cap,
             idx:     0 as i64,
         };
@@ -345,7 +347,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     pub unsafe fn values<'a>(self: *const HashMap<K, V>) -> HashMapValues<'a, K, V> {
         return HashMapValues {
             states:  self.states as *const u8,
-            entries: self.entries as *const Entry<K, V>,
+            entries: self.entries as *const Slot<K, V>,
             cap:     self.cap,
             idx:     0 as i64,
         };
@@ -363,7 +365,7 @@ impl<K, V> Drop for HashMap<K, V> {
                 let mut i: i64 = 0;
                 while i < self.cap {
                     if self.states[i] == SLOT_OCCUPIED {
-                        let e: *mut Entry<K, V> = &mut self.entries[i];
+                        let e: *mut Slot<K, V> = &mut self.entries[i];
                         let _k: K = logos.lang.ptr::read(&e.key as *const K);   // move-and-drop (#463)
                         let _v: V = logos.lang.ptr::read(&e.val as *const V);
                     }
@@ -374,6 +376,246 @@ impl<K, V> Drop for HashMap<K, V> {
             }
         }
     }
+}
+
+// ── Rust's safe surface: new / entry / iter_mut / values_mut / owning into_iter ──
+
+impl<K: Hash + Eq, V> HashMap<K, V> {
+    /// Creates an empty map (Rust's `HashMap::new`).
+    pub fn new() -> HashMap<K, V> { return hashmap_new::<K, V>(); }
+
+    /// The slot for `key`, occupied or vacant, for in-place manipulation (Rust's
+    /// `HashMap::entry`). Room for one more entry is made up front, so a vacant
+    /// entry's insert never resizes under the entry's borrow.
+    pub fn entry<'a>(self: &'a mut HashMap<K, V>, key: K) -> Entry<'a, K, V> {
+        unsafe {
+            let p: *mut HashMap<K, V> = self as *mut HashMap<K, V>;
+            if (p.len + 1 as i64) * 4 as i64 > p.cap * 3 as i64 {
+                p.resize(p.cap * 2 as i64);
+            }
+            let (idx, found) = p.probe(&key);
+            return Entry { map: p, idx: idx, found: found, key: key, _inv: PhantomData::<&'a mut V> {} };
+        }
+    }
+
+    /// Iterator yielding `ZipPair<&K, &mut V>` for each entry, in table order.
+    pub fn iter_mut<'a>(self: &'a mut HashMap<K, V>) -> HashMapIterMut<'a, K, V> {
+        return HashMapIterMut { states: self.states as *const u8, entries: self.entries,
+                                cap: self.cap, idx: 0 as i64, _inv: PhantomData::<&'a mut V> {} };
+    }
+
+    /// Iterator yielding `&mut V` for each entry, in table order.
+    pub fn values_mut<'a>(self: &'a mut HashMap<K, V>) -> HashMapValuesMut<'a, K, V> {
+        return HashMapValuesMut { states: self.states as *const u8, entries: self.entries,
+                                  cap: self.cap, idx: 0 as i64, _inv: PhantomData::<&'a mut V> {} };
+    }
+}
+
+/// A slot of a `HashMap`, occupied or vacant (Rust's `hash_map::Entry`), as a struct:
+/// `or_insert`, `or_insert_with`, `or_default`, `and_modify`, `key`.
+#[borrow_carrying]
+pub struct Entry<'a, K, V> {
+    map:   *mut HashMap<K, V>,
+    idx:   i64,
+    found: bool,
+    key:   K,
+    _inv:  PhantomData<&'a mut V>,
+}
+
+impl<'a, K: Hash + Eq, V> Entry<'a, K, V> {
+    /// The entry's key.
+    pub fn key(&self) -> &K { return &self.key; }
+
+    /// The value, inserting `default` if vacant (a present `default` is dropped).
+    pub fn or_insert(self: Entry<'a, K, V>, default: V) -> &'a mut V {
+        let e: Entry<'a, K, V> = self;
+        unsafe {
+            let p: *mut HashMap<K, V> = e.map;
+            let slot: *mut Slot<K, V> = &mut p.entries[e.idx];
+            if !e.found {
+                slot.key = e.key;
+                slot.val = default;
+                p.states[e.idx] = SLOT_OCCUPIED;
+                p.len = p.len + 1 as i64;
+            }
+            let vp: *mut V = &mut slot.val as *mut V;
+            return &mut *vp;
+        }
+    }
+
+    /// The value, inserting `f()` if vacant (`f` runs only then).
+    pub fn or_insert_with<F: FnOnce() -> V>(self: Entry<'a, K, V>, f: F) -> &'a mut V {
+        let e: Entry<'a, K, V> = self;
+        unsafe {
+            let p: *mut HashMap<K, V> = e.map;
+            let slot: *mut Slot<K, V> = &mut p.entries[e.idx];
+            if !e.found {
+                slot.key = e.key;
+                slot.val = f();
+                p.states[e.idx] = SLOT_OCCUPIED;
+                p.len = p.len + 1 as i64;
+            }
+            let vp: *mut V = &mut slot.val as *mut V;
+            return &mut *vp;
+        }
+    }
+
+    /// Runs `f` on the value if occupied; the entry is handed back either way.
+    pub fn and_modify<F: FnOnce(&mut V)>(self: Entry<'a, K, V>, f: F) -> Entry<'a, K, V> {
+        let e: Entry<'a, K, V> = self;
+        if e.found {
+            unsafe {
+                let p: *mut HashMap<K, V> = e.map;
+                let slot: *mut Slot<K, V> = &mut p.entries[e.idx];
+                f(&mut slot.val);
+            }
+        }
+        return e;
+    }
+}
+
+impl<'a, K: Hash + Eq, V: Default> Entry<'a, K, V> {
+    /// The value, inserting `V::default()` if vacant.
+    pub fn or_default(self: Entry<'a, K, V>) -> &'a mut V {
+        let e: Entry<'a, K, V> = self;
+        unsafe {
+            let p: *mut HashMap<K, V> = e.map;
+            let slot: *mut Slot<K, V> = &mut p.entries[e.idx];
+            if !e.found {
+                slot.key = e.key;
+                slot.val = V::default();
+                p.states[e.idx] = SLOT_OCCUPIED;
+                p.len = p.len + 1 as i64;
+            }
+            let vp: *mut V = &mut slot.val as *mut V;
+            return &mut *vp;
+        }
+    }
+}
+
+/// Iterator over `ZipPair<&K, &mut V>` entries of a `HashMap`; created by `iter_mut()`.
+#[borrow_carrying]
+pub struct HashMapIterMut<'a, K, V> {
+    states:  *const u8,
+    entries: *mut Slot<K, V>,
+    cap:     i64,
+    idx:     i64,
+    _inv:    PhantomData<&'a mut V>,
+}
+
+impl<'a, K: Hash + Eq, V> Iterator<ZipPair<&'a K, &'a mut V>> for HashMapIterMut<'a, K, V> {
+    fn next(self: &mut HashMapIterMut<'a, K, V>) -> Option<ZipPair<&'a K, &'a mut V>> {
+        unsafe {
+            while self.idx < self.cap {
+                let i: i64 = self.idx;
+                self.idx = self.idx + 1 as i64;
+                if self.states[i] == SLOT_OCCUPIED {
+                    let e: *mut Slot<K, V> = &mut self.entries[i];
+                    let kp: *const K = &e.key as *const K;
+                    let vp: *mut V = &mut e.val as *mut V;
+                    let k: &'a K = &*kp;
+                    let v: &'a mut V = &mut *vp;
+                    return Option::Some(ZipPair { first: k, second: v });
+                }
+            }
+            return Option::None;
+        }
+    }
+}
+
+/// Iterator over `&mut V` values of a `HashMap`; created by `values_mut()`.
+#[borrow_carrying]
+pub struct HashMapValuesMut<'a, K, V> {
+    states:  *const u8,
+    entries: *mut Slot<K, V>,
+    cap:     i64,
+    idx:     i64,
+    _inv:    PhantomData<&'a mut V>,
+}
+
+impl<'a, K: Hash + Eq, V> Iterator<&'a mut V> for HashMapValuesMut<'a, K, V> {
+    fn next(self: &mut HashMapValuesMut<'a, K, V>) -> Option<&'a mut V> {
+        unsafe {
+            while self.idx < self.cap {
+                let i: i64 = self.idx;
+                self.idx = self.idx + 1 as i64;
+                if self.states[i] == SLOT_OCCUPIED {
+                    let e: *mut Slot<K, V> = &mut self.entries[i];
+                    let vp: *mut V = &mut e.val as *mut V;
+                    let v: &'a mut V = &mut *vp;
+                    return Option::Some(v);
+                }
+            }
+            return Option::None;
+        }
+    }
+}
+
+/// Owning iterator over a `HashMap` (`for (k, v) in map`); yields `(K, V)` in table
+/// order. Un-yielded entries are dropped with the iterator, which frees the table.
+pub struct HashMapIntoIter<K, V> {
+    states:  *mut u8,
+    entries: *mut Slot<K, V>,
+    cap:     i64,
+    idx:     i64,
+}
+
+impl<K, V> Iterator<(K, V)> for HashMapIntoIter<K, V> {
+    fn next(self: &mut HashMapIntoIter<K, V>) -> Option<(K, V)> {
+        unsafe {
+            while self.idx < self.cap {
+                let i: i64 = self.idx;
+                self.idx = self.idx + 1 as i64;
+                if self.states[i] == SLOT_OCCUPIED {
+                    self.states[i] = SLOT_EMPTY;
+                    let e: *mut Slot<K, V> = &mut self.entries[i];
+                    let k: K = logos.lang.ptr::read(&e.key as *const K);
+                    let v: V = logos.lang.ptr::read(&e.val as *const V);
+                    return Option::Some((k, v));
+                }
+            }
+            return Option::None;
+        }
+    }
+}
+
+impl<K, V> Drop for HashMapIntoIter<K, V> {
+    fn drop(self: &mut HashMapIntoIter<K, V>) {
+        unsafe {
+            if self.states != 0 as *mut u8 {
+                let mut i: i64 = 0;
+                while i < self.cap {
+                    if self.states[i] == SLOT_OCCUPIED {
+                        let e: *mut Slot<K, V> = &mut self.entries[i];
+                        let _k: K = logos.lang.ptr::read(&e.key as *const K);
+                        let _v: V = logos.lang.ptr::read(&e.val as *const V);
+                    }
+                    i = i + 1 as i64;
+                }
+                dealloc(self.states);
+                dealloc(self.entries as *mut u8);
+                self.states = 0 as *mut u8;
+            }
+        }
+    }
+}
+
+// `for (k, v) in map` — consumes the map: the buffers move to the iterator and
+// the map's own drop becomes a no-op (null `states`).
+impl<K: Hash + Eq, V> IntoIterator<(K, V)> for HashMap<K, V> {
+    type Iter = HashMapIntoIter<K, V>;
+    fn into_iter(self: HashMap<K, V>) -> HashMapIntoIter<K, V> {
+        let it: HashMapIntoIter<K, V> = HashMapIntoIter {
+            states: self.states, entries: self.entries, cap: self.cap, idx: 0 as i64,
+        };
+        let mut m: HashMap<K, V> = self;
+        m.states = 0 as *mut u8;
+        return it;
+    }
+}
+
+impl<K: Hash + Eq, V> Default for HashMap<K, V> {
+    fn default() -> HashMap<K, V> { return hashmap_new::<K, V>(); }
 }
 
 // ── the query plane (ADR 0024 S6) ───────────────────────────────────────────
