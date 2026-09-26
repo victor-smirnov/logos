@@ -2963,7 +2963,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                               trait_name, ln_));
                         continue;
                     }
+                    bool was_ok = unsized_ok_;
+                    if (code_of(item) == la::UNSIZED_SLICE_TYPE || code_of(item) == la::DYN_TYPE)
+                        unsized_ok_ = true;   // `impl Deref<[T]> for Vec<T>`: a ?Sized position
                     auto resolved = resolve_type(item);
+                    unsized_ok_ = was_ok;
                     impl_trait_args.push_back(resolved);
                     if (tit && type_arg_idx < tit->type_params.size())
                         current_type_params_[tit->type_params[type_arg_idx].name] = resolved;

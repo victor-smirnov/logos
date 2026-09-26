@@ -9255,6 +9255,41 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
         std::vector<lir::LExprPtr> pargs;
         pargs.push_back(std::move(recv));
         for (auto& a : slc_args) pargs.push_back(std::move(a));
+        // The arguments were lowered with no formal to aim at: an unsuffixed
+        // `&[11, 3]` for a `&[i64]` parameter built an i32 array the callee then
+        // read at i64 stride. Coerce each against its formal, with the impl's
+        // element parameter bound from the receiver.
+        {
+            StrMap<TypeRef> b0;
+            if (!fi_ptr->param_types.empty() && fi_ptr->param_types[0])
+                unify_types(fi_ptr->param_types[0], expr_type(pargs[0]), b0);
+            SemaSubst s0(b0.begin(), b0.end());
+            for (size_t i = 1; i < pargs.size() && i < fi_ptr->param_types.size(); ++i) {
+                TypeRef f = fi_ptr->param_types[i];
+                if (!f) continue;
+                if (!s0.empty()) f = subst_type_sema(f, s0);
+                if (!type_is_concrete(f)) continue;
+                // An array literal (`&[11, 3]`) was BUILT at its default element
+                // width; rebuild it aimed at the formal (a literal is pure).
+                if (i - 1 < slc_arg_asts.size() && pargs[i] && expr_type(pargs[i]) &&
+                    !types_equal(expr_type(pargs[i]), f)) {
+                    auto an = slc_arg_asts[i - 1];
+                    auto inner = an;
+                    if (code_of(inner) == la::UNARY && inner.has_key(la::VALUE))
+                        inner = map_of(inner.get(la::VALUE.code));
+                    if (code_of(inner) == la::ARR_LIT || code_of(inner) == la::ARR_FILL_LIT) {
+                        TypeRef fe = TypeRef(f).kind() == LogosType::Kind::Slice ? TypeRef(f).elem()
+                                   : (TypeRef(f).pointee() && TypeRef(TypeRef(f).pointee()).kind() == LogosType::Kind::Array)
+                                         ? TypeRef(TypeRef(f).pointee()).elem() : TypeRef(nullptr);
+                        TypeRef saved_ah = hint_arr_elem_type_;
+                        if (fe) hint_arr_elem_type_ = fe;
+                        pargs[i] = lower_expr(an);
+                        hint_arr_elem_type_ = saved_ah;
+                    }
+                }
+                coerce_arg_to_param(pargs[i], f, CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT);
+            }
+        }
         if (!fi_ptr->type_params.empty()) {
             // Bind the impl's params by UNIFYING the formal receiver against
             // the actual slice — the old name-keyed "T" special case broke
@@ -9920,7 +9955,34 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
         if (!cands.empty()) { fi_ptr = cands[0]; break; }
         if ((fi_ptr = find_generic_func(key))) break;
     }
-    if (!fi_ptr) return std::nullopt;
+    if (!fi_ptr) {
+        // No array impl: `[T; N]` unsizes to `[T]` for a slice method
+        // (`arr.iter()`, `arr.contains(&x)`, `arr.fill(0)`), as Rust's autoref +
+        // unsize step of method resolution does.
+        TypeRef elem = TypeRef(arr_t).elem();
+        if (!elem) return std::nullopt;
+        bool found = false, wants_mut = false;
+        auto probe = [&](const std::string& key) {
+            std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
+            if (auto* g = find_generic_func(key)) cands.push_back(g);
+            for (auto* fi : cands) {
+                if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
+                found = true;
+                if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
+                    TypeRef(fi->param_types[0]).mut_ptr())
+                    wants_mut = true;
+            }
+        };
+        probe("$slice$" + type_str(elem) + "__" + std::string(method_name));
+        probe("$slice$T__" + std::string(method_name));
+        if (!found) return std::nullopt;
+        if (!recv_is_ref)
+            recv = materialize_recv_ref(std::move(recv), wants_mut, make_ref(wants_mut, arr_t),
+                                        BorrowOrigin::Autoref);
+        if (!try_coerce_array_ref_to_slice(recv, make_slice_type(elem, wants_mut)))
+            return std::nullopt;
+        return try_method_on_slice(node, recv, method_name);
+    }
     std::vector<lir::LExprPtr> args = lower_call_args(node);
     StrMap<TypeRef> binds;
     if (fi_ptr->impl_target_pattern) unify_types(fi_ptr->impl_target_pattern, arr_t, binds);
@@ -10082,6 +10144,23 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                             std::string_view m) -> bool {
         if (!target_t) return false;
         TypeRef tr(target_t);
+        // A `[T]` target (`Vec<T>: DerefMut<[T]>`): a slice method whose
+        // receiver is `&mut [T]` needs the DerefMut step.
+        if ((tr.kind() == LogosType::Kind::UnsizedSlice || tr.kind() == LogosType::Kind::Slice) &&
+            tr.elem()) {
+            auto wants = [&](const std::string& key) {
+                std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
+                if (auto* g = find_generic_func(key)) cands.push_back(g);
+                for (auto* fi : cands)
+                    if (fi && !fi->param_types.empty() && fi->param_types[0] &&
+                        TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
+                        TypeRef(fi->param_types[0]).mut_ptr())
+                        return true;
+                return false;
+            };
+            return wants("$slice$" + type_str(tr.elem()) + "__" + std::string(m)) ||
+                   wants("$slice$T__" + std::string(m));
+        }
         if (tr.kind() != LogosType::Kind::Struct &&
             tr.kind() != LogosType::Kind::ZonedStruct) return false;
         std::string sn  = concrete_struct_name(target_t);
@@ -10295,7 +10374,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (m.name == method_name && !m.has_default) found_nondefault = true;
             for (auto& s : it->supertraits) probe(s.trait_name);
         };
-        auto* tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
+        // The projection's trait_name carries its G156-1 type-arg suffix
+        // (`IntoIterator$G1$T`); the trait is registered under the bare name.
+        auto* tdef = find_trait_iter_scoped(strip_trait_targ_suffix(TypeRef(recv_inner).trait_name()));
         if (tdef) {
             std::string an(TypeRef(recv_inner).assoc_type_name());
             for (auto& at : tdef->assoc_types)
@@ -10386,14 +10467,30 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // substitution, not resolve_type_assoc_ref). Pull the assoc-type's
         // declared bounds (`type R: HasId`) straight from the trait decl.
         if (recv_is_assoc) {
-            auto* tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
+            const std::string bare_tn = strip_trait_targ_suffix(TypeRef(recv_inner).trait_name());
+            auto* tdef = find_trait_iter_scoped(bare_tn);
             if (tdef) {
+                // The declared bound is in the trait's namespace (`type Iter:
+                // Iterator<Item>`): bind the trait's parameters from the base's
+                // own bound (`I: IntoIterator<T>` → Item := T).
+                SemaSubst tsub;
+                if (TypeRef base = TypeRef(recv_inner).assoc_base()) {
+                    auto bb = current_type_bounds_.find(type_str(base));
+                    if (bb != current_type_bounds_.end())
+                        for (auto& ob : bb->second)
+                            if (strip_trait_targ_suffix(ob.trait_name) == bare_tn)
+                                for (size_t i = 0; i < tdef->type_params.size() && i < ob.type_args.size(); ++i)
+                                    if (ob.type_args[i]) tsub[tdef->type_params[i].name] = ob.type_args[i];
+                }
                 std::string an(TypeRef(recv_inner).assoc_type_name());
                 for (auto& at : tdef->assoc_types)
                     if (at.name == an)
-                        for (auto& b : at.bounds)
-                            search_trait(b.trait_name,
-                                         init_bound_subst(b.trait_name, b.type_args));
+                        for (auto& b : at.bounds) {
+                            std::vector<TypeRef> targs = b.type_args;
+                            if (!tsub.empty())
+                                for (auto& ta : targs) if (ta) ta = subst_type_sema(ta, tsub);
+                            search_trait(b.trait_name, init_bound_subst(b.trait_name, targs));
+                        }
             }
         }
 
@@ -10952,6 +11049,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     };
     std::vector<TypeRef> formals_hint = preload_formals();
     auto lower_arg_with_hint = [&](TinyMapView arg_node, size_t arg_idx) {
+        TypeRef saved_arr_elem = hint_arr_elem_type_;
         TypeRef saved_closure = hint_closure_formal_;
         TypeRef saved_enum    = hint_enum_type_;
         TypeRef saved_struct  = hint_struct_type_;
@@ -10983,8 +11081,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 hint_struct_type_ = f;
             else if (k == LogosType::Kind::Tuple)
                 hint_tuple_type_ = f;
+            // `v.extend_from_slice(&[5, 6])` on a `Vec<i64>`: the literal must be
+            // built at the formal's element width (it was built i32 and read at
+            // i64 stride), as a free-fn call's slice_elem_hint_for does.
+            else if ((k == LogosType::Kind::Slice || k == LogosType::Kind::Array) &&
+                     TypeRef(f).elem() && type_is_concrete(TypeRef(f).elem()))
+                hint_arr_elem_type_ = TypeRef(f).elem();
         }
         auto out = lower_expr(arg_node);
+        hint_arr_elem_type_  = saved_arr_elem;
         hint_closure_formal_ = saved_closure;
         hint_enum_type_      = saved_enum;
         hint_struct_type_    = saved_struct;

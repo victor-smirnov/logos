@@ -115,6 +115,18 @@ impl<T> Vec<T> {
         unsafe { return Option::Some(&mut self.ptr[i]); }
     }
 
+    /// `Some(&mut self[i])` for an in-bounds index, `None` otherwise (Rust's `Vec::get_mut`).
+    pub fn get_mut(&mut self, i: i64) -> Option<&mut T> {
+        if i < 0 || i >= self.len { return Option::None; }
+        unsafe { return Option::Some(&mut self.ptr[i]); }
+    }
+
+    /// Appends every item of `iter` (Rust's `Extend::extend`): a `Vec`, an array,
+    /// any `IntoIterator` of `T`.
+    pub fn extend<I: IntoIterator<T>>(&mut self, iter: I) {
+        vec_push_all::<I::Iter, T>(self, iter.into_iter());
+    }
+
     /// Writes `val` at index `i`. Panics on out-of-bounds.
     pub fn set(&mut self, i: i64, val: T) {
         if i < 0 || i >= self.len {
@@ -272,6 +284,16 @@ impl<T> Index<i64, T> for Vec<T> {
 }
 impl<T> IndexMut<i64, T> for Vec<T> {
     fn index_mut(&mut self, idx: i64) -> &mut T { return self.borrow_mut(idx); }
+}
+
+// `Vec<T>: Deref<Target = [T]>` (Rust parity): method autoderef reaches every
+// `[T]` method (`v.windows(2)`, `v.split_at_mut(k)`, `v.iter_mut()`…) that Vec
+// does not define itself; Vec's own methods win.
+impl<T> Deref<[T]> for Vec<T> {
+    fn deref(&self) -> &[T] { return self.as_slice(); }
+}
+impl<T> DerefMut<[T]> for Vec<T> {
+    fn deref_mut(&mut self) -> &mut [T] { return self.as_mut_slice(); }
 }
 
 // Rust's `impl<T: Clone> Clone for Vec<T>`: a new buffer holding each element's clone.
@@ -613,6 +635,18 @@ pub instantiate Vec<i32>;
 // Raw-slot reads/writes below MOVE bitwise (as `swap` does): a slot read out is
 // owned by the reader, a slot written is initialised without dropping.
 
+// `Vec::extend`'s drain, over the iterator as a plain type parameter (whose
+// drop at the end is then scheduled like any generic local's).
+fn vec_push_all<J: Iterator<T>, T>(v: &mut Vec<T>, it: J) {
+    let mut it2: J = it;
+    loop {
+        match it2.next() {
+            Option::Some(x) => { v.push(x); }
+            Option::None    => { return; }
+        }
+    }
+}
+
 /// Creates an empty `Vec<T>` with room for at least `n` elements.
 pub fn vec_with_capacity<T>(n: i64) -> Vec<T> {
     let cap: i64 = if n < 1 { 1 } else { n };
@@ -861,5 +895,19 @@ impl<T: Clone> Vec<T> {
     pub fn resize(&mut self, n: i64, val: T) {
         if n <= self.len { self.truncate(n); return; }
         while self.len < n { self.push(val.clone()); }
+    }
+}
+
+/// `[T]` → `Vec<T>` (Rust's `<[T]>::to_vec`).
+pub trait SliceToVec<T> {
+    /// A new `Vec` holding a clone of every element.
+    fn to_vec(&self) -> Vec<T>;
+}
+
+impl<T: Clone> SliceToVec<T> for [T] {
+    fn to_vec(&self) -> Vec<T> {
+        let mut out: Vec<T> = vec_with_capacity::<T>(self.len() as i64);
+        out.extend_from_slice(self);
+        return out;
     }
 }

@@ -393,6 +393,12 @@ private:
     StrSet enum_done_;
     StrSet done_;
     StrMap<TypeRef> assoc_impls_;
+    // A GENERIC impl's assoc types (`impl<T> IntoIterator<T> for Vec<T> { type
+    // Iter = VecIntoIter<T>; }`), keyed "<bare trait>::<base struct>::<assoc>":
+    // assoc_impls_ holds them under the template spelling only, which a
+    // concrete projection (`Vec<i64>::IntoIterator<i64>::Iter`) never names.
+    struct GenericAssocImpl { TypeRef pattern; std::vector<TypeRef> trait_args; TypeRef type; };
+    StrMap<std::vector<GenericAssocImpl>> generic_assoc_impls_;
 
     // Blanket impls indexed for AssocType resolution at mono time.
     // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.

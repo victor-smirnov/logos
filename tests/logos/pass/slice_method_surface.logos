@@ -1,0 +1,56 @@
+// The Rust `[T]` method surface: split_at / split_at_mut (two disjoint mutable halves),
+// windows, chunks, iter / iter_mut, get / first / last, contains, starts_with /
+// ends_with, binary_search, fill, reverse, rotate_left / rotate_right, copy_from_slice.
+// None were methods (only raw `slice_*` free fns). A Vec reaches them all through
+// `Vec<T>: DerefMut<[T]>`; a `&mut [T]` method takes the DerefMut step, so the borrow
+// checker sees the write. Checked under valgrind. rustc twin: 0.
+package slice_method_surface;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1); v.push(2); v.push(3); v.push(4);
+    let s: &mut [i64] = v.as_mut_slice();
+    let (left, right) = s.split_at_mut(2);
+    left[0] = 10;
+    right[0] = 30;
+    if v[0] + v[2] != 40 { return 1; }
+    let mut n = 0;
+    for w in v.windows(2) { if w.len() == 2 { n += 1; } }
+    if n != 3 { return 2; }
+    let mut c: i64 = 0;
+    for ch in v.chunks(3) { c += ch.len(); }
+    if c != 4 { return 3; }
+    let mut sum: i64 = 0;
+    for x in v.iter() { sum += *x; }
+    if sum != 46 { return 4; }
+    if !v.contains(&30) || v.contains(&31) { return 5; }
+    let sorted = vec![1i64, 3, 5, 7];
+    match sorted.as_slice().binary_search(&4) { Result::Ok(_) => { return 6; } Result::Err(i) => { if i != 2 { return 6; } } }
+    v.rotate_left(1);
+    if v[0] != 2 || v[3] != 10 { return 7; }
+    v.rotate_right(1);
+    for x in v.iter_mut() { *x += 1; }
+    if v[0] != 11 || v[3] != 5 { return 8; }
+    if !v.starts_with(&[11, 3]) || !v.ends_with(&[5]) { return 9; }
+    let (a, b) = v.split_at(1);
+    if a.len() != 1 || b.len() != 3 { return 10; }
+    match v.first() { Option::Some(f) => { if *f != 11 { return 11; } } Option::None => { return 11; } }
+    let t: &[i64] = v.as_slice();
+    match t.get(3) { Option::Some(x) => { if *x != 5 { return 12; } } Option::None => { return 12; } }
+    if t.get(4).is_some() || t.is_empty() { return 13; }
+    v.reverse();
+    if v[0] != 5 { return 14; }
+    v.fill(7);
+    if v[1] != 7 { return 15; }
+    let src = [1i64, 2, 3, 4];
+    v.copy_from_slice(&src);
+    if v[3] != 4 { return 16; }
+    let mut names: Vec<String> = Vec::new();
+    names.push(String::from("a")); names.push(String::from("b"));
+    names.fill(String::from("zz"));
+    if names[1].len() != 2 { return 17; }
+    match names.last_mut() { Option::Some(l) => { l.push_str("!"); } Option::None => { return 18; } }
+    if names[1].len() != 3 { return 18; }
+    return 0;
+}

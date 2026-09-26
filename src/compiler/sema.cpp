@@ -7863,7 +7863,20 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                 // the signature being checked, in the same type-parameter
                 // namespace the rest of current_type_bounds_ uses — not an
                 // entity name. See normalize_assoc_eq for the scoping ground.
-                current_type_bounds_[type_str(result)] = at.bounds;
+                // The bound is written in the TRAIT's namespace (`type Iter:
+                // Iterator<Item>`): bind the trait's parameters to this
+                // projection's trait arguments (`I: IntoIterator<T>` → Item := T).
+                std::vector<TraitBound> bs = at.bounds;
+                if (!trait_args_for_assoc.empty()) {
+                    SemaSubst ts;
+                    for (size_t i = 0; i < tit->type_params.size() && i < trait_args_for_assoc.size(); ++i)
+                        if (trait_args_for_assoc[i]) ts[tit->type_params[i].name] = trait_args_for_assoc[i];
+                    if (!ts.empty())
+                        for (auto& b : bs)
+                            for (auto& ta : b.type_args)
+                                if (ta) ta = subst_type_sema(ta, ts);
+                }
+                current_type_bounds_[type_str(result)] = std::move(bs);
                 break;
             }
         }

@@ -515,13 +515,13 @@ pub trait Fn<A...> {
 // surface.
 
 /// Overloads immutable dereference: `*x` on a `Deref` type yields the pointee.
-pub trait Deref<Target> {
+pub trait Deref<Target: ?Sized> {
     /// Dereferences the value, yielding a shared reference to the pointee.
     fn deref(&self) -> &Target;
 }
 
 /// Overloads mutable dereference; `*x = v` is not yet auto-dispatched (call `deref_mut`).
-pub trait DerefMut<Target>: Deref<Target> {
+pub trait DerefMut<Target: ?Sized>: Deref<Target> {
     /// Mutably dereferences the value, yielding an exclusive reference to the pointee.
     fn deref_mut(&mut self) -> &mut Target;
 }

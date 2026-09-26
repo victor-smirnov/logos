@@ -292,8 +292,10 @@ private:
         // UnsizedSlice<u8>) and impl-on-dyn collapse to the canonical
         // fat-ptr kind. Without this, param0 mangling diverges between
         // `&self` and `other: &Self` for the same impl (CP-cm-08b).
+        // `&mut self` on `impl … for [T]` is a MUTABLE slice (it was built
+        // shared, so the method's writes were invisible to the borrow checker).
         if (pointee && pointee.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(pointee.elem());
+            return make_slice_type(pointee.elem(), mut);
         if (pointee && pointee.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = pointee.type_args();
             return make_trait_object(pointee.trait_name(), std::move(args_vec),
