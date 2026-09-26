@@ -808,6 +808,42 @@ lir::LExprPtr SemaChecker::lower_char_lit(TinyMapView expr) {
     return builder().lit_int(v, prim(LogosType::Kind::Char));
 }
 
+// `c"..."` / `cr"..."`: the string global is already NUL-terminated, so the
+// literal is its bytes handed to logos.lang.ffi's `__cstr_from_lit`, which
+// types them as `&'static CStr`. An interior NUL is refused, as rustc does.
+lir::LExprPtr SemaChecker::lower_cstr_lit(std::string_view sv) {
+    std::string_view body = sv.substr(1);   // `"..."` or `r"..."`
+    bool raw = !body.empty() && body.front() == 'r';
+    bool nul = raw ? body.find('\0') != std::string_view::npos : false;
+    for (size_t i = 0; !raw && i + 1 < body.size(); ++i) {
+        if (body[i] != '\\') continue;
+        char e = body[i + 1];
+        if (e == '0') nul = true;
+        if (e == 'x' && i + 3 < body.size() && body[i + 2] == '0' && body[i + 3] == '0') nul = true;
+        if (e == 'u' && i + 2 < body.size() && body[i + 2] == '{') {
+            size_t j = i + 3;
+            while (j < body.size() && body[j] == '0') ++j;
+            if (j < body.size() && body[j] == '}' && j > i + 3) nul = true;
+        }
+        ++i;   // skip the escaped char
+    }
+    if (nul) {
+        error(std::format("null characters in C string literals are not supported: {}", sv));
+        return error_expr();
+    }
+    auto cands = find_func_candidates("__cstr_from_lit");
+    if (cands.empty()) {
+        error("C string literal: logos.lang.ffi (CStr) is not available");
+        return error_expr();
+    }
+    const SemaFuncInfo& fi = *cands[0];
+    std::vector<lir::LExprPtr> args;
+    args.push_back(builder().lit_str(std::string(body),
+        make_slice_type(u8_t(), false, TypeRef::OwningKind::Borrow, "'static")));
+    return builder().call(fi.symbol_name.empty() ? std::string("__cstr_from_lit") : fi.symbol_name,
+                          {}, std::move(args), fi.ret_type);
+}
+
 lir::LExprPtr SemaChecker::lower_bytes_lit(TinyMapView expr) {
     int32_t c = code_of(expr); (void)c;
     // P4-pm-07: `b"…"` at expression position. Decode escapes
@@ -1619,6 +1655,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::LIT_CHAR: return lower_char_lit(expr);
     case la::LIT_STR: {
         auto sv = str_of(expr.get(la::VALUE.code));
+        if (!sv.empty() && sv.front() == 'c') return lower_cstr_lit(sv);
         return builder().lit_str(std::string(sv), make_slice_type(u8_t(), false, TypeRef::OwningKind::Borrow, "'static"));
     }
 

@@ -485,6 +485,10 @@
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
     BYTE_STRING = /b"([^"\\]|\\.)*"/
+    // C string literals `c"..."` / `cr"..."` (Rust 2021). Carried as LIT_STR
+    // with the prefix kept in VALUE; sema lowers them to `&'static CStr`.
+    C_STRING    = /c"([^"\\]|\\.)*"/
+    CR_STRING   = /cr"[^"]*"/
     STRING      = /"([^"\\]|\\.)*"/
     FLOAT       = /[-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?(f32|f64)?/
     INTEGER     = /[-]?(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*)(i8|i16|i24|i32|i56|i64|i128|u8|u16|u24|u32|u56|u64|u128|usize|isize)?/
@@ -3094,6 +3098,8 @@
                      / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
                      / STRING   => { CODE: LIT_STR,  VALUE: $1 }
                      / BYTE_STRING => { CODE: LIT_BYTES, VALUE: $1 }
+                     / C_STRING => { CODE: LIT_STR, VALUE: $1 }
+                     / CR_STRING => { CODE: LIT_STR, VALUE: $1 }
                      / CHAR_LIT => { CODE: LIT_CHAR, VALUE: $1 }
                      / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                      / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
@@ -3298,6 +3304,8 @@
                   // bytes (escapes \n/\t/\r/\0/\\/\"/\x.. supported,
                   // matching the PAT_BYTES decoder).
                   / BYTE_STRING => { CODE: LIT_BYTES, VALUE: $1 }
+                  / C_STRING => { CODE: LIT_STR, VALUE: $1 }
+                  / CR_STRING => { CODE: LIT_STR, VALUE: $1 }
                   / CHAR_LIT => { CODE: LIT_CHAR, VALUE: $1 }
                   / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }

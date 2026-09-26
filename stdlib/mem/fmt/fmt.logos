@@ -19,6 +19,7 @@ use logos.lang.result;
 use logos.lang.option;
 use logos.lang.cmp;
 use logos.lang.str;
+use logos.lang.ffi;
 use logos.mem.string;
 use logos.mem.collections.vec;
 
@@ -638,6 +639,33 @@ fn debug_write_escaped(s: str, f: &mut Formatter) -> Result<(), Error> {
         i = i + 1i64;
     }
     return f.write_char(34u8);                      // closing "
+}
+
+/// Writes the bytes in `"` quotes through Rust's `escape_ascii`: printable ASCII
+/// as is, `\t` `\r` `\n` `\\` `\'` `\"` escaped, every other byte as `\xNN`.
+impl Debug for CStr {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let b: &[u8] = self.to_bytes();
+        let _ = f.write_char(34u8);
+        let mut i: i64 = 0i64;
+        while i < b.len() {
+            let c: u8 = b[i];
+            if c == 9u8 { let _ = f.write_char(92u8); let _ = f.write_char(116u8); }
+            else if c == 13u8 { let _ = f.write_char(92u8); let _ = f.write_char(114u8); }
+            else if c == 10u8 { let _ = f.write_char(92u8); let _ = f.write_char(110u8); }
+            else if c == 92u8 || c == 39u8 || c == 34u8 { let _ = f.write_char(92u8); let _ = f.write_char(c); }
+            else if c >= 32u8 && c < 127u8 { let _ = f.write_char(c); }
+            else {
+                let hi: u8 = c / 16u8;
+                let lo: u8 = c % 16u8;
+                let _ = f.write_char(92u8); let _ = f.write_char(120u8);
+                let _ = f.write_char(if hi < 10u8 { 48u8 + hi } else { 87u8 + hi });
+                let _ = f.write_char(if lo < 10u8 { 48u8 + lo } else { 87u8 + lo });
+            }
+            i = i + 1i64;
+        }
+        return f.write_char(34u8);
+    }
 }
 
 impl Debug for str {

@@ -8909,6 +8909,7 @@ private:
     lir::LExprPtr lit_int_from_text(std::string_view sv, bool negate);
     lir::LExprPtr lower_char_lit(writ::TinyMapView expr);
     lir::LExprPtr lower_bytes_lit(writ::TinyMapView expr);
+    lir::LExprPtr lower_cstr_lit(std::string_view sv);
     lir::LExprPtr lower_var_ref(writ::TinyMapView expr);
     lir::LExprPtr lower_cast(writ::TinyMapView expr);
     // resolve_type sub-handlers, factored out of the resolve_type tc-dispatch.

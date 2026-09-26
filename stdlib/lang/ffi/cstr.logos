@@ -1,0 +1,63 @@
+// Logos lang-tier standard library — logos.lang.ffi
+//
+// `CStr`: a borrowed, NUL-terminated byte string (Rust `core::ffi::CStr`),
+// the type of a `c"..."` / `cr"..."` literal. `&CStr` is a thin pointer to
+// the first byte; the length is found by scanning for the terminator, as in
+// C. (Rust's `&CStr` is a fat pointer; the operations are the same.)
+
+package logos.lang.ffi;
+
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+
+/// A borrowed C string: bytes up to (not including) a NUL terminator.
+/// Only ever used behind a reference; the field is the first byte.
+pub struct CStr {
+    head: u8,
+}
+
+// What a `c"..."` literal lowers to: its NUL-terminated static bytes as a `&CStr`.
+/// Compiler hook for C string literals; `pub` only so every literal site resolves it.
+pub fn __cstr_from_lit(s: &'static str) -> &'static CStr {
+    unsafe { return CStr::from_ptr(s.as_ptr()); }
+}
+
+impl CStr {
+    /// Wraps a NUL-terminated C string (Rust `CStr::from_ptr`).
+    /// Safety: `ptr` must be non-null, NUL-terminated, and live for `'a`.
+    pub static unsafe fn from_ptr<'a>(ptr: *const u8) -> &'a CStr {
+        return &*(ptr as *const CStr);
+    }
+
+    /// The pointer to the first byte, usable as a `const char*`.
+    pub fn as_ptr(&self) -> *const u8 { return self as *const CStr as *const u8; }
+
+    /// The length in bytes, excluding the terminator (Rust `CStr::count_bytes`).
+    pub fn count_bytes(&self) -> i64 { return str_len(self.as_ptr()); }
+
+    /// `true` if the string has no bytes before the terminator.
+    pub fn is_empty(&self) -> bool { unsafe { return *self.as_ptr() == 0u8; } }
+
+    /// The bytes, excluding the terminator (Rust `CStr::to_bytes`).
+    pub fn to_bytes(&self) -> &[u8] {
+        unsafe { return str_from_raw(self.as_ptr(), self.count_bytes()); }
+    }
+
+    /// The bytes including the terminator (Rust `CStr::to_bytes_with_nul`).
+    pub fn to_bytes_with_nul(&self) -> &[u8] {
+        unsafe { return str_from_raw(self.as_ptr(), self.count_bytes() + 1); }
+    }
+
+    /// The bytes as a `&str` if they are valid UTF-8 (Rust `CStr::to_str`).
+    pub fn to_str(&self) -> Result<&str, Utf8Error> {
+        let p: *const u8 = self.as_ptr();
+        let n: i64 = self.count_bytes();
+        unsafe {
+            match utf8_validate(p, n) {
+                Result::Ok(_) => { return Result::Ok(str_from_raw(p, n)); }
+                Result::Err(e) => { return Result::Err(e); }
+            }
+        }
+    }
+}
