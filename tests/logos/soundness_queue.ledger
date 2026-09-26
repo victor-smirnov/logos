@@ -22,8 +22,6 @@ struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open
 
 format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrenderable_form_refused refuses
 
-impl_fn_return_env_leaks 2 tests/soundness/open/impl_fn_return_env_leaks run 1
-
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
 array_impl_compound_generic_elem_refused 3 tests/soundness/open/array_impl_compound_generic_elem_refused refuses
@@ -188,5 +186,5 @@ array_impl_compound_generic_elem_refused 3 tests/soundness/open/array_impl_compo
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 6
-# SYNC-HASH 07b0763017c1f7347c076d1d2371e9c6
+# TOTAL 5
+# SYNC-HASH 74e1dee65e8354981907fbe0963f2f3b

@@ -1,0 +1,18 @@
+// A closure returned as `impl Fn` owns its heap env: the caller's value is dropped (env freed, capture dropped).
+package impl_fn_return_env_dropped;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1i64; } } }
+fn mk(p: *mut i64) -> impl Fn() -> i64 {
+    let d: D = D { v: 7i64, c: p };
+    return move || -> i64 { return d.v; };
+}
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    {
+        let h = mk(p);
+        if h() != 7i64 { return 2i32; }
+    }
+    if unsafe { n } != 1i64 { return 1i32; }
+    return 0i32;
+}

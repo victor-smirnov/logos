@@ -541,6 +541,17 @@ public:
         auto cv = const_val();
         return !cv || (uint64_t(*cv) & 0xffull) == uint64_t(OwningKind::Borrow);
     }
+    // A closure value that OWNS its heap env — the value of a closure literal
+    // returned as `impl Fn*`, whose env outlives the frame that built it. Such
+    // a value is dropped (its env glue drops the captures and frees the env)
+    // and moved, as Rust's closure owning a non-Copy capture is. Bit 17, clear
+    // of the owning kind (low byte), RAW_FAT_BIT (16) and DYN_MUT_BORROW_BIT.
+    static constexpr uint64_t OWNED_ENV_BIT = 1ull << 17;
+    bool closure_owns_env() const noexcept {
+        if (kind() != LogosType::Kind::Closure) return false;
+        auto cv = const_val();
+        return cv && (uint64_t(*cv) & OWNED_ENV_BIT);
+    }
     bool mut_borrowed_dyn_callable() const noexcept {
         auto cv = const_val();
         return borrowed_dyn_callable() && cv && (uint64_t(*cv) & DYN_MUT_BORROW_BIT);

@@ -661,6 +661,9 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         if (x && x.kind() == LogosType::Kind::Closure &&
             x.closure_fn_family() == TypeRef::FnFamily::FnOnce &&
             !x.borrowed_dyn_callable()) return true;
+        // A closure owning its heap env (a returned `impl Fn*` value): sema's
+        // leaf carries the twin.
+        if (x && x.closure_owns_env()) return true;
         // A bare type-parameter `T` is MOVE unless it carries an explicit
         // `Copy` bound (Rust checks generic BODIES abstractly: `T` moves unless
         // `T: Copy`). Mirrors sema's bound-aware is_move_type (DIVERGENCES §B1)

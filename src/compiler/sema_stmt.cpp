@@ -142,6 +142,62 @@ bool SemaChecker::ast_has_exit(TinyMapView root) {
     return found;
 }
 
+// The names a function RETURNS by value (`return c;`, or `c` as the body's
+// tail) that were bound to a closure literal: that literal escapes, its env is
+// heap (escaping_closure_lets_) and the returned value owns it. Closures and
+// nested fns are their own functions.
+void SemaChecker::collect_returned_closure_lets_(TinyMapView body) {
+    namespace lh = logos::writ;
+    escaping_closure_lets_.clear();
+    escaping_closure_names_.clear();
+    std::unordered_set<std::string> returned;
+    auto var_name = [&](AnyVal av) -> std::string {
+        if (av.is_null() || !av.is_pointer()) return {};
+        auto v = unwrap_paren_node(map_of(av));
+        return code_of(v) == la::VAR_REF ? std::string(str_of(v.get(la::NAME.code))) : std::string();
+    };
+    std::vector<std::pair<std::string, const void*>> lets;
+    std::function<void(TinyMapView)> walk = [&](TinyMapView n) {
+        if (n.is_null()) return;
+        int32_t c = code_of(n);
+        if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;
+        if ((c == la::RETURN || c == la::RETURN_EXPR) && n.has_key(la::VALUE))
+            if (auto nm = var_name(n.get(la::VALUE.code)); !nm.empty()) returned.insert(nm);
+        if (c == la::LET && n.has_key(la::VALUE) && n.has_key(la::NAME)) {
+            auto v = unwrap_paren_node(map_of(n.get(la::VALUE.code)));
+            if (code_of(v) == la::CLOSURE_EXPR)
+                lets.emplace_back(std::string(str_of(n.get(la::NAME.code))), v.ptr());
+        }
+        uint64_t bm = n.bitmap();
+        for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            AnyVal av = n.get(key);
+            if (av.is_null() || !av.is_pointer()) continue;
+            const uint8_t* pv = av.resolve();
+            if (!pv) continue;
+            uint64_t tc = lh::TypeTag::read_before(pv).type_code();
+            if (tc == lh::type_hash::TinyObjectMap) walk(map_of(av));
+            else if (tc == lh::type_hash::Array) {
+                auto arr = arr_of(av);
+                for (uint64_t i = 0; i < arr.size(); ++i) walk(map_of(arr.get(i)));
+            }
+        }
+    };
+    walk(body);
+    if (body.has_key(la::ITEMS)) {
+        auto items = arr_of(body.get(la::ITEMS.code));
+        for (int64_t i = (int64_t)items.size() - 1; i >= 0; --i) {
+            auto last = map_of(items.get(i));
+            if (last.is_null()) continue;
+            if (code_of(last) == la::TAIL_EXPR && last.has_key(la::VALUE))
+                if (auto nm = var_name(last.get(la::VALUE.code)); !nm.empty()) returned.insert(nm);
+            break;
+        }
+    }
+    for (auto& [nm, node] : lets)
+        if (returned.count(nm)) { escaping_closure_lets_.insert(node); escaping_closure_names_.insert(nm); }
+}
+
 bool SemaChecker::ast_has_break_or_continue(TinyMapView root) {
     namespace lh = logos::writ;
     bool found = false;
@@ -618,6 +674,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         }
         if (tail_as_return_ && ret_type_ &&
             TypeRef(ret_type_).kind() != LogosType::Kind::Void) {
+            // An `impl Trait` return's hidden type (and an escaping closure's
+            // heap env) is decided where `return e;` decides it.
+            if (TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait && stmt.has_key(la::VALUE))
+                return lower_return(stmt);
             // Peek the inner expression's type before deciding.
             if (stmt.has_key(la::VALUE)) {
                 // Thread the fn return type into enum-literal inference so a
@@ -4136,6 +4196,20 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
                 // silently reinterpreted through the first type's layout/vtable,
                 // a type-confusion misdispatch at runtime (corpus GAP10).
                 TypeRef vt = expr_type(val);
+                // The returned closure LITERAL — or the local bound to one
+                // (escaping_closure_names_) — built its env on the heap: the
+                // caller's value owns it.
+                auto rv = unwrap_paren_node(vnode);
+                if (vt && TypeRef(vt).kind() == LogosType::Kind::Closure &&
+                    (code_of(rv) == la::CLOSURE_EXPR ||
+                     (code_of(rv) == la::VAR_REF &&
+                      escaping_closure_names_.count(std::string(str_of(rv.get(la::NAME.code)))))) &&
+                    !TypeRef(vt).closure_owns_env()) {
+                    auto b = TypeRef(vt).to_builder();
+                    b.const_val = int64_t(uint64_t(b.const_val.value_or(0)) | TypeRef::OWNED_ENV_BIT);
+                    vt = pool_->alloc(std::move(b));
+                    builder().retype_expr(val, vt);
+                }
                 if (TypeRef(vt).kind() != LogosType::Kind::Error) {
                     if (!impl_ret_type_inferred_)
                         impl_ret_type_inferred_ = vt;

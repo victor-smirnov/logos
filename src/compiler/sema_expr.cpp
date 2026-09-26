@@ -20679,6 +20679,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // frame whose locals its env would hold (row impl_fn_return_stack_env_dangles).
     if (returned_closure_node_ && returned_closure_node_ == node.ptr())
         ec->escapes = true;
+    if (escaping_closure_lets_.count(node.ptr()))
+        ec->escapes = true;
 
     {
         // Scan ec->body's mirror after the move so &ec->body is the stable

@@ -1,0 +1,6 @@
+// E0382: a returned impl-Fn closure owning a Drop capture is not Copy.
+package impl_fn_return_closure_use_after_move_refused;
+struct D { v: i64 }
+impl Drop for D { fn drop(self: &mut D) { } }
+fn mk() -> impl Fn() -> i64 { let d: D = D { v: 1 }; return move || -> i64 { return d.v; }; }
+fn main() -> i32 { let a = mk(); let b = a; return (a() + b()) as i32; }

@@ -1523,6 +1523,12 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     lir_view::BlockRef body;
     if (!is_extern && !skip_body && node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
+        auto saved_esc_lets = std::move(escaping_closure_lets_);
+        auto saved_esc_names = std::move(escaping_closure_names_);
+        struct EscGuard_ { SemaChecker& s; decltype(saved_esc_lets)& l; decltype(saved_esc_names)& n;
+            ~EscGuard_() { s.escaping_closure_lets_ = std::move(l); s.escaping_closure_names_ = std::move(n); } }
+            esc_guard_{*this, saved_esc_lets, saved_esc_names};
+        collect_returned_closure_lets_(body_node);
         // Detect if the last stmt in the function body is a match.
         // If so, set the flag so lower_match treats EXPR arms as return values.
         if (ret_type && TypeRef(ret_type).kind() != LogosType::Kind::Void) {

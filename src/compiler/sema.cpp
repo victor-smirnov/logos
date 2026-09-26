@@ -3388,6 +3388,8 @@ bool SemaChecker::is_move_type(TypeRef t) const {
             TypeRef(x).closure_fn_family() == TypeRef::FnFamily::FnOnce &&
             !TypeRef(x).borrowed_dyn_callable())
             return true;
+        // A closure owning its heap env owns what it captured: not Copy.
+        if (TypeRef(x).closure_owns_env()) return true;
         // An owning `Box<[T]>` slice owns its heap buffer (non-Copy) → move type;
         // a borrowed `&[T]` is Copy-like (not a move type).
         if (TypeRef(x).owning_slice()) return true;
@@ -3617,6 +3619,7 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     // An owning Box<dyn Trait> owns its heap data (dropped via vtable[0]
     // drop_in_place + free). A borrowed &dyn is not droppable.
     if (TypeRef(t).owning_trait_object()) return true;
+    if (TypeRef(t).closure_owns_env()) return true;
     // An owning `Box<[T]>` slice owns its heap buffer (free + element drops);
     // a borrowed `&[T]` is not droppable.
     if (TypeRef(t).owning_slice()) return true;

@@ -1,0 +1,34 @@
+// A returned impl-Fn closure value is an OWNER: moved through id/let, consumed by a generic caller, dropped once each; a tail-position closure local too.
+package impl_fn_return_closure_owner_shapes;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1i64; } } }
+fn mk(p: *mut i64, v: i64) -> impl Fn() -> i64 {
+    let d: D = D { v: v, c: p };
+    return move || -> i64 { return d.v; };
+}
+fn mk2(p: *mut i64) -> impl Fn() -> i64 {
+    let d: D = D { v: 5i64, c: p };
+    let c = move || -> i64 { return d.v * 2i64; };
+    c
+}
+fn id<F>(f: F) -> F { return f; }
+fn run<F: Fn() -> i64>(f: F) -> i64 { return f(); }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let mut t: i64 = 0i64;
+    {
+        let a = mk(p, 1i64);
+        t = t + a() + a();
+        let b = id(a);
+        t = t + b();
+        let c = mk2(p);
+        t = t + run(c);
+        let e = mk(p, 100i64);
+        let g = e;
+        t = t + g();
+    }
+    if unsafe { n } != 3i64 { return 1i32; }
+    if t != 113i64 { return 2i32; }
+    return 0i32;
+}

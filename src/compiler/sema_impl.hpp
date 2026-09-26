@@ -8552,6 +8552,11 @@ private:
     // The node lower_return is lowering as the returned VALUE: a closure
     // literal that IS it escapes the frame (heap env).
     const void* returned_closure_node_ = nullptr;
+    // `let c = <closure literal>; … return c;` — the literal's env outlives the
+    // frame as surely as a returned literal's (collect_returned_closure_lets_).
+    std::unordered_set<const void*> escaping_closure_lets_;
+    std::unordered_set<std::string> escaping_closure_names_;
+    void collect_returned_closure_lets_(sema_detail::TinyMapView body);
 
     // ── LOCAL TYPE INFERENCE ────────────────────────────────────────────
     // A generic call that leaves a type argument unbound outside a generic
