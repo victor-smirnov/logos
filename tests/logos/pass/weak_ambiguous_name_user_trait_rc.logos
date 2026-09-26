@@ -6,7 +6,7 @@ trait Probe { fn alive(&self) -> i32; }
 impl<T> Probe for Weak<T> {
     fn alive(&self) -> i32 { match self.upgrade() { Option::Some(_a) => { return 1i32; } Option::None => { return 0i32; } } }
 }
-fn wcr(a: &Rc<i32>) -> i32 { unsafe { let q: *mut Rc<i32> = a as *const Rc<i32> as *mut Rc<i32>; return q.weak_count(); } }
+fn wcr(a: &Rc<i32>) -> i32 { unsafe { let q: *mut Rc<i32> = a as *const Rc<i32> as *mut Rc<i32>; return q.weak_count() as i32; } }
 fn main() -> i32 {
     let a: Rc<i32> = rc_new::<i32>(20);
     let mut c0: i32 = 0i32;
