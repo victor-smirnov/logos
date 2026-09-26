@@ -72,6 +72,7 @@
     KEY            = 51    // map key in WRIT_ENTRY
     RAW_PTR        = 9     // ADR 0028: SLICE_TYPE came from `*const/*mut [T]`, not `&[T]`. Reuses THEN — a type node never carries a then-branch.
     CODE_EXPR      = 6     // ADR 0011: `code(expr)` clause sub-node on SCHEMA_DEF/SCHEMA_ENUM_DEF (NAME="code", VALUE=expr). Reuses RET_TYPE slot — schemas have no return type. (AST TinyObjectMap keys are 0..51; 52 is out of range.)
+    IMPLIED_SELF   = 49    // PARAM: a bare `self` / `mut self` receiver whose TYPE `Self` the grammar supplied (reuses LO_NEG — a PARAM never carries LO_NEG). Sema refuses it on any other name.
     IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
     HRTB_BINDERS   = 41    // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node with ITEMS=[LIFETIME_PARAM...].
     RELAXED        = 39    // `?Trait` relaxed-bound marker on TRAIT_BOUND (Phase 1: only `?Sized` valid). Reuses IS_CONST slot — trait_bound never carries IS_CONST.
@@ -1718,6 +1719,18 @@
           => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
            / AMP IDENT
           => { CODE: PARAM, NAME: $2, IS_REF: true }
+           // By-value `self` / `mut self` (Rust's receiver shorthand): the
+           // grammar supplies `TYPE: Self` so every consumer sees the written
+           // `self: Self`; IMPLIED_SELF lets sema refuse it on any other name.
+           / KW_MUT IDENT implied_self_type
+          => { CODE: PARAM, NAME: $2, TYPE: $3, IS_MUT: true, IMPLIED_SELF: true }
+           / IDENT implied_self_type
+          => { CODE: PARAM, NAME: $1, TYPE: $2, IMPLIED_SELF: true }
+
+    // Consumes nothing: the `Self` type of a bare receiver, when the
+    // parameter ends right after its name.
+    implied_self_type <- &COMMA => { CODE: TYPE_REF, NAME: "Self" }
+                       / &RPAREN => { CODE: TYPE_REF, NAME: "Self" }
 
     // ── Type reference ───────────────────────────────────────────
     // assoc_type_ref must come before simple_type to match T::Item before T

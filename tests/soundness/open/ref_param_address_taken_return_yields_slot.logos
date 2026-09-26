@@ -1,7 +1,0 @@
-// SOUNDNESS QUEUE row ref_param_address_taken_return_yields_slot (tier 2, `run 1`). Found 2026-09-26 while closing
-// ord_default_minmax_over_ref_self_refused (`(&a).max(&b)` returned garbage). A REFERENCE parameter whose address is
-// taken (`let r = &y;`) and which is then returned by value (`return y;`) returns the address of its spill slot, not the
-// reference it holds: the emitted code is `lea -0x8(%rsp),%rax` (measured on std's `$ref_&i32__max`). rustc: exit 0.
-package ref_param_address_taken_return_yields_slot;
-fn pick<'a>(x: &'a i32, y: &'a i32) -> &'a i32 { let r = &y; if **r > 100 { return x; } return y; }
-fn main() -> i32 { let a = 4; let b = 9; if *pick(&a, &b) == 9 { return 0; } return 1; }

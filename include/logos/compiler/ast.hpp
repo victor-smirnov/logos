@@ -70,6 +70,7 @@ inline constexpr Key HI_NEG{"HI_NEG", 50};
 inline constexpr Key KEY{"KEY", 51};  // map key in WRIT_ENTRY
 inline constexpr Key RAW_PTR{"RAW_PTR", 9};  // ADR 0028: SLICE_TYPE came from `*const/*mut [T]`, not `&[T]`. Reuses THEN — a type node never carries a then-branch.
 inline constexpr Key CODE_EXPR{"CODE_EXPR", 6};  // ADR 0011: `code(expr)` clause sub-node on SCHEMA_DEF/SCHEMA_ENUM_DEF (NAME="code", VALUE=expr). Reuses RET_TYPE slot — schemas have no return type. (AST TinyObjectMap keys are 0..51; 52 is out of range.)
+inline constexpr Key IMPLIED_SELF{"IMPLIED_SELF", 49};  // PARAM: a bare `self` / `mut self` receiver whose TYPE `Self` the grammar supplied (reuses LO_NEG — a PARAM never carries LO_NEG). Sema refuses it on any other name.
 inline constexpr Key IS_NEGATIVE{"IS_NEGATIVE", 43};  // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
 inline constexpr Key HRTB_BINDERS{"HRTB_BINDERS", 41};  // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node with ITEMS=[LIFETIME_PARAM...].
 inline constexpr Key RELAXED{"RELAXED", 39};  // `?Trait` relaxed-bound marker on TRAIT_BOUND (Phase 1: only `?Sized` valid). Reuses IS_CONST slot — trait_bound never carries IS_CONST.

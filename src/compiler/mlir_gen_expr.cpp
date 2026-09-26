@@ -594,6 +594,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
     // Struct/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
     if (var_struct_.count(name))
         return get_struct_ptr(name);
+    // A reference binding REBOUND to a slot holding its pointer (a `&T` param
+    // whose address was taken — gen_addr_of): its value is the loaded pointer.
+    // A ref param is also in var_subscript_ (for `p[i]`), and that arm below
+    // returned the SLOT: `let r = &y; return y;` returned the spill's address.
+    if (ref_slot_vars_.count(name) && let_vars_.count(name))
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
     if (var_subscript_.count(name) || var_tuple_.count(name) ||
         var_tagged_enum_.count(name) || var_dyn_trait_.count(name))
         return it->second;

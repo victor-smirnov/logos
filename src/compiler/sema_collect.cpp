@@ -3380,6 +3380,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         auto params = arr_of(plist.get(la::ITEMS.code));
                         for (uint64_t j = 0; j < params.size(); ++j) {
                             auto p = map_of(params.get(j));
+                            refuse_misplaced_implied_self_(p, j);
                             // P2-15: the first param is the `self` receiver if it
                             // lacks an explicit TYPE (`&self`/`&mut self`/`self`)
                             // or is named `self` (`self: &S` — concretely typed).
@@ -6706,6 +6707,16 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
     return fn;
 }
 
+// A bare parameter name takes the implied `Self` type only as the FIRST
+// parameter spelled `self` (`fn f(self)` / `fn f(mut self)`); `fn f(x)` is a
+// parameter with no type.
+void SemaChecker::refuse_misplaced_implied_self_(TinyMapView p, uint64_t index) {
+    if (!p.has_key(la::IMPLIED_SELF) || !p.has_key(la::NAME)) return;
+    auto n = str_of(p.get(la::NAME.code));
+    if (n == "self" && index == 0) return;
+    error(std::format("expected `: <type>` after parameter '{}'", n));
+}
+
 void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
                              std::string_view trait_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
@@ -6815,6 +6826,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         for (uint64_t i = 0; i < arr.size(); ++i) {
             auto p = map_of(arr.get(i));
             if (code_of(p) != la::PARAM) continue;
+            refuse_misplaced_implied_self_(p, i);
             TypeRef pt;
             if (p.has_key(la::IS_REF)) {
                 auto sit = current_type_params_.find("Self");

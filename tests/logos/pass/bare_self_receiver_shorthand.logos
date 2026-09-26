@@ -1,0 +1,11 @@
+// Rust's by-value receiver shorthand `fn take(self)` / `fn bump(mut self)` (in impls, trait declarations and trait
+// defaults) was a syntax error — only `&self` / `&mut self` had one. The grammar supplies the `Self` type. rustc twin: 13.
+package bare_self_receiver_shorthand;
+trait T { fn t(self) -> i32; fn u(self) -> i32 where Self: Sized { return self.t() + 1; } }
+struct S { v: i32 }
+impl S {
+    fn take(self) -> i32 { return self.v; }
+    fn bump(mut self) -> S { self.v = self.v + 1; return self; }
+}
+impl T for S { fn t(self) -> i32 { return self.v; } }
+fn main() -> i32 { let s = S { v: 5 }; let a = s.bump().bump().take(); return a + S { v: 5 }.u(); }

@@ -1,0 +1,25 @@
+// A reference parameter whose address is taken (`let r = &y;`) is rebound to a slot holding its pointer; every later
+// VALUE read of it (`return y`, `let z = y`, an `if` arm, `(&a).max(&b)` in std's `Ord`) returned the slot's address —
+// the ref-param arm of the var read ran before the slot check. Indexing through such a param was already right.
+// rustc twin: 42.
+package ref_param_address_taken_value_read;
+fn ret<'a>(x: &'a i32, y: &'a i32) -> &'a i32 { let r = &y; if **r > 100 { return x; } return y; }
+fn copy_out<'a>(x: &'a i32, y: &'a i32) -> &'a i32 { let r = &y; let z = y; if **r > 100 { return x; } return z; }
+fn arm<'a>(x: &'a i32, y: &'a i32) -> &'a i32 { let r = &y; let q = if **r > 0 { y } else { x }; return q; }
+fn third(a: &[i64; 3]) -> i64 { let r = &a; return a[2] + (*r)[1]; }
+fn main() -> i32 {
+    let a = 4;
+    let b = 9;
+    let mut fails = 0;
+    if *ret(&a, &b) != 9 { fails = fails + 1; }
+    if *copy_out(&a, &b) != 9 { fails = fails + 2; }
+    if *arm(&a, &b) != 9 { fails = fails + 4; }
+    let x = [1i64, 20, 300];
+    if third(&x) != 320 { fails = fails + 8; }
+    let ra = &a;
+    let rb = &b;
+    if *ra.max(rb) != 9 { fails = fails + 16; }
+    if *ra.min(rb) != 4 { fails = fails + 32; }
+    if fails != 0 { return fails; }
+    return 42;
+}

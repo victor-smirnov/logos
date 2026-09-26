@@ -952,10 +952,12 @@ private:
             return node;
         }
         if (t.kind == TK::String) {
-            auto node = make_tm(2);
+            // A QUOTED value is a string, not a symbolic name: INDEX = 1 marks it.
+            auto node = make_tm(3);
             auto vs   = make_str(unquote(t.text));
             node.put(ast::CODE,  AnyVal::from_value(ast::STR_LIT)).get();
             node.put(ast::VALUE, vs.to_anyval()).get();
+            node.put(ast::INDEX, AnyVal::from_value(int32_t(1))).get();
             return node;
         }
         error(t, std::format("unexpected token in action expression: '{}'", t.text));

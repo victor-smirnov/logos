@@ -191,9 +191,5 @@ partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneo
 
 let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_literal_width_from_later_use_refused refuses
 
-bare_self_param_shorthand_refused 3 tests/soundness/open/bare_self_param_shorthand_refused refuses
-
-ref_param_address_taken_return_yields_slot 2 tests/soundness/open/ref_param_address_taken_return_yields_slot run 1
-
-# TOTAL 10
-# SYNC-HASH 0002a994c00644c0f691ab5813fa95e3
+# TOTAL 8
+# SYNC-HASH 60879571dd9262ffd3637e1103741c22

@@ -2422,6 +2422,8 @@ private:
     // variant (incl. a bare name naming a unit variant or const), or a
     // multi-alt or-pattern is refutable; an unknown form counts as refutable.
     bool ast_pat_irrefutable(writ::TinyMapView pat);
+    // `fn f(x)` (no type): the grammar's implied `Self` is for a first `self` only.
+    void refuse_misplaced_implied_self_(writ::TinyMapView p, uint64_t index);
     // `n @ "lit"` / `n @ ("a" | "b")` as a whole match arm: binder + literals.
     bool str_at_arm(writ::TinyMapView p, std::string& binder, std::vector<std::string>& lits);
     void collect_ast_pat_bindings(writ::TinyMapView pat,

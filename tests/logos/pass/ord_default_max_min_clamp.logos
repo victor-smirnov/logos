@@ -1,8 +1,7 @@
 // `Ord::max` / `min` / `clamp` are default methods (`where Self: Sized`), available on a user type that writes only `cmp`.
 // Instantiating them for std's `impl Ord for &i32` exposed three defects, fixed here: that impl's header `&i32` is ONE anonymous impl region shared by every `Self` (each
 // occurrence took its own elided region: "expected &'1 i32, got &'2 i32"), every default after the first keeps its
-// `Self` (it was left unbound), and an unsized implementor (`impl Ord for str`) gets no `Sized`-only default. CALLING
-// them on `&i32` still hits squeue ref_param_address_taken_return_yields_slot, so that call is not exercised here.
+// `Self` (it was left unbound), and an unsized implementor (`impl Ord for str`) gets no `Sized`-only default.
 // rustc twin: 42.
 package ord_default_max_min_clamp;
 use logos.lang.cmp;

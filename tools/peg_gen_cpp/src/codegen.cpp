@@ -61,6 +61,7 @@ struct ActionExpr {
     int32_t     kind;        // ast::CAPTURE / ARRAY_CAPTURE / INT_LIT / STR_LIT / BOOL_LIT
     int32_t     index = 0;   // for CAPTURE: $n
     std::string value;       // for STR_LIT / symbolic name
+    bool        quoted = false;  // STR_LIT written in quotes: a string value, not a symbol
     int32_t     int_val = 0; // for INT_LIT / BOOL_LIT
 };
 
@@ -448,6 +449,7 @@ private:
             e.int_val = read_int(node.get(uint8_t(ast::VALUE)));
         } else if (kind == int32_t(ast::STR_LIT)) {
             e.value = read_str(node.get(uint8_t(ast::VALUE)), h);
+            e.quoted = read_int(node.get(uint8_t(ast::INDEX))) == 1;
         }
         return e;
     }
@@ -3281,6 +3283,12 @@ private:
             }
 
             case int32_t(ast::STR_LIT): {
+                // A quoted value outside CODE (`NAME: "Self"`) is a string.
+                if (expr.quoted && field.name != "CODE") {
+                    w.fmt("node->put({}, doc_.make_string(\"{}\").get().to_anyval(), logos::writ::WritAccess::arena(doc_)).get();",
+                          field_const, expr.value);
+                    break;
+                }
                 // Symbolic name (e.g. MAP_NODE) → NamedCode value.
                 w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::writ::WritAccess::arena(doc_)).get();",
                       field_const, ast_ns_, expr.value);

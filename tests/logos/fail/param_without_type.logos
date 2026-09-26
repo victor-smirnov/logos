@@ -1,0 +1,4 @@
+// A parameter with no type (`fn f(x)`) is refused: the implied `Self` of the receiver shorthand is for a FIRST `self`.
+package param_without_type;
+fn f(x) -> i32 { return 1; }
+fn main() -> i32 { return 0; }
