@@ -1,0 +1,7 @@
+// A format argument the expansion cannot render (`loop { break 5; }`) is lowered once into a statement temporary.
+package format_arg_unrenderable_form_prints;
+use logos.std.fmt;
+fn main() -> i32 {
+    println!("{}", loop { break 5i64; });
+    return 0i32;
+}

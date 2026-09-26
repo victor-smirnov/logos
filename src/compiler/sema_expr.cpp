@@ -24992,6 +24992,40 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
                         blk = "{ let mut __buf: String = String::new(); "
                               "let mut __f: Formatter = Formatter::new(&mut __buf); ";
                     }
+                    // An argument render_expr_src cannot spell (`loop { break
+                    // 5; }`, a comprehension, a chained comparison, …) is not
+                    // rendered: it is LOWERED here, once, into a statement
+                    // temporary the block names. When one is, every other
+                    // argument with an effect is lowered the same way, in
+                    // order, so the arguments still evaluate left to right
+                    // before any formatting (format_args!). Places and
+                    // literals stay rendered — they have no effect to order.
+                    std::vector<lir_view::StmtRef> fmt_prelude;
+                    std::unordered_map<size_t, std::string> fmt_pre_bound;
+                    {
+                        bool any_unrenderable = false;
+                        for (size_t vi = fmt_pos + 1; vi < arg_avs.size(); ++vi)
+                            if (render_expr_src(writ::TinyMapView(arg_avs[vi], holder_))
+                                    .find(kRenderUnsupported) != std::string::npos) { any_unrenderable = true; break; }
+                        if (any_unrenderable && cur_stmt_temp_hoist_) {
+                            for (size_t vi = fmt_pos + 1; vi < arg_avs.size(); ++vi) {
+                                auto av_view = writ::TinyMapView(arg_avs[vi], holder_);
+                                auto c = code_of(unwrap_paren_node(av_view));
+                                if (c == la::VAR_REF || c == la::FIELD_READ || c == la::LIT_INT ||
+                                    c == la::LIT_BOOL || c == la::LIT_STR || c == la::LIT_FLOAT ||
+                                    c == la::LIT_CHAR) continue;
+                                auto v = lower_expr(av_view);
+                                TypeRef vt = v ? expr_type(v) : TypeRef(nullptr);
+                                if (!vt || TypeRef(vt).kind() == LogosType::Kind::Error) continue;
+                                if (TypeRef(vt).kind() == LogosType::Kind::IntLit) vt = i32_t();
+                                else if (TypeRef(vt).kind() == LogosType::Kind::FloatLit) vt = prim(LogosType::Kind::F64);
+                                std::string nm = std::format("__fmt_arg_{}", destruct_counter_++);
+                                register_stmt_temp(nm, vt, nullptr, false);
+                                fmt_prelude.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
+                                fmt_pre_bound[vi] = nm;
+                            }
+                        }
+                    }
                     int32_t auto_idx = 0;
                     for (auto& seg : fmt_result.segments) {
                         if (seg.is_literal) {
@@ -25016,7 +25050,9 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
                         // Render this arg via the existing pretty-printer.
                         auto arg_view = writ::TinyMapView(
                             arg_avs[value_idx], holder_);
-                        std::string arg_src = render_expr_src(arg_view);
+                        auto pre_it = fmt_pre_bound.find(size_t(value_idx));
+                        std::string arg_src = pre_it != fmt_pre_bound.end()
+                                                  ? pre_it->second : render_expr_src(arg_view);
                         if (arg_src.find(kRenderUnsupported) != std::string::npos) {
                             error(std::format(
                                 "{}!: argument {} is an expression form the format "
@@ -25156,6 +25192,11 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
                                     holder_ = blk_doc.holder();
                                     lir::LExprPtr lowered = lower_block_expr(blk_view);
                                     holder_ = prev2;
+                                    if (!fmt_prelude.empty() && lowered) {
+                                        TypeRef lt = expr_type(lowered);
+                                        lowered = builder().block_expr(lir_mirror_block(*cur_prog_, fmt_prelude),
+                                                                       std::move(lowered), lt);
+                                    }
                                     return lowered;
                                 }
                             }

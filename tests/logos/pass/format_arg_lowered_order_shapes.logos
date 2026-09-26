@@ -1,0 +1,21 @@
+// Unrenderable format arguments: lowered in order with every effectful sibling (format_args! order), a Drop temporary dropped once after the line.
+package format_arg_lowered_order_shapes;
+use logos.std.fmt;
+use logos.mem.string;
+struct D { v: i64 }
+impl Drop for D { fn drop(self: &mut D) { println!("drop {}", self.v); } }
+impl Display for D {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_i64(self.v); }
+}
+fn side(k: i64) -> i64 { println!("side {}", k); return k; }
+fn main() -> i32 {
+    println!("{}", loop { break 5i64; });
+    let x = 3i64;
+    println!("{} {} {}", side(1), loop { break side(2); }, side(3));
+    println!("{} {}", x, match x { 3 => 30i64, _ => 0i64 });
+    let s = format!("[{}]", loop { break 7i64; });
+    println!("{}", s);
+    println!("{} {}", loop { break D { v: 9 }; }, x);
+    println!("end");
+    return 0;
+}
