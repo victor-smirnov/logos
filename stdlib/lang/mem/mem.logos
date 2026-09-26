@@ -55,6 +55,15 @@ pub unsafe fn compare_bytes(a: *const u8, b: *const u8, n: i64) -> i32 {
     return memcmp(a, b, n);
 }
 
+/// The size of `T` in bytes (Rust's `mem::size_of`).
+pub fn size_of<T>() -> i64 { return sizeof::<T>(); }
+
+/// The size in bytes of the value `v` points to (Rust's `mem::size_of_val` for sized `T`).
+pub fn size_of_val<T>(v: &T) -> i64 { return sizeof::<T>(); }
+
+/// The ABI alignment of the value `v` points to (Rust's `mem::align_of_val` for sized `T`).
+pub fn align_of_val<T>(v: &T) -> i64 { return align_of::<T>(); }
+
 /// Swaps the values at two non-overlapping pointers of the same type.
 pub unsafe fn swap<T>(a: *mut T, b: *mut T) {
     let tmp: T = a[0];

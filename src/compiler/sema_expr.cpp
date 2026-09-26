@@ -11103,6 +11103,43 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::vector<TypeRef> types;
             types.push_back(expr_type(recv));
             for (auto& a : arg_exprs) types.push_back(expr_type(a));
+            // An unsuffixed literal argument (`x.max(2.0)`, `x.powi(3)`) is still
+            // IntLit/FloatLit here, and the exact-signature lookup below never
+            // matches it: adopt the width of the one same-arity candidate that
+            // accepts every argument, as a free-fn call would.
+            {
+                bool has_lit = false;
+                for (auto& a : arg_exprs)
+                    if (a && expr_type(a) &&
+                        (TypeRef(expr_type(a)).kind() == LogosType::Kind::IntLit ||
+                         TypeRef(expr_type(a)).kind() == LogosType::Kind::FloatLit))
+                        has_lit = true;
+                if (has_lit && !find_func_by_base_and_signature(mangled_prim, types, false)) {
+                    const SemaFuncInfo* only = nullptr;
+                    int n_fit = 0;
+                    for (auto* fi : find_func_candidates(mangled_prim)) {
+                        if (!fi || fi->is_vararg || fi->param_types.size() != types.size()) continue;
+                        bool fits = true;
+                        for (size_t i = 0; i < arg_exprs.size(); ++i)
+                            if (!arg_compatible_for_dispatch(expr_ref_of(arg_exprs[i]), types[i + 1],
+                                                             fi->param_types[i + 1])) { fits = false; break; }
+                        if (fits) { only = fi; ++n_fit; }
+                    }
+                    if (n_fit == 1) {
+                        for (size_t i = 0; i < arg_exprs.size(); ++i) {
+                            TypeRef pt = only->param_types[i + 1];
+                            auto ak = TypeRef(expr_type(arg_exprs[i])).kind();
+                            if (ak == LogosType::Kind::IntLit)
+                                widen_int_expr(arg_exprs[i], pt, builder());
+                            else if (ak == LogosType::Kind::FloatLit &&
+                                     (TypeRef(pt).kind() == LogosType::Kind::F64 ||
+                                      TypeRef(pt).kind() == LogosType::Kind::F32))
+                                arg_exprs[i] = builder().cast(std::move(arg_exprs[i]), pt);
+                            types[i + 1] = expr_type(arg_exprs[i]);
+                        }
+                    }
+                }
+            }
             if (auto pfit = find_func_by_base_and_signature(mangled_prim, types, false))
                 fi_ptr = pfit;
             // Auto-ref receiver variants: methods may declare &self / &mut self
