@@ -31,6 +31,7 @@ use logos.lang.marker;
 use logos.lang.drop;
 use logos.lang.str;
 use logos.lang.cmp;
+use logos.lang.default;
 use logos.lang.writ.dview;       // Datum / DView (capture into a runtime-typed container)
 use logos.lang.writ.anyval;      // W_STRING
 
@@ -542,4 +543,9 @@ impl Datum for String {
     fn from_datum(self: *const String, d: DView) -> String {
         return unsafe { String::from_bytes(d.obj_ptr(), d.obj_len() as i64) };
     }
+}
+
+// Rust's `impl Default for String`: the empty string (`mem::take(&mut s)`).
+impl Default for String {
+    fn default() -> String { return String::new(); }
 }

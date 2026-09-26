@@ -15,6 +15,7 @@ use logos.lang.cmp;
 use logos.lang.panic;
 use logos.lang.result;
 use logos.lang.clone;
+use logos.lang.default;
 
 /// Growable heap-allocated array of `T`, contiguous in memory (Rust `Vec` analog).
 /// On drop, each live element is dropped and the buffer is freed.
@@ -896,6 +897,11 @@ impl<T: Clone> Vec<T> {
         if n <= self.len { self.truncate(n); return; }
         while self.len < n { self.push(val.clone()); }
     }
+}
+
+// Rust's `impl<T> Default for Vec<T>`: the empty vector.
+impl<T> Default for Vec<T> {
+    fn default() -> Vec<T> { return vec_new::<T>(); }
 }
 
 /// `[T]` → `Vec<T>` (Rust's `<[T]>::to_vec`).

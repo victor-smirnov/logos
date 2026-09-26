@@ -19247,6 +19247,28 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         if (arg_exprs.size() != tm->param_types.size())
                             error(std::format("method call '{}::{}': expected {} args, got {}",
                                   cname_str, mname_str, tm->param_types.size(), arg_exprs.size()));
+                        // A GENERIC impl (`impl<T> Default for Option<T>`): the
+                        // bare `Option__default` is a template, not a symbol —
+                        // instantiate it at the hint's arguments (the enum arm
+                        // named the template and failed at link: "does not
+                        // reference a valid function").
+                        if (!h.type_args().empty()) {
+                            if (auto* gfi = find_generic_func(hbare + "__" + mname_str)) {
+                                StrMap<TypeRef> gb;
+                                if (gfi->ret_type) unify_types(gfi->ret_type, hint_call_return_type_, gb);
+                                std::vector<TypeRef> targs;
+                                bool all = true;
+                                for (auto& tp : gfi->type_params) {
+                                    auto it2 = gb.find(tp.name);
+                                    if (it2 == gb.end()) { all = false; break; }
+                                    targs.push_back(it2->second);
+                                }
+                                if (all)
+                                    return finish_generic_call(
+                                        gfi->symbol_name.empty() ? hbare + "__" + mname_str : gfi->symbol_name,
+                                        *gfi, std::move(targs), std::move(arg_exprs));
+                            }
+                        }
                         return builder().call(hn + "__" + mname_str, {},
                                               std::move(arg_exprs), ret_t);
                     }

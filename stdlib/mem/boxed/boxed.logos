@@ -9,6 +9,7 @@ package logos.mem.boxed;
 use logos.lang.mem;
 use logos.lang.marker;
 use logos.lang.ops;
+use logos.lang.default;
 use logos.mem.manually_drop;
 
 /// Owns a heap-allocated `T` exclusively; move-only, drops the value and frees the block on
@@ -89,6 +90,11 @@ impl<T> Box<T> {
 // route through these. Box hides the unsafe raw-pointer load behind the trait,
 // so use sites need no `unsafe`. Same surface as Rc/Arc — the compiler's deref
 // machinery dispatches uniformly (no Box-specific path).
+// Rust's `impl<T: Default> Default for Box<T>`: a box of `T::default()`.
+impl<T: Default> Default for Box<T> {
+    fn default() -> Box<T> { return box_new::<T>(T::default()); }
+}
+
 impl<T> Deref<T> for Box<T> {
     fn deref(&self) -> &T {
         unsafe { return &*self.ptr; }
