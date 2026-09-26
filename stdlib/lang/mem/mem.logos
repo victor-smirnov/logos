@@ -56,7 +56,7 @@ pub unsafe fn compare_bytes(a: *const u8, b: *const u8, n: i64) -> i32 {
 }
 
 /// The size of `T` in bytes (Rust's `mem::size_of`).
-pub fn size_of<T>() -> i64 { return sizeof::<T>(); }
+pub fn size_of<_T>() -> i64 { return sizeof::<_T>(); }
 
 /// The size in bytes of the value `v` points to (Rust's `mem::size_of_val` for sized `T`).
 pub fn size_of_val<T>(v: &T) -> i64 { return sizeof::<T>(); }
