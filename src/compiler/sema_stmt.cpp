@@ -142,6 +142,94 @@ bool SemaChecker::ast_has_exit(TinyMapView root) {
     return found;
 }
 
+static bool op_assign_trait_method(const std::string& base_op,
+                                   std::string& trait, std::string& method);
+
+bool SemaChecker::ast_has_call(TinyMapView root) {
+    bool found = false;
+    std::function<void(TinyMapView)> walk = [&](TinyMapView n) {
+        if (found || n.is_null()) return;
+        int32_t c = code_of(n);
+        if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;
+        if (c == la::CALL || c == la::METHOD_CALL || c == la::GENERIC_CALL ||
+            c == la::STATIC_CALL) { found = true; return; }
+        uint64_t bm = n.bitmap();
+        for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key) {
+            if (!(bm & (1ULL << key))) continue;
+            AnyVal av = n.get(key);
+            if (av.is_null() || !av.is_pointer()) continue;
+            const uint8_t* pv = av.resolve();
+            if (!pv) continue;
+            uint64_t tc = logos::writ::TypeTag::read_before(pv).type_code();
+            if (tc == logos::writ::type_hash::TinyObjectMap) walk(map_of(av));
+            else if (tc == logos::writ::type_hash::Array) {
+                auto arr = arr_of(av);
+                for (uint64_t i = 0; i < arr.size() && !found; ++i) walk(map_of(arr.get(i)));
+            }
+        }
+    };
+    walk(root);
+    return found;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::find_op_assign_impl(const std::string& mangled, TypeRef ref_t,
+                                                     TypeRef self_t, lir::LExprPtr& rhs) {
+    using K = LogosType::Kind;
+    TypeRef rhs_ty = rhs ? TypeRef(expr_type(rhs)) : self_t;
+    auto fit = find_func_by_base_and_signature(mangled, {ref_t, rhs_ty}, false);
+    if (!fit && !types_equal(rhs_ty, self_t))
+        fit = find_func_by_base_and_signature(mangled, {ref_t, self_t}, false);
+    if (fit || !rhs_ty) return fit;
+    const K rk = TypeRef(rhs_ty).kind();
+    if (rk != K::IntLit && rk != K::FloatLit) return nullptr;
+    const SemaFuncInfo* only = nullptr;
+    for (auto* c : find_func_candidates(mangled)) {
+        if (c->param_types.size() != 2 || !c->param_types[1]) continue;
+        const K pk = TypeRef(c->param_types[1]).kind();
+        const bool ok = rk == K::IntLit ? (is_integer_kind(pk) && pk != K::Enum && pk != K::IntLit)
+                                        : (pk == K::F32 || pk == K::F64);
+        if (!ok) continue;
+        if (only) return nullptr;   // ambiguous
+        only = c;
+    }
+    if (only) widen_int_expr(rhs, only->param_types[1], builder());
+    return only;
+}
+
+lir::LExprPtr SemaChecker::compound_rhs_first(lir::LExprPtr rhs, TypeRef pt,
+                                              TinyMapView rhs_node, bool place_calls) {
+    using K = LogosType::Kind;
+    if (!cur_stmt_temp_hoist_ || !rhs || !pt) return rhs;
+    const K k = TypeRef(pt).kind();
+    const bool prim = (is_integer_kind(k) && k != K::Enum && k != K::IntLit) ||
+                      k == K::F32 || k == K::F64 || k == K::Bool || k == K::Char;
+    if (!prim) return rhs;
+    // An operand whose evaluation cannot be observed from the place (a literal;
+    // with a pure place also a read built of variables, fields, casts and
+    // operators) keeps its place in the statement.
+    std::function<bool(TinyMapView, bool)> inert = [&](TinyMapView n, bool reads_ok) -> bool {
+        if (n.is_null()) return true;
+        const int32_t c = code_of(n);
+        if (c == la::LIT_INT || c == la::LIT_FLOAT || c == la::LIT_BOOL || c == la::LIT_CHAR)
+            return true;
+        if (!reads_ok) return false;
+        if (c == la::VAR_REF) return true;
+        if (c == la::PAREN_EXPR || c == la::CAST || c == la::UNARY || c == la::DEREF ||
+            c == la::FIELD_READ || c == la::TUPLE_INDEX)
+            return inert(map_of(n.get((n.has_key(la::VALUE) ? la::VALUE : la::RECEIVER).code)), true);
+        if (c == la::BINOP)
+            return inert(map_of(n.get(la::LHS.code)), true) && inert(map_of(n.get(la::RHS.code)), true);
+        return false;
+    };
+    if (inert(unwrap_paren_node(rhs_node), !place_calls)) return rhs;
+    widen_int_expr(rhs, pt, builder());
+    TypeRef rt = expr_type(rhs);
+    if (!rt || TypeRef(rt).kind() == K::IntLit || TypeRef(rt).kind() == K::Error) return rhs;
+    std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+    register_stmt_temp(nm, rt, std::move(rhs), false);
+    return builder().var_ref(nm, rt);
+}
+
 // The names a function RETURNS by value (`return c;`, or `c` as the body's
 // tail) that were bound to a closure literal: that literal escapes, its env is
 // heap (escaping_closure_lets_) and the returned value owns it. Closures and
@@ -812,19 +900,12 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // is evaluated ONCE, as Rust does: its final `&mut` goes into a statement
         // temporary read and written through. The read-twice desugar below ran
         // the call twice (a second `borrow_mut` panicked "already borrowed").
-        std::function<bool(TinyMapView, int)> dc_has_call = [&](TinyMapView n, int d) -> bool {
-            if (n.is_null() || d > 32) return false;
-            auto cc = code_of(n);
-            if (cc == la::METHOD_CALL || cc == la::CALL || cc == la::GENERIC_CALL || cc == la::STATIC_CALL)
-                return true;
-            for (auto k : {la::RECEIVER.code, la::VALUE.code})
-                if (n.has_key(k) && n.get(k).is_pointer() && dc_has_call(map_of(n.get(k)), d + 1))
-                    return true;
-            return false;
-        };
-        const bool eval_once = cur_stmt_temp_hoist_ && dc_has_call(ptr_node, 0);
+        const bool place_calls = ast_has_call(ptr_node);
+        const bool eval_once = cur_stmt_temp_hoist_ && place_calls;
+        auto rhs_node = map_of(stmt.get(la::VALUE.code));
         auto write_once = [&](lir::LExprPtr p, TypeRef el, lir::LExprPtr r,
                               const std::string& bop) -> lir_view::StmtRef {
+            r = compound_rhs_first(std::move(r), el, rhs_node, true);
             TypeRef ptt = expr_type(p);
             std::string nm = std::format("__rtmp_{}", destruct_counter_++);
             register_stmt_temp(nm, ptt, std::move(p), false);
@@ -888,7 +969,38 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             error("write through raw pointer requires unsafe context");
         if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
             error("deref-compound: cannot write through *const pointer (use *mut)");
+        // `*r op= v` on a struct with `impl OpAssign` → `op_assign(r, v)`: the
+        // operand once, then the RHS (Rust's order for a non-primitive).
+        if (TypeRef(elem).kind() == LogosType::Kind::Struct) {
+            std::string atrait, amethod;
+            if (op_assign_trait_method(base_op, atrait, amethod)) {
+                auto type_name = concrete_struct_name(elem);
+                auto base_name = std::string(TypeRef(elem).struct_name());
+                if (has_impl(atrait, type_name) ||
+                    (!base_name.empty() && has_impl(atrait, base_name))) {
+                    auto mangled = type_name + "__" + amethod;
+                    TypeRef ref_t = make_ref(true, elem);
+                    auto fit = find_op_assign_impl(mangled, ref_t, elem, rhs);
+                    if (fit) {
+                        if (rhs && is_move_type(expr_type(rhs)) &&
+                            !(fit->param_types.size() == 2 && fit->param_types[1] &&
+                              is_ref_like(TypeRef(fit->param_types[1]).kind())))
+                            mark_moved_expr(expr_ref_of(rhs));
+                        std::vector<lir::LExprPtr> args;
+                        // `&mut *ptr`: a reborrow, so a `&mut` operand stays usable.
+                        args.push_back(builder().addr_of_temp(builder().deref(std::move(ptr), elem),
+                                                              /*is_mut=*/true, ref_t,
+                                                              BorrowOrigin::CompoundAssign));
+                        args.push_back(std::move(rhs));
+                        auto call = builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name,
+                                                   {}, std::move(args), fit->ret_type);
+                        return builder().stmt_expr(std::move(call), node_line_);
+                    }
+                }
+            }
+        }
         if (eval_once) return write_once(std::move(ptr), elem, std::move(rhs), base_op);
+        rhs = compound_rhs_first(std::move(rhs), elem, rhs_node, false);
         // Build *p (read) op rhs.  Need to read ptr twice — clone the var-ref
         // by re-lowering.
         auto ptr_again = lower_mut_place(ptr_node);
@@ -3678,6 +3790,14 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
         return builder().stmt_break(nullptr, "", node_line_);
     }
+    // `STATIC op= v` writes through the global's address: the general place path.
+    if (names_static_mut(name)) {
+        if (!inside_unsafe_)
+            error(std::format(
+                "write to mutable static `{}` requires `unsafe` block "
+                "(Rust `items.static.mut.safety`)", name));
+        return lower_place_compound_assign(node, place_node, base_op);
+    }
     if (!lookup_is_mut(name))
         error(std::format("compound assignment to immutable variable '{}'", name));
 
@@ -3711,12 +3831,7 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
                 // ShlAssign<u8> for Int` → `Int__shl_assign(&mut Int, u8)`).
                 // Fall back to the Self-RHS signature if the rhs-typed one
                 // doesn't resolve (covers an IntLit rhs against a Self-RHS impl).
-                TypeRef rhs_ty = rhs ? TypeRef(expr_type(rhs)) : TypeRef(var_type);
-                auto fit = find_func_by_base_and_signature(
-                    mangled, {mut_ref_t, rhs_ty}, false);
-                if (!fit && !types_equal(rhs_ty, var_type))
-                    fit = find_func_by_base_and_signature(
-                        mangled, {mut_ref_t, var_type}, false);
+                auto fit = find_op_assign_impl(mangled, mut_ref_t, var_type, rhs);
                 if (fit) {
                     std::vector<lir::LExprPtr> args;
                     // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
@@ -3818,6 +3933,25 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                         expect_type(rhs2, out_t, CoercePos::Operand,
                                     std::format("compound assignment to '{}[i]': type mismatch —",
                                                 arr_name));
+                        // Rust: `a[i] op= v` is `*IndexMut::index_mut(&mut a, i) op= v` —
+                        // the index and the call evaluated ONCE (a primitive's RHS first).
+                        if (cur_stmt_temp_hoist_) {
+                            if (node.has_key(la::VALUE))
+                                rhs2 = compound_rhs_first(std::move(rhs2), out_t,
+                                                          map_of(node.get(la::VALUE.code)), true);
+                            std::vector<lir::LExprPtr> wa;
+                            wa.push_back(builder().addr_of(arr_name, make_ref(true, arr_type), BorrowOrigin::OperatorAutoref));
+                            wa.push_back(lower_idx(fit_im));
+                            auto wc = builder().call(fit_im->symbol_name.empty()
+                                          ? (type_name + "__index_mut") : fit_im->symbol_name,
+                                      {}, std::move(wa), ref_o);
+                            std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+                            register_stmt_temp(nm, ref_o, std::move(wc), false);
+                            auto cur1 = builder().deref(builder().var_ref(nm, ref_o), out_t);
+                            auto comb = builder().bin_op(base_op, std::move(cur1), std::move(rhs2), out_t);
+                            return builder().stmt_deref_write(builder().var_ref(nm, ref_o),
+                                                              std::move(comb), node_line_);
+                        }
                         lir::LExprPtr cur = nullptr;
                         if (fit_rd) {
                             std::vector<lir::LExprPtr> ra;
@@ -3854,17 +3988,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
     // below ran the call twice (a second `borrow_mut` panicked "already
     // borrowed"). Its `&mut` is taken once into a statement temporary.
     {
-        std::function<bool(TinyMapView, int)> has_call = [&](TinyMapView n, int d) -> bool {
-            if (n.is_null() || d > 32) return false;
-            auto c = code_of(n);
-            if (c == la::METHOD_CALL || c == la::CALL || c == la::GENERIC_CALL || c == la::STATIC_CALL)
-                return true;
-            for (auto k : {la::RECEIVER.code, la::VALUE.code})
-                if (n.has_key(k) && n.get(k).is_pointer() && has_call(map_of(n.get(k)), d + 1))
-                    return true;
-            return false;
-        };
-        if (cur_stmt_temp_hoist_ && has_call(place_node, 0)) {
+        if (cur_stmt_temp_hoist_ && ast_has_call(place_node)) {
             auto mp = lower_mut_place(place_node);
             TypeRef pt1 = expr_type(mp);
             if (!pt1 || TypeRef(pt1).kind() == LogosType::Kind::Error) {
@@ -3872,13 +3996,16 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                 return builder().stmt_break(nullptr, "", node_line_);
             }
             TypeRef ref_t = make_ref(true, pt1);
+            auto rhs1 = node.has_key(la::VALUE)
+                ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+            if (node.has_key(la::VALUE))
+                rhs1 = compound_rhs_first(std::move(rhs1), pt1,
+                                          map_of(node.get(la::VALUE.code)), true);
             std::string nm = std::format("__rtmp_{}", destruct_counter_++);
             register_stmt_temp(nm, ref_t,
                                builder().addr_of_temp(std::move(mp), /*is_mut=*/true, ref_t,
                                                       BorrowOrigin::CompoundAssign),
                                false);
-            auto rhs1 = node.has_key(la::VALUE)
-                ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
             if (TypeRef(pt1).kind() == LogosType::Kind::Struct) {
                 std::string atrait, amethod;
                 if (op_assign_trait_method(base_op, atrait, amethod)) {
@@ -3887,10 +4014,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                     if (has_impl(atrait, type_name) ||
                         (!base_name.empty() && has_impl(atrait, base_name))) {
                         auto mangled = type_name + "__" + amethod;
-                        TypeRef rhs_ty = rhs1 ? TypeRef(expr_type(rhs1)) : pt1;
-                        auto fit = find_func_by_base_and_signature(mangled, {ref_t, rhs_ty}, false);
-                        if (!fit && !types_equal(rhs_ty, pt1))
-                            fit = find_func_by_base_and_signature(mangled, {ref_t, pt1}, false);
+                        auto fit = find_op_assign_impl(mangled, ref_t, pt1, rhs1);
                         if (fit) {
                             if (rhs1 && is_move_type(expr_type(rhs1)) &&
                                 !(fit->param_types.size() == 2 && fit->param_types[1] &&
@@ -3935,6 +4059,8 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
     TypeRef pt = expr_type(place_read);
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+    if (node.has_key(la::VALUE))
+        rhs = compound_rhs_first(std::move(rhs), pt, map_of(node.get(la::VALUE.code)), false);
 
     // User-defined `*Assign` dispatch on a struct place → op_assign(&mut place, rhs).
     if (pt && TypeRef(pt).kind() == LogosType::Kind::Struct) {
@@ -3946,10 +4072,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                 (!base_name.empty() && has_impl(atrait, base_name))) {
                 auto mangled = type_name + "__" + amethod;
                 auto mut_ref_t = make_ref(true, pt);
-                TypeRef rhs_ty = rhs ? TypeRef(expr_type(rhs)) : pt;
-                auto fit = find_func_by_base_and_signature(mangled, {mut_ref_t, rhs_ty}, false);
-                if (!fit && !types_equal(rhs_ty, pt))
-                    fit = find_func_by_base_and_signature(mangled, {mut_ref_t, pt}, false);
+                auto fit = find_op_assign_impl(mangled, mut_ref_t, pt, rhs);
                 if (fit) {
                     auto addr = builder().addr_of_temp(lower_mut_place(place_node),  // eval #2 — &mut place
                                                        /*is_mut=*/true, mut_ref_t, BorrowOrigin::CompoundAssign);
@@ -4004,13 +4127,7 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
     // shadows (else the global-by-name `module_static_muts_` set
     // misfires inside stdlib fns whose params share the user's
     // static name — the §6.2 S18 namespace pollution).
-    bool is_static_mut = module_static_muts_.count(std::string(name)) != 0;
-    if (is_static_mut) {
-        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
-            if (it->vars.count(std::string(name))) { is_static_mut = false; break; }
-        if (is_static_mut && current_type_params_.count(std::string(name)))
-            is_static_mut = false;
-    }
+    bool is_static_mut = names_static_mut(name);
     if (is_static_mut) {
         if (!inside_unsafe_)
             error(std::format(
@@ -10171,10 +10288,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
         }
         if (cc == la::VAR_REF) {
             std::string rn(str_of(cur.get(la::NAME.code)));
-            place_in_static_mut = module_static_muts_.count(rn) != 0 &&
-                                  !current_type_params_.count(rn);
-            for (auto it = scope_.rbegin(); place_in_static_mut && it != scope_.rend(); ++it)
-                if (it->vars.count(rn)) place_in_static_mut = false;
+            place_in_static_mut = names_static_mut(rn);
             if (auto* vi = lookup_var_info(rn)) place_in_inferred_local = vi->regions_inferred;
         }
         break;
