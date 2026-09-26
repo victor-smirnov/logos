@@ -13,8 +13,26 @@
 package logos.lang.char;
 
 use logos.lang.option;
+use logos.lang.panic;
 
 impl char {
+    // ── Construction ──────────────────────────────────────────────────────
+    /// The `char` with scalar value `i`, or `None` for a surrogate or a value above `U+10FFFF`.
+    pub static fn from_u32(i: u32) -> Option<char> {
+        if i > 0x10FFFFu32 { return Option::None; }
+        if i >= 0xD800u32 && i <= 0xDFFFu32 { return Option::None; }
+        return Option::Some(i as char);
+    }
+
+    /// The digit `num` in `radix` (`0-9` then lowercase `a-z`), or `None` if `num >= radix`.
+    /// Panics if `radix > 36`, as Rust does.
+    pub static fn from_digit(num: u32, radix: u32) -> Option<char> {
+        if radix > 36u32 { panic("char::from_digit: radix is too high (maximum 36)"); }
+        if num >= radix { return Option::None; }
+        if num < 10u32 { return Option::Some((48u32 + num) as char); }
+        return Option::Some((87u32 + num) as char);
+    }
+
     // ── ASCII range membership ────────────────────────────────────────────
     /// Returns `true` if `self` is in the ASCII range (`U+0000..=U+007F`).
     pub fn is_ascii(self: char) -> bool {

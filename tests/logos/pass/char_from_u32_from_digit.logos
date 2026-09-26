@@ -1,0 +1,22 @@
+// `char::from_u32` (None for surrogates and values above U+10FFFF) and
+// `char::from_digit` (lowercase letters above 9, None when num >= radix), with
+// no import, as in Rust. They used to be "call to undefined static method".
+// rustc twin: 0.
+package char_from_u32_from_digit;
+
+fn main() -> i32 {
+    let c: char = char::from_digit(7u32, 10u32).unwrap();
+    if c != '7' { return 1; }
+    if char::from_digit(11u32, 16u32) != Some('b') { return 2; }
+    if char::from_digit(35u32, 36u32) != Some('z') { return 3; }
+    if char::from_digit(10u32, 10u32).is_some() { return 4; }
+    if char::from_digit(1u32, 2u32) != Some('1') { return 5; }
+    if char::from_u32(0x41u32) != Some('A') { return 6; }
+    if char::from_u32(0x20ACu32) != Some('€') { return 7; }
+    if char::from_u32(0xD800u32).is_some() { return 8; }
+    if char::from_u32(0xDFFFu32).is_some() { return 9; }
+    if char::from_u32(0x110000u32).is_some() { return 10; }
+    if char::from_u32(0x10FFFFu32).is_none() { return 11; }
+    if char::from_u32(0u32) != Some('\0') { return 12; }
+    return 0;
+}
