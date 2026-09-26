@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row string_add_operator_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): String + &str and String += &str are refused
+// Logos: error [fn main]: operator '+': left must be numeric, got String / operator '+': right must be numeric, got &[u8]
+// rustc: compiles (no errors)
+// fix hint: stdlib string.logos: impl Add<&str> for String and AddAssign<&str> for String.
+package string_add_operator_refused;
+use logos.mem.string;
+fn main() -> i32 {
+    let a: String = String::from("hello ");
+    let b: String = a + "world";
+    if b.as_str() != "hello world" { return 1i32; }
+    return 0i32;
+}

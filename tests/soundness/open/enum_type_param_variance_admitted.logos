@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row enum_type_param_variance_admitted (tier 1, `admits`). Rust-parity audit 2026-09-26 (critical): Enum type-param variance is not computed; an invariant-in-T enum is treated as covariant
+// FLS: fls_n36p6w2a75sm fls_abn5ycx11zpm fls_hvfyog9ygn6q fls_mduolmcawb30 fls_y81gmqweqc9w fls_etgfvgvymn8o fls_4kjxxrsk1igf fls_y4zmb3vrym7p fls_9ae3idezsths fls_hpiiwxzg16rj fls_df87d44kgwcv
+// Logos: logosc compiles the program cleanly (`logosc: wrote f.o`, exit 0), links, and the resulting binary runs and returns exit 0 — the covariant narrowing of the enum's invariant-in-T type parameter is silently accepted, in violation of
+// rustc: error[E0623]: lifetime may not live long enough — "requirement occurs because of the type `WrapMut<'_, &str>`, which makes the generic argument `&str` invariant" / "the enum `WrapMut<'w, T>` is invariant over the parameter `T`" (r
+// fix hint: sema variance: run the field fixpoint for enum variant payloads (structs already do); no blanket-covariant fallback.
+package enum_type_param_variance_admitted;
+
+enum WrapMut<'w, T> { W(&'w mut T) }
+
+fn bad<'long: 'short, 'short, 'w>(w: WrapMut<'w, &'long i64>) -> WrapMut<'w, &'short i64> {
+    return w;
+}
+
+fn main() -> i32 { return 0; }

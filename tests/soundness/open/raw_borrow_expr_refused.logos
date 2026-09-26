@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row raw_borrow_expr_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): &raw const / &raw mut do not parse
+// FLS: fls_TS6DvMon5h27 fls_UtjWrE2qeplQ fls_4e7EE4a8Yvmy fls_gOXUWePymgGV fls_YBC8GrIBzZbi fls_Twkre8IzUa8S fls_Ki4FOzJMqtvJ fls_DJxQDBsO9hc7 fls_WlXB0AHifCdd fls_qQrV8QuGGcVO
+// Logos: Reproduced: hard syntax error `error [.../raw1.logos]: syntax error near 'raw' at line 4 col 14`, logosc exits 4 with no modules loaded.
+// rustc: Reproduced: compiles and runs cleanly under rustc 1.98.1 --edition 2024 (compile rc=0; not separately run since it has no side effect beyond assert, but assert_eq would abort on mismatch and none occurred at compile-check level --
+// fix hint: grammar + sema: raw borrow expressions (already in tests/logos/unrowed_backlog.ledger).
+package raw_borrow_expr_refused;
+fn main() -> i32 {
+    let mut x: i32 = 42i32;
+    let p = &raw const x;
+    let q = &raw mut x;
+    unsafe {
+        if *p != 42i32 { return 1i32; }
+        *q = 7i32;
+        if x != 7i32 { return 2i32; }
+    }
+    return 0i32;
+}

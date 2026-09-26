@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row iter_fold_accumulator_inference_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): fold(init, closure) does not infer the accumulator type from init
+// Logos: error [fn main]: operator '+': type mismatch (Acc vs i64)
+// rustc: exit 0
+// fix hint: sema generic-method inference: bind Acc from the init argument before typing the closure.
+package iter_fold_accumulator_inference_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let v: Vec<i64> = vec![1i64, 2i64, 3i64, 4i64];
+    let s: i64 = v.iter().fold(0i64, |acc, x| acc + *x);
+    if s != 10i64 { return 1; }
+    return 0;
+}

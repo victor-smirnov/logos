@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row impl_method_extra_bound_admitted (tier 2, `admits`). Rust-parity audit 2026-09-26 (high): An impl method may add bounds the trait method lacks; generic callers then break them
+// FLS: fls_qmhduwunxww0 fls_18gimgfy0kw9
+// Logos: Compiles, links, runs to completion, exit code 5 — impl adds an `X: Clone` bound the trait never declared, and a generic caller dispatching through `D: Doer` is allowed to instantiate X with a type (NoClone) that violates the impl
+// rustc: error[E0276]: impl has stricter requirements than trait — refuses to compile.
+// fix hint: sema impl conformance: impl-method bounds must be implied by the trait method's bounds (E0276).
+package impl_method_extra_bound_admitted;
+
+trait Doer {
+    fn doit<X>(self, v: X) -> i32;
+}
+
+struct Foo { x: i32 }
+struct NoClone { y: i32 }
+
+impl Doer for Foo {
+    fn doit<X: Clone>(self, v: X) -> i32 { self.x }
+}
+
+fn call_it<D: Doer>(d: D, n: NoClone) -> i32 {
+    d.doit(n)
+}
+
+fn main() -> i32 {
+    let f = Foo { x: 5 };
+    call_it(f, NoClone { y: 1 })
+}

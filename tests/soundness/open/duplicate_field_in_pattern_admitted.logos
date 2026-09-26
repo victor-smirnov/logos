@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row duplicate_field_in_pattern_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): A struct pattern naming the same field twice is accepted
+// FLS: fls_m91ith3rjy79 fls_c09jf2vpcr58 fls_4h00oqypa8qg
+// Logos: Compiles and links cleanly; program exits with code 2 (x=1, y=1, x+y=2) — both bindings silently alias field `a`, `b` is never checked against anything.
+// rustc: rustc rejects with error[E0025]: field `a` bound multiple times in the pattern.
+// fix hint: sema: E0025.
+package duplicate_field_in_pattern_admitted;
+struct S { a: i32, b: i32 }
+fn main() -> i32 {
+    let s = S { a: 1, b: 2 };
+    match s { S { a: x, a: y, .. } => x+y, _ => 0 }
+}

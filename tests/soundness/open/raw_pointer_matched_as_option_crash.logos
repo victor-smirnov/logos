@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row raw_pointer_matched_as_option_crash (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Matching a raw pointer against Some/None passes sema and fails in mlir_gen
+// Logos: Reproduced exactly: sema accepts the type mismatch, then mlir_gen fails: 'internal: `let nc` initializer produced no value (expr kind 36) — statement DROPPED', 'internal: `return` value lowered to no value ... the RETURN was silen
+// rustc: rustc correctly rejects with E0308 (confirmed): expected raw pointer `*const i64`, found enum `Option<_>`, exit 1.
+// fix hint: sema: reject an Option pattern against a *const T scrutinee (E0308); mlir_gen self-diagnoses and writes no object.
+package raw_pointer_matched_as_option_crash;
+fn get_ptr() -> *const i64 {
+    return 0 as *const i64;
+}
+fn main() -> i32 {
+    let cur: *const i64 = get_ptr();
+    match cur {
+        Option::Some(c) => { let nc: i64 = unsafe { *c + 1 }; return nc as i32; }
+        Option::None => { return -1; }
+    }
+}

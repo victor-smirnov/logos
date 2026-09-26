@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row assoc_type_unsized_binding_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): An unsized type (dyn Trait) is accepted for an assoc type without ?Sized
+// FLS: fls_a5prbmuruma4
+// Logos: compiles cleanly to a .o with exit 0 — Logos accepts `type X = dyn Shape;` against an un-relaxed `type X;` with no diagnostic at all
+// rustc: error[E0277]: the size for values of type `(dyn Debug + 'static)` cannot be known at compilation time — required by the implicit Sized bound on `Foo::X`, help text suggests `type X: ?Sized;`
+// fix hint: sema: implicit Sized bound on associated types.
+package assoc_type_unsized_binding_admitted;
+
+trait Shape { fn area(&self) -> i32; }
+struct S {}
+trait Foo { type X; }
+impl Foo for S { type X = dyn Shape; }
+
+fn main() -> i32 {
+    return 0;
+}

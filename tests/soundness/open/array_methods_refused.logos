@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row array_methods_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Arrays have no methods (.iter(), .to_vec())
+// Logos: error [fn main]: method call: receiver is not a struct (got [i64; 4])
+// rustc: exit 236
+// fix hint: compiler/stdlib: method lookup on [T; N] should reach [T] slice methods by unsizing (error today: "receiver is not a struct").
+package array_methods_refused;
+fn main() -> i32 {
+    let arr: [i64; 4] = [10, 20, 30, 40];
+    let mut sum: i64 = 0;
+    for x in arr.iter() { sum += *x; }
+    return (sum as i32) * 10 + arr.len() as i32;
+}

@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row variadic_fn_pointer_type_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): A variadic fn-pointer type extern "C" fn(T, ...) -> R is refused
+// FLS: fls_B0SMXRqQMS1E fls_hbn1l42xmr3h
+// Logos: error [g2.logos]: syntax error near 'fn' at line 2 col 1; logosc: no modules loaded (exit 4). Confirmed by grep of tests/logos/pass/*.logos: the only variadic forms present are `extern fn printf(fmt: *const u8, ...) -> i32;` item 
+// rustc: Compiles cleanly (only unused-item/dead-code warnings). Exit 0.
+// fix hint: grammar: `...` in fn-pointer types.
+package variadic_fn_pointer_type_refused;
+fn apply(f: extern "C" fn(i32, ...) -> i32) -> i32 { unsafe { return f(1); } }
+fn main() -> i32 { return 0; }

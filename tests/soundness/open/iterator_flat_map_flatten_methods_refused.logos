@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row iterator_flat_map_flatten_methods_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): flat_map / flatten are not methods (free fns with sentinel args only)
+// Logos: error: method call: 'VecIntoIter$G1$i32' has no method 'flat_map' (no 'flatten' either)
+// rustc: compiles and runs, exit=0
+// fix hint: stdlib iter.logos: method forms without sentinel parameters.
+package iterator_flat_map_flatten_methods_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1,2,3];
+    let r: Vec<i32> = v.into_iter().flat_map(|x| vec![x,x].into_iter()).collect();
+    if r.len() == 6 { return 0; } else { return 1; }
+}

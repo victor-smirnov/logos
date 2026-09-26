@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row lifetime_param_order_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): Lifetime params after type/const params are accepted
+// FLS: fls_dalqke3rznrb
+// Logos: Compiles successfully: `logosc: wrote f.o`, rc=0, no diagnostic.
+// rustc: rustc refuses: error: lifetime parameters must be declared prior to type and const parameters, with suggested reorder to `<'a, T>`; rc=1.
+// fix hint: sema: lifetime params must come first.
+package lifetime_param_order_admitted;
+
+struct Foo<T, 'a> {
+    x: &'a T,
+}
+
+fn main() -> i32 {
+    0
+}

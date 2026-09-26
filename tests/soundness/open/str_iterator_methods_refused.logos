@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row str_iterator_methods_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): .chars() .bytes() .char_indices() .lines() .split_whitespace() are not methods on str
+// Logos: error [fn main]: slice has no method 'chars' (same for 'bytes'/'lines'; method-call syntax fails uniformly)
+// rustc: compiles (no errors)
+// fix hint: stdlib utf8.logos: free fns str_chars/str_bytes/str_lines exist; expose them as str methods and add char_indices/split_whitespace.
+package str_iterator_methods_refused;
+use logos.lang.str;
+fn main() -> i32 {
+    let s: &str = "hello";
+    let mut it = s.chars();
+    return 0i32;
+}

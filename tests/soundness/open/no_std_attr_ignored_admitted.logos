@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row no_std_attr_ignored_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): #![no_std] has no effect (std prelude still visible)
+// FLS: fls_qnxihxsvkyf6 fls_kxav9vw59ts4 fls_ve1shwjq09pl fls_wgwsn7laoju7 fls_lxkd6hdboav4
+// Logos: Compiles cleanly (logosc: wrote f.o, exit 0); Vec still resolves unqualified through the implicit std prelude exactly as without #![no_std]. #![no_std] has none of the FLS-specified effects.
+// rustc: rustc rejects it with error[E0425]/E0433 'cannot find type `Vec` in this scope' at both the type-annotation and the Vec::new() call site (plus secondary errors about missing #[panic_handler] and no main, expected since this is a #
+// fix hint: sema prelude: #![no_std] swaps in the core prelude (#![no_implicit_prelude] already works).
+#![no_std]
+package no_std_attr_ignored_admitted;
+
+fn f() -> i32 {
+    let v: Vec<i32> = Vec::new();
+    v.len() as i32
+}
+
+fn main() -> i32 {
+    f()
+}

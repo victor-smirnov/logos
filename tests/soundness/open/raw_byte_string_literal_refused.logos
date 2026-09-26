@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row raw_byte_string_literal_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): Raw byte string br"..." is refused
+// FLS: fls_jps9102q0qfi fls_yyw7nv651580 fls_5ybq0euwya42
+// Logos: error [f.logos]: syntax error near 'br' at line 3 col 13
+// rustc: compiles, prints 3
+// fix hint: lexer: br/br# tokens.
+package raw_byte_string_literal_refused;
+fn main() -> i32 {
+    let s = br"raw";
+    return 0;
+}

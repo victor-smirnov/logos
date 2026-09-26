@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row unused_generic_param_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): Unused type/lifetime params on a struct/enum are accepted
+// FLS: fls_x4s7p2v981r6 fls_jzfk9fspzqja fls_6j616ydf2mnh
+// Logos: Compiles successfully: `logosc: wrote f.o`, rc=0, no diagnostic.
+// rustc: rustc E0392: type parameter `T` is never used (suggests removing T or using PhantomData); rc=1.
+// fix hint: sema: E0392.
+package unused_generic_param_admitted;
+
+struct Foo<T> {
+    x: i32,
+}
+
+fn main() -> i32 {
+    0
+}

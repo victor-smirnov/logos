@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row refcell_guard_no_deref_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Field access through a RefCell borrow guard (cell.borrow().x) is refused
+// Logos: error [fn main]: field read: struct 'Ref$G1$P$...' has no field 'x' (and 'y')
+// rustc: compiles, exits 3
+// fix hint: stdlib cell.logos: impl Deref for Ref<T> and Deref/DerefMut for RefMut<T> (today only .get()/.get_mut()).
+package refcell_guard_no_deref_refused;
+use logos.lang.cell;
+struct P { x: i32, y: i32 }
+fn main() -> i32 {
+    let c: RefCell<P> = RefCell::new(P { x: 1, y: 2 });
+    let g = c.borrow();
+    return g.x + g.y;
+}

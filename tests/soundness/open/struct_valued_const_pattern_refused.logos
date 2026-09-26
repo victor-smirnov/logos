@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row struct_valued_const_pattern_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): A struct-valued const used as a pattern is refused (not ctfe-evaluable)
+// FLS: fls_1crq0mexo5r1 fls_xz5otkhogn31 fls_zCswsyuitexI fls_hF19K8sWU8FF fls_ag6m4mvpturw
+// Logos: error: const 'P' in pattern position: initializer is not ctfe-evaluable
+// rustc: compiles (with derive(PartialEq,Eq)), exits 1.
+// fix hint: sema/metacall: structural-match consts in patterns (per A1, a metacall gap, not a divergence).
+package struct_valued_const_pattern_refused;
+
+struct Point { x: i32, y: i32 }
+const P: Point = Point { x: 1, y: 2 };
+
+fn main() -> i32 {
+    let pt = Point { x: 1, y: 2 };
+    match pt {
+        P => 1,
+        _ => 2,
+    }
+}

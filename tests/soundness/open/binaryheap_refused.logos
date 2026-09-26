@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row binaryheap_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): BinaryHeap (and cmp::Reverse) do not exist
+// Logos: no such module: `find /home/logos/devel/logos/stdlib -iname '*heap*'` and a full-tree grep for BinaryHeap/BinHeap/heap return nothing at all
+// rustc: compiles and runs, prints Some(5)
+// fix hint: stdlib: new collections module BinaryHeap<T: Ord> (push/pop/peek/len/into_sorted_vec) + Reverse<T>.
+package binaryheap_refused;
+use logos.mem.collections.heap;
+
+fn main() -> i32 { return 0; }

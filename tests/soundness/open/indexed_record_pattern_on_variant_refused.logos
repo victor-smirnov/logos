@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row indexed_record_pattern_on_variant_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): Record-form indexed pattern Variant { 0: x } on a tuple enum variant is refused
+// FLS: fls_8bi8q3usubby fls_1x0o71kxj3yq fls_1thgpx95lfg5 fls_rpo1wimbmzhc fls_brhtaaxt1s3s
+// Logos: Rejected: "Opt::Some is a tuple-shape variant — use parentheses", "pattern Opt::Some: no field named '0'", "pattern Opt::Some: expected 1 bindings, got 0", plus a cascading "undefined variable 'x'" on the arm body.
+// rustc: rustc accepts and runs, returning 0 (compiles clean, one unrelated dead_code warning on unused `None`); running the binary prints 7 and exits 0.
+// fix hint: sema pattern: accept numeric field names for tuple variants (already works for tuple structs).
+package indexed_record_pattern_on_variant_refused;
+enum Opt { Some(i32), None }
+fn main() -> i32 {
+    let o = Opt::Some(7);
+    match o {
+        Opt::Some { 0: x } => x,
+        Opt::None => 0,
+    }
+}

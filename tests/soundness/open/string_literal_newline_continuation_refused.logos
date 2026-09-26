@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row string_literal_newline_continuation_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): String literal with a physical newline or a \<newline> continuation is refused
+// FLS: fls_hucd52suu6it fls_wawtu6j3fiqn
+// Logos: error [f.logos]: syntax error near '"multi\' at line 3 col 13 (line-continuation form); a bare embedded newline (`"line1<LF>line2"`) is likewise rejected: syntax error near '"line1'
+// rustc: compiles; continuation form collapses to "multiline" (len 9)
+// fix hint: lexer: allow LF inside "..." and the StringContinuation escape (raw strings already allow newlines).
+package string_literal_newline_continuation_refused;
+fn main() -> i32 {
+    let s = "multi\
+    line";
+    return s.len() as i32;
+}

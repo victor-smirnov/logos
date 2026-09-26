@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row float_methods_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): f32/f64 have no methods (.sqrt .floor .abs .powi .min .max ...)
+// Logos: error [fn main]: method call: receiver is not a struct (got f64) -- reproduced verbatim
+// rustc: compiles, runs, exit 0
+// fix hint: stdlib logos.lang.math: expose sqrt_f64 etc. as inherent methods on f32/f64; powi is missing entirely.
+package float_methods_refused;
+use logos.lang.math;
+fn main() -> i32 {
+    let x: f64 = 2.0;
+    let y: f64 = x.sqrt();
+    return 0;
+}

@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row destructuring_assign_drop_wrong (tier 1, `run 0`). Rust-parity audit 2026-09-26 (critical): Destructuring assignment of Drop types leaks the old values and drops the new ones 3 times
+// FLS: fls_l4u5hhw8tnvs fls_dd62w8c9n9sd fls_jqu2u6mdccgi fls_n7nuj1lvpspc fls_qb8u5skn8bc4 fls_g80a92tr2ser
+// Logos: prints 'done' then 'd3 d4 d3 d4 d4 d3 ' — old values (1,2) leaked; new values (3,4) each dropped 3 times (6 calls total)
+// rustc: prints 'd1 d2 done' then 'd4 d3' at scope end — 4 drop calls total, each value dropped exactly once
+// fix hint: sema/mlir_gen destructuring-assignment desugar: drop-before-replace per element, move (not copy) the RHS temporaries, no extra drops.
+package destructuring_assign_drop_wrong;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct R { id: i32 }
+impl Drop for R { fn drop(&mut self) { unsafe { printf("d%d ".as_ptr(), self.id); } } }
+unsafe fn main() -> i32 {
+    let mut r1 = R{id:1i32};
+    let mut r2 = R{id:2i32};
+    (r1, r2) = (R{id:3i32}, R{id:4i32});
+    printf("done\n".as_ptr());
+    return 0i32;
+}

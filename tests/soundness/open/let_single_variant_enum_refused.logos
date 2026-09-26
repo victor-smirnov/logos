@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row let_single_variant_enum_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): let with an irrefutable enum-variant pattern (single-variant enum) is refused
+// FLS: fls_9ntc4qmjmo90 fls_9fjspnefoyvz fls_uq7ftuuq1sig fls_hw26hy33guk5 fls_sl47k9oj5p7t fls_rnppz6y5z8pi
+// Logos: error: refutable pattern in local binding: use `let … else { … }` or `match` (rejected even though E has exactly one variant, so the pattern is irrefutable)
+// rustc: compiles and runs, prints 5, exit 0.
+// fix hint: sema let-pattern refutability: decide by exhaustiveness, not by pattern shape. divergences.md stmt.let-pat.struct-shapes-only claims this was closed 2026-09-24; the live compiler still refuses.
+package let_single_variant_enum_refused;
+
+enum E { A(i32) }
+
+fn main() -> i32 {
+    let e = E::A(5);
+    let E::A(x) = e;
+    x
+}

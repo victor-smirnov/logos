@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row c_string_literal_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): C string literals c"..." / cr"..." and CStr are missing
+// FLS: fls_U1gHCy16emVe fls_VKCW830CzhhN fls_p090c5oTnElW fls_fnwQHo7twAom fls_Ae7LM4Wg0NA7 fls_G4LdypF3rL6i fls_gLrei65i8Uzq fls_9nJHsg9dCi66
+// Logos: error [f.logos]: syntax error near 'c' at line 3 col 13
+// rustc: compiles, prints "cat" (CStr Debug)
+// fix hint: lexer + stdlib: c-string tokens producing &CStr.
+package c_string_literal_refused;
+fn main() -> i32 {
+    let s = c"cat";
+    return 0;
+}

@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row iterator_zip_method_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): .zip(other) cannot infer its generics and yields a named struct instead of a tuple
+// Logos: f2.logos:9: 'could not infer type arguments for generic method VecIter__zip'; then 'tuple pattern requires tuple scrutinee, got ZipPair<&i32, ZipOtherItem>'; :10 cascading undefined-variable errors. Correct-turbofish workaround (f
+// rustc: compiles and runs, exit 0
+// fix hint: stdlib iter.logos: zip<U: IntoIterator>(self, other: U) with Item = (Self::Item, U::Item); ZipOtherItem is currently unconstrained.
+package iterator_zip_method_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut a: Vec<i32> = Vec::<i32>::new();
+    a.push(1i32); a.push(2i32); a.push(3i32);
+    let mut b: Vec<i32> = Vec::<i32>::new();
+    b.push(10i32); b.push(20i32); b.push(30i32);
+    let mut sum: i32 = 0i32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        sum += *x + *y;
+    }
+    if sum != 66i32 { return 1i32; }
+    return 0i32;
+}

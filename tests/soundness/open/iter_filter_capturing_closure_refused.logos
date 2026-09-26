@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row iter_filter_capturing_closure_refused (tier 1, `refuses`). Rust-parity audit 2026-09-26 (critical): Iterator::filter (take_while/skip_while/inspect) rejects capturing closures
+// Logos: error [fn main]: method 'VecIntoIter__filter' arg 1: expected fn(&i32) -> bool, got |&i32| -> bool {Fn closure#...}
+// rustc: compiles and runs, exit=0
+// fix hint: stdlib iter.logos: filter/take_while/skip_while/inspect take a bare fn(&Item)->bool pointer; make them generic over F: FnMut(&Item)->bool like map/fold/for_each.
+package iter_filter_capturing_closure_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1,2,3,4,5];
+    let threshold: i32 = 3;
+    let r: Vec<i32> = v.into_iter().filter(|x| *x > threshold).collect();
+    if r.len() == 2 { return 0; } else { return 1; }
+}

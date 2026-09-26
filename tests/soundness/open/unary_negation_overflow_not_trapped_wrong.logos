@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row unary_negation_overflow_not_trapped_wrong (tier 2, `run 0`). Rust-parity audit 2026-09-26 (high): Unary -x on i32::MIN wraps silently instead of trapping
+// FLS: fls_CutpaCFCGHQs
+// Logos: Reproduced exactly: compiles (rc=0), runs and prints `y=-2147483648` (silently wrapped, unchanged bit pattern), process exit rc=0 -- no trap despite Logos's own stated always-checked policy.
+// rustc: Reproduced exactly: rustc 1.98.1 --edition 2024 debug build panics `attempt to negate with overflow` at negover3.rs:1:23, process exit rc=101.
+// fix hint: mlir_gen: lower unary minus through the same checked-sub path as `0 - x`.
+package unary_negation_overflow_not_trapped_wrong;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn f(x: i32) -> i32 { return -x; }
+fn main() -> i32 {
+    let x: i32 = -2147483648i32;
+    let y = f(x);
+    unsafe { printf("y=%d\n\0".as_ptr(), y); }
+    return 0i32;
+}

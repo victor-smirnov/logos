@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row labeled_block_expr_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Labeled block expression 'a: { ... break 'a v; ... } is refused
+// FLS: fls_J8wJNfcSAYrS fls_B4NBv2jfZLuy fls_YxvAUUYAPkaq fls_ltEygvWDtHXE fls_97v4fnekrRXI fls_kKZPKvJ902cw fls_i5ko1t2wbgxe fls_jiykbp51909f fls_gnupTkuafKNi fls_XpFLrL78QMe1
+// Logos: Reproduced verbatim: syntax error near ':' at line 3 col 17, compile exit 4 (logosc: no modules loaded). Consistent with grep of docs/spec — labels attach only to for/while/loop, no named-block-expression production exists.
+// rustc: Reproduced verbatim: rustc compiles and runs, exit code 42.
+// fix hint: grammar + sema: allow a label on a bare block and break-with-value to it.
+package labeled_block_expr_refused;
+fn main() -> i32 {
+    let x = 'blk: {
+        break 'blk 42;
+    };
+    return x;
+}

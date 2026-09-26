@@ -1,0 +1,16 @@
+// `i32::MAX`, `i32::MIN`, `u64::MAX`, `u32::BITS`, `i128::MAX` … — Rust's primitive associated constants (std had none:
+// "unknown enum 'i32'"). rustc twin: 0.
+package primitive_assoc_consts;
+fn main() -> i32 {
+    let mut fails = 0;
+    if i32::MAX != 2147483647 { fails = fails + 1; }
+    if i32::MIN != -2147483647 - 1 { fails = fails + 2; }
+    if u8::MAX != 255u8 { fails = fails + 4; }
+    if i64::MAX.wrapping_add(1i64) != i64::MIN { fails = fails + 8; }
+    if u64::MAX != 18446744073709551615u64 { fails = fails + 16; }
+    if u32::BITS != 32u32 { fails = fails + 32; }
+    if (i128::MAX >> 120i128) != 127i128 { fails = fails + 64; }
+    let small: i16 = i16::MIN;
+    if small as i32 != -32768 { fails = fails + 128; }
+    return fails;
+}

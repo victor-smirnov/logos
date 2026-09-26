@@ -513,6 +513,16 @@ impl Eq for String {
     }
 }
 
+// Lexicographic byte order (Rust: `impl Ord for String`), for sorting and ordered maps.
+impl Ord for String {
+    fn cmp(&self, other: &String) -> Ordering {
+        let c: i32 = str_cmp(self.as_str(), other.as_str());
+        if c < 0 { return Ordering::Less; }
+        if c > 0 { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
 // Datum: present a heap String as a runtime-typed cell (datatype String,
 // W_STRING). Its STORAGE form is the UTF-8 CONTENT, not the {ptr,len,cap}
 // struct — so override as_datum (the default would capture the struct bytes).

@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row partialeq_heterogeneous_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): PartialEq<Rhs> for a different Rhs type is refused (trait has no Rhs param)
+// FLS: fls_YppNCEPMYqWJ
+// Logos: Re-ran verbatim: error [fn Meters__eq]: impl PartialEq for Meters: method 'eq' does not match the trait declaration: parameter 1 is declared '&Meters' and the impl declares '&i32'. Confirmed by reading stdlib/lang/cmp/cmp.logos:34
+// rustc: Compiles and runs, exit 0 (assert passes) -- reproduced.
+// fix hint: stdlib cmp.logos: PartialEq<Rhs = Self> / PartialOrd<Rhs> (already-known item).
+package partialeq_heterogeneous_refused;
+use logos.lang.cmp;
+
+struct Meters { v: i32 }
+
+impl PartialEq<i32> for Meters {
+    fn eq(&self, other: &i32) -> bool { return self.v == *other; }
+}
+
+fn main() -> i32 {
+    let a = Meters { v: 5 };
+    if a == 5 {
+        return 0;
+    }
+    return 1;
+}

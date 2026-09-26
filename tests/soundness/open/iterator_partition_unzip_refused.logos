@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row iterator_partition_unzip_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Iterator::partition and unzip are missing
+// Logos: error: method call: 'VecIntoIter$G1$i32' has no method 'partition'
+// rustc: compiles and runs, exit=0
+// fix hint: stdlib iter.logos: add both.
+package iterator_partition_unzip_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1,2,3,4,5,6];
+    let (evens, odds): (Vec<i32>, Vec<i32>) = v.into_iter().partition(|x| *x % 2 == 0);
+    if evens.len()==3 && odds.len()==3 { return 0; } else { return 1; }
+}

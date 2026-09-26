@@ -105,7 +105,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
     /// Inserts `key` → `val`, overwriting the value if `key` is already present.
     /// Resizes (x2) when the post-insert load factor would exceed 0.75.
-    pub unsafe fn insert(self: *mut HashMap<K, V>, key: K, val: V) {
+    pub unsafe fn insert(self: *mut HashMap<K, V>, key: K, val: V) -> Option<V> {
         // Resize when load factor exceeds 0.75.
         // (self.len + 1) * 4 > self.cap * 3  ⇔  load > 0.75 after insert.
         if (self.len + 1 as i64) * 4 as i64 > self.cap * 3 as i64 {
@@ -114,13 +114,18 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         let (idx, found) = self.probe(&key);
         let e: *mut Entry<K, V> = &mut self.entries[idx];
         if found {
+            // Rust's `insert`: the old value is returned, the stored key kept (the
+            // new `key` drops at the end of this call). A raw field write does not
+            // drop, so the old value is moved out first — it leaked before.
+            let old: V = logos.lang.ptr::read(&e.val as *const V);
             e.val = val;
-        } else {
-            e.key = key;
-            e.val = val;
-            self.states[idx] = SLOT_OCCUPIED;
-            self.len = self.len + 1 as i64;
+            return Option::Some(old);
         }
+        e.key = key;
+        e.val = val;
+        self.states[idx] = SLOT_OCCUPIED;
+        self.len = self.len + 1 as i64;
+        return Option::None;
     }
 
     /// Returns `true` if the map contains `key`.
@@ -166,12 +171,16 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
     /// Removes `key` from the map; returns `true` if it was present.
     /// Tombstones the slot without moving out or dropping the entry's key/value.
-    pub unsafe fn remove(self: *mut HashMap<K, V>, key: &K) -> bool {
+    pub unsafe fn remove(self: *mut HashMap<K, V>, key: &K) -> Option<V> {
+        // Rust's `remove`: the value is returned, the stored key dropped (both leaked before).
         let (idx, found) = self.probe(key);
-        if !found { return false; }
+        if !found { return Option::None; }
+        let e: *mut Entry<K, V> = &mut self.entries[idx];
+        let _k: K = logos.lang.ptr::read(&e.key as *const K);
+        let v: V = logos.lang.ptr::read(&e.val as *const V);
         self.states[idx] = SLOT_TOMBSTONE;
         self.len = self.len - 1 as i64;
-        return true;
+        return Option::Some(v);
     }
 
     /// Removes and drops all entries, resetting every slot (tombstones included) to empty.

@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row std_hint_attrs_unrecognized_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): Standard Rust attributes (#[inline], #[cold], #[allow], #[deprecated], #[track_caller], #[used], #[no_builtins]) warn as unknown and do nothing
+// FLS: fls_x860jl4103p fls_8zdexi5lgm2f fls_jwyhky49ssup fls_s7bf7tf9206d fls_930o6urn669w fls_z7ufiqqujgdh fls_f0n4g5uky9tp fls_r3p4din7rjz8 fls_bxucstrfcco8 fls_wle815gb9ai2 fls_tvn08dtuilue fls_eOJS3mxa9xgu
+// Logos: logosc emits warnings 'unknown attribute #[inline]' and 'unknown attribute #[cold]' at lines 3-4, then compiles and links foo() normally; exit=0, program runs and returns 7 (attributes have zero effect, just a diagnostic warning).
+// rustc: rustc silently accepts both attributes as genuine codegen hints, no diagnostic, compiles cleanly; run exits 7.
+// fix hint: sema attribute table: recognise the Rust built-in attribute set; map inline/cold to LLVM attrs, allow/warn/deny to lint levels, deprecated/must_use to use-site warnings, used to llvm.used, track_caller as a no-op or Location suppo
+package std_hint_attrs_unrecognized_admitted;
+
+#[inline]
+#[cold]
+fn foo() -> i32 {
+    return 7;
+}
+
+fn main() -> i32 {
+    return foo();
+}

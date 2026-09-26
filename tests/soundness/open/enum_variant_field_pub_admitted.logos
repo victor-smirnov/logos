@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row enum_variant_field_pub_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): pub on an enum variant field is accepted
+// FLS: fls_dm0xr424ine1
+// Logos: logosc accepts the program and writes f2.o without diagnostics (exit 0).
+// rustc: rustc 1.98.1 rejects it: error[E0449] 'visibility qualifiers are not permitted here', note: 'enum variants and their fields always share the visibility of the enum they are in'; rustc exits 1.
+// fix hint: sema/grammar: reject visibility on variant fields.
+package enum_variant_field_pub_admitted;
+
+enum E { V { pub x: i64 } }
+
+fn main() -> i32 {
+    let e: E = E::V { x: 7i64 };
+    return 0i32;
+}

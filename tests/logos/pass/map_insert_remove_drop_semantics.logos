@@ -1,0 +1,46 @@
+// HashMap::insert over an existing key returns and drops the old value, HashMap::remove returns the value and drops
+// the key (both leaked); BTreeMap drops its entries on drop / clear / remove / replace (it never did) and compares keys
+// through a reference (it moved a non-Copy key out and dropped it while the slot kept it). Counted drops. rustc twin: 0.
+package map_insert_remove_drop_semantics;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.string;
+struct D { c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0;
+    let p: *mut i64 = &mut n;
+    let mut fails = 0;
+    unsafe {
+        let mut m: HashMap<i32, D> = hashmap_new::<i32, D>();
+        let pm: *mut HashMap<i32, D> = &mut m;
+        pm.insert(1, D { c: p });
+        pm.insert(2, D { c: p });
+        let old = pm.insert(2, D { c: p });      // returns the old D
+        if old.is_none() { fails = fails + 1; }
+    }
+    if n != 3 { fails = fails + 2; }            // old dropped + 2 at map drop
+    n = 0;
+    unsafe {
+        let mut m: HashMap<i32, D> = hashmap_new::<i32, D>();
+        let pm: *mut HashMap<i32, D> = &mut m;
+        pm.insert(1, D { c: p });
+        let r = pm.remove(&1);
+        if r.is_none() { fails = fails + 4; }
+    }
+    if n != 1 { fails = fails + 8; }
+    n = 0;
+    unsafe {
+        let mut b: BTreeMap<String, D> = btreemap_new::<String, D>();
+        let pb: *mut BTreeMap<String, D> = &mut b;
+        pb.insert(String::from("b"), D { c: p });
+        pb.insert(String::from("a"), D { c: p });
+        pb.insert(String::from("c"), D { c: p });
+        if !pb.contains_key(&String::from("a")) { fails = fails + 16; }
+        let r = pb.remove(&String::from("b"));
+        if r.is_none() { fails = fails + 32; }
+        pb.insert(String::from("a"), D { c: p });   // replaces: old value dropped
+    }
+    if n != 4 { fails = fails + 64; }
+    return fails;
+}

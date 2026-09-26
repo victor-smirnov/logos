@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row tuple_unsized_tail_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): A tuple type with an unsized last field ((i32, [i32])) is refused
+// FLS: fls_s9a36zsrfqew
+// Logos: logosc rejects even the reference-typed parameter: "the type `[i32]` is unsized: it cannot be used by value. Wrap it in a reference..." (exit 1). Reproduced verbatim.
+// rustc: rustc accepts `&(i32, [i32])` as a well-formed type (exit 0, unused-function warning only). Reproduced verbatim.
+// fix hint: sema: DST tail for anonymous tuples (tuple structs already supported, B2).
+package tuple_unsized_tail_refused;
+fn foo(t: &(i32, [i32])) -> i32 {
+    return t.0;
+}
+fn main() -> i32 {
+    return 0;
+}

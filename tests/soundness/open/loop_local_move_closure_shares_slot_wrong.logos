@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row loop_local_move_closure_shares_slot_wrong (tier 1, `run 0`). Rust-parity audit 2026-09-26 (critical): move closures built in a loop share one capture slot (all see the last value)
+// Logos: prints "a=10 b=10" (both closures return the final iteration's value)
+// rustc: prints "a=0 b=10" (each closure keeps its own captured value)
+// fix hint: compiler (closure env construction / mlir_gen): a `move` capture of a loop-local must copy the value into the closure env at construction, not reference the reused stack slot.
+package loop_local_move_closure_shares_slot_wrong;
+use logos.mem.boxed;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn main() -> i32 {
+    let mut a: Box<dyn Fn() -> i64> = Box::new(|| -> i64 { return -1i64; });
+    let mut b: Box<dyn Fn() -> i64> = Box::new(|| -> i64 { return -1i64; });
+    let mut i: i64 = 0;
+    while i < 2i64 {
+        let captured = i * 10i64;
+        let cl: Box<dyn Fn() -> i64> = Box::new(move || -> i64 { return captured; });
+        if i == 0i64 { a = cl; } else { b = cl; }
+        i += 1i64;
+    }
+    unsafe { printf("a=%lld b=%lld\n".as_ptr(), a(), b()); }
+    return 0;
+}

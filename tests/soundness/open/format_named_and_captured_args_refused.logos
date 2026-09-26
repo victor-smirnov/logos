@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row format_named_and_captured_args_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): format!/println! named arguments and inline captured identifiers ("{name}") are refused
+// Logos: error [fn main]: println!: format string has 1 placeholder but 0 arguments provided
+// rustc: compiles and runs, prints 'hi bob', exit 0
+// fix hint: compiler sema_fmt.cpp: the placeholder already records `named` ("-1 means use named lookup once that lands"); implement name=value args and fall back to a local of that name.
+package format_named_and_captured_args_refused;
+use logos.std.fmt;
+fn main() -> i32 {
+    let name: str = "bob";
+    println!("hi {name}");
+    return 0;
+}

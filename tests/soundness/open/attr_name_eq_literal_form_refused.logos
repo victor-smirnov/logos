@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row attr_name_eq_literal_form_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): #[name = "literal"] attributes (doc, export_name, link_section, crate_name, ...) do not parse
+// FLS: fls_tsdk8jyajcg fls_6riphqysh0gd fls_r3fwpuuaoeie fls_spwr6gf7kpds fls_g09jhukl0ez2 fls_d00wni4edi8f fls_5loqzajiz34m fls_cyxk12wuicml fls_o55cxc67sya7 fls_o9p8fa8zhe15 fls_dfnkzj8ob3uq fls_61vt1r8g51nh
+// Logos: logosc: 'error: syntax error near '#' at line 3 col 1' (same bare NAME=literal top-level attribute grammar gap as #[doc]); compilation aborts, exit=4.
+// rustc: rustc accepts export_name (edition 2024 requires the unsafe(...) wrapper — this is Rust 2024's own unsafe-attribute rule, dp fls in this same unit), compiles, exports symbol foo_c, runs and exits 7.
+// fix hint: grammar: the bare #[NAME = val] form accepts only enum-literal/int values; add string literals, then implement export_name/link_section/doc.
+package attr_name_eq_literal_form_refused;
+
+#[export_name = "foo_c"]
+fn foo() -> i32 {
+    return 7;
+}
+
+fn main() -> i32 {
+    return foo();
+}

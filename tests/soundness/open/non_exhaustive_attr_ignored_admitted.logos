@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row non_exhaustive_attr_ignored_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): #[non_exhaustive] is warned-unknown and has no effect
+// FLS: fls_9tmvuqrmk3ug fls_szvrd79cgzsg fls_1of56vl2ewq0 fls_hkyzdmmdyoin fls_oqfrg9tqgaj8 fls_aql3c89840ix fls_cez7yxfc376c fls_p1ugiol1e5v5 fls_7xh2iphiteam
+// Logos: Compiles with only a generic warning: "warning []: unknown attribute '#[non_exhaustive]' — not a builtin, not a registered metaprog-handler trigger, and not an `#[annotation]` datatype." The attribute has zero effect: construction
+// rustc: rustc recognises #[non_exhaustive] as a built-in attribute; the same single-crate program compiles cleanly (exit 0) since the cross-crate restriction is not triggered within one crate, but the attribute is a recognised built-in (u
+// fix hint: sema: recognise the attribute; cross-module struct-literal ban and wildcard-required matches.
+package non_exhaustive_attr_ignored_admitted;
+
+#[non_exhaustive]
+pub struct S {
+    pub x: i32,
+}
+
+fn main() -> i32 {
+    let s = S { x: 1 };
+    return s.x;
+}

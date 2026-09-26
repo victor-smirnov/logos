@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row extern_system_unwind_abi_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): extern "system-unwind" ABI string is refused
+// FLS: fls_NQAzj5ai1La5
+// Logos: error: unsupported ABI string "system-unwind" — expected one of "C", "C-unwind", "system", "Rust" (exit 1); confirmed in docs/spec/divergences.md's own A7 entry for item.extern.abi-whitelist, which documents "C-unwind" as accepted
+// rustc: compiles (exit 0, one dead_code warning).
+// fix hint: sema item.extern.abi-whitelist: accept "system-unwind" as "system" (like "C-unwind", moot under A7 abort).
+package extern_system_unwind_abi_refused;
+extern "system-unwind" {
+    fn foo() -> i32;
+}
+fn main() -> i32 { return 0; }

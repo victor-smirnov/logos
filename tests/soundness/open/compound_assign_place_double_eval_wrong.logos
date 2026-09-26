@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row compound_assign_place_double_eval_wrong (tier 1, `run 0`). Rust-parity audit 2026-09-26 (critical): Compound assignment evaluates a side-effecting place expression twice
+// FLS: fls_eesn9kuylim fls_4nnqz4etisgw fls_a2g4hs15jpiu fls_kuet16jp6ps9 fls_ngimpabunzis
+// Logos: arr=25 20 30 40 counter=2, exit 0 — index side effect fires twice; wrong value written to wrong slot; counter incremented twice
+// rustc: arr=[15, 20, 30, 40] counter=1 — place evaluated exactly once
+// fix hint: mlir_gen assignment lowering: evaluate the place address once for `place op= value`.
+package compound_assign_place_double_eval_wrong;
+extern fn printf(fmt: *const u8, ...) -> i32;
+static mut counter: i32 = 0i32;
+fn next_idx() -> i32 { unsafe { let v = counter; counter = counter + 1i32; return v; } }
+unsafe fn main() -> i32 {
+    let mut arr: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    arr[next_idx() as usize] += 5i32;
+    printf("arr=%d %d %d %d counter=%d\n".as_ptr(), arr[0], arr[1], arr[2], arr[3], counter);
+    return 0i32;
+}

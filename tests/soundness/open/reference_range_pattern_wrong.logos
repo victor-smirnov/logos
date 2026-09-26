@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row reference_range_pattern_wrong (tier 1, `run 2`). Rust-parity audit 2026-09-26 (critical): Range pattern under a reference pattern (&(lo..=hi)) never matches
+// FLS: fls_kvqzmt7my5dh fls_mrjhpiq5refe fls_pe5kh8y8u664 fls_2dmeukyjqz9y
+// Logos: compiles and runs, exits 2 (falls to wildcard even though 3 is in [1,5]). Also reproduced the for-loop-over-&array variant independently: `for x in &[1,3,10] { match x { &(1..=5) => total+=1, _=>{} } }` yields total=0 (expected 2,
+// rustc: compiles, exits 1 (matches, as expected).
+// fix hint: sema/mlir_gen pattern lowering: deref the scrutinee before the range test inside a & pattern.
+package reference_range_pattern_wrong;
+
+fn main() -> i32 {
+    let x: i32 = 3;
+    let ref_x = &x;
+    match ref_x {
+        &(1 ..= 5) => 1,
+        _ => 2,
+    }
+}

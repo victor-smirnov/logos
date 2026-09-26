@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row map_named_fn_item_collect_crash (tier 1, `refuses`). Rust-parity audit 2026-09-26 (critical): .map(named_fn).collect() crashes MLIR generation
+// Logos: error: 'func.call' op '...Vec__from_iter__...MapIter$G4$...fn ITEM<p34c$square__f__i64>(i64) -> i64' does not reference a valid function; mlir_gen: module verification failed; logosc: MLIR generation failed
+// rustc: exit 0
+// fix hint: mono/mlir_gen: a fn ITEM type used as a generic closure argument is not given a callable symbol in the instantiated from_iter; a closure literal works.
+package map_named_fn_item_collect_crash;
+use logos.mem.collections.vec;
+fn square(x: i64) -> i64 { return x * x; }
+fn main() -> i32 {
+    let v: Vec<i64> = vec![1i64, 2i64, 3i64];
+    let r: Vec<i64> = v.into_iter().map(square).collect();
+    return r.len() as i32;
+}

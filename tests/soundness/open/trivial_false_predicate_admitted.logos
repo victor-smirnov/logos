@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row trivial_false_predicate_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): A where-clause predicate that does not hold and names no generic param is accepted
+// FLS: fls_1xgw1dq60quz fls_47s8i7pzb9gg
+// Logos: Compiles successfully: `logosc: wrote f.o`, rc=0; `f` is never called and no diagnostic is produced.
+// rustc: rustc E0277 at the definition of `f` ("the trait bound `i32: Trait` is not satisfied"), emitted regardless of whether `f` is ever called; rc=1.
+// fix hint: sema: check trivially-false predicates at the definition.
+package trivial_false_predicate_admitted;
+
+trait Trait {
+    fn m(&self) -> i32;
+}
+
+fn f() -> i32 where i32: Trait {
+    0
+}
+
+fn main() -> i32 {
+    0
+}

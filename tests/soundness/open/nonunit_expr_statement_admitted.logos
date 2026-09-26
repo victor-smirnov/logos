@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row nonunit_expr_statement_admitted (tier 2, `admits`). Rust-parity audit 2026-09-26 (high): A non-unit expression statement without `;` is accepted and acts as an early return
+// FLS: fls_gzzmudc1hl6s
+// Logos: Compiles cleanly (no error). But actual runtime behavior is WORSE than the original report claimed: the program does NOT execute the following `return 0;` normally. Instead Logos treats the non-final, non-unit expression-statement
+// rustc: rustc rejects both the if/else and the minimized `5 return 0;` variants with error[E0308]: mismatched types (expected `()`, found integer), for each non-unit branch/expression.
+// fix hint: sema block typing: a non-final expression statement without `;` must have type () (E0308); mlir_gen currently treats its value as the block result and skips the rest.
+package nonunit_expr_statement_admitted;
+
+fn main() -> i32 {
+    if true {
+        1
+    } else {
+        2
+    }
+    return 0;
+}

@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row let_else_nondiverging_else_admitted (tier 2, `admits`). Rust-parity audit 2026-09-26 (high): A let-else whose else block does not diverge is accepted and supplies the value
+// FLS: fls_1eBQDZdBuDsN
+// Logos: Compiles cleanly, links, and runs. When maybe() returns None (the else branch executes), the program exits with code 1: the non-diverging else-block's tail value `1` is silently bound to `value` and returned as the exit code, even
+// rustc: rustc rejects with error[E0308]: `else` clause of `let...else` does not diverge -- expected type `!`, found `{integer}`.
+// fix hint: sema: the else block must have type ! (E0308).
+package let_else_nondiverging_else_admitted;
+
+fn maybe() -> Option<i32> {
+    return Option::None;
+}
+
+fn main() -> i32 {
+    let Some(value) = maybe() else {
+        1
+    };
+    return value;
+}

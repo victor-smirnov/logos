@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row break_through_closure_admitted (tier 2, `admits`). Rust-parity audit 2026-09-26 (high): break / break 'label inside a closure is accepted and silently does nothing
+// FLS: fls_ep5smja1rxdv fls_7hc8yboeaho0
+// Logos: Compiles and links; running returns exit code 5 (the loop ran to completion, all 5 iterations) — the `break 'outer` written and executed inside the closure body has NO EFFECT on the outer loop: it is silently accepted syntacticall
+// rustc: rustc 1.98.1 rejects with error[E0767]: use of unreachable label `'outer` ('labels are unreachable through functions, closures, async blocks and modules') plus error[E0267]: `break` inside of a closure.
+// fix hint: sema: reset the loop/label context at closure and item boundaries (E0267 / E0767).
+package break_through_closure_admitted;
+fn main() -> i32 {
+    let mut count: i32 = 0;
+    'outer: for i in 0..5 {
+        let f = || {
+            break 'outer;
+        };
+        f();
+        count = count + 1;
+    }
+    return count;
+}

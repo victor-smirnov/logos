@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row generic_bound_assoc_fn_prefers_inherent_wrong (tier 1, `run 100`). Rust-parity audit 2026-09-26 (critical): T::f() in a generic bound by a trait dispatches to the concrete type's same-named inherent fn
+// FLS: fls_v1h4frnbqruu fls_utfpnwlo0v99 fls_o1g0forw6xw fls_qeym3vbi36iv fls_qbmp0blpoxx9
+// Logos: Compiles and links cleanly (no diagnostic); running the binary exits with code 100 (the inherent W::zero), i.e. T::zero() inside the generic function silently dispatches to W's inherent method instead of the HasZero trait method a
+// rustc: rustc 1.98.1 --edition 2024 compiles with only a dead-code warning on the unused inherent zero; the binary exits with code 200 (the HasZero trait method), because a generic type parameter's associated-item path resolves purely thr
+// fix hint: mono (static-call dispatch after substitution): a T::f path resolved through a trait bound must bind to the trait impl, not an inherent method of the substituted type.
+package generic_bound_assoc_fn_prefers_inherent_wrong;
+
+trait HasZero { fn zero() -> i64; }
+struct W { v: i64 }
+impl W {
+    fn zero() -> i64 { 100 }
+}
+impl HasZero for W {
+    fn zero() -> i64 { 200 }
+}
+
+fn generic_zero<T: HasZero>() -> i64 { T::zero() }
+
+fn main() -> i32 {
+    let via_bound = generic_zero::<W>();
+    return via_bound as i32;
+}

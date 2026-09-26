@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row range_pattern_const_bound_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): A named constant as a range-pattern bound (LO..=HI) does not parse
+// FLS: fls_5ey5mj8t8knd fls_z4js96mchcsv
+// Logos: syntax error: "syntax error near 'LO' at line 7 col 9"; logosc exits 4 ("no modules loaded")
+// rustc: compiles cleanly, runs, exit code 0
+// fix hint: grammar: path expressions as range-pattern bounds.
+package range_pattern_const_bound_refused;
+const LO: i32 = 1;
+const HI: i32 = 10;
+fn main() -> i32 {
+    let x: i32 = 5;
+    match x {
+        LO ..= HI => 0,
+        _ => 1,
+    }
+}

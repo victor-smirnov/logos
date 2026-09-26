@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row question_op_box_dyn_error_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): `?` does not convert a concrete error into Box<dyn Error>
+// Logos: error [fn outer]: '?' operator: inner error type 'MyError' does not implement `From` for outer error type '&dyn Error' — add `impl From<MyError> for &dyn Error` or use `.map_err(...)?`. (diagnostic misreports the target type as '&
+// rustc: compiles and runs, exit 0
+// fix hint: stdlib: blanket impl<E: Error> From<E> for Box<dyn Error>; the diagnostic also misnames the target as &dyn Error.
+package question_op_box_dyn_error_refused; use logos.lang.result; use logos.lang.error; use logos.lang.option; use logos.mem.boxed; use logos.std.fmt; use logos.mem.string;
+struct MyError { code: i32 }
+impl Display for MyError { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return write!(f, "myerr"); } }
+impl Error for MyError { fn source(&self) -> Option<&dyn Error> { return Option::<&dyn Error>::None; } }
+fn inner(x: i32) -> Result<i32, MyError> { if x < 0i32 { return Result::<i32, MyError>::Err(MyError{code: x}); } return Result::<i32, MyError>::Ok(x); }
+fn outer(x: i32) -> Result<i32, Box<dyn Error>> { let v: i32 = inner(x)?; return Result::<i32, Box<dyn Error>>::Ok(v); }
+fn main() -> i32 { match outer(-5i32) { Result::Ok(_) => 1, Result::Err(_) => 0 } }

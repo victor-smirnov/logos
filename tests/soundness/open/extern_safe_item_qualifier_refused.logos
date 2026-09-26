@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row extern_safe_item_qualifier_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): `safe fn` / `safe static` inside `unsafe extern` are refused
+// FLS: fls_nUADhgcfvvGC fls_g0JEluWqBpNc fls_l88r9fj82650 fls_fo9with6xumo
+// Logos: syntax error near 'unsafe' at line 2 col 1 (logosc exit 4). Grammar comment at tools/peg_gen_cpp/grammars/logos.peg:1526-1528 confirms `safe fn`/`safe static` item-level refinements are explicitly unimplemented ('a follow-up'). Co
+// rustc: Compiles and links successfully (rustc --edition 2024, exit 0); `abs` is callable without an enclosing `unsafe` block because it is declared `safe fn` inside the `unsafe extern` block, per the Rust 2024 edition rule.
+// fix hint: grammar (logos.peg TODO "safe fn/safe static are a follow-up") + sema: callable without unsafe.
+package extern_safe_item_qualifier_refused;
+unsafe extern "C" {
+    safe fn abs(x: i32) -> i32;
+}
+fn main() -> i32 { return abs(-3) - 3; }

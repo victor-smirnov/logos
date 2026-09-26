@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row for_while_as_expression_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): for / while loops are not accepted in expression position
+// FLS: fls_bmTjhKdpfgCB fls_P8iyTN6KZCVA
+// Logos: Reproduced verbatim: syntax error near '=' at line 3 col 11, compile exit 4.
+// rustc: Reproduced verbatim: rustc compiles cleanly (with an unused-variable warning), exit code 0.
+// fix hint: grammar: for/while as unit-typed expressions.
+package for_while_as_expression_refused;
+fn main() -> i32 {
+    let x = for i in 0..5 {
+    };
+    return 0;
+}

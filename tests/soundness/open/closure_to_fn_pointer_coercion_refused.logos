@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row closure_to_fn_pointer_coercion_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): A non-capturing closure does not coerce to a fn pointer
+// FLS: fls_3jeootwe6ucu fls_2uv1r0gni1fk fls_92pwnd1xbp5r
+// Logos: logosc rejects: "call to 'apply' arg 1: expected fn(i32) -> i32, got |i32| -> i32 {Fn closure#...}" (exit 1). Reproduced verbatim.
+// rustc: rustc accepts; program exits 42. Reproduced verbatim.
+// fix hint: sema coercion: non-capturing closure -> fn pointer at coercion sites and LUB.
+package closure_to_fn_pointer_coercion_refused;
+fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
+    return f(x);
+}
+fn main() -> i32 {
+    let add_one = |x: i32| -> i32 { x + 1 };
+    return apply(add_one, 41);
+}

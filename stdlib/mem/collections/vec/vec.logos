@@ -608,3 +608,258 @@ pub fn iter_partition_vec<I: Iterator<T>, T>(
 // Cross-package skip-codegen probe: pre-instantiate Vec<i32> in this package.
 // Downstream users of Vec<i32> link against these symbols and skip body emission.
 pub instantiate Vec<i32>;
+
+// ── Rust's Vec surface beyond push/pop (sorting, retain, dedup, insert, …) ────
+// Raw-slot reads/writes below MOVE bitwise (as `swap` does): a slot read out is
+// owned by the reader, a slot written is initialised without dropping.
+
+/// Creates an empty `Vec<T>` with room for at least `n` elements.
+pub fn vec_with_capacity<T>(n: i64) -> Vec<T> {
+    let cap: i64 = if n < 1 { 1 } else { n };
+    let raw: *mut u8 = alloc(cap * sizeof::<T>());
+    return Vec { ptr: raw as *mut T, len: 0, cap: cap };
+}
+
+impl<T> Vec<T> {
+    /// Creates an empty vector with room for at least `n` elements (Rust's `Vec::with_capacity`).
+    pub fn with_capacity(n: i64) -> Vec<T> { return vec_with_capacity::<T>(n); }
+
+    /// The number of elements the buffer holds without reallocating.
+    pub fn capacity(&self) -> i64 { return self.cap; }
+
+    /// Grows the buffer to hold at least `self.len + extra` elements.
+    pub fn reserve(&mut self, extra: i64) {
+        unsafe {
+            let need: i64 = self.len + extra;
+            if need <= self.cap { return; }
+            let mut c: i64 = self.cap;
+            while c < need { c = c * 2; }
+            let raw: *mut u8 = realloc_buf(self.ptr as *mut u8, c * sizeof::<T>());
+            self.ptr = raw as *mut T;
+            self.cap = c;
+        }
+    }
+
+    /// Inserts `val` at `index`, shifting later elements right. Panics if `index > len`.
+    pub fn insert(&mut self, index: i64, val: T) {
+        if index < 0 || index > self.len { panic("Vec::insert: index out of bounds"); }
+        self.reserve(1);
+        unsafe {
+            let p: *mut T = self.ptr;
+            let mut j: i64 = self.len;
+            while j > index { p[j] = p[j - 1]; j = j - 1; }
+            p[index] = val;
+            self.len = self.len + 1;
+        }
+    }
+
+    /// Removes the element at `index` and returns it, moving the last element into its
+    /// place (O(1); order is not preserved). Panics if out of bounds.
+    pub fn swap_remove(&mut self, index: i64) -> T {
+        if index < 0 || index >= self.len { panic("Vec::swap_remove: index out of bounds"); }
+        unsafe {
+            let p: *mut T = self.ptr;
+            let v: T = p[index];
+            self.len = self.len - 1;
+            if index != self.len { p[index] = p[self.len]; }
+            return v;
+        }
+    }
+
+    /// Shortens the vector to `n` elements, dropping the rest. No effect if `n >= len`.
+    pub fn truncate(&mut self, n: i64) {
+        unsafe {
+            let p: *mut T = self.ptr;
+            while self.len > n && self.len > 0 {
+                self.len = self.len - 1;
+                let _x: T = p[self.len];   // dropped at the end of this iteration
+            }
+        }
+    }
+
+    /// Moves every element of `other` to the end of `self`, leaving `other` empty.
+    pub fn append(&mut self, other: &mut Vec<T>) {
+        self.reserve(other.len);
+        unsafe {
+            let p: *mut T = self.ptr;
+            let q: *mut T = other.ptr;
+            let mut i: i64 = 0;
+            while i < other.len { p[self.len + i] = q[i]; i = i + 1; }
+            self.len = self.len + other.len;
+            other.len = 0;
+        }
+    }
+
+    /// Splits off the elements `[at, len)` into a new vector. Panics if `at > len`.
+    pub fn split_off(&mut self, at: i64) -> Vec<T> {
+        if at < 0 || at > self.len { panic("Vec::split_off: index out of bounds"); }
+        let mut out: Vec<T> = vec_with_capacity::<T>(self.len - at);
+        unsafe {
+            let p: *mut T = self.ptr;
+            let q: *mut T = out.ptr;
+            let mut i: i64 = at;
+            while i < self.len { q[i - at] = p[i]; i = i + 1; }
+            out.len = self.len - at;
+            self.len = at;
+        }
+        return out;
+    }
+
+    /// Keeps only the elements for which `keep` returns `true`, in order; the rest are dropped.
+    pub fn retain<F: FnMut(&T) -> bool>(&mut self, mut keep: F) {
+        unsafe {
+            let p: *mut T = self.ptr;
+            let n: i64 = self.len;
+            let mut w: i64 = 0;
+            let mut i: i64 = 0;
+            while i < n {
+                if keep(&p[i]) {
+                    if w != i { p[w] = p[i]; }
+                    w = w + 1;
+                } else {
+                    let _x: T = p[i];      // dropped here
+                }
+                i = i + 1;
+            }
+            self.len = w;
+        }
+    }
+
+    /// Stable sort by the comparator `cmp` (Rust's `sort_by`; a merge sort, O(n log n)).
+    pub fn sort_by<F: FnMut(&T, &T) -> Ordering>(&mut self, mut cmp: F) {
+        let n: i64 = self.len;
+        if n < 2 { return; }
+        unsafe {
+            let a: *mut T = self.ptr;
+            let tmp: *mut T = alloc(n * sizeof::<T>()) as *mut T;
+            let mut src: *mut T = a;
+            let mut dst: *mut T = tmp;
+            let mut width: i64 = 1;
+            while width < n {
+                let mut lo: i64 = 0;
+                while lo < n {
+                    let mid: i64 = if lo + width < n { lo + width } else { n };
+                    let hi: i64 = if lo + 2 * width < n { lo + 2 * width } else { n };
+                    let mut i: i64 = lo;
+                    let mut j: i64 = mid;
+                    let mut k: i64 = lo;
+                    while i < mid && j < hi {
+                        let right_first: bool = match cmp(&src[j], &src[i]) { Ordering::Less => true, _ => false };
+                        if right_first { dst[k] = src[j]; j = j + 1; } else { dst[k] = src[i]; i = i + 1; }
+                        k = k + 1;
+                    }
+                    while i < mid { dst[k] = src[i]; i = i + 1; k = k + 1; }
+                    while j < hi { dst[k] = src[j]; j = j + 1; k = k + 1; }
+                    lo = hi;
+                }
+                let t: *mut T = src; src = dst; dst = t;
+                width = width * 2;
+            }
+            if src != a {
+                let mut m: i64 = 0;
+                while m < n { a[m] = src[m]; m = m + 1; }
+            }
+            dealloc(tmp as *mut u8);
+        }
+    }
+
+    /// Stable sort by a key (Rust's `sort_by_key`).
+    pub fn sort_by_key<K: Ord, F: FnMut(&T) -> K>(&mut self, mut key: F) {
+        let n: i64 = self.len;
+        if n < 2 { return; }
+        unsafe {
+            let a: *mut T = self.ptr;
+            let tmp: *mut T = alloc(n * sizeof::<T>()) as *mut T;
+            let mut src: *mut T = a;
+            let mut dst: *mut T = tmp;
+            let mut width: i64 = 1;
+            while width < n {
+                let mut lo: i64 = 0;
+                while lo < n {
+                    let mid: i64 = if lo + width < n { lo + width } else { n };
+                    let hi: i64 = if lo + 2 * width < n { lo + 2 * width } else { n };
+                    let mut i: i64 = lo;
+                    let mut j: i64 = mid;
+                    let mut k: i64 = lo;
+                    while i < mid && j < hi {
+                        let kj: K = key(&src[j]);
+                        let ki: K = key(&src[i]);
+                        let right_first: bool = match kj.cmp(&ki) { Ordering::Less => true, _ => false };
+                        if right_first { dst[k] = src[j]; j = j + 1; } else { dst[k] = src[i]; i = i + 1; }
+                        k = k + 1;
+                    }
+                    while i < mid { dst[k] = src[i]; i = i + 1; k = k + 1; }
+                    while j < hi { dst[k] = src[j]; j = j + 1; k = k + 1; }
+                    lo = hi;
+                }
+                let t: *mut T = src; src = dst; dst = t;
+                width = width * 2;
+            }
+            if src != a {
+                let mut m: i64 = 0;
+                while m < n { a[m] = src[m]; m = m + 1; }
+            }
+            dealloc(tmp as *mut u8);
+        }
+    }
+}
+
+impl<T: Ord> Vec<T> {
+    /// Stable ascending sort (Rust's `sort`).
+    pub fn sort(&mut self) { self.sort_by(|a: &T, b: &T| -> Ordering { return a.cmp(b); }); }
+    /// Ascending sort (Rust's `sort_unstable`; this one is stable, which is allowed).
+    pub fn sort_unstable(&mut self) { self.sort(); }
+    /// Binary search in a sorted vector: `Ok(index)` of a match, else `Err(insertion point)`.
+    pub fn binary_search(&self, x: &T) -> Result<i64, i64> {
+        let mut lo: i64 = 0;
+        let mut hi: i64 = self.len;
+        unsafe {
+            let p: *mut T = self.ptr;
+            while lo < hi {
+                let mid: i64 = lo + (hi - lo) / 2;
+                match p[mid].cmp(x) {
+                    Ordering::Less => { lo = mid + 1; }
+                    Ordering::Greater => { hi = mid; }
+                    Ordering::Equal => { return Result::Ok(mid); }
+                }
+            }
+        }
+        return Result::Err(lo);
+    }
+}
+
+impl<T: Eq> Vec<T> {
+    /// Removes consecutive repeated elements, keeping the first of each run (Rust's `dedup`).
+    pub fn dedup(&mut self) {
+        unsafe {
+            let p: *mut T = self.ptr;
+            let n: i64 = self.len;
+            if n < 2 { return; }
+            let mut w: i64 = 1;
+            let mut i: i64 = 1;
+            while i < n {
+                if p[i].eq(&p[w - 1]) {
+                    let _x: T = p[i];      // dropped here
+                } else {
+                    if w != i { p[w] = p[i]; }
+                    w = w + 1;
+                }
+                i = i + 1;
+            }
+            self.len = w;
+        }
+    }
+}
+
+impl<T: Clone> Vec<T> {
+    /// Appends a clone of every element of `s` (Rust's `extend_from_slice`).
+    pub fn extend_from_slice(&mut self, s: &[T]) {
+        let mut i: i64 = 0;
+        while i < s.len() { self.push(s[i].clone()); i = i + 1; }
+    }
+    /// Resizes to `n`: truncates, or appends clones of `val` (Rust's `resize`).
+    pub fn resize(&mut self, n: i64, val: T) {
+        if n <= self.len { self.truncate(n); return; }
+        while self.len < n { self.push(val.clone()); }
+    }
+}

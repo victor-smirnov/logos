@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row iterator_enumerate_tuple_item_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): enumerate() yields a named struct, so for (i, x) / |(i, x)| destructuring is refused
+// Logos: f1.logos:8: error [fn main]: tuple pattern requires tuple scrutinee, got EnumPair<&i32>; :9/:10 cascading 'undefined variable' errors — compile fails. Field-access workaround (f1b.logos) compiles cleanly (rc=0).
+// rustc: compiles and runs, exit 0
+// fix hint: stdlib iter.logos: Enumerate::Item must be the tuple (i64, T), not EnumPair{idx,val}.
+package iterator_enumerate_tuple_item_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(7i32); v.push(8i32); v.push(9i32);
+    let mut idx_sum: i64 = 0i64;
+    let mut val_sum: i32 = 0i32;
+    for (i, x) in v.iter().enumerate() {
+        idx_sum += i;
+        val_sum += *x;
+    }
+    if idx_sum != 3i64 { return 1i32; }
+    if val_sum != 24i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row let_ref_mut_binding_crash (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): `let ref mut a = expr;` fails in mlir_gen (binding never emitted)
+// FLS: fls_965wt48ooqyw fls_kflqez2mtbit fls_xjw82bujm148
+// Logos: logosc fails at MLIR generation: 'mlir_gen: warning: undefined 'a' in fn 'main' — no value emitted for this reference', then 'mlir_gen: internal: value-typed expression statement lowered to no value and did not terminate — its eff
+// rustc: rustc --edition 2024 compiles cleanly; running the binary prints 'mid a=42', 'drop 42', 'after block', exit 0 — confirmed by direct re-run in a fresh mktemp dir.
+// fix hint: sema/mlir_gen: ref mut binding in let with temporary lifetime extension.
+package let_ref_mut_binding_crash;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { name: i64 }
+impl Drop for D {
+    fn drop(self: &mut D) {
+        unsafe { printf("drop %ld\n".as_ptr(), self.name); }
+    }
+}
+fn mk(n: i64) -> D { return D{name:n}; }
+fn main() -> i32 {
+    {
+        let ref mut a = mk(42i64);
+        unsafe { printf("mid a=%ld\n".as_ptr(), a.name); }
+    }
+    unsafe { printf("after block\n".as_ptr()); }
+    return 0i32;
+}

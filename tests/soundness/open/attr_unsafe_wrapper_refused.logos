@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row attr_unsafe_wrapper_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): #[unsafe(no_mangle)] / #[unsafe(export_name = ...)] cannot be written
+// FLS: fls_z5DTDKM9mU3o fls_5pjo3nGOxbVw fls_gpxlWbQUNsj8 fls_PhrfxSBvXTPV fls_pCSew95bKJJ5 fls_NRLgmOXxuljQ fls_ykpxNByUDyHG fls_2oP2nbDPtUg7
+// Logos: error [.../f2.logos]: syntax error near '#' at line 3 col 1; logosc: no modules loaded (exit 4). `unsafe` is a reserved keyword so `#[unsafe(...)]` cannot be spelled at all. Separately confirmed the plain `#[no_mangle]` (no wrappe
+// rustc: rustc 1.98.1 --edition 2024 accepts `#[unsafe(no_mangle)]` and compiles/links/runs (exit 0). Separately confirmed the bare `#[no_mangle]` (no wrapper) is now a HARD ERROR in edition 2024: `error: unsafe attribute used without unsa
+// fix hint: grammar: accept the unsafe(...) attribute wrapper (Rust 2024 requires it on no_mangle/export_name/link_section).
+package attr_unsafe_wrapper_refused;
+
+#[unsafe(no_mangle)]
+pub fn clear_name() -> i32 {
+    7
+}
+
+fn main() -> i32 {
+    clear_name() - 7
+}

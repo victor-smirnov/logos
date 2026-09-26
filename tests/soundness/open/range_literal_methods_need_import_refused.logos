@@ -1,0 +1,9 @@
+// SOUNDNESS QUEUE row range_literal_methods_need_import_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Methods on a range literal ((0..5).sum(), .rev(), .contains) need an explicit import, and the hint names a wrong path
+// Logos: error [fn main]: range expression: stdlib `RangeI32` not in scope (missing `use std.lang.range`)
+// rustc: compiles and runs, exit=0 (no import needed)
+// fix hint: prelude: make logos.lang.range implicitly visible for range literals; fix the diagnostic, which says `use std.lang.range` (a path that does not exist) instead of logos.lang.range.
+package range_literal_methods_need_import_refused;
+fn main() -> i32 {
+    let s: i32 = (0..5).sum();
+    return if s == 10 { 0 } else { 1 };
+}

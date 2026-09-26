@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row slice_split_at_mut_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): split_at / split_at_mut are not methods; split_at_mut does not exist at all
+// Logos: error [fn main]: slice has no method 'split_at_mut' (cascades: tuple pattern requires tuple scrutinee, got <error>; undefined variable 'left'; undefined variable 'right')
+// rustc: exit=0 (compiles and runs fine)
+// fix hint: stdlib slice.logos: split_at(&self, mid) -> (&[T], &[T]) and split_at_mut(&mut self, mid) -> (&mut [T], &mut [T]) as methods on [T] (reachable from Vec); only an unsafe SplitPair free fn exists.
+package slice_split_at_mut_refused;
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(1i64); v.push(2i64); v.push(3i64); v.push(4i64);
+    let s: &mut [i64] = v.as_mut_slice();
+    let (left, right) = s.split_at_mut(2i64);
+    left[0] = 10i64;
+    right[0] = 30i64;
+    return (v.get(0i64) + v.get(2i64)) as i32 - 40i32;
+}

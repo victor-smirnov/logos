@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row numeric_literal_underscore_placement_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): Digit separators before a suffix / exponent or repeated (1___2, 0b1_u8, 8.4_e-12) are refused
+// FLS: fls_2ed4axpsy9u0 fls_29tlg1vyqay2
+// Logos: error: malformed integer literal '0b0010_1110_u8'; error: malformed integer literal '1___2_3'
+// rustc: compiles, prints 0 (46+123-169)
+// fix hint: lexer: accept `_` anywhere after the first digit, including before a suffix or exponent.
+package numeric_literal_underscore_placement_refused;
+fn main() -> i32 {
+    let a: u8 = 0b0010_1110_u8 as u8;
+    let b = 1___2_3;
+    return (a as i32) + b - 169;
+}

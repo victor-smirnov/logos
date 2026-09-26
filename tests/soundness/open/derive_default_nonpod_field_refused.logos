@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row derive_default_nonpod_field_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): #[derive_default] fails on a struct with a String/Vec field
+// Logos: error [fn MaybeUninit$G1$Holder__zeroed]: cannot move out of '*_t10', which is behind a raw pointer. Reproduced exactly.
+// rustc: compiles and runs, exit 0
+// fix hint: metaprog derive_default handler: emit per-field Default::default() instead of MaybeUninit::zeroed; needs default_impls_for_std_types_refused.
+package derive_default_nonpod_field_refused;
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+#[derive_default]
+struct Holder { s: String, n: i32 }
+
+fn main() -> i32 {
+    let h = Holder::default();
+    if h.s.len() != (0 as i64) { return 1; }
+    return 0;
+}

@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row impl_trait_in_let_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): impl Trait accepted as a let binding type
+// FLS: fls_ieyqx5vzas2m
+// Logos: logosc: wrote g3.o (exit 0) - impl Trait accepted as a let binding's type ascription with no diagnostic.
+// rustc: error[E0562]: `impl Trait` is not allowed in the type of variable bindings (exit 1).
+// fix hint: sema: E0562 outside fn params/returns.
+package impl_trait_in_let_admitted;
+fn main() -> i32 {
+    let x: impl Copy = 5i32;
+    return x;
+}

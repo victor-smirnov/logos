@@ -191,5 +191,294 @@ partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneo
 
 let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_literal_width_from_later_use_refused refuses
 
-# TOTAL 8
-# SYNC-HASH 60879571dd9262ffd3637e1103741c22
+# ── 2026-09-26 RUST-PARITY AUDIT (behaviour audit, 14 areas + FLS 1.98 paragraph-by-paragraph comparison, 58 units) ──
+and_or_same_precedence_wrong 1 tests/soundness/open/and_or_same_precedence_wrong run 0
+
+assert_with_message_crash 1 tests/soundness/open/assert_with_message_crash refuses
+
+collect_into_map_set_string_refused 1 tests/soundness/open/collect_into_map_set_string_refused refuses
+
+compound_assign_place_double_eval_wrong 1 tests/soundness/open/compound_assign_place_double_eval_wrong run 0
+
+derive_clone_nonprimitive_field_refused 1 tests/soundness/open/derive_clone_nonprimitive_field_refused refuses
+
+destructuring_assign_drop_wrong 1 tests/soundness/open/destructuring_assign_drop_wrong run 0
+
+enum_type_param_variance_admitted 1 tests/soundness/open/enum_type_param_variance_admitted admits
+
+generic_bound_assoc_fn_prefers_inherent_wrong 1 tests/soundness/open/generic_bound_assoc_fn_prefers_inherent_wrong run 100
+
+iter_filter_capturing_closure_refused 1 tests/soundness/open/iter_filter_capturing_closure_refused refuses
+
+let_binding_named_like_const_admitted 1 tests/soundness/open/let_binding_named_like_const_admitted admits
+
+loop_local_move_closure_shares_slot_wrong 1 tests/soundness/open/loop_local_move_closure_shares_slot_wrong run 0
+
+main_unit_return_garbage_exit_wrong 1 tests/soundness/open/main_unit_return_garbage_exit_wrong run 48
+
+map_named_fn_item_collect_crash 1 tests/soundness/open/map_named_fn_item_collect_crash refuses
+
+overlapping_trait_impls_admitted 1 tests/soundness/open/overlapping_trait_impls_admitted admits
+
+reference_range_pattern_wrong 1 tests/soundness/open/reference_range_pattern_wrong run 2
+
+vec_literal_elem_type_ignores_call_site_wrong 1 tests/soundness/open/vec_literal_elem_type_ignores_call_site_wrong run 4
+
+array_nonconst_length_crash 2 tests/soundness/open/array_nonconst_length_crash refuses
+
+asref_asmut_traits_refused 2 tests/soundness/open/asref_asmut_traits_refused refuses
+
+basic_assignment_eval_order_wrong 2 tests/soundness/open/basic_assignment_eval_order_wrong run 0
+
+binaryheap_refused 2 tests/soundness/open/binaryheap_refused refuses
+
+break_through_closure_admitted 2 tests/soundness/open/break_through_closure_admitted admits
+
+closure_mixed_return_types_crash 2 tests/soundness/open/closure_mixed_return_types_crash refuses
+
+closure_move_capture_drop_delayed_wrong 2 tests/soundness/open/closure_move_capture_drop_delayed_wrong run 1
+
+closure_param_type_from_usage_refused 2 tests/soundness/open/closure_param_type_from_usage_refused refuses
+
+constant_promotion_refused 2 tests/soundness/open/constant_promotion_refused refuses
+
+custom_iterator_item_assoc_type_refused 2 tests/soundness/open/custom_iterator_item_assoc_type_refused refuses
+
+default_impls_for_std_types_refused 2 tests/soundness/open/default_impls_for_std_types_refused refuses
+
+derive_default_nonpod_field_refused 2 tests/soundness/open/derive_default_nonpod_field_refused refuses
+
+destructuring_assign_assignee_forms_refused 2 tests/soundness/open/destructuring_assign_assignee_forms_refused refuses
+
+file_line_streaming_refused 2 tests/soundness/open/file_line_streaming_refused refuses
+
+float_methods_refused 2 tests/soundness/open/float_methods_refused refuses
+
+format_named_and_captured_args_refused 2 tests/soundness/open/format_named_and_captured_args_refused refuses
+
+generic_index_output_refused 2 tests/soundness/open/generic_index_output_refused refuses
+
+generic_param_leaks_into_nested_item_admitted 2 tests/soundness/open/generic_param_leaks_into_nested_item_admitted admits
+
+generic_trait_multi_impl_dispatch_refused 2 tests/soundness/open/generic_trait_multi_impl_dispatch_refused refuses
+
+hashmap_entry_api_refused 2 tests/soundness/open/hashmap_entry_api_refused refuses
+
+impl_method_extra_bound_admitted 2 tests/soundness/open/impl_method_extra_bound_admitted admits
+
+iter_fold_accumulator_inference_refused 2 tests/soundness/open/iter_fold_accumulator_inference_refused refuses
+
+iterator_cloned_copied_methods_refused 2 tests/soundness/open/iterator_cloned_copied_methods_refused refuses
+
+iterator_enumerate_tuple_item_refused 2 tests/soundness/open/iterator_enumerate_tuple_item_refused refuses
+
+iterator_flat_map_flatten_methods_refused 2 tests/soundness/open/iterator_flat_map_flatten_methods_refused refuses
+
+iterator_partition_unzip_refused 2 tests/soundness/open/iterator_partition_unzip_refused refuses
+
+iterator_zip_method_refused 2 tests/soundness/open/iterator_zip_method_refused refuses
+
+let_else_nondiverging_else_admitted 2 tests/soundness/open/let_else_nondiverging_else_admitted admits
+
+match_guard_temp_drop_timing_wrong 2 tests/soundness/open/match_guard_temp_drop_timing_wrong run 0
+
+nonunit_expr_statement_admitted 2 tests/soundness/open/nonunit_expr_statement_admitted admits
+
+option_method_surface_refused 2 tests/soundness/open/option_method_surface_refused refuses
+
+orphan_rule_not_enforced_admitted 2 tests/soundness/open/orphan_rule_not_enforced_admitted admits
+
+question_op_box_dyn_error_refused 2 tests/soundness/open/question_op_box_dyn_error_refused refuses
+
+raw_pointer_matched_as_option_crash 2 tests/soundness/open/raw_pointer_matched_as_option_crash refuses
+
+rc_arc_assoc_fn_surface_refused 2 tests/soundness/open/rc_arc_assoc_fn_surface_refused refuses
+
+refcell_guard_no_deref_refused 2 tests/soundness/open/refcell_guard_no_deref_refused refuses
+
+sized_supertrait_blocks_impl_refused 2 tests/soundness/open/sized_supertrait_blocks_impl_refused refuses
+
+slice_split_at_mut_refused 2 tests/soundness/open/slice_split_at_mut_refused refuses
+
+str_find_not_option_refused 2 tests/soundness/open/str_find_not_option_refused refuses
+
+str_iterator_methods_refused 2 tests/soundness/open/str_iterator_methods_refused refuses
+
+str_method_family_refused 2 tests/soundness/open/str_method_family_refused refuses
+
+string_add_operator_refused 2 tests/soundness/open/string_add_operator_refused refuses
+
+string_pop_insert_remove_refused 2 tests/soundness/open/string_pop_insert_remove_refused refuses
+
+tryfrom_assoc_error_type_refused 2 tests/soundness/open/tryfrom_assoc_error_type_refused refuses
+
+unary_negation_overflow_not_trapped_wrong 2 tests/soundness/open/unary_negation_overflow_not_trapped_wrong run 0
+
+unsuffixed_int_literal_method_arg_refused 2 tests/soundness/open/unsuffixed_int_literal_method_arg_refused refuses
+
+vec_get_mut_refused 2 tests/soundness/open/vec_get_mut_refused refuses
+
+vec_growth_methods_refused 2 tests/soundness/open/vec_growth_methods_refused refuses
+
+array_methods_refused 3 tests/soundness/open/array_methods_refused refuses
+
+assoc_const_path_pattern_refused 3 tests/soundness/open/assoc_const_path_pattern_refused refuses
+
+assoc_const_trait_dyn_admitted 3 tests/soundness/open/assoc_const_trait_dyn_admitted admits
+
+assoc_type_bound_conformance_admitted 3 tests/soundness/open/assoc_type_bound_conformance_admitted admits
+
+assoc_type_bound_sugar_refused 3 tests/soundness/open/assoc_type_bound_sugar_refused refuses
+
+attr_name_eq_literal_form_refused 3 tests/soundness/open/attr_name_eq_literal_form_refused refuses
+
+attr_on_extern_block_item_refused 3 tests/soundness/open/attr_on_extern_block_item_refused refuses
+
+attr_unsafe_wrapper_refused 3 tests/soundness/open/attr_unsafe_wrapper_refused refuses
+
+break_value_in_for_while_admitted 3 tests/soundness/open/break_value_in_for_while_admitted admits
+
+btreeset_refused 3 tests/soundness/open/btreeset_refused refuses
+
+byte_char_literal_refused 3 tests/soundness/open/byte_char_literal_refused refuses
+
+c_string_literal_refused 3 tests/soundness/open/c_string_literal_refused refuses
+
+char_from_u32_from_digit_refused 3 tests/soundness/open/char_from_u32_from_digit_refused refuses
+
+closure_to_fn_pointer_coercion_refused 3 tests/soundness/open/closure_to_fn_pointer_coercion_refused refuses
+
+collections_owning_into_iter_refused 3 tests/soundness/open/collections_owning_into_iter_refused refuses
+
+const_generic_default_refused 3 tests/soundness/open/const_generic_default_refused refuses
+
+dyn_second_nonauto_trait_admitted 3 tests/soundness/open/dyn_second_nonauto_trait_admitted admits
+
+enum_discriminant_validation_admitted 3 tests/soundness/open/enum_discriminant_validation_admitted admits
+
+extern_fn_param_pattern_admitted 3 tests/soundness/open/extern_fn_param_pattern_admitted admits
+
+extern_safe_item_qualifier_refused 3 tests/soundness/open/extern_safe_item_qualifier_refused refuses
+
+gat_lifetime_projection_refused 3 tests/soundness/open/gat_lifetime_projection_refused refuses
+
+global_allocator_attr_ignored_admitted 3 tests/soundness/open/global_allocator_attr_ignored_admitted admits
+
+hashset_set_ops_refused 3 tests/soundness/open/hashset_set_ops_refused refuses
+
+i128_literal_above_u64_refused 3 tests/soundness/open/i128_literal_above_u64_refused refuses
+
+inline_asm_refused 3 tests/soundness/open/inline_asm_refused refuses
+
+inner_attr_in_item_body_refused 3 tests/soundness/open/inner_attr_in_item_body_refused refuses
+
+iter_adapters_spuriously_unsafe_refused 3 tests/soundness/open/iter_adapters_spuriously_unsafe_refused refuses
+
+labeled_block_expr_refused 3 tests/soundness/open/labeled_block_expr_refused refuses
+
+let_ref_mut_binding_crash 3 tests/soundness/open/let_ref_mut_binding_crash refuses
+
+let_single_variant_enum_refused 3 tests/soundness/open/let_single_variant_enum_refused refuses
+
+main_signature_unchecked_admitted 3 tests/soundness/open/main_signature_unchecked_admitted admits
+
+map_values_mut_refused 3 tests/soundness/open/map_values_mut_refused refuses
+
+match_guard_if_let_refused 3 tests/soundness/open/match_guard_if_let_refused refuses
+
+mem_size_of_refused 3 tests/soundness/open/mem_size_of_refused refuses
+
+mutex_rwlock_raii_guard_refused 3 tests/soundness/open/mutex_rwlock_raii_guard_refused refuses
+
+non_exhaustive_attr_ignored_admitted 3 tests/soundness/open/non_exhaustive_attr_ignored_admitted admits
+
+operator_bound_explicit_rhs_refused 3 tests/soundness/open/operator_bound_explicit_rhs_refused refuses
+
+partialeq_heterogeneous_refused 3 tests/soundness/open/partialeq_heterogeneous_refused refuses
+
+range_literal_methods_need_import_refused 3 tests/soundness/open/range_literal_methods_need_import_refused refuses
+
+range_not_generic_refused 3 tests/soundness/open/range_not_generic_refused refuses
+
+range_pattern_const_bound_refused 3 tests/soundness/open/range_pattern_const_bound_refused refuses
+
+raw_borrow_expr_refused 3 tests/soundness/open/raw_borrow_expr_refused refuses
+
+ref_shorthand_shadows_const_crash 3 tests/soundness/open/ref_shorthand_shadows_const_crash refuses
+
+slice_method_surface_refused 3 tests/soundness/open/slice_method_surface_refused refuses
+
+string_literal_newline_continuation_refused 3 tests/soundness/open/string_literal_newline_continuation_refused refuses
+
+target_feature_attr_ignored_admitted 3 tests/soundness/open/target_feature_attr_ignored_admitted admits
+
+union_functional_update_admitted 3 tests/soundness/open/union_functional_update_admitted admits
+
+assignment_as_expression_refused 4 tests/soundness/open/assignment_as_expression_refused refuses
+
+assoc_type_unsized_binding_admitted 4 tests/soundness/open/assoc_type_unsized_binding_admitted admits
+
+bare_tuple_variant_name_pattern_admitted 4 tests/soundness/open/bare_tuple_variant_name_pattern_admitted admits
+
+cfg_all_any_empty_refused 4 tests/soundness/open/cfg_all_any_empty_refused refuses
+
+closure_param_duplicate_binding_admitted 4 tests/soundness/open/closure_param_duplicate_binding_admitted admits
+
+cyclic_supertrait_admitted 4 tests/soundness/open/cyclic_supertrait_admitted admits
+
+duplicate_field_in_pattern_admitted 4 tests/soundness/open/duplicate_field_in_pattern_admitted admits
+
+empty_statement_refused 4 tests/soundness/open/empty_statement_refused refuses
+
+enum_variant_field_pub_admitted 4 tests/soundness/open/enum_variant_field_pub_admitted admits
+
+extern_system_unwind_abi_refused 4 tests/soundness/open/extern_system_unwind_abi_refused refuses
+
+for_while_as_expression_refused 4 tests/soundness/open/for_while_as_expression_refused refuses
+
+impl_trait_in_let_admitted 4 tests/soundness/open/impl_trait_in_let_admitted admits
+
+indexed_record_pattern_on_variant_refused 4 tests/soundness/open/indexed_record_pattern_on_variant_refused refuses
+
+iterator_max_by_key_methods_refused 4 tests/soundness/open/iterator_max_by_key_methods_refused refuses
+
+lifetime_param_order_admitted 4 tests/soundness/open/lifetime_param_order_admitted admits
+
+link_attr_ignored_admitted 4 tests/soundness/open/link_attr_ignored_admitted admits
+
+match_guard_mutates_binding_admitted 4 tests/soundness/open/match_guard_mutates_binding_admitted admits
+
+no_main_attr_ignored_admitted 4 tests/soundness/open/no_main_attr_ignored_admitted admits
+
+no_std_attr_ignored_admitted 4 tests/soundness/open/no_std_attr_ignored_admitted admits
+
+numeric_literal_underscore_placement_refused 4 tests/soundness/open/numeric_literal_underscore_placement_refused refuses
+
+println_empty_args_refused 4 tests/soundness/open/println_empty_args_refused refuses
+
+range_pattern_full_span_refused 4 tests/soundness/open/range_pattern_full_span_refused refuses
+
+raw_byte_string_literal_refused 4 tests/soundness/open/raw_byte_string_literal_refused refuses
+
+source_bom_shebang_refused 4 tests/soundness/open/source_bom_shebang_refused refuses
+
+std_hint_attrs_unrecognized_admitted 4 tests/soundness/open/std_hint_attrs_unrecognized_admitted admits
+
+struct_valued_const_pattern_refused 4 tests/soundness/open/struct_valued_const_pattern_refused refuses
+
+test_attr_fn_legality_unchecked_admitted 4 tests/soundness/open/test_attr_fn_legality_unchecked_admitted admits
+
+trivial_false_predicate_admitted 4 tests/soundness/open/trivial_false_predicate_admitted admits
+
+tuple_unsized_tail_refused 4 tests/soundness/open/tuple_unsized_tail_refused refuses
+
+unsized_const_type_admitted 4 tests/soundness/open/unsized_const_type_admitted admits
+
+unused_generic_param_admitted 4 tests/soundness/open/unused_generic_param_admitted admits
+
+variadic_fn_pointer_type_refused 4 tests/soundness/open/variadic_fn_pointer_type_refused refuses
+
+vt_ff_whitespace_refused 4 tests/soundness/open/vt_ff_whitespace_refused refuses
+
+# TOTAL 152
+# SYNC-HASH 1ad82a98c1768c45755ba93e2196e4a7

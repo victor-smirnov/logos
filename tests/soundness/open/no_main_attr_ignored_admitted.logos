@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row no_main_attr_ignored_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): #![no_main] has no effect
+// FLS: fls_84a9k0fzmnfk fls_6qig3s3qpj0i
+// Logos: logosc: wrote f6.o with no warning at all (exit 0); `nm f6.o` still shows the ordinary `T main` entry-point symbol exactly as without the attribute.
+// rustc: rustc 1.98.1 with `#![no_main]` suppresses normal `fn main` lowering, requiring a custom platform entry point.
+// fix hint: driver: suppress the entry shim under #![no_main].
+#![no_main]
+package no_main_attr_ignored_admitted;
+
+fn main() -> i32 {
+    0
+}

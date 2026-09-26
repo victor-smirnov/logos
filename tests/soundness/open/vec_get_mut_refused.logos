@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row vec_get_mut_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Vec::get_mut(i) -> Option<&mut T> is missing (exists as try_borrow_mut)
+// Logos: error [fn main]: method call: 'Vec$G1$i32' has no method 'get_mut' (plus follow-on write-through-pointer errors)
+// rustc: exit 99
+// fix hint: stdlib vec.logos: alias try_borrow_mut as get_mut. A17 (by-value get) is blessed; get_mut is not covered by it.
+package vec_get_mut_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v = vec![1, 2, 3];
+    if let Some(x) = v.get_mut(0) { *x = 99; }
+    return v[0] as i32;
+}

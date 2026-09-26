@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row source_bom_shebang_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): A leading UTF-8 BOM or #! shebang line makes the file unparsable
+// FLS: fls_ann3cha1xpek fls_4vicosdeaqmp
+// Logos: logosc: 'parse error in module: expected module (near line 1)'; module_loader: parse failed; exit code 4, no object emitted.
+// rustc: rustc compiles and would run normally (shebang silently ignored, per FLS).
+// fix hint: module_loader/lexer: strip BOM and a first-line shebang (not #![).
+#!/usr/bin/env logosc
+package source_bom_shebang_refused;
+fn main() -> i32 {
+    return 7;
+}

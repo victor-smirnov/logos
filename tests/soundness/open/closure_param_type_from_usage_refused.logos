@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row closure_param_type_from_usage_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Untyped closure params are not inferred from a later use of the closure
+// FLS: fls_81KOEXwps2HS fls_XWJ9SFggdVeH fls_mPWkIxTJErqx
+// Logos: logosc rejects with: "error [fn main]: call to 'apply' arg 1: expected fn(i32) -> i32, got |<error>| -> void {Fn closure#dc1a1c1d}" — reproduced verbatim (module id differs run to run but message shape identical). Closure param st
+// rustc: rustc accepts; compiled binary exits 10 (double(5)=10). Reproduced.
+// fix hint: sema closure inference: defer param typing until the first use (call-arg expected type), not only a direct call-site literal.
+package closure_param_type_from_usage_refused;
+
+fn apply(f: fn(i32) -> i32, v: i32) -> i32 {
+    return f(v);
+}
+
+fn main() -> i32 {
+    let double = |x| x * 2;
+    return apply(double, 5);
+}

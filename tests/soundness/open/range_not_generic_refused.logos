@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row range_not_generic_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Ranges are per-integer types: no .start/.end fields, no char/float bounds, mixed-width bounds are widened
+// FLS: fls_jqy0p155btca fls_zb6jk6qykun6 fls_m0slikrulnvd fls_5xw4opkbxhsc fls_livflk52xaj9 fls_vj213j9bj61y fls_9pl4629t54yq fls_exa2ufugnpgc fls_ke2fpgodq84u fls_m6n0gvg3ct1b fls_k611yoc8hk0n fls_8sfjw83irpre
+// Logos: error [fn main]: range start must be integer, got char / range end must be integer, got char -- also re-confirmed the bare float-range secondary claim: `1.0..5.0` gives 'range start must be integer, got {float}' (plus a spurious c
+// rustc: compiles and runs (char implements Step in the standard library); exits 5
+// fix hint: stdlib logos.lang.range + sema: a generic Range<T>/RangeInclusive<T> with pub start/end, start()/end() accessors, Step-driven iteration (char), and operand-type unification (reject i64..i32 instead of widening).
+package range_not_generic_refused;
+use logos.lang.range;
+
+fn main() -> i32 {
+    let r = 'a'..'f';
+    let mut n: i32 = 0;
+    for c in r { n = n + 1; }
+    return n;
+}

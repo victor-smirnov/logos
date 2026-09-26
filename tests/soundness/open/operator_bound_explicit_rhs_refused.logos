@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row operator_bound_explicit_rhs_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): A bound written T: Add<T, Output = T> fails on primitives; Add<Output = T> works
+// FLS: fls_v5dWGuBKvQSJ fls_mCISAdm7sjRs fls_lDkPMB5UI58B
+// Logos: Reproduced the compile failure, but the original report's diagnosis is wrong on both counts and is corrected here. (1) 'primitives don't implement the operator-overload trait family at all' is FALSE: stdlib/lang/ops/ops.logos:171-
+// rustc: Compiles and prints 42 -- reproduced with rustc 1.98.1.
+// fix hint: sema impl lookup: an explicit Rhs equal to Self must match the defaulted-Rhs impls.
+package operator_bound_explicit_rhs_refused;
+use logos.lang.ops;
+
+fn double<T: Add<T, Output = T> + Copy>(a: T) -> T {
+    return a.add(a);
+}
+
+fn main() -> i32 {
+    return double(21);
+}

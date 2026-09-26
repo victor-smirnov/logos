@@ -1,0 +1,25 @@
+// SOUNDNESS QUEUE row match_guard_temp_drop_timing_wrong (tier 2, `run 0`). Rust-parity audit 2026-09-26 (high): A temporary made in a failed match guard is dropped after the next arm runs
+// FLS: fls_7yybrl2J37Et fls_Vq8LdN2xWmTs fls_ptk6yibqyfzi
+// Logos: Compiles (exit 0), links, runs (exit 0). stdout: 'guard 5', 'arm2', 'drop 5' — the D temporary built for the failed guard is dropped only after the next arm's body ran, not immediately when the guard returned false.
+// rustc: rustc --edition 2024 compiles (exit 0), runs (exit 0). stdout: 'guard 5', 'drop 5', 'arm2' — dropped immediately on guard failure, before the next arm executes.
+// fix hint: drop scopes: the guard expression is its own drop scope; drop temporaries when the guard ends.
+package match_guard_temp_drop_timing_wrong;
+extern fn printf(fmt: *const u8, ...) -> i32;
+struct D { name: i64 }
+impl Drop for D {
+    fn drop(self: &mut D) {
+        unsafe { printf("drop %ld\n".as_ptr(), self.name); }
+    }
+}
+fn guard(n: i64) -> bool {
+    unsafe { printf("guard %ld\n".as_ptr(), n); }
+    return false;
+}
+fn main() -> i32 {
+    let v: i64 = 5i64;
+    match v {
+        x if guard(D{name:x}.name) => { unsafe { printf("arm1\n".as_ptr()); } }
+        _ => { unsafe { printf("arm2\n".as_ptr()); } }
+    }
+    return 0i32;
+}

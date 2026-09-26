@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row enum_discriminant_validation_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): Duplicate enum discriminants and discriminants out of the repr range are accepted (the latter silently truncated)
+// FLS: fls_w9xj26ej869w fls_wqbuof7kxsrg
+// Logos: logosc accepts and silently wraps: compiled and linked binary exits with code 44 (300 mod 256), no diagnostic. Reproduced verbatim.
+// rustc: rustc rejects: error: literal out of range for `u8` (exit 1). Reproduced verbatim.
+// fix hint: sema enum collection: E0081 duplicate check and repr-range check on discriminants.
+package enum_discriminant_validation_admitted;
+#[repr(u8)]
+enum E {
+    A = 300,
+}
+fn main() -> i32 {
+    let e = E::A;
+    return e as i32;
+}

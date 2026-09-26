@@ -48,7 +48,7 @@ impl<K: Hash + Eq> HashSet<K> {
 
     /// Removes `key`; returns `true` if it was present.
     pub unsafe fn remove(self: *mut HashSet<K>, key: &K) -> bool {
-        return self.inner.remove(key);
+        return self.inner.remove(key).is_some();
     }
 
     /// Removes all elements from the set.

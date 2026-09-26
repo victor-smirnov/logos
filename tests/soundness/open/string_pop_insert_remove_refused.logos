@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row string_pop_insert_remove_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): String::pop / insert / remove are missing
+// Logos: error [fn main]: method call: 'String' has no method 'pop'
+// rustc: compiles (no errors)
+// fix hint: stdlib string.logos: add the methods (char-boundary aware).
+package string_pop_insert_remove_refused;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut s: String = String::from("hello");
+    let c: char = s.pop().unwrap();
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row mem_size_of_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): mem::size_of::<T>() / align_of are missing
+// Logos: error [fn main]: call to undefined function 'size_of'
+// rustc: compiles and runs, exits 8 (the auditor's twin used `fn main() -> i32`, which rustc rejects; corrected here)
+// fix hint: stdlib logos.lang.mem + compiler intrinsic: size_of/align_of for any T.
+package mem_size_of_refused;
+use logos.lang.mem;
+fn main() -> i32 {
+    let n: i64 = size_of::<i64>();
+    return n as i32;
+}

@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row attr_on_extern_block_item_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Attributes on items inside an extern block (link_name, ...) do not parse
+// FLS: fls_g09jhukl0ez2 fls_fuv29BIqcawW fls_qh5sXG4znAXa fls_ASnJJiXWGlKI fls_0Athv8KFA5FO
+// Logos: error [.../f3.logos]: syntax error near 'unsafe' at line 3 col 1; logosc: no modules loaded (exit 4). Confirmed the identical block WITHOUT the attribute parses fine (exit 0). Also confirmed the failure is independent of the `unsa
+// rustc: rustc 1.98.1 accepts `#[link_name = ...]`/`#[link_ordinal(...)]` on items nested inside an extern block (their only legal position).
+// fix hint: grammar: outer attributes on extern-block items.
+package attr_on_extern_block_item_refused;
+
+unsafe extern "C" {
+    #[no_mangle]
+    fn foo();
+}
+
+fn main() -> i32 {
+    0
+}

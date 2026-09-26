@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row basic_assignment_eval_order_wrong (tier 2, `run 0`). Rust-parity audit 2026-09-26 (high): place = value evaluates the place before the value
+// FLS: fls_esn5ceoldta fls_t8eqzc64ivin fls_b0mqcn5fejhk
+// Logos: prints '1 2 ', exit 0 (index side-effect fires before the RHS)
+// rustc: prints '2 1 ' (RHS evaluated before the LHS place/index)
+// fix hint: mlir_gen assignment lowering: evaluate the RHS first, then the assignee place.
+package basic_assignment_eval_order_wrong;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn side(tag: i32) -> i32 { unsafe { printf("%d ".as_ptr(), tag); } return tag; }
+unsafe fn main() -> i32 {
+    let mut arr: [i32; 3] = [0i32, 0i32, 0i32];
+    arr[side(1) as usize] = side(2);
+    printf("\n".as_ptr());
+    return 0i32;
+}

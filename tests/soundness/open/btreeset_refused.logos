@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row btreeset_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): BTreeSet does not exist
+// Logos: stdlib/mem/collections/ contains only btree, deque, hashmap, set, vec — no btreeset module or BTreeSet struct anywhere
+// rustc: compiles and runs, prints '1 3 '
+// fix hint: stdlib: BTreeSet<K> wrapping BTreeMap<K, ()>.
+package btreeset_refused;
+use logos.mem.collections.btreeset;
+
+fn main() -> i32 { return 0; }

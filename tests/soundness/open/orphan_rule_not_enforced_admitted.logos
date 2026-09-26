@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row orphan_rule_not_enforced_admitted (tier 2, `admits`). Rust-parity audit 2026-09-26 (high): Orphan rule is not enforced for trait impls
+// FLS: fls_ir7hp941ky8t fls_3tbm20k2ixol fls_lscc9ileg3gm fls_9klwbsh3vlxu fls_9gmc1tcscq9v fls_UkQhjEWSJpDq fls_fSybUG40hA5r fls_z8APl0CEF7a0 fls_RJJafhpVsi6M fls_dtUJxhNkl8Ty fls_zJKovQrXQWdU fls_V6R8yQtsqNyv
+// Logos: logosc compiles cleanly, writes f.o, exit 0 — no orphan-rule/coherence diagnostic.
+// rustc: error[E0117]: only traits defined in the current crate can be implemented for types defined outside of the crate; refuses to compile (rustc exit 0 tool but emits the error, no binary produced).
+// fix hint: sema coherence: orphan check (E0117) for foreign trait + foreign type.
+package orphan_rule_not_enforced_admitted;
+use logos.lang.iter;
+
+impl FromIterator<i32> for i32 {
+    fn from_iter<I: Iterator<i32>>(iter: I) -> i32 { 0 }
+}
+
+fn main() -> i32 { 0 }

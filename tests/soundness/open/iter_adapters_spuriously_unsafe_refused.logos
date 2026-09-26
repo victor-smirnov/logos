@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row iter_adapters_spuriously_unsafe_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Iterator position(), Peekable::peek() and step_by() need unsafe (step_by also needs an extra arg)
+// Logos: error [fn main]: call to unsafe method 'VecIter__position' requires unsafe context
+// rustc: exit 1
+// fix hint: stdlib iter.logos: remove the spurious `unsafe` from position/peek/step_by and drop step_by's extra `zero: Item` parameter.
+package iter_adapters_spuriously_unsafe_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let v = vec![1, 2, 3];
+    let p = v.iter().position(|x| *x == 2);
+    return p.unwrap() as i32;
+}

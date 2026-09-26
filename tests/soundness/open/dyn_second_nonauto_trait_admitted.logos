@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row dyn_second_nonauto_trait_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): dyn A + B with two non-auto traits is accepted
+// FLS: fls_hJII8XYAtZeY
+// Logos: Compiles, links, and runs, returning exit code 10 (S.v) - Logos silently accepts B (a non-auto, non-principal trait) as a second bound on a dyn trait object type, no diagnostic.
+// rustc: error[E0225]: only auto traits can be used as additional traits in a trait object (exit 1). Not covered by any entry in docs/spec/divergences.md (checked: no 'auto trait'/'non-principal'/'trait object' bound-restriction divergence
+// fix hint: sema: only auto traits beyond the principal (E0225).
+package dyn_second_nonauto_trait_admitted;
+trait A { fn a(&self) -> i32; }
+trait B { fn b(&self) -> i32; }
+
+struct S { v: i32 }
+impl A for S { fn a(&self) -> i32 { return self.v; } }
+impl B for S { fn b(&self) -> i32 { return self.v + 1; } }
+
+fn use_dyn(x: &dyn A + B) -> i32 { return x.a(); }
+
+fn main() -> i32 {
+    let s = S { v: 10 };
+    return use_dyn(&s);
+}

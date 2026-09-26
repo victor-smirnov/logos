@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row union_functional_update_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): Union literal with a ..base initializer is accepted
+// FLS: fls_ywh3nk6emwmw fls_5w9lj5dc84p
+// Logos: logosc compiles `U { ..u1 }` with no error (exit 0), links cleanly, and running the binary exits with code 1 (u1.i's value copied through as raw bytes into u2, numerically 'correct' for this example only because it happens to be a
+// rustc: rustc rejects it with two errors: error[E0784] 'union expressions should have exactly one field' at the `U { ..u1 }` literal, and error[E0436] 'functional record update syntax requires a struct' at `u1`; exit code 1 (compile failu
+// fix hint: sema struct-literal: forbid ..base for unions.
+package union_functional_update_admitted;
+union U { i: i32, f: f32 }
+fn main() -> i32 {
+    let u1 = U { i: 1 };
+    let u2 = U { ..u1 };
+    unsafe { u2.i }
+}

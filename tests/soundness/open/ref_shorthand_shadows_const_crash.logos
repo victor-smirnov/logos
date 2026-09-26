@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row ref_shorthand_shadows_const_crash (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): A shorthand `ref C` field pattern whose name is a const crashes MLIR verification
+// FLS: fls_as54u97xis8z
+// Logos: Compiler internal failure (MLIR verifier ICE): "error: 'llvm.load' op operand #0 must be LLVM pointer type, but got 'i32'" / "mlir_gen: module verification failed" / "mlir_gen: MLIR generation failed", dumping logos-mlir-verify-fa
+// rustc: rustc cleanly rejects with error[E0530]: match bindings cannot shadow constants, pointing at the `ref A` binding.
+// fix hint: sema pattern binder resolution against consts (E0530); related to let_binding_named_like_const_admitted.
+package ref_shorthand_shadows_const_crash;
+struct S { A: i32 }
+const A: i32 = 5;
+fn main() -> i32 {
+    let s = S { A: 1 };
+    match s { S { ref A } => *A, }
+}

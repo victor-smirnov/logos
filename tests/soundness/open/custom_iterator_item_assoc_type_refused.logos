@@ -1,0 +1,31 @@
+// SOUNDNESS QUEUE row custom_iterator_item_assoc_type_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): A user Iterator impl with `type Item` is refused (stdlib Iterator is param-shaped)
+// FLS: fls_fkgbin6ydkm4 fls_fo6Aa6Td6rMA
+// Logos: Reproduced verbatim: logosc emits error [fn Counter__next]: impl Iterator for Counter: method 'next' does not match the trait declaration (return type 'Option' vs 'Option') and error [fn Counter__max]: unknown type 'Item'; compile
+// rustc: Reproduced verbatim: rustc compiles and runs cleanly, exit code 15 (0+1+2+3+4+5).
+// fix hint: stdlib iter.logos: Iterator { type Item; } (already ticketed design-level item Iterator<Item> param -> assoc).
+package custom_iterator_item_assoc_type_refused;
+
+struct Counter {
+    count: i32,
+    max: i32,
+}
+
+impl Iterator for Counter {
+    type Item = i32;
+    fn next(&mut self) -> Option<i32> {
+        if self.count < self.max {
+            self.count = self.count + 1;
+            return Option::Some(self.count);
+        }
+        return Option::None;
+    }
+}
+
+fn main() -> i32 {
+    let mut c = Counter { count: 0, max: 5 };
+    let mut sum = 0;
+    for x in c {
+        sum = sum + x;
+    }
+    return sum;
+}

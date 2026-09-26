@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row generic_param_leaks_into_nested_item_admitted (tier 2, `admits`). Rust-parity audit 2026-09-26 (high): A nested fn item can use its enclosing fn's generic parameter
+// FLS: fls_95z5mytvfjia
+// Logos: Compiles cleanly and links; running the program returns exit code 0 (a==11,b==22 both correctly monomorphized) — Logos silently allows `inner` to see and reuse the outer function's generic parameter T, instantiating a per-call cop
+// rustc: rustc 1.98.1 rejects with error[E0401]: can't use generic parameters from outer item — 'nested items are independent from their parent item for everything except for privacy and name resolution'.
+// fix hint: sema scopes: clear outer generic params when entering a nested item (E0401).
+package generic_param_leaks_into_nested_item_admitted;
+fn outer<T>(x: T) -> T {
+    fn inner(y: T) -> T { return y; }
+    return inner(x);
+}
+fn main() -> i32 {
+    let a: i64 = outer::<i64>(11);
+    let b: i32 = outer::<i32>(22);
+    if a == 11 && b == 22 {
+        return 0;
+    }
+    return 1;
+}

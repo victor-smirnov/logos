@@ -43,8 +43,8 @@ fn main() -> i32 {
         if m.len() != 5 as i64 { return 12; }
 
         // ── remove ─────────────────────────────────────────────────────────
-        if !m.remove(&30) { return 13; }
-        if m.remove(&30) { return 14; }
+        if m.remove(&30).is_none() { return 13; }
+        if m.remove(&30).is_some() { return 14; }
         if m.len() != 4 as i64 { return 15; }
         if m.contains_key(&30) { return 16; }
 

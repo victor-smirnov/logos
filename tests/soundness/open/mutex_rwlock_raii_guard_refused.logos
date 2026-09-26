@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row mutex_rwlock_raii_guard_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Mutex/RwLock have no RAII guard: lock() is unsafe and returns *mut T with manual unlock
+// Logos: Rust's `m.lock().unwrap()` guard spelling is refused; the only API is all-unsafe returning raw *mut T with manual .unlock(); no guard object, no Result/poisoning, no auto-unlock on scope exit or panic
+// rustc: compiles, exits 0, fully safe RAII surface
+// fix hint: stdlib logos.lcm.sync: MutexGuard/RwLockReadGuard/RwLockWriteGuard with Deref/DerefMut + Drop unlock; lock() -> LockResult<Guard>.
+package mutex_rwlock_raii_guard_refused;
+use logos.lcm.sync;
+fn main() -> i32 {
+    let m: Mutex<i32> = mutex_new::<i32>(10);
+    {
+        let mut g = m.lock().unwrap();
+        *g = *g + 5;
+    }
+    let v = *m.lock().unwrap();
+    return v - 15;
+}

@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row sized_supertrait_blocks_impl_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): trait T: Sized cannot be implemented for an ordinary struct
+// FLS: fls_droy0w5gtqaw
+// Logos: logosc refuses even the plain, non-dyn impl: `error [impl NotSafe for S]: impl NotSafe for S: missing impl Sized for S (required by supertrait)` (rc=1).
+// rustc: rustc accepts and runs the program, printing 1 (rc=0).
+// fix hint: sema trait.supertrait.impl-completeness: exempt Sized (like Copy) as a marker supertrait that needs no impl.
+package sized_supertrait_blocks_impl_refused;
+trait NotSafe: Sized {
+    fn f(self: &Self) -> i32;
+}
+pub struct S {}
+impl NotSafe for S { fn f(self: &Self) -> i32 { 1 } }
+fn main() -> i32 {
+    let s = S {};
+    s.f()
+}

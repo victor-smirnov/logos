@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row break_value_in_for_while_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): break with a value inside for / while is accepted
+// FLS: fls_3hI7FU42sVyX
+// Logos: Reproduced verbatim: logosc compiles (exit 0), links, and runs (exit 0) with no diagnostic for either the for-loop or while-loop break-with-value form.
+// rustc: Reproduced verbatim: rustc rejects with error[E0571]: break with value from a for loop, pointing at the for-loop's 'break i;'; compilation fails.
+// fix hint: sema: E0571 for break-with-value outside `loop`.
+package break_value_in_for_while_admitted;
+fn main() -> i32 {
+    for i in 0..5 {
+        break i;
+    }
+    while true {
+        break 5;
+    }
+    return 0;
+}

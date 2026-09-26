@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row vec_growth_methods_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Vec has no extend, extend_from_slice, append, insert, truncate, resize, swap_remove, split_off, drain
+// Logos: error [fn main]: method call: 'Vec$G1$i32' has no method 'extend'
+// rustc: exit 4
+// fix hint: stdlib vec.logos: add the methods (drain also needs a range argument, see range_literal_methods_need_import_refused).
+package vec_growth_methods_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v = vec![1, 2];
+    let w = vec![3, 4];
+    v.extend(w);
+    return v.len() as i32;
+}

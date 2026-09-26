@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row empty_statement_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): A bare `;` empty statement is refused
+// FLS: fls_fftdnwe22xrb fls_dl763ssb54q1
+// Logos: error [.../f.logos]: syntax error near 'fn' at line 3 col 1 -- a bare `;` statement is rejected outright by the grammar (logosc: no modules loaded, compile exit=4).
+// rustc: Compiles (rustc exit=0) with a `redundant_semicolons` lint warning suggesting removal; runs normally.
+// fix hint: grammar: empty statement.
+package empty_statement_refused;
+
+fn main() -> i32 {
+    ;
+    return 0;
+}

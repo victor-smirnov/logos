@@ -1,0 +1,5 @@
+// SOUNDNESS QUEUE row option_method_surface_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Option methods unwrap_or_default, zip, copied/cloned, get_or_insert_with do not resolve
+// Logos: error [fn main]: method call: receiver is not a struct (got Option)
+// rustc: compiles and runs
+// fix hint: compiler + stdlib option.logos: inherent methods with an extra where-bound (T: Default) or on a narrower self type (Option<&T>) do not resolve as methods (option.logos comment says so); fix that, then add the missing methods.
+package option_method_surface_refused; use logos.lang.option; use logos.lang.default; fn main() -> i32 { let a: Option<i32> = Option::<i32>::None; let v: i32 = a.unwrap_or_default(); return v; }

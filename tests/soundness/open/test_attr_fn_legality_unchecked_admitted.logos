@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row test_attr_fn_legality_unchecked_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): #[test] on an unsafe or generic fn is not rejected cleanly
+// FLS: fls_c9ckjrq6emdj fls_4uykzqpq6svl
+// Logos: Compiles, links, and runs successfully under `logosc --test`: prints `test t_unsafe ... ok` / `test result: ok. 1 passed; 0 failed; 0 ignored`, exit 0.
+// rustc: rustc --edition 2024 --test rejects the twin with 'error: unsafe functions cannot be used for tests', exit 1.
+// fix hint: test harness: reject unsafe and non-lifetime-generic #[test] fns in sema (the generic case currently dies in mlir_gen with a self-diagnosed malfunction).
+package test_attr_fn_legality_unchecked_admitted;
+
+#[test]
+unsafe fn t_unsafe() {
+}
+
+fn main() -> i32 { return 0; }

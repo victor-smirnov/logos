@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row array_nonconst_length_crash (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): A non-constant array length ([x; n], [T; n]) aborts the compiler instead of a diagnostic
+// FLS: fls_9gmnjvs83d8o fls_2l9objtb23zn fls_imr2jx6cbuzq
+// Logos: logosc aborts (SIGABRT, exit 134) with 'LLVM ERROR: array length 'n' was never bound to a value; it would lower to a zero-length array. Expected a module-level const or a bound const-generic parameter.' and dumps core, instead of 
+// rustc: rustc cleanly rejects with error[E0435]: attempt to use a non-constant value in a constant, exit 1. Reproduced verbatim.
+// fix hint: sema: reject a runtime array length with E0435 before mono/mlir_gen (the refusal itself is correct under A1).
+package array_nonconst_length_crash;
+fn main() -> i32 {
+    let n: i32 = 3;
+    let a: [i32; n];
+    return 0;
+}

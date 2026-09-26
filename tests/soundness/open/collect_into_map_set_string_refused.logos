@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row collect_into_map_set_string_refused (tier 1, `refuses`). Rust-parity audit 2026-09-26 (critical): Iterator::collect into HashMap, HashSet or String is refused (FromIterator is Vec-only)
+// Logos: error [fn main]: 'VecIntoIter__collect': type 'HashMap<i32, i32>' does not implement trait 'FromIterator' required by parameter 'C'
+// rustc: compiles and runs, exit=0
+// fix hint: stdlib: impl FromIterator for HashMap<K,V> (from (K,V)), HashSet<T>, String (from char and &str), BTreeMap.
+package collect_into_map_set_string_refused;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+fn main() -> i32 {
+    let v: Vec<(i32,i32)> = vec![(1,10),(2,20)];
+    let m: HashMap<i32,i32> = v.into_iter().collect();
+    if m.len() == 2 { return 0; } else { return 1; }
+}

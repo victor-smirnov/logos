@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row char_from_u32_from_digit_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): char::from_u32 / char::from_digit are missing
+// Logos: error: call to undefined static method 'char::from_digit' (from_u32 fails the same way)
+// rustc: compiles (no errors)
+// fix hint: stdlib: add both (from_u32 = char::try_from(u32).ok()).
+package char_from_u32_from_digit_refused;
+fn main() -> i32 {
+    let c: char = char::from_digit(7u32, 10u32).unwrap();
+    if c != '7' { return 1i32; }
+    return 0i32;
+}

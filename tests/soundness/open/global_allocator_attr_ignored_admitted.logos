@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row global_allocator_attr_ignored_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): #[global_allocator] is warned-unknown and ignored; no GlobalAlloc hook exists
+// FLS: fls_5b8aewlgeon8 fls_homoidh8mu1r fls_85ul6x76ew9 fls_xkhm1sht2ju5
+// Logos: logosc emits 'warning []: unknown attribute #[global_allocator] — not a builtin, not a registered metaprog-handler trigger, and not an #[annotation] datatype' and compiles the static as a plain i32 with no allocator-related effect
+// rustc: rustc accepts #[global_allocator] on a static of type System (which implements GlobalAlloc) with no errors (exit 0).
+// fix hint: stdlib mem + compiler: GlobalAlloc trait and an allocator-override hook, or a clean refusal.
+package global_allocator_attr_ignored_admitted;
+
+#[global_allocator]
+pub static THE_ANSWER: i32 = 42;
+
+fn main() -> i32 { 0 }

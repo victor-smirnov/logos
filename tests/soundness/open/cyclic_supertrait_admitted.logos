@@ -1,0 +1,9 @@
+// SOUNDNESS QUEUE row cyclic_supertrait_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): Cyclic supertraits (A: B, B: A) are accepted
+// FLS: fls_ytn5cdonytyn
+// Logos: logosc f.logos -o f.o succeeds with no diagnostic (rc=0) despite the cyclic supertrait declaration A:B, B:A.
+// rustc: rustc rejects with error[E0391]: cycle detected when computing the super predicates of `A` (rc=1).
+// fix hint: sema trait collection: supertrait cycle check (E0391).
+package cyclic_supertrait_admitted;
+trait A: B {}
+trait B: A {}
+fn main() -> i32 { 0 }

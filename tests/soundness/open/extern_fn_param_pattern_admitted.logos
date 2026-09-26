@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row extern_fn_param_pattern_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): An extern fn declaration accepts a destructuring parameter pattern
+// FLS: fls_9div9yusw64h
+// Logos: logosc compiles cleanly (exit 0), links, and runs (exit 0) — a tuple-destructuring pattern is silently accepted as an extern-fn parameter form with no diagnostic.
+// rustc: error[E0130]: patterns aren't allowed in foreign function declarations (rustc exit 1).
+// fix hint: sema: extern fn params may only be identifier or _ patterns (E0130).
+package extern_fn_param_pattern_admitted;
+extern { fn foo((a,b): (i32,i32)) -> i32; }
+fn main() -> i32 { return 0; }

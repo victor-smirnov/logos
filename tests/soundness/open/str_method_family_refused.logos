@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row str_method_family_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): str has no replace, rfind, repeat, to_uppercase/lowercase, strip_prefix/suffix, split_once
+// Logos: error [fn main]: slice has no method 'replace' (same pattern for rfind/repeat/to_uppercase/to_lowercase/strip_prefix/strip_suffix/split_once)
+// rustc: compiles (no errors)
+// fix hint: stdlib str.logos / utf8.logos: add the methods.
+package str_method_family_refused;
+use logos.lang.str;
+fn main() -> i32 {
+    let s: &str = "Hello World";
+    let r = s.replace("o", "0");
+    return 0i32;
+}

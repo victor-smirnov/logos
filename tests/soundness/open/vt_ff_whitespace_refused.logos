@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row vt_ff_whitespace_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): Vertical tab / form feed are not whitespace separators
+// FLS: fls_pvslhm3chtlb fls_5ocmngyur7by fls_1aj0rgi9kpib
+// Logos: logosc: `error [...]: syntax error near 'let' at line 4 col 2`, exit=4 (build fails; confirmed independently reproduced with both 0x0B and 0x0C between `let` and the bound name -- logosc reads the identifier as letVTx/letFFx and d
+// rustc: rustc 1.98.1 accepts the program unchanged and compiles/links successfully; running the resulting binary gives exit code 0.
+// fix hint: lexer: add 0x0B/0x0C to whitespace.
+package vt_ff_whitespace_refused;
+
+fn main() -> i32 {
+ letx = 1;
+ return x - 1;
+}

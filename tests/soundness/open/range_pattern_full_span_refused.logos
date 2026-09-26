@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row range_pattern_full_span_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): A range pattern covering the whole type (0..=255 for u8) is treated as refutable
+// FLS: fls_4o4ge6x9a8rs
+// Logos: compile error at line 4: "refutable pattern in local binding: use `let … else { … }` or `match`", exit 1
+// rustc: compiles cleanly, runs, exit code 0
+// fix hint: sema exhaustiveness: integer range coverage.
+package range_pattern_full_span_refused;
+fn main() -> i32 {
+    let x: u8 = 42;
+    let 0..=255 = x;
+    0
+}

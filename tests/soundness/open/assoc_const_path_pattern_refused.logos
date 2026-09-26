@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row assoc_const_path_pattern_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Type::CONST (associated const) in pattern position is refused
+// FLS: fls_xz5otkhogn31 fls_bv9psmitxfuw fls_1crq0mexo5r1
+// Logos: error: pattern: unknown enum 'S'; error: mismatched types: this pattern matches enum `S`, but the scrutinee has type `i32`.
+// rustc: compiles, exits 1.
+// fix hint: sema pattern resolution: resolve impl associated consts in path patterns.
+package assoc_const_path_pattern_refused;
+
+struct S;
+impl S {
+    const FIVE: i32 = 5;
+}
+
+fn main() -> i32 {
+    let x: i32 = 5;
+    match x {
+        S::FIVE => 1,
+        _ => 2,
+    }
+}

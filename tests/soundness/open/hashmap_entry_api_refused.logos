@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row hashmap_entry_api_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): HashMap::entry().or_insert / or_insert_with / and_modify / or_default are missing
+// Logos: error [fn main]: method call: 'HashMap$G2$String$i32' has no method 'entry'
+// rustc: compiles and runs cleanly
+// fix hint: stdlib hashmap.logos (and btree): Entry API; get_or_insert covers only the plain or_insert case.
+package hashmap_entry_api_refused;
+use logos.mem.collections.hashmap;
+use logos.mem.string;
+
+fn main() -> i32 {
+    unsafe {
+        let mut m: HashMap<String, i32> = hashmap_new::<String, i32>();
+        let pm: *mut HashMap<String, i32> = &mut m;
+        let a: String = String::from("a");
+        let p: *mut i32 = pm.entry(a).or_insert(0);
+        *p += 1;
+        return 0;
+    }
+}

@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row bare_tuple_variant_name_pattern_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): A tuple variant written without (..) in a pattern matches by discriminant only
+// FLS: fls_k1yBTstX7jEE
+// Logos: compiles and links; running returns exit 1 (matched Opt::Some by discriminant alone, payload silently ignored/unchecked).
+// rustc: error[E0532]: expected unit struct, unit variant or constant, found tuple variant `Opt::Some` — help: use `Opt::Some(_)`.
+// fix hint: sema pattern: E0532 for a tuple variant used as a unit pattern.
+package bare_tuple_variant_name_pattern_admitted;
+
+enum Opt { Some(i32), None }
+
+fn main() -> i32 {
+    let x = Opt::Some(5);
+    match x {
+        Opt::Some => 1,
+        Opt::None => 2,
+    }
+}

@@ -6580,9 +6580,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ref_param_address_taken_return_yields_slot opened.
 #                ALL 11406 -> 11407 (+1), NOIMPORTED 6843 -> 6844 (+1), TIERCOMMIT 71 -> 69 (-2) — 2026-09-26: squeue
 #                #501 #502 closed (two pass fixtures now), + 1 fail (a parameter with no type).
-REGISTRY-ALL         11407
-REGISTRY-NOIMPORTED  6844
-REGISTRY-TIERCOMMIT  69
+#                ALL 11407 -> 11410 (+3), NOIMPORTED 6844 -> 6847 (+3), TIERCOMMIT 69 -> 69 — 2026-09-26: the Rust-parity
+#                audit's first critical fixes: + 3 pass (primitive consts, the Vec surface, map drop semantics).
+#                ALL 11410 -> 11554 (+144), NOIMPORTED 6847 -> 6991 (+144), TIERCOMMIT 69 -> 213 (+144) — 2026-09-26:
+#                the Rust-parity audit's 144 squeue rows (docs/audit/2026-09-26-rust-parity.md).
+REGISTRY-ALL         11554
+REGISTRY-NOIMPORTED  6991
+REGISTRY-TIERCOMMIT  213
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

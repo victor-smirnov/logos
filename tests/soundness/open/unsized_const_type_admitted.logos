@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row unsized_const_type_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): A const of unsized type (str) is accepted
+// FLS: fls_vt9tlkd676ql
+// Logos: logosc compiles f15b.logos with exit 0 and no diagnostic; linking succeeds; running the binary exits with code 2 (S.len() correctly evaluates to 2). No Sized-bound diagnostic is ever raised for the unsized `str` const type.
+// rustc: rustc 1.98.1 rejects with E0277 ("the size for values of type `str` cannot be known at compilation time ... the trait `Sized` is not implemented for `str`") plus a secondary E0507 (move out of shared reference) and E0161.
+// fix hint: sema: const types must be Sized.
+package unsized_const_type_admitted;
+
+const S: str = "hi";
+
+fn main() -> i32 {
+    return S.len() as i32;
+}

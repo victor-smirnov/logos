@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row hashset_set_ops_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): HashSet union/intersection/difference/symmetric_difference are missing
+// Logos: syntax error near '.' at line 12 col 19 — `union` is a reserved keyword in Logos (C-style union types), so even a same-named workaround method is blocked; stdlib set.logos ships only insert/contains/remove/clear/len/is_empty/iter
+// rustc: compiles and runs, prints 3
+// fix hint: stdlib set.logos: add the four methods. `union` is a reserved keyword in Logos (lex.keyword.reserved-set, for C-style unions); Rust treats it as a weak keyword, so a method named union also needs a contextual-keyword exception.
+package hashset_set_ops_refused;
+use logos.mem.collections.set;
+
+fn main() -> i32 {
+    unsafe {
+        let mut a: HashSet<i32> = hashset_new::<i32>();
+        let mut b: HashSet<i32> = hashset_new::<i32>();
+        let pa: *mut HashSet<i32> = &mut a;
+        let pb: *mut HashSet<i32> = &mut b;
+        pa.insert(1); pa.insert(2);
+        pb.insert(2); pb.insert(3);
+        let u = pa.union(pb);
+        return 0;
+    }
+}

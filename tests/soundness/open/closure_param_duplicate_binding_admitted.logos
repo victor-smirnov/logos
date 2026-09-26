@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row closure_param_duplicate_binding_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): Two closure params with the same name are accepted
+// FLS: fls_qPeOL6ZhXsgH
+// Logos: logosc accepts, compiles and links `g2.o`/`g2.bin` with zero diagnostics; running the binary exits 2 (the second `x` silently shadows/wins). Reproduced exactly.
+// rustc: rustc refuses: error[E0415]: identifier `x` is bound more than once in this parameter list. Reproduced.
+// fix hint: sema: E0415 across closure params.
+package closure_param_duplicate_binding_admitted;
+
+fn main() -> i32 {
+    let f = |x: i32, x: i32| x;
+    return f(1, 2);
+}

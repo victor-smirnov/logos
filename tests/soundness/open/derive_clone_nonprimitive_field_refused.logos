@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row derive_clone_nonprimitive_field_refused (tier 1, `refuses`). Rust-parity audit 2026-09-26 (critical): #[derive_clone] fails on a struct with a String/Vec/heap-owning field
+// Logos: logos_quote_expr_subst: REPEAT_GROUP body has no cursor / logos_emit_item_blob_subst: blob[0] empty; then error [fn main]: method call: 'Holder' has no method 'clone' (field-read error follows as a consequence). Reproduced exactly
+// rustc: compiles and runs, exit 0
+// fix hint: metaprog: the derive_clone handler expansion breaks in quote_expr repeat-group substitution ("REPEAT_GROUP body has no cursor"); per-field .clone() must be emitted for non-Copy fields.
+package derive_clone_nonprimitive_field_refused;
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+#[derive_clone]
+struct Holder { s: String }
+
+fn main() -> i32 {
+    let a = Holder { s: String::from("hi") };
+    let b = a.clone();
+    if b.s.len() != 2 { return 1; }
+    return 0;
+}

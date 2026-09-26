@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row match_guard_mutates_binding_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): A match guard may mutate a by-value mut binding
+// FLS: fls_RPMOAaZ6lflI
+// Logos: Reproduced verbatim: compiles (exit 0), links, and `./f2.bin` runs returning exit 5 (classify(5) returns 5: the guard's `n=n+1=6` fails `n>100`, falls through to the catch-all `n=>n`). No diagnostic is emitted. Extra probes (own, 
+// rustc: rustc 1.98.1 --edition 2024 rejects the twin with `error[E0594]: cannot assign to \`n\`, as it is immutable for the pattern guard` — reproduced exactly as claimed, plus an `unused_mut` warning on the same line.
+// fix hint: borrow check: guard bindings are immutable in the guard (E0594).
+package match_guard_mutates_binding_admitted;
+fn classify(x: i32) -> i32 {
+    match x {
+        mut n if { n = n + 1i32; n > 100i32 } => n,
+        n => n,
+    }
+}
+fn main() -> i32 { return classify(5i32); }

@@ -1,0 +1,5 @@
+// SOUNDNESS QUEUE row assert_with_message_crash (tier 1, `refuses`). Rust-parity audit 2026-09-26 (critical): assert!(cond, "message") crashes the metacall splice
+// Logos: logos: TinyObjectMap::put — map is full (capacity 0) and key 0 is new; the field would be silently dropped. logosc: metacall splice: CODE put failed. logosc process exit code observed: 1 (not 0 as originally reported); no object f
+// rustc: compiles and runs, exit 0
+// fix hint: stdlib std/fmt/fmt.logos assert fn_macro: the n>1 branch expands format!(...) inside quote_expr!, overflowing TinyObjectMap (capacity 0) in the metacall splice.
+package assert_with_message_crash; use logos.std.fmt; fn main() -> i32 { assert!(true, "msg"); return 0; }

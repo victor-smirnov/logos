@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row closure_move_capture_drop_delayed_wrong (tier 2, `run 1`). Rust-parity audit 2026-09-26 (high): A move closure's captured value is dropped at the source scope's end, not when the closure is consumed
+// FLS: fls_wzuwapjqtyyy fls_4nkzidytpi6 fls_gjn2jnsal9gs fls_3ztdz02efeoc fls_e7ucq87s806d
+// Logos: Compiled clean (LOGOS_LIB_DIR=... logosc f.logos -o f.o then cc-linked); binary exit code 1 — the check `n != 1` fails, i.e. D's destructor had NOT run by the time run_once(c) returned, meaning the closure's by-move capture is dro
+// rustc: rustc --edition 2024 compiled clean (one unrelated 'unnecessary unsafe block' warning); binary exit code 42 — D was dropped exactly once, at the end of run_once(c), because passing c by value into the FnOnce parameter moves the wh
+// fix hint: closure env / drop elaboration: by-move captures belong to the closure value and drop with it. May share a root with loop_local_move_closure_shares_slot_wrong.
+package closure_move_capture_drop_delayed_wrong;
+struct D { c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c + 1i64; } } }
+fn run_once<F: FnOnce() -> i64>(f: F) -> i64 { return f(); }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p: *mut i64 = &mut n;
+    let d = D { c: p };
+    let c = move || -> i64 { let _ = &d; return 42i64; };
+    let r = run_once(c);
+    if unsafe { n } != 1i64 { return 1i32; }
+    return r as i32;
+}

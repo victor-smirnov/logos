@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row match_guard_if_let_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Match-arm guards with if let (and let-chains) are refused
+// FLS: fls_Td7McP9rQxVn fls_gNQBzI92IAir fls_AAuyKfxLgJ43 fls_Yq4NhC8sRpJm fls_Lc8EwS5rYpBn fls_Yh2NqT6vLsCk fls_Cw2RsH7pVnQx fls_Zc6TbK2wLpNd fls_Bd9TmL4qVcNs fls_Rp5HxK8wJqYd fls_Vr9MqJ5xNsYd fls_Nt6QmC3sLpXz
+// Logos: logosc refuses to parse: 'error: syntax error near \'if\' at line 6 col 11' — the `if let` match-arm-guard form is not in the grammar at all (only a plain boolean `if <expr>` guard is accepted). Grep of stdlib/ and tests/logos/pas
+// rustc: rustc 1.98.1 compiles (only an 'irrefutable if let guard pattern' lint) and runs, exiting with code 5.
+// fix hint: grammar + sema: reuse the if/while let-chain production for match guards.
+package match_guard_if_let_refused;
+fn maybe(v: i64) -> i64 { return v; }
+fn main() -> i32 {
+    let x: i64 = 5;
+    match x {
+        v if let y = maybe(v) => {
+            return y as i32;
+        }
+        _ => return 0,
+    }
+}

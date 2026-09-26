@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row unsuffixed_int_literal_method_arg_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): An unsuffixed integer literal as an argument to a primitive method (x.pow(2)) is refused
+// Logos: error [fn main]: method call: receiver is not a struct (got i32) -- reproduced verbatim
+// rustc: compiles, exit 0, prints 101
+// fix hint: sema: literal typing for method args on primitive receivers; the error text "receiver is not a struct (got i32)" is also misleading.
+package unsuffixed_int_literal_method_arg_refused;
+fn main() -> i32 {
+    let x: i32 = 100i32;
+    let y: i32 = x.wrapping_add(1);
+    return y;
+}

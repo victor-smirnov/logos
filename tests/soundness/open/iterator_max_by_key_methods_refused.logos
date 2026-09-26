@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row iterator_max_by_key_methods_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): max_by_key / min_by_key are not methods
+// Logos: error: method call: 'VecIter$G1$i32' has no method 'max_by_key'
+// rustc: compiles and runs, exit=0
+// fix hint: stdlib iter.logos: method forms of iter_max_by_key/iter_min_by_key.
+package iterator_max_by_key_methods_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let v: Vec<i32> = vec![3,1,4,1,5,9,2];
+    let m = v.into_iter().max_by_key(|x| -x);
+    match m { Option::Some(x) => { if x == 1 { return 0; } else { return 1; } } Option::None => { return 2; } }
+}

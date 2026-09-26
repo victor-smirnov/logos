@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row slice_method_surface_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): windows, chunks, binary_search, concat/join, starts_with, fill, rotate_left, copy_from_slice are not methods
+// Logos: error [fn main]: method call: 'Vec$G1$i32' has no method 'windows' (same for chunks)
+// rustc: exit 3
+// fix hint: stdlib slice.logos: expose the slice_* free fns (slice_windows, slice_chunks, slice_binary_search, slice_copy_from) as [T] methods reachable from Vec; add concat/join, starts_with, fill, rotate_left.
+package slice_method_surface_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let v = vec![1, 2, 3, 4];
+    let mut count = 0;
+    for w in v.windows(2) { count += 1; }
+    return count;
+}

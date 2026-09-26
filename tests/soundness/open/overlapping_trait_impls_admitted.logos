@@ -1,0 +1,25 @@
+// SOUNDNESS QUEUE row overlapping_trait_impls_admitted (tier 1, `admits`). Rust-parity audit 2026-09-26 (critical): Overlapping trait impls (blanket vs specific) are accepted; the choice is order-dependent
+// FLS: fls_fv1l4yjuut7p fls_swdusjwzgksx fls_koy70k770ayu
+// Logos: Compiles, links, and runs to completion; exit code 2 (the specific impl silently wins over the blanket impl) with no coherence diagnostic.
+// rustc: error[E0119]: conflicting implementations of trait `Speak` for type `Foo` — refuses to compile.
+// fix hint: sema coherence: the overlap check exempts generic impls (traits-generics.md, trait.resolve.blanket-first-match); run the overlap test for blanket impls too.
+package overlapping_trait_impls_admitted;
+
+trait Speak {
+    fn say(self) -> i32;
+}
+
+struct Foo { x: i32 }
+
+impl<T> Speak for T {
+    fn say(self) -> i32 { 1 }
+}
+
+impl Speak for Foo {
+    fn say(self) -> i32 { 2 }
+}
+
+fn main() -> i32 {
+    let f = Foo { x: 0 };
+    f.say()
+}

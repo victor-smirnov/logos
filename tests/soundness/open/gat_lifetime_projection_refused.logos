@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row gat_lifetime_projection_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): A lifetime GAT used as Self::Item<'a> does not parse
+// FLS: fls_PeD0DzjK57be fls_3foYUch29ZtF fls_SnQc0zZS57Cz fls_6Z05BK2JSzpP fls_AtItgS1UvwiX
+// Logos: error near '&' at line 5 col 17: syntax error — `Self::Item<'a>` as a return type does not parse. Additionally confirmed: the bare GAT declaration `type Item<'x>;` alone parses fine (gat_lifetime_decl_only.logos compiles to .o wit
+// rustc: compiles and runs, prints 1 (per the finding; the twin above is a reconstruction of the auditor's gat_lend.rs)
+// fix hint: grammar: lifetime args on an associated-type projection in type position (the declaration type Item<'x>; already parses).
+package gat_lifetime_projection_refused;
+
+trait LendingIterator {
+    type Item<'x>;
+    fn next<'a>(&'a mut self) -> Self::Item<'a>;
+}
+
+fn main() -> i32 {
+    return 0;
+}

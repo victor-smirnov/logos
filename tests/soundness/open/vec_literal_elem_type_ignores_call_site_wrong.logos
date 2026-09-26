@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row vec_literal_elem_type_ignores_call_site_wrong (tier 1, `run 4`). Rust-parity audit 2026-09-26 (critical): vec![...] element type ignores the call-site expected type; reads uninitialised memory
+// Logos: exit 4 (should be 6); valgrind: 'Conditional jump or move depends on uninitialised value(s)' in sum, plus 'Syscall param exit_group(status) contains uninitialised byte(s)', error-exitcode 99
+// rustc: exit 6
+// fix hint: sema: bidirectional inference; the expected type at a call argument must flow into vec![] element typing (or refuse the mismatch), never pass Vec<i32> where Vec<i64> is expected.
+package vec_literal_elem_type_ignores_call_site_wrong;
+use logos.mem.collections.vec;
+fn sum(s: &[i64]) -> i64 {
+    let mut total: i64 = 0;
+    for x in s { total += *x; }
+    return total;
+}
+fn main() -> i32 {
+    let v = vec![1, 2, 3];
+    let total = sum(&v);
+    return total as i32;
+}

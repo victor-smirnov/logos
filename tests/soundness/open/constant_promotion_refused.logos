@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row constant_promotion_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): &5 / &mut [] returned as 'static is refused (no constant promotion)
+// FLS: fls_udn9lyf3m0z6 fls_yvkdcs4pmxjf fls_n570za6a9nqd fls_tms5r9f5ogcb fls_bysv5r7iuf5j fls_3h5vr7xk2rrt fls_3BGncWvMumEt fls_m690b8qg9d9r fls_uf0sg25awre6 fls_o7cqfdnr253y fls_ap85svxyuhvg
+// Logos: logosc rejects with 'error [fn get]: line 4: cannot return reference to temporary value: dangling reference'. The same rejection reproduces verbatim for the FLS-called-out special case &mut [] returned as &mut [i32].
+// rustc: rustc 1.98.1 compiles cleanly and the binary runs printing 5 (exit 0): the literal 5 is const-promoted to an anonymous 'static constant per Rust's constant-promotion rule, so the returned reference is not dangling.
+// fix hint: borrow check/mlir_gen: promote constant-expression borrows to static storage.
+package constant_promotion_refused;
+
+fn get() -> &i32 {
+    return &5;
+}
+
+fn main() -> i32 {
+    let r = get();
+    return *r;
+}

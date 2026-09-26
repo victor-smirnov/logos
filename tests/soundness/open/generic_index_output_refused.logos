@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row generic_index_output_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Generic code bound by Index cannot name the element type (Index<Idx, Output> is a type param, not an assoc type)
+// FLS: fls_u9sl7h4i8hqu fls_issaykiuha75
+// Logos: logosc refuses: "f2.logos:5: error [fn get_elem]: return type mismatch — expected i64, got T".
+// rustc: rustc compiles and runs cleanly, printing 30.
+// fix hint: stdlib ops.logos: Index<Idx> { type Output; } / IndexMut (the ops-traits-not-Rust-shaped arc).
+package generic_index_output_refused;
+use logos.lang.ops;
+
+fn get_elem<T: Index<i64, i64>>(x: &T, i: i64) -> i64 {
+    return x[i];
+}
+
+struct Slot4 { data: [i64; 4] }
+impl Index<i64, i64> for Slot4 {
+    fn index(&self, idx: i64) -> &i64 { return &self.data[idx]; }
+}
+
+fn main() -> i32 {
+    let s = Slot4 { data: [10, 20, 30, 40] };
+    return get_elem(&s, 2) as i32;
+}

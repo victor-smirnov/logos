@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row closure_mixed_return_types_crash (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): A closure whose returns disagree in type fails MLIR verification instead of a type error
+// FLS: fls_UgJgur0z6d4a fls_wLVeE6cNG8oa
+// Logos: logosc emits an internal MLIR-verifier failure instead of a clean sema diagnostic: "error: 'llvm.return' op mismatching result types" / "mlir_gen: module verification failed" / "mlir_gen: module written to logos-mlir-verify-fail.m
+// rustc: rustc rejects cleanly with error[E0308]: mismatched types, "expected integer, found floating-point number", and a note "return type inferred to be `{integer}` here" pointing at the first `return 1;`. Reproduced.
+// fix hint: sema closure return inference: unify return types (first return wins, E0308 on mismatch) before lowering.
+package closure_mixed_return_types_crash;
+
+fn main() -> i32 {
+    let f = |x: bool| {
+        if x {
+            return 1;
+        }
+        return 2.5;
+    };
+    let a = f(true);
+    return a;
+}

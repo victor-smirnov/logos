@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row generic_trait_multi_impl_dispatch_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Method call / UFCS fails when a type implements one generic trait at two type args
+// Logos: logosc emits two compile errors (method call has no method 'convert'), rc nonzero via the harness (grep filtered warnings), program never links
+// rustc: rustc --edition 2024: compiles clean, ./f.rbin exits 0
+// fix hint: sema/mono dispatch keyed by trait type-args; relates to the open G156-1 / B-assoc row (not a blessed divergence).
+package generic_trait_multi_impl_dispatch_refused;
+trait Converter<T> { fn convert(self: &Self) -> T; }
+struct Num { v: i32 }
+impl Converter<i32> for Num { fn convert(self: &Num) -> i32 { return self.v; } }
+impl Converter<i64> for Num { fn convert(self: &Num) -> i64 { return self.v as i64; } }
+fn main() -> i32 {
+    let n: Num = Num { v: 7 };
+    let a: i32 = n.convert();
+    let b: i64 = n.convert();
+    if a != 7 { return 1; }
+    if b != 7i64 { return 2; }
+    return 0;
+}

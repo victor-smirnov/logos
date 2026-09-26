@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row assoc_const_trait_dyn_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): A trait with an associated const is accepted as dyn Trait
+// FLS: fls_46gd1q80c6bn fls_lrdki56hpc3k
+// Logos: logosc compiles the &dyn HasConst coercion with no diagnostic (rc=0); Logos's documented object-safety check (trait.object-safety, traits-generics.md) enumerates generic methods/no-self/Self-by-value/opaque-return/GAT as disqualif
+// rustc: rustc rejects with error[E0038]: the trait `HasConst` is not dyn compatible ... because it contains associated const `N` (rc=1).
+// fix hint: sema object safety: associated consts disqualify (E0038).
+package assoc_const_trait_dyn_admitted;
+trait HasConst {
+    const N: i32 = 3;
+    fn f(self: &Self) -> i32;
+}
+pub struct S {}
+impl HasConst for S { fn f(self: &Self) -> i32 { 1 } }
+fn main() -> i32 {
+    let s = S {};
+    let d: &dyn HasConst = &s;
+    d.f()
+}

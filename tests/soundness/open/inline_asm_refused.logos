@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row inline_asm_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): asm! / global_asm! / naked_asm! are unsupported
+// FLS: fls_leamdp1r3hez fls_3fg60jblx0xb fls_helnk2iz8qhp fls_ecteot716j8j fls_1ikzov7cxic1 fls_4lb6yh12w1cv fls_tgzga1lanfuo fls_nfkbvs86d6kz
+// Logos: logosc: `f.logos:6: error [fn main]: fn_macro: unknown callee 'asm!'`, compilation fails, exit code 1.
+// rustc: rustc 1.98.1 compiles cleanly (exit 0) and the program runs, printing `2` (x doubled), run exit 0.
+// fix hint: compiler: inline assembly (LLVM inline asm) with operand classes.
+package inline_asm_refused;
+
+fn main() -> i32 {
+    let mut x: i64 = 1;
+    unsafe {
+        asm!("add {0}, {0}", inout(reg) x);
+    }
+    return 0;
+}

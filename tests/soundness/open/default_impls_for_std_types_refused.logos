@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row default_impls_for_std_types_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Default is not implemented for String, Vec, Option, HashMap (blocks mem::take)
+// Logos: error [fn main]: 'take_ref': type 'String' does not implement trait 'Default' required by parameter 'T' — here 'Default' denotes the trait registered as 'logos.lang.default::Default', and the impl registry was searched under that 
+// rustc: exit=20 (compiles and runs fine)
+// fix hint: stdlib: impl Default for String, Vec<T>, Option<T>, HashMap, BTreeMap, Box<T: Default>; also enables derive_default_nonpod_field_refused.
+package default_impls_for_std_types_refused;
+use logos.mem.string;
+use logos.lang.mem;
+
+fn main() -> i32 {
+    let mut s: String = String::from("hi");
+    let taken: String = take_ref(&mut s);
+    return (taken.len() as i32) * 10i32 + (s.len() as i32);
+}

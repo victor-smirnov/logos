@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row assignment_as_expression_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): Assignment is not an expression (cannot be used where a () value is expected)
+// FLS: fls_1l3rgtm6o54s
+// Logos: syntax error: 'syntax error near a at line 4 col 18' -- confirmed independently; docs/spec/expressions.md's expr.assign section documents assignment only as statement forms (assign_stmt/place_assign_stmt/deref-write), never as a p
+// rustc: compiles and runs, exit=5 (with unused-parens/unused-assignment warnings): assignment is a first-class expression of type ().
+// fix hint: grammar: assignment expressions of type ().
+package assignment_as_expression_refused;
+unsafe fn main() -> i32 {
+    let mut a: i32 = 0;
+    let x: () = (a = 5);
+    return a;
+}

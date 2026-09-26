@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row let_binding_named_like_const_admitted (tier 1, `admits`). Rust-parity audit 2026-09-26 (critical): `let NAME = v;` where NAME is an in-scope const silently does nothing
+// FLS: fls_24c95c56tugl fls_twcavjk7iquy
+// Logos: CORRECTED from the reported observation: compiles cleanly with no diagnostic, links, and runs (exit 0). However the claim that Logos 'treats it as a fresh binding that shadows the const, would print/return 5' is FALSE: instrumente
+// rustc: error[E0005]: refutable pattern in local binding — 'ZERO is interpreted as a constant pattern, not a new variable'; rustc requires renaming the binding.
+// fix hint: sema let-pattern: a bare identifier that resolves to a const is a constant pattern (refutable, E0005); today it neither binds nor checks. See ref_shorthand_shadows_const_crash (same identifier-vs-const resolution).
+package let_binding_named_like_const_admitted;
+
+const ZERO: i32 = 0;
+
+fn main() -> i32 {
+    let ZERO = 5;
+    ZERO
+}

@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row destructuring_assign_assignee_forms_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Destructuring assignment refuses place elements (arr[0], s.f), tuple-struct assignees and `_ = e`
+// FLS: fls_1tsdlpgkgb2u fls_hier3b8knpuq fls_horl3qcfdb0k fls_skopz71arbwa fls_oqj7s9fi3j3j fls_fa14yfvxsbx3 fls_4bb07tn28ivw fls_vxrg6preh46x
+// Logos: logosc refuses to compile: 'error [fn main]: invalid assignment target: left side is not an assignable place'. Reproduced exactly as reported.
+// rustc: rustc accepts and runs it; exit code 0, confirmed.
+// fix hint: sema assignee classification: accept every assignee-expression form (place, tuple, array, tuple-struct call, struct, `_`) in the destructuring-assignment desugar.
+package destructuring_assign_assignee_forms_refused;
+fn main() -> i32 {
+    let mut arr: [i32; 2] = [0, 0];
+    (arr[0], arr[1]) = (7, 8);
+    return arr[0] + arr[1] - 15;
+}

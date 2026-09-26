@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row cfg_all_any_empty_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): cfg(all()) / cfg(any()) with empty argument lists do not parse
+// FLS: fls_y1MUhnKCxK6T fls_tncxxsyutppf fls_Rp73YEE3aFdI fls_m0zxktz168e0
+// Logos: logosc refuses to parse: `error [.../cfg3.logos]: syntax error near '#' at line 3 col 1` / `logosc: no modules loaded`, exit code 4
+// rustc: rustc 1.98.1 --edition 2024 compiles cleanly; program runs and exits 1 (a() kept since all() with no nested predicates is true)
+// fix hint: grammar: allow empty combinator lists (all() = true, any() = false).
+package cfg_all_any_empty_refused;
+
+#[cfg(all())]
+fn a() -> i32 { 1 }
+
+fn main() -> i32 { a() }

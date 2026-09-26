@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row assoc_type_bound_sugar_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Associated-type bound sugar T: Trait<Assoc: Bound> does not parse
+// FLS: fls_mcUMWsYcxzmZ fls_dxMfAI4EZVS5
+// Logos: Hard parse error: "syntax error near 'fn' at line 7 col 1"; logosc: no modules loaded.
+// rustc: Compiles; fails only later at the instantiation site with E0277 for `(): Trait`, as expected (the generic fn definition itself is legal).
+// fix hint: grammar: desugar to a where-clause on T::Assoc.
+package assoc_type_bound_sugar_refused;
+
+trait Trait {
+    type Assoc;
+}
+
+fn f<T: Trait<Assoc: Copy>>() -> i32 {
+    0
+}
+
+fn main() -> i32 {
+    0
+}

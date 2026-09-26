@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row assoc_type_bound_conformance_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): An impl's associated type need not satisfy the trait's declared bound
+// FLS: fls_fi4qmauirlsm fls_2s8lh3k4rw6u fls_bb874uu2alt3
+// Logos: Compiles cleanly, exit 0 — `Item = NoClone` accepted despite `NoClone` not implementing `Clone`.
+// rustc: error[E0277]: the trait bound `NoClone: Clone` is not satisfied, required by the bound on `Container::Item`.
+// fix hint: sema impl conformance: check `type Item: Clone` bounds against the impl's binding (E0277).
+package assoc_type_bound_conformance_admitted;
+
+trait Container {
+    type Item: Clone;
+    fn get(self) -> Self::Item;
+}
+
+struct NoClone { x: i32 }
+
+struct Foo { x: i32 }
+
+impl Container for Foo {
+    type Item = NoClone;
+    fn get(self) -> NoClone { NoClone { x: self.x } }
+}
+
+fn main() -> i32 { 0 }

@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row target_feature_attr_ignored_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): #[target_feature(enable=...)] is warned-unknown and ignored
+// FLS: fls_3qj3jvmtxvx6 fls_agpkz1v3c281 fls_91b7nd6qslsb fls_yz4itbk700ot fls_pdyotoq8uqi2 fls_vdbjoy6gbk7l fls_k3szii6nviza fls_xsdkkfgv0pz6 fls_8HPcvIaahaB9 fls_lxcfj6XCKyMh fls_fh7i1Pcmqjdm fls_M9ne2sqhRB5L
+// Logos: logosc emits warning []: unknown attribute '#[target_feature]'; dropped entirely, no feature-enabling, no unsafe-call requirement, no feature/implied-feature table exists in the compiler. Compiles/links/runs exit 3.
+// rustc: rustc parses target_feature, requires unsafe fn / unsafe call, compiles and exits 3.
+// fix hint: sema/codegen: recognise target_feature, enforce the unsafe-call rule, pass features to LLVM.
+package target_feature_attr_ignored_admitted;
+
+#[target_feature(enable="sse2")]
+fn simd_thing() -> i32 { 3 }
+
+fn main() -> i32 {
+    return simd_thing();
+}

@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row i128_literal_above_u64_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): i128/u128 literals above u64::MAX are refused, contradicting lex.literal.int128-magnitude
+// FLS: fls_yjb3kzijd19v fls_4c4qpel1tbqs
+// Logos: Reproduced exactly: `logosc f.logos -o f.o` exits 1 with "f.logos:4: error [fn main]: integer literal '18446744073709551616' is out of range". This contradicts the compiler's own extracted spec: docs/spec/types.md:2246-2247 docume
+// rustc: rustc 1.98.1 (--edition 2024) accepts both literals and the program compiles and runs, printing `18446744073709551616 170141183460469231731687303715884105727`.
+// fix hint: sema literal range check: use the 128-bit accumulator for i128/u128 targets.
+package i128_literal_above_u64_refused;
+
+fn main() -> i32 {
+    let a: u128 = 18446744073709551616;
+    return 0;
+}

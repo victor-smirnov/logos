@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row link_attr_ignored_admitted (tier 4, `admits`). Rust-parity audit 2026-09-26 (low): #[link(name = ...)] on an extern block is warned-unknown and ignored
+// FLS: fls_yslpkdngo8hj fls_6rohnk4swj6c fls_o83pf3bcrzma fls_5541q1qoxdpf fls_wpqawdpevkj6 fls_HPl6poXGiAqV fls_h9dfs6kzmobp fls_3a3r4jf7hzqr fls_1tdheukgm6ai fls_3i9ijypnh8nx fls_iDjcQczFQknm fls_rcERq1PfKPJI
+// Logos: warning []: unknown attribute '#[link]' — not a builtin/handler/annotation. logosc: wrote f4.o (exit 0). The attribute parses (nested key=string form) but has no effect on codegen/linking.
+// rustc: rustc 1.98.1 requires and applies `#[link]` for native-library linkage resolution.
+// fix hint: driver: record link directives and pass -l to the linker.
+package link_attr_ignored_admitted;
+
+#[link(name = "m")]
+extern "C" {
+    fn sqrt(x: f64) -> f64;
+}
+
+fn main() -> i32 {
+    0
+}

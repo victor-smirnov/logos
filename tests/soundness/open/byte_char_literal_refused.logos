@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row byte_char_literal_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Byte literal b'A' is refused
+// FLS: fls_2ifjqwnw03ms fls_3hpzf12h60u4 fls_q0qwr83frszx fls_fggytrv5jvw0
+// Logos: error [f.logos]: syntax error near 'b' at line 3 col 13; logosc: no modules loaded
+// rustc: compiles, prints 104
+// fix hint: grammar (logos.peg): add a byte-char token (only LIT_BYTES b"..." exists); u8-typed.
+package byte_char_literal_refused;
+fn main() -> i32 {
+    let b = b'h';
+    return 0;
+}

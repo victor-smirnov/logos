@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row str_find_not_option_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): str::find returns i64 (-1 sentinel) instead of Option<usize>
+// Logos: error [fn main]: mismatched types: this pattern matches enum `Option`, but the scrutinee has type `i64` (find() itself compiles as `let i: i64 = s.find(...)`, using -1 as the not-found sentinel)
+// rustc: compiles, runs, exit code 6
+// fix hint: stdlib str.logos: find/rfind return Option<i64>; migrate in-tree callers comparing against -1.
+package str_find_not_option_refused;
+use logos.lang.str;
+fn main() -> i32 {
+    let s: &str = "hello world";
+    match s.find("wor") {
+        Some(i) => { return i as i32; }
+        None => { return -1i32; }
+    }
+}

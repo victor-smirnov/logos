@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row inner_attr_in_item_body_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Inner attributes (#![...]) and inner doc comments (//!) are refused inside item bodies
+// FLS: fls_yd0ehw5csaur fls_tspijl68lduc fls_k3hj30hjkdhw fls_32ncjvj2kn7z
+// Logos: error [.../f.logos]: syntax error near 'fn' at line 3 col 1 logosc: no modules loaded (exit 4)
+// rustc: rustc --edition 2024 compiles cleanly (rc=0)
+// fix hint: grammar: accept inner attributes / //! at the start of any block or item body, not only at file top.
+package inner_attr_in_item_body_refused;
+
+fn foo() -> i32 {
+    //! inner doc line
+    0
+}
+
+fn main() -> i32 {
+    foo()
+}

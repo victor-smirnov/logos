@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row println_empty_args_refused (tier 4, `refuses`). Rust-parity audit 2026-09-26 (low): println!() with no arguments is refused
+// Logos: error [fn main]: call to 'format_args_str': expected at least 1 args, got 0
+// rustc: compiles and runs, prints a single newline (0x0a), exit 0
+// fix hint: stdlib fmt println fn_macro: zero-arg form prints a newline.
+package println_empty_args_refused;
+use logos.std.fmt;
+fn main() -> i32 {
+    println!();
+    return 0;
+}

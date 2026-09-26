@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row asref_asmut_traits_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): AsRef / AsMut traits do not exist
+// Logos: error [impl AsRef for Wrapper]: impl: unknown trait 'AsRef'; error [fn takes_ref]: trait bound 'T: AsRef': unknown trait. grep of stdlib finds zero occurrences of 'trait AsRef' or 'AsRef<' anywhere.
+// rustc: compiles and runs, exit 0
+// fix hint: stdlib convert.logos: traits AsRef<T>/AsMut<T> + impls for String/str/Vec/[T]/Box.
+package asref_asmut_traits_refused;
+struct Wrapper { s: i32 }
+impl AsRef<i32> for Wrapper {
+    fn as_ref(self: &Self) -> &i32 { return &self.s; }
+}
+fn takes_ref<T: AsRef<i32>>(t: &T) -> i32 { return *t.as_ref(); }
+fn main() -> i32 {
+    let w = Wrapper { s: 42 };
+    if takes_ref(&w) != 42 { return 1; }
+    return 0;
+}

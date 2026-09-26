@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row rc_arc_assoc_fn_surface_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): Rc::new / Arc::new, Rc::strong_count, Rc::ptr_eq and Weak::new are missing or unsafe-only
+// Logos: error [fn main]: call to undefined static method 'Rc::new'
+// rustc: compiles, exits 10
+// fix hint: stdlib logos.lang.rc / arc: add Rc::new/Arc::new (wrap rc_new/arc_new), safe strong_count/weak_count(&Self), ptr_eq, and Weak::new().
+package rc_arc_assoc_fn_surface_refused;
+use logos.lang.rc;
+fn main() -> i32 {
+    let a: Rc<i32> = Rc::new(10);
+    return *a;
+}

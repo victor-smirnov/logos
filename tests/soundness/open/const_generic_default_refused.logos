@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row const_generic_default_refused (tier 3, `refuses`). Rust-parity audit 2026-09-26 (medium): Const generic parameter defaults (const N: usize = 3) do not parse
+// FLS: fls_3SjMBlc0b7qo fls_p4yb8EAXlRU0 fls_mDgq5XjzKAl3 fls_YufUgB25ovh3 fls_OhVxhJ23x7W2 fls_Kyar0jH9BqeW
+// Logos: Hard parse error: "syntax error near 'struct' at line 3 col 1"; logosc: no modules loaded.
+// rustc: Compiles cleanly, rc=0.
+// fix hint: grammar + sema: defaults for const params.
+package const_generic_default_refused;
+
+struct Arr<const N: usize = 3> {
+    x: [i32; N],
+}
+
+fn main() -> i32 {
+    let a: Arr = Arr { x: [0,0,0] };
+    a.x[0]
+}

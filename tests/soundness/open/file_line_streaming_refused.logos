@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row file_line_streaming_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): File cannot be wrapped in BufReader to stream lines (File has no Read impl)
+// Logos: Confirmed by source read of stdlib/std/io/fs/fs.logos: File{fd,ring} has fd private with no public accessor; impl File exposes only is_open/read_at/write_at/close (offset-based io_uring calls), no Read/Write trait impl. stdlib/std
+// rustc: compiles and runs, prints the 3 lines, exit 0
+// fix hint: stdlib std/io/fs: impl Read/Write for File (cursor over read_at/write_at) so buffered.logos BufReader::lines works.
+package file_line_streaming_refused;
+use logos.std.io.fs;
+use logos.std.io.buffered;
+use logos.mem.string;
+fn main() -> i32 {
+    let path: str = "/tmp/logos_audit_lines.txt";
+    let mut c: String = String::new();
+    c.push_str("line1\nline2\nline3\n");
+    let _ = write_string(path, &c);
+    let f = open(path).unwrap();
+    let mut r: BufReader<FdReader> = buf_reader_new(f.fd, 128 as i64);
+    return 0;
+}

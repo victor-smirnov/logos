@@ -1,0 +1,9 @@
+// SOUNDNESS QUEUE row main_signature_unchecked_admitted (tier 3, `admits`). Rust-parity audit 2026-09-26 (medium): main is not checked: unsafe/generic/parameterised main is accepted
+// FLS: fls_sbGnkm8Ephiu fls_o4fxok23134r fls_bk755pvc1l53 fls_a3je4wc53bmo fls_w8q15zp7kyl0
+// Logos: logosc compiles `unsafe fn main() -> i32` (and a generic / parameterised main) to an object file with only an unrelated unused-type-param warning; no diagnostic about the malformed entry point.
+// rustc: rustc rejects with E0580 ('main' function has wrong type: expected safe fn found unsafe fn); compilation aborts (exit 1).
+// fix hint: sema: E0580/E0131 checks on the entry point.
+package main_signature_unchecked_admitted;
+unsafe fn main() -> i32 {
+    return 0;
+}
