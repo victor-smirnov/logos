@@ -1,0 +1,8 @@
+// `{:?}` of a tuple of arrays: an array field formats through the generic Debug dispatcher.
+package tuple_of_arrays_debug_prints;
+use logos.std.fmt;
+fn main() -> i32 {
+    let pair = ([1i64, 2i64, 3i64], [4i64, 5i64]);
+    println!("{:?}", pair);
+    return 0;
+}

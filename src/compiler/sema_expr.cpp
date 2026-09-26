@@ -4534,6 +4534,21 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         _qg{&call_pkg_qualifier_, call_pkg_qualifier_};
     call_pkg_qualifier_ = extract_pkg_qualifier(node);
 
+    // CP-cm-03, EARLY: the prelude shorthand `Some(x)` / `Ok(x)` / `Err(x)` with
+    // no function or local of that name goes straight to the variant path,
+    // which lowers its payload ONCE under the position's hint — a speculative
+    // lowering first had no hint (`Some([])`: "element type unknown", and an
+    // orphaned inference variable).
+    if (call_pkg_qualifier_.empty() && !antiquot_callee &&
+        (callee == "Some" || callee == "Ok" || callee == "Err") &&
+        find_func_candidates(std::string(callee)).empty() && !lookup(callee)) {
+        const char* en = callee == "Some" ? "Option" : "Result";
+        auto [pkg, esi] = find_enum_by_name(en);
+        if (esi)
+            for (auto& v : esi->variants)
+                if (v.name == callee) return lower_enum_lit_data_from_static(node, en, std::string(callee));
+    }
+
     // ARGS is normally a raw array (plain `IDENT(args)` via `$...`). The
     // qualified `pkg::fn(args)` and antiquot (`#f(args)` / `#(f)(args)`)
     // alts instead carry a `call_arg_list` node `{ITEMS:[...]}` — unwrap
@@ -16247,6 +16262,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 TypeRef saved_hint = hint_enum_type_;
                 auto saved_rh = hint_call_return_type_;
                 auto saved_xh = hint_expected_type_;
+                auto saved_ah = hint_arr_elem_type_;
                 if (i < vinfo->payload_types.size()) {
                     TypeRef pt_i = vinfo->payload_types[i];
                     if (pt_i && !pre_subst.empty())
@@ -16259,11 +16275,13 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                         hint_call_return_type_ = pt_i;
                         hint_expected_type_ = pt_i;
                     }
+                    if (TypeRef el = payload_arr_elem_hint_(pt_i)) hint_arr_elem_type_ = el;
                 }
                 auto e = lower_expr(map_of(items.get(i)));
                 hint_enum_type_ = saved_hint;
                 hint_call_return_type_ = saved_rh;
                 hint_expected_type_ = saved_xh;
+                hint_arr_elem_type_ = saved_ah;
                 if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Void) continue;
                 payload.push_back(std::move(e));
             }
@@ -16405,6 +16423,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     if (wraps_dyn(h) && !wraps_dyn(inferred) &&
                         types_compatible(inferred, h))
                         inferred = h;
+                // The hint pins the parameter to a SLICE the payload `&[E; N]`
+                // unsizes to (`Some(&[])` as an `Option<&[i64]>`): coerce it.
+                if (auto h = hint_for_param(tvn))
+                    if (unsize_payload_to_hint_(payload[i], inferred, h)) inferred = h;
                 subst[tvn] = inferred;
             } else if (pt) {
                 // N8: the declared payload type is a STRUCTURAL type that
@@ -16641,6 +16663,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     TypeRef saved_hint = hint_enum_type_;
                     auto saved_rh = hint_call_return_type_;
                     auto saved_xh = hint_expected_type_;
+                    auto saved_ah = hint_arr_elem_type_;
                     if (i < vinfo->payload_types.size()) {
                         TypeRef pt_i = vinfo->payload_types[i];
                         if (pt_i && !pre_subst.empty())
@@ -16652,11 +16675,13 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                             hint_call_return_type_ = pt_i;
                             hint_expected_type_ = pt_i;
                         }
+                        if (TypeRef el = payload_arr_elem_hint_(pt_i)) hint_arr_elem_type_ = el;
                     }
                     payload.push_back(lower_expr(map_of(items.get(i))));
                     hint_enum_type_ = saved_hint;
                     hint_call_return_type_ = saved_rh;
                     hint_expected_type_ = saved_xh;
+                    hint_arr_elem_type_ = saved_ah;
                 }
             };
             if (args_av.is_pointer()) {
@@ -16794,6 +16819,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     wraps_dyn(psit2->second) && !wraps_dyn(inferred) &&
                     types_compatible(inferred, psit2->second))
                     inferred = psit2->second;
+                if (auto psit3 = pre_subst.find(tvn); psit3 != pre_subst.end() && psit3->second &&
+                    unsize_payload_to_hint_(payload[i], inferred, psit3->second))
+                    inferred = psit3->second;
                 // Payload-derived inference fills any slot still
                 // missing after the explicit turbofish pass above.
                 auto& slot = subst[tvn];

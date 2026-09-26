@@ -476,14 +476,29 @@ pub fn fmt_seq(a: Result<(), Error>, b: Result<(), Error>) -> Result<(), Error> 
         Result::Ok(_)  => { return b; }
     }
 }
-/// Writes the tuple-`Debug` opener `(`.
-pub fn fmt_tuple_open(f: &mut Formatter)   -> Result<(), Error> { return f.write_str("("); }
-/// Writes the tuple-`Debug` separator `, `.
-pub fn fmt_tuple_sep(f: &mut Formatter)    -> Result<(), Error> { return f.write_str(", "); }
-/// Writes the tuple-`Debug` closer `)`.
-pub fn fmt_tuple_close(f: &mut Formatter)  -> Result<(), Error> { return f.write_str(")"); }
-/// Writes the 1-tuple closer `,)`.
-pub fn fmt_tuple_close1(f: &mut Formatter) -> Result<(), Error> { return f.write_str(",)"); }
+// Under `{:#?}` each field goes on its own line, indented, with a trailing
+// comma (Rust's `(\n    1,\n    2,\n)`).
+/// Writes the tuple-`Debug` opener `(` (and, pretty, the first field's indent).
+pub fn fmt_tuple_open(f: &mut Formatter) -> Result<(), Error> {
+    let r = f.write_str("(");
+    if f.alternate { f.indent_inc(); return f.write_indent(); }
+    return r;
+}
+/// Writes the tuple-`Debug` separator `, ` (pretty: `,` and a new indented line).
+pub fn fmt_tuple_sep(f: &mut Formatter) -> Result<(), Error> {
+    if f.alternate { let _ = f.write_str(","); return f.write_indent(); }
+    return f.write_str(", ");
+}
+/// Writes the tuple-`Debug` closer `)` (pretty: `,`, the outer indent, `)`).
+pub fn fmt_tuple_close(f: &mut Formatter) -> Result<(), Error> {
+    if f.alternate { f.indent_dec(); let _ = f.write_str(","); let _ = f.write_indent(); }
+    return f.write_str(")");
+}
+/// Writes the 1-tuple closer `,)` (pretty: as `fmt_tuple_close`).
+pub fn fmt_tuple_close1(f: &mut Formatter) -> Result<(), Error> {
+    if f.alternate { return fmt_tuple_close(f); }
+    return f.write_str(",)");
+}
 
 // ── Primitive impls ─────────────────────────────────────────────────
 //
@@ -686,12 +701,8 @@ impl<A...: Debug> Debug for (A...) {
 impl<T: Debug> Debug for Option<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            Option::Some(v) => {
-                let _ = f.write_str("Some(");
-                let _ = v.fmt(f);
-                return f.write_str(")");
-            }
-            Option::None => { return f.write_str("None"); }
+            Option::Some(v) => { return f.debug_tuple("Some").field(v).finish(); }
+            Option::None    => { return f.write_str("None"); }
         }
     }
 }
@@ -699,16 +710,8 @@ impl<T: Debug> Debug for Option<T> {
 impl<T: Debug, E: Debug> Debug for Result<T, E> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            Result::Ok(v) => {
-                let _ = f.write_str("Ok(");
-                let _ = v.fmt(f);
-                return f.write_str(")");
-            }
-            Result::Err(e) => {
-                let _ = f.write_str("Err(");
-                let _ = e.fmt(f);
-                return f.write_str(")");
-            }
+            Result::Ok(v)  => { return f.debug_tuple("Ok").field(v).finish(); }
+            Result::Err(e) => { return f.debug_tuple("Err").field(e).finish(); }
         }
     }
 }
@@ -729,29 +732,20 @@ impl<T: Display> Display for &mut T {
 
 impl<T: Debug, const N: usize> Debug for [T; N] {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_str("[");
+        let mut l: DebugList = f.debug_list();
         let mut i: usize = 0usize;
-        while i < N {
-            if i > 0usize { let _ = f.write_str(", "); }
-            let _ = self[i].fmt(f);
-            i = i + 1usize;
-        }
-        return f.write_str("]");
+        while i < N { let _ = l.entry(&self[i]); i = i + 1usize; }
+        return l.finish();
     }
 }
 
 impl<T: Debug> Debug for Vec<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_str("[");
+        let mut l: DebugList = f.debug_list();
         let n: i64 = self.length();
         let mut i: i64 = 0i64;
-        while i < n {
-            if i > 0i64 { let _ = f.write_str(", "); }
-            let v: &T = self.borrow(i);
-            let _ = v.fmt(f);
-            i = i + 1i64;
-        }
-        return f.write_str("]");
+        while i < n { let v: &T = self.borrow(i); let _ = l.entry(v); i = i + 1i64; }
+        return l.finish();
     }
 }
 

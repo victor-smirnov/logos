@@ -5563,6 +5563,21 @@ void SemaChecker::collect_impl(TinyMapView node) {
             error(std::format("conflicting implementations of trait '{}' for type '{}'",
                               trait_name, target));
         }
+        // Array impls key by PATTERN spelling (`$array$T$N`, `$array$u8$2`), so
+        // two overlapping impls hold different keys: they overlap when their
+        // element spellings unify (`_` / a bare `T` matches anything) and
+        // their lengths agree or one is `N` — rustc E0119.
+        if (!impl_is_negative && target.rfind("$array$", 0) == 0) {
+            const DefId tdef = info.trait_def ? info.trait_def : impl_trait_id(trait_name);
+            for (auto& [k, _v] : impls_all_) {
+                if (k.trait_def != tdef || k.target == target || k.target.rfind("$array$", 0) != 0) continue;
+                if (array_impl_keys_overlap(k.target, target)) {
+                    error(std::format("conflicting implementations of trait '{}' for type '{}' and '{}' (E0119)",
+                                      trait_name, array_impl_key_display(k.target), array_impl_key_display(target)));
+                    break;
+                }
+            }
+        }
         if (!is_generic_impl) {
             coherence_keys_.insert(coh_key);
             if (!cur_from_binary_) user_coherence_keys_.insert(coh_key);

@@ -1007,6 +1007,8 @@ std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_vi
 // the LOOKUP keys of a concrete array, most specific first.
 std::string array_impl_target_key(TypeRef pattern);
 std::vector<std::string> array_impl_lookup_keys(TypeRef concrete);
+bool array_impl_keys_overlap(std::string_view a, std::string_view b);
+std::string array_impl_key_display(std::string_view key);
 
 // G156-1 — the phase-scoped ambiguous-type-name set. A bare nominal name is
 // "ambiguous" iff it is declared in ≥2 DISTINCT packages across the current

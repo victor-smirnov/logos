@@ -1,0 +1,12 @@
+// Array impls whose patterns do not overlap coexist: distinct lengths, distinct element heads (rustc accepts; exit 0).
+package array_impl_disjoint_patterns;
+trait Kind { fn kind(&self) -> i64; }
+impl<T> Kind for [T; 2] { fn kind(&self) -> i64 { return 2i64; } }
+impl<T> Kind for [T; 3] { fn kind(&self) -> i64 { return 3i64; } }
+trait Tag { fn tag(&self) -> i64; }
+impl<T, const N: usize> Tag for [Option<T>; N] { fn tag(&self) -> i64 { return 10i64; } }
+impl<const N: usize> Tag for [u8; N] { fn tag(&self) -> i64 { return 20i64; } }
+fn main() -> i32 {
+    let r = [1i64, 2i64].kind() + [1u8, 2u8, 3u8].kind() + [Some(1i64)].tag() + [7u8, 8u8].tag();
+    return (r - 35i64) as i32;
+}

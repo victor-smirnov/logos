@@ -1,8 +1,0 @@
-// SOUNDNESS QUEUE row array_impl_overlap_coherence_admitted (tier 2, `admits`). Found 2026-09-25 by the discovery battery.
-// `impl<T> Kind for [T; 2]` beside `impl Kind for [u8; 2]`: rustc E0119 (conflicting implementations). Logos accepts and
-// picks the more specific one — coherence is not checked across the `$array$` keys.
-package array_impl_overlap_coherence_admitted;
-trait Kind { fn kind(&self) -> i64; }
-impl<T> Kind for [T; 2] { fn kind(&self) -> i64 { return 100i64; } }
-impl Kind for [u8; 2] { fn kind(&self) -> i64 { return 200i64; } }
-fn main() -> i32 { let a: [u8; 2] = [1u8, 2u8]; return (a.kind() - 200i64) as i32; }

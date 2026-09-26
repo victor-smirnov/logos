@@ -1,0 +1,8 @@
+// `let c: Option<[i64; 0]> = Some([]);`: the payload's array literal takes its element from the annotation.
+package option_empty_array_annotation_prints;
+use logos.std.fmt;
+fn main() -> i32 {
+    let c: Option<[i64; 0]> = Some([]);
+    println!("{:?}", c);
+    return 0;
+}

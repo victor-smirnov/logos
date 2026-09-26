@@ -11769,11 +11769,48 @@ sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Format
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__i64__&[u8]__&[u8]__i64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__&[u8]__i64__i64__&[u8]__i64__i64__&[u8]
 sym	logos_mem..logos.mem.fmt.*const u8__fmt__f__ref_pcst_u8__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__&[u8]
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__(&[u8], &[u8])
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__(&[u8], &[u8], &[u8])
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__(&[u8], &[u8], &[u8], &[u8])
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__(&[u8], &[u8], &[u8], &[u8], &[u8])
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__(&[u8], i64, &[u8])
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__(&[u8], i64, &[u8], &[u8], i64)
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__(i64, &[u8], i64, i64, &[u8], i64, i64, &[u8])
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__String
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__bool
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__i32
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__i64
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__u16
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__u32
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__u64
+sym	logos_mem..logos.mem.fmt.DebugList__entry__g__refmut_DebugList__ref_T__u8
 sym	logos_mem..logos.mem.fmt.DebugList__finish__f__refmut_DebugList
 sym	logos_mem..logos.mem.fmt.DebugMap__finish__f__refmut_DebugMap
 sym	logos_mem..logos.mem.fmt.DebugSet__finish__f__refmut_DebugSet
 sym	logos_mem..logos.mem.fmt.DebugStruct__finish__f__refmut_DebugStruct
 sym	logos_mem..logos.mem.fmt.DebugStruct__finish_non_exhaustive__f__refmut_DebugStruct
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__&[u8]
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Ordering$Macc8979d95601b4b
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__String
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$slice_u8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$3$slice_u8$i64$slice_u8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__bool
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__f32
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__f64
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i16
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i32
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i64
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__u16
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__u32
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__u64
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__u8
 sym	logos_mem..logos.mem.fmt.DebugTuple__finish__f__refmut_DebugTuple
 sym	logos_mem..logos.mem.fmt.Formatter__as_formatter__f__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Formatter__debug_list__f__refmut_Formatter

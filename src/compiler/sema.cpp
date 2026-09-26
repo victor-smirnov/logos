@@ -1725,6 +1725,49 @@ static void array_elem_generalizations(TypeRef t, int d, std::vector<std::string
     out.push_back("_");
 }
 
+// Two `$array$<E>$<N>` impl keys overlap: the lengths agree or one is `N`, and
+// the element spellings unify with `_` (or a whole `T`) as a wildcard.
+static bool array_spelling_unify(std::string_view a, std::string_view b) {
+    auto wild = [](std::string_view x) { return x == "_" || x == "T"; };
+    if (wild(a) || wild(b)) return true;
+    auto split = [](std::string_view x, std::string_view& head, std::vector<std::string_view>& args) {
+        auto lt = x.find('<');
+        if (lt == std::string_view::npos || x.back() != '>') { head = x; return; }
+        head = x.substr(0, lt);
+        std::string_view in = x.substr(lt + 1, x.size() - lt - 2);
+        int depth = 0; size_t st = 0;
+        for (size_t i = 0; i < in.size(); ++i) {
+            char c = in[i];
+            if (c == '<' || c == '(' || c == '[') ++depth;
+            else if (c == '>' || c == ')' || c == ']') --depth;
+            else if (c == ',' && depth == 0) { args.push_back(in.substr(st, i - st)); st = i + 1; }
+        }
+        args.push_back(in.substr(st));
+    };
+    std::string_view ha, hb; std::vector<std::string_view> aa, ab;
+    split(a, ha, aa); split(b, hb, ab);
+    if (ha != hb || aa.size() != ab.size()) return false;
+    for (size_t i = 0; i < aa.size(); ++i)
+        if (!array_spelling_unify(aa[i], ab[i])) return false;
+    return true;
+}
+bool array_impl_keys_overlap(std::string_view ka, std::string_view kb) {
+    auto parts = [](std::string_view k, std::string_view& e, std::string_view& n) {
+        k.remove_prefix(7);                       // "$array$"
+        auto d = k.rfind('$');
+        e = k.substr(0, d); n = k.substr(d + 1);
+    };
+    std::string_view ea, na, eb, nb;
+    parts(ka, ea, na); parts(kb, eb, nb);
+    if (!(na == nb || na == "N" || nb == "N")) return false;
+    return array_spelling_unify(ea, eb);
+}
+std::string array_impl_key_display(std::string_view k) {
+    k.remove_prefix(7);
+    auto d = k.rfind('$');
+    return "[" + std::string(k.substr(0, d)) + "; " + std::string(k.substr(d + 1)) + "]";
+}
+
 std::string array_impl_target_key(TypeRef pattern) {
     if (!pattern || TypeRef(pattern).kind() != LogosType::Kind::Array) return {};
     std::string e = array_elem_pattern_spelling(TypeRef(pattern).elem(), 0);

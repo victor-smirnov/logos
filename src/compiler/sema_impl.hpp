@@ -8629,6 +8629,27 @@ private:
     bool infer_unify_(TypeRef a, TypeRef b);
     bool infer_unify_rec_(TypeRef a, TypeRef b, int d);
     lir::LExprPtr lower_typed_const_(sema_detail::TinyMapView ast, TypeRef declared);
+    // The element a payload's concrete array/slice type (behind `&` too) gives an
+    // array literal in that position (`Some([])` under `Option<[i64; 0]>`).
+    // `&[E; N]` payload under a hint that pins the parameter to `&[E]`: the
+    // payload is coerced (unsized) to the hint; true when it was.
+    bool unsize_payload_to_hint_(lir::LExprPtr& e, TypeRef inferred, TypeRef hint) {
+        if (!e || !inferred || !hint || types_equal(inferred, hint)) return false;
+        if (TypeRef(hint).kind() != LogosType::Kind::Slice) return false;
+        TypeRef it(inferred);
+        if ((it.kind() != LogosType::Kind::Ref && it.kind() != LogosType::Kind::MutRef) || !it.pointee() ||
+            TypeRef(it.pointee()).kind() != LogosType::Kind::Array) return false;
+        apply_place_coercions(e, hint);
+        return TypeRef(expr_type(e)).kind() == LogosType::Kind::Slice;
+    }
+    TypeRef payload_arr_elem_hint_(TypeRef pt) {
+        if (!pt || !type_is_concrete(pt)) return nullptr;
+        TypeRef t(pt);
+        if ((t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef) && t.pointee())
+            t = t.pointee();
+        if (t.kind() == LogosType::Kind::Array || t.kind() == LogosType::Kind::Slice) return t.elem();
+        return nullptr;
+    }
     // Close the function: E0282 for an open variable, the solutions to mono.
     void infer_close_fn_(const std::string& fn_name);
     // g6b: expected ELEMENT type for an array/slice literal, from a `let

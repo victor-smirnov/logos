@@ -1,0 +1,11 @@
+// Array literals as enum payloads under a hint: empty and filled, Ok/Some bare and qualified, `Some(&[])` unsized to `Option<&[i64]>` (rustc).
+package enum_payload_array_literal_hint_shapes;
+use logos.std.fmt;
+fn len_of(o: Option<&[i64]>) -> i64 { match o { Some(s) => { return s.len(); } None => { return -1i64; } } }
+fn main() -> i32 {
+    let c: Option<[i64; 0]> = Some([]);
+    let d: Option<[i64; 2]> = Option::Some([4i64, 5i64]);
+    let e: Result<[u8; 0], i64> = Ok([]);
+    println!("{:?} {:?} {:?}", c, d, e);
+    return len_of(Some(&[])) as i32;
+}

@@ -1,0 +1,13 @@
+// Tuples and arrays nested both ways under {:?}: array fields in tuples, tuples in arrays, zero-length (rustc output).
+package tuple_array_debug_nesting_shapes;
+use logos.std.fmt;
+struct P { x: i64 }
+impl Debug for P { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { let _ = f.write_str("P"); return f.write_int_dec_i64(self.x); } }
+fn main() -> i32 {
+    println!("{:?}", ([1i64, 2i64], ([3u8], 4i64)));
+    println!("{:?}", ([P { x: 1 }, P { x: 2 }], true));
+    println!("{:?}", [(1i64, [2i64, 3i64]), (4i64, [5i64, 6i64])]);
+    let e: [i64; 0] = [];
+    println!("{:?}", (e, 7i64));
+    return 0;
+}

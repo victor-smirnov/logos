@@ -1,0 +1,1 @@
+conflicting implementations of trait 'Kind' for type '[T; 2]' and '[u8; 2]' (E0119)

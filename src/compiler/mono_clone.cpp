@@ -2895,9 +2895,30 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 et.elem() && et.elem().kind() == LogosType::Kind::U8)
                                 en = "str";
                             std::string sym = resolve_dbg(en);
-                            // By-value receiver; mlir-gen's primitive-receiver
-                            // fast-path spills it for the `&self` param.
-                            fld = lb.method_call(field, "fmt", sym, {}, { lb.reuse_mut_ref(f_r) }, -1, res_t);
+                            if (et.kind() != LogosType::Kind::Array && sym != en + "__fmt") {
+                                // By-value receiver; mlir-gen's primitive-receiver
+                                // fast-path spills it for the `&self` param.
+                                fld = lb.method_call(field, "fmt", sym, {}, { lb.reuse_mut_ref(f_r) }, -1, res_t);
+                            } else {
+                                // No `<name>__fmt` instance to name (an array, an
+                                // enum over one, …): call the generic dispatcher
+                                // `fmt_debug::<E>(&field, fmt)`, which reaches the
+                                // impl through ordinary dispatch.
+                                std::string tmpl;
+                                for (auto& [k, _] : templates_) {
+                                    auto q = k.find("fmt_debug");
+                                    if (q == std::string::npos || (q > 0 && k[q - 1] != '.' && k[q - 1] != '$')) continue;
+                                    auto tail = std::string_view(k).substr(q + 9);
+                                    if (tail.empty() || tail.starts_with("__g__") || tail.starts_with("__f__")) { tmpl = k; break; }
+                                }
+                                LogosTypeBuilder rb; rb.kind = LogosType::Kind::Ref; rb.pointee = et;
+                                TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
+                                auto fref = lb.addr_of_temp(field, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
+                                std::vector<TypeRef> targs{et};
+                                std::string callee = tmpl.empty() ? std::string("fmt_debug") : mangle(tmpl, targs);
+                                if (!tmpl.empty()) enqueue_if_needed(callee, targs);
+                                fld = lb.call(callee, targs, { fref, lb.reuse_mut_ref(f_r) }, res_t);
+                            }
                         }
                         chain = lb.call(seq_sym, {}, { chain, fld }, res_t);
                     }
