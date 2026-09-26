@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row debug_through_generic_ref_unresolved (tier 3, `refuses`).
+// `fn show<T: Debug>(t: &T) { println!("{:?}", t); }` called with `&P` dies in
+// mlir_gen: "'func.call' op '&P__fmt' does not reference a valid function". Rust
+// formats through `impl<T: ?Sized + Debug> Debug for &T`. Adding that impl to
+// stdlib (2026-09-25) did not help: mono's generic dispatch tries the concrete
+// `$ref_<C>` key only, never the `$ref_$T` blanket, so no instance is made —
+// the root is the blanket dispatch, not the missing impl. rustc prints P5.
+package debug_through_generic_ref_unresolved;
+use logos.std.fmt;
+struct P { x: i64 }
+impl Debug for P {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { let _ = f.write_str("P"); return f.write_int_dec_i64(self.x); }
+}
+fn show<T: Debug>(t: &T) { println!("{:?}", t); }
+fn main() -> i32 { show(&P { x: 5 }); return 0i32; }

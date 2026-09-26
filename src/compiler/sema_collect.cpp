@@ -1598,18 +1598,13 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         (selem ? type_str(selem) : std::string("?"))})) continue;
                 if (impls_.count(ImplKey{bid_def, "$slice$T"})) continue;
             }
-            // Slice-impl bound satisfaction (the Sized-partition pattern):
-            // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
-            // elem impls under `$slice$<elem>`). A concrete [u8] satisfies
-            // the bound through either key; the impl's own element bounds
-            // are validated at monomorphization like the generic-struct and
-            // tuple paths below.
-            if ((cv.kind() == LogosType::Kind::Slice ||
-                 cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
-                TypeRef selem = cv.elem();
-                if (impls_.count(ImplKey{bid_def, "$slice$" +
-                        (selem ? type_str(selem) : std::string("?"))})) continue;
-                if (impls_.count(ImplKey{bid_def, "$slice$T"})) continue;
+            // Array-impl bound satisfaction, the same way: any of the
+            // `$array$` keys; element bounds validate at monomorphization.
+            if (cv.kind() == LogosType::Kind::Array && type_args_ok) {
+                bool found = false;
+                for (auto& k : array_impl_lookup_keys(cv))
+                    if (impls_.count(ImplKey{bid_def, k})) { found = true; break; }
+                if (found) continue;
             }
             // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
             // are registered under `$tuple$N` (generic, mirrors the
@@ -3828,6 +3823,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         }
                     }
                 }
+            }
+        } else if (code_of(tnode) == la::ARR_TYPE) {
+            // `impl … for [E; N]`: keyed `$array$<E>$<N>` (array_impl_target_key); the
+            // lowering pass (sema_decl) spells the same key.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            target = array_impl_target_key(resolved);
+            if (target.empty()) {
+                error("impl over an array whose element is a compound generic type is not supported "
+                      "(write the element as a type parameter, `impl<T, const N: usize> … for [T; N]`)");
+                target = "$array$?";   // said once; the methods register under a dead key
             }
         } else if (code_of(tnode) == la::FN_PTR_TYPE) {
             // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` — fn-pointer is

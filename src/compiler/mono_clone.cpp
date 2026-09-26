@@ -4106,6 +4106,24 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // this the callee lands on the literal/str spelling and the
                 // `impl for [E]` instance is never found (Sized-partition
                 // probe: stride_of::<[u8]> → str__stride, invalid).
+                auto has_m = [&](const std::string& base) -> bool {
+                    std::string fn = base + "__" + method;
+                    if (templates_.count(fn) || specs_.count(fn)) return true;
+                    std::string pfx = fn + "__";
+                    std::string dotp = "." + pfx;
+                    for (auto& [kn, _] : templates_)
+                        if (kn.rfind(pfx, 0) == 0 ||
+                            kn.find(dotp) != std::string::npos) return true;
+                    for (auto& f : in_.functions) {
+                        auto t = bare_fn_name(f.name());
+                        if (t == fn || t.rfind(pfx, 0) == 0) return true;
+                    }
+                    for (auto& f : out_.functions) {
+                        auto t = bare_fn_name(f.name());
+                        if (t == fn || t.rfind(pfx, 0) == 0) return true;
+                    }
+                    return false;
+                };
                 {
                     TypeRef slice_rt = rt;
                     while (slice_rt &&
@@ -4121,24 +4139,6 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                          (TypeRef(rt).pointee() &&
                           cname == type_str(TypeRef(rt).pointee())))) {
                         TypeRef elem = TypeRef(slice_rt).elem();
-                        auto has_m = [&](const std::string& base) -> bool {
-                            std::string fn = base + "__" + method;
-                            if (templates_.count(fn) || specs_.count(fn)) return true;
-                            std::string pfx = fn + "__";
-                            std::string dotp = "." + pfx;
-                            for (auto& [kn, _] : templates_)
-                                if (kn.rfind(pfx, 0) == 0 ||
-                                    kn.find(dotp) != std::string::npos) return true;
-                            for (auto& f : in_.functions) {
-                                auto t = bare_fn_name(f.name());
-                                if (t == fn || t.rfind(pfx, 0) == 0) return true;
-                            }
-                            for (auto& f : out_.functions) {
-                                auto t = bare_fn_name(f.name());
-                                if (t == fn || t.rfind(pfx, 0) == 0) return true;
-                            }
-                            return false;
-                        };
                         std::string conc = "$slice$" + (elem ? type_str(elem) : std::string("?"));
                         if (has_m(conc))                cname = conc;
                         else if (has_m("$slice$T"))     cname = "$slice$T";
@@ -4146,6 +4146,21 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                  TypeRef(elem).kind() == LogosType::Kind::U8 &&
                                  has_m("str"))          cname = "str";
                     }
+                }
+                // The same ladder for an ARRAY receiver: the `$array$` keys,
+                // most specific first (array_impl_lookup_keys).
+                {
+                    TypeRef arr_rt = rt;
+                    while (arr_rt && (TypeRef(arr_rt).kind() == LogosType::Kind::Ptr ||
+                                      TypeRef(arr_rt).kind() == LogosType::Kind::Ref ||
+                                      TypeRef(arr_rt).kind() == LogosType::Kind::MutRef) &&
+                           TypeRef(arr_rt).pointee())
+                        arr_rt = TypeRef(arr_rt).pointee();
+                    if (arr_rt && TypeRef(arr_rt).kind() == LogosType::Kind::Array &&
+                        (cname.empty() || cname == type_str(rt) ||
+                         (TypeRef(rt).pointee() && cname == type_str(TypeRef(rt).pointee()))))
+                        for (auto& k : array_impl_lookup_keys(arr_rt))
+                            if (has_m(k)) { cname = k; break; }
                 }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";
@@ -4675,6 +4690,38 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 rebuilt.insert(rebuilt.end(),
                                                nc.type_args.end() - method_slots,
                                                nc.type_args.end());
+                            nc.type_args = std::move(rebuilt);
+                        }
+                    }
+                    // `$array$T$N` / `$array$T$<n>` / `$array$<e>$N` — the impl-level
+                    // slots (one per `T`/`N` in the key) take the receiver
+                    // array's element and length, a const slot the length.
+                    if (cname.rfind("$array$", 0) == 0) {
+                        TypeRef a_rt = rt;
+                        while (a_rt && (TypeRef(a_rt).kind() == LogosType::Kind::Ptr ||
+                                        TypeRef(a_rt).kind() == LogosType::Kind::Ref ||
+                                        TypeRef(a_rt).kind() == LogosType::Kind::MutRef) &&
+                               TypeRef(a_rt).pointee())
+                            a_rt = TypeRef(a_rt).pointee();
+                        std::string_view rest = std::string_view(cname).substr(7);
+                        auto dol = rest.rfind('$');
+                        size_t impl_slots = (rest.substr(0, dol) == "T") + (rest.substr(dol + 1) == "N");
+                        if (impl_slots && a_rt && TypeRef(a_rt).kind() == LogosType::Kind::Array) {
+                            std::vector<bool> is_const;
+                            if (auto tit = templates_.find(tmpl_key); tit != templates_.end())
+                                tit->second.each_type_param([&](lir_view::FnTParamView tp) {
+                                    is_const.push_back(tp.is_const());
+                                });
+                            LogosTypeBuilder nl; nl.kind = LogosType::Kind::IntLit;
+                            nl.const_val = int64_t(TypeRef(a_rt).arr_size());
+                            TypeRef len_t = out_.type_pool.alloc(nl);
+                            std::vector<TypeRef> rebuilt;
+                            for (size_t i = 0; i < impl_slots; ++i)
+                                rebuilt.push_back(i < is_const.size() && is_const[i] ? len_t
+                                                                                     : TypeRef(TypeRef(a_rt).elem()));
+                            size_t method_slots = tmpl_tparam_count > impl_slots ? tmpl_tparam_count - impl_slots : 0;
+                            if (method_slots > 0 && nc.type_args.size() >= method_slots)
+                                rebuilt.insert(rebuilt.end(), nc.type_args.end() - method_slots, nc.type_args.end());
                             nc.type_args = std::move(rebuilt);
                         }
                     }
@@ -6160,6 +6207,12 @@ bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
             }
         }
     }
+    // Array concretes the same way, through the `$array$` keys.
+    if (TypeRef(concrete).kind() == LogosType::Kind::Array)
+        for (auto& id : (q.has_identity ? std::vector<std::string>{q.identity}
+                                        : bare_trait_identities_(q.spelling)))
+            for (auto& k : array_impl_lookup_keys(concrete))
+                if (has_concrete_impl_(id, k)) return true;
 
     // Strip the concrete name the same way method_bound_ok does so
     // the trait-engine lookup keys line up.

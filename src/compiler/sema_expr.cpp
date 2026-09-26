@@ -5764,8 +5764,8 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             // expression can't be inverted from the actual length, so skip
             // the bind (N is inferred elsewhere, or inference fails cleanly).
             std::string asv(formal.arr_size_var());
-            if (!asv.empty() && asv.rfind(ARR_LEN_EXPR_PFX, 0) != 0
-                && actual_norm.arr_size() > 0
+                    if (!asv.empty() && asv.rfind(ARR_LEN_EXPR_PFX, 0) != 0
+                && actual_norm.arr_size_var().empty()   // a concrete length, 0 included
                 && !bindings.count(asv)) {
                 LogosTypeBuilder lt;
                 lt.kind = LogosType::Kind::IntLit;
@@ -9717,6 +9717,56 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tuple(
     return std::nullopt;
 }
 
+// `impl … for [E; N]` methods: the `$array$` keys, most specific first
+// (array_impl_lookup_keys); the impl's parameters bind by unifying its target
+// pattern with the receiver (`T` from the element, `N` from the length).
+std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
+        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
+    TypeRef arr_t = expr_type(recv);
+    bool recv_is_ref = false;
+    if (arr_t && is_ref_like(TypeRef(arr_t).kind()) && TypeRef(arr_t).pointee()) {
+        recv_is_ref = true;
+        arr_t = TypeRef(arr_t).pointee();
+    }
+    if (!arr_t || TypeRef(arr_t).kind() != LogosType::Kind::Array) return std::nullopt;
+    const SemaFuncInfo* fi_ptr = nullptr;
+    std::string key;
+    for (auto& base : array_impl_lookup_keys(arr_t)) {
+        key = base + "__" + std::string(method_name);
+        auto cands = find_func_candidates(key);
+        if (!cands.empty()) { fi_ptr = cands[0]; break; }
+        if ((fi_ptr = find_generic_func(key))) break;
+    }
+    if (!fi_ptr) return std::nullopt;
+    std::vector<lir::LExprPtr> args = lower_call_args(node);
+    StrMap<TypeRef> binds;
+    if (fi_ptr->impl_target_pattern) unify_types(fi_ptr->impl_target_pattern, arr_t, binds);
+    SemaSubst subst;
+    std::vector<TypeRef> targs;
+    for (auto& tp : fi_ptr->type_params) {
+        auto it = binds.find(tp.name);
+        TypeRef t = it != binds.end() ? it->second : error_t();
+        targs.push_back(t);
+        subst[tp.name] = t;
+    }
+    TypeRef formal0 = fi_ptr->param_types.empty() ? TypeRef(nullptr)
+                                                  : subst_type_sema(fi_ptr->param_types[0], subst);
+    bool formal_is_ref = formal0 && is_ref_like(TypeRef(formal0).kind());
+    if (formal_is_ref && !recv_is_ref) {
+        bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+        recv = materialize_recv_ref(std::move(recv), is_mut, make_ref(is_mut, arr_t), BorrowOrigin::Autoref);
+    } else if (!formal_is_ref && recv_is_ref) {
+        recv = builder().deref(std::move(recv), arr_t);
+    }
+    std::vector<lir::LExprPtr> pargs;
+    pargs.push_back(std::move(recv));
+    for (auto& a : args) pargs.push_back(std::move(a));
+    std::string sym = fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name;
+    if (!fi_ptr->type_params.empty())
+        return finish_generic_call(sym, *fi_ptr, std::move(targs), std::move(pargs));
+    return builder().call(sym, {}, std::move(pargs), fi_ptr->ret_type);
+}
+
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     const auto recv_node = map_of(node.get(la::RECEIVER.code));
@@ -9967,6 +10017,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // for trait methods that take `&Self` (e.g. Eq.eq).
     if (auto r = try_method_on_tuple(node, recv, method_name)) return *r;
 
+    if (auto r = try_method_on_array(node, recv, method_name)) return *r;
     if (auto r = try_method_on_slice(node, recv, method_name)) return *r;
 
     // §1 Wave 9 (a43/h08) — `[T; N].len()`: built-in for a raw fixed
@@ -28363,6 +28414,8 @@ bool SemaChecker::infer_unify_rec_(TypeRef a, TypeRef b, int d) {
     if (!a || !b || d > 24) return false;
     auto open = [&](TypeRef t) {
         if (TypeRef(t).kind() != LogosType::Kind::TypeVar) return false;
+        // KEY-IDENTITY: an INFERENCE VARIABLE's name, `?iN`, minted unique per
+        // function by mint_infer_var_ — no entity, no package to carry.
         auto it = infer_solved_.find(std::string(TypeRef(t).type_var_name()));
         return it != infer_solved_.end() && !it->second;
     };

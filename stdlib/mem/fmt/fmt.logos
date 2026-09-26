@@ -705,6 +705,19 @@ impl<T: Debug, E: Debug> Debug for Result<T, E> {
     }
 }
 
+impl<T: Debug, const N: usize> Debug for [T; N] {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let _ = f.write_str("[");
+        let mut i: usize = 0usize;
+        while i < N {
+            if i > 0usize { let _ = f.write_str(", "); }
+            let _ = self[i].fmt(f);
+            i = i + 1usize;
+        }
+        return f.write_str("]");
+    }
+}
+
 impl<T: Debug> Debug for Vec<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let _ = f.write_str("[");

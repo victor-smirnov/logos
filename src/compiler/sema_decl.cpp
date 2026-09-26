@@ -2663,6 +2663,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                 }
             }
+        } else if (code_of(tnode) == la::ARR_TYPE) {
+            // `impl … for [E; N]`: keyed `$array$<E>$<N>` (array_impl_target_key), as in collect_impl.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            target = array_impl_target_key(resolved);
         } else if (code_of(tnode) == la::FN_PTR_TYPE) {
             // G149-6: parallel to sema_collect — fn-pointer impl target keyed
             // by arity (`$fnptr$N`); type-erased to a uniform pointer.

@@ -1,0 +1,41 @@
+// `impl … for [T; N]`: std's array Debug, and a user trait over arrays — generic,
+// length-concrete and nested, zero length included, dispatched directly and from
+// a generic body.
+package array_debug_and_trait_impls;
+use logos.std.fmt;
+struct P { x: i64 }
+impl Debug for P {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { let _ = f.write_str("P"); return f.write_int_dec_i64(self.x); }
+}
+trait Sum { fn sum(&self) -> i64; }
+impl Sum for i64 { fn sum(&self) -> i64 { return *self; } }
+impl<T: Sum, const N: usize> Sum for [T; N] {
+    fn sum(&self) -> i64 {
+        let mut t: i64 = 0i64;
+        let mut i: usize = 0usize;
+        while i < N { t = t + self[i].sum(); i = i + 1usize; }
+        return t;
+    }
+}
+trait Tag { fn tag(&self) -> i64; }
+impl Tag for [u8; 2] { fn tag(&self) -> i64 { return 200i64 + self[0] as i64; } }
+impl<T> Tag for [T; 3] { fn tag(&self) -> i64 { return 3i64; } }
+fn total<T: Sum>(t: &T) -> i64 { return t.sum(); }
+fn main() -> i32 {
+    let a: [i64; 3] = [0i64; 3];
+    println!("{:?}", a);
+    println!("{:?}", [1i64, 2]);
+    let n = [[1u8, 2u8], [3u8, 4u8]];
+    println!("{:?}", n);
+    let e: [i32; 0] = [];
+    println!("{:?}", e);
+    let s = [Some(1i64), None];
+    println!("{:?}", s);
+    let ps = [P { x: 5 }, P { x: 6 }];
+    println!("{:?}", ps);
+    let b = [[1i64, 2i64], [3i64, 4i64]];
+    let z: [i64; 0] = [];
+    let r = b.sum() + total(&b) + total(&z) + [7u8, 1u8].tag() + [true, false, true].tag();
+    println!("{}", r);
+    return 0i32;
+}

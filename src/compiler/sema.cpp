@@ -1007,6 +1007,10 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // const_val would collapse and lose the value (notably breaks the
         // sizeof-pack array-size path which materialises IntLit(N) via
         // pool->alloc to feed subst_type_sema).
+        // A PRESENCE bit first: a bare `{integer}` (no value) and IntLit(0)
+        // are two types — value_or(0) alone interned `[T; 0]`'s bound length
+        // as the valueless literal, and `N` stayed unbound.
+        put_u64(buf, t.const_val.has_value() ? 1u : 0u);
         put_u64(buf, uint64_t(t.const_val.value_or(0)));
         break;
     case K::WStaticLit:
@@ -1648,6 +1652,38 @@ std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_vi
     char buf[24];
     std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
     return std::string(buf);
+}
+
+std::string array_impl_target_key(TypeRef pattern) {
+    if (!pattern || TypeRef(pattern).kind() != LogosType::Kind::Array) return {};
+    TypeRef el = TypeRef(pattern).elem();
+    std::string e;
+    if (el && TypeRef(el).kind() == LogosType::Kind::TypeVar) e = "T";
+    else {
+        std::function<bool(TypeRef, int)> open = [&](TypeRef t, int d) -> bool {
+            if (!t || d > 16) return false;
+            auto k = TypeRef(t).kind();
+            if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::ConstVar ||
+                k == LogosType::Kind::AssocType || k == LogosType::Kind::Error) return true;
+            if (open(TypeRef(t).pointee(), d + 1) || open(TypeRef(t).elem(), d + 1)) return true;
+            for (auto a : TypeRef(t).type_args()) if (open(a, d + 1)) return true;
+            for (auto a : TypeRef(t).tuple_elems()) if (open(a, d + 1)) return true;
+            return false;
+        };
+        if (!el || open(el, 0)) return {};
+    }
+    if (e.empty()) e = type_str(el);
+    std::string_view sv(TypeRef(pattern).arr_size_var());
+    std::string n = !sv.empty() ? std::string("N") : std::to_string(TypeRef(pattern).arr_size());
+    return "$array$" + e + "$" + n;
+}
+
+std::vector<std::string> array_impl_lookup_keys(TypeRef concrete) {
+    if (!concrete || TypeRef(concrete).kind() != LogosType::Kind::Array) return {};
+    TypeRef el = TypeRef(concrete).elem();
+    std::string e = el ? type_str(el) : std::string("?");
+    std::string n = std::to_string(TypeRef(concrete).arr_size());
+    return {"$array$" + e + "$" + n, "$array$" + e + "$N", "$array$T$" + n, "$array$T$N"};
 }
 
 // G156-1 — accumulate the ambiguous-type-name set. Feed every (name, pkg)

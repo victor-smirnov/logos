@@ -8897,6 +8897,8 @@ private:
     // in the original inline code.
     std::optional<lir::LExprPtr> try_method_on_tuple(
         writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+    std::optional<lir::LExprPtr> try_method_on_array(
+        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_slice(
         writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_dstref(

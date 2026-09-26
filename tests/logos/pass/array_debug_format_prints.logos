@@ -1,0 +1,9 @@
+// `{:?}` of an array: std's `impl<T: Debug, const N: usize> Debug for [T; N]`.
+package array_debug_format_prints;
+use logos.std.fmt;
+fn main() -> i32 {
+    let a: [i64; 3] = [0i64; 3];
+    println!("{:?}", a);
+    println!("{:?}", [1i64, 2]);
+    return 0i32;
+}

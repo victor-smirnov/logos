@@ -990,6 +990,12 @@ std::string type_module_suffix(std::string_view name, std::string_view pkg);
 // composer) — or the two channels disagree and a user instance binds to a
 // prebuilt archive homonym (`vec_new__g__void__ExprBlob`).
 std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_view pkg);
+// `impl … for [E; N]` keys: `$array$<E>$<N>`, where a bare type-parameter
+// element spells `T` and a const-parameter length spells `N`. The TARGET key of
+// an impl pattern (empty: an element that is a compound generic, unsupported);
+// the LOOKUP keys of a concrete array, most specific first.
+std::string array_impl_target_key(TypeRef pattern);
+std::vector<std::string> array_impl_lookup_keys(TypeRef concrete);
 
 // G156-1 — the phase-scoped ambiguous-type-name set. A bare nominal name is
 // "ambiguous" iff it is declared in ≥2 DISTINCT packages across the current

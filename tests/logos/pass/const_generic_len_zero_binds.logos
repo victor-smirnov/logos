@@ -1,0 +1,5 @@
+// A const-generic length binds to 0 (`[i64; 0]`): the bound IntLit(0) is not the
+// valueless `{integer}` literal type.
+package const_generic_len_zero_binds;
+fn f<const N: usize>(a: &[i64; N]) -> usize { return N + 3usize; }
+fn main() -> i32 { let e: [i64; 0] = []; return f(&e) as i32; }

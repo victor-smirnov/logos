@@ -20,6 +20,12 @@ localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_man
 
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 
+format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrenderable_form_refused refuses
+
+impl_fn_return_env_leaks 2 tests/soundness/open/impl_fn_return_env_leaks run 1
+
+vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
+
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
 # ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
@@ -170,13 +176,6 @@ struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open
 #    it is refused by take_field_borrow_path_'s FIELD-PATH guard, and the store-liveness query returns false by its
 #    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
 #    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
-array_debug_format_unimplemented_refused 3 tests/soundness/open/array_debug_format_unimplemented_refused refuses
-
-format_arg_unrenderable_form_refused 3 tests/soundness/open/format_arg_unrenderable_form_refused refuses
-
-impl_fn_return_env_leaks 2 tests/soundness/open/impl_fn_return_env_leaks run 1
-
-vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
 
 # ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
 # array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
@@ -186,6 +185,9 @@ vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_ref
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
+debug_through_generic_ref_unresolved 3 tests/soundness/open/debug_through_generic_ref_unresolved refuses
 
-# TOTAL 6
-# SYNC-HASH 076bd11ce03a0d34e586217c153d37d2
+array_impl_compound_generic_elem_refused 3 tests/soundness/open/array_impl_compound_generic_elem_refused refuses
+
+# TOTAL 7
+# SYNC-HASH 4ad1afa76a8fbb75b8e6a6ad4724e4b4
