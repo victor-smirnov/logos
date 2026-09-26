@@ -1,0 +1,41 @@
+// Mutex/RwLock had no RAII guard: `lock()` was unsafe, returned `*mut T` and needed a
+// manual `unlock()`. Rust's surface: `Mutex::new`, `lock() -> LockResult<MutexGuard>`
+// (Deref/DerefMut, unlock on drop), `try_lock` (Err(WouldBlock) while held),
+// `into_inner`, `get_mut`; `RwLock::new`, `read`/`write`/`try_read`/`try_write`.
+// The raw form is `lock_raw`/`unlock`. Checked under valgrind. rustc twin: 0.
+package mutex_rwlock_raii_guards;
+use logos.lcm.sync;
+use logos.mem.string;
+fn main() -> i32 {
+    let m: Mutex<i32> = Mutex::new(10);
+    {
+        let mut g = m.lock().unwrap();
+        *g = *g + 5;
+    }
+    let v = *m.lock().unwrap();
+    if v != 15 { return 1; }
+    {
+        let _held = m.lock().unwrap();
+        match m.try_lock() { Result::Ok(_) => { return 2; } Result::Err(_) => {} }
+    }
+    match m.try_lock() { Result::Ok(g) => { if *g != 15 { return 3; } } Result::Err(_) => { return 3; } }
+    let rw: RwLock<String> = RwLock::new(String::from("ab"));
+    {
+        let r1 = rw.read().unwrap();
+        let r2 = rw.read().unwrap();
+        if r1.len() + r2.len() != 4 { return 4; }
+        match rw.try_write() { Result::Ok(_) => { return 5; } Result::Err(_) => {} }
+    }
+    {
+        let mut w = rw.write().unwrap();
+        w.push_str("c");
+    }
+    if rw.read().unwrap().len() != 3 { return 6; }
+    let ms: Mutex<String> = Mutex::new(String::from("xyz"));
+    let s: String = ms.into_inner().unwrap();
+    if s.len() != 3 { return 7; }
+    let mut mm: Mutex<i64> = Mutex::new(1i64);
+    *mm.get_mut().unwrap() += 1;
+    if *mm.lock().unwrap() != 2 { return 8; }
+    return v - 15;
+}

@@ -4,13 +4,13 @@
 //   Mutex<T: Send>            — exclusive lock wrapping pthread_mutex_t
 //   RwLock<T: Send + Sync>    — reader/writer lock wrapping pthread_rwlock_t
 //
-// Usage pattern (no RAII drop in Logos yet):
+// Usage (Rust's RAII guard surface):
 //
-//   let mut m: Mutex<i32> = mutex_new::<i32>(0);
-//   let ptr: *mut i32 = m.lock();
-//   *ptr = *ptr + 1;
-//   m.unlock();
-//   mutex_destroy::<i32>(&mut m);
+//   let m: Mutex<i32> = Mutex::new(0);
+//   { let mut g = m.lock().unwrap(); *g = *g + 1; }   // unlocked when `g` drops
+//
+// The raw form (`lock_raw` / `unlock`, `read_lock` / `write_lock`) stays for code
+// that manages the lock by hand.
 //
 // pthread_mutex_t is 40 bytes on Linux x86-64 (alignment 8).
 // pthread_rwlock_t is 56 bytes on Linux x86-64 (alignment 8).
@@ -22,6 +22,9 @@ use logos.lang.mem;
 use logos.lang.marker;
 use logos.lang.option;
 use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.result;
+use logos.lang.drop;
 
 // ── POSIX externals ──────────────────────────────────────────────────────────
 
@@ -62,14 +65,15 @@ pub fn mutex_new<T: Send>(data: T) -> Mutex<T> {
 
 impl<T: Send> Mutex<T> {
     /// Acquires the lock, blocking until available; returns a mutable pointer to the data.
-    pub unsafe fn lock(self: *mut Mutex<T>) -> *mut T {
+    /// The caller releases it with `unlock` (the RAII form is `lock`).
+    pub unsafe fn lock_raw(self: *mut Mutex<T>) -> *mut T {
         pthread_mutex_lock(self.raw);
         return self.data.get();
     }
 
     /// Tries to acquire the lock without blocking.
     /// Returns `Some` pointer to the data on success, `None` on contention.
-    pub unsafe fn try_lock(self: *mut Mutex<T>) -> Option<*mut T> {
+    pub unsafe fn try_lock_raw(self: *mut Mutex<T>) -> Option<*mut T> {
         let rc: i32 = pthread_mutex_trylock(self.raw);
         if rc == 0 {
             return Option::Some(self.data.get());
@@ -195,4 +199,153 @@ impl<T> Drop for RwLock<T> {
             }
         }
     }
+}
+
+// ── The RAII guard surface (Rust's `std::sync`) ─────────────────────────────
+//
+// A guard holds the lock for its lifetime and releases it on drop; it derefs to
+// the protected value. Logos panics abort, so a lock is never poisoned: `lock`
+// always returns `Ok`, and `PoisonError` exists for the Rust shape
+// (`m.lock().unwrap()`).
+
+/// The error of a poisoned lock (Rust's `PoisonError`); never produced (a panic aborts).
+pub struct PoisonError<G> {
+    guard: G,
+}
+
+impl<G> PoisonError<G> {
+    /// The guard the poisoned lock would have handed out.
+    pub fn into_inner(self: PoisonError<G>) -> G { return self.guard; }
+}
+
+/// Why `try_lock` / `try_read` / `try_write` did not acquire the lock (Rust's `TryLockError`).
+pub enum TryLockError<G> {
+    /// The lock was poisoned (never produced).
+    Poisoned(PoisonError<G>),
+    /// The lock is held elsewhere.
+    WouldBlock,
+}
+
+/// Holds a `Mutex` locked; derefs to the data; unlocks on drop (Rust's `MutexGuard`).
+#[borrow_carrying]
+pub struct MutexGuard<'a, T> {
+    m: *const Mutex<T>,
+}
+
+impl<T: Send> Mutex<T> {
+    /// Creates a new mutex holding `data` (Rust's `Mutex::new`).
+    pub fn new(data: T) -> Mutex<T> { return mutex_new::<T>(data); }
+
+    /// Blocks until the lock is acquired; the guard releases it on drop.
+    pub fn lock<'a>(self: &'a Mutex<T>) -> Result<MutexGuard<'a, T>, PoisonError<MutexGuard<'a, T>>> {
+        unsafe { pthread_mutex_lock(self.raw); }
+        return Result::Ok(MutexGuard { m: self as *const Mutex<T> });
+    }
+
+    /// Acquires the lock if it is free, else `Err(WouldBlock)`.
+    pub fn try_lock<'a>(self: &'a Mutex<T>) -> Result<MutexGuard<'a, T>, TryLockError<MutexGuard<'a, T>>> {
+        let rc: i32 = unsafe { pthread_mutex_trylock(self.raw) };
+        if rc != 0 { return Result::Err(TryLockError::WouldBlock); }
+        return Result::Ok(MutexGuard { m: self as *const Mutex<T> });
+    }
+
+    /// `&mut self` proves exclusivity: the data, with no locking.
+    pub fn get_mut(&mut self) -> Result<&mut T, PoisonError<&mut T>> {
+        return Result::Ok(self.data.get_mut());
+    }
+
+    /// Consumes the mutex, returning the data.
+    pub fn into_inner(self: Mutex<T>) -> Result<T, PoisonError<T>> {
+        let mut m: Mutex<T> = self;
+        unsafe {
+            let mp: *mut Mutex<T> = &mut m as *mut Mutex<T>;
+            let cp: *mut T = mp.data.get();
+            let v: T = cp[0];
+            pthread_mutex_destroy(m.raw);
+            dealloc(m.raw);
+            m.raw = 0 as *mut u8;
+            logos.lang.mem::forget::<Mutex<T>>(m);
+            return Result::Ok(v);
+        }
+    }
+}
+
+impl<'a, T> Deref<T> for MutexGuard<'a, T> {
+    fn deref(&self) -> &T { unsafe { return &*(self.m.data.get() as *const T); } }
+}
+
+impl<'a, T> DerefMut<T> for MutexGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T { unsafe { return &mut *self.m.data.get(); } }
+}
+
+impl<'a, T> Drop for MutexGuard<'a, T> {
+    fn drop(self: &mut MutexGuard<'a, T>) { unsafe { pthread_mutex_unlock(self.m.raw); } }
+}
+
+/// Holds an `RwLock` read-locked; derefs to the data; unlocks on drop.
+#[borrow_carrying]
+pub struct RwLockReadGuard<'a, T> {
+    l: *const RwLock<T>,
+}
+
+/// Holds an `RwLock` write-locked; derefs (mutably) to the data; unlocks on drop.
+#[borrow_carrying]
+pub struct RwLockWriteGuard<'a, T> {
+    l: *const RwLock<T>,
+}
+
+impl<T: Send + Sync> RwLock<T> {
+    /// Creates a new reader-writer lock holding `data` (Rust's `RwLock::new`).
+    pub fn new(data: T) -> RwLock<T> { return rwlock_new::<T>(data); }
+
+    /// Blocks until a shared (read) lock is acquired.
+    pub fn read<'a>(self: &'a RwLock<T>) -> Result<RwLockReadGuard<'a, T>, PoisonError<RwLockReadGuard<'a, T>>> {
+        unsafe { pthread_rwlock_rdlock(self.raw); }
+        return Result::Ok(RwLockReadGuard { l: self as *const RwLock<T> });
+    }
+
+    /// Blocks until the exclusive (write) lock is acquired.
+    pub fn write<'a>(self: &'a RwLock<T>) -> Result<RwLockWriteGuard<'a, T>, PoisonError<RwLockWriteGuard<'a, T>>> {
+        unsafe { pthread_rwlock_wrlock(self.raw); }
+        return Result::Ok(RwLockWriteGuard { l: self as *const RwLock<T> });
+    }
+
+    /// A shared lock if one is available now, else `Err(WouldBlock)`.
+    pub fn try_read<'a>(self: &'a RwLock<T>) -> Result<RwLockReadGuard<'a, T>, TryLockError<RwLockReadGuard<'a, T>>> {
+        let rc: i32 = unsafe { pthread_rwlock_tryrdlock(self.raw) };
+        if rc != 0 { return Result::Err(TryLockError::WouldBlock); }
+        return Result::Ok(RwLockReadGuard { l: self as *const RwLock<T> });
+    }
+
+    /// The exclusive lock if it is free now, else `Err(WouldBlock)`.
+    pub fn try_write<'a>(self: &'a RwLock<T>) -> Result<RwLockWriteGuard<'a, T>, TryLockError<RwLockWriteGuard<'a, T>>> {
+        let rc: i32 = unsafe { pthread_rwlock_trywrlock(self.raw) };
+        if rc != 0 { return Result::Err(TryLockError::WouldBlock); }
+        return Result::Ok(RwLockWriteGuard { l: self as *const RwLock<T> });
+    }
+
+    /// `&mut self` proves exclusivity: the data, with no locking.
+    pub fn get_mut(&mut self) -> Result<&mut T, PoisonError<&mut T>> {
+        return Result::Ok(self.data.get_mut());
+    }
+}
+
+impl<'a, T> Deref<T> for RwLockReadGuard<'a, T> {
+    fn deref(&self) -> &T { unsafe { return &*(self.l.data.get() as *const T); } }
+}
+
+impl<'a, T> Drop for RwLockReadGuard<'a, T> {
+    fn drop(self: &mut RwLockReadGuard<'a, T>) { unsafe { pthread_rwlock_unlock(self.l.raw); } }
+}
+
+impl<'a, T> Deref<T> for RwLockWriteGuard<'a, T> {
+    fn deref(&self) -> &T { unsafe { return &*(self.l.data.get() as *const T); } }
+}
+
+impl<'a, T> DerefMut<T> for RwLockWriteGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T { unsafe { return &mut *self.l.data.get(); } }
+}
+
+impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
+    fn drop(self: &mut RwLockWriteGuard<'a, T>) { unsafe { pthread_rwlock_unlock(self.l.raw); } }
 }

@@ -11,18 +11,18 @@ fn main() -> i32 {
         let mut m: Mutex<i32> = mutex_new::<i32>(0);
 
         // lock / write / unlock
-        let p: *mut i32 = m.lock();
+        let p: *mut i32 = m.lock_raw();
         *p = 42;
         m.unlock();
 
         // lock again to verify value persisted
-        let p2: *mut i32 = m.lock();
+        let p2: *mut i32 = m.lock_raw();
         if *p2 != 42 { mutex_destroy::<i32>(&mut m); return 1; }
         *p2 = 100;
         m.unlock();
 
         // try_lock when not held should succeed
-        match m.try_lock() {
+        match m.try_lock_raw() {
             Option::None    => { mutex_destroy::<i32>(&mut m); return 2; }
             Option::Some(p3) => {
                 if *p3 != 100 { mutex_destroy::<i32>(&mut m); return 3; }
@@ -34,10 +34,10 @@ fn main() -> i32 {
 
         // ── Mutex<i64> — verify T can be a larger type ────────────────────
         let mut m64: Mutex<i64> = mutex_new::<i64>(0 as i64);
-        let p64: *mut i64 = m64.lock();
+        let p64: *mut i64 = m64.lock_raw();
         *p64 = 1234567890 as i64;
         m64.unlock();
-        let p64b: *mut i64 = m64.lock();
+        let p64b: *mut i64 = m64.lock_raw();
         if *p64b != 1234567890 as i64 { mutex_destroy::<i64>(&mut m64); return 4; }
         m64.unlock();
         mutex_destroy::<i64>(&mut m64);
