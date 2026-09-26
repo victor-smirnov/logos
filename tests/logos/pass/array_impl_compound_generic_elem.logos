@@ -1,0 +1,5 @@
+// `impl<T> Tr for [Option<T>; 2]`: an array impl whose element is a generic head over bare parameters.
+package array_impl_compound_generic_elem;
+trait Tr { fn n(&self) -> i64; }
+impl<T> Tr for [Option<T>; 2] { fn n(&self) -> i64 { return 7i64; } }
+fn main() -> i32 { let a = [Some(1i64), None]; return a.n() as i32; }

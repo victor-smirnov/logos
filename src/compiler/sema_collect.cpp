@@ -3838,8 +3838,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
             target_resolved = resolved;
             target = array_impl_target_key(resolved);
             if (target.empty()) {
-                error("impl over an array whose element is a compound generic type is not supported "
-                      "(write the element as a type parameter, `impl<T, const N: usize> … for [T; N]`)");
+                error("impl over an array whose element nests a generic type below its head is not supported "
+                      "(`[T; N]` and `[Head<T, …>; N]` are)");
                 target = "$array$?";   // said once; the methods register under a dead key
             }
         } else if (code_of(tnode) == la::FN_PTR_TYPE) {

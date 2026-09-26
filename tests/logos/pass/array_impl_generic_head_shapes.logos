@@ -1,0 +1,24 @@
+// Array impls over `[Head<T, …>; N]`: keyed by the head, bound by unifying the impl pattern (any parameter order), direct and from a generic body.
+package array_impl_generic_head_shapes;
+trait Tr { fn n(&self) -> i64; }
+impl<T> Tr for [Option<T>; 2] { fn n(&self) -> i64 { return 7i64; } }
+trait Cnt { fn somes(&self) -> i64; }
+impl<T, const N: usize> Cnt for [Option<T>; N] {
+    fn somes(&self) -> i64 {
+        let mut c: i64 = 0i64;
+        let mut i: usize = 0usize;
+        while i < N { if self[i].is_some() { c = c + 1i64; } i = i + 1usize; }
+        return c;
+    }
+}
+struct P<A, B> { a: A, b: B }
+trait Sw { fn sw(&self) -> i64; }
+impl<const N: usize, B, A> Sw for [P<A, B>; N] { fn sw(&self) -> i64 { return N as i64 * 100i64; } }
+fn gcount<X: Cnt>(x: &X) -> i64 { return x.somes(); }
+fn main() -> i32 {
+    let a = [Some(1i64), None];
+    let b = [Some(true), Some(false), None, Some(true)];
+    let p = [P { a: 1u8, b: 2i64 }, P { a: 3u8, b: 4i64 }, P { a: 5u8, b: 6i64 }];
+    let r = a.n() + a.somes() + b.somes() + gcount(&b) + p.sw();
+    return (r - 314i64) as i32;
+}

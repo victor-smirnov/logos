@@ -1670,7 +1670,24 @@ std::string array_impl_target_key(TypeRef pattern) {
             for (auto a : TypeRef(t).tuple_elems()) if (open(a, d + 1)) return true;
             return false;
         };
-        if (!el || open(el, 0)) return {};
+        // `Head<T1, …>` with every argument a distinct bare parameter keys
+        // by its head: `$array$Head<_,_>$N` (array_impl_lookup_keys derives it
+        // from a concrete element). A deeper generic element is unkeyable.
+        auto k = el ? TypeRef(el).kind() : LogosType::Kind::Error;
+        if (el && (k == LogosType::Kind::Struct || k == LogosType::Kind::Enum) &&
+            !TypeRef(el).type_args().empty()) {
+            std::set<std::string> seen;
+            bool all_bare = true;
+            for (auto a : TypeRef(el).type_args())
+                if (!a || TypeRef(a).kind() != LogosType::Kind::TypeVar ||
+                    !seen.insert(std::string(TypeRef(a).type_var_name())).second) { all_bare = false; break; }
+            if (all_bare) {
+                e = std::string(k == LogosType::Kind::Enum ? TypeRef(el).enum_name() : TypeRef(el).struct_name()) + "<";
+                for (size_t i = 0; i < TypeRef(el).type_args().size(); ++i) e += i ? ",_" : "_";
+                e += ">";
+            }
+        }
+        if (e.empty() && (!el || open(el, 0))) return {};
     }
     if (e.empty()) e = type_str(el);
     std::string_view sv(TypeRef(pattern).arr_size_var());
@@ -1683,7 +1700,19 @@ std::vector<std::string> array_impl_lookup_keys(TypeRef concrete) {
     TypeRef el = TypeRef(concrete).elem();
     std::string e = el ? type_str(el) : std::string("?");
     std::string n = std::to_string(TypeRef(concrete).arr_size());
-    return {"$array$" + e + "$" + n, "$array$" + e + "$N", "$array$T$" + n, "$array$T$N"};
+    std::vector<std::string> keys{"$array$" + e + "$" + n, "$array$" + e + "$N"};
+    auto k = el ? TypeRef(el).kind() : LogosType::Kind::Error;
+    if (el && (k == LogosType::Kind::Struct || k == LogosType::Kind::Enum) &&
+        !TypeRef(el).type_args().empty()) {
+        std::string g = std::string(k == LogosType::Kind::Enum ? TypeRef(el).enum_name() : TypeRef(el).struct_name()) + "<";
+        for (size_t i = 0; i < TypeRef(el).type_args().size(); ++i) g += i ? ",_" : "_";
+        g += ">";
+        keys.push_back("$array$" + g + "$" + n);
+        keys.push_back("$array$" + g + "$N");
+    }
+    keys.push_back("$array$T$" + n);
+    keys.push_back("$array$T$N");
+    return keys;
 }
 
 // G156-1 — accumulate the ambiguous-type-name set. Feed every (name, pkg)

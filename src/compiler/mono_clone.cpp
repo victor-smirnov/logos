@@ -4702,9 +4702,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             nc.type_args = std::move(rebuilt);
                         }
                     }
-                    // `$array$T$N` / `$array$T$<n>` / `$array$<e>$N` — the impl-level
-                    // slots (one per `T`/`N` in the key) take the receiver
-                    // array's element and length, a const slot the length.
+                    // `$array$…` impls: the impl-level slots bind by unifying the
+                    // impl's target PATTERN with the receiver array (`T` or
+                    // `Head<T, …>` from the element, the const length from its
+                    // size) and are ordered as the template declares them; a
+                    // template with no recorded pattern binds positionally.
                     if (cname.rfind("$array$", 0) == 0) {
                         TypeRef a_rt = rt;
                         while (a_rt && (TypeRef(a_rt).kind() == LogosType::Kind::Ptr ||
@@ -4712,26 +4714,46 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         TypeRef(a_rt).kind() == LogosType::Kind::MutRef) &&
                                TypeRef(a_rt).pointee())
                             a_rt = TypeRef(a_rt).pointee();
-                        std::string_view rest = std::string_view(cname).substr(7);
-                        auto dol = rest.rfind('$');
-                        size_t impl_slots = (rest.substr(0, dol) == "T") + (rest.substr(dol + 1) == "N");
-                        if (impl_slots && a_rt && TypeRef(a_rt).kind() == LogosType::Kind::Array) {
-                            std::vector<bool> is_const;
-                            if (auto tit = templates_.find(tmpl_key); tit != templates_.end())
-                                tit->second.each_type_param([&](lir_view::FnTParamView tp) {
-                                    is_const.push_back(tp.is_const());
-                                });
+                        auto tit = templates_.find(tmpl_key);
+                        if (a_rt && TypeRef(a_rt).kind() == LogosType::Kind::Array && tit != templates_.end()) {
                             LogosTypeBuilder nl; nl.kind = LogosType::Kind::IntLit;
                             nl.const_val = int64_t(TypeRef(a_rt).arr_size());
                             TypeRef len_t = out_.type_pool.alloc(nl);
+                            std::vector<std::string> tnames;
+                            std::vector<bool> is_const;
+                            tit->second.each_type_param([&](lir_view::FnTParamView tp) {
+                                tnames.emplace_back(tp.name());
+                                is_const.push_back(tp.is_const());
+                            });
+                            TypeRef pat = tit->second.impl_target_pattern(out_.type_pool.impl());
                             std::vector<TypeRef> rebuilt;
-                            for (size_t i = 0; i < impl_slots; ++i)
-                                rebuilt.push_back(i < is_const.size() && is_const[i] ? len_t
-                                                                                     : TypeRef(TypeRef(a_rt).elem()));
-                            size_t method_slots = tmpl_tparam_count > impl_slots ? tmpl_tparam_count - impl_slots : 0;
-                            if (method_slots > 0 && nc.type_args.size() >= method_slots)
-                                rebuilt.insert(rebuilt.end(), nc.type_args.end() - method_slots, nc.type_args.end());
-                            nc.type_args = std::move(rebuilt);
+                            size_t impl_slots = 0;
+                            if (pat && TypeRef(pat).kind() == LogosType::Kind::Array) {
+                                SubstMap b;
+                                unify_impl_target(TypeRef(a_rt).elem(), TypeRef(pat).elem(), b);
+                                std::vector<std::string> names;
+                                collect_pattern_typevars(TypeRef(pat).elem(), names);
+                                std::string sv(TypeRef(pat).arr_size_var());
+                                if (!sv.empty()) { b[sv] = len_t; names.push_back(sv); }
+                                impl_slots = names.size();
+                                for (size_t i = 0; i < impl_slots && i < tnames.size(); ++i) {
+                                    auto it = b.find(tnames[i]);
+                                    rebuilt.push_back(it != b.end() ? TypeRef(it->second) : len_t);
+                                }
+                            } else {
+                                std::string_view rest = std::string_view(cname).substr(7);
+                                auto dol = rest.rfind('$');
+                                impl_slots = (rest.substr(0, dol) == "T") + (rest.substr(dol + 1) == "N");
+                                for (size_t i = 0; i < impl_slots; ++i)
+                                    rebuilt.push_back(i < is_const.size() && is_const[i] ? len_t
+                                                                                         : TypeRef(TypeRef(a_rt).elem()));
+                            }
+                            if (impl_slots) {
+                                size_t method_slots = tmpl_tparam_count > impl_slots ? tmpl_tparam_count - impl_slots : 0;
+                                if (method_slots > 0 && nc.type_args.size() >= method_slots)
+                                    rebuilt.insert(rebuilt.end(), nc.type_args.end() - method_slots, nc.type_args.end());
+                                nc.type_args = std::move(rebuilt);
+                            }
                         }
                     }
                     if (ref_blanket_t) {
