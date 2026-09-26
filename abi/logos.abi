@@ -1086,6 +1086,7 @@ sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_new__f
 sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_push__f__pmut_WritStringStorage__StringView
 sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_remove_at__f__pmut_WritStringStorage__u64
 sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_set__f__pmut_WritStringStorage__u64__StringView
+sym	logos_lang..logos.lang.hash.$slice$T__hash__g__slice_T__refmut_H__u8__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$2__hash__g__ref_tup$2$A$B__refmut_H__&[u8]__&[u8]__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$3__hash__g__ref_tup$3$A$B$C__refmut_H__&[u8]__&[u8]__&[u8]__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$3__hash__g__ref_tup$3$A$B$C__refmut_H__&[u8]__i64__&[u8]__FxHasher
@@ -1106,8 +1107,8 @@ sym	logos_lang..logos.lang.hash.SipHasher__write_i64__f__refmut_SipHasher__i64
 sym	logos_lang..logos.lang.hash.SipHasher__write_u32__f__refmut_SipHasher__u32
 sym	logos_lang..logos.lang.hash.SipHasher__write_u64__f__refmut_SipHasher__u64
 sym	logos_lang..logos.lang.hash.i64__hash__g__ref_i64__refmut_H__FxHasher
-sym	logos_lang..logos.lang.hash.str__hash__g__slice_u8__refmut_H__FxHasher
 sym	logos_lang..logos.lang.hash.u64__hash__g__ref_u64__refmut_H__FxHasher
+sym	logos_lang..logos.lang.hash.u8__hash__g__ref_u8__refmut_H__FxHasher
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__count__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__enumerate__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__filter__g__EnumIter$G2$I$T__fn(&EnumPair<T>) -> bool
@@ -13709,6 +13710,7 @@ vtable	logos.lang.ops.SubAssign	slots=[sub_assign]
 vtable	logos.lang.panic.RefUnwindSafe	slots=[]
 vtable	logos.lang.panic.UnwindSafe	slots=[]
 vtable	logos.lang.range.Step	slots=[step_forward,step_backward,step_lt]
+vtable	logos.lang.slice.SliceSwap	slots=[swap]
 vtable	logos.lang.str.Pattern	slots=[find_in,match_len]
 vtable	logos.lang.stream.BatchStream	slots=[next]
 vtable	logos.lang.stream.Bidirectional	slots=[prev]

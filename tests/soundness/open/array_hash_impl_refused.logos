@@ -1,8 +1,0 @@
-// SOUNDNESS QUEUE row array_hash_impl_refused (tier 3, `refuses`). Found 2026-09-26 by the discovery battery.
-// `[u8; 2]` has no `Hash` impl (Rust: `impl<T: Hash, const N: usize> Hash for [T; N]`), so an array field cannot be
-// hashed from a `Hash` impl. rustc: exit 0.
-package array_hash_impl_refused;
-use logos.lang.hash;
-struct W { b: [u8; 2] }
-impl Hash for W { fn hash<H: Hasher>(&self, state: &mut H) { self.b.hash(state); } }
-fn main() -> i32 { return 0; }

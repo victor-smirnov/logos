@@ -291,3 +291,25 @@ pub unsafe fn slice_sort<T: Ord + Copy>(base: *mut T, n: i64) {
         i = i + 1i64;
     }
 }
+
+// ── swap (Rust's `<[T]>::swap`) ────────────────────────────────────────────
+// A slice method, reached through the `$slice$` impl key like any `impl … for [T]`;
+// the trait exists only to carry it (Rust's is inherent on `[T]`).
+/// In-place element exchange on a slice.
+pub trait SliceSwap {
+    /// Swaps the elements at `a` and `b`; panics when either index is out of bounds.
+    fn swap(&mut self, a: i64, b: i64);
+}
+impl<T> SliceSwap for [T] {
+    fn swap(&mut self, a: i64, b: i64) {
+        let n: i64 = self.len() as i64;
+        if a < 0i64 || a >= n || b < 0i64 || b >= n { panic("slice::swap: index out of bounds"); }
+        if a == b { return; }
+        unsafe {
+            let p: *mut T = self.as_ptr() as *mut T;
+            let tmp: T = p[a];
+            p[a] = p[b];
+            p[b] = tmp;
+        }
+    }
+}

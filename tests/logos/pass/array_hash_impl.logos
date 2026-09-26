@@ -1,0 +1,6 @@
+// Hash for [T; N] (and [T]): an array field hashes from a Hash impl.
+package array_hash_impl;
+use logos.lang.hash;
+struct W { b: [u8; 2] }
+impl Hash for W { fn hash<H: Hasher>(&self, state: &mut H) { self.b.hash(state); } }
+fn main() -> i32 { return 0; }

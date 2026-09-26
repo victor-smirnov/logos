@@ -1,0 +1,13 @@
+// Impl targets [T], [T; N], (A, B) under a trait WITH type arguments (they were syntax errors); rustc: exit 0.
+package impl_trait_args_for_slice_array_tuple;
+trait Tr<T> { fn m(&self) -> i64; }
+impl<T> Tr<T> for [T] { fn m(&self) -> i64 { return 3; } }
+impl<T> Tr<T> for [T; 2] { fn m(&self) -> i64 { return 20; } }
+impl Tr<u8> for [u8; 3] { fn m(&self) -> i64 { return 300; } }
+impl<A, B> Tr<A> for (A, B) { fn m(&self) -> i64 { return 4000; } }
+fn main() -> i32 {
+    let a: [i64; 2] = [1, 2];
+    let s: &[i64] = &a;
+    let r = s.m() + a.m() + [1u8, 2u8, 3u8].m() + (1i64, true).m();
+    return (r - 4323) as i32;
+}

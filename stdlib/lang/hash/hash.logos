@@ -221,6 +221,24 @@ impl Hash for str {
     }
 }
 
+// Arrays and slices hash their length, then each element (Rust's `Hash for [T]`
+// writes the length prefix; `[T; N]` hashes as its slice).
+impl<T: Hash, const N: usize> Hash for [T; N] {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(N as u64);
+        let mut i: usize = 0usize;
+        while i < N { self[i].hash(state); i = i + 1usize; }
+    }
+}
+impl<T: Hash> Hash for [T] {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let n: i64 = self.len() as i64;
+        state.write_u64(n as u64);
+        let mut i: i64 = 0i64;
+        while i < n { self[i].hash(state); i = i + 1i64; }
+    }
+}
+
 // ── SipHasher (SipHash-2-4) ──────────────────────────────────────────────
 //
 // Cryptographically-stronger-than-FxHash hash. Standard SipHash-2-4

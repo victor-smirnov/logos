@@ -189,9 +189,5 @@ str_slice_char_boundary_unchecked 2 tests/soundness/open/str_slice_char_boundary
 
 str_parse_method_refused 3 tests/soundness/open/str_parse_method_refused refuses
 
-slice_swap_method_refused 3 tests/soundness/open/slice_swap_method_refused refuses
-
-array_hash_impl_refused 3 tests/soundness/open/array_hash_impl_refused refuses
-
-# TOTAL 9
-# SYNC-HASH 0f1f9f2df26d276a4d1ccfc4039d49ec
+# TOTAL 7
+# SYNC-HASH 05a52011c184174b442c8d77ce3414a5
