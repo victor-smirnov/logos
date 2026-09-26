@@ -4553,13 +4553,21 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         return emit_range_test(ev, ty, pr.lo(), pr.hi());
     }
     case pc::Code::Tuple: {
+        // A `&(..)` slot holds a pointer to the tuple: load once per layer.
+        // Unpeeled, `tuple_llvm_type` of the reference was null and the test
+        // answered TRUE — `match &t { (None, b) => …, (Some(v), b) => … }`
+        // took the first arm for every value.
+        auto tptr = slot_ptr;
+        while (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                      TypeRef(ty).kind() == LogosType::Kind::MutRef) && TypeRef(ty).pointee()) {
+            tptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), tptr);
+            ty = TypeRef(ty).pointee();
+        }
         auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
         if (!ttype) return true_c();
         auto elems = TypeRef(ty).tuple_elems();
         // A tuple value IS a pointer to its inline storage (Rust by-value layout):
-        // `slot_ptr` already addresses the tuple struct, so GEP into it directly
-        // (no load). (Was a by-pointer load: slot holds a ptr to the tuple.)
-        auto tptr = slot_ptr;
+        // `tptr` addresses the tuple struct, so GEP into it directly.
         mlir::Value cond = true_c();
         size_t i = 0;
         lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
@@ -6248,7 +6256,12 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 mlir::Value tptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                mlir::Value cond = pat_test(arm_pat, tptr, scrut_ty);
+                // A `&(..)` scrutinee's VALUE is already the tuple's address.
+                TypeRef tty = scrut_ty;
+                while (tty && (TypeRef(tty).kind() == LogosType::Kind::Ref ||
+                               TypeRef(tty).kind() == LogosType::Kind::MutRef) && TypeRef(tty).pointee())
+                    tty = TypeRef(tty).pointee();
+                mlir::Value cond = pat_test(arm_pat, tptr, tty);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;

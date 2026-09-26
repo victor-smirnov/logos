@@ -1,0 +1,53 @@
+// A tuple / struct sub-pattern with a refutable part inside an enum payload (`E::A(P { x: 1, y })`, `E::T((0, b))`,
+// `E::O((None, b))`, a struct-shape variant field `E::S { p: P { x: 5, y } }`) tests that part: it was destructured as if
+// irrefutable, so the first such arm caught every value. Non-Copy binders (String) drop once. rustc twin: 42.
+package pattern_refutable_aggregate_in_payload;
+use logos.mem.string;
+struct P { x: i32, y: i32 }
+struct N { tag: i32, s: String }
+enum E { A(P), T((i32, i32)), S { p: P }, K(N), O((Option<i32>, i32)), B(i32) }
+fn f(e: E) -> i32 {
+    match e {
+        E::A(P { x: 1, y }) | E::A(P { x: 2, y }) => { return y * 10; }
+        E::A(P { x, y }) => { return x + y; }
+        E::T((0, b)) => { return 100 + b; }
+        E::T((a, b)) => { return a * b; }
+        E::S { p: P { x: 5, y } } => { return 200 + y; }
+        E::S { p: P { x, y } } => { return x - y; }
+        E::K(N { tag: 1, s }) => { return 300 + s.len() as i32; }
+        E::K(N { tag, s }) => { return tag + s.len() as i32; }
+        E::O((None, b)) => { return 400 + b; }
+        E::O((Some(v), b)) => { return v + b; }
+        E::B(n) => { return n; }
+    }
+}
+fn g(e: &E) -> i32 {
+    let r = match e {
+        E::A(P { x: 1, y }) => *y * 10,
+        E::K(N { tag: 7, s }) => 500 + s.len() as i32,
+        E::K(N { tag, s: _ }) => *tag,
+        _ => -1,
+    };
+    return r;
+}
+fn main() -> i32 {
+    let mut fails = 0;
+    if f(E::A(P { x: 3, y: 4 })) != 7 { fails = fails + 1; }
+    if f(E::A(P { x: 2, y: 4 })) != 40 { fails = fails + 2; }
+    if f(E::T((0, 9))) != 109 { fails = fails + 4; }
+    if f(E::T((3, 9))) != 27 { fails = fails + 8; }
+    if f(E::S { p: P { x: 5, y: 1 } }) != 201 { fails = fails + 16; }
+    if f(E::S { p: P { x: 6, y: 1 } }) != 5 { fails = fails + 32; }
+    if f(E::K(N { tag: 1, s: String::from("abc") })) != 303 { fails = fails + 64; }
+    if f(E::K(N { tag: 2, s: String::from("abc") })) != 5 { fails = fails + 128; }
+    if f(E::O((Option::None::<i32>, 3))) != 403 { fails = fails + 256; }
+    if f(E::O((Some(4), 3))) != 7 { fails = fails + 512; }
+    let k = E::K(N { tag: 7, s: String::from("xy") });
+    if g(&k) != 502 { fails = fails + 1024; }
+    let k2 = E::K(N { tag: 8, s: String::from("xy") });
+    if g(&k2) != 8 { fails = fails + 2048; }
+    if g(&E::A(P { x: 1, y: 3 })) != 30 { fails = fails + 4096; }
+    if g(&E::A(P { x: 9, y: 3 })) != -1 { fails = fails + 8192; }
+    if fails != 0 { return 1; }
+    return 42;
+}

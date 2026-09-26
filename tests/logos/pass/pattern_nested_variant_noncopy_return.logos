@@ -1,0 +1,21 @@
+// `Some(Some(s)) => { return s.len() }`: the nested-variant guard's typing copy of the payload was destroyed together with
+// the arm's own binder — the String freed twice on the early-return path. Checked under valgrind. rustc twin: 42.
+package pattern_nested_variant_noncopy_return;
+use logos.mem.string;
+fn f(o: Option<Option<String>>) -> i32 {
+    match o { Some(Some(s)) => { return s.len() as i32; } Some(None) => { return 100; } None => { return 200; } }
+}
+fn g(o: Option<Option<String>>) -> i32 {
+    if let Some(Some(s)) = o { return s.len() as i32 + 10; }
+    return 7;
+}
+fn main() -> i32 {
+    let mut fails = 0;
+    if f(Some(Some(String::from("abc")))) != 3 { fails = fails + 1; }
+    if f(Some(None)) != 100 { fails = fails + 2; }
+    if f(None) != 200 { fails = fails + 4; }
+    if g(Some(Some(String::from("abcd")))) != 14 { fails = fails + 8; }
+    if g(Some(None)) != 7 { fails = fails + 16; }
+    if fails != 0 { return fails; }
+    return 42;
+}

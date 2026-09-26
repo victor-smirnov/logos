@@ -1,0 +1,23 @@
+// `n @ "a"` and `m @ ("bb" | "ccc")` as a whole match arm bind the scrutinee and test the literal(s), in both match forms
+// (they were refused as a string literal in an unsupported position). rustc twin: 42.
+package pattern_at_string_literal_arm;
+fn f(s: &str) -> i32 {
+    match s { n @ "a" => { return n.len() as i32; } m @ ("bb" | "ccc") => { return 10 * m.len() as i32; } _ => { return 99; } }
+}
+fn g(s: &str) -> i32 {
+    let r = match s { n @ ("xy" | "z") => n.len() as i32, "q" => 7, _ => 0 };
+    return r;
+}
+fn main() -> i32 {
+    let mut fails = 0;
+    if f("a") != 1 { fails = fails + 1; }
+    if f("ccc") != 30 { fails = fails + 2; }
+    if f("bb") != 20 { fails = fails + 4; }
+    if f("zz") != 99 { fails = fails + 8; }
+    if g("xy") != 2 { fails = fails + 16; }
+    if g("z") != 1 { fails = fails + 32; }
+    if g("q") != 7 { fails = fails + 64; }
+    if g("w") != 0 { fails = fails + 128; }
+    if fails != 0 { return fails; }
+    return 42;
+}

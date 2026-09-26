@@ -1,0 +1,32 @@
+// A bare unit-variant name inside a tuple pattern (`(None, b)`) is a variant test, not a binder (it matched every value),
+// and a tuple pattern over `&(..)` / `&mut (..)` tests its elements (the test read the reference as the tuple and answered
+// true). Both match forms. rustc twin: 42.
+package pattern_unit_variant_in_tuple_element;
+fn by_val(t: (Option<i32>, i32)) -> i32 {
+    match t { (None, b) => { return 100 + b; } (Some(v), b) => { return v * 10 + b; } }
+}
+fn by_ref(t: &(Option<i32>, i32)) -> i32 {
+    let r = match t { (None, b) => 100 + *b, (Some(v), b) => *v * 10 + *b };
+    return r;
+}
+fn lits(t: &(i32, bool)) -> i32 { match t { (1, true) => { return 1; } (_, false) => { return 2; } _ => { return 3; } } }
+fn by_mut(t: &mut (Option<i32>, i32)) -> i32 {
+    match t { (None, _) => { return 0; } (Some(v), b) => { *v = *v + 1; return *v + *b; } }
+}
+fn main() -> i32 {
+    let mut fails = 0;
+    if by_val((Some(4), 3)) != 43 { fails = fails + 1; }
+    let n: Option<i32> = None;
+    if by_val((n, 3)) != 103 { fails = fails + 2; }
+    let t = (Some(4), 3);
+    if by_ref(&t) != 43 { fails = fails + 4; }
+    let u = (n, 5);
+    if by_ref(&u) != 105 { fails = fails + 8; }
+    if lits(&(1, true)) != 1 { fails = fails + 16; }
+    if lits(&(5, false)) != 2 { fails = fails + 32; }
+    if lits(&(5, true)) != 3 { fails = fails + 64; }
+    let mut m = (Some(4), 3i32);
+    if by_mut(&mut m) != 8 { fails = fails + 128; }
+    if fails != 0 { return fails; }
+    return 42;
+}

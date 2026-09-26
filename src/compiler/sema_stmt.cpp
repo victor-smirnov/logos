@@ -4738,9 +4738,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             }
             return false;
         };
+        // A tuple / struct sub-pattern with a refutable part inside
+        // (`Some(P { x: 1, y })`, `A((1, y))`) takes the K4 route below: a
+        // guard match on the payload plus a body re-extraction of its binders.
+        const bool refut_aggregate = (sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) &&
+                                     !ast_pat_irrefutable(sub);
         if (sc == la::PAT_VARIANT ||
             (sc == la::PAT_VARIANT_DATA && current_pat_refutable_guards_) ||
-            (sc == la::PAT_OR && current_pat_refutable_guards_)) {
+            (sc == la::PAT_OR && current_pat_refutable_guards_) ||
+            (refut_aggregate && current_pat_refutable_guards_)) {
             // K4: nested variant pattern carrying bindings (e.g.
             // `Some(Some(v))`). Bind the outer payload to `synth`, gate the arm
             // with a guard match `match synth { <sub> => <inner_check>, _ =>
@@ -4749,7 +4755,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             // from `synth` (the guard guarantees the match → the else is dead).
             // Composes to arbitrary depth: the deeper checks ride the matching
             // arm's VALUE (never an arm GUARD), and the body let-else recurses.
-            if (sc == la::PAT_VARIANT_DATA && data_has_binding(sub)) {
+            if ((sc == la::PAT_VARIANT_DATA && data_has_binding(sub)) || refut_aggregate) {
                 if (!current_pat_refutable_guards_ || !current_pat_nested_subs_)
                     return std::string();
                 // Raw-pointer scrutinee (`*const`/`*mut`) keeps the clean
@@ -4784,6 +4790,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 current_pat_refutable_guards_ = sg;
                 current_pat_nested_subs_ = ssub;
                 define(synth, rt);
+                // This definition only types the guard's read: it is a bitwise
+                // COPY of the payload, and the arm's own binding of the same name
+                // (a fresh slot, so it shadows this one) is the owner. Unmarked,
+                // the shadowed copy was destroyed too — `Some(Some(s)) => return
+                // s.len()` freed the String twice.
+                mark_moved(synth);
                 // Deeper binding-nesting: the inner checks become this guard
                 // arm's VALUE — `match synth { <sub> => <inner_check>, _ =>
                 // false }` (an arm VALUE, not an arm GUARD, to avoid the
@@ -5078,11 +5090,22 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         bp_is_ref[idx] = node_flag(sub, la::IS_REF);
                         bp_is_mut[idx] = node_flag(sub, la::IS_MUT);
                         bp_from_wild[idx] = bn != "_";
+                    } else if ((sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) &&
+                               current_pat_nested_subs_ && ast_pat_irrefutable(sub)) {
+                        // Same as the tuple-shape door: the payload binds to a
+                        // synth, the sub-pattern destructures it in the body.
+                        std::string synth = std::format("__pat_pld_{}_{}", pvname, tmp_var_count_++);
+                        by_pos[idx] = synth;
+                        bp_is_ref[idx] = variant_data_dbm_.ref;
+                        bp_is_mut[idx] = variant_data_dbm_.ref && variant_data_dbm_.mut_;
+                        bp_from_wild[idx] = false;
+                        current_pat_nested_subs_->push_back({synth, sub});
                     } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
                                sc == la::PAT_BOOL || sc == la::PAT_CHAR ||
                                sc == la::PAT_RANGE || sc == la::PAT_STR ||
                                sc == la::PAT_VARIANT ||
-                               sc == la::PAT_VARIANT_DATA) {
+                               sc == la::PAT_VARIANT_DATA ||
+                               sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) {
                         // P4-pm-01 / K4: refutable inner on a struct-shape
                         // variant field — literal, range, unit variant, OR a
                         // binding-carrying nested variant (`Move { x: Some(v),
@@ -5228,7 +5251,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // variant, range, …) still aren't supported here
                     // — they need a nested-guard scheme.
                     bool sub_is_irrefutable =
-                        (bc == la::PAT_STRUCT || bc == la::PAT_TUPLE);
+                        (bc == la::PAT_STRUCT || bc == la::PAT_TUPLE) && ast_pat_irrefutable(bnode);
                     if (sub_is_irrefutable && current_pat_nested_subs_) {
                         std::string synth = std::format(
                             "__pat_pld_{}_{}", pvname, tmp_var_count_++);
@@ -5291,7 +5314,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             subnode = map_of(arr_of(subnode.get(la::ITEMS.code)).get(0));
                             sc = code_of(subnode);
                         }
-                        if ((sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) && current_pat_nested_subs_) {
+                        if ((sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) && current_pat_nested_subs_ &&
+                            ast_pat_irrefutable(subnode)) {
                             // A WRITTEN binder: under a `&` scrutinee the default
                             // binding mode (below) makes it `&W`, as a bare name.
                             bindings.push_back(atname);
@@ -5310,7 +5334,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         bc == la::PAT_BOOL || bc == la::PAT_CHAR ||
                         bc == la::PAT_RANGE || bc == la::PAT_STR ||
                         bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA ||
-                        bc == la::PAT_OR) {
+                        bc == la::PAT_OR || bc == la::PAT_STRUCT || bc == la::PAT_TUPLE) {
                         std::string synth = synth_refutable_inner(
                             bnode, pat_field_type(j),
                             std::format("{}", j));
@@ -5915,6 +5939,48 @@ void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
     // Literal / wildcard-less forms bind nothing.
 }
 
+bool SemaChecker::ast_pat_irrefutable(TinyMapView pat) {
+    if (pat.is_null()) return true;
+    int32_t c = code_of(pat);
+    auto list_ok = [&](writ::TinyMapView node, uint8_t key) -> bool {
+        if (!node.has_key(key)) return true;
+        auto av = node.get(key);
+        if (av.is_null()) return true;
+        auto wrapped = map_of(av);
+        ArrayView items = (!wrapped.is_null() && wrapped.has_key(la::ITEMS))
+                              ? arr_of(wrapped.get(la::ITEMS.code))
+                              : arr_of(av);
+        for (uint64_t i = 0; i < items.size(); ++i)
+            if (!ast_pat_irrefutable(map_of(items.get(i)))) return false;
+        return true;
+    };
+    if (c == la::PAT_WILD) {
+        if (!pat.has_key(la::NAME)) return true;
+        auto n = std::string(str_of(pat.get(la::NAME.code)));
+        if (n.empty() || n == "_") return true;
+        if (const_pkg_of_.count(n)) return false;
+        for (auto& [ek, ei] : enums_)
+            for (auto& v : ei.variants)
+                if (v.name == n && v.payload_types.empty()) return false;
+        return true;
+    }
+    if (c == la::PAT_REST) return true;
+    if (c == la::PAT_AT)
+        return !pat.has_key(la::VALUE) || ast_pat_irrefutable(map_of(pat.get(la::VALUE.code)));
+    if (c == la::PAT_FIELD)
+        return !pat.has_key(la::VALUE) || ast_pat_irrefutable(map_of(pat.get(la::VALUE.code)));
+    if (c == la::PAT_REF)
+        return !pat.has_key(la::VALUE) || ast_pat_irrefutable(map_of(pat.get(la::VALUE.code)));
+    if (c == la::PAT_OR) {
+        if (!pat.has_key(la::ITEMS)) return false;
+        auto alts = arr_of(pat.get(la::ITEMS.code));
+        return alts.size() == 1 && ast_pat_irrefutable(map_of(alts.get(0)));
+    }
+    if (c == la::PAT_TUPLE) return list_ok(pat, la::NAMES.code) && list_ok(pat, la::ITEMS.code);
+    if (c == la::PAT_STRUCT) return list_ok(pat, la::ITEMS.code);
+    return false;
+}
+
 void SemaChecker::check_or_alt_binding_consistency(TinyMapView pat_or) {
     if (pat_or.is_null() || !pat_or.has_key(la::ITEMS)) return;
     auto alts = arr_of(pat_or.get(la::ITEMS.code));
@@ -6400,6 +6466,35 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             }
             auto sub = *expanded[i];
             int32_t sc = code_of(sub);
+            // A bare name that is a NO-PAYLOAD variant of the element's enum
+            // (`(None, b)`) is a variant test, not a binder — the same rule the
+            // top-level door applies. As a binder it matched every element.
+            {
+                TinyMapView nn = sub;
+                if (code_of(nn) == la::PAT_OR && nn.has_key(la::ITEMS) &&
+                    arr_of(nn.get(la::ITEMS.code)).size() == 1)
+                    nn = map_of(arr_of(nn.get(la::ITEMS.code)).get(0));
+                TypeRef et = elem_ty;
+                while (et && (TypeRef(et).kind() == LogosType::Kind::Ref ||
+                              TypeRef(et).kind() == LogosType::Kind::MutRef) && TypeRef(et).pointee())
+                    et = TypeRef(et).pointee();
+                if (code_of(nn) == la::PAT_WILD && nn.has_key(la::NAME) && et &&
+                    TypeRef(et).kind() == LogosType::Kind::Enum && !pat_byval_mut(nn) &&
+                    !(nn.has_key(la::IS_REF) && nn.get(la::IS_REF.code).is_value() &&
+                      nn.get(la::IS_REF.code).as_value<uint8_t>() != 0)) {
+                    std::string nm(str_of(nn.get(la::NAME.code)));
+                    auto [epkg_u, esi_u] = find_enum_by_name(std::string(TypeRef(et).enum_name()));
+                    bool unit = false;
+                    if (esi_u && nm != "_")
+                        for (auto& v : esi_u->variants)
+                            if (v.name == nm && v.payload_types.empty()) { unit = true; break; }
+                    if (unit) {
+                        pt.bindings.push_back("_");
+                        pt.subs.push_back(build_pattern(nn, et));
+                        continue;
+                    }
+                }
+            }
             {   // default binding mode, TUPLE door
                 lir::Pattern rp;
                 if (mint_dbm_ref(dbm_named_bind(sub), elem_ty, rp)) {
@@ -10521,7 +10616,12 @@ void SemaChecker::emit_nested_variant_lets(
             if (n != "_") define(std::string(n), synth_t, wv.is_mut(), wv.bind_slot());  // Phase-1
         }
     };
-    define_binds(pat_ref_of(lpat));
+    // A tuple / struct sub-pattern (routed here when refutable) introduces
+    // names at any depth: the general binder walks them in element order.
+    if (auto pk = pat_ref_of(lpat).kind(); pk == ps::Code::Tuple || pk == ps::Code::Struct)
+        bind_pattern_ref(pat_ref_of(lpat), synth_t);
+    else
+        define_binds(pat_ref_of(lpat));
     // Emit the let-else. Its bindings OWN what they take by value: the synth
     // is marked moved so the arm's end does not drop it a second time.
     lir::SLetElse sle;
@@ -10541,16 +10641,33 @@ void SemaChecker::emit_nested_variant_lets(
     // Deeper nesting (`Some(Some(Some(w)))`): the inner let-else reads a
     // binding bound by THIS one, so it must come after.
     for (auto& d : deeper) {
-        if (code_of(d.sub_pat_node) != la::PAT_VARIANT_DATA) continue;
+        const int32_t dc = code_of(d.sub_pat_node);
+        if (dc != la::PAT_VARIANT_DATA &&
+            !((dc == la::PAT_TUPLE || dc == la::PAT_STRUCT) && !ast_pat_irrefutable(d.sub_pat_node)))
+            continue;
         TypeRef dt = lookup(d.synth_name);
         if (!dt) continue;
         emit_nested_variant_lets(d.synth_name, dt, d.sub_pat_node, out);
     }
 }
 
+void SemaChecker::refuse_uncovered_aggregate(TypeRef scrut_type, bool ast_exh, bool decided) {
+    if (ast_exh || !decided) return;
+    TypeRef t = scrut_type;
+    while (t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                 TypeRef(t).kind() == LogosType::Kind::MutRef) && TypeRef(t).pointee())
+        t = TypeRef(t).pointee();
+    if (!t) return;
+    auto k = TypeRef(t).kind();
+    if (k != LogosType::Kind::Tuple && k != LogosType::Kind::Struct) return;
+    error(std::format("match is not exhaustive (E0004): the arms do not cover every value of `{}`",
+                      type_str(t)));
+}
+
 bool SemaChecker::ast_patterns_exhaustive(
-        std::vector<writ::TinyMapView> pats, TypeRef ty) {
+        std::vector<writ::TinyMapView> pats, TypeRef ty, bool* decided) {
     using K = LogosType::Kind;
+    if (decided) *decided = false;
     // Peel references.
     TypeRef t = ty;
     for (int i = 0; i < 8 && t &&
@@ -10576,7 +10693,7 @@ bool SemaChecker::ast_patterns_exhaustive(
     for (auto p : pats) add(p);
     // A bare wildcard / name binding covers everything.
     for (auto p : flat)
-        if (code_of(p) == la::PAT_WILD) return true;
+        if (code_of(p) == la::PAT_WILD && ast_pat_irrefutable(p)) return true;
     // Resolve a pattern node's (enum, variant) name, applying prelude shorthand.
     auto pat_variant = [&](TinyMapView p, std::string& en, std::string& vn) -> bool {
         int32_t c = code_of(p);
@@ -10614,43 +10731,219 @@ bool SemaChecker::ast_patterns_exhaustive(
         for (uint64_t i = 0; i < items.size(); ++i) out.push_back(map_of(items.get(i)));
         return out;
     };
-    if (TypeRef(t).kind() == K::Enum) {
-        auto [pkg, esi] = enum_of(TypeRef(t));
-        (void)pkg;
-        if (!esi) return false;
-        SemaSubst subst;
-        auto ta = TypeRef(t).type_args();
-        for (size_t i = 0; i < esi->type_params.size() && i < ta.size(); ++i)
-            if (ta[i]) subst[esi->type_params[i].name] = ta[i];
-        for (auto& V : esi->variants) {
-            bool covered = false;
-            std::vector<TinyMapView> inner;
-            for (auto p : flat) {
-                std::string en, vn;
-                if (!pat_variant(p, en, vn) || vn != V.name) continue;
-                if (code_of(p) == la::PAT_VARIANT) { covered = true; break; }
-                auto args = payload_items(p);
-                if (args.empty()) { covered = true; break; }
-                bool all_irref = true;
-                for (auto a : args)
-                    if (code_of(a) != la::PAT_WILD) { all_irref = false; break; }
-                if (all_irref) { covered = true; break; }
-                if (V.payload_types.size() == 1 && args.size() == 1)
-                    inner.push_back(args[0]);
-            }
-            if (covered) continue;
-            if (!inner.empty() && !V.payload_types.empty()) {
-                TypeRef pld = V.payload_types[0];
-                if (pld && !subst.empty()) pld = subst_type_sema(pld, subst);
-                if (pld && ast_patterns_exhaustive(inner, pld)) continue;
-            }
-            return false;
+    // Usefulness over a pattern MATRIX (rows × columns, one type per column):
+    // the rows are exhaustive iff no value vector escapes them. A null node is
+    // a wildcard. Tuples and structs expand into their parts, an enum splits by
+    // variant, bool by value; any other type is covered by wildcard rows only
+    // (an integer/char column of literals proves nothing — a `false` here means
+    // "not proven", and the LIR-level variant check still runs).
+    using Row = std::vector<TinyMapView>;
+    auto peel = [&](TypeRef x) {
+        for (int i = 0; i < 8 && x &&
+             (TypeRef(x).kind() == K::Ref || TypeRef(x).kind() == K::MutRef ||
+              TypeRef(x).kind() == K::Ptr) && TypeRef(x).pointee(); ++i)
+            x = TypeRef(x).pointee();
+        return x;
+    };
+    // Unwrap `@`, `&pat` and single-alt or; a binder / `_` / `..` is a wildcard
+    // UNLESS the name is a payload-less variant or a const (then it is a test).
+    std::function<TinyMapView(TinyMapView)> norm = [&](TinyMapView p) -> TinyMapView {
+        if (p.is_null()) return p;
+        int32_t c = code_of(p);
+        if ((c == la::PAT_AT || c == la::PAT_REF) && p.has_key(la::VALUE))
+            return norm(map_of(p.get(la::VALUE.code)));
+        if (c == la::PAT_AT || c == la::PAT_REST) return TinyMapView{};
+        if (c == la::PAT_OR && p.has_key(la::ITEMS)) {
+            auto a = arr_of(p.get(la::ITEMS.code));
+            if (a.size() == 1) return norm(map_of(a.get(0)));
         }
+        if (c == la::PAT_WILD && ast_pat_irrefutable(p)) return TinyMapView{};
+        return p;
+    };
+    auto list_items = [&](TinyMapView n, uint8_t key) -> std::vector<TinyMapView> {
+        std::vector<TinyMapView> out;
+        if (!n.has_key(key)) return out;
+        auto av = n.get(key);
+        if (av.is_null()) return out;
+        auto m = av.is_pointer() ? map_of(av) : TinyMapView{};
+        ArrayView items = (!m.is_null() && m.has_key(la::ITEMS)) ? arr_of(m.get(la::ITEMS.code)) : arr_of(av);
+        for (uint64_t i = 0; i < items.size(); ++i) out.push_back(map_of(items.get(i)));
+        return out;
+    };
+    // Positional parts of a tuple-like pattern, `..` expanded to wildcards.
+    auto positional = [&](const std::vector<TinyMapView>& items, size_t arity,
+                          std::vector<TinyMapView>& out) -> bool {
+        size_t rest = items.size();
+        for (size_t i = 0; i < items.size(); ++i)
+            if (!items[i].is_null() && code_of(items[i]) == la::PAT_REST &&
+                !items[i].has_key(la::NAME)) { rest = i; break; }
+        if (rest == items.size()) {
+            if (items.size() != arity) return false;
+            out = items;
+            return true;
+        }
+        size_t tail = items.size() - rest - 1;
+        if (rest + tail > arity) return false;
+        out.assign(items.begin(), items.begin() + rest);
+        for (size_t k = 0; k < arity - rest - tail; ++k) out.push_back(TinyMapView{});
+        out.insert(out.end(), items.begin() + rest + 1, items.end());
         return true;
-    }
-    // Non-enum (bool/int/…): defer to the LIR-level checker (return false =
-    // "not proven here", which suppresses nothing).
-    return false;
+    };
+    // Fields of a struct-shaped pattern, in declaration order; absent = wild.
+    auto by_field = [&](const std::vector<TinyMapView>& items,
+                        const std::vector<std::string>& names) -> std::vector<TinyMapView> {
+        std::vector<TinyMapView> out(names.size());
+        for (auto f : items) {
+            if (f.is_null() || code_of(f) != la::PAT_FIELD || !f.has_key(la::NAME)) continue;
+            auto fname = str_of(f.get(la::NAME.code));
+            for (size_t k = 0; k < names.size(); ++k)
+                if (names[k] == fname)
+                    out[k] = f.has_key(la::VALUE) ? map_of(f.get(la::VALUE.code)) : TinyMapView{};
+        }
+        return out;
+    };
+    int budget = 20000;   // rows × splits; past it, "not proven"
+    bool undecidable = false;
+    std::function<bool(std::vector<Row>, std::vector<TypeRef>)> exh =
+        [&](std::vector<Row> rows, std::vector<TypeRef> tys) -> bool {
+        if (--budget < 0) { undecidable = true; return false; }
+        if (tys.empty()) return !rows.empty();
+        // Expand multi-alt ors in column 0 and normalise it.
+        std::vector<Row> rs;
+        std::function<void(Row&, TinyMapView)> push_alts = [&](Row& r, TinyMapView p) {
+            p = norm(p);
+            if (!p.is_null() && code_of(p) == la::PAT_OR && p.has_key(la::ITEMS)) {
+                auto a = arr_of(p.get(la::ITEMS.code));
+                for (uint64_t k = 0; k < a.size(); ++k) push_alts(r, map_of(a.get(k)));
+                return;
+            }
+            Row nr = r; nr[0] = p; rs.push_back(std::move(nr));
+        };
+        for (auto& r : rows) push_alts(r, r[0]);
+        TypeRef t0 = peel(tys[0]);
+        std::vector<TypeRef> rest_tys(tys.begin() + 1, tys.end());
+        auto drop_first = [&](const Row& r) { return Row(r.begin() + 1, r.end()); };
+        bool all_wild = true;
+        for (auto& r : rs) if (!r[0].is_null()) { all_wild = false; break; }
+        if (all_wild || !t0) {
+            std::vector<Row> nr;
+            for (auto& r : rs) if (r[0].is_null()) nr.push_back(drop_first(r));
+            return exh(std::move(nr), rest_tys);
+        }
+        // Specialise by one constructor: `parts(row0)` gives the sub-patterns
+        // (nullopt = the row does not match this constructor).
+        auto specialise = [&](const std::vector<TypeRef>& sub_tys,
+                              const std::function<std::optional<Row>(TinyMapView)>& parts) -> bool {
+            std::vector<Row> nr;
+            std::vector<TypeRef> nt = sub_tys;
+            nt.insert(nt.end(), rest_tys.begin(), rest_tys.end());
+            for (auto& r : rs) {
+                std::optional<Row> ps;
+                if (r[0].is_null()) ps = Row(sub_tys.size());
+                else ps = parts(r[0]);
+                if (!ps) continue;
+                Row x = *ps;
+                auto tl = drop_first(r);
+                x.insert(x.end(), tl.begin(), tl.end());
+                nr.push_back(std::move(x));
+            }
+            return exh(std::move(nr), nt);
+        };
+        auto k0 = TypeRef(t0).kind();
+        if (k0 == K::Tuple) {
+            auto elems = TypeRef(t0).tuple_elems();
+            return specialise(elems, [&](TinyMapView p) -> std::optional<Row> {
+                if (code_of(p) != la::PAT_TUPLE) { undecidable = true; return std::nullopt; }
+                auto items = list_items(p, la::NAMES.code);
+                if (items.empty()) items = list_items(p, la::ITEMS.code);
+                Row out;
+                if (!positional(items, elems.size(), out)) return std::nullopt;
+                return out;
+            });
+        }
+        if (k0 == K::Struct) {
+            const SemaStructInfo* si = find_struct_by_name(std::string(TypeRef(t0).struct_name())).second;
+            if (!si) { undecidable = true; return false; }
+            std::vector<std::string> names; std::vector<TypeRef> ftys;
+            for (auto& f : si->fields) { names.emplace_back(f.name); ftys.push_back(f.type); }
+            return specialise(ftys, [&](TinyMapView p) -> std::optional<Row> {
+                if (code_of(p) == la::PAT_STRUCT)
+                    return by_field(list_items(p, la::ITEMS.code), names);
+                // A tuple struct's `Triple(a, b, c)`: positional over the fields.
+                if (code_of(p) == la::PAT_VARIANT_DATA) {
+                    Row out;
+                    if (positional(payload_items(p), ftys.size(), out)) return out;
+                }
+                undecidable = true;   // a shape this matrix does not model
+                return std::nullopt;
+            });
+        }
+        if (k0 == K::Bool) {
+            for (int bv = 0; bv < 2; ++bv) {
+                if (!specialise({}, [&](TinyMapView p) -> std::optional<Row> {
+                        if (code_of(p) != la::PAT_BOOL || !p.has_key(la::VALUE)) { undecidable = true; return std::nullopt; }
+                        if ((p.get(la::VALUE.code).as_value<int32_t>() != 0) != (bv != 0)) return std::nullopt;
+                        return Row{};
+                    })) return false;
+            }
+            return true;
+        }
+        if (k0 == K::Enum) {
+            auto [pkg, esi] = enum_of(TypeRef(t0));
+            (void)pkg;
+            if (!esi) { undecidable = true; return false; }
+            SemaSubst subst;
+            auto ta = TypeRef(t0).type_args();
+            for (size_t i = 0; i < esi->type_params.size() && i < ta.size(); ++i)
+                if (ta[i]) subst[esi->type_params[i].name] = ta[i];
+            for (auto& V : esi->variants) {
+                std::vector<TypeRef> ptys;
+                bool uninhabited = false;
+                for (auto pt : V.payload_types) {
+                    TypeRef x = (pt && !subst.empty()) ? subst_type_sema(pt, subst) : TypeRef(pt);
+                    if (x && is_type_uninhabited(x)) uninhabited = true;
+                    ptys.push_back(x);
+                }
+                if (uninhabited) continue;
+                const bool struct_shape = !V.payload_field_names.empty();
+                bool ok = specialise(ptys, [&](TinyMapView p) -> std::optional<Row> {
+                    int32_t c = code_of(p);
+                    if (c == la::PAT_WILD) {   // a bare unit-variant / const name
+                        auto n = str_of(p.get(la::NAME.code));
+                        if (n == V.name && ptys.empty()) return Row{};
+                        if (const_pkg_of_.count(std::string(n))) undecidable = true;
+                        return std::nullopt;
+                    }
+                    std::string en, vn;
+                    if (!pat_variant(p, en, vn)) { undecidable = true; return std::nullopt; }
+                    if (vn != V.name) return std::nullopt;
+                    if (c == la::PAT_VARIANT) return Row(ptys.size());
+                    if (struct_shape && !p.has_key(la::ARGS))
+                        return by_field(list_items(p, la::ITEMS.code), V.payload_field_names);
+                    auto args = payload_items(p);
+                    if (args.empty()) return Row(ptys.size());
+                    Row out;
+                    if (!positional(args, ptys.size(), out)) return std::nullopt;
+                    return out;
+                });
+                if (!ok) return false;
+            }
+            return true;
+        }
+        // No enumerable constructors: only wildcard rows cover the column (a
+        // literal row may still cover a value, so a miss is no longer a proof).
+        std::vector<Row> nr;
+        for (auto& r : rs) {
+            if (r[0].is_null()) nr.push_back(drop_first(r));
+            else undecidable = true;
+        }
+        return exh(std::move(nr), rest_tys);
+    };
+    std::vector<Row> rows0;
+    for (auto p : flat) rows0.push_back(Row{p});
+    bool res = exh(std::move(rows0), {t});
+    if (decided) *decided = !res && !undecidable;
+    return res;
 }
 
 // Emit the body-prologue `let` destructures for nested sub-patterns inside an
@@ -10665,7 +10958,10 @@ void SemaChecker::emit_nested_pat_destructure(
     for (auto& nsub : nested_subs) {
         TypeRef synth_t = lookup(nsub.synth_name);
         if (!synth_t) continue;
-        if (code_of(nsub.sub_pat_node) == la::PAT_VARIANT_DATA) {
+        const int32_t nsc = code_of(nsub.sub_pat_node);
+        if (nsc == la::PAT_VARIANT_DATA ||
+            ((nsc == la::PAT_TUPLE || nsc == la::PAT_STRUCT) &&
+             !ast_pat_irrefutable(nsub.sub_pat_node))) {
             // A nested-variant payload destructure uses a refutable
             // `let … else { loop {} }` that ASSUMES the arm already
             // matched (its own synth guard ran). It must NOT be hoisted
@@ -11008,6 +11304,30 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer), /*transparent=*/true});
 }
 
+// `n @ "lit"` / `n @ ("a" | "b")` as a whole arm (the grammar's single-alt
+// PAT_OR already unwrapped): a string test like a bare `"lit"` arm, plus a
+// binder for the scrutinee. Fills the binder name and the literals.
+bool SemaChecker::str_at_arm(writ::TinyMapView p, std::string& binder, std::vector<std::string>& lits) {
+    if (code_of(p) != la::PAT_AT || !p.has_key(la::NAME) || !p.has_key(la::VALUE)) return false;
+    auto v = map_of(p.get(la::VALUE.code));
+    std::vector<writ::TinyMapView> alts;
+    if (code_of(v) == la::PAT_OR && v.has_key(la::ITEMS)) {
+        auto a = arr_of(v.get(la::ITEMS.code));
+        for (uint64_t k = 0; k < a.size(); ++k) alts.push_back(map_of(a.get(k)));
+    } else {
+        alts.push_back(v);
+    }
+    std::vector<std::string> out;
+    for (auto a : alts) {
+        if (code_of(a) != la::PAT_STR || !a.has_key(la::VALUE)) return false;
+        out.emplace_back(str_of(a.get(la::VALUE.code)));
+    }
+    if (out.empty()) return false;
+    binder = std::string(str_of(p.get(la::NAME.code)));
+    lits = std::move(out);
+    return true;
+}
+
 lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
     lir::LExprPtr scrut = nullptr;
@@ -11245,6 +11565,14 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             if (code_of(arm) != la::MATCH_ARM || !arm.has_key(la::LHS)) continue;
             auto lhs = map_of(arm.get(la::LHS.code));
             if (code_of(lhs) == la::PAT_STR) { has_str_pat = true; break; }
+            {
+                auto u = lhs;
+                if (code_of(u) == la::PAT_OR && u.has_key(la::ITEMS) &&
+                    arr_of(u.get(la::ITEMS.code)).size() == 1)
+                    u = map_of(arr_of(u.get(la::ITEMS.code)).get(0));
+                std::string bn; std::vector<std::string> ls;
+                if (str_at_arm(u, bn, ls)) { has_str_pat = true; break; }
+            }
             if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
                 auto alts = arr_of(lhs.get(la::ITEMS.code));
                 for (uint64_t k = 0; k < alts.size(); ++k)
@@ -11488,7 +11816,20 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 }
                 is_str_arm = (code_of(str_eff) == la::PAT_STR);
             }
-            if (is_str_arm) {
+            std::string str_at_name;
+            std::vector<std::string> str_at_lits;
+            if (has_str_hoist && !is_str_arm && arm.has_key(la::LHS) &&
+                str_at_arm(str_eff, str_at_name, str_at_lits)) {
+                pat = make_pat_wild(str_at_name);
+                for (auto& lit : str_at_lits) {
+                    auto g = make_str_eq_guard(
+                        builder().var_ref(str_scrut_var, str_scrut_type),
+                        builder().lit_str(lit, make_slice_type(u8_t())));
+                    str_arm_guard = str_arm_guard
+                        ? builder().bin_op("||", std::move(str_arm_guard), std::move(g), bool_t())
+                        : std::move(g);
+                }
+            } else if (is_str_arm) {
                 pat = make_pat_wild("_");
                 auto strlit = builder().lit_str(
                     std::string(str_of(str_eff.get(la::VALUE.code))), make_slice_type(u8_t()));
@@ -11983,7 +12324,9 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             if (arm.has_key(la::GUARD)) continue;      // user-guarded ≠ guaranteed
             if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
         }
-        ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type);
+        bool decided = false;
+        ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type, &decided);
+        refuse_uncovered_aggregate(scrut_type, ast_exh, decided);
     }
     check_match_exhaustiveness(smatch, scrut_type, ast_exh);
 
@@ -12204,6 +12547,14 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (code_of(arm) != la::MATCH_ARM || !arm.has_key(la::LHS)) continue;
             auto lhs = map_of(arm.get(la::LHS.code));
             if (code_of(lhs) == la::PAT_STR) { has_str_pat = true; break; }
+            {
+                auto u = lhs;
+                if (code_of(u) == la::PAT_OR && u.has_key(la::ITEMS) &&
+                    arr_of(u.get(la::ITEMS.code)).size() == 1)
+                    u = map_of(arr_of(u.get(la::ITEMS.code)).get(0));
+                std::string bn; std::vector<std::string> ls;
+                if (str_at_arm(u, bn, ls)) { has_str_pat = true; break; }
+            }
             if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
                 auto alts = arr_of(lhs.get(la::ITEMS.code));
                 for (uint64_t k = 0; k < alts.size(); ++k)
@@ -12403,7 +12754,20 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 }
                 is_str_arm = (code_of(str_eff) == la::PAT_STR);
             }
-            if (is_str_arm) {
+            std::string str_at_name;
+            std::vector<std::string> str_at_lits;
+            if (has_str_hoist && !is_str_arm && arm.has_key(la::LHS) &&
+                str_at_arm(str_eff, str_at_name, str_at_lits)) {
+                pat = make_pat_wild(str_at_name);
+                for (auto& lit : str_at_lits) {
+                    auto g = make_str_eq_guard(
+                        builder().var_ref(str_scrut_var, str_scrut_type),
+                        builder().lit_str(lit, make_slice_type(u8_t())));
+                    str_arm_guard = str_arm_guard
+                        ? builder().bin_op("||", std::move(str_arm_guard), std::move(g), bool_t())
+                        : std::move(g);
+                }
+            } else if (is_str_arm) {
                 pat = make_pat_wild("_");
                 auto strlit = builder().lit_str(
                     std::string(str_of(str_eff.get(la::VALUE.code))), make_slice_type(u8_t()));
@@ -12825,7 +13189,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (arm.has_key(la::GUARD)) continue;
                 if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
             }
-            ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type);
+            bool decided = false;
+            ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type, &decided);
+            refuse_uncovered_aggregate(scrut_type, ast_exh, decided);
         }
         bool has_wild = ast_exh;
         for (auto& arm : me.arms) {

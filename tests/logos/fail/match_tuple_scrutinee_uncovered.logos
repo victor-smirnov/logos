@@ -1,0 +1,6 @@
+// A tuple scrutinee whose arms miss a value (`(true, None)`) is E0004; it compiled and fell through every arm.
+package match_tuple_scrutinee_uncovered;
+fn f(t: (bool, Option<i32>)) -> i32 {
+    match t { (true, Some(_)) => { return 1; } (false, _) => { return 2; } }
+}
+fn main() -> i32 { return f((true, None)); }

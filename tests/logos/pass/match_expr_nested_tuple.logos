@@ -6,7 +6,7 @@ fn nested_lit(p: ((i64, i64), i64)) -> i64 {
     return r;
 }
 fn pos_dep(x: (bool, bool)) -> i64 {
-    let r: i64 = match x { (true, y) | (y, true) => if y { 1i64 } else { 2i64 }, };
+    let r: i64 = match x { (true, y) | (y, true) => if y { 1i64 } else { 2i64 }, (false, false) => 3i64 };
     return r;
 }
 fn variant_or(e: E, k: i64) -> i64 {

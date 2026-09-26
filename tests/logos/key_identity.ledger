@@ -494,7 +494,9 @@
 #   (`nm == "_"`: a `_` binds nothing, so it is never a duplicate).
 # 2026-09-24: sema_stmt.cpp 26 -> 27, REGEX ONLY (wildcard test, no entity key): build_pattern's PAT_AT
 #   `pa.name != "_"` before minting `ref n @ sub` (AT_REF_MODE). A `_` binds nothing.
-#SCAN sema_stmt.cpp 27 21c4e7fe
+# 2026-09-26: sema_stmt.cpp 27 -> 28, REGEX ONLY (wildcard test, no entity key): ast_pat_irrefutable's
+#   `n == "_"` — a `_` / empty binder is a wildcard, any other bare name is checked against the unit variants.
+#SCAN sema_stmt.cpp 28 085da569
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)

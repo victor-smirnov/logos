@@ -5638,7 +5638,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, a);
                     tptr = a;
                 }
-                mlir::Value cond = pat_test(arm_pat_ref, tptr, scrut_ty);
+                // A `&(..)` scrutinee's VALUE is already the tuple's address.
+                TypeRef tty = scrut_ty;
+                while (tty && (TypeRef(tty).kind() == LogosType::Kind::Ref ||
+                               TypeRef(tty).kind() == LogosType::Kind::MutRef) && TypeRef(tty).pointee())
+                    tty = TypeRef(tty).pointee();
+                mlir::Value cond = pat_test(arm_pat_ref, tptr, tty);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;

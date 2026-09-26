@@ -2415,6 +2415,13 @@ private:
     // match-arm alternations (`Some(x) | None => …`) from both match
     // lowering paths; the nested PatOr builder has its own equivalent.
     void check_or_alt_binding_consistency(writ::TinyMapView pat_or);
+    // Is the AST pattern IRREFUTABLE by structure (binders, wildcards, `..`,
+    // tuples / structs / `&` / `@` over irrefutable parts)? A literal, range,
+    // variant (incl. a bare name naming a unit variant or const), or a
+    // multi-alt or-pattern is refutable; an unknown form counts as refutable.
+    bool ast_pat_irrefutable(writ::TinyMapView pat);
+    // `n @ "lit"` / `n @ ("a" | "b")` as a whole match arm: binder + literals.
+    bool str_at_arm(writ::TinyMapView p, std::string& binder, std::vector<std::string>& lits);
     void collect_ast_pat_bindings(writ::TinyMapView pat,
                                   std::vector<std::string>& out);
 
@@ -9721,7 +9728,12 @@ private:
     // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This
     // verifies coverage on the original AST patterns, descending into each
     // variant's single payload. `pats` are the unguarded arm LHS nodes.
-    bool ast_patterns_exhaustive(std::vector<writ::TinyMapView> pats, TypeRef ty);
+    // `decided` (optional) is set when a `false` is a PROOF of a missing case
+    // (every column enumerable), not merely "not proven".
+    bool ast_patterns_exhaustive(std::vector<writ::TinyMapView> pats, TypeRef ty,
+                                 bool* decided = nullptr);
+    // E0004 for a tuple / struct scrutinee the pattern matrix proves uncovered.
+    void refuse_uncovered_aggregate(TypeRef scrut_type, bool ast_exh, bool decided);
     // P4-pm-12: names from `mut x` patterns (`match scrut { mut z =>
     // … }`). PatWild's LIR mirror doesn't carry the mut flag, so
     // build_pattern_impl appends to this side-channel and

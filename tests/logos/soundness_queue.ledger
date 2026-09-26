@@ -193,5 +193,9 @@ ord_default_minmax_over_ref_self_refused 3 tests/soundness/open/ord_default_minm
 
 partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneous_rhs_refused refuses
 
-# TOTAL 9
-# SYNC-HASH 4ee6257a96f7b1474b5b34e64edd0661
+variant_ctor_tuple_payload_none_inference_refused 3 tests/soundness/open/variant_ctor_tuple_payload_none_inference_refused refuses
+
+mutref_tuple_integer_literal_invariance_refused 3 tests/soundness/open/mutref_tuple_integer_literal_invariance_refused refuses
+
+# TOTAL 11
+# SYNC-HASH f0da84dc272626cf039444ab24a4b88a

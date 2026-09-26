@@ -1,0 +1,7 @@
+// SOUNDNESS QUEUE row mutref_tuple_integer_literal_invariance_refused (tier 3, `refuses`). Found 2026-09-26 by the
+// discovery battery. `let mut u = (Some(4), 3); h(&mut u)` with `h(t: &mut (Option<i32>, i32))` is refused ("variance
+// mismatch — expected &mut (Option, i32), got &mut (Option, {integer})"): the unsuffixed literal inside the tuple is still
+// `{integer}` when the `&mut` invariance check runs, instead of being unified with `i32` first. rustc: exit 8.
+package mutref_tuple_integer_literal_invariance_refused;
+fn h(t: &mut (Option<i32>, i32)) -> i32 { match t { (None, _) => { return 0; } (Some(v), b) => { *v = *v + 1; return *v + *b; } } }
+fn main() -> i32 { let mut u = (Some(4), 3); return h(&mut u); }
