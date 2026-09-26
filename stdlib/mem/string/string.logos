@@ -31,6 +31,9 @@ use logos.lang.marker;
 use logos.lang.drop;
 use logos.lang.str;
 use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.option;
+use logos.lang.panic;
 use logos.lang.writ.dview;       // Datum / DView (capture into a runtime-typed container)
 use logos.lang.writ.anyval;      // W_STRING
 
@@ -469,6 +472,188 @@ impl String {
             self.data[self.nbytes] = 0 as u8;
         }
     }
+}
+
+// ── Rust's char-level String surface ──────────────────────────────────────
+impl String {
+    /// Appends `ch` encoded as UTF-8 (Rust `String::push`).
+    pub fn push(&mut self, ch: char) { self.push_char(ch as u32); }
+
+    /// Removes and returns the last `char`, or `None` if empty (Rust `String::pop`).
+    pub fn pop(&mut self) -> Option<char> {
+        if self.nbytes == 0 { return Option::None; }
+        let mut i: i64 = self.nbytes - 1;
+        unsafe {
+            while i > 0 && ((self.data[i] as i32) & 0xC0) == 0x80 { i = i - 1; }
+            let p: *const u8 = (self.data as i64 + i) as *const u8;
+            let cp: u32 = decode(p);
+            self.nbytes = i;
+            self.data[i] = 0 as u8;
+            return Option::Some(cp as char);
+        }
+    }
+
+    /// Removes and returns the `char` at byte offset `idx`, shifting the tail left.
+    /// Panics if `idx` is not a char boundary or is at/after the end (Rust `String::remove`).
+    pub fn remove(&mut self, idx: i64) -> char {
+        if idx < 0 || idx >= self.nbytes || !self.as_str().is_char_boundary(idx) {
+            panic("String::remove: index is not a char boundary or is out of bounds");
+        }
+        unsafe {
+            let p: *mut u8 = (self.data as i64 + idx) as *mut u8;
+            let n: i64 = seq_len(p[0]);
+            let cp: u32 = decode(p as *const u8);
+            let src: *const u8 = (self.data as i64 + idx + n) as *const u8;
+            mem_move(p, src, self.nbytes - idx - n);
+            self.nbytes = self.nbytes - n;
+            self.data[self.nbytes] = 0 as u8;
+            return cp as char;
+        }
+    }
+
+    /// Inserts `ch` at byte offset `idx` (Rust `String::insert`).
+    /// Panics if `idx` is past the end or not a char boundary.
+    pub fn insert(&mut self, idx: i64, ch: char) {
+        let mut buf: [u8; 4] = [0u8, 0u8, 0u8, 0u8];
+        let bp: *mut u8 = &mut buf[0];
+        let n: i64 = unsafe { std_utf8_encode(ch as u32, bp) };
+        self.insert_bytes(idx, bp as *const u8, n);
+    }
+
+    /// Inserts `s` at byte offset `idx` (Rust `String::insert_str`).
+    /// Panics if `idx` is past the end or not a char boundary.
+    pub fn insert_str(&mut self, idx: i64, s: &str) {
+        self.insert_bytes(idx, (*s).as_ptr(), (*s).len());
+    }
+
+    fn insert_bytes(&mut self, idx: i64, src: *const u8, n: i64) {
+        if idx < 0 || idx > self.nbytes || !self.as_str().is_char_boundary(idx) {
+            panic("String::insert: index is not a char boundary or is out of bounds");
+        }
+        if n <= 0 { return; }
+        self.grow(n);
+        unsafe {
+            let at: *mut u8 = (self.data as i64 + idx) as *mut u8;
+            let to: *mut u8 = (self.data as i64 + idx + n) as *mut u8;
+            mem_move(to, at as *const u8, self.nbytes - idx);
+            mem_copy(self.data, idx, src, n);
+            self.nbytes = self.nbytes + n;
+            self.data[self.nbytes] = 0 as u8;
+        }
+    }
+}
+
+// Overlap-safe byte move (memmove): copies backwards when `dst` is above `src`.
+unsafe fn mem_move(dst: *mut u8, src: *const u8, n: i64) {
+    if n <= 0 { return; }
+    if (dst as i64) > (src as i64) {
+        let mut i: i64 = n - 1;
+        while i >= 0 { dst[i] = src[i]; i = i - 1; }
+    } else {
+        let mut i: i64 = 0;
+        while i < n { dst[i] = src[i]; i = i + 1; }
+    }
+}
+
+/// `String + &str` appends in place and returns the buffer (Rust `impl Add<&str> for String`).
+impl Add<&str> for String {
+    type Output = String;
+    fn add(self: String, rhs: &str) -> String {
+        let mut out: String = self;
+        out.push_str(*rhs);
+        return out;
+    }
+}
+
+/// `s += "..."` (Rust `impl AddAssign<&str> for String`).
+impl AddAssign<&str> for String {
+    fn add_assign(&mut self, rhs: &str) { self.push_str(*rhs); }
+}
+
+// ── The allocating half of Rust's `impl str` ──────────────────────────────
+impl str {
+    /// An owned copy (Rust `str::to_owned`).
+    pub fn to_owned(&self) -> String { return String::from(*self); }
+
+    /// A copy with every non-overlapping match of `from` replaced by `to` (Rust `str::replace`).
+    /// An empty pattern matches before every char and at the end.
+    pub fn replace<P: Pattern + Copy>(&self, from: P, to: &str) -> String {
+        let s: str = *self;
+        let m: i64 = s.len();
+        let mut out: String = String::with_capacity(m);
+        let mlen: i64 = from.match_len();
+        let mut pos: i64 = 0;
+        unsafe {
+            let base: *const u8 = s.as_ptr();
+            if mlen == 0 {
+                while pos < m {
+                    out.push_str(*to);
+                    let n: i64 = seq_len(base[pos]);
+                    let step: i64 = if pos + n > m { m - pos } else { n };
+                    out.push_bytes((base as i64 + pos) as *const u8, step);
+                    pos = pos + step;
+                }
+                out.push_str(*to);
+                return out;
+            }
+            loop {
+                let idx: i64 = from.find_in(s, pos);
+                if idx < 0 { break; }
+                out.push_bytes((base as i64 + pos) as *const u8, idx - pos);
+                out.push_str(*to);
+                pos = idx + mlen;
+            }
+            out.push_bytes((base as i64 + pos) as *const u8, m - pos);
+        }
+        return out;
+    }
+
+    /// `self` concatenated `n` times (Rust `str::repeat`).
+    pub fn repeat(&self, n: i64) -> String {
+        let s: str = *self;
+        let mut out: String = String::with_capacity(s.len() * n);
+        let mut i: i64 = 0;
+        while i < n { out.push_str(s); i = i + 1; }
+        return out;
+    }
+
+    /// ASCII letters upper-cased; other bytes copied (Rust `str::to_ascii_uppercase`).
+    pub fn to_ascii_uppercase(&self) -> String {
+        let s: str = *self;
+        let mut out: String = String::with_capacity(s.len());
+        let mut i: i64 = 0;
+        unsafe {
+            while i < s.len() {
+                let b: u8 = s.as_ptr()[i];
+                if b >= 97u8 && b <= 122u8 { out.push_u8(b - 32u8); } else { out.push_u8(b); }
+                i = i + 1;
+            }
+        }
+        return out;
+    }
+
+    /// ASCII letters lower-cased; other bytes copied (Rust `str::to_ascii_lowercase`).
+    pub fn to_ascii_lowercase(&self) -> String {
+        let s: str = *self;
+        let mut out: String = String::with_capacity(s.len());
+        let mut i: i64 = 0;
+        unsafe {
+            while i < s.len() {
+                let b: u8 = s.as_ptr()[i];
+                if b >= 65u8 && b <= 90u8 { out.push_u8(b + 32u8); } else { out.push_u8(b); }
+                i = i + 1;
+            }
+        }
+        return out;
+    }
+
+    /// Upper-case copy (Rust `str::to_uppercase`). Maps ASCII only — there are no
+    /// Unicode case tables yet, so non-ASCII chars are copied unchanged.
+    pub fn to_uppercase(&self) -> String { return self.to_ascii_uppercase(); }
+
+    /// Lower-case copy (Rust `str::to_lowercase`). Maps ASCII only — there are no
+    /// Unicode case tables yet, so non-ASCII chars are copied unchanged.
+    pub fn to_lowercase(&self) -> String { return self.to_ascii_lowercase(); }
 }
 
 // Encode one codepoint into buf, return bytes written.  Wrapper so string.logos

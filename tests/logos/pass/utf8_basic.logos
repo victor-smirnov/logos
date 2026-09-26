@@ -73,22 +73,22 @@ fn check_char_count() -> i32 {
 
 fn check_chars_iter() -> i32 {
     let mut it: Chars = str_chars("ABC");
-    let c0: Option<u32> = it.next();
+    let c0: Option<char> = it.next();
     match c0 {
-        Option::Some(v) => { if v != 65 as u32 { return 19; } }
+        Option::Some(v) => { if v != 'A' { return 19; } }
         Option::None    => { return 20; }
     }
-    let c1: Option<u32> = it.next();
+    let c1: Option<char> = it.next();
     match c1 {
-        Option::Some(v) => { if v != 66 as u32 { return 21; } }
+        Option::Some(v) => { if v != 'B' { return 21; } }
         Option::None    => { return 22; }
     }
-    let c2: Option<u32> = it.next();
+    let c2: Option<char> = it.next();
     match c2 {
-        Option::Some(v) => { if v != 67 as u32 { return 23; } }
+        Option::Some(v) => { if v != 'C' { return 23; } }
         Option::None    => { return 24; }
     }
-    let c3: Option<u32> = it.next();
+    let c3: Option<char> = it.next();
     match c3 {
         Option::Some(_) => { return 25; }
         Option::None    => {}
@@ -108,10 +108,10 @@ fn check_push_char() -> i32 {
 
     let mut it: Chars = str_chars("Hi");
     let mut rebuilt: String = String::new();
-    let a: Option<u32> = it.next();
-    match a { Option::Some(v) => { rebuilt.push_char(v); } Option::None => { return 28; } }
-    let b: Option<u32> = it.next();
-    match b { Option::Some(v) => { rebuilt.push_char(v); } Option::None => { return 29; } }
+    let a: Option<char> = it.next();
+    match a { Option::Some(v) => { rebuilt.push(v); } Option::None => { return 28; } }
+    let b: Option<char> = it.next();
+    match b { Option::Some(v) => { rebuilt.push(v); } Option::None => { return 29; } }
     if rebuilt.len() != 2 { return 30; }
     return 0;
 }

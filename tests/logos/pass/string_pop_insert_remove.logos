@@ -1,0 +1,32 @@
+// Rust's char-level `String` surface: push(char), pop() -> Option<char>,
+// insert(idx, char), insert_str(idx, &str), remove(idx) -> char. All are
+// char-boundary aware (multi-byte chars move whole). They used to be
+// "'String' has no method 'pop'". rustc twin: 0.
+package string_pop_insert_remove;
+use logos.mem.string;
+
+fn main() -> i32 {
+    let mut s: String = String::from("héllo");
+    let c: char = s.pop().unwrap();
+    if c != 'o' { return 1; }
+    s.push('!');
+    if s.as_str() != "héll!" { return 2; }
+    let r: char = s.remove(1);
+    if r != 'é' { return 3; }
+    if s.as_str() != "hll!" { return 4; }
+    s.insert(1, 'é');
+    if s.as_str() != "héll!" { return 5; }
+    s.insert(s.len(), '€');
+    if s.as_str() != "héll!€" { return 6; }
+    if s.pop() != Some('€') { return 7; }
+    s.insert_str(0, ">>");
+    if s.as_str() != ">>héll!" { return 8; }
+    if s.remove(0) != '>' { return 9; }
+    let mut e: String = String::new();
+    if e.pop().is_some() { return 10; }
+    e.push('x');
+    e.insert(0, 'y');
+    if e.as_str() != "yx" { return 11; }
+    if e.pop() != Some('x') || e.pop() != Some('y') || e.pop().is_some() { return 12; }
+    return 0;
+}
