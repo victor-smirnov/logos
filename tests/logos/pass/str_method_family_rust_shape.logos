@@ -1,0 +1,45 @@
+// The Rust `str` method family as real inherent methods: contains /
+// starts_with / ends_with over any Pattern (str, char, u8), strip_prefix /
+// strip_suffix, split_once / rsplit_once, trim*, is_char_boundary,
+// eq_ignore_ascii_case, and the allocating half — replace (including the empty
+// pattern), repeat, to_uppercase / to_lowercase (ASCII mapping), to_owned.
+// These used to be "slice has no method '...'". rustc twin: 0.
+package str_method_family_rust_shape;
+use logos.lang.str;
+use logos.mem.string;
+
+fn main() -> i32 {
+    let s: &str = "Hello World";
+    let r: String = s.replace("o", "0");
+    if r.as_str() != "Hell0 W0rld" { return 1; }
+    if s.replace('l', "L").as_str() != "HeLLo WorLd" { return 2; }
+    if "ab".replace("", "-").as_str() != "-a-b-" { return 3; }
+    if s.replace("zz", "y").as_str() != "Hello World" { return 4; }
+    if "ab".repeat(3).as_str() != "ababab" { return 5; }
+    if "x".repeat(0).len() != 0 { return 6; }
+    if s.to_uppercase().as_str() != "HELLO WORLD" { return 7; }
+    if s.to_lowercase().as_str() != "hello world" { return 8; }
+    if s.to_owned().as_str() != s { return 9; }
+    if !s.contains("lo W") || !s.contains('W') || s.contains("xyz") { return 10; }
+    if !s.starts_with("Hell") || !s.starts_with('H') || s.starts_with("ello") { return 11; }
+    if !s.ends_with("rld") || !s.ends_with('d') || s.ends_with('l') { return 12; }
+    match s.strip_prefix("Hello ") { Some(t) => { if t != "World" { return 13; } } None => { return 14; } }
+    if s.strip_prefix("World").is_some() { return 15; }
+    match s.strip_suffix('d') { Some(t) => { if t != "Hello Worl" { return 16; } } None => { return 17; } }
+    match "k=v=w".split_once('=') {
+        Some((k, v)) => { if k != "k" || v != "v=w" { return 18; } }
+        None => { return 19; }
+    }
+    match "k=v=w".rsplit_once("=") {
+        Some((k, v)) => { if k != "k=v" || v != "w" { return 20; } }
+        None => { return 21; }
+    }
+    if "kv".split_once(':').is_some() { return 22; }
+    if "  pad  ".trim() != "pad" { return 23; }
+    if "  pad  ".trim_start() != "pad  " { return 24; }
+    if "  pad  ".trim_end() != "  pad" { return 25; }
+    if !"é".is_char_boundary(0) || "é".is_char_boundary(1) || !"é".is_char_boundary(2) { return 26; }
+    if !"HeLLo".eq_ignore_ascii_case("hello") || "hell".eq_ignore_ascii_case("hello") { return 27; }
+    if !"".is_empty() || s.is_empty() { return 28; }
+    return 0;
+}

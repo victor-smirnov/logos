@@ -170,6 +170,8 @@ pub fn print(args: Vec<ExprBlob>) -> ExprBlob {
 /// Invocation: `println!("n={}", 42);`.
 #[fn_macro]
 pub fn println(args: Vec<ExprBlob>) -> ExprBlob {
+    // `println!()` — Rust prints just the newline.
+    if args.length() == 0i64 { return quote_expr! { __fmt_println("") }; }
     return quote_expr! {
         { let __s: String = format_args_str(#(#args),*); __fmt_println(__s.as_str()); }
     };
@@ -188,6 +190,8 @@ pub fn eprint(args: Vec<ExprBlob>) -> ExprBlob {
 /// Invocation: `eprintln!("n={}", 42);`.
 #[fn_macro]
 pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
+    // `eprintln!()` — Rust prints just the newline.
+    if args.length() == 0i64 { return quote_expr! { __fmt_eprintln("") }; }
     return quote_expr! {
         { let __s: String = format_args_str(#(#args),*); __fmt_eprintln(__s.as_str()); }
     };
@@ -223,6 +227,8 @@ pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
     let n: i64 = args.length();
     let mut i: i64 = 1i64;
     while i < n { rest.push(args.get(i)); i = i + 1i64; }
+    // `writeln!(sink)` — Rust writes just the newline.
+    if n == 1i64 { return quote_expr! { (#sink).write_str("\n") }; }
     return quote_expr! {
         { let mut __s: String = format_args_str(#(#rest),*); __s.push_str("\n"); (#sink).write_str(__s.as_str()) }
     };

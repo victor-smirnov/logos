@@ -1,0 +1,27 @@
+// `String + &str` and `String += &str` (Rust `impl Add<&str> for String`,
+// `impl AddAssign<&str> for String`): `+` consumes the left String and appends
+// in place, `+=` appends to the place. Both used to be refused ("operator '+':
+// left must be numeric"). Chains, a `String`'s `as_str()` on the right, and
+// the empty cases are covered. rustc twin: 0.
+package string_add_str_operator;
+use logos.mem.string;
+
+fn main() -> i32 {
+    let a: String = String::from("hello ");
+    let b: String = a + "world";
+    if b.as_str() != "hello world" { return 1; }
+    let c: String = String::new() + "x" + "y" + "z";
+    if c.as_str() != "xyz" { return 2; }
+    let mut d: String = String::from("<");
+    d += "a";
+    d += c.as_str();
+    d += "";
+    d += ">";
+    if d.as_str() != "<axyz>" { return 3; }
+    let e: String = d + "";
+    if e.len() != 6 { return 4; }
+    let mut f: String = String::new();
+    f += "é";
+    if f.len() != 2 { return 5; }
+    return 0;
+}

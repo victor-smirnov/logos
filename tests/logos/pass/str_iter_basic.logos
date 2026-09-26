@@ -26,19 +26,19 @@ unsafe fn main() -> i32 {
         Option::None    => {}
     }
 
-    // CharIndices — yields {idx, ch} struct for each codepoint.
+    // CharIndices — yields (byte_offset, char) for each codepoint.
     let mut ci = str_char_indices(s);
     match ci.next() {
-        Option::Some(p) => {
-            if p.idx != 0 { return 10; }
-            if p.ch != 104u32 { return 11; }
+        Option::Some((i, c)) => {
+            if i != 0 { return 10; }
+            if c != 'h' { return 11; }
         }
         Option::None => { return 12; }
     }
     match ci.next() {
-        Option::Some(p) => {
-            if p.idx != 1 { return 13; }
-            if p.ch != 105u32 { return 14; }
+        Option::Some((i, c)) => {
+            if i != 1 { return 13; }
+            if c != 'i' { return 14; }
         }
         Option::None => { return 15; }
     }

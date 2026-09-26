@@ -37,15 +37,15 @@ fn main() -> i32 {
 
     // Non-overlapping: "aa" in "aaaa" → 2 matches at 0, 2.
     let mut mi: MatchIndices<str> = str_match_indices::<str>("aaaa", "aa");
-    let mi1: Option<StrMatchIndex> = mi.next();
+    let mi1: Option<(i64, str)> = mi.next();
     if !mi1.is_some() { return fail(20); }
-    let v1: StrMatchIndex = mi1.unwrap();
-    if v1.idx != 0i64 { return fail(21); }
-    let mi2: Option<StrMatchIndex> = mi.next();
+    let v1: (i64, str) = mi1.unwrap();
+    if v1.0 != 0i64 { return fail(21); }
+    let mi2: Option<(i64, str)> = mi.next();
     if !mi2.is_some() { return fail(22); }
-    let v2: StrMatchIndex = mi2.unwrap();
-    if v2.idx != 2i64 { return fail(23); }
-    let mi3: Option<StrMatchIndex> = mi.next();
+    let v2: (i64, str) = mi2.unwrap();
+    if v2.0 != 2i64 || v2.1 != "aa" { return fail(23); }
+    let mi3: Option<(i64, str)> = mi.next();
     if mi3.is_some() { return fail(24); }
 
     // ── u8 byte Pattern through Matches ──

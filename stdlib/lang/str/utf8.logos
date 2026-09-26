@@ -186,7 +186,7 @@ pub unsafe fn is_valid(ptr: *const u8, len: i64) -> bool {
 
 // ── Chars iterator ────────────────────────────────────────────────────────
 
-/// Iterator over the Unicode codepoints (`u32`) of a UTF-8 byte slice.
+/// Iterator over the `char`s of a UTF-8 byte slice (Rust `str::Chars`).
 /// Invalid sequences yield one U+FFFD, advancing by the lead byte's declared length;
 /// a truncated tail yields one U+FFFD per remaining byte.
 pub struct Chars {
@@ -206,8 +206,8 @@ pub fn str_chars(s: str) -> Chars {
     return Chars { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
-impl Iterator<u32> for Chars {
-    fn next(self: &mut Chars) -> Option<u32> {
+impl Iterator<char> for Chars {
+    fn next(self: &mut Chars) -> Option<char> {
         if self.pos >= self.len {
             return Option::None;
         }
@@ -217,30 +217,20 @@ impl Iterator<u32> for Chars {
             let avail: i64 = self.len - self.pos;
             if slen > avail {
                 self.pos = self.pos + 1;
-                return Option::Some(0xFFFD as u32);
+                return Option::Some(0xFFFD as u32 as char);
             }
             let p: *const u8 = (self.ptr as i64 + self.pos) as *const u8;
             let cp: u32 = decode(p);
             self.pos = self.pos + slen;
-            return Option::Some(cp);
+            return Option::Some(cp as char);
         }
     }
 }
 
 // ── CharIndices iterator ──────────────────────────────────────────────────
 //
-// Mirrors `core::str::CharIndices`. Yields `(byte_offset, codepoint)`
-// pairs as a Logos struct (we don't have anonymous tuples in trait-
-// method return positions yet). Byte offset is the position of the
-// codepoint's first byte in the source slice.
-
-/// A byte-offset + codepoint pair yielded by `CharIndices`.
-pub struct CharIndex {
-    /// Byte offset of the codepoint's first byte in the source slice.
-    pub idx: i64,
-    /// The decoded codepoint (U+FFFD for invalid input).
-    pub ch:  u32,
-}
+// Mirrors `core::str::CharIndices`: yields `(byte_offset, char)`, the offset
+// being the position of the char's first byte in the source slice.
 
 /// Iterator over the codepoints of a string slice together with their byte offsets.
 pub struct CharIndices {
@@ -254,8 +244,8 @@ pub fn str_char_indices(s: str) -> CharIndices {
     return CharIndices { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
-impl Iterator<CharIndex> for CharIndices {
-    fn next(self: &mut CharIndices) -> Option<CharIndex> {
+impl Iterator<(i64, char)> for CharIndices {
+    fn next(self: &mut CharIndices) -> Option<(i64, char)> {
         if self.pos >= self.len {
             return Option::None;
         }
@@ -266,12 +256,12 @@ impl Iterator<CharIndex> for CharIndices {
             let avail: i64 = self.len - self.pos;
             if slen > avail {
                 self.pos = self.pos + 1;
-                return Option::Some(CharIndex { idx: start, ch: 0xFFFD as u32 });
+                return Option::Some((start, 0xFFFD as u32 as char));
             }
             let p: *const u8 = (self.ptr as i64 + self.pos) as *const u8;
             let cp: u32 = decode(p);
             self.pos = self.pos + slen;
-            return Option::Some(CharIndex { idx: start, ch: cp });
+            return Option::Some((start, cp as char));
         }
     }
 }
@@ -586,28 +576,76 @@ pub fn bool_from_str(s: str) -> Result<bool, ParseBoolError> {
 // offset returned by `find_in` is always at a codepoint boundary.
 
 impl Pattern for u32 {
-    fn find_in(self: u32, haystack: str, from: i64) -> i64 {
-        let m: i64 = haystack.len();
-        if from < 0i64 || from > m { return -1i64; }
-        let mut i: i64 = from;
-        unsafe {
-            let base: *const u8 = haystack.as_ptr();
-            while i < m {
-                let b0: u8 = base[i];
-                let slen: i64 = seq_len(b0);
-                if i + slen > m {
-                    // Truncated tail — bail.
-                    return -1i64;
-                }
-                let p: *const u8 = (base as i64 + i) as *const u8;
-                let cp: u32 = decode(p);
-                if cp == self { return i; }
-                i = i + slen;
-            }
-        }
-        return -1i64;
-    }
+    fn find_in(self: u32, haystack: str, from: i64) -> i64 { return cp_find(haystack, self, from); }
     fn match_len(self: u32) -> i64 { return encode_len(self); }
+    fn rfind_in(self: u32, haystack: str) -> i64 { return cp_rfind(haystack, self); }
+    fn prefix_len(self: u32, haystack: str) -> i64 { return cp_prefix(haystack, self); }
+    fn suffix_len(self: u32, haystack: str) -> i64 { return cp_suffix(haystack, self); }
+}
+
+// Rust's `impl Pattern for char`: the same codepoint scan.
+impl Pattern for char {
+    fn find_in(self: char, haystack: str, from: i64) -> i64 { return cp_find(haystack, self as u32, from); }
+    fn match_len(self: char) -> i64 { return encode_len(self as u32); }
+    fn rfind_in(self: char, haystack: str) -> i64 { return cp_rfind(haystack, self as u32); }
+    fn prefix_len(self: char, haystack: str) -> i64 { return cp_prefix(haystack, self as u32); }
+    fn suffix_len(self: char, haystack: str) -> i64 { return cp_suffix(haystack, self as u32); }
+}
+
+// Leftmost codepoint `cp` at or after byte `from` (a codepoint boundary), or -1.
+fn cp_find(haystack: str, cp: u32, from: i64) -> i64 {
+    let m: i64 = haystack.len();
+    if from < 0i64 || from > m { return -1i64; }
+    let mut i: i64 = from;
+    unsafe {
+        let base: *const u8 = haystack.as_ptr();
+        while i < m {
+            let slen: i64 = seq_len(base[i]);
+            if i + slen > m { return -1i64; }   // truncated tail
+            let p: *const u8 = (base as i64 + i) as *const u8;
+            if decode(p) == cp { return i; }
+            i = i + slen;
+        }
+    }
+    return -1i64;
+}
+
+// Rightmost codepoint `cp`, or -1: forward scan keeping the last hit, so the
+// decode stays in step with codepoint boundaries.
+fn cp_rfind(haystack: str, cp: u32) -> i64 {
+    let mut last: i64 = -1i64;
+    let mut i: i64 = cp_find(haystack, cp, 0i64);
+    while i >= 0i64 {
+        last = i;
+        i = cp_find(haystack, cp, i + encode_len(cp));
+    }
+    return last;
+}
+
+// Byte length of `cp` if `haystack` starts with it, else -1.
+fn cp_prefix(haystack: str, cp: u32) -> i64 {
+    let m: i64 = haystack.len();
+    if m == 0i64 { return -1i64; }
+    unsafe {
+        let base: *const u8 = haystack.as_ptr();
+        let slen: i64 = seq_len(base[0]);
+        if slen > m { return -1i64; }
+        if decode(base) == cp { return slen; }
+    }
+    return -1i64;
+}
+
+// Byte length of `cp` if `haystack` ends with it, else -1.
+fn cp_suffix(haystack: str, cp: u32) -> i64 {
+    let n: i64 = encode_len(cp);
+    let m: i64 = haystack.len();
+    if n == 0i64 || n > m { return -1i64; }
+    unsafe {
+        let p: *const u8 = (haystack.as_ptr() as i64 + m - n) as *const u8;
+        if seq_len(p[0]) != n { return -1i64; }
+        if decode(p) == cp { return n; }
+    }
+    return -1i64;
 }
 
 // ── Matches / MatchIndices iterators ──────────────────────────────────────
@@ -650,15 +688,7 @@ impl<'a, P: Pattern> Iterator<&'a str> for Matches<'a, P> {
     }
 }
 
-/// A byte-offset + matched-slice pair yielded by `MatchIndices`.
-pub struct StrMatchIndex<'a> {
-    /// Byte offset of the match within the haystack.
-    pub idx: i64,
-    /// The matched slice.
-    pub m:   &'a str,
-}
-
-/// Iterator over non-overlapping pattern matches together with their byte offsets.
+/// Iterator over non-overlapping pattern matches as `(byte_offset, slice)` (Rust `MatchIndices`).
 pub struct MatchIndices<'a, P> {
     haystack: &'a str,
     pat: P,
@@ -670,8 +700,8 @@ pub fn str_match_indices<'a, P: Pattern>(s: &'a str, p: P) -> MatchIndices<'a, P
     return MatchIndices::<P> { haystack: s, pat: p, pos: 0i64 };
 }
 
-impl<'a, P: Pattern> Iterator<StrMatchIndex<'a>> for MatchIndices<'a, P> {
-    fn next(self: &mut MatchIndices<'a, P>) -> Option<StrMatchIndex<'a>> {
+impl<'a, P: Pattern> Iterator<(i64, &'a str)> for MatchIndices<'a, P> {
+    fn next(self: &mut MatchIndices<'a, P>) -> Option<(i64, &'a str)> {
         let idx: i64 = self.pat.find_in(self.haystack, self.pos);
         if idx < 0i64 { return Option::None; }
         let mlen: i64 = self.pat.match_len();
@@ -680,7 +710,7 @@ impl<'a, P: Pattern> Iterator<StrMatchIndex<'a>> for MatchIndices<'a, P> {
         unsafe {
             let base: *const u8 = (self.haystack.as_ptr() as i64 + idx) as *const u8;
             let m: str = str_from_raw(base, mlen);
-            return Option::Some(StrMatchIndex { idx: idx, m: m });
+            return Option::Some((idx, m));
         }
     }
 }

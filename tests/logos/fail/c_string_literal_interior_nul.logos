@@ -1,0 +1,7 @@
+// A C string literal cannot hold an interior NUL (rustc: "null characters in C
+// string literals are not supported"): the terminator would cut it short.
+package c_string_literal_interior_nul;
+fn main() -> i32 {
+    let s = c"a\0b";
+    return 0;
+}

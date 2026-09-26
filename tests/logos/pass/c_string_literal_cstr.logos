@@ -1,0 +1,33 @@
+// C string literals `c"..."` and `cr"..."` (Rust 2021) type as
+// `&'static CStr` (logos.lang.ffi): NUL-terminated static bytes, so
+// `as_ptr()` is a valid `const char*`. count_bytes / to_bytes /
+// to_bytes_with_nul / to_str / is_empty, and Debug renders through Rust's
+// `escape_ascii`. An interior NUL is refused (fail/c_string_literal_interior_nul).
+// They used to be a syntax error. rustc twin: stdout "cat" line, exit 0.
+package c_string_literal_cstr;
+use logos.lang.ffi;
+use logos.std.fmt;
+use logos.mem.fmt;
+use logos.mem.string;
+
+extern fn strlen(p: *const u8) -> i64;
+
+fn main() -> i32 {
+    let s: &CStr = c"cat";
+    if s.count_bytes() != 3 { return 1; }
+    if s.to_bytes().len() != 3 { return 2; }
+    if s.to_bytes_with_nul().len() != 4 { return 3; }
+    if s.to_bytes_with_nul()[3] != 0u8 { return 4; }
+    if unsafe { strlen(s.as_ptr()) } != 3 { return 5; }
+    match s.to_str() { Ok(t) => { if t != "cat" { return 6; } } Err(_) => { return 7; } }
+    let r = cr"a\b";
+    if r.count_bytes() != 3 { return 8; }
+    if !c"".is_empty() || s.is_empty() { return 9; }
+    let esc = c"t\tq\"\xff";
+    if esc.count_bytes() != 5 { return 10; }
+    if esc.to_str().is_ok() { return 11; }
+    let d: String = format!("{:?}", esc);
+    if d.as_str() != "\"t\\tq\\\"\\xff\"" { return 12; }
+    println!("{:?}", s);
+    return 0;
+}

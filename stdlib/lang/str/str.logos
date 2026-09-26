@@ -304,21 +304,25 @@ pub fn str_contains(s: str, needle: str) -> bool {
 
 // ── Pattern trait ──────────────────────────────────────────────────
 //
-// Mirrors Rust's `core::str::Pattern` shape simplified to a single
-// `find_in` method that returns the leftmost match's byte offset or
-// -1. Each impl reports `match_len` so callers can compute the
-// matched slice (used by future split / replace helpers).
-//
-// Today's impls: `str` (substring) and `u8` (single byte). Char-as-
-// codepoint requires UTF-8 decode at the haystack scan; deferred to
-// the str/utf8 pass.
-/// A searchable pattern over `str` haystacks; implemented for `str` (substring) and `u8` (byte).
+// Rust's `core::str::Pattern`, reduced to what the `str` methods need:
+// leftmost match at or after an offset, rightmost match, prefix / suffix
+// length, and the match length. Offsets are i64 with -1 for "no match"
+// internally; the public `str` methods (methods.logos) turn that into
+// `Option`. Impls: `str` (substring), `char` and `u32` (one codepoint,
+// utf8.logos), `u8` (one byte).
+/// A searchable pattern over `str` haystacks: `str`, `char`, `u32` (codepoint) or `u8`.
 pub trait Pattern {
     /// Returns the byte offset of the leftmost match at or after `from`, or -1 if none.
     /// An empty `str` pattern matches at `from`; otherwise an out-of-range `from` returns -1.
     fn find_in(self: Self, haystack: str, from: i64) -> i64;
     /// Returns the byte length of a match of this pattern.
     fn match_len(self: Self) -> i64;
+    /// Returns the byte offset of the rightmost match, or -1 if none.
+    fn rfind_in(self: Self, haystack: str) -> i64;
+    /// Returns the length of the match at the start of `haystack`, or -1 if it does not start with one.
+    fn prefix_len(self: Self, haystack: str) -> i64;
+    /// Returns the length of the match at the end of `haystack`, or -1 if it does not end with one.
+    fn suffix_len(self: Self, haystack: str) -> i64;
 }
 
 impl Pattern for str {
@@ -350,6 +354,42 @@ impl Pattern for str {
         return -1i64;
     }
     fn match_len(self: str) -> i64 { return self.len(); }
+    // Rightmost start; an empty needle matches at the end (Rust: `"ab".rfind("") == Some(2)`).
+    fn rfind_in(self: str, haystack: str) -> i64 {
+        let n: i64 = self.len();
+        let m: i64 = haystack.len();
+        if n > m { return -1i64; }
+        let mut i: i64 = m - n;
+        while i >= 0i64 {
+            if bytes_eq_at(haystack, i, self) { return i; }
+            i = i - 1i64;
+        }
+        return -1i64;
+    }
+    fn prefix_len(self: str, haystack: str) -> i64 {
+        if self.len() > haystack.len() { return -1i64; }
+        if bytes_eq_at(haystack, 0i64, self) { return self.len(); }
+        return -1i64;
+    }
+    fn suffix_len(self: str, haystack: str) -> i64 {
+        let n: i64 = self.len();
+        if n > haystack.len() { return -1i64; }
+        if bytes_eq_at(haystack, haystack.len() - n, self) { return n; }
+        return -1i64;
+    }
+}
+
+// True iff `needle` occurs in `haystack` at byte offset `at` (caller bounds-checks `at + len`).
+fn bytes_eq_at(haystack: str, at: i64, needle: str) -> bool {
+    let n: i64 = needle.len();
+    let mut j: i64 = 0i64;
+    unsafe {
+        while j < n {
+            if haystack.as_ptr()[at + j] != needle.as_ptr()[j] { return false; }
+            j = j + 1i64;
+        }
+    }
+    return true;
 }
 
 impl Pattern for u8 {
@@ -368,6 +408,27 @@ impl Pattern for u8 {
         return -1i64;
     }
     fn match_len(self: u8) -> i64 { return 1i64; }
+    fn rfind_in(self: u8, haystack: str) -> i64 {
+        let mut i: i64 = haystack.len() - 1i64;
+        unsafe {
+            while i >= 0i64 {
+                if haystack.as_ptr()[i] == self { return i; }
+                i = i - 1i64;
+            }
+        }
+        return -1i64;
+    }
+    fn prefix_len(self: u8, haystack: str) -> i64 {
+        if haystack.len() == 0i64 { return -1i64; }
+        unsafe { if haystack.as_ptr()[0] == self { return 1i64; } }
+        return -1i64;
+    }
+    fn suffix_len(self: u8, haystack: str) -> i64 {
+        let m: i64 = haystack.len();
+        if m == 0i64 { return -1i64; }
+        unsafe { if haystack.as_ptr()[m - 1i64] == self { return 1i64; } }
+        return -1i64;
+    }
 }
 
 // Pattern-driven str surface. Free fns wrap the trait so call sites

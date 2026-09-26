@@ -2065,6 +2065,37 @@ private:
                 w.dedent();
                 w.line("}");
             }
+            // PREFIXED RAW STRING (e.g. CR_STRING `cr"..."`, also `cr#"..."#`):
+            // one letter before the `r"` of a raw string, same delimiter rules.
+            else if (pat.size() >= 5 && std::isalpha(static_cast<unsigned char>(pat[0])) &&
+                     pat[1] == 'r' && pat[2] == '"') {
+                char prefix = pat[0];
+                w.fmt("// {} = /{}/ (also {}r#\"...\"#, ...)", t.name, pat, prefix);
+                w.fmt("if (c == '{}' && pos_+2 < source_.size() && source_[pos_+1] == 'r' && (source_[pos_+2] == '\"' || source_[pos_+2] == '#')) {{", prefix);
+                w.indent();
+                w.line("size_t hashes = 0;");
+                w.line("size_t p = pos_ + 2;");
+                w.line("while (p < source_.size() && source_[p] == '#') { ++hashes; ++p; }");
+                w.line(R"(if (p < source_.size() && source_[p] == '"') {)");
+                w.indent();
+                w.line("pos_ = p + 1;");
+                w.line("bool found = false;");
+                w.line("while (!found && pos_ < source_.size()) {");
+                w.indent();
+                w.line(R"(if (source_[pos_] == '"') {)");
+                w.line("    size_t h = 0;");
+                w.line("    while (h < hashes && pos_+1+h < source_.size() && source_[pos_+1+h] == '#') ++h;");
+                w.line("    if (h == hashes) { pos_ += 1 + hashes; found = true; }");
+                w.line("    else ++pos_;");
+                w.line("} else { if (source_[pos_] == '\\n') ++line_; ++pos_; }");
+                w.dedent();
+                w.line("}");
+                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+                w.dedent();
+                w.line("}");
+                w.dedent();
+                w.line("}");
+            }
             // PREFIXED STRING (e.g. BYTE_STRING `b"..."`): single-letter
             // prefix followed by `"..."` with the same escape rules as
             // STRING. Detect by pattern shape `<letter>"...".

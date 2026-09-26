@@ -1,0 +1,179 @@
+// Logos lang-tier standard library — inherent methods on `str`
+//
+// Rust's `impl str` surface that needs no heap: search (find / rfind /
+// contains / starts_with / ends_with over any `Pattern`), trimming,
+// prefix/suffix stripping, split_once, and the iterator constructors
+// (chars / char_indices / bytes / lines / split / split_whitespace /
+// matches / match_indices). Byte offsets and lengths are `i64` (a blessed
+// divergence from Rust's `usize`). The allocating half (replace, repeat,
+// to_uppercase, ...) lives in logos.mem.string, above the heap.
+
+package logos.lang.str;
+
+use logos.lang.iter;
+use logos.lang.option;
+
+impl str {
+    /// Returns `true` if `self` has a length of zero bytes.
+    pub fn is_empty(&self) -> bool { return (*self).len() == 0i64; }
+
+    /// Returns `true` if byte offset `i` is the start of a codepoint (or `i == len`).
+    pub fn is_char_boundary(&self, i: i64) -> bool {
+        let s: str = *self;
+        if i == 0i64 || i == s.len() { return true; }
+        if i < 0i64 || i > s.len() { return false; }
+        unsafe {
+            let b: i32 = s.as_ptr()[i] as i32;
+            return (b & 0xC0) != 0x80;
+        }
+    }
+
+    /// Byte offset of the first match of `pat`, or `None`.
+    pub fn find<P: Pattern>(&self, pat: P) -> Option<i64> {
+        let i: i64 = pat.find_in(*self, 0i64);
+        if i < 0i64 { return Option::None; }
+        return Option::Some(i);
+    }
+
+    /// Byte offset of the last match of `pat`, or `None`.
+    pub fn rfind<P: Pattern>(&self, pat: P) -> Option<i64> {
+        let i: i64 = pat.rfind_in(*self);
+        if i < 0i64 { return Option::None; }
+        return Option::Some(i);
+    }
+
+    /// Returns `true` if `pat` matches anywhere in `self`.
+    pub fn contains<P: Pattern>(&self, pat: P) -> bool {
+        return pat.find_in(*self, 0i64) >= 0i64;
+    }
+
+    /// Returns `true` if `pat` matches at the start of `self`.
+    pub fn starts_with<P: Pattern>(&self, pat: P) -> bool {
+        return pat.prefix_len(*self) >= 0i64;
+    }
+
+    /// Returns `true` if `pat` matches at the end of `self`.
+    pub fn ends_with<P: Pattern>(&self, pat: P) -> bool {
+        return pat.suffix_len(*self) >= 0i64;
+    }
+
+    /// `self` without the prefix `pat`, or `None` if it does not start with it.
+    pub fn strip_prefix<P: Pattern>(&self, pat: P) -> Option<&str> {
+        let s: str = *self;
+        let n: i64 = pat.prefix_len(s);
+        if n < 0i64 { return Option::None; }
+        unsafe {
+            let p: *const u8 = (s.as_ptr() as i64 + n) as *const u8;
+            return Option::Some(str_from_raw(p, s.len() - n));
+        }
+    }
+
+    /// `self` without the suffix `pat`, or `None` if it does not end with it.
+    pub fn strip_suffix<P: Pattern>(&self, pat: P) -> Option<&str> {
+        let s: str = *self;
+        let n: i64 = pat.suffix_len(s);
+        if n < 0i64 { return Option::None; }
+        unsafe { return Option::Some(str_from_raw(s.as_ptr(), s.len() - n)); }
+    }
+
+    /// Splits at the first match of `pat` into (before, after); `None` if no match.
+    pub fn split_once<P: Pattern + Copy>(&self, pat: P) -> Option<(&str, &str)> {
+        let s: str = *self;
+        let i: i64 = pat.find_in(s, 0i64);
+        if i < 0i64 { return Option::None; }
+        let m: i64 = pat.match_len();
+        unsafe {
+            let head: str = str_from_raw(s.as_ptr(), i);
+            let tp: *const u8 = (s.as_ptr() as i64 + i + m) as *const u8;
+            let tail: str = str_from_raw(tp, s.len() - i - m);
+            return Option::Some((head, tail));
+        }
+    }
+
+    /// Splits at the last match of `pat` into (before, after); `None` if no match.
+    pub fn rsplit_once<P: Pattern + Copy>(&self, pat: P) -> Option<(&str, &str)> {
+        let s: str = *self;
+        let i: i64 = pat.rfind_in(s);
+        if i < 0i64 { return Option::None; }
+        let m: i64 = pat.match_len();
+        unsafe {
+            let head: str = str_from_raw(s.as_ptr(), i);
+            let tp: *const u8 = (s.as_ptr() as i64 + i + m) as *const u8;
+            let tail: str = str_from_raw(tp, s.len() - i - m);
+            return Option::Some((head, tail));
+        }
+    }
+
+    /// Trims leading and trailing ASCII whitespace.
+    pub fn trim(&self) -> &str { return str_trim(*self); }
+    /// Trims leading ASCII whitespace.
+    pub fn trim_start(&self) -> &str { return str_trim_start(*self); }
+    /// Trims trailing ASCII whitespace.
+    pub fn trim_end(&self) -> &str { return str_trim_end(*self); }
+
+    /// `true` if both are equal ignoring ASCII case.
+    pub fn eq_ignore_ascii_case(&self, other: &str) -> bool {
+        let a: str = *self;
+        let b: str = *other;
+        if a.len() != b.len() { return false; }
+        let mut i: i64 = 0i64;
+        unsafe {
+            while i < a.len() {
+                let mut x: u8 = a.as_ptr()[i];
+                let mut y: u8 = b.as_ptr()[i];
+                if x >= 65u8 && x <= 90u8 { x = x + 32u8; }
+                if y >= 65u8 && y <= 90u8 { y = y + 32u8; }
+                if x != y { return false; }
+                i = i + 1i64;
+            }
+        }
+        return true;
+    }
+
+    /// Iterator over the `char`s of `self`.
+    pub fn chars(&self) -> Chars { return str_chars(*self); }
+    /// Iterator over `(byte_offset, char)` pairs.
+    pub fn char_indices(&self) -> CharIndices { return str_char_indices(*self); }
+    /// Iterator over the raw bytes.
+    pub fn bytes(&self) -> Bytes { return str_bytes(*self); }
+    /// Iterator over the lines (`\n` or `\r\n` terminated), terminators stripped.
+    pub fn lines<'a>(self: &'a str) -> Lines<'a> { return str_lines(self); }
+    /// Iterator over the pieces between matches of `pat`.
+    pub fn split<'a, P: Pattern>(self: &'a str, pat: P) -> SplitPat<'a, P> {
+        return str_split_pat(self, pat);
+    }
+    /// Iterator over the whitespace-separated, non-empty words.
+    pub fn split_whitespace<'a>(self: &'a str) -> SplitWhitespace<'a> {
+        return SplitWhitespace { haystack: self, pos: 0i64 };
+    }
+    /// Iterator over the non-overlapping matches of `pat`.
+    pub fn matches<'a, P: Pattern>(self: &'a str, pat: P) -> Matches<'a, P> {
+        return str_matches(self, pat);
+    }
+    /// Iterator over the non-overlapping matches of `pat` with their byte offsets.
+    pub fn match_indices<'a, P: Pattern>(self: &'a str, pat: P) -> MatchIndices<'a, P> {
+        return str_match_indices(self, pat);
+    }
+}
+
+/// Iterator over the whitespace-separated words of a `str` (Rust `SplitWhitespace`).
+/// Whitespace is `char::is_whitespace` restricted to ASCII.
+pub struct SplitWhitespace<'a> {
+    haystack: &'a str,
+    pos: i64,
+}
+
+impl<'a> Iterator<&'a str> for SplitWhitespace<'a> {
+    fn next(self: &mut SplitWhitespace<'a>) -> Option<&'a str> {
+        let n: i64 = self.haystack.len();
+        unsafe {
+            let base: *const u8 = self.haystack.as_ptr();
+            while self.pos < n && is_ws_byte(base[self.pos]) { self.pos = self.pos + 1i64; }
+            if self.pos >= n { return Option::None; }
+            let start: i64 = self.pos;
+            while self.pos < n && !is_ws_byte(base[self.pos]) { self.pos = self.pos + 1i64; }
+            let p: *const u8 = (base as i64 + start) as *const u8;
+            return Option::Some(str_from_raw(p, self.pos - start));
+        }
+    }
+}
