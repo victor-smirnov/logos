@@ -1,0 +1,33 @@
+// A reference to a fat value (`&Box<dyn T>`) binds as an alias of the value's slot: VecIter::next returned Some(&copy-in-its-frame) (valgrind: uninitialised reads at the caller's dispatch). Identity checked by address.
+package ref_to_fat_value_binds_as_alias;
+trait A { fn f(&self) -> i64; }
+struct D { v: i64 }
+impl A for D { fn f(&self) -> i64 { return self.v; } }
+struct VI<'a, T> { data: *const T, len: i64, idx: i64, back_idx: i64 }
+impl<'a, T> VI<'a, T> {
+    fn nx(self: &mut VI<'a, T>) -> Option<&'a T> {
+        if self.idx >= self.back_idx { return Option::None; }
+        unsafe {
+            let q: *const T = &self.data[self.idx] as *const T;
+            let r: &'a T = &*q;
+            self.idx = self.idx + 1;
+            return Option::Some(r);
+        }
+    }
+    fn nr(self: &mut VI<'a, T>) -> *const T {
+        unsafe { let q: *const T = &self.data[self.idx] as *const T; let r: &T = &*q; return r as *const T; }
+    }
+    fn nq(self: &mut VI<'a, T>) -> *const T {
+        unsafe { let q: *const T = &self.data[self.idx] as *const T; return q; }
+    }
+}
+fn main() -> i32 {
+    let b: [Box<dyn A>; 2] = [Box::new(D { v: 1 }) as Box<dyn A>, Box::new(D { v: 2 }) as Box<dyn A>];
+    let p = &b[0] as *const Box<dyn A>;
+    let mut it = VI::<Box<dyn A>> { data: p, len: 2, idx: 0, back_idx: 2 };
+    let mut bad: i32 = 0;
+    if it.nq() as u64 != p as u64 { bad = bad + 1; }
+    if it.nr() as u64 != p as u64 { bad = bad + 8; }
+    match it.nx() { Some(r) => { if r as *const Box<dyn A> as u64 != p as u64 { bad = bad + 2; } } None => { bad = bad + 4; } }
+    return bad;
+}

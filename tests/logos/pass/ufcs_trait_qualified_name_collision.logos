@@ -1,0 +1,20 @@
+// Two traits a type implements share a method name: `Trait::m(&x)` and `<T as Trait>::m(&x)` pick the named trait's impl (rustc: exit 0).
+package ufcs_trait_qualified_name_collision;
+trait Ta { fn go(self: &Self) -> i64; }
+trait Tb { fn go(self: &Self) -> i64; }
+struct S;
+impl Ta for S { fn go(self: &S) -> i64 { return 1i64; } }
+impl Tb for S { fn go(self: &S) -> i64 { return 2i64; } }
+impl Ta for i64 { fn go(self: &i64) -> i64 { return *self + 10i64; } }
+impl Tb for i64 { fn go(self: &i64) -> i64 { return *self + 20i64; } }
+fn main() -> i32 {
+    let s = S;
+    let n: i64 = 5;
+    if Ta::go(&s) != 1i64 { return 1i32; }
+    if Tb::go(&s) != 2i64 { return 2i32; }
+    if <S as Ta>::go(&s) != 1i64 { return 3i32; }
+    if <S as Tb>::go(&s) != 2i64 { return 4i32; }
+    if Ta::go(&n) != 15i64 { return 5i32; }
+    if Tb::go(&n) != 25i64 { return 6i32; }
+    return 0i32;
+}

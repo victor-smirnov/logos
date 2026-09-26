@@ -183,6 +183,7 @@ fnonce_generic_consume_skips_capture_drop 2 tests/soundness/open/fnonce_generic_
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
+iterator_trait_item_assoc_type_refused 3 tests/soundness/open/iterator_trait_item_assoc_type_refused refuses
 
-# TOTAL 4
-# SYNC-HASH 426c8cd4ff42fca35d98dcc875907ce9
+# TOTAL 5
+# SYNC-HASH 5fe2e3912e39a8e8b084292f22730478

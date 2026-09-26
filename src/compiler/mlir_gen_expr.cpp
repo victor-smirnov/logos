@@ -6602,21 +6602,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
     mlir::Type elem_ty = builder_.getI8Type();  // default: byte indexing
     if (op == EPtrArith::Add || op == EPtrArith::Sub) {
         // Element indexing uses the pointee type from the receiver.
+        // The element's SLOT — the stride `p[i]` / `&p[i]` index by
+        // (gen_lvalue_addr's IndexRead). logos_to_mlir answers the VALUE
+        // handle, an 8-byte `ptr` for a fat element (`&str`, `Box<dyn>`, a
+        // closure, a tuple), so `p.add(1)` landed mid-element.
         TypeRef pt = ptr_ty;
-        if (pt && pt.pointee()) {
-            // Struct/Datatype want their aggregate LLVM type, not ptr.
-            if (pt.pointee().kind() == LogosType::Kind::Struct ||
-                pt.pointee().kind() == LogosType::Kind::ZonedStruct) {
-                auto cname = concrete_struct_name(pt.pointee());
-                auto sit = struct_types_.find(cname);
-                if (sit != struct_types_.end())
-                    elem_ty = sit->second.llvm_type;
-                else
-                    elem_ty = logos_to_mlir(pt.pointee());
-            } else {
-                elem_ty = logos_to_mlir(pt.pointee());
-            }
-        }
+        if (pt && pt.pointee())
+            if (mlir::Type st = place_slot_type(pt.pointee())) elem_ty = st;
     }
     llvm::SmallVector<mlir::LLVM::GEPArg> idx{n};
     return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_ty, p, idx);
@@ -6636,14 +6628,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrDiffView v, TypeRef) {
     // Element distance: diff / sizeof(pointee).
     TypeRef pt = lhs_ty;
     if (!pt || !pt.pointee()) return diff;
-    mlir::Type elem_mlir = nullptr;
-    if (pt.pointee().kind() == LogosType::Kind::Struct ||
-        pt.pointee().kind() == LogosType::Kind::ZonedStruct) {
-        auto cname = concrete_struct_name(pt.pointee());
-        auto sit = struct_types_.find(cname);
-        if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
-    }
-    if (!elem_mlir) elem_mlir = logos_to_mlir(pt.pointee());
+    // The element SLOT, as EPtrArith and indexing stride by.
+    mlir::Type elem_mlir = place_slot_type(pt.pointee());
     if (!elem_mlir) return diff;
     // sizeof trick.
     mlir::Value zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);

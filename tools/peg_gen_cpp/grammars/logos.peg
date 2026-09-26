@@ -3762,11 +3762,11 @@
                / KW_NULL COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
               => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
                // G146-2: UFCS qualified-path call `<Type as Trait>::method(...)`.
-               // Dispatches on the concrete type (the trait qualifier
-               // disambiguates in Rust; here the type-dispatch already resolves
-               // the method, so the trait is consumed and dropped).
+               // Dispatches on the concrete type; the trait rides in TYPE and
+               // disambiguates, as in Rust, when two traits the type implements
+               // share the method name.
                / LT IDENT KW_AS simple_type GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
-              => { CODE: STATIC_CALL, RECEIVER: $2, NAME: $7, ARGS: $9 }
+              => { CODE: STATIC_CALL, RECEIVER: $2, TYPE: $4, NAME: $7, ARGS: $9 }
                // `Type::method::<T>(args)` — turbofish on the METHOD (its own
                // generics), distinct from `Type::<T>::method(...)` (turbofish on
                // the type). TYPE_PARAMS are the method's args; sema applies them

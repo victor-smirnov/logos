@@ -1,0 +1,26 @@
+// Pointer arithmetic strides by the element's SLOT (as indexing does): `p.add(1)` over `*const str` / `*const Box<dyn A>` moved 8 bytes into a 16-byte element.
+package ptr_add_fat_element_stride;
+trait A { fn f(&self) -> i64; }
+struct D { v: i64 }
+impl A for D { fn f(&self) -> i64 { return self.v; } }
+struct It<T> { data: *const T, idx: i64 }
+impl<T> It<T> {
+    fn cur(self: &mut It<T>) -> *const T { unsafe { let q: *const T = &self.data[self.idx] as *const T; return q; } }
+}
+fn chk<T>(p: *const T, sz: u64) -> i32 {
+    let mut it = It::<T> { data: p, idx: 1 };
+    let q = it.cur();
+    let mut bad: i32 = 0;
+    if q as u64 != p as u64 + sz { bad = bad + 1; }
+    unsafe { if p.add(1) as u64 != p as u64 + sz { bad = bad + 2; } }
+    return bad;
+}
+fn main() -> i32 {
+    let s: [str; 2] = ["a", "b"];
+    let b: [Box<dyn A>; 2] = [Box::new(D { v: 1 }) as Box<dyn A>, Box::new(D { v: 2 }) as Box<dyn A>];
+    let n: [i64; 2] = [1, 2];
+    let r1 = chk(&s[0] as *const str, 16u64);
+    let r2 = chk(&b[0] as *const Box<dyn A>, 16u64);
+    let r3 = chk(&n[0] as *const i64, 8u64);
+    return r1 + r2 * 4 + r3 * 16;
+}

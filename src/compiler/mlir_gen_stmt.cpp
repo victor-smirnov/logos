@@ -2587,7 +2587,15 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
             // borrow checker guards the move-only Box<dyn> source). Raw
             // `*const/*mut dyn` keeps HANDLE semantics — aliasing is the
             // point of a raw pointer — so it still binds directly.
-            if (!is_raw_ptr_dyn && data_ptr.getType() == ptr_type()) {
+            // A REFERENCE TO a fat value (`&Box<dyn T>`, `&&dyn T`: Ref /
+            // MutRef over a TraitObject) is a pointer to that value's slot, and
+            // binds as an alias like the raw handle — a copy made the
+            // reference point into THIS frame (`VecIter::next` returned
+            // `Some(&copy)`, a dangling pointer the caller dispatched through).
+            const bool is_ref_to_fat =
+                TypeRef(s.type) && (TypeRef(s.type).kind() == LogosType::Kind::Ref ||
+                                    TypeRef(s.type).kind() == LogosType::Kind::MutRef);
+            if (!is_raw_ptr_dyn && !is_ref_to_fat && data_ptr.getType() == ptr_type()) {
                 auto fat_sz = builder_.create<mlir::LLVM::ConstantOp>(
                     loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
                 auto fresh = create_entry_alloca(dyn_llvm_type());

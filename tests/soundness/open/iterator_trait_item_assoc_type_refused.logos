@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row iterator_trait_item_assoc_type_refused (tier 3, `refuses`). Found 2026-09-26 by the discovery battery.
+// Rust's `impl Iterator for Counter { type Item = i64; fn next(&mut self) -> Option<Self::Item> }` is refused: std's
+// trait is `Iterator<Item>` — a type PARAMETER, not an associated type ("the return type is declared 'Option' and the
+// impl declares 'Option'", "unknown type 'Item'"). Not in docs/DIVERGENCES.md. The fix is Rust's shape — `trait Iterator
+// { type Item; … }` and every `I: Iterator<T>` bound as `I: Iterator<Item = T>` — the ops-traits arc (3de35d41c)
+// again, over the iterator family. rustc: exit 0.
+package iterator_trait_item_assoc_type_refused;
+struct Counter { n: i64, max: i64 }
+impl Iterator for Counter {
+    type Item = i64;
+    fn next(self: &mut Self) -> Option<i64> {
+        if self.n < self.max { self.n = self.n + 1i64; return Some(self.n); }
+        return None;
+    }
+}
+fn main() -> i32 {
+    let mut c = Counter { n: 0i64, max: 5i64 };
+    let mut s: i64 = 0i64;
+    loop { match c.next() { Some(x) => { s = s + x; } None => { break; } } }
+    if s != 15i64 { return 1i32; }
+    return 0i32;
+}

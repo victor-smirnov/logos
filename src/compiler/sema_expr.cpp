@@ -18587,9 +18587,30 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // actually resolves — otherwise leave `mangled` for the normal
         // resolution paths (and a clean error) instead of a spurious miss.
         if (!rname.empty()) {
-            std::string cand = rname + "__" + std::string(method_name);
+            // The TRAIT-QUALIFIED symbol first: when two traits the type
+            // implements share the method name, each impl's method is minted
+            // `<type>__<Trait>__<method>` and the plain base names only one.
+            for (std::string cand : {rname + "__" + std::string(class_name) + "__" + std::string(method_name),
+                                     rname + "__" + std::string(method_name)}) {
+                if (!find_func_candidates(cand).empty() || find_generic_func(cand)) {
+                    resolved_class = rname;
+                    mangled = cand;
+                    break;
+                }
+            }
+        }
+    }
+
+    // `<Type as Trait>::method(…)`: the trait (TYPE) picks the impl when two
+    // traits the type implements share the method name — their methods are
+    // minted `<Type>__<Trait>__<method>`.
+    if (node.has_key(la::TYPE)) {
+        auto tq = map_of(node.get(la::TYPE.code));
+        std::string tname(str_of(tq.get(la::NAME.code)));
+        if (!tname.empty()) {
+            std::string cand = std::string(class_name) + "__" + tname + "__" + std::string(method_name);
             if (!find_func_candidates(cand).empty() || find_generic_func(cand)) {
-                resolved_class = rname;
+                resolved_class = std::string(class_name);
                 mangled = cand;
             }
         }

@@ -1,0 +1,24 @@
+// Vec over fat elements (str, Box<dyn>, (i64, str)): push / iter / remove / {:?}, valgrind clean.
+package vec_fat_element_shapes;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+trait A { fn f(&self) -> i64; }
+struct D { v: i64 }
+impl A for D { fn f(&self) -> i64 { return self.v; } }
+fn main() -> i32 {
+    let mut s: Vec<str> = Vec::new();
+    s.push("ab"); s.push("c"); s.push("def");
+    let mut t: i64 = 0;
+    for x in s.iter() { t = t + x.len(); }
+    let mut b: Vec<Box<dyn A>> = Vec::new();
+    let mut i: i64 = 0;
+    while i < 5 { b.push(Box::new(D { v: i }) as Box<dyn A>); i = i + 1; }
+    for x in b.iter() { t = t + x.f() * 10; }
+    let mut p: Vec<(i64, str)> = Vec::new();
+    p.push((1, "x")); p.push((2, "yy"));
+    for q in p.iter() { t = t + q.0 * 100 + q.1.len() * 1000; }
+    let r = s.remove(0);
+    t = t + r.len() * 10000;
+    println!("{:?} {}", s, t);
+    return 0;
+}
