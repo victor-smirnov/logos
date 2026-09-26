@@ -1,0 +1,8 @@
+// `?` into `Box<dyn Error>` needs the inner error to implement `Error` (rustc E0277 "`?` couldn't convert
+// the error"). Refused at the `?` in sema; it used to reach the backend ("no vtable for 'NotErr'").
+package question_op_box_dyn_error_needs_impl_fail;
+use logos.lang.result; use logos.lang.error; use logos.lang.option; use logos.mem.boxed;
+struct NotErr { code: i32 }
+fn inner(x: i32) -> Result<i32, NotErr> { return Result::<i32, NotErr>::Err(NotErr { code: x }); }
+fn outer(x: i32) -> Result<i32, Box<dyn Error>> { let v: i32 = inner(x)?; return Result::<i32, Box<dyn Error>>::Ok(v); }
+fn main() -> i32 { let r = outer(1); if r.is_err() { return 0; } return 1; }

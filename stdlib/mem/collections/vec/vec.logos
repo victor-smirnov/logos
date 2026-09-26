@@ -457,6 +457,16 @@ impl<'a, T> IntoIterator<&'a T> for &'a Vec<T> {
 
 // ── FromIterator impl ─────────────────────────────────────────────────────────
 
+// Rust's `impl<T> Default for Vec<T>` (the empty vector) and `Extend<T>`;
+// `Iterator::partition` / `unzip` collect through the pair.
+impl<T> Default for Vec<T> {
+    fn default() -> Vec<T> { return vec_new::<T>(); }
+}
+
+impl<T> Extend<T> for Vec<T> {
+    fn extend_one(self: &mut Vec<T>, item: T) { self.push(item); }
+}
+
 impl<T> FromIterator<T> for Vec<T> {
     fn from_iter<I: Iterator<T>>(iter: I) -> Vec<T> {
         let mut v: Vec<T> = vec_new::<T>();

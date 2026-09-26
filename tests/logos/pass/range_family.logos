@@ -36,17 +36,17 @@ fn main() -> i32 {
 
     // contains
     let r: RangeInclI32 = range_incl_i32(0, 10);
-    if !r.contains(5)  { return fail(30); }
-    if !r.contains(10) { return fail(31); }
-    if  r.contains(11) { return fail(32); }
+    if !r.contains(&5)  { return fail(30); }
+    if !r.contains(&10) { return fail(31); }
+    if  r.contains(&11) { return fail(32); }
 
     let rt: RangeToI32 = range_to_i32(100);
-    if !rt.contains(50)  { return fail(40); }
-    if  rt.contains(100) { return fail(41); }
+    if !rt.contains(&50)  { return fail(40); }
+    if  rt.contains(&100) { return fail(41); }
 
     let rfrom: RangeFromI32 = range_from_i32(7);
-    if !rfrom.contains(99) { return fail(50); }
-    if  rfrom.contains(0)  { return fail(51); }
+    if !rfrom.contains(&99) { return fail(50); }
+    if  rfrom.contains(&0)  { return fail(51); }
 
     // RangeFull is a unit carrier.
     let _full: RangeFull = range_full();

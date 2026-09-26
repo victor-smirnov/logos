@@ -98,6 +98,20 @@ pub fn range_incl_of<T: Step + Copy>(start: T, end: T) -> RangeOfIncl<T> {
     return RangeOfIncl { current: start, end: end, done: false };
 }
 
+impl<T: Step + Copy> RangeOf<T> {
+    /// Returns `true` if `item` lies in `[current, end)` (Rust's `Range::contains`).
+    pub fn contains(&self, item: &T) -> bool {
+        return !(*item).step_lt(self.current) && (*item).step_lt(self.end);
+    }
+}
+
+impl<T: Step + Copy> RangeOfIncl<T> {
+    /// Returns `true` if `item` lies in `[current, end]` (Rust's `RangeInclusive::contains`).
+    pub fn contains(&self, item: &T) -> bool {
+        return !(*item).step_lt(self.current) && !self.end.step_lt(*item);
+    }
+}
+
 impl<T: Step + Copy> Iterator<T> for RangeOfIncl<T> {
     fn next(self: &mut RangeOfIncl<T>) -> Option<T> {
         if self.done { return Option::None; }
@@ -244,11 +258,9 @@ impl RangeI32 {
     }
 
     /// Returns `true` if `item` lies in the half-open interval `[current, end)`.
-    // Rust's `Range::contains` — half-open interval test. By-value
-    // arg rather than `&i32` since Logos's `&T`-on-primitive method
-    // dispatch is sparse (CP-cm-01 family).
-    pub fn contains(self: RangeI32, item: i32) -> bool {
-        return self.current <= item && item < self.end;
+    // Rust's `Range::contains` — half-open interval test, item BORROWED as in Rust.
+    pub fn contains(&self, item: &i32) -> bool {
+        return self.current <= *item && *item < self.end;
     }
 
     /// Returns `true` iff `current >= end` (Rust's `Range::is_empty`).
@@ -324,8 +336,8 @@ impl RangeI64 {
     }
 
     /// Returns `true` if `item` lies in the half-open interval `[current, end)`.
-    pub fn contains(self: RangeI64, item: i64) -> bool {
-        return self.current <= item && item < self.end;
+    pub fn contains(&self, item: &i64) -> bool {
+        return self.current <= *item && *item < self.end;
     }
 
     /// Returns `true` iff `current >= end` (Rust's `Range::is_empty`).
@@ -384,15 +396,15 @@ impl Iterator<i64> for RangeFromI64 {
 
 impl RangeFromI32 {
     /// Returns `true` if `item >= current`.
-    pub fn contains(self: RangeFromI32, item: i32) -> bool {
-        return self.current <= item;
+    pub fn contains(&self, item: &i32) -> bool {
+        return self.current <= *item;
     }
 }
 
 impl RangeFromI64 {
     /// Returns `true` if `item >= current`.
-    pub fn contains(self: RangeFromI64, item: i64) -> bool {
-        return self.current <= item;
+    pub fn contains(&self, item: &i64) -> bool {
+        return self.current <= *item;
     }
 }
 
@@ -410,15 +422,15 @@ pub fn range_to_i64(end: i64) -> RangeToI64 { return RangeToI64 { end: end }; }
 
 impl RangeToI32 {
     /// Returns `true` if `item < end`.
-    pub fn contains(self: RangeToI32, item: i32) -> bool {
-        return item < self.end;
+    pub fn contains(&self, item: &i32) -> bool {
+        return *item < self.end;
     }
 }
 
 impl RangeToI64 {
     /// Returns `true` if `item < end`.
-    pub fn contains(self: RangeToI64, item: i64) -> bool {
-        return item < self.end;
+    pub fn contains(&self, item: &i64) -> bool {
+        return *item < self.end;
     }
 }
 
@@ -487,8 +499,8 @@ impl Iterator<i64> for RangeInclI64 {
 
 impl RangeInclI32 {
     /// Returns `true` if `item` lies in the closed interval `[current, end]`.
-    pub fn contains(self: RangeInclI32, item: i32) -> bool {
-        return self.current <= item && item <= self.end;
+    pub fn contains(&self, item: &i32) -> bool {
+        return self.current <= *item && *item <= self.end;
     }
     /// Returns `true` once the range has yielded its final value (or was constructed empty).
     pub fn is_empty(self: RangeInclI32) -> bool { return self.done; }
@@ -496,8 +508,8 @@ impl RangeInclI32 {
 
 impl RangeInclI64 {
     /// Returns `true` if `item` lies in the closed interval `[current, end]`.
-    pub fn contains(self: RangeInclI64, item: i64) -> bool {
-        return self.current <= item && item <= self.end;
+    pub fn contains(&self, item: &i64) -> bool {
+        return self.current <= *item && *item <= self.end;
     }
     /// Returns `true` once the range has yielded its final value (or was constructed empty).
     pub fn is_empty(self: RangeInclI64) -> bool { return self.done; }

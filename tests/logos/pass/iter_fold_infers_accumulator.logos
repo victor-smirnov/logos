@@ -1,0 +1,23 @@
+// `fold(init, |acc, x| ..)` types the closure's accumulator from `init`: an argument checked
+// earlier binds the method's type parameters for a later closure's hint (it was left `Acc`, and
+// `acc + *x` failed with "type mismatch (Acc vs i64)"); a struct accumulator too. An untyped literal
+// `init` takes the `let`'s type when it is the fold's result, else Rust's literal default.
+// rustc twin: 0.
+package iter_fold_infers_accumulator;
+use logos.mem.collections.vec;
+struct Stat { n: i64, total: i64 }
+fn main() -> i32 {
+    let v: Vec<i64> = vec![1i64, 2i64, 3i64, 4i64];
+    let s: i64 = v.iter().fold(0i64, |acc, x| acc + *x);
+    if s != 10i64 { return 1; }
+    let st: Stat = v.iter().fold(Stat { n: 0, total: 0 }, |acc, x| Stat { n: acc.n + 1, total: acc.total + *x });
+    if st.n != 4 || st.total != 10 { return 2; }
+    let prod: i64 = v.into_iter().fold(1i64, |acc, x| acc * x);
+    if prod != 24i64 { return 3; }
+    let w: Vec<i64> = vec![5i64, 6i64];
+    let t: i64 = w.iter().fold(0, |acc, x| acc + *x);
+    if t != 11i64 { return 4; }
+    let c: i32 = w.iter().fold(0, |acc, _x| acc + 1);
+    if c != 2 { return 5; }
+    return 0;
+}

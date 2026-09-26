@@ -1,0 +1,30 @@
+// `Iterator::zip(other)` infers the other side's item type from `other: Iterator<U>` (the unconstrained
+// `ZipOtherItem` parameter could not be inferred, and a wrong turbofish was never checked) and yields the
+// Rust tuple `(A, B)` (was a named `ZipPair { first, second }`); it stops at the shorter side.
+// rustc twin: 0.
+package iter_zip_method_tuple;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut a: Vec<i32> = Vec::<i32>::new();
+    a.push(1i32); a.push(2i32); a.push(3i32);
+    let mut b: Vec<i32> = Vec::<i32>::new();
+    b.push(10i32); b.push(20i32); b.push(30i32); b.push(40i32);
+    let mut sum: i32 = 0i32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        sum += *x + *y;
+    }
+    if sum != 66i32 { return 1; }
+    let dot: i32 = a.iter().zip(b.iter()).map(|(x, y)| *x * *y).sum();
+    if dot != 140i32 { return 2; }
+    let mut names: Vec<String> = Vec::<String>::new();
+    names.push(String::from("a")); names.push(String::from("bb"));
+    let mut total: i64 = 0i64;
+    for (s, n) in names.into_iter().zip(a.iter()) {
+        total += s.len() * (*n as i64);
+    }
+    if total != 5i64 { return 3; }
+    let n: i64 = a.iter().zip(b.iter()).count();
+    if n != 3i64 { return 4; }
+    return 0;
+}

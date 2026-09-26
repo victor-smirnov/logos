@@ -32,6 +32,9 @@ pub use logos.lang.hash;
 
 // Iteration
 pub use logos.lang.iter;
+// Range values: a range literal (`(0..5).sum()`, `(0..n).rev()`) lowers to
+// these types, so they are visible without an import, as in Rust.
+pub use logos.lang.range;
 
 // Option / Result + bare variants (Some/None, Ok/Err)
 pub use logos.lang.option;

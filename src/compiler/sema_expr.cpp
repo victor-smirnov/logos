@@ -2011,12 +2011,53 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                         break;
                     }
                 }
+                // Rust's `impl<E: Error> From<E> for Box<dyn Error>` (and the
+                // same for any `Box<dyn Tr>` the inner error implements): box
+                // the error and let the unsizing coercion at `Err(..)` check
+                // `E: Tr`. Same reparse route as the Try dispatch above.
+                const bool outer_box_dyn =
+                    e_outer.kind() == LogosType::Kind::TraitObject &&
+                    TypeRef(e_outer).owning_trait_object() &&
+                    TypeRef(e_outer).trait_owning_kind() == TypeRef::OwningKind::Box;
+                if (from_sym.empty() && outer_box_dyn) {
+                    // E0277 at the `?`, as rustc: the boxed error must implement
+                    // the trait (the coercion itself is re-judged only in the backend).
+                    const std::string tr(TypeRef(e_outer).trait_name());
+                    const std::string ci = type_str_regions_erased(e_inner);
+                    logos::compiler::StrSet seen_;
+                    if (type_is_concrete(e_inner) &&
+                        !sema_has_impl_recursive(tr, ci, "", seen_)) {
+                        error(std::format("'?' couldn't convert the error: `{}: {}` is not satisfied "
+                                          "(the outer error type is `Box<dyn {}>`)", ci, tr, tr));
+                        return error_expr();
+                    }
+                    std::string inner_src = render_expr_src(map_of(expr.get(la::VALUE.code)));
+                    std::string body = std::format(
+                        "match ({}) {{"
+                        "  Result::Ok(__try_bd_v) => __try_bd_v,"
+                        "  Result::Err(__try_bd_e) => return Result::Err(Box::new(__try_bd_e)),"
+                        "}}",
+                        inner_src);
+                    return lower_reparsed_tail_expr(body, "?-operator (Box<dyn> conversion)");
+                }
                 if (from_sym.empty()) {
+                    // A `Box<dyn Tr>` is a TraitObject whose plain rendering is
+                    // `&dyn Tr`; name the type the user wrote.
+                    auto shown = [&](TypeRef t) {
+                        if (t && t.kind() == LogosType::Kind::TraitObject &&
+                            TypeRef(t).owning_trait_object()) {
+                            const char* w = "Box";
+                            if (TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Rc) w = "Rc";
+                            if (TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Arc) w = "Arc";
+                            return std::string(w) + "<dyn " + std::string(TypeRef(t).trait_name()) + ">";
+                        }
+                        return type_str(t);
+                    };
                     error(std::string("'?' operator: inner error type '")
                         + type_str(e_inner)
                         + "' does not implement `From` for outer error type '"
-                        + type_str(e_outer) + "' — add `impl From<"
-                        + type_str(e_inner) + "> for " + type_str(e_outer)
+                        + shown(e_outer) + "' — add `impl From<"
+                        + type_str(e_inner) + "> for " + shown(e_outer)
                         + "` or use `.map_err(...)?`.");
                     return error_expr();
                 }
@@ -2205,9 +2246,19 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // observable as hi+1 AND overflowed at the type's max (`0..=i64::MAX`
         // → MAX+1 wraps to MIN, yielding an empty range). RangeOfIncl impls
         // Iterator<T>, so for-loops over it work unchanged.
+        // The range ctors are the STDLIB's (a lang item, like Rust's
+        // `core::ops::Range`): a user fn that happens to be named `range_i32`
+        // must not be what `0..5` calls.
+        auto stdlib_range_cands = [&](const std::string& nm) {
+            const std::string saved_q = call_pkg_qualifier_;
+            call_pkg_qualifier_ = "logos.lang.range";
+            auto own = find_func_candidates(nm);
+            call_pkg_qualifier_ = saved_q;
+            return own.empty() ? find_func_candidates(nm) : own;
+        };
         if (inclusive) {
             std::string ctor = "range_incl_of";
-            auto cands = find_func_candidates(ctor);
+            auto cands = stdlib_range_cands(ctor);
             if (cands.empty()) {
                 error("range expression: stdlib `range_incl_of` not in scope "
                       "(missing `use logos.lang.range`)");
@@ -2224,14 +2275,14 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         std::string sname = need_64 ? "RangeI64" : "RangeI32";
         auto [pkg, ssi] = find_struct_by_name(sname);
         if (!ssi) {
-            error("range expression: stdlib `" + sname + "` not in scope (missing `use std.lang.range`)");
+            error("range expression: stdlib `" + sname + "` not in scope (missing `use logos.lang.range`)");
             return error_expr();
         }
         // Defer to the stdlib `range_i32` / `range_i64` free fn so we
         // pick up its sema-resolved signature/mangling (struct field
         // offsets etc. are settled at the fn's body, not here).
         std::string ctor = need_64 ? "range_i64" : "range_i32";
-        auto cands = find_func_candidates(ctor);
+        auto cands = stdlib_range_cands(ctor);
         if (cands.empty()) {
             error("range expression: stdlib `" + ctor + "` not in scope");
             return error_expr();
@@ -2530,6 +2581,16 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv))
             recv = ext_here ? hoist_block_temp(std::move(recv), tmut_ctx)
                             : hoist_stmt_temp(std::move(recv), tmut_ctx);
+        // Auto-deref through every reference layer but the last (`p.1` on a
+        // `p: &&(i32, i32)` — a `max_by_key` / `filter` closure over a by-ref
+        // iterator), as Rust's field auto-deref does.
+        while (recv && expr_type(recv)) {
+            TypeRef t0(expr_type(recv));
+            if (!(t0.kind() == LogosType::Kind::Ref || t0.kind() == LogosType::Kind::MutRef)) break;
+            TypeRef p0 = t0.pointee();
+            if (!p0 || !(p0.kind() == LogosType::Kind::Ref || p0.kind() == LogosType::Kind::MutRef)) break;
+            recv = builder().deref(std::move(recv), p0);
+        }
         // Auto-deref: &(T) and &mut (T) -> use pointee type for index lookup
         TypeRef recv_tuple_type = expr_type(recv);
         TypeRef rrt(expr_type(recv));
@@ -4488,6 +4549,20 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         }
     }
 
+    // Rust's `impl Neg for &i32` / `impl Not for &bool` (forward_ref_unop):
+    // a `&T`/`&mut T` operand over a numeric/bool primitive is peeled, as the
+    // binary operators do (T2-26). `|x| -x` over an `&i32` item Just Works.
+    if ((op == "-" || op == "!") && TypeRef(vt).pointee() &&
+        (TypeRef(vt).kind() == LogosType::Kind::Ref || TypeRef(vt).kind() == LogosType::Kind::MutRef)) {
+        TypeRef pt = TypeRef(vt).pointee();
+        auto pk = TypeRef(pt).kind();
+        if (is_integer_kind(pk) || pk == LogosType::Kind::F32 ||
+            pk == LogosType::Kind::F64 || pk == LogosType::Kind::Bool) {
+            operand = builder().deref(std::move(operand), pt);
+            vt = pt;
+        }
+    }
+
     TypeRef result_type = error_t();
     if (op == "-") {
         if (!is_numeric(vt))
@@ -6231,11 +6306,23 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
         ? fi.param_types.size() - param_offset - (has_variadic ? 1 : 0)
         : 0;
 
-    // Unify fixed params against arg types
+    // Unify fixed params against arg types. An untyped literal whose formal is
+    // a bare type param (`fold(0, |acc, x| …)`'s `init: Acc`) is held back:
+    // the closure / the expected type may pin that param (`i64`), and only
+    // failing those does it take the literal's default (Rust's order).
+    std::vector<std::pair<std::string, TypeRef>> literal_defaults;
     for (size_t i = 0; i < fixed_params && i < arg_exprs.size(); ++i) {
         auto pt = fi.param_types[param_offset + i];
         if (!context.empty()) pt = subst_type_sema(pt, context);
-        unify_types(pt, expr_type(arg_exprs[i]), bindings);
+        TypeRef at = expr_type(arg_exprs[i]);
+        if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar && at &&
+            (TypeRef(at).kind() == LogosType::Kind::IntLit ||
+             TypeRef(at).kind() == LogosType::Kind::FloatLit) &&
+            !bindings.count(std::string(TypeRef(pt).type_var_name()))) {
+            literal_defaults.emplace_back(std::string(TypeRef(pt).type_var_name()), at);
+            continue;
+        }
+        unify_types(pt, at, bindings);
     }
 
     // Fn-family bound propagation: when a fn type-param `F: Fn(X) -> Y`
@@ -6280,6 +6367,7 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     // bound: look up I's impl of the bound trait, instantiate that impl's
     // trait args via impl-target unification, and unify them against the
     // bound's args. Mirrors the Fn-family propagation above.
+    auto bound_driven_pass = [&]() {
     for (auto& tp : fi.type_params) {
         auto tbit = bindings.find(tp.name);
         if (tbit == bindings.end() || !tbit->second) continue;
@@ -6314,6 +6402,8 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
             }
         }
     }
+    };
+    bound_driven_pass();
 
     // Return-type-driven inference: when the caller (lower_let) set a hint,
     // unify the fn's return type against the expected type. Captures
@@ -6322,8 +6412,16 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     if (hint_call_return_type_ && fi.ret_type) {
         auto rt = fi.ret_type;
         if (!bindings.empty()) rt = subst_type_sema(rt, bindings);
+        size_t before = bindings.size();
         unify_types(rt, hint_call_return_type_, bindings);
+        // A param the hint just bound can drive the ones only its bounds
+        // mention (`unzip::<A, B, FromA: Extend<A>, …>` from
+        // `let (a, b): (Vec<i32>, Vec<i32>) = …`).
+        if (bindings.size() != before) bound_driven_pass();
     }
+
+    for (auto& [tvn, lit] : literal_defaults)
+        if (!bindings.count(tvn)) unify_types(make_typevar(tvn), lit, bindings);
 
     // Build type_args: non-variadic params first
     out_type_args.clear();
@@ -10874,6 +10972,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // so we can hint closure-arg types when params are bare (`|x| body`).
     // Method dispatch happens further down; for now we just need the
     // shape of param_types — first non-ambiguous candidate works.
+    // The candidate and its receiver/turbofish substitution, kept so a later
+    // closure's hint can take bindings an EARLIER argument fixes
+    // (`it.fold(0i64, |acc, x| …)`: `Acc` comes from `init`).
+    const SemaFuncInfo* hint_fi = nullptr;
+    SemaSubst hint_subst;
     auto preload_formals = [&]() -> std::vector<TypeRef> {
         std::vector<TypeRef> out;
         std::string lookup_name;
@@ -10984,6 +11087,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 recv_subst[fi->type_params[ti].name] = user_type_args[uta];
             ++uta;
         }
+        hint_fi = fi;
+        hint_subst = recv_subst;
         // Skip param[0] (self); return formals for the explicit args.
         for (size_t i = 1; i < fi->param_types.size(); ++i) {
             auto pt = fi->param_types[i];
@@ -11040,6 +11145,46 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         hint_tuple_type_     = saved_tuple;
         hint_call_return_type_ = saved_ret;
         hint_expected_type_    = saved_expect;
+        // A non-closure argument binds the type params of its formal; later
+        // Fn-bounded formals re-derive their closure hint with them (Rust
+        // checks arguments left to right the same way).
+        if (hint_fi && arg_idx + 1 < hint_fi->param_types.size() && out) {
+            TypeRef at = expr_type(out);
+            auto ak = at ? TypeRef(at).kind() : LogosType::Kind::Error;
+            // An untyped literal (`fold(0, …)`) takes the call's expected type when
+            // its formal IS the return type (`let r: i64 = it.fold(0, …)`), else
+            // Rust's literal default.
+            if (ak == LogosType::Kind::IntLit || ak == LogosType::Kind::FloatLit) {
+                TypeRef f = hint_fi->param_types[arg_idx + 1];
+                TypeRef want{nullptr};
+                if (f && TypeRef(f).kind() == LogosType::Kind::TypeVar && hint_fi->ret_type &&
+                    TypeRef(hint_fi->ret_type).kind() == LogosType::Kind::TypeVar &&
+                    TypeRef(hint_fi->ret_type).type_var_name() == TypeRef(f).type_var_name() &&
+                    saved_ret && (ak == LogosType::Kind::IntLit ? is_integer_kind(TypeRef(saved_ret).kind())
+                                                                 : (TypeRef(saved_ret).kind() == LogosType::Kind::F32 || TypeRef(saved_ret).kind() == LogosType::Kind::F64)))
+                    want = saved_ret;
+                if (!want) want = ak == LogosType::Kind::IntLit ? i32_t() : prim(LogosType::Kind::F64);
+                at = want;
+                ak = TypeRef(at).kind();
+            }
+            if (at && ak != LogosType::Kind::Error && ak != LogosType::Kind::Closure &&
+                !LogosType::is_fn_value_kind(ak)) {
+                size_t before = hint_subst.size();
+                SemaSubst b;
+                unify_types(hint_fi->param_types[arg_idx + 1], at, b);
+                for (auto& [bk, bv] : b)
+                    if (bv && !hint_subst.count(bk)) hint_subst[bk] = bv;
+                if (hint_subst.size() != before) {
+                    for (size_t j = arg_idx + 1; j < formals_hint.size() &&
+                                                 j + 1 < hint_fi->param_types.size(); ++j) {
+                        TypeRef pt = subst_type_sema(hint_fi->param_types[j + 1], hint_subst);
+                        if (TypeRef ch = closure_hint_from_fn_bound(pt, hint_fi->type_params, hint_subst))
+                            pt = ch;
+                        formals_hint[j] = pt;
+                    }
+                }
+            }
+        }
         return out;
     };
     std::vector<lir::LExprPtr> arg_exprs;

@@ -843,6 +843,41 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                                                  depth_ + 1, {}});
                             return;
                         }
+                        // Shaped impl target (`impl<P, T> Tr for W<P, &T>` on
+                        // `struct W<P, R>`): the call's type_args carry the
+                        // IMPL-level params in impl order, not the struct's — a
+                        // positional bind by struct names leaves `T` unbound
+                        // (`W<i32, &T>` leaked into every generic call in the body).
+                        if (tmpl_itp && !tmpl.impl_type_params().empty()) {
+                            bool shaped = false;
+                            auto pa = TypeRef(tmpl_itp).type_args();
+                            for (size_t i = 0; i < pa.size(); ++i) {
+                                if (!pa[i] || TypeRef(pa[i]).kind() != LogosType::Kind::TypeVar ||
+                                    i >= sd_tpars.size() ||
+                                    std::string(TypeRef(pa[i]).type_var_name()) != sd_tpars[i]) {
+                                    shaped = true; break;
+                                }
+                            }
+                            std::vector<std::string> itp_names;
+                            for (auto& itp : tmpl.impl_type_params())
+                                itp_names.push_back(std::string(itp.name()));
+                            if (shaped && type_args.size() >= itp_names.size()) {
+                                SubstMap subst;
+                                size_t ai = 0;
+                                for (auto& n : itp_names) subst[n] = type_args[ai++];
+                                for (auto& mtp : tmpl.type_params()) {
+                                    std::string mtp_name(mtp.name());
+                                    if (subst.count(mtp_name)) continue;
+                                    if (ai < type_args.size()) subst[mtp_name] = type_args[ai];
+                                    ++ai;
+                                }
+                                done_.insert(mangled_callee);
+                                worklist_.push_back({mangled_callee, tmpl,
+                                                     std::move(subst), {},
+                                                     depth_ + 1, {}});
+                                return;
+                            }
+                        }
                         if (type_args.size() >= n_struct) {
                             // Build SubstMap: struct tparams from prefix +
                             // method tparams from suffix.

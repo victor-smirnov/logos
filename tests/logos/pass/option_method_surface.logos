@@ -1,0 +1,32 @@
+// Option's Rust method surface resolves as methods: `unwrap_or_default` (a bounded `impl<T: Default>`
+// block; also `Result::unwrap_or_default`), `zip`, `copied` / `cloned` on `Option<&T>`, and
+// `get_or_insert` / `get_or_insert_with` (the free fns `option_unwrap_or_default` / `option_zip` stay).
+// rustc twin: 0.
+package option_method_surface;
+use logos.lang.option;
+use logos.lang.default;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let a: Option<i32> = Option::<i32>::None;
+    if a.unwrap_or_default() != 0 { return 1; }
+    let b: Option<i64> = Option::Some(4i64);
+    if b.unwrap_or_default() != 4i64 { return 2; }
+    let x: i32 = 5;
+    let r: Option<&i32> = Option::Some(&x);
+    match r.copied() { Option::Some(q) => { if q != 5 { return 3; } } Option::None => { return 4; } }
+    let s: String = String::from("hi");
+    let rs: Option<&String> = Option::Some(&s);
+    match rs.cloned() { Option::Some(c) => { if c.len() != 2 { return 5; } } Option::None => { return 6; } }
+    match Option::Some(1).zip(Option::Some(2i64)) { Option::Some(p) => { if p.1 != 2i64 { return 7; } } Option::None => { return 8; } }
+    let n: i32 = 9;
+    let mut o: Option<i32> = Option::None;
+    let m: &mut i32 = o.get_or_insert_with(|| n);
+    *m = *m + 1;
+    match o { Option::Some(q) => { if q != 10 { return 9; } } Option::None => { return 10; } }
+    let e: Result<Vec<i32>, i32> = Result::Err(3);
+    if e.unwrap_or_default().len() != 0 { return 11; }
+    let ns: Option<Vec<i32>> = Option::None;
+    if ns.unwrap_or_default().len() != 0 { return 12; }
+    return 0;
+}

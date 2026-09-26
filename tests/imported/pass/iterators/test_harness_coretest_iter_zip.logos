@@ -6,8 +6,8 @@
 // Modifications:
 // - `xs.iter().zip(&ys)` → `iter_zip::<…>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
 //   iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), zt, zu)`. Logos's ZipIter yields a
-//   `ZipPair<T, U>` struct, not `(T, U)`; destructure via `.first`
-//   / `.second` fields.
+//   `(T, U)` tuples; read via `.0`
+//   / `.1`.
 // - Stops at the shorter iter (Rust semantics).
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
@@ -33,8 +33,8 @@ fn test_iterator_zip() {
             match it.next() {
                 Option::None    => { break; }
                 Option::Some(p) => {
-                    assert_eq!(p.first,  want_first[i]);
-                    assert_eq!(p.second, want_second[i]);
+                    assert_eq!(p.0,  want_first[i]);
+                    assert_eq!(p.1, want_second[i]);
                     i = i + 1i32;
                 }
             }

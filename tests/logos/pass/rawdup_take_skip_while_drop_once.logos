@@ -1,4 +1,4 @@
-// TakeWhileIter / SkipWhileIter: the gating item, the skipped prefix, the tail and the phantom each die exactly once.
+// TakeWhileIter / SkipWhileIter: the gating item, the skipped prefix and the tail each die exactly once.
 //
 // #112 — the `*((&x) as *const T)` duplicate-owner class.
 
@@ -22,13 +22,13 @@ fn main() -> i32 {
     let mut s: Vec<Inner> = vec_new::<Inner>();
     s.push(mk(1i64)); s.push(mk(2i64)); s.push(mk(3i64)); s.push(mk(4i64));
     let t: TakeWhileIter<VecIntoIter<Inner>, Inner> =
-        unsafe { iter_take_while::<VecIntoIter<Inner>, Inner>(s.into_iter(), lt3, mk(0i64)) };
+        unsafe { iter_take_while::<VecIntoIter<Inner>, Inner>(s.into_iter(), lt3) };
     println!("count={}", t.count());
     println!("-- skip_while");
     let mut s2: Vec<Inner> = vec_new::<Inner>();
     s2.push(mk(11i64)); s2.push(mk(12i64)); s2.push(mk(13i64)); s2.push(mk(14i64));
     let k: SkipWhileIter<VecIntoIter<Inner>, Inner> =
-        unsafe { iter_skip_while::<VecIntoIter<Inner>, Inner>(s2.into_iter(), lt3, mk(0i64)) };
+        unsafe { iter_skip_while::<VecIntoIter<Inner>, Inner>(s2.into_iter(), lt3) };
     println!("count={}", k.count());
     println!("-- end");
     return 0i32;

@@ -44,7 +44,7 @@ unsafe fn main() -> i32 {
         match eit.next() {
             Option::None => { break; }
             Option::Some(p) => {
-                acc = acc + (p.idx as i32) + p.val;
+                acc = acc + (p.0 as i32) + p.1;
             }
         }
     }
@@ -61,7 +61,7 @@ unsafe fn main() -> i32 {
         match zit.next() {
             Option::None => { break; }
             Option::Some(pair) => {
-                zacc = zacc + pair.first + pair.second;
+                zacc = zacc + pair.0 + pair.1;
             }
         }
     }

@@ -1,5 +1,5 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
-// Feature: iter_zip pairing two slice iterators; fold over ZipPair to a dot product.
+// Feature: iter_zip pairing two slice iterators; fold over `(T, U)` pairs to a dot product.
 package zip_dot_product_itx;
 use logos.lang.iter;
 fn main() -> i32 {
@@ -8,8 +8,8 @@ fn main() -> i32 {
     unsafe {
         let z = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
-        let s: i32 = iter_fold::<ZipIter<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>, ZipPair<i32, i32>, i32, |i32, ZipPair<i32, i32>| -> i32>(
-            z, 0i32, |a: i32, p: ZipPair<i32, i32>| -> i32 { return a + p.first * p.second; });
+        let s: i32 = iter_fold::<ZipIter<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>, (i32, i32), i32, |i32, (i32, i32)| -> i32>(
+            z, 0i32, |a: i32, p: (i32, i32)| -> i32 { return a + p.0 * p.1; });
         if s != 32i32 { return 1i32; }
     }
     return 0i32;

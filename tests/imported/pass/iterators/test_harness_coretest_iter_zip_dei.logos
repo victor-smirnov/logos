@@ -3,11 +3,11 @@
 //
 // Modifications:
 // - `xs.iter().zip(&ys)` → `iter_zip::<…>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
-//   iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), zt, zu)`. Pairs are `ZipPair<T, U>`
-//   structs (`.first` / `.second` fields), not `(T, U)` tuples.
+//   iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), zt, zu)`. Pairs are `(T, U)`
+//   tuples (`.0` / `.1`).
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `impl DoubleEndedIterator<ZipPair<T, U>>` +
+// Stdlib companion: `impl DoubleEndedIterator<(T, U)>` +
 // `impl ExactSizeIterator<…>` for ZipIter<A, B, T, U>. Both halves
 // must be DEI + ESI; the impl drops `max(alen,blen) -
 // min(alen,blen)` items from the longer side's back first to
@@ -30,19 +30,19 @@ fn test_double_ended_zip_balanced() {
         let mut it = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.first, 4i32); assert_eq!(p.second, 40i32); }
+            Option::Some(p) => { assert_eq!(p.0, 4i32); assert_eq!(p.1, 40i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next() {
-            Option::Some(p) => { assert_eq!(p.first, 1i32); assert_eq!(p.second, 10i32); }
+            Option::Some(p) => { assert_eq!(p.0, 1i32); assert_eq!(p.1, 10i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.first, 3i32); assert_eq!(p.second, 30i32); }
+            Option::Some(p) => { assert_eq!(p.0, 3i32); assert_eq!(p.1, 30i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next() {
-            Option::Some(p) => { assert_eq!(p.first, 2i32); assert_eq!(p.second, 20i32); }
+            Option::Some(p) => { assert_eq!(p.0, 2i32); assert_eq!(p.1, 20i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next() {
@@ -62,15 +62,15 @@ fn test_double_ended_zip_left_longer() {
             iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         // Back yields (2,12), (1,11), (0,10).
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.first, 2i32); assert_eq!(p.second, 12i32); }
+            Option::Some(p) => { assert_eq!(p.0, 2i32); assert_eq!(p.1, 12i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.first, 1i32); assert_eq!(p.second, 11i32); }
+            Option::Some(p) => { assert_eq!(p.0, 1i32); assert_eq!(p.1, 11i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {
-            Option::Some(p) => { assert_eq!(p.first, 0i32); assert_eq!(p.second, 10i32); }
+            Option::Some(p) => { assert_eq!(p.0, 0i32); assert_eq!(p.1, 10i32); }
             Option::None => { assert_eq!(true, false); }
         }
         match it.next_back() {

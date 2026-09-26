@@ -1,7 +1,7 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: library/coretests/tests/iter/adapters/zip.rs (distilled)
 // Modifications: custom Counter iterators (no open-range); i32 suffixes;
-//   assert!->if-return; iter_zip free fn + ZipPair {first,second}.
+//   assert!->if-return; iter_zip free fn + `(T, U)` pairs.
 // Tests iterators × zip × custom Iterator: zip two distinct user Counter
 //   iterators, sum first*second over the pairs. zip stops at shorter (a, len 3):
 //   pairs (1,10),(2,11),(3,12); products 10,22,36; sum=68.
@@ -29,7 +29,7 @@ fn main() -> i32 {
         let mut sum: i32 = 0i32;
         loop {
             match z.next() {
-                Option::Some(p) => { sum = sum + p.first * p.second; }
+                Option::Some(p) => { sum = sum + p.0 * p.1; }
                 Option::None => { break; }
             }
         }

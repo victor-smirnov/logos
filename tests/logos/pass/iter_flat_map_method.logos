@@ -1,0 +1,20 @@
+// `Iterator::flat_map(f)` is a method (only a free fn with three sentinel arguments existed); the inner
+// iterator type comes from `f`'s return and its item from the inner type's `Iterator` impl. The adapter
+// keeps the inner iterator in an `Option` (no placeholder value), so an empty inner is skipped.
+// rustc twin: 0.
+package iter_flat_map_method;
+use logos.mem.collections.vec;
+fn upto(n: i32) -> RangeI32 { return range_i32(0i32, n); }
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1, 2, 3];
+    let mut n: i32 = 0;
+    let mut s: i32 = 0;
+    for x in v.into_iter().flat_map(|x| vec![x, x].into_iter()) { n = n + 1; s = s + x; }
+    if n != 6 { return 1; }
+    if s != 12 { return 2; }
+    let w: Vec<i32> = vec![2, 0, 3];
+    let r: Vec<i32> = w.iter().flat_map(|n| upto(*n)).collect();
+    if r.len() != 5 { return 3; }
+    if r[2] != 0 || r[4] != 2 { return 4; }
+    return 0;
+}

@@ -9,6 +9,7 @@ package logos.lang.result;
 
 use logos.lang.option;
 use logos.lang.panic;
+use logos.lang.default;
 
 /// Represents either success (`Ok(T)`) or failure (`Err(E)`).
 ///
@@ -214,9 +215,17 @@ impl<T, E> Result<T, E> {
     }
 }
 
-// `unwrap_or_default` lives as a free fn (an `impl<T: Default, E>
-// Result<T, E>` block triggers a mono cascade — see
-// [[baghunt-partial-spec-inherent-impl]] for the broader pattern).
+// `Result<T: Default, E>` — the `unwrap_or_default` method (Rust's).
+impl<T: Default, E> Result<T, E> {
+    /// Returns the contained `Ok` value or `T::default()`.
+    pub fn unwrap_or_default(self: Result<T, E>) -> T {
+        match self {
+            Result::Ok(v)  => { return v; }
+            Result::Err(_) => { return T::default(); }
+        }
+    }
+}
+
 /// Returns the contained `Ok` value, or `T::default()` if `Err`.
 ///
 /// Free-fn form of Rust's `Result::unwrap_or_default`.

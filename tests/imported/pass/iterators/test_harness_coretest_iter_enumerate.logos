@@ -6,11 +6,11 @@
 // - `xs.iter().enumerate()` → `iter_enumerate::<CopiedIter<SliceIter<i32>, i32>, i32>(
 //   iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)))`. Logos's EnumIter yields `EnumPair<T>`
 //   (struct), not a `(usize, T)` tuple — destructure via `.idx` /
-//   `.val` fields. Same observable behaviour.
+//   `.1`. Same observable behaviour.
 // - `for (i, &x) in ...` Rust tuple-destructure for-loop replaced
 //   with explicit `loop` + match (Logos's `for` over a method-call
 //   chain needs different shape for trait-default + iterator).
-// - `i64` for idx (Logos's EnumPair carries i64); Rust uses `usize`.
+// - `i64` for idx (Logos's index is i64); Rust uses `usize`.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
 package test_iter_enumerate;
@@ -31,7 +31,7 @@ fn test_iterator_enumerate() {
             match it.next() {
                 Option::None    => { break; }
                 Option::Some(p) => {
-                    assert_eq!(p.idx as i32, p.val);
+                    assert_eq!(p.0 as i32, p.1);
                 }
             }
         }

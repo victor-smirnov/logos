@@ -1,0 +1,20 @@
+// A range literal's methods need no import: `logos.lang.range` is in the lang prelude, as Rust's
+// range types are lang items (it failed with "stdlib `RangeI32` not in scope (missing `use
+// std.lang.range`)", naming a path that does not exist). The literal always builds the STDLIB range —
+// a user fn named `range_i32` is not what `0..5` calls. `contains` borrows its item (Rust's shape).
+// rustc twin: 0.
+package range_literal_methods_without_import;
+fn range_i32(a: i32) -> i32 { return a * 100; }
+fn main() -> i32 {
+    let s: i32 = (0..5).sum();
+    if s != 10 { return 1; }
+    let r: i32 = (0..4).rev().fold(0, |acc, x| acc * 10 + x);
+    if r != 3210 { return 2; }
+    if !(0..5).contains(&3) { return 3; }
+    if (0..5).contains(&5) { return 4; }
+    if !(1..=5).contains(&5) { return 5; }
+    let n: i64 = (0i64..10i64).step_by(3).count();
+    if n != 4i64 { return 6; }
+    if range_i32(1) != 100 { return 7; }
+    return 0;
+}

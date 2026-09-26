@@ -97,11 +97,11 @@ fn test_range_inclusive() {
 #[test]
 fn test_range_contains() {
     let r = range_i32(1i32, 5i32);
-    assert!(!r.contains(0i32));
-    assert!(r.contains(1i32));
-    assert!(r.contains(4i32));
-    assert!(!r.contains(5i32));
-    assert!(!r.contains(6i32));
+    assert!(!r.contains(&0i32));
+    assert!(r.contains(&1i32));
+    assert!(r.contains(&4i32));
+    assert!(!r.contains(&5i32));
+    assert!(!r.contains(&6i32));
 
     // is_empty: `1..1` and `2..1` are empty; `1..2` is not.
     assert!(range_i32(1i32, 1i32).is_empty());
@@ -113,19 +113,19 @@ fn test_range_contains() {
 #[test]
 fn test_range_inclusive_contains() {
     let r = range_incl_i32(3i32, 5i32);
-    assert!(!r.contains(2i32));
-    assert!(r.contains(3i32));
-    assert!(r.contains(5i32));
-    assert!(!r.contains(6i32));
+    assert!(!r.contains(&2i32));
+    assert!(r.contains(&3i32));
+    assert!(r.contains(&5i32));
+    assert!(!r.contains(&6i32));
 }
 
 // test_range_to / test_full_range — bound-only carriers (construct + use).
 #[test]
 fn test_range_to_and_full() {
     let rt = range_to_i32(42i32);
-    assert!(rt.contains(0i32));
-    assert!(rt.contains(41i32));
-    assert!(!rt.contains(42i32));   // exclusive upper bound
+    assert!(rt.contains(&0i32));
+    assert!(rt.contains(&41i32));
+    assert!(!rt.contains(&42i32));   // exclusive upper bound
 
     // RangeFull carries no state — just constructs.
     let _rf: RangeFull = range_full();
