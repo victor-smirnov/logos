@@ -2621,13 +2621,13 @@ In the read-modify-write path, the rhs type must be compatible with the place ty
 
 ### `expr.compound-assign.index-mut-dispatch` — Compound-assign through IndexMut on a struct
 
-`a[i] op= v` where `a` has struct type with an `IndexMut` impl lowers to `*index_mut(&mut a, i) = (*index(&a, i)) op v`, using the `Index` read accessor for the current value when present (else `index_mut`); the index expression is widened to the accessor's index-parameter integer type, and the rhs must be compatible with the indexed output type.
+`a[i] op= v` where `a` has struct type with an `IndexMut` impl lowers to `*index_mut(&mut a, i) op= v`: the index and the `index_mut` call are evaluated once (into a statement temporary); the index expression is widened to the accessor's index-parameter integer type, and the rhs must be compatible with the indexed output type.
 
 *Source:* `src/compiler/sema_stmt.cpp#L2413-L2480`
 
 ### `expr.compound-assign.place-too-nested` — Compound-assign target nesting limit
 
-A compound-assign target outside the place-write shapes of `expr.assign.place-nesting-bound` (e.g. rooted in a call result, `pm(&mut t).1 += v`) is rejected with guidance to bind an intermediate `&mut` reference.
+A compound-assign target that calls (`pm(&mut t).1 += v`, `v[f()] += 1`, `*cell.borrow_mut() += 1`) is evaluated once: its `&mut` is taken into a statement temporary and read and written through it. A primitive compound assignment evaluates its rhs before the place, a non-primitive (`*Assign` impl) one after it (Rust's order). A non-calling target outside the place-write shapes of `expr.assign.place-nesting-bound` is rejected with guidance to bind an intermediate `&mut` reference.
 
 *Note:* Implementation-capability limit rather than a designed language restriction.
 

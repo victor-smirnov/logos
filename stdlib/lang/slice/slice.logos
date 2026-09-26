@@ -13,6 +13,8 @@ use logos.lang.option;
 use logos.lang.result;
 use logos.lang.panic;
 use logos.lang.cmp;
+use logos.lang.marker;
+use logos.lang.clone;
 
 // ── split_at ──────────────────────────────────────────────────────────────
 //
@@ -139,7 +141,7 @@ pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
 
 /// Iterator over non-overlapping chunks of a slice, created by `slice_chunks`.
 // `'a` is the slice's lifetime: chunks borrow the slice, not the iterator.
-pub struct Chunks<'a, T: 'a> {
+pub struct Chunks<'a, T> {
     /// Base pointer of the underlying slice.
     pub data: *const T,
     /// Total element count of the underlying slice.
@@ -185,7 +187,7 @@ impl<'a, T: 'a> Iterator<&'a [T]> for Chunks<'a, T> {
 
 /// Iterator over overlapping `size`-element windows of a slice, created by `slice_windows`.
 // `'a` is the slice's lifetime: windows borrow the slice, not the iterator.
-pub struct Windows<'a, T: 'a> {
+pub struct Windows<'a, T> {
     /// Base pointer of the underlying slice.
     pub data: *const T,
     /// Total element count of the underlying slice.
@@ -312,4 +314,296 @@ impl<T> SliceSwap for [T] {
             p[b] = tmp;
         }
     }
+}
+
+// ── The Rust `[T]` method surface ──────────────────────────────────────────
+// Slice methods reach a slice receiver (and a Vec, an array) through the `$slice$`
+// impl key; the traits exist only to carry them (Rust's are inherent on `[T]`).
+
+/// Mutable borrowing iterator over a slice, yielding `&mut T` (Rust's `slice::IterMut`).
+pub struct SliceIterMut<'a, T> {
+    data: *mut T,
+    idx: i64,
+    back_idx: i64,
+    // INVARIANT in `T`, as Rust's `IterMut<'a, T>`.
+    _inv: PhantomData<&'a mut T>,
+}
+
+impl<'a, T> Iterator<&'a mut T> for SliceIterMut<'a, T> {
+    fn next(self: &mut SliceIterMut<'a, T>) -> Option<&'a mut T> {
+        if self.idx >= self.back_idx { return Option::None; }
+        unsafe {
+            let q: *mut T = &mut self.data[self.idx] as *mut T;
+            let r: &'a mut T = &mut *q;
+            self.idx = self.idx + 1i64;
+            return Option::Some(r);
+        }
+    }
+}
+
+impl<'a, T> DoubleEndedIterator<&'a mut T> for SliceIterMut<'a, T> {
+    fn next_back(self: &mut SliceIterMut<'a, T>) -> Option<&'a mut T> {
+        if self.idx >= self.back_idx { return Option::None; }
+        unsafe {
+            self.back_idx = self.back_idx - 1i64;
+            let q: *mut T = &mut self.data[self.back_idx] as *mut T;
+            let r: &'a mut T = &mut *q;
+            return Option::Some(r);
+        }
+    }
+}
+
+impl<'a, T> ExactSizeIterator<&'a mut T> for SliceIterMut<'a, T> {
+    fn len(&self) -> i64 { return self.back_idx - self.idx; }
+}
+
+/// The element-type-agnostic `[T]` methods.
+pub trait SliceMethods<T> {
+    /// `true` if the slice has no elements.
+    fn is_empty(&self) -> bool;
+    /// Borrowing iterator yielding `&T`.
+    fn iter(&self) -> SliceIter<T>;
+    /// Mutable iterator yielding `&mut T`.
+    fn iter_mut(&mut self) -> SliceIterMut<T>;
+    /// `Some(&self[i])` for an in-bounds `i`, else `None`.
+    fn get(&self, i: i64) -> Option<&T>;
+    /// `Some(&mut self[i])` for an in-bounds `i`, else `None`.
+    fn get_mut(&mut self, i: i64) -> Option<&mut T>;
+    /// The first element, or `None` if empty.
+    fn first(&self) -> Option<&T>;
+    /// The last element, or `None` if empty.
+    fn last(&self) -> Option<&T>;
+    /// The first element mutably, or `None` if empty.
+    fn first_mut(&mut self) -> Option<&mut T>;
+    /// The last element mutably, or `None` if empty.
+    fn last_mut(&mut self) -> Option<&mut T>;
+    /// `(&self[..mid], &self[mid..])`; panics if `mid > len`.
+    fn split_at(&self, mid: i64) -> (&[T], &[T]);
+    /// `(&mut self[..mid], &mut self[mid..])` — two disjoint mutable halves; panics if `mid > len`.
+    fn split_at_mut(&mut self, mid: i64) -> (&mut [T], &mut [T]);
+    /// Overlapping windows of `size` elements; panics if `size == 0`.
+    fn windows(&self, size: i64) -> Windows<T>;
+    /// Non-overlapping chunks of `size` elements (the last may be shorter); panics if `size == 0`.
+    fn chunks(&self, size: i64) -> Chunks<T>;
+    /// Reverses the elements in place.
+    fn reverse(&mut self);
+    /// Rotates left by `k`: `self[k]` becomes the first element. Panics if `k > len`.
+    fn rotate_left(&mut self, k: i64);
+    /// Rotates right by `k`: `self[len - k]` becomes the first element. Panics if `k > len`.
+    fn rotate_right(&mut self, k: i64);
+}
+
+impl<T> SliceMethods<T> for [T] {
+    fn is_empty(&self) -> bool { return self.len() == 0i64; }
+    fn iter(&self) -> SliceIter<T> {
+        unsafe { return iter_over_slice::<T>(self); }
+    }
+    fn iter_mut(&mut self) -> SliceIterMut<T> {
+        let n: i64 = self.len() as i64;
+        return SliceIterMut { data: self.as_ptr() as *mut T, idx: 0i64, back_idx: n,
+                              _inv: PhantomData::<&mut T> {} };
+    }
+    fn get(&self, i: i64) -> Option<&T> {
+        if i < 0i64 || i >= self.len() as i64 { return Option::None; }
+        unsafe {
+            let p: *const T = self.as_ptr() as *const T;
+            return Option::Some(&*p.add(i));
+        }
+    }
+    fn get_mut(&mut self, i: i64) -> Option<&mut T> {
+        if i < 0i64 || i >= self.len() as i64 { return Option::None; }
+        unsafe {
+            let p: *mut T = self.as_ptr() as *mut T;
+            return Option::Some(&mut *p.add(i));
+        }
+    }
+    fn first(&self) -> Option<&T> { return self.get(0i64); }
+    fn last(&self) -> Option<&T> { return self.get(self.len() as i64 - 1i64); }
+    fn first_mut(&mut self) -> Option<&mut T> { return self.get_mut(0i64); }
+    fn last_mut(&mut self) -> Option<&mut T> {
+        let n: i64 = self.len() as i64;
+        return self.get_mut(n - 1i64);
+    }
+    fn split_at(&self, mid: i64) -> (&[T], &[T]) {
+        let n: i64 = self.len() as i64;
+        if mid < 0i64 || mid > n { panic("slice::split_at: mid > len"); }
+        unsafe {
+            let p: *const T = self.as_ptr() as *const T;
+            return (slice_from_raw::<T>(p, mid), slice_from_raw::<T>(p.add(mid), n - mid));
+        }
+    }
+    fn split_at_mut(&mut self, mid: i64) -> (&mut [T], &mut [T]) {
+        let n: i64 = self.len() as i64;
+        if mid < 0i64 || mid > n { panic("slice::split_at_mut: mid > len"); }
+        unsafe {
+            let p: *const T = self.as_ptr() as *const T;
+            return (slice_from_raw::<T>(p, mid) as &mut [T],
+                    slice_from_raw::<T>(p.add(mid), n - mid) as &mut [T]);
+        }
+    }
+    fn windows(&self, size: i64) -> Windows<T> {
+        if size <= 0i64 { panic("slice::windows: window size must be non-zero"); }
+        return Windows { data: self.as_ptr() as *const T, len: self.len() as i64, pos: 0i64, size: size };
+    }
+    fn chunks(&self, size: i64) -> Chunks<T> {
+        if size <= 0i64 { panic("slice::chunks: chunk size must be non-zero"); }
+        return Chunks { data: self.as_ptr() as *const T, len: self.len() as i64, pos: 0i64, step: size };
+    }
+    fn reverse(&mut self) {
+        let n: i64 = self.len() as i64;
+        if n < 2i64 { return; }
+        unsafe {
+            let p: *mut T = self.as_ptr() as *mut T;
+            let mut i: i64 = 0i64;
+            let mut j: i64 = n - 1i64;
+            while i < j {
+                let tmp: T = p[i];
+                p[i] = p[j];
+                p[j] = tmp;
+                i = i + 1i64;
+                j = j - 1i64;
+            }
+        }
+    }
+    fn rotate_left(&mut self, k: i64) {
+        let n: i64 = self.len() as i64;
+        if k < 0i64 || k > n { panic("slice::rotate_left: mid > len"); }
+        if k == 0i64 || k == n { return; }
+        // Three reversals: rev(a) rev(b) rev(ab) == ba.
+        let (a, b) = self.split_at_mut(k);
+        a.reverse();
+        b.reverse();
+        self.reverse();
+    }
+    fn rotate_right(&mut self, k: i64) {
+        let n: i64 = self.len() as i64;
+        if k < 0i64 || k > n { panic("slice::rotate_right: k > len"); }
+        self.rotate_left(n - k);
+    }
+}
+
+/// `[T]` methods that compare elements (`T: Eq`).
+pub trait SliceEqMethods<T> {
+    /// `true` if some element equals `x`.
+    fn contains(&self, x: &T) -> bool;
+    /// `true` if `needle` is a prefix of the slice.
+    fn starts_with(&self, needle: &[T]) -> bool;
+    /// `true` if `needle` is a suffix of the slice.
+    fn ends_with(&self, needle: &[T]) -> bool;
+}
+
+impl<T: Eq> SliceEqMethods<T> for [T] {
+    fn contains(&self, x: &T) -> bool {
+        let n: i64 = self.len() as i64;
+        unsafe {
+            let p: *const T = self.as_ptr() as *const T;
+            let mut i: i64 = 0i64;
+            while i < n {
+                if (&*p.add(i)).eq(x) { return true; }
+                i = i + 1i64;
+            }
+        }
+        return false;
+    }
+    fn starts_with(&self, needle: &[T]) -> bool {
+        let m: i64 = needle.len() as i64;
+        if m > self.len() as i64 { return false; }
+        unsafe {
+            let p: *const T = self.as_ptr() as *const T;
+            let q: *const T = needle.as_ptr() as *const T;
+            let mut i: i64 = 0i64;
+            while i < m {
+                if !(&*p.add(i)).eq(&*q.add(i)) { return false; }
+                i = i + 1i64;
+            }
+        }
+        return true;
+    }
+    fn ends_with(&self, needle: &[T]) -> bool {
+        let n: i64 = self.len() as i64;
+        let m: i64 = needle.len() as i64;
+        if m > n { return false; }
+        unsafe {
+            let p: *const T = self.as_ptr() as *const T;
+            let q: *const T = needle.as_ptr() as *const T;
+            let mut i: i64 = 0i64;
+            while i < m {
+                if !(&*p.add(n - m + i)).eq(&*q.add(i)) { return false; }
+                i = i + 1i64;
+            }
+        }
+        return true;
+    }
+}
+
+/// `[T]` methods over an ordered element type (`T: Ord`).
+pub trait SliceOrdMethods<T> {
+    /// Binary search of a sorted slice: `Ok(index)` of a match, else `Err(insertion point)`.
+    fn binary_search(&self, x: &T) -> Result<i64, i64>;
+}
+
+impl<T: Ord> SliceOrdMethods<T> for [T] {
+    fn binary_search(&self, x: &T) -> Result<i64, i64> {
+        let mut lo: i64 = 0i64;
+        let mut hi: i64 = self.len() as i64;
+        unsafe {
+            let p: *const T = self.as_ptr() as *const T;
+            while lo < hi {
+                let mid: i64 = lo + (hi - lo) / 2i64;
+                match (&*p.add(mid)).cmp(x) {
+                    Ordering::Less    => { lo = mid + 1i64; }
+                    Ordering::Greater => { hi = mid; }
+                    Ordering::Equal   => { return Result::Ok(mid); }
+                }
+            }
+        }
+        return Result::Err(lo);
+    }
+}
+
+/// `[T]` methods that clone elements (`T: Clone`).
+pub trait SliceCloneMethods<T> {
+    /// Sets every element to a clone of `value` (the old elements are dropped).
+    fn fill(&mut self, value: T);
+    /// Clones `src` element-wise into `self` (the old elements are dropped); panics on a length mismatch.
+    fn clone_from_slice(&mut self, src: &[T]);
+}
+
+impl<T: Clone> SliceCloneMethods<T> for [T] {
+    fn fill(&mut self, value: T) {
+        let n: i64 = self.len() as i64;
+        unsafe {
+            let p: *mut T = self.as_ptr() as *mut T;
+            let mut i: i64 = 0i64;
+            while i < n {
+                let _old: T = p[i];
+                p[i] = value.clone();
+                i = i + 1i64;
+            }
+        }
+    }
+    fn clone_from_slice(&mut self, src: &[T]) {
+        let n: i64 = self.len() as i64;
+        if n != src.len() as i64 { panic("slice::clone_from_slice: source and destination lengths differ"); }
+        unsafe {
+            let p: *mut T = self.as_ptr() as *mut T;
+            let q: *const T = src.as_ptr() as *const T;
+            let mut i: i64 = 0i64;
+            while i < n {
+                let _old: T = p[i];
+                p[i] = (&*q.add(i)).clone();
+                i = i + 1i64;
+            }
+        }
+    }
+}
+
+/// `[T]` methods that copy elements bitwise (`T: Copy`).
+pub trait SliceCopyMethods<T> {
+    /// Copies `src` into `self`; panics on a length mismatch.
+    fn copy_from_slice(&mut self, src: &[T]);
+}
+
+impl<T: Copy> SliceCopyMethods<T> for [T] {
+    fn copy_from_slice(&mut self, src: &[T]) { slice_copy_from::<T>(self, src); }
 }

@@ -1,0 +1,31 @@
+// Default was not implemented for String / Vec / HashMap / BTreeMap / HashSet / Box, so
+// `take_ref(&mut s)` (mem::take) refused a String. `Default::default()` at a generic enum
+// (`let o: Option<String> = Default::default()`) named the uninstantiated template
+// `Option__default` and failed MLIR verification; it is instantiated at the expected
+// type now. Checked under valgrind. rustc twin: 20.
+package default_impls_std_types;
+use logos.mem.string;
+use logos.lang.mem;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.boxed;
+fn main() -> i32 {
+    let mut s: String = String::from("hi");
+    let taken: String = take_ref(&mut s);
+    if taken.len() != 2 || s.len() != 0 { return 1; }
+    let mut v: Vec<i64> = vec![1i64, 2, 3];
+    let tv = take_ref(&mut v);
+    if tv.len() != 3 || v.len() != 0 { return 2; }
+    let o: Option<String> = Default::default();
+    if o.is_some() { return 3; }
+    let m: HashMap<i32, i32> = Default::default();
+    let b: BTreeMap<i32, i32> = Default::default();
+    let h: HashSet<i32> = Default::default();
+    if m.len() + b.len() + h.len() != 0 { return 4; }
+    let bx: Box<i64> = Default::default();
+    if *bx != 0 { return 5; }
+    let e: String = String::default();
+    return (taken.len() as i32) * 10 + e.len() as i32;
+}

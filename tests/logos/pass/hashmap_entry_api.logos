@@ -1,0 +1,31 @@
+// HashMap had no entry API (`m.entry(k).or_insert(0)` was "no method 'entry'"), no
+// values_mut / iter_mut, no owning for-in and no `HashMap::new`. Entry is a struct with
+// or_insert / or_insert_with / or_default / and_modify / key; room is made before the
+// probe, so a vacant insert never resizes under the entry. Checked under valgrind.
+// rustc twin: 0.
+package hashmap_entry_api;
+use logos.mem.collections.hashmap;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut m: HashMap<String, i32> = HashMap::new();
+    *m.entry(String::from("a")).or_insert(0) += 1;
+    *m.entry(String::from("a")).or_insert(0) += 1;
+    *m.entry(String::from("b")).or_insert(0) += 5;
+    m.entry(String::from("b")).and_modify(|v: &mut i32| { *v += 1; }).or_insert(100);
+    let c: &mut i32 = m.entry(String::from("c")).or_insert_with(|| -> i32 { return 7; });
+    *c += 1;
+    *m.entry(String::from("d")).or_default() += 3;
+    if m.len() != 4 { return 1; }
+    let mut total: i32 = 0;
+    for v in m.values_mut() { *v *= 10; }
+    unsafe {
+        let pm: *mut HashMap<String, i32> = &mut m;
+        let k = String::from("a");
+        if *pm.get(&k) != 20 { return 2; }
+        let kb = String::from("b");
+        if *pm.get(&kb) != 60 { return 3; }
+    }
+    for p in m.iter_mut() { *p.second += 1; }
+    for (k, v) in m { total += v; if k.len() != 1 { return 4; } }
+    return total - 194;
+}

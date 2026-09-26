@@ -1,0 +1,36 @@
+// Rc/Arc had no `Rc::new` ("call to undefined static method 'Rc::new'"); strong_count /
+// weak_count were unsafe `*mut self` methods; ptr_eq, Weak::new, try_unwrap, into_inner
+// and the checked `get_mut` did not exist. Rust's associated-fn surface (counts are
+// i64, Logos's usize-width integer). Checked under valgrind. rustc twin: 10.
+package rc_arc_assoc_fn_surface;
+use logos.lang.rc;
+use logos.mem.sync;
+use logos.mem.string;
+fn main() -> i32 {
+    let a: Rc<i32> = Rc::new(10);
+    let b: Rc<i32> = Rc::clone(&a);
+    if Rc::strong_count(&a) != 2 { return 1; }
+    if !Rc::ptr_eq(&a, &b) { return 2; }
+    let w = Rc::downgrade(&a);
+    if Rc::weak_count(&a) != 1 { return 3; }
+    let none: Weak<i32> = Weak::new();
+    if none.upgrade().is_some() { return 4; }
+    drop(b);
+    if Rc::strong_count(&a) != 1 { return 5; }
+    let mut s: Rc<String> = Rc::new(String::from("hi"));
+    match Rc::get_mut(&mut s) { Option::Some(m) => { m.push_str("!"); } Option::None => { return 6; } }
+    let s2 = Rc::clone(&s);
+    if Rc::get_mut(&mut s).is_some() { return 7; }
+    let back = Rc::try_unwrap(s);
+    let s3: Rc<String> = match back { Result::Ok(_) => { return 8; } Result::Err(r) => r };
+    drop(s2);
+    let owned: String = match Rc::try_unwrap(s3) { Result::Ok(v) => v, Result::Err(_) => { return 9; } };
+    if owned.len() != 3 { return 10; }
+    let x: Arc<String> = Arc::new(String::from("abc"));
+    let y = Arc::clone(&x);
+    if Arc::strong_count(&x) != 2 || !Arc::ptr_eq(&x, &y) { return 11; }
+    drop(y);
+    match Arc::into_inner(x) { Option::Some(v) => { if v.len() != 3 { return 12; } } Option::None => { return 12; } }
+    if w.upgrade().is_none() { return 13; }
+    return *a;
+}

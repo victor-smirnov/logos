@@ -466,6 +466,26 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                     single = &v;
                 }
                 if (single && !ambiguous) return subst_type(*single, {});
+                // A GENERIC impl (`impl<T> IntoIterator<T> for Vec<T>`): unify its
+                // target pattern with the concrete base, then instantiate the
+                // assoc type with the bindings. Two impls of one trait for one
+                // base (`Tr<A>` / `Tr<B>`) must be told apart by the trait args,
+                // so only a single unifying candidate is taken.
+                if (sbv.kind() == LogosType::Kind::Struct || sbv.kind() == LogosType::Kind::ZonedStruct) {
+                    auto git = generic_assoc_impls_.find(bare + "::" + std::string(sbv.struct_name()) +
+                                                         "::" + std::string(tv.assoc_type_name()));
+                    if (git != generic_assoc_impls_.end()) {
+                        const GenericAssocImpl* hit = nullptr;
+                        SubstMap hit_b;
+                        int n_hit = 0;
+                        for (auto& g : git->second) {
+                            SubstMap b;
+                            if (!unify_impl_target(subbed_base, g.pattern, b)) continue;
+                            ++n_hit; hit = &g; hit_b = std::move(b);
+                        }
+                        if (n_hit == 1) return subst_type(hit->type, hit_b);
+                    }
+                }
             }
             // Blanket fallback: when there's an `impl<T: Bound> Trait for T`
             // and `concrete_base` satisfies Bound, use the blanket's assoc.

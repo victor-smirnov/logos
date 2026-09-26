@@ -292,8 +292,10 @@ private:
         // UnsizedSlice<u8>) and impl-on-dyn collapse to the canonical
         // fat-ptr kind. Without this, param0 mangling diverges between
         // `&self` and `other: &Self` for the same impl (CP-cm-08b).
+        // `&mut self` on `impl … for [T]` is a MUTABLE slice (it was built
+        // shared, so the method's writes were invisible to the borrow checker).
         if (pointee && pointee.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(pointee.elem());
+            return make_slice_type(pointee.elem(), mut);
         if (pointee && pointee.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = pointee.type_args();
             return make_trait_object(pointee.trait_name(), std::move(args_vec),
@@ -4271,6 +4273,14 @@ private:
     int64_t decode_char_lit_(std::string_view sv);
     bool ast_has_break_or_continue(writ::TinyMapView root);
     bool ast_has_exit(writ::TinyMapView root);
+    // Any call (fn / method / static / generic) in the subtree, closures excluded.
+    bool ast_has_call(writ::TinyMapView root);
+    // Rust evaluates a primitive compound assignment's RHS BEFORE its place
+    // (`a[f()] += g()` runs g first); the place of a non-primitive one first.
+    // Hoists `rhs` into a statement temporary ahead of the place when the order
+    // is observable (the RHS or the place calls).
+    lir::LExprPtr compound_rhs_first(lir::LExprPtr rhs, TypeRef pt,
+                                     writ::TinyMapView rhs_node, bool place_calls);
     // AN EVALUATED OPERAND IS OWNED BEFORE A LATER SIBLING CAN EXIT. Operands of
     // a binary operator, a call, a struct / tuple / array literal evaluate left
     // to right; a sibling that `return`s / `break`s / `continue`s / `?`s after
@@ -5577,6 +5587,16 @@ private:
             if (f != it->vars.end()) return f->second.slot;
         }
         return NO_SLOT;
+    }
+
+    // `name` resolves to a module `static mut` (no local or type parameter of
+    // that name shadows it). Static muts live in no local scope, so
+    // `lookup_is_mut` alone reports them immutable.
+    bool names_static_mut(std::string_view name) const {
+        if (!module_static_muts_.count(std::string(name))) return false;
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
+            if (it->vars.count(std::string(name))) return false;
+        return !current_type_params_.count(std::string(name));
     }
 
     bool lookup_is_mut(std::string_view name) const {
@@ -8845,6 +8865,11 @@ private:
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
+    // The `<Type>__<op>_assign(&mut Self, Rhs)` impl for a compound assignment:
+    // by the RHS's type, then Self; an unsuffixed literal RHS takes the width of
+    // the one impl whose Rhs is a matching primitive (`m += 3` over AddAssign<i64>).
+    const SemaFuncInfo* find_op_assign_impl(const std::string& mangled, TypeRef ref_t,
+                                            TypeRef self_t, lir::LExprPtr& rhs);
 
     // ── A BUILTIN NAME IS NOT AN IDENTITY ────────────────────────────────
     // The intrinsic intercepts in `lower_call`'s early builtin section and in

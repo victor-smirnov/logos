@@ -1,0 +1,82 @@
+// `place op= v` evaluated a side-effecting place twice (`arr[next()] += 5` bumped
+// the counter twice and wrote the wrong slot). Rust's order, held here in every
+// lowering shape: the place is evaluated ONCE; a primitive's RHS runs BEFORE the
+// place, a non-primitive's (`impl AddAssign`) after it. Shapes: array index, nested
+// index, Vec index (IndexMut), `*call() op= v`, a field of a returned `&mut`, a
+// `static mut` (`COUNTER += 1` was refused as "immutable"), a float place, a RHS
+// block writing the place through a raw pointer, and `*r op= lit` / `x op= lit`
+// over `AddAssign<i64>` / `MulAssign<f64>` (an unsuffixed literal RHS was refused,
+// and `*r op= v` on a struct called a nonexistent `M__add`).
+// rustc twin: 0.
+package compound_assign_place_evaluated_once;
+use logos.mem.collections.vec;
+use logos.lang.ops;
+use logos.std.fmt;
+
+static mut COUNTER: i32 = 0;
+static mut LOG: i64 = 0;
+fn next_idx() -> usize { unsafe { let v = COUNTER; COUNTER += 1; return v as usize; } }
+fn calls() -> i32 { unsafe { return COUNTER; } }
+fn note(d: i64) -> i64 { unsafe { LOG = LOG * 10 + d; } return d; }
+
+struct P { x: i32, y: i64 }
+fn pick<'a>(a: &'a mut P, b: &'a mut P, first: bool) -> &'a mut P {
+    next_idx();
+    if first { return a; } else { return b; }
+}
+fn slot<'a>(v: &'a mut Vec<i64>) -> &'a mut i64 { let i = next_idx(); return &mut v[i % 3]; }
+
+struct M { v: i64 }
+impl AddAssign<i64> for M { fn add_assign(&mut self, r: i64) { self.v += r; } }
+impl MulAssign<f64> for M { fn mul_assign(&mut self, r: f64) { self.v = ((self.v as f64) * r) as i64; } }
+fn place_m<'a>(a: &'a mut [M; 2]) -> &'a mut M { note(1); return &mut a[0]; }
+fn place_i<'a>(a: &'a mut [i64; 2]) -> &'a mut i64 { note(1); return &mut a[1]; }
+
+fn main() -> i32 {
+    let mut arr: [i32; 4] = [10, 20, 30, 40];
+    arr[next_idx()] += 5;
+    arr[next_idx()] -= 3;
+    arr[next_idx()] *= 2;
+    arr[next_idx()] <<= 1;
+    println!("{} {} {} {} c={}", arr[0], arr[1], arr[2], arr[3], calls());
+    let mut grid: [[i32; 3]; 3] = [[0; 3]; 3];
+    grid[next_idx() % 3][next_idx() % 3] |= 6;
+    println!("{} {} c={}", grid[1][2], grid[2][1], calls());
+    let mut v: Vec<i64> = vec![1, 2, 3];
+    v[next_idx() % 3] += 100;
+    *slot(&mut v) *= 7;
+    println!("{} {} {} c={}", v[0], v[1], v[2], calls());
+    let mut a: P = P { x: 1, y: 2 };
+    let mut b: P = P { x: 3, y: 4 };
+    pick(&mut a, &mut b, true).x += 10;
+    pick(&mut a, &mut b, false).y -= 1;
+    *(&mut pick(&mut a, &mut b, true).y) += 5;
+    println!("{} {} {} {} c={}", a.x, a.y, b.x, b.y, calls());
+    let mut w: [i32; 8] = [0; 8];
+    w[next_idx() % 8] += next_idx() as i32;
+    println!("{} {} c={}", w[3], w[4], calls());
+    unsafe { COUNTER += next_idx() as i32 + 10; }
+    let mut fx: [f64; 2] = [1.5, 2.5];
+    fx[next_idx() % 2] *= 2.0;
+    println!("c={} {} {}", calls(), fx[0], fx[1]);
+    let mut ms: [M; 2] = [M { v: 1 }, M { v: 2 }];
+    *place_m(&mut ms) += note(2);
+    let l1: i64 = unsafe { LOG };
+    unsafe { LOG = 0; }
+    let mut is: [i64; 2] = [0, 5];
+    *place_i(&mut is) += note(2);
+    let l2: i64 = unsafe { LOG };
+    let mut p: [i64; 2] = [7, 8];
+    let raw: *mut i64 = &mut p[0];
+    p[0] += unsafe { *raw = 100; 1 };
+    println!("{} {} {} {} {}", ms[0].v, l1, is[1], l2, p[0]);
+    let mut m: M = M { v: 1 };
+    m += 3;
+    m *= 2.5;
+    let r: &mut M = &mut m;
+    *r += 2;
+    *r *= 3.0;
+    ms[1] += 5;
+    println!("{} {}", m.v, ms[1].v);
+    return 0;
+}

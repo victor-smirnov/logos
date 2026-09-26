@@ -15,6 +15,6 @@ fn main() -> i32 {
     }
     // strong_count should be 1 again
     let mut sc: i32 = 0;
-    unsafe { let p: *mut Rc<Node> = &r as *const Rc<Node> as *mut Rc<Node>; sc = p.strong_count(); }
+    unsafe { let p: *mut Rc<Node> = &r as *const Rc<Node> as *mut Rc<Node>; sc = p.strong_count() as i32; }
     return got + sc;   // 10 + 1 = 11
 }

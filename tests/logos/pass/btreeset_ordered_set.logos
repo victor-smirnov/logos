@@ -1,0 +1,31 @@
+// BTreeSet did not exist. An ordered set over BTreeMap<K, u8>: insert / contains /
+// remove / first / last / pop_first / pop_last, ascending iter, the set algebra,
+// owning for-in. String keys drop exactly once (valgrind). rustc twin: 0.
+package btreeset_ordered_set;
+use logos.mem.collections.btreeset;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut s: BTreeSet<i32> = BTreeSet::new();
+    s.insert(3); s.insert(1); s.insert(2);
+    if s.insert(2) { return 1; }
+    s.remove(&2);
+    let mut v: i32 = 0;
+    for x in s.iter() { v = v * 10 + *x; }
+    if v != 13 { return 2; }
+    match s.first() { Option::Some(f) => { if *f != 1 { return 3; } } Option::None => { return 3; } }
+    let mut t: BTreeSet<i32> = BTreeSet::new();
+    t.insert(3); t.insert(4);
+    let mut u: i32 = 0;
+    for x in s.union(&t) { u = u * 10 + *x; }
+    if u != 134 { return 4; }
+    if s.intersection(&t).count() != 1 || s.difference(&t).count() != 1 { return 5; }
+    if s.symmetric_difference(&t).count() != 2 || s.is_subset(&t) { return 6; }
+    match s.pop_last() { Option::Some(x) => { if x != 3 { return 7; } } Option::None => { return 7; } }
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    names.insert(String::from("b")); names.insert(String::from("a")); names.insert(String::from("a"));
+    if names.len() != 2 { return 8; }
+    let mut n: i64 = 0;
+    for x in names { n += x.len(); }
+    if n != 2 || !s.contains(&1) { return 9; }
+    return 0;
+}

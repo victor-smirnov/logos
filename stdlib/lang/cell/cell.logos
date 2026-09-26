@@ -31,6 +31,7 @@ use logos.lang.default;
 use logos.lang.clone;
 use logos.lang.panic;
 use logos.lang.drop;
+use logos.lang.ops;
 // `ptr::drop_in_place` — `OnceCell::{set, get_or_init}` destroy the seeded
 // `T::default()` they are about to overwrite. `logos.lang.ptr` imports only
 // `logos.lang.option`, which this module already imports, so the edge is
@@ -350,7 +351,6 @@ impl<T> RefCell<T> {
 }
 
 impl<T> Ref<T> {
-    // Deref-equivalent (Logos has no Deref trait — methods instead).
     /// Returns a shared reference to the borrowed value.
     pub fn get(&self) -> &T {
         unsafe { return &*self.value; }
@@ -366,6 +366,18 @@ impl<T> RefMut<T> {
     pub fn get_mut(&mut self) -> &mut T {
         unsafe { return &mut *self.value; }
     }
+}
+
+// Rust's `Deref for Ref` / `Deref + DerefMut for RefMut`: `cell.borrow().x`,
+// `*cell.borrow_mut() += 1`, `g.method()` reach the borrowed value.
+impl<T> Deref<T> for Ref<T> {
+    fn deref(&self) -> &T { unsafe { return &*self.value; } }
+}
+impl<T> Deref<T> for RefMut<T> {
+    fn deref(&self) -> &T { unsafe { return &*self.value; } }
+}
+impl<T> DerefMut<T> for RefMut<T> {
+    fn deref_mut(&mut self) -> &mut T { unsafe { return &mut *self.value; } }
 }
 
 impl<T> Drop for Ref<T> {

@@ -419,7 +419,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     /// Moves (or creates) the named head to point at commit `id`.
     pub fn set_head(&mut self, name: str, id: SnpId<STORE_CFG>) {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
-        unsafe { s.lock.lock(); }
+        unsafe { s.lock.lock_raw(); }
         let n: i64 = s.head_names.len();
         let mut i: i64 = 0i64;
         while i < n {
@@ -440,7 +440,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     /// Resolves the named head to its commit id; `None` for an unknown name.
     pub fn head(&mut self, name: str) -> Option<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
-        unsafe { s.lock.lock(); }
+        unsafe { s.lock.lock_raw(); }
         let n: i64 = s.head_names.len();
         let mut i: i64 = 0i64;
         while i < n {
@@ -458,7 +458,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     /// Attaches a human-readable label to commit `id` (replaces any prior one).
     pub fn set_label(&mut self, id: SnpId<STORE_CFG>, label: str) {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
-        unsafe { s.lock.lock(); }
+        unsafe { s.lock.lock_raw(); }
         let e: &mut CommitEntry<STORE_CFG> = s.dag.borrow_mut(id as i64);
         let mut nm: String = String::new();
         nm.push_str(label);
@@ -469,7 +469,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     /// Returns commit `id`'s label ("" when unset).
     pub fn label_of(&mut self, id: SnpId<STORE_CFG>) -> String {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
-        unsafe { s.lock.lock(); }
+        unsafe { s.lock.lock_raw(); }
         let e: &CommitEntry<STORE_CFG> = s.dag.borrow(id as i64);
         let mut out: String = String::new();
         out.push_str(e.label.as_str());

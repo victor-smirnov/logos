@@ -24,6 +24,7 @@ use logos.lang.marker;
 use logos.lang.drop;
 use logos.lang.clone;
 use logos.lang.option;
+use logos.lang.result;
 
 // ── Internal heap block ───────────────────────────────────────────────────────
 
@@ -152,9 +153,23 @@ impl<T: ?Sized> Arc<T> {
         return out;
     }
 
-    /// Returns the current strong reference count.
-    pub unsafe fn strong_count(self: *mut Arc<T>) -> i32 {
-        return (&self.inner.strong).load();
+    /// The current strong reference count (Rust's `Arc::strong_count`).
+    pub fn strong_count(this: &Arc<T>) -> i64 {
+        unsafe { return (&this.inner.strong).load() as i64; }
+    }
+
+    /// `true` if both handles point at the same allocation (Rust's `Arc::ptr_eq`).
+    pub fn ptr_eq(this: &Arc<T>, other: &Arc<T>) -> bool {
+        return (this.inner as *mut u8) == (other.inner as *mut u8);
+    }
+
+    /// `Some(&mut value)` when this is the only handle (no other `Arc`, no `Weak`),
+    /// else `None` (Rust's `Arc::get_mut`).
+    pub fn get_mut(this: &mut Arc<T>) -> Option<&mut T> {
+        unsafe {
+            if (&this.inner.strong).load() != 1 || (&this.inner.weak).load() != 1 { return Option::None; }
+            return Option::Some(&mut this.inner.val);
+        }
     }
 
     /// Returns `true` for a moved-from (null) handle, e.g. after `take_arc`.
@@ -178,9 +193,10 @@ impl<T: ?Sized> Arc<T> {
         }
     }
 
-    /// Returns the current weak count (excludes the implicit weak held by strong refs).
-    pub unsafe fn weak_count(self: *mut Arc<T>) -> i32 {
-        return (&self.inner.weak).load() - 1;
+    /// The current weak count, excluding the implicit weak held by strong refs
+    /// (Rust's `Arc::weak_count`).
+    pub fn weak_count(this: &Arc<T>) -> i64 {
+        unsafe { return ((&this.inner.weak).load() - 1) as i64; }
     }
 
     /// Atomically decrements the strong count; drops `T` when it hits 0, then frees
@@ -214,7 +230,49 @@ impl<T: ?Sized> Arc<T> {
     }
 }
 
+impl<T> Arc<T> {
+    /// Creates a new `Arc` owning `val` (Rust's `Arc::new`).
+    pub fn new(val: T) -> Arc<T> { return arc_new::<T>(val); }
+
+    /// The value, if this is the only strong handle; else the handle back (Rust's
+    /// `Arc::try_unwrap`).
+    pub fn try_unwrap(this: Arc<T>) -> Result<T, Arc<T>> {
+        unsafe {
+            if (&this.inner.strong).load() != 1 { return Result::Err(this); }
+            let p: *mut ArcInner<T> = this.inner;
+            let v: T = logos.lang.ptr::read(&p.val as *const T);
+            (&mut p.strong).fetch_sub(1);
+            let pw: i32 = (&mut p.weak).fetch_sub(1);
+            if pw == 1 { dealloc(p as *mut u8); }
+            logos.lang.mem::forget::<Arc<T>>(this);
+            return Result::Ok(v);
+        }
+    }
+
+    /// The value, if this is the only strong handle, else `None` (Rust's `Arc::into_inner`).
+    pub fn into_inner(this: Arc<T>) -> Option<T> {
+        let r: Result<T, Arc<T>> = Arc::try_unwrap(this);
+        match r {
+            Result::Ok(v)  => { return Option::Some(v); }
+            Result::Err(h) => { let _last: Arc<T> = h; return Option::None; }
+        }
+    }
+}
+
+impl<T> Weak<T> {
+    /// A `Weak` pointing at nothing: `upgrade` always returns `None` (Rust's `Weak::new`).
+    pub fn new() -> Weak<T> { return Weak { inner: 0 as *mut ArcInner<T> }; }
+}
+
 impl<T: ?Sized> Weak<T> {
+    /// The number of strong handles to the allocation (0 for `Weak::new`).
+    pub fn strong_count(&self) -> i64 {
+        unsafe {
+            if (self.inner as *mut u8) == (0 as *mut u8) { return 0; }
+            return (&self.inner.strong).load() as i64;
+        }
+    }
+
     /// Attempts to obtain a strong `Arc`; returns `None` if no strong reference remains.
     /// Not a full lock-free CAS (load-then-bump) — a race with a concurrent last-drop
     /// is possible; sufficient for single-producer upgrade patterns only.

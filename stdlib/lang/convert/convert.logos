@@ -253,3 +253,27 @@ impl BorrowMut<u16>  for u16  { fn borrow_mut(&mut self) -> &mut u16  { return s
 impl BorrowMut<u32>  for u32  { fn borrow_mut(&mut self) -> &mut u32  { return self; } }
 impl BorrowMut<u64>  for u64  { fn borrow_mut(&mut self) -> &mut u64  { return self; } }
 impl BorrowMut<bool> for bool { fn borrow_mut(&mut self) -> &mut bool { return self; } }
+
+// ── AsRef / AsMut (Rust's cheap reference-to-reference conversions) ─────────
+// Impls for the owning types ship with them (Vec / String / Box); the slice
+// identity impl is here.
+
+/// Cheap `&Self` → `&T` conversion (Rust's `AsRef`); generic APIs take `impl AsRef<T>`.
+pub trait AsRef<T: ?Sized> {
+    /// Converts to a shared reference of the target type.
+    fn as_ref(&self) -> &T;
+}
+
+/// Cheap `&mut Self` → `&mut T` conversion (Rust's `AsMut`).
+pub trait AsMut<T: ?Sized> {
+    /// Converts to a mutable reference of the target type.
+    fn as_mut(&mut self) -> &mut T;
+}
+
+impl<E> AsRef<[E]> for [E] {
+    fn as_ref(&self) -> &[E] { return self; }
+}
+
+impl<E> AsMut<[E]> for [E] {
+    fn as_mut(self: &mut [E]) -> &mut [E] { return self; }
+}

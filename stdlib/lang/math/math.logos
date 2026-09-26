@@ -56,6 +56,10 @@ extern fn trunc(x: f64) -> f64;
 extern fn fabs(x: f64)  -> f64;
 extern fn fmod(x: f64, y: f64) -> f64;
 extern fn copysign(x: f64, y: f64) -> f64;
+extern fn fma(x: f64, y: f64, z: f64) -> f64;
+extern fn asinh(x: f64) -> f64;
+extern fn acosh(x: f64) -> f64;
+extern fn atanh(x: f64) -> f64;
 
 // ---- public wrappers -------------------------------------------------------
 
@@ -153,4 +157,216 @@ pub fn max_f64(a: f64, b: f64) -> f64 {
     if a != a { return b; }
     if b != b { return a; }
     if a > b { return a; } return b;
+}
+
+// ---- inherent float methods (Rust's `f64::sqrt`, `x.floor()`, …) -----------
+
+impl f64 {
+    /// The largest integer less than or equal to `self`.
+    pub fn floor(self: f64) -> f64 { unsafe { return floor(self); } }
+    /// The smallest integer greater than or equal to `self`.
+    pub fn ceil(self: f64) -> f64 { unsafe { return ceil(self); } }
+    /// The nearest integer, rounding half-way cases away from zero.
+    pub fn round(self: f64) -> f64 { unsafe { return round(self); } }
+    /// The integer part of `self` (rounds toward zero).
+    pub fn trunc(self: f64) -> f64 { unsafe { return trunc(self); } }
+    /// The fractional part: `self - self.trunc()`.
+    pub fn fract(self: f64) -> f64 { unsafe { return self - trunc(self); } }
+    /// The absolute value.
+    pub fn abs(self: f64) -> f64 { unsafe { return fabs(self); } }
+    /// `1.0` if positive (incl. `+0.0`), `-1.0` if negative (incl. `-0.0`), NaN for NaN.
+    pub fn signum(self: f64) -> f64 {
+        if self != self { return self; }
+        unsafe { return copysign(1.0, self); }
+    }
+    /// `self` with the sign of `sign`.
+    pub fn copysign(self: f64, sign: f64) -> f64 { unsafe { return copysign(self, sign); } }
+    /// `true` for `+0.0`, positive values and NaNs with a positive sign bit.
+    pub fn is_sign_positive(self: f64) -> bool { unsafe { return copysign(1.0, self) > 0.0; } }
+    /// `true` for `-0.0`, negative values and NaNs with a negative sign bit.
+    pub fn is_sign_negative(self: f64) -> bool { unsafe { return copysign(1.0, self) < 0.0; } }
+    /// Fused multiply-add: `self * a + b` with one rounding.
+    pub fn mul_add(self: f64, a: f64, b: f64) -> f64 { unsafe { return fma(self, a, b); } }
+    /// Euclidean division: the quotient rounded so that `rem_euclid` is non-negative.
+    pub fn div_euclid(self: f64, rhs: f64) -> f64 {
+        unsafe {
+            let q: f64 = trunc(self / rhs);
+            if fmod(self, rhs) < 0.0 { if rhs > 0.0 { return q - 1.0; } return q + 1.0; }
+            return q;
+        }
+    }
+    /// The least non-negative remainder of `self` by `rhs`.
+    pub fn rem_euclid(self: f64, rhs: f64) -> f64 {
+        unsafe {
+            let r: f64 = fmod(self, rhs);
+            if r < 0.0 { return r + fabs(rhs); }
+            return r;
+        }
+    }
+    /// `self` raised to the integer power `n`.
+    pub fn powi(self: f64, n: i32) -> f64 { unsafe { return pow(self, n as f64); } }
+    /// `self` raised to the floating-point power `n`.
+    pub fn powf(self: f64, n: f64) -> f64 { unsafe { return pow(self, n); } }
+    /// The square root (NaN for negative values).
+    pub fn sqrt(self: f64) -> f64 { unsafe { return sqrt(self); } }
+    /// The cube root.
+    pub fn cbrt(self: f64) -> f64 { unsafe { return cbrt(self); } }
+    /// `e^self`.
+    pub fn exp(self: f64) -> f64 { unsafe { return exp(self); } }
+    /// `2^self`.
+    pub fn exp2(self: f64) -> f64 { unsafe { return exp2(self); } }
+    /// `e^self - 1`, accurate near zero.
+    pub fn exp_m1(self: f64) -> f64 { unsafe { return expm1(self); } }
+    /// The natural logarithm.
+    pub fn ln(self: f64) -> f64 { unsafe { return log(self); } }
+    /// `ln(1 + self)`, accurate near zero.
+    pub fn ln_1p(self: f64) -> f64 { unsafe { return log1p(self); } }
+    /// The logarithm to base `base`.
+    pub fn log(self: f64, base: f64) -> f64 { unsafe { return log(self) / log(base); } }
+    /// The base-2 logarithm.
+    pub fn log2(self: f64) -> f64 { unsafe { return log2(self); } }
+    /// The base-10 logarithm.
+    pub fn log10(self: f64) -> f64 { unsafe { return log10(self); } }
+    /// `sqrt(self^2 + other^2)` without undue overflow.
+    pub fn hypot(self: f64, other: f64) -> f64 { unsafe { return hypot(self, other); } }
+    /// Sine (radians).
+    pub fn sin(self: f64) -> f64 { unsafe { return sin(self); } }
+    /// Cosine (radians).
+    pub fn cos(self: f64) -> f64 { unsafe { return cos(self); } }
+    /// Tangent (radians).
+    pub fn tan(self: f64) -> f64 { unsafe { return tan(self); } }
+    /// `(sin(self), cos(self))`.
+    pub fn sin_cos(self: f64) -> (f64, f64) { unsafe { return (sin(self), cos(self)); } }
+    /// Arcsine, in radians.
+    pub fn asin(self: f64) -> f64 { unsafe { return asin(self); } }
+    /// Arccosine, in radians.
+    pub fn acos(self: f64) -> f64 { unsafe { return acos(self); } }
+    /// Arctangent, in radians.
+    pub fn atan(self: f64) -> f64 { unsafe { return atan(self); } }
+    /// Four-quadrant arctangent of `self` (y) and `other` (x).
+    pub fn atan2(self: f64, other: f64) -> f64 { unsafe { return atan2(self, other); } }
+    /// Hyperbolic sine.
+    pub fn sinh(self: f64) -> f64 { unsafe { return sinh(self); } }
+    /// Hyperbolic cosine.
+    pub fn cosh(self: f64) -> f64 { unsafe { return cosh(self); } }
+    /// Hyperbolic tangent.
+    pub fn tanh(self: f64) -> f64 { unsafe { return tanh(self); } }
+    /// Inverse hyperbolic sine.
+    pub fn asinh(self: f64) -> f64 { unsafe { return asinh(self); } }
+    /// Inverse hyperbolic cosine.
+    pub fn acosh(self: f64) -> f64 { unsafe { return acosh(self); } }
+    /// Inverse hyperbolic tangent.
+    pub fn atanh(self: f64) -> f64 { unsafe { return atanh(self); } }
+    /// `1 / self`.
+    pub fn recip(self: f64) -> f64 { return 1.0 / self; }
+    /// Radians to degrees.
+    pub fn to_degrees(self: f64) -> f64 { return self * (180.0 / 3.141592653589793); }
+    /// Degrees to radians.
+    pub fn to_radians(self: f64) -> f64 { return self * (3.141592653589793 / 180.0); }
+    /// The smaller of two values; a NaN operand is ignored.
+    pub fn min(self: f64, other: f64) -> f64 { return min_f64(self, other); }
+    /// The larger of two values; a NaN operand is ignored.
+    pub fn max(self: f64, other: f64) -> f64 { return max_f64(self, other); }
+    /// `self` restricted to `[lo, hi]`; panics unless `lo <= hi`. NaN stays NaN.
+    pub fn clamp(self: f64, lo: f64, hi: f64) -> f64 {
+        if !(lo <= hi) { logos.lang.panic::panic("f64::clamp: min > max, or either was NaN"); }
+        if self < lo { return lo; }
+        if self > hi { return hi; }
+        return self;
+    }
+}
+
+impl f32 {
+    /// The largest integer less than or equal to `self`.
+    pub fn floor(self: f32) -> f32 { unsafe { return floor(self as f64) as f32; } }
+    /// The smallest integer greater than or equal to `self`.
+    pub fn ceil(self: f32) -> f32 { unsafe { return ceil(self as f64) as f32; } }
+    /// The nearest integer, rounding half-way cases away from zero.
+    pub fn round(self: f32) -> f32 { unsafe { return round(self as f64) as f32; } }
+    /// The integer part of `self` (rounds toward zero).
+    pub fn trunc(self: f32) -> f32 { unsafe { return trunc(self as f64) as f32; } }
+    /// The fractional part: `self - self.trunc()`.
+    pub fn fract(self: f32) -> f32 { unsafe { return self - trunc(self as f64) as f32; } }
+    /// The absolute value.
+    pub fn abs(self: f32) -> f32 { unsafe { return fabs(self as f64) as f32; } }
+    /// `1.0` if positive (incl. `+0.0`), `-1.0` if negative (incl. `-0.0`), NaN for NaN.
+    pub fn signum(self: f32) -> f32 {
+        if self != self { return self; }
+        unsafe { return copysign(1.0, self as f64) as f32; }
+    }
+    /// `self` with the sign of `sign`.
+    pub fn copysign(self: f32, sign: f32) -> f32 { unsafe { return copysign(self as f64, sign as f64) as f32; } }
+    /// `true` for `+0.0`, positive values and NaNs with a positive sign bit.
+    pub fn is_sign_positive(self: f32) -> bool { unsafe { return copysign(1.0, self as f64) > 0.0; } }
+    /// `true` for `-0.0`, negative values and NaNs with a negative sign bit.
+    pub fn is_sign_negative(self: f32) -> bool { unsafe { return copysign(1.0, self as f64) < 0.0; } }
+    /// Fused multiply-add: `self * a + b` (exact in f64, then one rounding to f32).
+    pub fn mul_add(self: f32, a: f32, b: f32) -> f32 { unsafe { return fma(self as f64, a as f64, b as f64) as f32; } }
+    /// The least non-negative remainder of `self` by `rhs`.
+    pub fn rem_euclid(self: f32, rhs: f32) -> f32 { return (self as f64).rem_euclid(rhs as f64) as f32; }
+    /// Euclidean division.
+    pub fn div_euclid(self: f32, rhs: f32) -> f32 { return (self as f64).div_euclid(rhs as f64) as f32; }
+    /// `self` raised to the integer power `n`.
+    pub fn powi(self: f32, n: i32) -> f32 { unsafe { return pow(self as f64, n as f64) as f32; } }
+    /// `self` raised to the floating-point power `n`.
+    pub fn powf(self: f32, n: f32) -> f32 { unsafe { return pow(self as f64, n as f64) as f32; } }
+    /// The square root (NaN for negative values).
+    pub fn sqrt(self: f32) -> f32 { unsafe { return sqrt(self as f64) as f32; } }
+    /// The cube root.
+    pub fn cbrt(self: f32) -> f32 { unsafe { return cbrt(self as f64) as f32; } }
+    /// `e^self`.
+    pub fn exp(self: f32) -> f32 { unsafe { return exp(self as f64) as f32; } }
+    /// `2^self`.
+    pub fn exp2(self: f32) -> f32 { unsafe { return exp2(self as f64) as f32; } }
+    /// The natural logarithm.
+    pub fn ln(self: f32) -> f32 { unsafe { return log(self as f64) as f32; } }
+    /// The logarithm to base `base`.
+    pub fn log(self: f32, base: f32) -> f32 { unsafe { return (log(self as f64) / log(base as f64)) as f32; } }
+    /// The base-2 logarithm.
+    pub fn log2(self: f32) -> f32 { unsafe { return log2(self as f64) as f32; } }
+    /// The base-10 logarithm.
+    pub fn log10(self: f32) -> f32 { unsafe { return log10(self as f64) as f32; } }
+    /// `sqrt(self^2 + other^2)`.
+    pub fn hypot(self: f32, other: f32) -> f32 { unsafe { return hypot(self as f64, other as f64) as f32; } }
+    /// Sine (radians).
+    pub fn sin(self: f32) -> f32 { unsafe { return sin(self as f64) as f32; } }
+    /// Cosine (radians).
+    pub fn cos(self: f32) -> f32 { unsafe { return cos(self as f64) as f32; } }
+    /// Tangent (radians).
+    pub fn tan(self: f32) -> f32 { unsafe { return tan(self as f64) as f32; } }
+    /// Arcsine, in radians.
+    pub fn asin(self: f32) -> f32 { unsafe { return asin(self as f64) as f32; } }
+    /// Arccosine, in radians.
+    pub fn acos(self: f32) -> f32 { unsafe { return acos(self as f64) as f32; } }
+    /// Arctangent, in radians.
+    pub fn atan(self: f32) -> f32 { unsafe { return atan(self as f64) as f32; } }
+    /// Four-quadrant arctangent of `self` (y) and `other` (x).
+    pub fn atan2(self: f32, other: f32) -> f32 { unsafe { return atan2(self as f64, other as f64) as f32; } }
+    /// Hyperbolic tangent.
+    pub fn tanh(self: f32) -> f32 { unsafe { return tanh(self as f64) as f32; } }
+    /// `1 / self`.
+    pub fn recip(self: f32) -> f32 { return 1.0 as f32 / self; }
+    /// Radians to degrees.
+    pub fn to_degrees(self: f32) -> f32 { return ((self as f64) * (180.0 / 3.141592653589793)) as f32; }
+    /// Degrees to radians.
+    pub fn to_radians(self: f32) -> f32 { return ((self as f64) * (3.141592653589793 / 180.0)) as f32; }
+    /// The smaller of two values; a NaN operand is ignored.
+    pub fn min(self: f32, other: f32) -> f32 {
+        if self != self { return other; }
+        if other != other { return self; }
+        if self < other { return self; } return other;
+    }
+    /// The larger of two values; a NaN operand is ignored.
+    pub fn max(self: f32, other: f32) -> f32 {
+        if self != self { return other; }
+        if other != other { return self; }
+        if self > other { return self; } return other;
+    }
+    /// `self` restricted to `[lo, hi]`; panics unless `lo <= hi`. NaN stays NaN.
+    pub fn clamp(self: f32, lo: f32, hi: f32) -> f32 {
+        if !(lo <= hi) { logos.lang.panic::panic("f32::clamp: min > max, or either was NaN"); }
+        if self < lo { return lo; }
+        if self > hi { return hi; }
+        return self;
+    }
 }

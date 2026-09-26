@@ -1,8 +1,9 @@
 // @rule expr.compound-assign.place-too-nested
+// A call-rooted target (`pm(&mut t).1 += v`) is evaluated once and written in place.
 package expr_diag_6_compound_place_nested;
 fn pm(t: &mut ((i32, i32), i32)) -> &mut (i32, i32) { return &mut t.0; }
 fn main() -> i32 {
     let mut t: ((i32, i32), i32) = ((1i32, 2i32), 3i32);
     pm(&mut t).1 += 1i32;
-    return 0i32;
+    return (t.0).1 * 10 + (t.0).0;
 }

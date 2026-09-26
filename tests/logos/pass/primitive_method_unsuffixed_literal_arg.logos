@@ -1,0 +1,15 @@
+// An unsuffixed integer literal argument to a primitive method (`x.wrapping_add(1)`)
+// was refused ("method call: receiver is not a struct (got i32)"); the literal now
+// takes the width the receiver's method pins.
+// rustc twin: 0.
+package primitive_method_unsuffixed_literal_arg;
+fn main() -> i32 {
+    let x: i32 = 100i32;
+    let a: i32 = x.wrapping_add(1);
+    let b: i64 = 3i64.pow(2);
+    let c: i32 = 2147483600i32.saturating_add(100);
+    let d: u64 = 7u64.wrapping_mul(3);
+    let e: u64 = 5u64.max(9);
+    let f: u32 = 4000000000u32.checked_add(400000000).unwrap_or(16);
+    if a == 101 && b == 9 && c == 2147483647 && d == 21 && e == 9 && f == 16 { return 0; } else { return 1; }
+}

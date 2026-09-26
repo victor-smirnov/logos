@@ -158,7 +158,7 @@ pub fn locking_store_new<const STORE_CFG: WritStatic>() -> LockingStore<STORE_CF
 impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> {
     fn alloc_snapshot_id(self: *mut LockingStore<STORE_CFG>) -> SnpId<STORE_CFG> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             self.next_snapshot_id = self.next_snapshot_id + 1u64;
             let id: SnpId<STORE_CFG> = self.next_snapshot_id;
             self.lock.unlock();
@@ -167,7 +167,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn alloc_block_id(self: *mut LockingStore<STORE_CFG>) -> BlockId<STORE_CFG> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             self.next_block_id = self.next_block_id + 1u64;
             let id: BlockId<STORE_CFG> = self.next_block_id;
             self.lock.unlock();
@@ -176,7 +176,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn register_commit(self: *mut LockingStore<STORE_CFG>, root: NodeARC<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let id: SnpId<STORE_CFG> = self.dag.len() as SnpId<STORE_CFG>;
             // Update parent's children index before we push the new
             // entry — the lock window covers both mutations atomically.
@@ -199,7 +199,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn register_merge_commit(self: *mut LockingStore<STORE_CFG>, root: NodeARC<STORE_CFG>, parents: Vec<SnpId<STORE_CFG>>) -> SnpId<STORE_CFG> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let id: SnpId<STORE_CFG> = self.dag.len() as SnpId<STORE_CFG>;
             let np: i64 = parents.len();
             let mut i: i64 = 0i64;
@@ -222,7 +222,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn checkout(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
             let cloned: NodeARC<STORE_CFG> = entry.root.clone();
             self.lock.unlock();
@@ -231,7 +231,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn parents_of(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
             let mut out: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
             let n: i64 = entry.parents.len();
@@ -246,7 +246,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn children_of(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
             let mut out: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
             let n: i64 = entry.children.len();
@@ -261,7 +261,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn commit_count(self: *mut LockingStore<STORE_CFG>) -> i64 {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let n: i64 = self.dag.len();
             self.lock.unlock();
             return n;
@@ -269,7 +269,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
     }
     fn roots(self: *mut LockingStore<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let mut out: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
             let n: i64 = self.dag.len();
             let mut i: i64 = 0i64;
@@ -287,7 +287,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
 
     fn release_snapshot(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             // borrow_mut: bounds-checked (panics on OOB id) — was the unchecked
             // `at`, which on a bad id did a wild out-of-bounds write (UB).
             let entry: &mut CommitEntry<STORE_CFG> = self.dag.borrow_mut(id as i64);
@@ -305,7 +305,7 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
 
     fn is_released(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) -> bool {
         unsafe {
-            self.lock.lock();
+            self.lock.lock_raw();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
             let r: bool = entry.released;
             self.lock.unlock();

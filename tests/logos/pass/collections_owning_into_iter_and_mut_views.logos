@@ -1,0 +1,43 @@
+// Owning for-in over HashMap / BTreeMap / HashSet / VecDeque was refused (only Vec had
+// IntoIterator by value); the maps yield (K, V). An early `break` drops the rest with
+// the iterator. BTreeMap gained values_mut / iter_mut / first_key_value / pop_last (and
+// HashMap values_mut / iter_mut, see hashmap_entry_api). Checked under valgrind.
+// rustc twin: 0.
+package collections_owning_into_iter_and_mut_views;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut m: HashMap<i32, String> = HashMap::new();
+    let mut b: BTreeMap<i32, String> = BTreeMap::new();
+    let mut d: VecDeque<String> = VecDeque::new();
+    unsafe {
+        let pm: *mut HashMap<i32, String> = &mut m;
+        pm.insert(1, String::from("a")); pm.insert(2, String::from("bb"));
+        let pb: *mut BTreeMap<i32, String> = &mut b;
+        pb.insert(2, String::from("x")); pb.insert(1, String::from("yy")); pb.insert(3, String::from("zzz"));
+        let pd: *mut VecDeque<String> = &mut d;
+        pd.push_back(String::from("q")); pd.push_front(String::from("pp"));
+    }
+    let mut total: i64 = 0;
+    for (k, v) in m { total += k as i64 * v.len(); }
+    if total != 5 { return 1; }
+    let mut order: i64 = 0;
+    for (k, v) in b { order = order * 10 + k as i64; if k == 2 { break; } }
+    if order != 12 { return 2; }
+    let mut first: i64 = 0;
+    for s in d { first = s.len(); break; }
+    if first != 2 { return 3; }
+    let mut hs: HashSet<String> = HashSet::new();
+    unsafe { let p: *mut HashSet<String> = &mut hs; p.insert(String::from("k")); }
+    for s in hs { if s.len() != 1 { return 4; } }
+    let mut bm: BTreeMap<i32, i32> = BTreeMap::new();
+    unsafe { let p: *mut BTreeMap<i32, i32> = &mut bm; p.insert(1, 10); p.insert(2, 20); }
+    for v in bm.values_mut() { *v += 1; }
+    for p in bm.iter_mut() { *p.second += 1; }
+    match bm.first_key_value() { Option::Some(kv) => { let (k, v) = kv; if *k != 1 || *v != 12 { return 5; } } Option::None => { return 5; } }
+    match bm.pop_last() { Option::Some(kv) => { let (k, v) = kv; if k != 2 || v != 22 { return 6; } } Option::None => { return 6; } }
+    return 0;
+}

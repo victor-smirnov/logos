@@ -7,7 +7,7 @@ impl<T> Probe for Weak<T> {
     fn alive(&self) -> i32 { match self.upgrade() { Option::Some(_a) => { return 1i32; } Option::None => { return 0i32; } } }
 }
 fn via<P: Probe>(p: &P) -> i32 { return p.alive() * 100i32; }
-fn wca(a: &Arc<i32>) -> i32 { unsafe { let q: *mut Arc<i32> = a as *const Arc<i32> as *mut Arc<i32>; return q.weak_count(); } }
+fn wca(a: &Arc<i32>) -> i32 { unsafe { let q: *mut Arc<i32> = a as *const Arc<i32> as *mut Arc<i32>; return q.weak_count() as i32; } }
 fn main() -> i32 {
     let a: Arc<i32> = arc_new::<i32>(20);
     let mut c0: i32 = 0i32;

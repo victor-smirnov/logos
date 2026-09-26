@@ -1,0 +1,35 @@
+// Vec had no `extend` (only extend_from_slice) and no `get_mut` (only try_borrow_mut);
+// `[T]::to_vec` did not exist. extend takes any IntoIterator of T (a Vec, a heap);
+// the moved-in Vec's buffer is freed once. An unsuffixed `&[7, 8]` method argument is
+// built at the formal's element width (it was an i32 array read at i64 stride).
+// Checked under valgrind. rustc twin: 0.
+package vec_extend_get_mut_to_vec;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut v = vec![1, 2];
+    let w = vec![3, 4];
+    v.extend(w);
+    if v.len() != 4 || v[3] != 4 { return 1; }
+    if let Some(x) = v.get_mut(0) { *x = 99; }
+    if v[0] != 99 { return 2; }
+    match v.get_mut(10) { Option::Some(_) => { return 3; } Option::None => {} }
+    let arr: [i64; 3] = [1, 2, 3];
+    let tv: Vec<i64> = arr.to_vec();
+    if tv.len() != 3 || tv[2] != 3 { return 4; }
+    let mut ss: Vec<String> = Vec::new();
+    let mut more: Vec<String> = Vec::new();
+    more.push(String::from("a"));
+    more.push(String::from("b"));
+    ss.extend(more);
+    let c: Vec<String> = ss.as_slice().to_vec();
+    if c.len() != 2 || c[1].len() != 1 { return 5; }
+    v.extend(vec![5, 6]);
+    if v.len() != 6 || v[5] != 6 { return 6; }
+    v.extend_from_slice(&[7, 8]);
+    if v.len() != 8 || v[7] != 8 { return 7; }
+    let mut w64: Vec<i64> = Vec::new();
+    w64.extend_from_slice(&[5, 6]);
+    if w64[1] != 6 { return 8; }
+    return 0;
+}

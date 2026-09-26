@@ -342,6 +342,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 assoc_impls_[impl_trait + targ_sfx + "::" + impl_target + "::" + aname] = atype;
                 if (!targ_sfx.empty())
                     assoc_impls_.emplace(impl_trait + "::" + impl_target + "::" + aname, atype);
+                if (TypeRef pat = impl.target_typeref(impl_pool);
+                    pat && (TypeRef(pat).kind() == LogosType::Kind::Struct ||
+                            TypeRef(pat).kind() == LogosType::Kind::ZonedStruct) &&
+                    !TypeRef(pat).type_args().empty())
+                    generic_assoc_impls_[impl_trait + "::" + std::string(TypeRef(pat).struct_name()) +
+                                         "::" + aname].push_back({pat, trait_args, atype});
             });
             // ⚠ assoc_impls_ is keyed by the BARE `impl_trait` in BOTH inserts
             // above — it never consults impl.canonical_trait(), so two traits

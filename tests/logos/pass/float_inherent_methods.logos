@@ -1,0 +1,28 @@
+// f32/f64 had no methods (`x.sqrt()` was "receiver is not a struct"), and a primitive
+// receiver's method refused an unsuffixed literal argument (`x.max(2.0)`, `x.powi(3)`,
+// even the existing `i.max(7)`). Rust's float method surface, forwarded to libm.
+// rustc twin: 0.
+package float_inherent_methods;
+fn main() -> i32 {
+    let x: f64 = 2.0;
+    let r: f64 = x.sqrt();
+    if r * r < 1.9999 || r * r > 2.0001 { return 1; }
+    if (2.5f64).floor() != 2.0 || (2.5f64).ceil() != 3.0 || (2.5f64).round() != 3.0 { return 2; }
+    if (-2.5f64).abs() != 2.5 || (-2.7f64).trunc() != -2.0 { return 3; }
+    if (3.0f64).powi(3) != 27.0 || (4.0f64).powf(0.5) != 2.0 { return 4; }
+    if (1.0f64).max(2.0) != 2.0 || (1.0f64).min(2.0) != 1.0 { return 5; }
+    let z: f32 = 9.0;
+    if z.sqrt() != 3.0 || z.max(10.0) != 10.0 { return 6; }
+    let (s, c) = (0.0f64).sin_cos();
+    if s != 0.0 || c != 1.0 { return 7; }
+    if (7.0f64).rem_euclid(-3.0) != 1.0 || (-7.0f64).rem_euclid(3.0) != 2.0 { return 8; }
+    if (-7.0f64).div_euclid(2.0) != -4.0 { return 9; }
+    if (2.0f64).clamp(0.0, 1.0) != 1.0 { return 10; }
+    if (-0.0f64).signum() != -1.0 || !(-0.0f64).is_sign_negative() { return 11; }
+    if (1.0f64).exp().ln() != 1.0 || (8.0f64).log2() != 3.0 || (100.0f64).log10() != 2.0 { return 12; }
+    if (3.0f64).hypot(4.0) != 5.0 || (2.0f64).mul_add(3.0, 1.0) != 7.0 { return 13; }
+    if (180.0f64).to_radians() != 3.141592653589793 { return 14; }
+    let i: i64 = 5;
+    if i.max(7) != 7 { return 15; }
+    return 0;
+}

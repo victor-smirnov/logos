@@ -1,0 +1,16 @@
+// `mem::size_of::<T>()` did not exist ("call to undefined function 'size_of'"); only the
+// Logos builtin `sizeof`. Rust's size_of / size_of_val / align_of_val in logos.lang.mem.
+// rustc twin: 0.
+package mem_size_of_align_of;
+use logos.lang.mem;
+struct P { a: i64, b: i8 }
+fn main() -> i32 {
+    if size_of::<i64>() != 8 { return 1; }
+    if size_of::<u8>() != 1 { return 2; }
+    if size_of::<P>() != 16 { return 3; }
+    if size_of::<[i32; 5]>() != 20 { return 4; }
+    let p = P { a: 1, b: 2 };
+    if size_of_val(&p) != 16 { return 5; }
+    if align_of_val(&p) != 8 || align_of::<i32>() != 4 { return 6; }
+    return 0;
+}

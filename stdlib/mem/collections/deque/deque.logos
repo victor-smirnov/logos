@@ -13,6 +13,8 @@ package logos.mem.collections.deque;
 
 use logos.lang.mem;
 use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.default;
 
 /// Double-ended queue backed by a power-of-two-capacity ring buffer.
 pub struct VecDeque<T> {
@@ -123,3 +125,42 @@ impl<T> Drop for VecDeque<T> {
         }
     }
 }
+
+impl<T> VecDeque<T> {
+    /// Creates an empty deque (Rust's `VecDeque::new`).
+    pub fn new() -> VecDeque<T> { return vecdeque_new::<T>(); }
+}
+
+/// Owning iterator over a `VecDeque` (`for x in deque`), front to back; the
+/// un-yielded elements drop with it.
+pub struct VecDequeIntoIter<T> {
+    dq: VecDeque<T>,
+}
+
+impl<T> Iterator<T> for VecDequeIntoIter<T> {
+    fn next(self: &mut VecDequeIntoIter<T>) -> Option<T> {
+        unsafe {
+            let p: *mut VecDeque<T> = &mut self.dq as *mut VecDeque<T>;
+            return p.pop_front();
+        }
+    }
+}
+
+impl<T> DoubleEndedIterator<T> for VecDequeIntoIter<T> {
+    fn next_back(self: &mut VecDequeIntoIter<T>) -> Option<T> {
+        unsafe {
+            let p: *mut VecDeque<T> = &mut self.dq as *mut VecDeque<T>;
+            return p.pop_back();
+        }
+    }
+}
+
+impl<T> IntoIterator<T> for VecDeque<T> {
+    type Iter = VecDequeIntoIter<T>;
+    fn into_iter(self: VecDeque<T>) -> VecDequeIntoIter<T> { return VecDequeIntoIter { dq: self }; }
+}
+
+impl<T> Default for VecDeque<T> {
+    fn default() -> VecDeque<T> { return vecdeque_new::<T>(); }
+}
+

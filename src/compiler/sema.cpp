@@ -6050,7 +6050,15 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
             if (item.has_key(la::NAME))
                 tb.lifetime_args.push_back(std::string(str_of(item.get(la::NAME.code))));
         } else {
+            // An argument of a `T: ?Sized` trait parameter (`S: AsRef<str>`,
+            // `V: AsRef<[i64]>`) is an unsized position, as in Rust.
+            bool was_ok = unsized_ok_;
+            if (auto* tq = find_trait_iter_scoped(tb.trait_name);
+                tq && tb.type_args.size() < tq->type_params.size() &&
+                !tq->type_params[tb.type_args.size()].implicit_sized)
+                unsized_ok_ = true;
             tb.type_args.push_back(resolve_type(item));
+            unsized_ok_ = was_ok;
         }
     }
 }
@@ -7863,7 +7871,20 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                 // the signature being checked, in the same type-parameter
                 // namespace the rest of current_type_bounds_ uses — not an
                 // entity name. See normalize_assoc_eq for the scoping ground.
-                current_type_bounds_[type_str(result)] = at.bounds;
+                // The bound is written in the TRAIT's namespace (`type Iter:
+                // Iterator<Item>`): bind the trait's parameters to this
+                // projection's trait arguments (`I: IntoIterator<T>` → Item := T).
+                std::vector<TraitBound> bs = at.bounds;
+                if (!trait_args_for_assoc.empty()) {
+                    SemaSubst ts;
+                    for (size_t i = 0; i < tit->type_params.size() && i < trait_args_for_assoc.size(); ++i)
+                        if (trait_args_for_assoc[i]) ts[tit->type_params[i].name] = trait_args_for_assoc[i];
+                    if (!ts.empty())
+                        for (auto& b : bs)
+                            for (auto& ta : b.type_args)
+                                if (ta) ta = subst_type_sema(ta, ts);
+                }
+                current_type_bounds_[type_str(result)] = std::move(bs);
                 break;
             }
         }
