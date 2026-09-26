@@ -189,6 +189,13 @@ void SemaChecker::check_written_type_wf(TypeRef t, const std::string& ctx,
                 for (auto& b : it->second)
                     if (wf_lt_usable(b) && outlives(outlives_norm(b), outlives_norm(under), adj,
                                                     /*permissive_empty=*/false)) { ok = true; break; }
+            // An impl header's implied bound (set while its trait defaults are
+            // synthesised): `impl<'a, T> Tr<&'a T> for …` proves `T: 'a`.
+            if (!ok)
+                if (auto jt = implied_type_lt_outlives_.find(tv); jt != implied_type_lt_outlives_.end())
+                    for (auto& b : jt->second)
+                        if (wf_lt_usable(b) && outlives(outlives_norm(b), outlives_norm(under), adj,
+                                                        /*permissive_empty=*/false)) { ok = true; break; }
             if (!ok)
                 error(std::format("{}: the parameter type `{}` may not live long enough — "
                                   "`{}` requires `{}: {}`",
@@ -3540,7 +3547,34 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     namespace dk = lir_schema::decl_keys;
                     std::vector<TypeParam> type_params;
                     shadow_scope_ = &tit->lifetime_params;
+                    // Implied bounds of the impl header (Rust: a type written
+                    // in the header is well-formed there). `impl<'a, T>
+                    // Iterator<&'a T> for SliceIter<'a, T>` implies `T: 'a`, and
+                    // the default's body may name `Item` in a turbofish.
+                    implied_type_lt_outlives_.clear();
+                    {
+                        std::function<void(TypeRef, const std::string&)> walk_implied =
+                            [&](TypeRef t, const std::string& under) {
+                            if (!t) return;
+                            auto k = t.kind();
+                            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
+                                std::string lt(t.lifetime());
+                                walk_implied(t.pointee(), (lt.empty() || lt == "'_") ? under : lt);
+                                return;
+                            }
+                            if (k == LogosType::Kind::TypeVar) {
+                                if (!under.empty())
+                                    implied_type_lt_outlives_[std::string(t.type_var_name())].push_back(under);
+                                return;
+                            }
+                            for (auto a : t.type_args())   walk_implied(a, under);
+                            for (auto e : t.tuple_elems()) walk_implied(e, under);
+                            if (t.elem()) walk_implied(t.elem(), under);
+                        };
+                        for (auto ta : impl_trait_args) walk_implied(ta, "");
+                    }
                     auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
+                    implied_type_lt_outlives_.clear();
                     shadow_scope_ = nullptr;
                     holder_ = saved_holder;
                     fn.flag(dk::IS_PUB, true);  // default trait method inherits trait visibility

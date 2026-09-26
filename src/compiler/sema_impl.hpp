@@ -7183,6 +7183,9 @@ private:
     // bare-TypeVar type argument — which is the CALLER's to discharge — had no
     // caller env to consult. Read by check_type_bounds' caller-env arm.
     logos::compiler::StrMap<std::vector<std::string>> current_type_lt_outlives_;
+    // Implied `T: 'a` bounds of the impl header whose trait defaults are being
+    // synthesised; not shadowed by push/pop_type_params.
+    logos::compiler::StrMap<std::vector<std::string>> implied_type_lt_outlives_;
 
     // ── THE IMPLIED TYPE-OUTLIVES BOUND: `x: &'a T` MEANS `T: 'a` ───────
     // Rust does not make a caller write `where T: 'a` when its own signature
