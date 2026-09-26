@@ -1,0 +1,7 @@
+// Index bounds (Rust panics; Logos traps per A13/A7): a write through &mut [T] past its len.
+package index_oob_slice_write_traps;
+struct S { a: [i64; 3] }
+fn at(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1, 2, 3]; let s: &mut [i64] = &mut a; s[at(1)] = 5; s[at(5)] = 1; return 0;
+}

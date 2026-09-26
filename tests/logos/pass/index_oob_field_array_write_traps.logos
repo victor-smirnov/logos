@@ -1,0 +1,7 @@
+// Index bounds (Rust panics; Logos traps per A13/A7): a write into an array field past its length.
+package index_oob_field_array_write_traps;
+struct S { a: [i64; 3] }
+fn at(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let mut s = S { a: [1, 2, 3] }; s.a[at(2)] = 5; s.a[at(3)] = 5; return 0;
+}

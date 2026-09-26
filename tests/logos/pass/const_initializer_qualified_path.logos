@@ -1,0 +1,11 @@
+// A const initialized by `Type::X` — a unit enum variant or an associated const — is a value, not a call (rustc: exit 0).
+package const_initializer_qualified_path;
+enum Level { Low, Mid, High }
+struct Cfg { }
+impl Cfg { const N: i32 = 7; }
+const DEFAULT: Level = Level::Mid;
+const M: i32 = Cfg::N * 2i32;
+fn main() -> i32 {
+    let l = match DEFAULT { Level::Mid => 0i32, _ => 1i32 };
+    return l + M - 14i32;
+}

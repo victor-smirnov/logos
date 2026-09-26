@@ -1,0 +1,7 @@
+// Index bounds (Rust panics; Logos traps per A13/A7): a read through &[T] past its len.
+package index_oob_slice_read_traps;
+struct S { a: [i64; 3] }
+fn at(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let a: [i64; 3] = [1, 2, 3]; let s: &[i64] = &a; return s[at(3)] as i32;
+}

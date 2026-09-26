@@ -1591,6 +1591,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         auto slice = gen_expr(sv.slice());
         auto index = gen_expr(sv.index());
         if (!slice || !index) return nullptr;
+        index_bounds_check(index, index_ty, slice_len_of_pair(slice));
         TypeRef elem_tr = e.type(pool_impl());
         auto stype = slice_llvm_type();
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
@@ -1650,7 +1651,9 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         mlir::Type stride;
         auto rk = recv_t ? TypeRef(recv_t).kind() : LogosType::Kind::Error;
         // Slice receiver: `base` is the fat {ptr,len} descriptor — load data ptr.
-        if (rk == LogosType::Kind::Slice) {
+        mlir::Value blen;
+        if (rk == LogosType::Kind::Slice || rk == LogosType::Kind::UnsizedSlice) {
+            if (!TypeRef(recv_t).raw_fat()) blen = slice_len_of_pair(base);
             stride = place_slot_type(elem_t);
             auto stype = slice_llvm_type();
             llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
@@ -1658,6 +1661,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
             base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
         } else if (rk == LogosType::Kind::Array) {
             // base is the array storage; stride is the element slot.
+            blen = array_len_of_type(recv_t);
             stride = place_slot_type(elem_t);
         } else if (recv.kind() == ec::Code::VarRef &&
                    (rk == LogosType::Kind::Ptr || rk == LogosType::Kind::MutRef ||
@@ -1697,6 +1701,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         auto idx = gen_expr(irv.index());
         if (!idx) return nullptr;
         TypeRef it = irv.index().type(pool_impl());
+        index_bounds_check(idx, it, blen);
         bool uns = it && LogosType::is_unsigned_repr_kind(it.kind());
         if (uns && idx.getType() != builder_.getI64Type())
             idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
@@ -3807,6 +3812,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
 
     auto idx = gen_expr(idx_ref);
     if (!idx || !arr_ptr) return nullptr;
+    // Bounds: a static array length, or a slice local's {ptr, len} pair.
+    {
+        mlir::Value blen = array_len_of_type(recv_t);
+        if (!blen && recv_t && recv_t.kind() == LogosType::Kind::Slice && !recv_t.raw_fat() &&
+            recv_ref.kind() == ec::Code::VarRef) {
+            std::string bn(lir_view::EVarRefView{recv_ref}.name());
+            if (var_slice_.count(bn))
+                if (auto sc = scope_.find(bn); sc != scope_.end()) blen = slice_len_of_pair(sc->second);
+        }
+        index_bounds_check(idx, idx_t, blen);
+    }
     bool idx_unsigned = idx_t && LogosType::is_unsigned_repr_kind(idx_t.kind());
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
@@ -6406,6 +6422,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
     auto slice = gen_expr(v.slice());
     auto index = gen_expr(v.index());
     if (!slice || !index) return nullptr;
+    index_bounds_check(index, index_ty, slice_len_of_pair(slice));
     auto stype = slice_llvm_type();
     // Load ptr from field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};

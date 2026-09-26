@@ -1,0 +1,6 @@
+// `Type::f(..)` in a const initializer is a static CALL and stays refused (it would inline at every read).
+package const_initializer_static_call_refused;
+struct Cfg { }
+impl Cfg { fn f(x: i32) -> i32 { return x; } }
+const X: i32 = Cfg::f(1i32);
+fn main() -> i32 { return X; }

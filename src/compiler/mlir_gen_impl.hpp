@@ -2142,6 +2142,14 @@ private:
     // sema's has_droppable_fields; gates gen_drop_value recursion to avoid empty
     // GEP/loop emission for non-droppable members.
     bool value_needs_drop(TypeRef ty);
+    // Index bounds (Rust's panic on `a[i]` out of range; A13/A7: a trap).
+    // `len` is i64; the index is widened by its signedness, compared unsigned,
+    // so a negative index traps too. The len sources: a static array type
+    // (behind & too), a slice's {ptr, len} pair, an array alloca's LLVM type.
+    void index_bounds_check(mlir::Value idx, TypeRef idx_t, mlir::Value len);
+    mlir::Value array_len_of_type(TypeRef t);
+    mlir::Value slice_len_of_pair(mlir::Value pair_ptr);
+    mlir::Value array_len_of_alloca(mlir::Value base);
     // #123 — `#[no_auto_drop]` on the struct behind `ty` (see mlir_gen_stmt.cpp).
     bool type_is_no_auto_drop(TypeRef ty);
     void gen_stmt_kind(lir_view::SDerefWriteView v);

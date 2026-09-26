@@ -2980,6 +2980,12 @@ void SemaChecker::collect_const(TinyMapView node) {
                 // yet supported" diagnostic. Returning true here doesn't
                 // accept them — it just lets the more-specific message win.
                 if (vc == la::ARR_LIT || vc == la::TUPLE_LIT) return true;
+                // `Type::X` with no call parens — a unit enum variant or an
+                // associated const: a VALUE, never a call, so nothing inlines
+                // at the read site (`const D: Level = Level::Mid;`,
+                // `const M: i32 = Cfg::N * 2;`). `Type::f(..)` stays refused:
+                // its shape is a static call until the variant is known.
+                if (vc == la::ENUM_LIT) return true;
                 // Struct / union literal: accept if every field-init's value
                 // is itself const-evaluable. §6.1 lets `const X: U = U { a: 1 };`
                 // and `static S: U = U { a: 1 };` round-trip through the

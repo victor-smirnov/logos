@@ -720,6 +720,60 @@ bool MLIRGenImpl::type_is_no_auto_drop(TypeRef ty) {
     return it != all_struct_defs_.end() && it->second.no_auto_drop();
 }
 
+void MLIRGenImpl::index_bounds_check(mlir::Value idx, TypeRef idx_t, mlir::Value len) {
+    if (!idx || !len) return;
+    auto it = mlir::dyn_cast<mlir::IntegerType>(idx.getType());
+    if (!it) return;
+    auto i64 = builder_.getI64Type();
+    mlir::Value i = idx;
+    if (it.getWidth() < 64) {
+        bool uns = idx_t && LogosType::is_unsigned_repr_kind(TypeRef(idx_t).kind());
+        i = uns ? (mlir::Value)builder_.create<mlir::arith::ExtUIOp>(loc_, i64, idx)
+                : (mlir::Value)builder_.create<mlir::arith::ExtSIOp>(loc_, i64, idx);
+    } else if (it.getWidth() > 64) {
+        i = builder_.create<mlir::arith::TruncIOp>(loc_, i64, idx);
+    }
+    auto oob = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::uge, i, len);
+    auto* parent_region = builder_.getInsertionBlock()->getParent();
+    auto* trap_block = new mlir::Block();
+    auto* cont_block = new mlir::Block();
+    parent_region->getBlocks().push_back(trap_block);
+    parent_region->getBlocks().push_back(cont_block);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, oob, trap_block, cont_block);
+    builder_.setInsertionPointToStart(trap_block);
+    builder_.create<mlir::LLVM::Trap>(loc_);
+    builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+    builder_.setInsertionPointToStart(cont_block);
+}
+
+mlir::Value MLIRGenImpl::array_len_of_type(TypeRef t) {
+    if (!t) return nullptr;
+    TypeRef a(t);
+    if ((a.kind() == LogosType::Kind::Ref || a.kind() == LogosType::Kind::MutRef) && a.pointee())
+        a = a.pointee();
+    // A length of 0 is also the intrinsics' "retyped by mono" placeholder
+    // (field_types_of / args_of build `[Type; 0]` and the local keeps it), so
+    // it states no bound.
+    if (a.kind() != LogosType::Kind::Array || !a.arr_size_var().empty() || a.arr_size() == 0) return nullptr;
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)a.arr_size(), 64);
+}
+
+mlir::Value MLIRGenImpl::slice_len_of_pair(mlir::Value pair_ptr) {
+    if (!pair_ptr || !mlir::isa<mlir::LLVM::LLVMPointerType>(pair_ptr.getType())) return nullptr;
+    llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), slice_llvm_type(), pair_ptr, li);
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+}
+
+mlir::Value MLIRGenImpl::array_len_of_alloca(mlir::Value base) {
+    if (!base) return nullptr;
+    auto al = base.getDefiningOp<mlir::LLVM::AllocaOp>();
+    if (!al) return nullptr;
+    auto at = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(al.getElemType());
+    if (!at || at.getNumElements() == 0) return nullptr;
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)at.getNumElements(), 64);
+}
+
 bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     using K = LogosType::Kind;
     if (!ty) return false;
@@ -4121,6 +4175,16 @@ void MLIRGenImpl::gen_index_write(lir_view::SIndexWriteView v) {
     auto idx = gen_expr(v.index());
     auto val = gen_expr(v.value());
     if (!idx || !val) return;
+    // Bounds: a slice's {ptr, len} pair, or the array slot's LLVM array type.
+    {
+        mlir::Value blen;
+        if (slit != var_slice_.end()) blen = slice_len_of_pair(it->second);
+        else if (lpit == var_local_ptrs_.end()) blen = array_len_of_alloca(base_ptr);
+        else if (auto al = it->second.getDefiningOp<mlir::LLVM::AllocaOp>();
+                 al && al.getElemType() == slice_llvm_type())
+            blen = slice_len_of_pair(it->second);   // a slice LOCAL: its slot is the {ptr, len} pair
+        index_bounds_check(idx, idx_ty, blen);
+    }
     val = coerce_int(val, elem_type);
 
     // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
@@ -4215,6 +4279,10 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
     auto val = gen_expr(v.value());
     if (!idx || !val) return;
     val = coerce_int(val, val_type);
+    // Bounds: an inline array field's LLVM length.
+    if (is_array_field)
+        index_bounds_check(idx, idx_ty, builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, (int64_t)mlir::cast<mlir::LLVM::LLVMArrayType>(field_mlir_type).getNumElements(), 64));
 
     // Zero-extend unsigned index types; coerce_int sign-extends, which is wrong for u8/u16/u32/u64.
     bool idx_unsigned = idx_ty &&

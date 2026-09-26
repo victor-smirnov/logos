@@ -1,0 +1,7 @@
+// Index bounds (Rust panics; Logos traps per A13/A7): a runtime index past a [T; N] read.
+package index_oob_array_read_traps;
+struct S { a: [i64; 3] }
+fn at(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let a: [i64; 3] = [1, 2, 3]; let ok = a[at(2)]; if ok != 3 { return 1; } return a[at(3)] as i32;
+}
