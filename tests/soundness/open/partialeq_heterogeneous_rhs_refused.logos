@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row partialeq_heterogeneous_rhs_refused (tier 3, `refuses`). Found 2026-09-26 by the discovery battery.
+// `impl PartialEq<i32> for V` is refused ("parameter 1 is declared '&V' and the impl declares '&i32'"): std's `PartialEq`
+// has no `Rhs` type parameter (Rust: `trait PartialEq<Rhs: ?Sized = Self>`), and `PartialOrd` is an empty marker. Same
+// shape as the ops traits (no `Add<Rhs>{type Output}`): a trait default type argument plus the operator dispatch keyed on
+// it — a design arc, not a site fix. rustc: exit 0.
+package partialeq_heterogeneous_rhs_refused;
+use logos.lang.cmp;
+struct V { x: i32 }
+impl PartialEq<i32> for V {
+    fn eq(&self, other: &i32) -> bool { return self.x == *other; }
+}
+fn main() -> i32 {
+    let a = V { x: 5 };
+    if a == 5 { return 0; }
+    return 1;
+}

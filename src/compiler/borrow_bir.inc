@@ -198,7 +198,7 @@ struct Body {
 // them. A struct or enum like that with no declared lifetime parameter still
 // needs one origin, or the loan it carries is lost at the first copy.
 static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
-                                   int depth = 0);
+                                   int depth = 0, std::unordered_set<const uint8_t*>* seen = nullptr);
 
 // A struct's fields, read from its definition (the instance, else the base).
 static std::optional<std::vector<TypeRef>> bir_struct_fields(TypeRef t, const lir::LProgram& prog,
@@ -278,8 +278,18 @@ bir_enum_named_payloads(TypeRef t, const lir::LProgram& prog, const TypeSets& ts
 }
 
 static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
-                                   int depth) {
+                                   int depth, std::unordered_set<const uint8_t*>* seen) {
     if (!t || depth > 16) return false;
+    // A struct or enum is explored ONCE per query: the question is "does SOME
+    // path reach a loan", so a revisit adds nothing — and without the set a
+    // recursive type (`Node { parent: RefCell<Option<Weak<Node>>>, children:
+    // RefCell<Vec<Rc<Node>>> }`) re-expands every branch down to the depth
+    // cap, exponentially (a 3-field tree hung the compiler for minutes).
+    std::unordered_set<const uint8_t*> own_seen;
+    if (!seen) seen = &own_seen;
+    if ((t.kind() == LogosType::Kind::Struct || t.kind() == LogosType::Kind::Enum) &&
+        !seen->insert(t.addr()).second)
+        return false;
     switch (t.kind()) {
         case LogosType::Kind::Ref: case LogosType::Kind::MutRef: case LogosType::Kind::Closure:
             return true;
@@ -295,23 +305,23 @@ static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const T
                 pk == LogosType::Kind::Slice || pk == LogosType::Kind::UnsizedSlice ||
                 pk == LogosType::Kind::DstRef)
                 return false;
-            return bir_type_carries_loans(pt, prog, ts, depth + 1);
+            return bir_type_carries_loans(pt, prog, ts, depth + 1, seen);
         }
         case LogosType::Kind::Slice:
             if (t.raw_fat()) return false;
-            return !t.owning_slice() || bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
+            return !t.owning_slice() || bir_type_carries_loans(t.elem(), prog, ts, depth + 1, seen);
         case LogosType::Kind::TraitObject: return !t.raw_fat();
         case LogosType::Kind::DstRef: return !t.owning_dst() && !t.raw_fat();
-        case LogosType::Kind::Array: return bir_type_carries_loans(t.elem(), prog, ts, depth + 1);
+        case LogosType::Kind::Array: return bir_type_carries_loans(t.elem(), prog, ts, depth + 1, seen);
         case LogosType::Kind::Tuple:
-            for (auto& e : t.tuple_elems()) if (bir_type_carries_loans(e, prog, ts, depth + 1)) return true;
+            for (auto& e : t.tuple_elems()) if (bir_type_carries_loans(e, prog, ts, depth + 1, seen)) return true;
             return false;
         case LogosType::Kind::Struct: {
             if (!t.lifetime_args().empty()) return true;
             if (bc_loan_carrying_type(ts, t)) return true;   // #[borrow_carrying]
-            for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1)) return true;
+            for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1, seen)) return true;
             if (auto fields = bir_struct_fields(t, prog, ts)) {
-                for (auto& ft : *fields) if (bir_type_carries_loans(ft, prog, ts, depth + 1)) return true;
+                for (auto& ft : *fields) if (bir_type_carries_loans(ft, prog, ts, depth + 1, seen)) return true;
                 return false;
             }
             return bc_holds_any_ref_type(ts, t);   // no definition: the name-keyed set
@@ -328,7 +338,7 @@ static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const T
             // arena was loan-free to the new checker, and four escapes rode out
             // of their functions unrefused.
             if (bc_loan_carrying_type(ts, t)) return true;   // #[borrow_carrying]
-            for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1)) return true;
+            for (auto& a : t.type_args()) if (bir_type_carries_loans(a, prog, ts, depth + 1, seen)) return true;
             auto eit = ts.enum_by_name.end();
             if (!t.type_args().empty()) eit = ts.enum_by_name.find(Mono::enum_instance_name(t));
             if (eit == ts.enum_by_name.end()) eit = ts.enum_by_name.find(std::string(t.enum_name()));
@@ -336,7 +346,7 @@ static bool bir_type_carries_loans(TypeRef t, const lir::LProgram& prog, const T
             bool carries = false;
             eit->second.each_variant([&](lir_view::EnumVariantView v) {
                 v.each_payload_type(prog.type_pool.impl(), [&](TypeRef pt) {
-                    if (!carries && bir_type_carries_loans(pt, prog, ts, depth + 1)) carries = true;
+                    if (!carries && bir_type_carries_loans(pt, prog, ts, depth + 1, seen)) carries = true;
                 });
             });
             return carries;

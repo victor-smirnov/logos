@@ -1,0 +1,19 @@
+// An unsuffixed literal on the rhs of an overloaded operator takes the type of the one impl's rhs parameter
+// (`impl Mul<f64> for P` makes `p * 2.5` an f64, `impl Add<i32> for P` makes `p + 3` an i32). rustc twin: 11.
+package operator_unsuffixed_literal_rhs;
+use logos.lang.ops;
+struct P { x: i64 }
+struct Q { x: i64 }
+impl Mul<f64> for P {
+    type Output = i64;
+    fn mul(self: P, k: f64) -> i64 { return (self.x as f64 * k) as i64; }
+}
+impl Add<i32> for Q {
+    type Output = i64;
+    fn add(self: Q, k: i32) -> i64 { return self.x + (k as i64); }
+}
+fn main() -> i32 {
+    let p = P { x: 2i64 };
+    let q = Q { x: 3i64 };
+    return (p * 2.5 + (q + 3)) as i32;
+}

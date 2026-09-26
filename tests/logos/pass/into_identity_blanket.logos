@@ -1,0 +1,12 @@
+// Every type converts to itself: std's `impl<T> From<T> for T` makes `w.into()` / `Wrapper::from(w)` at the identity
+// type compile without a user impl, beside the concrete numeric `From` impls. rustc twin: 42.
+package into_identity_blanket;
+use logos.lang.convert;
+struct Wrapper { value: i32 }
+fn main() -> i32 {
+    let w = Wrapper { value: 40 };
+    let w2: Wrapper = w.into();
+    let w3 = Wrapper::from(w2);
+    let n: i16 = i16::from(2i8);
+    return w3.value + (n as i32);
+}

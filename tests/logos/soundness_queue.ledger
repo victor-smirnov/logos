@@ -189,5 +189,9 @@ str_slice_char_boundary_unchecked 2 tests/soundness/open/str_slice_char_boundary
 
 str_parse_method_refused 3 tests/soundness/open/str_parse_method_refused refuses
 
-# TOTAL 7
-# SYNC-HASH 05a52011c184174b442c8d77ce3414a5
+ord_default_minmax_over_ref_self_refused 3 tests/soundness/open/ord_default_minmax_over_ref_self_refused refuses
+
+partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneous_rhs_refused refuses
+
+# TOTAL 9
+# SYNC-HASH 4ee6257a96f7b1474b5b34e64edd0661

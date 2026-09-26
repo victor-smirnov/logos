@@ -3026,6 +3026,49 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     const bool struct_ref_pair = ref_pair_to(LogosType::Kind::Struct);
     const TypeRef lt_sv = struct_ref_pair ? TypeRef(lt).pointee() : TypeRef(lt);
     const TypeRef rt_sv = struct_ref_pair ? TypeRef(rt).pointee() : TypeRef(rt);
+    // `impl Add for &V` / `impl Add<V> for &V` / `impl Ord for &V`: an operator
+    // impl keyed on the REFERENCE type (`$ref_V__add`), taking the operands
+    // as they are — tried first when the left operand is a reference to a
+    // struct, for every operator.
+    if (is_ref_t(lt) && TypeRef(lt).pointee() &&
+        (TypeRef(lt).pointee().kind() == LogosType::Kind::Struct ||
+         TypeRef(lt).pointee().kind() == LogosType::Kind::ZonedStruct)) {
+        static const std::pair<const char*, const char*> kOpMethod[] = {
+            {"+", "add"}, {"-", "sub"}, {"*", "mul"}, {"/", "div"}, {"%", "rem"},
+            {"&", "bitand"}, {"|", "bitor"}, {"^", "bitxor"}, {"<<", "shl"}, {">>", "shr"},
+            {"==", "eq"}, {"!=", "ne"}, {"<", "lt"}, {"<=", "le"}, {">", "gt"}, {">=", "ge"}};
+        for (auto& [o, m] : kOpMethod) {
+            if (op != o) continue;
+            std::string rmangled = std::string(TypeRef(lt).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") +
+                                   concrete_struct_name(TypeRef(lt).pointee()) + "__" + m;
+            if (auto rf = find_func_by_base_and_signature(rmangled, {lt, rt}, false)) {
+                std::vector<lir::LExprPtr> args;
+                args.push_back(std::move(lhs));
+                if (rt && is_move_type(rt) && !is_ref_t(rt)) mark_moved_expr(expr_ref_of(rhs));
+                args.push_back(std::move(rhs));
+                return builder().call(rf->symbol_name.empty() ? rmangled : rf->symbol_name, {}, std::move(args), rf->ret_type);
+            }
+            // `<` `<=` `>` `>=` over an `impl Ord for &V` with `cmp` alone.
+            const bool rel = op == "<" || op == "<=" || op == ">" || op == ">=";
+            if (rel) {
+                std::string cm = std::string(TypeRef(lt).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") +
+                                 concrete_struct_name(TypeRef(lt).pointee()) + "__cmp";
+                auto cf = find_func_by_base_and_signature(cm, {make_ref(false, lt), make_ref(false, rt)}, false);
+                if (cf && cf->ret_type && TypeRef(cf->ret_type).kind() == LogosType::Kind::Enum) {
+                    std::string is_m = std::string(TypeRef(cf->ret_type).enum_name()) + "__" +
+                                       (op == "<" ? "is_lt" : op == "<=" ? "is_le" : op == ">" ? "is_gt" : "is_ge");
+                    if (auto isf = find_func_by_base_and_signature(is_m, {cf->ret_type}, false)) {
+                        std::vector<lir::LExprPtr> cargs;
+                        cargs.push_back(autoref_operand(std::move(lhs), false, make_ref(false, lt), BorrowOrigin::OperatorAutoref));
+                        cargs.push_back(autoref_operand(std::move(rhs), false, make_ref(false, rt), BorrowOrigin::OperatorAutoref));
+                        auto c = builder().call(cf->symbol_name.empty() ? cm : cf->symbol_name, {}, std::move(cargs), cf->ret_type);
+                        std::vector<lir::LExprPtr> iargs; iargs.push_back(std::move(c));
+                        return builder().call(isf->symbol_name.empty() ? is_m : isf->symbol_name, {}, std::move(iargs), bool_t());
+                    }
+                }
+            }
+        }
+    }
     if (TypeRef(lt_sv).kind() == LogosType::Kind::Struct) {
         // Map operator to trait name and method
         std::string trait_name, method_name;
@@ -3057,9 +3100,30 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                        is_ref_like(TypeRef(f->param_types[0]).kind()) && f->param_types[1] &&
                        is_ref_like(TypeRef(f->param_types[1]).kind());
             };
+            // An unsuffixed literal right operand (`v * 2.5`, `v * 2`) takes the
+            // type of the one impl whose Rhs is a float (resp. integer) — the
+            // literal's type is inferred from the impl, as in Rust.
+            if (!struct_ref_pair && rt &&
+                (TypeRef(rt).kind() == LogosType::Kind::IntLit || TypeRef(rt).kind() == LogosType::Kind::FloatLit)) {
+                const bool fl = TypeRef(rt).kind() == LogosType::Kind::FloatLit;
+                TypeRef pick = nullptr; int n = 0;
+                for (auto* c : find_func_candidates(mangled)) {
+                    if (!c || c->param_types.size() != 2 || !c->param_types[1]) continue;
+                    auto k = TypeRef(c->param_types[1]).kind();
+                    bool ok = fl ? (k == LogosType::Kind::F64 || k == LogosType::Kind::F32)
+                                 : is_integer_kind(k) && k != LogosType::Kind::IntLit;
+                    if (ok && (!pick || !types_equal(pick, c->param_types[1]))) { pick = c->param_types[1]; ++n; }
+                }
+                if (n == 1) {
+                    if (fl) builder().retype_expr(rhs, pick);
+                    else widen_int_expr(rhs, pick, builder());
+                    rt = pick;
+                }
+            }
             auto fit = struct_ref_pair
                 ? find_func_by_base_and_signature(mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
                 : find_func_by_base_and_signature(mangled, {lt, rt}, false);
+
             // Rust-shape operator impls take their operands by reference
             // (`fn eq(&self, &other)`). The by-value signature above won't
             // match those, so retry with `&lt`/`&rt` (mirrors the tuple-Eq
@@ -3110,6 +3174,19 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                         ? find_func_by_base_and_signature(pc_mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
                         : find_func_by_base_and_signature(pc_mangled, {lt, rt}, false);
                 if (struct_ref_pair && !takes_refs(pcfit)) pcfit = nullptr;
+                // An `Ord` with `cmp` alone orders too — `a < b` is
+                // `a.cmp(&b).is_lt()` (Rust's PartialOrd for an Ord type
+                // delegates to cmp); cmp returns the Ordering the arm below reads.
+                if (!pcfit) {
+                    std::string cmp_mangled = type_name + "__cmp";
+                    pcfit = struct_ref_pair
+                        ? find_func_by_base_and_signature(cmp_mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
+                        : find_func_by_base_and_signature(cmp_mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
+                    if (!pcfit && !struct_ref_pair)
+                        pcfit = find_func_by_base_and_signature(cmp_mangled, {lt, rt}, false);
+                    if (struct_ref_pair && !takes_refs(pcfit)) pcfit = nullptr;
+                    if (pcfit) pc_mangled = cmp_mangled;
+                }
                 if (pcfit && pcfit->ret_type) {
                     std::vector<lir::LExprPtr> pcargs;
                     auto push_pc = [&](lir::LExprPtr e, TypeRef vty, size_t idx) {
@@ -8787,11 +8864,8 @@ lir::LExprPtr SemaChecker::lower_invoke_on(lir::LExprPtr recv, std::vector<lir::
                                  std::move(arg_exprs), -1, error_t());
 }
 
-lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
-        lir::LExprPtr& recv,
-        std::vector<lir::LExprPtr>& arg_exprs,
-        std::string_view method_name,
-        const std::string& type_name) {
+std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_name,
+                                                      const std::string& type_name) {
     // Strip a generic suffix (`Vec$i32` → `Vec`); primitives have none.
     std::string base_name(type_name);
     if (auto d = base_name.find('$'); d != std::string::npos)
@@ -8846,7 +8920,15 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
             "both `impl<T: {}> {}` and `impl<T: {}> {}` apply",
             type_name, method_name, b1, trait1, b2, trait2));
     }
-    for (size_t bi_idx : viable_blanket_idxs) {
+    return viable_blanket_idxs;
+}
+
+lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
+        lir::LExprPtr& recv,
+        std::vector<lir::LExprPtr>& arg_exprs,
+        std::string_view method_name,
+        const std::string& type_name) {
+    for (size_t bi_idx : viable_blanket_impls(method_name, type_name)) {
         auto& bi = blanket_impls_[bi_idx];
         std::vector<TypeRef> bi_arg_types;
         bi_arg_types.push_back(expr_type(recv));
@@ -8918,6 +9000,53 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
         return finish_generic_call(
                                    mfi->symbol_name.empty() ? bi.mangled_name : mfi->symbol_name, *mfi,
                                    std::move(type_args), std::move(pargs));
+    }
+    return nullptr;
+}
+
+// `Type::f(args)` where `f` comes only from a blanket impl covering `Type`
+// (`impl<T> From<T> for T` makes `Wrapper::from(w)` legal). Same viability
+// and naming inference as the method form; the target typevar and `Self`
+// bind to `self_t`, every formal unifies against its argument.
+lir::LExprPtr SemaChecker::try_blanket_static_dispatch(
+        std::vector<lir::LExprPtr>& arg_exprs,
+        std::string_view method_name,
+        const std::string& type_name,
+        TypeRef self_t) {
+    if (!self_t) return nullptr;
+    for (size_t bi_idx : viable_blanket_impls(method_name, type_name)) {
+        auto& bi = blanket_impls_[bi_idx];
+        std::vector<TypeRef> bi_arg_types;
+        for (auto& a : arg_exprs) bi_arg_types.push_back(expr_type(a));
+        const SemaFuncInfo* mfi = nullptr;
+        if (auto fit = find_func_by_base_and_signature(bi.mangled_name, bi_arg_types, false))
+            mfi = fit;
+        else if (auto git = find_generic_func(bi.mangled_name))
+            mfi = git;
+        if (!mfi || mfi->param_types.size() != arg_exprs.size()) continue;
+        StrMap<TypeRef> tv_bind;
+        tv_bind["Self"] = self_t;
+        tv_bind[bi.target_typevar] = self_t;
+        for (size_t i = 0; i < mfi->param_types.size(); ++i) {
+            auto pt = subst_type_sema(mfi->param_types[i], tv_bind);
+            unify_types(pt, expr_type(arg_exprs[i]), tv_bind);
+        }
+        if (hint_call_return_type_ && mfi->ret_type) {
+            auto rt = subst_type_sema(mfi->ret_type, tv_bind);
+            unify_types(rt, hint_call_return_type_, tv_bind);
+        }
+        std::vector<TypeRef> type_args;
+        bool any_unbound = false;
+        for (auto& tp : mfi->type_params) {
+            auto it = tv_bind.find(tp.name);
+            TypeRef ta = it != tv_bind.end() ? it->second : error_t();
+            if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) any_unbound = true;
+            type_args.push_back(ta);
+        }
+        if (any_unbound) continue;
+        return finish_generic_call(
+                                   mfi->symbol_name.empty() ? bi.mangled_name : mfi->symbol_name, *mfi,
+                                   std::move(type_args), std::move(arg_exprs));
     }
     return nullptr;
 }
@@ -18994,6 +19123,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             return builder().call(mangled, {}, std::move(arg_exprs),
                                   make_struct_type(class_name, cur_package_));
         }
+        if (auto e = try_blanket_static_dispatch(arg_exprs, method_name, class_name,
+                                                 lookup_type_by_name(class_name)))
+            return e;
         error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
         return builder().call(mangled, {}, std::move(arg_exprs), error_t());
     }

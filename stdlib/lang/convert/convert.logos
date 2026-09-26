@@ -61,6 +61,12 @@ pub struct ConvertError {}
 // (Source param `S`; destination = the trait's own param so the trait/impl
 // param roles don't collide — see the blanket-method-output-param fix,
 // [[baghunt-mono-blanket-body-output-param]].)
+// Every type converts to itself (Rust's `impl<T> From<T> for T`), so `x.into()` /
+// `T::from(x)` at the identity type compile without a user impl.
+impl<T> From<T> for T {
+    fn from(t: T) -> T { return t; }
+}
+
 impl<S, T: From<S>> Into<T> for S {
     fn into(self: S) -> T { return T::from(self); }
 }

@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row ord_default_minmax_over_ref_self_refused (tier 3, `refuses`). Found 2026-09-26 by the discovery battery.
+// `x.max(y)` on a user type that implements `Ord` with `cmp` alone is refused ("'S' has no method 'max'"): std's `Ord`
+// declares only `cmp`, not Rust's default `max`/`min`/`clamp`. Adding them (measured 2026-09-26) breaks std's own build:
+// the default body instantiated for `impl Ord for &i32` / `for str` gives each `Self` occurrence its OWN elided region
+// ("expected &'1 i32, got &'2 i32") — in Rust `Self = &'a i32` is ONE type. The root is the default-method instantiation
+// over a Self that carries a region. rustc: exit 8.
+package ord_default_minmax_over_ref_self_refused;
+use logos.lang.cmp;
+struct S { x: i64 }
+impl Ord for S {
+    fn cmp(&self, other: &S) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+fn main() -> i32 { let a = S { x: 3 }; let b = S { x: 8 }; return a.max(b).x as i32; }

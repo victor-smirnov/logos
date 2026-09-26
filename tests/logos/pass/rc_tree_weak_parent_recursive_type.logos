@@ -1,0 +1,48 @@
+// A recursive node type (parent: RefCell<Option<Weak<Node>>>, children: RefCell<Vec<Rc<Node>>>): the borrow checker's
+// loan-carrying query explored every branch of the recursion down to its depth cap, exponentially — the compile hung for
+// minutes. Explored once per type now. Both nodes drop (weak parent, no strong cycle). rustc twin: 42.
+package rc_tree_weak_parent_recursive_type;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.option;
+use logos.mem.collections.vec;
+
+struct Node {
+    id: i32,
+    c: *mut i64,
+    parent: RefCell<Option<Weak<Node>>>,
+    children: RefCell<Vec<Rc<Node>>>,
+}
+impl Drop for Node {
+    fn drop(self: &mut Node) { unsafe { *self.c = *self.c * 10 + self.id as i64; } }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let c: *mut i64 = alloc(8) as *mut i64;
+        *c = 0i64;
+        {
+            let root: Rc<Node> = rc_new::<Node>(Node { id: 1, c: c, parent: RefCell::new(Option::None), children: RefCell::new(Vec::<Rc<Node>>::new()) });
+            let child: Rc<Node> = rc_new::<Node>(Node { id: 2, c: c, parent: RefCell::new(Option::None), children: RefCell::new(Vec::<Rc<Node>>::new()) });
+
+            child.parent.borrow_mut().get_mut().replace(root.downgrade());
+            root.children.borrow_mut().get_mut().push(child.clone_ref());
+
+            // check upgrade works via reference match (no Option clone needed)
+            let pg = child.parent.borrow();
+            match pg.get() {
+                Option::Some(w) => {
+                    match w.upgrade() {
+                        Option::Some(r) => { if r.id != 1 { return 1; } }
+                        Option::None => { return 2; }
+                    }
+                }
+                Option::None => { return 3; }
+            }
+        }
+        // root and child should have dropped: id 1 and 2 in some order
+        if *c != 12i64 && *c != 21i64 { return 4; }
+        dealloc(c as *mut u8);
+    }
+    return 42;
+}

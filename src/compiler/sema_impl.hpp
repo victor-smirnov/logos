@@ -8982,6 +8982,16 @@ private:
         std::vector<lir::LExprPtr>& arg_exprs,
         std::string_view method_name,
         const std::string& type_name);
+    // The static form: `Type::f(args)` reached only through a blanket impl.
+    lir::LExprPtr try_blanket_static_dispatch(
+        std::vector<lir::LExprPtr>& arg_exprs,
+        std::string_view method_name,
+        const std::string& type_name,
+        TypeRef self_t);
+    // Blanket impls providing `method_name` whose bounds `type_name` meets;
+    // ≥2 distinct ones is an overlap error.
+    std::vector<size_t> viable_blanket_impls(std::string_view method_name,
+                                             const std::string& type_name);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
     lir::LExprPtr lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs);
     bool finish_call_targs_written_ = false;   // lower_generic_call → finish_generic_call

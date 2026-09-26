@@ -1,0 +1,28 @@
+// Operator impls whose Self is a reference (`impl Add for &V`, `impl Add<V> for &V`, `impl Ord for &V`) dispatch from
+// `&a + &b` / `&a + b` / `&a < &b`; `<` falls back to `Ord::cmp` when no `partial_cmp` exists. rustc twin: 25.
+package operator_impls_on_references;
+use logos.lang.ops;
+use logos.lang.cmp;
+struct V { x: i64 }
+struct W { x: i64 }
+impl Add for &V { type Output = V; fn add(self: &V, o: &V) -> V { return V { x: self.x + o.x }; } }
+impl Add<W> for &W { type Output = W; fn add(self: &W, o: W) -> W { return W { x: self.x * o.x }; } }
+impl Ord for &V {
+    fn cmp(&self, other: &&V) -> Ordering {
+        if self.x < other.x { return Ordering::Less; }
+        if self.x > other.x { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+fn main() -> i32 {
+    let a = V { x: 5i64 };
+    let b = V { x: 7i64 };
+    let r = &a + &b;
+    let c = W { x: 2i64 };
+    let d = W { x: 6i64 };
+    let s = &c + d;
+    let mut lt = 0i64;
+    if &a < &b { lt = 1i64; }
+    if &b < &a { lt = lt + 100i64; }
+    return (r.x + s.x + lt) as i32;
+}
