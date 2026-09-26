@@ -2,7 +2,7 @@
 package weak_drop_forms;
 use logos.mem.sync;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn wc(a: &Arc<i32>) -> i32 { unsafe { let q: *mut Arc<i32> = a as *const Arc<i32> as *mut Arc<i32>; return q.weak_count(); } }
+fn wc(a: &Arc<i32>) -> i32 { unsafe { let q: *mut Arc<i32> = a as *const Arc<i32> as *mut Arc<i32>; return q.weak_count() as i32; } }
 fn main() -> i32 {
     let a: Arc<i32> = arc_new::<i32>(20);
     { let w: Weak<i32> = a.downgrade(); }

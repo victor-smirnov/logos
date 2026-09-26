@@ -20,6 +20,7 @@ use logos.lang.drop;
 use logos.lang.clone;
 use logos.lang.ops;
 use logos.lang.option;
+use logos.lang.result;
 
 // Control block (Rust parity — `RcBox`): strong + weak counters precede the
 // value in one heap block. `weak` counts the live Weak handles PLUS one
@@ -72,8 +73,8 @@ impl<T: ?Sized> Rc<T> {
     }
 
     /// Returns a raw mutable pointer to the stored value.
-    /// No uniqueness check (unlike Rust `Rc::get_mut`); caller must ensure exclusive access.
-    pub unsafe fn get_mut(self: *mut Rc<T>) -> *mut T {
+    /// No uniqueness check (the checked form is `Rc::get_mut`); caller must ensure exclusive access.
+    pub unsafe fn get_mut_raw(self: *mut Rc<T>) -> *mut T {
         return &mut self.inner.val as *mut T;
     }
 
@@ -83,9 +84,23 @@ impl<T: ?Sized> Rc<T> {
     // Prefer these over `get`/`get_mut` — they hand the value back as
     // a normal Logos reference instead of a raw pointer that callers
     // have to launder through `unsafe { … }` blocks.
-    /// Returns the number of live strong (`Rc`) handles to the allocation.
-    pub unsafe fn strong_count(self: *mut Rc<T>) -> i32 {
-        return self.inner.strong;
+    /// The number of live strong (`Rc`) handles to the allocation (Rust's `Rc::strong_count`).
+    pub fn strong_count(this: &Rc<T>) -> i64 {
+        unsafe { return this.inner.strong as i64; }
+    }
+
+    /// `true` if both handles point at the same allocation (Rust's `Rc::ptr_eq`).
+    pub fn ptr_eq(this: &Rc<T>, other: &Rc<T>) -> bool {
+        return (this.inner as *mut u8) == (other.inner as *mut u8);
+    }
+
+    /// `Some(&mut value)` when this is the only handle (no other `Rc`, no `Weak`),
+    /// else `None` (Rust's `Rc::get_mut`).
+    pub fn get_mut(this: &mut Rc<T>) -> Option<&mut T> {
+        unsafe {
+            if this.inner.strong != 1 || this.inner.weak != 1 { return Option::None; }
+            return Option::Some(&mut this.inner.val);
+        }
     }
 
     /// Returns `true` if this handle's inner pointer is null (e.g. after `drop_rc`).
@@ -109,9 +124,9 @@ impl<T: ?Sized> Rc<T> {
         }
     }
 
-    /// Returns the number of live `Weak` handles, excluding the implicit weak.
-    pub unsafe fn weak_count(self: *mut Rc<T>) -> i32 {
-        return self.inner.weak - 1;
+    /// The number of live `Weak` handles, excluding the implicit weak (Rust's `Rc::weak_count`).
+    pub fn weak_count(this: &Rc<T>) -> i64 {
+        unsafe { return (this.inner.weak - 1) as i64; }
     }
 
     /// Decrements the strong count; at the last strong reference runs `T`'s destructor,
@@ -145,7 +160,49 @@ impl<T: ?Sized> Rc<T> {
     }
 }
 
+impl<T> Rc<T> {
+    /// Creates a new `Rc` owning `val` (Rust's `Rc::new`).
+    pub fn new(val: T) -> Rc<T> { return rc_new::<T>(val); }
+
+    /// The value, if this is the only strong handle; else the handle back (Rust's
+    /// `Rc::try_unwrap`). Outstanding `Weak`s then fail to upgrade.
+    pub fn try_unwrap(this: Rc<T>) -> Result<T, Rc<T>> {
+        unsafe {
+            if this.inner.strong != 1 { return Result::Err(this); }
+            let p: *mut RcInner<T> = this.inner;
+            let v: T = logos.lang.ptr::read(&p.val as *const T);
+            p.strong = 0;
+            p.weak = p.weak - 1;   // the implicit weak of the strong handles
+            if p.weak == 0 { dealloc(p as *mut u8); }
+            logos.lang.mem::forget::<Rc<T>>(this);
+            return Result::Ok(v);
+        }
+    }
+
+    /// The value, if this is the only strong handle, else `None` (Rust's `Rc::into_inner`).
+    pub fn into_inner(this: Rc<T>) -> Option<T> {
+        let r: Result<T, Rc<T>> = Rc::try_unwrap(this);
+        match r {
+            Result::Ok(v)  => { return Option::Some(v); }
+            Result::Err(h) => { let _last: Rc<T> = h; return Option::None; }
+        }
+    }
+}
+
+impl<T> Weak<T> {
+    /// A `Weak` pointing at nothing: `upgrade` always returns `None` (Rust's `Weak::new`).
+    pub fn new() -> Weak<T> { return Weak { inner: 0 as *mut RcInner<T> }; }
+}
+
 impl<T: ?Sized> Weak<T> {
+    /// The number of strong handles to the allocation (0 for `Weak::new`).
+    pub fn strong_count(&self) -> i64 {
+        unsafe {
+            if (self.inner as *mut u8) == (0 as *mut u8) { return 0; }
+            return self.inner.strong as i64;
+        }
+    }
+
     /// Attempts to obtain a strong `Rc`; returns `None` if the value has been dropped
     /// (no strong references remain). On success bumps the strong count.
     pub fn upgrade(&self) -> Option<Rc<T>> {

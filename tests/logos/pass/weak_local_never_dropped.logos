@@ -10,7 +10,7 @@ fn main() -> i32 {
     { let w: Weak<i32> = a.downgrade(); }
     let wc: i32 = unsafe {
         let q: *mut Arc<i32> = &a as *const Arc<i32> as *mut Arc<i32>;
-        q.weak_count()
+        q.weak_count() as i32
     };
     if wc != 0i32 { return 1i32; }
     return 0i32;

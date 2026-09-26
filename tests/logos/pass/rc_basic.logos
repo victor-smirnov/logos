@@ -24,7 +24,7 @@ fn main() -> i32 {
         if pr1.strong_count() != 3 { return 6; }
 
         // ── mutate through get_mut (sole logical owner in this scope) ─────────
-        *pr1.get_mut() = 77;
+        *pr1.get_mut_raw() = 77;
         if *pr1.get() != 77 { return 7; }
         if *pr2.get() != 77 { return 8; }  // same allocation
 
@@ -46,7 +46,7 @@ fn main() -> i32 {
         let pq1: *mut Rc<i64> = &mut q1;
         let mut q2: Rc<i64> = pq1.clone_rc();
         let pq2: *mut Rc<i64> = &mut q2;
-        *pq1.get_mut() = 12345 as i64;
+        *pq1.get_mut_raw() = 12345 as i64;
         if *pq2.get() != 12345 as i64 { return 13; }
         pq1.drop_rc();
         pq2.drop_rc();
