@@ -969,6 +969,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     if (op == "&")  return builder_.create<mlir::arith::AndIOp>(loc_, lhs, rhs);
     if (op == "|")  return builder_.create<mlir::arith::OrIOp> (loc_, lhs, rhs);
     if (op == "^")  return builder_.create<mlir::arith::XOrIOp>(loc_, lhs, rhs);
+    // A shift by >= the bit width traps (A13: arithmetic overflow always
+    // traps; Rust panics "attempt to shift … with overflow"). A negative
+    // amount reads as huge unsigned and traps too.
+    if ((op == "<<" || op == ">>") && mlir::isa<mlir::IntegerType>(lhs.getType()) &&
+        rhs.getType() == lhs.getType()) {
+        unsigned w = mlir::cast<mlir::IntegerType>(lhs.getType()).getWidth();
+        auto wv = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)w, lhs.getType());
+        auto ovf_v = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::uge, rhs, wv);
+        auto* parent_region = builder_.getInsertionBlock()->getParent();
+        auto* trap_block = new mlir::Block();
+        auto* cont_block = new mlir::Block();
+        parent_region->getBlocks().push_back(trap_block);
+        parent_region->getBlocks().push_back(cont_block);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, ovf_v, trap_block, cont_block);
+        builder_.setInsertionPointToStart(trap_block);
+        builder_.create<mlir::LLVM::Trap>(loc_);
+        builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        builder_.setInsertionPointToStart(cont_block);
+    }
     if (op == "<<") return builder_.create<mlir::arith::ShLIOp>(loc_, lhs, rhs);
     if (op == ">>") {
         auto it = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
@@ -1333,8 +1352,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EUnaryView v, TypeRef) {
             auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
             return builder_.create<mlir::arith::XOrIOp>(loc_, val, one);
         } else {
-            // integer: bitwise NOT via XOR with all-ones (-1)
-            auto allones = builder_.create<mlir::arith::ConstantIntOp>(loc_, -1, width);
+            // integer: bitwise NOT via XOR with all-ones. The mask is an APInt
+            // of the full width: `ConstantIntOp(-1, 128)` zero-extends the
+            // int64 -1 and a 128-bit `!x` flipped only its low 64 bits.
+            auto itype_all = builder_.getIntegerType(width);
+            auto allones = builder_.create<mlir::arith::ConstantOp>(
+                loc_, itype_all, builder_.getIntegerAttr(itype_all, llvm::APInt::getAllOnes(width)));
             return builder_.create<mlir::arith::XOrIOp>(loc_, val, allones);
         }
     }
@@ -4632,9 +4655,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         mlir::dyn_cast<mlir::IntegerType>(target)) {
         bool dst_unsigned = type &&
             LogosType::is_unsigned_repr_kind(TypeRef(type).kind());
-        if (dst_unsigned)
-            return builder_.create<mlir::arith::FPToUIOp>(loc_, target, val);
-        return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
+        // Rust's `as` from float to int SATURATES: NaN is 0, an out-of-range
+        // value clamps to the target's MIN / MAX. fptosi/fptoui are poison
+        // there (x86: 0x80000000…).
+        auto op = builder_.create<mlir::LLVM::CallIntrinsicOp>(
+            loc_, target,
+            builder_.getStringAttr(dst_unsigned ? "llvm.fptoui.sat" : "llvm.fptosi.sat"),
+            mlir::ValueRange{val});
+        return op.getResults();
     }
 
     // int → ptr

@@ -1,0 +1,17 @@
+// Rust's numeric rendering and casts: saturating float->int (NaN 0, clamps), NaN-ignoring min/max, char Display/Debug with escapes, u128/i128 Display incl. MIN (rustc output).
+package numeric_cast_char_i128_shapes;
+use logos.std.fmt;
+use logos.lang.math;
+fn main() -> i32 {
+    let z: f64 = 0.0;
+    let nan = z / z;
+    println!("{} {} {}", nan as i32, 1e30f64 as i32, -1.0f64 as u32);
+    println!("{} {} {}", -1e30f64 as i64, 300.7f64 as u8, 3.9f64 as i32);
+    println!("{} {}", min_f64(5.0, nan), max_f64(5.0, nan));
+    let c: char = 'é';
+    println!("{} {:?} {:?} {:?}", c, c, '\'', '\n');
+    let big: u128 = 340282366920938463463374607431768211455u128;
+    let neg: i128 = -170141183460469231731687303715884105728i128;
+    println!("{} {} {:?}", big, neg, 0u128);
+    return 0;
+}

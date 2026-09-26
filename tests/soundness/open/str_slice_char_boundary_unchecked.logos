@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row str_slice_char_boundary_unchecked (tier 2, `run 0`). Found 2026-09-26 by the discovery battery.
+// `&"héllo"[0..2]` splits `é`'s two bytes: rustc panics ("byte index 2 is not a char boundary", exit 101); Logos returns
+// a str ending mid-character (invalid UTF-8). Logos's `str` IS `&[u8]` (one type), so a str slice cannot be told from a
+// byte slice to check the boundary — the fix needs str to be its own type or the slice site to know the source was str.
+package str_slice_char_boundary_unchecked;
+fn main() -> i32 {
+    let s: str = "héllo";
+    let sub: str = &s[0i64..2i64];
+    return (sub.len() - 2) as i32;
+}

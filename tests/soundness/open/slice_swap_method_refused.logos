@@ -1,0 +1,9 @@
+// SOUNDNESS QUEUE row slice_swap_method_refused (tier 3, `refuses`). Found 2026-09-26 by the discovery battery.
+// `s.swap(1, 4)` on a `&mut [i64]` is refused ("slice has no method 'swap'"); only Vec::swap exists. rustc: exit 0.
+package slice_swap_method_refused;
+fn main() -> i32 {
+    let mut a: [i64; 5] = [1, 2, 3, 4, 5];
+    let s: &mut [i64] = &mut a;
+    s.swap(1, 4);
+    return (a[1] - 5) as i32;
+}

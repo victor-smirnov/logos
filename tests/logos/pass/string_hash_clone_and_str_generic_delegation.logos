@@ -1,0 +1,31 @@
+// HashMap<String, V> (Hash for String delegates to str), Clone for String / Vec<T: Clone>, and a generic trait method
+// called on a `str` receiver from a generic body (`self.s.as_str().hash(state)` bound H from the argument).
+package string_hash_clone_and_str_generic_delegation;
+use logos.std.fmt;
+use logos.lang.hash;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+struct W { s: String }
+impl Hash for W {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.s.as_str().hash(state); }
+}
+fn main() -> i32 {
+    unsafe {
+        let mut m: HashMap<String, i64> = hashmap_new::<String, i64>();
+        let pm: *mut HashMap<String, i64> = &mut m;
+        pm.insert(String::from("one"), 1i64);
+        pm.insert(String::from("two"), 2i64);
+        println!("{} {} {}", pm.len(), pm.contains_key(&String::from("one")), pm.contains_key(&String::from("three")));
+    }
+    let a = String::from("hi");
+    let mut b = a.clone();
+    b.push_str("!");
+    let mut v: Vec<String> = Vec::new();
+    v.push(a.clone()); v.push(b.clone());
+    let mut w = v.clone();
+    w.push(String::from("x"));
+    println!("{} {} {:?} {:?}", a, b, v, w);
+    let _k = W { s: String::from("k") };
+    return 0;
+}

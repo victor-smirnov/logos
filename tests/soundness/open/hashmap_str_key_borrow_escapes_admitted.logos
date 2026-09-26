@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row hashmap_str_key_borrow_escapes_admitted (tier 2, `admits`). Found 2026-09-26 by the discovery battery.
+// A `str` borrowed from a block-local `String` is inserted into an outer `HashMap<str, i64>`; the String drops at the
+// block's end and the map keeps a dangling key (valgrind: invalid read at the key's use; at scale entries are silently
+// corrupted). rustc refuses (E0597). Two layers: std's HashMap API takes `self: *mut HashMap<K, V>` and is `unsafe`
+// (Rust's is safe `&mut self`), and the borrow checker carries no region for a type argument through a raw receiver.
+package hashmap_str_key_borrow_escapes_admitted;
+use logos.mem.collections.hashmap;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut m: HashMap<str, i64> = hashmap_new::<str, i64>();
+    {
+        let key: String = String::from("hello");
+        unsafe { m.insert(key.as_str(), 42i64); }
+    }
+    return m.len() as i32;
+}

@@ -1,0 +1,12 @@
+// Bitwise NOT over 128-bit integers flips all 128 bits (the mask was a zero-extended 64-bit -1); i128 negation and MIN print exactly.
+package int128_not_and_negation;
+use logos.std.fmt;
+fn main() -> i32 {
+    let a: i128 = 170141183460469231731687303715884105727i128;
+    let n = -a;
+    let m = a - 1i128;
+    let k: i128 = 0i128 - a;
+    let big: i128 = 18446744073709551616i128;
+    println!("{}\n{}\n{}\n{} {}", n, m, k, -big, big - 1i128);
+    return 0;
+}

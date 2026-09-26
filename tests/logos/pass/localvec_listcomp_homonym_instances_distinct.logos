@@ -1,0 +1,14 @@
+// A crate-local `Vec<T>` beside the stdlib's (a list comprehension instantiates `Vec<i64>` of logos.mem): the two instances no longer share the stem `Vec$G1$i64` — the stdlib instance carries its package fingerprint ($M…). The package name is load-bearing: see the retired row's history in git.
+package vec_pkg_listcomp;
+use logos.mem.collections.vec;
+
+pub struct Vec<T> { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let lv: Vec<i64> = Vec { a: 8i64, b: 9i64 };
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v = [x * 2i64 for x in src];
+    if v.len() != 3i64 { return 1i32; }
+    if lv.a != 8i64 { return 4i32; }
+    return 0i32;
+}

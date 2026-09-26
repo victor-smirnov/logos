@@ -1,0 +1,9 @@
+// A runtime shift by >= the bit width traps, as the other arithmetic overflows do (A13); a shift by width-1 does not.
+package shift_amount_overflow_traps;
+fn amt(x: u32) -> u32 { return x; }
+fn main() -> i32 {
+    let ok = 1i32 << amt(31u32);
+    if ok != -2147483648i32 { return 1i32; }
+    let v = 1i32 << amt(32u32);
+    return v;
+}

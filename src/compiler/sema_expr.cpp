@@ -9131,8 +9131,11 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             // the actual slice — the old name-keyed "T" special case broke
             // any impl<E> Trait for [E] whose param isn't literally T.
             StrMap<TypeRef> binds;
-            if (!fi_ptr->param_types.empty())
-                unify_types(fi_ptr->param_types[0], expr_type(pargs[0]), binds);
+            // Every formal against its argument: the receiver binds the impl's
+            // parameters, the rest bind a METHOD-level one (`hash<H>(&self,
+            // state: &mut H)` on a `str` receiver).
+            for (size_t i = 0; i < fi_ptr->param_types.size() && i < pargs.size(); ++i)
+                unify_types(fi_ptr->param_types[i], expr_type(pargs[i]), binds);
             std::vector<TypeRef> m_type_args;
             for (auto& tp : fi_ptr->type_params) {
                 if (auto bit2 = binds.find(tp.name); bit2 != binds.end())
@@ -9772,6 +9775,9 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
     std::vector<lir::LExprPtr> args = lower_call_args(node);
     StrMap<TypeRef> binds;
     if (fi_ptr->impl_target_pattern) unify_types(fi_ptr->impl_target_pattern, arr_t, binds);
+    // Method-level parameters bind from the remaining arguments.
+    for (size_t i = 1; i < fi_ptr->param_types.size() && i - 1 < args.size(); ++i)
+        unify_types(fi_ptr->param_types[i], expr_type(args[i - 1]), binds);
     SemaSubst subst;
     std::vector<TypeRef> targs;
     for (auto& tp : fi_ptr->type_params) {

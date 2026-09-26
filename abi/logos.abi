@@ -14,6 +14,7 @@ sym	bool__store_push__g__pmut_PrimVec$G1$DT::Prim__DT::Prim
 sym	bool__store_remove_at__g__pmut_PrimVec$G1$DT::Prim__u64
 sym	bool__store_set__g__pmut_PrimVec$G1$DT::Prim__u64__DT::Prim
 sym	bool__to_string__g__T
+sym	char__to_string__g__T
 sym	f32__to_string__g__T
 sym	f64__to_string__g__T
 sym	i16__cmp_views__g__pcst_DT__DT::Prim__DT::Prim
@@ -11414,11 +11415,13 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$NodeOp__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$NodeOp__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$PdtDim__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__at_const__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__borrow__g__ref_Vec$G1$T__i64
@@ -11440,6 +11443,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__index__g__ref_Vec$G1$T__i64
@@ -11447,6 +11451,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__index_mut__g__refmut_V
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$StreamDescr__borrow__g__ref_Vec$G1$T__i64
@@ -11458,11 +11463,13 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$StreamDescr__into_iter__g__Vec$G
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$StreamDescr__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__borrow_mut__g__refmut_Vec$G1$T__i64
@@ -11475,12 +11482,14 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__length__g__ref_Vec$G1
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__as_mut_ptr__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__as_mut_slice__g__refmut_Vec$G1$T
@@ -11491,6 +11500,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__at_const__g__ref_Vec$G1$T__
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__clear__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__contains__g__ref_Vec$G1$T__ref_T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__first__g__ref_Vec$G1$T
@@ -11515,6 +11525,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__try_borrow__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__try_borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__index__g__ref_Vec$G1$T__i64
@@ -11617,16 +11628,19 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__index__g__ref_Vec$G1$T__i64
@@ -11634,10 +11648,12 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__index_mut__g__refmut_Vec$G1
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__clear__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__index__g__ref_Vec$G1$T__i64
@@ -11645,6 +11661,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__index_mut__g__refmut_Vec$G1
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__remove__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__set__g__refmut_Vec$G1$T__i64__T
@@ -11652,6 +11669,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__as_ptr__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__at_const__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__drop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__index__g__ref_Vec$G1$T__i64
@@ -11801,6 +11819,7 @@ sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__bool
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__char
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__f32
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__f64
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i16
@@ -11841,6 +11860,7 @@ sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$sli
 sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__bool__fmt__g__ref_Option__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Option__char__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__f32__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__f64__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__&[u8]
@@ -11854,6 +11874,7 @@ sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__bool
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__char
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__f32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__f64
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__i16
@@ -11889,6 +11910,8 @@ sym	logos_mem..logos.mem.fmt.String__write_char__f__refmut_String__u8
 sym	logos_mem..logos.mem.fmt.String__write_str__f__refmut_String__slice_u8
 sym	logos_mem..logos.mem.fmt.bool__Debug__fmt__f__ref_bool__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.bool__Display__fmt__f__ref_bool__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.char__Debug__fmt__f__ref_char__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.char__Display__fmt__f__ref_char__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.f32__Debug__fmt__f__ref_f32__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.f32__Display__fmt__f__ref_f32__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.f32__LowerExp__fmt__f__ref_f32__refmut_Formatter
@@ -11897,6 +11920,8 @@ sym	logos_mem..logos.mem.fmt.f64__Debug__fmt__f__ref_f64__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.f64__Display__fmt__f__ref_f64__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.f64__LowerExp__fmt__f__ref_f64__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.f64__UpperExp__fmt__f__ref_f64__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.i128__Debug__fmt__f__ref_i128__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.i128__Display__fmt__f__ref_i128__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.i16__Binary__fmt__f__ref_i16__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.i16__Debug__fmt__f__ref_i16__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.i16__Display__fmt__f__ref_i16__refmut_Formatter
@@ -11929,6 +11954,8 @@ sym	logos_mem..logos.mem.fmt.isize__Octal__fmt__f__ref_isize__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.isize__UpperHex__fmt__f__ref_isize__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.str__Debug__fmt__f__slice_u8__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.str__Display__fmt__f__slice_u8__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.u128__Debug__fmt__f__ref_u128__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.u128__Display__fmt__f__ref_u128__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.u16__Binary__fmt__f__ref_u16__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.u16__Debug__fmt__f__ref_u16__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.u16__Display__fmt__f__ref_u16__refmut_Formatter
@@ -12233,6 +12260,7 @@ sym	logos_mem..logos.mem.string.String__as_ptr__f__ref_String
 sym	logos_mem..logos.mem.string.String__as_str__f__ref_String
 sym	logos_mem..logos.mem.string.String__capacity__f__ref_String
 sym	logos_mem..logos.mem.string.String__clear__f__refmut_String
+sym	logos_mem..logos.mem.string.String__clone__f__ref_String
 sym	logos_mem..logos.mem.string.String__datum_meta__f__ref_String
 sym	logos_mem..logos.mem.string.String__datum_tag__f__pcst_String
 sym	logos_mem..logos.mem.string.String__drop__f__refmut_String
@@ -12596,6 +12624,7 @@ sym	logos_mem.logos.mem.fmt$err__f__void
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__Ordering$Macc8979d95601b4b
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__String
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__bool
+sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__char
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__f32
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__f64
 sym	logos_mem.logos.mem.fmt$fmt_display_to_string__g__ref_T__i16

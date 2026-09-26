@@ -24,6 +24,8 @@
 
 package logos.mem.string;
 
+use logos.lang.hash;
+use logos.lang.clone;
 use logos.lang.mem;
 use logos.lang.marker;
 use logos.lang.drop;
@@ -412,6 +414,17 @@ impl ToString for isize {
         return s;
     }
 }
+/// An independent copy of the bytes (Rust's `impl Clone for String`).
+impl Clone for String {
+    fn clone(&self) -> String { return String::from(self.as_str()); }
+}
+
+/// Hashes by content, exactly as its `str` (Rust: `impl Hash for String` delegates to `str`),
+/// so `HashMap<String, V>` / `HashSet<String>` hash equal strings equally.
+impl Hash for String {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.as_str().hash(state); }
+}
+
 impl ToString for f32 {
     fn to_string(self: f32) -> String {
         let mut s: String = String::new();

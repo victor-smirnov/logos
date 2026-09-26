@@ -543,6 +543,58 @@ impl Debug   for u64   { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
 impl Display for usize { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
 impl Debug   for usize { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_int_dec_u64(*self as u64); } }
 
+// ── 128-bit integers ────────────────────────────────────────────────
+fn fmt_u128_dec(n: u128) -> String {
+    let mut tmp: [u8; 40] = [0u8; 40];
+    let mut pos: i64 = 0i64;
+    let mut m: u128 = n;
+    if m == 0u128 { tmp[0] = 48u8; pos = 1i64; }
+    while m > 0u128 { tmp[pos] = 48u8 + (m % 10u128) as u8; m = m / 10u128; pos = pos + 1i64; }
+    let mut s: String = String::new();
+    while pos > 0i64 { pos = pos - 1i64; s.push_u8(tmp[pos]); }
+    return s;
+}
+fn fmt_i128_dec(n: i128) -> String {
+    if n >= 0i128 { return fmt_u128_dec(n as u128); }
+    // Two's-complement magnitude: `-i128::MIN` does not fit, `!(n as u128) + 1` does.
+    let mag: u128 = !(n as u128) + 1u128;
+    let mut s: String = String::new();
+    s.push_u8(45u8);
+    s.push_str(fmt_u128_dec(mag).as_str());
+    return s;
+}
+impl Display for u128 { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.pad(fmt_u128_dec(*self).as_str(), ""); } }
+impl Debug   for u128 { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.pad(fmt_u128_dec(*self).as_str(), ""); } }
+impl Display for i128 { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.pad(fmt_i128_dec(*self).as_str(), ""); } }
+impl Debug   for i128 { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.pad(fmt_i128_dec(*self).as_str(), ""); } }
+
+// ── char ────────────────────────────────────────────────────────────
+// Display writes the scalar as UTF-8; Debug quotes it and escapes as Rust's
+// `char::escape_debug` does for the common cases (`\'`, `\\`, `\n`, `\t`, `\r`, `\0`).
+impl Display for char {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut s: String = String::new();
+        s.push_char(*self as u32);
+        return f.pad(s.as_str(), "");
+    }
+}
+impl Debug for char {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let c: u32 = *self as u32;
+        let mut s: String = String::new();
+        s.push_u8(39u8);
+        if c == 39u32 { s.push_u8(92u8); s.push_u8(39u8); }
+        else if c == 92u32 { s.push_u8(92u8); s.push_u8(92u8); }
+        else if c == 10u32 { s.push_u8(92u8); s.push_u8(110u8); }
+        else if c == 9u32 { s.push_u8(92u8); s.push_u8(116u8); }
+        else if c == 13u32 { s.push_u8(92u8); s.push_u8(114u8); }
+        else if c == 0u32 { s.push_u8(92u8); s.push_u8(48u8); }
+        else { s.push_char(c); }
+        s.push_u8(39u8);
+        return f.write_str(s.as_str());
+    }
+}
+
 // ── bool ────────────────────────────────────────────────────────────
 impl Display for bool { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_bool(*self); } }
 impl Debug   for bool { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_bool(*self); } }

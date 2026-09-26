@@ -142,9 +142,15 @@ pub fn min_i32(a: i32, b: i32) -> i32 { if a < b { return a; } return b; }
 /// Returns the larger of `a` and `b`.
 pub fn max_i32(a: i32, b: i32) -> i32 { if a > b { return a; } return b; }
 
-/// Returns the smaller of `a` and `b`.
-/// Returns `b` whenever `a < b` is false, so NaN handling differs from libm `fmin`.
-pub fn min_f64(a: f64, b: f64) -> f64 { if a < b { return a; } return b; }
-/// Returns the larger of `a` and `b`.
-/// Returns `b` whenever `a > b` is false, so NaN handling differs from libm `fmax`.
-pub fn max_f64(a: f64, b: f64) -> f64 { if a > b { return a; } return b; }
+/// Returns the smaller of `a` and `b`; a NaN operand is ignored (Rust's `f64::min`, libm `fmin`).
+pub fn min_f64(a: f64, b: f64) -> f64 {
+    if a != a { return b; }
+    if b != b { return a; }
+    if a < b { return a; } return b;
+}
+/// Returns the larger of `a` and `b`; a NaN operand is ignored (Rust's `f64::max`, libm `fmax`).
+pub fn max_f64(a: f64, b: f64) -> f64 {
+    if a != a { return b; }
+    if b != b { return a; }
+    if a > b { return a; } return b;
+}

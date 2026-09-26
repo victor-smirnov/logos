@@ -1,0 +1,15 @@
+// Both homonym Vec<i64> instances used through fields, methods and indexing in one function (package name as in the retired row).
+package vec_pkg_listcomp;
+use logos.mem.collections.vec;
+pub struct Vec<T> { a: T, b: i64 }
+impl<T> Vec<T> { fn bee(&self) -> i64 { return self.b; } }
+fn main() -> i32 {
+    let lv: Vec<i64> = Vec { a: 8i64, b: 9i64 };
+    let src: [i64; 3] = [1i64, 2i64, 3i64];
+    let v = [x * 2i64 for x in src];
+    if v.len() != 3i64 { return 1i32; }
+    if v[2] != 6i64 { return 2i32; }
+    if lv.a != 8i64 { return 4i32; }
+    if lv.bee() != 9i64 { return 5i32; }
+    return 0i32;
+}

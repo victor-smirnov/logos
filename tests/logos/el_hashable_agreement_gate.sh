@@ -182,6 +182,16 @@ disagreements() {
 }
 
 disagreements "$TMPD/tier1.txt" "$TMPD/tier2.txt" > "$TMPD/found.txt"
+# ── GROUNDED EXCEPTIONS — a disagreement STATED, each with its ground ──────────
+# `String tier1=1 tier2=0` (2026-09-26: `impl Hash for String` landed, Rust's shape,
+# so HashMap<String, V> works): hashable in the language, still not an EL INDEX key.
+# Ground, restated from el.logos `el_index_key_ok`: the emitted index BORROWS the
+# row's bytes, and a `String`-keyed index would have to OWN each key (measured
+# E0597 on the emitted shape), so a String equi-key stays on the exact loop tier.
+# What deletes this line: an index that owns its keys.
+GROUNDED_EXCEPTIONS='String tier1=1 tier2=0'
+grep -vxF "$GROUNDED_EXCEPTIONS" "$TMPD/found.txt" > "$TMPD/found.ex" || true
+mv "$TMPD/found.ex" "$TMPD/found.txt"
 N_FOUND=$(wc -l < "$TMPD/found.txt")
 
 # ⚠ THE CANARY IS A DELTA, NOT A COUNT, and the first draft of it was the count.
@@ -197,7 +207,9 @@ N_FOUND=$(wc -l < "$TMPD/found.txt")
 #
 # So the canary flips a row the real comparison AGREED on, and asserts the
 # difference: that row, and only that row, is added to the findings.
-FLIP=$(join -v 1 "$TMPD/tier2.txt" "$TMPD/found.txt" | awk 'NR == 1 { print $1 }')
+EX_NAMES=$(printf '%s\n' "$GROUNDED_EXCEPTIONS" | awk '{ print $1 }' | tr '\n' ' ')
+FLIP=$(join -v 1 "$TMPD/tier2.txt" "$TMPD/found.txt" |
+       awk -v ex=" $EX_NAMES" 'index(ex, " " $1 " ") == 0 { print $1; exit }')
 if [ -z "$FLIP" ]; then
     echo "FAIL: every lattice row already disagrees, so there is no agreeing row to"
     echo "      plant a flip in and the comparator cannot be proved on this data."
@@ -205,7 +217,7 @@ if [ -z "$FLIP" ]; then
 fi
 awk -v n="$FLIP" '$1 == n { print $1, ($2 == 1 ? 0 : 1); next } { print }' \
     "$TMPD/tier2.txt" > "$TMPD/tier2.canary"
-disagreements "$TMPD/tier1.txt" "$TMPD/tier2.canary" > "$TMPD/canary.out"
+disagreements "$TMPD/tier1.txt" "$TMPD/tier2.canary" | grep -vxF "$GROUNDED_EXCEPTIONS" > "$TMPD/canary.out" || true
 comm -13 "$TMPD/found.txt" "$TMPD/canary.out" > "$TMPD/canary.delta"
 CANARY_ADDED=$(awk '{ print $1 }' "$TMPD/canary.delta" | sort -u | tr '\n' ' ')
 if [ "$CANARY_ADDED" != "$FLIP " ]; then

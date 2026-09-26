@@ -16,8 +16,6 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
-localvec_mangled_collision_listcomp_internal 3 tests/soundness/open/localvec_mangled_collision_listcomp_internal refuses
-
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
@@ -185,5 +183,15 @@ fnonce_generic_consume_skips_capture_drop 2 tests/soundness/open/fnonce_generic_
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 iterator_trait_item_assoc_type_refused 3 tests/soundness/open/iterator_trait_item_assoc_type_refused refuses
 
-# TOTAL 5
-# SYNC-HASH 5fe2e3912e39a8e8b084292f22730478
+hashmap_str_key_borrow_escapes_admitted 2 tests/soundness/open/hashmap_str_key_borrow_escapes_admitted admits
+
+str_slice_char_boundary_unchecked 2 tests/soundness/open/str_slice_char_boundary_unchecked run 0
+
+str_parse_method_refused 3 tests/soundness/open/str_parse_method_refused refuses
+
+slice_swap_method_refused 3 tests/soundness/open/slice_swap_method_refused refuses
+
+array_hash_impl_refused 3 tests/soundness/open/array_hash_impl_refused refuses
+
+# TOTAL 9
+# SYNC-HASH 0f1f9f2df26d276a4d1ccfc4039d49ec

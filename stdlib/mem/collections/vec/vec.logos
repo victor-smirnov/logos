@@ -14,6 +14,7 @@ use logos.lang.ops;
 use logos.lang.cmp;
 use logos.lang.panic;
 use logos.lang.result;
+use logos.lang.clone;
 
 /// Growable heap-allocated array of `T`, contiguous in memory (Rust `Vec` analog).
 /// On drop, each live element is dropped and the buffer is freed.
@@ -271,6 +272,20 @@ impl<T> Index<i64, T> for Vec<T> {
 }
 impl<T> IndexMut<i64, T> for Vec<T> {
     fn index_mut(&mut self, idx: i64) -> &mut T { return self.borrow_mut(idx); }
+}
+
+// Rust's `impl<T: Clone> Clone for Vec<T>`: a new buffer holding each element's clone.
+impl<T: Clone> Clone for Vec<T> {
+    fn clone(&self) -> Vec<T> {
+        let mut out: Vec<T> = Vec::<T>::new();
+        let mut i: i64 = 0i64;
+        while i < self.len {
+            let e: &T = self.borrow(i);
+            out.push(e.clone());
+            i = i + 1i64;
+        }
+        return out;
+    }
 }
 
 // ── VecIter<T> ────────────────────────────────────────────────────────────────
