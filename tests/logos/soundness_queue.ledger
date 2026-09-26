@@ -181,7 +181,6 @@ vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_ref
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
-array_impl_nested_generic_elem_refused 3 tests/soundness/open/array_impl_nested_generic_elem_refused refuses
 
-# TOTAL 4
-# SYNC-HASH f597f2cd0ce29a0db430d6be63b84490
+# TOTAL 3
+# SYNC-HASH 030bc329793dd291780db906f8677915

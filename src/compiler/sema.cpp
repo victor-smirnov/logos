@@ -1654,42 +1654,82 @@ std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_vi
     return std::string(buf);
 }
 
+// `impl … for [E; N]` keys: `$array$<E>$<N>`. E is spelled with every type
+// parameter as `_` (a bare parameter is `T`, `Head<T>` is `Head<_>`,
+// `Option<Vec<T>>` is `Option<Vec<_>>`), N as `N` when it is a const
+// parameter. A concrete array is looked up under every GENERALIZATION of its
+// element — each subtree that an impl could have left generic, replaced by `_`
+// — most specific first, so one rule covers `[i64; 3]`, `[T; N]`, `[Option<T>;
+// N]` and deeper; the impl's parameters then bind by unification.
+static std::string array_elem_pattern_spelling(TypeRef t, int d) {
+    if (!t || d > 8) return {};
+    auto k = TypeRef(t).kind();
+    if (k == LogosType::Kind::TypeVar) return "_";
+    if (k == LogosType::Kind::ConstVar || k == LogosType::Kind::AssocType ||
+        k == LogosType::Kind::Error) return {};
+    if ((k == LogosType::Kind::Struct || k == LogosType::Kind::Enum) && !TypeRef(t).type_args().empty()) {
+        std::string r = std::string(k == LogosType::Kind::Enum ? TypeRef(t).enum_name() : TypeRef(t).struct_name()) + "<";
+        bool first = true;
+        for (auto a : TypeRef(t).type_args()) {
+            auto sa = array_elem_pattern_spelling(a, d + 1);
+            if (sa.empty()) return {};
+            r += first ? "" : ",";
+            r += sa;
+            first = false;
+        }
+        return r + ">";
+    }
+    // Any other shape is keyed only when it is fully concrete.
+    std::function<bool(TypeRef, int)> open = [&](TypeRef x, int dd) -> bool {
+        if (!x || dd > 16) return false;
+        auto kk = TypeRef(x).kind();
+        if (kk == LogosType::Kind::TypeVar || kk == LogosType::Kind::ConstVar ||
+            kk == LogosType::Kind::AssocType || kk == LogosType::Kind::Error) return true;
+        if (open(TypeRef(x).pointee(), dd + 1) || open(TypeRef(x).elem(), dd + 1)) return true;
+        for (auto y : TypeRef(x).type_args()) if (open(y, dd + 1)) return true;
+        for (auto y : TypeRef(x).tuple_elems()) if (open(y, dd + 1)) return true;
+        return false;
+    };
+    return open(t, 0) ? std::string() : type_str(t);
+}
+
+// Every generalization of a concrete element, most specific first.
+static void array_elem_generalizations(TypeRef t, int d, std::vector<std::string>& out) {
+    out.clear();
+    if (!t || d > 8) { out.push_back("_"); return; }
+    auto k = TypeRef(t).kind();
+    if ((k == LogosType::Kind::Struct || k == LogosType::Kind::Enum) && !TypeRef(t).type_args().empty()) {
+        std::string head = std::string(k == LogosType::Kind::Enum ? TypeRef(t).enum_name() : TypeRef(t).struct_name());
+        std::vector<std::string> combos{""};
+        bool first = true;
+        for (auto a : TypeRef(t).type_args()) {
+            std::vector<std::string> ga;
+            array_elem_generalizations(a, d + 1, ga);
+            std::vector<std::string> next;
+            for (auto& c : combos)
+                for (auto& g : ga) {
+                    if (next.size() >= 64) break;     // bounded: deep elements keep the specific end
+                    next.push_back(c + (first ? "" : ",") + g);
+                }
+            combos = std::move(next);
+            first = false;
+        }
+        // Most specific first: fewer `_` wins.
+        std::stable_sort(combos.begin(), combos.end(), [](const std::string& x, const std::string& y) {
+            return std::count(x.begin(), x.end(), '_') < std::count(y.begin(), y.end(), '_');
+        });
+        for (auto& c : combos) out.push_back(head + "<" + c + ">");
+    } else {
+        out.push_back(type_str(t));
+    }
+    out.push_back("_");
+}
+
 std::string array_impl_target_key(TypeRef pattern) {
     if (!pattern || TypeRef(pattern).kind() != LogosType::Kind::Array) return {};
-    TypeRef el = TypeRef(pattern).elem();
-    std::string e;
-    if (el && TypeRef(el).kind() == LogosType::Kind::TypeVar) e = "T";
-    else {
-        std::function<bool(TypeRef, int)> open = [&](TypeRef t, int d) -> bool {
-            if (!t || d > 16) return false;
-            auto k = TypeRef(t).kind();
-            if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::ConstVar ||
-                k == LogosType::Kind::AssocType || k == LogosType::Kind::Error) return true;
-            if (open(TypeRef(t).pointee(), d + 1) || open(TypeRef(t).elem(), d + 1)) return true;
-            for (auto a : TypeRef(t).type_args()) if (open(a, d + 1)) return true;
-            for (auto a : TypeRef(t).tuple_elems()) if (open(a, d + 1)) return true;
-            return false;
-        };
-        // `Head<T1, …>` with every argument a distinct bare parameter keys
-        // by its head: `$array$Head<_,_>$N` (array_impl_lookup_keys derives it
-        // from a concrete element). A deeper generic element is unkeyable.
-        auto k = el ? TypeRef(el).kind() : LogosType::Kind::Error;
-        if (el && (k == LogosType::Kind::Struct || k == LogosType::Kind::Enum) &&
-            !TypeRef(el).type_args().empty()) {
-            std::set<std::string> seen;
-            bool all_bare = true;
-            for (auto a : TypeRef(el).type_args())
-                if (!a || TypeRef(a).kind() != LogosType::Kind::TypeVar ||
-                    !seen.insert(std::string(TypeRef(a).type_var_name())).second) { all_bare = false; break; }
-            if (all_bare) {
-                e = std::string(k == LogosType::Kind::Enum ? TypeRef(el).enum_name() : TypeRef(el).struct_name()) + "<";
-                for (size_t i = 0; i < TypeRef(el).type_args().size(); ++i) e += i ? ",_" : "_";
-                e += ">";
-            }
-        }
-        if (e.empty() && (!el || open(el, 0))) return {};
-    }
-    if (e.empty()) e = type_str(el);
+    std::string e = array_elem_pattern_spelling(TypeRef(pattern).elem(), 0);
+    if (e.empty()) return {};
+    if (e == "_") e = "T";
     std::string_view sv(TypeRef(pattern).arr_size_var());
     std::string n = !sv.empty() ? std::string("N") : std::to_string(TypeRef(pattern).arr_size());
     return "$array$" + e + "$" + n;
@@ -1697,21 +1737,15 @@ std::string array_impl_target_key(TypeRef pattern) {
 
 std::vector<std::string> array_impl_lookup_keys(TypeRef concrete) {
     if (!concrete || TypeRef(concrete).kind() != LogosType::Kind::Array) return {};
-    TypeRef el = TypeRef(concrete).elem();
-    std::string e = el ? type_str(el) : std::string("?");
+    std::vector<std::string> gens;
+    array_elem_generalizations(TypeRef(concrete).elem(), 0, gens);
     std::string n = std::to_string(TypeRef(concrete).arr_size());
-    std::vector<std::string> keys{"$array$" + e + "$" + n, "$array$" + e + "$N"};
-    auto k = el ? TypeRef(el).kind() : LogosType::Kind::Error;
-    if (el && (k == LogosType::Kind::Struct || k == LogosType::Kind::Enum) &&
-        !TypeRef(el).type_args().empty()) {
-        std::string g = std::string(k == LogosType::Kind::Enum ? TypeRef(el).enum_name() : TypeRef(el).struct_name()) + "<";
-        for (size_t i = 0; i < TypeRef(el).type_args().size(); ++i) g += i ? ",_" : "_";
-        g += ">";
-        keys.push_back("$array$" + g + "$" + n);
-        keys.push_back("$array$" + g + "$N");
+    std::vector<std::string> keys;
+    for (auto& g : gens) {
+        std::string e = g == "_" ? std::string("T") : g;
+        keys.push_back("$array$" + e + "$" + n);
+        keys.push_back("$array$" + e + "$N");
     }
-    keys.push_back("$array$T$" + n);
-    keys.push_back("$array$T$N");
     return keys;
 }
 

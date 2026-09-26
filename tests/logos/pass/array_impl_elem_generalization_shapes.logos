@@ -1,0 +1,22 @@
+// Array impls keyed by the element pattern's spelling and found through the concrete element's generalizations: nested parameters, from a generic body.
+package array_impl_elem_generalization_shapes;
+use logos.mem.collections.vec;
+trait Tr { fn n(&self) -> i64; }
+impl<T, const N: usize> Tr for [Result<Vec<T>, bool>; N] {
+    fn n(&self) -> i64 {
+        let mut c: i64 = 0i64;
+        let mut i: usize = 0usize;
+        while i < N { match &self[i] { Result::Ok(v) => { c = c + v.len(); } Result::Err(_) => { c = c + 100i64; } } i = i + 1usize; }
+        return c;
+    }
+}
+impl<U> Tr for [Option<Option<U>>; 3] { fn n(&self) -> i64 { return 1000i64; } }
+fn via<X: Tr>(x: &X) -> i64 { return x.n(); }
+fn main() -> i32 {
+    let mut v: Vec<u8> = Vec::new();
+    v.push(1u8); v.push(2u8);
+    let a: [Result<Vec<u8>, bool>; 2] = [Result::Ok(v), Result::Err(true)];
+    let b: [Option<Option<i64>>; 3] = [None, Some(None), Some(Some(4))];
+    let r = a.n() + via(&a) + b.n() + via(&b);
+    return (r - 2204i64) as i32;
+}

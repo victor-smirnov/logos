@@ -1,0 +1,6 @@
+// `impl<T> Tr for [Option<Vec<T>>; 2]`: a type parameter nested below the element's head.
+package array_impl_nested_generic_elem;
+use logos.mem.collections.vec;
+trait Tr { fn n(&self) -> i64; }
+impl<T> Tr for [Option<Vec<T>>; 2] { fn n(&self) -> i64 { return 9i64; } }
+fn main() -> i32 { let a: [Option<Vec<i64>>; 2] = [None, None]; return a.n() as i32; }
