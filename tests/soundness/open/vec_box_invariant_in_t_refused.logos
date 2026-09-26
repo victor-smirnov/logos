@@ -20,3 +20,10 @@ fn main() -> i32 {
 // mismatch — expected &'static i64". sema's compute_variances derives the parameter from the stdlib Vec's `*mut T`
 // field, which is invariant (correctly, for a raw pointer). Found 2026-09-14b-ptrcoerceland (Q01S, Q11P, Q17),
 // reproducing on base 6d1bbee8344b2a81.
+// MEASURED 2026-09-26 (logosc addc797a4 + the change): Vec's and Box's buffer as `*const T` (Rust's `Unique<T>`) makes
+// both covariant and closes this row, with `&mut Vec` / a Box deref-write still invariant — but the full suite opens
+// TWO fail fixtures and moves a gate, because sema's `*mut T` invariance was the ONLY refusal of them (the BIR already
+// reads `*mut T` as covariant, struct_tp_invariant): bc_0914m_storeedgeland_hb_s57_refuse (`v.push(&d)` into a
+// `Vec<&dyn Show>` — the loan is lost at the `&K -> &dyn Show` unsize), bc_esc_holder_container_outparam_dangle (the
+// out-param flow summary of `stash(&mut v, H { v: o.as_str() })`), and logos_00_bc_flow_mask. Reverted: those two
+// misses close first, then the field change lands.
