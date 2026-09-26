@@ -6,7 +6,12 @@
 // Opened 2026-09-15f-rustcaudit: the old row struct_lit_field_invariant_region_static_refused ANNOTATED `s: &'static i64` and is illegal (rustc E0597; now
 // fail fixture bc_0915f_rustcaudit_struct_lit_mutref_field_static_annot_refuse). ONE-TOKEN CONTROL: a LOCAL referent (`let mut s: &i64 = &v;`) compiles and
 // runs 0 in both compilers (pass fixture bc_0915f_rustcaudit_struct_lit_mutref_field_local_region_admit) — so the referent being a `static` is the variable.
-// Root NOT read. ⚠ The sentence prints `&static` with no apostrophe where the annotated spelling prints `&'static`.
+// ROOT (read 2026-09-25): lower_let pins the local's elided region to the initializer's `'static` (the Ref hop "an elided
+// annotation region takes the initializer's region", and the unannotated arm keeps it too — `let mut s = &G;` fails alike).
+// MEASURED: leaving that slot elided closes this row but opens `bc_streborrow_static_mut_keeps_region` and
+// `let q = &G; w2(q)` with `w2(p: &'static i64)` (sema's call-arg variance reads elided as shorter than `'static`); and
+// relaxing THAT check drops the only refusal of `bc_streborrow_local_mut_into_static_fail` (sema's, not the BIR's). The
+// fix is a local region that is an inference VARIABLE bounded by `'static` — both answers from one type. ⚠ The sentence prints `&static` with no apostrophe where the annotated spelling prints `&'static`.
 package struct_lit_mutref_field_unannotated_static_borrow_refused;
 static G: i64 = 7i64;
 struct HM<'a> { m: &'a mut &'a i64 }
