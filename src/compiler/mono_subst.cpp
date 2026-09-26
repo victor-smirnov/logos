@@ -472,6 +472,8 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 // base (`Tr<A>` / `Tr<B>`) must be told apart by the trait args,
                 // so only a single unifying candidate is taken.
                 if (sbv.kind() == LogosType::Kind::Struct || sbv.kind() == LogosType::Kind::ZonedStruct) {
+                    // KEY-IDENTITY: a BUCKET (see mono.cpp's insert) — the candidates are filtered by unifying
+                    // the stored package-carrying target pattern with the concrete base; one unifier is taken.
                     auto git = generic_assoc_impls_.find(bare + "::" + std::string(sbv.struct_name()) +
                                                          "::" + std::string(tv.assoc_type_name()));
                     if (git != generic_assoc_impls_.end()) {

@@ -10622,6 +10622,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // own bound (`I: IntoIterator<T>` → Item := T).
                 SemaSubst tsub;
                 if (TypeRef base = TypeRef(recv_inner).assoc_base()) {
+                    // KEY-IDENTITY: the base's own type spelling in the signature's type-parameter namespace
+                    // (the key current_type_bounds_ is written under) — not an entity name.
                     auto bb = current_type_bounds_.find(type_str(base));
                     if (bb != current_type_bounds_.end())
                         for (auto& ob : bb->second)

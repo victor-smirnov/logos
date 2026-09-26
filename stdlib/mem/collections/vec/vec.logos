@@ -918,11 +918,6 @@ impl<E> AsMut<[E]> for Vec<E> {
     fn as_mut(&mut self) -> &mut [E] { return self.as_mut_slice(); }
 }
 
-// Rust's `impl<T> Default for Vec<T>`: the empty vector.
-impl<T> Default for Vec<T> {
-    fn default() -> Vec<T> { return vec_new::<T>(); }
-}
-
 /// `[T]` → `Vec<T>` (Rust's `<[T]>::to_vec`).
 pub trait SliceToVec<T> {
     /// A new `Vec` holding a clone of every element.

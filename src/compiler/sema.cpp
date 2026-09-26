@@ -7884,6 +7884,7 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                             for (auto& ta : b.type_args)
                                 if (ta) ta = subst_type_sema(ta, ts);
                 }
+                // KEY-IDENTITY: the projection's own type spelling (see above).
                 current_type_bounds_[type_str(result)] = std::move(bs);
                 break;
             }

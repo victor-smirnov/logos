@@ -3571,6 +3571,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             }
                             if (k == LogosType::Kind::TypeVar) {
                                 if (!under.empty())
+                                    // KEY-IDENTITY: a TYPE-PARAMETER name of the impl header being lowered, scoped to it
+                                    // (cleared per impl) — not an entity name.
                                     implied_type_lt_outlives_[std::string(t.type_var_name())].push_back(under);
                                 return;
                             }

@@ -346,6 +346,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     pat && (TypeRef(pat).kind() == LogosType::Kind::Struct ||
                             TypeRef(pat).kind() == LogosType::Kind::ZonedStruct) &&
                     !TypeRef(pat).type_args().empty())
+                    // KEY-IDENTITY: a BUCKET, not an identity — the entry stores the impl's own target pattern
+                    // (`pat`, carrying its package) and the reader keeps only a candidate unify_impl_target accepts.
                     generic_assoc_impls_[impl_trait + "::" + std::string(TypeRef(pat).struct_name()) +
                                          "::" + aname].push_back({pat, trait_args, atype});
             });
