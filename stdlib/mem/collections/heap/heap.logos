@@ -1,0 +1,120 @@
+// Logos standard library — std.collections.heap
+//
+// BinaryHeap<T: Ord> — a max-heap over a Vec<T> (Rust's `std::collections::BinaryHeap`).
+// `Reverse<T>` (logos.lang.cmp) turns it into a min-heap.
+
+package logos.mem.collections.heap;
+
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.iter;
+use logos.lang.convert;
+use logos.lang.default;
+use logos.mem.collections.vec;
+
+/// A priority queue: `pop` returns the greatest element (Rust's `BinaryHeap`).
+pub struct BinaryHeap<T> {
+    data: Vec<T>,
+}
+
+impl<T: Ord> BinaryHeap<T> {
+    /// Creates an empty heap.
+    pub fn new() -> BinaryHeap<T> { return BinaryHeap { data: Vec::<T>::new() }; }
+
+    /// Creates an empty heap with room for at least `n` elements.
+    pub fn with_capacity(n: i64) -> BinaryHeap<T> {
+        return BinaryHeap { data: vec_with_capacity::<T>(n) };
+    }
+
+    /// The number of elements.
+    pub fn len(&self) -> i64 { return self.data.len(); }
+
+    /// `true` if the heap holds no elements.
+    pub fn is_empty(&self) -> bool { return self.data.len() == 0; }
+
+    /// The greatest element, or `None` if empty.
+    pub fn peek(&self) -> Option<&T> { return self.data.first(); }
+
+    /// Pushes `item`, restoring the heap order (O(log n)).
+    pub fn push(&mut self, item: T) {
+        self.data.push(item);
+        let mut i: i64 = self.data.len() - 1;
+        while i > 0 {
+            let parent: i64 = (i - 1) / 2;
+            let up: bool = match self.data.borrow(i).cmp(self.data.borrow(parent)) {
+                Ordering::Greater => true, _ => false,
+            };
+            if !up { break; }
+            self.data.swap(i, parent);
+            i = parent;
+        }
+    }
+
+    /// Removes and returns the greatest element, or `None` if empty (O(log n)).
+    pub fn pop(&mut self) -> Option<T> {
+        let n: i64 = self.data.len();
+        if n == 0 { return Option::None; }
+        let top: T = self.data.swap_remove(0);
+        let m: i64 = n - 1;
+        let mut i: i64 = 0;
+        loop {
+            let l: i64 = 2 * i + 1;
+            if l >= m { break; }
+            let r: i64 = l + 1;
+            let mut big: i64 = l;
+            if r < m {
+                match self.data.borrow(r).cmp(self.data.borrow(l)) {
+                    Ordering::Greater => { big = r; }
+                    _ => {}
+                }
+            }
+            let down: bool = match self.data.borrow(big).cmp(self.data.borrow(i)) {
+                Ordering::Greater => true, _ => false,
+            };
+            if !down { break; }
+            self.data.swap(i, big);
+            i = big;
+        }
+        return Option::Some(top);
+    }
+
+    /// Removes every element.
+    pub fn clear(&mut self) { self.data.clear(); }
+
+    /// Consumes the heap, returning its elements in arbitrary (heap) order.
+    pub fn into_vec(self: BinaryHeap<T>) -> Vec<T> {
+        let mut out: Vec<T> = Vec::<T>::new();
+        let mut h: BinaryHeap<T> = self;
+        out.append(&mut h.data);
+        return out;
+    }
+
+    /// Consumes the heap, returning its elements in ascending order.
+    pub fn into_sorted_vec(self: BinaryHeap<T>) -> Vec<T> {
+        let mut v: Vec<T> = self.into_vec();
+        v.sort();
+        return v;
+    }
+
+    /// Borrowing iterator over the elements in arbitrary (heap) order.
+    pub fn iter<'a>(self: &'a BinaryHeap<T>) -> VecIter<'a, T> { return self.data.iter(); }
+}
+
+/// `BinaryHeap::from(vec)` — heapifies `v` (O(n log n)).
+impl<E: Ord> From<Vec<E>> for BinaryHeap<E> {
+    fn from(v: Vec<E>) -> BinaryHeap<E> {
+        let mut h: BinaryHeap<E> = BinaryHeap::<E>::with_capacity(v.len());
+        for x in v { h.push(x); }
+        return h;
+    }
+}
+
+impl<T: Ord> Default for BinaryHeap<T> {
+    fn default() -> BinaryHeap<T> { return BinaryHeap::<T>::new(); }
+}
+
+/// `for x in heap` — consumes the heap, yielding its elements in arbitrary order.
+impl<T: Ord> IntoIterator<T> for BinaryHeap<T> {
+    type Iter = VecIntoIter<T>;
+    fn into_iter(self: BinaryHeap<T>) -> VecIntoIter<T> { return self.into_vec().into_iter(); }
+}

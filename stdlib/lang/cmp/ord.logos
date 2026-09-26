@@ -997,3 +997,17 @@ impl u16 {
     /// Returns `0 - self` wrapped (two's-complement negation).
     pub fn wrapping_neg(self: u16) -> u16             { return wrapping_sub::<u16>(0u16, self); }
 }
+
+// ── Reverse (Rust's `cmp::Reverse`) ─────────────────────────────────────────
+
+/// Reverses the order of the wrapped value: `Reverse(a) < Reverse(b)` iff `b < a`.
+/// Turns a max-heap (`BinaryHeap`) into a min-heap.
+pub struct Reverse<T>(pub T);
+
+impl<T: Eq> Eq for Reverse<T> {
+    fn eq(&self, other: &Self) -> bool { return self.0.eq(&other.0); }
+}
+
+impl<T: Ord> Ord for Reverse<T> {
+    fn cmp(&self, other: &Self) -> Ordering { return other.0.cmp(&self.0); }
+}

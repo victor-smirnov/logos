@@ -1,0 +1,30 @@
+// BinaryHeap and cmp::Reverse did not exist. A max-heap over a Vec: push/pop/peek/len,
+// From<Vec<T>>, into_vec/into_sorted_vec, owning for-in; Reverse makes it a min-heap.
+// String elements are dropped exactly once (valgrind). rustc twin: 0.
+package binaryheap_reverse;
+use logos.mem.collections.heap;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.cmp;
+fn main() -> i32 {
+    let mut h: BinaryHeap<i64> = BinaryHeap::new();
+    h.push(3); h.push(5); h.push(1); h.push(4);
+    match h.peek() { Option::Some(x) => { if *x != 5 { return 1; } } Option::None => { return 1; } }
+    if h.len() != 4 { return 2; }
+    match h.pop() { Option::Some(x) => { if x != 5 { return 3; } } Option::None => { return 3; } }
+    match h.pop() { Option::Some(x) => { if x != 4 { return 4; } } Option::None => { return 4; } }
+    let mut mn: BinaryHeap<Reverse<i64>> = BinaryHeap::new();
+    mn.push(Reverse(7i64)); mn.push(Reverse(2i64)); mn.push(Reverse(9i64));
+    match mn.pop() { Option::Some(Reverse(x)) => { if x != 2 { return 5; } } Option::None => { return 5; } }
+    let v: Vec<i64> = vec![4i64, 8, 1, 6];
+    let hv: BinaryHeap<i64> = BinaryHeap::from(v);
+    let sorted = hv.into_sorted_vec();
+    if sorted[0] != 1 || sorted[3] != 8 { return 6; }
+    let mut hs: BinaryHeap<String> = BinaryHeap::new();
+    hs.push(String::from("b")); hs.push(String::from("c")); hs.push(String::from("a"));
+    match hs.pop() { Option::Some(s) => { if s.len() != 1 { return 7; } } Option::None => { return 7; } }
+    let mut n: i64 = 0;
+    for x in hs { n += x.len(); }
+    if n != 2 { return 8; }
+    return 0;
+}
