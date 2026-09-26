@@ -187,13 +187,13 @@ hashmap_str_key_borrow_escapes_admitted 2 tests/soundness/open/hashmap_str_key_b
 
 str_slice_char_boundary_unchecked 2 tests/soundness/open/str_slice_char_boundary_unchecked run 0
 
-str_parse_method_refused 3 tests/soundness/open/str_parse_method_refused refuses
-
-ord_default_minmax_over_ref_self_refused 3 tests/soundness/open/ord_default_minmax_over_ref_self_refused refuses
-
 partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneous_rhs_refused refuses
 
 let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_literal_width_from_later_use_refused refuses
 
+bare_self_param_shorthand_refused 3 tests/soundness/open/bare_self_param_shorthand_refused refuses
+
+ref_param_address_taken_return_yields_slot 2 tests/soundness/open/ref_param_address_taken_return_yields_slot run 1
+
 # TOTAL 10
-# SYNC-HASH 440ff270755d0b40732a956a52dcb72b
+# SYNC-HASH 0002a994c00644c0f691ab5813fa95e3

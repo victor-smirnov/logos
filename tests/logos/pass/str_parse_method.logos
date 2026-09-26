@@ -1,0 +1,12 @@
+// `s.parse::<T>()` / `let r: Result<T, E> = s.parse()`: std's `FromStr` has Rust's shape (`type Err`) and `str::parse` is
+// the inherent method over it (it was refused: only the free `i64_from_str` & co. existed). The turbofish of an inherent
+// `impl str` method is honoured. rustc twin: 50.
+package str_parse_method;
+use logos.lang.num.error;
+fn main() -> i32 {
+    let a: i64 = "42".parse::<i64>().unwrap();
+    let r: Result<i32, ParseIntError> = "x1".parse();
+    let b = match r { Ok(_) => 100, Err(_) => 3 };
+    let f = "2.5".parse::<f64>().unwrap();
+    return (a as i32) + b + (f * 2.0) as i32;
+}

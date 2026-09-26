@@ -608,7 +608,9 @@ private:
             std::string l(t.lifetime());
             TypeRef p = name_impl_anon_lts_(t.pointee(), n);
             bool ch = (p != t.pointee());
-            if (anon(l)) { l = "'__anon" + std::to_string(n++); ch = true; }
+            // A reference ELIDED in the header (`impl Ord for &i32`) is the same
+            // anonymous impl binder as a written `'_`: ONE region for every `Self`.
+            if (anon(l) || l.empty()) { l = "'__anon" + std::to_string(n++); ch = true; }
             return ch ? make_ref(t.kind() == K::MutRef, p, l) : t;
         }
         case K::Struct:

@@ -4907,6 +4907,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         for (size_t i = 0; i < la.size(); ++i) {
                             std::string x = la[i];
                             std::string y = lb[i];
+                            // The trait slot carries the impl header's anonymous
+                            // binder (`Self = &'__anon0 i32`) and the impl writes an
+                            // elided, method-local region there (`other: &&i32`): the
+                            // impl is MORE general in that slot, which Rust admits.
+                            if (!is_ret && lt_is_impl_anon(x) && y.empty()) continue;
                             if (x.empty()) x = is_ret ? _eout_a : _esyn(slot, i);
                             if (y.empty()) y = is_ret ? _eout_b : _esyn(slot, i);
                             if (x.empty() || y.empty()) {
@@ -5183,6 +5188,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     else
                         error(std::format("impl {} for {}: method '{}' does not match the trait declaration's signature",
                               trait_name, target, m.name));
+                } else if (m.has_default && m.requires_sized_self && impl_self_ty &&
+                           (TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedSlice ||
+                            TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedDyn ||
+                            TypeRef(impl_self_ty).kind() == LogosType::Kind::TraitObject)) {
+                    // `where Self: Sized` (Ord::max) does not exist for an unsized
+                    // implementor (`impl Ord for str`): nothing to register.
                 } else if (m.has_default) {
                     // This overload not explicitly provided; register the default.
                     // Build Self type; for generic impls include the type params as TypeVars.
@@ -5291,6 +5302,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                 ? make_generic_enum(TypeRef(self_type).enum_name(), std::move(ta), std::move(sl), TypeRef(self_type).pkg_name())
                                 : make_generic_struct(TypeRef(self_type).struct_name(), std::move(ta), std::move(sl), TypeRef(self_type).pkg_name());
                         }
+                    }
+                    // A structural target (`&T`, `&mut T`, a tuple, an array) has no
+                    // name to re-derive Self from: it is the header's resolved type,
+                    // for EVERY default (the G160-3 leak, for the non-named kinds).
+                    if (!is_blanket && !self_type && impl_self_ty) {
+                        auto k = TypeRef(impl_self_ty).kind();
+                        if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+                            k == LogosType::Kind::Tuple || k == LogosType::Kind::Array)
+                            self_type = impl_self_ty;
                     }
                     if (is_blanket)
                         current_type_params_["Self"] = make_typevar(target);

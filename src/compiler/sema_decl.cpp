@@ -366,6 +366,9 @@ void SemaChecker::compute_fn_lifetime_outlives(
         // A MINTED region was never WRITTEN, so the undeclared-lifetime rule
         // (which reports what the user spelled) must not see it.
         if (lt_is_minted(lt)) return true;
+        // Nor an impl header's anonymous binder (`'__anonN`, a `'_` or an elided
+        // header reference): the header declares it, and nobody spelled it.
+        if (lt_is_impl_anon(lt)) return true;
         return declared.count(std::string(lt)) > 0;
     };
     for (auto& [lng, sht] : lifetime_outlives) {
@@ -3400,7 +3403,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // clone per concrete receiver. Without this, the call dispatched
                 // by try_blanket_method_dispatch dangles to an empty stub.
                 auto mangled = lower_target + "__" + m.name;
-                if (m.has_default && !overridden.count(mangled)) {
+                // `where Self: Sized` (Ord::max) does not exist for an unsized
+                // implementor (`impl Ord for str`) — Rust never instantiates it.
+                const bool dm_unsized_self = (impl_target_typeref &&
+                    (TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedSlice ||
+                     TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedDyn ||
+                     TypeRef(impl_target_typeref).kind() == LogosType::Kind::TraitObject));
+                if (m.has_default && !overridden.count(mangled) &&
+                    !(m.requires_sized_self && dm_unsized_self)) {
                     // §8.5: per-method where-clause gate. A method like
                     // `fn max() where Item: Ord` is only synthesised for
                     // an impl whose concrete trait-arg satisfies the
@@ -3464,6 +3474,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                     if (gate_skip) continue;
                     // Push Self → target type; for generic impls include type params as TypeVars.
+                    // The binding in force before THIS default is restored after it:
+                    // a `&i32` / tuple target is bound once above, not re-derived from
+                    // a name, so an `erase` left every later default without `Self`.
+                    const bool dm_had_self = current_type_params_.count("Self") != 0;
+                    const TypeRef dm_prev_self = dm_had_self ? current_type_params_["Self"] : TypeRef(nullptr);
                     TypeRef self_type = nullptr;
                     if (impl_is_blanket) {
                         self_type = make_typevar(target);
@@ -3632,7 +3647,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         fn.type(dk::IMPL_TARGET_PATTERN, impl_target_typeref);
                         prog.functions.push_back(fn.view<lir_view::FunctionView>());
                     }
-                    current_type_params_.erase("Self");
+                    if (dm_had_self) current_type_params_["Self"] = dm_prev_self;
+                    else current_type_params_.erase("Self");
                 }
             }
         }

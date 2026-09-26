@@ -1,8 +1,0 @@
-// SOUNDNESS QUEUE row str_parse_method_refused (tier 3, `refuses`). Found 2026-09-26 by the discovery battery.
-// Rust's `"42".parse::<i64>()` is refused: std has only the free functions `i64_from_str` & co. (logos.lang.num.parse).
-// rustc: exit 0.
-package str_parse_method_refused;
-fn main() -> i32 {
-    let r: Result<i64, i64> = "42".parse::<i64>();
-    match r { Result::Ok(v) => { return (v - 42) as i32; } Result::Err(_) => { return 1; } }
-}

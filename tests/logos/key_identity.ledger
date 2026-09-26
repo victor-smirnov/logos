@@ -572,7 +572,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # does not look. The three that remain are trait_engine_test.cpp.
 #ARGSCAN add_shape_auto_impl 3 956cbf5c
 #ARGSCAN at 3 7a506430
-#ARGSCAN count 9 507529e7
+# 2026-09-26: count() 9 -> 10: lower_impl_block's default-method loop saves `current_type_params_.count("Self")` to
+#   restore it after each default — `Self` is the type-parameter slot's own name, the same key the struct-method
+#   save/restore in the same file already reads; no entity is resolved by it.
+#ARGSCAN count 10 3cd6b041
 #ARGSCAN enum_lit 3 d49e815d
 #ARGSCAN enum_lit_data 3 1eae352f
 #ARGSCAN erase 9 ab9caa8e

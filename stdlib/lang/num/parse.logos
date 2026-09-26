@@ -3,10 +3,9 @@
 // String → number parsing. Mirrors `core::str::FromStr` (the
 // `s.parse::<T>()` idiom) and `i32::from_str_radix` / etc.
 //
-// The Rust shape carries an associated `Err` type; Logos's trait
-// uses a type-param E for the same purpose. Per-primitive
-// `from_str_radix` free fns hold the actual digit-walk; the trait
-// impls just delegate to them.
+// `FromStr` has Rust's shape (an associated `Err`), and `str::parse`
+// is the inherent method over it. Per-primitive `from_str_radix` free
+// fns hold the actual digit-walk; the trait impls delegate to them.
 
 package logos.lang.num.parse;
 
@@ -15,12 +14,18 @@ use logos.lang.result;
 use logos.lang.num.error;
 use logos.lang.str;
 
-/// Parses a value of `Self` from a `str`; Rust's `core::str::FromStr` with the
-/// error type as trait type-param `E` (Logos traits carry no associated types
-/// outside the Fn-family). Backs the `s.parse::<T>()` idiom.
-pub trait FromStr<E> {
-    /// Parses the whole of `s` into `Self`, or returns `E` on failure.
-    fn from_str(s: str) -> Result<Self, E>;
+/// Parses a value of `Self` from a `str`; Rust's `core::str::FromStr`.
+/// Backs `s.parse::<T>()`.
+pub trait FromStr {
+    /// The error a failed parse returns.
+    type Err;
+    /// Parses the whole of `s` into `Self`, or returns `Err` on failure.
+    fn from_str(s: str) -> Result<Self, Self::Err>;
+}
+
+impl str {
+    /// Parses `self` into any `F: FromStr` (Rust's `str::parse`).
+    pub fn parse<F: FromStr>(&self) -> Result<F, F::Err> { return F::from_str(*self); }
 }
 
 // ── Per-primitive digit-walk parsers ──────────────────────────────
@@ -228,16 +233,20 @@ pub fn u64_from_str(s: str) -> Result<u64, ParseIntError> {
 //
 // Each impl delegates to the matching free fn so the parse logic
 // stays in one place.
-impl FromStr<ParseIntError> for i32 {
+impl FromStr for i32 {
+    type Err = ParseIntError;
     fn from_str(s: str) -> Result<i32, ParseIntError> { return i32_from_str(s); }
 }
-impl FromStr<ParseIntError> for i64 {
+impl FromStr for i64 {
+    type Err = ParseIntError;
     fn from_str(s: str) -> Result<i64, ParseIntError> { return i64_from_str(s); }
 }
-impl FromStr<ParseIntError> for u32 {
+impl FromStr for u32 {
+    type Err = ParseIntError;
     fn from_str(s: str) -> Result<u32, ParseIntError> { return u32_from_str(s); }
 }
-impl FromStr<ParseIntError> for u64 {
+impl FromStr for u64 {
+    type Err = ParseIntError;
     fn from_str(s: str) -> Result<u64, ParseIntError> { return u64_from_str(s); }
 }
 
@@ -392,9 +401,11 @@ pub fn f32_from_str(s: str) -> Result<f32, ParseFloatError> {
     }
 }
 
-impl FromStr<ParseFloatError> for f32 {
+impl FromStr for f32 {
+    type Err = ParseFloatError;
     fn from_str(s: str) -> Result<f32, ParseFloatError> { return f32_from_str(s); }
 }
-impl FromStr<ParseFloatError> for f64 {
+impl FromStr for f64 {
+    type Err = ParseFloatError;
     fn from_str(s: str) -> Result<f64, ParseFloatError> { return f64_from_str(s); }
 }

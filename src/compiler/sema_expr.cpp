@@ -9265,6 +9265,26 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             // state: &mut H)` on a `str` receiver).
             for (size_t i = 0; i < fi_ptr->param_types.size() && i < pargs.size(); ++i)
                 unify_types(fi_ptr->param_types[i], expr_type(pargs[i]), binds);
+            // A method-level turbofish (`s.parse::<i64>()`) names the LAST
+            // parameters (the method's own, after the impl's).
+            if (node.has_key(la::TYPE_PARAMS)) {
+                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    const size_t np = fi_ptr->type_params.size();
+                    if (items.size() <= np) {
+                        bool was_ok = unsized_ok_;
+                        unsized_ok_ = true;
+                        for (uint64_t k = 0; k < items.size(); ++k)
+                            binds[fi_ptr->type_params[np - items.size() + k].name] =
+                                resolve_type(map_of(items.get(k)));
+                        unsized_ok_ = was_ok;
+                    }
+                }
+            }
+            // …else the expected type of the call (`let r: Result<i64, E> = s.parse()`).
+            if (hint_call_return_type_ && fi_ptr->ret_type)
+                unify_types(fi_ptr->ret_type, hint_call_return_type_, binds);
             std::vector<TypeRef> m_type_args;
             for (auto& tp : fi_ptr->type_params) {
                 if (auto bit2 = binds.find(tp.name); bit2 != binds.end())

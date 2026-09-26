@@ -107,6 +107,21 @@ pub fn cmp_opt_is_ge(o: Option<Ordering>) -> bool {
 pub trait Ord {
     /// Returns the `Ordering` of `self` relative to `other`.
     fn cmp(&self, other: &Self) -> Ordering;
+    /// The greater of `self` and `other`; `other` when they are equal (Rust's `Ord::max`).
+    fn max(self: Self, other: Self) -> Self where Self: Sized {
+        match self.cmp(&other) { Ordering::Greater => { return self; } _ => { return other; } }
+    }
+    /// The lesser of `self` and `other`; `self` when they are equal (Rust's `Ord::min`).
+    fn min(self: Self, other: Self) -> Self where Self: Sized {
+        match self.cmp(&other) { Ordering::Greater => { return other; } _ => { return self; } }
+    }
+    /// `self` restricted to `lo..=hi` (Rust's `Ord::clamp`; panics if `lo > hi`).
+    fn clamp(self: Self, lo: Self, hi: Self) -> Self where Self: Sized {
+        match lo.cmp(&hi) { Ordering::Greater => { logos.lang.panic::panic("Ord::clamp: lo > hi"); } _ => {} }
+        match self.cmp(&lo) { Ordering::Less => { return lo; } _ => {} }
+        match self.cmp(&hi) { Ordering::Greater => { return hi; } _ => {} }
+        return self;
+    }
 }
 
 impl Ord for i8  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
