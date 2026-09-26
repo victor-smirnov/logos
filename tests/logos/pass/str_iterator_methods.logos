@@ -1,0 +1,47 @@
+// The Rust `str` iterator constructors as methods: chars (yields `char`),
+// char_indices (yields `(i64, char)`), bytes, lines, split over any Pattern,
+// split_whitespace, matches, match_indices (yields `(i64, &str)`). They used to be "slice has no
+// method 'chars'"; `Chars` yielded `u32` and `CharIndices` a struct.
+// rustc twin: 0.
+package str_iterator_methods;
+use logos.lang.str;
+use logos.lang.iter;
+
+fn main() -> i32 {
+    let mut it = "hé".chars();
+    if it.next() != Some('h') { return 1; }
+    if it.next() != Some('é') { return 2; }
+    if it.next().is_some() { return 3; }
+    let mut n: i64 = 0;
+    for c in "añb".chars() { if c.is_ascii() { n = n + 1; } }
+    if n != 2 { return 4; }
+    let mut at: i64 = -1;
+    for (i, c) in "aé b".char_indices() { if c == ' ' { at = i; } }
+    if at != 3 { return 5; }
+    let mut sum: i64 = 0;
+    for b in "ab".bytes() { sum = sum + b as i64; }
+    if sum != 195 { return 6; }
+    let mut lines: i64 = 0;
+    let mut last: &str = "";
+    for l in "one\ntwo\r\nthree\n".lines() { lines = lines + 1; last = l; }
+    if lines != 3 || last != "three" { return 7; }
+    let mut parts: i64 = 0;
+    for p in "a,b,,c".split(',') { parts = parts + 1; }
+    if parts != 4 { return 8; }
+    let mut sp = "a::b".split("::");
+    if sp.next() != Some("a") { return 9; }
+    if sp.next() != Some("b") { return 10; }
+    if sp.next().is_some() { return 11; }
+    let mut words: i64 = 0;
+    let mut wlen: i64 = 0;
+    for w in "  a bb\t ccc \n".split_whitespace() { words = words + 1; wlen = wlen + w.len(); }
+    if words != 3 || wlen != 6 { return 12; }
+    if "   ".split_whitespace().next().is_some() { return 13; }
+    let mut m: i64 = 0;
+    for x in "abcabcab".matches("ab") { if x == "ab" { m = m + 1; } }
+    if m != 3 { return 14; }
+    let mut pos: i64 = 0;
+    for (i, m) in "xaxa".match_indices('a') { if m == "a" { pos = pos + i; } }
+    if pos != 4 { return 15; }
+    return 0;
+}

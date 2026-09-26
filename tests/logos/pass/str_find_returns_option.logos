@@ -1,0 +1,28 @@
+// `str::find` / `str::rfind` return `Option<i64>` (Rust `Option<usize>`; byte
+// offsets are i64 in Logos), over any Pattern: a `&str`, a `char` (matched as a
+// codepoint, so the offset is a char boundary) or a `u8`. `find` used to be a
+// compiler forward to `str_index_of` returning a -1 sentinel, so a `match` on
+// `Some`/`None` was refused. rustc twin: 6.
+package str_find_returns_option;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let s: &str = "hello world";
+    match s.find("wor") { Some(i) => { if i != 6 { return 1; } } None => { return 2; } }
+    if s.find("xyz").is_some() { return 3; }
+    if s.find('o') != Some(4) { return 4; }
+    if s.rfind('o') != Some(7) { return 5; }
+    if s.rfind("l") != Some(9) { return 7; }
+    if "aaa".rfind("aa") != Some(1) { return 8; }
+    if s.find("") != Some(0) { return 9; }
+    if s.rfind("") != Some(11) { return 10; }
+    let u: &str = "añb€c";
+    if u.find('€') != Some(4) { return 11; }
+    if u.find('c') != Some(7) { return 12; }
+    if u.rfind('ñ') != Some(1) { return 13; }
+    if u.find('z').is_some() { return 14; }
+    match s.find("wor") {
+        Some(i) => { return i as i32; }
+        None => { return -1i32; }
+    }
+}

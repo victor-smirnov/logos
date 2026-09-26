@@ -9140,25 +9140,15 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
         TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8) {
         return std::move(recv);
     }
-    // §6 Wave 9 (h32) — `s.starts_with(prefix)` / `s.ends_with(suffix)` /
-    // `s.contains(needle)` on `&str` forward to the stdlib free fns
-    // `str_starts_with` / `str_ends_with` / `str_contains` so the
-    // method-call shape works without users having to import the bare
-    // fn names.
+    // Logos-only `&str` methods forwarded to stdlib free fns. The Rust
+    // surface (find / contains / starts_with / trim / split / chars ...)
+    // is a real `impl str` in logos.lang.str and resolves below.
     if (TypeRef(expr_type(recv)).elem() &&
         TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8) {
         const std::pair<std::string_view, std::string_view> forwards[] = {
-            {"starts_with",  "str_starts_with"},
-            {"ends_with",    "str_ends_with"},
-            {"contains",     "str_contains"},
             {"eq_str",       "str_eq"},
             {"cmp",          "str_cmp"},
             {"index_of",     "str_index_of"},
-            {"find",         "str_index_of"},
-            {"trim",         "str_trim"},
-            {"trim_start",   "str_trim_start"},
-            {"trim_end",     "str_trim_end"},
-            {"split",        "split"},
         };
         for (auto& [m, sym] : forwards) {
             if (method_name == m) {
@@ -9249,6 +9239,28 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             }
             if (code_of(an) == la::ADDR_OF_MUT && an.has_key(la::VALUE)) {
                 slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
+            }
+        }
+        // An exact-signature miss because of an untyped literal argument
+        // (`s.repeat(3)`, `s.is_char_boundary(1)`): accept the single
+        // non-generic candidate whose formals the arguments are compatible
+        // with, and widen the literals to them.
+        if (!fi_ptr) {
+            const SemaFuncInfo* only = nullptr;
+            int n_fit = 0;
+            for (auto* c : find_func_candidates(key)) {
+                if (!c->type_params.empty() || c->is_vararg) continue;
+                if (c->param_types.size() != mtypes.size()) continue;
+                bool ok = types_equal(c->param_types[0], mtypes[0]);
+                for (size_t i = 1; ok && i < mtypes.size(); ++i)
+                    ok = c->param_types[i] && mtypes[i] &&
+                         types_compatible(mtypes[i], c->param_types[i]);
+                if (ok) { only = c; ++n_fit; }
+            }
+            if (n_fit == 1) {
+                fi_ptr = only;
+                for (size_t i = 1; i < mtypes.size(); ++i)
+                    widen_int_expr(slc_args[i - 1], only->param_types[i], builder());
             }
         }
         if (!fi_ptr) continue;
