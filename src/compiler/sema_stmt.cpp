@@ -808,6 +808,30 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         }
         // The operand is a place in a mutable-use position (`**bb += v`).
         auto ptr_node = map_of(stmt.get(la::NAME.code));
+        // An operand that CALLS (`*cell.borrow_mut() += 1`, `*pick(&mut a) += 5`)
+        // is evaluated ONCE, as Rust does: its final `&mut` goes into a statement
+        // temporary read and written through. The read-twice desugar below ran
+        // the call twice (a second `borrow_mut` panicked "already borrowed").
+        std::function<bool(TinyMapView, int)> dc_has_call = [&](TinyMapView n, int d) -> bool {
+            if (n.is_null() || d > 32) return false;
+            auto cc = code_of(n);
+            if (cc == la::METHOD_CALL || cc == la::CALL || cc == la::GENERIC_CALL || cc == la::STATIC_CALL)
+                return true;
+            for (auto k : {la::RECEIVER.code, la::VALUE.code})
+                if (n.has_key(k) && n.get(k).is_pointer() && dc_has_call(map_of(n.get(k)), d + 1))
+                    return true;
+            return false;
+        };
+        const bool eval_once = cur_stmt_temp_hoist_ && dc_has_call(ptr_node, 0);
+        auto write_once = [&](lir::LExprPtr p, TypeRef el, lir::LExprPtr r,
+                              const std::string& bop) -> lir_view::StmtRef {
+            TypeRef ptt = expr_type(p);
+            std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+            register_stmt_temp(nm, ptt, std::move(p), false);
+            auto cur = builder().deref(builder().var_ref(nm, ptt), el);
+            auto bin = builder().bin_op(bop, std::move(cur), std::move(r), el);
+            return builder().stmt_deref_write(builder().var_ref(nm, ptt), std::move(bin), node_line_);
+        };
         auto ptr   = lower_mut_place(ptr_node);
         auto rhs   = lower_expr(map_of(stmt.get(la::VALUE.code)));
         auto op_tok = str_of(stmt.get(la::OP.code));
@@ -830,6 +854,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             if (wcall && deref_only) {
                 refuse_deref_only(pt);
                 return builder().stmt_expr(error_expr(), node_line_);
+            }
+            if (wcall && eval_once) {
+                TypeRef tgt = TypeRef(expr_type(*wcall)).pointee();
+                if (tgt) return write_once(std::move(*wcall), tgt, std::move(rhs), base_op);
             }
             if (wcall) {
                 TypeRef tgt = TypeRef(expr_type(*wcall)).pointee();
@@ -860,6 +888,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             error("write through raw pointer requires unsafe context");
         if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
             error("deref-compound: cannot write through *const pointer (use *mut)");
+        if (eval_once) return write_once(std::move(ptr), elem, std::move(rhs), base_op);
         // Build *p (read) op rhs.  Need to read ptr twice — clone the var-ref
         // by re-lowering.
         auto ptr_again = lower_mut_place(ptr_node);
@@ -3818,6 +3847,74 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                     }
                 }
             }
+        }
+    }
+    // A place that CALLS (`*cell.borrow_mut() += 1`, `*pick(&mut a) += 5`,
+    // `v[next()] += 1`) is evaluated ONCE, as Rust does: the read-twice desugar
+    // below ran the call twice (a second `borrow_mut` panicked "already
+    // borrowed"). Its `&mut` is taken once into a statement temporary.
+    {
+        std::function<bool(TinyMapView, int)> has_call = [&](TinyMapView n, int d) -> bool {
+            if (n.is_null() || d > 32) return false;
+            auto c = code_of(n);
+            if (c == la::METHOD_CALL || c == la::CALL || c == la::GENERIC_CALL || c == la::STATIC_CALL)
+                return true;
+            for (auto k : {la::RECEIVER.code, la::VALUE.code})
+                if (n.has_key(k) && n.get(k).is_pointer() && has_call(map_of(n.get(k)), d + 1))
+                    return true;
+            return false;
+        };
+        if (cur_stmt_temp_hoist_ && has_call(place_node, 0)) {
+            auto mp = lower_mut_place(place_node);
+            TypeRef pt1 = expr_type(mp);
+            if (!pt1 || TypeRef(pt1).kind() == LogosType::Kind::Error) {
+                if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+                return builder().stmt_break(nullptr, "", node_line_);
+            }
+            TypeRef ref_t = make_ref(true, pt1);
+            std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+            register_stmt_temp(nm, ref_t,
+                               builder().addr_of_temp(std::move(mp), /*is_mut=*/true, ref_t,
+                                                      BorrowOrigin::CompoundAssign),
+                               false);
+            auto rhs1 = node.has_key(la::VALUE)
+                ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+            if (TypeRef(pt1).kind() == LogosType::Kind::Struct) {
+                std::string atrait, amethod;
+                if (op_assign_trait_method(base_op, atrait, amethod)) {
+                    auto type_name = concrete_struct_name(pt1);
+                    auto base_name = std::string(TypeRef(pt1).struct_name());
+                    if (has_impl(atrait, type_name) ||
+                        (!base_name.empty() && has_impl(atrait, base_name))) {
+                        auto mangled = type_name + "__" + amethod;
+                        TypeRef rhs_ty = rhs1 ? TypeRef(expr_type(rhs1)) : pt1;
+                        auto fit = find_func_by_base_and_signature(mangled, {ref_t, rhs_ty}, false);
+                        if (!fit && !types_equal(rhs_ty, pt1))
+                            fit = find_func_by_base_and_signature(mangled, {ref_t, pt1}, false);
+                        if (fit) {
+                            if (rhs1 && is_move_type(expr_type(rhs1)) &&
+                                !(fit->param_types.size() == 2 && fit->param_types[1] &&
+                                  is_ref_like(TypeRef(fit->param_types[1]).kind())))
+                                mark_moved_expr(expr_ref_of(rhs1));
+                            std::vector<lir::LExprPtr> args;
+                            args.push_back(builder().var_ref(nm, ref_t));
+                            args.push_back(std::move(rhs1));
+                            auto call = builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name,
+                                                       {}, std::move(args), fit->ret_type);
+                            return builder().stmt_expr(std::move(call), node_line_);
+                        }
+                    }
+                }
+            }
+            if (rhs1)
+                expect_type(rhs1, pt1, CoercePos::Operand,
+                            std::format("compound assignment to '{}': type mismatch —",
+                                        render_place_node(place_node)));
+            widen_int_expr(rhs1, pt1, builder());
+            auto cur1 = builder().deref(builder().var_ref(nm, ref_t), pt1);
+            auto newval1 = builder().bin_op(base_op, std::move(cur1), std::move(rhs1), pt1);
+            track_write_move(newval1);
+            return builder().stmt_deref_write(builder().var_ref(nm, ref_t), std::move(newval1), node_line_);
         }
     }
     if (!place_write_supported(place_node)) {
