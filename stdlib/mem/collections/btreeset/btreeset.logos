@@ -208,3 +208,17 @@ impl<K: Ord> IntoIterator<K> for BTreeSet<K> {
 impl<K: Ord> Default for BTreeSet<K> {
     fn default() -> BTreeSet<K> { return BTreeSet::<K>::new(); }
 }
+
+// `iter.collect::<BTreeSet<K>>()`; a duplicate element is dropped.
+impl<K: Ord> FromIterator<K> for BTreeSet<K> {
+    fn from_iter<I: Iterator<K>>(iter: I) -> BTreeSet<K> {
+        let mut s: BTreeSet<K> = BTreeSet::<K>::new();
+        let mut it: I = iter;
+        loop {
+            match it.next() {
+                Option::None    => { return s; }
+                Option::Some(k) => { s.insert(k); }
+            }
+        }
+    }
+}

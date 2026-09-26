@@ -1,0 +1,52 @@
+// Iterator::collect into HashMap, HashSet or String was refused ("does not implement
+// trait 'FromIterator'": only Vec had an impl). FromIterator now covers HashMap and
+// BTreeMap over (K, V) (a later duplicate key replaces the value, the replaced one is
+// dropped), HashSet and BTreeSet, and String from char / &str / String. Checked under
+// valgrind.
+// rustc twin: 0.
+package collect_into_map_set_string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.string;
+
+struct D { c: *mut i64, v: i32 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + 1; } } }
+
+fn main() -> i32 {
+    let v: Vec<(i32, i32)> = vec![(1, 10), (2, 20)];
+    let m: HashMap<i32, i32> = v.into_iter().collect();
+    if m.len() != 2 { return 1; }
+    // a later duplicate key replaces the earlier value
+    let w: Vec<(i32, i32)> = vec![(3, 1), (4, 2), (3, 9)];
+    let b: BTreeMap<i32, i32> = w.into_iter().collect();
+    if b.len() != 2 { return 2; }
+    let s: HashSet<i32> = vec![5, 6, 5, 7].into_iter().collect();
+    if s.len() != 3 { return 3; }
+    let t: BTreeSet<i32> = vec![9, 8, 9].into_iter().collect();
+    if t.len() != 2 { return 4; }
+    let st: String = vec!["ab", "cd"].into_iter().collect();
+    if st.len() != 4 { return 5; }
+    let mut sv: Vec<String> = Vec::new();
+    sv.push(String::from("x"));
+    sv.push(String::from("yz"));
+    let ss: String = sv.into_iter().collect();
+    if ss.len() != 3 { return 6; }
+    let cs: String = vec!['h', 'é', '!'].into_iter().collect();
+    if cs.len() != 4 { return 10; }
+    let mut n: i64 = 0;
+    let p: *mut i64 = &mut n;
+    {
+        let mut dv: Vec<(i32, D)> = Vec::new();
+        dv.push((1, D { c: p, v: 1 }));
+        dv.push((1, D { c: p, v: 2 }));
+        dv.push((2, D { c: p, v: 3 }));
+        let dm: HashMap<i32, D> = dv.into_iter().collect();
+        if dm.len() != 2 { return 7; }
+        if n != 1 { return 8; }
+    }
+    if n != 3 { return 9; }
+    return 0;
+}

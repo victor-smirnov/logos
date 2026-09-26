@@ -421,6 +421,21 @@ impl<K: Ord, V> Default for BTreeMap<K, V> {
     fn default() -> BTreeMap<K, V> { return btreemap_new::<K, V>(); }
 }
 
+// `iter.collect::<BTreeMap<K, V>>()` over `(K, V)` pairs; a later duplicate key
+// replaces the earlier value.
+impl<K: Ord, V> FromIterator<(K, V)> for BTreeMap<K, V> {
+    fn from_iter<I: Iterator<(K, V)>>(iter: I) -> BTreeMap<K, V> {
+        let mut m: BTreeMap<K, V> = btreemap_new::<K, V>();
+        let mut it: I = iter;
+        loop {
+            match it.next() {
+                Option::None         => { return m; }
+                Option::Some((k, v)) => { unsafe { m.insert(k, v); } }
+            }
+        }
+    }
+}
+
 // ── the query plane (ADR 0024 S6) ───────────────────────────────────────────
 //
 // The ordered counterpart of the HashMap declaration, and the other half of the

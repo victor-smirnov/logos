@@ -171,8 +171,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return &mut e.val as *mut V;
     }
 
-    /// Removes `key` from the map; returns `true` if it was present.
-    /// Tombstones the slot without moving out or dropping the entry's key/value.
+    /// Removes `key` from the map, returning its value if it was present; the stored key is dropped.
     pub unsafe fn remove(self: *mut HashMap<K, V>, key: &K) -> Option<V> {
         // Rust's `remove`: the value is returned, the stored key dropped (both leaked before).
         let (idx, found) = self.probe(key);
@@ -616,6 +615,21 @@ impl<K: Hash + Eq, V> IntoIterator<(K, V)> for HashMap<K, V> {
 
 impl<K: Hash + Eq, V> Default for HashMap<K, V> {
     fn default() -> HashMap<K, V> { return hashmap_new::<K, V>(); }
+}
+
+// `iter.collect::<HashMap<K, V>>()` over `(K, V)` pairs; a later duplicate key
+// replaces the earlier value (Rust's `impl FromIterator<(K, V)> for HashMap`).
+impl<K: Hash + Eq, V> FromIterator<(K, V)> for HashMap<K, V> {
+    fn from_iter<I: Iterator<(K, V)>>(iter: I) -> HashMap<K, V> {
+        let mut m: HashMap<K, V> = hashmap_new::<K, V>();
+        let mut it: I = iter;
+        loop {
+            match it.next() {
+                Option::None         => { return m; }
+                Option::Some((k, v)) => { unsafe { m.insert(k, v); } }
+            }
+        }
+    }
 }
 
 // ── the query plane (ADR 0024 S6) ───────────────────────────────────────────

@@ -182,3 +182,17 @@ impl<K: Hash + Eq> Default for HashSet<K> {
     fn default() -> HashSet<K> { return hashset_new::<K>(); }
 }
 
+// `iter.collect::<HashSet<K>>()`; a duplicate element is dropped.
+impl<K: Hash + Eq> FromIterator<K> for HashSet<K> {
+    fn from_iter<I: Iterator<K>>(iter: I) -> HashSet<K> {
+        let mut s: HashSet<K> = hashset_new::<K>();
+        let mut it: I = iter;
+        loop {
+            match it.next() {
+                Option::None    => { return s; }
+                Option::Some(k) => { unsafe { s.insert(k); } }
+            }
+        }
+    }
+}
+
