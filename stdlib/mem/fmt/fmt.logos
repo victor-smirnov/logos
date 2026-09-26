@@ -705,6 +705,20 @@ impl<T: Debug, E: Debug> Debug for Result<T, E> {
     }
 }
 
+// A reference formats as its referent (Rust: `impl<T: ?Sized + Debug> Debug for &T`).
+impl<T: Debug> Debug for &T {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return (**self).fmt(f); }
+}
+impl<T: Debug> Debug for &mut T {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return (**self).fmt(f); }
+}
+impl<T: Display> Display for &T {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return (**self).fmt(f); }
+}
+impl<T: Display> Display for &mut T {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return (**self).fmt(f); }
+}
+
 impl<T: Debug, const N: usize> Debug for [T; N] {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let _ = f.write_str("[");

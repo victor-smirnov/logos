@@ -1606,6 +1606,13 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     if (impls_.count(ImplKey{bid_def, k})) { found = true; break; }
                 if (found) continue;
             }
+            // `impl<T: …> Trait for &T` / `&mut T` (keyed `$ref_$T` /
+            // `$mut_ref_$T`): any reference of that kind; the referent's
+            // bound validates at monomorphization.
+            if ((cv.kind() == LogosType::Kind::Ref || cv.kind() == LogosType::Kind::MutRef) &&
+                type_args_ok &&
+                impls_.count(ImplKey{bid_def, cv.kind() == LogosType::Kind::MutRef ? "$mut_ref_$T" : "$ref_$T"}))
+                continue;
             // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
             // are registered under `$tuple$N` (generic, mirrors the
             // `$tuple$N$<t1>$<t2>…` concrete form). Recognise both.

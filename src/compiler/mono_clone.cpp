@@ -3987,6 +3987,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (orig_retargetable && new_concrete &&
                 new_recv && new_recv.type(out_.type_pool.impl())) {
                 std::string cname;
+                TypeRef ref_blanket_t{};   // `$ref_$T`/`$mut_ref_$T`: the T it binds
                 auto rt = new_recv.type(out_.type_pool.impl());
                 // Helper: concrete enum cname mirroring record_needed_enum's
                 // mangling (`<enum_name>__<arg1>__<arg2>...`). CP-cm-15
@@ -4150,17 +4151,16 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // The same ladder for an ARRAY receiver: the `$array$` keys,
                 // most specific first (array_impl_lookup_keys).
                 {
+                    // The array is the receiver or the one layer `&self` adds —
+                    // deeper, `Self` is itself a reference (the `$ref_$T` rung).
                     TypeRef arr_rt = rt;
-                    while (arr_rt && (TypeRef(arr_rt).kind() == LogosType::Kind::Ptr ||
-                                      TypeRef(arr_rt).kind() == LogosType::Kind::Ref ||
-                                      TypeRef(arr_rt).kind() == LogosType::Kind::MutRef) &&
-                           TypeRef(arr_rt).pointee())
+                    if (arr_rt && TypeRef(arr_rt).kind() != LogosType::Kind::Array)
                         arr_rt = TypeRef(arr_rt).pointee();
                     if (arr_rt && TypeRef(arr_rt).kind() == LogosType::Kind::Array &&
                         (cname.empty() || cname == type_str(rt) ||
                          (TypeRef(rt).pointee() && cname == type_str(TypeRef(rt).pointee()))))
                         for (auto& k : array_impl_lookup_keys(arr_rt))
-                            if (has_m(k)) { cname = k; break; }
+                            if (has_m(k) || (!tag_trait.empty() && has_m(k + "__" + tag_trait))) { cname = k; break; }
                 }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";
@@ -4209,6 +4209,15 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         std::string inner_key =
                             (inner.kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") + base_c;
                         if (sym_exists(inner_key + "__" + method)) cname = inner_key;
+                        // No impl for that reference type: the generic
+                        // `impl<T> Trait for &T` blanket, T = the referent.
+                        else if (std::string blk = inner.kind() == LogosType::Kind::MutRef
+                                                       ? "$mut_ref_$T" : "$ref_$T";
+                                 sym_exists(blk + "__" + method) ||
+                                 (!tag_trait.empty() && sym_exists(blk + "__" + tag_trait + "__" + method))) {
+                            cname = blk;
+                            ref_blanket_t = c;
+                        }
                     }
                 }
                 // A COMPARISON whose receiver is, through its reference layers,
@@ -4724,6 +4733,13 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 rebuilt.insert(rebuilt.end(), nc.type_args.end() - method_slots, nc.type_args.end());
                             nc.type_args = std::move(rebuilt);
                         }
+                    }
+                    if (ref_blanket_t) {
+                        std::vector<TypeRef> rebuilt{ref_blanket_t};
+                        size_t method_slots = tmpl_tparam_count > 1 ? tmpl_tparam_count - 1 : 0;
+                        if (method_slots > 0 && nc.type_args.size() >= method_slots)
+                            rebuilt.insert(rebuilt.end(), nc.type_args.end() - method_slots, nc.type_args.end());
+                        nc.type_args = std::move(rebuilt);
                     }
                     if (tmpl_tparam_count == 0) nc.type_args.clear();
                     else if (!tmpl_has_variadic && nc.type_args.size() > tmpl_tparam_count)

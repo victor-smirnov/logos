@@ -1,0 +1,9 @@
+// A reference formats as its referent: std's `impl<T: Debug> Debug for &T`, reached from a generic body.
+package debug_through_generic_ref_prints;
+use logos.std.fmt;
+struct P { x: i64 }
+impl Debug for P {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { let _ = f.write_str("P"); return f.write_int_dec_i64(self.x); }
+}
+fn show<T: Debug>(t: &T) { println!("{:?}", t); }
+fn main() -> i32 { show(&P { x: 5 }); return 0i32; }

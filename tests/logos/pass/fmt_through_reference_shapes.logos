@@ -1,0 +1,32 @@
+// Debug and Display through `&T` / `&mut T` (std's forwarding impls), from generic bodies and directly.
+package fmt_through_reference_shapes;
+use logos.std.fmt;
+use logos.mem.string;
+struct P { x: i64 }
+impl Debug for P {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { let _ = f.write_str("P"); return f.write_int_dec_i64(self.x); }
+}
+fn show<T: Debug>(t: &T) { println!("{:?}", t); }
+fn say<T: Display>(t: &T) { println!("{}", t); }
+fn show_mut<T: Debug>(t: &mut T) { println!("{:?}", t); }
+fn main() -> i32 {
+    show(&P { x: 5 });
+    show(&(1i64, 2i64));
+    show(&[P { x: 5 }, P { x: 6 }]);
+    show(&Some(3i64));
+    show(&&7i64);
+    let mut q = P { x: 9 };
+    show_mut(&mut q);
+    let r: &P = &q;
+    println!("{:?}", r);
+    say(&W { x: 1 });
+    say(&5i64);
+    say(&String::from("hi"));
+    let s: &str = "yo";
+    say(&s);
+    return 0;
+}
+struct W { x: i64 }
+impl Display for W {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { let _ = f.write_str("W"); return f.write_int_dec_i64(self.x); }
+}
