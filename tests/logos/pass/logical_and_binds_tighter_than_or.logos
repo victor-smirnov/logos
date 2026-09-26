@@ -1,0 +1,16 @@
+// `&&` binds tighter than `||` (Rust): `true || false && false` is `true || (false && false)`. Both operators parsed
+// at one left-associative level, so it grouped as `(true || false) && false` — silently false. Both expression
+// chains (the general one and the struct-literal-free `if`/`while` condition one). rustc twin: 42.
+package logical_and_binds_tighter_than_or;
+fn f(a: bool, b: bool, c: bool) -> bool { return a || b && c; }
+fn main() -> i32 {
+    let mut fails = 0;
+    if !(true || false && false) { fails = fails + 1; }
+    if false && true || true { } else { fails = fails + 2; }
+    if !f(true, false, false) { fails = fails + 4; }
+    if f(false, true, false) { fails = fails + 8; }
+    let x = 3;
+    if x == 1 || x == 3 && x > 2 { } else { fails = fails + 16; }
+    if fails != 0 { return fails; }
+    return 42;
+}

@@ -3222,6 +3222,9 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             emit_llvm_return_(mlir::ValueRange{val});
         else
             builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
+    } else if (cur_fn_unit_main_ && !in_llvm_func_) {
+        auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{zero});
     } else {
         if (in_llvm_func_)
             emit_llvm_return_(mlir::ValueRange{});

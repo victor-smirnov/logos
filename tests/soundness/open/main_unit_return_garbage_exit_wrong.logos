@@ -1,8 +1,0 @@
-// SOUNDNESS QUEUE row main_unit_return_garbage_exit_wrong (tier 1, `run 48`). Rust-parity audit 2026-09-26 (critical): fn main() with no return type exits with a garbage status instead of 0
-// FLS: fls_4psnfphsgdek fls_qq9fzrw4aykd
-// Logos: Compiles and links without error; the built binary consistently exits with status 48 (not 0) across 5 repeated runs on this box, because Logos's runtime entry shim expects `main` to return an i32 exit code in a register that a voi
-// rustc: rustc's `fn main() {}` compiles and the process exits with status 0.
-// fix hint: compiler entry shim: a unit-returning main must yield exit status 0 (the shim reads an unset return register).
-package main_unit_return_garbage_exit_wrong;
-fn main() {
-}

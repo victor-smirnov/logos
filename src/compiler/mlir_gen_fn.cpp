@@ -115,7 +115,13 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
     }
     fn_param_arg_index_[link_name(fn)] = std::move(arg_of_param);
     llvm::SmallVector<mlir::Type> ret_types;
-    if (fn_ret) {
+    // The C entry point returns `int`: a unit `fn main()` (Rust's default) is
+    // given an i32 result and returns 0 (it returned an unset register).
+    const bool unit_main = link_name(fn) == "main" &&
+        (!fn_ret || TypeRef(fn_ret).kind() == LogosType::Kind::Void);
+    if (unit_main)
+        ret_types.push_back(builder_.getI32Type());
+    if (fn_ret && !unit_main) {
         TypeRef rv{fn_ret};
         if (is_anyval(rv)) {
             ret_types.push_back(builder_.getI32Type());
@@ -725,6 +731,8 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     auto ret_types = func.getFunctionType().getResults();
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn_ret;
+    cur_fn_unit_main_ = link_name(fn) == "main" &&
+        (!fn_ret || TypeRef(fn_ret).kind() == LogosType::Kind::Void);
     // A body whose own SIGNATURE still carries a TypeVar / Error / AssocType
     // is TEMPLATE RESIDUE — no instance of it exists, so nothing in it can be
     // "dropped" in the sense the R2 silent-drop guards mean. The residue is
@@ -753,7 +761,10 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     gen_block(fn_body);
 
     if (!is_terminated(builder_.getBlock())) {
-        if (ret_types.empty()) {
+        if (cur_fn_unit_main_) {
+            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+            builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{zero});
+        } else if (ret_types.empty()) {
             builder_.create<mlir::func::ReturnOp>(loc_);
         } else {
             // Non-void fn whose body fell through. Sema's reachability

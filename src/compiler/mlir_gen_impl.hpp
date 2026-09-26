@@ -927,6 +927,7 @@ private:
     std::unordered_set<std::string>               ptr_family_param_;
     mlir::Type                                    cur_ret_type_;
     TypeRef                              cur_fn_ret_logos_type_ = nullptr;
+    bool                                 cur_fn_unit_main_ = false;  // a unit `fn main()`: returns i32 0 to the C entry
     std::string                                   cur_fn_name_;
     bool                                          in_llvm_func_ = false;
     // Entry block of the function currently being emitted.  All LLVM::AllocaOp

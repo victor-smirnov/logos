@@ -1,0 +1,8 @@
+// A unit `fn main()` (no return type — Rust's default form), including an early bare `return;`, exits with status 0.
+// It was emitted as a void function behind the C entry point, which read an unset return register (exit 48 here).
+// rustc twin: 0.
+package main_unit_return_exits_zero;
+fn main() {
+    let x = 3;
+    if x > 5 { return; }
+}

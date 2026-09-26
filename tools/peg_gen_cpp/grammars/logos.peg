@@ -2945,10 +2945,16 @@
     // parens/brackets/calls, full `expr` resumes.
     expr_ns <- log_expr_ns
 
-    log_expr_ns <- cmp_expr_ns
-                   ( (AND / OR) cmp_expr_ns
+    // `&&` binds tighter than `||` (Rust): two levels, each left-associative.
+    log_expr_ns <- land_expr_ns
+                   ( OR land_expr_ns
                        => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                    )*
+
+    land_expr_ns <- cmp_expr_ns
+                    ( AND cmp_expr_ns
+                        => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                    )*
 
     cmp_expr_ns <- bitor_expr_ns (EQ / NE / LE / GE / LT / GT) bitor_expr_ns
                    (EQ / NE / LE / GE / LT / GT) bitor_expr_ns
@@ -3112,10 +3118,16 @@
                      / HASH IDENT => { CODE: VAR_REF, NAME_VAR: $2 }
                      / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
-    log_expr <- cmp_expr
-                ( (AND / OR) cmp_expr
+    // `&&` binds tighter than `||` (Rust): two levels, each left-associative.
+    log_expr <- land_expr
+                ( OR land_expr
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                 )*
+
+    land_expr <- cmp_expr
+                 ( AND cmp_expr
+                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                 )*
 
     // Non-chainable: at most one comparison.  The CHAINED_CMP alt comes first
     // so 2+ comparators (`a < b < c`) parse cleanly and sema rejects with a

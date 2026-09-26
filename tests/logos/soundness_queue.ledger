@@ -192,8 +192,6 @@ partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneo
 let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_literal_width_from_later_use_refused refuses
 
 # ── 2026-09-26 RUST-PARITY AUDIT (behaviour audit, 14 areas + FLS 1.98 paragraph-by-paragraph comparison, 58 units) ──
-and_or_same_precedence_wrong 1 tests/soundness/open/and_or_same_precedence_wrong run 0
-
 assert_with_message_crash 1 tests/soundness/open/assert_with_message_crash refuses
 
 collect_into_map_set_string_refused 1 tests/soundness/open/collect_into_map_set_string_refused refuses
@@ -213,8 +211,6 @@ iter_filter_capturing_closure_refused 1 tests/soundness/open/iter_filter_capturi
 let_binding_named_like_const_admitted 1 tests/soundness/open/let_binding_named_like_const_admitted admits
 
 loop_local_move_closure_shares_slot_wrong 1 tests/soundness/open/loop_local_move_closure_shares_slot_wrong run 0
-
-main_unit_return_garbage_exit_wrong 1 tests/soundness/open/main_unit_return_garbage_exit_wrong run 48
 
 map_named_fn_item_collect_crash 1 tests/soundness/open/map_named_fn_item_collect_crash refuses
 
@@ -480,5 +476,5 @@ variadic_fn_pointer_type_refused 4 tests/soundness/open/variadic_fn_pointer_type
 
 vt_ff_whitespace_refused 4 tests/soundness/open/vt_ff_whitespace_refused refuses
 
-# TOTAL 152
-# SYNC-HASH 1ad82a98c1768c45755ba93e2196e4a7
+# TOTAL 150
+# SYNC-HASH 931caa38298008c5d097ef20393aafca
