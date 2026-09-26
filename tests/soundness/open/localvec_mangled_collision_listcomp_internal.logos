@@ -37,6 +37,17 @@
 // `vec_listcomp_homonym`, `localvec_listcomp` or `vec_pkg_lc`. Which mangled
 // symbol the collision lands on depends on the package, so RENAMING THIS
 // PROGRAM SILENTLY RETIRES IT.
+// MEASURED 2026-09-25 (reverted): folding ambiguous_type_arg_fingerprint into the
+// generic INSTANCE stem of a non-`logos.` ambiguous type (concrete_struct_name and
+// _raw) closes THIS program — but `impl Vec<i64> { fn weight }` in the same package
+// then fails "'Vec$M…$G1$i64' has no method 'weight'": the concrete-spec impl
+// target is minted in collect, before the set is installed (#58's measurement).
+// Installing the set after collect's pass-0 (the placeholders already carry every
+// package) breaks stdlib's own build: liblogos-lcm's wql_surface_parser
+// "call to 'parse_expr': expected 1 args, got 2" — first pass and delta passes
+// alike. The spelling of an identity must not depend on WHEN a set is installed;
+// the fix is the identity carried (package on the TypeRef) to every consumer that
+// composes the stem, not a later-installed fold.
 package vec_pkg_listcomp;
 use logos.mem.collections.vec;
 
