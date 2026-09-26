@@ -1,0 +1,30 @@
+// `Iterator::enumerate` yields the Rust tuple `(i64, Item)` (was a named `EnumPair { idx, val }`), so a
+// `for (i, x)` pattern and a closure tuple parameter destructure it; the back end (`next_back`) keeps the
+// front-relative index.
+// rustc twin: 0.
+package iter_enumerate_yields_tuple;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(7i32); v.push(8i32); v.push(9i32);
+    let mut idx_sum: i64 = 0i64;
+    let mut val_sum: i32 = 0i32;
+    for (i, x) in v.iter().enumerate() {
+        idx_sum += i;
+        val_sum += *x;
+    }
+    if idx_sum != 3i64 { return 1; }
+    if val_sum != 24i32 { return 2; }
+    let weighted: i64 = v.iter().enumerate().map(|(i, x)| i * (*x as i64)).sum();
+    if weighted != 26i64 { return 3; }
+    let mut back = v.iter().enumerate();
+    match back.next_back() {
+        Option::Some((i, x)) => { if i != 2i64 || *x != 9i32 { return 4; } }
+        Option::None => { return 5; }
+    }
+    match back.next() {
+        Option::Some((i, x)) => { if i != 0i64 || *x != 7i32 { return 6; } }
+        Option::None => { return 7; }
+    }
+    return 0;
+}

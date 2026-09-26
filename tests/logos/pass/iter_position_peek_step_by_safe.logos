@@ -1,0 +1,25 @@
+// `Iterator::position`, `Peekable::peek` and `step_by` are safe (they were `unsafe fn`), and
+// `step_by` / `take_while` / `skip_while` / `inspect` take Rust's arguments: the `zero: Item`
+// placeholder for a phantom field is gone. `step_by(0)` panics, as in Rust.
+// rustc twin: 1.
+package iter_position_peek_step_by_safe;
+use logos.mem.collections.vec;
+fn lt3(x: &i32) -> bool { return *x < 3; }
+fn nop(x: &i32) { }
+fn main() -> i32 {
+    let v = vec![1, 2, 3, 4, 5, 6, 7];
+    let p = v.iter().position(|x| *x == 2);
+    if p.unwrap() != 1i64 { return 10; }
+    let mut pk = v.iter().peekable();
+    match pk.peek() { Option::Some(x) => { if **x != 1 { return 11; } } Option::None => { return 12; } }
+    match pk.next() { Option::Some(x) => { if *x != 1 { return 13; } } Option::None => { return 14; } }
+    let stepped: Vec<i32> = v.iter().copied().step_by(3).collect();
+    if stepped.len() != 3 || stepped[2] != 7 { return 15; }
+    let tw: i32 = v.iter().copied().take_while(lt3).sum();
+    if tw != 3 { return 16; }
+    let sw: i64 = v.iter().copied().skip_while(lt3).count();
+    if sw != 5i64 { return 17; }
+    let ins: i32 = v.iter().copied().inspect(nop).sum();
+    if ins != 28 { return 18; }
+    return p.unwrap() as i32;
+}

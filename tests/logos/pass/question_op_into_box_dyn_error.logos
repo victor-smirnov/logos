@@ -1,0 +1,30 @@
+// `?` converts a concrete error into `Box<dyn Error>` (Rust's `impl<E: Error> From<E> for Box<dyn Error>`):
+// the error is boxed and unsized at `Err(..)`. An error type that does not implement `Error` is refused
+// at the `?` (E0277), and the old diagnostic no longer names the target `&dyn Error`.
+// rustc twin: 0.
+package question_op_into_box_dyn_error;
+use logos.lang.result; use logos.lang.error; use logos.lang.option; use logos.mem.boxed; use logos.std.fmt; use logos.mem.string;
+struct MyError { code: i32 }
+impl Display for MyError { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return write!(f, "myerr"); } }
+impl Error for MyError { fn source(&self) -> Option<&dyn Error> { return Option::<&dyn Error>::None; } }
+fn inner(x: i32) -> Result<i32, MyError> {
+    if x < 0i32 { return Result::<i32, MyError>::Err(MyError { code: x }); }
+    return Result::<i32, MyError>::Ok(x);
+}
+fn outer(x: i32) -> Result<i32, Box<dyn Error>> {
+    let v: i32 = inner(x)?;
+    return Result::<i32, Box<dyn Error>>::Ok(v + 1);
+}
+fn main() -> i32 {
+    let bad = outer(-5i32);
+    match bad {
+        Result::Ok(_) => { return 1; }
+        Result::Err(e) => { if e.source().is_some() { return 2; } }
+    }
+    let good = outer(4i32);
+    match good {
+        Result::Ok(v) => { if v != 5 { return 3; } }
+        Result::Err(_) => { return 4; }
+    }
+    return 0;
+}

@@ -1,0 +1,26 @@
+// `Iterator::copied()` / `cloned()` are methods (they were absent; only the free fn `iter_copied` with an
+// explicit pointee existed). They return `Copied<Self, Item>` / `Cloned<Self, Item>`, whose `Iterator` impls
+// are written for the by-ref shape `Copied<I, &'a T>`; double-ended and exact-size carry through.
+// A cloned `String` is an independent owner (each dies once).
+// rustc twin: 0.
+package iter_copied_cloned_methods;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1, 2, 3];
+    let r: Vec<i32> = v.iter().cloned().collect();
+    if r.len() != 3 { return 1; }
+    let s: i32 = v.iter().copied().sum();
+    if s != 6 { return 2; }
+    let back: Vec<i32> = v.iter().copied().rev().collect();
+    if back[0] != 3 { return 3; }
+    if v.iter().copied().len() != 3i64 { return 4; }
+    let mut names: Vec<String> = Vec::<String>::new();
+    names.push(String::from("x")); names.push(String::from("yz"));
+    let owned: Vec<String> = names.iter().cloned().collect();
+    if owned[1].len() != 2i64 { return 5; }
+    if names[1].len() != 2i64 { return 6; }
+    let m = v.iter().copied().max();
+    match m { Option::Some(x) => { if x != 3 { return 7; } } Option::None => { return 8; } }
+    return 0;
+}

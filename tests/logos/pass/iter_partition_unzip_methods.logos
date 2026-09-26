@@ -1,0 +1,27 @@
+// `Iterator::partition` and `unzip` exist (they were missing). Both build their results through
+// `Default + Extend<_>` as in Rust (std gains `Extend`, and `Vec` implements `Default` and `Extend`); the
+// collection types come from the `let` annotation, and `unzip`'s halves are inferred from `Extend<A>`.
+// `partition`'s predicate borrows; each item keeps exactly one owner.
+// rustc twin: 0.
+package iter_partition_unzip_methods;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1, 2, 3, 4, 5, 6];
+    let (evens, odds): (Vec<i32>, Vec<i32>) = v.into_iter().partition(|x| *x % 2 == 0);
+    if evens.len() != 3 || odds.len() != 3 { return 1; }
+    if evens[0] != 2 || odds[2] != 5 { return 2; }
+    let mut words: Vec<String> = Vec::<String>::new();
+    words.push(String::from("a")); words.push(String::from("bcd")); words.push(String::from("ef"));
+    let (long, short): (Vec<String>, Vec<String>) = words.into_iter().partition(|s| s.len() > 1i64);
+    if long.len() != 2 || short.len() != 1 { return 3; }
+    let pairs: Vec<(i32, i64)> = vec![(1, 10i64), (2, 20i64), (3, 30i64)];
+    let (a, b): (Vec<i32>, Vec<i64>) = pairs.into_iter().unzip();
+    if a.len() != 3 || a[1] != 2 { return 4; }
+    if b[2] != 30i64 { return 5; }
+    let xs: Vec<i32> = vec![4, 5];
+    let ys: Vec<i32> = vec![6, 7];
+    let (p, q): (Vec<i32>, Vec<i32>) = xs.iter().copied().zip(ys.iter().copied()).unzip();
+    if p[1] != 5 || q[0] != 6 { return 6; }
+    return 0;
+}
