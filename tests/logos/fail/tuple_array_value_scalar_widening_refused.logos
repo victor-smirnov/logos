@@ -1,0 +1,5 @@
+// A tuple / array VALUE is not widened element-wise: `(i32, i32)` at a `(i64, i64)` slot was accepted and its storage
+// reinterpreted (garbage upper halves). E0308, as rustc; a scalar widening converts only a by-value scalar.
+package tuple_array_value_scalar_widening_refused;
+fn g(t: (i64, i64)) -> i64 { return t.0 + t.1; }
+fn main() -> i32 { let t: (i32, i32) = (40, 2); return g(t) as i32; }

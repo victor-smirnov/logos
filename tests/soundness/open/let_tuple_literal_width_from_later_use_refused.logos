@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row let_tuple_literal_width_from_later_use_refused (tier 3, `refuses`). Found 2026-09-26 while closing
+// mutref_tuple_integer_literal_invariance_refused. `let t = (40, 2); g(t)` with `g(t: (i64, i64))` is refused: an
+// unsuffixed literal in a `let` binding takes its width at the `let` (i32 by default), never from a later use, where
+// Rust infers `(i64, i64)` from the call. The scalar `let x = 40; g64(x)` passes only through Logos's value widening.
+// rustc: exit 42.
+package let_tuple_literal_width_from_later_use_refused;
+fn g(t: (i64, i64)) -> i64 { return t.0 + t.1; }
+fn main() -> i32 { let t = (40, 2); return g(t) as i32; }

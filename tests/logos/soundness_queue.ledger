@@ -193,9 +193,7 @@ ord_default_minmax_over_ref_self_refused 3 tests/soundness/open/ord_default_minm
 
 partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneous_rhs_refused refuses
 
-variant_ctor_tuple_payload_none_inference_refused 3 tests/soundness/open/variant_ctor_tuple_payload_none_inference_refused refuses
+let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_literal_width_from_later_use_refused refuses
 
-mutref_tuple_integer_literal_invariance_refused 3 tests/soundness/open/mutref_tuple_integer_literal_invariance_refused refuses
-
-# TOTAL 11
-# SYNC-HASH f0da84dc272626cf039444ab24a4b88a
+# TOTAL 10
+# SYNC-HASH 440ff270755d0b40732a956a52dcb72b

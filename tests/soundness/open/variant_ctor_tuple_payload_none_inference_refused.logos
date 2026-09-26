@@ -1,8 +1,0 @@
-// SOUNDNESS QUEUE row variant_ctor_tuple_payload_none_inference_refused (tier 3, `refuses`). Found 2026-09-26 by the
-// discovery battery. `E::O((Option::None, 3))` where `O((Option<i32>, i32))` is refused ("cannot infer the type argument
-// `T` of `Option::None`", E0282): the variant's payload type is not pushed down as the expected type of a TUPLE argument's
-// elements (a bare `E::A(Option::None)` is inferred). rustc: exit 3.
-package variant_ctor_tuple_payload_none_inference_refused;
-enum E { O((Option<i32>, i32)), B(i32) }
-fn f(e: E) -> i32 { match e { E::O((_, b)) => { return b; } E::B(n) => { return n; } } }
-fn main() -> i32 { return f(E::O((Option::None, 3))); }

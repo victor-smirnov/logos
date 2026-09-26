@@ -16398,12 +16398,17 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 auto saved_rh = hint_call_return_type_;
                 auto saved_xh = hint_expected_type_;
                 auto saved_ah = hint_arr_elem_type_;
+                auto saved_th = hint_tuple_type_;
                 if (i < vinfo->payload_types.size()) {
                     TypeRef pt_i = vinfo->payload_types[i];
                     if (pt_i && !pre_subst.empty())
                         pt_i = subst_type_sema(pt_i, pre_subst);
                     if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
                         hint_enum_type_ = pt_i;
+                    // A TUPLE payload hints each element of a tuple literal
+                    // argument (`E::O((Option::None, 3))`).
+                    if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Tuple)
+                        hint_tuple_type_ = pt_i;
                     // A CONCRETE payload type is the argument's expected type
                     // (`Option::Some(Vec::new())` under `Option<Vec<i64>>`).
                     if (pt_i && type_is_concrete(pt_i)) {
@@ -16417,6 +16422,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 hint_call_return_type_ = saved_rh;
                 hint_expected_type_ = saved_xh;
                 hint_arr_elem_type_ = saved_ah;
+                hint_tuple_type_ = saved_th;
                 if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Void) continue;
                 payload.push_back(std::move(e));
             }
@@ -16799,12 +16805,15 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     auto saved_rh = hint_call_return_type_;
                     auto saved_xh = hint_expected_type_;
                     auto saved_ah = hint_arr_elem_type_;
+                    auto saved_th = hint_tuple_type_;
                     if (i < vinfo->payload_types.size()) {
                         TypeRef pt_i = vinfo->payload_types[i];
                         if (pt_i && !pre_subst.empty())
                             pt_i = subst_type_sema(pt_i, pre_subst);
                         if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
                             hint_enum_type_ = pt_i;
+                        if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Tuple)
+                            hint_tuple_type_ = pt_i;
                         // …and a CONCRETE payload type is the argument's expected type.
                         if (pt_i && type_is_concrete(pt_i)) {
                             hint_call_return_type_ = pt_i;
@@ -16817,6 +16826,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     hint_call_return_type_ = saved_rh;
                     hint_expected_type_ = saved_xh;
                     hint_arr_elem_type_ = saved_ah;
+                    hint_tuple_type_ = saved_th;
                 }
             };
             if (args_av.is_pointer()) {

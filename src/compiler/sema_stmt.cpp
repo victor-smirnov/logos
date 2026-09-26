@@ -3442,6 +3442,29 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
             var_type = prim(LogosType::Kind::F64);
             builder().retype_expr(rhs, var_type);
         }
+        // The same default one level down: an unsuffixed literal inside a tuple
+        // (`let mut u = (Some(4), 3)`) was left `{integer}` in the binding's
+        // type, so `&mut u` at `&mut (Option<i32>, i32)` failed invariance.
+        if (TypeRef(var_type).kind() == LogosType::Kind::Tuple) {
+            std::function<TypeRef(TypeRef)> dflt = [&](TypeRef t) -> TypeRef {
+                if (!t) return t;
+                auto k = TypeRef(t).kind();
+                if (k == LogosType::Kind::IntLit) return i32_t();
+                if (k == LogosType::Kind::FloatLit) return prim(LogosType::Kind::F64);
+                if (k != LogosType::Kind::Tuple) return t;
+                std::vector<TypeRef> es;
+                bool changed = false;
+                for (auto e : TypeRef(t).tuple_elems()) {
+                    auto ne = dflt(e);
+                    changed |= (ne != e);
+                    es.push_back(ne);
+                }
+                return changed ? make_tuple_type(std::move(es)) : t;
+            };
+            TypeRef dt = dflt(var_type);
+            if (dt != var_type && expect_type(rhs, dt, CoercePos::LetInit, "let binding"))
+                var_type = expr_type(rhs);
+        }
     }
 
     // `let _ = e` BINDS NOTHING (Rust). Over a PLACE it neither reads nor moves

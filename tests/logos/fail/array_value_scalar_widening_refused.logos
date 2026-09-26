@@ -1,0 +1,4 @@
+// An array VALUE is not widened element-wise: `[i32; 2]` at `[i64; 2]` reinterpreted the storage. E0308, as rustc.
+package array_value_scalar_widening_refused;
+fn h(a: [i64; 2]) -> i64 { return a[0] + a[1]; }
+fn main() -> i32 { let a: [i32; 2] = [40, 2]; return h(a) as i32; }

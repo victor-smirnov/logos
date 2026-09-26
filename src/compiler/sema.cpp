@@ -2480,10 +2480,27 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         to.kind() == LogosType::Kind::Ptr   &&
         from.elem() && to.pointee())
         return types_equal(from.elem(), to.pointee());
+    // An aggregate's element is compared IN PLACE: a scalar widening converts a
+    // by-value scalar, but inside a tuple / array VALUE it would reinterpret the
+    // storage — `(i32, i32)` read as `(i64, i64)` (the slice rule below, T0-5).
+    // Two concrete scalar elements must match exactly; a literal hole
+    // (IntLit / FloatLit) still unifies, and a tuple / array LITERAL is built
+    // at the expected widths before it gets here.
+    auto concrete_scalar_k = [](LogosType::Kind k) {
+        return (is_integer_kind(k) && k != LogosType::Kind::IntLit &&
+                k != LogosType::Kind::Enum) ||
+               k == LogosType::Kind::F32  || k == LogosType::Kind::F64 ||
+               k == LogosType::Kind::Bool || k == LogosType::Kind::Char;
+    };
+    auto elem_compatible = [&](TypeRef fe, TypeRef te) {
+        if (fe && te && concrete_scalar_k(TypeRef(fe).kind()) && concrete_scalar_k(TypeRef(te).kind()))
+            return TypeRef(fe).kind() == TypeRef(te).kind();
+        return types_compatible(fe, te);
+    };
     // Arrays are compatible if same size and elements are compatible (handles nested arrays).
     if (TypeRef(from).kind() == LogosType::Kind::Array && TypeRef(to).kind() == LogosType::Kind::Array &&
         TypeRef(from).arr_size() == TypeRef(to).arr_size() && TypeRef(from).elem() && TypeRef(to).elem())
-        return types_compatible(TypeRef(from).elem(), TypeRef(to).elem());
+        return elem_compatible(TypeRef(from).elem(), TypeRef(to).elem());
     if (from.kind() == LogosType::Kind::Slice && to.kind() == LogosType::Kind::Slice && from.elem() && to.elem()) {
         if (!from.mut_ptr() && to.mut_ptr()) return false;
         // T0-5: slices ALIAS raw memory — a value-preserving scalar widening
@@ -2511,7 +2528,7 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (TypeRef(from).kind() == LogosType::Kind::Tuple && TypeRef(to).kind() == LogosType::Kind::Tuple) {
         if (TypeRef(from).tuple_elems().size() != TypeRef(to).tuple_elems().size()) return false;
         for (size_t i = 0; i < TypeRef(from).tuple_elems().size(); ++i)
-            if (!types_compatible(TypeRef(from).tuple_elems()[i], TypeRef(to).tuple_elems()[i])) return false;
+            if (!elem_compatible(TypeRef(from).tuple_elems()[i], TypeRef(to).tuple_elems()[i])) return false;
         return true;
     }
     // C5-cl-04 slice: `&Closure → Closure` / `&mut Closure → Closure`. Users

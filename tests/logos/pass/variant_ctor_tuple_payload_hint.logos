@@ -1,0 +1,16 @@
+// A tuple payload type hints each element of a tuple-literal constructor argument: `E::O((Option::None, 3))` inferred
+// nothing for `None` (E0282), in both constructor paths. The struct-field, call-argument, `Some((None, 3))` and return
+// positions already carried the hint. rustc twin: 13.
+package variant_ctor_tuple_payload_hint;
+enum E { O((Option<i32>, i32)), B(i32) }
+struct S { t: (Option<i32>, i32) }
+fn e(x: E) -> i32 { match x { E::O((None, b)) => { return b; } E::O((Some(v), b)) => { return v + b; } E::B(n) => { return n; } } }
+fn f(t: (Option<i32>, i32)) -> i32 { return t.1; }
+fn r() -> (Option<i32>, i32) { return (None, 4); }
+fn main() -> i32 {
+    let s = S { t: (None, 1) };
+    let a = f((None, 2));
+    let x: Option<(Option<i32>, i32)> = Some((None, 3));
+    let b = match x { Some((_, v)) => v, None => 0 };
+    return s.t.1 + a + b + r().1 + e(E::O((Option::None, 3)));
+}
