@@ -6050,7 +6050,15 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
             if (item.has_key(la::NAME))
                 tb.lifetime_args.push_back(std::string(str_of(item.get(la::NAME.code))));
         } else {
+            // An argument of a `T: ?Sized` trait parameter (`S: AsRef<str>`,
+            // `V: AsRef<[i64]>`) is an unsized position, as in Rust.
+            bool was_ok = unsized_ok_;
+            if (auto* tq = find_trait_iter_scoped(tb.trait_name);
+                tq && tb.type_args.size() < tq->type_params.size() &&
+                !tq->type_params[tb.type_args.size()].implicit_sized)
+                unsized_ok_ = true;
             tb.type_args.push_back(resolve_type(item));
+            unsized_ok_ = was_ok;
         }
     }
 }

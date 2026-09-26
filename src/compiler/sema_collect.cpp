@@ -4103,8 +4103,14 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     }
                     // A bare `[T]` / `dyn Tr` trait argument (`impl Deref<[T]> for
                     // Vec<T>`) is a `?Sized` position, as in Rust.
+                    // So is any argument of a `T: ?Sized` trait parameter, where
+                    // `str` means the unsized `str` (`impl AsRef<str> for String`).
                     bool was_ok = unsized_ok_;
                     if (code_of(item) == la::UNSIZED_SLICE_TYPE || code_of(item) == la::DYN_TYPE)
+                        unsized_ok_ = true;
+                    if (auto* tq = find_trait_iter_scoped(trait_name);
+                        tq && trait_type_args.size() < tq->type_params.size() &&
+                        !tq->type_params[trait_type_args.size()].implicit_sized)
                         unsized_ok_ = true;
                     trait_type_args.push_back(resolve_type(item));
                     unsized_ok_ = was_ok;

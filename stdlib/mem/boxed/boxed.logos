@@ -10,6 +10,7 @@ use logos.lang.mem;
 use logos.lang.marker;
 use logos.lang.ops;
 use logos.lang.default;
+use logos.lang.convert;
 use logos.mem.manually_drop;
 
 /// Owns a heap-allocated `T` exclusively; move-only, drops the value and frees the block on
@@ -93,6 +94,14 @@ impl<T> Box<T> {
 // Rust's `impl<T: Default> Default for Box<T>`: a box of `T::default()`.
 impl<T: Default> Default for Box<T> {
     fn default() -> Box<T> { return box_new::<T>(T::default()); }
+}
+
+// Rust's `AsRef<T>` / `AsMut<T>` for `Box<T>`.
+impl<E> AsRef<E> for Box<E> {
+    fn as_ref(&self) -> &E { return self.deref(); }
+}
+impl<E> AsMut<E> for Box<E> {
+    fn as_mut(&mut self) -> &mut E { return self.deref_mut(); }
 }
 
 impl<T> Deref<T> for Box<T> {

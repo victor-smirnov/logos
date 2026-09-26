@@ -1,0 +1,36 @@
+// AsRef / AsMut did not exist ("unknown trait 'AsRef'"). logos.lang.convert declares them
+// with a ?Sized target (an argument of a ?Sized trait parameter is an unsized position:
+// `S: AsRef<str>`, `V: AsRef<[i64]>`, `impl AsRef<str> for String`); impls for [T], Vec, String,
+// Box. An unsuffixed literal argument of a generic static call takes the width the
+// expected result pins (`let b: Box<i64> = Box::new(5)` built a Box<i32>). rustc twin: 0.
+package asref_asmut_traits;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.boxed;
+struct Wrapper { s: i32 }
+impl AsRef<i32> for Wrapper {
+    fn as_ref(self: &Self) -> &i32 { return &self.s; }
+}
+impl AsMut<i32> for Wrapper {
+    fn as_mut(&mut self) -> &mut i32 { return &mut self.s; }
+}
+fn takes_ref<T: AsRef<i32>>(t: &T) -> i32 { return *t.as_ref(); }
+fn bump<T: AsMut<i32>>(t: &mut T) { *t.as_mut() += 1; }
+fn slen<S: AsRef<str>>(s: S) -> i64 { return s.as_ref().len(); }
+fn total<V: AsRef<[i64]>>(v: V) -> i64 {
+    let mut t: i64 = 0;
+    for x in v.as_ref().iter() { t += *x; }
+    return t;
+}
+fn main() -> i32 {
+    let mut w = Wrapper { s: 42 };
+    if takes_ref(&w) != 42 { return 1; }
+    bump(&mut w);
+    if w.s != 43 { return 2; }
+    if slen(String::from("abc")) != 3 { return 3; }
+    let v: Vec<i64> = vec![1i64, 2, 3];
+    if total(v) != 6 { return 4; }
+    let b: Box<i64> = Box::new(5);
+    if *b.as_ref() != 5 { return 5; }
+    return 0;
+}

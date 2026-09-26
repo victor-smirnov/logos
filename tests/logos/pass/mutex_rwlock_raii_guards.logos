@@ -34,7 +34,7 @@ fn main() -> i32 {
     let ms: Mutex<String> = Mutex::new(String::from("xyz"));
     let s: String = ms.into_inner().unwrap();
     if s.len() != 3 { return 7; }
-    let mut mm: Mutex<i64> = Mutex::new(1i64);
+    let mut mm: Mutex<i64> = Mutex::new(1);
     *mm.get_mut().unwrap() += 1;
     if *mm.lock().unwrap() != 2 { return 8; }
     return v - 15;

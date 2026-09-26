@@ -18808,6 +18808,18 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     arg_exprs.push_back(lower_expr(map_of(items.get(i))));
                     hint_call_return_type_ = saved_rh;
                     hint_expected_type_ = saved_eh2;
+                    // An unsuffixed literal takes the width the expected result
+                    // pins (`let b: Box<i64> = Box::new(5)` built a Box<i32>).
+                    if (ah && arg_exprs.back() && expr_type(arg_exprs.back())) {
+                        auto ak = TypeRef(expr_type(arg_exprs.back())).kind();
+                        auto hk = TypeRef(ah).kind();
+                        if (ak == LogosType::Kind::IntLit && is_integer_kind(hk) &&
+                            hk != LogosType::Kind::Enum)
+                            widen_int_expr(arg_exprs.back(), ah, builder());
+                        else if (ak == LogosType::Kind::FloatLit &&
+                                 (hk == LogosType::Kind::F64 || hk == LogosType::Kind::F32))
+                            arg_exprs.back() = builder().cast(std::move(arg_exprs.back()), ah);
+                    }
                 }
             }
         }
