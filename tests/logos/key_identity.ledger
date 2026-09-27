@@ -502,10 +502,13 @@ mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
 mlir_gen_dyn.cpp	struct_types_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_expr.cpp	struct_types_	O	1	std::string(TypeRef(ret_type).struct_name())
-mlir_gen_fn.cpp	fn_param_arg_index_	Q	1	link_name(fn)
+# 2026-09-27, ADR 0030 S1: fn_param_arg_index_ 1 -> 2 — apply_param_attrs reads the recorded argument map
+# (keyed by the link name, which is qualified) instead of re-walking make_fn_type's slots.
+mlir_gen_fn.cpp	fn_param_arg_index_	Q	2	link_name(fn)
 mlir_gen_impl.hpp	all_struct_defs_	O	1	concrete_struct_name(t)
 mlir_gen_impl.hpp	struct_types_	O	1	concrete_struct_name(t)
-mlir_gen_impl.hpp	struct_types_	O	1	std::string(rt.struct_name())
+# 2026-09-27, ADR 0030 S1: the struct_types_ bare-name read in mlir_gen_impl.hpp left with the deleted
+# return-type ladder (fn_sig / ret_abi_type type returns from the TypeRef).
 mlir_gen_stmt.cpp	all_struct_defs_	O	1	std::string(st.struct_name())
 mlir_gen_stmt.cpp	all_struct_defs_	O	1	concrete_struct_name(ty)
 mlir_gen_stmt.cpp	struct_types_	O	1	concrete_struct_name(t.pointee())
