@@ -314,8 +314,8 @@ at S3, S6 and S10.
 - **Q3. No `-O0` fast path.** `for` over arrays and ranges goes through the
   iterator lang items; `-O0` speed does not matter within reasonable limits.
   No `ORIGIN`-keyed special case in mono or codegen.
-- **Q4. Census done (`docs/audit/2026-09-26-reparse-census.md`); proposed:
-  a step R0 BEFORE H0.** Root cause: the grammar keeps macro arguments only
+- **Q4. DECIDED: step R0 is the FIRST step, before H0** (census:
+  `docs/audit/2026-09-26-reparse-census.md`). Root cause: the grammar keeps macro arguments only
   as `RAW_TEXT`, so `vec!`, `matches!`, `dbg!`, the `panic!`-wrapper macros,
   every `#[fn_macro]` (incl. `assert!`) and the format family wrap text in a
   fake `fn __f()` and reparse it; every macro argument reports line 2
