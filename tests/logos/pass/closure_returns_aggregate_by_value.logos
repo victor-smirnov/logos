@@ -1,0 +1,18 @@
+package closure_returns_aggregate_by_value;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    let f = || (3i32, 4i32);
+    let t = f();
+    if t.0 != 3 || t.1 != 4 { return 1; }
+    let k: i64 = 5;
+    let g = |a: i64| -> (i64, i64, i64) { return (a, a * k, a + k); };
+    let u = g(2);
+    if u.0 != 2 || u.1 != 10 || u.2 != 7 { return 2; }
+    let h = |a: i64| P { x: a, y: a + 1 };
+    let p = h(9);
+    if p.x != 9 || p.y != 10 { return 3; }
+    let fp: fn(i64) -> (i64, i64) = |a| (a, a * 2);
+    let q = fp(6);
+    if q.0 != 6 || q.1 != 12 { return 4; }
+    return 0;
+}

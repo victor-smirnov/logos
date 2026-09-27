@@ -663,7 +663,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
     }
     auto& info = *te;
     // Enum value-repr: inline stack storage (alloca), like a Struct. Returned
-    // by value (caller loads the {disc,payload} struct via llvm_fn_ret_type) or
+    // by value (caller loads the {disc,payload} struct via ret_abi_type) or
     // embedded inline into a parent aggregate by memcpy.
     auto alloca = create_entry_alloca(info.llvm_type);
     if (!alloca) return nullptr;
@@ -6003,40 +6003,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef typ
     auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure, ei);
     auto env_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), ep);
 
-    // Build args: env_ptr first, then user args
+    // The call is typed by the CALLEE's signature (its Closure type), through
+    // the one signature ABI the definition used — not by the lowered argument
+    // values, which passed a field VALUE where the closure takes a pointer.
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar) { arg_refs.push_back(ar); });
+    FnSig sig = indirect_sig(v.callee(), arg_refs, type, /*leading_ptrs=*/1);
     llvm::SmallVector<mlir::Value> args;
     args.push_back(env_ptr);
-
-    // Build LLVM function type for indirect call
-    llvm::SmallVector<mlir::Type> param_types;
-    param_types.push_back(ptr_type());  // env
-    bool arg_failed = false;
-    v.each_arg([&](lir_view::ExprRef ar) {
-        if (arg_failed) return;
-        if (!ar) { arg_failed = true; return; }
-        auto val = gen_expr(ar);
-        if (!val) { arg_failed = true; return; }
-        args.push_back(val);
-        param_types.push_back(val.getType());
-    });
-    if (arg_failed) return nullptr;
-
-    // See EFnPtrCall for the struct-return ABI rationale.
-    mlir::Type ret = fn_call_ret_llvm_type(type);
-    if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
-    bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(ret);
-    auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types, false);
-
-    // Indirect call via function pointer
-    llvm::SmallVector<mlir::Value> all_operands;
-    all_operands.push_back(fn_ptr);
-    all_operands.append(args.begin(), args.end());
-    auto call = builder_.create<mlir::LLVM::CallOp>(
-        loc_, llvm_fn_type, mlir::FlatSymbolRefAttr{},
-        mlir::ValueRange(all_operands));
-    if (is_void) return nullptr;
-    auto result = call.getResult();
-    if (mlir::isa<mlir::LLVM::LLVMStructType>(ret))
+    if (!lower_call_args(arg_refs, sig, args)) return nullptr;
+    auto result = emit_indirect_call(fn_ptr, sig, args);
+    if (result && mlir::isa<mlir::LLVM::LLVMStructType>(result.getType()))
         return spill_to_alloca(result);
     return result;
 }
@@ -6047,45 +6024,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type)
     auto fn_ptr = gen_expr(v.callee());
     if (!fn_ptr) return nullptr;
 
-    // fn_ptr is stored as a scalar (not in an alloca) when it's a let var;
-    // but scope_ stores allocas for let-bound scalars, so load it first.
-    // Actually FnPtr variables are stored as scalars (like integers) — load from alloca.
-    // (fn_ptr here is the raw pointer value, already loaded by gen_expr_kind(EVarRef))
-
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar) { arg_refs.push_back(ar); });
+    FnSig sig = indirect_sig(v.callee(), arg_refs, type, /*leading_ptrs=*/0);
     llvm::SmallVector<mlir::Value> args;
-    llvm::SmallVector<mlir::Type> param_types;
-    bool arg_failed = false;
-    v.each_arg([&](lir_view::ExprRef ar) {
-        if (arg_failed) return;
-        if (!ar) { arg_failed = true; return; }
-        auto val = gen_expr(ar);
-        if (!val) { arg_failed = true; return; }
-        args.push_back(val);
-        param_types.push_back(val.getType());
-    });
-    if (arg_failed) return nullptr;
-
-    // Return type must match the callee's ABI — tuples/structs/enums are
-    // returned by aggregate value (the callee uses sret promotion by the LLVM
-    // backend). Using logos_to_mlir(struct) would yield `ptr`, producing a
-    // call type that disagrees with the callee and breaks argument passing
-    // (rdi becomes the first real arg instead of the hidden sret slot).
-    mlir::Type ret = fn_call_ret_llvm_type(type);
-    if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
-    bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(ret);
-    auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types, false);
-
-    llvm::SmallVector<mlir::Value> all_operands;
-    all_operands.push_back(fn_ptr);
-    all_operands.append(args.begin(), args.end());
-    auto call = builder_.create<mlir::LLVM::CallOp>(
-        loc_, llvm_fn_type, mlir::FlatSymbolRefAttr{},
-        mlir::ValueRange(all_operands));
-    if (is_void) return nullptr;
-    auto result = call.getResult();
-    // If the return is an aggregate (struct/tuple/enum), spill to alloca so
-    // the rest of codegen — which expects struct values as ptr — can work.
-    if (mlir::isa<mlir::LLVM::LLVMStructType>(ret))
+    if (!lower_call_args(arg_refs, sig, args)) return nullptr;
+    auto result = emit_indirect_call(fn_ptr, sig, args);
+    // An aggregate result is spilled so the rest of codegen, which expects
+    // struct values as a pointer, can work.
+    if (result && mlir::isa<mlir::LLVM::LLVMStructType>(result.getType()))
         return spill_to_alloca(result);
     return result;
 }

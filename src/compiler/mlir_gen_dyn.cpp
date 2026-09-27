@@ -697,18 +697,10 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
         // [i64;4]` reads back correctly at BOTH -O0 and -O2. Same code, same
         // memcpy, correct declared type — so the declared type is the variable.
         //
-        // `llvm_fn_ret_type` is the existing answer to this exact class in the
-        // RETURN position (its comment: "the call gets typed `() -> ptr` while
-        // the callee writes the full aggregate — silent corruption"). The
-        // defect here is that the class was never applied to STATICS. Tuples
-        // are added on top because that helper does not cover them.
+        // The storage type of an aggregate is its by-value type, which is the
+        // question ret_abi_type answers (struct/tuple/tagged enum by value).
         auto c_ty = c.type(pool_impl());
-        mlir::Type llty;
-        if (c_ty && TypeRef(c_ty).kind() == LogosType::Kind::Tuple) {
-            llty = tuple_llvm_type(c_ty);
-        } else {
-            llty = llvm_fn_ret_type(c_ty);
-        }
+        mlir::Type llty = ret_abi_type(c_ty);
         if (!llty) llty = logos_to_mlir(c_ty);
         if (!llty) llty = builder_.getI32Type();
         set_end();
@@ -1605,37 +1597,16 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
         fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, fn_ptr_alloca);
     }
 
-    // 4. Build call args: obj_ptr (self as *const u8) + user args.
+    // 4. Call args: obj_ptr (self as *const u8) + user args, typed by the one
+    //    signature ABI (an aggregate return comes back BY VALUE, as the
+    //    implementing FuncOp returns it — it was typed `-> ptr` here).
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
+    FnSig sig = sig_from_args(arg_refs, ret_logos_type, /*leading_ptrs=*/1);
     llvm::SmallVector<mlir::Value> args;
     args.push_back(obj_ptr);
-    llvm::SmallVector<mlir::Type> param_types;
-    param_types.push_back(ptr_t);  // self: *const u8
-
-    v.each_arg([&](lir_view::ExprRef ar){
-        if (!ar) { return; }
-        auto val = gen_expr(ar);
-        if (!val) return;
-        args.push_back(val);
-        param_types.push_back(val.getType());
-    });
-
-    // 6. Build LLVM function type and call indirectly.
-    mlir::Type ret_type;
-    if (ret_logos_type && TypeRef(ret_logos_type).kind() != LogosType::Kind::Void)
-        ret_type = logos_to_mlir(ret_logos_type);
-    if (!ret_type)
-        ret_type = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
-    auto fn_type = mlir::LLVM::LLVMFunctionType::get(ret_type, param_types);
-
-    llvm::SmallVector<mlir::Value> all_operands;
-    all_operands.push_back(fn_ptr);
-    all_operands.append(args.begin(), args.end());
-    auto call = builder_.create<mlir::LLVM::CallOp>(
-        loc_, fn_type, mlir::FlatSymbolRefAttr{},
-        mlir::ValueRange(all_operands));
-    bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(fn_type.getReturnType());
-    if (is_void) return nullptr;
-    return call.getResult();
+    if (!lower_call_args(arg_refs, sig, args)) return nullptr;
+    return emit_indirect_call(fn_ptr, sig, args);
 }
 
 // ---------------------------------------------------------------------------
@@ -1749,41 +1720,17 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
         loc_, ptr_type(), ptr_type(), vtable_ptr, slot_idx);
     auto fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
 
-    // Build args: data_ptr (self) + user args
+    // Build args: data_ptr (self) + user args, typed by the ONE signature ABI
+    // over the arguments' Logos types (sema has already coerced each argument
+    // to its declared parameter type; a dyn-safe method's params cannot name
+    // Self).
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
+    FnSig sig = sig_from_args(arg_refs, ret_logos_type, /*leading_ptrs=*/1);
     llvm::SmallVector<mlir::Value> args;
     args.push_back(data_ptr);
-    v.each_arg([&](lir_view::ExprRef ar){
-        if (!ar) return;
-        auto val = gen_expr(ar);
-        if (!val) return;
-        args.push_back(val);
-    });
-
-    // Build LLVM function type for the indirect call.
-    llvm::SmallVector<mlir::Type> param_types;
-    for (auto& a : args) param_types.push_back(a.getType());
-
-    mlir::Type ret_type;
-    if (ret_logos_type && TypeRef(ret_logos_type).kind() != LogosType::Kind::Void) {
-        // llvm_fn_ret_type handles the by-value aggregate return shape
-        // (Struct/ZonedStruct/Enum) — see helper docs and
-        // [[baghunt-dyn-in-enum-payload]] for the rationale.
-        ret_type = llvm_fn_ret_type(ret_logos_type);
-    }
-    if (!ret_type)
-        ret_type = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
-    auto fn_type = mlir::LLVM::LLVMFunctionType::get(ret_type, param_types);
-
-    // Indirect call via function pointer (same pattern as closure calls)
-    llvm::SmallVector<mlir::Value> all_operands;
-    all_operands.push_back(fn_ptr);
-    all_operands.append(args.begin(), args.end());
-    auto call = builder_.create<mlir::LLVM::CallOp>(
-        loc_, fn_type, mlir::FlatSymbolRefAttr{},
-        mlir::ValueRange(all_operands));
-    bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(fn_type.getReturnType());
-    if (is_void) return nullptr;
-    return call.getResult();
+    if (!lower_call_args(arg_refs, sig, args)) return nullptr;
+    return emit_indirect_call(fn_ptr, sig, args);
 }
 
 // ---------------------------------------------------------------------------
@@ -1854,95 +1801,44 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
 
     auto body_blk = v.body();
 
-    // Array params arrive as `ptr` (matching make_fn_type's plain-fn ABI: the
-    // call site materialises an array literal to a stack slot and passes its
-    // address). Register var_subscript_ so a body `u[i]` strides by the element
-    // type instead of GEP-ing a (non-pointer) array aggregate value — without
-    // this the closure body fails MLIR verification on `[T; N]` params.
-    auto register_array_param_subscript = [&](const std::string& name, TypeRef pt) {
-        if (!pt || TypeRef(pt).kind() != LogosType::Kind::Array || !TypeRef(pt).elem())
-            return;
-        TypeRef ae = TypeRef(pt).elem();
-        mlir::Type et;
-        if (ae.kind() == LogosType::Kind::Struct ||
-            ae.kind() == LogosType::Kind::ZonedStruct) {
-            auto cname = mlir_struct_key(ae);
-            auto sit = struct_types_.find(cname);
-            if (sit != struct_types_.end()) et = sit->second.llvm_type;
+    // ONE signature for the definition, built by the same ABI every call site
+    // reads (fn_sig); param i binds argument sig.arg_of_param[i].
+    std::vector<TypeRef> param_types;
+    for (auto& pr : params) param_types.push_back(pr.second);
+    auto bind_closure_params = [&](mlir::Block* entry, const FnSig& sig) {
+        for (size_t i = 0; i < params.size(); ++i) {
+            int ai = sig.arg_of_param[i];
+            if (ai < 0) continue;
+            bind_param(params[i].first, params[i].second, entry->getArgument((unsigned)ai),
+                       v.param_slot(i));
         }
-        if (!et) et = logos_to_mlir(ae);
-        if (et) var_subscript_[name] = et;
     };
 
     // Non-capturing closure coerced to fn ptr: emit as plain function (no env_ptr).
     if (as_fn_ptr_flag) {
-        // Build function type without env_ptr: (params...) -> ret
-        llvm::SmallVector<mlir::Type> fn_params;
-        for (auto& [_, pt_type] : params) {
-            if (pt_type && TypeRef(pt_type).kind() == LogosType::Kind::Array) {
-                fn_params.push_back(ptr_type());  // arrays passed by pointer
-                continue;
-            }
-            auto pt = logos_to_mlir(pt_type);
-            if (pt) fn_params.push_back(pt);
-        }
-        mlir::Type llvm_ret = ret_t
-            ? llvm_fn_ret_type(ret_t)
-            : mlir::LLVM::LLVMVoidType::get(builder_.getContext());
-        if (!llvm_ret) llvm_ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
-        auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(llvm_ret, fn_params, false);
+        FnSig sig = fn_sig(param_types, ret_t, /*leading_ptrs=*/0);
         builder_.setInsertionPointToEnd(parent_mod.getBody());
-        auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, closure_id, llvm_fn_type);
+        auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, closure_id, llvm_fn_type(sig));
         fn.setLinkage(mlir::LLVM::Linkage::Private);
         auto* entry = fn.addEntryBlock(builder_);
         builder_.setInsertionPointToStart(entry);
-        // Save/restore state (same as regular closure)
-        auto saved_scope      = scope_;
-        auto saved_lets       = let_vars_;
-        auto saved_elems      = var_elem_types_;
-        auto saved_ret        = cur_ret_type_;
-        auto saved_struct     = var_struct_;
-        auto saved_subscript  = var_subscript_;
-        auto saved_tuple      = var_tuple_;
-        auto saved_te         = var_tagged_enum_;
-        auto saved_te_ptr     = var_tagged_enum_ptr_;
-        auto saved_local_ptrs = var_local_ptrs_;
-        auto saved_ref_slots  = ref_slot_vars_;
-        auto saved_dyn_trait  = var_dyn_trait_;
-        auto saved_dyn_coerced = dyn_ptr_to_handle_vars_;
-        auto saved_loop_stack = loop_stack_;
+        auto saved_vars        = snapshot_var_scope();
+        auto saved_ret         = cur_ret_type_;
+        auto saved_loop_stack  = loop_stack_;
         auto saved_entry_block = cur_entry_block_;
         cur_entry_block_ = entry;
-        scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
-        var_struct_.clear(); var_subscript_.clear();
-        var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
-        var_local_ptrs_.clear(); ref_slot_vars_.clear(); var_dyn_trait_.clear(); dyn_ptr_to_handle_vars_.clear(); loop_stack_.clear();
-        cur_ret_type_ = ret_t ? llvm_fn_ret_type(ret_t) : mlir::Type{};
-        // Bind params starting from arg 0 (no env_ptr)
-        for (size_t i = 0; i < params.size(); ++i) {
-            scope_[params[i].first] = entry->getArgument(i);
-            register_array_param_subscript(params[i].first, params[i].second);
-            shadow_register_slot(v.param_slot(i), params[i].first);  // a shadowing local must not answer for it
-        }
+        clear_var_shapes();
+        loop_stack_.clear();
+        cur_ret_type_ = sig.ret;
+        bind_closure_params(entry, sig);
         bool saved_in_llvm = in_llvm_func_;
         in_llvm_func_ = true;
         if (body_blk) gen_block(body_blk);
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
         in_llvm_func_ = saved_in_llvm;
-        scope_              = saved_scope;
-        let_vars_           = saved_lets;
-        var_elem_types_     = saved_elems;
+        restore_var_scope(saved_vars);
         cur_ret_type_       = saved_ret;
-        var_struct_         = saved_struct;
-        var_subscript_      = saved_subscript;
-        var_tuple_          = saved_tuple;
-        var_tagged_enum_    = saved_te;
-        var_tagged_enum_ptr_ = saved_te_ptr;
-        var_local_ptrs_     = saved_local_ptrs;
-        ref_slot_vars_      = saved_ref_slots;
-        var_dyn_trait_      = saved_dyn_trait;
-        dyn_ptr_to_handle_vars_ = saved_dyn_coerced;
         loop_stack_         = saved_loop_stack;
         cur_entry_block_    = saved_entry_block;
         builder_.restoreInsertionPoint(save_pt);
@@ -2134,56 +2030,22 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         ? mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {builder_.getI8Type()})
         : mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), cap_fields);
 
-    // Build function type: (env_ptr, params...) -> ret
-    llvm::SmallVector<mlir::Type> fn_params;
-    fn_params.push_back(ptr_type());  // env pointer
-    for (auto& [_, pt_type] : params) {
-        if (pt_type && TypeRef(pt_type).kind() == LogosType::Kind::Array) {
-            fn_params.push_back(ptr_type());  // arrays passed by pointer
-            continue;
-        }
-        auto pt = logos_to_mlir(pt_type);
-        if (pt) fn_params.push_back(pt);
-    }
-    llvm::SmallVector<mlir::Type> fn_rets;
-    if (ret_t) {
-        auto rt = llvm_fn_ret_type(ret_t);
-        if (rt) fn_rets.push_back(rt);
-    }
-    // Create the closure function as llvm.func (so llvm.mlir.addressof works)
+    // Function type: (env_ptr, params...) -> ret, from the one signature ABI.
+    FnSig sig = fn_sig(param_types, ret_t, /*leading_ptrs=*/1);
     builder_.setInsertionPointToEnd(parent_mod.getBody());
-    mlir::Type llvm_ret = fn_rets.empty()
-        ? mlir::LLVM::LLVMVoidType::get(builder_.getContext()) : fn_rets[0];
-    auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(llvm_ret, fn_params, false);
-    auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, closure_id, llvm_fn_type);
+    auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, closure_id, llvm_fn_type(sig));
     fn.setLinkage(mlir::LLVM::Linkage::Private);
     auto* entry = fn.addEntryBlock(builder_);
     builder_.setInsertionPointToStart(entry);
 
-    // Save/restore mlir_gen state
-    auto saved_scope       = scope_;
-    auto saved_lets        = let_vars_;
-    auto saved_elems       = var_elem_types_;
+    auto saved_vars        = snapshot_var_scope();
     auto saved_ret         = cur_ret_type_;
-    auto saved_struct      = var_struct_;
-    auto saved_subscript   = var_subscript_;
-    auto saved_tuple       = var_tuple_;
-    auto saved_te          = var_tagged_enum_;
-    auto saved_te_ptr      = var_tagged_enum_ptr_;
-    auto saved_local_ptrs  = var_local_ptrs_;
-    auto saved_ref_slots   = ref_slot_vars_;
-    auto saved_dyn_trait   = var_dyn_trait_;
-    auto saved_dyn_coerced = dyn_ptr_to_handle_vars_;
     auto saved_loop_stack  = loop_stack_;
     auto saved_entry_block = cur_entry_block_;
     cur_entry_block_ = entry;
-    scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
-    var_struct_.clear(); var_subscript_.clear();
-    var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
-    var_local_ptrs_.clear(); ref_slot_vars_.clear(); var_dyn_trait_.clear(); dyn_ptr_to_handle_vars_.clear(); loop_stack_.clear();
-
-    bool ret_is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(llvm_ret);
-    cur_ret_type_ = ret_is_void ? mlir::Type{} : llvm_ret;
+    clear_var_shapes();
+    loop_stack_.clear();
+    cur_ret_type_ = sig.ret;
 
     // FnOnce + heap env: the body is call_once(self) — at every return it drops
     // the owned captures it did NOT move out and frees the env, and the
@@ -2332,12 +2194,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         }
     }
 
-    // Bind params (starting from arg 1)
-    for (size_t i = 0; i < params.size(); ++i) {
-        scope_[params[i].first] = entry->getArgument(i + 1);
-        register_array_param_subscript(params[i].first, params[i].second);
-        shadow_register_slot(v.param_slot(i), params[i].first);  // a shadowing local must not answer for it
-    }
+    // Bind params (argument 0 is the env).
+    bind_closure_params(entry, sig);
 
     // Generate body (inside llvm.func — use llvm.return)
     bool saved_in_llvm = in_llvm_func_;
@@ -2350,19 +2208,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     closure_once_env_ = saved_once_env;
 
     // Restore state
-    scope_              = saved_scope;
-    let_vars_           = saved_lets;
-    var_elem_types_     = saved_elems;
+    restore_var_scope(saved_vars);
     cur_ret_type_       = saved_ret;
-    var_struct_         = saved_struct;
-    var_subscript_      = saved_subscript;
-    var_tuple_          = saved_tuple;
-    var_tagged_enum_    = saved_te;
-    var_tagged_enum_ptr_ = saved_te_ptr;
-    var_local_ptrs_     = saved_local_ptrs;
-    ref_slot_vars_      = saved_ref_slots;
-    var_dyn_trait_      = saved_dyn_trait;
-    dyn_ptr_to_handle_vars_ = saved_dyn_coerced;
     loop_stack_         = saved_loop_stack;
     cur_entry_block_    = saved_entry_block;
     builder_.restoreInsertionPoint(save_pt);

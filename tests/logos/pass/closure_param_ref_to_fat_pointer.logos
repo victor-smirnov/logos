@@ -1,0 +1,26 @@
+package closure_param_ref_to_fat_pointer;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+trait Tag { fn tag(&self) -> i64; }
+struct A(i64);
+impl Tag for A { fn tag(&self) -> i64 { return self.0; } }
+fn main() -> i32 {
+    let a = A(7);
+    let d: &dyn Tag = &a;
+    let f = |x: &&dyn Tag| -> i64 { return x.tag(); };
+    if f(&d) != 7 { return 1; }
+    let b: Box<dyn Tag> = Box::new(A(11));
+    let g = |x: &Box<dyn Tag>| -> i64 { return x.tag(); };
+    if g(&b) != 11 { return 2; }
+    let mut v: Vec<Box<dyn Tag>> = Vec::new();
+    v.push(Box::new(A(3)));
+    v.push(Box::new(A(4)));
+    let s: i64 = v.iter().map(|t| t.tag()).sum();
+    if s != 7 { return 3; }
+    let a2 = A(20);
+    let refs: Vec<&dyn Tag> = vec![&a, &a2];
+    let outs: Vec<i64> = refs.iter().map(|o| o.tag() + 1).collect();
+    if outs[0] != 8 || outs[1] != 21 { return 4; }
+    return 0;
+}

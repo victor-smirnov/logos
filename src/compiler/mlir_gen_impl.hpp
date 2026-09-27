@@ -847,6 +847,16 @@ private:
                  ref_param_names_, ptr_family_param_, ref_slot_vars_,
                  uninit_drop_flag_, uninit_static_, uninit_assigned_, uninit_owner_slot_ };
     }
+    // Clear every name-keyed SHAPE map (the snapshot's contents minus the B8
+    // uninit state): a new function or closure body starts with no bindings.
+    void clear_var_shapes() {
+        scope_.clear(); var_dyn_trait_.clear(); var_struct_.clear();
+        var_elem_types_.clear(); var_subscript_.clear(); var_local_ptrs_.clear();
+        var_slice_.clear(); let_vars_.clear(); var_tuple_.clear();
+        var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear(); var_raw_dyn_.clear();
+        dyn_ptr_to_handle_vars_.clear(); ref_param_names_.clear();
+        ptr_family_param_.clear(); ref_slot_vars_.clear();
+    }
     // Restore by full assignment: erases bindings introduced inside the scope AND
     // re-instates any shadowed outer bindings — exact lexical-scope semantics.
     void restore_var_scope(const VarScopeSnapshot& s) {
@@ -1183,37 +1193,48 @@ private:
     // ── Type conversion ──────────────────────────────────────────
     mlir::Type logos_to_mlir(TypeRef tv);
 
-    // LLVM type used in fn-return position. Differs from logos_to_mlir
-    // only for aggregate-by-value returns (Struct/ZonedStruct/Enum):
-    // logos_to_mlir returns ptr_type for these (the "passed by ptr"
-    // shorthand used at param/field/scope positions), but the actual
-    // fn-def returns the literal LLVM struct value. Indirect calls
-    // and closure-fn synthesis must use this struct type for the
-    // return slot, otherwise the call gets typed `() -> ptr` while
-    // the callee writes the full aggregate — silent corruption that
-    // segfaults the next match on the result. See
-    // [[baghunt-dyn-in-enum-payload]] for the originating fix.
-    mlir::Type llvm_fn_ret_type(TypeRef ret_t) {
-        if (!ret_t) return mlir::Type{};
-        TypeRef rt{ret_t};
-        if (rt.kind() == LogosType::Kind::Struct ||
-            rt.kind() == LogosType::Kind::ZonedStruct) {
-            auto sit = struct_types_.find(mlir_struct_key(rt));
-            if (sit == struct_types_.end())
-                sit = struct_types_.find(std::string(rt.struct_name()));
-            if (sit != struct_types_.end()) return sit->second.llvm_type;
-        }
-        if (rt.kind() == LogosType::Kind::Enum) {
-            if (auto* te = resolve_tagged_enum(std::string(rt.enum_name()), rt))
-                return te->llvm_type;
-        }
-        // Reference return ABI: ONE descriptor, shared with make_fn_type and
-        // fn_call_ret_llvm_type. This is the site gen_closure uses for a
-        // CLOSURE's own return type. PROBES.md 2026-09-09h-fatret.
-        if (auto rk = ref_repr_of(rt); rk != RefReprKind::NotARef)
-            return repr_return_type(rk);
-        return logos_to_mlir(ret_t);
-    }
+    // ── ADR 0030 S1: the signature ABI (mlir_gen_fn.cpp) ────────────
+    // ONE answer per TypeRef per signature position. Every definition
+    // (make_fn_type, gen_closure), every call whose callee is not a FuncOp
+    // (closure / fn pointer / dyn / tag dispatch) and every return reads it;
+    // nothing else may compose a signature.
+    //   ret_abi_type   aggregates (struct/tuple/tagged enum) BY VALUE, a C-like
+    //                  enum as its backing integer, a reference per RefRepr.
+    //   param_abi_type the value repr; arrays by pointer; null = no slot.
+    struct FnSig {
+        llvm::SmallVector<mlir::Type> args;   // MLIR args, leading slots included
+        std::vector<int> arg_of_param;        // Logos param i -> arg index, -1 = none
+        std::vector<TypeRef> params;          // the Logos param types
+        mlir::Type ret;                       // null = no result
+        bool unknown = false;                 // callee type named no signature
+    };
+    mlir::Type ret_abi_type(TypeRef t);
+    mlir::Type param_abi_type(TypeRef t);
+    FnSig fn_sig(const std::vector<TypeRef>& params, TypeRef ret, unsigned leading_ptrs = 0);
+    mlir::LLVM::LLVMFunctionType llvm_fn_type(const FnSig& sig);
+    // The signature of a value CALLED indirectly, read off its Logos type
+    // (Closure / FnPtr / FnItem, through & / &mut / * / Box); the return is
+    // `ret` (the call's type) when given. `unknown` when the type names none.
+    FnSig callable_sig(TypeRef callee_t, unsigned leading_ptrs, TypeRef ret);
+    // Adapt a lowered value to the ABI type of its slot: spill a by-value
+    // aggregate for a by-pointer param, load one for a by-value return, widen
+    // or narrow a scalar.
+    mlir::Value coerce_to_param_abi(mlir::Value v, mlir::Type abi, TypeRef param_t, TypeRef arg_t);
+    mlir::Value coerce_to_ret_abi(mlir::Value v, mlir::Type abi, TypeRef val_t);
+    mlir::Value emit_indirect_call(mlir::Value fn_ptr, const FnSig& sig,
+                                   llvm::ArrayRef<mlir::Value> args);
+    // A signature over the arguments' own (post-coercion) Logos types, for an
+    // indirect call whose callee type names none (dyn / tag dispatch).
+    FnSig sig_from_args(const std::vector<lir_view::ExprRef>& arg_refs, TypeRef ret,
+                        unsigned leading_ptrs);
+    // The signature of a closure / fn-pointer call: the callee type's, else
+    // (an erased or unresolved callee type) the arguments'.
+    FnSig indirect_sig(lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& arg_refs,
+                       TypeRef ret, unsigned leading_ptrs);
+    // Lower each argument and adapt it to its slot in `sig`; appends to `out`.
+    // A slotless (zero-width) argument is evaluated for effect only.
+    bool lower_call_args(const std::vector<lir_view::ExprRef>& arg_refs, const FnSig& sig,
+                         llvm::SmallVectorImpl<mlir::Value>& out);
 
     // ONE resolution of an enum DECLARATION from a TypeRef — bare name first,
     // then the mono instance name, exactly the two steps `resolve_tagged_enum`
@@ -1921,11 +1942,6 @@ private:
     // Build the anonymous LLVM struct type for a tuple.
     mlir::Type tuple_llvm_type(TypeRef t);
 
-    // Compute the LLVM return type matching how function definitions return
-    // values (struct/tuple/enum aggregates by value, not as ptr). Used to
-    // build correct ABI-matching call types for indirect / fn-pointer calls.
-    mlir::Type fn_call_ret_llvm_type(TypeRef ret_type);
-
     // Slice LLVM type: { ptr, i64 }
     mlir::Type slice_llvm_type();
 
@@ -2062,8 +2078,8 @@ private:
     // ── Function type from LFunction ─────────────────────────────
     mlir::FunctionType make_fn_type(lir_view::FunctionView fn);
     // Stamp type-derived LLVM parameter attributes (noundef/align/dereferenceable
-    // on thin references, noalias on &mut) onto a freshly-created FuncOp. Mirrors
-    // make_fn_type's slot-push order to keep MLIR arg indices aligned. See
+    // on thin references, noalias on &mut) onto a freshly-created FuncOp. Arg
+    // indices come from make_fn_type's recorded fn_param_arg_index_. See
     // docs/internals/param-attrs.md for the soundness gates.
     void apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView fn);
     // When `is_binary_skip` is true, the FuncOp is created private so the
@@ -2072,6 +2088,9 @@ private:
     void forward_declare(mlir::ModuleOp mod, lir_view::FunctionView fn,
                           bool is_binary_skip = false);
     bool gen_function_body(mlir::func::FuncOp func, lir_view::FunctionView fn);
+    // Bind one parameter's SSA argument and register its shape (function and
+    // closure bodies alike).
+    void bind_param(const std::string& pname, TypeRef ptype, mlir::Value arg, uint32_t slot);
 
     // ── Block ─────────────────────────────────────────────────────
     // Stage 3g.3: BlockRef / StmtRef in signatures so the dispatcher no

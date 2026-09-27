@@ -1,0 +1,11 @@
+package enum_wide_backing_return_abi;
+enum Big : u64 { A = 1099511627776, B = 2199023255552 }
+fn pick(b: bool) -> Big { if b { return Big::B; } return Big::A; }
+fn main() -> i32 {
+    let f = |b: bool| -> Big { pick(b) };
+    let x = pick(true) as u64;
+    let y = f(false) as u64;
+    if x != 2199023255552 { return 1; }
+    if y != 1099511627776 { return 2; }
+    return 0;
+}

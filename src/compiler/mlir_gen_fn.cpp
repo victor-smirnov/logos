@@ -61,104 +61,217 @@ mlir::Value MLIRGenImpl::sizeof_struct(mlir::LLVM::LLVMStructType struct_type) {
 // Function type from LFunction
 // ---------------------------------------------------------------------------
 
-mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
-    if (!ret_type) return nullptr;
-    TypeRef rv{ret_type};
-    if (is_anyval(ret_type)) return builder_.getI32Type();
-    if (rv.kind() == LogosType::Kind::Tuple) {
-        return tuple_llvm_type(ret_type);
-    }
-    if (rv.kind() == LogosType::Kind::Struct ||
-        rv.kind() == LogosType::Kind::ZonedStruct) {
-        auto cname = mlir_struct_key(ret_type);
-        auto sit = struct_types_.find(cname);
+// ---------------------------------------------------------------------------
+// ADR 0030 S1 — THE SIGNATURE ABI. One answer per TypeRef for each signature
+// position, consumed by every definition (make_fn_type, gen_closure), every
+// call whose callee is not a FuncOp (closure / fn-pointer / dyn / tag
+// dispatch) and every return. There were three copies of the return half
+// (make_fn_type inline, fn_call_ret_llvm_type, llvm_fn_ret_type) and they
+// disagreed: llvm_fn_ret_type had no Tuple arm, so a tuple-returning closure
+// was DEFINED `-> ptr` (a pointer to its own dead alloca) while its CALL was
+// typed `-> {i32,i32}`; the two C-like-enum arms answered a bare i32 while
+// the value repr is the declared backing type.
+// ---------------------------------------------------------------------------
+
+mlir::Type MLIRGenImpl::ret_abi_type(TypeRef t) {
+    if (!t) return nullptr;
+    if (is_anyval(t)) return builder_.getI32Type();
+    switch (t.kind()) {
+    case LogosType::Kind::Tuple:
+        return tuple_llvm_type(t);
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::ZonedStruct: {
+        // Aggregates return BY VALUE. A struct not yet registered at the time
+        // of the question is registered now, so the answer cannot depend on
+        // which signature asked first (a forward declaration used to answer
+        // `ptr` for one the closure definition later answered by value).
+        auto sit = find_struct_it(t);
+        if (sit == struct_types_.end()) {
+            auto dit = find_struct_def_it(t);
+            if (dit != all_struct_defs_.end() && dit->second.valid()) {
+                register_struct(dit->second);
+                sit = find_struct_it(t);
+            }
+        }
         if (sit != struct_types_.end()) return sit->second.llvm_type;
-        return ptr_type();
+        return logos_to_mlir(t);
     }
-    if (rv.kind() == LogosType::Kind::Enum) {
-        auto* te = resolve_tagged_enum(std::string(rv.enum_name()), ret_type);
-        if (te) return te->llvm_type;
-        return builder_.getI32Type();
+    case LogosType::Kind::Enum:
+        if (auto* te = resolve_tagged_enum(std::string(t.enum_name()), t))
+            return te->llvm_type;
+        return enum_disc_mlir(std::string(t.enum_name()), t);
+    default:
+        break;
     }
-    // RefRepr (Phase 2): a reference's by-value return ABI comes from the
-    // descriptor — dyn/slice return their 16B fat pair by value (A3/A4 leak
-    // fix), closure/custom-DST/thin return their 8B value pointer. NotARef →
-    // fall through to logos_to_mlir for non-reference returns.
-    if (auto rk = ref_repr_of(rv); rk != RefReprKind::NotARef)
+    // Reference return ABI from the RefRepr descriptor: dyn/slice/fat-zone
+    // return their 16B pair by value, thin/closure their 8B value pointer.
+    if (auto rk = ref_repr_of(t); rk != RefReprKind::NotARef)
         return repr_return_type(rk);
-    return logos_to_mlir(ret_type);
+    return logos_to_mlir(t);
+}
+
+mlir::Type MLIRGenImpl::param_abi_type(TypeRef t) {
+    if (!t) return nullptr;
+    if (is_anyval(t)) return builder_.getI32Type();
+    // Arrays, like structs, are passed by pointer to the caller's storage.
+    if (t.kind() == LogosType::Kind::Array) return ptr_type();
+    return logos_to_mlir(t);   // null: a zero-width param pushes no slot
+}
+
+MLIRGenImpl::FnSig MLIRGenImpl::fn_sig(const std::vector<TypeRef>& params, TypeRef ret,
+                                       unsigned leading_ptrs) {
+    FnSig sig;
+    for (unsigned i = 0; i < leading_ptrs; ++i) sig.args.push_back(ptr_type());
+    sig.params = params;
+    for (auto pt : params) {
+        auto t = param_abi_type(pt);
+        sig.arg_of_param.push_back(t ? (int)sig.args.size() : -1);
+        if (t) sig.args.push_back(t);
+    }
+    if (ret && ret.kind() != LogosType::Kind::Void) sig.ret = ret_abi_type(ret);
+    return sig;
+}
+
+mlir::LLVM::LLVMFunctionType MLIRGenImpl::llvm_fn_type(const FnSig& sig) {
+    mlir::Type r = sig.ret ? sig.ret : mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+    return mlir::LLVM::LLVMFunctionType::get(r, sig.args, /*isVarArg=*/false);
+}
+
+MLIRGenImpl::FnSig MLIRGenImpl::callable_sig(TypeRef callee_t, unsigned leading_ptrs,
+                                             TypeRef ret) {
+    // Peel references/boxes down to the callable itself: `&F`, `&mut F`,
+    // `&dyn Fn(..)`, `Box<dyn Fn(..)>` all call through the same {fn, env}.
+    TypeRef c = callee_t;
+    for (int guard = 0; c && guard < 8; ++guard) {
+        auto k = c.kind();
+        if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+             k == LogosType::Kind::Ptr) && c.pointee()) { c = c.pointee(); continue; }
+        if (is_stdlib_box(c) && c.type_args().size() == 1) { c = c.type_args()[0]; continue; }
+        break;
+    }
+    if (c && (c.kind() == LogosType::Kind::Closure || c.kind() == LogosType::Kind::FnPtr ||
+              c.kind() == LogosType::Kind::FnItem)) {
+        // The return is the CALL's type when it has one: that is the type the
+        // definition was lowered with after inference; the callee type's own
+        // slot is the fallback.
+        auto ps = c.closure_params();
+        return fn_sig(ps, ret ? ret : c.closure_ret(), leading_ptrs);
+    }
+    FnSig none;
+    none.unknown = true;
+    return none;
+}
+
+mlir::Value MLIRGenImpl::coerce_to_param_abi(mlir::Value v, mlir::Type abi,
+                                             TypeRef param_t, TypeRef arg_t) {
+    if (!v || !abi || v.getType() == abi) return v;
+    if (abi == ptr_type()) {
+        // A by-value aggregate (struct, tuple, array, tagged enum, fat pair)
+        // param is passed as a pointer to storage: a VALUE argument is
+        // spilled. A scalar niche word bound for a tagged-enum param likewise.
+        if (mlir::isa<mlir::LLVM::LLVMStructType, mlir::LLVM::LLVMArrayType>(v.getType()))
+            return spill_to_alloca(v);
+        bool tagged = param_t && param_t.kind() == LogosType::Kind::Enum &&
+                      resolve_tagged_enum(std::string(param_t.enum_name()), param_t);
+        if (tagged && v.getType() != ptr_type()) {
+            auto slot = create_entry_alloca(v.getType());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, v, slot);
+            return slot;
+        }
+        return v;
+    }
+    if (v.getType() == ptr_type()) {
+        // A pointer to storage where the ABI wants the value itself.
+        if (mlir::isa<mlir::LLVM::LLVMStructType, mlir::LLVM::LLVMArrayType>(abi))
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, abi, v);
+        return v;
+    }
+    return coerce_numeric(v, abi, arg_t);
+}
+
+mlir::Value MLIRGenImpl::coerce_to_ret_abi(mlir::Value v, mlir::Type abi, TypeRef val_t) {
+    if (!v || !abi || v.getType() == abi) return v;
+    if (mlir::isa<mlir::LLVM::LLVMStructType, mlir::LLVM::LLVMArrayType>(abi)) {
+        if (v.getType() == ptr_type())
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, abi, v);
+        // A payload-free variant of a tagged enum lowered as its bare
+        // discriminant: build the aggregate with the disc in field 0, in the
+        // enum's own discriminant width.
+        auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(abi);
+        if (st && !st.getBody().empty() && mlir::isa<mlir::IntegerType>(v.getType()) &&
+            mlir::isa<mlir::IntegerType>(st.getBody()[0])) {
+            auto slot = create_entry_alloca(abi);
+            auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), abi, slot,
+                llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
+            builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(v, st.getBody()[0]), dp);
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, abi, slot);
+        }
+        return v;
+    }
+    if (v.getType() == ptr_type() || abi == ptr_type()) return v;
+    return coerce_numeric(v, abi, val_t);
+}
+
+mlir::Value MLIRGenImpl::emit_indirect_call(mlir::Value fn_ptr, const FnSig& sig,
+                                            llvm::ArrayRef<mlir::Value> args) {
+    llvm::SmallVector<mlir::Value> ops;
+    ops.push_back(fn_ptr);
+    ops.append(args.begin(), args.end());
+    auto call = builder_.create<mlir::LLVM::CallOp>(
+        loc_, llvm_fn_type(sig), mlir::FlatSymbolRefAttr{}, mlir::ValueRange(ops));
+    if (!sig.ret) return nullptr;
+    return call.getResult();
+}
+
+MLIRGenImpl::FnSig MLIRGenImpl::sig_from_args(const std::vector<lir_view::ExprRef>& arg_refs,
+                                              TypeRef ret, unsigned leading_ptrs) {
+    std::vector<TypeRef> ps;
+    for (auto& ar : arg_refs) ps.push_back(ar ? ar.type(pool_impl()) : TypeRef());
+    return fn_sig(ps, ret, leading_ptrs);
+}
+
+MLIRGenImpl::FnSig MLIRGenImpl::indirect_sig(lir_view::ExprRef callee,
+                                             const std::vector<lir_view::ExprRef>& arg_refs,
+                                             TypeRef ret, unsigned leading_ptrs) {
+    FnSig sig = callable_sig(callee ? callee.type(pool_impl()) : TypeRef(), leading_ptrs, ret);
+    if (sig.unknown || sig.params.size() != arg_refs.size())
+        sig = sig_from_args(arg_refs, ret, leading_ptrs);
+    return sig;
+}
+
+bool MLIRGenImpl::lower_call_args(const std::vector<lir_view::ExprRef>& arg_refs,
+                                  const FnSig& sig, llvm::SmallVectorImpl<mlir::Value>& out) {
+    for (size_t i = 0; i < arg_refs.size(); ++i) {
+        auto ar = arg_refs[i];
+        if (!ar) return false;
+        int slot = i < sig.arg_of_param.size() ? sig.arg_of_param[i] : -1;
+        auto v = gen_expr(ar);
+        if (slot < 0) continue;                 // zero-width: effect only
+        if (!v) return false;
+        TypeRef pt = i < sig.params.size() ? sig.params[i] : TypeRef();
+        out.push_back(coerce_to_param_abi(v, sig.args[slot], pt, ar.type(pool_impl())));
+    }
+    return true;
 }
 
 mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
     const auto* mft_pool = pool_impl();
     TypeRef fn_ret = fn.ret_type(mft_pool);
-    llvm::SmallVector<mlir::Type> param_types;
-    // Record each param's MLIR argument index (-1 = no slot pushed) so the body
-    // binder cannot re-derive it and drift. See gen_function_body.
-    std::vector<int> arg_of_param;
-    for (auto& p : fn.params()) {
-        TypeRef pt = p.type(mft_pool);
-        if (is_anyval(pt)) {
-            arg_of_param.push_back((int)param_types.size());
-            param_types.push_back(builder_.getI32Type());
-            continue;
-        }
-        // Arrays (like structs) are passed by pointer.
-        if (pt && pt.kind() == LogosType::Kind::Array) {
-            arg_of_param.push_back((int)param_types.size());
-            param_types.push_back(ptr_type());
-        } else {
-            auto t = logos_to_mlir(pt);
-            arg_of_param.push_back(t ? (int)param_types.size() : -1);
-            if (t) param_types.push_back(t);
-        }
-    }
-    fn_param_arg_index_[link_name(fn)] = std::move(arg_of_param);
-    llvm::SmallVector<mlir::Type> ret_types;
+    std::vector<TypeRef> ptypes;
+    for (auto& p : fn.params()) ptypes.push_back(p.type(mft_pool));
     // The C entry point returns `int`: a unit `fn main()` (Rust's default) is
     // given an i32 result and returns 0 (it returned an unset register).
     const bool unit_main = link_name(fn) == "main" &&
         (!fn_ret || TypeRef(fn_ret).kind() == LogosType::Kind::Void);
-    if (unit_main)
-        ret_types.push_back(builder_.getI32Type());
-    if (fn_ret && !unit_main) {
-        TypeRef rv{fn_ret};
-        if (is_anyval(rv)) {
-            ret_types.push_back(builder_.getI32Type());
-        } else
-        // Tuples and structs are returned by value (as LLVM struct), not by pointer.
-        // Returning a pointer to a local alloca would be a dangling pointer after return.
-        if (rv.kind() == LogosType::Kind::Tuple) {
-            auto rt = tuple_llvm_type(fn_ret);
-            if (rt) ret_types.push_back(rt);
-        } else if (rv.kind() == LogosType::Kind::Struct ||
-                   rv.kind() == LogosType::Kind::ZonedStruct) {
-            auto cname = mlir_struct_key(fn_ret);
-            auto sit = struct_types_.find(cname);
-            if (sit != struct_types_.end())
-                ret_types.push_back(sit->second.llvm_type);
-            else
-                ret_types.push_back(ptr_type()); // fallback (struct not yet registered)
-        } else if (rv.kind() == LogosType::Kind::Enum) {
-            // Tagged enums must also be returned by value (aggregate), not by pointer.
-            auto* te = resolve_tagged_enum(std::string(rv.enum_name()), fn_ret);
-            if (te)
-                ret_types.push_back(te->llvm_type);
-            else {
-                // C-style (non-payload) enum — return i32.
-                ret_types.push_back(builder_.getI32Type());
-            }
-        } else if (auto rk = ref_repr_of(rv); rk != RefReprKind::NotARef) {
-            // RefRepr (Phase 2): the reference's by-value return ABI from the
-            // descriptor (dyn/slice → 16B fat by value; closure/custom-DST/thin
-            // → 8B value ptr) — mirrors fn_call_ret_llvm_type.
-            ret_types.push_back(repr_return_type(rk));
-        } else {
-            auto rt = logos_to_mlir(fn_ret);
-            if (rt) ret_types.push_back(rt);
-        }
-    }
-    return builder_.getFunctionType(param_types, ret_types);
+    FnSig sig = fn_sig(ptypes, unit_main ? TypeRef() : fn_ret);
+    if (unit_main) sig.ret = builder_.getI32Type();
+    // Record each param's MLIR argument index (-1 = no slot pushed) so the body
+    // binder and apply_param_attrs cannot re-derive it and drift.
+    fn_param_arg_index_[link_name(fn)] = sig.arg_of_param;
+    llvm::SmallVector<mlir::Type> ret_types;
+    if (sig.ret) ret_types.push_back(sig.ret);
+    return builder_.getFunctionType(sig.args, ret_types);
 }
 
 // ---------------------------------------------------------------------------
@@ -310,21 +423,23 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     matcher would fire on every Rc/Arc/Weak method in the tree.
 //     @endclaim
 //
-//   • The arg-index walk MIRRORS make_fn_type's slot-push order exactly: anyval
-//     → one i32 slot; Array → one ptr slot; a param whose logos_to_mlir is null
-//     (Void/Never) pushes NO slot and must not advance the index.
+//   • The arg index of each param is make_fn_type's recorded map.
 // ---------------------------------------------------------------------------
 void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView fn) {
     if (fn.is_extern()) return;            // FFI boundary — don't assert Logos aliasing
     using K = LogosType::Kind;
     const auto* pool = pool_impl();
     auto unit = mlir::UnitAttr::get(builder_.getContext());
-    unsigned arg = 0;
-    for (auto& p : fn.params()) {
-        TypeRef pt = p.type(pool);
-        if (is_anyval(pt))                         { ++arg; continue; }  // i32 slot
-        if (pt && pt.kind() == K::Array)           { ++arg; continue; }  // ptr-to-array slot
-        if (!logos_to_mlir(pt)) continue;          // zero-width param: NO slot pushed
+    // The argument index of each param is make_fn_type's recorded map (the
+    // one signature ABI), not a re-walk of its slot order.
+    auto ai = fn_param_arg_index_.find(link_name(fn));
+    if (ai == fn_param_arg_index_.end()) return;
+    auto fps = fn.params();
+    for (size_t pi = 0; pi < fps.size() && pi < ai->second.size(); ++pi) {
+        if (ai->second[pi] < 0) continue;          // zero-width param: NO slot
+        unsigned arg = (unsigned)ai->second[pi];
+        TypeRef pt = fps[pi].type(pool);
+        if (is_anyval(pt)) continue;               // i32 slot
         if (pt && (pt.kind() == K::Ref || pt.kind() == K::MutRef) &&
             ref_repr_of(pt) == RefReprKind::ThinPtr) {
             // ⚠ `llvm.align` / `llvm.dereferenceable` ARE A LAYOUT CLAIM, so they
@@ -387,7 +502,6 @@ void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView
                 }
             }
         }
-        ++arg;
     }
     // Return value: noundef on a SCALAR or POINTER result only. Logos has no
     // undef value form (MaybeUninit is zeroed; codegen emits no poison), so a
@@ -465,6 +579,166 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, lir_view::FunctionView fn,
 // Function body
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ONE parameter binder, shared by function bodies and closure bodies (the
+// closure binder was a bare `scope_[name] = arg` that registered no shape, so
+// a `&&dyn`, `&[T]`, `&Struct` or by-value enum closure parameter was read
+// through the wrong representation). `continue` in the old loop is `return`.
+// ---------------------------------------------------------------------------
+void MLIRGenImpl::bind_param(const std::string& pname, TypeRef ptype, mlir::Value arg,
+                             uint32_t slot) {
+    scope_[pname] = arg;
+    shadow_register_slot(slot, pname);
+    // Pointer-family params (`*mut`/`*const`/`&`/`&mut`): their SSA arg IS a
+    // pointer VALUE, so `&p` is the address of the param's own slot — record
+    // them so EAddrOf spills (scalars are caught there by an SSA-type check;
+    // aggregate by-value params arrive AS a pointer = the object address and
+    // are NOT recorded, so `&p` returns that address unchanged). Classified
+    // by logos kind only (no MLIR-arg query — safe for zero-size/`!` params
+    // that are elided from the signature). Ref/MutRef additionally rebind
+    // for `&&mut T` write-through.
+    if (ptype) {
+        auto pk = ptype.kind();
+        if (pk == LogosType::Kind::Ptr || pk == LogosType::Kind::Ref ||
+            pk == LogosType::Kind::MutRef)
+            ptr_family_param_.insert(pname);
+        if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
+            ref_param_names_.insert(pname);
+    }
+
+    // Track subscript element type for pointer / reference parameters.
+    auto is_ptr_kind = [](LogosType::Kind k) {
+        return k == LogosType::Kind::Ptr ||
+               k == LogosType::Kind::Ref ||
+               k == LogosType::Kind::MutRef;
+    };
+    if (ptype) {
+        TypeRef pv{ptype};
+        if (is_ptr_kind(pv.kind()) && pv.pointee()) {
+            // For ptr-to-struct, the subscript stride must be
+            // sizeof(struct), not sizeof(ptr) — `logos_to_mlir(Struct)`
+            // collapses to ptr_type, so look up the struct's full LLVM
+            // type directly. Params don't go through a local alloca
+            // slot, so we register only var_subscript_ (gen_index_*
+            // reads it directly off the SSA arg) — not var_local_ptrs_,
+            // which would trigger a spurious LoadOp.
+            TypeRef pe = pv.pointee();
+            // G162-2: a `&/&mut/*[T; N]` param indexes by the ELEMENT type
+            // (the pointee is the whole array — `logos_to_mlir(array)` is
+            // the `[N x T]` aggregate, which would stride the GEP by
+            // sizeof(array) → OOB write/read). Peel to the element.
+            if (pe.kind() == LogosType::Kind::Array && pe.elem())
+                pe = pe.elem();
+            mlir::Type et;
+            if (pe.kind() == LogosType::Kind::Struct ||
+                pe.kind() == LogosType::Kind::ZonedStruct) {
+                auto cname = mlir_struct_key(pe);
+                auto sit = struct_types_.find(cname);
+                if (sit != struct_types_.end()) et = sit->second.llvm_type;
+            }
+            if (!et) et = logos_to_mlir(pe);
+            if (et) var_subscript_[pname] = et;
+        } else if (pv.kind() == LogosType::Kind::Slice && pv.elem()) {
+            // G162-2: a `&[T]` / `&mut [T]` slice param arrives as a
+            // pointer to the fat `{ptr, len}` descriptor. Indexed
+            // read/write must deref field 0 to the data pointer first
+            // (gen_index_write / EIndexRead consult var_slice_), then
+            // stride by the element type. Struct elements lay out inline,
+            // so use the struct's full LLVM type for the stride.
+            TypeRef se = pv.elem();
+            mlir::Type et;
+            if (se.kind() == LogosType::Kind::Struct ||
+                se.kind() == LogosType::Kind::ZonedStruct) {
+                auto cname = mlir_struct_key(se);
+                auto sit = struct_types_.find(cname);
+                if (sit != struct_types_.end()) et = sit->second.llvm_type;
+            }
+            if (!et) et = logos_to_mlir(se);
+            if (et) var_slice_[pname] = et;
+        } else if (pv.kind() == LogosType::Kind::Array && pv.elem()) {
+            // Array params arrive as `ptr` (per make_fn_type). Without an
+            // explicit subscript entry, gen_index_read's
+            // subscript_elem_type(name) falls back to i32 — which on an
+            // i64 array reads with stride-4 instead of stride-8 and
+            // yields the alternating-value/zero pattern that masked the
+            // assertion bug. Register the element's MLIR type so the
+            // GEP stride matches the array layout.
+            TypeRef ae = pv.elem();
+            mlir::Type et;
+            // G161-1: a `[Struct; N]` array stores INLINE structs, not
+            // pointers — `logos_to_mlir(Struct)` is `ptr`, which would
+            // stride the GEP by 8 and read each element as a pointer
+            // (then deref garbage → SIGSEGV). Use the struct's LLVM type
+            // so the stride is sizeof(Struct) and `a[i]` is the inline
+            // element address (mirrors the slice-param branch above).
+            if (ae.kind() == LogosType::Kind::Struct ||
+                ae.kind() == LogosType::Kind::ZonedStruct) {
+                auto cname = mlir_struct_key(ae);
+                auto sit = struct_types_.find(cname);
+                if (sit != struct_types_.end()) et = sit->second.llvm_type;
+            }
+            if (!et) et = logos_to_mlir(ae);
+            if (et) var_subscript_[pname] = et;
+        }
+    }
+
+    // Track trait-object (`dyn Trait` / `&dyn Trait`) parameters. Direct
+    // dispatch works off the param type alone, but a closure capturing
+    // such a param needs `var_dyn_trait_` set so it takes the dyn capture
+    // branch (storing the {data,vtable} handle directly) instead of the
+    // scalar branch (which allocas the handle and then mis-GEPs it as the
+    // fat pair → SIGSEGV). Var-ref returns it->second either way, so this
+    // doesn't change the direct path.
+    if (ptype) {
+        TypeRef pv{ptype};
+        TypeRef trait_t;
+        if (pv.kind() == LogosType::Kind::TraitObject)
+            trait_t = pv;
+        else if ((pv.kind() == LogosType::Kind::Ref ||
+                  pv.kind() == LogosType::Kind::MutRef ||
+                  pv.kind() == LogosType::Kind::Ptr) && pv.pointee() &&
+                 TypeRef(pv.pointee()).kind() == LogosType::Kind::TraitObject)
+            trait_t = pv.pointee();
+        if (trait_t) {
+            var_dyn_trait_[pname] = std::string(TypeRef(trait_t).trait_name());
+            // A `*const/*mut dyn Trait` PARAM holds the raw trait-object fat
+            // pointer (the handle) by value — the Rust raw-fat-ptr, not a
+            // pointer-to-handle — so `*p` is the no-op default in EDeref
+            // (raw-ptr-dyn-trait). No ptr-to-handle marking needed.
+            return;
+        }
+    }
+
+    // Track struct type for parameters (including 'self').
+    if (ptype) {
+        TypeRef pv{ptype};
+        std::string sname;
+        if (pv.kind() == LogosType::Kind::Struct ||
+            pv.kind() == LogosType::Kind::ZonedStruct)
+            sname = mlir_struct_key(ptype);
+        else if (is_ptr_kind(pv.kind()) && pv.pointee() &&
+                 (pv.pointee().kind() == LogosType::Kind::Struct ||
+                  pv.pointee().kind() == LogosType::Kind::ZonedStruct))
+            sname = mlir_struct_key(pv.pointee());
+        if (!sname.empty()) { var_struct_[pname] = std::move(sname); return; }
+
+        // G157-1: a by-value TAGGED-enum param (e.g. `x: Option<i64>`)
+        // arrives as the heap ptr (one level). Register it like a local
+        // enum `let` so `&x` spills it to a slot (EAddrOf's var_tagged_enum_
+        // path) — yielding a real ptr-to-enum-ptr that the `==`→`eq` method
+        // (which takes `&Enum`, two-level) can deref. Without this, `&x`
+        // returned the bare heap ptr and `eq` loaded the i32 disc as a
+        // pointer → SIGSEGV. C-like (no-payload) enum params are i32, not
+        // ptr — their `&` is handled by EAddrOf's scalar-spill branch, so
+        // gate on a resolvable TaggedEnumInfo.
+        if (pv.kind() == LogosType::Kind::Enum &&
+            resolve_tagged_enum(std::string(pv.enum_name()), pv)) {
+            var_tagged_enum_.insert(pname);
+            return;
+        }
+    }
+}
+
 bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionView fn) {
     const auto* gfb_pool = pool_impl();
     auto fn_params = fn.params();
@@ -527,8 +801,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     // function-scope location set here.
     begin_fn_debug(func, fn);
 
-    scope_.clear();
-    let_vars_.clear();
+    clear_var_shapes();
     uninit_drop_flag_.clear();
     uninit_flag_needed_.clear();
     uninit_static_.clear();
@@ -538,20 +811,6 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     shadow_slot_uninit_.clear();
     uninit_owner_slot_.clear();
     shadow_frozen_assigned_.clear();
-    var_elem_types_.clear();
-    var_struct_.clear();
-    var_subscript_.clear();
-    var_slice_.clear();
-    var_tuple_.clear();
-    var_tagged_enum_.clear();
-    var_tagged_enum_ptr_.clear();
-    var_local_ptrs_.clear();
-    ref_slot_vars_.clear();
-    var_dyn_trait_.clear();
-    var_raw_dyn_.clear();
-    dyn_ptr_to_handle_vars_.clear();
-    ref_param_names_.clear();
-    ptr_family_param_.clear();
     loop_stack_.clear();
 
     // Bind parameters. The SSA index comes from make_fn_type's recorded map, not
@@ -559,160 +818,10 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     // take the next param's argument (or index past the end of the entry block).
     for (size_t i = 0; i < fn_params.size(); ++i) {
         auto& p = fn_params[i];
-        std::string pname(p.name());
-        TypeRef ptype = p.type(gfb_pool);
         int arg_i = arg_of_param ? (*arg_of_param)[i] : (int)i;
         if (arg_i < 0 || (unsigned)arg_i >= entry->getNumArguments()) continue;
-        scope_[pname] = entry->getArgument((unsigned)arg_i);
-        shadow_register_slot(p.slot(), pname);
-        // Pointer-family params (`*mut`/`*const`/`&`/`&mut`): their SSA arg IS a
-        // pointer VALUE, so `&p` is the address of the param's own slot — record
-        // them so EAddrOf spills (scalars are caught there by an SSA-type check;
-        // aggregate by-value params arrive AS a pointer = the object address and
-        // are NOT recorded, so `&p` returns that address unchanged). Classified
-        // by logos kind only (no MLIR-arg query — safe for zero-size/`!` params
-        // that are elided from the signature). Ref/MutRef additionally rebind
-        // for `&&mut T` write-through.
-        if (ptype) {
-            auto pk = ptype.kind();
-            if (pk == LogosType::Kind::Ptr || pk == LogosType::Kind::Ref ||
-                pk == LogosType::Kind::MutRef)
-                ptr_family_param_.insert(pname);
-            if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
-                ref_param_names_.insert(pname);
-        }
-
-        // Track subscript element type for pointer / reference parameters.
-        auto is_ptr_kind = [](LogosType::Kind k) {
-            return k == LogosType::Kind::Ptr ||
-                   k == LogosType::Kind::Ref ||
-                   k == LogosType::Kind::MutRef;
-        };
-        if (ptype) {
-            TypeRef pv{ptype};
-            if (is_ptr_kind(pv.kind()) && pv.pointee()) {
-                // For ptr-to-struct, the subscript stride must be
-                // sizeof(struct), not sizeof(ptr) — `logos_to_mlir(Struct)`
-                // collapses to ptr_type, so look up the struct's full LLVM
-                // type directly. Params don't go through a local alloca
-                // slot, so we register only var_subscript_ (gen_index_*
-                // reads it directly off the SSA arg) — not var_local_ptrs_,
-                // which would trigger a spurious LoadOp.
-                TypeRef pe = pv.pointee();
-                // G162-2: a `&/&mut/*[T; N]` param indexes by the ELEMENT type
-                // (the pointee is the whole array — `logos_to_mlir(array)` is
-                // the `[N x T]` aggregate, which would stride the GEP by
-                // sizeof(array) → OOB write/read). Peel to the element.
-                if (pe.kind() == LogosType::Kind::Array && pe.elem())
-                    pe = pe.elem();
-                mlir::Type et;
-                if (pe.kind() == LogosType::Kind::Struct ||
-                    pe.kind() == LogosType::Kind::ZonedStruct) {
-                    auto cname = mlir_struct_key(pe);
-                    auto sit = struct_types_.find(cname);
-                    if (sit != struct_types_.end()) et = sit->second.llvm_type;
-                }
-                if (!et) et = logos_to_mlir(pe);
-                if (et) var_subscript_[pname] = et;
-            } else if (pv.kind() == LogosType::Kind::Slice && pv.elem()) {
-                // G162-2: a `&[T]` / `&mut [T]` slice param arrives as a
-                // pointer to the fat `{ptr, len}` descriptor. Indexed
-                // read/write must deref field 0 to the data pointer first
-                // (gen_index_write / EIndexRead consult var_slice_), then
-                // stride by the element type. Struct elements lay out inline,
-                // so use the struct's full LLVM type for the stride.
-                TypeRef se = pv.elem();
-                mlir::Type et;
-                if (se.kind() == LogosType::Kind::Struct ||
-                    se.kind() == LogosType::Kind::ZonedStruct) {
-                    auto cname = mlir_struct_key(se);
-                    auto sit = struct_types_.find(cname);
-                    if (sit != struct_types_.end()) et = sit->second.llvm_type;
-                }
-                if (!et) et = logos_to_mlir(se);
-                if (et) var_slice_[pname] = et;
-            } else if (pv.kind() == LogosType::Kind::Array && pv.elem()) {
-                // Array params arrive as `ptr` (per make_fn_type). Without an
-                // explicit subscript entry, gen_index_read's
-                // subscript_elem_type(name) falls back to i32 — which on an
-                // i64 array reads with stride-4 instead of stride-8 and
-                // yields the alternating-value/zero pattern that masked the
-                // assertion bug. Register the element's MLIR type so the
-                // GEP stride matches the array layout.
-                TypeRef ae = pv.elem();
-                mlir::Type et;
-                // G161-1: a `[Struct; N]` array stores INLINE structs, not
-                // pointers — `logos_to_mlir(Struct)` is `ptr`, which would
-                // stride the GEP by 8 and read each element as a pointer
-                // (then deref garbage → SIGSEGV). Use the struct's LLVM type
-                // so the stride is sizeof(Struct) and `a[i]` is the inline
-                // element address (mirrors the slice-param branch above).
-                if (ae.kind() == LogosType::Kind::Struct ||
-                    ae.kind() == LogosType::Kind::ZonedStruct) {
-                    auto cname = mlir_struct_key(ae);
-                    auto sit = struct_types_.find(cname);
-                    if (sit != struct_types_.end()) et = sit->second.llvm_type;
-                }
-                if (!et) et = logos_to_mlir(ae);
-                if (et) var_subscript_[pname] = et;
-            }
-        }
-
-        // Track trait-object (`dyn Trait` / `&dyn Trait`) parameters. Direct
-        // dispatch works off the param type alone, but a closure capturing
-        // such a param needs `var_dyn_trait_` set so it takes the dyn capture
-        // branch (storing the {data,vtable} handle directly) instead of the
-        // scalar branch (which allocas the handle and then mis-GEPs it as the
-        // fat pair → SIGSEGV). Var-ref returns it->second either way, so this
-        // doesn't change the direct path.
-        if (ptype) {
-            TypeRef pv{ptype};
-            TypeRef trait_t;
-            if (pv.kind() == LogosType::Kind::TraitObject)
-                trait_t = pv;
-            else if ((pv.kind() == LogosType::Kind::Ref ||
-                      pv.kind() == LogosType::Kind::MutRef ||
-                      pv.kind() == LogosType::Kind::Ptr) && pv.pointee() &&
-                     TypeRef(pv.pointee()).kind() == LogosType::Kind::TraitObject)
-                trait_t = pv.pointee();
-            if (trait_t) {
-                var_dyn_trait_[pname] = std::string(TypeRef(trait_t).trait_name());
-                // A `*const/*mut dyn Trait` PARAM holds the raw trait-object fat
-                // pointer (the handle) by value — the Rust raw-fat-ptr, not a
-                // pointer-to-handle — so `*p` is the no-op default in EDeref
-                // (raw-ptr-dyn-trait). No ptr-to-handle marking needed.
-                continue;
-            }
-        }
-
-        // Track struct type for parameters (including 'self').
-        if (ptype) {
-            TypeRef pv{ptype};
-            std::string sname;
-            if (pv.kind() == LogosType::Kind::Struct ||
-                pv.kind() == LogosType::Kind::ZonedStruct)
-                sname = mlir_struct_key(ptype);
-            else if (is_ptr_kind(pv.kind()) && pv.pointee() &&
-                     (pv.pointee().kind() == LogosType::Kind::Struct ||
-                      pv.pointee().kind() == LogosType::Kind::ZonedStruct))
-                sname = mlir_struct_key(pv.pointee());
-            if (!sname.empty()) { var_struct_[pname] = std::move(sname); continue; }
-
-            // G157-1: a by-value TAGGED-enum param (e.g. `x: Option<i64>`)
-            // arrives as the heap ptr (one level). Register it like a local
-            // enum `let` so `&x` spills it to a slot (EAddrOf's var_tagged_enum_
-            // path) — yielding a real ptr-to-enum-ptr that the `==`→`eq` method
-            // (which takes `&Enum`, two-level) can deref. Without this, `&x`
-            // returned the bare heap ptr and `eq` loaded the i32 disc as a
-            // pointer → SIGSEGV. C-like (no-payload) enum params are i32, not
-            // ptr — their `&` is handled by EAddrOf's scalar-spill branch, so
-            // gate on a resolvable TaggedEnumInfo.
-            if (pv.kind() == LogosType::Kind::Enum &&
-                resolve_tagged_enum(std::string(pv.enum_name()), pv)) {
-                var_tagged_enum_.insert(pname);
-                continue;
-            }
-        }
+        bind_param(std::string(p.name()), p.type(gfb_pool),
+                   entry->getArgument((unsigned)arg_i), p.slot());
     }
 
     // -g: emit DWARF parameter debug info (info args / print <param>). Uses the

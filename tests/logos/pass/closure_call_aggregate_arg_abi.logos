@@ -1,0 +1,15 @@
+package closure_call_aggregate_arg_abi;
+struct Q { a: i64, b: i64 }
+struct H { q: Q }
+fn mq() -> Q { Q { a: 7, b: 8 } }
+fn main() -> i32 {
+    let f = |q: Q| q.a * 10 + q.b;
+    if f(mq()) != 78 { return 1; }
+    let h = H { q: Q { a: 1, b: 2 } };
+    if f(h.q) != 12 { return 2; }
+    let g = |t: (i64, i64), arr: [i64; 3]| t.0 + t.1 + arr[2];
+    if g((1, 2), [0, 0, 30]) != 33 { return 3; }
+    let fp: fn(Q) -> i64 = |q| q.b;
+    if fp(mq()) != 8 { return 4; }
+    return 0;
+}

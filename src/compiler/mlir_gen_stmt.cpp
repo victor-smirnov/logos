@@ -3125,7 +3125,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
                 src_lt = TypeRef(src_lt).pointee();
             // Value-fat-pair model: build the {data,vtable} pair on the stack
             // (coerce_to_dyn → alloca, no malloc) and RETURN IT BY VALUE — the
-            // function's MLIR return type is the 16-byte struct (llvm_fn_ret_type).
+            // function's MLIR return type is the 16-byte struct (ret_abi_type).
             // The caller copies the value into its own storage, so no heap
             // surviving-slot is needed.
             // (Box<Concrete> sources are desugared to an `as` unsize cast in
@@ -3143,81 +3143,12 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
                 builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fat_val});
             return;
         }
-        // Returning a value that is ALREADY a `&dyn`/`dyn` (TraitObject) — e.g.
-        // `return g;` where g: &dyn T. The fn return type is the 16-byte fat
-        // pair (by value); the value is a pointer to its storage → load it.
-        if (cur_fn_ret_logos_type_ &&
-            TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::TraitObject &&
-            s_val_ty &&
-            TypeRef(s_val_ty).kind() == LogosType::Kind::TraitObject) {
-            auto val = gen_expr(val_er);
-            if (!val) { ret_dropped("already-dyn value"); return; }
-            auto dyn_struct = dyn_llvm_type();
-            if (val.getType() == ptr_type())
-                val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, val);
-            if (in_llvm_func_)
-                emit_llvm_return_(mlir::ValueRange{val});
-            else
-                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
-            return;
-        }
-
         auto val = gen_expr(val_er);
         if (!val) { ret_dropped("value"); return; }
-        // Slice/str fat-pair return BY VALUE (mirror the TraitObject path above):
-        // the fn MLIR return type is the 16-byte {ptr,len} (llvm_fn_ret_type).
-        // A slice value is normally a pointer-to-stack-storage (ESliceLit alloca,
-        // a spilled call result, a `&[T]` field/var) → LOAD the 16-byte value and
-        // return it. No malloc, no surviving heap slot (was the A3/A4 leak). If
-        // it's already a loaded 16-byte struct value, return as-is.
-        if (cur_fn_ret_logos_type_ &&
-            TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::Slice) {
-            auto stype = slice_llvm_type();
-            if (val.getType() == ptr_type())
-                val = builder_.create<mlir::LLVM::LoadOp>(loc_, stype, val);
-            if (in_llvm_func_)
-                emit_llvm_return_(mlir::ValueRange{val});
-            else
-                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
-            return;
-        }
-        if (cur_ret_type_ && cur_ret_type_ == ptr_type() && val.getType() != ptr_type()) {
-            if (s_val_ty && TypeRef(s_val_ty).kind() == LogosType::Kind::Enum) {
-                // The value is a discriminant — need to figure out the enum struct type.
-                // Look through all registered tagged enums to find a matching one.
-                // For now: create a generic {i32, [4 x i8]} wrapper.
-                auto i32t = builder_.getI32Type();
-                auto pad = mlir::LLVM::LLVMArrayType::get(builder_.getIntegerType(8), 4);
-                auto wrap = mlir::LLVM::LLVMStructType::getLiteral(
-                    builder_.getContext(), {i32t, pad});
-                auto alloca = create_entry_alloca(wrap);
-                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), wrap, alloca, di);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
-                val = alloca;
-            }
-        } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMArrayType>(cur_ret_type_)) {
-            if (val.getType() == ptr_type()) {
-                val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
-            }
-        } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_)) {
-            if (val.getType() == ptr_type()) {
-                // val is a pointer (to struct/enum alloca) — load the aggregate.
-                val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
-            } else {
-                // val is a scalar (i32 discriminant) — wrap in a struct alloca and load.
-                auto alloca = create_entry_alloca(cur_ret_type_);
-                auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), cur_ret_type_, alloca,
-                    llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
-                builder_.create<mlir::LLVM::StoreOp>(
-                    loc_, coerce_int(val, builder_.getI32Type()), disc_ptr);
-                val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, alloca);
-            }
-        }
-        else if (cur_ret_type_)
-            val = coerce_numeric(val, cur_ret_type_, s_val_ty);
+        // The return slot's type is the one signature ABI's (ret_abi_type):
+        // an aggregate / fat pair held in storage is loaded, a scalar is
+        // widened or narrowed.
+        if (cur_ret_type_) val = coerce_to_ret_abi(val, cur_ret_type_, s_val_ty);
         if (in_llvm_func_)
             emit_llvm_return_(mlir::ValueRange{val});
         else
