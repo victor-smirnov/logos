@@ -194,7 +194,6 @@ let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_
 # ── 2026-09-26 RUST-PARITY AUDIT (behaviour audit, 14 areas + FLS 1.98 paragraph-by-paragraph comparison, 58 units) ──
 assert_with_message_crash 1 tests/soundness/open/assert_with_message_crash refuses
 
-derive_clone_nonprimitive_field_refused 1 tests/soundness/open/derive_clone_nonprimitive_field_refused refuses
 
 destructuring_assign_drop_wrong 1 tests/soundness/open/destructuring_assign_drop_wrong run 0
 
@@ -399,9 +398,7 @@ vt_ff_whitespace_refused 4 tests/soundness/open/vt_ff_whitespace_refused refuses
 # ── 2026-09-27 FEATURE-INTERACTION AUDIT, clusters OUTSIDE ADR 0030 (docs/audit/2026-09-26-feature-interactions.md; the other 200 clusters are tracked by tests/interactions/clusters.json and close with the ADR 0030 steps) ──
 collect_refs_drops_loan_admitted 1 tests/soundness/open/collect_refs_drops_loan_admitted admits
 
-derive_debug_enum_variant_name_wrong 1 tests/soundness/open/derive_debug_enum_variant_name_wrong run 3
 
-derive_partialeq_enum_always_true_wrong 1 tests/soundness/open/derive_partialeq_enum_always_true_wrong run 3
 
 rc_derefmut_shared_alias_admitted 1 tests/soundness/open/rc_derefmut_shared_alias_admitted admits
 
@@ -409,9 +406,7 @@ vec_contains_string_double_drop_wrong 1 tests/soundness/open/vec_contains_string
 
 char_classification_ascii_only_wrong 2 tests/soundness/open/char_classification_ascii_only_wrong run 3
 
-derive_copy_const_generic_struct_crash 2 tests/soundness/open/derive_copy_const_generic_struct_crash refuses
 
-derive_partialeq_tuple_struct_crash 2 tests/soundness/open/derive_partialeq_tuple_struct_crash refuses
 
 recursive_type_via_option_payload_crash 2 tests/soundness/open/recursive_type_via_option_payload_crash refuses
 
@@ -487,5 +482,5 @@ implicit_integer_widening_admitted 4 tests/soundness/open/implicit_integer_widen
 
 struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_match_scrutinee_admitted admits
 
-# TOTAL 155
+# TOTAL 150
 # SYNC-HASH 1fc11f70a1391d755c09dc72f438be45

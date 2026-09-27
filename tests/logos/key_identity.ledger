@@ -586,7 +586,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # `current_type_params_.find("Self")` for `Self(x)` in a tuple struct's impl — the
 # same keyword lookup a `Self { .. }` literal makes. `Self` is a keyword, not an
 # entity name; it cannot collide across packages.
-#ARGSCAN find 12 e4726856
+# 2026-09-27: find 12 -> 13, roster e4726856 -> 8f6847db. resolve_self_enum_in_pattern's
+# `current_type_params_.find("Self")` for `Self::V` patterns in an `impl Enum` body — the
+# same keyword lookup as the two above; `Self` cannot collide across packages.
+#ARGSCAN find 13 8f6847db
 #ARGSCAN find_enum_by_name 3 d49e815d
 #ARGSCAN find_struct_by_name 2 d4135532
 #ARGSCAN has_any_ 3 87d658f1
