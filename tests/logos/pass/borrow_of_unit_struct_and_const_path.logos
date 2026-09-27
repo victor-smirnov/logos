@@ -1,0 +1,20 @@
+// `&P` where P names no local — a unit struct, a const — resolves the way a
+// bare `P` does. The format family borrows each argument (`&(arg)`, ADR 0030
+// R0), so `println!("{:?}", U)` of a unit struct went through this path and
+// was refused as "undefined variable 'U'".
+package borrow_of_unit_struct_and_const_path;
+use logos.std.fmt;
+
+#[derive_debug]
+struct U;
+
+const K: i64 = 40;
+
+fn main() -> i32 {
+    let r: &U = &U;
+    let k: &i64 = &K;
+    let s: String = format!("{:?}{}", U, K + 2);
+    let _ = r;
+    if s != String::from("U42") { return 1; }
+    return (*k + 2) as i32;
+}

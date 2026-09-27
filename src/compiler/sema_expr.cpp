@@ -4294,13 +4294,12 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     // & — address-of or array-to-slice
     if (op == "&") {
         auto child = map_of(node.get(la::VALUE.code));
-        if (code_of(child) == la::VAR_REF) {
+        // A path that names no local (a unit struct `&U`, a const, an
+        // undefined name) takes the general `&<expr>` path below, which
+        // resolves it the way a bare use would — and reports it the same way.
+        if (code_of(child) == la::VAR_REF && lookup(str_of(child.get(la::NAME.code)))) {
             auto var_name = str_of(child.get(la::NAME.code));
             auto vt = lookup(var_name);
-            if (!vt) {
-                error(std::format("undefined variable '{}'", var_name));
-                return error_expr();
-            }
             // §6.2 statics (S25): `&STATIC` IS the global's address (stable,
             // `'static`). The "__static_addr:<sym>" VarRef lowers to
             // llvm.mlir.addressof in mlir-gen — the reference value itself.

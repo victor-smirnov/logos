@@ -6595,8 +6595,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                with ADR 0030 R0's + 3 pass (format_args_evaluated_once, vec_macro_moves_elements,
 #                matches_macro_patterns) and + 2 fail (macro_arg_diag_reports_its_line,
 #                vec_macro_arg_diag_reports_its_line).
-REGISTRY-ALL         11605
-REGISTRY-NOIMPORTED  7042
+#                ALL 11605 -> 11606 (+1), NOIMPORTED 7042 -> 7043 (+1), TIERCOMMIT 216 -> 216 — 2026-09-27:
+#                + 1 pass (borrow_of_unit_struct_and_const_path).
+REGISTRY-ALL         11606
+REGISTRY-NOIMPORTED  7043
 REGISTRY-TIERCOMMIT  216
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
