@@ -1,0 +1,27 @@
+package for_by_value_array_fat_elements;
+use logos.lang.str;
+use logos.lang.iter;
+trait Tag { fn tag(&self) -> i64; }
+struct A(i64);
+impl Tag for A { fn tag(&self) -> i64 { return self.0; } }
+fn main() -> i32 {
+    let a = ["hello", "ab", "xyz"];
+    let mut n: i64 = 0;
+    for k in a { n = n + k.len() as i64; }
+    if n != 10 { return 1; }
+    let x = A(2);
+    let y = A(5);
+    let ds: [&dyn Tag; 2] = [&x, &y];
+    let mut s: i64 = 0;
+    for d in ds { s = s + d.tag(); }
+    if s != 7 { return 2; }
+    let ps: [(i64, i64); 2] = [(1, 2), (3, 4)];
+    let mut t: i64 = 0;
+    for p in ps { t = t + p.0 * p.1; }
+    if t != 14 { return 3; }
+    let os: [Option<i64>; 3] = [Some(1), None, Some(40)];
+    let mut u: i64 = 0;
+    for o in os { if let Some(v) = o { u = u + v; } }
+    if u != 41 { return 4; }
+    return 0;
+}

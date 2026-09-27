@@ -3466,36 +3466,12 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     // Evaluate the iter (array/slice) expression.
     mlir::Type elem_mlir = logos_to_mlir(s.elem_type);
     if (!elem_mlir) return;
-    // GEP stride type: for a STRUCT element, logos_to_mlir collapses to
-    // ptr_type (8 bytes), but the buffer holds the struct INLINE — striding by
-    // 8 reads the wrong element for any multi-word struct. Use the struct's
-    // full LLVM type so the per-index GEP strides by sizeof(struct).
-    // GEP stride = the inline slot footprint. logos_to_mlir collapses several
-    // element kinds to an 8-byte ptr; widen the ones the buffer stores INLINE:
-    //   • Struct/ZonedStruct  → full LLVM struct (sizeof(struct)).
-    //   • TraitObject/Closure/Slice → 16-byte fat pair (uniform fat model; also
-    //     covers Box<dyn> = owning TraitObject).
-    // Tuple/Enum/scalar elements keep the logos_to_mlir representation (tuples
-    // are stored BY POINTER in slice/Vec buffers — an 8-byte slot — so widening
-    // them mis-strides the iteration; the for-(a,b)-in-Vec<tuple> tests).
-    mlir::Type gep_elem_mlir = elem_mlir;
-    if (s.elem_type) {
-        TypeRef et(s.elem_type);
-        auto k = et.kind();
-        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
-            auto sit = struct_types_.find(mlir_struct_key(et));
-            if (sit != struct_types_.end()) gep_elem_mlir = sit->second.llvm_type;
-        } else if (k == LogosType::Kind::TraitObject ||
-                   k == LogosType::Kind::Closure ||
-                   k == LogosType::Kind::Slice ||
-                   k == LogosType::Kind::Tuple) {
-            // Tuples are now stored INLINE by value in slice/array buffers — use
-            // the full footprint stride (place_slot_type → tuple_llvm_type), not
-            // logos_to_mlir's collapsed 8-byte ptr.
-            gep_elem_mlir = place_slot_type(et);
-        }
-    }
-    if (!gep_elem_mlir) gep_elem_mlir = elem_mlir;
+    // GEP stride = the element's STORAGE type (place_slot_type): the buffer
+    // holds every element inline — a struct, tuple or tagged enum at its full
+    // footprint, a fat reference as its 16-byte pair. logos_to_mlir is the
+    // value handle (an 8-byte ptr for all of those) and strode an enum slice
+    // by 8.
+    mlir::Type gep_elem_mlir = s.elem_type ? place_slot_type(s.elem_type) : elem_mlir;
 
     auto arr_alloca = gen_expr(s.iter);
     if (!arr_alloca) return;
@@ -3623,46 +3599,17 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     // Load arr[i]: GEP to element, then load.
     mlir::Value i_cur = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
 
-    evict_var_shapes(s.var);
-    bool is_struct_elem = s.elem_type &&
-        TypeRef(s.elem_type).kind() == LogosType::Kind::Struct;
-
-    if (is_struct_elem) {
-        // Struct elements are now stored inline as `[N x %struct_type]`.
-        // GEP via [0, i] using the array slot type so stride = sizeof(struct);
-        // the resulting pointer IS the struct pointer.
-        auto cname = mlir_struct_key(s.elem_type);
-        auto sit = struct_types_.find(cname);
-        if (sit == struct_types_.end()) return;
-        auto slot_type = sit->second.llvm_type;
-        auto arr_type  = mlir::LLVM::LLVMArrayType::get(slot_type, s.arr_size);
-        llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{int32_t(0), i_cur};
-        auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), arr_type, arr_alloca, arr_idx);
-        scope_[s.var] = elem_ptr;
-        var_struct_[s.var] = cname;
-    } else if (s.elem_type && TypeRef(s.elem_type).kind() == LogosType::Kind::Tuple) {
-        // Tuple elements are stored INLINE (`[N x <tuple>]`); GEP via [0,i] with
-        // the tuple aggregate stride — the resulting pointer IS the tuple value
-        // (ptr-to-storage), like a struct element. No load.
-        auto slot_type = place_slot_type(s.elem_type);
-        auto arr_type  = mlir::LLVM::LLVMArrayType::get(slot_type, s.arr_size);
-        llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{int32_t(0), i_cur};
-        auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), arr_type, arr_alloca, arr_idx);
-        scope_[s.var]          = elem_ptr;
-        var_tuple_.insert(s.var);
-    } else {
-        llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{i_cur};
-        auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), elem_mlir, arr_alloca, arr_idx);
-        // Scalar: alloca + store so the body can read (and mutate) via scope_.
-        auto elem_alloca = create_entry_alloca(elem_mlir);
-        auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
-        scope_[s.var]          = elem_alloca;
-        var_elem_types_[s.var] = elem_mlir;
-    }
+    // The loop variable is a fresh place of the element type holding a copy
+    // of arr[i] (IntoIterator for [T; N] moves each element out), declared by
+    // the one typed-place binder so its shape matches a `let` of that type.
+    auto arr_type = mlir::LLVM::LLVMArrayType::get(gep_elem_mlir, s.arr_size);
+    llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{int32_t(0), i_cur};
+    auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
+        loc_, ptr_type(), arr_type, arr_alloca, arr_idx);
+    auto elem_slot = declare_local_place(s.var, s.elem_type);
+    if (!elem_slot) return;
+    builder_.create<mlir::LLVM::MemcpyOp>(loc_, elem_slot, elem_ptr,
+                                          size_const(s.elem_type), /*isVolatile=*/false);
     let_vars_.insert(s.var);
 
     // Create a separate increment block so that `continue` increments i first.
