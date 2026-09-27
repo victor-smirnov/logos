@@ -14,3 +14,7 @@ fn main() -> i32 {
 // subtype() arms ask only at strict sites. Closing it means making the tail site strict for EVERY type, a change
 // to every tail return in the corpus that was not priced.
 // rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error: lifetime may not live long enough. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ptr_coercion_tail_return_region_admits.rs.
+// 2026-09-27 (ADR 0030 S2): the tail return now takes `return x;`'s judgment — one operand lowering, one
+// finish with the STRICT variance gate — so it is refused where the explicit return is refused, with the same
+// sentence (bc_ptrcoerce_shared_to_const_refuse). rustc's wording ("lifetime may not live long enough") is
+// the borrow checker's; sema's variance gate answers first for both forms.

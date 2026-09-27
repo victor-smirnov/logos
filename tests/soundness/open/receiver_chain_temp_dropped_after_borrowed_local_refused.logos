@@ -1,0 +1,19 @@
+// SOUNDNESS QUEUE row receiver_chain_temp_dropped_after_borrowed_local_refused (tier 3, `refuses`). A method-chain temporary whose type borrows a local (`D(3).next(&thing).end()`, the middle value is a `D<&D<Box<i64>>>` with a Drop impl) is not dropped at the end of its statement: sema emits no drop for it there, and the drop that remains lands at the function's exit, AFTER the borrowed local — so BIR reports a false E0597.
+// Logos: `line 18: 'thing' does not live long enough: it is borrowed here and used after 'thing' goes out of scope`; the receiver temp of the first call (`__rtmp_0`) IS dropped at the statement end, the second (`__rtmp_1`, of type D<&D<Box<i64>>>) is not. Same on the pre-ADR-0030 binary.
+// rustc: accepts (edition 2024) — the statement's temporaries drop at its end, before any local.
+// corpus: tests/imported/pass/nll/issue-54382-use-span-of-tail-of-block.logos, issue-54556-temps-in-tail-diagnostic.logos (disabled with this row as their ground: they passed only because a fn TAIL skipped the temp drops entirely — a leak — until ADR 0030 S2 gave tails the return judgment).
+// fix hint: make_drop_stmt / needs_drop for a generic instance whose type argument is a reference (`impl<T> Drop for D<T>` at T = &U); see also the open hole "destructor keyed on mangled <T>__drop".
+package receiver_chain_temp_dropped_after_borrowed_local_refused;
+
+struct D<T>(T);
+impl<T> Drop for D<T> { fn drop(self: &mut D<T>) { } }
+impl<T> D<T> {
+    fn next<U>(self: &D<T>, other: U) -> D<U> { return D(other); }
+    fn end(self: &D<T>) -> i64 { return 0i64; }
+}
+
+fn main() -> i32 {
+    let thing: D<Box<i64>> = D(Box::new(1i64));
+    let r: i64 = D(3i64).next(&thing).end();
+    return r as i32;
+}

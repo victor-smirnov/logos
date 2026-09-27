@@ -9689,6 +9689,9 @@ private:
     lir_view::StmtRef lower_assign_to(std::string_view name, writ::TinyMapView node);
     lir_view::StmtRef lower_destructure_assign(writ::TinyMapView node);
     lir_view::StmtRef lower_return(writ::TinyMapView node);
+    // ADR 0030 S2: the one return judgment, shared by `return e;` and tails.
+    lir::LExprPtr lower_return_operand_(writ::TinyMapView vnode);
+    lir_view::StmtRef finish_return_(lir::LExprPtr val, writ::TinyMapView vnode);
     lir::Pattern build_pattern(writ::TinyMapView pnode, TypeRef scrut_type);
     // Internal: build_pattern's body without eager mirror emit. Recurses via
     // build_pattern (so sub-patterns get their own eager emit).

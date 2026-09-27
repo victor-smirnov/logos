@@ -1,0 +1,42 @@
+// A fn body's tail expression is the returned value, judged as `return e;`
+// is (ADR 0030 S2): the value it names MOVES out. The tail built its own
+// return and skipped the move marking, so `fn f(t: String) -> String { t }`
+// dropped `t` at scope exit AND returned it — a double free on every tail
+// return of an owned value (the corpus writes `return x;` and never saw it).
+// Every shape below must drop each value exactly once.
+package tail_return_owned_value_moves;
+
+struct D { n: *mut i64 }
+impl Drop for D {
+    fn drop(&mut self) { unsafe { *self.n = *self.n + 1; } }
+}
+struct P { a: D, b: i64 }
+
+fn param(d: D) -> D { d }
+fn local(d: D) -> D { let e = d; e }
+fn block(d: D) -> D { let e = d; { e } }
+fn field(d: D) -> D { let p = P { a: d, b: 1 }; p.a }
+fn tuple(d: D) -> D { let t = (d, 1); t.0 }
+fn branch(d: D, n: *mut i64, k: bool) -> D { if k { d } else { D { n: n } } }
+fn arm(d: D, n: *mut i64, k: i64) -> D { match k { 1 => d, _ => D { n: n } } }
+fn string(s: String) -> String { let u = s; u }
+
+fn main() -> i32 {
+    let mut drops: i64 = 0;
+    let n: *mut i64 = &mut drops as *mut i64;
+    {
+        let a = param(D { n: n });
+        let b = local(D { n: n });
+        let c = block(D { n: n });
+        let d = field(D { n: n });
+        let e = tuple(D { n: n });
+        let f = branch(D { n: n }, n, true);
+        let g = arm(D { n: n }, n, 1);
+        if drops != 0 { return 1; }
+        let _ = (a, b, c, d, e, f, g);
+    }
+    if drops != 7 { return 2; }
+    let s = string(String::from("owned"));
+    if s != String::from("owned") { return 3; }
+    return 42;
+}

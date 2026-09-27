@@ -758,65 +758,27 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // return. Wrap as stmt_return so the closure-body return scanner
         // picks it up; no compat check (the closure has no declared type).
         if (tail_as_return_ && !ret_type_ && stmt.has_key(la::VALUE)) {
-            auto inner = lower_expr(map_of(stmt.get(la::VALUE.code)));
+            auto vnode = map_of(stmt.get(la::VALUE.code));
+            auto inner = lower_return_operand_(vnode);
             if (inner && expr_type(inner) &&
                 TypeRef(expr_type(inner)).kind() != LogosType::Kind::Void &&
                 TypeRef(expr_type(inner)).kind() != LogosType::Kind::Error) {
-                return builder().stmt_return(std::move(inner), node_line_);
+                return finish_return_(std::move(inner), vnode);   // the one return judgment
             }
             return builder().stmt_expr(std::move(inner), node_line_);
         }
         if (tail_as_return_ && ret_type_ &&
             TypeRef(ret_type_).kind() != LogosType::Kind::Void) {
-            // An `impl Trait` return's hidden type (and an escaping closure's
-            // heap env) is decided where `return e;` decides it.
-            if (TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait && stmt.has_key(la::VALUE))
-                return lower_return(stmt);
-            // Peek the inner expression's type before deciding.
+            // The same judgment as `return e;` (ADR 0030 S2): one operand
+            // lowering, one finish — coercion, variance, E0507, the moves.
+            // A unit-typed tail is a statement, not the returned value.
             if (stmt.has_key(la::VALUE)) {
-                // Thread the fn return type into enum-literal inference so a
-                // tail-position `Either::L(x)` / `Result::Ok(v)` resolves the
-                // enum's OTHER type params from ret_type_ (the variant used
-                // constrains only some params; the rest would infer `<error>`
-                // → mlir-gen "unknown tagged enum" + a corrupt return ⇒ runtime
-                // segfault). The explicit `return e;` path already does this
-                // (RETURN_EXPR / SReturn); the implicit tail form did not.
-                TypeRef _saved_enum_hint = hint_enum_type_;
-                if (ret_type_ &&
-                    TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
-                    hint_enum_type_ = ret_type_;
-                auto _vnode = map_of(stmt.get(la::VALUE.code));
-                lir::LExprPtr inner = nullptr;
-                if (code_of(_vnode) == la::DEREF)  // Box DerefMove tail: `*b`
-                    inner = try_lower_box_deref_move(_vnode);
-                if (!inner) inner = lower_expr(_vnode);
-                hint_enum_type_ = _saved_enum_hint;
+                auto vnode = map_of(stmt.get(la::VALUE.code));
+                auto inner = lower_return_operand_(vnode);
                 if (inner && expr_type(inner) &&
-                    TypeRef(expr_type(inner)).kind() == LogosType::Kind::Void) {
+                    TypeRef(expr_type(inner)).kind() == LogosType::Kind::Void)
                     return builder().stmt_expr(std::move(inner), node_line_);
-                }
-                // Non-void: wrap as implicit return, mirroring the
-                // existing lower_return body but with the already-lowered
-                // value (avoids re-lowering).
-                // Same position, same judgment as `return e;`.
-                if (inner && ret_type_)
-                    expect_type(inner, ret_type_, CoercePos::Return,
-                                "return type mismatch —");
-                // R2 (audit-v2): the TAIL-expr implicit return must run the
-                // same variance gate as the explicit `return` path —
-                // `fn f(a: &[Vec<i32>]) -> &[Vec<i64>] { a }` slipped
-                // through here while `return a;` was rejected.
-                if (inner) {
-                    lt_static_yield() = true;
-                    check_variance(expr_type(inner), ret_type_,
-                                   "return type mismatch");
-                    lt_static_yield() = false;
-                    // T1-12: dyn+auto bound at tail-return coercion.
-                    check_dyn_auto_bounds_at_coercion(inner, ret_type_);
-                    if (ret_type_ && is_move_type(ret_type_) && is_unowned_move_source(inner))
-                        error("cannot move out of a value behind a reference / out of an index (E0507)");
-                }
-                return builder().stmt_return(std::move(inner), node_line_);
+                return finish_return_(std::move(inner), vnode);
             }
             return lower_return(stmt);
         }
@@ -4362,228 +4324,242 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
     return builder().stmt_assign(std::string(name), std::move(rhs), node_line_, drop_old);
 }
 
-lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
+// ADR 0030 S2 — ONE return judgment. `return e;`, a fn body's tail `e`, and a
+// closure body's inferred tail all lower their operand here (the expected-type
+// hints the return type supplies) and finish in finish_return_ (coercion,
+// variance, E0507, literal fit, MOVES, statement temporaries). The tail used to
+// build its own `stmt_return` and skipped the move marking, so
+// `fn f(t: String) -> String { t }` dropped `t` at scope exit AND returned it.
+lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     lir::LExprPtr val = nullptr;
+    // Set enum/struct hints from return type so literals can fill in unresolved type params
+    auto saved_hint = hint_enum_type_;
+    if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum && !TypeRef(ret_type_).type_args().empty())
+        hint_enum_type_ = ret_type_;
+    auto saved_struct_hint = hint_struct_type_;
+    if (ret_type_ && (TypeRef(ret_type_).kind() == LogosType::Kind::Struct ||
+                      TypeRef(ret_type_).kind() == LogosType::Kind::ZonedStruct) &&
+        !TypeRef(ret_type_).type_args().empty())
+        hint_struct_type_ = ret_type_;
+    // G151-3: when the return type is a fn-ptr/closure, hint it so an
+    // untyped closure literal (`return |x| x + 1`) infers its param
+    // types from the expected signature (mirrors the call-arg path).
+    auto saved_closure_hint = hint_closure_formal_;
+    // G167-3: also propagate the hint when the callable is WRAPPED
+    // (`-> Box<dyn Fn(..)>`), so `return box_new(|x| ..)` infers the
+    // closure's params from the inner Fn signature. peel_to_callable
+    // unwraps Box/&dyn; the closure-literal site peels again.
+    if (ret_type_ && peel_to_callable(ret_type_))
+        hint_closure_formal_ = ret_type_;
+    // A closure literal that IS the returned value outlives this frame
+    // (`fn mk() -> impl Fn() { move || k }`): its env must be heap.
+    auto saved_ret_value_ = returned_closure_node_;
+    returned_closure_node_ = unwrap_paren_node(vnode).ptr();
+    struct RetValGuard_ { const void*& f; const void* v; ~RetValGuard_() { f = v; } } ret_val_guard_{returned_closure_node_, saved_ret_value_};
+    // Element-type hint for an array literal returned where a slice/array
+    // (possibly behind `&`) is expected, so `return &[];` builds an empty
+    // `[T; 0]` instead of an untyped-element error.
+    auto saved_arr_elem_hint = hint_arr_elem_type_;
+    {
+        TypeRef rh = ret_type_;
+        if (rh && (TypeRef(rh).kind() == LogosType::Kind::Ref ||
+                   TypeRef(rh).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(rh).pointee())
+            rh = TypeRef(rh).pointee();
+        if (rh && (TypeRef(rh).kind() == LogosType::Kind::Array ||
+                   TypeRef(rh).kind() == LogosType::Kind::Slice) &&
+            TypeRef(rh).elem())
+            hint_arr_elem_type_ = TypeRef(rh).elem();
+    }
+    // A tuple return type hints a tuple literal's elements, as a `let`
+    // annotation does (`return ([4, 5], 1)` under `-> ([i64; 2], i64)`).
+    auto saved_tuple_hint = hint_tuple_type_;
+    if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Tuple)
+        hint_tuple_type_ = ret_type_;
+    // Box DerefMove in return position: `return *b;`.
+    if (code_of(vnode) == la::DEREF)
+        val = try_lower_box_deref_move(vnode);
+    if (!val)
+        val = lower_expr(vnode);
+    hint_tuple_type_ = saved_tuple_hint;
+    hint_enum_type_ = saved_hint;
+    hint_struct_type_ = saved_struct_hint;
+    hint_closure_formal_ = saved_closure_hint;
+    hint_arr_elem_type_ = saved_arr_elem_hint;
+    return val;
+}
+
+lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vnode) {
+    // A RETURN IS A COERCION SITE: `return h.r;` with `h: &mut Inner`
+    // and `-> &mut Vec<..>` reborrows `&mut *h.r` as rustc does, instead
+    // of moving the `&mut` out from behind `h` (#465).
+    if (val && ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::MutRef)
+        try_implicit_reborrow_mut(val, ret_type_);
+    // G151-3: a non-capturing closure literal returned where a fn-ptr
+    // type is expected coerces to that fn-ptr — the same coercion the
+    // let-annotation and call-arg paths apply. Without this, `fn f() ->
+    // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
+    if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
+        // Infer the single concrete hidden type from the FIRST return.
+        // Every LATER return must produce the SAME concrete type — an
+        // `impl Trait` return has exactly one hidden type (Rust E0308).
+        // Without this, a second return of a different concrete type was
+        // silently reinterpreted through the first type's layout/vtable,
+        // a type-confusion misdispatch at runtime (corpus GAP10).
+        TypeRef vt = expr_type(val);
+        // The returned closure LITERAL — or the local bound to one
+        // (escaping_closure_names_) — built its env on the heap: the
+        // caller's value owns it.
+        auto rv = unwrap_paren_node(vnode);
+        if (vt && TypeRef(vt).kind() == LogosType::Kind::Closure &&
+            (code_of(rv) == la::CLOSURE_EXPR ||
+             (code_of(rv) == la::VAR_REF &&
+              escaping_closure_names_.count(std::string(str_of(rv.get(la::NAME.code)))))) &&
+            !TypeRef(vt).closure_owns_env()) {
+            auto b = TypeRef(vt).to_builder();
+            b.const_val = int64_t(uint64_t(b.const_val.value_or(0)) | TypeRef::OWNED_ENV_BIT);
+            vt = pool_->alloc(std::move(b));
+            builder().retype_expr(val, vt);
+        }
+        // A diverging value (`!`) fixes no hidden type.
+        if (TypeRef(vt).kind() != LogosType::Kind::Error &&
+            TypeRef(vt).kind() != LogosType::Kind::Never) {
+            if (!impl_ret_type_inferred_)
+                impl_ret_type_inferred_ = vt;
+            else if (!types_equal(vt, impl_ret_type_inferred_))
+                error(std::format(
+                    "`impl Trait` return: every return must have the "
+                    "same hidden concrete type — this returns `{}`, but "
+                    "an earlier return produced `{}` (return a boxed "
+                    "`dyn Trait` if the type must vary)",
+                    type_str(vt), type_str(impl_ret_type_inferred_)));
+        }
+    } else if (ret_type_ &&
+               !expect_type(val, ret_type_, CoercePos::Return,
+                            "return type mismatch —")) {
+        // diagnostic already emitted by the judgment
+    } else if (ret_type_) {
+        lt_static_yield() = true;
+        check_variance(expr_type(val), ret_type_, "return type mismatch",
+                       /*permissive=*/false);
+        lt_static_yield() = false;
+        // T1-12: dyn+auto bound at return coercion.
+        check_dyn_auto_bounds_at_coercion(val, ret_type_);
+        if (is_move_type(ret_type_) && is_unowned_move_source(val))
+            error("cannot move out of a value behind a reference / out of an index (E0507)");
+    }
+    // Retype float literal to concrete return type.
+    if (ret_type_ && TypeRef(expr_type(val)).kind() == LogosType::Kind::FloatLit &&
+        (TypeRef(ret_type_).kind() == LogosType::Kind::F32 || TypeRef(ret_type_).kind() == LogosType::Kind::F64))
+        builder().retype_expr(val, ret_type_);
+    else if (TypeRef(expr_type(val)).kind() == LogosType::Kind::FloatLit)
+        builder().retype_expr(val, prim(LogosType::Kind::F64));
+    // Detect integer literals that don't fit in the return type.
+    if (ret_type_ && TypeRef(expr_type(val)).kind() == LogosType::Kind::IntLit &&
+        TypeRef(ret_type_).kind() != LogosType::Kind::Error) {
+        if (auto v = get_intlit_value(val))
+            if (!intlit_fits(*v, TypeRef(ret_type_).kind()))
+                error(std::format("return: literal value {} does not fit in {}",
+                      *v, type_str(ret_type_)));
+    }
+    // Detect array literal elements that don't fit in the return element type.
+    if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Array && TypeRef(ret_type_).elem() &&
+        TypeRef(expr_type(val)).kind() == LogosType::Kind::Array) {
+        auto vr = expr_ref_of(val);
+        if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+            lir_view::EArrLitView al{vr};
+            for (uint64_t i = 0; i < al.count(); ++i) {
+                auto el = al.elem(i);
+                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(el))
+                        if (!intlit_fits(*v, TypeRef(ret_type_).elem().kind()))
+                            error(std::format("return: array element {}: value {} does not fit in {}",
+                                  i, *v, type_str(TypeRef(ret_type_).elem())));
+            }
+        }
+    }
+    // Detect tuple literal elements that don't fit in the return tuple element types.
+    if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Tuple &&
+        TypeRef(expr_type(val)).kind() == LogosType::Kind::Tuple) {
+        auto vr = expr_ref_of(val);
+        if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+            lir_view::ETupleLitView tl{vr};
+            uint64_t i = 0;
+            tl.each_elem([&](lir_view::ExprRef el) {
+                if (i >= TypeRef(ret_type_).tuple_elems().size()) { ++i; return; }
+                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(el))
+                        if (TypeRef(ret_type_).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(ret_type_).tuple_elems()[i]).kind()))
+                            error(std::format("return: tuple element {}: value {} does not fit in {}",
+                                  i, *v, type_str(TypeRef(ret_type_).tuple_elems()[i])));
+                if (TypeRef(ret_type_).tuple_elems()[i] && TypeRef(TypeRef(ret_type_).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
+                    TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                    el.kind() == lir_schema::expr::Code::ArrLit) {
+                    lir_view::EArrLitView ial{el};
+                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                        auto iel = ial.elem(ii);
+                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(iel))
+                                if (!intlit_fits(*v, TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem().kind()))
+                                    error(std::format("return: tuple element {}: array element {}: value {} does not fit in {}",
+                                          i, ii, *v, type_str(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem())));
+                    }
+                }
+                if (TypeRef(ret_type_).tuple_elems()[i] && TypeRef(TypeRef(ret_type_).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
+                    el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                    el.kind() == lir_schema::expr::Code::TupleLit) {
+                    lir_view::ETupleLitView itl{el};
+                    uint64_t ii = 0;
+                    itl.each_elem([&](lir_view::ExprRef iel) {
+                        if (ii >= TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
+                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(iel))
+                                if (TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems()[ii]).kind()))
+                                    error(std::format("return: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                          i, ii, *v, type_str(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems()[ii])));
+                        ++ii;
+                    });
+                }
+                ++i;
+            });
+        }
+    }
+    // Move semantics: recursively mark any move-type variable that
+    // appears in the return expression as moved, so collect_all_drops()
+    // won't also drop them (avoids double-free).
+    //
+    // ⚠ #110 R1 — this used to be a LOCAL LAMBDA, a hand copy of the
+    // member `mark_moved_in_expr_recursive` (sema_impl.hpp) with the
+    // same seven cases. The two drifted: the member grew a TupleIndex
+    // case and this copy did not, so `return t.0;` marked nothing and
+    // `t`'s scope-exit SDrop freed element 0 that the returned value
+    // already owned — MEASURED as two destructor lines for one value,
+    // on a plain concrete carrier with no enum and no generics. There
+    // is now ONE walker: a new consumer position gets the whole set of
+    // cases, and a new case reaches every consumer.
+    if (val) mark_moved_in_expr_recursive(expr_ref_of(val));
+    // If lowering the value hoisted statement-temporaries (a droppable
+    // rvalue receiver `make().get()`), the temps must drop BEFORE the
+    // return transfers control. lower_stmt emits drops AFTER the wrapped
+    // statement, which for a `return` is dead code → the temp leaks.
+    // Pre-bind the value to a synthetic `__rv` local; lower_stmt then
+    // emits `let __t…; let __rv = <val>; drop __t…; return __rv;` so the
+    // value is computed while the temps live, dropped before the return.
+    if (val && cur_stmt_temp_hoist_ && !cur_stmt_temp_hoist_->empty()) {
+        std::string rv = std::format("__rv_{}", destruct_counter_++);
+        TypeRef rvt = expr_type(val);
+        pending_ret_bind_ = std::make_tuple(rv, rvt, val);
+        return builder().stmt_return(builder().var_ref(rv, rvt), node_line_);
+    }
+    return builder().stmt_return(std::move(val), node_line_);
+}
+
+lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
     if (node.has_key(la::VALUE)) {
         AnyVal vav = node.get(la::VALUE.code);
         if (!vav.is_null()) {
-            // Set enum/struct hints from return type so literals can fill in unresolved type params
-            auto saved_hint = hint_enum_type_;
-            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum && !TypeRef(ret_type_).type_args().empty())
-                hint_enum_type_ = ret_type_;
-            auto saved_struct_hint = hint_struct_type_;
-            if (ret_type_ && (TypeRef(ret_type_).kind() == LogosType::Kind::Struct ||
-                              TypeRef(ret_type_).kind() == LogosType::Kind::ZonedStruct) &&
-                !TypeRef(ret_type_).type_args().empty())
-                hint_struct_type_ = ret_type_;
-            // G151-3: when the return type is a fn-ptr/closure, hint it so an
-            // untyped closure literal (`return |x| x + 1`) infers its param
-            // types from the expected signature (mirrors the call-arg path).
-            auto saved_closure_hint = hint_closure_formal_;
-            // G167-3: also propagate the hint when the callable is WRAPPED
-            // (`-> Box<dyn Fn(..)>`), so `return box_new(|x| ..)` infers the
-            // closure's params from the inner Fn signature. peel_to_callable
-            // unwraps Box/&dyn; the closure-literal site peels again.
-            if (ret_type_ && peel_to_callable(ret_type_))
-                hint_closure_formal_ = ret_type_;
-            // A closure literal that IS the returned value outlives this frame
-            // (`fn mk() -> impl Fn() { move || k }`): its env must be heap.
-            auto saved_ret_value_ = returned_closure_node_;
-            returned_closure_node_ = unwrap_paren_node(map_of(vav)).ptr();
-            struct RetValGuard_ { const void*& f; const void* v; ~RetValGuard_() { f = v; } } ret_val_guard_{returned_closure_node_, saved_ret_value_};
-            // Element-type hint for an array literal returned where a slice/array
-            // (possibly behind `&`) is expected, so `return &[];` builds an empty
-            // `[T; 0]` instead of an untyped-element error.
-            auto saved_arr_elem_hint = hint_arr_elem_type_;
-            {
-                TypeRef rh = ret_type_;
-                if (rh && (TypeRef(rh).kind() == LogosType::Kind::Ref ||
-                           TypeRef(rh).kind() == LogosType::Kind::MutRef) &&
-                    TypeRef(rh).pointee())
-                    rh = TypeRef(rh).pointee();
-                if (rh && (TypeRef(rh).kind() == LogosType::Kind::Array ||
-                           TypeRef(rh).kind() == LogosType::Kind::Slice) &&
-                    TypeRef(rh).elem())
-                    hint_arr_elem_type_ = TypeRef(rh).elem();
-            }
-            // A tuple return type hints a tuple literal's elements, as a `let`
-            // annotation does (`return ([4, 5], 1)` under `-> ([i64; 2], i64)`).
-            auto saved_tuple_hint = hint_tuple_type_;
-            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Tuple)
-                hint_tuple_type_ = ret_type_;
-            // Box DerefMove in return position: `return *b;`.
             auto vnode = map_of(vav);
-            if (code_of(vnode) == la::DEREF)
-                val = try_lower_box_deref_move(vnode);
-            if (!val)
-                val = lower_expr(vnode);
-            hint_tuple_type_ = saved_tuple_hint;
-            hint_enum_type_ = saved_hint;
-            hint_struct_type_ = saved_struct_hint;
-            hint_closure_formal_ = saved_closure_hint;
-            hint_arr_elem_type_ = saved_arr_elem_hint;
-            // A RETURN IS A COERCION SITE: `return h.r;` with `h: &mut Inner`
-            // and `-> &mut Vec<..>` reborrows `&mut *h.r` as rustc does, instead
-            // of moving the `&mut` out from behind `h` (#465).
-            if (val && ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::MutRef)
-                try_implicit_reborrow_mut(val, ret_type_);
-            // G151-3: a non-capturing closure literal returned where a fn-ptr
-            // type is expected coerces to that fn-ptr — the same coercion the
-            // let-annotation and call-arg paths apply. Without this, `fn f() ->
-            // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
-            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
-                // Infer the single concrete hidden type from the FIRST return.
-                // Every LATER return must produce the SAME concrete type — an
-                // `impl Trait` return has exactly one hidden type (Rust E0308).
-                // Without this, a second return of a different concrete type was
-                // silently reinterpreted through the first type's layout/vtable,
-                // a type-confusion misdispatch at runtime (corpus GAP10).
-                TypeRef vt = expr_type(val);
-                // The returned closure LITERAL — or the local bound to one
-                // (escaping_closure_names_) — built its env on the heap: the
-                // caller's value owns it.
-                auto rv = unwrap_paren_node(vnode);
-                if (vt && TypeRef(vt).kind() == LogosType::Kind::Closure &&
-                    (code_of(rv) == la::CLOSURE_EXPR ||
-                     (code_of(rv) == la::VAR_REF &&
-                      escaping_closure_names_.count(std::string(str_of(rv.get(la::NAME.code)))))) &&
-                    !TypeRef(vt).closure_owns_env()) {
-                    auto b = TypeRef(vt).to_builder();
-                    b.const_val = int64_t(uint64_t(b.const_val.value_or(0)) | TypeRef::OWNED_ENV_BIT);
-                    vt = pool_->alloc(std::move(b));
-                    builder().retype_expr(val, vt);
-                }
-                // A diverging value (`!`) fixes no hidden type.
-                if (TypeRef(vt).kind() != LogosType::Kind::Error &&
-                    TypeRef(vt).kind() != LogosType::Kind::Never) {
-                    if (!impl_ret_type_inferred_)
-                        impl_ret_type_inferred_ = vt;
-                    else if (!types_equal(vt, impl_ret_type_inferred_))
-                        error(std::format(
-                            "`impl Trait` return: every return must have the "
-                            "same hidden concrete type — this returns `{}`, but "
-                            "an earlier return produced `{}` (return a boxed "
-                            "`dyn Trait` if the type must vary)",
-                            type_str(vt), type_str(impl_ret_type_inferred_)));
-                }
-            } else if (ret_type_ &&
-                       !expect_type(val, ret_type_, CoercePos::Return,
-                                    "return type mismatch —")) {
-                // diagnostic already emitted by the judgment
-            } else if (ret_type_) {
-                lt_static_yield() = true;
-                check_variance(expr_type(val), ret_type_, "return type mismatch",
-                               /*permissive=*/false);
-                lt_static_yield() = false;
-                // T1-12: dyn+auto bound at return coercion.
-                check_dyn_auto_bounds_at_coercion(val, ret_type_);
-                if (is_move_type(ret_type_) && is_unowned_move_source(val))
-                    error("cannot move out of a value behind a reference / out of an index (E0507)");
-            }
-            // Retype float literal to concrete return type.
-            if (ret_type_ && TypeRef(expr_type(val)).kind() == LogosType::Kind::FloatLit &&
-                (TypeRef(ret_type_).kind() == LogosType::Kind::F32 || TypeRef(ret_type_).kind() == LogosType::Kind::F64))
-                builder().retype_expr(val, ret_type_);
-            else if (TypeRef(expr_type(val)).kind() == LogosType::Kind::FloatLit)
-                builder().retype_expr(val, prim(LogosType::Kind::F64));
-            // Detect integer literals that don't fit in the return type.
-            if (ret_type_ && TypeRef(expr_type(val)).kind() == LogosType::Kind::IntLit &&
-                TypeRef(ret_type_).kind() != LogosType::Kind::Error) {
-                if (auto v = get_intlit_value(val))
-                    if (!intlit_fits(*v, TypeRef(ret_type_).kind()))
-                        error(std::format("return: literal value {} does not fit in {}",
-                              *v, type_str(ret_type_)));
-            }
-            // Detect array literal elements that don't fit in the return element type.
-            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Array && TypeRef(ret_type_).elem() &&
-                TypeRef(expr_type(val)).kind() == LogosType::Kind::Array) {
-                auto vr = expr_ref_of(val);
-                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView al{vr};
-                    for (uint64_t i = 0; i < al.count(); ++i) {
-                        auto el = al.elem(i);
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (!intlit_fits(*v, TypeRef(ret_type_).elem().kind()))
-                                    error(std::format("return: array element {}: value {} does not fit in {}",
-                                          i, *v, type_str(TypeRef(ret_type_).elem())));
-                    }
-                }
-            }
-            // Detect tuple literal elements that don't fit in the return tuple element types.
-            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Tuple &&
-                TypeRef(expr_type(val)).kind() == LogosType::Kind::Tuple) {
-                auto vr = expr_ref_of(val);
-                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView tl{vr};
-                    uint64_t i = 0;
-                    tl.each_elem([&](lir_view::ExprRef el) {
-                        if (i >= TypeRef(ret_type_).tuple_elems().size()) { ++i; return; }
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (TypeRef(ret_type_).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(ret_type_).tuple_elems()[i]).kind()))
-                                    error(std::format("return: tuple element {}: value {} does not fit in {}",
-                                          i, *v, type_str(TypeRef(ret_type_).tuple_elems()[i])));
-                        if (TypeRef(ret_type_).tuple_elems()[i] && TypeRef(TypeRef(ret_type_).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                            el.kind() == lir_schema::expr::Code::ArrLit) {
-                            lir_view::EArrLitView ial{el};
-                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                                auto iel = ial.elem(ii);
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (!intlit_fits(*v, TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem().kind()))
-                                            error(std::format("return: tuple element {}: array element {}: value {} does not fit in {}",
-                                                  i, ii, *v, type_str(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem())));
-                            }
-                        }
-                        if (TypeRef(ret_type_).tuple_elems()[i] && TypeRef(TypeRef(ret_type_).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
-                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                            el.kind() == lir_schema::expr::Code::TupleLit) {
-                            lir_view::ETupleLitView itl{el};
-                            uint64_t ii = 0;
-                            itl.each_elem([&](lir_view::ExprRef iel) {
-                                if (ii >= TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems()[ii]).kind()))
-                                            error(std::format("return: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                  i, ii, *v, type_str(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).tuple_elems()[ii])));
-                                ++ii;
-                            });
-                        }
-                        ++i;
-                    });
-                }
-            }
-            // Move semantics: recursively mark any move-type variable that
-            // appears in the return expression as moved, so collect_all_drops()
-            // won't also drop them (avoids double-free).
-            //
-            // ⚠ #110 R1 — this used to be a LOCAL LAMBDA, a hand copy of the
-            // member `mark_moved_in_expr_recursive` (sema_impl.hpp) with the
-            // same seven cases. The two drifted: the member grew a TupleIndex
-            // case and this copy did not, so `return t.0;` marked nothing and
-            // `t`'s scope-exit SDrop freed element 0 that the returned value
-            // already owned — MEASURED as two destructor lines for one value,
-            // on a plain concrete carrier with no enum and no generics. There
-            // is now ONE walker: a new consumer position gets the whole set of
-            // cases, and a new case reaches every consumer.
-            if (val) mark_moved_in_expr_recursive(expr_ref_of(val));
-            // If lowering the value hoisted statement-temporaries (a droppable
-            // rvalue receiver `make().get()`), the temps must drop BEFORE the
-            // return transfers control. lower_stmt emits drops AFTER the wrapped
-            // statement, which for a `return` is dead code → the temp leaks.
-            // Pre-bind the value to a synthetic `__rv` local; lower_stmt then
-            // emits `let __t…; let __rv = <val>; drop __t…; return __rv;` so the
-            // value is computed while the temps live, dropped before the return.
-            if (val && cur_stmt_temp_hoist_ && !cur_stmt_temp_hoist_->empty()) {
-                std::string rv = std::format("__rv_{}", destruct_counter_++);
-                TypeRef rvt = expr_type(val);
-                pending_ret_bind_ = std::make_tuple(rv, rvt, val);
-                return builder().stmt_return(builder().var_ref(rv, rvt), node_line_);
-            }
-            return builder().stmt_return(std::move(val), node_line_);
+            return finish_return_(lower_return_operand_(vnode), vnode);
         }
     }
     // void return

@@ -1,1 +1,1 @@
-lifetime may not live long enough: consider adding the bound `'a: 'b`
+return type mismatch: variance mismatch — expected *const &'b i64, got &&'a i64

@@ -477,5 +477,7 @@ implicit_integer_widening_admitted 4 tests/soundness/open/implicit_integer_widen
 
 struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_match_scrutinee_admitted admits
 
-# TOTAL 150
+receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
+
+# TOTAL 151
 # SYNC-HASH e3911e218e411a4456110d6209e48830
