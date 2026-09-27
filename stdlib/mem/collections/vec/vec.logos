@@ -558,8 +558,8 @@ pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
     let mut i: i64 = 0;
     unsafe {
         while i < v.len {
-            let item: T = v.ptr[i];
-            if (&item).eq(val) {
+            let item: &T = &*v.ptr.add(i);
+            if item.eq(val) {
                 return true;
             }
             i = i + 1;

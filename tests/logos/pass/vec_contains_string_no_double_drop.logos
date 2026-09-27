@@ -1,0 +1,24 @@
+package vec_contains_string_no_double_drop;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.btreeset;
+fn main() -> i32 {
+    let names: Vec<String> = vec![String::from("abc")];
+    let key = String::from("zzz");
+    if names.contains(&key) { return 1; }
+    if !names.contains(&String::from("abc")) { return 2; }
+    // the other by-reference readers over a heap-owning element
+    let mut v: Vec<String> = vec![String::from("a"), String::from("b"), String::from("b"), String::from("c")];
+    let b = String::from("b");
+    if !v.contains(&b) { return 3; }
+    match v.binary_search(&b) { Ok(_) => {}, Err(_) => { return 4; } }
+    v.dedup();
+    if v.len() != 3 { return 5; }
+    let s: &[String] = &v;
+    if !s.contains(&b) { return 6; }
+    let mut bs: BTreeSet<String> = BTreeSet::new();
+    bs.insert(String::from("x"));
+    if !bs.contains(&String::from("x")) { return 7; }
+    if bs.contains(&String::from("y")) { return 8; }
+    return 0;
+}
