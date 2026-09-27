@@ -1,0 +1,4 @@
+package unfinished_call_at_eof;
+
+fn main() -> i32 {
+    let x: i32 = foo(

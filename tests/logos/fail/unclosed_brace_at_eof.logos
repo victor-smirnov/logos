@@ -1,0 +1,2 @@
+package unclosed_brace_at_eof;
+fn main() {
