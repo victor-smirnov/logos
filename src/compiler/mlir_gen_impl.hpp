@@ -2045,9 +2045,7 @@ private:
     // FQN-checked stdlib `logos.mem.boxed.Box<T>` (not a user struct named Box).
     // See the sema-side twin for rationale. pkg tolerated empty for internal
     // paths (mlir-gen sometimes strips struct pkg); a user Box keeps its own.
-    static bool is_stdlib_box(TypeRef t) noexcept {
-        return is_stdlib_smart_ptr(t, "Box", "logos.mem.boxed");
-    }
+    static bool is_stdlib_box(TypeRef t) noexcept { return type_is_lang_item(t, "owned_box"); }
     // NOTE: `Box<dyn Trait>` does NOT appear as a Box<TraitObject> struct in
     // mlir-gen — sema collapses it to an OWNING bare `TraitObject` (16-byte
     // {data,vtable} fat pair, IDENTICAL repr to `&dyn`; differs only by ownership
@@ -2056,22 +2054,14 @@ private:
     // casing is needed here.
     // FQN-checked stdlib smart-pointer struct (name + package; pkg tolerated
     // empty for internal paths where it was stripped).
-    static bool is_stdlib_smart_ptr(TypeRef t, std::string_view name,
-                                    std::string_view pkg) noexcept {
-        if (!t) return false;
-        auto k = t.kind();
-        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
-            return false;
-        if (t.struct_name() != name) return false;
-        auto p = t.pkg_name();
-        return p.empty() || p == pkg;
-    }
     // Smart-pointer kind of a CONCRETE Rc<T>/Arc<T>/Box<T> struct value (the
     // SOURCE of a `as Rc<dyn>` unsize cast), or Borrow if not a smart pointer.
     static TypeRef::OwningKind stdlib_smart_ptr_kind(TypeRef t) noexcept {
-        if (is_stdlib_smart_ptr(t, "Box", "logos.mem.boxed")) return TypeRef::OwningKind::Box;
-        if (is_stdlib_smart_ptr(t, "Rc",  "logos.mem.rc"))    return TypeRef::OwningKind::Rc;
-        if (is_stdlib_smart_ptr(t, "Arc", "logos.mem.sync"))  return TypeRef::OwningKind::Arc;
+        // The lang items (ADR 0030 L0). `Rc` was probed under `logos.mem.rc`,
+        // a package it is not declared in: only a package-less TypeRef passed.
+        if (type_is_lang_item(t, "owned_box")) return TypeRef::OwningKind::Box;
+        if (type_is_lang_item(t, "rc"))        return TypeRef::OwningKind::Rc;
+        if (type_is_lang_item(t, "arc"))       return TypeRef::OwningKind::Arc;
         return TypeRef::OwningKind::Borrow;
     }
 

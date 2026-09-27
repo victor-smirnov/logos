@@ -17120,6 +17120,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     // of an enum payload, a struct's drop fields, BIR's field regions — missed
     // silently. Measured: 800+ such misses in one Memoria fixture.
     TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
+    LangItemsScope _lang_items_scope(&prog.lang_items);
     std::unordered_set<std::string> ambiguous_type_names;
     prog.ambiguous_type_names.for_each(
         [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });

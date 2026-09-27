@@ -16,6 +16,7 @@ use logos.mem.manually_drop;
 /// Owns a heap-allocated `T` exclusively; move-only, drops the value and frees the block on
 /// scope exit (no manual free).
 #[non_null]
+#[lang = "owned_box"]
 pub struct Box<T: ?Sized> {
     ptr: *mut T,
 }

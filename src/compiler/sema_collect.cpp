@@ -294,6 +294,11 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
         }
     }
     cur_package_ = {};
+    // The table every later phase reads (LProgram::lang_items; installed for
+    // this phase by LangItemsScope in the caller).
+    if (cur_prog_)
+        for (auto& [lang, li] : lang_items_)
+            lir_mirror_map_put_str(*cur_prog_, cur_prog_->lang_items, lang, li.package + "::" + li.name);
 
     // Pre-scan: collect every declared type name (struct/datatype/enum) across
     // ALL modules so is_specialization_fn can tell a concrete type-arg

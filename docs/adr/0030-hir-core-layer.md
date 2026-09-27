@@ -398,9 +398,22 @@ Neighbour closed with it: `impl Copy for T` with a non-Copy field or variant
 payload is E0204 (checked after collection; a field mentioning a type
 parameter is the bound's business) — it was accepted, and a by-value use then
 copied the owning field (double free, abort).
-Next slice: the non-trait identities (UnsafeCell, Rc, Option, the mem/range
-helpers) and the names the HIR expansions spell (`String`, `Formatter`,
-`fmt_*`, `__fmt_*`) through `LANG_PATH`.
+Slice 2a — the table crosses phases. `LProgram::lang_items` (lang →
+`pkg::Name`) is filled by collect's pre-pass, carried by mono, and installed per
+phase (`LangItemsScope`: sema, mono, borrow_check, mlir_gen, emit_module);
+`type_is_lang_item(t, lang)` answers for a struct / enum TypeRef (a
+package-less one on the name alone; `_exact` refuses it). Bound and converted:
+`owned_box`, `rc`, `arc`, `unsafe_cell`, `phantom_pinned`, `atomic_ordering` —
+the three copies of `is_stdlib_box`, `is_stdlib_rc_or_arc`, the owning-kind
+table, `stdlib_smart_ptr_kind` (which probed `Rc` under `logos.mem.rc`, a
+package it is not declared in), UnsafeCell's six sites (auto traits, variance,
+freezability, the C ABI ×3), PhantomPinned's `!Unpin`, and the atomic
+`Ordering` (logos.lang.cmp declares an `Ordering` too; it was told apart by
+name).
+Next slice: Option / Result and their variants, the cmp / str / range / slice
+helper fns, Vec / HashMap / String, and the names the HIR expansions spell
+(`Formatter`, `fmt_*`, `__fmt_*`) through `LANG_PATH` (census:
+docs/audit/2026-09-27-lang-item-census.md).
 
 ## R0 status (2026-09-27)
 

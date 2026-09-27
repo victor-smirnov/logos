@@ -184,8 +184,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         // Recognised by qualified name `logos.lang.cell.UnsafeCell` to
         // avoid colliding with a user-defined `UnsafeCell` in another
         // package.
-        if (tv.struct_name() == "UnsafeCell" &&
-            tv.pkg_name() == "logos.lang.cell") {
+        if (type_is_lang_item_exact(tv, "unsafe_cell")) {
             if (auto_trait_id == kSync) return false;
             // Send: defer to the wrapped T (the single field `value: T`).
             if (!tv.type_args().empty())
@@ -196,8 +195,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         // marker; #[pinned] arena residents have no value form, so pin-ness
         // is moot for them — treat as !Unpin for parity with their intent.
         if (auto_trait_id == kUnpin) {
-            if (tv.struct_name() == "PhantomPinned" &&
-                tv.pkg_name() == "logos.lang.marker") return false;
+            if (type_is_lang_item_exact(tv, "phantom_pinned")) return false;
         }
         int verdict = check_impl_for_struct(tv);
         if (verdict == 1) return true;

@@ -94,6 +94,7 @@ impl StableLayout for isize {}
 /// A zero-sized field that opts a struct out of `Unpin`.
 /// A struct containing one (or marked `#[pinned]`) is `!Unpin`, so it cannot be moved
 /// out of a `Pin<P>`.
+#[lang = "phantom_pinned"]
 pub struct PhantomPinned {}
 
 /// A zero-sized type-anchor for `T`.

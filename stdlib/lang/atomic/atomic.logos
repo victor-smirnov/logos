@@ -41,6 +41,7 @@ use logos.lang.cell;
 ///
 /// On the x86-64 backend every variant currently lowers to the same seq-cst
 /// primitive (see module header); the distinction matters on weaker targets.
+#[lang = "atomic_ordering"]
 pub enum Ordering {
     /// Guarantees only atomicity; imposes no cross-thread ordering.
     Relaxed,

@@ -46,6 +46,7 @@ use logos.lang.marker;
 /// Wraps a `T` mutable through `&self` — the primitive underlying all interior-mutability types.
 /// Auto-`!Sync` and invariant in `T`; aliasing discipline is the caller's `unsafe` obligation.
 #[repr(transparent)]
+#[lang = "unsafe_cell"]
 pub struct UnsafeCell<T> {
     value: T,
 }

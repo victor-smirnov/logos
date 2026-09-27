@@ -3499,17 +3499,11 @@ private:
     // (cf. the earlier user-`Rc`-vs-stdlib-`Rc` collision). pkg is tolerated
     // empty for internal paths where it was stripped; a user Box always carries
     // its own (non-boxed) package, so the collision case is still rejected.
-    static bool is_stdlib_box(TypeRef t) {
-        if (!is_named_struct(t, "Box")) return false;
-        auto pkg = TypeRef(t).pkg_name();
-        return pkg.empty() || pkg == "logos.mem.boxed";
-    }
+    static bool is_stdlib_box(TypeRef t) { return type_is_lang_item(t, "owned_box"); }
     // The stdlib shared owners, FQN-checked like is_stdlib_box. `Rc<dyn Tr>` /
     // `Arc<dyn Tr>` stay STRUCTS (B3 stage-2b), unlike the collapsed Box<dyn>.
     static bool is_stdlib_rc_or_arc(TypeRef t) {
-        if (is_named_struct(t, "Rc")) return TypeRef(t).pkg_name() == "logos.lang.rc";
-        if (is_named_struct(t, "Arc")) return TypeRef(t).pkg_name() == "logos.mem.sync";
-        return false;
+        return type_is_lang_item_exact(t, "rc") || type_is_lang_item_exact(t, "arc");
     }
     // The `dyn` inside `&Rc<dyn Tr>` / `&Arc<dyn Tr>` when `want` is a borrowed
     // (non-owning) trait object; nullptr otherwise.

@@ -226,7 +226,10 @@
 #     fix is a hand-kept list of names, which is the drift this class is made of.
 #SCAN borrow_check.cpp 4 2e6b2e47
 #SCAN borrow_flow_summary.inc 1 b14a7b80
-#SCAN emit_module.cpp 6 5ec06a0f
+# 2026-09-27, ADR 0030 L0 slice 2a: UnsafeCell / PhantomPinned / Box / Rc / Arc / the atomic Ordering
+# are asked by lang identity (type_is_lang_item[_exact]); the bare-name tests leave: emit_module.cpp 6 -> 3
+# (UnsafeCell ×3).
+#SCAN emit_module.cpp 3 f6c1a023
 # 2026-09-27, ADR 0030: hir_lower.cpp compares a binding NAME against "_" twice — the
 # wildcard, a keyword spelled as a name in the binding list, not an entity; no user item
 # can be declared `_`.
@@ -293,10 +296,13 @@
 # 2026-09-24: mlir_gen_stmt.cpp 3 -> 4, REGEX ONLY (wildcard test, no entity key): pat_bind's At case skips a
 #   `_` name before binding `ref n @ sub` by reference (`av.name() != "_"`).
 #SCAN mlir_gen_stmt.cpp 4 a8faf251
-#SCAN mlir_gen_types.cpp 1 95c89e84
+# 2026-09-27, ADR 0030 L0 slice 2a: RETIRED — its one bare-name test (UnsafeCell freezability) is a lang identity now.
 #SCAN module_loader.cpp 1 dfda2a6a
 #SCAN mono_clone.cpp 104 410af9da
-#SCAN mono_impl.hpp 15 b3f162c1
+# 2026-09-27, ADR 0030 L0 slice 2a: UnsafeCell / PhantomPinned / Box / Rc / Arc / the atomic Ordering
+# are asked by lang identity (type_is_lang_item[_exact]); the bare-name tests leave: mono_impl.hpp 15 -> 14
+# (is_stdlib_box).
+#SCAN mono_impl.hpp 14 3dae6516
 # 2026-09-04land, +1 (49 -> 50), roster 5a50bc47 -> 0a9e8634: `drop_fn_for`'s
 # per-candidate `c->trait_name == "Drop"` identity test. THE BARE NAME IS THE
 # CARRIED DECISION, not an oversight: `collect_impl`'s `builtin_marker_` merges a
@@ -358,14 +364,17 @@
 # user `struct Box` elsewhere does not match. One shared predicate for sema,
 # codegen and both borrow checkers instead of a literal at each.
 #SCAN sema.hpp 1 3cfce651
-#SCAN sema.cpp 48 ff909cb5
+# 2026-09-27, ADR 0030 L0 slice 2a: UnsafeCell / PhantomPinned / Box / Rc / Arc / the atomic Ordering
+# are asked by lang identity (type_is_lang_item[_exact]); the bare-name tests leave: sema.cpp 48 -> 45
+# (the Box/Rc/Arc owning-kind table ×3; UnsafeCell variance compared inside std::string()).
+#SCAN sema.cpp 45 e1b0c978
 # 2026-09-19, #438 step 6: sema_auto_trait.cpp 16 -> 2, roster a2c3b0b4 ->
 # 0120090a. Fourteen of those intercepts were the literal comparisons
 # `trait_name == "Send"` / `"Sync"` / `"Unpin"` / `"Fst"` — the engine resolves
 # the four LANG ITEMS through impl_trait_id once and compares DefIds now, so
 # the spellings are gone from the file. The two that remain are the type-param
 # name keys (rows below), which are not entity names.
-#SCAN sema_auto_trait.cpp 2 0120090a
+# 2026-09-27, ADR 0030 L0 slice 2a: RETIRED — UnsafeCell (!Sync) and PhantomPinned (!Unpin) are lang identities now.
 #SCAN sema_collect.cpp 40 0f9e28cc
 #SCAN sema_decl.cpp 2 ce09ff69
 # sema_expr.cpp 162 -> 160, 2026-09-10h. The Deref/DerefMut bound-autoderef

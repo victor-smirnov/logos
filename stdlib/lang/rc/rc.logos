@@ -44,6 +44,7 @@ pub struct RcInner<T: ?Sized> {
 /// Single-threaded reference-counted pointer: shared ownership of a heap-allocated `T`.
 /// Cloning bumps the strong count; the last strong drop runs `T`'s destructor. NOT `Send`.
 #[non_null]
+#[lang = "rc"]
 pub struct Rc<T: ?Sized> {
     inner: *mut RcInner<T>,
 }

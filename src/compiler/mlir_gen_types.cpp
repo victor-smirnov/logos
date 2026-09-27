@@ -842,8 +842,7 @@ bool MLIRGenImpl::type_is_freeze(TypeRef t,
     case K::Struct: case K::ZonedStruct: {
         // The interior-mutability lang-item: recognised by qualified name to
         // avoid colliding with a user `UnsafeCell` (mirrors sema_auto_trait).
-        if (tv.struct_name() == "UnsafeCell" &&
-            tv.pkg_name() == "logos.lang.cell")
+        if (type_is_lang_item_exact(tv, "unsafe_cell"))
             return false;
         // PKG-QUALIFIED key/def (find_struct_def_it): a bare name would collide
         // two same-named structs → wrong freeze answer (noalias soundness).

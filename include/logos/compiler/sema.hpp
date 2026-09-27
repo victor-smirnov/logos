@@ -1031,6 +1031,23 @@ void ambiguous_set_accumulate(std::unordered_map<std::string, std::string>& firs
 
 // RAII guard: installs `m` as the active type-module map for the current phase
 // (sema run / mono run / mlir generate) and restores the previous on scope exit.
+// ADR 0030 L0 — the active phase's lang-item table (LProgram::lang_items).
+// type_is_lang_item(t, "rc"): does the struct/enum type `t` denote that lang
+// item? A package-less TypeRef matches on the name alone.
+const lir_view::ObjectMapRef* set_lang_items(const lir_view::ObjectMapRef* m);
+bool type_is_lang_item(TypeRef t, std::string_view lang);
+// The same, for a TypeRef that carries its package (a package-less one is not).
+inline bool type_is_lang_item_exact(TypeRef t, std::string_view lang) {
+    return t && !t.pkg_name().empty() && type_is_lang_item(t, lang);
+}
+struct LangItemsScope {
+    explicit LangItemsScope(const lir_view::ObjectMapRef* m) : prev_(set_lang_items(m)) {}
+    ~LangItemsScope() { set_lang_items(prev_); }
+    LangItemsScope(const LangItemsScope&) = delete;
+    LangItemsScope& operator=(const LangItemsScope&) = delete;
+private:
+    const lir_view::ObjectMapRef* prev_;
+};
 struct TypeModuleScope {
     const std::unordered_map<std::string, std::string>* prev_;
     const lir_view::ObjectMapRef*                        prev_ref_;

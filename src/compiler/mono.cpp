@@ -134,6 +134,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Coexistence: module-qualify type-keyed names consistently with sema/mlir.
     TypeModuleScope _type_module_scope(&in_.pkg_module_ids);
+    LangItemsScope _lang_items_scope(&in_.lang_items);
 
     // Regions are erased before monomorphisation (Rust): no name or impl key
     // built here may carry one. See TypeStrRegionsErased.
@@ -213,6 +214,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Module system: carry the package→module map forward so metaprog delta
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;
+    out_.lang_items          = in_.lang_items;
     out_.ambiguous_type_names = in_.ambiguous_type_names;  // G156-1: carry to mlir
     out_.wstatic_registry_   = std::move(in_.wstatic_registry_);
     out_.wstatic_sources     = std::move(in_.wstatic_sources);

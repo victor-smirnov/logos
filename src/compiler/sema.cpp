@@ -1530,6 +1530,31 @@ const lir_view::ObjectMapRef* get_type_module_map_ref() {
     return g_type_pkg_module_ids_ref;
 }
 
+// ADR 0030 L0 — the active phase's lang-item table (lang → "pkg::Name"):
+// sema fills LProgram::lang_items after collection, mono carries it, and each
+// phase installs it (LangItemsScope).
+thread_local const lir_view::ObjectMapRef* g_lang_items = nullptr;
+const lir_view::ObjectMapRef* set_lang_items(const lir_view::ObjectMapRef* m) {
+    auto prev = g_lang_items;
+    g_lang_items = m;
+    return prev;
+}
+bool type_is_lang_item(TypeRef t, std::string_view lang) {
+    if (!t || !g_lang_items) return false;
+    const auto k = t.kind();
+    std::string_view name;
+    if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) name = t.struct_name();
+    else if (k == LogosType::Kind::Enum) name = t.enum_name();
+    else return false;
+    const std::string_view v = g_lang_items->get_str(lang);
+    const auto p = v.rfind("::");
+    if (p == std::string_view::npos || name != v.substr(p + 2)) return false;
+    // A package-less TypeRef (a generic substitution, a mono instance) matches
+    // on the name alone — narrow-only, as the spelled tests were.
+    const std::string_view tp = t.pkg_name();
+    return tp.empty() || tp == v.substr(0, p);
+}
+
 // G156-1 — the active phase's ambiguous-type-name set (bare names declared in
 // ≥2 distinct packages). Null disables the type-arg tag (legacy mangle). Each
 // phase (sema/mono/mlir) builds its OWN set from the same transitive universe
@@ -3044,6 +3069,9 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // const_val but whose literal never lands in the registry, and
     // mono later fails to materialise `__const_param:CFG`.
     cur_prog_ = &prog;
+    // ADR 0030 L0: the lang-item table (filled by collect's pre-pass into
+    // prog.lang_items) is this phase's from the start of collection on.
+    LangItemsScope _lang_items_scope(&prog.lang_items);
 
     init_primitives();
     sema_tick("init_primitives");
@@ -5156,6 +5184,8 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         "fn", "fn_mut", "fn_once", "sized", "send", "sync", "unpin", "fst",
         "stable_layout", "self_describing", "iterator", "default", "error",
         "eq", "partial_eq", "partial_ord", "ord",
+        // types
+        "owned_box", "rc", "arc", "unsafe_cell", "phantom_pinned", "atomic_ordering",
     };
     for (auto n : kNames) if (n == lang) return true;
     return false;
@@ -8157,13 +8187,17 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     // name is NOT hijacked. The owning kind drives the kind-specific drop:
     // Box→free(data); Rc/Arc→dec strong, free RcInner at the last reference.
     {
+        // The item the written name resolves to, by its lang identity (ADR 0030 L0).
         TypeRef::OwningKind sp_kind = TypeRef::OwningKind::Borrow;
-        std::string_view sp_pkg;
-        if      (name == "Box") { sp_kind = TypeRef::OwningKind::Box; sp_pkg = "logos.mem.boxed"; }
-        else if (name == "Rc")  { sp_kind = TypeRef::OwningKind::Rc;  sp_pkg = "logos.lang.rc"; }
-        else if (name == "Arc") { sp_kind = TypeRef::OwningKind::Arc; sp_pkg = "logos.mem.sync"; }
-        if (sp_kind != TypeRef::OwningKind::Borrow && node.has_key(la::ITEMS) &&
-            find_struct_by_name(name).first == sp_pkg) {
+        const std::string sp_pkg = find_struct_by_name(name).first;
+        auto is_lang = [&](std::string_view lang) {
+            const LangItem* li = lang_item(lang);
+            return li && li->name == name && li->package == sp_pkg;
+        };
+        if      (is_lang("owned_box")) sp_kind = TypeRef::OwningKind::Box;
+        else if (is_lang("rc"))        sp_kind = TypeRef::OwningKind::Rc;
+        else if (is_lang("arc"))       sp_kind = TypeRef::OwningKind::Arc;
+        if (sp_kind != TypeRef::OwningKind::Borrow && node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             if (items.size() == 1) {
                 // Box/Rc/Arc hold the value behind a pointer, so the inner type
@@ -11871,9 +11905,7 @@ Variance variance_in_type(TypeRef t,
             // can mutate the interior; a covariant relationship between
             // `UnsafeCell<&'long X>` and `UnsafeCell<&'short X>` would
             // be unsound). Recognised by qualified name.
-            if (t.kind() == K::Struct &&
-                std::string(t.struct_name()) == "UnsafeCell" &&
-                std::string(t.pkg_name()) == "logos.lang.cell") {
+            if (t.kind() == K::Struct && type_is_lang_item_exact(t, "unsafe_cell")) {
                 Variance v = Variance::BiVar;
                 for (auto a : t.type_args())
                     v = variance_meet(v, variance_in_type(a, target,

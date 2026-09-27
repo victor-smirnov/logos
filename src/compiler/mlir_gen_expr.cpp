@@ -2709,7 +2709,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         auto er = arg_refs[idx];
         if (er.kind() == lir_schema::expr::Code::EnumLit) {
             auto ev = lir_view::EEnumLitView{er};
-            if (ev.enum_name() == "Ordering") {
+            // The atomic `Ordering` by identity: logos.lang.cmp declares an
+            // `Ordering` too (ADR 0030 L0).
+            if (type_is_lang_item(er.type(pool_impl()), "atomic_ordering")) {
                 switch (ev.disc()) {
                     case 0: return mlir::LLVM::AtomicOrdering::monotonic;
                     case 1: return mlir::LLVM::AtomicOrdering::acquire;
@@ -2752,7 +2754,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         if (idx >= arg_refs.size()) return false;
         auto er = arg_refs[idx];
         return er.kind() == lir_schema::expr::Code::EnumLit &&
-               lir_view::EEnumLitView{er}.enum_name() == "Ordering";
+               type_is_lang_item(er.type(pool_impl()), "atomic_ordering");
     };
     // T2-24: store with a RUNTIME Ordering (the `store_ordered` wrapper path,
     // where read_ordering_at would fall back to seq_cst). On x86-64 a seq_cst

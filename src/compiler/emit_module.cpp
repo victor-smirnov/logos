@@ -219,7 +219,7 @@ static void abi_nominal_heads(
     switch (t.kind()) {
     case K::Struct:
     case K::ZonedStruct:
-        if (t.struct_name() == "UnsafeCell" && t.pkg_name() == "logos.lang.cell" &&
+        if (type_is_lang_item_exact(t, "unsafe_cell") &&
             !t.type_args().empty()) {                       // transparent: see abi_type
             abi_nominal_heads(TypeRef(t.type_args()[0]), out, depth + 1, indirect);
             break;
@@ -501,7 +501,7 @@ static void emit_docs_facts(lir::LProgram& prog,
     auto rtype = [&](TypeRef t0) -> std::string {
         TypeRef t{t0};
         while (t && t.kind() == LogosType::Kind::Struct &&
-               t.struct_name() == "UnsafeCell" && t.pkg_name() == "logos.lang.cell" &&
+               type_is_lang_item_exact(t, "unsafe_cell") &&
                !t.type_args().empty())
             t = TypeRef(t.type_args()[0]);
         return type_str(t);
@@ -1011,6 +1011,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     std::optional<PhaseTimer> _pt;
     _pt.emplace("sema+lower");
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);
+    // ADR 0030 L0: the ABI/header renderers ask lang identities (UnsafeCell).
+    LangItemsScope _lang_items_scope(&prog.lang_items);
     _pt.reset();
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
@@ -1144,7 +1146,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         auto abi_type = [&](TypeRef t0) -> std::string {
             TypeRef t{t0};
             while (t && t.kind() == LogosType::Kind::Struct &&
-                   t.struct_name() == "UnsafeCell" && t.pkg_name() == "logos.lang.cell" &&
+                   type_is_lang_item_exact(t, "unsafe_cell") &&
                    !t.type_args().empty())
                 t = TypeRef(t.type_args()[0]);
             // Regions are not ABI: they are erased before codegen and change no

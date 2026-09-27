@@ -44,6 +44,7 @@ pub struct ArcInner<T: ?Sized> {
 
 /// Atomically reference-counted shared-ownership pointer; `Send`/`Sync` when `T: Send + Sync`.
 #[non_null]
+#[lang = "arc"]
 pub struct Arc<T: ?Sized> {
     inner: *mut ArcInner<T>,
 }

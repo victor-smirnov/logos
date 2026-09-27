@@ -954,15 +954,7 @@ private:
     }
 
     // FQN-checked stdlib `logos.mem.boxed.Box<T>` (not a user struct named Box).
-    static bool is_stdlib_box(TypeRef t) {
-        if (!t) return false;
-        auto k = TypeRef(t).kind();
-        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
-            return false;
-        if (TypeRef(t).struct_name() != "Box") return false;
-        auto pkg = TypeRef(t).pkg_name();
-        return pkg.empty() || pkg == "logos.mem.boxed";
-    }
+    static bool is_stdlib_box(TypeRef t) { return type_is_lang_item(t, "owned_box"); }
 
     // ── Mangling (static — inline) ────────────────────────────────────────
 public:

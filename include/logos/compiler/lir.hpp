@@ -814,6 +814,10 @@ struct LProgram {
     // definition mangle. A package absent here (or mapped to "") is in the
     // global module → no module qualification (byte-identical legacy mangle).
     lir_view::ObjectMapRef pkg_module_ids;  // Stage E: heap-free working-state map
+    // ADR 0030 L0: lang name → "pkg::Name" of the item `#[lang = "…"]` binds.
+    // Filled by sema after collection; every later phase installs it
+    // (LangItemsScope) and asks type_is_lang_item.
+    lir_view::ObjectMapRef lang_items;
 
     // G156-1: bare nominal type names declared in ≥2 DISTINCT packages across
     // sema's FULL transitive type universe (own + every binary-dependency
