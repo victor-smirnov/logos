@@ -60,6 +60,7 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
     if (c == la::RETURN_EXPR.code || c == la::BREAK_EXPR.code || c == la::CONTINUE_EXPR.code)
         return true;
     if (c == la::DESTRUCTURE_ASSIGN.code) return true;
+    if (c == la::FIELD_SHORTHAND.code) return true;
     return false;
 }
 
@@ -174,6 +175,11 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
         return node(la::LOOP.code, n, o, {{la::BODY.code, block({m}, n, o)}});
     }
     if (c == la::DESTRUCTURE_ASSIGN.code) return destructure(n);
+    if (c == la::FIELD_SHORTHAND.code)
+        return node(la::FIELD_INIT.code, n, Origin::FieldShorthand,
+                    {{la::NAME.code, n.get(la::NAME.code)},
+                     {la::VALUE.code, node(la::VAR_REF.code, n, Origin::FieldShorthand,
+                                           {{la::NAME.code, n.get(la::NAME.code)}})}});
     if (c == la::RETURN_EXPR.code || c == la::BREAK_EXPR.code || c == la::CONTINUE_EXPR.code) {
         // An exit in expression position is the statement form inside a block;
         // the keys (VALUE, LABEL) are the same.

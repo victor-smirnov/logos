@@ -13702,15 +13702,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 !TypeRef(fld_decl_ty).type_args().empty() &&
                 !enum_arg_unresolved(fld_decl_ty);
             lir::LExprPtr val = nullptr;
-            if (ic == la::FIELD_SHORTHAND) {
-                // Point { x, y } — same as Point { x: x, y: y }
-                auto t = lookup(fname);
-                if (!t) {
-                    error(std::format("undefined variable '{}' used as field shorthand", fname));
-                    val = error_expr();
-                } else {
-                    val = builder().var_ref(std::string(fname), t);
-                }
+            if (ic == la::FIELD_SHORTHAND) {   // `S { x }` is `S { x: x }` by now (HIR)
+                hir_gate_(init);
+                val = error_expr();
             } else if (init.has_key(la::VALUE)) {
                 TypeRef saved_eh = hint_enum_type_;
                 if (fld_concrete_enum) hint_enum_type_ = fld_decl_ty;
@@ -16688,15 +16682,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     val = lower_expr(map_of(fnode.get(la::VALUE.code)));
                     hint_enum_type_ = saved_eh;
                     if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
-                } else if (fcode == la::FIELD_SHORTHAND) {
-                    TypeRef rt = lookup(fname);
-                    if (!rt) {
-                        error(std::format("{}::{}: shorthand '{}' — name not in scope",
-                              ename, vname, fname));
-                        val = error_expr();
-                    } else {
-                        val = builder().var_ref(fname, rt);
-                    }
+                } else if (fcode == la::FIELD_SHORTHAND) {   // a FIELD_INIT by now (HIR)
+                    hir_gate_(fnode);
+                    val = error_expr();
                 } else {
                     error(std::format("{}::{}: internal — field-init missing VALUE", ename, vname));
                     val = error_expr();
