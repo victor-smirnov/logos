@@ -1,5 +1,6 @@
 package f5_question_op;
-enum Result<T, E> { Ok(T), Err(E) }
+// `?` works on the prelude's Result (the lang item, ADR 0030 L0); a local `enum Result`
+// without a `Try` impl is E0277 (try_on_user_result_without_try_refused), as in rustc.
 fn parse(s: &str) -> Result<i32, i32> {
     return Result::<i32, i32>::Ok(5i32);
 }

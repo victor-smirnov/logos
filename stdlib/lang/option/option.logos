@@ -24,6 +24,7 @@ use logos.lang.result;
 use logos.lang.mem;
 
 /// Represents an optional value: either `Some(T)` or `None`.
+#[lang = "Option"]
 pub enum Option<T> {
     /// Contains a value of type `T`.
     Some(T),

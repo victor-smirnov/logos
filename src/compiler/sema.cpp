@@ -5186,6 +5186,7 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         "eq", "partial_eq", "partial_ord", "ord",
         // types
         "owned_box", "rc", "arc", "unsafe_cell", "phantom_pinned", "atomic_ordering",
+        "Option", "Result",
     };
     for (auto n : kNames) if (n == lang) return true;
     return false;

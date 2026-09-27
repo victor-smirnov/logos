@@ -1,10 +1,8 @@
 // Test: ? operator for Result<T,E> error propagation
 package try_basic;
 
-enum Result<T, E> {
-    Ok(T),
-    Err(E),
-}
+// The prelude's Result: `?` is the lang item's (ADR 0030 L0); a local `enum Result`
+// without a `Try` impl is E0277, as in rustc.
 
 fn divide(a: i32, b: i32) -> Result<i32, i32> {
     if b == 0 {

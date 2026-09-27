@@ -6912,6 +6912,14 @@ private:
         }
         return nullptr;
     }
+    // The enum a lang item names (ADR 0030 L0), by identity — never a homonym in scope.
+    std::pair<std::string, SemaEnumInfo*> lang_enum_(std::string_view lang) {
+        const LangItem* li = lang_item(lang);
+        if (!li) return {};
+        auto it = enums_.find(defs_.find(DefNs::Type, li->package, li->name));
+        return it == enums_.end() ? std::pair<std::string, SemaEnumInfo*>{}
+                                  : std::pair<std::string, SemaEnumInfo*>{li->package, &it->second};
+    }
     std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
         return lookup_qualified_<true>(enums_, name);
     }

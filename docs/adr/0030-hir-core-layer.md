@@ -410,7 +410,13 @@ package it is not declared in), UnsafeCell's six sites (auto traits, variance,
 freezability, the C ABI ×3), PhantomPinned's `!Unpin`, and the atomic
 `Ordering` (logos.lang.cmp declares an `Ordering` too; it was told apart by
 name).
-Next slice: Option / Result and their variants, the cmp / str / range / slice
+Slice 2b — `Option` / `Result` as lang items where the COMPILER identifies
+them: `?`'s operand, `partial_cmp`'s result, the synthesized `Option<…>`
+(`lang_enum_`). A bare `Some` / `None` / `Ok` / `Err` stays name resolution (a
+user homonym may shadow it, as in Rust). `?` on a type without a `Try` impl is
+E0277 before the Try dispatch: a user `enum Result` was taken for the lang
+item (two fixtures asserted that and now use the prelude's Result).
+Next slice: the cmp / str / range / slice
 helper fns, Vec / HashMap / String, and the names the HIR expansions spell
 (`Formatter`, `fmt_*`, `__fmt_*`) through `LANG_PATH` (census:
 docs/audit/2026-09-27-lang-item-census.md).

@@ -626,7 +626,13 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # `current_type_params_.find("Self")` for `Self::V` patterns in an `impl Enum` body — the
 # same keyword lookup as the two above; `Self` cannot collide across packages.
 #ARGSCAN find 13 8f6847db
-#ARGSCAN find_enum_by_name 3 d49e815d
+# 2026-09-27, ADR 0030 L0 slice 2b: 3 -> 1, roster d49e815d -> 054b4f3e. The two synthesized
+# `Option<…>` sites (get_annotation, the writ access) ask the lang item (lang_enum_, below); the
+# one left is the bare `None` of an expression — NAME RESOLUTION, which a user homonym may shadow.
+#ARGSCAN find_enum_by_name 1 054b4f3e
+# 2026-09-27, ADR 0030 L0 slice 2b: lang_enum_("Option") ×2 — the argument is a LANG NAME, the key
+# of lang_items_ (the `#[lang = "Option"]` the stdlib declares), not an entity spelling.
+#ARGSCAN lang_enum_ 2 1ee7c452
 #ARGSCAN find_struct_by_name 2 d4135532
 #ARGSCAN has_any_ 3 87d658f1
 #ARGSCAN make_generic_enum 3 d49e815d
@@ -664,7 +670,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #ARGSCAN impl_trait_id 6 052a7a0c
 #ARGSCAN resolve 2 8a6a5ca7
 #ARGSCAN satisfies 15 0272b985
-#ARGSCAN sema_has_impl_recursive 1 fae8a925
+# 2026-09-27, ADR 0030 L0 slice 2b: 1 -> 2, roster fae8a925 -> f4b78dc7 — `?`'s E0277 asks for a
+# "Try" impl before the Try dispatch. A bare trait name, as the existing "Hash" row; binding Try as
+# a lang item is the S10 step that lowers `?` through lang items.
+#ARGSCAN sema_has_impl_recursive 2 f4b78dc7
 #ARGSCAN string 2 d2bde611
 #ARGSCAN trace_satisfies 1 ff245904
 #ARGSCAN try_prelude 3 80fa0975

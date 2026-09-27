@@ -1918,11 +1918,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             ? lower_expr(map_of(expr.get(la::VALUE.code)))
             : error_expr();
         auto inner_t = expr_type(inner);
-        bool is_result = TypeRef(inner_t).kind() == LogosType::Kind::Enum
-                         && TypeRef(inner_t).enum_name() == "Result"
+        // The lang items (ADR 0030 L0): a user `enum Result` is not `?`'s.
+        bool is_result = type_is_lang_item(inner_t, "Result")
                          && TypeRef(inner_t).type_args().size() >= 2;
-        bool is_option = TypeRef(inner_t).kind() == LogosType::Kind::Enum
-                         && TypeRef(inner_t).enum_name() == "Option"
+        bool is_option = type_is_lang_item(inner_t, "Option")
                          && TypeRef(inner_t).type_args().size() >= 1;
         // An operand that failed to type-check is reported; the Try dispatch
         // below would lower it a second time and report it again.
@@ -1939,6 +1938,22 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // The RetType is rendered from the current fn's
             // ret_type_ so `from_residual`'s receiver is explicit
             // (Logos doesn't infer trait Self from context).
+            // rustc E0277: `?` needs a `Try` impl. A type parameter is its
+            // bounds' business; any other type without an impl is refused here,
+            // not by the dispatch it would fail inside.
+            if (TypeRef it(inner_t); it && it.kind() != LogosType::Kind::TypeVar) {
+                const bool nominal = it.kind() == LogosType::Kind::Enum ||
+                                     it.kind() == LogosType::Kind::Struct ||
+                                     it.kind() == LogosType::Kind::ZonedStruct;
+                logos::compiler::StrSet seen;
+                if (!nominal || !sema_has_impl_recursive(
+                        "Try", std::string(it.kind() == LogosType::Kind::Enum ? it.enum_name() : it.struct_name()),
+                        {}, seen)) {
+                    error(std::format("the `?` operator can only be applied to values that implement "
+                                      "`Try`: `{}` does not (E0277)", type_str(inner_t)));
+                    return error_expr();
+                }
+            }
             std::string inner_src = render_expr_src(map_of(expr.get(la::VALUE.code)));
             std::string rt_src = ret_type_
                 ? type_str(ret_type_)
@@ -3270,7 +3285,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     // Route through the concrete `cmp_opt_is_<op>` helper (None ⇒
                     // false). The non-standard `-> Ordering` form falls through to
                     // the direct `Ordering::is_<op>` call below.
-                    if (TypeRef(ord_t).enum_name() == "Option") {
+                    if (type_is_lang_item(ord_t, "Option")) {
                         std::string helper =
                             op == "<"  ? "cmp_opt_is_lt" :
                             op == "<=" ? "cmp_opt_is_le" :
@@ -7531,7 +7546,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
         a_info = asi;
     }
     // Find Option enum — must be imported
-    auto [opt_pkg, opt_esi] = find_enum_by_name("Option");
+    auto [opt_pkg, opt_esi] = lang_enum_("Option");
     if (!opt_esi) {
         error("get_annotation: 'Option' enum not in scope (add 'use std;')");
         return error_expr();
@@ -12854,7 +12869,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         TypeRef opt_t = make_generic_enum("Option", {view_t});
         auto s_val = wrap(builder().var_ref(pv, wmap_cptr));
         int64_t some_disc = 0, none_disc = 0;
-        if (auto [op, oe] = find_enum_by_name("Option"); oe)
+        if (auto [op, oe] = lang_enum_("Option"); oe)
             for (auto& v : oe->variants) {
                 if (v.name == "Some") some_disc = v.value;
                 if (v.name == "None") none_disc = v.value;

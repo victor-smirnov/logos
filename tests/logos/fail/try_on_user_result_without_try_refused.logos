@@ -1,0 +1,7 @@
+// `?` is the lang item's (ADR 0030 L0): a user `enum Result` with no `Try` impl is not the prelude's
+// Result, so `r?` is E0277 as in rustc. It was admitted — `enum_name() == "Result"` took the user's
+// homonym for the lang item.
+package try_on_user_result_without_try_refused;
+enum Result<T, E> { Ok(T), Err(E) }
+fn g(r: Result<i64, i64>) -> Result<i64, i64> { let v = r?; Result::Ok(v) }
+fn main() -> i32 { return 0; }

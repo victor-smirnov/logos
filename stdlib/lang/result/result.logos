@@ -14,6 +14,7 @@ use logos.lang.default;
 /// Represents either success (`Ok(T)`) or failure (`Err(E)`).
 ///
 /// The `?` operator propagates `Err` early from functions returning `Result<_, E>`.
+#[lang = "Result"]
 pub enum Result<T, E> {
     /// Contains the success value.
     Ok(T),
