@@ -1707,6 +1707,21 @@ set_tests_properties(logos_00_key_identity_lint PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# ── AST KEY CENSUS (ADR 0030 H0) ────────────────────────────────────────────
+# %fields reuses key codes across node kinds; a reuse is sound only while no
+# node the parser builds sets two fields in one slot, and the global keys
+# (CODE, SRC_LINE, SRC_SPAN) stay free everywhere. Derived from the grammar's
+# actions, so a new field or alias that collides reds at the grammar edit.
+add_test(
+    NAME logos_00_ast_key_census
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/ast_key_census.py
+            ${CMAKE_SOURCE_DIR}/tools/peg_gen_cpp/grammars/logos.peg
+)
+set_tests_properties(logos_00_ast_key_census PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 # ── ONE SCHEDULER: A REGISTERED TEST MAY NOT FAN OUT ITS OWN ────────────────
 # ctest is told `-j N` and fills N slots. A gate that runs `xargs -P $(nproc)`
 # from inside one of those slots is a second scheduler nested in the first, and
