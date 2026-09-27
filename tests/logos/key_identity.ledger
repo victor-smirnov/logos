@@ -449,7 +449,12 @@
 # first. The stale copy was not hypothetical: it answered `false` about a type
 # the other moded `Once`, which is how #440's Rust-shaped carrier was called
 # twice and freed its capture twice.
-#SCAN sema_impl.hpp 32 93215572
+# 2026-09-27, ADR 0030 L0: 32 -> 36, roster 93215572 -> c5c53a9b. The trait lang items now
+# resolve through lang_items_ (`#[lang]`); what the four new comparisons test is a WRITTEN trait
+# name to pick the lang name to ask for — fn_family_lang ("Fn"/"FnMut"/"FnOnce") and
+# bound_is_deref_lang_item's "Deref" → "deref"/"deref_mut". The identity answer is the table's;
+# the callers already gated on the same spellings (unchanged).
+#SCAN sema_impl.hpp 36 c5c53a9b
 # 2026-09-06d, -4 (15 -> 11), roster fa9e12e1 -> 1ff7800a: four `nm == "_"`
 # discard-name tests vanished with mark_match_scrutinee_moved's AST re-derivation
 # (the move question is now read off the LIR pattern by `pattern_moves_out`, whose

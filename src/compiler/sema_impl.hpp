@@ -3777,6 +3777,25 @@ private:
     // target of kind Y where (X.targets ∌ Y)" replaces this in-tree pass.
     enum class AttrTarget { Struct, Datatype, Enum, Trait, Fn, Const };
 
+    // ── Lang items (ADR 0030 L0) ─────────────────────────────────────────
+    // The stdlib items the compiler names itself, bound by `#[lang = "…"]` on
+    // the item (Rust's lang items): a name the compiler asks for resolves to
+    // that item's identity, never to a spelling a user's homonym could take.
+    // The vocabulary is fixed here; an unknown name is E0522, two items for
+    // one name E0152.
+    struct LangItem {
+        std::string package;
+        std::string name;
+        AttrTarget  target = AttrTarget::Struct;
+    };
+    logos::compiler::StrMap<LangItem> lang_items_;
+    static bool known_lang_item(std::string_view lang) noexcept;
+    void register_lang_item_(writ::TinyMapView ann, AttrTarget target, std::string_view name);
+    const LangItem* lang_item(std::string_view lang) const {
+        auto it = lang_items_.find(lang);
+        return it == lang_items_.end() ? nullptr : &it->second;
+    }
+
     static const char* attr_target_name(AttrTarget t) {
         switch (t) {
             case AttrTarget::Struct:   return "struct";
@@ -3855,6 +3874,11 @@ private:
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
         if (name == "no_mangle")       return bit(AttrTarget::Fn);
         if (name == "fn_macro")        return bit(AttrTarget::Fn);
+        // ADR 0030 L0: `#[lang = "name"]` binds a stdlib item to a name the
+        // compiler knows it by (lang_items_).
+        if (name == "lang")
+            return bit(AttrTarget::Struct) | bit(AttrTarget::Enum) |
+                   bit(AttrTarget::Trait)  | bit(AttrTarget::Fn);
         if (name == "token_macro")     return bit(AttrTarget::Fn);
         // Test harness attrs (Phase #[test]). `#[test]` marks a free fn as a
         // test case; `#[should_panic]` and `#[ignore]` are modifiers (only
@@ -4073,6 +4097,14 @@ private:
             std::format("datatype {}", defs_.path(_d)));
     }
 
+    // E0204: every `impl Copy for T` names a type whose fields (variant
+    // payloads) are all Copy — checked after collection, when field types are
+    // known. A field that mentions a type parameter is the impl's bound's
+    // business (`impl<P: Copy> Copy for Pin<P>`), not this check's.
+    struct CopyImplSite { DefId def; std::string name, file; uint32_t line = 0; };
+    std::vector<CopyImplSite> copy_impl_sites_;
+    void check_copy_impls_();
+
     void check_recursive_value_types() {
         enum Color { White, Gray, Black };
         // #438: colour by IDENTITY. The keys used to be registry strings and the
@@ -4192,6 +4224,7 @@ private:
                 continue;
             }
             // Per-attribute extra checks:
+            if (aname == "lang") continue;   // registered by the lang pre-pass (sema_collect.cpp)
             if (aname == "type_code") {
                 if (has_type_params) {
                     error(std::format("attribute '#[type_code]' cannot be applied to "
@@ -6487,26 +6520,12 @@ private:
         tb.identity_trait  = impl_key_trait(tb.canonical_trait);
         tb.trait_def       = trait_def_of_key(tb.canonical_trait);
     }
-    // The traits the COMPILER names itself (Rust's lang items): their package
-    // is fixed by the stdlib, so a probe spelled in C++ ("Drop", "Copy", the
-    // auto markers) reaches the stdlib trait and never a user's homonym.
-    static std::string_view lang_trait_package(std::string_view name) noexcept {
-        struct Row { std::string_view name, pkg; };
-        static constexpr Row kRows[] = {
-            {"Copy", "logos.lang.clone"},      {"Clone", "logos.lang.clone"},
-            {"Drop", "logos.lang.drop"},       {"Hash", "logos.lang.hash"},
-            {"Deref", "logos.lang.ops"},       {"DerefMut", "logos.lang.ops"},
-            {"Index", "logos.lang.ops"},       {"IndexMut", "logos.lang.ops"},
-            {"Fn", "logos.lang.ops"},          {"FnMut", "logos.lang.ops"},
-            {"FnOnce", "logos.lang.ops"},      {"Sized", "logos.lang.marker"},
-            {"Send", "logos.lang.marker"},     {"Sync", "logos.lang.marker"},
-            {"Unpin", "logos.lang.marker"},    {"Fst", "logos.lang.marker"},
-            {"StableLayout", "logos.lang.marker"},
-            {"SelfDescribing", "logos.lang.marker"},
-            {"Iterator", "logos.lang.iter"},   {"Default", "logos.lang.default"},
-            {"Error", "logos.lang.error"},
-        };
-        for (auto& r : kRows) if (r.name == name) return r.pkg;
+    // The package of the lang-item TRAIT named `name` (ADR 0030 L0): a probe
+    // spelled in C++ ("Drop", "Copy", the auto markers) reaches the stdlib
+    // trait bound by `#[lang]`, never a user's homonym.
+    std::string_view lang_trait_package(std::string_view name) const noexcept {
+        for (auto& [lang, li] : lang_items_)
+            if (li.target == AttrTarget::Trait && li.name == name) return li.package;
         return {};
     }
     // The trait a key names. A PATH (`pkg::Name`) names it outright — that is
@@ -6987,25 +7006,24 @@ private:
     // may only ever NARROW, because losing a real seed is an OVER-REFUSAL and
     // A16/A17 are one knot. Ground, doors and measurements: PROBES.md
     // 2026-09-10f.
-    static constexpr std::string_view kCopyLangPkg = "logos.lang.clone";
-    static constexpr std::string_view kDropLangPkg = "logos.lang.drop";
-    static constexpr std::string_view kDerefLangPkg = "logos.lang.ops";
-    static constexpr std::string_view kFnLangPkg    = "logos.lang.ops";
-    static constexpr std::string_view kCmpLangPkg   = "logos.lang.cmp";
     static std::string_view trait_last_seg(std::string_view s) noexcept {
         auto p = s.find_last_of(":.");
         return p == std::string_view::npos ? s : s.substr(p + 1);
     }
-    bool trait_key_is_lang_item(std::string_view regkey,
-                                std::string_view item,
-                                std::string_view item_pkg) const {
+    // Is the trait a registry key names the lang item `lang` (ADR 0030 L0)?
+    // NARROW-ONLY: an unresolvable key matches on the item's NAME alone (a
+    // wildcard — losing a real seed is an over-refusal); an undeclared lang
+    // item is no trait at all.
+    bool trait_key_is_lang_item(std::string_view regkey, std::string_view lang) const {
+        const LangItem* li = lang_item(lang);
+        if (!li || li->target != AttrTarget::Trait) return false;
         const auto* ti = trait_by_key(regkey);
-        // Undeclared / already-qualified spelling the registry does not key:
-        // WILDCARD on the name alone. Narrowing here would refuse, and the
-        // refusing direction is the one this change must never take.
-        if (!ti) return trait_last_seg(regkey) == item;
-        return ti->name == item &&
-               (ti->package.empty() || ti->package == item_pkg);
+        if (!ti) return trait_last_seg(regkey) == li->name;
+        return ti->name == li->name && (ti->package.empty() || ti->package == li->package);
+    }
+    // The Fn family's lang names, by the trait's written name.
+    static std::string_view fn_family_lang(std::string_view name) noexcept {
+        return name == "Fn" ? "fn" : name == "FnMut" ? "fn_mut" : name == "FnOnce" ? "fn_once" : "";
     }
     // A written name plus the identity captured for it at collect time
     // (`TraitBound::canonical_trait`, `SemaImplInfo::canonical_trait`). The
@@ -7015,8 +7033,7 @@ private:
                                  std::string_view canonical) const {
         if (trait_last_seg(written) != "Copy" &&
             trait_last_seg(canonical) != "Copy") return false;
-        return trait_key_is_lang_item(canonical.empty() ? written : canonical,
-                                      "Copy", kCopyLangPkg);
+        return trait_key_is_lang_item(canonical.empty() ? written : canonical, "copy");
     }
 
     // `logos.lang.ops::Deref`/`DerefMut`. PROBES.md 2026-09-10h.
@@ -7026,7 +7043,7 @@ private:
         if (trait_last_seg(written) != item &&
             trait_last_seg(canonical) != item) return false;
         return trait_key_is_lang_item(canonical.empty() ? written : canonical,
-                                      item, kDerefLangPkg);
+                                      item == "Deref" ? "deref" : "deref_mut");
     }
 
     // The path of the trait a written name denotes here, or the name itself

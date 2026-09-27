@@ -264,6 +264,37 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
             a.holder, hb);
     };
 
+    // ADR 0030 L0: lang items first. Every later phase may ask for one, so the
+    // table is complete before any module is collected (rustc collects lang
+    // items in a pass of their own). Over EVERY ast — cached and delta-skipped
+    // ones too: the table is rebuilt each call, not snapshotted.
+    lang_items_.clear();
+    for (size_t li = 0; li < asts.size(); ++li) {
+        holder_ = asts[li].holder();
+        file_ = (filenames_ && li < filenames_->size()) ? (*filenames_)[li] : std::string{};
+        auto root = asts[li].root_object().as_tiny_map();
+        if (!root.has_key(la::ITEMS)) continue;
+        cur_package_ = read_package_name(root);
+        std::vector<TinyMapView> anns;
+        auto items = arr_of(root.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto item = map_of(items.get(i));
+            const int32_t ic = code_of(item);
+            if (ic == la::ANNOTATION) { anns.push_back(item); continue; }
+            if (ic == la::DOC_LINE_LIT || ic == la::DOC_BLOCK_LIT) continue;
+            if (item.has_key(la::NAME.code))
+                for (auto& a : anns)
+                    if (str_of(a.get(la::NAME.code)) == "lang")
+                        register_lang_item_(a, ic == la::TRAIT_DEF ? AttrTarget::Trait
+                                             : ic == la::ENUM      ? AttrTarget::Enum
+                                             : ic == la::FN        ? AttrTarget::Fn
+                                                                   : AttrTarget::Struct,
+                                            str_of(item.get(la::NAME.code)));
+            anns.clear();
+        }
+    }
+    cur_package_ = {};
+
     // Pre-scan: collect every declared type name (struct/datatype/enum) across
     // ALL modules so is_specialization_fn can tell a concrete type-arg
     // (e.g. `Map<K, AnyVal>` → partial spec) from a fresh type-param
@@ -680,6 +711,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
     // Sprint 1.2: detect recursive by-value cycles in struct/enum graph
     // (closes B-it-01 P0 SEGFAULT in mlir_gen register_struct, B-it-02 latent).
     check_recursive_value_types();
+    check_copy_impls_();
 
     // Catalog-sweep: validate trait bounds at definition site (closes
     // B-gn-03 unknown trait, B-gn-04 bound arity).
@@ -1247,8 +1279,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // PartialEq / Eq / PartialOrd / Ord for `*const T` / `*mut T`. The
             // lang items of logos.lang.cmp, by identity.
             if (cv.kind() == LogosType::Kind::Ptr &&
-                (trait_key_is_lang_item(btn, "Eq", kCmpLangPkg) ||
-                 trait_key_is_lang_item(btn, "Ord", kCmpLangPkg)))
+                (trait_key_is_lang_item(btn, "eq") || trait_key_is_lang_item(btn, "ord")))
                 continue;
             // `Copy` is built-in for the bitwise-copyable handle kinds: a shared
             // reference `&T` (incl. `&dyn Trait`), a raw pointer `*const/*mut T`,
@@ -5457,7 +5488,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     const bool impl_is_copy_lang_item_ =
         trait_name == "Copy" &&
         (current_impl_trait_package_.empty() ||
-         current_impl_trait_package_ == kCopyLangPkg);
+         (lang_item("copy") && current_impl_trait_package_ == lang_item("copy")->package));
     if (impl_is_copy_lang_item_ && !target.empty()) {
         if (impl_is_unsafe)
             error(std::format("impl Copy for {}: `unsafe impl` for a safe built-in trait Copy",
@@ -5503,6 +5534,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // without one — the two spellings this used to insert, as ids.
         DefId copy_qkey = intern_type(DefKind::Struct, copy_pkg, target);
         DefId copy_bare = intern_type(DefKind::Struct, {}, target);
+        copy_impl_sites_.push_back({copy_qkey, target, file_, get_line(node)});
         if (cond_positions.empty()) {
             copy_types_.insert(copy_bare);
             if (copy_qkey != copy_bare) copy_types_.insert(copy_qkey);

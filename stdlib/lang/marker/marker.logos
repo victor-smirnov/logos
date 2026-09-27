@@ -17,19 +17,23 @@ package logos.lang.marker;
 /// Marks a type safe to transfer across thread boundaries.
 /// Auto trait: the compiler synthesizes impls from field types. Raw pointers are `!Send`;
 /// opt back in with `unsafe impl Send for MyType {}`.
+#[lang = "send"]
 pub auto trait Send {}
 /// Marks a type safe to share by reference across threads: `&T` is `Send` iff `T: Sync`.
 /// Auto trait: synthesized from field types; raw pointers are `!Sync`.
+#[lang = "sync"]
 pub auto trait Sync {}
 /// Marks a type whose size is known at compile time.
 /// Implicit bound on every generic type parameter unless opted out with `T: ?Sized`.
 /// Unsized types (`str`, `[T]`, `dyn Trait`) appear only behind (fat) references/pointers.
+#[lang = "sized"]
 pub trait Sized {}
 
 /// Marks a type that can be safely moved even after being pinned.
 /// Auto trait: derived structurally — a type is `Unpin` unless it stores a `PhantomPinned`
 /// field or is marked `#[pinned]`; refs and raw pointers are always `Unpin`. `Pin<P>`
 /// ergonomics ship in `logos.lang.pin`.
+#[lang = "unpin"]
 pub auto trait Unpin {}
 
 // Fst — a FIXED-SIZE, RELOCATION-SAFE value: statically sized, byte-movable,
@@ -48,6 +52,7 @@ pub auto trait Unpin {}
 /// references. Auto trait, derived structurally; pointer kinds are excluded;
 /// a type with a destructor (own `impl Drop`) is not `Fst` — bitwise
 /// duplication into a dumpable block would double its drop obligation.
+#[lang = "fst"]
 pub auto trait Fst {}
 
 // StableLayout — the layout-freeze contract (repr(C) in Rust terms): the
@@ -64,6 +69,7 @@ pub auto trait Fst {}
 /// Marks a type whose memory layout is frozen (declaration order + natural
 /// padding — repr(C)). Opt-in and validated: every field must be StableLayout;
 /// enums are not eligible (niche-packed payloads).
+#[lang = "stable_layout"]
 pub trait StableLayout {}
 
 // Primitive layouts are trivially frozen (single scalars; usize/isize are
@@ -121,6 +127,7 @@ pub enum Infallible {}
 /// All reference forms (`*Foo`, `&Foo`, `&mut Foo`) become thin pointers; the compiler
 /// calls `dst_len` whenever it needs the tail length (materializing a fat `&Foo`,
 /// building a `foo.tail` view, bound-checking `foo.tail[i]`).
+#[lang = "self_describing"]
 pub trait SelfDescribing {
     /// Returns the tail's element count (not byte size).
     /// Receiver is the thin `*const Self`: only sized prefix fields are needed to

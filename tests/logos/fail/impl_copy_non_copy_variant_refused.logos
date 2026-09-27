@@ -1,0 +1,5 @@
+// E0204 for an enum: a variant payload that is not Copy (see impl_copy_non_copy_field_refused).
+package impl_copy_non_copy_variant_refused;
+enum E { A(String), B }
+impl Copy for E {}
+fn main() -> i32 { return 0; }

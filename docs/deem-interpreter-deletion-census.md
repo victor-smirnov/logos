@@ -6628,9 +6628,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                loop_break_values_infer_as_one_type), + 4 fail (break_inside_closure_refused,
 #                break_through_closure_refused = squeue row break_through_closure_admitted closed,
 #                continue_to_labeled_block_refused, unlabeled_break_in_labeled_block_refused).
-REGISTRY-ALL         11641
-REGISTRY-NOIMPORTED  7078
-REGISTRY-TIERCOMMIT  207
+#                ALL 11641 -> 11645 (+4), NOIMPORTED 7078 -> 7082 (+4), TIERCOMMIT 207 -> 207 — 2026-09-27: ADR 0030 L0
+#                (#[lang]): + 4 fail (lang_item_unknown_refused, lang_item_duplicate_refused,
+#                impl_copy_non_copy_field_refused, impl_copy_non_copy_variant_refused — E0204); + 1 pass
+#                (attr_name_eq_literal_form_parses) = squeue row attr_name_eq_literal_form_refused closed, -1 squeue.
+REGISTRY-ALL         11645
+REGISTRY-NOIMPORTED  7082
+REGISTRY-TIERCOMMIT  206
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

@@ -104,6 +104,7 @@ pub fn cmp_opt_is_ge(o: Option<Ordering>) -> bool {
 
 /// Trait for types that form a total order.
 /// Float types are intentionally excluded: `NaN` breaks totality.
+#[lang = "ord"]
 pub trait Ord {
     /// Returns the `Ordering` of `self` relative to `other`.
     fn cmp(&self, other: &Self) -> Ordering;

@@ -3,7 +3,10 @@
 // Logos: logosc: 'error: syntax error near '#' at line 3 col 1' (same bare NAME=literal top-level attribute grammar gap as #[doc]); compilation aborts, exit=4.
 // rustc: rustc accepts export_name (edition 2024 requires the unsafe(...) wrapper — this is Rust 2024's own unsafe-attribute rule, dp fls in this same unit), compiles, exports symbol foo_c, runs and exits 7.
 // fix hint: grammar: the bare #[NAME = val] form accepts only enum-literal/int values; add string literals, then implement export_name/link_section/doc.
-package attr_name_eq_literal_form_refused;
+// CLOSED 2026-09-27 (ADR 0030 L0, for `#[lang = "…"]`): the annotation value takes a string literal, so
+// the form parses and the program runs as rustc's (exit 7). ⚠ `export_name` itself is NOT implemented: the
+// symbol keeps its own name. The attribute is accepted as an unknown annotation, as every other one is.
+package attr_name_eq_literal_form_parses;
 
 #[export_name = "foo_c"]
 fn foo() -> i32 {

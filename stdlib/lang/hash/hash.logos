@@ -48,6 +48,7 @@ pub trait Hasher {
 }
 
 /// Types hashable through any `Hasher`; mirrors `core::hash::Hash`.
+#[lang = "hash"]
 pub trait Hash {
     /// Feeds this value into `state`.
     fn hash<H: Hasher>(&self, state: &mut H);

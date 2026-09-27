@@ -1,0 +1,5 @@
+// ADR 0030 L0: `#[lang = "…"]` names only an item of the compiler's lang-item vocabulary (rustc E0522).
+package lang_item_unknown_refused;
+#[lang = "nonsense"]
+trait T {}
+fn main() -> i32 { return 0; }

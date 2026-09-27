@@ -381,6 +381,27 @@ Next: or-patterns / parameter patterns (sema already binds a parameter pattern
 through the `let` door), `..base`; tail → return stays sema's single judgment
 (a unit tail needs a type).
 
+## L0 status (2026-09-27)
+
+Slice 1 — the mechanism and the traits. `#[lang = "name"]` (the annotation
+value now takes a string) binds a stdlib item to a name in the compiler's
+vocabulary (`SemaChecker::known_lang_item`: rustc's lang-item name where rustc
+has one, else the item's name in snake case). A pre-pass over EVERY ast, before
+collection, fills `lang_items_` (rebuilt each call, not snapshotted: cached
+holders skip collection but not this pass); an unknown name is E0522, a second
+item for one name E0152. The 25 compiler-known traits of `logos.lang.*` carry
+the attribute; `trait_key_is_lang_item(key, lang)` and `lang_trait_package`
+read the table, and the five `k*LangPkg` package constants and the
+trait→package table are gone. The test stays narrow-only: an unresolvable key
+matches on the item's name alone, an undeclared lang item is no trait.
+Neighbour closed with it: `impl Copy for T` with a non-Copy field or variant
+payload is E0204 (checked after collection; a field mentioning a type
+parameter is the bound's business) — it was accepted, and a by-value use then
+copied the owning field (double free, abort).
+Next slice: the non-trait identities (UnsafeCell, Rc, Option, the mem/range
+helpers) and the names the HIR expansions spell (`String`, `Formatter`,
+`fmt_*`, `__fmt_*`) through `LANG_PATH`.
+
 ## R0 status (2026-09-27)
 
 Landed (census `docs/audit/2026-09-26-reparse-census.md` site ids):

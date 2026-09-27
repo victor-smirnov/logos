@@ -182,6 +182,7 @@ impl Product<&i64> for i64 {
 // ── Core trait ───────────────────────────────────────────────────────────────
 
 /// Yields a sequence of `Item` values one at a time; the core protocol of `std.iter`.
+#[lang = "iterator"]
 pub trait Iterator<Item> {
     /// Advances the iterator and returns the next item, or `None` when exhausted.
     fn next(self: &mut Self) -> Option<Item>;

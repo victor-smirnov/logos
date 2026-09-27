@@ -4009,7 +4009,7 @@ void SemaChecker::compute_auto_copy_types() {
             trait_key_is_lang_item(dit->second.canonical_trait.empty()
                                        ? dit->second.trait_name
                                        : dit->second.canonical_trait,
-                                   "Drop", kDropLangPkg)) {
+                                   "drop")) {
             // ── A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (#88) ───
             // `impls_` is keyed `Trait::Target` with a BARE target, so the
             // stdlib's `Copy::TypeId` and a user package's `Drop::TypeId` met
@@ -5112,6 +5112,75 @@ static bool parse_and_eval_cfg(CfgLexer& lex,
     return match_cfg_flag(ident, features);
 }
 
+void SemaChecker::check_copy_impls_() {
+    std::function<bool(TypeRef, int)> mentions_param = [&](TypeRef t, int d) -> bool {
+        if (!t || d > 32) return false;
+        TypeRef tr(t);
+        if (tr.kind() == LogosType::Kind::TypeVar) return true;
+        for (auto a : tr.type_args()) if (mentions_param(a, d + 1)) return true;
+        for (auto e : tr.tuple_elems()) if (mentions_param(e, d + 1)) return true;
+        return mentions_param(tr.pointee(), d + 1) || mentions_param(tr.elem(), d + 1);
+    };
+    std::set<DefId> seen;
+    for (auto& site : copy_impl_sites_) {
+        if (!seen.insert(site.def).second) continue;
+        std::vector<std::pair<std::string, TypeRef>> members;
+        if (auto it = structs_.find(site.def); it != structs_.end()) {
+            for (auto& f : it->second.fields) members.emplace_back(std::format("field `{}`", f.name), f.type);
+        } else if (auto et = enums_.find(site.def); et != enums_.end()) {
+            for (auto& v : et->second.variants)
+                for (auto pt : v.payload_types) members.emplace_back(std::format("variant `{}`", v.name), pt);
+        }
+        for (auto& [what, mt] : members) {
+            if (!mt || mentions_param(mt, 0) || !is_move_type(mt)) continue;
+            const std::string saved_file = file_, saved_ctx = ctx_;
+            const uint32_t saved_line = node_line_;
+            file_ = site.file; node_line_ = site.line; node_span_ = 0; ctx_.clear();
+            error(std::format("the trait `Copy` cannot be implemented for `{}`: {} of type `{}` "
+                              "does not implement `Copy` (E0204)", site.name, what, type_str(mt)));
+            file_ = saved_file; node_line_ = saved_line; ctx_ = saved_ctx;
+            break;
+        }
+    }
+    copy_impl_sites_.clear();
+}
+
+// ── Lang items (ADR 0030 L0) ────────────────────────────────────────────────
+// The vocabulary: every name the compiler asks lang_item() for. rustc's name
+// where rustc has the item as a lang item; otherwise the item's own name in
+// snake case.
+bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
+    static constexpr std::string_view kNames[] = {
+        // traits
+        "copy", "clone", "drop", "hash", "deref", "deref_mut", "index", "index_mut",
+        "fn", "fn_mut", "fn_once", "sized", "send", "sync", "unpin", "fst",
+        "stable_layout", "self_describing", "iterator", "default", "error",
+        "eq", "partial_eq", "partial_ord", "ord",
+    };
+    for (auto n : kNames) if (n == lang) return true;
+    return false;
+}
+
+void SemaChecker::register_lang_item_(writ::TinyMapView ann, AttrTarget target, std::string_view name) {
+    node_line_ = get_line(ann);
+    node_span_ = 0;
+    auto vmap = ann.has_key(la::VALUE) ? map_of(ann.get(la::VALUE.code)) : writ::TinyMapView{};
+    std::string_view lang = code_of(vmap) == la::LIT_STR ? str_of(vmap.get(la::VALUE.code)) : std::string_view{};
+    if (lang.size() >= 2 && lang.front() == '"' && lang.back() == '"') lang = lang.substr(1, lang.size() - 2);
+    if (lang.empty()) {
+        error(std::format("`#[lang]` on {} '{}' needs a name: `#[lang = \"…\"]`", attr_target_name(target), name));
+        return;
+    }
+    if (!known_lang_item(lang)) {
+        error(std::format("definition of an unknown lang item: `{}` (E0522)", lang));
+        return;
+    }
+    auto [it, fresh] = lang_items_.try_emplace(std::string(lang), LangItem{cur_package_, std::string(name), target});
+    if (!fresh && (it->second.package != cur_package_ || it->second.name != name))
+        error(std::format("found duplicate lang item `{}`: already {}::{} (E0152)",
+                          lang, it->second.package, it->second.name));
+}
+
 bool SemaChecker::evaluate_cfg_node(writ::TinyMapView /*pred_node*/) {
     // Currently unused — cfg!() ARGS go through evaluate_cfg_predicate
     // which parses RAW_TEXT directly. Keeping the prototype for the
@@ -5983,7 +6052,7 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     // own `trait FnMut` is a different trait and gets no family shortcut.
     if (tb.trait_name == "Fn" || tb.trait_name == "FnMut" || tb.trait_name == "FnOnce") {
         const std::string& key = tb.canonical_trait.empty() ? tb.trait_name : tb.canonical_trait;
-        if (trait_key_is_lang_item(key, tb.trait_name, kFnLangPkg))
+        if (trait_key_is_lang_item(key, fn_family_lang(tb.trait_name)))
             tb.is_fn_family = true;
     }
     if (bnode.has_key(la::PARAMS)) {
@@ -8880,7 +8949,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                 : TypeRef::FnFamily::Unstated;
         const bool fn_family_name =
             fn_family != TypeRef::FnFamily::Unstated &&
-            trait_key_is_lang_item(canonical_trait_name(tname), tname, kFnLangPkg);
+            trait_key_is_lang_item(canonical_trait_name(tname), fn_family_lang(tname));
         if (fn_family_name) {
             LogosTypeBuilder t;
             t.kind = LogosType::Kind::Closure;

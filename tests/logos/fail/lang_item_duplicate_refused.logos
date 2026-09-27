@@ -1,0 +1,6 @@
+// ADR 0030 L0: one item per lang item — a user trait cannot claim `copy`, which the stdlib's
+// logos.lang.clone::Copy holds (rustc E0152).
+package lang_item_duplicate_refused;
+#[lang = "copy"]
+trait MyCopy {}
+fn main() -> i32 { return 0; }

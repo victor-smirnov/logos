@@ -1,0 +1,15 @@
+// `impl Copy` for a type with a non-Copy field (or variant payload) is E0204. It was
+// accepted, and every by-value use then copied the owning field: two `String`s over one
+// buffer, a double free at exit (abort 134). Checked after collection, when field types
+// are known; a field mentioning a type parameter is the impl's bound's business.
+package impl_copy_non_copy_field_refused;
+struct P { s: String }
+impl Copy for P {}
+fn main() -> i32 {
+    let mut t = String::new();
+    t.push_str("heap-allocated text");
+    let p = P { s: t };
+    let q = p;
+    let r = p;
+    return (q.s.len() + r.s.len()) as i32;
+}

@@ -734,6 +734,8 @@
               => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
                / INTEGER
               => { CODE: LIT_INT, VALUE: $1 }
+               / STRING
+              => { CODE: LIT_STR, VALUE: $1 }
 
     // Annotation argument forms:
     //   key = lit          → { CODE: ANNOT_KV, NAME: key, VALUE: lit }

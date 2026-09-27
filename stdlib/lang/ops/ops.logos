@@ -475,6 +475,7 @@ impl Neg for f64 { type Output = f64; fn neg(self: f64) -> f64 { return -self; }
 // in place.
 
 /// Overloads call syntax for callables consumed by the call (by-value receiver).
+#[lang = "fn_once"]
 pub trait FnOnce<A...> {
     type Output;
     /// Performs the call, consuming `self`.
@@ -482,6 +483,7 @@ pub trait FnOnce<A...> {
 }
 
 /// Overloads call syntax for callables that may mutate captured state.
+#[lang = "fn_mut"]
 pub trait FnMut<A...> {
     type Output;
     /// Performs the call, mutably borrowing `self`.
@@ -489,6 +491,7 @@ pub trait FnMut<A...> {
 }
 
 /// Overloads call syntax for callables that only read captured state.
+#[lang = "fn"]
 pub trait Fn<A...> {
     type Output;
     /// Performs the call, immutably borrowing `self`.
@@ -515,12 +518,14 @@ pub trait Fn<A...> {
 // surface.
 
 /// Overloads immutable dereference: `*x` on a `Deref` type yields the pointee.
+#[lang = "deref"]
 pub trait Deref<Target: ?Sized> {
     /// Dereferences the value, yielding a shared reference to the pointee.
     fn deref(&self) -> &Target;
 }
 
 /// Overloads mutable dereference; `*x = v` is not yet auto-dispatched (call `deref_mut`).
+#[lang = "deref_mut"]
 pub trait DerefMut<Target: ?Sized>: Deref<Target> {
     /// Mutably dereferences the value, yielding an exclusive reference to the pointee.
     fn deref_mut(&mut self) -> &mut Target;
@@ -540,12 +545,14 @@ pub trait DerefMut<Target: ?Sized>: Deref<Target> {
 // (no trait dispatch); this trait covers user types like maps.
 
 /// Overloads immutable indexing: `a[i]` on user types (e.g. maps).
+#[lang = "index"]
 pub trait Index<Idx, Output> {
     /// Returns a shared reference to the element at `idx`; may panic if out of bounds.
     fn index(&self, idx: Idx) -> &Output;
 }
 
 /// Overloads mutable indexing; `a[i] = v` is not yet auto-dispatched (call `index_mut`).
+#[lang = "index_mut"]
 pub trait IndexMut<Idx, Output>: Index<Idx, Output> {
     /// Returns a mutable reference to the element at `idx`; may panic if out of bounds.
     fn index_mut(&mut self, idx: Idx) -> &mut Output;

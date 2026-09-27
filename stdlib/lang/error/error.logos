@@ -20,6 +20,7 @@ package logos.lang.error;
 use logos.lang.option;
 
 /// Root error trait with chained-cause (`source()`) introspection.
+#[lang = "error"]
 pub trait Error {
     /// Returns the underlying cause of this error, or `None` if it is the root cause.
     fn source(&self) -> Option<&dyn Error>;

@@ -12,6 +12,7 @@ use logos.lang.result;
 
 /// Defines total equality via `eq`, with `ne` derived by default.
 /// Not implemented for floats — NaN != NaN breaks totality; see `PartialEq` instead.
+#[lang = "eq"]
 pub trait Eq {
     /// Returns `true` if `self` and `other` are equal.
     fn eq(&self, other: &Self) -> bool;
@@ -31,6 +32,7 @@ pub trait Eq {
 // the integer types.
 /// Defines partial equality via `eq`, with `ne` derived by default.
 /// Unlike `Eq`, does not require totality — implemented for floats where NaN != NaN.
+#[lang = "partial_eq"]
 pub trait PartialEq {
     /// Returns `true` if `self` and `other` are equal.
     fn eq(&self, other: &Self) -> bool;
@@ -45,6 +47,7 @@ pub trait PartialEq {
 // fallback (Ord ⇒ PartialOrd) covers the integer types. Floats need
 // a separate `partial_cmp` shape — deferred until a driver appears.
 /// Marker trait for partial ordering — currently empty pending a `partial_cmp` method shape.
+#[lang = "partial_ord"]
 pub trait PartialOrd {}
 
 // f32 / f64 PartialEq impls — IEEE equality semantics (NaN != NaN).

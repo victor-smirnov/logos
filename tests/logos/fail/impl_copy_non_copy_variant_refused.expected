@@ -1,0 +1,1 @@
+the trait `Copy` cannot be implemented for `E`: variant `A` of type `String` does not implement `Copy` (E0204)

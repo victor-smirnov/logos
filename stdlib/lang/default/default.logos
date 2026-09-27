@@ -5,6 +5,7 @@
 package logos.lang.default;
 
 /// Types with a canonical zero/false/empty value.
+#[lang = "default"]
 pub trait Default {
     /// Returns the default value for `Self`.
     fn default() -> Self;
