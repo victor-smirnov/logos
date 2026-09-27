@@ -872,6 +872,11 @@ These cases are missing or wrong, and they matter for quotes, `--gen-dir` and th
   - The parser stores `{file_id, byte_start, byte_end}` on every node. Line and column are derived on demand, as Deem's srcloc.logos already does. SRC_LINE becomes derived.
   - Every core node carries a span, or inherits it through `origin.parent`.
   - Reparse paths (render -> reparse) must re-stamp spans from the site, or carry a source map.
+- **R4a. Span encoding (planned, not scheduled; decided 2026-09-26).** Constraint: `TinyObjectMap` has 52 key codes and `%fields` in logos.peg uses all of 0..51, so a new SRC_START/SRC_END key has no code; widening the bitmap breaks the Writ layout shared with the Logos stdlib. Shape (rustc `Span` over a global `SourceMap`):
+  - a global SourceMap assigns each loaded file a range in ONE byte-offset space; reparse buffers (`vec!`, `?`, fn_macro, `include!`, metaprog output) register as virtual files with an `expanded_from: span` record;
+  - key 24 changes meaning SRC_LINE -> SRC_SPAN: one inline i56 = global start (32 bits) + length (23 bits, saturating);
+  - file, line, column and end are derived (line table, binary search); macro provenance is the `expanded_from` chain;
+  - cost: both parser generators (peg_gen_cpp, peg_gen_logos) add the base offset and stamp the length; the SRC_LINE readers move to `line_of`/`span_of`; position-free equality already skips key 24; `Diag` gains a span (R6).
 - **R5. Mono is a copy, not a filter.** clone_fn, clone_struct_def and clone_enum_def copy every metadata key they do not substitute: docs, annotations, test flags, TYPE_CODE, TYPE_HASH, provenance, spans. An instance also records `template = DefId` and `subst = [TypeRef]`.
 - **R6. Diagnostics carry structured spans.** `Diag{primary: span, labels: [(span, text)], notes}`. BIR and mono must pass `point_span`, not text.
 
