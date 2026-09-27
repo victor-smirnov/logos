@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row slice_debug_missing_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster slice-debug-missing: no Debug impl for [T], so {:?} on a slice is refused
+// Logos: error: 'fmt_debug': type '&[i64]' does not implement trait 'Debug' (exit 1)
+// rustc: println!("{:?}", &a[1..]) compiles and runs, prints [2, 3], exit 0
+// corpus: tests/interactions/clusters/slice-debug-missing/
+// fix hint: stdlib logos.mem.fmt: add impl<T: Debug> Debug for [T] (debug_list), reached through &[T].
+package slice_debug_missing_refused;
+use logos.std.fmt;
+fn main() -> i32 {
+    let a = [1i64, 2, 3];
+    let s: &[i64] = &a[1..];
+    println!("{:?}", s);
+    return 0;
+}

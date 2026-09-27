@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row assoc_type_projection_expr_path_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster assoc-type-path-in-expr: an associated-type projection (`D::Elem`) cannot head an expression path (`D::Elem::default()`)
+// Logos: error: syntax error near 'fn' (module fails to load, "logosc: no modules loaded")
+// rustc: `fn z<D: Dim>() -> D::Elem { D::Elem::default() }` compiles and runs, exit 0. Reproduced.
+// corpus: tests/interactions/clusters/assoc-type-path-in-expr/
+// fix hint: grammar: accept a type-param projection as the qualifier of an expression path; S9 must resolve `D::Elem` to the projection type (the audit also saw `<D::Elem>::default()` / Default::default() mismatch D::Elem vs D::Elem at the same site).
+package assoc_type_projection_expr_path_refused;
+use logos.lang.default;
+trait Dim { type Elem: Default; }
+struct D2;
+impl Dim for D2 { type Elem = i64; }
+fn z<D: Dim>() -> D::Elem { D::Elem::default() }
+fn main() -> i32 {
+    let x: i64 = z::<D2>();
+    if x != 0 { return 3; }
+    return 0;
+}

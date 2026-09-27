@@ -1,0 +1,18 @@
+// SOUNDNESS QUEUE row owned_return_from_ref_param_keeps_loan_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster index-clone-keeps-borrow: a returned value of an owned type T (no lifetime) from a fn taking &T is treated as holding a loan on the argument
+// Logos: error [fn main]: cannot move out of 'a' because it is borrowed. The `use logos.std.fmt;` import is LOAD-BEARING: without it the same program compiles clean (an import changes a borrowck verdict; an i64-only Item does not reproduce either)
+// rustc: compiles and runs, exit 0 — `Item` has no lifetime parameter, so `dup(&a)`'s result carries no loan and `a` may be moved. Reproduced.
+// corpus: tests/interactions/clusters/index-clone-keeps-borrow/
+// fix hint: borrowck (BIR call-site region flow): a return type that carries no region (bir_type_carries_loans false for a lifetime-free struct with a String field) must not inherit the argument's loans; start from what `use logos.std.fmt` adds that flips the answer for String-carrying types.
+package owned_return_from_ref_param_keeps_loan_refused;
+use logos.mem.string;
+use logos.std.fmt;
+use logos.lang.ops;
+struct Item { name: String }
+fn dup(x: &Item) -> Item { Item { name: x.name.clone() } }
+fn main() -> i32 {
+    let a = Item { name: String::from("a") };
+    let first = dup(&a);
+    let owned = a;
+    if first.name.len() != 1 || owned.name.len() != 1 { return 3; }
+    return 0;
+}

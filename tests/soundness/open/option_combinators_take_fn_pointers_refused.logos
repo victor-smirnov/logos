@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row option_combinators_take_fn_pointers_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster option-combinators-take-fn-pointers: Option/Result combinators (unwrap_or_else, and_then, ok_or_else, ...) are typed with bare fn-pointer params, so a capturing closure is refused
+// Logos: error [fn main]: call to 'logos.lang.option.Option__unwrap_or_else' arg 2: expected fn() -> i64, got || -> i64 {Fn closure}
+// rustc: compiles and runs, exit 0 (reproduced)
+// corpus: tests/interactions/clusters/option-combinators-take-fn-pointers/
+// fix hint: stdlib lang/option + lang/result: take `F: FnOnce(..) -> ..` generics as in Rust, not `fn(..)` pointers.
+package option_combinators_take_fn_pointers_refused;
+use logos.lang.option;
+use logos.lang.result;
+fn main() -> i32 {
+    let k = 10i64;
+    let a: Option<i64> = None;
+    let b: Option<i64> = Some(4);
+    let r: Result<i64, i64> = Err(3);
+    if a.unwrap_or_else(|| k + 1) != 11 { return 1; }
+    match b.and_then(|x| Some(x * k)) { Some(40) => {}, _ => { return 2; } }
+    if r.unwrap_or_else(|e| e + k) != 13 { return 3; }
+    let e: Result<i64, i64> = a.ok_or_else(|| k);
+    match e { Err(10) => {}, _ => { return 4; } }
+    return 0;
+}

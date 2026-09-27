@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row struct_literal_match_scrutinee_admitted (tier 4, `admits`). Feature-interaction audit 2026-09-26, cluster struct-literal-in-scrutinee-accepted: the match scrutinee is parsed with the general expression rule, so a bare struct literal is allowed there
+// Logos: compiles clean (and runs, exit 7)
+// rustc: error: struct literals are not allowed here (help: surround the struct literal with parentheses). Reproduced.
+// corpus: tests/interactions/clusters/struct-literal-in-scrutinee-accepted/
+// fix hint: grammar: parse match/if/while scrutinees with the no-struct-literal expression variant (as Rust's restriction on condition expressions).
+package struct_literal_match_scrutinee_admitted;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    match P { x: 3, y: 4 } { P { x, y } => { return (x + y) as i32; } }
+}

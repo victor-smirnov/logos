@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row derive_copy_const_generic_struct_crash (tier 2, `refuses`). Feature-interaction audit 2026-09-26, cluster derive-const-generic-struct: derives on a const-generic struct treat N as a type param and emit no instance for the static's Poly<3>
+// Logos: mlir_gen: internal: unknown struct 'Poly$G1$ic3' (qualified 'derive_copy_const_generic_struct_crash.Poly$G1$ic3'), logosc exits 1
+// rustc: #[derive(Clone, Copy)] on Poly<const N: usize> compiles; the Rust twin exits 0 (reproduced with rustc 1.98.1 --edition 2024)
+// corpus: tests/interactions/clusters/derive-const-generic-struct/
+// fix hint: metaprog derive handlers (derive_copy/derive_clone/derive_partial_eq) must carry const generic params as `const N: usize` in the generated impl header, and mono must instantiate Poly<3> for a static initializer.
+package derive_copy_const_generic_struct_crash;
+use logos.std.compiler.metaprog;
+use logos.lang.clone;
+
+#[derive_copy]
+struct Poly<const N: usize> { x: i32, id: i32 }
+static TRI: Poly<3> = Poly::<3> { x: 3, id: 1 };
+
+fn main() -> i32 {
+    if TRI.x == 3 && TRI.id == 1 { return 0; }
+    return 1;
+}

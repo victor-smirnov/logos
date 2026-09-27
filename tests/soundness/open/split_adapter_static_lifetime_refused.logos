@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row split_adapter_static_lifetime_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster split-adapter-static-lifetime: an Iterator default adapter (map/filter) monomorphized with 'a = 'static fails an 'a: 'static outlives check inside the adapter body
+// Logos: error [fn Words__map]: lifetime may not live long enough: consider adding the bound `'a: 'static` (same for str::split(..).filter on a String)
+// rustc: compiles and runs, exit 0 (reproduced)
+// corpus: tests/interactions/clusters/split-adapter-static-lifetime/
+// fix hint: borrowck of mono'd default trait methods: the impl's region params are not free-universal 'static substitutions; check outlives against the impl's declared bounds.
+package split_adapter_static_lifetime_refused;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+struct Words<'a> { s: &'a str, done: bool }
+impl<'a> Iterator<&'a str> for Words<'a> {
+    fn next(self: &mut Words<'a>) -> Option<&'a str> {
+        if self.done { return None; }
+        self.done = true;
+        return Some(self.s);
+    }
+}
+fn main() -> i32 {
+    let w = Words { s: "abc", done: false };
+    let v = w.map(|x| x.len() as i64).collect::<Vec<i64>>();
+    if v.len() != 1 || v[0] != 3 { return 1; }
+    let s = String::from("a//b/c");
+    let n = s.as_str().split('/').filter(|p| !p.is_empty()).count();
+    if n != 3 { return 2; }
+    return 0;
+}

@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row closure_return_region_of_param_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster closure-return-region-of-param: closure return region not tied to the param's region through the generic Fn bound (|b| b.name() in iter().map)
+// Logos: error [fn f]: lifetime may not live long enough: returning this value requires that the region of 'b' outlives the closure's return.
+// rustc: compiles and runs, exit 0 — reproduced with rustc 1.98.1 --edition 2024 on the twin.
+// corpus: tests/interactions/clusters/closure-return-region-of-param/
+// fix hint: borrowck: a closure's return region, when the closure is checked against a generic `F: FnMut(&'a B) -> R` bound, is the param's region 'a, not a fresh region local to the closure body.
+package closure_return_region_of_param_refused;
+use logos.mem.string;
+use logos.mem.collections.vec;
+struct B { t: String }
+impl B { fn name(&self) -> &str { return self.t.as_str(); } }
+fn f(bs: &Vec<B>) -> Option<&str> { return bs.iter().map(|b| b.name()).next(); }
+fn main() -> i32 {
+    let bs: Vec<B> = vec![B { t: String::from("xy") }];
+    return match f(&bs) { Some(s) => s.len() as i32 - 2, None => 1 };
+}

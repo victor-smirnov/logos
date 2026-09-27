@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row box_rc_display_debug_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster box-rc-display-debug-missing: the stdlib has no forwarding Display/Debug impls for Box<T>/Rc<T>, so {} / {:?} on a smart pointer is refused
+// Logos: error 'fmt_display': type 'Box<i64>' does not implement trait 'Display' (same for Debug and Rc<T>)
+// rustc: compiles and prints "5 5 hi 3"
+// corpus: tests/interactions/clusters/box-rc-display-debug-missing/
+// fix hint: stdlib: impl<T: Display + ?Sized> Display for Box<T> / Rc<T> (and Debug, and cell Ref/RefMut) forwarding to **self
+package box_rc_display_debug_refused;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.rc;
+fn main() {
+    let b: Box<i64> = Box::new(5);
+    let s = Rc::new(String::from("hi"));
+    println!("{} {:?} {} {:?}", b, b, s, Rc::new(3i64));
+}

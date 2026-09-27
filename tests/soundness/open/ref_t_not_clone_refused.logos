@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row ref_t_not_clone_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster ref-t-not-clone: no blanket impl Clone for &T, so a shared reference fails a T: Clone bound
+// Logos: error: 'need': type '&i32' does not implement trait 'Clone' required by parameter 'T'
+// rustc: &T: Clone (Copy) for every T; compiles and runs, exit 0 (reproduced with tests/interactions/min/fi_verify_m39__m1.rs)
+// corpus: tests/interactions/clusters/ref-t-not-clone/
+// fix hint: stdlib logos.lang.clone: add `impl<T: ?Sized> Clone for &T { fn clone(&self) -> &T { *self } }` (and Copy).
+package ref_t_not_clone_refused;
+fn need<T: Clone>(x: T) -> T { x.clone() }
+fn main() -> i32 { let a = 5i32; let r = &a; let b = need(r); if *b == 5i32 { return 0i32; } return 1i32; }

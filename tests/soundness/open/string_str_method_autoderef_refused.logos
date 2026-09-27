@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row string_str_method_autoderef_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster string-methods-not-via-autoderef: String has no Deref<Target=str>; receiver autoderef never reaches str methods (borderline vs the blessed str≡[u8] divergence)
+// Logos: error [fn main]: method call: 'String' has no method 'trim'.
+// rustc: compiles and runs, `s.trim().len()` = 5, exit 0 — reproduced with rustc 1.98.1 --edition 2024 on the twin.
+// corpus: tests/interactions/clusters/string-methods-not-via-autoderef/
+// fix hint: stdlib logos.mem.string: impl Deref<Target = str> for String (or method probe through String -> str).
+package string_str_method_autoderef_refused;
+use logos.mem.string;
+use logos.lang.str;
+fn main() -> i32 {
+    let s = String::from("ab cd");
+    return (s.trim().len() - 5) as i32;
+}

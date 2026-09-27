@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row collect_refs_drops_loan_admitted (tier 1, `admits`). Feature-interaction audit 2026-09-26, cluster collect-refs-drops-loan: a FromIterator result (Vec<&T> from v.iter().collect()) does not carry the Item type's loans, so mutating v while the refs live is admitted (dangling refs after realloc)
+// Logos: compiles clean, no diagnostic
+// rustc: error[E0502]: cannot borrow `v` as mutable because it is also borrowed as immutable (rc=1)
+// corpus: tests/interactions/clusters/collect-refs-drops-loan/
+// fix hint: borrowck (BIR): a generic call result whose type carries a region from its arguments (collect::<Vec<&'a T>>) must keep the argument's loans live
+package collect_refs_drops_loan_admitted;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec![11, 22];
+    let refs: Vec<&i64> = v.iter().collect();
+    v.push(5);
+    return *refs[0] as i32;
+}

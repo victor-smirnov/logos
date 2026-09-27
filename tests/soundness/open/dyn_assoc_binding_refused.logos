@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row dyn_assoc_binding_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster dyn-assoc-binding-parse: the type grammar does not accept an associated-type binding in a trait object, `dyn Tr<Assoc = T>`
+// Logos: syntax error near 'fn' (the declaration using `&dyn P<Out = i64>` is not parsed)
+// rustc: compiles; exits 2
+// corpus: tests/interactions/clusters/dyn-assoc-binding-parse/
+// fix hint: grammar: dyn/impl trait bound generic args must admit `Name = Type` bindings (as in where-clause bounds), then carry the binding into the dyn type
+package dyn_assoc_binding_refused;
+trait P { type Out; fn get(&self) -> Self::Out; }
+struct C { n: i64 }
+impl P for C { type Out = i64; fn get(&self) -> i64 { self.n } }
+fn one(p: &dyn P<Out = i64>) -> i64 { p.get() }
+fn main() -> i32 { let c = C { n: 2 }; return one(&c) as i32; }

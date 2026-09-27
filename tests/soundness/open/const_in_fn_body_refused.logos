@@ -1,0 +1,7 @@
+// SOUNDNESS QUEUE row const_in_fn_body_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster const-in-fn-body-parse: only a nested fn is allowed as an item in statement position; const/static/struct items are refused
+// Logos: syntax error near 'fn' (the block statement grammar has no const item), logosc: no modules loaded
+// rustc: an item `const N: i64 = 5;` inside a fn body compiles and runs, exit 0 (reproduced with tests/interactions/min/fi_verify_localconst_diEP__a.rs)
+// corpus: tests/interactions/clusters/const-in-fn-body-parse/
+// fix hint: grammar: admit every item kind (const, static, struct, enum, impl, use) in block statement position, scoped to the block.
+package const_in_fn_body_refused;
+fn main() -> i32 { const N: i64 = 5; if N == 5 { return 0i32; } return 1i32; }

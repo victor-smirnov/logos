@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row hashmap_iter_tuple_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster hashmap-iter-zippair: HashMap iterators yield a ZipPair struct, not (K, V) tuples, so a tuple pattern over iter()/iter_mut() is refused
+// Logos: error: tuple pattern requires tuple scrutinee, got ZipPair<&'a i64, &'a mut i64> (exit 1)
+// rustc: for (k, v) in m.iter_mut() { *v += *k; } compiles and runs, exit 0
+// corpus: tests/interactions/clusters/hashmap-iter-zippair/
+// fix hint: stdlib logos.mem.collections.hashmap: Iter/IterMut Item = (&K, &V) / (&K, &mut V) tuples instead of ZipPair.
+package hashmap_iter_tuple_refused;
+use logos.mem.collections.hashmap;
+fn main() -> i32 {
+    let mut m: HashMap<i64, i64> = HashMap::new();
+    *m.entry(1).or_insert(0) += 5;
+    for (k, v) in m.iter_mut() { *v += *k; }
+    let mut s: i64 = 0;
+    for (_k, v) in m.iter() { s += *v; }
+    if s != 6 { return 3; }
+    return 0;
+}

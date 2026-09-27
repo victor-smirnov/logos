@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row recursive_type_via_option_payload_crash (tier 2, `refuses`). Feature-interaction audit 2026-09-26, cluster infinite-size-recursive-type-crash: the infinite-size check misses self-containment through a generic enum payload (Option<Self>) and is_move_type recurses unbounded
+// Logos: logosc segfaults (rc 139) with no diagnostic
+// rustc: error[E0072]: recursive type `Bad` has infinite size (help: insert some indirection, e.g. Box). Reproduced.
+// corpus: tests/interactions/clusters/infinite-size-recursive-type-crash/
+// fix hint: sema infinite-size check: recurse through generic enum/struct payload substitutions (Option<T> with T = Self); guard is_move_type with a visited set. The row stays `refuses` after the fix (clean E0072 is still a refusal) — close it when the crash becomes that diagnostic.
+package recursive_type_via_option_payload_crash;
+struct Bad { next: Option<Bad> }
+fn main() { }

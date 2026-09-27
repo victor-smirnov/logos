@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row char_classification_ascii_only_wrong (tier 2, `run 3`). Feature-interaction audit 2026-09-26, cluster char-classification-ascii-only: char Unicode predicates (is_alphabetic/is_alphanumeric/is_uppercase/is_lowercase) delegate to ASCII tests
+// Logos: 'é'.is_alphabetic() is false (also is_alphanumeric/is_lowercase false, 'Ж'.is_uppercase() false), program exits 3
+// rustc: all four Unicode predicates answer as Unicode says (true), twin exits 0
+// corpus: tests/interactions/clusters/char-classification-ascii-only/
+// fix hint: stdlib char predicates (logos.lang char impl): use Unicode property tables, not the ASCII ranges.
+package char_classification_ascii_only_wrong;
+fn main() -> i32 {
+    let e = 'é';
+    let zh = 'Ж';
+    if !e.is_alphabetic() { return 3; }
+    if !e.is_alphanumeric() { return 4; }
+    if !e.is_lowercase() { return 5; }
+    if !zh.is_uppercase() { return 6; }
+    if 'ß'.is_uppercase() { return 7; }
+    return 0;
+}

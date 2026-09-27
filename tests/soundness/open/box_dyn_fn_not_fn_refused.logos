@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row box_dyn_fn_not_fn_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster box-dyn-fn-not-fn: no blanket `impl<F: Fn + ?Sized> Fn for Box<F>`, so Box<dyn Fn> does not satisfy an F: Fn bound
+// Logos: error [fn main]: 'apply': type 'Box<|i64| -> i64>' does not implement trait 'Fn' required by parameter 'F'
+// rustc: compiles, apply(b, 21) returns 42, exit 0 (reproduced)
+// corpus: tests/interactions/clusters/box-dyn-fn-not-fn/
+// fix hint: stdlib boxed/ops: blanket Fn/FnMut/FnOnce impls for Box<F: ?Sized> (and the blanket-impl lookup for bounds, cluster blanket-impl-not-found-for-bound).
+package box_dyn_fn_not_fn_refused;
+use logos.mem.boxed;
+use logos.lang.ops;
+fn apply<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { f(x) }
+fn main() -> i32 {
+    let b: Box<dyn Fn(i64) -> i64> = Box::new(|x: i64| x * 2);
+    if apply(b, 21) != 42 { return 1; }
+    return 0;
+}

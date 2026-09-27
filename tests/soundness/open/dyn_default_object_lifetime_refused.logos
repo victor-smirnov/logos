@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row dyn_default_object_lifetime_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster dyn-default-object-lifetime: an owned Box<dyn Tr> parameter is counted as a borrowed lifetime-elision input; its default object lifetime ('static) is ignored, so the lone &i64 input no longer elides the return
+// Logos: error missing lifetime specifier (E0106) on fn g
+// rustc: compiles; Box<dyn Tr> means Box<dyn Tr + 'static>, which is no elision input; exits 8
+// corpus: tests/interactions/clusters/dyn-default-object-lifetime/
+// fix hint: borrowck/sema lifetime elision: count only elided regions in input types; a dyn object's default bound in Box<dyn Tr> is 'static, not an elided region
+package dyn_default_object_lifetime_refused;
+use logos.mem.boxed;
+trait Tr { fn v(&self) -> i64; }
+struct S { x: i64 }
+impl Tr for S { fn v(&self) -> i64 { return self.x; } }
+fn g(b: Box<dyn Tr>, x: &i64) -> &i64 { if b.v() != 1 { return x; } return x; }
+fn main() -> i32 { let n: i64 = 7; let r = g(Box::new(S { x: 1 }), &n); return (*r + 1) as i32; }

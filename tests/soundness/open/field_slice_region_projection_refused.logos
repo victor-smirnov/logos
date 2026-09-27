@@ -1,0 +1,32 @@
+// SOUNDNESS QUEUE row field_slice_region_projection_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster field-slice-region-projection-refused: a reference reached through a &'a [T] / &'a mut dyn place (slice-pattern element, field slice index, reborrow of *q) is treated as a borrow of the local binding instead of of the pointee region
+// Logos: error [fn head]: borrowed data escapes outside of function: 'xs[_]'; Holder::first: the region of 'self' must outlive 'a; main: cannot borrow 'q' as mutable
+// rustc: compiles and runs, exit 0 (reproduced)
+// corpus: tests/interactions/clusters/field-slice-region-projection-refused/
+// fix hint: borrowck place/loan projection: a place under a deref of a shared/unique reference takes the reference's region (and needs no `mut` on the binding), not the binding's.
+package field_slice_region_projection_refused;
+trait Animal { fn grow(self: &mut Self); }
+struct Dog { age: i64 }
+impl Animal for Dog { fn grow(self: &mut Self) { self.age += 1; } }
+struct Holder<'a> { items: &'a [i64] }
+impl<'a> Holder<'a> {
+    fn first(self: &Self) -> &'a i64 { &self.items[0] }
+}
+fn head(xs: &[i64]) -> &i64 { match xs { [a, ..] => a, _ => &xs[0] } }
+fn main() -> i32 {
+    let v = [5i64, 6, 7];
+    if *head(&v) != 5 { return 1; }
+    let m: &i64;
+    {
+        let h = Holder { items: &v };
+        m = h.first();
+    }
+    if *m != 5 { return 2; }
+    let mut d = Dog { age: 0 };
+    {
+        let q: &mut dyn Animal = &mut d;
+        let q2 = &mut *q;
+        q2.grow();
+    }
+    if d.age != 1 { return 3; }
+    return 0;
+}

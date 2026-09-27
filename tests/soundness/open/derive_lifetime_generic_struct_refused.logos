@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row derive_lifetime_generic_struct_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster derive-lifetime-generic-struct: derive-generated impl header drops the struct's lifetime params (bogus E0726)
+// Logos: error [impl Debug for S]: implicit elided lifetime not allowed here (E0726): 'S' takes 1 lifetime argument(s).
+// rustc: #[derive(Debug)] on struct S<'a> compiles and runs, prints `S { r: 1 }`, exit 0 — reproduced with rustc 1.98.1 --edition 2024.
+// corpus: tests/interactions/clusters/derive-lifetime-generic-struct/
+// fix hint: metaprog derive_* generators: emit `impl<'a, ...> Tr for S<'a, ...>` carrying lifetime params, not only type params.
+package derive_lifetime_generic_struct_refused;
+use logos.std.compiler.metaprog;
+#[derive_debug]
+struct S<'a> { r: &'a i64 }
+fn main() -> i32 { let x = 1i64; let s = S { r: &x }; return (*s.r - 1i64) as i32; }

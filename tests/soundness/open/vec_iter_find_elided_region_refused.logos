@@ -1,0 +1,9 @@
+// SOUNDNESS QUEUE row vec_iter_find_elided_region_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster vec-iter-find-variance: elided param region lost on the VecIter receiver of a generic &mut Self default method (find -> position)
+// Logos: error [fn fe]: call to 'logos.mem.collections.vec.VecIter__find' arg 1: variance mismatch — expected &mut VecIter<'a, i64>, got &mut VecIter<i64>.
+// rustc: compiles and runs, exit 0 — reproduced with rustc 1.98.1 --edition 2024 on the twin.
+// corpus: tests/interactions/clusters/vec-iter-find-variance/
+// fix hint: borrowck/sema: v.iter() on an elided `&Vec<T>` param must carry the param's region into VecIter<'a, T>, so the &mut Self receiver of the inherited default method unifies.
+package vec_iter_find_elided_region_refused;
+use logos.mem.collections.vec;
+fn fe(v: &Vec<i64>) -> i64 { let mut it = v.iter(); let f = it.find(|x| **x % 2 == 0); return match f { Some(x) => *x, None => -1 }; }
+fn main() -> i32 { let v: Vec<i64> = vec![1, 4]; return fe(&v) as i32 - 4; }

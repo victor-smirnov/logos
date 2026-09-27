@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row rc_derefmut_shared_alias_admitted (tier 1, `admits`). Feature-interaction audit 2026-09-26, cluster rc-derefmut: stdlib `impl DerefMut for Rc<T>` hands out &mut to a shared value in safe code; a live & into the pointee survives a Vec realloc through the other handle (UAF)
+// Logos: compiles clean, no diagnostics (the binary reads a freed buffer).
+// rustc: error[E0596]: cannot borrow data in an `Rc` as mutable (`&mut *r`, trait `DerefMut` is required) — reproduced with rustc 1.98.1 --edition 2024 on the twin.
+// corpus: tests/interactions/clusters/rc-derefmut/
+// fix hint: stdlib logos.lang.rc: delete `impl DerefMut for Rc<T>` (Rust has none; mutation goes through Rc::get_mut / make_mut / RefCell).
+package rc_derefmut_shared_alias_admitted;
+use logos.lang.rc;
+fn main() -> i32 {
+    let mut r = Rc::new(vec![1i64]);
+    let r2 = Rc::clone(&r);
+    let first: &i64 = &r2[0];
+    for i in 0..100 { (&mut *r).push(i); }
+    return *first as i32;
+}

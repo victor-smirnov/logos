@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row float_exp_format_c_style_wrong (tier 3, `run 3`). Feature-interaction audit 2026-09-26, cluster float-exp-format: `{:e}` on a float is rendered by C `%e`
+// Logos: format!("{:e}", 1234.5f64) yields "1.234500e+03" (C printf %e); the program exits 3.
+// rustc: yields "1.2345e3" (shortest round-trip mantissa, no '+', no zero-padded exponent); the twin exits 0 — reproduced with rustc 1.98.1 --edition 2024.
+// corpus: tests/interactions/clusters/float-exp-format/
+// fix hint: stdlib std/fmt + rt float formatting: LowerExp/UpperExp must use Rust's shortest-repr mantissa and a bare exponent, not snprintf %e.
+package float_exp_format_c_style_wrong;
+use logos.mem.string;
+use logos.std.fmt;
+fn main() -> i32 {
+    let s: String = format!("{:e}", 1234.5f64);
+    if s.as_str() == "1.234500e+03" { return 3; }
+    if s.as_str() == "1.2345e3" { return 0; }
+    return 4;
+}

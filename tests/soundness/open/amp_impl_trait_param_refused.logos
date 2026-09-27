@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row amp_impl_trait_param_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster amp-impl-trait-and-bounds-parse: `&impl Trait` (also `&mut impl T`, `impl A + B`, `impl Trait + 'a`) does not parse
+// Logos: error: syntax error near 'fn' at line 8 col 1 (the `&impl T` parameter type).
+// rustc: compiles and runs, exit 5 — reproduced with rustc 1.98.1 --edition 2024 on the twin; `impl T + U` params and `-> impl T + 'a` also accepted by rustc and also syntax errors in Logos.
+// corpus: tests/interactions/clusters/amp-impl-trait-and-bounds-parse/
+// fix hint: grammar: impl-trait type under a reference and with a `+`-separated bound list (traits and lifetimes), as in Rust's ImplTraitType.
+package amp_impl_trait_param_refused;
+trait T { fn v(&self) -> i64; }
+fn ap(f: &impl T) -> i64 { return f.v(); }
+struct S { x: i64 }
+impl T for S { fn v(&self) -> i64 { return self.x; } }
+fn main() -> i32 { let s = S { x: 5 }; return ap(&s) as i32; }

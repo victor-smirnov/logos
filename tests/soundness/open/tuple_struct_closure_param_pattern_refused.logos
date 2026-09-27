@@ -1,0 +1,9 @@
+// SOUNDNESS QUEUE row tuple_struct_closure_param_pattern_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster tuple-struct-closure-param-pattern-parse: the closure-parameter rule commits to a bare IDENT before trying pat_single, so a tuple-struct pattern `|Id(k)| k` does not parse
+// Logos: syntax error near 'fn' (the fn whose body holds `|Id(k)| k`)
+// rustc: compiles; exits 3
+// corpus: tests/interactions/clusters/tuple-struct-closure-param-pattern-parse/
+// fix hint: grammar: closure param = pattern (pat_single) with optional `: Type`; order the alternatives so IDENT does not pre-empt a tuple-struct / path pattern
+package tuple_struct_closure_param_pattern_refused;
+struct Id(i64);
+fn ap(f: fn(Id) -> i64) -> i64 { f(Id(3)) }
+fn main() -> i32 { return ap(|Id(k)| k) as i32; }

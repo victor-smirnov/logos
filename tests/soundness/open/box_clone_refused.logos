@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row box_clone_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster box-no-clone: there is no impl Clone for Box<T>, so b.clone() autoderefs to T::clone and yields a T, not a Box<T>
+// Logos: error [fn main]: type `i32` cannot be dereferenced (c is i32, not Box<i32>)
+// rustc: Box<T: Clone>: Clone; the Rust twin exits 0 (reproduced with rustc 1.98.1 --edition 2024)
+// corpus: tests/interactions/clusters/box-no-clone/
+// fix hint: stdlib mem/boxed: impl<T: Clone> Clone for Box<T> (allocate and clone the pointee).
+package box_clone_refused;
+use logos.mem.boxed;
+use logos.lang.clone;
+
+fn main() -> i32 {
+    let b = Box::new(5i32);
+    let c = b.clone();
+    if *c == 5 { return 0; }
+    return 1;
+}

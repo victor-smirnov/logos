@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row char_hash_ord_impls_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster core-impls-missing-char-sum: core trait impls missing for primitives — char implements neither Hash nor Ord (also &str: Clone, Sum/Product beyond i32/i64)
+// Logos: error: 'mx': type 'char' does not implement trait 'Ord'; 'HashSet__new': type 'char' does not implement trait 'Hash' (exit 1)
+// rustc: fn mx<T: Ord + Copy> on chars and HashSet<char> compile and run, exit 0
+// corpus: tests/interactions/clusters/core-impls-missing-char-sum/
+// fix hint: stdlib logos.lang.cmp / logos.lang.hash: add impl Ord/PartialOrd for char and impl Hash for char.
+package char_hash_ord_impls_refused;
+use logos.mem.collections.set;
+use logos.lang.hash;
+use logos.lang.cmp;
+fn mx<T: Ord + Copy>(a: T, b: T) -> T { if a > b { a } else { b } }
+fn main() -> i32 {
+    if mx('a', 'z') != 'z' { return 3; }
+    let mut s: HashSet<char> = HashSet::new();
+    unsafe { s.insert('a'); }
+    if s.len() != 1 { return 4; }
+    return 0;
+}

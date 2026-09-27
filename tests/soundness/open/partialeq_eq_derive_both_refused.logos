@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row partialeq_eq_derive_both_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster partialeq-eq-both-ambiguous: Logos Eq declares its own eq/ne, so deriving PartialEq and Eq together makes `eq` ambiguous (or duplicates the ne body)
+// Logos: error [fn Pt__ne]: method 'eq' on 'Pt' is provided by multiple traits (PartialEq, Eq); operator '==': 'Pt' has no 'eq' implementation (exit 1)
+// rustc: #[derive(PartialEq, Eq)] struct Pt { x: i64, y: i64 } with a == b compiles and runs, exit 0
+// corpus: tests/interactions/clusters/partialeq-eq-both-ambiguous/
+// fix hint: stdlib logos.lang.cmp: make Eq a marker subtrait `trait Eq: PartialEq {}` as in Rust (no eq/ne of its own); derive_eq emits an empty impl.
+package partialeq_eq_derive_both_refused;
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+#[derive_partial_eq]
+#[derive_eq]
+struct Pt { x: i64, y: i64 }
+fn main() -> i32 {
+    let a = Pt { x: 1, y: 2 };
+    let b = Pt { x: 1, y: 2 };
+    if !(a == b) { return 3; }
+    return 0;
+}

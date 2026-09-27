@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row derive_debug_enum_variant_name_wrong (tier 1, `run 3`). Feature-interaction audit 2026-09-26, cluster derive-debug-enum-type-name: #[derive_debug] has no enum case, so {:?} on any variant prints the TYPE name
+// Logos: format!("{:?}", E::B) yields "E" (the type name) for every variant, unit/tuple/struct alike; the program exits 3
+// rustc: #[derive(Debug)] prints the variant name "B"; the Rust twin exits 0 (reproduced with rustc 1.98.1 --edition 2024)
+// corpus: tests/interactions/clusters/derive-debug-enum-type-name/
+// fix hint: metaprog derive_debug handler (stdlib std/compiler/metaprog): add an enum arm that matches on self and writes the variant name plus tuple/struct payload fields.
+package derive_debug_enum_variant_name_wrong;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.std.compiler.metaprog;
+
+#[derive_debug]
+enum E { A, B }
+
+fn main() -> i32 {
+    let s = format!("{:?}", E::B);
+    if s.as_str() == "E" { return 3; }
+    if s.as_str() == "B" { return 0; }
+    return 4;
+}

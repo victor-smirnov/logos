@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row assoc_fn_path_as_value_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster assoc-fn-path-as-value: KW_NEW — `Type::new` parses only as a call head, not as a path expression (fn item value)
+// Logos: error: syntax error near 'new' (logosc exit 4, "no modules loaded").
+// rustc: compiles and runs, exit 7 — reproduced with rustc 1.98.1 --edition 2024 on the twin.
+// corpus: tests/interactions/clusters/assoc-fn-path-as-value/
+// fix hint: grammar: allow `new` as a path segment in expression paths (not only `Type::new(` call heads).
+package assoc_fn_path_as_value_refused;
+struct S { x: i64 }
+impl S { fn new() -> S { S { x: 7 } } }
+fn main() -> i32 {
+    let g: fn() -> S = S::new;
+    return g().x as i32;
+}

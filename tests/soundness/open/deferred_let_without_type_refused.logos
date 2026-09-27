@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row deferred_let_without_type_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster deferred-let-no-type-parse: `let x;` with neither a type nor an initializer does not parse
+// Logos: error: syntax error at the `let k;` (the whole module fails to load, "logosc: no modules loaded")
+// rustc: compiles; the type of `k` is inferred from the later assignment (deferred initialization). Reproduced, exit 0.
+// corpus: tests/interactions/clusters/deferred-let-no-type-parse/
+// fix hint: grammar: make both `: Type` and `= init` optional in a let statement; S7 inference must then type the binding from its first assignment (definite-init already owned by BIR E0381).
+package deferred_let_without_type_refused;
+fn main() -> i32 {
+    let k;
+    let c = true;
+    if c { k = 5i64; } else { k = 7; }
+    if k != 5 { return 3; }
+    return 0;
+}

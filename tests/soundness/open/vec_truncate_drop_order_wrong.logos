@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row vec_truncate_drop_order_wrong (tier 2, `run 3`). Feature-interaction audit 2026-09-26, cluster vec-truncate-drop-order: Vec::truncate pops from the back, dropping the removed tail in reverse order
+// Logos: drops ids 4,3,2 (log 432); the binary exits 3
+// rustc: drops the truncated tail front-to-back like a slice drop: 2,3,4 (log 234); exits 0
+// corpus: tests/interactions/clusters/vec-truncate-drop-order/
+// fix hint: stdlib Vec::truncate: set len first, then drop_in_place the tail slice in ascending index order
+package vec_truncate_drop_order_wrong;
+use logos.mem.collections.vec;
+struct Tok { id: i64, log: *mut i64 }
+impl Drop for Tok { fn drop(&mut self) { unsafe { *self.log = *self.log * 10 + self.id; } } }
+fn main() -> i32 {
+    let mut log: i64 = 0;
+    let p: *mut i64 = &mut log;
+    let mut v: Vec<Tok> = Vec::new();
+    let mut i: i64 = 1;
+    while i <= 4 { v.push(Tok { id: i, log: p }); i = i + 1; }
+    v.truncate(1);
+    let got = unsafe { *p };
+    if got == 432 { return 3; }
+    if got == 234 { return 0; }
+    return 1;
+}

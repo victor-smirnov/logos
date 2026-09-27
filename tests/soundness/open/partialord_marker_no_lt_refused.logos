@@ -1,0 +1,10 @@
+// SOUNDNESS QUEUE row partialord_marker_no_lt_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster partialord-marker-no-lt: PartialOrd is an empty marker; derive_partial_ord emits nothing usable for < >
+// Logos: error: operator '<': 'Q' has no 'lt' implementation (and no 'partial_cmp'); also logos_quote_expr_subst: REPEAT_GROUP has no cursor
+// rustc: #[derive(PartialEq, PartialOrd)] struct; a < b compiles and runs, exit 0 (reproduced with tests/interactions/min/fi_verify_m73__m73min.rs)
+// corpus: tests/interactions/clusters/partialord-marker-no-lt/
+// fix hint: stdlib cmp split (logos.lang.cmp PartialOrd with partial_cmp + provided lt/le/gt/ge) and stdlib/mem/compiler/metaprog derive_partial_ord emitting partial_cmp lexicographically over fields.
+package partialord_marker_no_lt_refused;
+use logos.std.compiler.metaprog;
+#[derive_partial_eq] #[derive_partial_ord]
+struct Q { n: i64 }
+fn main() -> i32 { let a = Q { n: 1 }; let b = Q { n: 2 }; if a < b { return 0; } return 1; }

@@ -396,5 +396,96 @@ variadic_fn_pointer_type_refused 4 tests/soundness/open/variadic_fn_pointer_type
 
 vt_ff_whitespace_refused 4 tests/soundness/open/vt_ff_whitespace_refused refuses
 
-# TOTAL 110
-# SYNC-HASH 0f35be8377b0b3d06aee654b1c5028c8
+# ── 2026-09-27 FEATURE-INTERACTION AUDIT, clusters OUTSIDE ADR 0030 (docs/audit/2026-09-26-feature-interactions.md; the other 200 clusters are tracked by tests/interactions/clusters.json and close with the ADR 0030 steps) ──
+collect_refs_drops_loan_admitted 1 tests/soundness/open/collect_refs_drops_loan_admitted admits
+
+derive_debug_enum_variant_name_wrong 1 tests/soundness/open/derive_debug_enum_variant_name_wrong run 3
+
+derive_partialeq_enum_always_true_wrong 1 tests/soundness/open/derive_partialeq_enum_always_true_wrong run 3
+
+rc_derefmut_shared_alias_admitted 1 tests/soundness/open/rc_derefmut_shared_alias_admitted admits
+
+vec_contains_string_double_drop_wrong 1 tests/soundness/open/vec_contains_string_double_drop_wrong run 134
+
+char_classification_ascii_only_wrong 2 tests/soundness/open/char_classification_ascii_only_wrong run 3
+
+derive_copy_const_generic_struct_crash 2 tests/soundness/open/derive_copy_const_generic_struct_crash refuses
+
+derive_partialeq_tuple_struct_crash 2 tests/soundness/open/derive_partialeq_tuple_struct_crash refuses
+
+recursive_type_via_option_payload_crash 2 tests/soundness/open/recursive_type_via_option_payload_crash refuses
+
+vec_truncate_drop_order_wrong 2 tests/soundness/open/vec_truncate_drop_order_wrong run 3
+
+amp_impl_trait_param_refused 3 tests/soundness/open/amp_impl_trait_param_refused refuses
+
+assoc_fn_path_as_value_refused 3 tests/soundness/open/assoc_fn_path_as_value_refused refuses
+
+assoc_type_projection_expr_path_refused 3 tests/soundness/open/assoc_type_projection_expr_path_refused refuses
+
+box_clone_refused 3 tests/soundness/open/box_clone_refused refuses
+
+box_dyn_fn_not_fn_refused 3 tests/soundness/open/box_dyn_fn_not_fn_refused refuses
+
+box_dyn_return_mut_self_object_lifetime_refused 3 tests/soundness/open/box_dyn_return_mut_self_object_lifetime_refused refuses
+
+box_rc_display_debug_refused 3 tests/soundness/open/box_rc_display_debug_refused refuses
+
+char_hash_ord_impls_refused 3 tests/soundness/open/char_hash_ord_impls_refused refuses
+
+closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_region_of_param_refused refuses
+
+const_in_fn_body_refused 3 tests/soundness/open/const_in_fn_body_refused refuses
+
+deferred_let_without_type_refused 3 tests/soundness/open/deferred_let_without_type_refused refuses
+
+derive_lifetime_generic_struct_refused 3 tests/soundness/open/derive_lifetime_generic_struct_refused refuses
+
+derived_impl_invisible_in_impl_block_refused 3 tests/soundness/open/derived_impl_invisible_in_impl_block_refused refuses
+
+dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refuses
+
+dyn_default_object_lifetime_refused 3 tests/soundness/open/dyn_default_object_lifetime_refused refuses
+
+field_slice_region_projection_refused 3 tests/soundness/open/field_slice_region_projection_refused refuses
+
+float_exp_format_c_style_wrong 3 tests/soundness/open/float_exp_format_c_style_wrong run 3
+
+hashmap_iter_tuple_refused 3 tests/soundness/open/hashmap_iter_tuple_refused refuses
+
+impl_for_concrete_tuple_refused 3 tests/soundness/open/impl_for_concrete_tuple_refused refuses
+
+lifetime_self_receiver_refused 3 tests/soundness/open/lifetime_self_receiver_refused refuses
+
+option_combinators_take_fn_pointers_refused 3 tests/soundness/open/option_combinators_take_fn_pointers_refused refuses
+
+owned_return_from_ref_param_keeps_loan_refused 3 tests/soundness/open/owned_return_from_ref_param_keeps_loan_refused refuses
+
+partialeq_eq_derive_both_refused 3 tests/soundness/open/partialeq_eq_derive_both_refused refuses
+
+partialord_marker_no_lt_refused 3 tests/soundness/open/partialord_marker_no_lt_refused refuses
+
+qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_generic_self_type_refused refuses
+
+ref_t_not_clone_refused 3 tests/soundness/open/ref_t_not_clone_refused refuses
+
+refcell_replace_noncopy_refused 3 tests/soundness/open/refcell_replace_noncopy_refused refuses
+
+slice_debug_missing_refused 3 tests/soundness/open/slice_debug_missing_refused refuses
+
+split_adapter_static_lifetime_refused 3 tests/soundness/open/split_adapter_static_lifetime_refused refuses
+
+string_str_method_autoderef_refused 3 tests/soundness/open/string_str_method_autoderef_refused refuses
+
+tuple_struct_closure_param_pattern_refused 3 tests/soundness/open/tuple_struct_closure_param_pattern_refused refuses
+
+vec_eq_requires_eq_refused 3 tests/soundness/open/vec_eq_requires_eq_refused refuses
+
+vec_iter_find_elided_region_refused 3 tests/soundness/open/vec_iter_find_elided_region_refused refuses
+
+implicit_integer_widening_admitted 4 tests/soundness/open/implicit_integer_widening_admitted admits
+
+struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_match_scrutinee_admitted admits
+
+# TOTAL 155
+# SYNC-HASH 1fc11f70a1391d755c09dc72f438be45

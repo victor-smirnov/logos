@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row vec_eq_requires_eq_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster cmp-impls-require-eq-or-missing: Vec has no PartialEq impl; == on Option/Result/arrays and Vec::contains demand Eq instead of PartialEq
+// Logos: error [fn main]: operator '==': 'Vec<i64>' has no 'eq' implementation — the operation is not defined for it
+// rustc: Vec<T: PartialEq> == Vec<T> compiles; the Rust twin exits 0 (reproduced with rustc 1.98.1 --edition 2024)
+// corpus: tests/interactions/clusters/cmp-impls-require-eq-or-missing/
+// fix hint: stdlib: impl PartialEq for Vec<T> (and slices), and relax the Option/Result/array eq impls and Vec::contains bound from Eq to PartialEq.
+package vec_eq_requires_eq_refused;
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let a: Vec<i64> = vec![1, 2];
+    let b: Vec<i64> = vec![1, 2];
+    if a == b { return 0; }
+    return 1;
+}

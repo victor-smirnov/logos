@@ -1,0 +1,20 @@
+// SOUNDNESS QUEUE row box_dyn_return_mut_self_object_lifetime_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster custom-iterator-box-dyn-item-defaults: elided object lifetime of Box<dyn Tr> in a return tied to &mut self (default object lifetime 'static ignored), so the result keeps self mutably borrowed
+// Logos: error [fn main]: cannot borrow 'g' as mutable more than once at a time.
+// rustc: compiles and runs (Box<dyn Sh> defaults to Box<dyn Sh + 'static>), exit 0 — reproduced with rustc 1.98.1 --edition 2024 on the twin.
+// corpus: tests/interactions/clusters/custom-iterator-box-dyn-item-defaults/
+// fix hint: borrowck/elision: Box<dyn Tr> in a signature takes the default object lifetime ('static), it is not an elided output region. Neighbour: dyn-default-object-lifetime.
+package box_dyn_return_mut_self_object_lifetime_refused;
+use logos.mem.boxed;
+trait Sh { fn area(&self) -> i64; }
+struct Sq(i64);
+impl Sh for Sq { fn area(&self) -> i64 { return self.0; } }
+struct Gen { i: i64 }
+impl Gen {
+    fn nx(&mut self) -> Box<dyn Sh> { self.i += 1; return Box::new(Sq(self.i)); }
+}
+fn main() -> i32 {
+    let mut g = Gen { i: 0 };
+    let a = g.nx();
+    let b = g.nx();
+    return (a.area() + b.area() - 3) as i32;
+}
