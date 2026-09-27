@@ -72,17 +72,17 @@ fn run_all() -> i32 {
 
     // the THREAD-LOCAL plane: the container handle rides Rc
     let mut h = create_ctr_rc::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
-    let got: u64 = drive_via(&*h, 1000u64, 50u64);
+    let got: u64 = drive_via(&*h.borrow(), 1000u64, 50u64);
     if got != 50u64 { return 1i32; }
     // an Rc CLONE of the same handle writes too (shared-view semantics)
     let mut h2 = h.clone_ref();
     let mut more: Vec<u64> = vec_new::<u64>();
     more.push(9u64);
-    assert(h2.insert(2000u64, &more), "insert via the Rc clone");
-    if h.size() != 51u64 { return 6i32; }
+    assert(h2.borrow_mut().insert(2000u64, &more), "insert via the Rc clone");
+    if h.borrow_mut().size() != 51u64 { return 6i32; }
 
     // the supertrait plane over the same object
-    if total_via(&*h) != 51u64 { return 2i32; }
+    if total_via(&*h.borrow()) != 51u64 { return 2i32; }
 
     // boundary ids: the opaque 32B POD round-trips a store id
     let u: Uid256 = uid256_from_u64(42u64);

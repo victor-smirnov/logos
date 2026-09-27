@@ -133,21 +133,21 @@ fn run_all() -> i32 {
             vals.push(k * 100u64 + j);    // are legal (adjacent 0-symbols)
             j = j + 1u64;
         }
-        if !m.insert(k * 2u64, &vals) { return 1i32; }
+        if !m.borrow_mut().insert(k * 2u64, &vals) { return 1i32; }
         k = k + 1u64;
     }
-    if m.count(0u64) != n { return 2i32; }            // keys   = symbol-0 count
+    if m.borrow_mut().count(0u64) != n { return 2i32; }            // keys   = symbol-0 count
     let mut dup: Vec<u64> = vec_new::<u64>();
     dup.push(9u64);
-    if m.insert(4u64, &dup) { return 3i32; }          // duplicate key → reject
-    if m.count(0u64) != n { return 4i32; }
+    if m.borrow_mut().insert(4u64, &dup) { return 3i32; }          // duplicate key → reject
+    if m.borrow_mut().count(0u64) != n { return 4i32; }
 
     // find appends the key's WHOLE run
     let mut got: Vec<u64> = vec_new::<u64>();
-    if !m.find(6u64, &mut got) { return 5i32; }       // key 6 = entry 3: 3 values
+    if !m.borrow_mut().find(6u64, &mut got) { return 5i32; }       // key 6 = entry 3: 3 values
     if got.len() != 3i64 || got.get(0i64) != 300u64 { return 6i32; }
     let mut none: Vec<u64> = vec_new::<u64>();
-    if m.find(7u64, &mut none) { return 7i32; }       // odd keys are absent
+    if m.borrow_mut().find(7u64, &mut none) { return 7i32; }       // odd keys are absent
 
     // ── §3 the HIERARCHICAL seek (the nesting-tree reading) ─────────────────
     // ctr.seek(n) = cursor at the n-th KEY (symbol order); the branch descent
@@ -155,14 +155,17 @@ fn run_all() -> i32 {
     // level). key_cur.seek(m) = the m-th value of THAT key — the RELATIVE
     // seek, a rank projection inside the key's leaf: small m never leaves
     // the node the key lives in.
-    let kc = m.seek(3u64);
-    if !kc.valid() { return 8i32; }
-    if kc.key() != 6u64 { return 9i32; }              // the 3rd key is 6
-    if kc.val_count() != 3u64 { return 10i32; }
-    let vc = kc.seek(1u64);                           // its middle value
-    if !vc.valid() || vc.value() != 301u64 { return 11i32; }
-    if kc.seek(3u64).valid() { return 12i32; }        // past the run: invalid
-    if m.seek(n).valid() { return 13i32; }            // past the keys: invalid
+    {
+        let mg = m.borrow();                          // the cursors borrow the handle
+        let kc = mg.seek(3u64);
+        if !kc.valid() { return 8i32; }
+        if kc.key() != 6u64 { return 9i32; }          // the 3rd key is 6
+        if kc.val_count() != 3u64 { return 10i32; }
+        let vc = kc.seek(1u64);                       // its middle value
+        if !vc.valid() || vc.value() != 301u64 { return 11i32; }
+        if kc.seek(3u64).valid() { return 12i32; }    // past the run: invalid
+        if mg.seek(n).valid() { return 13i32; }       // past the keys: invalid
+    }
 
     // ── §4 the SYMBOL plane (what the structure stream really is) ───────────
     // The flat symbol sequence for the first three entries (keys 0, 2, 4 with
@@ -170,14 +173,14 @@ fn run_all() -> i32 {
     // a GLOBAL position; select(sym, r) finds the (r+1)-th such symbol;
     // count(sym) totals it — the rank/select algebra every hierarchical op
     // above is built from.
-    if m.access(0u64) != 0u64 { return 14i32; }       // key 0 (empty run)
-    if m.access(1u64) != 0u64 { return 15i32; }       // key 2
-    if m.access(2u64) != 1u64 { return 16i32; }       // key 2's value
-    let loc = m.select(0u64, 3u64);                   // the 4th key entry …
+    if m.borrow_mut().access(0u64) != 0u64 { return 14i32; }       // key 0 (empty run)
+    if m.borrow_mut().access(1u64) != 0u64 { return 15i32; }       // key 2
+    if m.borrow_mut().access(2u64) != 1u64 { return 16i32; }       // key 2's value
+    let loc = m.borrow_mut().select(0u64, 3u64);                   // the 4th key entry …
     if !loc.found { return 17i32; }
-    if m.access(loc.pos) != 0u64 { return 18i32; }    // … is a 0-symbol
+    if m.borrow_mut().access(loc.pos) != 0u64 { return 18i32; }    // … is a 0-symbol
     // per-symbol totals: values = sum of run lengths 0+1+2+3 per 4 keys
-    if m.count(1u64) != (n / 4u64) * 6u64 { return 19i32; }
+    if m.borrow_mut().count(1u64) != (n / 4u64) * 6u64 { return 19i32; }
 
     // ── §5 BATCH INSERT (the two-stage design, ENTRY-aligned) ───────────────
     // The staging buffer holds WHOLE entries (key + value run) — the cut
@@ -185,7 +188,7 @@ fn run_all() -> i32 {
     // fragment's SSRLE segment is rebuilt from the entry counts by the
     // weight calculus (no trial insertion, no restores). Same sorted-run
     // contract as the map: strictly ascending, landing whole in one gap.
-    let mut buf = m.make_buffer();
+    let mut buf = m.borrow_mut().make_buffer();
     {
         let mut v0: Vec<u64> = vec_new::<u64>();
         v0.push(7u64);
@@ -208,29 +211,29 @@ fn run_all() -> i32 {
         buf.extend_from(&rs);                         // … and the §5-prelude adapters
     }
     if buf.len() != 60u64 { return 20i32; }
-    if !m.insert_batch(&buf) { return 21i32; }
-    if m.count(0u64) != n + 60u64 { return 22i32; }
+    if !m.borrow_mut().insert_batch(&buf) { return 21i32; }
+    if m.borrow_mut().count(0u64) != n + 60u64 { return 22i32; }
     let mut b42: Vec<u64> = vec_new::<u64>();
-    if !m.find(900_084u64, &mut b42) { return 23i32; }   // Reading #42: 42%3 = 0 …
+    if !m.borrow_mut().find(900_084u64, &mut b42) { return 23i32; }   // Reading #42: 42%3 = 0 …
     if b42.len() != 0i64 { return 24i32; }               // … an EMPTY run, found
     // the sorted-run contract: an interleaving batch is rejected whole
-    let mut bad = m.make_buffer();
+    let mut bad = m.borrow_mut().make_buffer();
     {
         let mut bv: Vec<u64> = vec_new::<u64>();
         bv.push(1u64);
         bad.push(1u64, &bv);                          // between keys 0 and 2
         bad.push(3u64, &bv);                          // between 2 and 4 — straddles 2
     }
-    if m.insert_batch(&bad) { return 25i32; }
-    if m.count(0u64) != n + 60u64 { return 26i32; }
+    if m.borrow_mut().insert_batch(&bad) { return 25i32; }
+    if m.borrow_mut().count(0u64) != n + 60u64 { return 26i32; }
 
     // ── §6 the dyn plane in action ──────────────────────────────────────────
-    if report_via(&*m) != n + 60u64 { return 27i32; } // Ctr::size = the key count
+    if report_via(&*m.borrow()) != n + 60u64 { return 27i32; } // Ctr::size = the key count
     {
         let mut vv: Vec<u64> = vec_new::<u64>();
         vv.push(1u64);
-        if !ingest_via(&*m, 999_999u64, &vv) { return 28i32; }
-        if ingest_via(&*m, 999_999u64, &vv) { return 29i32; }   // dup via dyn too
+        if !ingest_via(&*m.borrow(), 999_999u64, &vv) { return 28i32; }
+        if ingest_via(&*m.borrow(), 999_999u64, &vv) { return 29i32; }   // dup via dyn too
     }
 
     // ── §7 snapshot lifecycle: commit publishes, open sees the same tree ────

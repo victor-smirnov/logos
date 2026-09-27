@@ -123,22 +123,22 @@ fn run_all() -> i32 {
     let n: u64 = 4000u64;                 // enough to force leaf+branch splits
     let mut i: u64 = 0u64;
     while i < n {
-        m.insert(i, i * 3u64);
+        m.borrow_mut().insert(i, i * 3u64);
         i = i + 1u64;
     }
-    if m.size() != n { return 1i32; }
-    if m.get_or(1234u64, 0u64) != 3702u64 { return 2i32; }
-    m.insert(1234u64, 7u64);              // replace-on-hit
-    if m.get_or(1234u64, 0u64) != 7u64 { return 3i32; }
-    if m.size() != n { return 4i32; }
-    if m.get_or(999_999u64, 11u64) != 11u64 { return 5i32; }   // miss → sentinel
+    if m.borrow_mut().size() != n { return 1i32; }
+    if m.borrow_mut().get_or(1234u64, 0u64) != 3702u64 { return 2i32; }
+    m.borrow_mut().insert(1234u64, 7u64);              // replace-on-hit
+    if m.borrow_mut().get_or(1234u64, 0u64) != 7u64 { return 3i32; }
+    if m.borrow_mut().size() != n { return 4i32; }
+    if m.borrow_mut().get_or(999_999u64, 11u64) != 11u64 { return 5i32; }   // miss → sentinel
 
     // an Rc CLONE is the same thread-local view — writes through the clone
     // are visible through the original (shared-view semantics).
     let mut m_clone = m.clone_ref();
-    m_clone.insert(500_000u64, 42u64);
-    if m.get_or(500_000u64, 0u64) != 42u64 { return 6i32; }
-    if m.size() != n + 1u64 { return 7i32; }
+    m_clone.borrow_mut().insert(500_000u64, 42u64);
+    if m.borrow_mut().get_or(500_000u64, 0u64) != 42u64 { return 6i32; }
+    if m.borrow_mut().size() != n + 1u64 { return 7i32; }
 
     // ── §3 snapshot lifecycle: commit publishes, open sees the same trees ───
     snap.commit();
@@ -147,7 +147,7 @@ fn run_all() -> i32 {
     if m2.get_or(4u64, 0u64) != 12u64 { return 9i32; }
 
     // ── §4 the dyn plane in action ──────────────────────────────────────────
-    if report_via(&*m) != n + 1u64 { return 10i32; }
+    if report_via(&*m.borrow()) != n + 1u64 { return 10i32; }
 
     // ── §5 the boundary id plane: Uid256 straight off the public tier ───────
     // snap IS `Arc<dyn Snapshot>` now — snapshot_uid / snapshot_id are public
@@ -158,14 +158,14 @@ fn run_all() -> i32 {
     // ── §6 WITH_ENTRY — the quad boundary (ADR 0023): ONE function drives
     // insert/update/remove/no-op; the transition itself runs on the
     // generated algebra kernels through the same CoW walk as insert ────────
-    m.with_entry(777_777u64, half_or_seed);        // miss → seed 100
-    if m.get_or(777_777u64, 0u64) != 100u64 { return 12i32; }
-    m.with_entry(777_777u64, half_or_seed);        // hit, even → half
-    if m.get_or(777_777u64, 0u64) != 50u64 { return 13i32; }
-    m.with_entry(777_777u64, half_or_seed);        // 50 → 25 (odd next time)
-    m.with_entry(777_777u64, half_or_seed);        // odd → REMOVE
-    if m.get_or(777_777u64, 0u64) != 0u64 { return 14i32; }
-    if m.size() != n + 1u64 { return 15i32; }
+    m.borrow_mut().with_entry(777_777u64, half_or_seed);        // miss → seed 100
+    if m.borrow_mut().get_or(777_777u64, 0u64) != 100u64 { return 12i32; }
+    m.borrow_mut().with_entry(777_777u64, half_or_seed);        // hit, even → half
+    if m.borrow_mut().get_or(777_777u64, 0u64) != 50u64 { return 13i32; }
+    m.borrow_mut().with_entry(777_777u64, half_or_seed);        // 50 → 25 (odd next time)
+    m.borrow_mut().with_entry(777_777u64, half_or_seed);        // odd → REMOVE
+    if m.borrow_mut().get_or(777_777u64, 0u64) != 0u64 { return 14i32; }
+    if m.borrow_mut().size() != n + 1u64 { return 15i32; }
 
     // ── §7 SEEK BY ENTRY NUMBER (the stream-size feature): every container
     // doubles as an ARRAY of its entries — Memoria's classic BTSS semantics.
@@ -175,13 +175,16 @@ fn run_all() -> i32 {
     // + local index) with typed key/value reads; movement lands with the
     // cursors arc. Keys here are 0..n plus 500_000 → entry i has key i for
     // i < n, and the LAST entry is the 500_000 straggler.
-    let c = m.seek(2500u64);
-    if !c.valid() { return 16i32; }
-    if c.key() != 2500u64 { return 17i32; }
-    if c.value() != 7500u64 { return 18i32; }
-    let last = m.seek(n);                          // entry #4000 = key 500_000
-    if !last.valid() || last.key() != 500_000u64 { return 19i32; }
-    if m.seek(n + 1u64).valid() { return 20i32; }  // past the end: invalid, no trap
+    {
+        let mg = m.borrow();                       // the cursors borrow the handle
+        let c = mg.seek(2500u64);
+        if !c.valid() { return 16i32; }
+        if c.key() != 2500u64 { return 17i32; }
+        if c.value() != 7500u64 { return 18i32; }
+        let last = mg.seek(n);                          // entry #4000 = key 500_000
+        if !last.valid() || last.key() != 500_000u64 { return 19i32; }
+        if mg.seek(n + 1u64).valid() { return 20i32; }  // past the end: invalid, no trap
+    }
 
     // ── §8 BATCH INSERT (the two-stage design): the container hands out a
     // STAGING BUFFER already in the leaf's physical column format
@@ -192,7 +195,7 @@ fn run_all() -> i32 {
     // privatize/repoint walk as a single insert. The contract: keys
     // strictly ascending, landing WHOLE between two adjacent existing keys
     // (a violating batch is REJECTED with the tree untouched).
-    let mut buf = m.make_buffer();
+    let mut buf = m.borrow_mut().make_buffer();
     buf.push(600_000u64, 1u64);                    // the typed direct push …
     let mut deps: Vec<Deposit> = vec_new::<Deposit>();
     let mut d: u64 = 1u64;
@@ -202,15 +205,15 @@ fn run_all() -> i32 {
     }
     buf.extend_from(&deps);                        // … and the §8-prelude adapters
     if buf.len() != 100u64 { return 21i32; }
-    if !m.insert_batch(&buf) { return 22i32; }
-    if m.size() != n + 101u64 { return 23i32; }
-    if m.get_or(600_042u64, 0u64) != 42u64 * 25u64 { return 24i32; }
+    if !m.borrow_mut().insert_batch(&buf) { return 22i32; }
+    if m.borrow_mut().size() != n + 101u64 { return 23i32; }
+    if m.borrow_mut().get_or(600_042u64, 0u64) != 42u64 * 25u64 { return 24i32; }
     // the sorted-run contract: an unsorted batch is rejected, tree untouched
-    let mut bad = m.make_buffer();
+    let mut bad = m.borrow_mut().make_buffer();
     bad.push(9u64, 9u64);
     bad.push(3u64, 3u64);
-    if m.insert_batch(&bad) { return 25i32; }
-    if m.size() != n + 101u64 { return 26i32; }
+    if m.borrow_mut().insert_batch(&bad) { return 25i32; }
+    if m.borrow_mut().size() != n + 101u64 { return 26i32; }
 
     // ── §9 REMOVAL: delete + the neighbor MERGE (the C++ remove-then-merge
     // discipline, decided by the weight calculus — `w(left)+w(right) ≤
@@ -218,18 +221,18 @@ fn run_all() -> i32 {
     // walk is the same CoW privatize/repoint as insert; the root collapses
     // while it is a one-child branch. An absent key returns false with
     // NOTHING mutated.
-    if !m.remove(600_042u64) { return 27i32; }        // a batch row from §8
-    if m.remove(600_042u64) { return 28i32; }         // second time: absent
-    if m.get_or(600_042u64, 0xDEADu64) != 0xDEADu64 { return 29i32; }
-    if m.size() != n + 100u64 { return 30i32; }
+    if !m.borrow_mut().remove(600_042u64) { return 27i32; }        // a batch row from §8
+    if m.borrow_mut().remove(600_042u64) { return 28i32; }         // second time: absent
+    if m.borrow_mut().get_or(600_042u64, 0xDEADu64) != 0xDEADu64 { return 29i32; }
+    if m.borrow_mut().size() != n + 100u64 { return 30i32; }
     // remove a spread of §2 keys — merges fire as leaves drain
     i = 0u64;
     while i < n {
-        if !m.remove(i) { return 31i32; }
+        if !m.borrow_mut().remove(i) { return 31i32; }
         i = i + 5u64;
     }
-    if m.size() != n + 100u64 - 800u64 { return 32i32; }
-    if m.get_or(6u64, 0u64) != 18u64 { return 33i32; }   // neighbors intact
+    if m.borrow_mut().size() != n + 100u64 - 800u64 { return 32i32; }
+    if m.borrow_mut().get_or(6u64, 0u64) != 18u64 { return 33i32; }   // neighbors intact
 
     return 0i32;
 }

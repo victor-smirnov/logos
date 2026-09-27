@@ -315,7 +315,7 @@ WHAT THE PORT MUST DECIDE, because Logos is not C++ here:
   the correctness condition: a fork must see its own metadata, and a cache shared
   across snapshots would hand it the parent's.
 * **The API already anticipates this.** `create_ctr_rc` / `open_ctr_rc`
-  (`stdlib/lcm/canon/metaclass.logos`) return `Rc<C::Handle>` on a thread-local
+  (`stdlib/lcm/canon/metaclass.logos`) return `Rc<RefCell<C::Handle>>` on a thread-local
   Rc plane, and the comment beside them names the destination outright: "the
   design destination is a pool of ready handles inside the snapshot (Drop ->
   pool — open question), which these signatures already permit". So the pool

@@ -1,0 +1,9 @@
+package rc_mutate_through_shared_e0596;
+use logos.lang.rc;
+fn main() -> i32 {
+    let mut r = Rc::new(vec![1i64]);
+    let r2 = Rc::clone(&r);
+    let first: &i64 = &r2[0];
+    for i in 0..100 { (&mut *r).push(i); }
+    return *first as i32;
+}

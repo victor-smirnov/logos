@@ -21,6 +21,7 @@ package logos.lcm.canon.metaclass;
 
 use logos.lang.writ.wstatic;
 use logos.lang.rc;                // Rc — the thread-local container handle plane
+use logos.lang.cell;              // RefCell — the handle's `&mut self` surface behind Rc
 use logos.mem.sync;               // Arc — the snapshot parent-hold plane
 use logos.mem.bt.map;             // trait Snapshot — the erased public snapshot tier
 // The factory-generated VECTOR family delegates into the btvec positional
@@ -142,16 +143,18 @@ pub fn open_ctr<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> C::Handl
 
 // ── the Rc plane (S3 Store-dyn design) ──────────────────────────────────────
 // A container handle is STRICTLY THREAD-LOCAL — it rides Rc (non-atomic),
-// while Store/Snapshot ride Arc (cross-thread). v1 allocates plainly; the
-// design destination is a pool of ready handles inside the snapshot (Drop →
-// pool — open question), which these signatures already permit.
+// while Store/Snapshot ride Arc (cross-thread). Rc hands out `&` only, so the
+// handle's `&mut self` surface is reached through a RefCell (`h.borrow_mut()`),
+// as in Rust. v1 allocates plainly; the design destination is a pool of ready
+// handles inside the snapshot (Drop → pool — open question), which these
+// signatures already permit.
 
 /// Creates the container and hands the handle out on the thread-local Rc plane.
-pub fn create_ctr_rc<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> Rc<C::Handle> {
-    return rc_new::<C::Handle>(C::create(snap, ctr_id));
+pub fn create_ctr_rc<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> Rc<RefCell<C::Handle>> {
+    return rc_new::<RefCell<C::Handle>>(RefCell::new(C::create(snap, ctr_id)));
 }
 
 /// Opens an existing container on the thread-local Rc plane.
-pub fn open_ctr_rc<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> Rc<C::Handle> {
-    return rc_new::<C::Handle>(C::open(snap, ctr_id));
+pub fn open_ctr_rc<C: CtrFamily>(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> Rc<RefCell<C::Handle>> {
+    return rc_new::<RefCell<C::Handle>>(RefCell::new(C::open(snap, ctr_id)));
 }

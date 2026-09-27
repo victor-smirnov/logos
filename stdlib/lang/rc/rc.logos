@@ -84,6 +84,11 @@ impl<T: ?Sized> Rc<T> {
     // Prefer these over `get`/`get_mut` — they hand the value back as
     // a normal Logos reference instead of a raw pointer that callers
     // have to launder through `unsafe { … }` blocks.
+    /// A raw pointer to the value, valid while any handle lives (Rust's `Rc::as_ptr`).
+    pub fn as_ptr(this: &Rc<T>) -> *const T {
+        unsafe { return &this.inner.val as *const T; }
+    }
+
     /// The number of live strong (`Rc`) handles to the allocation (Rust's `Rc::strong_count`).
     pub fn strong_count(this: &Rc<T>) -> i64 {
         unsafe { return this.inner.strong as i64; }
@@ -189,6 +194,27 @@ impl<T> Rc<T> {
     }
 }
 
+impl<T: Clone> Rc<T> {
+    /// `&mut` to the value, cloning it into a fresh allocation first when other
+    /// `Rc`s share it; when only `Weak`s remain, the value moves to a fresh
+    /// allocation and the `Weak`s are disassociated (Rust's `Rc::make_mut`).
+    pub fn make_mut(this: &mut Rc<T>) -> &mut T {
+        unsafe {
+            if this.inner.strong != 1 {
+                let fresh: Rc<T> = rc_new::<T>((&this.inner.val).clone());
+                *this = fresh;
+            } else if this.inner.weak != 1 {
+                let p: *mut RcInner<T> = this.inner;
+                let v: T = logos.lang.ptr::read(&p.val as *const T);
+                p.strong = 0;
+                p.weak = p.weak - 1;   // the implicit weak; live Weaks keep the block
+                logos.lang.ptr::write(this as *mut Rc<T>, rc_new::<T>(v));
+            }
+            return &mut this.inner.val;
+        }
+    }
+}
+
 impl<T> Weak<T> {
     /// A `Weak` pointing at nothing: `upgrade` always returns `None` (Rust's `Weak::new`).
     pub fn new() -> Weak<T> { return Weak { inner: 0 as *mut RcInner<T> }; }
@@ -276,18 +302,13 @@ impl<T: ?Sized> Clone for Rc<T> {
     }
 }
 
-// Deref / DerefMut (Rust parity): `*rc`, and auto-deref `rc.field` /
-// `rc.method()` route through these. The inner block is heap-stable for the
-// lifetime of any Rc handle, so the borrowed `&T` / `&mut T` is well-defined.
-// Standard trait surface — same as Box/Arc, dispatched uniformly.
+// Deref (Rust parity): `*rc`, and auto-deref `rc.field` / `rc.method()`
+// route through it. The inner block is heap-stable for the lifetime of any Rc
+// handle, so the borrowed `&T` is well-defined. No `DerefMut`, as in Rust: the
+// value is shared, so `&mut T` comes only from `Rc::get_mut` / `Rc::make_mut`
+// or through interior mutability (`Rc<RefCell<T>>`).
 impl<T: ?Sized> Deref<T> for Rc<T> {
     fn deref(&self) -> &T {
         unsafe { return &self.inner.val; }
-    }
-}
-
-impl<T: ?Sized> DerefMut<T> for Rc<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { return &mut self.inner.val; }
     }
 }

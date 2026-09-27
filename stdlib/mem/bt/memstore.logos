@@ -165,7 +165,7 @@ impl MemorySnapshot {
     pub static fn with_id(id: u64) -> MemorySnapshot {
         let mut st: Arc<MemoryStore> = store_new();
         {
-            let g: &mut MemoryStore = &mut *st;
+            let g: &mut MemoryStore = unsafe { store_mut(&st) };
             g.next_id = id;
         }
         return store_fork(&mut st);
@@ -463,7 +463,7 @@ impl Drop for MemorySnapshot {
             // that frees every container root through the leaves' value-refs.
             tree_release((*self.desc).dir_root.ptr(), (*self.desc).dir_level);
             // LOCK POINT (v1): descriptor unlink vs concurrent find().
-            let g: &mut MemoryStore = &mut *self.store;
+            let g: &mut MemoryStore = unsafe { store_mut(&self.store) };
             g.forget(self.desc);
         }
     }
@@ -503,7 +503,7 @@ impl Snapshot for MemorySnapshot {
     pub fn commit(self: &MemorySnapshot) {
         // LOCK POINT (v1): branch-tip advance vs concurrent fork/find.
         let mut hold: Arc<MemoryStore> = self.store.clone_ref();
-        let g: &mut MemoryStore = &mut *hold;
+        let g: &mut MemoryStore = unsafe { store_mut(&hold) };
         g.commit(self);
     }
 
@@ -522,7 +522,7 @@ impl Snapshot for MemorySnapshot {
             let committed: bool = (*self.d()).status == SNAP_COMMITTED;
             let id: u64 = (*self.d()).id;
             let mut hold: Arc<MemoryStore> = self.store.clone_ref();
-            let g: &mut MemoryStore = &mut *hold;
+            let g: &mut MemoryStore = unsafe { store_mut(&hold) };
             // Ensure the branch exists; if this snapshot is already committed,
             // point the branch at it right away (a committed snapshot rebranded
             // becomes that branch's head).
@@ -736,6 +736,13 @@ impl Drop for MemoryStore {
     }
 }
 
+// The store is shared by every hold on it (Arc has no DerefMut, as in Rust)
+// and mutated only at the LOCK POINTs, through this accessor. Caller: no other
+// reference into the store is live while the returned one is used.
+unsafe fn store_mut(st: &Arc<MemoryStore>) -> &mut MemoryStore {
+    return &mut *(Arc::as_ptr(st) as *mut MemoryStore);
+}
+
 // ── the Arc plane of the STORE itself ───────────────────────────────────────
 // The store is created INTO an Arc; snapshots (and, through them, containers)
 // hold Arc clones of their PARENT, so the ownership chain
@@ -757,7 +764,7 @@ pub fn store_new() -> Arc<MemoryStore> {
 /// snapshot with an empty directory.
 pub fn store_fork(st: &mut Arc<MemoryStore>) -> MemorySnapshot {
     let hold: Arc<MemoryStore> = st.clone_ref();
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     let tip: u64 = g.branch_tip(MASTER_BRANCH);
     let d: *mut SnapDesc = g.fork_desc(tip, MASTER_BRANCH);
     return MemorySnapshot { desc: d, store: hold };
@@ -775,7 +782,7 @@ pub fn store_fork_arc(st: &mut Arc<MemoryStore>) -> Arc<dyn Snapshot> {
 /// — one per call (one per thread in MT use); active/dropped entries are not
 /// findable.
 pub fn store_find(st: &mut Arc<MemoryStore>, id: u64) -> Option<Arc<dyn Snapshot>> {
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     let d: *mut SnapDesc = g.find_desc(id);
     if d == (0 as *mut SnapDesc) {
         return Option::None;
@@ -799,7 +806,7 @@ fn wrap_committed(st: &mut Arc<MemoryStore>, id: u64) -> Option<Arc<dyn Snapshot
 /// exists but is empty (tip 0) the child is a root on that branch.
 pub fn store_fork_branch(st: &mut Arc<MemoryStore>, name: str) -> Option<Arc<dyn Snapshot>> {
     let hold: Arc<MemoryStore> = st.clone_ref();
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     if g.branch_index(name) < 0i64 { return Option::None; }
     let tip: u64 = g.branch_tip(name);
     let d: *mut SnapDesc = g.fork_desc(tip, name);
@@ -813,7 +820,7 @@ pub fn store_fork_branch(st: &mut Arc<MemoryStore>, name: str) -> Option<Arc<dyn
 /// unknown or not committed (you branch off committed history).
 pub fn store_fork_from(st: &mut Arc<MemoryStore>, parent_id: u64) -> Option<Arc<dyn Snapshot>> {
     let hold: Arc<MemoryStore> = st.clone_ref();
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     let pd: *mut SnapDesc = g.desc_of(parent_id);
     if pd == (0 as *mut SnapDesc) { return Option::None; }
     if unsafe { (*pd).status } != SNAP_COMMITTED { return Option::None; }
@@ -826,7 +833,7 @@ pub fn store_fork_from(st: &mut Arc<MemoryStore>, parent_id: u64) -> Option<Arc<
 /// A read wrapper over a named branch's tip snapshot (Memoria `find_branch`).
 /// None if the branch is absent or empty (tip 0).
 pub fn store_find_branch(st: &mut Arc<MemoryStore>, name: str) -> Option<Arc<dyn Snapshot>> {
-    let tip: u64 = { let g: &mut MemoryStore = &mut **st; g.branch_tip(name) };
+    let tip: u64 = { let g: &mut MemoryStore = unsafe { store_mut(&*st) }; g.branch_tip(name) };
     if tip == 0u64 { return Option::None; }
     return wrap_committed(st, tip);
 }
@@ -840,7 +847,7 @@ pub fn store_master(st: &mut Arc<MemoryStore>) -> Option<Arc<dyn Snapshot>> {
 /// Points a named branch at a snapshot id (Memoria `set_branch`), creating the
 /// branch if absent. Asserts the id names a committed snapshot.
 pub fn store_set_branch(st: &mut Arc<MemoryStore>, name: str, id: u64) {
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     let d: *mut SnapDesc = g.desc_of(id);
     assert(d != (0 as *mut SnapDesc), "store_set_branch: unknown snapshot id");
     assert(unsafe { (*d).status } == SNAP_COMMITTED,
@@ -857,7 +864,7 @@ pub fn store_set_master(st: &mut Arc<MemoryStore>, id: u64) {
 /// pointed at stay in history (findable by id) until dropped + packed. Removing
 /// `master` is allowed but unusual.
 pub fn store_remove_branch(st: &mut Arc<MemoryStore>, name: str) {
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     g.remove_branch(name);
 }
 
@@ -869,7 +876,7 @@ pub fn store_remove_branch(st: &mut Arc<MemoryStore>, name: str) {
 /// names a committed snapshot; a snapshot with committed children or a live
 /// branch ref survives pack until those clear.
 pub fn store_drop(st: &mut Arc<MemoryStore>, id: u64) {
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     let d: *mut SnapDesc = g.desc_of(id);
     assert(d != (0 as *mut SnapDesc), "store_drop: unknown snapshot id");
     assert(unsafe { (*d).status } == SNAP_COMMITTED,
@@ -1028,7 +1035,7 @@ pub fn store_active_snapshots(st: &Arc<MemoryStore>) -> i64 {
 /// reclaimed. History compaction (collapsing single-child committed chains)
 /// stays for a later increment.
 pub fn store_pack(st: &mut Arc<MemoryStore>) -> i64 {
-    let g: &mut MemoryStore = &mut **st;
+    let g: &mut MemoryStore = unsafe { store_mut(&*st) };
     let mut reclaimed: i64 = 0i64;
     let mut progress: bool = true;
     // Iterate to a fixpoint: reclaiming a leaf can expose its parent as a leaf.
@@ -1309,7 +1316,7 @@ pub fn store_load<R: InStream>(inp: &mut R) -> Option<Arc<MemoryStore>> {
         // pass 3 — the snapshot DAG
         let snaps: u64 = inp.read_u64();
         {
-            let g: &mut MemoryStore = &mut *st;
+            let g: &mut MemoryStore = unsafe { store_mut(&st) };
             let mut i: u64 = 0u64;
             while i < snaps {
                 let id: u64 = inp.read_u64();
@@ -1339,7 +1346,7 @@ pub fn store_load<R: InStream>(inp: &mut R) -> Option<Arc<MemoryStore>> {
         }
         // pass 4 — branches (replacing the fresh store's default master) + ids
         {
-            let g: &mut MemoryStore = &mut *st;
+            let g: &mut MemoryStore = unsafe { store_mut(&st) };
             let brs: u64 = inp.read_u64();
             g.branches = vec_new::<BranchRef>();
             let mut i: u64 = 0u64;

@@ -305,6 +305,12 @@ pub unsafe fn dir_lookup<const STORE_CFG: WritStatic>(
 unsafe impl<const STORE_CFG: WritStatic> Send for LockingStore<STORE_CFG> {}
 unsafe impl<const STORE_CFG: WritStatic> Sync for LockingStore<STORE_CFG> {}
 
+// The one mutable view of a shared LockingStore (Arc has no DerefMut, as in
+// Rust). Caller: no other reference into the store is live while it is used.
+unsafe fn locking_mut<const STORE_CFG: WritStatic>(a: &Arc<LockingStore<STORE_CFG>>) -> &mut LockingStore<STORE_CFG> {
+    return &mut *(Arc::as_ptr(a) as *mut LockingStore<STORE_CFG>);
+}
+
 /// Wraps a shared `Arc<LockingStore>` — the user-facing handle to a persistent store.
 pub struct Store<const STORE_CFG: WritStatic> {
     /// Shares the backing `LockingStore`; cloned into every forked `Snap`.
@@ -324,7 +330,7 @@ pub const GENESIS: u64 = 0u64;
 /// Creates a store seeded with an empty genesis commit at id `GENESIS`.
 pub fn store_open<const STORE_CFG: WritStatic>() -> Store<STORE_CFG> {
     let s: LockingStore<STORE_CFG> = locking_store_new::<STORE_CFG>();
-    // `mut`: the genesis seeding below takes `arc.deref_mut()` (E0596 otherwise).
+    // `mut`: the genesis seeding below takes `unsafe { locking_mut::<STORE_CFG>(&arc) }` (E0596 otherwise).
     let mut arc: Arc<LockingStore<STORE_CFG>> = arc_new::<LockingStore<STORE_CFG>>(s);
     // Seed an empty genesis dir as commit 0. snapshot_id stamp = 0
     // (no live snap yet); any fork's first write triggers make_unique
@@ -332,7 +338,7 @@ pub fn store_open<const STORE_CFG: WritStatic>() -> Store<STORE_CFG> {
     // refuses parent-less entries (no -1 sentinel under typed snp_id),
     // so the genesis row is pushed directly to dag with empty parents.
     {
-        let lk: &mut LockingStore<STORE_CFG> = arc.deref_mut();
+        let lk: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&arc) };
         let block_id: BlockId<STORE_CFG> = unsafe { (lk as *mut LockingStore<STORE_CFG>).alloc_block_id() };
         let dir: NodeARC<STORE_CFG> = unsafe {
             leaf_dir_alloc::<u64, STORE_CFG, DirCfg>(block_id, 0u64)
@@ -360,22 +366,22 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     // ── DAG introspection (delegates to LockingStore via *mut self) ──
     /// Returns the total number of commits ever registered, including released tombstones.
     pub fn commit_count(&mut self) -> i64 {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         return unsafe { (s as *mut LockingStore<STORE_CFG>).commit_count() };
     }
     /// Returns an owned copy of the parent commit ids of `id`.
     pub fn parents_of(&mut self, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         return unsafe { (s as *mut LockingStore<STORE_CFG>).parents_of(id) };
     }
     /// Returns an owned copy of the child commit ids of `id`.
     pub fn children_of(&mut self, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         return unsafe { (s as *mut LockingStore<STORE_CFG>).children_of(id) };
     }
     /// Returns the ids of live parentless commits (released tombstones excluded).
     pub fn roots(&mut self) -> Vec<SnpId<STORE_CFG>> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         return unsafe { (s as *mut LockingStore<STORE_CFG>).roots() };
     }
 
@@ -388,13 +394,13 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     // commit_count and existing parent/child indices remain valid;
     // checkout / fork on a released id is a precondition violation.
     pub fn release(&mut self, id: SnpId<STORE_CFG>) {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         unsafe { (s as *mut LockingStore<STORE_CFG>).release_snapshot(id); }
     }
 
     /// Returns whether commit `id` has been released.
     pub fn is_released(&mut self, id: SnpId<STORE_CFG>) -> bool {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         return unsafe { (s as *mut LockingStore<STORE_CFG>).is_released(id) };
     }
 
@@ -405,7 +411,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     /// parent — the merged-away branches stay reachable in the DAG for
     /// history queries. Releasing losers afterwards is the caller's policy.
     pub fn merge(&mut self, winner: SnpId<STORE_CFG>, losers: &Vec<SnpId<STORE_CFG>>) -> SnpId<STORE_CFG> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         let sp: *mut LockingStore<STORE_CFG> = s;
         let root: NodeARC<STORE_CFG> = unsafe { sp.checkout(winner) };
         let mut parents: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
@@ -418,7 +424,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
 
     /// Moves (or creates) the named head to point at commit `id`.
     pub fn set_head(&mut self, name: str, id: SnpId<STORE_CFG>) {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         unsafe { s.lock.lock_raw(); }
         let n: i64 = s.head_names.len();
         let mut i: i64 = 0i64;
@@ -439,7 +445,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
 
     /// Resolves the named head to its commit id; `None` for an unknown name.
     pub fn head(&mut self, name: str) -> Option<SnpId<STORE_CFG>> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         unsafe { s.lock.lock_raw(); }
         let n: i64 = s.head_names.len();
         let mut i: i64 = 0i64;
@@ -457,7 +463,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
 
     /// Attaches a human-readable label to commit `id` (replaces any prior one).
     pub fn set_label(&mut self, id: SnpId<STORE_CFG>, label: str) {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         unsafe { s.lock.lock_raw(); }
         let e: &mut CommitEntry<STORE_CFG> = s.dag.borrow_mut(id as i64);
         let mut nm: String = String::new();
@@ -468,7 +474,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
 
     /// Returns commit `id`'s label ("" when unset).
     pub fn label_of(&mut self, id: SnpId<STORE_CFG>) -> String {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         unsafe { s.lock.lock_raw(); }
         let e: &CommitEntry<STORE_CFG> = s.dag.borrow(id as i64);
         let mut out: String = String::new();
@@ -521,7 +527,7 @@ pub fn snap_fork<const STORE_CFG: WritStatic>(
     store: &mut Store<STORE_CFG>,
     parent_commit: SnpId<STORE_CFG>,
 ) -> Snap<STORE_CFG> {
-    let s: &mut LockingStore<STORE_CFG> = store.arc.deref_mut();
+    let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&store.arc) };
     let snap_id: SnpId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_snapshot_id() };
     let dir: NodeARC<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).checkout(parent_commit) };
     return Snap::<STORE_CFG> {
@@ -559,7 +565,7 @@ impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
         if me.open_containers > 0u64 {
             panic("Snap::commit called while container handles are still open");
         }
-        let s: &mut LockingStore<STORE_CFG> = me.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&me.arc) };
         unsafe {
             let root: NodeARC<STORE_CFG> =
                 (&mut me.dir as *mut NodeARC<STORE_CFG>).take_arc();
@@ -576,12 +582,12 @@ impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
 
     /// Returns a raw pointer to the store's next-block-id counter.
     pub fn id_ctr(&mut self) -> *mut BlockId<STORE_CFG> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         return unsafe { &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG> };
     }
     /// Bumps and returns the store's next block id.
     pub fn alloc_block(&mut self) -> BlockId<STORE_CFG> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        let s: &mut LockingStore<STORE_CFG> = unsafe { locking_mut::<STORE_CFG>(&self.arc) };
         return unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
     }
 

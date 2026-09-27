@@ -1,0 +1,8 @@
+package arc_mutate_through_shared_e0596;
+use logos.mem.sync;
+fn main() -> i32 {
+    let mut a = Arc::new(5i64);
+    let b = Arc::clone(&a);
+    *a = 6;
+    return *b as i32;
+}

@@ -1,0 +1,43 @@
+package rc_arc_shared_mutation_rust_way;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.sync;
+use logos.mem.string;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    // Interior mutability: every handle sees the push.
+    let shared: Rc<RefCell<Vec<i64>>> = Rc::new(RefCell::new(vec![1i64]));
+    let other = Rc::clone(&shared);
+    shared.borrow_mut().push(2);
+    if other.borrow().len() != 2 { return 1; }
+    // get_mut: None while shared, Some once unique.
+    let mut a: Rc<i64> = Rc::new(10);
+    let a2 = Rc::clone(&a);
+    if Rc::get_mut(&mut a).is_some() { return 2; }
+    drop(a2);
+    match Rc::get_mut(&mut a) { Some(v) => { *v = 11; } None => { return 3; } }
+    if *a != 11 { return 4; }
+    // make_mut: clones out of a shared allocation, leaves the other handle alone.
+    let mut s: Rc<String> = Rc::new(String::from("ab"));
+    let s2 = Rc::clone(&s);
+    Rc::make_mut(&mut s).push_str("c");
+    if s.len() != 3 || s2.len() != 2 { return 5; }
+    if Rc::ptr_eq(&s, &s2) { return 6; }
+    // make_mut on a unique handle mutates in place.
+    let before: *const String = Rc::as_ptr(&s);
+    Rc::make_mut(&mut s).push_str("d");
+    if Rc::as_ptr(&s) != before || s.len() != 4 { return 7; }
+    // make_mut with only a Weak left: the value moves, the Weak is disassociated.
+    let w = Rc::downgrade(&s);
+    Rc::make_mut(&mut s).push_str("e");
+    if w.upgrade().is_some() || s.len() != 5 { return 8; }
+    // Arc: the same surface.
+    let mut x: Arc<Vec<i64>> = Arc::new(vec![1i64, 2]);
+    let y = Arc::clone(&x);
+    Arc::make_mut(&mut x).push(3);
+    if x.len() != 3 || y.len() != 2 { return 9; }
+    drop(y);
+    match Arc::get_mut(&mut x) { Some(v) => { v.push(4); } None => { return 10; } }
+    if x.len() != 4 { return 11; }
+    return 0;
+}

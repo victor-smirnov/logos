@@ -153,6 +153,11 @@ impl<T: ?Sized> Arc<T> {
         return out;
     }
 
+    /// A raw pointer to the value, valid while any handle lives (Rust's `Arc::as_ptr`).
+    pub fn as_ptr(this: &Arc<T>) -> *const T {
+        unsafe { return &this.inner.val as *const T; }
+    }
+
     /// The current strong reference count (Rust's `Arc::strong_count`).
     pub fn strong_count(this: &Arc<T>) -> i64 {
         unsafe { return (&this.inner.strong).load() as i64; }
@@ -259,6 +264,28 @@ impl<T> Arc<T> {
     }
 }
 
+impl<T: Clone> Arc<T> {
+    /// `&mut` to the value, cloning it into a fresh allocation first when other
+    /// `Arc`s share it; when only `Weak`s remain, the value moves to a fresh
+    /// allocation and the `Weak`s are disassociated (Rust's `Arc::make_mut`).
+    pub fn make_mut(this: &mut Arc<T>) -> &mut T {
+        unsafe {
+            if (&this.inner.strong).load() != 1 {
+                let fresh: Arc<T> = arc_new::<T>((&this.inner.val).clone());
+                *this = fresh;
+            } else if (&this.inner.weak).load() != 1 {
+                let p: *mut ArcInner<T> = this.inner;
+                let v: T = logos.lang.ptr::read(&p.val as *const T);
+                (&mut p.strong).fetch_sub(1);
+                let pw: i32 = (&mut p.weak).fetch_sub(1);
+                if pw == 1 { dealloc(p as *mut u8); }
+                logos.lang.ptr::write(this as *mut Arc<T>, arc_new::<T>(v));
+            }
+            return &mut this.inner.val;
+        }
+    }
+}
+
 impl<T> Weak<T> {
     /// A `Weak` pointing at nothing: `upgrade` always returns `None` (Rust's `Weak::new`).
     pub fn new() -> Weak<T> { return Weak { inner: 0 as *mut ArcInner<T> }; }
@@ -342,18 +369,12 @@ impl<T: ?Sized> Clone for Arc<T> {
     }
 }
 
-// Deref / DerefMut (Rust parity): `*arc`, auto-deref `arc.field`/`arc.method()`.
-// The inner block is heap-stable for any Arc handle. `deref_mut` is a
-// single-thread escape hatch (cross-thread mutation must use Mutex/atomics on
-// T, which take &T). Standard trait surface — uniform with Box/Rc.
+// Deref (Rust parity): `*arc`, auto-deref `arc.field`/`arc.method()`. The
+// inner block is heap-stable for any Arc handle. No `DerefMut`, as in Rust:
+// `&mut T` comes only from `Arc::get_mut` / `Arc::make_mut`; shared mutation
+// goes through Mutex / atomics on T, which take `&T`.
 impl<T: ?Sized> Deref<T> for Arc<T> {
     fn deref(&self) -> &T {
         unsafe { return &self.inner.val; }
-    }
-}
-
-impl<T: ?Sized> DerefMut<T> for Arc<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { return &mut self.inner.val; }
     }
 }
