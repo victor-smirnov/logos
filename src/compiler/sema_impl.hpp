@@ -8572,6 +8572,9 @@ private:
         std::string label;
         TypeRef value_type = nullptr;
         bool without_value = false;
+        // "for" / "while": a loop that yields `()` — `break` with a value is
+        // E0571 (only `loop` carries one). Null for `loop`.
+        const char* no_value_kind = nullptr;
     };
     std::vector<LoopBreakFrame> loop_break_frames_;
     std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop
@@ -8601,6 +8604,12 @@ private:
     // A surface form reached sema: some body entry point did not go through
     // hir_body_. Loud, never a fallback — a silent fallback is two
     // implementations of one rule again.
+    hir::Origin hir_origin_(writ::TinyMapView n) {
+        using namespace sema_detail;
+        if (n.is_null() || !n.has_key(la::ORIGIN)) return hir::Origin::User;
+        writ::AnyVal ov = n.get(la::ORIGIN.code);
+        return ov.is_value() ? static_cast<hir::Origin>(ov.as_value<int64_t>()) : hir::Origin::User;
+    }
     void hir_gate_(writ::TinyMapView n) {
         error(std::format("internal: a surface form (AST code {}) reached sema without "
                           "the HIR pass (ADR 0030) — a body entry point misses hir_body_",
@@ -10042,7 +10051,6 @@ private:
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
     lir_view::StmtRef lower_if(writ::TinyMapView node);
-    lir_view::StmtRef lower_while(writ::TinyMapView node);
     lir_view::StmtRef lower_for(writ::TinyMapView node);
     lir_view::StmtRef lower_for_each(writ::TinyMapView node);
     lir_view::StmtRef lower_loop(writ::TinyMapView node);

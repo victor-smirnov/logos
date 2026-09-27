@@ -1,0 +1,14 @@
+// `break` with a value from a `for` or `while` loop is E0571: only `loop`
+// yields a value. The loop frame carries its kind (a `while` is known by the
+// ORIGIN of the `loop` the HIR pass made of it). Was squeue row
+// break_value_in_for_while_admitted (tier 3, accepted both forms).
+package break_value_in_for_while_refused;
+fn main() -> i32 {
+    for i in 0..5 {
+        break i;
+    }
+    while true {
+        break 5;
+    }
+    return 0;
+}

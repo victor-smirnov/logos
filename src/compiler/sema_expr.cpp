@@ -24154,6 +24154,13 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // type from the trailing TAIL_EXPR. Whatever return type pops out drives
     // the primitive check below.
     lir::LExprPtr lowered = nullptr;
+    // The metacall node is opaque to the HIR pass (the driver patches it by its
+    // offset in the AST document); what sema lowers here is code, so it goes
+    // through the pass now — a copy of the block / expression, not the node.
+    {
+        writ::AnyVal iav; iav.set_ref(inner.ptr());
+        inner = hir_body_(iav);
+    }
     if (ic_is_block) {
         push_scope();
         TypeRef block_ty;

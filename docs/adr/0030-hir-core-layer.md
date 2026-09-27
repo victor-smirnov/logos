@@ -333,9 +333,16 @@ The expression form's missing `else` is refused by sema from ORIGIN
 `let` already refused) is not reported twice (ORIGIN Destructure).
 Entry points: fn and spec-fn bodies, reparsed bodies, macro arguments,
 `include!` — the gate found the last three.
-Next: `while c` → `loop { if !c { break } … }`, field shorthand, parameter
-patterns, the syntactic macro expansions (format!, vec!, matches!, dbg!) out
-of sema; tail → return stays sema's single judgment (a unit tail needs a type).
+`while c { A }` → `loop { if c { A } else { break } }` (rustc's shape;
+lower_while deleted): the `if` speaks as the `while` in its condition
+diagnostic, and the `loop` frame knows it came from a `while`, so `break`
+with a value is E0571 (as for `for`) — closed squeue
+break_value_in_for_while_admitted. A metacall is opaque to the pass (the
+driver patches it by offset); lower_metacall runs its inner code through the
+pass at the lowering site.
+Next: field shorthand, parameter patterns, the syntactic macro expansions
+(format!, vec!, matches!, dbg!) out of sema; tail → return stays sema's single
+judgment (a unit tail needs a type).
 
 ## R0 status (2026-09-27)
 

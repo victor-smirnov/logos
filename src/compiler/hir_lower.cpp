@@ -38,10 +38,14 @@ bool same(AnyVal a, AnyVal b) noexcept {
 
 // Subtrees the pass does not enter: quote bodies and meta blocks are TEMPLATES
 // (their antiquote placeholders are substituted before the result is lowered,
-// and the spliced result goes through this pass then), not code.
+// and the spliced result goes through this pass then), not code. A metacall
+// is compile-time code run in its own thunk module (whose body goes through
+// this pass when sema lowers it), and the driver PATCHES the metacall node in
+// the AST document by its offset — so it must keep its identity, never be
+// copied into this pass's document.
 bool opaque(int32_t c) noexcept {
     return c == la::QUOTE_ITEM.code || c == la::QUOTE_EXPR.code || c == la::QUOTE_TY.code ||
-           c == la::META_BLOCK.code;
+           c == la::META_BLOCK.code || c == la::METACALL.code || c == la::METACALL_ITEM.code;
 }
 
 } // namespace
@@ -52,8 +56,7 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
     const int32_t c = code_of(n);
     if (c == la::IF_LET_CHAIN.code) return true;
     if (c == la::IF.code && n.has_key(la::PAT)) return true;
-    if (c == la::WHILE.code && (n.has_key(la::PAT) || (n.has_key(la::ITEMS) && n.has_key(la::BODY))))
-        return true;
+    if (c == la::WHILE.code) return true;   // every form: `while c`, `while let`, chains
     if (c == la::RETURN_EXPR.code || c == la::BREAK_EXPR.code || c == la::CONTINUE_EXPR.code)
         return true;
     if (c == la::DESTRUCTURE_ASSIGN.code) return true;
@@ -152,6 +155,14 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
             ? expr_else(Origin::LetChain, Origin::LetChainNoElse, o)
             : (n.has_key(la::ELSE) ? n.get(la::ELSE.code) : block({}, n, Origin::LetChain));
         return let_chain(n, n.get(la::THEN.code), else_body, o);
+    }
+    if (c == la::WHILE.code && n.has_key(la::COND)) {   // while c { A }
+        AnyVal brk = block({node(la::BREAK.code, n, Origin::While, {})}, n, Origin::While);
+        AnyVal iff = node(la::IF.code, n, Origin::While,
+                          {{la::COND.code, n.get(la::COND.code)},
+                           {la::THEN.code, as_block(n.get(la::BODY.code), n, Origin::While)},
+                           {la::ELSE.code, brk}});
+        return node(la::LOOP.code, n, Origin::While, {{la::BODY.code, block({iff}, n, Origin::While)}});
     }
     if (c == la::WHILE.code) {                   // while let … { A }
         const Origin o = n.has_key(la::PAT) ? Origin::WhileLet : Origin::WhileLetChain;

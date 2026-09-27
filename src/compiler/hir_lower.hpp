@@ -20,6 +20,7 @@
 //                                        → nested match / if, B at each fall-through
 //   while let P = e [&& g] { A }         → loop { match e { P [if g] => A, _ => break } }
 //   while let P1 = e1 && … { A }         → loop { <let-chain> …, break at each fall-through }
+//   while c { A }                         → loop { if c { A } else { break } }   (rustc's shape)
 //   `return e` / `break 'l e` / `continue 'l` as an EXPRESSION
 //                                        → the block `{ return e; }` (the statement form; a
 //                                          block ending in an exit has type `!`)
@@ -49,6 +50,7 @@ enum class Origin : int64_t {
     WhileLetChain   = 6,
     ExprExit        = 7,   // `return e` / `break 'l e` / `continue 'l` in expression position
     Destructure     = 8,   // destructuring assignment `(a, b) = e` / `[a, b] = e` / `S { a, b } = e`
+    While           = 9,   // `while c { A }`
 };
 
 struct Diag {

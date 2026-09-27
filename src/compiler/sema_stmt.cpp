@@ -719,7 +719,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         pending_loop_label_.clear();
         return result;
     }
-    if (c == la::WHILE)        return lower_while(stmt);
+    if (c == la::WHILE) {      // a LOOP by now (the HIR pass)
+        hir_gate_(stmt);
+        return builder().stmt_expr(error_expr(), node_line_);
+    }
     if (c == la::FOR)          return lower_for(stmt);
     if (c == la::FOR_EACH)     return lower_for_each(stmt);
     if (c == la::LOOP)         return lower_loop(stmt);
@@ -840,7 +843,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             // source's own drop — on this path's unwind and at its scope end —
             // must not run a second time.
             if (bval) mark_moved_expr(expr_ref_of(bval));
-            if (target && target->without_value) {
+            if (target && target->no_value_kind) {
+                error(std::format("`break` with value from a `{}` loop (E0571): only `loop` "
+                                  "yields a value", target->no_value_kind));
+            } else if (target && target->without_value) {
                 error("loop break mixes value and no-value breaks");
             } else if (target && bval && expr_type(bval) &&
                        TypeRef(expr_type(bval)).kind() != LogosType::Kind::Error) {
@@ -8406,7 +8412,7 @@ writ::AnyVal SemaChecker::synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ
 
 lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     // Own source line — capture before lowering cond/branches moves node_line_
-    // (else the SIf maps to a sub-statement's line; see lower_while).
+    // (else the SIf maps to a sub-statement's line).
     const uint32_t if_line = node_line_;
     // `if let` is a MATCH by the time a body reaches sema (the HIR pass).
     if (node.has_key(la::PAT)) {
@@ -8423,7 +8429,10 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
         if (TypeRef(expr_type(cond)).kind() != LogosType::Kind::Bool &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Never)  // G160-10: `if (return x){}`
-            error(std::format("if condition must be bool, got {}", type_str(expr_type(cond))));
+            // The `if` a `while c` became (ORIGIN) speaks as the `while`.
+            error(std::format("{} condition must be bool, got {}",
+                              hir_origin_(node) == hir::Origin::While ? "while" : "if",
+                              type_str(expr_type(cond))));
     } else {
         cond = error_expr();
     }
@@ -8558,74 +8567,6 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     return make_stmt_emit(if_line, std::move(sif));
 }
 
-lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
-    // logos-core 2.7: a while may not run at all → body's assignments don't
-    // count at the outer scope. RAII-restore the definite-assignment tracker
-    // on every exit path.
-    struct WhileUninitGuard {
-        std::set<std::string>& slot;
-        std::set<std::string>  saved;
-        WhileUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
-        ~WhileUninitGuard() { slot = std::move(saved); }
-    } _uninit_guard(currently_uninit_vars_);
-    // This statement's own source line (set by lower_stmt_inner before dispatch).
-    // Capture it now: lowering the body below moves node_line_ to the body's last
-    // statement, so the SWhile must be emitted with the captured line, not the
-    // stale node_line_ (else the loop header maps to the last body line → bad
-    // breakpoints/stepping).
-    const uint32_t while_line = node_line_;
-    // ── while let PAT = VALUE [&& GUARD] BODY ───────────────────────
-    //   ≡ loop { match VALUE { PAT [if GUARD] => BODY, _ => break } }
-    // and the chain form (`while let P1 = e1 && … BODY`, ITEMS = the
-    // segments) nests one MATCH / IF per segment with `break` at every
-    // fall-through. Lowered BY DELEGATION to lower_loop → lower_match (see
-    // synth_doc_); the scrutinee is re-evaluated per iteration because the
-    // match statement lives inside the loop body, and the label is taken by
-    // lower_loop from pending_loop_label_ exactly as a written loop's is.
-    // `while let` is a LOOP over a MATCH by the time a body reaches sema.
-    if (node.has_key(la::PAT) || (node.has_key(la::ITEMS) && node.has_key(la::BODY))) {
-        hir_gate_(node);
-        return builder().stmt_expr(error_expr(), while_line);
-    }
-
-    // ── regular while cond { ... } ─────────────────────────────────
-    // Capture label before lowering body (same reason as in lower_for).
-    std::string my_label = std::move(pending_loop_label_);
-    pending_loop_label_.clear();
-
-    lir::LExprPtr cond = nullptr;
-    if (node.has_key(la::COND)) {
-        // The condition is re-evaluated EVERY iteration: a droppable rvalue
-        // receiver inside it (`while make().len() > 0`) must materialize +
-        // drop per evaluation, in its own temporary scope. The ambient
-        // statement-level hoist would lift it BEFORE the loop — evaluated
-        // exactly once (an infinite-loop miscompile) and dropped once.
-        cond = lower_expr_temp_scoped(map_of(node.get(la::COND.code)));
-        if (TypeRef(expr_type(cond)).kind() != LogosType::Kind::Bool &&
-            TypeRef(expr_type(cond)).kind() != LogosType::Kind::Error)
-            error(std::format("while condition must be bool, got {}", type_str(expr_type(cond))));
-    } else { cond = error_expr(); }
-
-    std::vector<lir_view::StmtRef> body;
-    auto pre_loop_moves = moved_vars_;
-    const size_t loop_clear_mark = flag_clear_log_.size();   // #118
-    if (node.has_key(la::BODY)) {
-        ++loop_depth_;
-        if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-        loop_break_frames_.push_back({my_label, nullptr, false});
-        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-        lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
-        loop_break_frames_.pop_back();
-        if (!my_label.empty()) active_loop_labels_.pop_back();
-        --loop_depth_;
-        merge_loop_exit_moves(body, map_of(node.get(la::BODY.code)), pre_loop_moves, loop_clear_mark);
-    }
-    lir::SWhile sw;
-    sw.cond  = std::move(cond);
-    sw.body  = lir_mirror_block(*cur_prog_, body);
-    sw.label = std::move(my_label);
-    return make_stmt_emit(while_line, std::move(sw));
-}
 
 lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     const uint32_t for_line = node_line_;  // own line; body lowering moves node_line_
@@ -8702,7 +8643,7 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-        loop_break_frames_.push_back({my_label, nullptr, false});
+        loop_break_frames_.push_back({my_label, nullptr, false, "for"});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
         loop_break_frames_.pop_back();
@@ -8834,7 +8775,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-            loop_break_frames_.push_back({my_label, nullptr, false});
+            loop_break_frames_.push_back({my_label, nullptr, false, "for"});
             pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             pending_loop_body_init_ = bind_loop_var;
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
@@ -8875,7 +8816,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-            loop_break_frames_.push_back({my_label, nullptr, false});
+            loop_break_frames_.push_back({my_label, nullptr, false, "for"});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
             loop_break_frames_.pop_back();
@@ -8957,7 +8898,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             if (node.has_key(la::BODY)) {
                 ++loop_depth_;
                 if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-            loop_break_frames_.push_back({my_label, nullptr, false});
+            loop_break_frames_.push_back({my_label, nullptr, false, "for"});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
                 lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
                 loop_break_frames_.pop_back();
@@ -9302,7 +9243,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-            loop_break_frames_.push_back({my_label, nullptr, false});
+            loop_break_frames_.push_back({my_label, nullptr, false, "for"});
             lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
             loop_break_frames_.pop_back();
             if (!my_label.empty()) active_loop_labels_.pop_back();
@@ -9358,7 +9299,8 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-        loop_break_frames_.push_back({my_label, nullptr, false});
+        loop_break_frames_.push_back({my_label, nullptr, false,
+                                      hir_origin_(node) == hir::Origin::While ? "while" : nullptr});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
         frame_value_type    = loop_break_frames_.back().value_type;
