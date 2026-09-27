@@ -37,7 +37,9 @@
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <deque>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -9147,6 +9149,26 @@ private:
     // current context (holder swapped to the freshly-parsed doc). Used by
     // the `vec!` builtin to re-parse + lower a synthesized `vec_from_arr([…])`
     // call. Returns error_expr() (after a diagnostic) on parse failure.
+    // ADR 0030 R0: a function-style macro's arguments, parsed WHERE THEY STAND.
+    // The grammar keeps the argument text as RAW_TEXT and the line of its
+    // opening delimiter as RAW_LINE; this parses RAW_TEXT with the
+    // `macro_args` (or `matches_args`) entry starting at that line, so every
+    // argument node carries its real SRC_LINE — no synthetic `fn __f()`
+    // wrapper, no reparse of rendered text. The parsed documents live as long
+    // as the checker (`macro_arg_docs_`), so the returned views stay valid.
+    struct MacroArgs {
+        bool ok = false;
+        writ::MemHolder* holder = nullptr;
+        writ::TinyMapView root;               // the entry's result map
+        std::vector<writ::AnyVal> items;      // macro_args: ITEMS
+    };
+    enum class MacroArgsEntry { Args, Matches, VecRepeat };
+    MacroArgs parse_macro_args_(writ::TinyMapView call, MacroArgsEntry entry);
+    writ::AnyVal synth_format_expansion_(const std::string& callee_name, std::string_view body,
+                                         const std::vector<writ::AnyVal>& arg_avs,
+                                         size_t fmt_pos, bool is_write_family);
+    std::deque<writ::Writ> macro_arg_docs_;
+    std::deque<std::shared_ptr<std::string>> macro_arg_texts_;
     lir::LExprPtr lower_reparsed_tail_expr(const std::string& wrap_body,
                                            std::string_view err_ctx);
     lir::LExprPtr lower_macro_concat(writ::TinyMapView node);

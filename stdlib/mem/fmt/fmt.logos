@@ -192,6 +192,19 @@ impl Formatter {
         self.precision  = -1i64;
     }
 
+    /// Sets every spec field of one placeholder at once (the format-family
+    /// expansion calls this before each argument); `indent` is preserved.
+    pub fn set_spec(&mut self, fill: u8, align_code: u8, sign_plus: bool, alternate: bool,
+                    zero_pad: bool, width: i64, precision: i64) {
+        self.fill       = fill;
+        self.align_code = align_code;
+        self.sign_plus  = sign_plus;
+        self.alternate  = alternate;
+        self.zero_pad   = zero_pad;
+        self.width      = width;
+        self.precision  = precision;
+    }
+
     // Pretty-print helper: emit a newline followed by `indent * 4`
     // spaces. Used by DebugBuilders when `alternate` is true.
     /// Writes a newline followed by `indent * 4` spaces.

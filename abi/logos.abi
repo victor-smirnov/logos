@@ -13781,6 +13781,7 @@ sym	logos_mem..logos.mem.fmt.Formatter__indent_inc__f__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Formatter__new__f__refmut_String
 sym	logos_mem..logos.mem.fmt.Formatter__pad__f__refmut_Formatter__slice_u8__slice_u8
 sym	logos_mem..logos.mem.fmt.Formatter__reset_spec__f__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Formatter__set_spec__f__refmut_Formatter__u8__u8__bool__bool__bool__i64__i64
 sym	logos_mem..logos.mem.fmt.Formatter__write_bool__f__refmut_Formatter__bool
 sym	logos_mem..logos.mem.fmt.Formatter__write_char__f__refmut_Formatter__u8
 sym	logos_mem..logos.mem.fmt.Formatter__write_indent__f__refmut_Formatter

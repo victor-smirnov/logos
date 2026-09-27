@@ -1912,6 +1912,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         bool is_option = TypeRef(inner_t).kind() == LogosType::Kind::Enum
                          && TypeRef(inner_t).enum_name() == "Option"
                          && TypeRef(inner_t).type_args().size() >= 1;
+        // An operand that failed to type-check is reported; the Try dispatch
+        // below would lower it a second time and report it again.
+        if (inner_t && TypeRef(inner_t).kind() == LogosType::Kind::Error) return error_expr();
         if (!is_result && !is_option) {
             // §6.5: trait-based ? dispatch. The inner type isn't a
             // stdlib Result/Option; route through the Try /
@@ -4292,7 +4295,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             auto var_name = str_of(child.get(la::NAME.code));
             auto vt = lookup(var_name);
             if (!vt) {
-                error(std::format("'&': undefined variable '{}'", var_name));
+                error(std::format("undefined variable '{}'", var_name));
                 return error_expr();
             }
             // §6.2 statics (S25): `&STATIC` IS the global's address (stable,
@@ -5657,7 +5660,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 return finish_generic_call(
                     infer_fi->symbol_name.empty() ? callee : infer_fi->symbol_name,
                     *infer_fi, std::move(inferred), std::move(arg_exprs));
-            error(std::format("call to '{}': could not infer all type arguments — use explicit f::<T>(...) syntax", callee));
+            // An argument that already failed to type-check has been
+            // reported; inference over it is not a second defect.
+            bool arg_in_error = false;
+            for (auto& a : arg_exprs) {
+                TypeRef t = expr_type(a);
+                while (t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                             TypeRef(t).kind() == LogosType::Kind::MutRef))
+                    t = TypeRef(t).pointee();
+                if (!t || TypeRef(t).kind() == LogosType::Kind::Error) { arg_in_error = true; break; }
+            }
+            if (!arg_in_error)
+                error(std::format("call to '{}': could not infer all type arguments — use explicit f::<T>(...) syntax", callee));
             return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
         }
         // ⚠ THE DEFERRAL IS PER-CALL AND THE QUESTION IS PER-PARAM. The guard
@@ -24542,76 +24556,73 @@ lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
     }
     std::string contents((std::istreambuf_iterator<char>(in)),
                          std::istreambuf_iterator<char>());
-    // Wrap as an expression body and re-parse.
-    std::string wrap_src = std::format(
-        "package __include_expr;\nfn __f() -> i32 {{ {} }}\n", contents);
-    logos::compiler::LogosParser inc_parser(wrap_src);
-    auto inc_doc = inc_parser.parse_module();
+    // ADR 0030 R0: the file IS one expression (rustc's include! in expression
+    // position); parse it as that, from its own first line, instead of wrapping
+    // it in a synthetic `fn __f()` (whose nodes were off by one line). The
+    // nodes still name the includer as their file until spans carry a file
+    // (H0's SourceMap).
+    auto text = std::make_shared<std::string>(std::move(contents));
+    logos::compiler::LogosParser inc_parser(*text);
+    auto inc_doc = inc_parser.parse_expr();
     if (inc_doc.is_null() || !inc_parser.at_eof()) {
         error(std::format("include!: file '{}' does not parse as a single expression "
                           "(item-position include! is not supported)", path));
         return error_expr();
     }
-    // Navigate MODULE → ITEMS[0]=FN_DEF → BODY=BLOCK → TAIL or last EXPR.
-    auto src_holder = inc_doc.holder();
-    auto root = inc_doc.root_object().as_tiny_map();
-    if (root.is_null()) { error("include!: wrap parse produced null module"); return error_expr(); }
-    auto nav_key = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom || !tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        return writ::as_tinymap(av, src_holder);
-    };
-    auto nav_array_first = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom || !tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        auto arr = writ::as_array(av, src_holder);
-        if (arr.size() == 0) return {};
-        AnyVal el = arr.get(0);
-        if (!el.is_pointer()) return {};
-        return writ::as_tinymap(el, src_holder);
-    };
-    auto nav_array_last_av = [&](TinyMapView tom, uint8_t key) -> AnyVal {
-        if (!tom || !tom.has_key(key)) return AnyVal{};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return AnyVal{};
-        auto arr = writ::as_array(av, src_holder);
-        if (arr.size() == 0) return AnyVal{};
-        return arr.get(arr.size() - 1);
-    };
-    // The wrap_src parser allocates inside its own holder; we need to
-    // splice the resulting AST back into the current document's holder
-    // so subsequent lowering sees consistent offsets. Use the existing
-    // splice helper used by fn_macro re-parse.
-    TinyMapView module_tom = root;
-    TinyMapView fn_def  = nav_array_first(module_tom, la::ITEMS.code);
-    TinyMapView fn_body = fn_def ? nav_key(fn_def, la::BODY.code) : TinyMapView{};
-    AnyVal last_av = fn_body ? nav_array_last_av(fn_body, la::ITEMS.code) : AnyVal{};
-    if (!last_av.is_pointer()) {
-        error("include!: included file is empty / does not parse as expression");
+    auto inc_holder = inc_doc.holder();
+    TinyMapView root = inc_doc.root_object().as_tiny_map();
+    if (root.is_null()) {
+        error(std::format("include!: file '{}' is empty", path));
         return error_expr();
     }
-    // The included AST lives in `inc_doc` (a different holder). Walking
-    // into it requires that holder; capture it for the dive.
-    auto inc_holder = inc_doc.holder();
-    TinyMapView last_view(last_av, inc_holder);
-    if (code_of(last_view) == la::TAIL_EXPR && last_view.has_key(la::VALUE)) {
-        auto prev = holder_;
-        holder_ = inc_holder;
-        auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
-        holder_ = prev;
-        return r;
+    macro_arg_texts_.push_back(std::move(text));
+    macro_arg_docs_.push_back(std::move(inc_doc));
+    auto prev = holder_;
+    holder_ = inc_holder;
+    auto r = lower_expr(root);
+    holder_ = prev;
+    return r;
+}
+
+SemaChecker::MacroArgs SemaChecker::parse_macro_args_(TinyMapView call,
+                                                      MacroArgsEntry entry) {
+    MacroArgs out;
+    std::string_view raw;
+    if (call.has_key(la::RAW_TEXT)) raw = str_of(call.get(la::RAW_TEXT.code));
+    // `name!()`: no arguments, nothing to parse (the entries need one arg).
+    if (entry == MacroArgsEntry::Args
+        && raw.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+        out.ok = true;
+        return out;
     }
-    if (code_of(last_view) == la::EXPR_STMT && last_view.has_key(la::VALUE)) {
-        auto prev = holder_;
-        holder_ = inc_holder;
-        auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
-        holder_ = prev;
-        return r;
+    uint32_t line = 0;
+    if (call.has_key(la::RAW_LINE)) {
+        AnyVal lv = call.get(la::RAW_LINE.code);
+        if (!lv.is_null() && lv.is_value()) line = lv.as_value<uint32_t>();
     }
-    error("include!: last item in file is not an expression");
-    return error_expr();
+    if (line == 0) line = get_line(call);
+    // The parser holds a view: the text must outlive it and the document.
+    auto text = std::make_shared<std::string>(raw);
+    logos::compiler::LogosParser parser(*text);
+    if (line != 0) parser.set_first_line(line);
+    auto doc = entry == MacroArgsEntry::Args    ? parser.parse_macro_args()
+             : entry == MacroArgsEntry::Matches ? parser.parse_matches_args()
+                                                : parser.parse_vec_repeat_args();
+    if (doc.is_null() || !parser.at_eof()) return out;
+    out.holder = doc.holder();
+    out.root = doc.root_object().as_tiny_map();
+    if (out.root.is_null()) return out;
+    if (entry == MacroArgsEntry::Args && out.root.has_key(la::ITEMS)) {
+        AnyVal av = out.root.get(la::ITEMS.code);
+        if (av.is_pointer()) {
+            auto arr = writ::as_array(av, out.holder);
+            for (uint64_t i = 0; i < arr.size(); ++i) out.items.push_back(arr.get(i));
+        }
+    }
+    macro_arg_texts_.push_back(std::move(text));
+    macro_arg_docs_.push_back(std::move(doc));
+    out.ok = true;
+    return out;
 }
 
 lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body,
@@ -24914,32 +24925,6 @@ lir::LExprPtr SemaChecker::lower_macro_concat_bytes(TinyMapView node) {
     return builder().arr_lit(std::move(elems), arr_t);
 }
 
-// Split a macro arg string on TOP-LEVEL commas (depth 0), respecting
-// parentheses / brackets / braces and string + char literals. Used by the
-// `vec!` builtin's push-block lowering. Note: angle brackets are intentionally
-// NOT tracked (a `<` is ambiguous between generics and comparison), so a
-// top-level comma inside a turbofish's type-arg list (`vec!(f::<A, B>(), …)`)
-// is a known niche limitation — rare in vec! element position.
-static std::vector<std::string> split_top_level_commas(const std::string& s) {
-    std::vector<std::string> out;
-    std::string cur;
-    int depth = 0;
-    bool in_str = false, in_chr = false, esc = false;
-    for (char c : s) {
-        if (esc) { cur += c; esc = false; continue; }
-        if (in_str) { cur += c; if (c == '\\') esc = true; else if (c == '"') in_str = false; continue; }
-        if (in_chr) { cur += c; if (c == '\\') esc = true; else if (c == '\'') in_chr = false; continue; }
-        if (c == '"') { in_str = true; cur += c; continue; }
-        if (c == '\'') { in_chr = true; cur += c; continue; }
-        if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
-        if (c == ')' || c == ']' || c == '}') { --depth; cur += c; continue; }
-        if (c == ',' && depth == 0) { out.push_back(cur); cur.clear(); continue; }
-        cur += c;
-    }
-    out.push_back(cur);
-    return out;
-}
-
 std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, const std::string& callee_name) {
     using logos::writ::AnyVal;
     using logos::writ::WritAccess;
@@ -24973,71 +24958,49 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
                 }
             }
         if (!user_vec) {
-            std::string raw;
-            if (node.has_key(la::RAW_TEXT))
-                raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
-            // Trim outer whitespace.
-            auto ws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
-            while (!raw.empty() && ws(raw.front())) raw.erase(0, 1);
-            while (!raw.empty() && ws(raw.back()))  raw.pop_back();
+            // ADR 0030 R0: built over the parsed arguments, no text.
             // Element type from the surrounding `let v: Vec<E> = …` annotation
-            // (hint_call_return_type_, set by lower_let). When known + renderable
-            // we lower via a PUSH-BLOCK; otherwise fall back to vec_from_arr.
+            // (hint_call_return_type_, set by lower_let): it reaches the array
+            // literal's elements (`[&dyn Tr; N]` coercions, literal widths).
             TypeRef elem_hint = nullptr;
             if (hint_call_return_type_ &&
                 is_stdlib_vec(hint_call_return_type_) &&
                 TypeRef(hint_call_return_type_).type_args().size() == 1)
                 elem_hint = TypeRef(hint_call_return_type_).type_args()[0];
-            std::string elem_str = elem_hint ? type_str(elem_hint, /*source_form=*/true) : std::string{};
-            // A `_` hole anywhere in the hint (Vec<_>, Vec<Vec<_>>) is NOT
-            // renderable — `vec_new::<_>()` is argless so the hole has no
-            // inference source, and pre-fix the hole leaked into mono as a
-            // literal `Vec$G1$_` instantiation. Fall back to the
-            // inference-driven vec_from_arr path instead.
-            bool elem_renderable = !elem_str.empty() &&
-                elem_str.find("<error>") == std::string::npos &&
-                elem_str.find('?') == std::string::npos &&
-                (!elem_hint || (TypeRef(elem_hint).kind() != LogosType::Kind::TypeVar &&
-                                !type_has_inferred(elem_hint)));
-
-            // Push-block lowering: `{ let mut __v: Vec<E> = vec_new::<E>();
-            // __v.push(e0); __v.push(e1); …; __v }`. Unlike `vec_from_arr`
-            // (whose `T: Copy` bound rejects e.g. `Vec<String>`, and which would
-            // need array-element move-out anyway), pushing each element
-            // EXPRESSION moves it directly — no Copy requirement, no array. The
-            // per-`push` arg also runs `coerce_arg_to_dyn`, so a `Vec<&dyn Tr>`
-            // gets the implicit `&Concrete → &dyn` coercion for free. Needs the
-            // element type spelled (from the annotation); without it we can't
-            // write `vec_new::<E>()`, so fall back to the inference-driven
-            // `vec_from_arr`.
-            if (!raw.empty() && elem_renderable) {
-                // Statements form the synthetic fn body directly (no extra
-                // braces — lower_reparsed_tail_expr lowers the whole body block).
-                std::string body = "let mut __vecm: Vec<" + elem_str +
-                                   "> = vec_new::<" + elem_str + ">();";
-                for (auto& piece : split_top_level_commas(raw)) {
-                    std::string e = piece;
-                    auto ws2 = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
-                    while (!e.empty() && ws2(e.front())) e.erase(0, 1);
-                    while (!e.empty() && ws2(e.back()))  e.pop_back();
-                    if (e.empty()) continue;
-                    body += " __vecm.push(" + e + ");";
-                }
-                body += " __vecm";
-                return lower_reparsed_tail_expr(body, "vec!");
+            const uint32_t ln = node_line_;
+            auto items_map = [&](std::vector<AnyVal> items) {
+                (void)synth_str("");
+                auto* m = synth_doc_.make_tiny_map(1).get();
+                m->put(la::ITEMS.code, synth_array(items), synth_doc_.arena()).get();
+                AnyVal mv; mv.set_ref(m); return mv;
+            };
+            AnyVal call;
+            MacroArgs margs = parse_macro_args_(node, MacroArgsEntry::Args);
+            if (margs.ok && margs.items.empty()) {
+                // vec![] — `vec_new::<_>()`: the context supplies the element type.
+                auto hole = synth_node(la::TYPE_REF.code, ln, {{la::NAME.code, synth_str("_")}});
+                call = synth_node(la::GENERIC_CALL.code, ln,
+                    {{la::CALLEE.code, synth_str("vec_new")}, {la::TYPE_PARAMS.code, items_map({hole})},
+                     {la::ARGS.code, items_map({})}});
+            } else if (margs.ok) {
+                // vec![a, b, c] = vec_from_arr([a, b, c]): the elements move
+                // into an array and from it into the Vec (rustc:
+                // `<[_]>::into_vec(Box::new([a, b, c]))`).
+                auto arr = synth_node(la::ARR_LIT.code, ln, {{la::ITEMS.code, synth_array(margs.items)}});
+                call = synth_node(la::CALL.code, ln,
+                    {{la::CALLEE.code, synth_str("vec_from_arr")}, {la::ARGS.code, synth_array({arr})}});
+            } else if (MacroArgs rep = parse_macro_args_(node, MacroArgsEntry::VecRepeat); rep.ok) {
+                // vec![elem; n] = vec_from_elem(elem, n) (rustc's vec::from_elem).
+                call = synth_node(la::CALL.code, ln,
+                    {{la::CALLEE.code, synth_str("vec_from_elem")},
+                     {la::ARGS.code, synth_array({rep.root.get(la::VALUE.code), rep.root.get(la::SIZE.code)})}});
+            } else {
+                error("vec!: expected `vec![a, b, …]` or `vec![elem; n]`");
+                return error_expr();
             }
-
-            // Fallback: no usable element-type annotation. Lower via
-            // `vec_from_arr([…])` (inference-driven; requires `T: Copy`).
-            // `vec!()` with no elements → `vec_new::<_>()` so the hint supplies T.
-            std::string body = raw.empty()
-                ? std::string("vec_new::<_>()")
-                : std::format("vec_from_arr([{}])", raw);
-            // Still propagate the `[&dyn Trait; N]` element coercion hint into the
-            // array literal for the no-annotation heterogeneous-dyn case.
             auto saved_arr_elem = hint_arr_elem_type_;
             if (elem_hint) hint_arr_elem_type_ = elem_hint;
-            auto r = lower_reparsed_tail_expr(body, "vec!");
+            auto r = lower_expr(TinyMapView(call, holder_));
             hint_arr_elem_type_ = saved_arr_elem;
             return r;
         }
@@ -25182,42 +25145,52 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // `panic!(...)` routes them via the format-family fast-path, so
     // the call site types as `!` (Never) and works in any position
     // (if-arm, match-arm, fn tail) — same shape as Rust.
+    // Text the expansion puts INSIDE a format string literal: string escapes
+    // for `"` and `\`, and `{`/`}` doubled so the format parser reads them as
+    // literal braces.
+    auto fmt_lit_escape = [](std::string_view t) {
+        std::string out;
+        for (char c : t) {
+            if (c == '"' || c == '\\') out.push_back('\\');
+            else if (c == '{') { out += "{{"; continue; }
+            else if (c == '}') { out += "}}"; continue; }
+            out.push_back(c);
+        }
+        return out;
+    };
     if (callee_name == "unreachable" || callee_name == "todo" ||
         callee_name == "unimplemented") {
+        // ADR 0030 R0: `unreachable!()` panics with the fixed message;
+        // `unreachable!("fmt", args…)` panics with "<message>: <formatted>"
+        // (rustc). Built as the panic! expansion over the parsed arguments.
         const std::string prefix =
             callee_name == "unreachable" ? "internal error: entered unreachable code"
           : callee_name == "todo"        ? "not yet implemented"
           : /* unimplemented */            "not implemented";
-        std::string raw;
-        if (node.has_key(la::RAW_TEXT))
-            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
-        // Trim outer whitespace.
-        auto ws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
-        while (!raw.empty() && ws(raw.front())) raw.erase(0, 1);
-        while (!raw.empty() && ws(raw.back()))  raw.pop_back();
-        // Escape `"` and `\\` in prefix so it embeds safely as a string
-        // literal (prefixes are static — this matters only if a future
-        // edit ever introduces a quote, but stays safe).
-        auto esc = [](std::string_view s) {
-            std::string out;
-            for (char c : s) {
-                if (c == '"' || c == '\\') out.push_back('\\');
-                out.push_back(c);
-            }
-            return out;
-        };
-        std::string body;
-        if (raw.empty()) {
-            body = std::format("panic!(\"{}\")", esc(prefix));
-        } else {
-            // Wrap user args in an inner `format!(...)` so panic!'s
-            // format string consumes the rendered String via a single
-            // `{}` placeholder. Avoids having to splice the user's
-            // format placeholders into a synthesized one.
-            body = std::format("panic!(\"{}: {{}}\", format!({}))",
-                               esc(prefix), raw);
+        MacroArgs margs = parse_macro_args_(node, MacroArgsEntry::Args);
+        if (!margs.ok) {
+            error(std::format("{}!: arguments do not parse as an expression list", callee_name));
+            return error_expr();
         }
-        return lower_reparsed_tail_expr(body, callee_name + "!");
+        std::vector<AnyVal> args = margs.items;
+        std::string fmt = fmt_lit_escape(prefix);
+        if (!args.empty()) {
+            TinyMapView f0 = writ::as_tinymap(args[0], margs.holder);
+            if (code_of(f0) != la::LIT_STR || !f0.has_key(la::VALUE)) {
+                error(std::format("{}!: the first argument must be a format string literal", callee_name));
+                return error_expr();
+            }
+            std::string_view lit = writ::StringView(f0.get(la::VALUE.code), margs.holder).view();
+            if (lit.size() >= 2 && lit.front() == '"' && lit.back() == '"')
+                lit = lit.substr(1, lit.size() - 2);
+            fmt += ": ";
+            fmt += lit;
+        } else {
+            args.push_back(AnyVal{});   // the format string's slot
+        }
+        AnyVal blk = synth_format_expansion_("panic", fmt, args, 0, false);
+        if (blk.is_null()) return error_expr();
+        return lower_block_expr(TinyMapView(blk, holder_));
     }
 
     // compile_error!("msg") — emit a compile-time error and return error_expr.
@@ -25245,23 +25218,23 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // own internal commas — tuple/struct shapes — since the splitter
     // respects bracket nesting). An `if guard` rides along inside the arm.
     if (callee_name == "matches") {
-        std::string raw;
-        if (node.has_key(la::RAW_TEXT))
-            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
-        auto parts = split_top_level_commas(raw);
-        if (parts.size() < 2) {
-            error("matches!: expected `matches!(expr, pattern)`");
+        // ADR 0030 R0: `matches!(e, pat [if guard])` = `match e { pat [if guard]
+        // => true, _ => false }`, over the parsed scrutinee, pattern and guard.
+        MacroArgs m = parse_macro_args_(node, MacroArgsEntry::Matches);
+        if (!m.ok) {
+            error("matches!: expected `matches!(expr, pattern [if guard])`");
             return error_expr();
         }
-        std::string expr = parts[0];
-        std::string pat;
-        for (size_t i = 1; i < parts.size(); ++i) {
-            if (i > 1) pat += ", ";
-            pat += parts[i];
-        }
-        std::string body = std::format(
-            "match ({}) {{ {} => true, _ => false }}", expr, pat);
-        return lower_reparsed_tail_expr(body, "matches!");
+        const uint32_t ln = node_line_;
+        // An arm body is a BLOCK whose tail is the value.
+        auto lit_bool = [&](bool b) {
+            auto lit = synth_node(la::LIT_BOOL.code, ln, {{la::VALUE.code, AnyVal::from_value(b)}});
+            return synth_block({synth_node(la::TAIL_EXPR.code, ln, {{la::VALUE.code, lit}})}, ln);
+        };
+        AnyVal mt = synth_match(m.root.get(la::VALUE.code), m.root.get(la::PAT.code),
+                                m.root.has_key(la::GUARD) ? m.root.get(la::GUARD.code) : AnyVal{},
+                                lit_bool(true), lit_bool(false), ln);
+        return lower_expr(TinyMapView(mt, holder_));
     }
 
     // T2-21: `dbg!(expr)` — eprint `[file:line] expr = <Debug>` and return
@@ -25270,38 +25243,246 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // (`&(arg)` in the format-family lowering), so the value is not consumed
     // before the block returns it.
     if (callee_name == "dbg") {
-        std::string raw;
-        if (node.has_key(la::RAW_TEXT))
-            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        // ADR 0030 R0: `dbg!(e)` = `{ let tmp = e; eprintln!("[file:line] <e as
+        // written> = {:?}", tmp); tmp }` — the value passes through (the print
+        // borrows it); `dbg!()` prints the marker only. Built over the parsed
+        // argument; the argument's TEXT appears only inside the message.
+        MacroArgs margs = parse_macro_args_(node, MacroArgsEntry::Args);
+        if (!margs.ok || margs.items.size() > 1) {
+            error("dbg!: expected `dbg!()` or `dbg!(expr)`");
+            return error_expr();
+        }
+        const uint32_t ln = node_line_;
+        std::string where = std::format("[{}:{}]", fmt_lit_escape(file_), ln);
+        if (margs.items.empty()) {
+            AnyVal blk = synth_format_expansion_("eprintln", where, {AnyVal{}}, 0, false);
+            if (blk.is_null()) return error_expr();
+            return lower_block_expr(TinyMapView(blk, holder_));
+        }
+        std::string raw(str_of(node.get(la::RAW_TEXT.code)));
         auto ws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
         while (!raw.empty() && ws(raw.front())) raw.erase(0, 1);
         while (!raw.empty() && ws(raw.back()))  raw.pop_back();
-        // Escape the expr text for embedding in the format string literal.
-        auto esc = [](std::string_view s) {
-            std::string out;
-            for (char c : s) {
-                if (c == '"' || c == '\\') out.push_back('\\');
-                else if (c == '{') { out += "{{"; continue; }
-                else if (c == '}') { out += "}}"; continue; }
-                out.push_back(c);
-            }
-            return out;
-        };
-        if (raw.empty()) {
-            std::string body = std::format(
-                "eprintln!(\"[{}:{}]\")", file_, node_line_);
-            return lower_reparsed_tail_expr(body, "dbg!");
-        }
         std::string tmp = std::format("__dbg_{}", tmp_var_count_++);
-        // Bare statements (no outer braces) — lower_reparsed_tail_expr wraps
-        // the body directly in `fn __f() -> T { <body> }`; an extra `{…}`
-        // layer makes the inner block a discarded tail-expr (value lost).
-        std::string body = std::format(
-            "let {0} = {1}; eprintln!(\"[{2}:{3}] {4} = {{:?}}\", {0}); {0}",
-            tmp, raw, file_, node_line_, esc(raw));
-        return lower_reparsed_tail_expr(body, "dbg!");
+        auto var = [&] { return synth_node(la::VAR_REF.code, ln, {{la::NAME.code, synth_str(tmp)}}); };
+        AnyVal print = synth_format_expansion_(
+            "eprintln", std::format("{} {} = {{:?}}", where, fmt_lit_escape(raw)),
+            {AnyVal{}, var()}, 0, false);
+        if (print.is_null()) return error_expr();
+        AnyVal blk = synth_block({
+            synth_node(la::LET.code, ln, {{la::NAME.code, synth_str(tmp)}, {la::VALUE.code, margs.items[0]}}),
+            synth_node(la::EXPR_STMT.code, ln, {{la::VALUE.code, print}}),
+            synth_node(la::TAIL_EXPR.code, ln, {{la::VALUE.code, var()}})}, ln);
+        return lower_block_expr(TinyMapView(blk, holder_));
     }
     return std::nullopt;
+}
+
+// ADR 0030 R0: the format-family expansion (format!/print!/println!/eprint!/
+// eprintln!/panic!/format_args_str!/write!/writeln!), BUILT as AST over the
+// parsed argument nodes. `body` is the format string literal's contents as
+// written (escapes intact); `arg_avs[fmt_pos]` is the literal itself, the value
+// arguments follow it, and for write!/writeln! `arg_avs[0]` is the sink. Null
+// after a diagnostic (bad format string, arity mismatch).
+writ::AnyVal SemaChecker::synth_format_expansion_(const std::string& callee_name,
+                                                  std::string_view body,
+                                                  const std::vector<writ::AnyVal>& arg_avs,
+                                                  size_t fmt_pos, bool is_write_family) {
+    using logos::writ::AnyVal;
+    FormatParseResult fmt_result;
+    parse_format_string(body, fmt_result,
+        [&](std::string msg) {
+            error(std::format("{}!: {}", callee_name, msg));
+        });
+    if (fmt_result.ok) {
+        // Each placeholder dispatches through a free fn for its trait
+        // (format_trait_dispatcher: fmt_display, fmt_debug, fmt_lower_hex,
+        // …); the print family drains the buffer through the std.fmt
+        // wrappers.
+        int32_t placeholders = static_cast<int32_t>(fmt_result.segments.size());
+        int32_t lits = 0;
+        for (auto& s : fmt_result.segments) if (s.is_literal) ++lits;
+        placeholders -= lits;
+        // Value args = total minus the leading non-value args:
+        // the format string (always), plus the sink for write!/writeln!.
+        int32_t args_provided =
+            static_cast<int32_t>(arg_avs.size()) - static_cast<int32_t>(fmt_pos) - 1;
+        // Required slots = max(positional auto-count, highest
+        // explicit `{N}` index + 1). Named placeholders extend
+        // this in slice 4.4-named.
+        int32_t needed = fmt_result.positional_count;
+        if (fmt_result.max_explicit_plus_one > needed)
+            needed = fmt_result.max_explicit_plus_one;
+        // Arity diagnostic — preserved wording from slice 4.2:
+        // "K placeholders but M arguments provided" so existing
+        // tests stay green. Only fires when no explicit-index
+        // form is in use (which would re-use args differently).
+        bool arity_ok;
+        if (fmt_result.max_explicit_plus_one == 0) {
+            arity_ok = (placeholders == args_provided);
+            if (!arity_ok) {
+                error(std::format(
+                    "{}!: format string has {} placeholder{} but "
+                    "{} argument{} provided",
+                    callee_name,
+                    placeholders, (placeholders == 1 ? "" : "s"),
+                    args_provided, (args_provided == 1 ? "" : "s")));
+            }
+        } else {
+            arity_ok = (args_provided >= needed);
+            if (!arity_ok) {
+                error(std::format(
+                    "{}!: format string references arg index up to {} "
+                    "but only {} argument{} provided",
+                    callee_name, needed - 1,
+                    args_provided, (args_provided == 1 ? "" : "s")));
+            }
+        }
+
+        if (arity_ok) {
+            // ADR 0030 R0: the expansion is BUILT, not rendered and
+            // reparsed. Every argument node is the parsed argument
+            // itself (its real SRC_LINE); the glue is synthesized AST
+            // stamped with the macro's line. rustc's format_args!:
+            // the arguments are evaluated ONCE, left to right, each
+            // borrowed (`&(arg)`), before any formatting; `{0}{0}`
+            // formats one value twice. A write!/writeln! sink is
+            // evaluated first.
+            const uint32_t ln = node_line_;
+            const std::string pfx = std::format("__fmt{}_", tmp_var_count_++);
+            auto s_str  = [&](std::string_view t) { return synth_str(t); };
+            auto s_var  = [&](const std::string& n) {
+                return synth_node(la::VAR_REF.code, ln, {{la::NAME.code, s_str(n)}});
+            };
+            auto s_int  = [&](std::string_view lit) {
+                return synth_node(la::LIT_INT.code, ln, {{la::VALUE.code, s_str(lit)}});
+            };
+            auto s_bool = [&](bool b) {
+                return synth_node(la::LIT_BOOL.code, ln, {{la::VALUE.code, AnyVal::from_value(b)}});
+            };
+            auto s_strlit = [&](std::string_view body) {
+                std::string q = "\"";
+                q.append(body.data(), body.size());
+                q.push_back('"');
+                return synth_node(la::LIT_STR.code, ln, {{la::VALUE.code, s_str(q)}});
+            };
+            auto s_mcall = [&](AnyVal recv, std::string_view m, std::vector<AnyVal> args) {
+                return synth_node(la::METHOD_CALL.code, ln,
+                    {{la::RECEIVER.code, recv}, {la::NAME.code, s_str(m)},
+                     {la::ARGS.code, synth_array(args)}});
+            };
+            auto s_call = [&](std::string_view f, std::vector<AnyVal> args) {
+                return synth_node(la::CALL.code, ln,
+                    {{la::CALLEE.code, s_str(f)}, {la::ARGS.code, synth_array(args)}});
+            };
+            auto s_let = [&](const std::string& n, AnyVal ty, AnyVal v, bool mut_) {
+                return synth_node(la::LET.code, ln,
+                    {{la::NAME.code, s_str(n)}, {la::TYPE.code, ty}, {la::VALUE.code, v},
+                     {la::IS_MUT.code, mut_ ? AnyVal::from_value(true) : AnyVal{}}});
+            };
+            auto s_type = [&](std::string_view n) {
+                return synth_node(la::TYPE_REF.code, ln, {{la::NAME.code, s_str(n)}});
+            };
+            auto s_ref = [&](AnyVal v) {
+                return synth_node(la::UNARY.code, ln, {{la::OP.code, s_str("&")}, {la::VALUE.code, v}});
+            };
+            auto s_mutref = [&](AnyVal v) {
+                return synth_node(la::ADDR_OF_MUT.code, ln, {{la::VALUE.code, v}});
+            };
+            auto s_stmt = [&](AnyVal v) {
+                return synth_node(la::EXPR_STMT.code, ln, {{la::VALUE.code, v}});
+            };
+            // A STATIC_CALL's ARGS is the call_arg_list MAP ({ITEMS}),
+            // not the bare array a CALL / METHOD_CALL carries.
+            auto s_static = [&](std::string_view ty, std::string_view m, std::vector<AnyVal> args) {
+                (void)synth_str("");  // materializes synth_doc_
+                auto* am = synth_doc_.make_tiny_map(1).get();
+                am->put(la::ITEMS.code, synth_array(args), synth_doc_.arena()).get();
+                AnyVal amv; amv.set_ref(am);
+                return synth_node(la::STATIC_CALL.code, ln,
+                    {{la::RECEIVER.code, s_str(ty)}, {la::NAME.code, s_str(m)}, {la::ARGS.code, amv}});
+            };
+            const std::string f_n = pfx + "f", buf_n = pfx + "buf";
+            std::vector<AnyVal> stmts;
+            if (is_write_family) {
+                stmts.push_back(s_let(f_n, s_type("Formatter"),
+                                      s_mcall(arg_avs[0], "as_formatter", {}), true));
+            } else {
+                stmts.push_back(s_let(buf_n, s_type("String"), s_static("String", "new", {}), true));
+            }
+            // The value arguments, each borrowed once, in order.
+            std::vector<std::string> arg_names;
+            for (size_t vi = fmt_pos + 1; vi < arg_avs.size(); ++vi) {
+                std::string an = std::format("{}a{}", pfx, vi - fmt_pos - 1);
+                stmts.push_back(s_let(an, AnyVal{}, s_ref(arg_avs[vi]), false));
+                arg_names.push_back(std::move(an));
+            }
+            // The Formatter over the String buffer is made after the
+            // arguments, so an argument cannot observe the buffer.
+            if (!is_write_family) {
+                stmts.push_back(s_let(f_n, s_type("Formatter"),
+                                      s_static("Formatter", "new", {s_mutref(s_var(buf_n))}), true));
+            }
+            int32_t auto_idx = 0;
+            for (auto& seg : fmt_result.segments) {
+                if (seg.is_literal) {
+                    if (seg.lit_text.empty()) continue;
+                    // Literals go through the Formatter too: two live
+                    // mutable paths to one String (`__buf` and `__f`)
+                    // are what format_args! never makes (ADR 0028).
+                    stmts.push_back(s_let("_", AnyVal{},
+                        s_mcall(s_var(f_n), "write_str", {s_strlit(seg.lit_text)}), false));
+                    continue;
+                }
+                int32_t idx = (seg.arg_idx >= 0) ? seg.arg_idx : auto_idx++;
+                if (idx < 0 || size_t(idx) >= arg_names.size()) continue;
+                // `align_code`: 0=Unknown→Right, 1=Left, 2=Right, 3=Center.
+                int32_t align_code =
+                    seg.spec.align == FormatAlign::Left   ? 1 :
+                    seg.spec.align == FormatAlign::Right  ? 2 :
+                    seg.spec.align == FormatAlign::Center ? 3 : 0;
+                int32_t fill_code = static_cast<int32_t>(
+                    static_cast<unsigned char>(seg.spec.fill));
+                if (seg.spec.zero && seg.spec.align == FormatAlign::None && seg.spec.fill == ' ')
+                    fill_code = '0';
+                int64_t width = seg.spec.width >= 0 ? seg.spec.width : -1;
+                int64_t precision = seg.spec.precision >= 0 ? seg.spec.precision : -1;
+                stmts.push_back(s_stmt(s_mcall(s_var(f_n), "set_spec", {
+                    s_int(std::format("{}u8", fill_code)),
+                    s_int(std::format("{}u8", align_code)),
+                    s_bool(seg.spec.sign == FormatSign::Plus),
+                    s_bool(seg.spec.alt),
+                    s_bool(seg.spec.zero),
+                    s_int(std::format("{}i64", width)),
+                    s_int(std::format("{}i64", precision))})));
+                stmts.push_back(s_let("_", AnyVal{},
+                    s_call(format_trait_dispatcher(seg.spec.trait_kind),
+                           {s_var(arg_names[size_t(idx)]), s_mutref(s_var(f_n))}), false));
+            }
+            AnyVal tail;
+            auto buf_str = [&] { return s_mcall(s_var(buf_n), "as_str", {}); };
+            if (callee_name == "format" || callee_name == "format_args_str")
+                tail = s_var(buf_n);
+            else if (callee_name == "println")  tail = s_call("__fmt_println",  {buf_str()});
+            else if (callee_name == "print")    tail = s_call("__fmt_print",    {buf_str()});
+            else if (callee_name == "eprintln") tail = s_call("__fmt_eprintln", {buf_str()});
+            else if (callee_name == "eprint")   tail = s_call("__fmt_eprint",   {buf_str()});
+            else if (callee_name == "panic")    tail = s_call("__fmt_panic",    {buf_str()});
+            else if (is_write_family) {
+                // Placeholders streamed into the sink through the
+                // Formatter; writeln! adds the newline. The value is
+                // Ok(()) — per-placeholder errors are discarded, as
+                // format! discards them.
+                if (callee_name == "writeln")
+                    stmts.push_back(s_let("_", AnyVal{},
+                        s_mcall(s_var(f_n), "write_str", {s_strlit("\\n")}), false));
+                tail = s_call("ok", {});
+            }
+            stmts.push_back(synth_node(la::TAIL_EXPR.code, ln, {{la::VALUE.code, tail}}));
+            return synth_block(stmts, ln);
+        }
+    }
+    return AnyVal{};
 }
 
 lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
@@ -25393,10 +25574,10 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         return error_expr();
     }
 
-    // Slice 3 raw-capture: read RAW_TEXT, re-parse as comma-separated
-    // expr-list by wrapping in a synthetic `__c(<raw_text>)` call. The
-    // returned AnyVals point into wrap_doc; the serialisation loop
-    // below uses wrap_doc's base instead of holder_->base().
+    // Slice 3 raw-capture: RAW_TEXT is parsed as a macro argument list by
+    // parse_macro_args_ (ADR 0030 R0). The
+    // returned AnyVals point into the args document; the serialisation loop
+    // below uses its holder instead of holder_->base().
     if (!node.has_key(la::RAW_TEXT)) {
         error("fn_macro: missing RAW_TEXT (grammar regression?)");
         return error_expr();
@@ -25450,67 +25631,17 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         return builder().writ_lit_v(std::move(lit), macro_info->ret_type);
     }
 
-    std::string wrap_src = std::format(
-        "package __fn_macro_args;\nfn __f() {{ __c({}); }}\n", raw_text);
-    logos::compiler::LogosParser wrap_parser(wrap_src);
-    auto wrap_doc = wrap_parser.parse_module();
-    if (wrap_doc.is_null() || !wrap_parser.at_eof()) {
+    // ADR 0030 R0: the arguments are parsed where they stand (RAW_LINE), not
+    // wrapped in a synthetic `fn __f() { __c(…); }` whose nodes all said line 2.
+    MacroArgs margs = parse_macro_args_(node, MacroArgsEntry::Args);
+    if (!margs.ok) {
         error(std::format(
             "fn_macro: '{}!' args failed to parse as comma-separated expr list",
             callee_name));
         return error_expr();
     }
-    // Navigate: MODULE → ITEMS[0]=FN_DEF → BODY=BLOCK → ITEMS[0]=stmt
-    //           where stmt is EXPR_STMT/TAIL_EXPR carrying a CALL → CALL.ARGS.
-    auto src_holder = wrap_doc.holder();
-    auto wrap_root = wrap_doc.root_object().as_tiny_map();
-    if (wrap_root.is_null()) {
-        error("fn_macro: wrap parse produced null module");
-        return error_expr();
-    }
-    auto nav_array_first = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        auto arr = writ::as_array(av, src_holder);
-        if (arr.size() == 0) return {};
-        AnyVal el = arr.get(0);
-        if (!el.is_pointer()) return {};
-        return writ::as_tinymap(el, src_holder);
-    };
-    auto nav_key = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        return writ::as_tinymap(av, src_holder);
-    };
-    TinyMapView module_tom = wrap_root;
-    TinyMapView fn_def    = nav_array_first(module_tom, la::ITEMS.code);
-    TinyMapView fn_body   = fn_def    ? nav_key(fn_def, la::BODY.code) : TinyMapView{};
-    TinyMapView stmt      = fn_body   ? nav_array_first(fn_body, la::ITEMS.code) : TinyMapView{};
-    // stmt is EXPR_STMT or TAIL_EXPR carrying a CALL via VALUE key.
-    TinyMapView call_tom{};
-    if (stmt) {
-        int32_t sc = 0;
-        if (stmt.has_key(la::CODE.code)) {
-            AnyVal cv = stmt.get(la::CODE.code);
-            if (!cv.is_null() && !cv.is_pointer()) sc = cv.as_value<int32_t>();
-        }
-        if (sc == la::EXPR_STMT.code || sc == la::TAIL_EXPR.code) {
-            call_tom = nav_key(stmt, la::VALUE.code);
-        } else if (sc == la::CALL.code) {
-            call_tom = stmt;
-        }
-    }
-    std::vector<AnyVal> arg_avs;  // offsets into wrap_doc
-    if (call_tom && call_tom.has_key(la::ARGS.code)) {
-        AnyVal av = call_tom.get(la::ARGS.code);
-        if (av.is_pointer()) {
-            auto arr = writ::as_array(av, src_holder);
-            for (uint64_t i = 0; i < arr.size(); ++i)
-                arg_avs.push_back(arr.get(i));
-        }
-    }
+    auto src_holder = margs.holder;
+    std::vector<AnyVal> arg_avs = margs.items;  // offsets into the args document
 
     // Slice 4.2 + 4.4a — sema-time format-string parse + validation
     // for the canonical format-family (format/print/println/eprint/
@@ -25542,7 +25673,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
             if (!cv.is_null() && !cv.is_pointer()) fc = cv.as_value<int32_t>();
         }
         if (fc == la::LIT_STR.code && fmt_tom.has_key(la::VALUE.code)) {
-            // Read VALUE via wrap_doc's holder — the global str_of() uses
+            // Read VALUE via the args document's holder — the global str_of() uses
             // the main holder_, which would mis-read here.
             AnyVal vav = fmt_tom.get(la::VALUE.code);
             std::string_view raw;
@@ -25553,342 +25684,10 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
             if (body.size() >= 2 && body.front() == '"' && body.back() == '"')
                 body = body.substr(1, body.size() - 2);
 
-            FormatParseResult fmt_result;
-            parse_format_string(body, fmt_result,
-                [&](std::string msg) {
-                    error(std::format("{}!: {}", callee_name, msg));
-                });
-            if (fmt_result.ok) {
-                // Slice 4.4b: sema-resident lowering for format-family.
-                // Generate a synthesized block expression
-                //   { let mut __buf = String::new();
-                //     __buf.push_str(<lit_0>);
-                //     (<arg_0>).fmt(&mut __buf);
-                //     __buf.push_str(<lit_1>);
-                //     (<arg_1>).dbg(&mut __buf);
-                //     ...
-                //     __buf
-                //   }
-                // and lower it in-place — no JIT thunk roundtrip. Each
-                // placeholder dispatches to its trait method
-                // (format_trait_method), so per-arg trait choice falls
-                // out of the spec at compile time. The print-family
-                // variants append a tail that drains __buf to stdout/
-                // stderr via the std.fmt re-export wrappers.
-                //
-                // Spec gating: only `{}`/`{:?}` are runtime-supported
-                // today; the rest reject. Slice 4.4c+ adds them.
-                // Slice 4.4f: all eight format-trait kinds are wired.
-                // `spec_blocked` retained as a no-op for symmetry with
-                // the older gate logic in case future slices reintroduce
-                // a deferred kind.
-                bool spec_blocked = false;
-                int32_t placeholders = static_cast<int32_t>(fmt_result.segments.size());
-                int32_t lits = 0;
-                for (auto& s : fmt_result.segments) if (s.is_literal) ++lits;
-                placeholders -= lits;
-                // Value args = total minus the leading non-value args:
-                // the format string (always), plus the sink for write!/writeln!.
-                int32_t args_provided =
-                    static_cast<int32_t>(arg_avs.size()) - static_cast<int32_t>(fmt_pos) - 1;
-                // Required slots = max(positional auto-count, highest
-                // explicit `{N}` index + 1). Named placeholders extend
-                // this in slice 4.4-named.
-                int32_t needed = fmt_result.positional_count;
-                if (fmt_result.max_explicit_plus_one > needed)
-                    needed = fmt_result.max_explicit_plus_one;
-                // Arity diagnostic — preserved wording from slice 4.2:
-                // "K placeholders but M arguments provided" so existing
-                // tests stay green. Only fires when no explicit-index
-                // form is in use (which would re-use args differently).
-                bool arity_ok;
-                if (fmt_result.max_explicit_plus_one == 0) {
-                    arity_ok = (placeholders == args_provided);
-                    if (!arity_ok) {
-                        error(std::format(
-                            "{}!: format string has {} placeholder{} but "
-                            "{} argument{} provided",
-                            callee_name,
-                            placeholders, (placeholders == 1 ? "" : "s"),
-                            args_provided, (args_provided == 1 ? "" : "s")));
-                    }
-                } else {
-                    arity_ok = (args_provided >= needed);
-                    if (!arity_ok) {
-                        error(std::format(
-                            "{}!: format string references arg index up to {} "
-                            "but only {} argument{} provided",
-                            callee_name, needed - 1,
-                            args_provided, (args_provided == 1 ? "" : "s")));
-                    }
-                }
-
-                // ── Sema-resident lowering (slice 4.4b) ─────────────────
-                // Build the synthesised block source by rendering each
-                // arg AST back to text and stitching with literal
-                // segments. Then re-parse + lower the block in user's
-                // sema context so identifier resolution sees user locals.
-                if (!spec_blocked && arity_ok) {
-                    // Helper: emit a string-literal-shaped segment of
-                    // Logos source from a slice. The format-string body
-                    // already contains well-formed Logos string content
-                    // (lexer's escape rules), so re-wrapping in `"…"`
-                    // round-trips through the parser.
-                    auto emit_str_lit = [](std::string_view t) {
-                        std::string out = "\"";
-                        out.append(t.data(), t.size());
-                        out.push_back('"');
-                        return out;
-                    };
-
-                    // Swap holder so render_expr_src reads via wrap_doc.
-                    auto* saved_holder = holder_;
-                    holder_ = wrap_doc.holder();
-
-                    // Session 4 — Formatter-based lowering. The block
-                    // owns __buf + __f; each placeholder writes spec
-                    // fields onto __f then dispatches through a thin
-                    // free-fn (`fmt_display` / `fmt_debug` /
-                    // `fmt_lower_hex` / ...) that binds the receiver
-                    // through a trait bound. Free-fn dispatchers
-                    // sidestep the slice/str dot-method short-circuit
-                    // in `lower_method_call`.
-                    // write!/writeln! stream straight into the sink — build a
-                    // Formatter over the sink (zero String intermediate).
-                    // `(sink).as_formatter()` auto-refs the sink (value or
-                    // &mut). format!/print!/etc. render into a String __buf.
-                    std::string blk;
-                    if (is_write_family) {
-                        std::string sink_src = "()";
-                        if (!arg_avs.empty() && arg_avs[0].is_pointer()) {
-                            auto sink_view = writ::TinyMapView(
-                                arg_avs[0], holder_);
-                            sink_src = render_expr_src(sink_view);
-                        }
-                        blk = "{ let mut __f: Formatter = (";
-                        blk += sink_src;
-                        blk += ").as_formatter(); ";
-                    } else {
-                        blk = "{ let mut __buf: String = String::new(); "
-                              "let mut __f: Formatter = Formatter::new(&mut __buf); ";
-                    }
-                    // An argument render_expr_src cannot spell (`loop { break
-                    // 5; }`, a comprehension, a chained comparison, …) is not
-                    // rendered: it is LOWERED here, once, into a statement
-                    // temporary the block names. When one is, every other
-                    // argument with an effect is lowered the same way, in
-                    // order, so the arguments still evaluate left to right
-                    // before any formatting (format_args!). Places and
-                    // literals stay rendered — they have no effect to order.
-                    std::vector<lir_view::StmtRef> fmt_prelude;
-                    std::unordered_map<size_t, std::string> fmt_pre_bound;
-                    {
-                        bool any_unrenderable = false;
-                        for (size_t vi = fmt_pos + 1; vi < arg_avs.size(); ++vi)
-                            if (render_expr_src(writ::TinyMapView(arg_avs[vi], holder_))
-                                    .find(kRenderUnsupported) != std::string::npos) { any_unrenderable = true; break; }
-                        if (any_unrenderable && cur_stmt_temp_hoist_) {
-                            for (size_t vi = fmt_pos + 1; vi < arg_avs.size(); ++vi) {
-                                auto av_view = writ::TinyMapView(arg_avs[vi], holder_);
-                                auto c = code_of(unwrap_paren_node(av_view));
-                                if (c == la::VAR_REF || c == la::FIELD_READ || c == la::LIT_INT ||
-                                    c == la::LIT_BOOL || c == la::LIT_STR || c == la::LIT_FLOAT ||
-                                    c == la::LIT_CHAR) continue;
-                                auto v = lower_expr(av_view);
-                                TypeRef vt = v ? expr_type(v) : TypeRef(nullptr);
-                                if (!vt || TypeRef(vt).kind() == LogosType::Kind::Error) continue;
-                                if (TypeRef(vt).kind() == LogosType::Kind::IntLit) vt = i32_t();
-                                else if (TypeRef(vt).kind() == LogosType::Kind::FloatLit) vt = prim(LogosType::Kind::F64);
-                                std::string nm = std::format("__fmt_arg_{}", destruct_counter_++);
-                                register_stmt_temp(nm, vt, nullptr, false);
-                                fmt_prelude.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
-                                fmt_pre_bound[vi] = nm;
-                            }
-                        }
-                    }
-                    int32_t auto_idx = 0;
-                    for (auto& seg : fmt_result.segments) {
-                        if (seg.is_literal) {
-                            if (seg.lit_text.empty()) continue;
-                            // Literals go through the Formatter for every
-                            // family. format!/etc. used to push straight into
-                            // __buf while __f held `&mut __buf` — two live
-                            // mutable paths to one String, which Rust's
-                            // format_args! never makes and the borrow checker
-                            // refuses (ADR 0028).
-                            blk += "let _ = __f.write_str(";
-                            blk += emit_str_lit(seg.lit_text);
-                            blk += "); ";
-                            continue;
-                        }
-                        int32_t idx = (seg.arg_idx >= 0) ? seg.arg_idx : auto_idx++;
-                        // args[fmt_pos] is the fmt str; value args follow it
-                        // (write!/writeln! also have args[0] = the sink).
-                        int32_t value_idx = idx + static_cast<int32_t>(fmt_pos) + 1;
-                        if (value_idx >= static_cast<int32_t>(arg_avs.size()))
-                            continue;
-                        // Render this arg via the existing pretty-printer.
-                        auto arg_view = writ::TinyMapView(
-                            arg_avs[value_idx], holder_);
-                        auto pre_it = fmt_pre_bound.find(size_t(value_idx));
-                        std::string arg_src = pre_it != fmt_pre_bound.end()
-                                                  ? pre_it->second : render_expr_src(arg_view);
-                        if (arg_src.find(kRenderUnsupported) != std::string::npos) {
-                            error(std::format(
-                                "{}!: argument {} is an expression form the format "
-                                "expansion cannot carry yet (AST code {}); bind it to a "
-                                "local first",
-                                callee_name, idx,
-                                std::atoi(arg_src.c_str() + arg_src.find(kRenderUnsupported) +
-                                          std::strlen(kRenderUnsupported))));
-                            continue;
-                        }
-                        const char* dispatcher = format_trait_dispatcher(seg.spec.trait_kind);
-
-                        // Spec field writes. Reset every placeholder so
-                        // a previous spec doesn't leak. `align_code`:
-                        // 0=Unknown→Right, 1=Left, 2=Right, 3=Center.
-                        int32_t align_code =
-                            seg.spec.align == FormatAlign::Left   ? 1 :
-                            seg.spec.align == FormatAlign::Right  ? 2 :
-                            seg.spec.align == FormatAlign::Center ? 3 : 0;
-                        int32_t fill_code = static_cast<int32_t>(
-                            static_cast<unsigned char>(seg.spec.fill));
-                        if (seg.spec.zero && seg.spec.align == FormatAlign::None) {
-                            if (seg.spec.fill == ' ') fill_code = '0';
-                        }
-                        int32_t width = seg.spec.width >= 0 ? seg.spec.width : -1;
-                        int32_t precision = seg.spec.precision;
-                        bool sign_plus = seg.spec.sign == FormatSign::Plus;
-
-                        blk += "__f.reset_spec(); ";
-                        if (fill_code != 32) {
-                            blk += "__f.fill = ";
-                            blk += std::to_string(fill_code);
-                            blk += "u8; ";
-                        }
-                        if (align_code != 0) {
-                            blk += "__f.align_code = ";
-                            blk += std::to_string(align_code);
-                            blk += "u8; ";
-                        }
-                        if (sign_plus) blk += "__f.sign_plus = true; ";
-                        if (seg.spec.alt) blk += "__f.alternate = true; ";
-                        if (seg.spec.zero) blk += "__f.zero_pad = true; ";
-                        if (width >= 0) {
-                            blk += "__f.width = ";
-                            blk += std::to_string(width);
-                            blk += "i64; ";
-                        }
-                        if (precision >= 0) {
-                            blk += "__f.precision = ";
-                            blk += std::to_string(precision);
-                            blk += "i64; ";
-                        }
-
-                        blk += "let _ = ";
-                        blk += dispatcher;
-                        blk += "(&(";
-                        blk += arg_src;
-                        blk += "), &mut __f); ";
-                    }
-                    if (callee_name == "format" ||
-                        callee_name == "format_args_str") {
-                        blk += "__buf }";
-                    } else if (callee_name == "println") {
-                        blk += "__fmt_println(__buf.as_str()) }";
-                    } else if (callee_name == "print") {
-                        blk += "__fmt_print(__buf.as_str()) }";
-                    } else if (callee_name == "eprintln") {
-                        blk += "__fmt_eprintln(__buf.as_str()) }";
-                    } else if (callee_name == "eprint") {
-                        blk += "__fmt_eprint(__buf.as_str()) }";
-                    } else if (callee_name == "panic") {
-                        blk += "__fmt_panic(__buf.as_str()) }";
-                    } else if (is_write_family) {
-                        // Placeholders already streamed directly into the sink
-                        // via __f. writeln! adds a trailing newline. The block
-                        // yields a Result<(), Error> (Ok — per-placeholder
-                        // errors are not propagated, matching format!'s
-                        // discard-then-succeed shape).
-                        if (callee_name == "writeln")
-                            blk += "let _ = __f.write_str(\"\\n\"); ";
-                        blk += "ok() }";
-                    }
-
-                    holder_ = saved_holder;
-
-                    // Wrap into a parsable module — the inner fn's body
-                    // is just `return <block>;` so we can navigate down
-                    // to the BLOCK node and lower it as an expression.
-                    std::string wrap2 = std::format(
-                        "package __fmt_inline;\nfn __f() {{ let _: () = {}; }}\n",
-                        blk);
-                    logos::compiler::LogosParser p2(wrap2);
-                    auto blk_doc = p2.parse_module();
-                    if (!blk_doc.is_null() && p2.at_eof()) {
-                        // MODULE → ITEMS[0]=FN → BODY=BLOCK → ITEMS[0]=LET → VALUE = our block
-                        auto root = blk_doc.root_object().as_tiny_map();
-                        if (!root.is_null()) {
-                            auto bh = blk_doc.holder();
-                            TinyMapView mod = root;
-                            // Local nav helpers.
-                            auto nav_kk = [&](TinyMapView tom, uint8_t key)
-                                              -> TinyMapView {
-                                if (!tom.has_key(key)) return {};
-                                AnyVal av = tom.get(key);
-                                if (!av.is_pointer()) return {};
-                                return writ::as_tinymap(av, bh);
-                            };
-                            auto nav_aa = [&](TinyMapView tom, uint8_t key)
-                                              -> TinyMapView {
-                                if (!tom.has_key(key)) return {};
-                                AnyVal av = tom.get(key);
-                                if (!av.is_pointer()) return {};
-                                auto arr = writ::as_array(av, bh);
-                                if (arr.size() == 0) return {};
-                                AnyVal el = arr.get(0);
-                                if (!el.is_pointer()) return {};
-                                return writ::as_tinymap(el, bh);
-                            };
-                            TinyMapView fn   = nav_aa(mod, la::ITEMS.code);
-                            TinyMapView body = fn   ? nav_kk(fn,   la::BODY.code)  : TinyMapView{};
-                            TinyMapView let_ = body ? nav_aa(body, la::ITEMS.code) : TinyMapView{};
-                            TinyMapView blk_ast = let_ ? nav_kk(let_, la::VALUE.code) : TinyMapView{};
-                            if (blk_ast) {
-                                int32_t bc = 0;
-                                if (blk_ast.has_key(la::CODE.code)) {
-                                    AnyVal cv = blk_ast.get(la::CODE.code);
-                                    if (!cv.is_null() && !cv.is_pointer())
-                                        bc = cv.as_value<int32_t>();
-                                }
-                                if (bc == la::BLOCK.code) {
-                                    auto blk_view = blk_ast;
-                                    // Swap holder for lowering — the
-                                    // synthesised block's AST is in
-                                    // blk_doc; identifier resolution
-                                    // (lookup, type_pool) is independent.
-                                    auto* prev2 = holder_;
-                                    holder_ = blk_doc.holder();
-                                    lir::LExprPtr lowered = lower_block_expr(blk_view);
-                                    holder_ = prev2;
-                                    if (!fmt_prelude.empty() && lowered) {
-                                        TypeRef lt = expr_type(lowered);
-                                        lowered = builder().block_expr(lir_mirror_block(*cur_prog_, fmt_prelude),
-                                                                       std::move(lowered), lt);
-                                    }
-                                    return lowered;
-                                }
-                            }
-                        }
-                    } else {
-                        error(std::format(
-                            "{}!: internal — synthesised block failed to parse",
-                            callee_name));
-                        return error_expr();
-                    }
-                }
-            }
+            if (AnyVal blk = synth_format_expansion_(callee_name, body, arg_avs, fmt_pos,
+                                                     is_write_family);
+                !blk.is_null())
+                return lower_block_expr(TinyMapView(blk, holder_));
         } else if (arg_avs.size() < 1) {
             error(std::format(
                 "{}!: requires a format-string argument", callee_name));
@@ -28577,63 +28376,16 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         return;
     }
 
-    // Re-parse RAW_TEXT via the wrap-and-extract path (same as the
-    // expression form). For zero-arg item macros, RAW_TEXT may be empty
-    // — we still wrap as `__c()` so the parser produces an empty ARGS
-    // array.
-    std::string wrap_src = std::format(
-        "package __fn_macro_item_args;\nfn __f() {{ __c({}); }}\n", raw_text);
-    logos::compiler::LogosParser wrap_parser(wrap_src);
-    auto wrap_doc = wrap_parser.parse_module();
-    if (wrap_doc.is_null() || !wrap_parser.at_eof()) {
+    // ADR 0030 R0: parse the arguments where they stand (see parse_macro_args_).
+    MacroArgs margs = parse_macro_args_(node, MacroArgsEntry::Args);
+    if (!margs.ok) {
         error(std::format(
             "fn_macro item: '{}!{{...}}' args failed to parse as expr list",
             callee_name));
         return;
     }
-    auto src_holder = wrap_doc.holder();
-    auto wrap_root = wrap_doc.root_object().as_tiny_map();
-    auto nav_array_first = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        auto arr = writ::as_array(av, src_holder);
-        if (arr.size() == 0) return {};
-        AnyVal el = arr.get(0);
-        if (!el.is_pointer()) return {};
-        return writ::as_tinymap(el, src_holder);
-    };
-    auto nav_key = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        return writ::as_tinymap(av, src_holder);
-    };
-    TinyMapView mod = wrap_root;
-    TinyMapView fn = nav_array_first(mod, la::ITEMS.code);
-    TinyMapView body = fn ? nav_key(fn, la::BODY.code) : TinyMapView{};
-    TinyMapView stmt = body ? nav_array_first(body, la::ITEMS.code) : TinyMapView{};
-    TinyMapView call_tom{};
-    if (stmt) {
-        int32_t sc = 0;
-        if (stmt.has_key(la::CODE.code)) {
-            AnyVal cv = stmt.get(la::CODE.code);
-            if (!cv.is_null() && !cv.is_pointer()) sc = cv.as_value<int32_t>();
-        }
-        if (sc == la::EXPR_STMT.code || sc == la::TAIL_EXPR.code)
-            call_tom = nav_key(stmt, la::VALUE.code);
-        else if (sc == la::CALL.code)
-            call_tom = stmt;
-    }
-    std::vector<AnyVal> arg_avs;
-    if (call_tom && call_tom.has_key(la::ARGS.code)) {
-        AnyVal av = call_tom.get(la::ARGS.code);
-        if (av.is_pointer()) {
-            auto arr = writ::as_array(av, src_holder);
-            for (uint64_t i = 0; i < arr.size(); ++i)
-                arg_avs.push_back(arr.get(i));
-        }
-    }
+    auto src_holder = margs.holder;
+    std::vector<AnyVal> arg_avs = margs.items;
 
     if (sig_zero && !arg_avs.empty()) {
         error(std::format(

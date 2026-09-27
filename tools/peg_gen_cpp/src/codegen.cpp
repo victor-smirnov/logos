@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <format>
 #include <fstream>
 #include <print>
@@ -767,6 +768,11 @@ private:
     std::string        ast_ns_;
     int                lc_ = 0;   // label counter — reset per rule, always increasing
     std::string        rcap_var_;       // name of the rule-captures array for $... in current alt
+    // Captures of the current alt that are RAW_GROUP_* pseudo-tokens. A raw group
+    // assigned to RAW_TEXT also stamps RAW_LINE (the line of its opening delimiter)
+    // when the grammar declares that field, so a consumer that parses the raw text
+    // later (macro arguments, ADR 0030 R0) can give its nodes their real lines.
+    std::set<std::string> raw_caps_;
     std::string        cur_rule_group_; // current rule's group tag (empty = none)
     std::string        cur_fold_var_;   // name of the fold accumulator variable (for $0)
     std::string        fold_init_cap_;  // cap name to initialise the next fold REP from
@@ -1036,6 +1042,9 @@ private:
         if (!g_.tokens.empty()) {
             w.line("// Returns true when all input tokens have been consumed.");
             w.line("bool at_eof() { return peek_token().kind == TK::Eof; }");
+            w.line("// Line number the source starts at (default 1). For a fragment of a");
+            w.line("// larger file (macro arguments): call before the first parse_* entry.");
+            w.line("void set_first_line(uint32_t line) { line_ = line; }");
             w.line("// Line number of the next unconsumed token (1-based).");
             w.line("uint32_t next_line() { return peek_token().line; }");
             w.line("// Text of the next unconsumed token.");
@@ -1640,7 +1649,10 @@ private:
         w.line("break;");
         w.dedent();
         w.line("}");
-        w.line("if (pos_ >= source_.size()) return {TK::Eof, {}, line_};");
+        // EOF text is the EMPTY VIEW AT THE END of the source, not a null view:
+        // callers compute `la_.text.data() - source_.data()` as the position,
+        // and a null data pointer indexed the memo tables out of range (#695).
+        w.line("if (pos_ >= source_.size()) return {TK::Eof, source_.substr(source_.size()), line_};");
         w.line("size_t   start      = pos_;");
         w.line("uint32_t start_line_ = line_;");
         w.line("char     c           = source_[pos_];");
@@ -2389,6 +2401,7 @@ private:
         // If the action uses $..., declare a rule-captures collector array.
         // RULE_REF results anywhere in the sequence push to it; TOKEN_REF results don't.
         rcap_var_.clear();
+        raw_caps_.clear();
         if (alt.action && action_has_array_capture(*alt.action)) {
             rcap_var_ = "rcap_" + std::to_string(lc_++);
             w.fmt("auto {} = doc_.make_array(4).get();", rcap_var_);
@@ -2476,7 +2489,9 @@ private:
                     item.name == "RAW_GROUP_BRACKET" ? "try_raw_group_bracket"
                                                     : "try_raw_group_brace";
                 w.fmt("std::string_view rg_{0}_text;", cap);
+                w.fmt("[[maybe_unused]] uint32_t rg_{0}_line = peek_token().line;", cap);
                 w.fmt("if (!{0}(rg_{1}_text)) goto {2};", fn, cap, fail_label);
+                raw_caps_.insert(cap);
                 w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(rg_{0}_text).get().to_anyval();", cap);
                 break;
             }
@@ -3258,7 +3273,19 @@ private:
             emit_schema_action(w, action, captures, seq, out_cap);
             return;
         }
-        int slot_count = int(action.fields.size()) + 2; // +1 for CODE, +1 for SRC_LINE
+        const bool has_raw_line_field = std::any_of(g_.fields.begin(), g_.fields.end(),
+            [](const auto& f) { return f.group.empty() && f.name == "RAW_LINE"; });
+        auto raw_line_cap = [&](const auto& field) -> std::string {
+            if (!has_raw_line_field || field.name != "RAW_TEXT"
+                || field.expr.kind != int32_t(ast::CAPTURE)) return {};
+            size_t idx = size_t(field.expr.index);
+            if (idx >= captures.size() || !raw_caps_.count(captures[idx])) return {};
+            return captures[idx];
+        };
+        int raw_line_stamps = 0;
+        for (const auto& field : action.fields)
+            if (!raw_line_cap(field).empty()) ++raw_line_stamps;
+        int slot_count = int(action.fields.size()) + 2 + raw_line_stamps; // +1 CODE, +1 SRC_LINE, +RAW_LINE
         w.fmt("auto* node = logos::writ::WritAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
         for (const auto& field : action.fields) {
@@ -3287,6 +3314,9 @@ private:
                 if (idx < captures.size() && !captures[idx].empty()) {
                     w.fmt("node->put({}, {}, logos::writ::WritAccess::arena(doc_)).get();",
                           field_const, captures[idx]);
+                    if (std::string rc = raw_line_cap(field); !rc.empty())
+                        w.fmt("node->put({}::RAW_LINE, AnyVal::from_value(rg_{}_line), "
+                              "logos::writ::WritAccess::arena(doc_)).get();", ast_ns_, rc);
                 } else {
                     w.fmt("// {} : ${}  — capture index out of range", field.name, idx);
                 }

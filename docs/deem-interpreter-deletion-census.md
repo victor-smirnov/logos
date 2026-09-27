@@ -6589,9 +6589,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11554 -> 11553 (-1), NOIMPORTED 6991 -> 6990 (-1), TIERCOMMIT 211 -> 171 (-40) — 2026-09-26: the audit
 #                std merge (audit/std-strings, -iter, -coll): 40 squeue rows closed, + 37 pass, + 2 fail; a spec fail
 #                fixture that asserted a refusal of legal Rust moved to pass.
-REGISTRY-ALL         11553
-REGISTRY-NOIMPORTED  6990
-REGISTRY-TIERCOMMIT  171
+#                ALL 11553 -> 11605 (+52), NOIMPORTED 6990 -> 7042 (+52), TIERCOMMIT 171 -> 216 (+45) — 2026-09-27:
+#                the feature-interaction audit's 45 squeue rows (c7529a4e3) and the two metacall pass fixtures
+#                (5e58ce50c) landed WITHOUT moving this pin (census_pin was not run before those commits); here
+#                with ADR 0030 R0's + 3 pass (format_args_evaluated_once, vec_macro_moves_elements,
+#                matches_macro_patterns) and + 2 fail (macro_arg_diag_reports_its_line,
+#                vec_macro_arg_diag_reports_its_line).
+REGISTRY-ALL         11605
+REGISTRY-NOIMPORTED  7042
+REGISTRY-TIERCOMMIT  216
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

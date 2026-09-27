@@ -1,0 +1,26 @@
+// format_args! semantics (ADR 0030 R0 builds the expansion over the parsed
+// arguments): each argument is evaluated ONCE, left to right, before any
+// formatting — `{0}{0}` formats one value twice. Any expression form is an
+// argument (a `loop` with `break` used to be refused: the renderer could not
+// spell it). write! streams into its sink.
+package format_args_evaluated_once;
+use logos.std.fmt;
+
+fn bump(c: &mut i64) -> i64 {
+    *c = *c + 1;
+    return *c;
+}
+
+fn main() -> i32 {
+    let mut c: i64 = 0;
+    let s: String = format!("{0}-{0}-{1}", bump(&mut c), bump(&mut c));
+    if c != 2 { return 1; }
+    if s != String::from("1-1-2") { return 2; }
+    let n: i64 = 4;
+    let t: String = format!("{}", loop { break n * 10; });
+    if t != String::from("40") { return 3; }
+    let mut out: String = String::new();
+    let _ = write!(out, "{:>4}|{:<3}|", 7, "ab");
+    if out != String::from("   7|ab |") { return 4; }
+    return 42;
+}

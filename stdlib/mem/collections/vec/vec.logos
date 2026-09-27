@@ -41,14 +41,37 @@ pub fn vec_new<T>() -> Vec<T> {
 }
 
 /// Builds a `Vec` from a fixed-size array, inferring element type and length from the
-/// argument shape (no turbofish). `vec!(1, 2, 3)` lowers to exactly this call.
-pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
+/// argument shape (no turbofish). `vec![a, b, c]` lowers to exactly this call. The
+/// elements MOVE out of the array into the Vec (rustc's vec! is
+/// `<[_]>::into_vec(Box::new([a, b, c]))`), so no `Copy` bound: each slot is read
+/// once, bitwise, and the emptied array is forgotten rather than dropped.
+pub fn vec_from_arr<T, const N: i64>(arr: [T; N]) -> Vec<T> {
     let mut v: Vec<T> = vec_new::<T>();
-    let mut i: i64 = 0i64;
-    while i < N {
-        v.push(arr[i]);
+    unsafe {
+        let p: *const T = &arr as *const [T; N] as *const T;
+        let mut i: i64 = 0i64;
+        while i < N {
+            v.push(p[i]);
+            i = i + 1i64;
+        }
+    }
+    forget::<[T; N]>(arr);
+    return v;
+}
+
+/// `vec![elem; n]`: `n` copies of `elem` — `n - 1` clones, then `elem` itself moves
+/// in last, as rustc's `vec::from_elem`; with `n == 0` the element is dropped.
+pub fn vec_from_elem<T: Clone>(elem: T, n: i64) -> Vec<T> {
+    let mut v: Vec<T> = vec_new::<T>();
+    if n <= 0i64 {
+        return v;
+    }
+    let mut i: i64 = 1i64;
+    while i < n {
+        v.push(elem.clone());
         i = i + 1i64;
     }
+    v.push(elem);
     return v;
 }
 

@@ -267,7 +267,7 @@ named reasons. Each step declares a diff budget before it starts.
 | S7 | C-EXP + C-LIT + C-INF | S4 |
 | S8 | C-RES | — |
 | S9 | C-OBL + impl identities + one mangler (PAIR, ABI bump) | S8 |
-| L0 | `#[lang = "…"]` attribute; `lang_item → DefId` table at collection; missing/duplicate is an error; the 11 package-path sites (`k*LangPkg`) move onto it (Q6) | — |
+| L0 | `#[lang = "…"]` attribute; `lang_item → DefId` table at collection; missing/duplicate is an error; the 11 package-path sites (`k*LangPkg`) and the stdlib names the macro expansions spell bare (`String`, `Formatter`, `fmt_*`, `vec_from_arr`, `vec_from_elem`, `vec_new`; R0 pinned them in key_identity.ledger) move onto it (Q6) | — |
 | S9a | Rust-shaped `Iterator { type Item }`, `Try { type Output; type Residual }`, `FromResidual<R>` | S9 |
 | S10 | HIR `for`, `?`, comprehensions via lang items; C-CLO rest | S8, S9a, L0 |
 
@@ -302,6 +302,40 @@ at S3, S6 and S10.
   construct-aware messages.
 - Metaprog can inspect both the surface AST and the core form with the same
   API.
+
+## R0 status (2026-09-27)
+
+Landed (census `docs/audit/2026-09-26-reparse-census.md` site ids):
+
+- M1/M4: metacall thunk text renders types in source form (`Option<i64>` no
+  longer prints `Option`) and negative literals parseably.
+- G1: peg_gen stamps `RAW_LINE` (line of the opening delimiter) whenever a raw
+  group is captured into `RAW_TEXT`; parsers gain `set_first_line`; exported
+  entries `macro_args` (`name = expr` is a FIELD_INIT), `matches_args`,
+  `vec_repeat_args`. `SemaChecker::parse_macro_args_` parses a macro's
+  arguments where they stand.
+- U9/U10: `#[fn_macro]` arguments (assert!, assert_eq!, …) keep their lines.
+- U1: the format family is built as AST over the parsed arguments
+  (`synth_format_expansion_`); arguments are evaluated once, left to right,
+  borrowed, as format_args!; any expression form is an argument.
+- U4–U7: `vec!` = `vec_from_arr([…])` (elements move; no `Copy` bound),
+  `vec![e; n]` = `vec_from_elem(e, n)`, `matches!`, `dbg!`, `unreachable!` /
+  `todo!` / `unimplemented!` built over parsed arguments.
+- U8: `include!` parses the file as one expression from its own first line.
+- The EOF token's text is an in-source empty view (#695: the null view indexed
+  the memo tables out of range).
+
+Not done in R0, by reason:
+
+- U2/U3 (`?` over a user `Try` type / the `Box<dyn>` conversion arm):
+  superseded by S10, which replaces `?` wholesale with the lang-item
+  desugaring; a structured interim needs the return type as an AST type node,
+  which S10 does not use. The double report of an erroneous operand is closed.
+- M2/M3/M6/M7 (metacall block thunk, Writ-returning thunk, container factory
+  config text, deem bind text), D1 (`--gen-dir -g` body check): metaprog and
+  driver text paths, not user-code desugarings; they follow R0.
+- Include file attribution: nodes of an included file still name the
+  includer as their file until spans carry a file id (H0).
 
 ## Decisions taken in review (2026-09-26, Victor)
 

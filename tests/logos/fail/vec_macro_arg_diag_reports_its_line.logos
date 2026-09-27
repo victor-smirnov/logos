@@ -1,0 +1,11 @@
+// vec! builds `vec_from_arr([...])` over the parsed arguments (ADR 0030 R0):
+// an argument's diagnostic names its own line, not line 2 of a reparse.
+package vec_macro_arg_diag_reports_its_line;
+
+fn main() -> i32 {
+    let v: Vec<i64> = vec![
+        1,
+        nope_in_vec,
+    ];
+    return 0;
+}

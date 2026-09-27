@@ -1,0 +1,15 @@
+// matches!(e, pat [if guard]) over the parsed scrutinee, pattern and guard
+// (ADR 0030 R0): or-patterns, ranges and guards that bind.
+package matches_macro_patterns;
+
+enum Sh { C(i64), Sq(i64), N }
+
+fn main() -> i32 {
+    let s: Sh = Sh::C(5);
+    if !matches!(s, Sh::C(x) if x > 3) { return 1; }
+    if matches!(Sh::N, Sh::C(_) | Sh::Sq(_)) { return 2; }
+    let k: i64 = 3;
+    if !matches!(k, 1..=4) { return 3; }
+    if matches!(Sh::Sq(2), Sh::Sq(y) if y > 2,) { return 4; }
+    return 42;
+}

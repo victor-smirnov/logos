@@ -1,0 +1,10 @@
+// A macro argument is parsed where it stands (ADR 0030 R0): its diagnostics
+// name ITS line. Every argument used to be reparsed inside a synthetic
+// `fn __f() { __c(...); }` and reported line 2.
+package macro_arg_diag_reports_its_line;
+use logos.std.fmt;
+
+fn main() -> i32 {
+    println!("{}", nope_in_println);
+    return 0;
+}

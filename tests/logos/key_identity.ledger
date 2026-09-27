@@ -631,6 +631,15 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #ARGSCAN try_prelude 3 80fa0975
 #ARGSCAN try_prelude_variant 3 80fa0975
 #ARGSCAN try_variant 4 c4d77dbf
+# 2026-09-27, ADR 0030 R0: s_static (2: "String", "Formatter") and s_type (3: "String",
+# "Formatter", "_") are the format-family / vec! expansions now BUILT as AST instead of
+# rendered as text (sema_expr.cpp::synth_format_expansion_, lower_builtin_macro). The
+# names were already bare in the text they replace (`String::new()`, `Formatter::new(…)`,
+# `vec_new::<_>()`), so no binding changed; what changed is that the lint can now see them.
+# A user item named `String`/`Formatter` in scope would capture the expansion (rustc
+# writes `$crate::…`): that is ADR 0030 D4 — the expansions name lang items (step L0).
+#ARGSCAN s_static 2 fa92db5e
+#ARGSCAN s_type 3 ba314e68
 # 2026-09-26: the audit std merge adds four name-keyed lookups, each grounded at its site: generic_assoc_impls_ (mono.cpp insert,
 #   mono_subst.cpp read) is a BUCKET filtered by unifying the stored package-carrying target pattern; implied_type_lt_outlives_
 #   and current_type_bounds_[type_str(base)] key on type-parameter spellings.
