@@ -6300,32 +6300,19 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                    (TypeRef(scrut_ty).kind() == LogosType::Kind::Ref ||
                     TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef) &&
                    TypeRef(scrut_ty).pointee()) {
-            // P4-pm-18: `match &T { &<scalar> => … }`. PatRefPat with
-            // a scalar inner: deref the scrut (load) and cmp against
-            // the inner disc. Without this the default arm-dispatch
-            // would `cmpi` the raw ptr against an i32 — verifier crash.
+            // `match &T { &P => … }`: the scrutinee is the reference (the
+            // address of the T), so P is tested against that address — by the
+            // one pattern tester (literal, range, nested `&`, or-pattern alike).
+            // A scalar-only special case sent every other inner pattern to the
+            // else arm: `&(1..=5)` never matched.
             auto inner = lir_view::PatRefPatView{arm_pat}.inner();
-            int64_t disc = inner ? get_scalar_disc(inner) : std::numeric_limits<int64_t>::min();
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                if (disc == std::numeric_limits<int64_t>::min()) {
-                    builder_.create<mlir::cf::BranchOp>(loc_, else_block);
-                } else {
-                    auto pointee_t = TypeRef(scrut_ty).pointee();
-                    auto elem_mlir = logos_to_mlir(pointee_t);
-                    if (!elem_mlir) elem_mlir = builder_.getI32Type();
-                    auto loaded = builder_.create<mlir::LLVM::LoadOp>(
-                        loc_, elem_mlir, scrut);
-                    auto disc_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
-                        elem_mlir);
-                    auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, loaded, disc_val);
-                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
-                }
+                mlir::Value cond = inner ? pat_test(inner, scrut, TypeRef(scrut_ty).pointee()) : mlir::Value(builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1));
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
         } else if (arm_kind == pc::Code::Struct) {

@@ -210,8 +210,6 @@ map_named_fn_item_collect_crash 1 tests/soundness/open/map_named_fn_item_collect
 
 overlapping_trait_impls_admitted 1 tests/soundness/open/overlapping_trait_impls_admitted admits
 
-reference_range_pattern_wrong 1 tests/soundness/open/reference_range_pattern_wrong run 2
-
 vec_literal_elem_type_ignores_call_site_wrong 1 tests/soundness/open/vec_literal_elem_type_ignores_call_site_wrong run 4
 
 array_nonconst_length_crash 2 tests/soundness/open/array_nonconst_length_crash refuses
@@ -463,5 +461,5 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
-# TOTAL 143
-# SYNC-HASH c0dc391ceda31005b26d11728aff05ec
+# TOTAL 142
+# SYNC-HASH f89ad4f66582169c3f2169edfc83815c

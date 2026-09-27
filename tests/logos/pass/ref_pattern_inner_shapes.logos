@@ -1,0 +1,15 @@
+// A `&P` arm tests P against the referent (ADR 0030 S3): a range, an or-pattern, a nested `&&`,
+// and the per-element `&x` of a loop over `&[T; N]`. Only a scalar P used to work; the rest fell to
+// the else arm. Matches rustc 1.98.1.
+package ref_pattern_inner_shapes;
+fn cls(r: &i32) -> i32 { match r { &(1..=5) => 1, &(7 | 9) => 2, &v => v * 10 } }
+fn main() -> i32 {
+    let a: [i64; 3] = [1, 3, 10];
+    let mut t: i64 = 0;
+    for x in &a { match x { &(1..=5) => { t = t + 1; } _ => {} } }
+    let c: u8 = 200;
+    let r = &c;
+    let rr = &r;
+    let n = match rr { &&(100..=250) => 1, _ => 0 };
+    return cls(&3) + cls(&9) + cls(&6) + (t as i32) * 50 + n * 20;
+}

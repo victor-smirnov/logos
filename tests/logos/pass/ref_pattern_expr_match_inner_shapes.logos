@@ -1,0 +1,4 @@
+// The expression `match` has its own copy of the `&P` arm test (ADR 0030 S3): it compared a range or an
+// or-pattern under `&` against a default disc of 0. Now the one pattern tester, as the statement door.
+package ref_pattern_expr_match_inner_shapes;
+fn main() -> i32 { let x: i32 = 3; let r = &x; let n = match r { &(1..=5) => 1, &(7 | 9) => 2, _ => 0 }; let m = match r { &(7 | 3) => 5, _ => 0 }; return n + m; }

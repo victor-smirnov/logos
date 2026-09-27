@@ -6641,9 +6641,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                S3.1 (one usefulness matrix): + 30 battery catches as fixtures (tests/logos/{fail,pass}/exh_*), 2 squeue
 #                rows closed into pass fixtures (range_pattern_full_span_refused, let_single_variant_enum_refused);
 #                match_arm_after_catchall and spec pat_diag_3 move fail -> pass (the arm-after-`_` is rustc's warning).
-REGISTRY-ALL         11678
-REGISTRY-NOIMPORTED  7115
-REGISTRY-TIERCOMMIT  205
+#                ALL 11678 -> 11680 (+2), NOIMPORTED 7115 -> 7117 (+2), TIERCOMMIT 205 -> 204 (-1) — 2026-09-27: ADR 0030
+#                S3: the `&P` arm test is the one pattern tester — squeue reference_range_pattern_wrong (#517) closed
+#                into a pass fixture, + 2 pass (ref_pattern_inner_shapes, ref_pattern_expr_match_inner_shapes).
+REGISTRY-ALL         11680
+REGISTRY-NOIMPORTED  7117
+REGISTRY-TIERCOMMIT  204
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
