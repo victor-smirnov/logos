@@ -9711,7 +9711,6 @@ private:
     // `name = <node's VALUE>`: lower_assign with the target NAMED by the caller
     // (a parenthesized `(x) = e` arrives as a one-place destructuring assign).
     lir_view::StmtRef lower_assign_to(std::string_view name, writ::TinyMapView node);
-    lir_view::StmtRef lower_destructure_assign(writ::TinyMapView node);
     lir_view::StmtRef lower_return(writ::TinyMapView node);
     // ADR 0030 S2: the one return judgment, shared by `return e;` and tails.
     lir::LExprPtr lower_return_operand_(writ::TinyMapView vnode);

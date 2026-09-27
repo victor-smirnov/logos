@@ -323,12 +323,19 @@ logos_00_ast_key_census). Sema's branches for the forms moved in are
 replaced by `hir_gate_`, an internal error — never a fallback.
 
 Moved in so far: `if let` (statement and expression, with `else if` chains),
-let-chains, `while let` (plain and chained). The expression form's missing
-`else` is refused by sema from ORIGIN (IfLetNoElse / LetChainNoElse).
-Next: expression-position exits (`return`/`break`/`continue` → the statement
-forms), destructuring assignment, `while c` → `loop { if !c { break } … }`,
-labels → ids; then tail → return once the pass can tell a unit tail
-without types (or sema keeps that one judgment).
+let-chains, `while let` (plain and chained); expression-position exits
+(`return e` / `break 'l v` / `continue` → the statement form in a block; a
+block ending in an exit has type `!`); destructuring assignment (`(a, (b, _),
+..) = e`, `[a, b] = e`, `S { f, g: b } = e` → `{ let <pattern of fresh names> =
+e; a = t0; … }`, rustc's desugaring — closed squeue destructuring_assign_drop_wrong).
+The expression form's missing `else` is refused by sema from ORIGIN
+(IfLetNoElse / LetChainNoElse); an undefined destructuring temporary (its
+`let` already refused) is not reported twice (ORIGIN Destructure).
+Entry points: fn and spec-fn bodies, reparsed bodies, macro arguments,
+`include!` — the gate found the last three.
+Next: `while c` → `loop { if !c { break } … }`, field shorthand, parameter
+patterns, the syntactic macro expansions (format!, vec!, matches!, dbg!) out
+of sema; tail → return stays sema's single judgment (a unit tail needs a type).
 
 ## R0 status (2026-09-27)
 

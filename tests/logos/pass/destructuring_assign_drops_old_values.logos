@@ -1,0 +1,25 @@
+// Destructuring assignment is `{ let (t0, t1) = rhs; a = t0; b = t1; }`
+// (rustc; ADR 0030 HIR pass): each place is ASSIGNED, so its old value drops
+// there, and the right-hand side moves in once. Was squeue row
+// destructuring_assign_drop_wrong (tier 1): the old values leaked and the new
+// ones dropped three times each (`d3 d4 d3 d4 d4 d3`).
+package destructuring_assign_drops_old_values;
+
+struct R { id: i64, log: *mut i64 }
+impl Drop for R {
+    fn drop(&mut self) { unsafe { *self.log = *self.log * 10 + self.id; } }
+}
+
+fn main() -> i32 {
+    let mut log: i64 = 0;
+    let l: *mut i64 = &mut log as *mut i64;
+    {
+        let mut r1 = R { id: 1, log: l };
+        let mut r2 = R { id: 2, log: l };
+        (r1, r2) = (R { id: 3, log: l }, R { id: 4, log: l });
+        if log != 12 { return 1; }        // old values dropped, in order
+        let _ = (&r1, &r2);
+    }
+    if log != 1243 { return 2; }          // scope end: r2 (4) then r1 (3)
+    return 42;
+}

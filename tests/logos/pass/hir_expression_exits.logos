@@ -1,0 +1,29 @@
+// An exit in expression position (`return e`, `break 'l v`, `continue`) is the statement
+// form in a block (ADR 0030 HIR pass) — one judgment: `if k { d } else { return d }` MOVES
+// `d` out (the expression copy skipped the move and dropped it early), and `break`/
+// `continue` in match arms and labeled loops keep their targets.
+package hir_expression_exits;
+struct D { n: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.n = *self.n + 1; } } }
+fn f(k: i64) -> i64 {
+    let x = if k > 0 { k } else { return -1 };
+    let mut acc: i64 = 0;
+    let mut i: i64 = 0;
+    loop {
+        i = i + 1;
+        let step = match i { 3 => continue, 6 => break, _ => i };
+        acc = acc + step;
+    }
+    let v = 'o: loop { let w = if acc > 5 { break 'o acc * 10 } else { 0 }; acc = acc + w + 1; };
+    return x + v;
+}
+fn g(d: D, k: bool) -> D { let e = if k { d } else { return d }; e }
+fn main() -> i32 {
+    if f(-3) != -1 { return 1; }
+    if f(2) != 2 + (1 + 2 + 4 + 5) * 10 { return 2; }
+    let mut drops: i64 = 0;
+    let n: *mut i64 = &mut drops as *mut i64;
+    { let a = g(D { n: n }, true); let b = g(D { n: n }, false); if drops != 0 { return 3; } let _ = (a, b); }
+    if drops != 2 { return 4; }
+    return 42;
+}

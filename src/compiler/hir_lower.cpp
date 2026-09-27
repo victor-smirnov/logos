@@ -54,6 +54,9 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
     if (c == la::IF.code && n.has_key(la::PAT)) return true;
     if (c == la::WHILE.code && (n.has_key(la::PAT) || (n.has_key(la::ITEMS) && n.has_key(la::BODY))))
         return true;
+    if (c == la::RETURN_EXPR.code || c == la::BREAK_EXPR.code || c == la::CONTINUE_EXPR.code)
+        return true;
+    if (c == la::DESTRUCTURE_ASSIGN.code) return true;
     return false;
 }
 
@@ -159,6 +162,14 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
             : let_chain(n, n.get(la::BODY.code), brk, o);
         return node(la::LOOP.code, n, o, {{la::BODY.code, block({m}, n, o)}});
     }
+    if (c == la::DESTRUCTURE_ASSIGN.code) return destructure(n);
+    if (c == la::RETURN_EXPR.code || c == la::BREAK_EXPR.code || c == la::CONTINUE_EXPR.code) {
+        // An exit in expression position is the statement form inside a block;
+        // the keys (VALUE, LABEL) are the same.
+        const int32_t sc = c == la::RETURN_EXPR.code ? la::RETURN.code
+                         : c == la::BREAK_EXPR.code  ? la::BREAK.code : la::CONTINUE.code;
+        return block({recoded(n, sc, Origin::ExprExit)}, n, Origin::ExprExit);
+    }
     return v;
 }
 
@@ -177,6 +188,18 @@ AnyVal Lowering::node(int32_t code, TinyMapView from, Origin o,
         m->put(la::ORIGIN.code, AnyVal::from_value(static_cast<int64_t>(o)), ar).get();
     for (const auto& kv : keys)
         if (!kv.second.is_null()) m->put(kv.first, kv.second, ar).get();
+    AnyVal a; a.set_ref(m); return a;
+}
+
+AnyVal Lowering::recoded(TinyMapView from, int32_t code, Origin o) {
+    auto* m = doc_.make_tiny_map(from.size() + 2).get();
+    auto& ar = doc_.arena();
+    const uint64_t bits = from.bitmap();
+    for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
+        if ((bits & (1ull << k)) && k != la::CODE.code && k != la::ORIGIN.code)
+            m->put(k, from.get(k), ar).get();
+    m->put(la::CODE.code, AnyVal::from_value(code), ar).get();
+    m->put(la::ORIGIN.code, AnyVal::from_value(static_cast<int64_t>(o)), ar).get();
     AnyVal a; a.set_ref(m); return a;
 }
 
@@ -237,6 +260,123 @@ AnyVal Lowering::let_chain(TinyMapView n, AnyVal then_body, AnyVal else_body, Or
         if (i > 0) cur = block({cur}, at, o);
     }
     return cur;
+}
+
+// ── destructuring assignment ──────────────────────────────────────────────
+// rustc: `(a, b) = rhs` is `{ let (lhs0, lhs1) = rhs; a = lhs0; b = lhs1; }`.
+// The places are the binding list's names; `_` and `..` stay as they are.
+
+AnyVal Lowering::list_map(const std::vector<AnyVal>& items) {
+    auto* m = doc_.make_tiny_map(1).get();
+    m->put(la::ITEMS.code, array(items), doc_.arena()).get();
+    AnyVal a; a.set_ref(m); return a;
+}
+
+AnyVal Lowering::str(std::string_view s) {
+    return doc_.make_string(s).get().to_anyval();
+}
+
+namespace {
+std::string_view name_of(TinyMapView n) {
+    AnyVal v = n.is_null() ? AnyVal{} : n.get(la::NAME.code);
+    if (v.is_null() || !v.is_pointer()) return {};
+    return writ::StringView(v, nullptr).view();
+}
+// A binding list is either the `{ITEMS: [...]}` map or a bare array.
+std::vector<AnyVal> list_items(AnyVal l) {
+    std::vector<AnyVal> out;
+    AnyVal arr = l;
+    if (is_map(l)) arr = map_of(l).get(la::ITEMS.code);
+    if (is_array(arr)) {
+        writ::ArrayView a(arr, nullptr);
+        for (uint64_t i = 0; i < a.size(); ++i) out.push_back(a.get(i));
+    }
+    return out;
+}
+} // namespace
+
+AnyVal Lowering::bind_pattern(AnyVal b, TinyMapView at,
+                              std::vector<std::pair<AnyVal, std::string>>& assigns) {
+    TinyMapView bn = map_of(b);
+    const int32_t bc = code_of(bn);
+    if (bc == la::PAT_TUPLE.code) {                         // nested `(b, c)`
+        std::vector<AnyVal> subs;
+        for (AnyVal s : list_items(bn.has_key(la::NAMES) ? bn.get(la::NAMES.code) : bn.get(la::ITEMS.code)))
+            subs.push_back(bind_pattern(s, at, assigns));
+        // The pattern grammar's shape: a tuple's items as a bare array, and a
+        // non-binding element (a nested tuple) wrapped in a single-alt PAT_OR —
+        // the form the tuple door expects of every nested sub-pattern.
+        for (auto& sub : subs)
+            if (code_of(map_of(sub)) == la::PAT_TUPLE.code)
+                sub = node(la::PAT_OR.code, at, Origin::Destructure, {{la::ITEMS.code, array({sub})}});
+        return node(la::PAT_TUPLE.code, at, Origin::Destructure, {{la::ITEMS.code, array(subs)}});
+    }
+    if (bc == la::PAT_WILD.code) {
+        std::string_view nm = name_of(bn);
+        if (nm.empty() || nm == "_") return b;               // `_` as written (the doors read its NAME)
+        std::string t = "__da" + std::to_string(fresh_++);
+        assigns.push_back({bn.get(la::NAME.code), t});
+        return node(la::PAT_WILD.code, at, Origin::Destructure, {{la::NAME.code, str(t)}});
+    }
+    return b;                                               // `..`, `()` — as written
+}
+
+AnyVal Lowering::destructure(TinyMapView n) {
+    int32_t op = 0;
+    if (n.has_key(la::OP)) { AnyVal ov = n.get(la::OP.code); if (ov.is_value()) op = ov.as_value<int32_t>(); }
+    std::vector<std::pair<AnyVal, std::string>> assigns;
+    AnyVal pat;
+    if (op == 2) {                                          // S { f, g: b } = e
+        std::vector<AnyVal> fields;
+        for (AnyVal f : list_items(n.get(la::FIELDS.code))) {
+            TinyMapView fn = map_of(f);
+            if (code_of(fn) != la::PAT_FIELD.code) { fields.push_back(f); continue; }
+            AnyVal sub = fn.has_key(la::VALUE) ? fn.get(la::VALUE.code)
+                       : node(la::PAT_WILD.code, fn, Origin::Destructure, {{la::NAME.code, fn.get(la::NAME.code)}});
+            fields.push_back(node(la::PAT_FIELD.code, fn, Origin::Destructure,
+                                  {{la::NAME.code, fn.get(la::NAME.code)},
+                                   {la::VALUE.code, bind_pattern(sub, fn, assigns)}}));
+        }
+        pat = node(la::PAT_STRUCT.code, n, Origin::Destructure,
+                   {{la::NAME.code, n.get(la::NAME.code)}, {la::ITEMS.code, list_map(fields)}});
+    } else {                                                // (…) = e / […] = e
+        std::vector<AnyVal> items = list_items(n.get(la::NAMES.code));
+        // `((a, b)) = e` is `(a, b) = e`: one nested place-tuple is parentheses
+        // (the tuple form takes no trailing comma, so it is never a 1-tuple).
+        while (op == 0 && items.size() == 1 && code_of(map_of(items[0])) == la::PAT_TUPLE.code) {
+            TinyMapView inner = map_of(items[0]);
+            items = list_items(inner.has_key(la::NAMES) ? inner.get(la::NAMES.code) : inner.get(la::ITEMS.code));
+        }
+        // `(x) = e` IS `x = e`: the tuple form takes no trailing comma, so one
+        // place is a parenthesized place, never a 1-tuple.
+        if (op == 0 && items.size() == 1 && code_of(map_of(items[0])) == la::PAT_WILD.code) {
+            std::string_view nm = name_of(map_of(items[0]));
+            if (!nm.empty() && nm != "_")
+                return node(la::ASSIGN.code, n, Origin::Destructure,
+                            {{la::NAME.code, map_of(items[0]).get(la::NAME.code)},
+                             {la::VALUE.code, n.get(la::VALUE.code)}});
+        }
+        std::vector<AnyVal> subs;
+        for (AnyVal b : items) {
+            AnyVal sub = bind_pattern(b, n, assigns);
+            if (code_of(map_of(sub)) == la::PAT_TUPLE.code)     // see bind_pattern
+                sub = node(la::PAT_OR.code, n, Origin::Destructure, {{la::ITEMS.code, array({sub})}});
+            subs.push_back(sub);
+        }
+        // A tuple pattern carries its items as the bare array, a slice
+        // pattern as the list rule's `{ITEMS}` map (the grammar's shapes).
+        pat = op == 1 ? node(la::PAT_SLICE.code, n, Origin::Destructure, {{la::ITEMS.code, list_map(subs)}})
+                      : node(la::PAT_TUPLE.code, n, Origin::Destructure, {{la::ITEMS.code, array(subs)}});
+    }
+    std::vector<AnyVal> stmts;
+    stmts.push_back(node(la::LET_PAT.code, n, Origin::Destructure,
+                         {{la::PAT.code, pat}, {la::VALUE.code, n.get(la::VALUE.code)}}));
+    for (auto& [place, t] : assigns)
+        stmts.push_back(node(la::ASSIGN.code, n, Origin::Destructure,
+                             {{la::NAME.code, place},
+                              {la::VALUE.code, node(la::VAR_REF.code, n, Origin::Destructure,
+                                                    {{la::NAME.code, str(t)}})}}));
+    return node(la::BLOCK_STMT.code, n, Origin::Destructure, {{la::BODY.code, block(stmts, n, Origin::Destructure)}});
 }
 
 } // namespace logos::compiler::hir

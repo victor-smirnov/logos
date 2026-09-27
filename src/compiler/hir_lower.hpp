@@ -20,6 +20,13 @@
 //                                        → nested match / if, B at each fall-through
 //   while let P = e [&& g] { A }         → loop { match e { P [if g] => A, _ => break } }
 //   while let P1 = e1 && … { A }         → loop { <let-chain> …, break at each fall-through }
+//   `return e` / `break 'l e` / `continue 'l` as an EXPRESSION
+//                                        → the block `{ return e; }` (the statement form; a
+//                                          block ending in an exit has type `!`)
+//   (a, (b, _), ..) = e / [a, b] = e / S { f, g: b } = e   (destructuring assignment)
+//                                        → { let (t0, (t1, _), ..) = e; a = t0; b = t1; }
+//                                          (rustc's desugaring: each place is ASSIGNED, so its
+//                                          old value drops, and the rhs moves in once)
 
 #include <logos/writ/compat.hpp>
 
@@ -40,6 +47,8 @@ enum class Origin : int64_t {
     LetChainNoElse  = 4,
     WhileLet        = 5,
     WhileLetChain   = 6,
+    ExprExit        = 7,   // `return e` / `break 'l e` / `continue 'l` in expression position
+    Destructure     = 8,   // destructuring assignment `(a, b) = e` / `[a, b] = e` / `S { a, b } = e`
 };
 
 struct Diag {
@@ -73,6 +82,8 @@ private:
     // Builders: every node takes `from`'s position and the given origin.
     writ::AnyVal node(int32_t code, writ::TinyMapView from, Origin o,
                       std::initializer_list<std::pair<uint8_t, writ::AnyVal>> keys);
+    // `from` with its CODE replaced (every other key kept) and ORIGIN set.
+    writ::AnyVal recoded(writ::TinyMapView from, int32_t code, Origin o);
     writ::AnyVal array(const std::vector<writ::AnyVal>& items);
     writ::AnyVal block(const std::vector<writ::AnyVal>& stmts, writ::TinyMapView from, Origin o);
     writ::AnyVal as_block(writ::AnyVal body, writ::TinyMapView from, Origin o);
@@ -81,6 +92,14 @@ private:
                           writ::TinyMapView from, Origin o);
     writ::AnyVal let_chain(writ::TinyMapView node, writ::AnyVal then_body,
                            writ::AnyVal else_body, Origin o);
+    // Destructuring assignment: the binding list as a let pattern with fresh
+    // names, collecting (place, fresh) pairs.
+    writ::AnyVal destructure(writ::TinyMapView n);
+    writ::AnyVal bind_pattern(writ::AnyVal b, writ::TinyMapView at,
+                              std::vector<std::pair<writ::AnyVal, std::string>>& assigns);
+    writ::AnyVal str(std::string_view s);
+    writ::AnyVal list_map(const std::vector<writ::AnyVal>& items);   // `{ITEMS: [...]}`
+    uint64_t fresh_ = 0;
 
     writ::Writ        doc_;
     std::vector<Diag> diags_;

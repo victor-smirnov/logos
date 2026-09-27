@@ -568,7 +568,7 @@ Source: `src/compiler/sema_stmt.cpp#L905-L920`
 
 ### `stmt.destructure-assign.rest-and-redundant-parens` — Destructuring assignment: redundant-paren unwrap + rest/arity rules
 
-In a tuple/array destructuring-assignment place-list: (a) a place-list of exactly one nested-tuple place, when the source arity is not 1, is treated as redundant parens and the inner list is bound directly (`((a,b)) = e` is equivalent to `(a,b) = e`); (b) at most one `..` rest place is allowed; without one the place-count must equal the source arity, with one the named-place count must not exceed it, and the rest absorbs the unmatched middle exactly as for destructuring-let.
+In a tuple/array destructuring-assignment place-list: (a) a place-list of exactly one nested-tuple place is redundant parens and the inner list is bound directly (`((a,b)) = e` is equivalent to `(a,b) = e`; the tuple form takes no trailing comma, so it is never a 1-tuple); (b) at most one `..` rest place is allowed; without one the place-count must equal the source arity, with one the named-place count must not exceed it, and the rest absorbs the unmatched middle exactly as for destructuring-let.
 
 Source: `src/compiler/sema_stmt.cpp#L968-L998; src/compiler/sema_stmt.cpp#L1007-L1013`
 

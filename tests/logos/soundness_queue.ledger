@@ -194,7 +194,6 @@ let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_
 # ── 2026-09-26 RUST-PARITY AUDIT (behaviour audit, 14 areas + FLS 1.98 paragraph-by-paragraph comparison, 58 units) ──
 assert_with_message_crash 1 tests/soundness/open/assert_with_message_crash refuses
 
-destructuring_assign_drop_wrong 1 tests/soundness/open/destructuring_assign_drop_wrong run 0
 
 enum_type_param_variance_admitted 1 tests/soundness/open/enum_type_param_variance_admitted admits
 
@@ -473,5 +472,5 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
-# TOTAL 148
+# TOTAL 147
 # SYNC-HASH 917fdbe0106035cadae157371ae857fb

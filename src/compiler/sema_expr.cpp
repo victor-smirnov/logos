@@ -1039,7 +1039,16 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                               "qualify it (e.g. `pkg::{}`)", name, name));
             return error_expr();
         }
-        error(std::format("undefined variable '{}'", name));
+        // A temporary the HIR pass bound in a destructuring assignment's `let`
+        // is undefined only when that `let` was already refused: not a second
+        // error.
+        bool hir_temp = false;
+        if (expr.has_key(la::ORIGIN)) {
+            AnyVal ov = expr.get(la::ORIGIN.code);
+            hir_temp = ov.is_value() &&
+                       static_cast<hir::Origin>(ov.as_value<int64_t>()) == hir::Origin::Destructure;
+        }
+        if (!hir_temp) error(std::format("undefined variable '{}'", name));
         return error_expr();
     }
     // Use after move (E0382) and use of an uninitialised binding (E0381) are
@@ -2308,70 +2317,12 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::INVOKE_EXPR:  return lower_invoke_expr(expr);
     case la::BREAK_EXPR:
     case la::CONTINUE_EXPR:
-    case la::RETURN_EXPR: {
-        // Diverging control-flow in expression position — value is the never
-        // type `!` (`let x = if c { v } else { return e }`, `_ => break`,
-        // `match … { … => continue }`). Lower to an EBlockExpr wrapping the
-        // real diverging stmt (SBreak / SContinue / SReturn) + a dummy result:
-        //   - the stmt emits its terminator (cf.br to loop exit/header, or
-        //     func.return) at mlir-gen time, terminating the block;
-        //   - gen_expr_kind(EBlockExpr) sees is_terminated() and returns
-        //     nullptr — the dummy is never materialised;
-        //   - the block_expr's TYPE is Never, which coerces to / unifies with
-        //     the surrounding expected type (so no spurious mismatch).
-        std::vector<lir_view::StmtRef> blk;
-        if (c == la::RETURN_EXPR) {
-            lir::LExprPtr rval = nullptr;
-            if (expr.has_key(la::VALUE)) {
-                // G154-1: thread the function's return type into the value's
-                // enum-literal inference, so `return Err(e)` / `return None`
-                // in a SUB-EXPRESSION (struct-field init, call arg) resolves the
-                // enum's OTHER type params from `ret_type_` (e.g. Ok's type in
-                // `Result<i64,i64>`). Without it the literal infers
-                // `Result<error, i64>` → mlir-gen "unknown tagged enum". The
-                // tail-position `return e;` statement already gets this via the
-                // SReturn stmt path; the expression-position form did not.
-                TypeRef _saved_hint = hint_enum_type_;
-                if (ret_type_ &&
-                    TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
-                    hint_enum_type_ = ret_type_;
-                rval = lower_expr(map_of(expr.get(la::VALUE.code)));
-                hint_enum_type_ = _saved_hint;
-                if (rval && ret_type_)
-                    expect_type(rval, ret_type_, CoercePos::Return,
-                                "return type mismatch —");
-            }
-            blk.push_back(builder().stmt_return(std::move(rval), node_line_));
-        } else if (c == la::CONTINUE_EXPR) {
-            if (loop_depth_ == 0) { error("'continue' outside loop"); return builder().lit_int(0, never_t()); }
-            std::string label;
-            if (expr.has_key(la::LABEL)) label = std::string(str_of(expr.get(la::LABEL.code)));
-            blk.push_back(builder().stmt_continue(std::move(label), node_line_));
-        } else {  // BREAK_EXPR
-            if (loop_depth_ == 0) { error("'break' outside loop"); return builder().lit_int(0, never_t()); }
-            lir::LExprPtr bval = nullptr;
-            if (expr.has_key(la::VALUE)) bval = lower_expr(map_of(expr.get(la::VALUE.code)));
-            std::string label;
-            if (expr.has_key(la::LABEL)) label = std::string(str_of(expr.get(la::LABEL.code)));
-            // Attribute a break-with-value to the target loop frame so the
-            // loop becomes a value-yielding expression (mirrors the stmt path).
-            if (bval && expr_type(bval) && TypeRef(expr_type(bval)).kind() != LogosType::Kind::Error) {
-                LoopBreakFrame* target = nullptr;
-                if (!loop_break_frames_.empty()) {
-                    if (label.empty()) target = &loop_break_frames_.back();
-                    else for (auto it = loop_break_frames_.rbegin(); it != loop_break_frames_.rend(); ++it)
-                        if (it->label == label) { target = &*it; break; }
-                }
-                if (target && !target->without_value) {
-                    if (!target->value_type) target->value_type = expr_type(bval);
-                    else target->value_type = unify_numeric(target->value_type, expr_type(bval));
-                }
-            }
-            blk.push_back(builder().stmt_break(std::move(bval), std::move(label), node_line_));
-        }
-        auto dummy = builder().lit_int(0, never_t());
-        return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(dummy), never_t());
-    }
+    case la::RETURN_EXPR:
+        // An exit in expression position is the block `{ return e; }` by the
+        // time a body reaches sema (the HIR pass): one statement form, one
+        // judgment (finish_return_ / the break's move and label checks).
+        hir_gate_(expr);
+        return builder().lit_int(0, never_t());
     case la::STATIC_CALL:  return lower_static_call(expr);
     case la::METACALL:     return lower_metacall(expr);
     case la::FN_MACRO_CALL: return lower_fn_macro_call(expr);
@@ -19800,14 +19751,12 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 result = lower_expr(s);
                 continue;
             }
-            if (lc == la::RETURN && s.has_key(la::VALUE)) {
-                // Peek at the return-value's type to use as the
-                // block's divergent type — the RETURN itself is
-                // still lowered as a stmt below.
-                auto val_node = map_of(s.get(la::VALUE.code));
-                auto val_expr = lower_expr(val_node);
-                if (val_expr) divergent_ret_t = expr_type(val_expr);
-            }
+            // A block ending in an exit never yields: its type is `!` (the
+            // value of `{ return e; }` — how an expression-position exit
+            // reaches sema). The return value used to be lowered a second
+            // time here only to borrow its type.
+            if (lc == la::RETURN || lc == la::BREAK || lc == la::CONTINUE)
+                divergent_ret_t = never_t();
         }
         push_stmt_with_unwind(block, lower_stmt(s));  // #122
     }
@@ -24574,7 +24523,8 @@ lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
     macro_arg_docs_.push_back(std::move(inc_doc));
     auto prev = holder_;
     holder_ = inc_holder;
-    auto r = lower_expr(root);
+    writ::AnyVal rav; rav.set_ref(root.ptr());
+    auto r = lower_expr(hir_body_(rav));   // an included expression is code too
     holder_ = prev;
     return r;
 }
@@ -24611,6 +24561,14 @@ SemaChecker::MacroArgs SemaChecker::parse_macro_args_(TinyMapView call,
     out.holder = doc.holder();
     out.root = doc.root_object().as_tiny_map();
     if (out.root.is_null()) return out;
+    // The arguments are code in the caller's body: the HIR pass rewrites them
+    // like the body around them (an `if let` / a `return` inside a format arg).
+    {
+        writ::AnyVal rav; rav.set_ref(out.root.ptr());
+        out.root = map_of(hir_.lower_body(rav));
+        for (auto& d : hir_.diags()) error(d.message);
+        hir_.diags().clear();
+    }
     if (entry == MacroArgsEntry::Args && out.root.has_key(la::ITEMS)) {
         AnyVal av = out.root.get(la::ITEMS.code);
         if (av.is_pointer()) {
@@ -24666,9 +24624,10 @@ lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body
     // (include!) and a multi-statement push-block (vec! of non-Copy elements:
     // `{ let mut __v = …; __v.push(e0); …; __v }`).
     auto inc_holder = doc.holder();
-    TinyMapView body_view(body_av, inc_holder);
     auto prev = holder_;
     holder_ = inc_holder;
+    // A reparsed body is a body: it goes through the HIR pass like any other.
+    TinyMapView body_view = hir_body_(body_av);
     auto r = lower_expr(body_view);   // la::BLOCK → lower_block_expr
     holder_ = prev;
     return r;
