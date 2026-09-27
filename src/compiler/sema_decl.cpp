@@ -1548,10 +1548,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             if (body_node.has_key(la::ITEMS)) {
                 auto stmts = arr_of(body_node.get(la::ITEMS.code));
                 // Find last non-null stmt
+                collect_tail_matches_(body_node);
                 for (int64_t si = (int64_t)stmts.size() - 1; si >= 0; --si) {
                     auto s = map_of(stmts.get(si));
                     if (!s.is_null()) {
-                        match_in_tail_position_ = (code_of(s) == la::MATCH);
                         if (code_of(s) == la::IF && s.has_key(la::ELSE) &&
                             TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {
                             impl_tail_if_node_ = s.ptr();
@@ -1566,7 +1566,6 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         tail_as_return_ = true;
         body = lower_block(body_node);
         tail_as_return_ = saved_tail_as_return;
-        match_in_tail_position_ = false;
         impl_tail_if_node_ = nullptr;
         // The parameter patterns' `let PAT = synth;` statements open the body.
         if (!fn_pat_params.empty()) {

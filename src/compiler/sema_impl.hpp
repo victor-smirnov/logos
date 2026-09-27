@@ -8582,7 +8582,15 @@ private:
     // call to `lower_loop` so a sibling loop with no diverging shape doesn't
     // poison the next one. (See logos-core item 1.1.)
     bool last_loop_diverged_ = false;
-    bool match_in_tail_position_ = false;
+    // ADR 0030 S2: the `match` STATEMENTS that sit in a fn / closure body's
+    // tail position — the body's last statement, and recursively the last
+    // statement of a tail `if`'s branches, a tail block, a tail match arm's
+    // block. Their EXPR arms are the return value. A set of nodes, not a
+    // flag: a flag leaked into every match lowered while it was up (a
+    // statement `match` inside a tail arm returned from its arms too) and
+    // did not reach a `match` at the end of a tail `if` branch at all.
+    std::unordered_set<const void*> tail_match_nodes_;
+    void collect_tail_matches_(writ::TinyMapView block);
     // B-fn-06: when true, TAIL_EXPR statements act as implicit returns.
     // Set around fn-body lowering; cleared inside block-as-expression
     // contexts (match-arm-body, unsafe-block-as-expr, if-as-expr).
@@ -9691,7 +9699,11 @@ private:
     lir_view::StmtRef lower_return(writ::TinyMapView node);
     // ADR 0030 S2: the one return judgment, shared by `return e;` and tails.
     lir::LExprPtr lower_return_operand_(writ::TinyMapView vnode);
-    lir_view::StmtRef finish_return_(lir::LExprPtr val, writ::TinyMapView vnode);
+    // `bind_temps`: pre-bind the value past the statement's temporaries
+    // (pending_ret_bind_) — only where the return IS a statement that
+    // lower_stmt wraps; a tail-match arm's return is not.
+    lir_view::StmtRef finish_return_(lir::LExprPtr val, writ::TinyMapView vnode,
+                                     bool bind_temps = true);
     lir::Pattern build_pattern(writ::TinyMapView pnode, TypeRef scrut_type);
     // Internal: build_pattern's body without eager mirror emit. Recurses via
     // build_pattern (so sub-patterns get their own eager emit).

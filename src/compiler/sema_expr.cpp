@@ -20613,8 +20613,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     std::vector<lir_view::StmtRef> body;
     if (node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
+        // A closure body is a function body: its tail is its return value, set
+        // HERE rather than inherited from whatever encloses the literal, and a
+        // trailing `match` is that tail as a fn body's is.
+        bool saved_tail = tail_as_return_;
+        tail_as_return_ = true;
+        if (!ret_type_ || TypeRef(ret_type_).kind() != LogosType::Kind::Void)
+            collect_tail_matches_(body_node);
         if (code_of(body_node) == la::BLOCK)
             lower_block(body_node).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
+        tail_as_return_ = saved_tail;
     } else if (node.has_key(la::VALUE)) {
         // G147-4: expression-body closure `|y| expr` (no braces). The closure
         // yields the expression — lower it and make the body `return <expr>`
@@ -20622,8 +20630,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // CALL: a droppable temp receiver inside it must bind + drop inside
         // the body's own temporary scope, never hoist to the statement that
         // CREATES the closure (eager one-shot evaluation — a miscompile).
-        auto val = lower_expr_temp_scoped(map_of(node.get(la::VALUE.code)));
-        body.push_back(builder().stmt_return(std::move(val), node_line_));
+        auto vnode = map_of(node.get(la::VALUE.code));
+        auto val = lower_expr_temp_scoped(vnode);
+        // The one return judgment (ADR 0030 S2): `|t| t` moves `t` out.
+        body.push_back(finish_return_(std::move(val), vnode, /*bind_temps=*/false));
     }
     // C5-cl-03: prepend `let user = &synth;` for each ref-bound param.
     // C5-cl-07: prepend `let user_k = __tup_param_*.k;` for each
@@ -20726,6 +20736,15 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 case SC::While: scan_block(lir_view::SWhileView{s}.body()); break;
                 case SC::Loop:  scan_block(lir_view::SLoopView{s}.body());  break;
                 case SC::Block: scan_block(lir_view::SBlockView{s}.body()); break;
+                // A tail `match` returns from its arms (tail_match_nodes_);
+                // a return nested in a loop body over a collection counts too.
+                case SC::Match:
+                    lir_view::SMatchView{s}.each_arm([&](lir_view::EMatchArmRef arm) {
+                        scan_block(arm.body());
+                    });
+                    break;
+                case SC::For:     scan_block(lir_view::SForView{s}.body());     break;
+                case SC::ForEach: scan_block(lir_view::SForEachView{s}.body()); break;
                 default: break;
             }
         };

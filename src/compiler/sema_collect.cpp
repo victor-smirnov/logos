@@ -6706,6 +6706,8 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
         // and the reachability check.
         bool saved_tail = tail_as_return_;
         tail_as_return_ = true;
+        if (ret_type && TypeRef(ret_type).kind() != LogosType::Kind::Void)
+            collect_tail_matches_(body_node);   // as lower_fn (ADR 0030 S2)
         fn.block(dk::BODY, lower_block(body_node));
         if (ret_type && TypeRef(ret_type).kind() != LogosType::Kind::Void &&
             TypeRef(ret_type).kind() != LogosType::Kind::Error &&

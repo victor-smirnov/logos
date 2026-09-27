@@ -436,7 +436,19 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
                                : stmt_always_returns(body);
                 if (!arm_ret) all_ret = false;
             } else if (arm.has_key(la::EXPR)) {
-                // Expression arm (pattern => expr,) always provides a value.
+                // An expression arm IS the return only for a match in TAIL
+                // position (tail_match_nodes_: the body's value). Anywhere else
+                // — a `let` initializer, an operand — it yields a value and
+                // returns only when the expression itself diverges; counting
+                // it there made `let w = match k { _ => 5 };` "always return",
+                // and a block arm holding it lost its value.
+                if (!tail_match_nodes_.count(stmt.ptr())) {
+                    auto e = unwrap_paren_node(map_of(arm.get(la::EXPR.code)));
+                    const int32_t ec = code_of(e);
+                    if (!(ec == la::RETURN_EXPR || ec == la::BREAK_EXPR ||
+                          ec == la::CONTINUE_EXPR || is_divergent_call_node(e)))
+                        all_ret = false;
+                }
             } else { all_ret = false; }
         }
         // Match always returns if all arms return. This covers both the
@@ -483,7 +495,17 @@ bool SemaChecker::stmt_always_diverts(TinyMapView stmt) {
                              ? block_always_diverts(body)
                              : stmt_always_diverts(body);
                 if (!arm_d) all_d = false;
-            } else if (!arm.has_key(la::EXPR)) {
+            } else if (arm.has_key(la::EXPR)) {
+                // An EXPRESSION arm (`1 => 5`) diverges only when the
+                // expression does; it used to be skipped, so every match of
+                // plain values "always diverted" and a block arm ending in one
+                // lost its value (a `{ match k { .. } }` arm yielded 0).
+                auto e = unwrap_paren_node(map_of(arm.get(la::EXPR.code)));
+                const int32_t ec = code_of(e);
+                if (!(ec == la::RETURN_EXPR || ec == la::BREAK_EXPR || ec == la::CONTINUE_EXPR ||
+                      is_divergent_call_node(e)))
+                    all_d = false;
+            } else {
                 all_d = false;
             }
         }
@@ -4389,7 +4411,8 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     return val;
 }
 
-lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vnode) {
+lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vnode,
+                                             bool bind_temps) {
     // A RETURN IS A COERCION SITE: `return h.r;` with `h: &mut Inner`
     // and `-> &mut Vec<..>` reborrows `&mut *h.r` as rustc does, instead
     // of moving the `&mut` out from behind `h` (#465).
@@ -4545,13 +4568,55 @@ lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vno
     // Pre-bind the value to a synthetic `__rv` local; lower_stmt then
     // emits `let __t…; let __rv = <val>; drop __t…; return __rv;` so the
     // value is computed while the temps live, dropped before the return.
-    if (val && cur_stmt_temp_hoist_ && !cur_stmt_temp_hoist_->empty()) {
+    if (bind_temps && val && cur_stmt_temp_hoist_ && !cur_stmt_temp_hoist_->empty()) {
         std::string rv = std::format("__rv_{}", destruct_counter_++);
         TypeRef rvt = expr_type(val);
         pending_ret_bind_ = std::make_tuple(rv, rvt, val);
         return builder().stmt_return(builder().var_ref(rv, rvt), node_line_);
     }
     return builder().stmt_return(std::move(val), node_line_);
+}
+
+void SemaChecker::collect_tail_matches_(TinyMapView block) {
+    if (block.is_null()) return;
+    if (code_of(block) != la::BLOCK) {        // a bare statement in tail position
+        TinyMapView s = block;
+        switch (code_of(s)) {
+        case la::MATCH:
+            tail_match_nodes_.insert(s.ptr());
+            if (s.has_key(la::ITEMS)) {
+                auto arms = arr_of(s.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < arms.size(); ++i) {
+                    auto arm = map_of(arms.get(i));
+                    if (!arm.is_null() && arm.has_key(la::BODY))
+                        collect_tail_matches_(map_of(arm.get(la::BODY.code)));
+                }
+            }
+            return;
+        case la::IF:
+        case la::IF_LET_CHAIN:
+            if (s.has_key(la::THEN)) collect_tail_matches_(map_of(s.get(la::THEN.code)));
+            if (s.has_key(la::ELSE)) collect_tail_matches_(map_of(s.get(la::ELSE.code)));
+            return;
+        case la::BLOCK_STMT:
+        case la::UNSAFE_BLOCK:
+            if (s.has_key(la::BODY)) collect_tail_matches_(map_of(s.get(la::BODY.code)));
+            return;
+        case la::TAIL_EXPR:   // `match` / `if` / a block as the tail EXPRESSION
+            if (s.has_key(la::VALUE)) collect_tail_matches_(map_of(s.get(la::VALUE.code)));
+            return;
+        default:
+            return;
+        }
+    }
+    if (!block.has_key(la::ITEMS)) return;
+    auto stmts = arr_of(block.get(la::ITEMS.code));
+    for (int64_t si = (int64_t)stmts.size() - 1; si >= 0; --si) {
+        auto s = map_of(stmts.get(si));
+        if (s.is_null()) continue;
+        collect_tail_matches_(s);
+        return;
+    }
 }
 
 lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
@@ -12391,14 +12456,13 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 }
             } else if (arm.has_key(la::EXPR)) {
                 auto val = lower_expr(map_of(arm.get(la::EXPR.code)));
-                if (match_in_tail_position_) {
-                    // Tail-position match: EXPR arms produce the function's return
-                    // value, and are judged against the return type as a `return`
-                    // is (an `&i64` arm of an `-> i64` fn reached codegen).
-                    if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait)
-                        expect_type(val, ret_type_, CoercePos::Return, "return type mismatch —");
-                    lir::SReturn ret; ret.value = std::move(val);
-                    body.push_back(make_stmt_emit(node_line_, std::move(ret)));
+                if (tail_match_nodes_.count(node.ptr())) {
+                    // Tail-position match: an EXPR arm IS the function's return
+                    // value — the one return judgment (ADR 0030 S2), moves
+                    // included (a bare SReturn left the moved binding to be
+                    // dropped at the arm's scope exit as well).
+                    body.push_back(finish_return_(std::move(val), map_of(arm.get(la::EXPR.code)),
+                                                  /*bind_temps=*/false));
                 } else {
                     // Statement-position match: EXPR arms are evaluated for side effects.
                     lir::SExprStmt es; es.expr = std::move(val);
@@ -12444,7 +12508,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             // For stmt-form match arms with a TAIL_EXPR (`{ s }`),
             // the binding is being moved out as the body's last
             // value — mark it moved first so collect_drops skips it.
-            // For tail-position match (match_in_tail_position_), the
+            // For tail-position match (tail_match_nodes_), the
             // last stmt is already an SReturn handled by lower_block
             // via collect_all_drops (which scans all frames). So the
             // mark-moved walk applies only to the non-return tail.
