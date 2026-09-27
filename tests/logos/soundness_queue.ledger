@@ -274,7 +274,6 @@ attr_on_extern_block_item_refused 3 tests/soundness/open/attr_on_extern_block_it
 
 attr_unsafe_wrapper_refused 3 tests/soundness/open/attr_unsafe_wrapper_refused refuses
 
-
 byte_char_literal_refused 3 tests/soundness/open/byte_char_literal_refused refuses
 
 closure_to_fn_pointer_coercion_refused 3 tests/soundness/open/closure_to_fn_pointer_coercion_refused refuses
@@ -471,4 +470,4 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
 # TOTAL 146
-# SYNC-HASH 097f2d357033fc37931474f1c9d21b0b
+# SYNC-HASH 7be04de05d0c642ae8c296e88a4cc142
