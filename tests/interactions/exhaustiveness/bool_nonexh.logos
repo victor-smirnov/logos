@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): match bool {true} (false missing, value=false)
+package bool_nonexh;
+fn run() -> i32 { let b: bool = false; let r: i32 = match b { true => 10i32 }; return r; }
+
+fn main() -> i32 { return run(); }

@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): bool {true if t, false if t} every arm guarded
+package guard_all_arms_nonexh;
+fn run() -> i32 { let b: bool = true; let t: bool = true; let r: i32 = match b { true if t => 1i32, false if t => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

@@ -1,0 +1,10 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc ACCEPTED this non-exhaustive / refutable shape and the missing
+// value fell through (undefined value, SIGSEGV or the code after); rustc refuses it (E0004).
+// exhaustiveness oracle battery (ADR 0030 S3): fn f(e: &Empty) { match e {} } (rustc E0004)
+package exh_empty_enum_ref_match;
+enum Empty {}
+
+fn f(e: &Empty) -> i32 { match e {} }
+fn run() -> i32 { return 4i32; }
+
+fn main() -> i32 { return run(); }

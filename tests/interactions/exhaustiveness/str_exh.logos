@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): &str {"a","b",_}
+package str_exh;
+fn run() -> i32 { let s: &str = "c"; let r: i32 = match s { "a" => 1i32, "b" => 2i32, _ => 3i32 }; return r; }
+
+fn main() -> i32 { return run(); }

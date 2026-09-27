@@ -1,0 +1,6 @@
+// exhaustiveness oracle battery (ADR 0030 S3): &[i64] {[x,..,y],[x],[]}
+package slice_prefix_suffix_exh;
+fn f(v: &[i64]) -> i64 { match v { [x, .., y] => *x * 10i64 + *y, [x] => *x, [] => 0i64 } }
+fn run() -> i32 { let a: [i64; 3] = [4i64, 2i64, 3i64]; return f(&a) as i32; }
+
+fn main() -> i32 { return run(); }

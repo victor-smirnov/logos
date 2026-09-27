@@ -2475,6 +2475,12 @@
     pattern <- PIPE? pat_single (PIPE pat_single)*
             => { CODE: PAT_OR, ITEMS: $... }
 
+    // A struct-pattern field's sub-pattern: an or-pattern (`c: A | B`, as in
+    // Rust) only when it has two or more alternatives, else the single one.
+    pat_field_value <- pat_single (PIPE pat_single)+
+                    => { CODE: PAT_OR, ITEMS: $... }
+                     / pat_single
+
     // ── Single field in a struct pattern ─────────────────────────────────
     pat_field <- HASH LPAREN pat_field RPAREN COMMA STAR
               => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
@@ -2483,9 +2489,9 @@
               // T2-27: `S { 0: a }` — tuple-struct field by index in struct-
               // pattern syntax. The integer is the field name ("0", "1", …);
               // sema's struct-pattern binder resolves it positionally.
-               / INTEGER COLON pat_single
+               / INTEGER COLON pat_field_value
               => { CODE: PAT_FIELD, NAME: $1, VALUE: $3 }
-               / IDENT COLON pat_single
+               / IDENT COLON pat_field_value
               => { CODE: PAT_FIELD, NAME: $1, VALUE: $3 }
                // T2-27: `S { ref a }` / `S { ref mut a }` — bind the field
                // by reference (`a: &T` / `&mut T`). IS_REF/IS_MUT on the

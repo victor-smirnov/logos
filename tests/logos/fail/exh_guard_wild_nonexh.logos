@@ -1,0 +1,7 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc ACCEPTED this non-exhaustive / refutable shape and the missing
+// value fell through (undefined value, SIGSEGV or the code after); rustc refuses it (E0004).
+// exhaustiveness oracle battery (ADR 0030 S3): i64 {_ if x>0} guarded wildcard only (value=-3)
+package exh_guard_wild_nonexh;
+fn run() -> i32 { let x: i64 = -3i64; let r: i32 = match x { _ if x > 0i64 => 1i32 }; return r; }
+
+fn main() -> i32 { return run(); }

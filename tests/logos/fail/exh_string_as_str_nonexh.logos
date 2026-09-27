@@ -1,0 +1,7 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc ACCEPTED this non-exhaustive / refutable shape and the missing
+// value fell through (undefined value, SIGSEGV or the code after); rustc refuses it (E0004).
+// exhaustiveness oracle battery (ADR 0030 S3): String.as_str() {"a"} no wildcard (value="z")
+package exh_string_as_str_nonexh;
+fn run() -> i32 { let s: String = String::from("z"); let r: i32 = match s.as_str() { "a" => 1i32 }; return r; }
+
+fn main() -> i32 { return run(); }

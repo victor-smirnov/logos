@@ -1,0 +1,8 @@
+// exhaustiveness oracle battery (ADR 0030 S3): S{c,b} missing S{c:G|B,b:false} (value=G,false)
+package struct_fields_nonexh;
+enum Color { R, G, B }
+
+struct S { c: Color, b: bool }
+fn run() -> i32 { let s = S { c: Color::G, b: false }; let r: i32 = match s { S { c: Color::R, .. } => 1i32, S { b: true, .. } => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

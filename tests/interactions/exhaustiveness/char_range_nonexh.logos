@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): char {'a'..='z','A'..='Z'} (value='0')
+package char_range_nonexh;
+fn run() -> i32 { let c: char = '0'; let r: i32 = match c { 'a'..='z' => 1i32, 'A'..='Z' => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

@@ -1224,7 +1224,7 @@ When an arm has a guard `if g`, the arm's pattern bindings are extracted and mad
 
 ### `pat.match.arm-after-catchall-unreachable` — arm after unguarded catch-all is unreachable
 
-Any match arm appearing after a prior unguarded catch-all (`_`) arm is an error: unreachable arm.
+Any match arm appearing after a prior unguarded catch-all (`_`) arm is unreachable: a WARNING (`unreachable pattern`), as in rustc — the program compiles and the arm never runs. (It was an error until 2026-09-27, ADR 0030 S3.)
 
 *Source: src/compiler/sema_stmt.cpp#L8572-L8586*
 

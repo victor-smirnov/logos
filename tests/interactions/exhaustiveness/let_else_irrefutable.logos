@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): let (a,b) = t else {..}; irrefutable (rustc warns)
+package let_else_irrefutable;
+fn run() -> i32 { let t = (2i64, 3i64); let (a, b) = t else { return 11i32; }; return (a + b) as i32; }
+
+fn main() -> i32 { return run(); }

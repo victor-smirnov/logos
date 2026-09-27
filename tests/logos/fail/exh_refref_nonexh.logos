@@ -1,0 +1,9 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc ACCEPTED this non-exhaustive / refutable shape and the missing
+// value fell through (undefined value, SIGSEGV or the code after); rustc refuses it (E0004).
+// exhaustiveness oracle battery (ADR 0030 S3): match &&Color missing B (value=B)
+package exh_refref_nonexh;
+enum Color { R, G, B }
+
+fn run() -> i32 { let c = Color::B; let rc = &c; let rr = &rc; let r: i32 = match rr { Color::R => 1i32, Color::G => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

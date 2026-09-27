@@ -1,0 +1,7 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc ACCEPTED this non-exhaustive / refutable shape and the missing
+// value fell through (undefined value, SIGSEGV or the code after); rustc refuses it (E0004).
+// exhaustiveness oracle battery (ADR 0030 S3): u8 {0..=254} (255 missing, value=255)
+package exh_u8_top_nonexh;
+fn run() -> i32 { let x: u8 = 255u8; let r: i32 = match x { 0u8..=254u8 => 1i32 }; return r; }
+
+fn main() -> i32 { return run(); }

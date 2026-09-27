@@ -1,0 +1,6 @@
+// exhaustiveness oracle battery (ADR 0030 S3): P(bool,bool) missing P(f,f) (value=P(f,f))
+#![allow(dead_code, unused_variables, unused_assignments)]
+struct P(bool, bool);
+fn run() -> i32 { let v = P(false, false); let r: i32 = match v { P(true, _) => 1i32, P(false, true) => 2i32 }; return r; }
+
+fn main() { std::process::exit(run()); }

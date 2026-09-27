@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): String.as_str() {"a", other}
+package string_as_str_exh;
+fn run() -> i32 { let s: String = String::from("z"); let r: i32 = match s.as_str() { "a" => 1i32, _other => 5i32 }; return r; }
+
+fn main() -> i32 { return run(); }

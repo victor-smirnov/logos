@@ -1551,7 +1551,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         if (nested || force_structural_let_ || generic_scrut) {
             force_structural_let_ = false;   // this level only
             lir::Pattern probe = build_pattern(pat_node, rhs_type);
-            if (!pattern_irrefutable(pat_ref_of(probe), rhs_type))
+            if (!let_pattern_irrefutable_(pat_node, pat_ref_of(probe), rhs_type))
                 return refuse_refutable_let(probe, std::move(rhs), rhs_type);
             return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
         }
@@ -1562,7 +1562,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         // through the let-else lowering with an unreachable else; a refutable
         // one is E0005, as rustc says.
         lir::Pattern probe = build_pattern(pat_node, rhs_type);
-        if (!pattern_irrefutable(pat_ref_of(probe), rhs_type)) {
+        if (!let_pattern_irrefutable_(pat_node, pat_ref_of(probe), rhs_type)) {
             return refuse_refutable_let(probe, std::move(rhs), rhs_type);
         }
         return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
@@ -1694,7 +1694,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
             }
             if (nested) {
                 lir::Pattern probe = build_pattern(pat_node, rhs_type);
-                if (!pattern_irrefutable(pat_ref_of(probe), rhs_type)) {
+                if (!let_pattern_irrefutable_(pat_node, pat_ref_of(probe), rhs_type)) {
                     return refuse_refutable_let(probe, std::move(rhs), rhs_type);
                 }
                 return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
@@ -2436,6 +2436,18 @@ lir_view::StmtRef SemaChecker::refuse_refutable_let(lir::Pattern& probe, lir::LE
 // binder / wildcard, and tuples, structs, `&` patterns, `@`, and arrays of the
 // right length whose parts are all irrefutable. A variant, a literal, a range
 // or an or-pattern is refutable here (a one-variant enum is too rare to model).
+// ADR 0030 S3 (C-PAT): a `let` pattern is irrefutable iff it covers its type —
+// the usefulness matrix's verdict (`let W::V(x) = w` over a one-variant enum,
+// `let 0..=255u8 = b`, `let Ok(v) = r` with an uninhabited error are
+// irrefutable, as in rustc). The pattern-kind test answers only where the
+// matrix could not decide.
+bool SemaChecker::let_pattern_irrefutable_(TinyMapView pat, lir_view::PatRef probe, TypeRef ty) {
+    bool decided = false;
+    if (ast_patterns_exhaustive({pat}, ty, &decided)) return true;
+    if (decided) return false;
+    return pattern_irrefutable(probe, ty);
+}
+
 bool SemaChecker::pattern_irrefutable(lir_view::PatRef p, TypeRef ty) {
     namespace ps = lir_schema::pat;
     if (!p) return true;
@@ -10620,23 +10632,38 @@ void SemaChecker::emit_nested_variant_lets(
     }
 }
 
-void SemaChecker::refuse_uncovered_aggregate(TypeRef scrut_type, bool ast_exh, bool decided) {
-    if (ast_exh || !decided) return;
+// ADR 0030 S3 (C-PAT): the one exhaustiveness verdict of a `match` (statement
+// or expression): the usefulness matrix over the unguarded arms. A decided
+// miss is E0004 — naming the missing variants / bool values when the miss is
+// at the top, else the generic sentence. `decided` = the matrix answered.
+bool SemaChecker::check_exhaustive_(std::vector<writ::TinyMapView> pats, TypeRef scrut_type,
+                                    bool& decided) {
+    std::vector<std::string> missing;
+    const bool exh = ast_patterns_exhaustive(std::move(pats), scrut_type, &decided, &missing);
+    if (exh || !decided) return exh;
     TypeRef t = scrut_type;
     while (t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
                  TypeRef(t).kind() == LogosType::Kind::MutRef) && TypeRef(t).pointee())
         t = TypeRef(t).pointee();
-    if (!t) return;
-    auto k = TypeRef(t).kind();
-    if (k != LogosType::Kind::Tuple && k != LogosType::Kind::Struct) return;
-    error(std::format("match is not exhaustive (E0004): the arms do not cover every value of `{}`",
-                      type_str(t)));
+    const bool named = !missing.empty() && !missing[0].empty();
+    if (named && t && TypeRef(t).kind() == LogosType::Kind::Bool)
+        error("match on bool is not exhaustive — missing " + missing[0]);
+    else if (named) {
+        std::string list;
+        for (auto& m : missing) list += (list.empty() ? "" : ", ") + m;
+        error(std::format("match is not exhaustive — missing variant(s): {}", list));
+    } else
+        error(std::format("match is not exhaustive (E0004): the arms do not cover every value of `{}`",
+                          t ? type_str(t) : std::string("?")));
+    return false;
 }
 
 bool SemaChecker::ast_patterns_exhaustive(
-        std::vector<writ::TinyMapView> pats, TypeRef ty, bool* decided) {
+        std::vector<writ::TinyMapView> pats, TypeRef ty, bool* decided,
+        std::vector<std::string>* top_missing) {
     using K = LogosType::Kind;
     if (decided) *decided = false;
+    const TypeRef unpeeled = ty;
     // Peel references.
     TypeRef t = ty;
     for (int i = 0; i < 8 && t &&
@@ -10773,10 +10800,67 @@ bool SemaChecker::ast_patterns_exhaustive(
     };
     int budget = 20000;   // rows × splits; past it, "not proven"
     bool undecidable = false;
+    int calls = 0;
+    // The integer domain of a column type ([lo, hi]; nullopt = not a bounded
+    // integer: 128-bit integers are treated as unbounded).
+    auto int_domain = [&](TypeRef x) -> std::optional<std::pair<__int128, __int128>> {
+        switch (TypeRef(x).kind()) {
+        case K::I8:  return std::pair<__int128, __int128>{INT8_MIN, INT8_MAX};
+        case K::I16: return std::pair<__int128, __int128>{INT16_MIN, INT16_MAX};
+        case K::I24: return std::pair<__int128, __int128>{-(1 << 23), (1 << 23) - 1};
+        case K::I32: return std::pair<__int128, __int128>{INT32_MIN, INT32_MAX};
+        case K::I56: return std::pair<__int128, __int128>{-((__int128)1 << 55), ((__int128)1 << 55) - 1};
+        case K::I64: case K::Isize: return std::pair<__int128, __int128>{INT64_MIN, INT64_MAX};
+        case K::U8:  return std::pair<__int128, __int128>{0, UINT8_MAX};
+        case K::U16: return std::pair<__int128, __int128>{0, UINT16_MAX};
+        case K::U24: return std::pair<__int128, __int128>{0, (1 << 24) - 1};
+        case K::U32: return std::pair<__int128, __int128>{0, UINT32_MAX};
+        case K::U56: return std::pair<__int128, __int128>{0, ((__int128)1 << 56) - 1};
+        case K::U64: case K::Usize: return std::pair<__int128, __int128>{0, (__int128)UINT64_MAX};
+        case K::Char: return std::pair<__int128, __int128>{0, 0x10FFFF};
+        default: return std::nullopt;
+        }
+    };
+    // A literal / range / char pattern as an interval of the column's domain.
+    auto pat_interval = [&](TinyMapView p, TypeRef x, __int128 dlo, __int128 dhi)
+            -> std::optional<std::pair<__int128, __int128>> {
+        // The magnitude as parsed (its 64 bits, unsigned), the sign applied
+        // after: `-9223372036854775808` is i64::MIN, not an overflow.
+        auto num = [&](uint8_t key, bool neg) -> __int128 {
+            const __int128 w = (__int128)(uint64_t)parse_int_literal(str_of(p.get(key)));
+            return neg ? -w : w;
+        };
+        const int32_t c = code_of(p);
+        if (c == la::PAT_INT)     { __int128 v = num(la::VALUE.code, false); return std::pair{v, v}; }
+        if (c == la::PAT_NEG_INT) { __int128 v = num(la::VALUE.code, true);  return std::pair{v, v}; }
+        if (c == la::PAT_CHAR) {
+            __int128 v = decode_char_lit_(str_of(p.get(la::VALUE.code)));
+            return std::pair{v, v};
+        }
+        if (c == la::PAT_CHAR_RANGE)
+            return std::pair<__int128, __int128>{decode_char_lit_(str_of(p.get(la::LHS.code))),
+                                                 decode_char_lit_(str_of(p.get(la::RHS.code)))};
+        if (c == la::PAT_RANGE) {
+            __int128 lo = p.has_key(la::LHS) ? num(la::LHS.code, p.has_key(la::LO_NEG)) : dlo;
+            __int128 hi = p.has_key(la::RHS) ? num(la::RHS.code, p.has_key(la::HI_NEG)) : dhi;
+            const bool incl = p.has_key(la::INCLUSIVE) && p.get(la::INCLUSIVE.code).is_value() &&
+                              p.get(la::INCLUSIVE.code).as_value<int32_t>() != 0;
+            if (!incl && p.has_key(la::RHS)) hi -= 1;
+            return std::pair{lo, hi};
+        }
+        return std::nullopt;
+    };
     std::function<bool(std::vector<Row>, std::vector<TypeRef>)> exh =
         [&](std::vector<Row> rows, std::vector<TypeRef> tys) -> bool {
         if (--budget < 0) { undecidable = true; return false; }
+        const bool is_top = calls++ == 0;
         if (tys.empty()) return !rows.empty();
+        // No rows: exhaustive only over an uninhabited type — asked of the
+        // type AS WRITTEN (`&Empty` is inhabited: rustc refuses `match r {}`).
+        if (rows.empty()) {
+            TypeRef w = is_top ? unpeeled : tys[0];
+            return w && (TypeRef(w).kind() == K::Never || is_type_uninhabited(w));
+        }
         // Expand multi-alt ors in column 0 and normalise it.
         std::vector<Row> rs;
         std::function<void(Row&, TinyMapView)> push_alts = [&](Row& r, TinyMapView p) {
@@ -10853,9 +10937,12 @@ bool SemaChecker::ast_patterns_exhaustive(
                         if (code_of(p) != la::PAT_BOOL || !p.has_key(la::VALUE)) { undecidable = true; return std::nullopt; }
                         if ((p.get(la::VALUE.code).as_value<int32_t>() != 0) != (bv != 0)) return std::nullopt;
                         return Row{};
-                    })) return false;
+                    })) {
+                    if (!(is_top && top_missing)) return false;
+                    top_missing->push_back(bv ? "true" : "false");
+                }
             }
-            return true;
+            return !(is_top && top_missing && !top_missing->empty());
         }
         if (k0 == K::Enum) {
             auto [pkg, esi] = enum_of(TypeRef(t0));
@@ -10895,9 +10982,121 @@ bool SemaChecker::ast_patterns_exhaustive(
                     if (!positional(args, ptys.size(), out)) return std::nullopt;
                     return out;
                 });
-                if (!ok) return false;
+                if (!ok) {
+                    if (!(is_top && top_missing)) return false;
+                    // Named by no arm at all: a missing VARIANT. Named, but a
+                    // payload value escapes: a deeper miss (the generic E0004).
+                    bool named = false;
+                    for (auto& r : rs) {
+                        if (r[0].is_null()) { named = true; break; }
+                        std::string en, vn;
+                        if ((code_of(r[0]) == la::PAT_WILD && str_of(r[0].get(la::NAME.code)) == V.name) ||
+                            (pat_variant(r[0], en, vn) && vn == V.name)) { named = true; break; }
+                    }
+                    if (named) { top_missing->clear(); top_missing->push_back(""); return false; }
+                    top_missing->push_back(std::string(V.name));
+                }
+            }
+            return !(is_top && top_missing && !top_missing->empty());
+        }
+        // Integers and chars: split the domain into the elementary intervals the
+        // column's literals / ranges bound, and require each to be covered.
+        if (auto dom = int_domain(t0)) {
+            const auto [dlo, dhi] = *dom;
+            std::vector<__int128> cuts{dlo, dhi + 1};
+            if (k0 == K::Char) { cuts.push_back(0xD800); cuts.push_back(0xE000); }
+            std::vector<std::optional<std::pair<__int128, __int128>>> ivs;
+            for (auto& r : rs) {
+                if (r[0].is_null()) { ivs.push_back(std::nullopt); continue; }
+                auto iv = pat_interval(r[0], t0, dlo, dhi);
+                if (!iv) { undecidable = true; ivs.push_back(std::pair<__int128, __int128>{1, 0}); continue; }
+                ivs.push_back(iv);
+                if (iv->first > dlo && iv->first <= dhi) cuts.push_back(iv->first);
+                if (iv->second >= dlo && iv->second < dhi) cuts.push_back(iv->second + 1);
+            }
+            std::sort(cuts.begin(), cuts.end());
+            cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+            for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
+                const __int128 lo = cuts[ci], hi = cuts[ci + 1] - 1;
+                if (lo < dlo || hi > dhi) continue;
+                if (k0 == K::Char && lo >= 0xD800 && hi < 0xE000) continue;   // surrogates: no char
+                std::vector<Row> nr;
+                for (size_t ri = 0; ri < rs.size(); ++ri)
+                    if (!ivs[ri] || (ivs[ri]->first <= lo && hi <= ivs[ri]->second))
+                        nr.push_back(drop_first(rs[ri]));
+                if (!exh(std::move(nr), rest_tys)) return false;
             }
             return true;
+        }
+        // Slices and arrays: one constructor per length. Lengths up to the
+        // longest fixed pattern + 1 and the longest prefix + suffix of a `..`
+        // pattern stand for every length (the last one for all longer ones).
+        if ((k0 == K::Slice || k0 == K::Array) && TypeRef(t0).elem()) {
+            bool any_str = false, any_slice = false;
+            for (auto& r : rs)
+                if (!r[0].is_null()) {
+                    if (code_of(r[0]) == la::PAT_STR) any_str = true;
+                    else if (code_of(r[0]) == la::PAT_SLICE) any_slice = true;
+                    else undecidable = true;
+                }
+            if (!any_str && any_slice) {
+                struct SliceShape { std::vector<TinyMapView> pre, suf; bool var = false; };
+                std::vector<std::optional<SliceShape>> shapes;
+                size_t max_fixed = 0, max_var = 0;
+                for (auto& r : rs) {
+                    if (r[0].is_null() || code_of(r[0]) != la::PAT_SLICE) { shapes.push_back(std::nullopt); continue; }
+                    SliceShape sh;
+                    for (auto e : list_items(r[0], la::ITEMS.code)) {
+                        if (!e.is_null() && (code_of(e) == la::PAT_REST ||
+                                             (code_of(e) == la::PAT_AT && e.has_key(la::VALUE) &&
+                                              code_of(map_of(e.get(la::VALUE.code))) == la::PAT_REST))) {
+                            sh.var = true; continue;
+                        }
+                        (sh.var ? sh.suf : sh.pre).push_back(e);
+                    }
+                    if (sh.var) max_var = std::max(max_var, sh.pre.size() + sh.suf.size());
+                    else max_fixed = std::max(max_fixed, sh.pre.size());
+                    shapes.push_back(std::move(sh));
+                }
+                std::vector<size_t> lens;
+                if (k0 == K::Array) lens.push_back(size_t(TypeRef(t0).arr_size()));
+                else for (size_t n = 0; n <= std::max(max_fixed + 1, max_var); ++n) lens.push_back(n);
+                const TypeRef et = TypeRef(t0).elem();
+                for (size_t n : lens) {
+                    std::vector<Row> nr;
+                    std::vector<TypeRef> nt(n, et);
+                    nt.insert(nt.end(), rest_tys.begin(), rest_tys.end());
+                    for (size_t ri = 0; ri < rs.size(); ++ri) {
+                        Row x;
+                        if (!shapes[ri]) { x = Row(n); }
+                        else {
+                            const auto& sh = *shapes[ri];
+                            if (sh.var ? sh.pre.size() + sh.suf.size() > n : sh.pre.size() != n) continue;
+                            x = sh.pre;
+                            if (sh.var) {
+                                x.resize(n - sh.suf.size());
+                                x.insert(x.end(), sh.suf.begin(), sh.suf.end());
+                            }
+                        }
+                        auto tl = drop_first(rs[ri]);
+                        x.insert(x.end(), tl.begin(), tl.end());
+                        nr.push_back(std::move(x));
+                    }
+                    if (!exh(std::move(nr), nt)) return false;
+                }
+                return true;
+            }
+            // A string (or a slice matched by literal strings): an unbounded
+            // domain — only the wildcard rows cover it, and that is decided.
+            std::vector<Row> nr;
+            for (auto& r : rs) if (r[0].is_null()) nr.push_back(drop_first(r));
+            return exh(std::move(nr), rest_tys);
+        }
+        // Floats and 128-bit integers: unbounded; the wildcard rows decide.
+        if (k0 == K::F32 || k0 == K::F64 || k0 == K::I128 || k0 == K::U128) {
+            std::vector<Row> nr;
+            for (auto& r : rs) if (r[0].is_null()) nr.push_back(drop_first(r));
+            return exh(std::move(nr), rest_tys);
         }
         // No enumerable constructors: only wildcard rows cover the column (a
         // literal row may still cover a value, so a miss is no longer a proof).
@@ -11417,7 +11616,8 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             auto arm = map_of(arms_l.get(i));
             if (code_of(arm) != la::MATCH_ARM) continue;
             if (seen_catchall) {
-                error("unreachable match arm: a previous '_' arm matches all values");
+                // rustc: a warning (`unreachable pattern`), not an error.
+                warn("unreachable pattern: a previous '_' arm matches all values");
                 break;
             }
             if (is_catchall_pat(arm)) seen_catchall = true;
@@ -12293,10 +12493,13 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
         }
         bool decided = false;
-        ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type, &decided);
-        refuse_uncovered_aggregate(scrut_type, ast_exh, decided);
+        ast_exh = check_exhaustive_(std::move(lhs_pats), scrut_type, decided);
+        // The LIR-level variant check is a backstop for a shape the matrix
+        // could not decide, never a second verdict.
+        check_match_exhaustiveness(smatch, scrut_type, ast_exh || decided);
+    } else {
+        check_match_exhaustiveness(smatch, scrut_type, ast_exh);
     }
-    check_match_exhaustiveness(smatch, scrut_type, ast_exh);
 
     if (has_hoist_let) {
         std::vector<lir_view::StmtRef> blk;
@@ -12433,7 +12636,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             auto arm = map_of(arms_l.get(i));
             if (code_of(arm) != la::MATCH_ARM) continue;
             if (seen_catchall) {
-                error("unreachable match arm: a previous '_' arm matches all values");
+                // rustc: a warning (`unreachable pattern`), not an error.
+                warn("unreachable pattern: a previous '_' arm matches all values");
                 break;
             }
             if (is_catchall_pat(arm)) seen_catchall = true;
@@ -13157,7 +13361,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
     {
         // K4: prove nested-enum-pattern exhaustiveness at the AST level.
-        bool ast_exh = false;
+        bool ast_exh = false, expr_decided = false;
         if (node.has_key(la::ITEMS)) {
             std::vector<writ::TinyMapView> lhs_pats;
             auto arms_l = arr_of(node.get(la::ITEMS.code));
@@ -13167,11 +13371,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (arm.has_key(la::GUARD)) continue;
                 if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
             }
-            bool decided = false;
-            ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type, &decided);
-            refuse_uncovered_aggregate(scrut_type, ast_exh, decided);
+            ast_exh = check_exhaustive_(std::move(lhs_pats), scrut_type, expr_decided);
         }
-        bool has_wild = ast_exh;
+        // The LIR-level checks below are a backstop for a shape the matrix
+        // could not decide, never a second verdict.
+        bool has_wild = ast_exh || expr_decided;
         for (auto& arm : me.arms) {
             if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
                 has_wild = true;

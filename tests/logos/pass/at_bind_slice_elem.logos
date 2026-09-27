@@ -4,6 +4,7 @@ fn main() -> i32 {
     let mut out: i64 = 0i64;
     match arr {
         [a @ 1i64..=5i64, b, c] => { out = a + b + c; }
+        _ => { }   // `a` outside 1..=5: rustc requires the arm (E0004)
     }
     if out != 6i64 { return 1i32; }
     return 0i32;

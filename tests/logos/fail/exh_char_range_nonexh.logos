@@ -1,0 +1,7 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc ACCEPTED this non-exhaustive / refutable shape and the missing
+// value fell through (undefined value, SIGSEGV or the code after); rustc refuses it (E0004).
+// exhaustiveness oracle battery (ADR 0030 S3): char {'a'..='z','A'..='Z'} (value='0')
+package exh_char_range_nonexh;
+fn run() -> i32 { let c: char = '0'; let r: i32 = match c { 'a'..='z' => 1i32, 'A'..='Z' => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

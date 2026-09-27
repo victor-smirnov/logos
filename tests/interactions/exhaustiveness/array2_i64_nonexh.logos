@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): [i64;2] {[0,_],[_,0]} (value [1,1])
+package array2_i64_nonexh;
+fn run() -> i32 { let a: [i64; 2] = [1i64, 1i64]; let r: i32 = match a { [0i64, _] => 1i32, [_, 0i64] => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

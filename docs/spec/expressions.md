@@ -2893,7 +2893,7 @@ An arm guard expression (`pat if <guard> =>`) must have type `bool` (or Error); 
 
 ### `expr.match.arm-after-catchall-unreachable` — arm after a catch-all `_` arm is unreachable
 
-A match arm that follows an unguarded catch-all (`_`) arm is unreachable and is diagnosed (closes B-pt-07 expr position).
+A match arm that follows an unguarded catch-all (`_`) arm is unreachable and is diagnosed with a warning, as in rustc (closes B-pt-07 expr position; an error until 2026-09-27, ADR 0030 S3).
 
 *Source:* `src/compiler/sema_stmt.cpp#L8946-L8959`
 

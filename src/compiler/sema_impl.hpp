@@ -9879,9 +9879,11 @@ private:
     // `decided` (optional) is set when a `false` is a PROOF of a missing case
     // (every column enumerable), not merely "not proven".
     bool ast_patterns_exhaustive(std::vector<writ::TinyMapView> pats, TypeRef ty,
-                                 bool* decided = nullptr);
+                                 bool* decided = nullptr,
+                                 std::vector<std::string>* top_missing = nullptr);
     // E0004 for a tuple / struct scrutinee the pattern matrix proves uncovered.
-    void refuse_uncovered_aggregate(TypeRef scrut_type, bool ast_exh, bool decided);
+    bool check_exhaustive_(std::vector<writ::TinyMapView> pats, TypeRef scrut_type, bool& decided);
+    bool let_pattern_irrefutable_(writ::TinyMapView pat, lir_view::PatRef probe, TypeRef ty);
     // P4-pm-12: names from `mut x` patterns (`match scrut { mut z =>
     // … }`). PatWild's LIR mirror doesn't carry the mut flag, so
     // build_pattern_impl appends to this side-channel and

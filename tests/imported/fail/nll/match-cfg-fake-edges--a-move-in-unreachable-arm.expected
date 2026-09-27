@@ -1,3 +1,3 @@
-# Logos refuses an arm after an unguarded catch-all (spec expr.match.arm-after-catchall-unreachable);
-# rustc only warns and reports the fake-edge move (E0382).
-unreachable match arm: a previous '_' arm matches all values
+# rustc warns on the unreachable arm and reports the fake-edge move (E0382); so does Logos since
+# the arm-after-catchall diagnostic became the warning rustc gives (ADR 0030 S3).
+use of moved value: 'x'

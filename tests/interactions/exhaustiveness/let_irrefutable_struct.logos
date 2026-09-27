@@ -1,0 +1,6 @@
+// exhaustiveness oracle battery (ADR 0030 S3): let S{a, b} = s;
+package let_irrefutable_struct;
+struct S { a: i64, b: i64 }
+fn run() -> i32 { let s = S { a: 3i64, b: 4i64 }; let S { a, b } = s; return (a * 10i64 + b) as i32; }
+
+fn main() -> i32 { return run(); }

@@ -37,6 +37,7 @@ fn main() -> i64 {
                 if *tail != 5i64 { return 4; }            // suffix at len-1
                 if slice_len(mid) != 3i64 { return 5; }   // rest sub-slice len = 5-2
             }
+            _ => { return 6; }   // lengths 0 and 1: rustc requires the arm (E0004)
         }
     }
 

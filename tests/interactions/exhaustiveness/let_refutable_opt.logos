@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): let Some(x) = opt; (E0005)
+package let_refutable_opt;
+fn run() -> i32 { let o: Option<i64> = Option::None; let Option::Some(x) = o; return x as i32; }
+
+fn main() -> i32 { return run(); }

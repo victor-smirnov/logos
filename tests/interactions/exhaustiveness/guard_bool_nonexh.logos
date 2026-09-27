@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): bool {true if cond, false} (value=true, cond false)
+package guard_bool_nonexh;
+fn run() -> i32 { let b: bool = true; let k: i64 = 0i64; let r: i32 = match b { true if k > 0i64 => 1i32, false => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

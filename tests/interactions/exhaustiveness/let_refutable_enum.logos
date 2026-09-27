@@ -1,0 +1,7 @@
+// exhaustiveness oracle battery (ADR 0030 S3): let Color::R = c; (E0005)
+package let_refutable_enum;
+enum Color { R, G, B }
+
+fn run() -> i32 { let c = Color::B; let Color::R = c; return 1i32; }
+
+fn main() -> i32 { return run(); }

@@ -1,0 +1,7 @@
+// exhaustiveness oracle battery (ADR 0030 S3): Circle(0), Circle(_), Rect(..), Empty
+#![allow(dead_code, unused_variables, unused_assignments)]
+enum Shape { Circle(i64), Rect(i64, i64), Empty }
+
+fn run() -> i32 { let s = Shape::Circle(5i64); let r: i64 = match s { Shape::Circle(0i64) => 1i64, Shape::Circle(_) => 7i64, Shape::Rect(_, _) => 2i64, Shape::Empty => 3i64 }; return r as i32; }
+
+fn main() { std::process::exit(run()); }

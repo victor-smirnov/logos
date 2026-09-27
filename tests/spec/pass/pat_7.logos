@@ -58,10 +58,12 @@ fn main() -> i64 {
                 if *tail != 5i64 { return 5; }           // suffix elem (T)
                 if slice_len(mid) != 3i64 { return 6; }  // rest is &[T], len 3
             }
+            _ => { return 9; }   // lengths 0 and 1: rustc requires the arm (E0004)
         }
         // anonymous rest binds nothing
         let got: i64 = match s {
             [first, ..] => *first,
+            [] => 0i64,   // the empty slice: rustc requires the arm (E0004)
         };
         if got != 1i64 { return 7; }
     }

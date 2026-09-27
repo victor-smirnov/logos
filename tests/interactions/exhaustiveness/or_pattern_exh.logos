@@ -1,0 +1,7 @@
+// exhaustiveness oracle battery (ADR 0030 S3): Color {R|G, B}
+package or_pattern_exh;
+enum Color { R, G, B }
+
+fn run() -> i32 { let c = Color::G; let r: i32 = match c { Color::R | Color::G => 1i32, Color::B => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

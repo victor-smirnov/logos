@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): [bool;2] missing [f,t] (value=[f,t])
+package array2_bool_nonexh;
+fn run() -> i32 { let a: [bool; 2] = [false, true]; let r: i32 = match a { [true, _] => 1i32, [false, false] => 3i32 }; return r; }
+
+fn main() -> i32 { return run(); }

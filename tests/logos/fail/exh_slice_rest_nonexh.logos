@@ -1,0 +1,8 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc ACCEPTED this non-exhaustive / refutable shape and the missing
+// value fell through (undefined value, SIGSEGV or the code after); rustc refuses it (E0004).
+// exhaustiveness oracle battery (ADR 0030 S3): &[i64] {[a,b,rest@..],[]} len-1 missing (value len 1)
+package exh_slice_rest_nonexh;
+fn f(v: &[i64]) -> i64 { match v { [a, b, rest @ ..] => *a + *b + rest.len() as i64, [] => 0i64 } }
+fn run() -> i32 { let a: [i64; 4] = [1i64, 2i64, 3i64, 4i64]; return f(&a[0..1]) as i32; }
+
+fn main() -> i32 { return run(); }

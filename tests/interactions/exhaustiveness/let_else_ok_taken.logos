@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): let Some(x) = o else {..}; (value=Some(7))
+package let_else_ok_taken;
+fn run() -> i32 { let o: Option<i64> = Option::Some(7i64); let Option::Some(x) = o else { return 11i32; }; return x as i32; }
+
+fn main() -> i32 { return run(); }

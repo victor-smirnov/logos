@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): char {'\0'..='\u{D7FF}', '\u{E000}'..='\u{10FFFF}'}
+package char_full_exh;
+fn run() -> i32 { let c: char = 'x'; let r: i32 = match c { '\0'..='\u{D7FF}' => 1i32, '\u{E000}'..='\u{10FFFF}' => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

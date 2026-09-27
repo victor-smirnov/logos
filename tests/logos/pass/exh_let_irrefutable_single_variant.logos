@@ -1,0 +1,7 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc REFUSED this shape (or failed it) and rustc runs it (exit 9).
+// exhaustiveness oracle battery (ADR 0030 S3): enum W{V(i64)}; let W::V(x) = w;
+package exh_let_irrefutable_single_variant;
+enum W { V(i64) }
+fn run() -> i32 { let w = W::V(9i64); let W::V(x) = w; return x as i32; }
+
+fn main() -> i32 { return run(); }

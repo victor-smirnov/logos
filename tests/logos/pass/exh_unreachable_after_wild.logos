@@ -1,0 +1,8 @@
+// ADR 0030 S3 (C-PAT) battery catch: logosc REFUSED this shape (or failed it) and rustc runs it (exit 1).
+// exhaustiveness oracle battery (ADR 0030 S3): Color {_, R} arm after wildcard (warning)
+package exh_unreachable_after_wild;
+enum Color { R, G, B }
+
+fn run() -> i32 { let c = Color::R; let r: i32 = match c { _ => 1i32, Color::R => 2i32 }; return r; }
+
+fn main() -> i32 { return run(); }

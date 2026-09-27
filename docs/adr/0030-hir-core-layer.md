@@ -381,6 +381,33 @@ Next: or-patterns / parameter patterns (sema already binds a parameter pattern
 through the `let` door), `..base`; tail → return stays sema's single judgment
 (a unit tail needs a type).
 
+## S3 status (2026-09-27)
+
+S3.1 — ONE exhaustiveness verdict. The usefulness matrix
+(`ast_patterns_exhaustive`) models every column type: enums, bool, tuples,
+structs, references (peeled; an EMPTY match asks the type as written —
+`&Empty` is inhabited), integers and `char` (the domain split into the
+elementary intervals the column's literals / ranges bound; `char` skips the
+surrogates), slices and arrays (one constructor per length up to
+max(longest fixed + 1, longest prefix + suffix)), strings / floats / 128-bit
+integers (unbounded: only wildcard rows cover). `check_exhaustive_` is the
+verdict for the statement and the expression `match` alike; a decided miss is
+E0004 (naming the missing top-level variants / bool values, else the generic
+sentence). The LIR-level variant checks run only where the matrix could not
+decide; `refuse_uncovered_aggregate` is gone. `let` refutability is the same
+matrix (`let_pattern_irrefutable_`): a one-variant enum, a full-domain range,
+`Ok(v)` over an uninhabited error are irrefutable. An arm after an unguarded
+`_` is rustc's warning, not an error. Or-patterns parse in a struct-pattern
+field. Oracle: tests/interactions/exhaustiveness (106 probes vs rustc 1.98.1;
+33 disagreements before, 3 after — all the const-path range bound, squeue
+range_pattern_const_bound_refused); 30 catches became fixtures (`exh_*`);
+squeue range_pattern_full_span_refused and let_single_variant_enum_refused
+closed. Five pass fixtures asserted a non-exhaustive slice / array match
+(rustc: E0004) and carry the missing arm now.
+Next: S3.2 `lower_match_core` (the statement match as the void expression
+match; tier-1 squeue reference_range_pattern_wrong — `&(1..=5)` never
+matches — and the pattern-lowering clusters).
+
 ## L0 status (2026-09-27)
 
 Slice 1 — the mechanism and the traits. `#[lang = "name"]` (the annotation

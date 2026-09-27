@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): let (0i64, y) = t; (E0005)
+package let_refutable_tuple_inner;
+fn run() -> i32 { let t = (5i64, 6i64); let (0i64, y) = t; return y as i32; }
+
+fn main() -> i32 { return run(); }

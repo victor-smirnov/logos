@@ -1,0 +1,5 @@
+// exhaustiveness oracle battery (ADR 0030 S3): Result<Option<i64>,i64> missing Ok(None) (value=Ok(None))
+package res_opt_nonexh;
+fn run() -> i32 { let o: Result<Option<i64>, i64> = Result::Ok(Option::None); let r: i64 = match o { Result::Ok(Option::Some(x)) => x, Result::Err(e) => e }; return r as i32; }
+
+fn main() -> i32 { return run(); }

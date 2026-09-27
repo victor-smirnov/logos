@@ -1,0 +1,8 @@
+// exhaustiveness oracle battery (ADR 0030 S3): fn f(e: Empty) { match e {} }
+package empty_enum_match;
+enum Empty {}
+
+fn f(e: Empty) -> i32 { match e {} }
+fn run() -> i32 { return 4i32; }
+
+fn main() -> i32 { return run(); }

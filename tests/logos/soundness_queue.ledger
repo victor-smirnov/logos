@@ -300,8 +300,6 @@ labeled_block_expr_refused 3 tests/soundness/open/labeled_block_expr_refused ref
 
 let_ref_mut_binding_crash 3 tests/soundness/open/let_ref_mut_binding_crash refuses
 
-let_single_variant_enum_refused 3 tests/soundness/open/let_single_variant_enum_refused refuses
-
 main_signature_unchecked_admitted 3 tests/soundness/open/main_signature_unchecked_admitted admits
 
 match_guard_if_let_refused 3 tests/soundness/open/match_guard_if_let_refused refuses
@@ -363,8 +361,6 @@ no_main_attr_ignored_admitted 4 tests/soundness/open/no_main_attr_ignored_admitt
 no_std_attr_ignored_admitted 4 tests/soundness/open/no_std_attr_ignored_admitted admits
 
 numeric_literal_underscore_placement_refused 4 tests/soundness/open/numeric_literal_underscore_placement_refused refuses
-
-range_pattern_full_span_refused 4 tests/soundness/open/range_pattern_full_span_refused refuses
 
 raw_byte_string_literal_refused 4 tests/soundness/open/raw_byte_string_literal_refused refuses
 
@@ -467,5 +463,5 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
-# TOTAL 145
-# SYNC-HASH e21946a3fc304f0f95d946e608956caa
+# TOTAL 143
+# SYNC-HASH c0dc391ceda31005b26d11728aff05ec
