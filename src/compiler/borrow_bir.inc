@@ -3467,6 +3467,49 @@ private:
         for (auto ft : fts) walk(ft, false, 0);
         return co && !bad;
     }
+    // The three variance queries below recurse through nested struct
+    // definitions; a recursive type (`T { c1: Option<Box<T<K,V>>>, c2: .. }`)
+    // re-expanded every branch down to the depth cap, exponentially (#696).
+    // Each answer is an OR over the answers it asks for, so the outermost
+    // query computes the least fixpoint: a node is expanded once per round, a
+    // node still in progress answers its previous round's value (first
+    // `false`), and rounds repeat until no value changes. Every node settled
+    // so is cached; nothing reached under the depth cap is.
+    using VarianceKey = std::tuple<int, const uint8_t*, size_t>;
+    mutable std::map<VarianceKey, bool> variance_done_, variance_val_;
+    mutable std::set<VarianceKey> variance_round_, variance_open_;
+    mutable bool variance_changed_ = false;
+    mutable size_t variance_caps_ = 0;
+    template <class F>
+    bool variance_memo_(int q, TypeRef t, size_t i, int depth, bool at_cap, F&& compute) const {
+        if (!t) return compute();
+        if (depth > 8) { ++variance_caps_; return at_cap; }
+        const VarianceKey key{q, t.addr(), i};
+        if (auto it = variance_done_.find(key); it != variance_done_.end()) return it->second;
+        auto node = [&]() -> bool {
+            if (variance_round_.count(key) || variance_open_.count(key)) return variance_val_[key];
+            variance_open_.insert(key);
+            const bool r = compute();
+            variance_open_.erase(key);
+            variance_round_.insert(key);
+            bool& v = variance_val_[key];
+            if (r != v) { v = r; variance_changed_ = true; }
+            return r;
+        };
+        if (!variance_open_.empty()) return node();
+        const size_t caps = variance_caps_;
+        bool r = false;
+        do {
+            variance_changed_ = false;
+            variance_round_.clear();
+            r = node();
+        } while (variance_changed_);
+        if (caps == variance_caps_)
+            for (auto& [k, v] : variance_val_) variance_done_[k] = v;
+        variance_val_.clear();
+        variance_round_.clear();
+        return r;
+    }
     // Whether a struct's `i`-th lifetime parameter occurs in an INVARIANT
     // position of its fields: behind `&mut` / `*mut`, or as an invariant
     // parameter of a nested struct. `Outer<'a, 'b> { i: Inner<'a, 'b> }` with
@@ -3474,7 +3517,10 @@ private:
     // `Inner` into an `Outer` must tie 'b both ways — one way, what is later
     // pushed through `h.i.r` never reached `vs` (#465).
     bool struct_lt_invariant(TypeRef t, size_t i, int depth = 0) const {
-        if (!t || depth > 8) return false;
+        return variance_memo_(0, t, i, depth, false, [&] { return struct_lt_invariant_(t, i, depth); });
+    }
+    bool struct_lt_invariant_(TypeRef t, size_t i, int depth) const {
+        if (!t) return false;
         std::vector<std::string> lps;
         std::vector<TypeRef> fts;
         if (!adt_decl_(t, lps, fts) || i >= lps.size()) return false;
@@ -3519,7 +3565,10 @@ private:
     // still there (else the instance's fields, by type). `Cell<T> { v:
     // UnsafeCell<T> }` fixes T exactly, so `&Cell<&'y i64>` ties 'y both ways.
     bool struct_tp_invariant(TypeRef t, size_t i, int depth = 0) const {
-        if (!t || depth > 8 || t.kind() != LogosType::Kind::Struct) return false;
+        return variance_memo_(1, t, i, depth, false, [&] { return struct_tp_invariant_(t, i, depth); });
+    }
+    bool struct_tp_invariant_(TypeRef t, size_t i, int depth) const {
+        if (!t || t.kind() != LogosType::Kind::Struct) return false;
         std::string base(t.struct_name());
         const lir_view::StructView* sd = nullptr;
         auto it = struct_def_find(ts_.struct_by_name, t, base);
@@ -3573,7 +3622,10 @@ private:
     // closure or a trait object in its definition — where its variance may be
     // contravariant. Otherwise (not invariant either) it is covariant.
     bool struct_tp_fn_use(TypeRef t, size_t i, int depth = 0) const {
-        if (!t || depth > 8 || t.kind() != LogosType::Kind::Struct) return true;
+        return variance_memo_(2, t, i, depth, true, [&] { return struct_tp_fn_use_(t, i, depth); });
+    }
+    bool struct_tp_fn_use_(TypeRef t, size_t i, int depth) const {
+        if (!t || t.kind() != LogosType::Kind::Struct) return true;
         auto ta = t.type_args();
         if (i >= ta.size()) return true;
         TypeRef arg_ty = ta[i];

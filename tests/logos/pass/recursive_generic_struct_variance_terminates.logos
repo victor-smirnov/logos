@@ -1,0 +1,20 @@
+package recursive_generic_struct_variance_terminates;
+use logos.std.fmt;
+struct N<K, V> { fK: K, fV: V, c1: Option<Box<N<K, V>>>, c2: Option<Box<N<K, V>>> }
+struct T<A, B, C> { a: A, b: B, c: C, c1: Option<Box<T<A, B, C>>>, c2: Option<Box<T<A, B, C>>>, c3: Option<Box<T<B, C, A>>>, c4: Vec<T<A, B, C>> }
+struct L<'a, 'b> { x: &'a i64, y: &'b mut i64, l1: Option<Box<L<'a, 'b>>>, l2: Option<Box<L<'b, 'a>>>, l3: Option<Box<L<'a, 'b>>> }
+struct F<X, Y> { f: fn(X) -> Y, g1: Option<Box<F<X, Y>>>, g2: Option<Box<F<Y, X>>>, g3: Option<Box<F<X, Y>>> }
+enum E<K, V> { Leaf(K, V), Node(Box<E<K, V>>, Box<E<K, V>>, Box<E<V, K>>) }
+fn id(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let t: T<i32, i64, u8> = T { a: 1, b: 2, c: 3, c1: None, c2: None, c3: None, c4: Vec::new() };
+    let x: i64 = 1;
+    let mut y: i64 = 2;
+    let l: L = L { x: &x, y: &mut y, l1: None, l2: None, l3: None };
+    let f: F<i64, i64> = F { f: id, g1: None, g2: None, g3: None };
+    let e: E<i64, i32> = E::Leaf(1, 2);
+    let r: &T<i32, i64, u8> = &t;
+    let n: Option<Box<N<i32, i32>>> = Some(Box::new(N { fK: 1, fV: 1, c1: None, c2: None }));
+    println!("{}", n.is_some());
+    return (r.a + (*l.x as i32) + ((f.f)(0) as i32)) - 2;
+}
