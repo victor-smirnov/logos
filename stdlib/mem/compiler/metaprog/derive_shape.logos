@@ -1,0 +1,228 @@
+// logos.std.compiler.metaprog — the shape of a derive target, read once.
+//
+// Every standard derive walks the same three things: the item's generic
+// header, its data shape (named / tuple / unit struct, or enum), and — for an
+// enum — each variant's payload shape. `derive_shape_of` reads them into
+// quote-ready cursors so each derive is one `quote_item!` over the same
+// pattern-match skeleton rustc's derives expand to:
+//
+//   match self {
+//       Self::U => …,                                  // unit variants
+//       Self::T(__self_0, __self_1) => …,              // tuple variants
+//       Self::S { x: __self_0 } => …,                  // struct variants
+//       Name { x: __self_0 } => …,                     // named / unit struct
+//       Name(__self_0) => …,                           // tuple struct
+//   }
+//
+// A struct is a 0-or-1 element cursor in the `Name { … }` or `Name( … )` arm
+// group, so one template covers every shape: the groups that do not apply
+// expand to nothing. A unit struct is the named arm with no fields (`Name {}`).
+//
+// Generic header: type params get the derive's trait bound; const params are
+// carried as `const N: T` (never bounded — `N: Copy` would treat a value as a
+// type). Lifetime params are not carried.
+
+package logos.std.compiler.metaprog;
+
+use logos.mem.collections.vec;
+use logos.lang.writ.anyval;
+
+/// A derive target's generic header, data shape, and per-variant payloads.
+pub struct DeriveShape {
+    /// The item's name.
+    pub nm: Ident,
+    /// `true` when the item declares any type or const param.
+    pub generic: bool,
+    /// Type params (each gets the derive's trait bound).
+    pub tparams: Vec<Ident>,
+    /// Const param names, parallel to `ctypes`.
+    pub cparams: Vec<Ident>,
+    /// Const param type names, parallel to `cparams`.
+    pub ctypes: Vec<Ident>,
+    /// Type and const params in declaration order (the `Name<…>` argument list).
+    pub gargs: Vec<Ident>,
+    /// Unit variants.
+    pub unit_v: Vec<Ident>,
+    /// Tuple variants, with per-variant bindings for `self` / `other`.
+    pub tup_v: Vec<Ident>,
+    /// `self`-side bindings per tuple variant.
+    pub tup_a: Vec<Vec<Ident>>,
+    /// `other`-side bindings per tuple variant.
+    pub tup_b: Vec<Vec<Ident>>,
+    /// Struct-like variants (and, as a 0/1-element list, a named or unit struct's name).
+    pub st_v: Vec<Ident>,
+    /// Field names per struct-like variant.
+    pub st_f: Vec<Vec<Ident>>,
+    /// `self`-side bindings per struct-like variant.
+    pub st_a: Vec<Vec<Ident>>,
+    /// `other`-side bindings per struct-like variant.
+    pub st_b: Vec<Vec<Ident>>,
+    /// A named or unit struct's name (0 or 1 element).
+    pub sn: Vec<Ident>,
+    /// Field names of the named struct (one inner list, present iff `sn` is).
+    pub sn_f: Vec<Vec<Ident>>,
+    /// `self`-side bindings of the named struct.
+    pub sn_a: Vec<Vec<Ident>>,
+    /// `other`-side bindings of the named struct.
+    pub sn_b: Vec<Vec<Ident>>,
+    /// A tuple struct's name (0 or 1 element).
+    pub tn: Vec<Ident>,
+    /// `self`-side bindings of the tuple struct.
+    pub tn_a: Vec<Vec<Ident>>,
+    /// `other`-side bindings of the tuple struct.
+    pub tn_b: Vec<Vec<Ident>>,
+}
+
+fn ds_code(view: &OView, node: WAny) -> u64 {
+    return view.ast_node_code(node) & (0xFFFF as u64);
+}
+
+fn ds_ident(sv: SView) -> Ident {
+    return Ident { ptr: sv.ptr, len: sv.len };
+}
+
+// The payload list of a VARIANT_DEF / the FIELDS of a STRUCT hold only the
+// entries whose CODE is `want` — doc comments and the `$...` collector's
+// CODE-less aliases share the array.
+fn ds_collect(view: &OView, arr: WAny, want: u64, out: &mut Vec<WAny>) {
+    if arr.is_null() { return; }
+    let n: u64 = view.array_len(arr);
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        let e: WAny = view.array_get(arr, i);
+        if !e.is_null() && ds_code(view, e) == want { out.push(e); }
+        i = i + (1 as u64);
+    }
+}
+
+// Fresh `self` / `other` bindings for `n` payload fields.
+fn ds_binds(n: u64, a: &mut Vec<Ident>, b: &mut Vec<Ident>) {
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        a.push(gensym("__self"));
+        b.push(gensym("__arg1"));
+        i = i + (1 as u64);
+    }
+}
+
+/// Reads the derive target at `item` (a STRUCT or ENUM node).
+pub fn derive_shape_of(view: &OView, item: WAny) -> DeriveShape {
+    let nm: Ident = ds_ident(view.ast_node_name(item));
+    let mut sh: DeriveShape = DeriveShape {
+        nm: nm, generic: false,
+        tparams: vec_new::<Ident>(), cparams: vec_new::<Ident>(),
+        ctypes: vec_new::<Ident>(), gargs: vec_new::<Ident>(),
+        unit_v: vec_new::<Ident>(),
+        tup_v: vec_new::<Ident>(), tup_a: vec_new::<Vec<Ident>>(), tup_b: vec_new::<Vec<Ident>>(),
+        st_v: vec_new::<Ident>(), st_f: vec_new::<Vec<Ident>>(),
+        st_a: vec_new::<Vec<Ident>>(), st_b: vec_new::<Vec<Ident>>(),
+        sn: vec_new::<Ident>(), sn_f: vec_new::<Vec<Ident>>(),
+        sn_a: vec_new::<Vec<Ident>>(), sn_b: vec_new::<Vec<Ident>>(),
+        tn: vec_new::<Ident>(), tn_a: vec_new::<Vec<Ident>>(), tn_b: vec_new::<Vec<Ident>>(),
+    };
+
+    // Generic header: TYPE_PARAMS(27).ITEMS(2) = TYPE_PARAM(90) / CONST_PARAM(133) /
+    // LIFETIME_PARAM(131).
+    let tps: WAny = view.tiny_map_get(item, 27 as u8);
+    if !tps.is_null() {
+        let inner: WAny = view.tiny_map_get(tps, 2 as u8);
+        if !inner.is_null() {
+            let np: u64 = view.array_len(inner);
+            let mut k: u64 = 0 as u64;
+            while k < np {
+                let p: WAny = view.array_get(inner, k);
+                let c: u64 = ds_code(view, p);
+                if c == (90 as u64) {
+                    let id: Ident = ds_ident(view.ast_node_name(p));
+                    sh.tparams.push(id);
+                    sh.gargs.push(id);
+                    sh.generic = true;
+                } else if c == (133 as u64) {
+                    let id: Ident = ds_ident(view.ast_node_name(p));
+                    let ty: WAny = view.ast_type_child(p);
+                    sh.cparams.push(id);
+                    sh.ctypes.push(ds_ident(view.ast_node_name(ty)));
+                    sh.gargs.push(id);
+                    sh.generic = true;
+                }
+                k = k + (1 as u64);
+            }
+        }
+    }
+
+    if ds_code(view, item) == (80 as u64) {
+        // ENUM: ITEMS(2) = variant_list { ITEMS(2): [VARIANT_DEF(81) …] }.
+        let mut vars: Vec<WAny> = vec_new::<WAny>();
+        let vl: WAny = view.tiny_map_get(item, 2 as u8);
+        if !vl.is_null() { ds_collect(view, view.tiny_map_get(vl, 2 as u8), 81 as u64, &mut vars); }
+        let nv: u64 = vars.len() as u64;
+        let mut i: u64 = 0 as u64;
+        while i < nv {
+            let v: WAny = vars[i as i64];
+            let vname: Ident = ds_ident(view.ast_node_name(v));
+            // Payload: ITEMS(2) = { ITEMS(2): [type_ref …] } (tuple) or
+            // { ITEMS(2): [FIELD_DEF …] } (struct-shape, IS_STRUCT_SHAPE(47)).
+            let is_struct: bool = !view.tiny_map_get(v, 47 as u8).is_null();
+            let pl: WAny = view.tiny_map_get(v, 2 as u8);
+            if is_struct {
+                let mut flds: Vec<WAny> = vec_new::<WAny>();
+                if !pl.is_null() {
+                    if ds_code(view, pl) == (51 as u64) { flds.push(pl); }
+                    else { ds_collect(view, view.tiny_map_get(pl, 2 as u8), 51 as u64, &mut flds); }
+                }
+                let mut fs: Vec<Ident> = vec_new::<Ident>();
+                let mut j: i64 = 0;
+                while j < flds.len() {
+                    fs.push(ds_ident(view.ast_field_name(flds[j])));
+                    j = j + 1;
+                }
+                let mut a: Vec<Ident> = vec_new::<Ident>();
+                let mut b: Vec<Ident> = vec_new::<Ident>();
+                ds_binds(fs.len() as u64, &mut a, &mut b);
+                sh.st_v.push(vname);
+                sh.st_f.push(fs);
+                sh.st_a.push(a);
+                sh.st_b.push(b);
+            } else if pl.is_null() {
+                sh.unit_v.push(vname);
+            } else {
+                let items: WAny = view.tiny_map_get(pl, 2 as u8);
+                let mut n: u64 = 1 as u64;
+                if !items.is_null() { n = view.array_len(items); }
+                let mut a: Vec<Ident> = vec_new::<Ident>();
+                let mut b: Vec<Ident> = vec_new::<Ident>();
+                ds_binds(n, &mut a, &mut b);
+                sh.tup_v.push(vname);
+                sh.tup_a.push(a);
+                sh.tup_b.push(b);
+            }
+            i = i + (1 as u64);
+        }
+        return sh;
+    }
+
+    // STRUCT: FIELDS(22) = [FIELD_DEF(51) …]; a tuple struct's fields have no NAME.
+    let mut flds: Vec<WAny> = vec_new::<WAny>();
+    ds_collect(view, view.tiny_map_get(item, 22 as u8), 51 as u64, &mut flds);
+    let is_tuple: bool = flds.len() > 0 && view.ast_field_name(flds[0]).len == (0 as u64);
+    let mut a: Vec<Ident> = vec_new::<Ident>();
+    let mut b: Vec<Ident> = vec_new::<Ident>();
+    ds_binds(flds.len() as u64, &mut a, &mut b);
+    if is_tuple {
+        sh.tn.push(nm);
+        sh.tn_a.push(a);
+        sh.tn_b.push(b);
+    } else {
+        let mut fs: Vec<Ident> = vec_new::<Ident>();
+        let mut j: i64 = 0;
+        while j < flds.len() {
+            fs.push(ds_ident(view.ast_field_name(flds[j])));
+            j = j + 1;
+        }
+        sh.sn.push(nm);
+        sh.sn_f.push(fs);
+        sh.sn_a.push(a);
+        sh.sn_b.push(b);
+    }
+    return sh;
+}

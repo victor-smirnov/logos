@@ -1,0 +1,31 @@
+// `Self::V`, `Self::V(..)` and `Self::V { .. }` patterns inside an `impl Enum`
+// resolve `Self` to the enclosing enum, as rustc does (the expression side
+// already did). Each used to be "pattern: unknown enum 'Self'".
+package pattern_self_enum_variants;
+enum E { A, B(i64, i64), C { x: i64 } }
+impl E {
+    fn weight(&self) -> i64 {
+        match self {
+            Self::A => { return 1; }
+            Self::B(a, b) => { return *a + *b; }
+            Self::C { x } => { return *x * 10; }
+        }
+    }
+    fn same(&self, o: &E) -> bool {
+        match (self, o) {
+            (Self::A, Self::A) => { return true; }
+            (Self::B(a, _), Self::B(b, _)) => { return *a == *b; }
+            (Self::C { x: a }, Self::C { x: b }) => { return *a == *b; }
+            _ => { return false; }
+        }
+    }
+}
+fn main() -> i32 {
+    if E::A.weight() != 1 { return 1; }
+    if E::B(2, 3).weight() != 5 { return 2; }
+    if (E::C { x: 4 }).weight() != 40 { return 3; }
+    if !E::B(1, 9).same(&E::B(1, 0)) { return 4; }
+    if E::A.same(&E::B(1, 0)) { return 5; }
+    if !(E::C { x: 2 }).same(&E::C { x: 2 }) { return 6; }
+    return 0;
+}

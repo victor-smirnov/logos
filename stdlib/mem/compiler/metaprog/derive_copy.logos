@@ -1,19 +1,16 @@
-// logos.std.compiler.metaprog — derive(Copy) for plain and generic structs.
+// logos.std.compiler.metaprog — derive(Copy).
 //
 // Hook for `#[derive_copy]`. Emits the marker
 //
-//   impl<T1, T2, ...> Copy for Name<T1, T2, ...> {}
+//   impl<const N: usize, T: Copy> Copy for Name<N, T> {}
 //
 // `Copy` is a no-method marker trait (Logos parity with Rust); the
 // sema-side auto-Copy rule already requires every field to be Copy
 // when an `impl Copy` lands, so the handler doesn't have to check
-// field-Copy-ness explicitly — a struct with a non-Copy field
-// produces the standard "field of `S` is not Copy" diagnostic at the
-// impl-collection site. Generic structs get a `T: Copy` bound per
-// type parameter (Rust parity — `impl<T: Copy> Copy for S<T>`).
+// field-Copy-ness explicitly. Type params get a `T: Copy` bound (Rust
+// parity); const params are carried unbounded. Header: derive_shape.logos.
 //
-// §6.10 sub-deliverable 2/8 — simplest of the eight standard
-// derives after Default (no body, no field iteration in the impl).
+// §6.10 sub-deliverable 2/8.
 
 package logos.std.compiler.metaprog;
 
@@ -26,29 +23,17 @@ fn derive_copy_hook(target_offset: u32) -> () {
     if view.holder == (0 as *mut u8) { return; }
 
     let item: WAny = view.node_at(target_offset);
-    let nm_sv: SView = view.ast_node_name(item);
-    if nm_sv.len == (0 as u64) { return; }
-    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+    let sh: DeriveShape = derive_shape_of(&view, item);
+    let nm: Ident = sh.nm;
+    let tparams: Vec<Ident> = sh.tparams;
+    let cparams: Vec<Ident> = sh.cparams;
+    let ctypes: Vec<Ident> = sh.ctypes;
+    let gargs: Vec<Ident> = sh.gargs;
 
-    let np: u64 = view.ast_type_param_count(item);
-    let mut tparams: Vec<Ident> = vec_new::<Ident>();
-    let mut k: u64 = 0 as u64;
-    while k < np {
-        let tp: SView = view.ast_type_param_name(item, k);
-        tparams.push(Ident { ptr: tp.ptr, len: tp.len });
-        k = k + (1 as u64);
-    }
-
-    if np == (0 as u64) {
-        let blob: QuoteItemBlob = quote_item! {
-            impl Copy for #(nm) {}
-        };
-        unsafe { logos_emit_item_blob_subst(&blob); }
-    } else {
-        let blob2: QuoteItemBlob = quote_item! {
-            impl<#( #tparams: Copy ),*> Copy for #nm<#( #tparams ),*> {}
-        };
-        unsafe { logos_emit_item_blob_subst(&blob2); }
-    }
+    let blob: QuoteItemBlob = quote_item! {
+        impl<#( const #cparams: #ctypes ),*, #( #tparams: Copy ),*> Copy for #nm<#( #gargs ),*> {}
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
     return;
 }

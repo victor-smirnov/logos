@@ -4531,6 +4531,24 @@ mlir::Value MLIRGenImpl::emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
     return builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
 }
 
+// A struct / tuple-struct sub-pattern of a tuple ELEMENT whose type is `&S`
+// (`match (a, b) { (S(x), S(y)) => … }` over references, default by-reference
+// binding mode): the element slot holds the POINTER, while the Struct cases
+// take the struct's own address — the convention a top-level `match &s` hands
+// them. Load once per ref layer. Without it the fields were read out of the
+// pointer's bytes (wrong arm / garbage bindings).
+mlir::Value MLIRGenImpl::tuple_elem_struct_slot(lir_view::PatRef sp, mlir::Value fp, TypeRef ety) {
+    lir_view::PatRef inner = sp;
+    while (inner && inner.kind() == lir_schema::pat::Code::At) inner = lir_view::PatAtView{inner}.sub();
+    if (!inner || inner.kind() != lir_schema::pat::Code::Struct) return fp;
+    while (ety && (TypeRef(ety).kind() == LogosType::Kind::Ref ||
+                   TypeRef(ety).kind() == LogosType::Kind::MutRef) && TypeRef(ety).pointee()) {
+        fp = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
+        ety = TypeRef(ety).pointee();
+    }
+    return fp;
+}
+
 mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty) {
     namespace pc = lir_schema::pat;
     auto true_c = [&]{ return builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1).getResult(); };
@@ -4577,7 +4595,8 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
             size_t idx = i++;
             if (!sp || idx >= elems.size()) return;
             llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
-            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            mlir::Value fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            fp = tuple_elem_struct_slot(sp, fp, elems[idx]);
             auto sc = pat_test(sp, fp, elems[idx]);
             cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
         });
@@ -5040,7 +5059,8 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
             size_t idx = i++;
             if (!sp || idx >= elems.size()) return;
             llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
-            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            mlir::Value fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            fp = tuple_elem_struct_slot(sp, fp, elems[idx]);
             pat_bind(sp, fp, elems[idx], shared);
         });
         break;

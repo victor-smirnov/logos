@@ -2400,7 +2400,11 @@
                 / KW_MATCH expr LBRACE match_arm* RBRACE
                => { CODE: MATCH, VALUE: $2, ITEMS: $... }
 
-    match_arm <- pattern KW_IF expr FATARROW block COMMA?
+    // `#( arm )*` — a repeated match arm inside a quote_*! body (a derive's
+    // one-arm-per-variant). HASH LPAREN never begins a pattern.
+    match_arm <- HASH LPAREN match_arm RPAREN STAR
+              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+              / pattern KW_IF expr FATARROW block COMMA?
               => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, BODY: $5 }
               / pattern KW_IF expr FATARROW expr COMMA?
               => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, EXPR: $5 }
@@ -2449,7 +2453,9 @@
     // Emit PAT_OR only when a PIPE is actually present, so single-pattern
     // args pass through unchanged (sema's variant-payload arg lowering
     // recurses via build_pattern, which already handles PAT_OR).
-    pat_variant_arg <- DOTDOT
+    pat_variant_arg <- HASH LPAREN pat_variant_arg RPAREN COMMA STAR
+                    => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+                     / DOTDOT
                     => { CODE: PAT_REST }
                      / pat_single PIPE pat_single (PIPE pat_single)*
                     => { CODE: PAT_OR, ITEMS: $... }
@@ -2461,7 +2467,9 @@
             => { CODE: PAT_OR, ITEMS: $... }
 
     // ── Single field in a struct pattern ─────────────────────────────────
-    pat_field <- DOTDOT
+    pat_field <- HASH LPAREN pat_field RPAREN COMMA STAR
+              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
+               / DOTDOT
               => { CODE: PAT_REST }
               // T2-27: `S { 0: a }` — tuple-struct field by index in struct-
               // pattern syntax. The integer is the field name ("0", "1", …);
@@ -2489,6 +2497,9 @@
               => { CODE: PAT_FIELD, NAME_VAR: $4, IS_REF: true, IS_MUT: true }
                / KW_REF HASH IDENT
               => { CODE: PAT_FIELD, NAME_VAR: $3, IS_REF: true }
+               // `S { #f: pat }` — a computed FIELD name bound to a sub-pattern.
+               / HASH IDENT COLON pat_single
+              => { CODE: PAT_FIELD, NAME_VAR: $2, VALUE: $4 }
                / HASH IDENT
               => { CODE: PAT_FIELD, NAME_VAR: $2 }
 
@@ -2637,6 +2648,17 @@
         => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, IS_STRUCT_SHAPE: 1 }
         / IDENT COLONCOLON IDENT
         => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
+        // `E::#v` / `E::#v(..)` / `E::#v { .. }` — a computed VARIANT name
+        // (quote_*! bodies only). The substituted ident lands in FIELD: a
+        // variant pattern that already carries NAME routes NAME_VAR there.
+        / IDENT COLONCOLON HASH IDENT LPAREN pat_variant_args? RPAREN
+        => { CODE: PAT_VARIANT_DATA, NAME: $1, NAME_VAR: $4, ARGS: $6 }
+        / IDENT COLONCOLON HASH IDENT LBRACE pat_field_list RBRACE
+        => { CODE: PAT_VARIANT_DATA, NAME: $1, NAME_VAR: $4, IS_STRUCT_SHAPE: 1, ITEMS: $6 }
+        / IDENT COLONCOLON HASH IDENT LBRACE RBRACE
+        => { CODE: PAT_VARIANT_DATA, NAME: $1, NAME_VAR: $4, IS_STRUCT_SHAPE: 1 }
+        / IDENT COLONCOLON HASH IDENT
+        => { CODE: PAT_VARIANT, NAME: $1, NAME_VAR: $4 }
         // B-ts-01: tuple-struct pattern `Foo(a, b)` (no `::` separator).
         // Emits PAT_VARIANT_DATA with empty FIELD; sema dispatches to
         // tuple-struct destructure when the name resolves as a
@@ -2752,6 +2774,14 @@
         // this is `HASH IDENT`. That is the same reason `let #n` is safe and
         // `block` is not — the hazard was never the sigil, it is whether the
         // position can also begin a STATEMENT or a REPEAT.
+        // `#S(..)` / `#S { .. }` / `#S {}` — a tuple-struct / struct pattern
+        // whose TYPE name the emitter computes. Before the bare `#x` binding.
+        / HASH IDENT LPAREN pat_variant_args RPAREN
+        => { CODE: PAT_VARIANT_DATA, NAME_VAR: $2, ARGS: $4 }
+        / HASH IDENT LBRACE pat_field_list RBRACE
+        => { CODE: PAT_STRUCT, NAME_VAR: $2, ITEMS: $4 }
+        / HASH IDENT LBRACE RBRACE
+        => { CODE: PAT_STRUCT, NAME_VAR: $2 }
         / HASH IDENT
         => { CODE: PAT_WILD, NAME_VAR: $2 }
 
@@ -3385,6 +3415,16 @@
               // segment is the type; sema (lower_enum_lit) derives it from
               // QUAL_PARTS. The data form `pkg.Enum::Variant(args)` is caught
               // earlier by the qualified call_expr alt (routed via static-call).
+              // `E::#v(args)` / `E::#v { f: e }` / `E::#v` — a computed
+              // VARIANT name (quote_*! bodies only). The splice routes the
+              // ident into FIELD: an enum literal that carries NAME takes its
+              // NAME_VAR there.
+              / IDENT COLONCOLON HASH IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+             => { CODE: ENUM_LIT_DATA, NAME: $1, NAME_VAR: $4, ARGS: $... }
+              / IDENT COLONCOLON HASH IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
+             => { CODE: ENUM_LIT_DATA, NAME: $1, NAME_VAR: $4, IS_STRUCT_SHAPE: 1, ITEMS: $... }
+              / IDENT COLONCOLON HASH IDENT
+             => { CODE: ENUM_LIT, NAME: $1, NAME_VAR: $4 }
               / IDENT path_dot_ident+ COLONCOLON IDENT
              => { CODE: ENUM_LIT, NAME: $1, QUAL_PARTS: $2, FIELD: $4 }
               / IDENT COLONCOLON IDENT

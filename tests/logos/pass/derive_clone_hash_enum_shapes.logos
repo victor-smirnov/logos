@@ -1,0 +1,63 @@
+// #[derive_clone] / #[derive_hash] / #[derive_debug] over every data shape:
+// clone rebuilds the SAME variant from each field's clone (unit, tuple,
+// struct-like, empty struct-like; tuple / named structs; a generic enum; a
+// const-generic struct), and hash feeds the variant then its fields, so equal
+// values hash equal and distinct variants / payloads do not collide here.
+// The printed clones match the Rust twin (rustc 1.98.1 --edition 2024).
+package derive_clone_hash_enum_shapes;
+use logos.std.compiler.metaprog;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.clone;
+use logos.lang.hash;
+
+#[derive_clone]
+#[derive_debug]
+#[derive_hash]
+enum E { A, B(i64, String), C { x: i64, s: String }, D {} }
+#[derive_clone]
+#[derive_debug]
+#[derive_hash]
+struct M(i64, String);
+#[derive_clone]
+#[derive_debug]
+#[derive_hash]
+struct P { x: i64, s: String }
+#[derive_clone]
+#[derive_debug]
+#[derive_hash]
+enum G<T> { None, Some(T) }
+#[derive_clone]
+#[derive_debug]
+#[derive_hash]
+struct Poly<const N: usize> { x: i32 }
+
+
+fn he(v: &E) -> u64 { let mut st: FxHasher = fx_hasher_new(); v.hash(&mut st); return st.finish(); }
+fn hm(v: &M) -> u64 { let mut st: FxHasher = fx_hasher_new(); v.hash(&mut st); return st.finish(); }
+fn hp(v: &P) -> u64 { let mut st: FxHasher = fx_hasher_new(); v.hash(&mut st); return st.finish(); }
+fn hg(v: &G<String>) -> u64 { let mut st: FxHasher = fx_hasher_new(); v.hash(&mut st); return st.finish(); }
+fn hq(v: &Poly<3>) -> u64 { let mut st: FxHasher = fx_hasher_new(); v.hash(&mut st); return st.finish(); }
+
+fn main() -> i32 {
+    let e = E::C { x: 2, s: String::from("hi") };
+    let e2 = e.clone();
+    let b = E::B(1, String::from("b"));
+    let b2 = b.clone();
+    let m = M(3, String::from("m")); let m2 = m.clone();
+    let p = P { x: 4, s: String::from("p") }; let p2 = p.clone();
+    let g: G<String> = G::Some(String::from("g")); let g2 = g.clone();
+    let q: Poly<3> = Poly::<3> { x: 9 }; let q2 = q.clone();
+    println!("{:?} {:?} {:?} {:?}", e2, b2, E::A.clone(), (E::D {}).clone());
+    println!("{:?} {:?} {:?} {:?}", m2, p2, g2, q2);
+    if he(&e) != he(&e2) { return 1; }
+    if he(&b) != he(&b2) { return 2; }
+    if hm(&m) != hm(&m2) { return 3; }
+    if hp(&p) != hp(&p2) { return 4; }
+    if hg(&g) != hg(&g2) { return 5; }
+    if he(&E::A) == he(&(E::D {})) { return 6; }
+    if he(&E::B(1, String::from("b"))) == he(&E::B(1, String::from("c"))) { return 7; }
+    if hq(&q) != hq(&q2) { return 8; }
+    return 0;
+}

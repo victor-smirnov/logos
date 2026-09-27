@@ -1,0 +1,46 @@
+// #[derive_partial_eq] compares like rustc's derive(PartialEq): two different
+// enum variants are unequal; the same variant compares its payload field by
+// field (unit, tuple, struct-like and empty struct-like variants), and a
+// generic enum / tuple / named / unit / const-generic struct take the same
+// path. The Rust twin (rustc 1.98.1 --edition 2024) exits 0.
+package derive_partial_eq_enum_variants;
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+use logos.mem.string;
+use logos.lang.str;
+
+#[derive_partial_eq]
+enum E { A, B(i64, bool), C { x: i64, s: String }, D {} }
+#[derive_partial_eq]
+struct M(i64, bool);
+#[derive_partial_eq]
+struct P { x: i64, y: i64 }
+#[derive_partial_eq]
+struct U;
+#[derive_partial_eq]
+enum G<T> { None, Some(T) }
+#[derive_partial_eq]
+struct Poly<const N: usize> { x: i32 }
+
+fn main() -> i32 {
+    if E::A == E::B(1, true) { return 1; }
+    if !(E::A == E::A) { return 2; }
+    if !(E::B(1, true) == E::B(1, true)) { return 3; }
+    if E::B(1, true) == E::B(1, false) { return 4; }
+    if !((E::C { x: 1, s: String::from("a") }) == (E::C { x: 1, s: String::from("a") })) { return 5; }
+    if (E::C { x: 1, s: String::from("a") }) == (E::C { x: 1, s: String::from("b") }) { return 6; }
+    if !((E::D {}) == (E::D {})) { return 7; }
+    if (E::D {}) == E::A { return 8; }
+    if M(1, true) == M(1, false) { return 9; }
+    if !(M(1, true) == M(1, true)) { return 10; }
+    if (P { x: 1, y: 2 }) == (P { x: 1, y: 3 }) { return 11; }
+    if !(U == U) { return 12; }
+    if G::Some(1i64) == G::None { return 13; }
+    if !(G::Some(1i64) == G::Some(1i64)) { return 14; }
+    if G::Some(2i64) == G::Some(1i64) { return 15; }
+    let a: Poly<3> = Poly::<3> { x: 1 };
+    let b: Poly<3> = Poly::<3> { x: 2 };
+    if a == b { return 16; }
+    if !(a == a) { return 17; }
+    return 0;
+}

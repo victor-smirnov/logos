@@ -1,26 +1,14 @@
-// logos.std.compiler.metaprog — derive(Debug) for plain and
-// generic structs.
+// logos.std.compiler.metaprog — derive(Debug).
 //
-// Hook for `#[derive_debug]`. Emits Rust-exact field-named output
-// `Name { f1: <f1>, f2: <f2>, … }` via the `DebugStruct` builder:
+// Hook for `#[derive_debug]`. Emits rustc's expansion, byte-identical output:
 //
-//   impl<T1: Debug, ...> Debug for Name<T1, ...> {
-//       fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-//           let mut __ds: DebugStruct = f.debug_struct("Name");
-//           let _ = __ds.field("f1", &self.f1);
-//           let _ = __ds.field("f2", &self.f2);
-//           …
-//           return __ds.finish();
-//       }
-//   }
+//   unit variant / unit struct   `A`            f.write_str("A")
+//   tuple variant / tuple struct `B(1, true)`   f.debug_tuple("B") + .field(..)
+//   struct variant / struct      `C { x: 1 }`   f.debug_struct("C") + .field("x", ..)
 //
-// Field NAME labels come from `##field` str-position antiquots
-// (T2-22): the quote machinery substitutes an Ident into a string-
-// literal position. The builder owns brace padding + the `, `
-// separators (no trailing comma), so the output is byte-identical
-// to `core::fmt`'s `#[derive(Debug)]`.
-//
-// §6.10 sub-deliverable 8/8.
+// (`D {}` and `struct S {}` print the bare name, as the `DebugStruct` builder
+// with no fields does.) Names come from `##ident` str-position antiquots. One
+// `match self` covers every shape; see derive_shape.logos.
 
 package logos.std.compiler.metaprog;
 
@@ -35,63 +23,54 @@ fn derive_debug_hook(target_offset: u32) -> () {
     if view.holder == (0 as *mut u8) { return; }
 
     let item: WAny = view.node_at(target_offset);
-    let nm_sv: SView = view.ast_node_name(item);
-    if nm_sv.len == (0 as u64) { return; }
-    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+    let sh: DeriveShape = derive_shape_of(&view, item);
+    let nm: Ident = sh.nm;
+    let tparams: Vec<Ident> = sh.tparams;
+    let cparams: Vec<Ident> = sh.cparams;
+    let ctypes: Vec<Ident> = sh.ctypes;
+    let gargs: Vec<Ident> = sh.gargs;
+    let unit_v: Vec<Ident> = sh.unit_v;
+    let tup_v: Vec<Ident> = sh.tup_v;
+    let tup_a: Vec<Vec<Ident>> = sh.tup_a;
+    let st_v: Vec<Ident> = sh.st_v;
+    let st_f: Vec<Vec<Ident>> = sh.st_f;
+    let st_a: Vec<Vec<Ident>> = sh.st_a;
+    let sn: Vec<Ident> = sh.sn;
+    let sn_f: Vec<Vec<Ident>> = sh.sn_f;
+    let sn_a: Vec<Vec<Ident>> = sh.sn_a;
+    let tn: Vec<Ident> = sh.tn;
+    let tn_a: Vec<Vec<Ident>> = sh.tn_a;
 
-    let nf: u64 = view.ast_struct_field_count(item);
-    let mut fnames: Vec<Ident> = vec_new::<Ident>();
-    let mut i: u64 = 0 as u64;
-    while i < nf {
-        let fld: WAny = view.ast_struct_field(item, i);
-        let fsv: SView = view.ast_field_name(fld);
-        fnames.push(Ident { ptr: fsv.ptr, len: fsv.len });
-        i = i + (1 as u64);
-    }
-
-    let np: u64 = view.ast_type_param_count(item);
-    let mut tparams: Vec<Ident> = vec_new::<Ident>();
-    let mut k: u64 = 0 as u64;
-    while k < np {
-        let tp: SView = view.ast_type_param_name(item, k);
-        tparams.push(Ident { ptr: tp.ptr, len: tp.len });
-        k = k + (1 as u64);
-    }
-
-    if np == (0 as u64) {
-        let blob: QuoteItemBlob = quote_item! {
-            impl Debug for #(nm) {
-                fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-                    // Rust-shape `Name { field: value, … }` via the
-                    // `DebugStruct` builder: `##nm`/`##fnames` are
-                    // str-position antiquots (the ident text rendered
-                    // as a string literal). The builder handles brace
-                    // padding + the `, ` separators with no trailing
-                    // comma, matching `core::fmt`'s derive exactly.
-                    let mut __ds: DebugStruct = f.debug_struct(##nm);
-                    #(
-                        { let _ = __ds.field(##fnames, &self.#fnames); }
-                    )*
-                    return __ds.finish();
+    let blob: QuoteItemBlob = quote_item! {
+        impl<#( const #cparams: #ctypes ),*, #( #tparams: Debug ),*> Debug for #nm<#( #gargs ),*> {
+            fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+                match self {
+                    #( Self::#unit_v => { return f.write_str(##unit_v); } )*
+                    #( Self::#tup_v( #( #tup_a ),* ) => {
+                        let mut __dt: DebugTuple = f.debug_tuple(##tup_v);
+                        #( { let _ = __dt.field(#tup_a); } )*
+                        return __dt.finish();
+                    } )*
+                    #( Self::#st_v { #( #st_f: #st_a ),* } => {
+                        let mut __ds: DebugStruct = f.debug_struct(##st_v);
+                        #( { let _ = __ds.field(##st_f, #st_a); } )*
+                        return __ds.finish();
+                    } )*
+                    #( #sn { #( #sn_f: #sn_a ),* } => {
+                        let mut __ds: DebugStruct = f.debug_struct(##sn);
+                        #( { let _ = __ds.field(##sn_f, #sn_a); } )*
+                        return __ds.finish();
+                    } )*
+                    #( #tn( #( #tn_a ),* ) => {
+                        let mut __dt: DebugTuple = f.debug_tuple(##tn);
+                        #( { let _ = __dt.field(#tn_a); } )*
+                        return __dt.finish();
+                    } )*
                 }
             }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob); }
-    } else {
-        let blob2: QuoteItemBlob = quote_item! {
-            impl<#( #tparams: Debug ),*> Debug for #nm<#( #tparams ),*> {
-                fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-                    // Rust-shape `Name { field: value, … }` via the
-                    // `DebugStruct` builder (see non-generic branch).
-                    let mut __ds: DebugStruct = f.debug_struct(##nm);
-                    #(
-                        { let _ = __ds.field(##fnames, &self.#fnames); }
-                    )*
-                    return __ds.finish();
-                }
-            }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob2); }
-    }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
     return;
 }

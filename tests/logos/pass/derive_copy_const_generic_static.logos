@@ -1,0 +1,21 @@
+// #[derive_copy] on a const-generic struct emits `impl<const N: usize> Copy
+// for Poly<N>` (a const param is carried, never bounded as a type), and a
+// static of a generic-struct type is instantiated whether or not an emitted
+// fn reads it — in a metaprog round (readers stubbed) and for an unread static.
+package derive_copy_const_generic_static;
+use logos.std.compiler.metaprog;
+use logos.lang.clone;
+
+#[derive_copy]
+struct Poly<const N: usize> { x: i32, id: i32 }
+static TRI: Poly<3> = Poly::<3> { x: 3, id: 1 };
+
+struct G<T> { v: T }
+static UNREAD: G<i64> = G::<i64> { v: 7 };
+
+fn main() -> i32 {
+    let t: Poly<3> = TRI;
+    let u = t;
+    if t.x == 3 && u.id == 1 && TRI.x == 3 { return 0; }
+    return 1;
+}

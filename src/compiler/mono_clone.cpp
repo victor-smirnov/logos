@@ -7007,6 +7007,15 @@ void Mono::collect_struct_needs_from_output() {
             v.each_payload_type(csn_pool,
                                 [&](TypeRef pt) { collect_type_for_structs(pt); });
         });
+    // AND THE CONSTS/STATICS — a `static S: G<i32>` is a demand for `G<i32>`
+    // whether or not any emitted fn body reads it. It was only reached through
+    // a READING fn, so an unread static — or any static in a metaprog round,
+    // where the readers are stubbed — was emitted with an unregistered struct
+    // type and mlir-gen refused ("unknown struct 'G$G1$i32'").
+    for (auto& c : out_.consts) {
+        collect_type_for_structs(c.type(csn_pool));
+        collect_struct_needs_from_expr(c.value());
+    }
 }
 
 

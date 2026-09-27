@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+C { x: 2, s: "hi" } B(1, "b") A D
+M(3, "m") P { x: 4, s: "p" } Some("g") Poly { x: 9 }

@@ -9574,6 +9574,7 @@ public:
     std::string render_block_src(writ::TinyMapView node);
     std::string render_type_src(writ::TinyMapView node);
     std::string render_pat_src(writ::TinyMapView node);
+    std::string render_pat_field_list(writ::TinyMapView node);
     std::string render_item_src(writ::TinyMapView node);
     // BTFL 8b: one container clause line (kind/entry/measure/ops/stream) at
     // `depth` indent levels — recursion handles nested stream blocks.
@@ -9701,6 +9702,7 @@ private:
     // build_pattern_impl sub-handlers, factored out of its pc-keyed dispatch.
     // Each lowers one pattern kind; depends only on pnode/scrut_type/members
     // (recurses via build_pattern), no state shared across branches.
+    void resolve_self_enum_in_pattern(std::string& pename, const std::string& pvname);
     lir::Pattern build_pattern_variant(writ::TinyMapView pnode, TypeRef scrut_type);
     lir::Pattern build_pattern_variant_data(writ::TinyMapView pnode, TypeRef scrut_type);
     lir::Pattern build_pattern_bytes(writ::TinyMapView pnode, TypeRef scrut_type);

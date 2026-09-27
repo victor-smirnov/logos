@@ -1302,13 +1302,20 @@ extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
                                 // LIT_STR placeholder (`##field`) → ident text
                                 // into VALUE (str label); VAR_REF → NAME.
                                 // (T2-22 str-position antiquot, repeat path.)
-                                bool is_strlit = false;
+                                // `E::#v` variant pattern → FIELD (the
+                                // scalar path's routing, repeat twin).
+                                uint8_t slot = la::NAME.code;
                                 if (tom.has_key(la::CODE.code)) {
                                     AnyVal cv = tom.get(la::CODE.code);
-                                    if (cv.is_value() && cv.as_value<int32_t>() == la::LIT_STR.code)
-                                        is_strlit = true;
+                                    int32_t nc = cv.is_value() ? cv.as_value<int32_t>() : 0;
+                                    if (nc == la::LIT_STR.code)
+                                        slot = la::VALUE.code;
+                                    else if ((nc == la::PAT_VARIANT.code || nc == la::PAT_VARIANT_DATA.code
+                                 || nc == la::ENUM_LIT.code || nc == la::ENUM_LIT_DATA.code)
+                                             && tom.has_key(la::NAME.code))
+                                        slot = la::FIELD.code;
                                 }
-                                (void)tom.put(is_strlit ? la::VALUE.code : la::NAME.code,
+                                (void)tom.put(slot,
                                     AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(name_off)));
                                 dbase = WritAccess::base(doc);
                                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
@@ -1774,6 +1781,12 @@ extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
                         // rel_bind `rel r = #fn;` — the materializer fn ident
                         // lives in VALUE (NAME already holds the literal rel name).
                         else if (nc == la::REL_BIND.code)    target_slot = la::VALUE.code;
+                        // `E::#v` variant pattern — NAME holds the enum, the
+                        // computed VARIANT name goes to FIELD.
+                        else if ((nc == la::PAT_VARIANT.code || nc == la::PAT_VARIANT_DATA.code
+                                 || nc == la::ENUM_LIT.code || nc == la::ENUM_LIT_DATA.code)
+                                 && tom.has_key(la::NAME.code))
+                            target_slot = la::FIELD.code;
                     }
                 }
                 (void)tom.put(target_slot,

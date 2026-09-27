@@ -1,22 +1,26 @@
-// logos.std.compiler.metaprog — derive(Ord) for plain and generic
-// structs.
+// logos.std.compiler.metaprog — derive(Ord).
 //
-// Hook for `#[derive_ord]`. Emits lexicographic Rust-derive(Ord)
-// DIRECTLY: a per-field statement FOLD, each iteration comparing one
-// field and early-returning the first non-Equal —
+// Hook for `#[derive_ord]`. Emits lexicographic Rust-derive(Ord): pair up
+// the fields of both sides by pattern and compare them in declaration order,
+// early-returning the first non-Equal —
 //
-//   impl<T1: Ord, ...> Ord for Name<T1, ...> {
-//       fn cmp(&self, other: &Name<T1, ...>) -> Ordering {
-//           { let __o = self.f1.cmp(&other.f1); if !__o.is_eq() { return __o; } }
-//           { let __o = self.f2.cmp(&other.f2); if !__o.is_eq() { return __o; } }
-//           …
-//           return Ordering::Equal;
+//   impl<const N: usize, T: Ord> Ord for Name<N, T> {
+//       fn cmp(&self, other: &Name<N, T>) -> Ordering {
+//           match (self, other) {
+//               (Name { f1: __self_0, … }, Name { f1: __arg1_0, … }) => {
+//                   { let __o: Ordering = __self_0.cmp(__arg1_0); if !__o.is_eq() { return __o; } }
+//                   …
+//                   return Ordering::Equal;
+//               }
+//           }
 //       }
 //   }
 //
-// (The historical form accumulated a RUNTIME Vec<Ordering> and scanned
-// it — a heap allocation per cmp sidestepping the then-missing
-// statement folds. Empty-field structs degenerate to Equal.)
+// Named, tuple and unit structs (unit: Equal). An ENUM is refused with a
+// diagnostic: rustc orders variants by declaration and `impl Ord for` an enum
+// does not compile yet (the default methods it inherits lose `Self` after the
+// first — interaction cluster derive-ord-enum-self), so emitting one would only
+// move the failure into generated code. Shapes: see derive_shape.logos.
 //
 // §6.10 sub-deliverable 5/8.
 
@@ -32,55 +36,47 @@ fn derive_ord_hook(target_offset: u32) -> () {
     if view.holder == (0 as *mut u8) { return; }
 
     let item: WAny = view.node_at(target_offset);
-    let nm_sv: SView = view.ast_node_name(item);
-    if nm_sv.len == (0 as u64) { return; }
-    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
-
-    let nf: u64 = view.ast_struct_field_count(item);
-    let mut fnames: Vec<Ident> = vec_new::<Ident>();
-    let mut i: u64 = 0 as u64;
-    while i < nf {
-        let fld: WAny = view.ast_struct_field(item, i);
-        let fsv: SView = view.ast_field_name(fld);
-        fnames.push(Ident { ptr: fsv.ptr, len: fsv.len });
-        i = i + (1 as u64);
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+    if (view.ast_node_code(item) & (0xFFFF as u64)) == (80 as u64) {
+        error_at(target_offset, "#[derive_ord] on an enum is not supported yet: `impl Ord` for an enum does not compile (derive-ord-enum-self)");
+        return;
     }
+    let sh: DeriveShape = derive_shape_of(&view, item);
+    let nm: Ident = sh.nm;
+    let tparams: Vec<Ident> = sh.tparams;
+    let cparams: Vec<Ident> = sh.cparams;
+    let ctypes: Vec<Ident> = sh.ctypes;
+    let gargs: Vec<Ident> = sh.gargs;
+    let sn: Vec<Ident> = sh.sn;
+    let sn_f: Vec<Vec<Ident>> = sh.sn_f;
+    let sn_a: Vec<Vec<Ident>> = sh.sn_a;
+    let sn_b: Vec<Vec<Ident>> = sh.sn_b;
+    let tn: Vec<Ident> = sh.tn;
+    let tn_a: Vec<Vec<Ident>> = sh.tn_a;
+    let tn_b: Vec<Vec<Ident>> = sh.tn_b;
 
-    let np: u64 = view.ast_type_param_count(item);
-    let mut tparams: Vec<Ident> = vec_new::<Ident>();
-    let mut k: u64 = 0 as u64;
-    while k < np {
-        let tp: SView = view.ast_type_param_name(item, k);
-        tparams.push(Ident { ptr: tp.ptr, len: tp.len });
-        k = k + (1 as u64);
-    }
-
-    if np == (0 as u64) {
-        let blob: QuoteItemBlob = quote_item! {
-            impl Ord for #(nm) {
-                fn cmp(&self, other: &#(nm)) -> Ordering {
-                    #( {
-                        let __o: Ordering = self.#fnames.cmp(&other.#fnames);
-                        if !__o.is_eq() { return __o; }
+    let blob: QuoteItemBlob = quote_item! {
+        impl<#( const #cparams: #ctypes ),*, #( #tparams: Ord ),*> Ord for #nm<#( #gargs ),*> {
+            fn cmp(&self, other: &#nm<#( #gargs ),*>) -> Ordering {
+                match (self, other) {
+                    #( (#sn { #( #sn_f: #sn_a ),* }, #sn { #( #sn_f: #sn_b ),* }) => {
+                        #( {
+                            let __o: Ordering = #sn_a.cmp(#sn_b);
+                            if !__o.is_eq() { return __o; }
+                        } )*
+                        return Ordering::Equal;
                     } )*
-                    return Ordering::Equal;
+                    #( (#tn( #( #tn_a ),* ), #tn( #( #tn_b ),* )) => {
+                        #( {
+                            let __o: Ordering = #tn_a.cmp(#tn_b);
+                            if !__o.is_eq() { return __o; }
+                        } )*
+                        return Ordering::Equal;
+                    } )*
                 }
             }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob); }
-    } else {
-        let blob2: QuoteItemBlob = quote_item! {
-            impl<#( #tparams: Ord ),*> Ord for #nm<#( #tparams ),*> {
-                fn cmp(&self, other: &#nm<#( #tparams ),*>) -> Ordering {
-                    #( {
-                        let __o: Ordering = self.#fnames.cmp(&other.#fnames);
-                        if !__o.is_eq() { return __o; }
-                    } )*
-                    return Ordering::Equal;
-                }
-            }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob2); }
-    }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
     return;
 }

@@ -1,0 +1,22 @@
+// #[derive_partial_eq] on a tuple struct compares the fields positionally
+// (`self.0 == other.0 && self.1 == other.1`, as rustc derives it), including a
+// field that is itself a derived tuple struct.
+package derive_partial_eq_tuple_struct;
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+#[derive_partial_eq]
+struct M(i64, bool);
+#[derive_partial_eq]
+struct W(i64, M);
+fn main() -> i32 {
+    let a = M(1, true);
+    let b = M(1, false);
+    if a == b { return 3; }
+    if !(a == a) { return 4; }
+    let w1 = W(5, M(1, true));
+    let w2 = W(5, M(1, true));
+    let w3 = W(5, M(2, true));
+    if !(w1 == w2) { return 5; }
+    if w1 == w3 { return 6; }
+    return 0;
+}

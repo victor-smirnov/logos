@@ -1,0 +1,15 @@
+// #[derive_clone] on a struct with a heap-owning field clones it through the
+// field's own Clone (`s: self.s.clone()`), as rustc's derive does.
+package derive_clone_heap_field;
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+#[derive_clone]
+struct Holder { s: String }
+
+fn main() -> i32 {
+    let a = Holder { s: String::from("hi") };
+    let b = a.clone();
+    if b.s.len() != 2 { return 1; }
+    return 0;
+}

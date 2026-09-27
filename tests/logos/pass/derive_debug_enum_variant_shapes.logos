@@ -1,0 +1,34 @@
+// #[derive_debug] prints rustc's derive(Debug) output for every data shape:
+// the VARIANT name for an enum (unit `A`, tuple `B(1, true)`, struct-like
+// `C { x: 2, s: "hi" }`, empty struct-like `D`), tuple / named / unit structs,
+// a generic enum and a const-generic struct. Checked against the Rust twin
+// (rustc 1.98.1 --edition 2024) byte for byte.
+package derive_debug_enum_variant_shapes;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.std.compiler.metaprog;
+
+#[derive_debug]
+enum E { A, B(i64, bool), C { x: i64, s: String }, D {} }
+#[derive_debug]
+struct M(i64, bool);
+#[derive_debug]
+struct P { x: i64, f: i64 }
+#[derive_debug]
+struct U;
+#[derive_debug]
+enum G<T> { None, Some(T) }
+#[derive_debug]
+struct Poly<const N: usize> { x: i32 }
+
+fn main() -> i32 {
+    println!("{:?} {:?} {:?} {:?}", E::A, E::B(1, true), E::C { x: 2, s: String::from("hi") }, E::D {});
+    println!("{:?} {:?} {:?}", M(3, false), P { x: 4, f: 5 }, U);
+    println!("{:?} {:?}", G::Some(7i64), G::<i64>::None);
+    let p: Poly<3> = Poly::<3> { x: 9 };
+    println!("{:?}", p);
+    let s = format!("{:?}", E::B(1, true));
+    if s.as_str() != "B(1, true)" { return 1; }
+    return 0;
+}

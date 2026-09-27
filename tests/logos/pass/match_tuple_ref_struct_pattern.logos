@@ -1,0 +1,25 @@
+// A struct / tuple-struct pattern nested in a tuple of REFERENCES binds its
+// fields through the reference (default by-reference binding mode): the
+// element holds a pointer to the struct and the pattern must load it. The
+// fields used to be read out of the pointer's own bytes (garbage, wrong arm).
+package match_tuple_ref_struct_pattern;
+struct M(i64, bool);
+struct P { x: i64, y: i64 }
+fn eq_m(s: &M, o: &M) -> bool {
+    match (s, o) {
+        (M(a0, a1), M(b0, b1)) => { return *a0 == *b0 && *a1 == *b1; }
+    }
+}
+fn sum_p(s: &P, o: &P) -> i64 {
+    match (s, o) {
+        (P { x: a, y: b }, P { x: c, y: d }) => { return *a + *b + *c + *d; }
+    }
+}
+fn first(s: &M) -> i64 { match (s, 0) { (M(a0, _), _) => { return *a0; } } }
+fn main() -> i32 {
+    if !eq_m(&M(1, true), &M(1, true)) { return 1; }
+    if eq_m(&M(1, true), &M(1, false)) { return 2; }
+    if sum_p(&P { x: 1, y: 2 }, &P { x: 3, y: 4 }) != 10 { return 3; }
+    if first(&M(7, true)) != 7 { return 4; }
+    return 0;
+}

@@ -1,0 +1,8 @@
+// #[derive_ord] on an enum is refused with a named diagnostic instead of the
+// struct-shaped expansion that compared zero fields (every value Equal).
+package derive_ord_enum_refused;
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+#[derive_ord]
+enum E { A, B(i64) }
+fn main() -> i32 { return 0; }

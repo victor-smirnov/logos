@@ -4633,10 +4633,23 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
     return build_pattern_impl(pnode, scrut_type);
 }
 
+// `Self::V` / `Self::V(..)` / `Self::V { .. }` in a pattern inside an
+// `impl Enum` body: `Self` IS the enclosing enum (Rust parity; the expression
+// side already resolves it — G160-1). Without this every Self-spelled variant
+// pattern was "unknown enum 'Self'".
+void SemaChecker::resolve_self_enum_in_pattern(std::string& pename, const std::string& pvname) {
+    if (pename != "Self" || pvname.empty()) return;
+    auto sit = current_type_params_.find("Self");
+    if (sit != current_type_params_.end() && sit->second &&
+        TypeRef(sit->second).kind() == LogosType::Kind::Enum)
+        pename = std::string(TypeRef(sit->second).enum_name());
+}
+
 lir::Pattern SemaChecker::build_pattern_variant(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode); (void)pc;
     auto pename = std::string(str_of(pnode.get(la::NAME.code)));
     auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+    resolve_self_enum_in_pattern(pename, pvname);
     // CP-cm-03: prelude shorthand `Some` / `None` / `Ok` / `Err`
     // (no `Enum::` qualifier). Remap to enum+variant when the
     // user-supplied NAME is one of the prelude variant names.
@@ -4702,6 +4715,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     int32_t pc = code_of(pnode); (void)pc;
     auto pename = std::string(str_of(pnode.get(la::NAME.code)));
     auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+    resolve_self_enum_in_pattern(pename, pvname);
     // CP-cm-03: Rust-prelude shorthand on patterns —
     // `Some(x)` / `Ok(x)` / `Err(x)` parsed as PAT_VARIANT_DATA
     // with NAME=variant, FIELD="". Reroute to enum+variant

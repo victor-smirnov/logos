@@ -1,0 +1,8 @@
+// #[derive_default] on an enum is refused like rustc refuses an enum with no
+// `#[default]` variant — the zero fill picked whichever variant had tag 0.
+package derive_default_enum_refused;
+use logos.std.compiler.metaprog;
+use logos.lang.default;
+#[derive_default]
+enum E { A, B(i64) }
+fn main() -> i32 { return 0; }

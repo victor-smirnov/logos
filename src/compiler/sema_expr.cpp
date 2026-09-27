@@ -4789,7 +4789,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if (tsinfo && tsinfo->is_tuple_struct) {
             std::vector<lir::LExprPtr> arg_exprs;
             if (node.has_key(la::ARGS)) {
-                auto args = arr_of(node.get(la::ARGS.code));
+                auto args = args_array();   // an antiquot `#S(args)` wraps them
                 for (uint64_t i = 0; i < args.size(); ++i)
                     arg_exprs.push_back(lower_expr(map_of(args.get(i))));
             }
@@ -4883,7 +4883,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             LogosType::Kind::Closure) {
         std::vector<lir::LExprPtr> args_v;
         if (node.has_key(la::ARGS)) {
-            auto args = arr_of(node.get(la::ARGS.code));
+            auto args = args_array();
             for (uint64_t i = 0; i < args.size(); ++i)
                 args_v.push_back(lower_expr(map_of(args.get(i))));
         }

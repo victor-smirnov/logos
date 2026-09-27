@@ -451,6 +451,8 @@ sym	logos.mem.writ.tag_system.WritTagSystem__from__g__T
 sym	logos.mem.writ.tag_system.WritTagSystem__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.WritTypeTagSystem__from__g__T
 sym	logos.mem.writ.tag_system.WritTypeTagSystem__type_id__g__ref_T
+sym	logos.std.compiler.metaprog.DeriveShape__from__g__T
+sym	logos.std.compiler.metaprog.DeriveShape__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.Emitter__from__g__T
 sym	logos.std.compiler.metaprog.Emitter__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.ExprBlob__from__g__T
@@ -11691,6 +11693,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__DebugStruct
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DebugTuple
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DefaultBuildHasher
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Delim
+sym	logos_lang.logos.lang.any$type_id_of__g__void__DeriveShape
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DirEntry
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DirEntry$M381aa463d44202a8
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DirPriv
@@ -13098,6 +13101,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__extend_
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$JsonField__as_mut__g__refmut_Vec$G1$E
@@ -13272,6 +13276,37 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__into_iter__g__Vec$G1$
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__is_empty__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__as_mut__g__refmut_Vec$G1$E
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__as_mut_slice__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__as_ref__g__ref_Vec$G1$E
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__as_slice__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__default__g__void
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__deref__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__deref_mut__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__drop__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__extend_one__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$Vec$G1$Ident$M2b09c0fe11e753e9__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__as_mut__g__refmut_Vec$G1$E
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__as_mut_slice__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__as_ref__g__ref_Vec$G1$E
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__as_slice__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__default__g__void
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__deref__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__deref_mut__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__drop__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__extend_one__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__len__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$WAny__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__as_mut__g__refmut_Vec$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__as_mut_slice__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__as_ref__g__ref_Vec$G1$E
@@ -14571,6 +14606,8 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__SsrleRun
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__StreamDescr
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__String
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__TokenTree
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Vec$G1$Ident$M2b09c0fe11e753e9
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__WAny
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__bool
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i64
@@ -14724,6 +14761,7 @@ sym	logos_mem.logos.mem.writ.tag_system$w_tag_size__f__u64
 sym	logos_mem.logos.mem.writ.tag_system$write_tag__f__pmut_u8__u64
 sym	logos_mem.logos.mem.writ.wbs$wbs_read__f__ref_Writ__pcst_u8__i64
 sym	logos_mem.logos.mem.writ.wbs$wbs_write__f__WAny
+sym	logos_mem.logos.std.compiler.metaprog$derive_shape_of__f__ref_OView__WAny
 sym	logos_mem.logos.std.compiler.metaprog$error__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$error_at__f__u32__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$error_located__f__slice_u8
@@ -15563,6 +15601,7 @@ type	logos.mem.writ.tag_system.DataTypeTagSystem	fields=[]
 type	logos.mem.writ.tag_system.TomTagSystem	fields=[]
 type	logos.mem.writ.tag_system.WritTagSystem	fields=[]
 type	logos.mem.writ.tag_system.WritTypeTagSystem	fields=[]
+type	logos.std.compiler.metaprog.DeriveShape	fields=[nm:Ident,generic:bool,tparams:Vec<Ident>,cparams:Vec<Ident>,ctypes:Vec<Ident>,gargs:Vec<Ident>,unit_v:Vec<Ident>,tup_v:Vec<Ident>,tup_a:Vec<Vec<Ident>>,tup_b:Vec<Vec<Ident>>,st_v:Vec<Ident>,st_f:Vec<Vec<Ident>>,st_a:Vec<Vec<Ident>>,st_b:Vec<Vec<Ident>>,sn:Vec<Ident>,sn_f:Vec<Vec<Ident>>,sn_a:Vec<Vec<Ident>>,sn_b:Vec<Vec<Ident>>,tn:Vec<Ident>,tn_a:Vec<Vec<Ident>>,tn_b:Vec<Vec<Ident>>]
 type	logos.std.compiler.metaprog.Emitter	fields=[buf:String]
 type	logos.std.compiler.metaprog.ExprBlob	fields=[ptr:*const u8]
 type	logos.std.compiler.metaprog.Ident	fields=[ptr:*const u8,len:u64]

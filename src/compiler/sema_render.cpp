@@ -819,6 +819,48 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     return std::format("{}{} */", kRenderUnsupported, c);
 }
 
+// ` { f: p, g, .. }` for a PAT_STRUCT / struct-shape PAT_VARIANT_DATA. ITEMS
+// holds the pat_field_list WRAPPER `{ITEMS: [PAT_FIELD | PAT_REST …]}` (as the
+// grammar builds it and build_pattern reads it) — reading ITEMS as the array
+// itself faulted (SIGBUS) on the first struct pattern ever rendered.
+std::string SemaChecker::render_pat_field_list(TinyMapView node) {
+    std::string s = " { ";
+    if (node.has_key(la::ITEMS)) {
+        AnyVal items_av = node.get(la::ITEMS.code);
+        if (!items_av.is_null() && items_av.is_pointer()) {
+            auto wrap = map_of(items_av);
+            if (wrap.has_key(la::ITEMS)) {
+                auto items = arr_of(wrap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i) s += ", ";
+                    auto fi = map_of(items.get(i));
+                    if (code_of(fi) == la::PAT_FIELD) {
+                        auto flag = [&](const auto& k) {
+                            if (!fi.has_key(k)) return false;
+                            AnyVal v = fi.get(k.code);
+                            return !v.is_null() && v.is_value() && v.template as_value<uint8_t>() != 0;
+                        };
+                        // shorthand `ref x` / `ref mut x` / `mut x`
+                        if (!fi.has_key(la::VALUE)) {
+                            if (flag(la::IS_REF)) s += "ref ";
+                            if (flag(la::IS_MUT)) s += "mut ";
+                        }
+                        s += std::string(str_of(fi.get(la::NAME.code)));
+                        if (fi.has_key(la::VALUE)) {
+                            s += ": ";
+                            s += render_pat_src(map_of(fi.get(la::VALUE.code)));
+                        }
+                    } else if (code_of(fi) == la::PAT_REST) {
+                        s += "..";
+                    }
+                }
+            }
+        }
+    }
+    s += " }";
+    return s;
+}
+
 std::string SemaChecker::render_pat_src(TinyMapView node) {
     if (node.is_null()) return "_";
     int32_t c = code_of(node);
@@ -860,6 +902,13 @@ std::string SemaChecker::render_pat_src(TinyMapView node) {
         if (node.has_key(la::FIELD)) {
             s += "::";
             s += std::string(str_of(node.get(la::FIELD.code)));
+        }
+        // Struct-shape variant `E::V { x: p, .. }`: fields ride in ITEMS
+        // (the same wrapped pat_field_list PAT_STRUCT carries) — rendering it
+        // as `E::V()` dropped them and the reparsed program bound nothing.
+        if (node.has_key(la::variant::IS_STRUCT_SHAPE)) {
+            s += render_pat_field_list(node);
+            return s;
         }
         s += "(";
         // ARGS is wrapped: pat_variant_args grammar produces
@@ -933,24 +982,7 @@ std::string SemaChecker::render_pat_src(TinyMapView node) {
     case la::PAT_REST: return "..";
     case la::PAT_STRUCT: {
         std::string s(str_of(node.get(la::NAME.code)));
-        s += " { ";
-        if (node.has_key(la::ITEMS)) {
-            auto items = arr_of(node.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                if (i) s += ", ";
-                auto fi = map_of(items.get(i));
-                if (code_of(fi) == la::PAT_FIELD) {
-                    s += std::string(str_of(fi.get(la::NAME.code)));
-                    if (fi.has_key(la::VALUE)) {
-                        s += ": ";
-                        s += render_pat_src(map_of(fi.get(la::VALUE.code)));
-                    }
-                } else if (code_of(fi) == la::PAT_REST) {
-                    s += "..";
-                }
-            }
-        }
-        s += " }";
+        s += render_pat_field_list(node);
         return s;
     }
     default:

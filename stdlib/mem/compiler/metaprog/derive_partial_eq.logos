@@ -1,20 +1,26 @@
-// logos.std.compiler.metaprog — derive(PartialEq) for plain and
-// generic structs.
+// logos.std.compiler.metaprog — derive(PartialEq).
 //
-// Hook for `#[derive_partial_eq]`. Emits
+// Hook for `#[derive_partial_eq]`. Emits rustc's expansion: a match over
+// `(self, other)` that pairs up the SAME shape on both sides and compares the
+// payloads field by field in declaration order (short-circuit, like `&&`);
+// two different enum variants compare unequal.
 //
-//   impl<T1: PartialEq, ...> PartialEq for Name<T1, ...> {
-//       fn eq(&self, other: &Name<T1, ...>) -> bool {
-//           return self.f1 == other.f1 && self.f2 == other.f2 && …;
+//   impl<const N: usize, T: PartialEq> PartialEq for Name<N, T> {
+//       fn eq(&self, other: &Name<N, T>) -> bool {
+//           match (self, other) {
+//               (Self::U, Self::U) => { return true; }
+//               (Self::T(__self_0), Self::T(__arg1_0)) => {
+//                   if !(*__self_0 == *__arg1_0) { return false; }
+//                   return true;
+//               }
+//               …
+//               _ => { return false; }
+//           }
 //       }
 //   }
 //
-// Empty-field structs degenerate to `return true;`. Each field is
-// compared via `==`, which dispatches through the field's own
-// PartialEq impl (primitive impls live in `stdlib/lang/cmp/cmp.logos`).
-//
-// §6.10 sub-deliverable 2/8 — pairs with derive_eq (a marker trait
-// addition, separate hook) to give the standard `Eq` derive surface.
+// Shapes (named / tuple / unit struct, enum variants of every shape) come
+// from `derive_shape_of`; see derive_shape.logos.
 
 package logos.std.compiler.metaprog;
 
@@ -28,55 +34,55 @@ fn derive_partial_eq_hook(target_offset: u32) -> () {
     if view.holder == (0 as *mut u8) { return; }
 
     let item: WAny = view.node_at(target_offset);
-    let nm_sv: SView = view.ast_node_name(item);
-    if nm_sv.len == (0 as u64) { return; }
-    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+    let sh: DeriveShape = derive_shape_of(&view, item);
+    let nm: Ident = sh.nm;
+    let tparams: Vec<Ident> = sh.tparams;
+    let cparams: Vec<Ident> = sh.cparams;
+    let ctypes: Vec<Ident> = sh.ctypes;
+    let gargs: Vec<Ident> = sh.gargs;
+    let unit_v: Vec<Ident> = sh.unit_v;
+    let tup_v: Vec<Ident> = sh.tup_v;
+    let tup_a: Vec<Vec<Ident>> = sh.tup_a;
+    let tup_b: Vec<Vec<Ident>> = sh.tup_b;
+    let st_v: Vec<Ident> = sh.st_v;
+    let st_f: Vec<Vec<Ident>> = sh.st_f;
+    let st_a: Vec<Vec<Ident>> = sh.st_a;
+    let st_b: Vec<Vec<Ident>> = sh.st_b;
+    let sn: Vec<Ident> = sh.sn;
+    let sn_f: Vec<Vec<Ident>> = sh.sn_f;
+    let sn_a: Vec<Vec<Ident>> = sh.sn_a;
+    let sn_b: Vec<Vec<Ident>> = sh.sn_b;
+    let tn: Vec<Ident> = sh.tn;
+    let tn_a: Vec<Vec<Ident>> = sh.tn_a;
+    let tn_b: Vec<Vec<Ident>> = sh.tn_b;
 
-    let nf: u64 = view.ast_struct_field_count(item);
-    let mut fnames: Vec<Ident> = vec_new::<Ident>();
-    let mut i: u64 = 0 as u64;
-    while i < nf {
-        let fld: WAny = view.ast_struct_field(item, i);
-        let fsv: SView = view.ast_field_name(fld);
-        fnames.push(Ident { ptr: fsv.ptr, len: fsv.len });
-        i = i + (1 as u64);
-    }
-
-    let np: u64 = view.ast_type_param_count(item);
-    let mut tparams: Vec<Ident> = vec_new::<Ident>();
-    let mut k: u64 = 0 as u64;
-    while k < np {
-        let tp: SView = view.ast_type_param_name(item, k);
-        tparams.push(Ident { ptr: tp.ptr, len: tp.len });
-        k = k + (1 as u64);
-    }
-
-    // Empty-field struct: return true unconditionally (every value
-    // is equal to every other; matches Rust's degenerate case).
-    let body: ExprBlob = if nf == (0 as u64) {
-        quote_expr! { true }
-    } else {
-        quote_expr! { #( self.#fnames == other.#fnames )&&* }
+    let blob: QuoteItemBlob = quote_item! {
+        impl<#( const #cparams: #ctypes ),*, #( #tparams: PartialEq ),*> PartialEq for #nm<#( #gargs ),*> {
+            fn eq(&self, other: &#nm<#( #gargs ),*>) -> bool {
+                match (self, other) {
+                    #( (Self::#unit_v, Self::#unit_v) => { return true; } )*
+                    #( (Self::#tup_v( #( #tup_a ),* ), Self::#tup_v( #( #tup_b ),* )) => {
+                        #( if !(*#tup_a == *#tup_b) { return false; } )*
+                        return true;
+                    } )*
+                    #( (Self::#st_v { #( #st_f: #st_a ),* }, Self::#st_v { #( #st_f: #st_b ),* }) => {
+                        #( if !(*#st_a == *#st_b) { return false; } )*
+                        return true;
+                    } )*
+                    #( (#sn { #( #sn_f: #sn_a ),* }, #sn { #( #sn_f: #sn_b ),* }) => {
+                        #( if !(*#sn_a == *#sn_b) { return false; } )*
+                        return true;
+                    } )*
+                    #( (#tn( #( #tn_a ),* ), #tn( #( #tn_b ),* )) => {
+                        #( if !(*#tn_a == *#tn_b) { return false; } )*
+                        return true;
+                    } )*
+                    _ => { return false; }
+                }
+            }
+        }
     };
-
-    if np == (0 as u64) {
-        let blob: QuoteItemBlob = quote_item! {
-            impl PartialEq for #(nm) {
-                fn eq(&self, other: &#(nm)) -> bool {
-                    return #(body);
-                }
-            }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob); }
-    } else {
-        let blob2: QuoteItemBlob = quote_item! {
-            impl<#( #tparams: PartialEq ),*> PartialEq for #nm<#( #tparams ),*> {
-                fn eq(&self, other: &#nm<#( #tparams ),*>) -> bool {
-                    return #(body);
-                }
-            }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob2); }
-    }
+    unsafe { logos_emit_item_blob_subst(&blob); }
     return;
 }

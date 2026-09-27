@@ -1,0 +1,1 @@
+#[derive_default] on an enum: no default declared

@@ -1,17 +1,22 @@
-// logos.std.compiler.metaprog — derive(Clone) for plain and generic structs.
+// logos.std.compiler.metaprog — derive(Clone).
 //
-// Hook for `#[derive_clone]`. Emits
+// Hook for `#[derive_clone]`. Emits rustc's expansion: rebuild the same shape
+// from each field's own `.clone()`, in declaration order.
 //
-//   impl<T1, T2, ...> Clone for Name<T1, T2, ...> {
-//       fn clone(&self) -> Name<T1, T2, ...> {
-//           return Name { f: self.f.clone(), ... };
+//   impl<const N: usize, T: Clone> Clone for Name<N, T> {
+//       fn clone(&self) -> Name<N, T> {
+//           match self {
+//               Self::U => { return Self::U; }
+//               Self::T(__self_0) => { return Self::T(__self_0.clone()); }
+//               Self::S { x: __self_0 } => { return Self::S { x: __self_0.clone() }; }
+//               Name { x: __self_0 } => { return Name { x: __self_0.clone() }; }
+//               Name(__self_0) => { return Name(__self_0.clone()); }
+//           }
 //       }
 //   }
 //
-// (the generic params + instantiation segments collapse to nothing for
-// non-generic structs) via the typed metaprog stack: quote_item! +
-// quote_expr! + Vec<Ident> cursor antiquot + STRUCT_LIT/FIELD_INIT/
-// FIELD_READ + impl-level/type-arg HASH antiquots.
+// Each field dispatches through its own Clone impl (primitive impls live in
+// `stdlib/lang/clone/clone.logos`). Shapes: see derive_shape.logos.
 
 package logos.std.compiler.metaprog;
 
@@ -25,51 +30,46 @@ fn derive_clone_hook(target_offset: u32) -> () {
     if view.holder == (0 as *mut u8) { return; }
 
     let item: WAny = view.node_at(target_offset);
-    let nm_sv: SView = view.ast_node_name(item);
-    if nm_sv.len == (0 as u64) { return; }
-    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+    let sh: DeriveShape = derive_shape_of(&view, item);
+    let nm: Ident = sh.nm;
+    let tparams: Vec<Ident> = sh.tparams;
+    let cparams: Vec<Ident> = sh.cparams;
+    let ctypes: Vec<Ident> = sh.ctypes;
+    let gargs: Vec<Ident> = sh.gargs;
+    let unit_v: Vec<Ident> = sh.unit_v;
+    let tup_v: Vec<Ident> = sh.tup_v;
+    let tup_a: Vec<Vec<Ident>> = sh.tup_a;
+    let st_v: Vec<Ident> = sh.st_v;
+    let st_f: Vec<Vec<Ident>> = sh.st_f;
+    let st_a: Vec<Vec<Ident>> = sh.st_a;
+    let sn: Vec<Ident> = sh.sn;
+    let sn_f: Vec<Vec<Ident>> = sh.sn_f;
+    let sn_a: Vec<Vec<Ident>> = sh.sn_a;
+    let tn: Vec<Ident> = sh.tn;
+    let tn_a: Vec<Vec<Ident>> = sh.tn_a;
 
-    let nf: u64 = view.ast_struct_field_count(item);
-    let mut fnames: Vec<Ident> = vec_new::<Ident>();
-    let mut i: u64 = 0 as u64;
-    while i < nf {
-        let fld: WAny = view.ast_struct_field(item, i);
-        let fsv: SView = view.ast_field_name(fld);
-        fnames.push(Ident { ptr: fsv.ptr, len: fsv.len });
-        i = i + (1 as u64);
-    }
-
-    let np: u64 = view.ast_type_param_count(item);
-    let mut tparams: Vec<Ident> = vec_new::<Ident>();
-    let mut k: u64 = 0 as u64;
-    while k < np {
-        let tp: SView = view.ast_type_param_name(item, k);
-        tparams.push(Ident { ptr: tp.ptr, len: tp.len });
-        k = k + (1 as u64);
-    }
-
-    let body: ExprBlob = quote_expr! {
-        #nm { #( #fnames: self.#fnames.clone() ),* }
+    let blob: QuoteItemBlob = quote_item! {
+        impl<#( const #cparams: #ctypes ),*, #( #tparams: Clone ),*> Clone for #nm<#( #gargs ),*> {
+            fn clone(&self) -> #nm<#( #gargs ),*> {
+                match self {
+                    #( Self::#unit_v => { return Self::#unit_v; } )*
+                    #( Self::#tup_v( #( #tup_a ),* ) => {
+                        return Self::#tup_v( #( #tup_a.clone() ),* );
+                    } )*
+                    #( Self::#st_v { #( #st_f: #st_a ),* } => {
+                        return Self::#st_v { #( #st_f: #st_a.clone() ),* };
+                    } )*
+                    #( #sn { #( #sn_f: #sn_a ),* } => {
+                        return #sn { #( #sn_f: #sn_a.clone() ),* };
+                    } )*
+                    #( #tn( #( #tn_a ),* ) => {
+                        return #tn( #( #tn_a.clone() ),* );
+                    } )*
+                }
+            }
+        }
     };
-
-    if np == (0 as u64) {
-        let blob: QuoteItemBlob = quote_item! {
-            impl Clone for #(nm) {
-                fn clone(&self) -> #(nm) {
-                    return #(body);
-                }
-            }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob); }
-    } else {
-        let blob2: QuoteItemBlob = quote_item! {
-            impl<#( #tparams: Clone ),*> Clone for #nm<#( #tparams ),*> {
-                fn clone(&self) -> #nm<#( #tparams ),*> {
-                    return #(body);
-                }
-            }
-        };
-        unsafe { logos_emit_item_blob_subst(&blob2); }
-    }
+    unsafe { logos_emit_item_blob_subst(&blob); }
     return;
 }
