@@ -1,0 +1,9 @@
+package f32_variadic_floatlit_t;
+// A variadic generic's head type is inferred from the expected type too: `let y: f32 = first(2.5, 2.0, 3.0)` is an f32
+// head (was refused, "expected f32, got f64"). Same rule as f32_generic_floatlit_t.
+fn first() -> f64 { return 0.0; }
+fn first<H, T...>(head: H, tail: T...) -> H { return head; }
+fn main() -> i32 {
+    let y: f32 = first(2.5, 2.0, 3.0);
+    return y as i32;
+}

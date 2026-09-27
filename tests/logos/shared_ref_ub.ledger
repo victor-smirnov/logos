@@ -228,6 +228,7 @@ stdlib/std/io/bytes/bytes.logos	BytesInner	-
 #
 # FORMAT: `<repo-relative path>\t<count>`  (TAB-separated)
 LAUNDER
+# 2026-09-26: set.logos (HashSet::has) casts &self -> *mut only to reach the *mut-receiver `contains` for a READ (the probe does not mutate).
 stdlib/lang/atomic/atomic.logos	2
 stdlib/lang/cell/cell.logos	2
 stdlib/lang/fabric/fabric.logos	6
@@ -245,6 +246,7 @@ stdlib/lang/writ/wmap.logos	4
 stdlib/lang/writ/wstring.logos	1
 stdlib/lcm/deem/data/bt/node.logos	1
 stdlib/mem/collections/hashmap/hashmap.logos	1
+stdlib/mem/collections/set/set.logos	1
 stdlib/mem/collections/vec/vec.logos	1
 stdlib/mem/sync/arc.logos	7
 stdlib/mem/wql/plan.logos	8

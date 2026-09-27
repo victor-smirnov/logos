@@ -146,6 +146,13 @@ impl<T> Iterator<T> for VecDequeIntoIter<T> {
     }
 }
 
+// Yielding pops the element OUT of `dq` (pop_front / pop_back), so what the
+// deque still holds is exactly the un-yielded tail; the field glue after this
+// Drop drops `dq`, and with it that tail, once.
+impl<T> Drop for VecDequeIntoIter<T> {
+    fn drop(self: &mut VecDequeIntoIter<T>) { }
+}
+
 impl<T> DoubleEndedIterator<T> for VecDequeIntoIter<T> {
     fn next_back(self: &mut VecDequeIntoIter<T>) -> Option<T> {
         unsafe {

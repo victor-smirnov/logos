@@ -9314,15 +9314,15 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
     for (auto an : slc_arg_asts) slc_args.push_back(lower_expr(an));
     std::string elem_name = type_str(TypeRef(expr_type(recv)).elem());
     std::vector<std::string> keys;
+    // `str` IS `[u8]` in Logos: a u8 receiver tries the `str` method first
+    // (`s.contains('x')` is `str::contains<P: Pattern>`, not `[u8]::contains(&u8)`),
+    // and falls through to the slice method when the arguments do not satisfy
+    // the str method's bounds (`bytes.contains(&b)` — `&u8` is no Pattern).
+    const bool u8_recv = TypeRef(expr_type(recv)).elem() &&
+        TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8;
+    if (u8_recv) keys.push_back("str__" + std::string(method_name));
     keys.push_back("$slice$" + elem_name + "__" + std::string(method_name));
     keys.push_back("$slice$T__" + std::string(method_name));  // generic blanket
-    // Phase 1B-11: when receiver is `&str` (== Slice<u8> in Logos), also try
-    // the `str__method` mangling produced by `impl Trait for str` (registered
-    // by sema_collect's `target == "str"` path).
-    if (TypeRef(expr_type(recv)).elem() &&
-        TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8) {
-        keys.push_back("str__" + std::string(method_name));
-    }
     for (auto& key : keys) {
         const SemaFuncInfo* fi_ptr = nullptr;
         std::vector<TypeRef> mtypes;
@@ -9399,6 +9399,33 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             }
         }
         if (!fi_ptr) continue;
+        if (u8_recv && key.rfind("str__", 0) == 0 && !fi_ptr->type_params.empty()) {
+            // A str method whose bounds the arguments miss is not this call's.
+            StrMap<TypeRef> pb;
+            std::vector<TypeRef> at;
+            at.push_back(expr_type(recv));
+            for (auto& a : slc_args) at.push_back(expr_type(a));
+            for (size_t i = 0; i < fi_ptr->param_types.size() && i < at.size(); ++i)
+                unify_types(fi_ptr->param_types[i], at[i], pb);
+            // Ask the canonical bound check (check_type_bounds) as a PROBE: its
+            // diagnostics are rolled back, and any error means the bounds miss.
+            std::vector<TypeRef> targs;
+            bool all_bound = true;
+            for (auto& tp : fi_ptr->type_params) {
+                auto it = pb.find(tp.name);
+                if (it == pb.end() || !it->second) { all_bound = false; break; }
+                targs.push_back(it->second);
+            }
+            if (all_bound) {
+                const size_t mark = result_.diags.size();
+                check_type_bounds(key, fi_ptr->type_params, targs);
+                bool fits = true;
+                for (size_t d = mark; d < result_.diags.size(); ++d)
+                    if (result_.diags[d].level == Diag::Level::Error) fits = false;
+                result_.diags.resize(mark);
+                if (!fits) continue;
+            }
+        }
         std::vector<lir::LExprPtr> pargs;
         pargs.push_back(std::move(recv));
         for (auto& a : slc_args) pargs.push_back(std::move(a));

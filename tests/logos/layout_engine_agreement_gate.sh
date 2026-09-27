@@ -263,7 +263,13 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 #   oracle-run-json: {"probes":272,"failures":0,"first":0}
 #   [layout-gate] all 18 cells at or above their measured floors, 91 enum types
 MIN_BASELINE_TYPES=3676
-MIN_BASELINE_FIELDS=9810
+# ⚠ RE-MEASURED 2026-09-26, the audit std merge: empty-program reference 4668 struct types, 9604 fields.
+# ATTRIBUTED BY CONTROL, per branch in its own worktree + build: audit/std-strings 3900/10418,
+# audit/std-coll 3678/9812, audit/std-iter 4400/9048 — the iterator branch alone crosses the floor.
+# It turns the `enumerate` / `zip` items into TUPLES (EnumPair gone) and instantiates the new
+# Iterator default methods over tuple items: more types, fewer STRUCT fields (a tuple's
+# elements are not struct fields). Types rose 3676 -> 4668 over the same span.
+MIN_BASELINE_FIELDS=9604
 # `defs` is the A-vs-C arm's own population — the types on which `layout_of` was
 # actually asked. It was parsed and never asserted, so the gate was green with
 # it at 0: the whole A arm could go silent behind B's number.

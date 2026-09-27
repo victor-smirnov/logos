@@ -39,6 +39,5 @@
 # derives changes and this file stops matching.
 #
 # `HashMap.entries: *mut Entry<K, V>` (+ HashMapIter/Keys/Values)
-logos.mem.collections.hashmap.Entry	not-pub-behind-indirection
 # `Bytes.inner: *mut BytesInner` (+ BytesMut)
 logos.std.io.bytes.BytesInner	not-pub-behind-indirection

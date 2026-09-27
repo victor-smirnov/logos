@@ -170,6 +170,12 @@ impl<K> Iterator<K> for HashSetIntoIter<K> {
     }
 }
 
+// The un-yielded tail belongs to `inner` (a HashMapIntoIter, whose own Drop
+// reconciles its cursor); the field glue after this Drop drops it once.
+impl<K> Drop for HashSetIntoIter<K> {
+    fn drop(self: &mut HashSetIntoIter<K>) { }
+}
+
 impl<K: Hash + Eq> IntoIterator<K> for HashSet<K> {
     type Iter = HashSetIntoIter<K>;
     fn into_iter(self: HashSet<K>) -> HashSetIntoIter<K> {

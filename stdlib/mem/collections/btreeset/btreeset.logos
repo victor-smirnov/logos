@@ -197,6 +197,13 @@ impl<K> Iterator<K> for BTreeSetIntoIter<K> {
     }
 }
 
+// The un-yielded tail belongs to `inner` (a BTreeMapIntoIter, whose own Drop
+// reconciles its cursor); this Drop has nothing of its own to release — the
+// field glue after it drops `inner` exactly once.
+impl<K> Drop for BTreeSetIntoIter<K> {
+    fn drop(self: &mut BTreeSetIntoIter<K>) { }
+}
+
 impl<K: Ord> IntoIterator<K> for BTreeSet<K> {
     type Iter = BTreeSetIntoIter<K>;
     fn into_iter(self: BTreeSet<K>) -> BTreeSetIntoIter<K> {

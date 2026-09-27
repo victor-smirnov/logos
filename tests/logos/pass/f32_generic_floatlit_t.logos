@@ -1,0 +1,8 @@
+package f32_generic_floatlit_t;
+// `let y: f32 = identity(2.5)` infers T = f32 from the annotation, as rustc does (it was pinned as a refusal:
+// "expected f32, got f64" — the literal fell back to f64 before the expected type reached it). rustc twin: 2.
+fn identity<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let y: f32 = identity(2.5);
+    return y as i32;
+}
