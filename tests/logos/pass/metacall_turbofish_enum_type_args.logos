@@ -1,0 +1,23 @@
+// A metacall's thunk spells its turbofish from the resolved type. The canonical
+// type string drops an enum's type arguments (`Option<i64>` prints `Option`),
+// so `metacall sz::<Option<i64>>()` ran `sz::<Option>()` and returned a
+// different size from the direct call. The thunk text uses the source form.
+package metacall_turbofish_enum_type_args;
+
+fn sz<T>() -> i64 {
+    return sizeof::<T>() as i64;
+}
+
+fn pair<A, B>() -> i64 {
+    return sizeof::<A>() as i64 * 100 + sizeof::<B>() as i64;
+}
+
+unsafe fn main() -> i32 {
+    let a: i64 = metacall sz::<Option<i64>>();
+    let b: i64 = sz::<Option<i64>>();
+    if a != b { return 1; }
+    let c: i64 = metacall pair::<Option<u8>, Result<i64, u8>>();
+    let d: i64 = pair::<Option<u8>, Result<i64, u8>>();
+    if c != d { return 2; }
+    return 42;
+}

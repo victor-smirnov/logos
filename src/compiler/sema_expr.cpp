@@ -24307,7 +24307,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             std::string out = "::<";
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) out += ", ";
-                out += type_str(resolve_type(map_of(items.get(i))));
+                out += type_str(resolve_type(map_of(items.get(i))), /*source_form=*/true);
             }
             out += ">";
             return out;
@@ -24363,7 +24363,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             } else if (TypeRef(rt).kind() == LogosType::Kind::FloatLit) {
                 ret_text = "f64";
             } else {
-                ret_text = type_str(rt);
+                ret_text = type_str(rt, /*source_form=*/true);
             }
             std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
             using RT2 = lir::MetacallRetTag;
@@ -28934,7 +28934,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             if (n.has_key(la::TYPE)) {
                 auto type_node = map_of(n.get(la::TYPE.code));
                 TypeRef t = resolve_type(type_node);
-                if (t) s += type_str(t);
+                if (t) s += type_str(t, /*source_form=*/true);
             } else if (n.has_key(la::NAME)) {
                 s += std::string(str_of(n.get(la::NAME.code)));
             }
@@ -28963,7 +28963,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
                 out += "@";
                 out += render_wstatic(map_of(item_node.get(la::VALUE.code)));
             } else {
-                out += type_str(resolve_type(item_node));
+                out += type_str(resolve_type(item_node), /*source_form=*/true);
             }
         }
         out += ">";

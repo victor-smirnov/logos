@@ -1,0 +1,25 @@
+// A negative metacall argument rendered as `(-7)i64` (the suffix outside the
+// parentheses, which does not parse) and -10 as `(-:` (a magnitude computed
+// by incrementing the last digit character). The literal keeps its suffix
+// inside the parentheses; INT64_MIN is spelled `MIN + 1` minus one.
+package metacall_negative_int_args;
+
+fn id(x: i64) -> i64 {
+    return x;
+}
+
+fn id8(x: i8) -> i8 {
+    return x;
+}
+
+unsafe fn main() -> i32 {
+    let a: i64 = metacall id(-10i64);
+    let b: i64 = metacall id(-7i64);
+    let c: i64 = metacall id(-9223372036854775807i64 - 1i64);
+    let d: i8 = metacall id8(-128i8);
+    if a != -10 { return 1; }
+    if b != -7 { return 2; }
+    if c != -9223372036854775807i64 - 1i64 { return 3; }
+    if d != -128i8 { return 4; }
+    return 42;
+}

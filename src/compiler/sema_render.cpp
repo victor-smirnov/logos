@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -1346,31 +1347,30 @@ std::string SemaChecker::render_ctfe_lit(const ctfe::CtfeValue& v) {
         else if (v.kind == K::F64) s += "f64";
         return s;
     }
-    // Integer kinds.
-    std::string s;
+    // Integer kinds. The suffix belongs to the LITERAL, inside the parentheses
+    // of a negative value: `(-7i64)`, not `(-7)i64`, which does not parse.
+    const char* suffix = "";
+    switch (v.kind) {
+    case K::I8:  suffix = "i8";  break;
+    case K::I16: suffix = "i16"; break;
+    case K::I32: suffix = "i32"; break;
+    case K::I64: suffix = "i64"; break;
+    case K::U8:  suffix = "u8";  break;
+    case K::U16: suffix = "u16"; break;
+    case K::U32: suffix = "u32"; break;
+    case K::U64: suffix = "u64"; break;
+    default: break;  // IntLit / I24 / U24 / I56 / U56 — leave unsuffixed
+    }
     bool sgn = (v.kind == K::I8  || v.kind == K::I16 || v.kind == K::I24 ||
                 v.kind == K::I32 || v.kind == K::I56 || v.kind == K::I64 ||
                 v.kind == K::I128 || v.kind == K::IntLit);
-    if (sgn) {
-        // INT64_MIN dance: -(-INT64_MIN) is UB; emit "(-N)" via two's-complement
-        // arithmetic on the magnitude string.
-        if (v.i < 0) { s = "(-"; s += std::to_string(-(v.i + 1)); s.back()++; s += ")"; }
-        else         s = std::to_string(v.i);
-    } else {
-        s = std::to_string(v.u);
-    }
-    switch (v.kind) {
-    case K::I8:  s += "i8";  break;
-    case K::I16: s += "i16"; break;
-    case K::I32: s += "i32"; break;
-    case K::I64: s += "i64"; break;
-    case K::U8:  s += "u8";  break;
-    case K::U16: s += "u16"; break;
-    case K::U32: s += "u32"; break;
-    case K::U64: s += "u64"; break;
-    default: break;  // IntLit / I24 / U24 / I56 / U56 — leave unsuffixed
-    }
-    return s;
+    if (!sgn || v.i >= 0)
+        return (sgn ? std::to_string(v.i) : std::to_string(v.u)) + suffix;
+    // The magnitude of INT64_MIN has no positive i64 literal: spell it as
+    // `MIN + 1` minus one, as rustc's own `i64::MIN` is spelled in source.
+    if (v.i == std::numeric_limits<int64_t>::min())
+        return std::format("(-9223372036854775807{0} - 1{0})", suffix);
+    return std::format("(-{}{})", -v.i, suffix);
 }
 
 // ── Stage 2: item-position rendering ─────────────────────────────────────────
