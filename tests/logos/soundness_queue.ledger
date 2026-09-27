@@ -480,4 +480,4 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
 # TOTAL 151
-# SYNC-HASH e3911e218e411a4456110d6209e48830
+# SYNC-HASH 42a25356235d8aff9c8c8b8bebfa58f0
