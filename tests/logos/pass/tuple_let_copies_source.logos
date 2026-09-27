@@ -1,0 +1,16 @@
+package tuple_let_copies_source;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut t: (i64, i64) = (3, 30);
+    let x = t;
+    t = (1, 10);
+    if x.0 != 3 || x.1 != 30 || t.0 != 1 { return 1; }
+    let mut v: Vec<(i64, i64)> = Vec::new();
+    v.push((1, 2));
+    v.push((3, 4));
+    let a = v[0];
+    v[0] = v[1];
+    v[1] = a;
+    if v[0].0 != 3 || v[1].0 != 1 || v[1].1 != 2 { return 2; }
+    return 0;
+}

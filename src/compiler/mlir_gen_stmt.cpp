@@ -2400,16 +2400,22 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     }
 
     // ── Tuple value (from call or variable) ──────────────────
-    // If the value is already a pointer (tuple literal, variable), use directly.
-    // If the value is a struct by-value (from function return), store into alloca.
+    // The binding owns fresh storage of the tuple's footprint: a by-value
+    // aggregate (a call result) is stored into it, a pointer to existing
+    // storage (a variable, a field, an element) is COPIED into it. Binding
+    // that pointer directly aliased the source — `let x = t; t = (1, 10);`
+    // then read 1 through `x`. Mirrors the slice / struct `let` arms.
     if (s.type && TypeRef(s.type).kind() == LogosType::Kind::Tuple) {
         auto val = gen_expr(s.value);
         if (!val) return;
         auto stype = tuple_llvm_type(s.type);
-        if (stype && val.getType() != ptr_type()) {
-            // By-value struct (e.g. from function call) — store into alloca.
+        if (stype) {
             auto alloca = create_entry_alloca(stype);
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+            if (val.getType() != ptr_type())
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+            else
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, alloca, val, size_const(s.type),
+                                                      /*isVolatile=*/false);
             val = alloca;
         }
         evict_var_shapes(s.name);
