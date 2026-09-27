@@ -44,6 +44,7 @@ extern fn logos_fmt_f64_fixed(buf: *mut u8, cap: i32, x: f64, prec: i32) -> i32;
 pub struct Error {}
 
 /// Returns `Ok(())`, the success value of a formatter operation.
+#[lang = "ok"]
 pub fn ok() -> Result<(), Error> {
     return Result::<(), Error>::Ok(());
 }
@@ -108,6 +109,7 @@ impl FmtWrite for String {
 
 /// Formatting state threaded through `Display`/`Debug` impls; mirror of `core::fmt::Formatter`.
 /// Bundles the output sink with the parsed spec of the current `{...}` placeholder.
+#[lang = "Formatter"]
 pub struct Formatter {
     /// Output sink all writes go through.
     pub w:          *mut dyn FmtWrite,   // sink (String for format!, any FmtWrite for write!)
@@ -441,34 +443,42 @@ pub fn fmt_debug_to_string<T: Debug>(val: &T) -> String {
 // unambiguously. The format-family metacall lowering emits calls to these by
 // bare name (see format_trait_dispatcher in sema_fmt.cpp).
 /// Dispatches `arg.fmt(f)` through the `Display` bound (resolves the shared `fmt` name).
+#[lang = "fmt_display"]
 pub fn fmt_display<T: Display>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
 /// Dispatches `arg.fmt(f)` through the `Debug` bound (resolves the shared `fmt` name).
+#[lang = "fmt_debug"]
 pub fn fmt_debug<T: Debug>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
 /// Dispatches `arg.fmt(f)` through the `LowerHex` bound (resolves the shared `fmt` name).
+#[lang = "fmt_lower_hex"]
 pub fn fmt_lower_hex<T: LowerHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
 /// Dispatches `arg.fmt(f)` through the `UpperHex` bound (resolves the shared `fmt` name).
+#[lang = "fmt_upper_hex"]
 pub fn fmt_upper_hex<T: UpperHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
 /// Dispatches `arg.fmt(f)` through the `Octal` bound (resolves the shared `fmt` name).
+#[lang = "fmt_octal"]
 pub fn fmt_octal<T: Octal>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
 /// Dispatches `arg.fmt(f)` through the `Binary` bound (resolves the shared `fmt` name).
+#[lang = "fmt_binary"]
 pub fn fmt_binary<T: Binary>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
 /// Dispatches `arg.fmt(f)` through the `LowerExp` bound (resolves the shared `fmt` name).
+#[lang = "fmt_lower_exp"]
 pub fn fmt_lower_exp<T: LowerExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
 /// Dispatches `arg.fmt(f)` through the `UpperExp` bound (resolves the shared `fmt` name).
+#[lang = "fmt_upper_exp"]
 pub fn fmt_upper_exp<T: UpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }

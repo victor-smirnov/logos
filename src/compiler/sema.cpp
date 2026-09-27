@@ -2070,7 +2070,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
     if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
         for (auto& sym : git->second) {
             auto fit = generic_funcs_.find(sym);
-            if (fit != generic_funcs_.end() && pkg_qualifier_ok(fit->second))  // T2-28
+            if (fit != generic_funcs_.end() && pkg_qualifier_ok(fit->second, base_name))  // T2-28
                 return &fit->second;
         }
     }
@@ -2106,7 +2106,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
             auto fit = generic_funcs_.find(sym);
             if (fit == generic_funcs_.end()) continue;
             auto& fi = fit->second;
-            if (!pkg_qualifier_ok(fi)) continue;  // T2-28: explicit pkg filter
+            if (!pkg_qualifier_ok(fi, base_name)) continue;  // T2-28: explicit pkg filter
             bool arity_ok = fi.is_vararg ? n_args >= fi.param_types.size()
                                          : fi.param_types.size() == n_args;
             if (!arity_ok) { if (!fallback) fallback = &fi; continue; }
@@ -2176,7 +2176,8 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     // T2-28: an explicit package qualifier (`pkg::fn(...)`) overrides the
     // import-based visibility filter — only the named package's fn matches,
     // and there is NO empty-fallback (a miss is a genuine "no such fn in pkg").
-    if (!call_pkg_qualifier_.empty()) {
+    if (!call_pkg_qualifier_.empty() &&
+        (call_pkg_qualifier_name_.empty() || base_name == call_pkg_qualifier_name_)) {
         std::vector<const SemaChecker::SemaFuncInfo*> q;
         for (auto* fi : all)
             if (fi->package == call_pkg_qualifier_) q.push_back(fi);
@@ -5187,6 +5188,11 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         // types
         "owned_box", "rc", "arc", "unsafe_cell", "phantom_pinned", "atomic_ordering",
         "Option", "Result",
+        // the names the HIR's built-in macro expansions spell (hygiene: a user
+        // homonym in scope does not capture them)
+        "String", "Formatter", "ok", "fmt_display", "fmt_debug", "fmt_lower_hex",
+        "fmt_upper_hex", "fmt_octal", "fmt_binary", "fmt_lower_exp", "fmt_upper_exp",
+        "__fmt_print", "__fmt_println", "__fmt_eprint", "__fmt_eprintln", "__fmt_panic",
     };
     for (auto n : kNames) if (n == lang) return true;
     return false;
@@ -9445,6 +9451,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             auto tvit = current_type_params_.find("Self");
             if (tvit != current_type_params_.end()) return tvit->second;
         }
+        // A macro expansion's type names a lang item, never a homonym in scope
+        // (ADR 0030 L0: expansion hygiene).
+        if (hir_origin_(node) == hir::Origin::Macro)
+            if (const LangItem* li = lang_item(name); li && li->target == AttrTarget::Struct)
+                return make_struct_type(li->name, li->package);
         auto t = lookup_type_by_name(name);
         if (t) return t;
         // See #20 sister site below: in metaprog discovery loop, swallow

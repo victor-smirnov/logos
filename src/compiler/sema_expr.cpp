@@ -4696,6 +4696,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                        ~QualGuard() { *slot = std::move(prev); } }
         _qg{&call_pkg_qualifier_, call_pkg_qualifier_};
     call_pkg_qualifier_ = extract_pkg_qualifier(node);
+    // A macro expansion's callee names a lang item, never a homonym in scope
+    // (ADR 0030 L0: expansion hygiene).
+    struct QualNameGuard { std::string* slot; std::string prev;
+                           ~QualNameGuard() { *slot = std::move(prev); } }
+        _qng{&call_pkg_qualifier_name_, call_pkg_qualifier_name_};
+    call_pkg_qualifier_name_.clear();
+    if (call_pkg_qualifier_.empty() && hir_origin_(node) == hir::Origin::Macro)
+        if (const LangItem* li = lang_item(str_of(node.get(la::CALLEE.code)));
+            li && li->target == AttrTarget::Fn) {
+            call_pkg_qualifier_ = li->package;
+            call_pkg_qualifier_name_ = li->name;
+        }
 
     // CP-cm-03, EARLY: the prelude shorthand `Some(x)` / `Ok(x)` / `Err(x)` with
     // no function or local of that name goes straight to the variant path,
@@ -6102,7 +6114,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
         auto fit = generic_funcs_.find(sym);
         if (fit == generic_funcs_.end()) continue;
         auto& fi = fit->second;
-        if (!pkg_qualifier_ok(fi)) continue;  // T2-28: explicit pkg filter
+        if (!pkg_qualifier_ok(fi, base_name)) continue;  // T2-28: explicit pkg filter
         bool arity_ok = fi.is_vararg ? atv.size() >= fi.param_types.size()
                                      : fi.param_types.size() == atv.size();
         if (!arity_ok) continue;
@@ -8508,6 +8520,18 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                        ~QualGuard() { *slot = std::move(prev); } }
         _qg{&call_pkg_qualifier_, call_pkg_qualifier_};
     call_pkg_qualifier_ = extract_pkg_qualifier(node);
+    // A macro expansion's callee names a lang item, never a homonym in scope
+    // (ADR 0030 L0: expansion hygiene).
+    struct QualNameGuard { std::string* slot; std::string prev;
+                           ~QualNameGuard() { *slot = std::move(prev); } }
+        _qng{&call_pkg_qualifier_name_, call_pkg_qualifier_name_};
+    call_pkg_qualifier_name_.clear();
+    if (call_pkg_qualifier_.empty() && hir_origin_(node) == hir::Origin::Macro)
+        if (const LangItem* li = lang_item(str_of(node.get(la::CALLEE.code)));
+            li && li->target == AttrTarget::Fn) {
+            call_pkg_qualifier_ = li->package;
+            call_pkg_qualifier_name_ = li->name;
+        }
 
     // ── Type-trait intrinsics (C++26 type_traits style, compile-time folded) ──
     // Helper: collect resolved type args.
@@ -18858,6 +18882,18 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
 
     std::string class_name(str_of(node.get(la::RECEIVER.code)));
     auto method_name = str_of(node.get(la::NAME.code));
+    // A macro expansion's `Formatter::new` names the lang item's methods only
+    // (ADR 0030 L0: expansion hygiene); restored on every return.
+    struct PkgQualGuard {
+        std::string& q; std::string saved;
+        PkgQualGuard(std::string& r) : q(r), saved(r) {}
+        ~PkgQualGuard() { q = saved; }
+    } pkg_qual_guard_(call_pkg_qualifier_), pkg_qual_name_guard_(call_pkg_qualifier_name_);
+    if (hir_origin_(node) == hir::Origin::Macro)
+        if (const LangItem* li = lang_item(class_name); li && li->target == AttrTarget::Struct) {
+            call_pkg_qualifier_ = li->package;
+            call_pkg_qualifier_name_ = class_name + "__" + std::string(method_name);
+        }
 
     // T2-28 (Increment 2): a qualified `pkg.path.Type::member(args)` is parsed
     // as the qualified-CALL shape (RECEIVER = first segment, QUAL_PARTS = the

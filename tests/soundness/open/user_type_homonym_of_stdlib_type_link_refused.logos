@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row user_type_homonym_of_stdlib_type_link_refused (tier 3, `refuses`). Found 2026-09-27 (ADR 0030 L0, expansion hygiene): a user type named like a stdlib type (`struct String`) breaks every use of the stdlib type's methods.
+// Logos: mlir_gen: error: 'func.call' op 'String$M…__fmt' does not reference a valid function — two `String`s make the name ambiguous, so the USE is mangled with the package tag (G156-1) while the stdlib archive defined the method untagged (it was compiled where the name was unique). Same with no macro at all (`fmt_display_to_string(&7)` next to a user `struct String`).
+// rustc: rustc 1.98.1 --edition 2024 compiles and runs the twin (user `struct String` + `format!`), exit 4.
+// fix hint: mangle: a type's identity in a symbol must not depend on which OTHER types the consuming compilation happens to see (definition == use across the dependency chain) — tag by package always, or never, for a package-qualified TypeRef.
+package user_type_homonym_of_stdlib_type_link_refused;
+use logos.std.fmt;
+struct String { n: i64 }
+fn main() -> i32 {
+    let u = String { n: 2 };
+    let t = format!("{}", 70);
+    return (u.n + t.len()) as i32;
+}

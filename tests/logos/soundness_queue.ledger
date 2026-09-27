@@ -16,6 +16,8 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
+user_type_homonym_of_stdlib_type_link_refused 3 tests/soundness/open/user_type_homonym_of_stdlib_type_link_refused refuses
+
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
@@ -465,5 +467,5 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
-# TOTAL 144
-# SYNC-HASH 80ac24750bd4892437b6ea0c752332ee
+# TOTAL 145
+# SYNC-HASH e21946a3fc304f0f95d946e608956caa

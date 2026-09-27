@@ -8820,9 +8820,14 @@ private:
     // what disambiguates same-named free fns across packages (mem::replace
     // vs ptr::replace). Empty = unqualified call (normal import-based scope).
     std::string call_pkg_qualifier_;
-    bool pkg_qualifier_ok(const SemaFuncInfo& fi) const {
-        return call_pkg_qualifier_.empty() ||
-               fi.package == call_pkg_qualifier_;
+    // When set, the qualifier constrains THIS name only (a macro expansion's
+    // callee): the call's arguments are lowered while the qualifier stands, and
+    // `buf.as_str()` inside `__fmt_println(…)` is not the callee's package's.
+    std::string call_pkg_qualifier_name_;
+    bool pkg_qualifier_ok(const SemaFuncInfo& fi, std::string_view name) const {
+        if (call_pkg_qualifier_.empty()) return true;
+        if (!call_pkg_qualifier_name_.empty() && name != call_pkg_qualifier_name_) return true;
+        return fi.package == call_pkg_qualifier_;
     }
     // Reconstruct the dotted package from a qualified-call node's
     // RECEIVER (first segment) + PATH_PARTS (the rest). "" if not qualified.

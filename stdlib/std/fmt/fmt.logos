@@ -149,12 +149,16 @@ pub fn format(args: Vec<ExprBlob>) -> ExprBlob {
 // Marked pub so the spliced expression sees them. Inline-trivial — the
 // optimizer collapses the wrapper.
 /// Writes `s` to stdout; `pub` only so `print!` expansions resolve it.
+#[lang = "__fmt_print"]
 pub fn __fmt_print(s: str)    { print(s); }
 /// Writes `s` and a newline to stdout; `pub` only so `println!` expansions resolve it.
+#[lang = "__fmt_println"]
 pub fn __fmt_println(s: str)  { println(s); }
 /// Writes `s` to stderr; `pub` only so `eprint!` expansions resolve it.
+#[lang = "__fmt_eprint"]
 pub fn __fmt_eprint(s: str)   { eprint(s); }
 /// Writes `s` and a newline to stderr; `pub` only so `eprintln!` expansions resolve it.
+#[lang = "__fmt_eprintln"]
 pub fn __fmt_eprintln(s: str) { eprintln(s); }
 
 /// Implements the `print!` macro: formats and writes to stdout, no trailing newline.
@@ -246,6 +250,7 @@ pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
 // `panic!(...)` expansion type as `!` in expression position (match-arm /
 // if-arm / let unifiers all key off `is_divergent_call_node`).
 /// Panics with `msg`; `-> !` makes `panic!` expansions type as `!` in expression position.
+#[lang = "__fmt_panic"]
 pub fn __fmt_panic(msg: str) -> ! { panic(msg); }
 
 // `panic!(...)` macro — formats per Rust's panic! and aborts.

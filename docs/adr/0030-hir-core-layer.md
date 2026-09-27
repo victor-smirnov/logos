@@ -416,7 +416,18 @@ them: `?`'s operand, `partial_cmp`'s result, the synthesized `Option<…>`
 user homonym may shadow it, as in Rust). `?` on a type without a `Try` impl is
 E0277 before the Try dispatch: a user `enum Result` was taken for the lang
 item (two fixtures asserted that and now use the prelude's Result).
-Next slice: the cmp / str / range / slice
+Expansion hygiene — the names the HIR's built-in macro expansions spell
+(`String`, `Formatter`, `ok`, `fmt_*`, `__fmt_*`) are lang items; a TYPE_REF,
+STATIC_CALL receiver or CALL callee with ORIGIN Macro resolves through the lang
+table, never to a homonym in scope (a user `struct Formatter` or `fn
+fmt_display` captured the expansion). The callee restriction reuses
+`call_pkg_qualifier_`, now scoped to ONE name (`call_pkg_qualifier_name_`):
+the call's arguments are lowered while the qualifier stands, and the old
+package-wide filter refused `buf.as_str()` inside `__fmt_println(…)`. Found on
+the way (a separate defect, rowed): a user type named like a stdlib type breaks
+linking to that type's methods (squeue user_type_homonym_of_stdlib_type_link_refused).
+`vec!` stays in sema until S7.
+Next slice (optional, low value): the cmp / str / range / slice
 helper fns, Vec / HashMap / String, and the names the HIR expansions spell
 (`Formatter`, `fmt_*`, `__fmt_*`) through `LANG_PATH` (census:
 docs/audit/2026-09-27-lang-item-census.md).

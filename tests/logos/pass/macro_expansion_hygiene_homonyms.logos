@@ -1,0 +1,16 @@
+// A built-in macro's expansion names lang items, never a homonym in scope (ADR 0030 L0): a user
+// `struct Formatter` and a user `fn fmt_display` next to `println!` / `format!` captured the
+// expansion's `Formatter` / `fmt_display` (a type mismatch, an arity error). The expansion's type
+// names, static-call receivers and callees carry ORIGIN Macro and resolve through the lang table.
+// (A user `struct String` hits a separate mangling defect: squeue
+// user_type_homonym_of_stdlib_type_link_refused.)
+package macro_expansion_hygiene_homonyms;
+use logos.std.fmt;
+struct Formatter { x: i64 }
+fn fmt_display(a: i64) -> i64 { return a + 1; }
+fn main() -> i32 {
+    let f = Formatter { x: 3 };
+    println!("{} {}", f.x, fmt_display(4));
+    let s = format!("<{}>", f.x);
+    return (s.len() as i64 + fmt_display(f.x)) as i32;
+}

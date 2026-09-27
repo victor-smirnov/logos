@@ -44,6 +44,7 @@ use logos.lang.writ.anyval;      // W_STRING
 
 /// Owned, heap-allocated, growable byte string.
 /// Invariant: `data[nbytes] == 0` (null terminator always present when `cap > 0`).
+#[lang = "String"]
 pub struct String {
     data:   *mut u8,   // heap buffer (or null when cap == 0)
     nbytes: i64,       // number of content bytes (not counting null terminator)
