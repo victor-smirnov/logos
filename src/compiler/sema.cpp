@@ -2189,18 +2189,23 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
 
 bool SemaChecker::is_divergent_call_node(writ::TinyMapView node) {
     int32_t cc = code_of(node);
+    // A block whose last statement is a diverging call diverges (it has type
+    // `!`): the HIR pass expands `panic!(…)` / `unreachable!(…)` to a block
+    // ending in `__fmt_panic(…)`.
+    if (cc == la::BLOCK.code) {
+        if (!node.has_key(la::ITEMS)) return false;
+        auto stmts = arr_of(node.get(la::ITEMS.code));
+        if (stmts.size() == 0) return false;
+        auto last = map_of(stmts.get(stmts.size() - 1));
+        const int32_t lc = code_of(last);
+        return (lc == la::EXPR_STMT.code || lc == la::TAIL_EXPR.code) && last.has_key(la::VALUE) &&
+               is_divergent_call_node(map_of(last.get(la::VALUE.code)));
+    }
     if (cc != la::CALL.code && cc != la::FN_MACRO_CALL.code) return false;
     auto callee = str_of(node.get(la::CALLEE.code));
-    // `panic` is a stdlib macro that wraps `__fmt_panic` — its registered
-    // signature returns `!` once resolved. But the macro form parses to
-    // FN_MACRO_CALL "panic" before expansion (reachability sees the
-    // un-expanded AST), and depending on import order the user-facing
-    // `panic` symbol may not be visible yet at the call site. Keep the
-    // name fast-path as an anchor for the macro shape; the generic
-    // Never-return check below handles every other diverging callee.
-    // §6.11 marker-macros (unreachable!/todo!/unimplemented!) lower
-    // through `panic!` in `lower_builtin_macro`, so they're handled
-    // by the `panic` fast-path indirectly.
+    // `panic(msg)` by name: depending on import order the user-facing `panic`
+    // symbol may not be visible yet at the call site; the Never-return check
+    // below handles every other diverging callee.
     if (callee == "panic") return true;
     for (auto* fi : find_func_candidates(std::string(callee)))
         if (fi && fi->ret_type &&

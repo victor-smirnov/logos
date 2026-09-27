@@ -339,33 +339,9 @@ bool SemaChecker::is_infinite_loop_node(TinyMapView n) {
 bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     int32_t c = code_of(stmt);
     if (c == la::RETURN) return true;
-    // K10-co-04: a call to `panic(...)` is divergent — control never falls
-    // through. Hand-recognised by callee name today since Logos has no
-    // `!`/Never type kind. Returning true from stmt_always_returns makes
-    // the fn-body return-reachability check accept a `panic(msg)` tail.
-    auto is_divergent_call = [&](writ::TinyMapView node) -> bool {
-        int32_t cc = code_of(node);
-        // Direct call `panic(...)` or macro-style `panic!(...)`. The macro
-        // shape parses to FN_MACRO_CALL with CALLEE = "panic" before
-        // expansion; reachability runs on the un-expanded AST so it sees
-        // both forms by the same callee name.
-        if (cc == la::CALL.code || cc == la::FN_MACRO_CALL.code) {
-            auto callee = str_of(node.get(la::CALLEE.code));
-            if (callee == "panic") return true;
-            // A call to any `-> !` (Never-returning) function diverges —
-            // generalises the historical hand-coded `panic` name check now
-            // that the never type exists (abort / exit / unreachable / a
-            // user `-> !` fn all qualify).
-            for (auto* fi : find_func_candidates(std::string(callee)))
-                if (fi && fi->ret_type &&
-                    TypeRef(fi->ret_type).kind() == LogosType::Kind::Never)
-                    return true;
-        }
-        return false;
-    };
     if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && stmt.has_key(la::VALUE)) {
         auto e = map_of(stmt.get(la::VALUE.code));
-        if (is_divergent_call(e)) return true;
+        if (is_divergent_call_node(e)) return true;
         // A bare block / if / match in expression-statement position diverges
         // if its body does — `{ return X; }` as a fn-body tail, etc.
         int32_t ec = code_of(e);
@@ -400,7 +376,7 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
         auto e = map_of(stmt.get(la::VALUE.code));
         int32_t ec = code_of(e);
         if (ec == la::RETURN_EXPR || ec == la::BREAK_EXPR ||
-            ec == la::CONTINUE_EXPR || is_divergent_call(e))
+            ec == la::CONTINUE_EXPR || is_divergent_call_node(e))
             return true;
         if (ec == la::BLOCK) return block_always_returns(e);
         if (ec == la::IF || ec == la::MATCH) return stmt_always_returns(e);
@@ -544,20 +520,9 @@ bool SemaChecker::body_always_diverges_simple(TinyMapView body_node) {
     if (stmts.size() == 0) return false;
     auto last = map_of(stmts.get(stmts.size() - 1));
     int32_t c = code_of(last);
-    auto is_divergent_call = [&](TinyMapView node) -> bool {
-        int32_t cc = code_of(node);
-        if (cc != la::CALL.code && cc != la::FN_MACRO_CALL.code) return false;
-        auto callee = str_of(node.get(la::CALLEE.code));
-        if (callee == "panic") return true;
-        for (auto* fi : find_func_candidates(std::string(callee)))
-            if (fi && fi->ret_type &&
-                TypeRef(fi->ret_type).kind() == LogosType::Kind::Never)
-                return true;
-        return false;
-    };
     if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && last.has_key(la::VALUE)) {
         auto e = map_of(last.get(la::VALUE.code));
-        if (is_divergent_call(e)) return true;
+        if (is_divergent_call_node(e)) return true;
         if (is_infinite_loop_node(e)) return !loop_has_targeting_break(e);
     }
     if (is_infinite_loop_node(last)) return !loop_has_targeting_break(last);
@@ -8387,28 +8352,6 @@ writ::AnyVal SemaChecker::synth_array(const std::vector<writ::AnyVal>& items) {
 writ::AnyVal SemaChecker::synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line) {
     return synth_node(la::BLOCK.code, line, {{la::ITEMS.code, synth_array(stmts)}});
 }
-
-writ::AnyVal SemaChecker::synth_as_block(writ::AnyVal body, uint32_t line) {
-    return code_of(map_of(body)) == la::BLOCK ? body : synth_block({body}, line);
-}
-
-// match SCRUT { PAT [if GUARD] => THEN, _ => ELSE }
-writ::AnyVal SemaChecker::synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ::AnyVal guard,
-                                      writ::AnyVal then_body, writ::AnyVal else_body,
-                                      uint32_t line) {
-    auto arm1 = synth_node(la::MATCH_ARM.code, line,
-                           {{la::LHS.code, pat}, {la::GUARD.code, guard}, {la::BODY.code, then_body}});
-    auto arm2 = synth_node(la::MATCH_ARM.code, line,
-                           {{la::LHS.code, synth_node(la::PAT_WILD.code, 0, {})},
-                            {la::BODY.code, else_body}});
-    // PAT on the MATCH node records that this match was WRITTEN as a let form:
-    // its `_` arm is the else branch, not a user arm (the arm-after-catchall
-    // lint reads it).
-    return synth_node(la::MATCH.code, line,
-                      {{la::VALUE.code, scrut}, {la::ITEMS.code, synth_array({arm1, arm2})},
-                       {la::PAT.code, pat}});
-}
-
 
 lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     // Own source line — capture before lowering cond/branches moves node_line_

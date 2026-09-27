@@ -230,7 +230,15 @@
 # 2026-09-27, ADR 0030: hir_lower.cpp compares a binding NAME against "_" twice — the
 # wildcard, a keyword spelled as a name in the binding list, not an entity; no user item
 # can be declared `_`.
-#SCAN hir_lower.cpp 2 190f27aa
+# 2026-09-27, ADR 0030 HIR macros: 2 -> 21, roster 190f27aa -> a27cbce6. The built-in
+# macro expansion moved from sema into the pass: the callee names it owns (format, print,
+# println, eprint, eprintln, panic, format_args_str, write, writeln, matches, dbg,
+# unreachable, todo, unimplemented) and the tail spelling of each family member. They
+# are MACRO names, dispatched before any macro resolution exactly as sema's
+# lower_builtin_macro / lower_fn_macro_call did (sema_expr.cpp -10 and sema_stmt.cpp -2
+# below are the same comparisons leaving); the format family still asks that its
+# logos.std.fmt declaration is in scope (macro_in_scope_ at the expansion's CALLEE).
+#SCAN hir_lower.cpp 21 a27cbce6
 #SCAN main.cpp 4 04f2bc11
 #SCAN mlir_gen_debug.cpp 2 c5f7c386
 #SCAN mlir_gen_dyn.cpp 1 fad58de7
@@ -402,7 +410,10 @@
 # 2026-09-26: sema_expr.cpp 156 -> 160 — the four `callee == "Some" | "Ok" | "Err"` tests of lower_call's
 #   early prelude route (see the unguarded pin above): prelude VARIANT names, taken only when no fn or
 #   local of that name exists. Roster 2ff0231b -> c3885fc7.
-#SCAN sema_expr.cpp 160 c3885fc7
+# 2026-09-27, ADR 0030 HIR macros: 160 -> 150, roster c3885fc7 -> e862cbd0 — the
+# matches!/dbg!/unreachable!/todo!/unimplemented! branches and synth_format_expansion_'s
+# tail dispatch moved to hir_lower.cpp (see its row).
+#SCAN sema_expr.cpp 150 e862cbd0
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":
@@ -502,7 +513,9 @@
 #   `n == "_"` — a `_` / empty binder is a wildcard, any other bare name is checked against the unit variants.
 # 2026-09-27, ADR 0030 HIR: sema_stmt.cpp 28 -> 26 — lower_destructure_assign's two `nm == "_"`
 # tests left with it (destructuring assignment is a let + assignments from the HIR pass).
-#SCAN sema_stmt.cpp 26 942188f9
+# 2026-09-27, ADR 0030 HIR macros: 26 -> 24, roster 942188f9 -> a6283da9 — the two private
+# copies of the diverging-call predicate (`callee == "panic"`) became is_divergent_call_node.
+#SCAN sema_stmt.cpp 24 a6283da9
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
@@ -650,8 +663,11 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # `vec_new::<_>()`), so no binding changed; what changed is that the lint can now see them.
 # A user item named `String`/`Formatter` in scope would capture the expansion (rustc
 # writes `$crate::…`): that is ADR 0030 D4 — the expansions name lang items (step L0).
-#ARGSCAN s_static 2 fa92db5e
-#ARGSCAN s_type 3 ba314e68
+# 2026-09-27: the same expansion now lives in hir_lower.cpp::format_expansion, whose
+# builders are `static_call` / `type` (was sema's `s_static` / `s_type`); same names,
+# same rosters.
+#ARGSCAN static_call 2 fa92db5e
+#ARGSCAN type 3 ba314e68
 # 2026-09-26: the audit std merge adds four name-keyed lookups, each grounded at its site: generic_assoc_impls_ (mono.cpp insert,
 #   mono_subst.cpp read) is a BUCKET filtered by unifying the stored package-carrying target pattern; implied_type_lt_outlives_
 #   and current_type_bounds_[type_str(base)] key on type-parameter spellings.

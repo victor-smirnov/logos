@@ -4,6 +4,11 @@
 
 #include <logos/compiler/ast.hpp>
 
+#include "logos_parser.hpp"
+#include "sema_fmt.hpp"
+
+#include <format>
+
 namespace logos::compiler::hir {
 
 namespace la = logos::compiler::ast;
@@ -77,6 +82,7 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
     TinyMapView n = map_of(v);
     const int32_t c = code_of(n);
     if (opaque(c)) return v;
+    if (c == la::FN_MACRO_CALL.code) return expand_macro(v);
     // The context of each child: a block's items are statements, as are a
     // statement `if`'s else branch and a statement `match`'s arm bodies (and
     // the loop a label wraps); everything else is an expression.
@@ -394,6 +400,292 @@ AnyVal Lowering::destructure(TinyMapView n) {
                               {la::VALUE.code, node(la::VAR_REF.code, n, Origin::Destructure,
                                                     {{la::NAME.code, str(t)}})}}));
     return node(la::BLOCK_STMT.code, n, Origin::Destructure, {{la::BODY.code, block(stmts, n, Origin::Destructure)}});
+}
+
+// ── built-in macros ─────────────────────────────────────────────────────────
+
+namespace {
+uint32_t line_of(TinyMapView n) {
+    AnyVal v = n.is_null() ? AnyVal{} : n.get(la::SRC_LINE.code);
+    return v.is_null() || !v.is_value() ? 0 : v.as_value<uint32_t>();
+}
+std::string_view text_of(TinyMapView n, uint8_t key) {
+    AnyVal v = n.is_null() ? AnyVal{} : n.get(key);
+    if (v.is_null() || !v.is_pointer()) return {};
+    return writ::StringView(v, nullptr).view();
+}
+// Text the expansion puts INSIDE a format string literal: `"` and `\`
+// escaped, `{`/`}` doubled so the format parser reads them as literal braces.
+std::string fmt_lit_escape(std::string_view t) {
+    std::string out;
+    for (char ch : t) {
+        if (ch == '"' || ch == '\\') out.push_back('\\');
+        else if (ch == '{') { out += "{{"; continue; }
+        else if (ch == '}') { out += "}}"; continue; }
+        out.push_back(ch);
+    }
+    return out;
+}
+bool is_format_family(std::string_view n) {
+    return n == "format" || n == "print" || n == "println" || n == "eprint" ||
+           n == "eprintln" || n == "panic" || n == "format_args_str";
+}
+std::string_view unquote(std::string_view lit) {
+    if (lit.size() >= 2 && lit.front() == '"' && lit.back() == '"')
+        lit = lit.substr(1, lit.size() - 2);
+    return lit;
+}
+} // namespace
+
+AnyVal Lowering::refuse(TinyMapView call, std::string msg) {
+    diags_.push_back({line_of(call), std::move(msg)});
+    return recoded(call, la::FN_MACRO_CALL.code, Origin::Macro);
+}
+
+TinyMapView Lowering::parse_args(TinyMapView call, ArgsEntry entry, bool& ok) {
+    ok = false;
+    std::string_view raw = text_of(call, la::RAW_TEXT.code);
+    if (entry == ArgsEntry::Args && raw.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+        ok = true;   // `name!()`
+        return {};
+    }
+    auto text = std::make_shared<std::string>(raw);
+    logos::compiler::LogosParser parser(*text);
+    AnyVal lv = call.get(la::RAW_LINE.code);
+    uint32_t line = !lv.is_null() && lv.is_value() ? lv.as_value<uint32_t>() : line_of(call);
+    if (line != 0) parser.set_first_line(line);
+    AnyVal ov = call.get(la::RAW_OFF.code);
+    if (!ov.is_null() && ov.is_value()) parser.set_first_offset(ov.as_value<uint32_t>());
+    auto doc = entry == ArgsEntry::Args ? parser.parse_macro_args() : parser.parse_matches_args();
+    if (doc.is_null() || !parser.at_eof()) return {};
+    TinyMapView root = doc.root_object().as_tiny_map();
+    if (root.is_null()) return {};
+    AnyVal rv; rv.set_ref(root.ptr());
+    arg_texts_.push_back(std::move(text));
+    arg_docs_.push_back(std::move(doc));
+    ok = true;
+    return map_of(lower(rv, Ctx::Expr));   // the arguments are code in the caller's body
+}
+
+AnyVal Lowering::expand_macro(AnyVal v) {
+    TinyMapView n = map_of(v);
+    const std::string callee(text_of(n, la::CALLEE.code));
+    const bool write_family = callee == "write" || callee == "writeln";
+    const bool marker = callee == "unreachable" || callee == "todo" || callee == "unimplemented";
+    if (!is_format_family(callee) && !write_family && !marker &&
+        callee != "matches" && callee != "dbg")
+        return v;
+
+    if (callee == "matches") {
+        bool ok = false;
+        TinyMapView m = parse_args(n, ArgsEntry::Matches, ok);
+        if (!ok || m.is_null()) return refuse(n, "matches!: expected `matches!(expr, pattern [if guard])`");
+        auto lit_bool = [&](bool b) {
+            return block({node(la::TAIL_EXPR.code, n, Origin::Macro,
+                               {{la::VALUE.code, node(la::LIT_BOOL.code, n, Origin::Macro,
+                                                      {{la::VALUE.code, AnyVal::from_value(b)}})}})},
+                         n, Origin::Macro);
+        };
+        return match_of(m.get(la::VALUE.code), m.get(la::PAT.code), m.get(la::GUARD.code),
+                        lit_bool(true), lit_bool(false), n, Origin::Macro);
+    }
+
+    bool ok = false;
+    TinyMapView root = parse_args(n, ArgsEntry::Args, ok);
+    std::vector<AnyVal> args;
+    if (ok && !root.is_null() && root.has_key(la::ITEMS)) {
+        writ::ArrayView arr(root.get(la::ITEMS.code), nullptr);
+        for (uint64_t i = 0; i < arr.size(); ++i) args.push_back(arr.get(i));
+    }
+
+    if (marker) {
+        // `unreachable!()` panics with the fixed message; `unreachable!("fmt",
+        // args…)` with "<message>: <formatted>" (rustc).
+        if (!ok) return refuse(n, std::format("{}!: arguments do not parse as an expression list", callee));
+        const std::string prefix =
+            callee == "unreachable" ? "internal error: entered unreachable code"
+          : callee == "todo"        ? "not yet implemented"
+          :                           "not implemented";
+        std::string fmt = fmt_lit_escape(prefix);
+        if (!args.empty()) {
+            TinyMapView f0 = map_of(args[0]);
+            if (code_of(f0) != la::LIT_STR.code || !f0.has_key(la::VALUE))
+                return refuse(n, std::format("{}!: the first argument must be a format string literal", callee));
+            fmt += ": ";
+            fmt += unquote(text_of(f0, la::VALUE.code));
+        } else {
+            args.push_back(AnyVal{});   // the format string's slot
+        }
+        AnyVal blk = format_expansion(n, "panic", fmt, args, 0, false);
+        return blk.is_null() ? recoded(n, la::FN_MACRO_CALL.code, Origin::Macro) : blk;
+    }
+
+    if (callee == "dbg") {
+        // `{ let t = e; eprintln!("[file:line] <e as written> = {:?}", t); t }`
+        // — the value passes through (the print borrows it); `dbg!()` prints
+        // the marker only.
+        if (!ok || args.size() > 1) return refuse(n, "dbg!: expected `dbg!()` or `dbg!(expr)`");
+        std::string where = std::format("[{}:{}]", fmt_lit_escape(file_), line_of(n));
+        if (args.empty()) {
+            AnyVal blk = format_expansion(n, "eprintln", where, {AnyVal{}}, 0, false);
+            return blk.is_null() ? recoded(n, la::FN_MACRO_CALL.code, Origin::Macro) : blk;
+        }
+        std::string_view raw = text_of(n, la::RAW_TEXT.code);
+        const size_t b = raw.find_first_not_of(" \t\r\n"), e = raw.find_last_not_of(" \t\r\n");
+        raw = b == std::string_view::npos ? std::string_view{} : raw.substr(b, e - b + 1);
+        const std::string t = std::format("__dbg_{}", fresh_++);
+        auto var = [&] { return node(la::VAR_REF.code, n, Origin::Macro, {{la::NAME.code, str(t)}}); };
+        AnyVal print = format_expansion(n, "eprintln",
+                                        std::format("{} {} = {{:?}}", where, fmt_lit_escape(raw)),
+                                        {AnyVal{}, var()}, 0, false);
+        if (print.is_null()) return recoded(n, la::FN_MACRO_CALL.code, Origin::Macro);
+        return block({node(la::LET.code, n, Origin::Macro, {{la::NAME.code, str(t)}, {la::VALUE.code, args[0]}}),
+                      node(la::EXPR_STMT.code, n, Origin::Macro, {{la::VALUE.code, print}}),
+                      node(la::TAIL_EXPR.code, n, Origin::Macro, {{la::VALUE.code, var()}})},
+                     n, Origin::Macro);
+    }
+
+    // The format family: expanded when the format string is a literal; any
+    // other first argument is left to the macro call's own resolution.
+    const size_t fmt_pos = write_family ? 1 : 0;
+    if (!ok || args.size() <= fmt_pos) return v;
+    TinyMapView f = map_of(args[fmt_pos]);
+    if (code_of(f) != la::LIT_STR.code || !f.has_key(la::VALUE)) return v;
+    AnyVal blk = format_expansion(n, callee, unquote(text_of(f, la::VALUE.code)), args, fmt_pos,
+                                  write_family);
+    if (blk.is_null()) return recoded(n, la::FN_MACRO_CALL.code, Origin::Macro);
+    // The family is declared in logos.std.fmt: sema asks that the name is in
+    // scope at the expansion (the block's CALLEE).
+    TinyMapView b = map_of(blk);
+    return node(la::BLOCK.code, n, Origin::Macro,
+                {{la::ITEMS.code, b.get(la::ITEMS.code)}, {la::CALLEE.code, str(callee)}});
+}
+
+// rustc's format_args!: the arguments are evaluated ONCE, left to right, each
+// borrowed (`&(arg)`), before any formatting; `{0}{0}` formats one value
+// twice; a write!/writeln! sink is evaluated first. `body` is the literal's
+// contents as written (escapes intact), `args[fmt_pos]` the literal itself.
+// Null after a diagnostic (bad format string, arity mismatch).
+AnyVal Lowering::format_expansion(TinyMapView at, std::string_view callee, std::string_view body,
+                                  const std::vector<AnyVal>& args, size_t fmt_pos,
+                                  bool write_family) {
+    const uint32_t ln = line_of(at);
+    bool refused = false;
+    FormatParseResult fr;
+    parse_format_string(body, fr, [&](std::string msg) {
+        diags_.push_back({ln, std::format("{}!: {}", callee, msg)});
+        refused = true;
+    });
+    if (!fr.ok) return AnyVal{};
+    int32_t placeholders = 0;
+    for (auto& sg : fr.segments) if (!sg.is_literal) ++placeholders;
+    const int32_t provided = static_cast<int32_t>(args.size()) - static_cast<int32_t>(fmt_pos) - 1;
+    const int32_t needed = std::max(fr.positional_count, fr.max_explicit_plus_one);
+    if (fr.max_explicit_plus_one == 0 ? placeholders != provided : provided < needed) {
+        diags_.push_back({ln, fr.max_explicit_plus_one == 0
+            ? std::format("{}!: format string has {} placeholder{} but {} argument{} provided",
+                          callee, placeholders, placeholders == 1 ? "" : "s",
+                          provided, provided == 1 ? "" : "s")
+            : std::format("{}!: format string references arg index up to {} but only {} argument{} provided",
+                          callee, needed - 1, provided, provided == 1 ? "" : "s")});
+        return AnyVal{};
+    }
+    (void)refused;   // a soft diagnostic keeps the best-effort expansion
+
+    const Origin o = Origin::Macro;
+    const std::string pfx = std::format("__fmt{}_", fresh_++);
+    auto var = [&](const std::string& nm) { return node(la::VAR_REF.code, at, o, {{la::NAME.code, str(nm)}}); };
+    auto lit_int = [&](std::string lit) { return node(la::LIT_INT.code, at, o, {{la::VALUE.code, str(lit)}}); };
+    auto lit_bool = [&](bool b) { return node(la::LIT_BOOL.code, at, o, {{la::VALUE.code, AnyVal::from_value(b)}}); };
+    auto lit_str = [&](std::string_view t) {
+        return node(la::LIT_STR.code, at, o, {{la::VALUE.code, str(std::format("\"{}\"", t))}});
+    };
+    auto mcall = [&](AnyVal recv, std::string_view m, std::vector<AnyVal> a) {
+        return node(la::METHOD_CALL.code, at, o,
+                    {{la::RECEIVER.code, recv}, {la::NAME.code, str(m)}, {la::ARGS.code, array(a)}});
+    };
+    auto call = [&](std::string_view fn, std::vector<AnyVal> a) {
+        return node(la::CALL.code, at, o, {{la::CALLEE.code, str(fn)}, {la::ARGS.code, array(a)}});
+    };
+    auto let = [&](const std::string& nm, AnyVal ty, AnyVal val, bool mut_) {
+        return node(la::LET.code, at, o, {{la::NAME.code, str(nm)}, {la::TYPE.code, ty}, {la::VALUE.code, val},
+                                          {la::IS_MUT.code, mut_ ? AnyVal::from_value(true) : AnyVal{}}});
+    };
+    auto type = [&](std::string_view nm) { return node(la::TYPE_REF.code, at, o, {{la::NAME.code, str(nm)}}); };
+    auto mutref = [&](AnyVal x) { return node(la::ADDR_OF_MUT.code, at, o, {{la::VALUE.code, x}}); };
+    auto stmt = [&](AnyVal x) { return node(la::EXPR_STMT.code, at, o, {{la::VALUE.code, x}}); };
+    // A STATIC_CALL's ARGS is the call_arg_list map ({ITEMS}).
+    auto static_call = [&](std::string_view ty, std::string_view m, std::vector<AnyVal> a) {
+        return node(la::STATIC_CALL.code, at, o,
+                    {{la::RECEIVER.code, str(ty)}, {la::NAME.code, str(m)}, {la::ARGS.code, list_map(a)}});
+    };
+    const std::string f_n = pfx + "f", buf_n = pfx + "buf";
+    std::vector<AnyVal> stmts;
+    if (write_family)
+        stmts.push_back(let(f_n, type("Formatter"), mcall(args[0], "as_formatter", {}), true));
+    else
+        stmts.push_back(let(buf_n, type("String"), static_call("String", "new", {}), true));
+    // The value arguments, each borrowed once, in order; the borrow takes the
+    // ARGUMENT's position, so a diagnostic on it points into the argument.
+    std::vector<std::string> names;
+    for (size_t vi = fmt_pos + 1; vi < args.size(); ++vi) {
+        std::string an = std::format("{}a{}", pfx, vi - fmt_pos - 1);
+        TinyMapView av = map_of(args[vi]);
+        stmts.push_back(let(an, AnyVal{},
+                            node(la::UNARY.code, line_of(av) ? av : at, o,
+                                 {{la::OP.code, str("&")}, {la::VALUE.code, args[vi]}}),
+                            false));
+        names.push_back(std::move(an));
+    }
+    // The Formatter over the buffer is made after the arguments, so an
+    // argument cannot observe the buffer.
+    if (!write_family)
+        stmts.push_back(let(f_n, type("Formatter"), static_call("Formatter", "new", {mutref(var(buf_n))}), true));
+    int32_t auto_idx = 0;
+    for (auto& sg : fr.segments) {
+        if (sg.is_literal) {
+            if (sg.lit_text.empty()) continue;
+            // Literals go through the Formatter too: two live mutable paths to
+            // one String are what format_args! never makes (ADR 0028).
+            stmts.push_back(let("_", AnyVal{}, mcall(var(f_n), "write_str", {lit_str(sg.lit_text)}), false));
+            continue;
+        }
+        const int32_t idx = sg.arg_idx >= 0 ? sg.arg_idx : auto_idx++;
+        if (idx < 0 || size_t(idx) >= names.size()) continue;
+        // align: 0 = unknown → right, 1 = left, 2 = right, 3 = center.
+        const int32_t align = sg.spec.align == FormatAlign::Left   ? 1
+                            : sg.spec.align == FormatAlign::Right  ? 2
+                            : sg.spec.align == FormatAlign::Center ? 3 : 0;
+        int32_t fill = static_cast<unsigned char>(sg.spec.fill);
+        if (sg.spec.zero && sg.spec.align == FormatAlign::None && sg.spec.fill == ' ') fill = '0';
+        stmts.push_back(stmt(mcall(var(f_n), "set_spec", {
+            lit_int(std::format("{}u8", fill)), lit_int(std::format("{}u8", align)),
+            lit_bool(sg.spec.sign == FormatSign::Plus), lit_bool(sg.spec.alt), lit_bool(sg.spec.zero),
+            lit_int(std::format("{}i64", sg.spec.width >= 0 ? sg.spec.width : -1)),
+            lit_int(std::format("{}i64", sg.spec.precision >= 0 ? sg.spec.precision : -1))})));
+        stmts.push_back(let("_", AnyVal{},
+                            call(format_trait_dispatcher(sg.spec.trait_kind),
+                                 {var(names[size_t(idx)]), mutref(var(f_n))}),
+                            false));
+    }
+    auto buf_str = [&] { return mcall(var(buf_n), "as_str", {}); };
+    AnyVal tail;
+    if (callee == "format" || callee == "format_args_str") tail = var(buf_n);
+    else if (callee == "println")  tail = call("__fmt_println",  {buf_str()});
+    else if (callee == "print")    tail = call("__fmt_print",    {buf_str()});
+    else if (callee == "eprintln") tail = call("__fmt_eprintln", {buf_str()});
+    else if (callee == "eprint")   tail = call("__fmt_eprint",   {buf_str()});
+    else if (callee == "panic")    tail = call("__fmt_panic",    {buf_str()});
+    else {
+        // write!/writeln!: streamed into the sink through the Formatter;
+        // writeln! adds the newline. The value is Ok(()) — per-placeholder
+        // errors are discarded, as format! discards them.
+        if (callee == "writeln")
+            stmts.push_back(let("_", AnyVal{}, mcall(var(f_n), "write_str", {lit_str("\\n")}), false));
+        tail = call("ok", {});
+    }
+    stmts.push_back(node(la::TAIL_EXPR.code, at, o, {{la::VALUE.code, tail}}));
+    return block(stmts, at, o);
 }
 
 } // namespace logos::compiler::hir

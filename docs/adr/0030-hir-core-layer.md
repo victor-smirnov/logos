@@ -340,8 +340,24 @@ with a value is E0571 (as for `for`) — closed squeue
 break_value_in_for_while_admitted. A metacall is opaque to the pass (the
 driver patches it by offset); lower_metacall runs its inner code through the
 pass at the lowering site.
-Next: field shorthand, parameter patterns, the syntactic macro expansions
-(format!, vec!, matches!, dbg!) out of sema; tail → return stays sema's single
+Field shorthand `S { x }` → `S { x: x }` (ORIGIN FieldShorthand).
+The built-in macros are expanded by the pass (ORIGIN Macro): the format family
+(format!/print!/println!/eprint!/eprintln!/panic!/format_args_str!/write!/
+writeln!) with a literal format string, matches!, dbg!, unreachable!/todo!/
+unimplemented!. The pass parses a macro's raw argument text where it stands
+(RAW_LINE / RAW_OFF) and lowers it like the body around it; sema's
+`synth_format_expansion_` and its matches!/dbg!/marker branches are deleted
+(the gate stands in their place). A refused call keeps its node with ORIGIN
+Macro after the pass's diagnostic (reported at its own line). The format
+family is declared in `logos.std.fmt` and is in scope only where that is:
+the expansion block carries CALLEE, and sema asks `macro_in_scope_` there —
+the same lookup a `#[fn_macro]` call makes. `panic!`'s expansion is a block
+ending in `__fmt_panic(…) -> !`; the three private copies of the
+diverging-call predicate were one rule written three times and are now
+`is_divergent_call_node`, which also reads a block ending in a diverging call.
+vec! stays in sema until S7 (its element type comes from the `let`
+annotation).
+Next: parameter patterns, labels → ids; tail → return stays sema's single
 judgment (a unit tail needs a type).
 
 ## R0 status (2026-09-27)

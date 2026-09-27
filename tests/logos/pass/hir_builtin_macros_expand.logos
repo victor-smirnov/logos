@@ -1,0 +1,31 @@
+// The built-in macros are expanded by the HIR pass (ADR 0030), over their
+// arguments parsed where they stand: format!/println!/write!/writeln! as
+// rustc's format_args! (each argument evaluated once, borrowed, in order),
+// matches! as a match, dbg! as a let + eprintln! + the value, and
+// unreachable!/todo!/panic! as a block ending in a `-> !` call, so the
+// expansion types as `!` in an arm, a tail and an `if` branch.
+package hir_builtin_macros_expand;
+use logos.std.fmt;
+enum E { A(i64), B }
+fn pick(k: i64) -> i64 {
+    match k { 0 => panic!("zero"), 1 => 10, _ => unreachable!("k = {}", k) }
+}
+fn tail_never(k: i64) -> i64 { if k == 7 { return 1; } todo!() }
+fn main() -> i32 {
+    let mut n: i64 = 0;
+    let e = E::A(4);
+    // An argument holding a surface form (`if let`) and a nested format!.
+    println!("{} {}", if let E::A(v) = e { v } else { 0 }, format!("<{:>3}>", 5));
+    let m = matches!(e, E::A(v) if v > 3);
+    let m2 = matches!(E::B, E::A(_));
+    println!("{:?} {:?}", m, m2);
+    // Each argument is evaluated once, in order.
+    println!("{0} {0} {1}", { n = n + 1; n }, { n = n * 10; n });
+    let mut s = String::new();
+    let _ = write!(s, "{}+{}", 1, 2);
+    let _ = writeln!(s, "={}", 3);
+    print!("{}", s);
+    let d = dbg!(pick(1) * 2);
+    println!("{} {}", d, tail_never(7));
+    return if n == 10 { 0 } else { 1 };
+}

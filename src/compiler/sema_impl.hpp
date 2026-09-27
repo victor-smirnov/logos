@@ -3373,10 +3373,6 @@ private:
                                                                     writ::TinyMapView place);
     writ::AnyVal synth_str(std::string_view text);
     writ::AnyVal synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line);
-    writ::AnyVal synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ::AnyVal guard,
-                             writ::AnyVal then_body, writ::AnyVal else_body, uint32_t line);
-    // An arm body / else branch position that must hold a BLOCK.
-    writ::AnyVal synth_as_block(writ::AnyVal body, uint32_t line);
 
     int32_t code_of(writ::TinyMapView node) noexcept {
         using namespace sema_detail;
@@ -8596,10 +8592,21 @@ private:
     // hir_body_ first; sema then never meets a surface form (hir_gate_).
     hir::Lowering hir_;
     writ::TinyMapView hir_body_(writ::AnyVal body) {
+        hir_.set_file(file_);
         writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false);
-        for (auto& d : hir_.diags()) error(d.message);
-        hir_.diags().clear();
+        hir_report_();
         return map_of(core);
+    }
+    // The pass's diagnostics, each at its own line.
+    void hir_report_() {
+        for (auto& d : hir_.diags()) {
+            const uint32_t saved_line = node_line_;
+            const auto saved_span = node_span_;
+            if (d.line) { node_line_ = d.line; node_span_ = 0; }
+            error(d.message);
+            node_line_ = saved_line; node_span_ = saved_span;
+        }
+        hir_.diags().clear();
     }
     // A surface form reached sema: some body entry point did not go through
     // hir_body_. Loud, never a fallback — a silent fallback is two
@@ -9215,11 +9222,9 @@ private:
         writ::TinyMapView root;               // the entry's result map
         std::vector<writ::AnyVal> items;      // macro_args: ITEMS
     };
-    enum class MacroArgsEntry { Args, Matches, VecRepeat };
+    enum class MacroArgsEntry { Args, VecRepeat };
     MacroArgs parse_macro_args_(writ::TinyMapView call, MacroArgsEntry entry);
-    writ::AnyVal synth_format_expansion_(const std::string& callee_name, std::string_view body,
-                                         const std::vector<writ::AnyVal>& arg_avs,
-                                         size_t fmt_pos, bool is_write_family);
+    const SemaFuncInfo* macro_in_scope_(const std::string& callee_name);
     std::deque<writ::Writ> macro_arg_docs_;
     std::deque<std::shared_ptr<std::string>> macro_arg_texts_;
     lir::LExprPtr lower_reparsed_tail_expr(const std::string& wrap_body,

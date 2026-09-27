@@ -29,10 +29,24 @@
 //                                        → { let (t0, (t1, _), ..) = e; a = t0; b = t1; }
 //                                          (rustc's desugaring: each place is ASSIGNED, so its
 //                                          old value drops, and the rhs moves in once)
+//   format!/print!/println!/eprint!/eprintln!/panic!/write!/writeln!("lit", args…)
+//                                        → { let buf = String::new(); let a0 = &(arg0); …;
+//                                            let f = Formatter::new(&mut buf); f.write_str(..);
+//                                            fmt_display(a0, &mut f); …; __fmt_println(buf.as_str()) }
+//                                          (rustc's format_args!: each argument evaluated once,
+//                                          borrowed, left to right; a write! sink first)
+//   matches!(e, P [if g])                → match e { P [if g] => true, _ => false }
+//   dbg!(e)                              → { let t = e; eprintln!("[file:line] e = {:?}", t); t }
+//   unreachable!/todo!/unimplemented!(…) → panic!("<fixed message>[: <formatted>]", …)
+//   The macro's arguments are raw text in the AST (a macro call's operand is a
+//   token tree); the pass parses them where they stand, and a refused call
+//   keeps its node with ORIGIN = Macro after the diagnostic.
 
 #include <logos/writ/compat.hpp>
 
 #include <cstdint>
+#include <deque>
+#include <memory>
 #include <initializer_list>
 #include <string>
 #include <utility>
@@ -53,6 +67,8 @@ enum class Origin : int64_t {
     Destructure     = 8,   // destructuring assignment `(a, b) = e` / `[a, b] = e` / `S { a, b } = e`
     While           = 9,   // `while c { A }`
     FieldShorthand  = 10,  // `S { x }` in a struct / variant literal
+    Macro           = 11,  // a built-in macro's expansion (format family, matches!, dbg!,
+                           // unreachable!); on a FN_MACRO_CALL: refused, diagnostic given
 };
 
 struct Diag {
@@ -72,9 +88,12 @@ public:
     // through lower_body — the surface-code gate asks this.
     static bool is_surface(writ::TinyMapView n) noexcept;
 
-    // Diagnostics the rewrite itself found (none yet; kept for forms whose
-    // refusal belongs to the desugaring, e.g. a malformed let-chain).
+    // Diagnostics the rewrite itself found (a malformed let-chain, a macro
+    // call whose arguments or format string are refused).
     std::vector<Diag>& diags() noexcept { return diags_; }
+
+    // The file being lowered (dbg! prints it).
+    void set_file(std::string_view f) { file_ = f; }
 
 private:
     enum class Ctx { Stmt, Expr };
@@ -104,6 +123,21 @@ private:
     writ::AnyVal str(std::string_view s);
     writ::AnyVal list_map(const std::vector<writ::AnyVal>& items);   // `{ITEMS: [...]}`
     uint64_t fresh_ = 0;
+
+
+    // Built-in macros. `expand_macro` returns `v` for a macro it does not own.
+    enum class ArgsEntry { Args, Matches };
+    writ::AnyVal expand_macro(writ::AnyVal v);
+    // The call's raw argument text parsed where it stands, through this pass;
+    // null after nothing parsed (the caller refuses).
+    writ::TinyMapView parse_args(writ::TinyMapView call, ArgsEntry entry, bool& ok);
+    writ::AnyVal format_expansion(writ::TinyMapView at, std::string_view callee,
+                                  std::string_view body, const std::vector<writ::AnyVal>& args,
+                                  size_t fmt_pos, bool write_family);
+    writ::AnyVal refuse(writ::TinyMapView call, std::string msg);
+    std::deque<std::shared_ptr<std::string>> arg_texts_;   // the parsed documents view these
+    std::deque<writ::Writ>                   arg_docs_;
+    std::string                              file_;
 
     writ::Writ        doc_;
     std::vector<Diag> diags_;

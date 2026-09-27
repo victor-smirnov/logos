@@ -23820,7 +23820,7 @@ verdict: ⛔ half a mechanism — the arm drop without the mark doubles every re
 note: arm drops only.
 
 ## ifletown2
-site: src/compiler/sema_stmt.cpp::lower_while
+site: src/compiler/sema_stmt.cpp::lower_loop
 build: 1aec3641d967d168
 measured: 2026-09-06
 fires: 96
@@ -23828,6 +23828,7 @@ ceiling: 0 (bc) / 2 (soundness queue: iflet_payload_moveout_double_drop, whilele
 cost: 0 pass / cfail 2 of 1383 text-only (the coarser E0382 sentence, both names read) / stdlib ok / runtime 0 of 6328 (empty diff both ways) / hand: 24 (c)/(d) shapes to Rust's count, a14 (chain `ref`) REFUSED, c10 c11 c22 (let-else, if-let-expr) untouched, c19 c26 (mark_match_scrutinee_moved's own holes) untouched
 verdict: ✓ FUND — the landing candidate; owes the payload-place mark, render_pat_src's `ref`/`mut`, and the same protocol at lower_let_else / lower_if_expr
 note: = ifletown + the while-let binding frame is the loop boundary (lower_for_each's frame B; pending_loop_body_scope_ not armed) + substructmv. Spec: probes/2026-09-06c-patclass/{patclass.spec,apply_spec2.py}.
+moved: 2026-09-27 — the site was lower_while, deleted by ADR 0030 (the HIR pass lowers `while let P = e { A }` to `loop { match e { P => A, _ => break } }`), so the while-let binding frame is now lower_loop's body around lower_match_expr. The measurement stands for its build; a re-price starts here.
 
 ## substructmv
 site: src/compiler/sema_stmt.cpp::emit_nested_pat_destructure
