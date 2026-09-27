@@ -255,6 +255,7 @@ named reasons. Each step declares a diff budget before it starts.
 
 | step | content | depends on |
 |---|---|---|
+| R0 | macro arguments parsed as AST; format glue, `?`, `vec!`, `matches!`, `dbg!`, panic wrappers, `include!` built structurally, no render-and-reparse (Q4) | — |
 | H0 | span key + `SourceMap` (R4a); `ORIGIN` key; HIR pass as identity (core AST = AST); surface-code gate with an empty surface set; key census | — |
 | S0 | one-point fixes at existing shared code (path inventory §4.2 S0, ~15 wrong-code programs) | — |
 | S1 | C-REPR ABI: `fn_sig`, `ret_abi_type`, `EnumRepr` (mlir only) | — |
@@ -313,9 +314,19 @@ at S3, S6 and S10.
 - **Q3. No `-O0` fast path.** `for` over arrays and ranges goes through the
   iterator lang items; `-O0` speed does not matter within reasonable limits.
   No `ORIGIN`-keyed special case in mono or codegen.
-- **Q4. Open; under investigation.** Census of render-and-reparse sites:
-  `docs/audit/2026-09-26-reparse-census.md`. It may become the FIRST step,
-  before H0.
+- **Q4. Census done (`docs/audit/2026-09-26-reparse-census.md`); proposed:
+  a step R0 BEFORE H0.** Root cause: the grammar keeps macro arguments only
+  as `RAW_TEXT`, so `vec!`, `matches!`, `dbg!`, the `panic!`-wrapper macros,
+  every `#[fn_macro]` (incl. `assert!`) and the format family wrap text in a
+  fake `fn __f()` and reparse it; every macro argument reports line 2
+  (measured, also in the `-g` line table). R0 = parse macro arguments as AST,
+  then build the user-code desugarings structurally (format glue, `?`,
+  `vec!`, `matches!`, `dbg!`, panic wrappers, `include!`). Doing H0 first
+  would need a virtual-file workaround on each of these sites that R0 then
+  deletes, and the rendered ones (format glue, `?`) cannot be mapped back to
+  user source at all. Generated code (deem pipeline, Logos-side emitters,
+  test runner) stays textual and gets virtual `SourceMap` files at H0.
+
 - **Q5. Deferred with a ticket.** Metaprog handlers see the surface AST; HIR
   exposure to `metacall` reflection is tracked in #649.
 - **Q6. DECIDED: `#[lang = "…"]` in the stdlib (rustc's mechanism), as in
