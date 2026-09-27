@@ -1873,8 +1873,16 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         if (v.is_move()) capture_is_env_mut[i] = true;  // own a mutable copy
         else             capture_is_mut_ref[i] = true;  // borrow: escape to outer
     }
+    // A capture bound in the body EXACTLY as in the creating scope (the
+    // pointer-repr branch: scope_ holds the same value) keeps that scope's
+    // parameter-shape marks — a reference binding that holds its VALUE (a
+    // `&T` param, a slice for-loop variable) must stay one for `&x`.
+    std::vector<bool> capture_ref_value(captures.size(), false);
+    std::vector<bool> capture_ptr_family(captures.size(), false);
     for (size_t i = 0; i < captures.size(); ++i) {
         const auto& name = captures[i];
+        capture_ref_value[i]  = ref_param_names_.count(name);
+        capture_ptr_family[i] = ptr_family_param_.count(name);
         capture_is_struct[i] = var_struct_.count(name);
         capture_is_array[i]  = var_subscript_.count(name);
         capture_is_tuple[i]  = var_tuple_.count(name);
@@ -2123,6 +2131,10 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         if (is_struct_cap || is_array_cap ||
             is_tuple_cap || is_enum_cap || is_dyn_cap) {
             scope_[captures[i]] = val;
+            if (!capture_own_inline[i]) {
+                if (capture_ref_value[i])  ref_param_names_.insert(captures[i]);
+                if (capture_ptr_family[i]) ptr_family_param_.insert(captures[i]);
+            }
             if (is_struct_cap)
                 // Use the mono-mangled concrete key (`Vec$G1$i64`), not the bare
                 // name (`Vec`) — a method call on a captured GENERIC struct
