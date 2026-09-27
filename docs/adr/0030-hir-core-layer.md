@@ -266,8 +266,9 @@ named reasons. Each step declares a diff budget before it starts.
 | S7 | C-EXP + C-LIT + C-INF | S4 |
 | S8 | C-RES | — |
 | S9 | C-OBL + impl identities + one mangler (PAIR, ABI bump) | S8 |
-| S9a | Rust-shaped `Iterator { type Item }`, `Try { type Output; type Residual }`, `FromResidual<R>`; `#[lang]` table (Q6) | S9 |
-| S10 | HIR `for`, `?`, comprehensions via lang items; C-CLO rest | S8, S9a |
+| L0 | `#[lang = "…"]` attribute; `lang_item → DefId` table at collection; missing/duplicate is an error; the 11 package-path sites (`k*LangPkg`) move onto it (Q6) | — |
+| S9a | Rust-shaped `Iterator { type Item }`, `Try { type Output; type Residual }`, `FromResidual<R>` | S9 |
+| S10 | HIR `for`, `?`, comprehensions via lang items; C-CLO rest | S8, S9a, L0 |
 
 Retirement is measured, not asserted: each step reports the number of sema
 branches for the retired forms before and after (a grep over the surface codes
@@ -317,8 +318,8 @@ at S3, S6 and S10.
   before H0.
 - **Q5. Deferred with a ticket.** Metaprog handlers see the surface AST; HIR
   exposure to `metacall` reflection is tracked in #649.
-- **Q6. Proposed: `#[lang = "…"]` in the stdlib (rustc's mechanism); pending
-  confirmation.** Today the compiler keys lang items on package-path strings
+- **Q6. DECIDED: `#[lang = "…"]` in the stdlib (rustc's mechanism), as in
+  Rust.** Today the compiler keys lang items on package-path strings
   (`kCopyLangPkg = "logos.lang.clone"`, `kDropLangPkg`, `kDerefLangPkg`,
   `kFnLangPkg`, `kCmpLangPkg`; 11 use sites in `sema_impl.hpp`). That is an
   identity carried as spelling: moving an item between stdlib packages
