@@ -266,7 +266,8 @@ named reasons. Each step declares a diff budget before it starts.
 | S7 | C-EXP + C-LIT + C-INF | S4 |
 | S8 | C-RES | — |
 | S9 | C-OBL + impl identities + one mangler (PAIR, ABI bump) | S8 |
-| S10 | HIR `for`, `?`, comprehensions via lang items; C-CLO rest | S8, lang items, Q2 |
+| S9a | Rust-shaped `Iterator { type Item }`, `Try { type Output; type Residual }`, `FromResidual<R>`; `#[lang]` table (Q6) | S9 |
+| S10 | HIR `for`, `?`, comprehensions via lang items; C-CLO rest | S8, S9a |
 
 Retirement is measured, not asserted: each step reports the number of sema
 branches for the retired forms before and after (a grep over the surface codes
@@ -291,8 +292,7 @@ at S3, S6 and S10.
 - Sema shrinks: the path inventory names about 250 functions, blocks or arms
   to delete against 11 cores (estimated, not measured in lines).
 - `for` over arrays and ranges goes through iterator lang items; at `-O0` it
-  is slower than today's direct loop until mono/codegen adds a fast path
-  (Q3).
+  is slower than today's direct loop, accepted (Q3).
 - The AST key set changes (span, origin, aliasing): a minor version bump and a
   metaprog ABI note (numeric key readers such as
   `stdlib/mem/compiler/metaprog/derive_branch_node.logos` move with it).
@@ -300,6 +300,32 @@ at S3, S6 and S10.
   construct-aware messages.
 - Metaprog can inspect both the surface AST and the core form with the same
   API.
+
+## Decisions taken in review (2026-09-26, Victor)
+
+- **Q1. Path resolution after S8.** The HIR resolves only lang items, labels
+  and synthesized bindings. Moving path → DefId resolution into the HIR is
+  decided after S8.
+- **Q2. Follow Rust.** `Iterator` takes `type Item`, `Try` takes
+  `type Output` / `type Residual` (with `FromResidual<R>` as in Rust). This is
+  a new step, S9a, and a prerequisite of S10.
+- **Q3. No `-O0` fast path.** `for` over arrays and ranges goes through the
+  iterator lang items; `-O0` speed does not matter within reasonable limits.
+  No `ORIGIN`-keyed special case in mono or codegen.
+- **Q4. Open; under investigation.** Census of render-and-reparse sites:
+  `docs/audit/2026-09-26-reparse-census.md`. It may become the FIRST step,
+  before H0.
+- **Q5. Deferred with a ticket.** Metaprog handlers see the surface AST; HIR
+  exposure to `metacall` reflection is tracked in #649.
+- **Q6. Proposed: `#[lang = "…"]` in the stdlib (rustc's mechanism); pending
+  confirmation.** Today the compiler keys lang items on package-path strings
+  (`kCopyLangPkg = "logos.lang.clone"`, `kDropLangPkg`, `kDerefLangPkg`,
+  `kFnLangPkg`, `kCmpLangPkg`; 11 use sites in `sema_impl.hpp`). That is an
+  identity carried as spelling: moving an item between stdlib packages
+  (module stratification) silently breaks it. With the attribute, the item
+  declares its role once, the compiler collects a `lang_item → DefId` table
+  at collection, a missing or duplicated lang item is a gate error, and the
+  existing path tables migrate onto it.
 
 ## Open questions (for the pair)
 
