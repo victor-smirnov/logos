@@ -1,1 +1,1 @@
-:8: error [fn main]: undefined variable 'nope_in_println'
+:8:20: error [fn main]: undefined variable 'nope_in_println'

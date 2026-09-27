@@ -25,6 +25,7 @@
 #include "mangled_name.hpp"
 #include "ctfe.hpp"   // T2-14: ctfe_eval_const signature (CtfeValue/CtfeError)
 #include <logos/compiler/sha256.hpp>
+#include <logos/compiler/source_map.hpp>
 #include <logos/compiler/str_map.hpp>
 #include <logos/writ/compat.hpp>
 #include <logos/writ/compat.hpp>
@@ -3119,6 +3120,7 @@ private:
     }
     bool         cur_from_lazy_   = false;   // current file is from a lazy archive
     uint32_t     node_line_ = 0;
+    int64_t      node_span_ = 0;   // SRC_SPAN of the node node_line_ came from (0 = none)
 
     // Per-file import scope (wildcard: `use foo.bar;` makes all pub symbols of foo.bar visible)
     struct ImportScope {
@@ -3315,6 +3317,13 @@ private:
 
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
 
+    int64_t get_span(writ::TinyMapView node) noexcept {
+        using namespace sema_detail;
+        if (node.is_null()) return 0;
+        AnyVal av = node.get(la::SRC_SPAN.code);
+        if (av.is_null() || !av.is_value()) return 0;
+        return av.as_i56();
+    }
     uint32_t get_line(writ::TinyMapView node) noexcept {
         using namespace sema_detail;
         if (node.is_null()) return 0;
@@ -3651,12 +3660,23 @@ private:
     SemaPhase phase_ = SemaPhase::Init;
 
     void error(std::string msg) {
-        result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_});
+        result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_, node_col_()});
     }
     void warn(std::string msg) {
         // Dedup happens at Diags::print time (B-li-01) — multi-phase sema
         // legitimately revisits the same source site.
-        result_.diags.push_back({Diag::Level::Warning, ctx_, std::move(msg), file_, node_line_});
+        result_.diags.push_back({Diag::Level::Warning, ctx_, std::move(msg), file_, node_line_, node_col_()});
+    }
+    // ADR 0030 H0: the column of the node being lowered, from its SRC_SPAN,
+    // when the span and node_line_ describe the SAME node (a synthesized node
+    // carries a line and no span, and node_line_ can be restored without the
+    // span) and the file's line table is known.
+    uint32_t node_col_() const {
+        if (!node_span_ || file_.empty()) return 0;
+        SrcSpan sp = unpack_src_span(node_span_);
+        uint32_t l = 0, c = 0;
+        if (!SourceMap::global().line_col(file_, sp.start, l, c) || l != node_line_) return 0;
+        return c;
     }
 
     // ── Centralized validation primitives (Meta-Sprint M0.1) ────────────

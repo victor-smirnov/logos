@@ -134,9 +134,9 @@ fn writ_map_get(view: &OView, wmap: WAny, key: str) -> WAny {
     let mut i: u64 = 0u64;
     while i < n {
         let entry: WAny = view.array_get(items, i);
-        // entry has KEY (field 18) and VALUE (field 7); KEY is a STRING-
+        // entry has KEY (field 12) and VALUE (field 7); KEY is a STRING-
         // captured token with quotes around it, same as LIT_STR/WRIT_STR.
-        let key_av: WAny = view.tiny_map_get(entry, 51 as u8);   // KEY
+        let key_av: WAny = view.tiny_map_get(entry, 12 as u8);   // KEY
         let raw: SView = view.get_str_view(key_av);
         if raw.len >= (2 as u64) {
             let inner_len: u64 = raw.len - (2 as u64);

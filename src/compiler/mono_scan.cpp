@@ -107,7 +107,7 @@ void Mono::check_zone_mut_mint(lir_view::ExprRef e) {
             "the INSTANTIATION. Build the reference with "
             "`zone_mut_ref::<{1}>(ptr, zone)` inside `unsafe`, reborrow an "
             "existing `&mut {1}`, or do not instantiate this generic at a "
-            "`#[zone_mut]` type", where, sn), {}, 0});
+            "`#[zone_mut]` type", where, sn), diag_file_, diag_line_});
 }
 
 // Recursive Error/unresolved probe over a type's visible structure. CfgSlotType
@@ -623,8 +623,7 @@ lir_view::FunctionView Mono::find_best_spec(
     }
     if (ambiguous) {
         in_.diags.diags.push_back({Diag::Level::Error, "mono",
-            std::format("ambiguous specializations for function '{}'", base_name),
-            "", 0});
+            std::format("ambiguous specializations for function '{}'", base_name), diag_file_, diag_line_});
     }
     return best;
 }
@@ -911,7 +910,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     if (depth_ >= max_depth_) {
         in_.diags.diags.push_back({Diag::Level::Error, "mono",
             std::format("instantiation depth limit ({}) exceeded for '{}'",
-                        max_depth_, mangled_callee), {}, 0});
+                        max_depth_, mangled_callee), diag_file_, diag_line_});
         return;
     }
 

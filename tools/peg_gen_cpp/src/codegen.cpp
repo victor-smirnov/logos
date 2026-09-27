@@ -1045,6 +1045,9 @@ private:
             w.line("// Line number the source starts at (default 1). For a fragment of a");
             w.line("// larger file (macro arguments): call before the first parse_* entry.");
             w.line("void set_first_line(uint32_t line) { line_ = line; }");
+            w.line("// Byte offset of source[0] in its file (default 0): SRC_SPAN starts are");
+            w.line("// file-relative, so a fragment parse reports its real position.");
+            w.line("void set_first_offset(uint32_t off) { offset_base_ = off; }");
             w.line("// Line number of the next unconsumed token (1-based).");
             w.line("uint32_t next_line() { return peek_token().line; }");
             w.line("// Text of the next unconsumed token.");
@@ -1113,7 +1116,7 @@ private:
             // uncounted (line_ undercounts → SRC_LINE skews for everything after
             // a memoized multi-line rule, e.g. a `match`). `.end == kMemoEmpty`
             // still marks an unfilled slot (failures are memoized too).
-            w.line("struct MemoCell { logos::writ::AnyVal first; size_t end; uint32_t line; };");
+            w.line("struct MemoCell { logos::writ::AnyVal first; size_t end; uint32_t line; uint32_t last_end = 0; };");
         }
         for (const auto& r : g_.rules) {
             if (!is_memoized(r.name)) continue;
@@ -1215,6 +1218,10 @@ private:
         w.line("std::string_view         source_;");
         w.line("size_t                   pos_ = 0;");
         w.line("uint32_t                 line_ = 1;  // current source line (1-based)");
+        // SRC_SPAN inputs (ADR 0030 H0): the end offset of the last CONSUMED
+        // token, and the offset of source_[0] in the file it is a fragment of.
+        w.line("uint32_t                 last_end_ = 0;");
+        w.line("uint32_t                 offset_base_ = 0;");
         if (!g_.tokens.empty()) {
             w.line("Token                    la_{};");
             w.line("bool                     have_la_ = false;");
@@ -1297,7 +1304,7 @@ private:
         w.indent();
         for (const auto& r : g_.rules) {
             if (!is_memoized(r.name)) continue;
-            w.fmt("memo_{}_.assign(source.size() + 1, {{logos::writ::AnyVal{{}}, kMemoEmpty, 0}});",
+            w.fmt("memo_{}_.assign(source.size() + 1, {{logos::writ::AnyVal{{}}, kMemoEmpty, 0, 0}});",
                   r.name);
         }
         // Token cache: one slot per byte offset, all initially unscanned.
@@ -1309,6 +1316,7 @@ private:
         w.indent();
         w.line("Token t;");
         w.line("if (have_la_) { have_la_ = false; t = la_; } else { t = lex_one(); }");
+        w.line("last_end_ = static_cast<uint32_t>(t.text.data() + t.text.size() - source_.data());");
         w.line("// Track furthest consumed position for error reporting.");
         w.line("if (t.kind != TK::Eof &&");
         w.line("    (t.line > furthest_.line ||");
@@ -1361,6 +1369,7 @@ private:
             w.line("    furthest_ = t;");
             w.line("next_token();");
             w.line("la_ = Token{TK::GT, t.text.substr(1, 1), t.line};");
+            w.line("last_end_ = static_cast<uint32_t>(t.text.data() + 1 - source_.data());  // half of `>>`");
             w.line("have_la_ = true;");
             w.line("return true;");
             w.dedent();
@@ -1391,6 +1400,7 @@ private:
             w.line("    furthest_ = t;");
             w.line("next_token();");
             w.line("la_ = Token{TK::LT, t.text.substr(1, 1), t.line};");
+            w.line("last_end_ = static_cast<uint32_t>(t.text.data() + 1 - source_.data());  // half of `<<`");
             w.line("have_la_ = true;");
             w.line("return true;");
             w.dedent();
@@ -2343,13 +2353,14 @@ private:
             w.indent();
             w.line("pos_ = slot.end;");
             w.line("line_ = slot.line;   // restore line at end (else newlines spanned by the cached parse go uncounted)");
+            w.line("last_end_ = slot.last_end;");
             w.line("have_la_ = false;");
             w.line("return slot.first;");
             w.dedent();
             w.line("}");
             w.fmt("AnyVal result = rule_{}_impl();", rule.name);
             w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); line_ = la_.line; have_la_ = false; }");
-            w.fmt("memo_{}_[start] = MemoCell{{result, pos_, line_}};", rule.name);
+            w.fmt("memo_{}_[start] = MemoCell{{result, pos_, line_, last_end_}};", rule.name);
             w.line("return result;");
             w.dedent();
             w.line("}");
@@ -2384,6 +2395,7 @@ private:
         w.line("saved_doc_ = doc_.arena_checkpoint();");
         w.line("[[maybe_unused]] Token    saved_tok_  = la_;");
         w.line("[[maybe_unused]] uint32_t saved_line_ = line_;");
+        w.line("[[maybe_unused]] uint32_t saved_last_end_ = last_end_;");
         w.line();
         // Inner block: all captures and node pointers are scoped here.
         // The backtrack label below is OUTSIDE this block so gotos don't cross inits.
@@ -2450,6 +2462,7 @@ private:
         w.line("have_la_  = saved_la;");
         w.line("la_       = saved_tok_;");
         w.line("line_     = saved_line_;");
+        w.line("last_end_ = saved_last_end_;");
         w.line("// arena_rollback suppressed — AST lives until Writ destruction");
         w.dedent();
         w.line("}");
@@ -3282,10 +3295,15 @@ private:
             if (idx >= captures.size() || !raw_caps_.count(captures[idx])) return {};
             return captures[idx];
         };
+        const bool has_raw_off_field = std::any_of(g_.fields.begin(), g_.fields.end(),
+            [](const auto& f) { return f.group.empty() && f.name == "RAW_OFF"; });
         int raw_line_stamps = 0;
         for (const auto& field : action.fields)
-            if (!raw_line_cap(field).empty()) ++raw_line_stamps;
-        int slot_count = int(action.fields.size()) + 2 + raw_line_stamps; // +1 CODE, +1 SRC_LINE, +RAW_LINE
+            if (!raw_line_cap(field).empty()) raw_line_stamps += has_raw_off_field ? 2 : 1;
+        const bool has_span_field = std::any_of(g_.fields.begin(), g_.fields.end(),
+            [](const auto& f) { return f.group.empty() && f.name == "SRC_SPAN"; });
+        int slot_count = int(action.fields.size()) + 2 + raw_line_stamps
+                       + (has_span_field ? 1 : 0); // +1 CODE, +1 SRC_LINE, +RAW_LINE, +SRC_SPAN
         w.fmt("auto* node = logos::writ::WritAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
         for (const auto& field : action.fields) {
@@ -3314,9 +3332,14 @@ private:
                 if (idx < captures.size() && !captures[idx].empty()) {
                     w.fmt("node->put({}, {}, logos::writ::WritAccess::arena(doc_)).get();",
                           field_const, captures[idx]);
-                    if (std::string rc = raw_line_cap(field); !rc.empty())
+                    if (std::string rc = raw_line_cap(field); !rc.empty()) {
                         w.fmt("node->put({}::RAW_LINE, AnyVal::from_value(rg_{}_line), "
                               "logos::writ::WritAccess::arena(doc_)).get();", ast_ns_, rc);
+                        if (has_raw_off_field)
+                            w.fmt("node->put({}::RAW_OFF, AnyVal::from_value(int64_t(offset_base_ + "
+                                  "tok_offset_(rg_{}_text))), logos::writ::WritAccess::arena(doc_)).get();",
+                                  ast_ns_, rc);
+                    }
                 } else {
                     w.fmt("// {} : ${}  — capture index out of range", field.name, idx);
                 }
@@ -3387,6 +3410,14 @@ private:
         // Emit SRC_LINE (source line number of the first token — always present).
         w.fmt("node->put({}::SRC_LINE, AnyVal::from_value(first_line_), logos::writ::WritAccess::arena(doc_)).get();",
               ast_ns_);
+        // SRC_SPAN (ADR 0030 H0): file-relative start (32 bits) << 23 | length
+        // (23 bits, saturating) — from the alt's first token to the end of the
+        // last token it consumed. Line and column are derived from it.
+        if (has_span_field)
+            w.fmt("node->put({}::SRC_SPAN, AnyVal::from_value(int64_t("
+                  "(uint64_t(offset_base_ + first_start_) << 23) | "
+                  "uint64_t(last_end_ > first_start_ ? std::min<uint32_t>(last_end_ - first_start_, 0x7FFFFFu) : 0u))), "
+                  "logos::writ::WritAccess::arena(doc_)).get();", ast_ns_);
         w.line("{");
         w.indent();
         w.line("AnyVal result_;");

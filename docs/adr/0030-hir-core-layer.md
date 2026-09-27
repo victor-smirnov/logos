@@ -178,11 +178,19 @@ regardless of the iterated type; the array fast path is an optimisation).
 
 ## D5. Spans and provenance
 
-- **Spans.** Every AST and HIR node carries `SRC_SPAN` (repr audit R4a: global
-  byte offset + length over a rustc-style `SourceMap`; reparse and expansion
-  buffers are virtual files with an `expanded_from` span). Line, column and
-  file are derived. A synthesized HIR node takes the span of the construct it
-  desugars.
+- **Spans.** Every AST and HIR node carries `SRC_SPAN` = FILE-RELATIVE byte
+  offset of its first token << 23 | its length (23 bits, saturating), key code
+  51 (freed by moving `KEY` onto `LHS`'s slot). The file is the document's,
+  known to sema exactly as it knows `SRC_LINE`'s file — so, unlike rustc's
+  global `BytePos` space, a span needs no rebasing when an AST is decoded from
+  a module archive. Line and column come from the file's line table
+  (`include/logos/compiler/source_map.hpp`, registered by the module loader);
+  a fragment parse (macro arguments) starts at the fragment's offset
+  (`RAW_OFF`, `set_first_offset`). A synthesized HIR node takes the span of
+  the construct it desugars. Cross-file provenance (`include!`, metaprog
+  output) needs a file id beside the offset — added with the first consumer.
+  **Landed in H0 (2026-09-27)**; diagnostics print `file:line:col:` and JSON
+  carries `column`.
 - **Origin.** Every HIR node produced by a desugaring carries
   `ORIGIN = {construct, parent span}`, with construct one of: `user`, `if_let`,
   `while_let`, `let_chain`, `for_iter`, `try`, `destructure`, `tail_return`,

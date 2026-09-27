@@ -1,1 +1,1 @@
-:8: error [fn main]: undefined variable 'nope_in_vec'
+:8:9: error [fn main]: undefined variable 'nope_in_vec'

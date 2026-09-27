@@ -2756,8 +2756,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             if (callee_sym.empty()) {
                                 in_.diags.diags.push_back({Diag::Level::Error, "mono",
                                     std::format("tuple equality: no `eq` implementation "
-                                                "for element type '{}'", type_str(et)),
-                                    {}, 0});
+                                                "for element type '{}'", type_str(et)), diag_file_, diag_line_});
                                 return nullptr;
                             }
                             // For Slice elems (str), pass by-value — the
@@ -3197,7 +3196,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         "('{}' and '{}'); taking the longest",
                                         callee_body, hits.size(),
                                         callee_body.substr(0, hits[0]),
-                                        callee_body.substr(0, hits[1])), {}, 0});
+                                        callee_body.substr(0, hits[1])), diag_file_, diag_line_});
                     }
                 }
                 if (sep != std::string::npos) {
@@ -5265,6 +5264,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     if (!sref) return lir_view::StmtRef{};  // null source — defensive
     // Phase 5.B: read line from the mirror via the view (cross-arena safe).
     ns.line = lir_view::stmt_line(sref);
+    if (ns.line) diag_line_ = ns.line;
 
     // subst_stmt still builds lir::LStmt with LExprPtr husk members; bridge the
     // ExprRef that subst_expr now returns into a thin husk over its mirror.
@@ -5644,6 +5644,14 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
 DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
                          const PackMap& packs) {
     namespace dk = lir_schema::decl_keys;
+    // Diagnostics raised while cloning this body name its file (restored for
+    // the instance that was being cloned when this one was requested).
+    struct DiagPosGuard {
+        Mono& m; std::string file; uint32_t line;
+        ~DiagPosGuard() { m.diag_file_ = std::move(file); m.diag_line_ = line; }
+    } diag_pos_guard{*this, diag_file_, diag_line_};
+    diag_file_ = std::string(fn.source_file());
+    diag_line_ = 0;
     // Local type inference: the body's solved inference variables (`?iN`) join
     // the substitution, each read through the instance's own (a solution may
     // name the template's parameters).
@@ -6966,8 +6974,7 @@ lir_view::StructView Mono::find_best_struct_spec(
     }
     if (ambiguous) {
         in_.diags.diags.push_back({Diag::Level::Error, "mono",
-            std::format("ambiguous specializations for struct '{}'", base_name),
-            "", 0});
+            std::format("ambiguous specializations for struct '{}'", base_name), diag_file_, diag_line_});
     }
     return best;
 }
@@ -7590,7 +7597,7 @@ void Mono::instantiate_enum_templates() {
                     std::format("no template for generic enum '{}' (pkg '{}') demanded as "
                                 "instance '{}' with {} type-arg(s) — the instance would be "
                                 "silently absent and every use of it dropped at mlir-gen",
-                                base, info.pkg, cname, args.size()), {}, 0});
+                                base, info.pkg, cname, args.size()), diag_file_, diag_line_});
                 continue;
             }
             // Materialize the template's type-params (name + is_variadic) so the

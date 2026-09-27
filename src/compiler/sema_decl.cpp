@@ -508,6 +508,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     };
     ctx_       = pretty_ctx();
     node_line_ = get_line(node);
+    node_span_ = get_span(node);
     // Track current fn name so make_drop_stmt can avoid emitting a Drop
     // for the `self` param of a Drop fn (would be infinite self-recursion).
     struct CurFnGuard {
@@ -2546,6 +2547,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         walk(node.get(la::TYPE.code));
         if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) walk(node.get(la::TYPE_PARAMS.code));
         node_line_ = get_line(node);
+        node_span_ = get_span(node);
         for (auto& tp : impl_tps)
             if (!tp.name.empty() && !seen.count(tp.name))
                 error(std::format("the type parameter `{}` is not constrained by the impl trait, self type, "
@@ -3274,6 +3276,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             ctx_ = trait_name.empty() ? std::format("impl {}", target)
                                       : std::format("impl {} for {}", trait_name, target);
             node_line_ = get_line(node);
+            node_span_ = get_span(node);
             error(std::format(
                 "the lifetime parameter `{}` is not constrained by the impl trait, "
                 "self type, or predicates (E0207)", lb));

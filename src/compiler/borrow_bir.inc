@@ -6152,10 +6152,20 @@ static std::string bir_dump(const bir::Body& b) {
     return out;
 }
 
+// A verdict error keeps its source line as DATA (ADR 0030 H0), not only
+// inside the message text: the diagnostic it becomes carries file and line.
+struct BirError {
+    std::string msg;
+    uint32_t    line = 0;
+    // Ordered and deduplicated by the message first, as the plain strings were.
+    bool operator<(const BirError& o) const { return msg != o.msg ? msg < o.msg : line < o.line; }
+    bool operator==(const BirError& o) const { return msg == o.msg && line == o.line; }
+};
 struct BirVerdict {
     std::vector<std::string> unsupported;
-    std::vector<std::string> errors;
+    std::vector<BirError> errors;
     bool ran = false;
+    void add(uint32_t line, std::string msg) { errors.push_back({std::move(msg), line}); }
 };
 
 static const dl::Program& bc_rules(dl::Symbols*& syms_out) {
@@ -6359,7 +6369,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                 const char* where = loan.fake == 1 ? "indexing expression" : "match guard";
                 msg = ik == 4 ? std::format("cannot assign '{}' in {}", nm, where)
                               : std::format("cannot mutably borrow '{}' in {}", nm, where);
-                v.errors.push_back(std::format("line {}: {}", at, msg));
+                v.add(at, std::format("line {}: {}", at, msg));
                 continue;
             }
             switch (ik) {
@@ -6438,7 +6448,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
                         : std::format("cannot borrow '{}' as mutable because it is also "
                                       "borrowed as immutable", nm);
             }
-            v.errors.push_back(std::format("line {}: {}", at, msg));
+            v.add(at, std::format("line {}: {}", at, msg));
         }
     }
     {
@@ -6446,7 +6456,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
             const uint32_t x = num(sym(row[0])), q = num(sym(row[1]));
-            v.errors.push_back(facts.maybe_moved(x, q)
+            v.add(facts.point_line(q), facts.maybe_moved(x, q)
                 ? std::format("use of moved value: '{}' at line {}", facts.path_str(x), facts.point_line(q))
                 : std::format("used binding '{}' isn't initialized at line {}", facts.path_str(x),
                               facts.point_line(q)));
@@ -6456,7 +6466,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("assign_twice");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
-            v.errors.push_back(std::format("cannot assign twice to immutable '{}' at line {}",
+            v.add(facts.point_line(num(sym(row[1]))), std::format("cannot assign twice to immutable '{}' at line {}",
                                            facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));
         }
@@ -6469,7 +6479,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             if (facts.partial_points_.count(num(sym(row[1])))) continue;
             // rustc's wording, and the corpus's: the reader wants "you cannot
             // borrow this as mutable, because it was not declared `mut`".
-            v.errors.push_back(std::format("line {}: cannot borrow '{}' as mutable, as it is "
+            v.add(facts.point_line(num(sym(row[1]))), std::format("line {}: cannot borrow '{}' as mutable, as it is "
                                            "not declared as mutable",
                                            facts.point_line(num(sym(row[1]))),
                                            body.locals[num(sym(row[0]))].name));
@@ -6479,7 +6489,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("deref_write_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
-            v.errors.push_back(std::format("'{}' is written or mutably borrowed behind a `&` reference (line {})",
+            v.add(facts.point_line(num(sym(row[1]))), std::format("'{}' is written or mutably borrowed behind a `&` reference (line {})",
                                            body.locals[num(sym(row[0]))].name,
                                            facts.point_line(num(sym(row[1])))));
         }
@@ -6491,11 +6501,11 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             if (facts.raw_move_paths_.count(num(sym(row[0]))))
                 // The path stops at the pointer itself; the place moved out of
                 // is its deref, which rustc prints as `*x`.
-                v.errors.push_back(std::format("cannot move out of '*{}', which is behind a raw pointer (line {})",
+                v.add(facts.point_line(num(sym(row[1]))), std::format("cannot move out of '*{}', which is behind a raw pointer (line {})",
                                                facts.path_str(num(sym(row[0]))),
                                                facts.point_line(num(sym(row[1])))));
             else
-            v.errors.push_back(std::format("cannot move out of '{}', which is behind a reference (line {})",
+            v.add(facts.point_line(num(sym(row[1]))), std::format("cannot move out of '{}', which is behind a reference (line {})",
                                            facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));
         }
@@ -6519,7 +6529,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             const bool lb_ok = ub && ub->local != bir::kNoLocal && ub->local < body.locals.size();
             if (la_ok && lb_ok && body.is_closure &&
                 !body.locals[ua->local].is_capture && body.locals[ub->local].is_capture) {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "borrowed data escapes outside of closure: '{}' escapes the closure body "
                     "here, and '{}' is declared outside of it (line {})",
                     body.locals[ua->local].name, body.locals[ub->local].name, line));
@@ -6531,7 +6541,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             if (la_ok && lb_ok && body.is_closure && !body.locals[ua->local].is_capture &&
                 body.locals[ua->local].kind == bir::LocalKind::Param &&
                 body.locals[ub->local].kind == bir::LocalKind::Return && ub->label != "'static") {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "lifetime may not live long enough: returning this value requires that the "
                     "region of '{}' outlives the closure's return (line {})",
                     body.locals[ua->local].name, line));
@@ -6555,7 +6565,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             const bool named_a = ua && written(ua->label);
             const bool named_b = ub && written(ub->label);
             if (named_a && named_b && ua->label != ub->label) {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "lifetime may not live long enough: consider adding the bound `{}: {}` (line {})",
                     ua->label, ub->label, line));
                 continue;
@@ -6564,7 +6574,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             // "lifetime may not live long enough" and points at "'1 must
             // outlive 'static" — there is no annotation that would help.
             if (la_ok && !named_a && ub && ub->label == "'static") {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "lifetime may not live long enough: the region of '{}' must outlive 'static (line {})",
                     body.locals[ua->local].name, line));
                 continue;
@@ -6575,14 +6585,14 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             if (la_ok && !named_a && named_b &&
                 body.locals[ua->local].kind == bir::LocalKind::Param &&
                 body.locals[ua->local].name == "self") {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "lifetime may not live long enough: the region of 'self' must outlive {} (line {})",
                     ub->label, line));
                 continue;
             }
             if (la_ok && !named_a && named_b &&
                 body.locals[ua->local].kind == bir::LocalKind::Param) {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "explicit lifetime required in the type of '{}': lifetime {} required (line {})",
                     body.locals[ua->local].name, ub->label, line));
                 continue;
@@ -6594,7 +6604,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             if (la_ok && lb_ok && !named_a && !named_b &&
                 body.locals[ua->local].kind == bir::LocalKind::Param &&
                 body.locals[ub->local].kind == bir::LocalKind::Return) {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "lifetime may not live long enough: returning data from '{}' requires its region "
                     "to outlive the elided result's (line {})",
                     body.locals[ua->local].name, line));
@@ -6606,13 +6616,13 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             if (la_ok && lb_ok && !named_a && !named_b &&
                 body.locals[ua->local].kind == bir::LocalKind::Param &&
                 body.locals[ub->local].kind == bir::LocalKind::Param) {
-                v.errors.push_back(std::format(
+                v.add(line, std::format(
                     "lifetime may not live long enough: the elided lifetime of parameter '{}' must "
                     "outlive the elided lifetime of parameter '{}' (line {})",
                     body.locals[ua->local].name, body.locals[ub->local].name, line));
                 continue;
             }
-            v.errors.push_back(std::format("lifetime mismatch: data with region {} flows into region {}, "
+            v.add(line, std::format("lifetime mismatch: data with region {} flows into region {}, "
                                            "which the signature does not allow (line {})",
                                            sym(row[0]), sym(row[1]), line));
         }
@@ -6623,12 +6633,12 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
             auto row = R.row(i);
             const uint32_t x = num(sym(row[0])), q = num(sym(row[1]));
             if (facts.partial_moved_.count({x, q}))
-                v.errors.push_back(std::format("assign to part of moved value '{}' at line {}",
+                v.add(facts.point_line(q), std::format("assign to part of moved value '{}' at line {}",
                                                facts.path_str(x), facts.point_line(q)));
             else {
                 uint32_t r = x;
                 while (facts.path_parent(r) != ~0u) r = facts.path_parent(r);
-                v.errors.push_back(std::format("partially assigned binding '{}' isn't fully initialized "
+                v.add(facts.point_line(q), std::format("partially assigned binding '{}' isn't fully initialized "
                                                "at line {}", facts.path_str(r), facts.point_line(q)));
             }
         }
@@ -6637,7 +6647,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("move_drop_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
-            v.errors.push_back(std::format("cannot move out of '{}': its owner implements Drop (E0509, line {})",
+            v.add(facts.point_line(num(sym(row[1]))), std::format("cannot move out of '{}': its owner implements Drop (E0509, line {})",
                                            facts.path_str(num(sym(row[0]))),
                                            facts.point_line(num(sym(row[1])))));
         }
@@ -6645,7 +6655,7 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
     std::sort(v.errors.begin(), v.errors.end());
     v.errors.erase(std::unique(v.errors.begin(), v.errors.end()), v.errors.end());
     if (want_dump) {
-        for (auto& e : v.errors) std::fprintf(stderr, "  bir-error: %s\n", e.c_str());
+        for (auto& e : v.errors) std::fprintf(stderr, "  bir-error: %s\n", e.msg.c_str());
         const dl::Relation& R = rel("errors");
         for (size_t i = 0; i < R.size(); ++i)
             if (auto d = db.explain(*rules.relation("errors"), R.row(i), 64))

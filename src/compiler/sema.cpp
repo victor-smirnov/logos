@@ -3182,6 +3182,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
         for (const auto& mh : metaprog_handlers_) {
             ctx_ = std::format("fn {}", mh.hook_fn);
             node_line_ = 0;
+            node_span_ = 0;
             if (mh.trigger == "<missing>") {
                 error("#[metaprog_handler] requires a string-literal trigger name, e.g. #[metaprog_handler(\"derive_debug\")]");
                 continue;
@@ -3235,6 +3236,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
                 ctx_  = std::format("fn {}", s.name());
                 file_ = std::string(s.source_file());
                 node_line_ = 0;
+                node_span_ = 0;
                 error(std::format(
                     "specialisation 'fn {}<...>' has no generic counterpart "
                     "'fn {}<T>' to specialise on. If you meant a regular "

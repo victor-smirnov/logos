@@ -1558,6 +1558,7 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
 // diagnostics; only the post-return value is restored.
 lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     uint32_t saved_line = node_line_;
+    int64_t  saved_span = node_span_;
     // The operand list of this node, in evaluation order; every operand before
     // the LAST one that can exit must be owned while its later siblings run.
     if (cur_stmt_temp_hoist_ && !expr.is_null()) {
@@ -1620,12 +1621,14 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         sibling_owned_temps_.push_back(nm);
     }
     node_line_ = saved_line;
+    node_span_ = saved_span;
     return r;
 }
 
 lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     if (expr.is_null()) return error_expr();
     node_line_ = get_line(expr);
+    node_span_ = get_span(expr);
     int32_t c = code_of(expr);
 
     switch (c) {
@@ -24605,6 +24608,10 @@ SemaChecker::MacroArgs SemaChecker::parse_macro_args_(TinyMapView call,
     auto text = std::make_shared<std::string>(raw);
     logos::compiler::LogosParser parser(*text);
     if (line != 0) parser.set_first_line(line);
+    if (call.has_key(la::RAW_OFF)) {
+        AnyVal ov = call.get(la::RAW_OFF.code);
+        if (!ov.is_null() && ov.is_value()) parser.set_first_offset(ov.as_value<uint32_t>());
+    }
     auto doc = entry == MacroArgsEntry::Args    ? parser.parse_macro_args()
              : entry == MacroArgsEntry::Matches ? parser.parse_matches_args()
                                                 : parser.parse_vec_repeat_args();
@@ -25383,8 +25390,14 @@ writ::AnyVal SemaChecker::synth_format_expansion_(const std::string& callee_name
             auto s_type = [&](std::string_view n) {
                 return synth_node(la::TYPE_REF.code, ln, {{la::NAME.code, s_str(n)}});
             };
+            // The borrow of an argument takes the ARGUMENT's position, so a
+            // diagnostic raised on it points into the argument.
             auto s_ref = [&](AnyVal v) {
-                return synth_node(la::UNARY.code, ln, {{la::OP.code, s_str("&")}, {la::VALUE.code, v}});
+                TinyMapView av(v, holder_);
+                uint32_t aln = get_line(av);
+                AnyVal span = av.is_null() ? AnyVal{} : av.get(la::SRC_SPAN.code);
+                return synth_node(la::UNARY.code, aln ? aln : ln,
+                                  {{la::OP.code, s_str("&")}, {la::VALUE.code, v}, {la::SRC_SPAN.code, span}});
             };
             auto s_mutref = [&](AnyVal v) {
                 return synth_node(la::ADDR_OF_MUT.code, ln, {{la::VALUE.code, v}});
@@ -25890,6 +25903,7 @@ void SemaChecker::emit_token_macro_item_site(
                 // after a PEG rewind). Body line 1 = the item's head line.
                 if (node_line_ > 0 && wp.furthest_line() > 0)
                     node_line_ = node_line_ + wp.furthest_line() - 1;
+                    node_span_ = 0;
                 std::string near(wp.furthest_text());
                 std::string near_sfx = near.empty()
                     ? std::string{} : std::format(" (near `{}`)", near);
@@ -26894,6 +26908,7 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
 void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                                     lir::LProgram& prog) {
     node_line_ = get_line(node);   // errors point at THIS item, not at stale state
+    node_span_ = get_span(node);
     MappingParts parts;
     if (!reconstruct_mapping_def(node, parts)) {
         error(parts.err);
@@ -27399,6 +27414,7 @@ std::string SemaChecker::container_spec_line(const ContainerInfo& info) const {
 void SemaChecker::lower_container_def(writ::TinyMapView node,
                                       lir::LProgram& prog) {
     node_line_ = get_line(node);   // errors point at THIS item, not at stale state
+    node_span_ = get_span(node);
     ContainerInfo info;
     std::string err;
     if (!reconstruct_container_def(node, info, err)) {
@@ -27501,6 +27517,7 @@ bool SemaChecker::is_pending_container_type(std::string_view sname) {
 // `-` name-marker convention (vis_strip at the emit sites).
 void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
     node_line_ = get_line(node);   // errors point at THIS item, not at stale state
+    node_span_ = get_span(node);
     std::string lead(str_of(node.get(la::REL_KW.code)));
     std::string qname(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("deem {}", qname);
@@ -28158,6 +28175,7 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
 void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                                             lir::LProgram& prog) {
     node_line_ = get_line(node);   // errors point at THIS item, not at stale state
+    node_span_ = get_span(node);
     if (node.has_key(la::NAME))
         ctx_ = std::format("resource {}", str_of(node.get(la::NAME.code)));
     using logos::writ::AnyVal;

@@ -2,6 +2,7 @@
 
 #include "logos/compiler/version.hpp"
 #include "module_loader.hpp"
+#include <logos/compiler/source_map.hpp>
 #include "logos_parser.hpp"
 #include <chrono>
 #include <cstdlib>
@@ -1386,6 +1387,8 @@ std::vector<ParsedModule> load_modules(
             std::fprintf(stderr, "module_loader: cannot read '%s'\n", canonical.c_str());
             return {};
         }
+        // ADR 0030 H0: the line table SRC_SPAN offsets are resolved against.
+        SourceMap::global().add(canonical, source);
         LogosParser parser(source);
         auto pt0 = std::chrono::steady_clock::now();
         auto ast = parser.parse_module();

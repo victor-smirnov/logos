@@ -1204,6 +1204,7 @@ struct Diag {
     std::string message;
     std::string file;     // source file (empty if unknown)
     uint32_t    line = 0; // source line (0 if unknown)
+    uint32_t    col  = 0; // source column, 1-based (0 if unknown) — from SRC_SPAN
 };
 
 // Diagnostic output format. Set by main from --diag-format=<text|json>.
@@ -1244,12 +1245,15 @@ struct SemaResult {
                 std::fprintf(fp,
                     "{\"level\":\"%s\",\"file\":", lev);
                 json_escape_to(fp, d.file);
-                std::fprintf(fp, ",\"line\":%u,\"context\":", d.line);
+                std::fprintf(fp, ",\"line\":%u,\"column\":%u,\"context\":", d.line, d.col);
                 json_escape_to(fp, d.context);
                 std::fprintf(fp, ",\"message\":");
                 json_escape_to(fp, d.message);
                 std::fprintf(fp, "}\n");
-            } else if (d.line > 0 && !d.file.empty())
+            } else if (d.line > 0 && !d.file.empty() && d.col > 0)
+                std::fprintf(fp, "%s:%u:%u: %s [%s]: %s\n",
+                             d.file.c_str(), d.line, d.col, lev, d.context.c_str(), d.message.c_str());
+            else if (d.line > 0 && !d.file.empty())
                 std::fprintf(fp, "%s:%u: %s [%s]: %s\n",
                              d.file.c_str(), d.line, lev, d.context.c_str(), d.message.c_str());
             else

@@ -17214,7 +17214,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
                                        o ? "old_only" : "new_only", fn.name(), o ? 1 : 0, n ? 1 : 0);
         text += "  input: " + shadow_input_name() + "\n";
         for (auto& e : old_errs) text += "  old: " + e + "\n";
-        for (auto& e : v.errors) text += "  new: " + e + "\n";
+        for (auto& e : v.errors) text += "  new: " + e.msg + "\n";
         shadow_log(text);
     };
 
@@ -17253,8 +17253,10 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
                     Diag d;
                     d.level   = Diag::Level::Error;
                     d.context = "fn " + std::string(bare_fn_name(fn.name()));
-                    d.message = e;
-                    d.line    = 0;
+                    d.message = e.msg;
+                    // ADR 0030 H0: the position is data, not only message text.
+                    d.line    = e.line;
+                    d.file    = std::string(fn.source_file());
                     prog.diags.diags.push_back(std::move(d));
                 }
                 return;

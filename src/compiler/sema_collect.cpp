@@ -35,12 +35,12 @@ bool ast_anyval_equal(AnyVal a, AnyVal b,
 
 bool ast_tom_equal(writ::TinyMapView a, writ::TinyMapView b,
                    writ::MemHolder* ha, writ::MemHolder* hb) {
-    // SRC_LINE is purely diagnostic; ignore it in ODR equality so items
-    // emitted from quote_item! at different source lines still dedup.
-    constexpr uint64_t skip_mask = 1ULL << la::SRC_LINE.code;
+    // Positions (SRC_LINE, SRC_SPAN) are diagnostic; ignore them in ODR
+    // equality so items emitted from quote_item! at different sites dedup.
+    constexpr uint64_t skip_mask = (1ULL << la::SRC_LINE.code) | (1ULL << la::SRC_SPAN.code);
     if ((a.bitmap() & ~skip_mask) != (b.bitmap() & ~skip_mask)) return false;
     for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k) {
-        if (!a.has_key(k) || k == la::SRC_LINE.code) continue;
+        if (!a.has_key(k) || (skip_mask >> k) & 1) continue;
         if (!ast_anyval_equal(a.get(k), b.get(k), ha, hb))
             return false;
     }
@@ -792,6 +792,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 if (trigger_names.count(aname))         continue;
                 if (annotation_type_names.count(aname)) continue;
                 node_line_ = get_line(item);
+                node_span_ = get_span(item);
                 ctx_.clear();
                 warn(std::format(
                     "unknown attribute '#[{}]' — not a builtin, not a "
@@ -1989,6 +1990,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             s = s.substr(1, s.size() - 2);
         if (s != "C" && s != "C-unwind" && s != "system" && s != "Rust") {
             node_line_ = get_line(at_node);
+            node_span_ = get_span(at_node);
             error(std::format(
                 "unsupported ABI string \"{}\" — expected one of "
                 "\"C\", \"C-unwind\", \"system\", \"Rust\"", s));
@@ -2124,6 +2126,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                         // item-collection stage errors.
                         if (usi->fields.empty()) {
                             node_line_ = get_line(item);
+                            node_span_ = get_span(item);
                             error(std::format(
                                 "union `{}` has no fields — Rust requires "
                                 "at least one (use a zero-sized struct if "
@@ -2168,6 +2171,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                             }
                             if (is_move_type(f.type)) {
                                 node_line_ = get_line(item);
+                                node_span_ = get_span(item);
                                 error(std::format(
                                     "union `{}`: field `{}` has type "
                                     "`{}` which is not allowed in a "
@@ -6583,6 +6587,7 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
     auto raw_name = str_of(node.get(la::NAME.code));
     ctx_ = std::format("fn {} (specialization)", raw_name);
     node_line_ = get_line(node);
+    node_span_ = get_span(node);
 
     // Direct-build the Func decl mirror STRAIGHT into the program WritCtr.
     DeclBuilder fn(*cur_prog_, lir_schema::decl::Code::Func, /*cap=*/40);
@@ -7205,6 +7210,7 @@ void SemaChecker::check_rel_column_types() {
                 // Restore the declaration's place — see TraitRelSig.
                 if (!sig.file.empty()) file_ = sig.file;
                 node_line_ = sig.line;
+                node_span_ = 0;
                 ctx_ = std::format("trait {}", tname);
                 error(std::format(
                     "trait '{}': rel '{}' column '{}: {}' — a rel column type "

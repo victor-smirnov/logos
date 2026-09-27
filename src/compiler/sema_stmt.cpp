@@ -657,6 +657,7 @@ std::string SemaChecker::shared_ref_write_msg(TinyMapView place) {
 
 lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     node_line_ = get_line(stmt);
+    node_span_ = get_span(stmt);
     int32_t c = code_of(stmt);
 
     if (c == la::LET)          return lower_let(stmt);

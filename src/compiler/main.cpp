@@ -3048,12 +3048,12 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 AnyVal::from_value<int32_t>(la::VAR_REF.code));
             (void)dst_tom().put(la::NAME.code,
                 AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(name_off)));
-            // Copy SRC_LINE if present so error messages keep line info.
-            if (src_tom.has_key(la::SRC_LINE.code)) {
-                AnyVal lav = src_tom.get(la::SRC_LINE.code);
-                if (!lav.is_null() && !lav.is_pointer()) {
-                    (void)dst_tom().put(la::SRC_LINE.code, lav);
-                }
+            // Copy the position (SRC_LINE, SRC_SPAN) so diagnostics keep it.
+            for (uint8_t pk : {la::SRC_LINE.code, la::SRC_SPAN.code}) {
+                if (!src_tom.has_key(pk)) continue;
+                AnyVal lav = src_tom.get(pk);
+                if (!lav.is_null() && !lav.is_pointer())
+                    (void)dst_tom().put(pk, lav);
             }
             return dst_off;
         }

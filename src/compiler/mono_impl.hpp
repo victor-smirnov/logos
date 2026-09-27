@@ -36,6 +36,11 @@ static inline std::string make_pack_arg_name(std::string_view base, size_t idx) 
 
 class Mono {
 public:
+    // ADR 0030 H0: where mono is when it reports — the source file of the
+    // function being instantiated and the line of the statement being cloned.
+    // Its diagnostics carry them as data instead of "" / 0.
+    std::string diag_file_;
+    uint32_t    diag_line_ = 0;
     explicit Mono(int max_depth) : max_depth_(max_depth) {
         // L1.6: lazy method codegen is the default. `LOGOS_LAZY_METHODS=0`
         // restores eager mode for bisecting / regression isolation.

@@ -69,7 +69,8 @@
     SUPERS         = 48
     LO_NEG         = 49
     HI_NEG         = 50
-    KEY            = 51    // map key in WRIT_ENTRY
+    KEY            = 12    // map key in WRIT_ENTRY / PAT_WRIT_MAP_ENTRY, MAP_COMP / WRIT_MAP_COMP, slot ident in CFG_SLOT_TYPE. Reuses LHS — none of those nodes carries an LHS (ADR 0030 H0 freed code 51 for SRC_SPAN).
+    SRC_SPAN       = 51    // ADR 0030 H0: position of EVERY node — file-relative byte offset of its first token << 23 | its length in bytes (23 bits, saturating), stamped by peg_gen (a fragment parse adds its set_first_offset base). Line/column/end are derived from it; SRC_LINE stays until its readers move. A global key: no node code may use 51 for anything else.
     RAW_PTR        = 9     // ADR 0028: SLICE_TYPE came from `*const/*mut [T]`, not `&[T]`. Reuses THEN — a type node never carries a then-branch.
     CODE_EXPR      = 6     // ADR 0011: `code(expr)` clause sub-node on SCHEMA_DEF/SCHEMA_ENUM_DEF (NAME="code", VALUE=expr). Reuses RET_TYPE slot — schemas have no return type. (AST TinyObjectMap keys are 0..51; 52 is out of range.)
     IMPLIED_SELF   = 49    // PARAM: a bare `self` / `mut self` receiver whose TYPE `Self` the grammar supplied (reuses LO_NEG — a PARAM never carries LO_NEG). Sema refuses it on any other name.
@@ -84,6 +85,7 @@
     OP_ARG         = 21    // BTFL 8b: inner ident of a parenthesized measure ref in a CONTAINER_OP (`key` in `seek(max(key))`). Reuses FIELD slot — an ops entry never carries a field access.
     RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload). Balanced-brace capture (RAW_GROUP_*) additionally honours two escapes in the raw body so LITERAL braces don't break balance: (a) a BACKSLASH before `{`/`}`/`` ` ``/`\` passes that char through WITHOUT counting it (the backslash SURVIVES into the captured text — the handler de-escapes); (b) a BACKTICK-delimited region is skipped whole (no brace counting inside). Both additive: well-formed bodies are unaffected + captured byte-identically.
     RAW_LINE       = 44    // ADR 0030 R0: source line of the OPENING delimiter of the raw group captured into RAW_TEXT (stamped by peg_gen whenever a RAW_GROUP_* capture is assigned to RAW_TEXT). A consumer that parses RAW_TEXT (macro arguments) starts its parser at this line, so the argument nodes carry their real SRC_LINE. Reuses IS_MOVE — only CLOSURE_EXPR carries IS_MOVE, and no RAW_TEXT node is a closure.
+    RAW_OFF        = 45    // ADR 0030 H0: file-relative byte offset of the first byte of RAW_TEXT (stamped with RAW_LINE). A consumer that parses RAW_TEXT sets it as the parser's first offset, so the argument nodes' SRC_SPAN points into the file. Reuses IS_REF — no RAW_TEXT node carries IS_REF.
     DOC            = 50    // doc-comment text on item-level decls (reuses HI_NEG slot — PAT_RANGE never appears at item level)
     TYPE_NAME      = 3     // CP-cm-02: enum-type name in USE_VARIANTS (`use pkg.Path.Type.{V1,…}`). Reuses TYPE slot — USE never carries a type AST node.
     VARIANTS       = 22    // CP-cm-02: array of variant-name sub-nodes (each with NAME field) in USE_VARIANTS. Reuses FIELDS slot — USE never carries struct fields.
