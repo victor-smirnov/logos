@@ -6701,7 +6701,7 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
     }
 
     if (node.has_key(la::BODY)) {
-        auto body_node = map_of(node.get(la::BODY.code));
+        auto body_node = hir_body_(node.get(la::BODY.code));   // ADR 0030: the core form
         // B-fn-06: TAIL_EXPR acts as implicit return inside fn-body lowering
         // and the reachability check.
         bool saved_tail = tail_as_return_;

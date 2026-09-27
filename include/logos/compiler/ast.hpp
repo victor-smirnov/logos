@@ -44,7 +44,7 @@ inline constexpr Key SRC_LINE{"SRC_LINE", 24};
 inline constexpr Key IS_MUT{"IS_MUT", 25};
 inline constexpr Key INCLUSIVE{"INCLUSIVE", 26};
 inline constexpr Key TYPE_PARAMS{"TYPE_PARAMS", 27};
-inline constexpr Key PARENT{"PARENT", 28};
+inline constexpr Key ORIGIN{"ORIGIN", 28};  // ADR 0030: the construct a node the HIR pass (src/compiler/hir_lower.*) SYNTHESIZED came from (hir::Origin; absent = written by the user). A global key, like SRC_LINE / SRC_SPAN: no parser action sets it (it was PARENT, which nothing read or wrote).
 inline constexpr Key IS_AUTO{"IS_AUTO", 29};
 inline constexpr Key IS_VARARG{"IS_VARARG", 30};
 inline constexpr Key ITER{"ITER", 31};

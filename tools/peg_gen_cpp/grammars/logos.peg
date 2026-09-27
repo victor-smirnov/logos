@@ -46,7 +46,7 @@
     IS_MUT      = 25
     INCLUSIVE   = 26
     TYPE_PARAMS = 27
-    PARENT      = 28
+    ORIGIN      = 28    // ADR 0030: the construct a node the HIR pass (src/compiler/hir_lower.*) SYNTHESIZED came from (hir::Origin; absent = written by the user). A global key, like SRC_LINE / SRC_SPAN: no parser action sets it (it was PARENT, which nothing read or wrote).
     IS_AUTO     = 29
     IS_VARARG   = 30
     ITER        = 31

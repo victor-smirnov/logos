@@ -101,6 +101,7 @@ add_executable(logosc
     mono_scan.cpp
     mono_const_arg.cpp
     reflection_emit.cpp
+    hir_lower.cpp
     sema.cpp
     sema_collect.cpp
     sema_auto_trait.cpp

@@ -19873,25 +19873,10 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_if_let_chain(TinyMapView node) {
-    // §6.4: the chain in EXPRESSION position — the nested MATCH/IF tree
-    // synth_let_chain builds, lowered as a match expression (its root is the
-    // first let segment's MATCH). Every branch must yield the value, so the
-    // else branch is required exactly as for `if let … else …`.
-    if (!node.has_key(la::ITEMS) || !node.has_key(la::THEN)) {
-        error("if-let-chain: missing ITEMS or THEN");
-        return error_expr();
-    }
-    if (!node.has_key(la::ELSE)) {
-        error("if-let-as-expression requires an else branch");
-        return error_expr();
-    }
-    const uint32_t line = get_line(node) ? get_line(node) : node_line_;
-    writ::AnyVal else_body = node.get(la::ELSE.code);
-    if (code_of(map_of(else_body)) != la::BLOCK)
-        else_body = synth_block({synth_node(la::TAIL_EXPR.code, line,
-                                            {{la::VALUE.code, else_body}})}, line);
-    return lower_match_expr(map_of(synth_let_chain(node, node.get(la::THEN.code),
-                                                   else_body, line)));
+    // An `if let` chain is a MATCH tree by the time a body reaches sema (the
+    // HIR pass, hir_lower.cpp).
+    hir_gate_(node);
+    return error_expr();
 }
 
 lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
@@ -19899,20 +19884,9 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     // _ => ELSE }` as an expression — lowered BY DELEGATION to
     // lower_match_expr (see synth_doc_). An `else if …` else branch is the
     // block `{ <if-expr> }`.
-    if (node.has_key(la::PAT)) {
-        if (!node.has_key(la::ELSE)) {
-            error("if-let-as-expression requires an else branch");
-            return error_expr();
-        }
-        const uint32_t line = get_line(node) ? get_line(node) : node_line_;
-        writ::AnyVal else_body = node.get(la::ELSE.code);
-        if (code_of(map_of(else_body)) != la::BLOCK)
-            else_body = synth_block({synth_node(la::TAIL_EXPR.code, line,
-                                                {{la::VALUE.code, else_body}})}, line);
-        auto m = synth_match(node.get(la::VALUE.code), node.get(la::PAT.code),
-                             node.get(la::GUARD.code), node.get(la::THEN.code),
-                             else_body, line);
-        return lower_match_expr(map_of(m));
+    if (node.has_key(la::PAT)) {   // a MATCH by now (the HIR pass)
+        hir_gate_(node);
+        return error_expr();
     }
 
     lir::LExprPtr cond = nullptr;

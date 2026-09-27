@@ -696,14 +696,9 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         return lower_return(map_of(ret));
     }
     if (c == la::IF)           return lower_if(stmt);
-    if (c == la::IF_LET_CHAIN) {
-        // §6.4: `if let P1 = e1 && … { THEN } else { ELSE }` is the nested
-        // MATCH/IF tree synth_let_chain builds; the first segment is a let,
-        // so the root is a MATCH statement.
-        writ::AnyVal else_body = stmt.has_key(la::ELSE)
-            ? stmt.get(la::ELSE.code) : synth_block({}, node_line_);
-        return lower_match(map_of(synth_let_chain(stmt, stmt.get(la::THEN.code),
-                                                  else_body, node_line_)));
+    if (c == la::IF_LET_CHAIN) {   // desugared by the HIR pass (hir_lower.cpp)
+        hir_gate_(stmt);
+        return builder().stmt_expr(error_expr(), node_line_);
     }
     if (c == la::LABELED_LOOP) {
         // 'label: for/while/loop { }
@@ -8589,54 +8584,15 @@ writ::AnyVal SemaChecker::synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ
                        {la::PAT.code, pat}});
 }
 
-// §6.4 let-chain: `let P1 = e1 && c && let P2 = e2 …` → one MATCH per let
-// segment, one IF per bool segment, nested inside-out, ELSE at every
-// fall-through (the ELSE subtree is REFERENCED from each site and lowered at
-// each; a diverging ELSE is the port shape). The grammar guarantees the first
-// segment is a let, so the root is a MATCH.
-writ::AnyVal SemaChecker::synth_let_chain(TinyMapView node, writ::AnyVal then_body,
-                                          writ::AnyVal else_body, uint32_t line) {
-    auto wrapper = map_of(node.get(la::ITEMS.code));
-    if (wrapper.is_null() || !wrapper.has_key(la::ITEMS)) {
-        error("let-chain: wrapper has no ITEMS array");
-        return synth_block({}, line);
-    }
-    auto segs = arr_of(wrapper.get(la::ITEMS.code));
-    else_body = synth_as_block(else_body, line);
-    writ::AnyVal cur = synth_as_block(then_body, line);
-    for (uint64_t i = segs.size(); i-- > 0; ) {
-        auto seg = map_of(segs.get(i));
-        const uint32_t sl = get_line(seg) ? get_line(seg) : line;
-        if (code_of(seg) == la::LET_CHAIN_LET) {
-            cur = synth_match(seg.get(la::VALUE.code), seg.get(la::PAT.code), {},
-                              cur, else_body, sl);
-        } else if (code_of(seg) == la::LET_CHAIN_COND) {
-            cur = synth_node(la::IF.code, sl, {{la::COND.code, seg.get(la::VALUE.code)},
-                                               {la::THEN.code, cur},
-                                               {la::ELSE.code, else_body}});
-        } else {
-            error(std::format("let-chain: unexpected seg CODE {}", code_of(seg)));
-            return synth_block({}, line);
-        }
-        if (i > 0) cur = synth_block({cur}, sl);
-    }
-    return cur;
-}
 
 lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     // Own source line — capture before lowering cond/branches moves node_line_
     // (else the SIf maps to a sub-statement's line; see lower_while).
     const uint32_t if_line = node_line_;
-    // ── if let PAT = VALUE [&& GUARD] THEN [else ELSE] ────────────
-    //   ≡ match VALUE { PAT [if GUARD] => THEN, _ => ELSE }
-    // Lowered BY DELEGATION to lower_match (see synth_doc_).
+    // `if let` is a MATCH by the time a body reaches sema (the HIR pass).
     if (node.has_key(la::PAT)) {
-        writ::AnyVal else_body = node.has_key(la::ELSE)
-            ? node.get(la::ELSE.code) : synth_block({}, if_line);
-        auto m = synth_match(node.get(la::VALUE.code), node.get(la::PAT.code),
-                             node.get(la::GUARD.code), node.get(la::THEN.code),
-                             else_body, if_line);
-        return lower_match(map_of(m));
+        hir_gate_(node);
+        return builder().stmt_expr(error_expr(), if_line);
     }
 
     // ── regular if cond { ... } ────────────────────────────────────
@@ -8729,8 +8685,10 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
             lower_block(else_node).each_stmt([&](lir_view::StmtRef s){ eb.push_back(s); });
             else_opt = std::move(eb);
         } else {
-            // else if: wrap single SIf in a block
-            auto inner_if = lower_if(else_node);
+            // else if: wrap the single statement in a block. It is an `if`, or
+            // the MATCH an `else if let` became in the HIR pass — dispatch by
+            // code, not by assuming an `if`.
+            auto inner_if = lower_stmt(else_node);
             std::vector<lir_view::StmtRef> b;
             b.push_back(std::move(inner_if));
             else_opt = std::move(b);
@@ -8805,15 +8763,10 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
     // synth_doc_); the scrutinee is re-evaluated per iteration because the
     // match statement lives inside the loop body, and the label is taken by
     // lower_loop from pending_loop_label_ exactly as a written loop's is.
+    // `while let` is a LOOP over a MATCH by the time a body reaches sema.
     if (node.has_key(la::PAT) || (node.has_key(la::ITEMS) && node.has_key(la::BODY))) {
-        auto brk = synth_block({synth_node(la::BREAK.code, while_line, {})}, while_line);
-        writ::AnyVal m = node.has_key(la::PAT)
-            ? synth_match(node.get(la::VALUE.code), node.get(la::PAT.code),
-                          node.get(la::GUARD.code), node.get(la::BODY.code), brk, while_line)
-            : synth_let_chain(node, node.get(la::BODY.code), brk, while_line);
-        auto lp = synth_node(la::LOOP.code, while_line,
-                             {{la::BODY.code, synth_block({m}, while_line)}});
-        return lower_loop(map_of(lp));
+        hir_gate_(node);
+        return builder().stmt_expr(error_expr(), while_line);
     }
 
     // ── regular while cond { ... } ─────────────────────────────────
@@ -12640,6 +12593,16 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
+    // An `if let` / let-chain in EXPRESSION position without `else` (the HIR
+    // pass records it in ORIGIN): every branch of a value must yield it.
+    if (node.has_key(la::ORIGIN)) {
+        AnyVal ov = node.get(la::ORIGIN.code);
+        const auto o = ov.is_value() ? static_cast<hir::Origin>(ov.as_value<int64_t>()) : hir::Origin::User;
+        if (o == hir::Origin::IfLetNoElse || o == hir::Origin::LetChainNoElse) {
+            error("if-let-as-expression requires an else branch");
+            return error_expr();
+        }
+    }
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {

@@ -21,7 +21,7 @@ limits, named so nobody reads a green as covering them).
 import re
 import sys
 
-GLOBAL_KEYS = ("CODE", "SRC_LINE", "SRC_SPAN")
+GLOBAL_KEYS = ("CODE", "SRC_LINE", "SRC_SPAN", "ORIGIN")
 
 
 def parse_fields(text):

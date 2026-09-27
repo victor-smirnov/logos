@@ -311,6 +311,25 @@ at S3, S6 and S10.
 - Metaprog can inspect both the surface AST and the core form with the same
   API.
 
+## HIR status (2026-09-27)
+
+The pass exists: `src/compiler/hir_lower.{hpp,cpp}` (`hir::Lowering`), called
+on every fn / spec-fn body in sema (`hir_body_`). It rewrites persistently —
+only the spine above a desugared node is copied, every untouched subtree
+(and its identity: metacall sites patch the AST doc by node offset) is
+shared. Synthesized nodes carry the construct's SRC_LINE / SRC_SPAN and
+`ORIGIN` (key 28, formerly the dead PARENT; guarded as a global key by
+logos_00_ast_key_census). Sema's branches for the forms moved in are
+replaced by `hir_gate_`, an internal error — never a fallback.
+
+Moved in so far: `if let` (statement and expression, with `else if` chains),
+let-chains, `while let` (plain and chained). The expression form's missing
+`else` is refused by sema from ORIGIN (IfLetNoElse / LetChainNoElse).
+Next: expression-position exits (`return`/`break`/`continue` → the statement
+forms), destructuring assignment, `while c` → `loop { if !c { break } … }`,
+labels → ids; then tail → return once the pass can tell a unit tail
+without types (or sema keeps that one judgment).
+
 ## R0 status (2026-09-27)
 
 Landed (census `docs/audit/2026-09-26-reparse-census.md` site ids):

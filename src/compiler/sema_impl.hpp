@@ -26,6 +26,7 @@
 #include "ctfe.hpp"   // T2-14: ctfe_eval_const signature (CtfeValue/CtfeError)
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/source_map.hpp>
+#include "hir_lower.hpp"
 #include <logos/compiler/str_map.hpp>
 #include <logos/writ/compat.hpp>
 #include <logos/writ/compat.hpp>
@@ -3374,8 +3375,6 @@ private:
     writ::AnyVal synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line);
     writ::AnyVal synth_match(writ::AnyVal scrut, writ::AnyVal pat, writ::AnyVal guard,
                              writ::AnyVal then_body, writ::AnyVal else_body, uint32_t line);
-    writ::AnyVal synth_let_chain(writ::TinyMapView node, writ::AnyVal then_body,
-                                 writ::AnyVal else_body, uint32_t line);
     // An arm body / else branch position that must hold a BLOCK.
     writ::AnyVal synth_as_block(writ::AnyVal body, uint32_t line);
 
@@ -8590,6 +8589,23 @@ private:
     // statement `match` inside a tail arm returned from its arms too) and
     // did not reach a `match` at the end of a tail `if` branch at all.
     std::unordered_set<const void*> tail_match_nodes_;
+    // ADR 0030: the core layer. Every body sema lowers goes through
+    // hir_body_ first; sema then never meets a surface form (hir_gate_).
+    hir::Lowering hir_;
+    writ::TinyMapView hir_body_(writ::AnyVal body) {
+        writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false);
+        for (auto& d : hir_.diags()) error(d.message);
+        hir_.diags().clear();
+        return map_of(core);
+    }
+    // A surface form reached sema: some body entry point did not go through
+    // hir_body_. Loud, never a fallback — a silent fallback is two
+    // implementations of one rule again.
+    void hir_gate_(writ::TinyMapView n) {
+        error(std::format("internal: a surface form (AST code {}) reached sema without "
+                          "the HIR pass (ADR 0030) — a body entry point misses hir_body_",
+                          code_of(n)));
+    }
     void collect_tail_matches_(writ::TinyMapView block);
     // B-fn-06: when true, TAIL_EXPR statements act as implicit returns.
     // Set around fn-body lowering; cleared inside block-as-expression
