@@ -1,0 +1,7 @@
+package m04k;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let v = vec![String::from("a"), String::from("b")];
+    return v.len() as i32;
+}

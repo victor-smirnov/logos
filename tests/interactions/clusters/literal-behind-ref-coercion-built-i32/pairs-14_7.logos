@@ -1,0 +1,27 @@
+package m_ref_tuple_lit;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+fn f(p: &(i64, i64)) -> i64 { p.0 * 100 + p.1 }
+fn g(p: &i64) -> i64 { *p }
+fn main() { println!("{} {} {}", f(&(3, 4)), f(&(3i64, 4i64)), g(&5000000000)); let x = &(7, 8); println!("{}", f(x)); }

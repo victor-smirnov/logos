@@ -1,0 +1,22 @@
+package u15b;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.str;
+use logos.lang.mem;
+use logos.std.compiler.metaprog;
+fn main() {
+    let xs: [(i64, i64); 2] = [(1, 10), (2, 20)];
+    if let Some(&(k, v)) = xs.iter().next() { println!("{} {}", k, v); }
+    let o: Option<&i64> = xs.iter().map(|p| &p.0).last();
+    if let Some(&m) = o { println!("{}", m); }
+}

@@ -1,0 +1,13 @@
+package z71;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.deque;
+#[derive_clone] #[derive_copy]
+struct V<const N: i64> { c: [i64; N] }
+impl<const N: i64> Add for V<N> { type Output = V<N>; fn add(self, o: V<N>) -> V<N> { let mut r = self; for i in 0..N { r.c[i] += o.c[i]; } return r; } }
+fn main() { let a = V::<2> { c: [1, 2] }; let b = a + a; println!("{} {}", b.c[0], b.c[1]); }

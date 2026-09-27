@@ -1,0 +1,3 @@
+package m4;
+use logos.std.fmt;
+fn main() { let x: i64 = 5i64; let v: i64 = x.into(); println!("{}", v); }

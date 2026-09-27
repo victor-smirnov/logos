@@ -1,0 +1,21 @@
+package p17q;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+enum Tree { Leaf(i32), Node(Box<Tree>, Box<Tree>) }
+fn sum(t: &Tree) -> i32 { match t { Tree::Leaf(v) => *v, Tree::Node(a, b) => sum(a) + sum(b) } }
+fn main() {
+    let t = Tree::Node(Box::new(Tree::Node(Box::new(Tree::Leaf(1)), Box::new(Tree::Leaf(2)))), Box::new(Tree::Leaf(3)));
+    let u = match t { Tree::Node(l, _) => *l, leaf => leaf };
+    println!("{}", sum(&u));
+}

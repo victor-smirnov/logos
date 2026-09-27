@@ -1,0 +1,6 @@
+package b1;
+trait Tr<R = Self> { type Out; }
+struct V { x: i64 }
+impl Tr<i64> for V { type Out = V; }
+impl Tr for V { type Out = i64; }
+fn main() { }

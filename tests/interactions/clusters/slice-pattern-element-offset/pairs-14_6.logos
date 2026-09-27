@@ -1,0 +1,25 @@
+package m_slice_rest_enum;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+fn main() { let v: Vec<Option<i64>> = vec![Some(1), None, Some(3), Some(4)]; if let [_, .., end] = v.as_slice() { println!("{:?}", end); } if let [_, mid @ .., _] = v.as_slice() { println!("{}", mid.len()); } }

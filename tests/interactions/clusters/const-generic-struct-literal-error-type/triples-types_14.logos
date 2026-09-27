@@ -1,0 +1,7 @@
+package m30;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+struct Buf<const N: usize> { d: [i64; N] }
+impl<const N: usize> Buf<N> {
+    fn new(seed: i64) -> Self { let d = [seed; N]; Buf { d } }
+}
+fn main() { let b: Buf<3> = Buf::new(2); println!("{}", b.d[2]); }

@@ -1,0 +1,11 @@
+package z66;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.deque;
+fn f(a: impl Copy + Into<i64>) -> i64 { let b = a; a.into() + b.into() }
+fn main() { println!("{}", f(3i32)); }

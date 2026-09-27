@@ -1,0 +1,8 @@
+enum Tree<T> { Leaf, Node(T, Box<Tree<T>>) }
+fn insert<T: Copy>(t: Tree<T>, v: T) -> Tree<T> {
+    match t {
+        Tree::Leaf => Tree::Node(v, Box::new(Tree::Leaf)),
+        Tree::Node(x, r) => Tree::Node(x, Box::new(insert(*r, v))),
+    }
+}
+fn main() { let t: Tree<i32> = insert(Tree::Leaf, 1); match t { Tree::Node(x, _) => println!("{}", x), Tree::Leaf => {} } }

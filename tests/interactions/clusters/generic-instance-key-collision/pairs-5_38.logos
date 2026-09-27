@@ -1,0 +1,27 @@
+package f40_vec_option_instantiation_collision;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+enum Json { Num(i64), Str(String) }
+fn main() {
+    let mut out: Vec<Option<i64>> = Vec::new();
+    out.push(Some(2)); out.push(None);
+    for o in out.iter() { if let Some(k) = o { println!("k {}", k); } }
+    let mut opts: Vec<Option<Box<Json>>> = Vec::new();
+    opts.push(Some(Box::new(Json::Num(4)))); opts.push(None); opts.push(Some(Box::new(Json::Str(String::from("x")))));
+    let mut n = 0i64;
+    for o in opts.iter() { if let Some(b) = o { if let Json::Num(k) = **b { n += k; } else { n += 100; } } }
+    println!("{}", n);
+}

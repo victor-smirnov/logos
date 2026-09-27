@@ -1,0 +1,4 @@
+struct C { n: i64 }
+impl Iterator for C { type Item = i64; fn next(&mut self) -> Option<i64> { if self.n == 0 { None } else { self.n -= 1; Some(self.n) } } }
+fn make() -> impl Iterator<Item = i64> { C { n: 3 } }
+fn main() { let v = make(); let n: i64 = v.sum(); let m = v.count(); println!("{} {}", n, m); }

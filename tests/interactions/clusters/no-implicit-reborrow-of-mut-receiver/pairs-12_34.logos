@@ -1,0 +1,31 @@
+package m05n;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+use logos.lang.num.error;
+use logos.lang.num.parse;
+struct P { v: i64 }
+fn main() {
+    let it: Box<dyn Iterator<i64>> = Box::new(0..3);
+    let b: Vec<P> = vec![P { v: 10 }, P { v: 20 }];
+    for (x, p) in it.zip(b.iter()) { println!("{} {}", x, p.v); }
+}

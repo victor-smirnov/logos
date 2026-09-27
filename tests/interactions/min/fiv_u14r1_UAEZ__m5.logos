@@ -1,0 +1,5 @@
+package m5;
+struct P { x: i64, y: i64 }
+fn main() -> i32 {
+    match P { x: 3, y: 4 } { P { x, y } => { return (x + y) as i32; } }
+}

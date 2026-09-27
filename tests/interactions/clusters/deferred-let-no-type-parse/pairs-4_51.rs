@@ -1,0 +1,1 @@
+fn main() { let r; let c = 3i64; if c > 2 { r = c * 2; } else { r = 0; } println!("{}", r); }

@@ -1,0 +1,7 @@
+#[derive(Clone, Copy)]
+struct P { a: i64 }
+fn dup<T: Copy>(x: T) -> (T, T) { (x, x) }
+fn main() {
+    let (x, y) = dup(P { a: 4 });
+    println!("{}", x.a + y.a);
+}

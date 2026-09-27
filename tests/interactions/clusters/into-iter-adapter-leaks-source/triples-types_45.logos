@@ -1,0 +1,7 @@
+package m76;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+fn main() {
+    let mut g: Vec<String> = Vec::new(); g.push(String::from("a"));
+    let keys: Vec<String> = g.into_iter().map(|s| s).collect();
+    println!("{}", keys.len());
+}

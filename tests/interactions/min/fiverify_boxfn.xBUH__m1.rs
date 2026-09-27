@@ -1,0 +1,2 @@
+fn apply<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { f(x) }
+fn main() { let b: Box<dyn Fn(i64) -> i64> = Box::new(|x: i64| x * 2); println!("{}", apply(b, 21)); }

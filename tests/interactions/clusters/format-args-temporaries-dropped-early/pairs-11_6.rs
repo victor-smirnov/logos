@@ -1,0 +1,4 @@
+struct G(i32);
+impl Drop for G { fn drop(&mut self) { println!("drop {}", self.0); } }
+impl G { fn v(&self) -> i32 { self.0 } }
+fn main() { println!("val {}", G(7).v()); println!("next"); }

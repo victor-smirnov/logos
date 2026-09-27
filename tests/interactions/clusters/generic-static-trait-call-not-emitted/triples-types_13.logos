@@ -1,0 +1,4 @@
+package m63;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+fn conv<T: Into<i64>>(x: T) -> i64 { let v: i64 = x.into(); v + 1 }
+fn main() { println!("{}", conv(5i64)); let s: String = String::from("a").into(); println!("{}", s); }

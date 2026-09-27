@@ -1,0 +1,8 @@
+package f_parse_question_infer;
+use logos.lang.result;
+use logos.lang.str;
+use logos.lang.num.parse;
+use logos.lang.num.error;
+use logos.std.fmt;
+fn p(s: &str) -> Result<i64, ParseIntError> { let n: i64 = s.parse()?; return Ok(n + 1); }
+fn main() { println!("{}", p("41").unwrap()); }

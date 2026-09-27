@@ -1,0 +1,6 @@
+package z17b;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn f(s: &[i32]) -> i32 { match s { [.., 0] => 1, _ => -1 } }
+fn main() { println!("{} {} {}", f(&[0, 7, 9]), f(&[5, 7, 0]), f(&[3])); }

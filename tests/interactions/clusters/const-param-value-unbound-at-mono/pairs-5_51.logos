@@ -1,0 +1,22 @@
+package f53_const_generic_recursive_call;
+use logos.lang.mem;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+use logos.lang.cell;
+use logos.lang.ops;
+fn depth<const D: usize>(n: usize) -> usize { if n > 20 { return 999; } if n >= D { return n; } return depth::<D>(n + 1); }
+fn show<const D: usize>() -> usize { return D; }
+fn main() { println!("{} {}", show::<7>(), depth::<7>(0)); }

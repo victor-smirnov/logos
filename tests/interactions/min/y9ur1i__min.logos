@@ -1,0 +1,4 @@
+package min;
+use logos.std.fmt;
+struct T<K,V> { fK: K, fV: V, c1: Option<Box<T<K,V>>>, c2: Option<Box<T<K,V>>>, }
+fn main() { let t: Option<Box<T<i32,i32>>> = Some(Box::new(T { fK: 1, fV: 1, c1: None, c2: None, })); println!("{}", t.is_some()); }

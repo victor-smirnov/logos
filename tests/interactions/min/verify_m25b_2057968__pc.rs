@@ -1,0 +1,6 @@
+struct B { id: i64 }
+impl Drop for B { fn drop(&mut self) { println!("drop B {}", self.id); } }
+impl B { fn hi(&self) -> i64 { self.id } }
+fn make(k: i64) -> Box<B> { Box::new(B { id: k }) }
+fn mk(k: i64) -> B { B { id: k } }
+fn main() { let x = Box::new(B { id: 7 }).hi(); println!("{}", x); println!("end"); }

@@ -1,0 +1,3 @@
+fn cls(x: i64) -> i64 { match x { 0..=3 => 1, 5..=10 => 2 } }
+fn len_cls(v: &[i64]) -> i64 { match v { [] => 0, [_] => 1, [_, _] => 2 } }
+fn main() { println!("{} {}", cls(4), len_cls(&[1, 2, 3])); }

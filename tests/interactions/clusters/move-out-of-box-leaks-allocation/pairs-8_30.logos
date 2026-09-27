@@ -1,0 +1,6 @@
+package f_box_moveout_leak;
+use logos.mem.boxed;
+use logos.std.fmt;
+enum L { Nil, Cons(i64, Box<L>) }
+fn count(l: L) -> i64 { match l { L::Nil => 0, L::Cons(_, t) => 1 + count(*t) } }
+fn main() { let l = L::Cons(1, Box::new(L::Cons(2, Box::new(L::Nil)))); println!("{}", count(l)); }

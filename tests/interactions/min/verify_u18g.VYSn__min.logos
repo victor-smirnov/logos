@@ -1,0 +1,5 @@
+package min;
+fn main() -> i32 {
+    let o: Option<i32> = Some(5);
+    match &o { None => 0, Some(s) => *s }
+}

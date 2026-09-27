@@ -1,0 +1,6 @@
+package m;
+use logos.std.fmt;
+fn main() {
+    let d: &dyn Display = &"lit";
+    println!("{}", d);
+}

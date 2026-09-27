@@ -1,0 +1,22 @@
+package r1b;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.collections.hashmap;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.mem;
+struct Holder<F: Fn(i64) -> i64> { f: F }
+fn apply<F: Fn(i64) -> i64>(h: Holder<F>, x: i64) -> i64 { return (h.f)(x); }
+fn run() {
+    let b: Box<i64> = Box::new(7);
+    let h = Holder { f: move |x: i64| -> i64 { return x * *b; } };
+    println!("{}", apply(h, 3));
+    println!("{}", apply(h, 4));
+}
+fn main() -> i32 { run(); return 0; }

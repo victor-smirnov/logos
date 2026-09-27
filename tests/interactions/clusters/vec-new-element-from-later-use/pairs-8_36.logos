@@ -1,0 +1,9 @@
+package f_vecnew_infer_mutref;
+use logos.mem.collections.vec;
+use logos.std.fmt;
+fn fill(out: &mut Vec<i32>) { out.push(7); out.push(8); }
+fn main() {
+    let mut out = Vec::new();
+    fill(&mut out);
+    println!("{}", out.len());
+}

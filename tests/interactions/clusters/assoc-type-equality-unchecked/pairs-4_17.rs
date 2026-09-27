@@ -1,0 +1,5 @@
+trait Container { type Item; fn get(&self, i: i64) -> Self::Item; }
+struct Flags { a: bool }
+impl Container for Flags { type Item = bool; fn get(&self, _i: i64) -> bool { self.a } }
+fn sum_all<C: Container<Item = i64>>(c: &C) -> i64 { c.get(0) }
+fn main() { let f = Flags { a: true }; println!("{}", sum_all(&f)); }

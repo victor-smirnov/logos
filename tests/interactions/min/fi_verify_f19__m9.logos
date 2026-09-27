@@ -1,0 +1,5 @@
+package m9;
+use logos.std.fmt;
+use logos.mem.collections.hashmap;
+enum Slot { Empty, Full(i64) }
+fn main() { let s = Slot::Full(4); match s { Slot::Full(v) => println!("{}", v), Slot::Empty => println!("e") } }

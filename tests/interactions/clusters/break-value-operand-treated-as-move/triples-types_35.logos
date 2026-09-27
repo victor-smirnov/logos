@@ -1,0 +1,7 @@
+package m84;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+fn main() {
+    let v: String = 'a: loop { let s = String::from("x"); break 'a format!("{}-{}", s, s); };
+    let w: String = loop { let s = String::from("y"); break format!("{}-{}", s, s); };
+    println!("{} {}", v, w);
+}

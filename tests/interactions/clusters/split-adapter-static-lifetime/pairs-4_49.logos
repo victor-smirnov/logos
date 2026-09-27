@@ -1,0 +1,9 @@
+package m122;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+fn main() {
+    let s = String::from("a\n b\n\nc");
+    let w: Vec<&str> = s.as_str().split('\n').filter(|w| !w.is_empty()).collect();
+    println!("{:?}", w);
+}

@@ -1,0 +1,10 @@
+package f_for_ref_vec_enum;
+use logos.mem.collections.vec;
+use logos.std.fmt;
+enum Ev { Key(i32), Click(i32, i32) }
+fn main() {
+    let evs: Vec<Ev> = vec![Ev::Key(1), Ev::Click(1, 2), Ev::Click(-5, 0)];
+    for e in &evs { match e { Ev::Key(c) => println!("key {}", c), Ev::Click(x, y) => println!("click {} {}", x, y) } }
+    let n: Vec<(i32, i32)> = vec![(1, 2), (3, 4)];
+    for t in &n { println!("t {} {}", t.0, t.1); }
+}

@@ -1,0 +1,28 @@
+package m_indexmut_leak;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+struct S { items: Vec<Box<i64>> }
+impl Index<usize> for S { type Output = Box<i64>; fn index(&self, i: usize) -> &Box<i64> { &self.items[i] } }
+impl IndexMut<usize> for S { fn index_mut(&mut self, i: usize) -> &mut Box<i64> { &mut self.items[i] } }
+fn main() { let mut s = S { items: Vec::new() }; s.items.push(Box::new(1)); s[0] = Box::new(2); println!("{}", *s[0]); }

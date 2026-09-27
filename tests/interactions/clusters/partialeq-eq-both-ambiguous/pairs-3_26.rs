@@ -1,0 +1,30 @@
+#[derive(Clone, Copy, Debug, Default)]
+struct Pt { x: i64, y: i64 }
+impl PartialEq for Pt { fn eq(&self, o: &Pt) -> bool { self.x == o.x && self.y == o.y } }
+impl Eq for Pt {}
+#[derive(Clone, Copy, Debug)]
+enum Err1 { NotFound, Bad(i64) }
+impl PartialEq for Err1 { fn eq(&self, o: &Err1) -> bool { match (self, o) { (Err1::NotFound, Err1::NotFound) => true, (Err1::Bad(a), Err1::Bad(b)) => a == b, _ => false } } }
+impl Eq for Err1 {}
+fn find(xs: &[Pt], x: i64) -> Result<Pt, Err1> { for p in xs.iter() { if p.x == x { return if p.y < 0 { Err(Err1::Bad(p.y)) } else { Ok(*p) }; } } Err(Err1::NotFound) }
+fn both(xs: &[Pt], a: i64, b: i64) -> Result<(Pt, Pt), Err1> { let p = find(xs, a)?; let q = find(xs, b)?; Ok((p, q)) }
+fn opt_y(xs: &[Pt], x: i64) -> Option<i64> { let p = find(xs, x).ok()?; Some(p.y) }
+fn main() {
+    let pts = [Pt { x: 1, y: 10 }, Pt { x: 2, y: -5 }, Pt { x: 3, y: 30 }];
+    println!("{}", find(&pts, 1) == find(&pts, 1));
+    println!("{}", find(&pts, 1) == Ok(Pt { x: 1, y: 10 }));
+    println!("{}", find(&pts, 2) == Err(Err1::Bad(-5)));
+    println!("{}", find(&pts, 9) == Err(Err1::NotFound));
+    println!("{}", find(&pts, 9) != Err(Err1::Bad(0)));
+    println!("{}", find(&pts, 2) == Err(Err1::Bad(-6)));
+    println!("{:?}", both(&pts, 1, 3).is_ok());
+    println!("{}", both(&pts, 1, 2).err() == Some(Err1::Bad(-5)));
+    println!("{:?} {:?}", opt_y(&pts, 3), opt_y(&pts, 2));
+    let o: Option<Pt> = Some(pts[0]);
+    println!("{} {}", o == Some(Pt { x: 1, y: 10 }), o != None);
+    let d = Pt::default();
+    println!("{:?} {}", d, Some(d) == Some(Pt { x: 0, y: 0 }));
+    let e: Result<Pt, Err1> = Err(Err1::NotFound);
+    let v = e.unwrap_or_default();
+    println!("{:?}", v);
+}

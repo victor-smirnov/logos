@@ -1,0 +1,14 @@
+package f_assoc_type_local_no_drop;
+use logos.std.fmt; use logos.mem.fmt; use logos.std.io; use logos.std.compiler.metaprog; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.iter; use logos.lang.option; use logos.lang.result; use logos.lang.cmp; use logos.lang.ops; use logos.mem.boxed; use logos.lang.rc; use logos.lang.str; use logos.lang.clone;
+struct Noisy { id: i64 }
+impl Drop for Noisy { fn drop(&mut self) { println!("drop {}", self.id); } }
+trait Factory { type Out; fn make(&self) -> Self::Out; }
+struct NF { k: i64 }
+impl Factory for NF { type Out = Noisy; fn make(&self) -> Noisy { Noisy { id: self.k } } }
+fn produce<F: Factory>(f: &F) { let o = f.make(); println!("made"); }
+fn produce_t<T>(t: T) { println!("got"); }
+fn main() {
+    produce(&NF { k: 1 });
+    produce_t(Noisy { id: 2 });
+    println!("end");
+}

@@ -1,0 +1,2 @@
+enum E<T> { A(T, Box<Option<T>>) }
+fn main() { let _e = E::A(1, Box::new(None)); }

@@ -1,0 +1,22 @@
+package m4;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+trait Zero { fn zero() -> Self; }
+impl Zero for String { fn zero() -> String { String::from("z") } }
+fn mk<M: Zero>() -> M { M::zero() }
+fn main() { let s: String = mk(); println!("{}", s); }

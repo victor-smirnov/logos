@@ -1,0 +1,30 @@
+package m_cg_self_lit;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+use logos.lang.mem;
+use logos.lang.num.error;
+use logos.lang.num.parse;
+struct Buf<const N: usize> { items: [i64; N], len: usize }
+impl<const N: usize> Buf<N> { fn new() -> Self { Buf { items: [0; N], len: 0 } } }
+fn main() { let b: Buf<2> = Buf::new(); println!("{} {}", b.len, b.items[1]); }

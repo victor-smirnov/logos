@@ -1,0 +1,3108 @@
+[
+ {
+  "key": "tail-return-owned-double-drop",
+  "mechanism": "A fn/closure tail expression naming an owned local, param or field is not treated as a move: the value is dropped at scope exit and also returned.",
+  "members": [
+   "pairs-1#1",
+   "pairs-2#1",
+   "pairs-2#16",
+   "pairs-3#1",
+   "pairs-4#1",
+   "pairs-5#2",
+   "pairs-6#1",
+   "pairs-7#1",
+   "pairs-8#1",
+   "pairs-9#1",
+   "pairs-10#1",
+   "pairs-11#1",
+   "pairs-11#2",
+   "pairs-11#3",
+   "pairs-12#1",
+   "pairs-13#1",
+   "pairs-14#1",
+   "triples-types#1"
+  ],
+  "representatives": [
+   "pairs-5#2",
+   "pairs-11#2"
+  ]
+ },
+ {
+  "key": "fn-tail-temporaries-not-dropped",
+  "mechanism": "Temporaries created in a fn's tail expression (incl. RefCell guards in a tail match scrutinee) are never dropped, nor are the locals.",
+  "members": [
+   "pairs-4#3",
+   "pairs-11#5",
+   "pairs-12#2",
+   "pairs-14#14"
+  ],
+  "representatives": [
+   "pairs-4#3"
+  ]
+ },
+ {
+  "key": "tail-match-conditional-move-leaks",
+  "mechanism": "A tail-position match that moves a by-value param/binding in some arms skips drops of the unmoved values/bindings.",
+  "members": [
+   "pairs-11#4",
+   "pairs-9#2"
+  ],
+  "representatives": [
+   "pairs-11#4"
+  ]
+ },
+ {
+  "key": "rust2024-temporary-scopes",
+  "mechanism": "Rust 2024 temporary scoping (block-tail temps dropped before locals, if-let scrutinee dropped before else) is not implemented.",
+  "members": [
+   "pairs-4#6",
+   "pairs-5#33"
+  ],
+  "representatives": [
+   "pairs-4#6"
+  ]
+ },
+ {
+  "key": "format-args-temporaries-dropped-early",
+  "mechanism": "Temporaries inside println!/format! arguments (and the enclosing statement) are dropped before the print instead of at end of statement.",
+  "members": [
+   "pairs-5#47",
+   "pairs-6#18",
+   "pairs-10#12",
+   "pairs-11#6",
+   "pairs-14#17"
+  ],
+  "representatives": [
+   "pairs-6#18"
+  ]
+ },
+ {
+  "key": "temp-receiver-or-place-base-not-dropped",
+  "mechanism": "A temporary used as a method receiver or place base (Box temp, T::mk(), const item PROTO.id) is never dropped.",
+  "members": [
+   "pairs-10#13",
+   "pairs-9#18",
+   "pairs-3#16"
+  ],
+  "representatives": [
+   "pairs-10#13"
+  ]
+ },
+ {
+  "key": "closure-byvalue-param-not-dropped",
+  "mechanism": "A closure's by-value parameter is never dropped (expression-bodied closures, map/unwrap_or_else closures).",
+  "members": [
+   "pairs-4#4",
+   "pairs-5#3",
+   "pairs-8#29",
+   "pairs-9#3",
+   "pairs-10#14",
+   "pairs-11#7"
+  ],
+  "representatives": [
+   "pairs-5#3"
+  ]
+ },
+ {
+  "key": "closure-call-aggregate-arg-abi",
+  "mechanism": "Calling a closure/fn-pointer with an aggregate by-value argument that is a field place or call result passes it wrongly (segfault / invalid free).",
+  "members": [
+   "pairs-5#1",
+   "pairs-3#17",
+   "pairs-7#9"
+  ],
+  "representatives": [
+   "pairs-5#1"
+  ]
+ },
+ {
+  "key": "format-in-value-position-leaks",
+  "mechanism": "A format! String produced as the value of an if/match branch, closure return or similar expression position is never freed.",
+  "members": [
+   "pairs-4#5",
+   "pairs-5#30",
+   "pairs-13#14",
+   "pairs-14#15",
+   "triples-own#7"
+  ],
+  "representatives": [
+   "pairs-13#14"
+  ]
+ },
+ {
+  "key": "closure-returns-aggregate-via-stack-alloca",
+  "mechanism": "A closure returning a tuple returns a pointer to its own stack alloca.",
+  "members": [
+   "pairs-1#4",
+   "pairs-2#2",
+   "pairs-5#25",
+   "pairs-6#3",
+   "pairs-9#4",
+   "pairs-10#2",
+   "triples-own#1"
+  ],
+  "representatives": [
+   "pairs-6#3"
+  ]
+ },
+ {
+  "key": "break-aggregate-value-lost",
+  "mechanism": "`break <aggregate temporary/call>` from a loop loses the value and crashes.",
+  "members": [
+   "pairs-1#9",
+   "pairs-6#4"
+  ],
+  "representatives": [
+   "pairs-6#4"
+  ]
+ },
+ {
+  "key": "nested-match-as-block-tail-value",
+  "mechanism": "A match expression that is the tail of a block used as a value (match arm, else block, closure body) is lowered with no/wrong value.",
+  "members": [
+   "pairs-2#3",
+   "pairs-6#5",
+   "pairs-6#6",
+   "pairs-8#15",
+   "pairs-13#11"
+  ],
+  "representatives": [
+   "pairs-6#5"
+  ]
+ },
+ {
+  "key": "nested-fn-item-in-block-expr",
+  "mechanism": "A nested fn item inside a block expression breaks the enclosing block's return lowering (llvm.return operand).",
+  "members": [
+   "pairs-3#35",
+   "pairs-9#24"
+  ],
+  "representatives": [
+   "pairs-9#24"
+  ]
+ },
+ {
+  "key": "closure-unsafe-block-body-return",
+  "mechanism": "A closure whose body is a bare `unsafe { ...; }` block lowers a return with an operand.",
+  "members": [
+   "pairs-4#24",
+   "pairs-11#26"
+  ],
+  "representatives": [
+   "pairs-11#26"
+  ]
+ },
+ {
+  "key": "nested-fn-codegen-miscompile",
+  "mechanism": "Nested fn items are miscompiled when they take &dyn / slice params or call operator impls (wrong environment/ABI).",
+  "members": [
+   "pairs-6#7",
+   "pairs-10#23",
+   "pairs-13#4"
+  ],
+  "representatives": [
+   "pairs-13#4"
+  ]
+ },
+ {
+  "key": "box-dyn-struct-field-unsize",
+  "mechanism": "Struct-literal field is not a coercion site: Box<Concrete> is not unsized into a Box<dyn Trait> field, leaving a thin pointer.",
+  "members": [
+   "pairs-1#2",
+   "pairs-8#9",
+   "pairs-9#6",
+   "pairs-10#5",
+   "triples-own#2"
+  ],
+  "representatives": [
+   "pairs-9#6"
+  ]
+ },
+ {
+  "key": "closure-param-ref-to-fat-pointer",
+  "mechanism": "A closure param that is a reference to a fat pointer (&Box<dyn>, &&dyn, &&[T]) is typed/loaded with one level of indirection too few.",
+  "members": [
+   "pairs-1#3",
+   "pairs-2#18",
+   "pairs-5#12",
+   "pairs-8#10",
+   "pairs-9#7",
+   "pairs-12#5",
+   "pairs-14#4",
+   "triples-types#10",
+   "triples-types#15",
+   "pairs-4#13",
+   "pairs-12#6"
+  ],
+  "representatives": [
+   "pairs-12#5",
+   "pairs-12#6"
+  ]
+ },
+ {
+  "key": "borrowed-closure-literal-arg",
+  "mechanism": "Borrowing a closure literal directly at a call argument (&|x| .., &mut |v| ..) passes a dangling/uninitialised closure.",
+  "members": [
+   "pairs-2#17",
+   "pairs-5#4",
+   "pairs-8#11",
+   "pairs-9#5",
+   "pairs-10#4"
+  ],
+  "representatives": [
+   "pairs-2#17"
+  ]
+ },
+ {
+  "key": "move-closure-capture-shares-slot",
+  "mechanism": "A move closure captures a reference to its source slot instead of copying, so returned/boxed closures read dangling or later-mutated captures.",
+  "members": [
+   "pairs-1#13",
+   "pairs-2#19",
+   "pairs-7#11",
+   "pairs-8#14",
+   "pairs-10#3",
+   "pairs-6#20",
+   "pairs-12#9"
+  ],
+  "representatives": [
+   "pairs-12#9",
+   "pairs-10#3"
+  ]
+ },
+ {
+  "key": "if-arms-unsize-miscompiled",
+  "mechanism": "An if-expression whose Box::new arms coerce to an annotated Box<dyn> computes garbage.",
+  "members": [
+   "pairs-2#20"
+  ],
+  "representatives": [
+   "pairs-2#20"
+  ]
+ },
+ {
+  "key": "branch-arms-not-unsized",
+  "mechanism": "Match arms of different Box types are not unsized to the expected Box<dyn> type.",
+  "members": [
+   "pairs-1#38",
+   "pairs-2#37"
+  ],
+  "representatives": [
+   "pairs-2#37"
+  ]
+ },
+ {
+  "key": "unsize-in-aggregate-generic-ctor-slot",
+  "mechanism": "Unsize coercion Box<T>->Box<dyn> is not applied at vec! elements or nested generic ctor args (Rc::new(RefCell::new(Box::new..))); Box<dyn> is also rendered as &dyn.",
+  "members": [
+   "pairs-2#36",
+   "pairs-6#45",
+   "pairs-7#49",
+   "pairs-8#48",
+   "pairs-10#43",
+   "pairs-11#41",
+   "pairs-14#36",
+   "triples-types#28",
+   "pairs-11#42"
+  ],
+  "representatives": [
+   "pairs-7#49"
+  ]
+ },
+ {
+  "key": "vec-macro-requires-copy",
+  "mechanism": "vec![..] lowers to vec_from_arr<T: Copy>, refusing non-Copy elements unless the binding is annotated.",
+  "members": [
+   "pairs-1#36",
+   "pairs-3#44",
+   "pairs-4#30",
+   "pairs-6#44",
+   "pairs-7#39",
+   "pairs-9#37",
+   "pairs-10#27",
+   "pairs-13#21",
+   "pairs-14#35",
+   "triples-types#26",
+   "pairs-12#37",
+   "pairs-11#56"
+  ],
+  "representatives": [
+   "pairs-7#39"
+  ]
+ },
+ {
+  "key": "vec-repeat-form",
+  "mechanism": "vec![x; n] with an annotated let or a runtime/assoc-const count does not parse or infer.",
+  "members": [
+   "pairs-5#48",
+   "pairs-14#53"
+  ],
+  "representatives": [
+   "pairs-5#48"
+  ]
+ },
+ {
+  "key": "structural-copy-clone-not-trait-impls",
+  "mechanism": "Structurally Copy types (Option<Copy>, auto-Copy structs, tuples with {integer}) and arrays/Option do not implement Copy/Clone as traits for bounds and derives.",
+  "members": [
+   "pairs-8#35",
+   "pairs-12#49",
+   "triples-types#27",
+   "pairs-11#53",
+   "pairs-3#25"
+  ],
+  "representatives": [
+   "pairs-12#49"
+  ]
+ },
+ {
+  "key": "unit-path-pattern-binds-under-ref",
+  "mechanism": "A bare unit-variant/const path in a nested or ref-default-binding pattern (None, Some(K), tag: None) is resolved as a fresh binding.",
+  "members": [
+   "pairs-1#5",
+   "pairs-3#2",
+   "pairs-10#6",
+   "pairs-10#7"
+  ],
+  "representatives": [
+   "pairs-3#2"
+  ]
+ },
+ {
+  "key": "exhaustiveness-skipped-for-ref-scrutinee",
+  "mechanism": "The exhaustiveness check is skipped when the scrutinee is a reference (&Enum, default binding mode).",
+  "members": [
+   "pairs-1#6",
+   "pairs-2#7",
+   "pairs-4#2",
+   "pairs-5#39",
+   "pairs-6#10",
+   "pairs-8#2",
+   "pairs-9#8",
+   "triples-types#4"
+  ],
+  "representatives": [
+   "pairs-4#2"
+  ]
+ },
+ {
+  "key": "exhaustiveness-unchecked-infinite-domains",
+  "mechanism": "Matches over integers, chars, &str, slices, or structs with int/bool fields without a wildcard are never exhaustiveness-checked.",
+  "members": [
+   "pairs-5#31",
+   "pairs-5#32",
+   "pairs-6#11",
+   "pairs-7#4",
+   "pairs-8#3",
+   "pairs-11#10",
+   "pairs-12#13",
+   "pairs-14#19",
+   "pairs-10#19"
+  ],
+  "representatives": [
+   "pairs-5#32"
+  ]
+ },
+ {
+  "key": "range-in-payload-exhaustiveness",
+  "mechanism": "Range patterns inside a variant payload are not counted for exhaustiveness.",
+  "members": [
+   "pairs-11#48"
+  ],
+  "representatives": [
+   "pairs-11#48"
+  ]
+ },
+ {
+  "key": "slice-pattern-element-offset",
+  "mechanism": "Slice patterns compute element offsets with the wrong stride for non-scalar elements and for positions after `..`.",
+  "members": [
+   "pairs-1#7",
+   "pairs-4#12",
+   "pairs-11#11",
+   "pairs-14#6",
+   "pairs-11#9"
+  ],
+  "representatives": [
+   "pairs-11#11"
+  ]
+ },
+ {
+  "key": "slice-pattern-subpattern-bindings-lost",
+  "mechanism": "Enum/tuple subpatterns nested inside a slice pattern (and slice patterns in let-else) leave their bindings undefined.",
+  "members": [
+   "pairs-1#45",
+   "pairs-2#27",
+   "pairs-11#23",
+   "triples-types#11",
+   "pairs-7#5",
+   "pairs-3#32"
+  ],
+  "representatives": [
+   "pairs-2#27"
+  ]
+ },
+ {
+  "key": "literal-subpattern-under-ref-no-deref",
+  "mechanism": "A literal/range/@-or subpattern under ref default binding mode compares the pointer without loading (MLIR type mismatch).",
+  "members": [
+   "pairs-1#12",
+   "pairs-2#26",
+   "pairs-9#23",
+   "pairs-5#29",
+   "pairs-7#33",
+   "pairs-11#24",
+   "triples-types#12"
+  ],
+  "representatives": [
+   "pairs-9#23"
+  ]
+ },
+ {
+  "key": "ref-binding-mode-refutable-subpattern-runtime",
+  "mechanism": "Refutable subpatterns (range in tuple, or-pattern with bindings) under a reference scrutinee match wrongly at runtime.",
+  "members": [
+   "pairs-1#11",
+   "pairs-2#21"
+  ],
+  "representatives": [
+   "pairs-1#11"
+  ]
+ },
+ {
+  "key": "for-over-ref-vec-enum-stride",
+  "mechanism": "`for x in &vec` / slice over enum or Option elements iterates with the wrong element stride (.iter() is right).",
+  "members": [
+   "pairs-3#5",
+   "pairs-6#2",
+   "pairs-7#6",
+   "pairs-8#13",
+   "pairs-11#12",
+   "pairs-14#5",
+   "triples-types#3"
+  ],
+  "representatives": [
+   "pairs-6#2"
+  ]
+ },
+ {
+  "key": "for-by-value-array-fat-elements",
+  "mechanism": "By-value for over an array of 16-byte elements (&str, tuples, enums) reads garbage or segfaults.",
+  "members": [
+   "pairs-1#15",
+   "pairs-2#22",
+   "pairs-8#12",
+   "pairs-11#13",
+   "pairs-13#12",
+   "pairs-14#10",
+   "triples-types#2"
+  ],
+  "representatives": [
+   "pairs-2#22"
+  ]
+ },
+ {
+  "key": "iter-over-array-of-arrays-element-copy",
+  "mechanism": "Iterating an array of arrays yields element copies/garbage rows rather than references into the array.",
+  "members": [
+   "pairs-9#14",
+   "pairs-3#7"
+  ],
+  "representatives": [
+   "pairs-9#14"
+  ]
+ },
+ {
+  "key": "const-generic-array-length-unbound-in-body",
+  "mechanism": "Inside a const-generic context, [T; N] has length 0 at runtime (iter/len/iter_mut/range-slicing see no elements).",
+  "members": [
+   "pairs-2#5",
+   "pairs-3#11",
+   "pairs-8#16",
+   "pairs-9#10",
+   "pairs-10#15",
+   "pairs-14#9",
+   "triples-types#7",
+   "pairs-7#21",
+   "pairs-7#22",
+   "pairs-3#13"
+  ],
+  "representatives": [
+   "pairs-8#16"
+  ]
+ },
+ {
+  "key": "const-param-value-unbound-at-mono",
+  "mechanism": "A const generic given only by turbofish (or via impl Trait return) has no value in the body at mono: reads 0 or ICE.",
+  "members": [
+   "pairs-2#6",
+   "pairs-3#12",
+   "pairs-5#51",
+   "pairs-7#23",
+   "pairs-10#32",
+   "pairs-14#29",
+   "pairs-4#22"
+  ],
+  "representatives": [
+   "pairs-3#12"
+  ]
+ },
+ {
+  "key": "const-generic-struct-literal-error-type",
+  "mechanism": "A const-generic struct literal without ::<N> inside impl<const N> resolves to Struct<error> and ICEs.",
+  "members": [
+   "pairs-2#30",
+   "pairs-3#31",
+   "pairs-6#28",
+   "pairs-7#24",
+   "pairs-8#27",
+   "pairs-9#21",
+   "pairs-10#33",
+   "pairs-11#25",
+   "pairs-14#28",
+   "triples-types#14"
+  ],
+  "representatives": [
+   "pairs-6#28"
+  ]
+ },
+ {
+  "key": "const-N-not-inferred-from-array",
+  "mechanism": "A const generic N is not inferred from an array argument/struct field ([T;3] vs [T;N]).",
+  "members": [
+   "pairs-4#46",
+   "pairs-7#48",
+   "pairs-9#58",
+   "pairs-11#52",
+   "pairs-5#49"
+  ],
+  "representatives": [
+   "pairs-9#58"
+  ]
+ },
+ {
+  "key": "const-generic-args-ignored-in-type-identity",
+  "mechanism": "Const-generic arguments are not compared in type equality (V<3> accepted as V<2>).",
+  "members": [
+   "pairs-2#8",
+   "pairs-5#52",
+   "pairs-7#26",
+   "pairs-9#9",
+   "pairs-10#20"
+  ],
+  "representatives": [
+   "pairs-9#9"
+  ]
+ },
+ {
+  "key": "const-item-as-const-generic-arg",
+  "mechanism": "A const item (or turbofish literal) as a const-generic argument is resolved as a type or mistyped.",
+  "members": [
+   "pairs-3#45",
+   "pairs-8#56",
+   "pairs-9#52",
+   "pairs-11#51"
+  ],
+  "representatives": [
+   "pairs-9#52"
+  ]
+ },
+ {
+  "key": "aggregate-literal-elements-mixed-width",
+  "mechanism": "In an array literal, later unsuffixed elements are not unified with the first element's type, giving mixed-width layouts.",
+  "members": [
+   "pairs-2#4",
+   "pairs-3#6",
+   "pairs-5#17",
+   "pairs-9#12",
+   "triples-types#6"
+  ],
+  "representatives": [
+   "pairs-3#6"
+  ]
+ },
+ {
+  "key": "const-static-array-init-ignores-declared-type",
+  "mechanism": "const/static array or tuple initializers of unsuffixed literals ignore the declared element type and are stored as i32.",
+  "members": [
+   "pairs-5#50",
+   "pairs-7#2",
+   "pairs-9#11",
+   "pairs-10#11",
+   "pairs-14#8"
+  ],
+  "representatives": [
+   "pairs-9#11"
+  ]
+ },
+ {
+  "key": "literal-behind-ref-coercion-built-i32",
+  "mechanism": "A literal aggregate or literal-initialised let passed behind & to an &i64/&[i64] site is built at i32 width.",
+  "members": [
+   "pairs-9#13",
+   "pairs-4#9",
+   "pairs-14#7",
+   "triples-types#5"
+  ],
+  "representatives": [
+   "triples-types#5"
+  ]
+ },
+ {
+  "key": "int-widening-through-reference-accepted",
+  "mechanism": "&u8 is accepted where &i64 is expected (implicit widening through a reference), reading past the slot.",
+  "members": [
+   "pairs-7#3",
+   "pairs-13#45"
+  ],
+  "representatives": [
+   "pairs-13#45"
+  ]
+ },
+ {
+  "key": "implicit-integer-widening-accepted",
+  "mechanism": "Implicit integer widening (u8->i64 etc.) is accepted across args, returns, branches and generics (untagged divergence).",
+  "members": [
+   "pairs-1#59",
+   "pairs-5#54",
+   "pairs-11#19",
+   "pairs-12#27",
+   "pairs-14#22"
+  ],
+  "representatives": [
+   "pairs-11#19"
+  ]
+ },
+ {
+  "key": "out-of-range-literal-accepted",
+  "mechanism": "Out-of-range integer literals in consts/operator RHS are accepted and truncated.",
+  "members": [
+   "pairs-7#25",
+   "pairs-10#21"
+  ],
+  "representatives": [
+   "pairs-10#21"
+  ]
+ },
+ {
+  "key": "non-u8-as-char-accepted",
+  "mechanism": "`u32 as char` (and i64 as char) casts are accepted.",
+  "members": [
+   "pairs-3#22",
+   "pairs-12#26",
+   "pairs-13#44"
+  ],
+  "representatives": [
+   "pairs-3#22"
+  ]
+ },
+ {
+  "key": "shift-lhs-literal-ignores-expected-type",
+  "mechanism": "The unsuffixed LHS literal of a shift is typed i32 regardless of the expected type, so `1 << 40` traps.",
+  "members": [
+   "pairs-6#17",
+   "pairs-7#27",
+   "pairs-8#19",
+   "pairs-10#22",
+   "pairs-11#17"
+  ],
+  "representatives": [
+   "pairs-8#19"
+  ]
+ },
+ {
+  "key": "literal-lhs-of-rem-typed-signed",
+  "mechanism": "An int literal on the left of % with a u64 operand is typed signed.",
+  "members": [
+   "pairs-11#16"
+  ],
+  "representatives": [
+   "pairs-11#16"
+  ]
+ },
+ {
+  "key": "range-literal-element-type",
+  "mechanism": "Ranges default to RangeI32 ignoring suffixed bounds / expected type (usize ranges truncate).",
+  "members": [
+   "pairs-7#7",
+   "pairs-14#34",
+   "pairs-6#48"
+  ],
+  "representatives": [
+   "pairs-7#7"
+  ]
+ },
+ {
+  "key": "int-literal-let-defaulted-early",
+  "mechanism": "An unsuffixed literal binding (or fold seed) is defaulted to i32 before later uses are seen.",
+  "members": [
+   "pairs-4#52",
+   "pairs-6#46",
+   "pairs-8#39",
+   "pairs-13#36",
+   "pairs-14#33",
+   "triples-types#42",
+   "pairs-11#40"
+  ],
+  "representatives": [
+   "pairs-14#33"
+  ]
+ },
+ {
+  "key": "expected-type-not-reaching-literal-in-ctor",
+  "mechanism": "The expected type (param, turbofish, closure param, field) does not reach unsuffixed literals inside generic/enum constructor args or closure returns.",
+  "members": [
+   "pairs-3#40",
+   "pairs-7#37",
+   "pairs-1#50",
+   "pairs-13#35",
+   "pairs-13#23"
+  ],
+  "representatives": [
+   "pairs-7#37"
+  ]
+ },
+ {
+  "key": "tail-match-no-expected-type",
+  "mechanism": "A tail match gets no expected type from the fn return type.",
+  "members": [
+   "pairs-1#41"
+  ],
+  "representatives": [
+   "pairs-1#41"
+  ]
+ },
+ {
+  "key": "let-annotation-flows-into-receiver",
+  "mechanism": "A let annotation's element type flows into the receiver vec! literal of a method chain.",
+  "members": [
+   "pairs-7#38"
+  ],
+  "representatives": [
+   "pairs-7#38"
+  ]
+ },
+ {
+  "key": "loop-break-value-inference-wrong",
+  "mechanism": "Loop break-value type is inferred from the first break (or a later return) and later breaks are lowered at the wrong type (None, i32 width).",
+  "members": [
+   "pairs-1#10",
+   "pairs-4#7",
+   "pairs-5#5",
+   "pairs-11#14",
+   "triples-types#8",
+   "pairs-13#3"
+  ],
+  "representatives": [
+   "pairs-11#14"
+  ]
+ },
+ {
+  "key": "break-none-after-break-some-refused",
+  "mechanism": "`break None` is not unified with a sibling `break Some(x)`.",
+  "members": [
+   "pairs-2#46",
+   "pairs-3#49",
+   "pairs-4#8",
+   "pairs-9#43",
+   "pairs-12#45",
+   "pairs-14#58"
+  ],
+  "representatives": [
+   "pairs-9#43"
+  ]
+ },
+ {
+  "key": "tail-divergence-not-all-paths",
+  "mechanism": "A tail let-chain if/else or loop with break values is not seen as covering all paths.",
+  "members": [
+   "pairs-2#44",
+   "pairs-2#45",
+   "pairs-8#33"
+  ],
+  "representatives": [
+   "pairs-2#45"
+  ]
+ },
+ {
+  "key": "derive-partialeq-enum-always-true",
+  "mechanism": "#[derive_partial_eq] on enums generates an eq that always returns true (REPEAT_GROUP over variants empty).",
+  "members": [
+   "pairs-2#9",
+   "pairs-3#3",
+   "pairs-4#20",
+   "pairs-5#34",
+   "pairs-6#15",
+   "pairs-8#20",
+   "pairs-10#8",
+   "pairs-12#7",
+   "pairs-13#6"
+  ],
+  "representatives": [
+   "pairs-6#15"
+  ]
+ },
+ {
+  "key": "derive-debug-enum-type-name",
+  "mechanism": "#[derive_debug] on enums prints only the type name.",
+  "members": [
+   "pairs-3#23",
+   "pairs-4#21",
+   "pairs-5#36",
+   "pairs-6#16",
+   "pairs-7#13",
+   "pairs-8#21",
+   "pairs-10#9",
+   "pairs-12#8",
+   "pairs-13#7",
+   "pairs-14#18",
+   "triples-types#39"
+  ],
+  "representatives": [
+   "pairs-10#9"
+  ]
+ },
+ {
+  "key": "derive-debug-c-field-lexed-cstr",
+  "mechanism": "derive(Debug) quotes a field name starting with 'c' as a c\"..\" CStr literal.",
+  "members": [
+   "pairs-3#24",
+   "pairs-5#37",
+   "pairs-6#23",
+   "pairs-7#14",
+   "pairs-10#24"
+  ],
+  "representatives": [
+   "pairs-7#14"
+  ]
+ },
+ {
+  "key": "derive-repeat-group-no-cursor",
+  "mechanism": "The derive quote engine's REPEAT_GROUP fails for single-field structs, tuple structs and enums, so Clone/PartialEq/Ord generate nothing.",
+  "members": [
+   "pairs-7#16",
+   "pairs-10#26",
+   "pairs-11#50",
+   "pairs-12#63",
+   "pairs-14#59",
+   "pairs-8#22",
+   "pairs-10#10",
+   "pairs-13#20",
+   "pairs-13#19"
+  ],
+  "representatives": [
+   "pairs-12#63"
+  ]
+ },
+ {
+  "key": "derive-partialeq-tuple-struct-codegen",
+  "mechanism": "Derived/struct == on tuple or one-field structs lowers to an i32 condition (cf.cond_br verification failure).",
+  "members": [
+   "pairs-6#24",
+   "pairs-7#15",
+   "pairs-1#54"
+  ],
+  "representatives": [
+   "pairs-7#15"
+  ]
+ },
+ {
+  "key": "derive-ord-enum-self",
+  "mechanism": "derive_ord on an enum emits an unresolved `Self`.",
+  "members": [
+   "triples-types#37"
+  ],
+  "representatives": [
+   "triples-types#37"
+  ]
+ },
+ {
+  "key": "partialeq-eq-both-ambiguous",
+  "mechanism": "Logos Eq declares its own eq, so PartialEq+Eq together make eq ambiguous (or a duplicate ne symbol).",
+  "members": [
+   "pairs-3#26",
+   "pairs-5#45",
+   "pairs-7#17",
+   "pairs-9#54",
+   "pairs-12#21",
+   "pairs-14#60",
+   "triples-types#36"
+  ],
+  "representatives": [
+   "pairs-5#45"
+  ]
+ },
+ {
+  "key": "partialord-marker-no-lt",
+  "mechanism": "Logos PartialOrd is a marker: derive(PartialOrd) provides no lt/partial_cmp.",
+  "members": [
+   "pairs-4#48",
+   "pairs-7#18",
+   "pairs-10#57",
+   "pairs-14#61"
+  ],
+  "representatives": [
+   "pairs-10#57"
+  ]
+ },
+ {
+  "key": "operator-method-on-generic-instance-not-emitted",
+  "mechanism": "An operator (==, >) on a generic instantiation dispatches to a method symbol (V2$G1$i64__eq, M__gt) that is never instantiated.",
+  "members": [
+   "pairs-3#28",
+   "pairs-14#30",
+   "pairs-3#30",
+   "pairs-13#16"
+  ],
+  "representatives": [
+   "pairs-14#30"
+  ]
+ },
+ {
+  "key": "generic-eq-moves-operands",
+  "mechanism": "== on a generic struct instance is treated as moving its operands.",
+  "members": [
+   "pairs-13#18"
+  ],
+  "representatives": [
+   "pairs-13#18"
+  ]
+ },
+ {
+  "key": "generic-static-trait-call-not-emitted",
+  "mechanism": "A trait static fn / assoc const / From called through a generic param is never emitted for the concrete impl (func.call to missing symbol).",
+  "members": [
+   "pairs-1#25",
+   "pairs-1#26",
+   "pairs-1#27",
+   "pairs-8#26",
+   "pairs-10#37",
+   "triples-types#13",
+   "pairs-13#15"
+  ],
+  "representatives": [
+   "triples-types#13"
+  ]
+ },
+ {
+  "key": "derive-copy-heap-field-accepted",
+  "mechanism": "derive(Copy)/impl Copy on a type with heap fields is accepted (no E0204), leading to double free.",
+  "members": [
+   "pairs-3#8",
+   "pairs-5#43",
+   "pairs-6#12",
+   "pairs-7#19",
+   "pairs-12#14",
+   "pairs-14#21"
+  ],
+  "representatives": [
+   "pairs-7#19"
+  ]
+ },
+ {
+  "key": "derive-lifetime-generic-struct",
+  "mechanism": "Derives on a lifetime-generic struct emit an impl without the lifetime (E0726).",
+  "members": [
+   "pairs-6#22",
+   "pairs-12#57"
+  ],
+  "representatives": [
+   "pairs-12#57"
+  ]
+ },
+ {
+  "key": "derived-impls-invisible-in-impl-blocks",
+  "mechanism": "Derived impls are not visible inside impl-block method bodies (metaprog ordering).",
+  "members": [
+   "pairs-6#21",
+   "pairs-10#25",
+   "pairs-14#62"
+  ],
+  "representatives": [
+   "pairs-14#62"
+  ]
+ },
+ {
+  "key": "derive-raw-pointer-field",
+  "mechanism": "derive_hash/derive_ord on raw-pointer fields fail in generated code.",
+  "members": [
+   "pairs-12#56"
+  ],
+  "representatives": [
+   "pairs-12#56"
+  ]
+ },
+ {
+  "key": "derive-const-generic-struct",
+  "mechanism": "Derives on const-generic structs treat N as a type param / are invisible in impl<const N>.",
+  "members": [
+   "pairs-7#20"
+  ],
+  "representatives": [
+   "pairs-7#20"
+  ]
+ },
+ {
+  "key": "cmp-impls-require-eq-or-missing",
+  "mechanism": "== on Vec/Option/Result/arrays and Vec::contains require Eq instead of PartialEq, or Vec has no eq at all.",
+  "members": [
+   "pairs-3#27",
+   "pairs-7#59",
+   "pairs-12#61",
+   "pairs-5#42"
+  ],
+  "representatives": [
+   "pairs-5#42"
+  ]
+ },
+ {
+  "key": "enum-eq-without-impl-accepted",
+  "mechanism": "== on a fieldless enum with no PartialEq impl is accepted as builtin.",
+  "members": [
+   "pairs-2#10",
+   "pairs-5#35"
+  ],
+  "representatives": [
+   "pairs-5#35"
+  ]
+ },
+ {
+  "key": "operator-on-enum-lowered-as-integer",
+  "mechanism": "Operators on enums ignore user Add/Sub/Neg impls and lower as integer arithmetic on the discriminant/pointer.",
+  "members": [
+   "pairs-12#15",
+   "pairs-14#26",
+   "pairs-3#9"
+  ],
+  "representatives": [
+   "pairs-14#26"
+  ]
+ },
+ {
+  "key": "dyn-eq-operator-builtin",
+  "mechanism": "== on dyn Trait values is lowered as builtin (ignores impl PartialEq for dyn, accepted without impl).",
+  "members": [
+   "pairs-14#11",
+   "pairs-14#12"
+  ],
+  "representatives": [
+   "pairs-14#12"
+  ]
+ },
+ {
+  "key": "generic-inference-through-deref-coercion",
+  "mechanism": "Generic T is not inferred when the argument needs deref/unsize coercion (&Vec<T>->&[T], &Box<E<T>>->&E<T>).",
+  "members": [
+   "pairs-1#33",
+   "pairs-3#42",
+   "pairs-4#31",
+   "pairs-5#7",
+   "pairs-6#43",
+   "pairs-7#35",
+   "pairs-9#33",
+   "pairs-10#31",
+   "pairs-13#27",
+   "pairs-8#42",
+   "pairs-11#35",
+   "pairs-14#39"
+  ],
+  "representatives": [
+   "pairs-5#7"
+  ]
+ },
+ {
+  "key": "collect-sum-target-from-return-type",
+  "mechanism": "sum()/collect() in return/tail position take no target type from the fn return type.",
+  "members": [
+   "pairs-1#31",
+   "pairs-2#54",
+   "pairs-3#41",
+   "pairs-4#45",
+   "pairs-5#21",
+   "pairs-8#37",
+   "pairs-9#57",
+   "pairs-10#47",
+   "pairs-11#33",
+   "pairs-12#29",
+   "pairs-14#43",
+   "triples-types#24"
+  ],
+  "representatives": [
+   "pairs-10#47"
+  ]
+ },
+ {
+  "key": "collect-vec-underscore-ice",
+  "mechanism": "collect::<Vec<_>>() leaves `_` unresolved to codegen (Option<()>::replace no value).",
+  "members": [
+   "pairs-4#26",
+   "pairs-6#26",
+   "pairs-7#31",
+   "pairs-8#24",
+   "pairs-12#19"
+  ],
+  "representatives": [
+   "pairs-8#24"
+  ]
+ },
+ {
+  "key": "collect-into-vec-underscore-refused",
+  "mechanism": "A partially annotated `let v: Vec<_> = ..collect()` is refused.",
+  "members": [
+   "pairs-11#61",
+   "pairs-13#26"
+  ],
+  "representatives": [
+   "pairs-11#61"
+  ]
+ },
+ {
+  "key": "vec-new-element-from-later-use",
+  "mechanism": "Vec::new()'s element type is not inferred from a later &mut Vec<T> argument, param type or push.",
+  "members": [
+   "pairs-1#46",
+   "pairs-3#53",
+   "pairs-4#44",
+   "pairs-8#36",
+   "pairs-9#34",
+   "pairs-11#37",
+   "pairs-10#48",
+   "pairs-7#43"
+  ],
+  "representatives": [
+   "pairs-9#34"
+  ]
+ },
+ {
+  "key": "for-in-over-generic-iterator-param",
+  "mechanism": "for-in over a generic I: Iterator / impl Iterator param is refused, and generic adapters on it do not resolve.",
+  "members": [
+   "pairs-1#29",
+   "pairs-2#41",
+   "pairs-7#44",
+   "pairs-9#38",
+   "pairs-10#45",
+   "pairs-11#46",
+   "pairs-13#31",
+   "pairs-14#42",
+   "pairs-8#38"
+  ],
+  "representatives": [
+   "pairs-10#45"
+  ]
+ },
+ {
+  "key": "closure-param-from-expected-fn-signature",
+  "mechanism": "Closure param/return types are not inferred from an expected Fn signature (impl Fn return, Box<dyn Fn>, &mut F).",
+  "members": [
+   "pairs-1#37",
+   "pairs-3#43",
+   "pairs-4#34",
+   "pairs-5#53",
+   "pairs-9#39",
+   "pairs-10#44",
+   "pairs-11#45",
+   "triples-types#34",
+   "pairs-7#41",
+   "pairs-8#40",
+   "pairs-13#22",
+   "pairs-14#40",
+   "pairs-12#59"
+  ],
+  "representatives": [
+   "pairs-9#39"
+  ]
+ },
+ {
+  "key": "deref-coercion-missing-at-coercion-site",
+  "mechanism": "Deref coercion (&&str->&str, &Box<T>->&T, &mut Box<T>->&mut T) is not applied at call args, assignments or if branches.",
+  "members": [
+   "pairs-1#35",
+   "pairs-2#49",
+   "pairs-4#42",
+   "pairs-6#42",
+   "pairs-7#36",
+   "pairs-8#50",
+   "pairs-9#48",
+   "pairs-11#59",
+   "pairs-12#43",
+   "pairs-13#28",
+   "pairs-14#47",
+   "triples-types#40",
+   "pairs-3#38",
+   "pairs-2#48",
+   "pairs-12#44"
+  ],
+  "representatives": [
+   "pairs-9#48"
+  ]
+ },
+ {
+  "key": "closure-ref-pattern-param-not-peeled",
+  "mechanism": "The |&x| closure param pattern does not strip the reference when the param type is inferred.",
+  "members": [
+   "pairs-1#48",
+   "pairs-4#41",
+   "pairs-6#47",
+   "pairs-7#42",
+   "pairs-11#39",
+   "pairs-14#41",
+   "pairs-9#47",
+   "pairs-10#54"
+  ],
+  "representatives": [
+   "pairs-7#42"
+  ]
+ },
+ {
+  "key": "parse-target-unresolved-ice",
+  "mechanism": "str::parse target from a let annotation/later use is not inferred and main is demoted to a trap stub.",
+  "members": [
+   "pairs-4#25",
+   "pairs-7#34"
+  ],
+  "representatives": [
+   "pairs-7#34"
+  ]
+ },
+ {
+  "key": "parse-target-through-question",
+  "mechanism": "`let n: i64 = s.parse()?` does not infer parse's F through `?`.",
+  "members": [
+   "pairs-8#41",
+   "pairs-10#46",
+   "pairs-11#55",
+   "pairs-12#42",
+   "pairs-14#68"
+  ],
+  "representatives": [
+   "pairs-8#41"
+  ]
+ },
+ {
+  "key": "generic-callable-param-to-adapter",
+  "mechanism": "A generic F (or &F) passed straight into an iterator adapter / generic call cannot be inferred.",
+  "members": [
+   "pairs-1#32",
+   "pairs-11#54",
+   "triples-types#32",
+   "triples-types#33"
+  ],
+  "representatives": [
+   "pairs-11#54"
+  ]
+ },
+ {
+  "key": "generic-typevar-leaks-to-codegen",
+  "mechanism": "An untyped closure param inferred through a generic T (or generic compose/loop) leaves a TypeVar unresolved at mlir_gen.",
+  "members": [
+   "pairs-2#28",
+   "pairs-9#20",
+   "pairs-14#25",
+   "pairs-5#6",
+   "pairs-9#19"
+  ],
+  "representatives": [
+   "pairs-2#28"
+  ]
+ },
+ {
+  "key": "closure-param-from-generic-bound-sibling",
+  "mechanism": "Closure params whose types come from a generic bound fixed by sibling args are not inferred (&dyn Fn(A,T), Fn(&mut T)).",
+  "members": [
+   "pairs-11#38",
+   "pairs-6#52"
+  ],
+  "representatives": [
+   "pairs-6#52"
+  ]
+ },
+ {
+  "key": "untyped-closure-param-from-later-call-wrong",
+  "mechanism": "An untyped closure param inferred from a later direct call gives a void/garbage result.",
+  "members": [
+   "pairs-13#8",
+   "pairs-7#8"
+  ],
+  "representatives": [
+   "pairs-13#8"
+  ]
+ },
+ {
+  "key": "untyped-closure-param-codegen-crash",
+  "mechanism": "Untyped closure params (mixed typed/untyped, generic tuple-struct ctor) crash the compiler.",
+  "members": [
+   "pairs-13#9",
+   "pairs-1#44"
+  ],
+  "representatives": [
+   "pairs-13#9"
+  ]
+ },
+ {
+  "key": "assoc-type-binding-not-normalized",
+  "mechanism": "An associated-type binding (S: Tr<A = i64>, Output = V) is not used to normalize the projection in the body.",
+  "members": [
+   "pairs-1#28",
+   "pairs-4#29",
+   "pairs-5#22",
+   "pairs-6#49",
+   "pairs-9#42",
+   "pairs-10#49",
+   "pairs-12#30",
+   "triples-types#18",
+   "pairs-11#47",
+   "pairs-7#47",
+   "triples-types#19"
+  ],
+  "representatives": [
+   "pairs-9#42"
+  ]
+ },
+ {
+  "key": "assoc-type-equality-unchecked",
+  "mechanism": "An associated-type equality bound/RPIT binding is not checked at the call or return site.",
+  "members": [
+   "pairs-4#17",
+   "triples-types#17",
+   "pairs-12#23",
+   "pairs-8#5"
+  ],
+  "representatives": [
+   "pairs-4#17"
+  ]
+ },
+ {
+  "key": "assoc-projection-never-dropped",
+  "mechanism": "Values of an associated-projection type (F::Out) are never dropped.",
+  "members": [
+   "pairs-3#15",
+   "pairs-11#8"
+  ],
+  "representatives": [
+   "pairs-11#8"
+  ]
+ },
+ {
+  "key": "assoc-projection-move-double-free",
+  "mechanism": "Moving a value of associated-projection type (field or *Box<M::Out>) is not tracked, so it is dropped twice.",
+  "members": [
+   "pairs-2#23",
+   "pairs-4#15"
+  ],
+  "representatives": [
+   "pairs-4#15"
+  ]
+ },
+ {
+  "key": "no-implicit-reborrow-of-mut-receiver",
+  "mechanism": "A method call through &mut Box<dyn>/&mut [T;N] moves the reference instead of reborrowing.",
+  "members": [
+   "pairs-7#50",
+   "triples-own#4",
+   "pairs-4#33",
+   "pairs-12#34"
+  ],
+  "representatives": [
+   "triples-own#4"
+  ]
+ },
+ {
+  "key": "smart-pointer-inherent-method-shadows-pointee",
+  "mechanism": "Box/Rc/Ref inherent methods (unsafe get/get_mut, Ref::get) shadow the pointee's methods during the autoderef probe.",
+  "members": [
+   "pairs-3#52",
+   "pairs-4#37",
+   "pairs-6#37",
+   "pairs-7#54",
+   "pairs-9#50",
+   "pairs-11#58",
+   "pairs-12#32",
+   "pairs-13#33",
+   "pairs-14#38"
+  ],
+  "representatives": [
+   "pairs-7#54"
+  ]
+ },
+ {
+  "key": "user-name-collides-with-std-method",
+  "mechanism": "User methods/fns named like std items (count/last, pow) resolve to the std item.",
+  "members": [
+   "pairs-10#42",
+   "pairs-1#51"
+  ],
+  "representatives": [
+   "pairs-1#51"
+  ]
+ },
+ {
+  "key": "box-dyn-as-ref-missing",
+  "mechanism": "Box<dyn Tr>::as_ref() resolves into the trait instead of Box.",
+  "members": [
+   "pairs-8#55",
+   "pairs-13#42",
+   "pairs-14#49"
+  ],
+  "representatives": [
+   "pairs-8#55"
+  ]
+ },
+ {
+  "key": "refmut-method-temp-behind-ref",
+  "mechanism": "A &mut method call through RefMut / vec[i] / generic RefCell is refused with an internal temp '_tN' behind &.",
+  "members": [
+   "pairs-1#18",
+   "pairs-4#39",
+   "pairs-6#36",
+   "pairs-7#51",
+   "pairs-8#45"
+  ],
+  "representatives": [
+   "pairs-8#45"
+  ]
+ },
+ {
+  "key": "tuple-index-no-autoderef",
+  "mechanism": "Tuple-field index .0 is not autoderef'd through Box/Rc/Ref.",
+  "members": [
+   "pairs-1#43",
+   "pairs-9#55"
+  ],
+  "representatives": [
+   "pairs-9#55"
+  ]
+ },
+ {
+  "key": "borrow-of-unit-path-undefined",
+  "mechanism": "`&None` / `&UnitStruct` resolves the path as a variable.",
+  "members": [
+   "pairs-1#55",
+   "pairs-3#39",
+   "pairs-4#40",
+   "pairs-6#53",
+   "pairs-9#40",
+   "pairs-10#50",
+   "pairs-13#38",
+   "triples-types#30"
+  ],
+  "representatives": [
+   "pairs-6#53"
+  ]
+ },
+ {
+  "key": "none-arm-typed-as-scrutinee",
+  "mechanism": "In a match on &Option, a bare None arm expression is typed as the scrutinee type.",
+  "members": [
+   "pairs-6#35",
+   "pairs-8#44"
+  ],
+  "representatives": [
+   "pairs-6#35"
+  ]
+ },
+ {
+  "key": "deferred-let-no-type-parse",
+  "mechanism": "`let r;` without type or initializer does not parse.",
+  "members": [
+   "pairs-1#57",
+   "pairs-2#57",
+   "pairs-4#51",
+   "pairs-12#46",
+   "triples-types#44",
+   "pairs-7#61"
+  ],
+  "representatives": [
+   "triples-types#44"
+  ]
+ },
+ {
+  "key": "amp-impl-trait-and-bounds-parse",
+  "mechanism": "&impl Trait, impl A + B and impl Trait + 'a type syntax does not parse.",
+  "members": [
+   "pairs-1#40",
+   "pairs-2#40",
+   "pairs-5#18",
+   "pairs-10#53",
+   "pairs-12#31",
+   "pairs-8#46",
+   "pairs-7#45",
+   "pairs-11#44",
+   "pairs-14#50",
+   "pairs-2#42"
+  ],
+  "representatives": [
+   "pairs-10#53"
+  ]
+ },
+ {
+  "key": "lifetime-self-receiver-parse",
+  "mechanism": "The `&'a self` receiver shorthand (and related ref/method-seam tokens) does not parse.",
+  "members": [
+   "pairs-5#55",
+   "triples-types#31",
+   "pairs-11#57"
+  ],
+  "representatives": [
+   "pairs-5#55"
+  ]
+ },
+ {
+  "key": "impl-for-concrete-tuple-parse",
+  "mechanism": "`impl Trait for (i64, i64)` does not parse.",
+  "members": [
+   "pairs-5#14",
+   "pairs-10#34"
+  ],
+  "representatives": [
+   "pairs-10#34"
+  ]
+ },
+ {
+  "key": "assoc-fn-path-as-value",
+  "mechanism": "A type-associated fn path used as a value (String::new, Type::method) is a syntax error or misresolved.",
+  "members": [
+   "pairs-8#54",
+   "pairs-12#62",
+   "triples-types#43"
+  ],
+  "representatives": [
+   "pairs-12#62"
+  ]
+ },
+ {
+  "key": "open-range-for-head-parse",
+  "mechanism": "`for i in 0..` does not parse.",
+  "members": [
+   "pairs-1#47"
+  ],
+  "representatives": [
+   "pairs-1#47"
+  ]
+ },
+ {
+  "key": "dyn-assoc-binding-parse",
+  "mechanism": "dyn Trait<Assoc = T> does not parse.",
+  "members": [
+   "pairs-1#21"
+  ],
+  "representatives": [
+   "pairs-1#21"
+  ]
+ },
+ {
+  "key": "tuple-struct-closure-param-pattern-parse",
+  "mechanism": "An untyped tuple-struct pattern closure param |Id(k)| does not parse.",
+  "members": [
+   "pairs-2#55"
+  ],
+  "representatives": [
+   "pairs-2#55"
+  ]
+ },
+ {
+  "key": "const-in-fn-body-parse",
+  "mechanism": "A const item inside a fn body does not parse.",
+  "members": [
+   "pairs-14#67"
+  ],
+  "representatives": [
+   "pairs-14#67"
+  ]
+ },
+ {
+  "key": "qualified-path-generic-args-parse",
+  "mechanism": "`<V<5> as Dim>::D` and generic unit structs do not parse.",
+  "members": [
+   "pairs-9#56"
+  ],
+  "representatives": [
+   "pairs-9#56"
+  ]
+ },
+ {
+  "key": "assoc-type-path-in-expr",
+  "mechanism": "Associated-type paths in expressions (D::Elem::default()) do not parse / mismatch.",
+  "members": [
+   "pairs-14#52"
+  ],
+  "representatives": [
+   "pairs-14#52"
+  ]
+ },
+ {
+  "key": "nested-fn-captures-outer-local",
+  "mechanism": "A nested fn item can read locals of the enclosing fn (no E0434).",
+  "members": [
+   "pairs-2#12",
+   "pairs-3#20",
+   "pairs-4#19",
+   "pairs-8#6"
+  ],
+  "representatives": [
+   "pairs-4#19"
+  ]
+ },
+ {
+  "key": "nested-fn-not-in-scope",
+  "mechanism": "Nested fn items are not in scope in their own body/before declaration, and generic nested fns don't parse.",
+  "members": [
+   "pairs-1#56",
+   "pairs-2#56",
+   "pairs-6#40",
+   "pairs-10#52",
+   "pairs-12#55",
+   "pairs-9#35"
+  ],
+  "representatives": [
+   "pairs-6#40"
+  ]
+ },
+ {
+  "key": "range-index-only-slice-array",
+  "mechanism": "Range indexing requires a slice/array receiver (no Vec/String/&[T;N] deref), and &mut a[r] is typed &mut &[T].",
+  "members": [
+   "pairs-1#34",
+   "pairs-5#8",
+   "pairs-12#39",
+   "triples-types#25",
+   "pairs-14#46",
+   "pairs-5#16",
+   "pairs-3#46",
+   "pairs-10#51",
+   "pairs-4#32",
+   "pairs-8#47"
+  ],
+  "representatives": [
+   "pairs-5#8",
+   "pairs-5#16"
+  ]
+ },
+ {
+  "key": "split-adapter-static-lifetime",
+  "mechanism": "str::split adapters (filter/map) demand 'a: 'static inside stdlib SplitPat.",
+  "members": [
+   "pairs-1#58",
+   "pairs-2#50",
+   "pairs-4#49",
+   "pairs-7#53",
+   "pairs-11#62",
+   "pairs-13#32"
+  ],
+  "representatives": [
+   "pairs-7#53"
+  ]
+ },
+ {
+  "key": "into-iter-adapter-leaks-source",
+  "mechanism": "An owning into_iter() wrapped in an adapter and consumed leaks the source buffer.",
+  "members": [
+   "pairs-1#14",
+   "pairs-5#23",
+   "pairs-6#33",
+   "pairs-7#30",
+   "pairs-8#31",
+   "pairs-14#16",
+   "triples-own#5",
+   "triples-types#45",
+   "pairs-12#28"
+  ],
+  "representatives": [
+   "triples-own#5"
+  ]
+ },
+ {
+  "key": "box-dyn-drop-glue-missing",
+  "mechanism": "Box<dyn Trait> created by coercion (at generic args, in collections) gets drop glue that never runs the concrete Drop/field drops.",
+  "members": [
+   "pairs-4#14",
+   "pairs-5#11",
+   "pairs-7#29",
+   "pairs-10#16",
+   "pairs-12#4",
+   "triples-own#3",
+   "triples-types#9"
+  ],
+  "representatives": [
+   "pairs-4#14"
+  ]
+ },
+ {
+  "key": "generic-struct-byvalue-never-dropped",
+  "mechanism": "A generic struct passed by value to a generic param (incl. drop()) is never dropped.",
+  "members": [
+   "triples-own#6"
+  ],
+  "representatives": [
+   "triples-own#6"
+  ]
+ },
+ {
+  "key": "rc-derefmut",
+  "mechanism": "Rc implements DerefMut in stdlib, so mutation through Rc is accepted.",
+  "members": [
+   "pairs-2#14",
+   "pairs-4#16",
+   "pairs-5#44",
+   "pairs-6#13",
+   "pairs-8#8",
+   "pairs-11#18",
+   "pairs-14#20"
+  ],
+  "representatives": [
+   "pairs-8#8"
+  ]
+ },
+ {
+  "key": "mut-self-method-through-shared-generic-ref",
+  "mechanism": "A generic t: &T can call a &mut self trait method.",
+  "members": [
+   "pairs-3#4",
+   "pairs-8#4"
+  ],
+  "representatives": [
+   "pairs-8#4"
+  ]
+ },
+ {
+  "key": "rpit-not-opaque",
+  "mechanism": "impl Trait return types leak the concrete type (fields, other traits, Copy, type identity).",
+  "members": [
+   "pairs-2#13",
+   "pairs-3#18",
+   "pairs-4#18",
+   "pairs-12#24",
+   "pairs-14#23",
+   "pairs-9#31"
+  ],
+  "representatives": [
+   "pairs-4#18"
+  ]
+ },
+ {
+  "key": "fnonce-closure-treated-copy",
+  "mechanism": "A move closure owning non-Copy captures (impl FnOnce) is treated as Copy and can be used twice.",
+  "members": [
+   "pairs-6#14",
+   "triples-types#16",
+   "triples-own#8"
+  ],
+  "representatives": [
+   "pairs-6#14"
+  ]
+ },
+ {
+  "key": "rpit-capture-mut-param-unenforced",
+  "mechanism": "Rust 2024 RPIT capture of a &mut param lifetime is not enforced.",
+  "members": [
+   "pairs-14#24"
+  ],
+  "representatives": [
+   "pairs-14#24"
+  ]
+ },
+ {
+  "key": "generic-body-checked-per-instantiation",
+  "mechanism": "Generic bodies are checked only per instantiation, not against their bounds.",
+  "members": [
+   "pairs-3#19",
+   "triples-own#9"
+  ],
+  "representatives": [
+   "pairs-3#19"
+  ]
+ },
+ {
+  "key": "raw-deref-unsafe-check-gaps",
+  "mechanism": "Raw-pointer derefs via &*p, (*p).method() on *const dyn, and autoderef method receivers escape the unsafe check.",
+  "members": [
+   "pairs-5#26",
+   "pairs-9#28",
+   "pairs-9#30"
+  ],
+  "representatives": [
+   "pairs-5#26"
+  ]
+ },
+ {
+  "key": "shared-ref-to-mut-ptr-accepted",
+  "mechanism": "A shared reference converts to *mut (by coercion or cast).",
+  "members": [
+   "pairs-5#27",
+   "pairs-12#25"
+  ],
+  "representatives": [
+   "pairs-5#27"
+  ]
+ },
+ {
+  "key": "move-dyn-out-of-box-accepted",
+  "mechanism": "Moving an unsized dyn value out of a Box is accepted.",
+  "members": [
+   "pairs-9#29"
+  ],
+  "representatives": [
+   "pairs-9#29"
+  ]
+ },
+ {
+  "key": "partial-move-array-len-accepted",
+  "mechanism": "arr.len() after a partial move out of an array is accepted.",
+  "members": [
+   "pairs-2#15"
+  ],
+  "representatives": [
+   "pairs-2#15"
+  ]
+ },
+ {
+  "key": "break-value-type-mismatch-accepted",
+  "mechanism": "loop break values of different types are accepted.",
+  "members": [
+   "pairs-2#11"
+  ],
+  "representatives": [
+   "pairs-2#11"
+  ]
+ },
+ {
+  "key": "struct-literal-in-scrutinee-accepted",
+  "mechanism": "A struct literal in match scrutinee position is accepted.",
+  "members": [
+   "pairs-3#21"
+  ],
+  "representatives": [
+   "pairs-3#21"
+  ]
+ },
+ {
+  "key": "collect-refs-drops-loan",
+  "mechanism": "Vec<&T> built with iter().collect() does not carry the loan.",
+  "members": [
+   "pairs-8#7"
+  ],
+  "representatives": [
+   "pairs-8#7"
+  ]
+ },
+ {
+  "key": "user-index-operand-unchecked",
+  "mechanism": "User Index/IndexMut operand is not type-checked against Idx.",
+  "members": [
+   "pairs-9#26",
+   "pairs-10#18"
+  ],
+  "representatives": [
+   "pairs-10#18"
+  ]
+ },
+ {
+  "key": "sema-missing-trait-check-before-vtable",
+  "mechanism": "Pushing Box<N> into Vec<Box<dyn Item>> without N: Item reaches codegen (no E0277).",
+  "members": [
+   "pairs-5#13"
+  ],
+  "representatives": [
+   "pairs-5#13"
+  ]
+ },
+ {
+  "key": "no-vtable-box-box-dyn",
+  "mechanism": "Box<Box<dyn Trait>> construction/dispatch finds no vtable.",
+  "members": [
+   "pairs-1#20",
+   "pairs-11#21"
+  ],
+  "representatives": [
+   "pairs-11#21"
+  ]
+ },
+ {
+  "key": "no-vtable-integer-literal-to-dyn",
+  "mechanism": "&dyn Trait from an unsuffixed literal leaves {integer} to vtable lookup.",
+  "members": [
+   "pairs-3#36"
+  ],
+  "representatives": [
+   "pairs-3#36"
+  ]
+ },
+ {
+  "key": "no-vtable-str-literal-to-dyn",
+  "mechanism": "&\"lit\" coerced to &dyn Display finds no vtable for &[u8].",
+  "members": [
+   "pairs-4#27"
+  ],
+  "representatives": [
+   "pairs-4#27"
+  ]
+ },
+ {
+  "key": "fmt-instance-for-ref-payload-missing",
+  "mechanism": "{:?}/Display of containers of references (Option<&T>, Vec<&T>, &Box<String>) calls a fmt instance that is never emitted.",
+  "members": [
+   "pairs-1#49",
+   "pairs-2#29",
+   "pairs-5#40",
+   "pairs-6#25",
+   "pairs-7#32",
+   "pairs-8#25",
+   "pairs-9#22",
+   "pairs-10#38",
+   "pairs-11#28",
+   "pairs-12#17",
+   "pairs-14#31",
+   "pairs-14#32"
+  ],
+  "representatives": [
+   "pairs-8#25"
+  ]
+ },
+ {
+  "key": "option-ref-unwrap-instance-no-value",
+  "mechanism": "iter().max()/min().unwrap() over non-i32/i64 or user Ord elements resolves to an Option<&T>::unwrap instance that produces no value.",
+  "members": [
+   "pairs-3#34",
+   "pairs-5#46",
+   "pairs-8#23",
+   "pairs-9#25",
+   "pairs-10#39",
+   "pairs-12#11",
+   "pairs-13#17"
+  ],
+  "representatives": [
+   "pairs-8#23"
+  ]
+ },
+ {
+  "key": "adapter-instance-no-value",
+  "mechanism": "Iterator adapter chains (copied, Box<dyn Iterator>.map, bytes().take) resolve to adapter method instances that are never emitted or produce no value.",
+  "members": [
+   "pairs-10#40",
+   "pairs-12#18",
+   "pairs-12#20"
+  ],
+  "representatives": [
+   "pairs-12#18"
+  ]
+ },
+ {
+  "key": "bounded-generic-impl-method-vanishes",
+  "mechanism": "Methods of impl<T: PartialEq> / generic methods returning &'a T vanish at the call site (no value).",
+  "members": [
+   "pairs-4#10",
+   "pairs-6#31"
+  ],
+  "representatives": [
+   "pairs-4#10"
+  ]
+ },
+ {
+  "key": "empty-macro-args-metacall",
+  "mechanism": "panic!() (and println!() in some programs) with no arguments crashes the metacall splice / is not diverging.",
+  "members": [
+   "pairs-2#31",
+   "pairs-3#33",
+   "pairs-8#28",
+   "pairs-12#22",
+   "pairs-14#57"
+  ],
+  "representatives": [
+   "pairs-8#28"
+  ]
+ },
+ {
+  "key": "metacall-print-box-types",
+  "mechanism": "print! in a program with Box-containing user types fails in the metacall build (dealloc missing).",
+  "members": [
+   "pairs-4#23"
+  ],
+  "representatives": [
+   "pairs-4#23"
+  ]
+ },
+ {
+  "key": "infinite-size-recursive-type-crash",
+  "mechanism": "logosc segfaults on an infinite-size recursive struct instead of E0072.",
+  "members": [
+   "pairs-9#27",
+   "pairs-12#16"
+  ],
+  "representatives": [
+   "pairs-12#16"
+  ]
+ },
+ {
+  "key": "unclosed-brace-crash",
+  "mechanism": "logosc segfaults on an unclosed function-body brace.",
+  "members": [
+   "pairs-5#15"
+  ],
+  "representatives": [
+   "pairs-5#15"
+  ]
+ },
+ {
+  "key": "trait-upcast-only-at-call-args",
+  "mechanism": "Trait upcasting coercion is applied only at call-arg sites, not at let/return.",
+  "members": [
+   "pairs-1#19",
+   "pairs-2#34",
+   "triples-types#29"
+  ],
+  "representatives": [
+   "triples-types#29"
+  ]
+ },
+ {
+  "key": "format-args-reparse-loses-deref",
+  "mechanism": "&*box_dyn inside println!/format! args is re-rendered without the deref (render-and-reparse), giving the &Box->&dyn E0277.",
+  "members": [
+   "pairs-1#16",
+   "pairs-8#49",
+   "pairs-11#20",
+   "pairs-12#36",
+   "pairs-14#48"
+  ],
+  "representatives": [
+   "pairs-12#36"
+  ]
+ },
+ {
+  "key": "double-deref-box-dyn-to-dyn-refused",
+  "mechanism": "&**rb, &mut **rb, &*v[i] of Box<dyn> are typed as &Box<dyn> and refused as a cast.",
+  "members": [
+   "pairs-1#17",
+   "pairs-4#36",
+   "pairs-5#9",
+   "pairs-10#41"
+  ],
+  "representatives": [
+   "pairs-5#9"
+  ]
+ },
+ {
+  "key": "dyn-default-object-lifetime",
+  "mechanism": "Box<dyn>/&dyn default object lifetime is ignored (elision counts Box<dyn> as borrowed; returns borrow args).",
+  "members": [
+   "pairs-2#35",
+   "pairs-5#10"
+  ],
+  "representatives": [
+   "pairs-5#10"
+  ]
+ },
+ {
+  "key": "box-dyn-represented-as-ref-dyn",
+  "mechanism": "Box<dyn Trait> is represented as &dyn internally, breaking generic Box<T: ?Sized>, impl for Box<dyn>, and -> Self in From.",
+  "members": [
+   "pairs-2#32",
+   "pairs-2#33",
+   "pairs-13#30"
+  ],
+  "representatives": [
+   "pairs-2#33"
+  ]
+ },
+ {
+  "key": "raw-mut-dyn-reborrow-typing",
+  "mechanism": "&*p for *mut dyn is typed *mut dyn, and &mut *bx typed &dyn.",
+  "members": [
+   "pairs-9#51"
+  ],
+  "representatives": [
+   "pairs-9#51"
+  ]
+ },
+ {
+  "key": "closure-return-region-of-param",
+  "mechanism": "A closure returning a borrow of its reference param (or derived through a method) is refused by the region check.",
+  "members": [
+   "pairs-5#24",
+   "pairs-10#58",
+   "pairs-12#40"
+  ],
+  "representatives": [
+   "pairs-10#58"
+  ]
+ },
+ {
+  "key": "field-slice-region-projection-refused",
+  "mechanism": "Returning a reference through a &'a [T]/&'a dyn field or a slice-pattern binding is refused as escaping.",
+  "members": [
+   "pairs-6#50",
+   "pairs-3#51",
+   "pairs-14#54"
+  ],
+  "representatives": [
+   "pairs-14#54"
+  ]
+ },
+ {
+  "key": "zip-bogus-param-outlives",
+  "mechanism": "zip over generic slices then map reports a bogus 'parameter type may not live long enough'.",
+  "members": [
+   "pairs-1#30",
+   "pairs-11#32"
+  ],
+  "representatives": [
+   "pairs-1#30"
+  ]
+ },
+ {
+  "key": "temp-lifetime-for-head-const-promotion",
+  "mechanism": "Array-literal temporaries in a for head and const array elements are not extended/promoted (dropped while borrowed).",
+  "members": [
+   "pairs-1#53",
+   "pairs-7#56",
+   "pairs-9#53"
+  ],
+  "representatives": [
+   "pairs-7#56"
+  ]
+ },
+ {
+  "key": "closure-captured-mut-param-needs-mut",
+  "mechanism": "A closure passing a captured &mut param into a call is refused as not declared mutable.",
+  "members": [
+   "pairs-3#50"
+  ],
+  "representatives": [
+   "pairs-3#50"
+  ]
+ },
+ {
+  "key": "rawptr-write-closure-classified-fnmut",
+  "mechanism": "A closure only writing through a captured raw pointer is classified FnMut.",
+  "members": [
+   "pairs-11#43"
+  ],
+  "representatives": [
+   "pairs-11#43"
+  ]
+ },
+ {
+  "key": "guard-in-loop-assign-twice",
+  "mechanism": "Match guards / refutable nested patterns inside a loop body lower bindings as re-assigned immutables ('cannot assign twice').",
+  "members": [
+   "pairs-1#42",
+   "pairs-4#28",
+   "pairs-5#28",
+   "pairs-6#41",
+   "pairs-8#32",
+   "pairs-9#44",
+   "pairs-13#29",
+   "pairs-14#55"
+  ],
+  "representatives": [
+   "pairs-5#28"
+  ]
+ },
+ {
+  "key": "nested-pattern-in-variant-payload-unsupported",
+  "mechanism": "Nested/&/@ patterns inside enum-variant payloads (and let-else) are unsupported.",
+  "members": [
+   "pairs-2#51",
+   "pairs-3#37",
+   "pairs-7#58",
+   "pairs-8#34",
+   "pairs-10#56",
+   "pairs-11#60",
+   "pairs-12#48",
+   "pairs-14#56",
+   "pairs-7#57"
+  ],
+  "representatives": [
+   "pairs-10#56"
+  ]
+ },
+ {
+  "key": "refutable-subpattern-in-struct-field",
+  "mechanism": "An array subpattern inside a struct field pattern is refused as refutable.",
+  "members": [
+   "pairs-10#55",
+   "pairs-3#47"
+  ],
+  "representatives": [
+   "pairs-10#55"
+  ]
+ },
+ {
+  "key": "rest-pattern-partial-move-refused",
+  "mechanism": "A `..` pattern over a partially moved struct is refused as use of moved value.",
+  "members": [
+   "pairs-2#52"
+  ],
+  "representatives": [
+   "pairs-2#52"
+  ]
+ },
+ {
+  "key": "rest-pattern-partial-move-drop",
+  "mechanism": "Destructuring with `..` after/instead of a partial move mis-tracks drops (whole marked moved, or moved field dropped again).",
+  "members": [
+   "pairs-2#24",
+   "pairs-5#41"
+  ],
+  "representatives": [
+   "pairs-5#41"
+  ]
+ },
+ {
+  "key": "struct-update-tail-no-drop-base",
+  "mechanism": "Struct update ..base in a fn tail/return does not drop overridden base fields.",
+  "members": [
+   "pairs-3#14"
+  ],
+  "representatives": [
+   "pairs-3#14"
+  ]
+ },
+ {
+  "key": "index-assign-no-drop-old",
+  "mechanism": "Assignment through v[i] / IndexMut does not drop the overwritten element.",
+  "members": [
+   "pairs-1#8",
+   "pairs-14#13"
+  ],
+  "representatives": [
+   "pairs-1#8"
+  ]
+ },
+ {
+  "key": "vec-contains-bitcopy",
+  "mechanism": "Vec::contains bit-copies non-Copy elements and drops the copy.",
+  "members": [
+   "pairs-12#3"
+  ],
+  "representatives": [
+   "pairs-12#3"
+  ]
+ },
+ {
+  "key": "vec-swap-tuple-elements",
+  "mechanism": "Vec swap/reverse on tuple elements corrupts or double-frees (element treated with wrong size/Copy).",
+  "members": [
+   "pairs-8#17",
+   "pairs-13#13"
+  ],
+  "representatives": [
+   "pairs-8#17"
+  ]
+ },
+ {
+  "key": "vec-truncate-drop-order",
+  "mechanism": "Vec::truncate drops removed elements in reverse order.",
+  "members": [
+   "pairs-6#19"
+  ],
+  "representatives": [
+   "pairs-6#19"
+  ]
+ },
+ {
+  "key": "move-out-of-box-in-match-uaf",
+  "mechanism": "Moving a heap-owning value out of a Box in a match arm is a use-after-free.",
+  "members": [
+   "pairs-6#8"
+  ],
+  "representatives": [
+   "pairs-6#8"
+  ]
+ },
+ {
+  "key": "move-out-of-box-leaks-allocation",
+  "mechanism": "Moving the payload out of a Box (*b) leaks the box allocation.",
+  "members": [
+   "pairs-8#30",
+   "pairs-9#17"
+  ],
+  "representatives": [
+   "pairs-9#17"
+  ]
+ },
+ {
+  "key": "byvalue-method-through-box-field-double-free",
+  "mechanism": "A by-value method called through a Box field double-frees the moved contents.",
+  "members": [
+   "pairs-9#16"
+  ],
+  "representatives": [
+   "pairs-9#16"
+  ]
+ },
+ {
+  "key": "match-on-deref-mut-raw-param",
+  "mechanism": "match on *p for a *mut Enum fn parameter segfaults.",
+  "members": [
+   "pairs-9#15"
+  ],
+  "representatives": [
+   "pairs-9#15"
+  ]
+ },
+ {
+  "key": "loop-conditional-move-drop-flags",
+  "mechanism": "Conditional moves inside loops (move+continue, drop+break, moving the loop var) mis-set drop flags.",
+  "members": [
+   "pairs-6#9",
+   "pairs-13#2"
+  ],
+  "representatives": [
+   "pairs-6#9"
+  ]
+ },
+ {
+  "key": "closure-conditional-move-drop-flag-ice",
+  "mechanism": "A closure body if that conditionally moves its by-value param emits an undefined drop flag.",
+  "members": [
+   "pairs-11#27"
+  ],
+  "representatives": [
+   "pairs-11#27"
+  ]
+ },
+ {
+  "key": "move-closure-returning-capture-double-drop",
+  "mechanism": "A move closure returning its captured value by value drops the capture again.",
+  "members": [
+   "pairs-7#10"
+  ],
+  "representatives": [
+   "pairs-7#10"
+  ]
+ },
+ {
+  "key": "fnonce-generic-capture-leak",
+  "mechanism": "A FnOnce move closure's captured String leaks when consumed by a generic.",
+  "members": [
+   "pairs-14#69"
+  ],
+  "representatives": [
+   "pairs-14#69"
+  ]
+ },
+ {
+  "key": "disjoint-closure-capture-missing",
+  "mechanism": "Edition-2021 disjoint field capture is not implemented (move || n.id captures all of n).",
+  "members": [
+   "pairs-7#12",
+   "pairs-12#10"
+  ],
+  "representatives": [
+   "pairs-7#12"
+  ]
+ },
+ {
+  "key": "generic-instance-key-collision",
+  "mechanism": "Vec<Option<i64>> and Vec<Option<Box<J>>> share one instantiation/drop fn key.",
+  "members": [
+   "pairs-5#38"
+  ],
+  "representatives": [
+   "pairs-5#38"
+  ]
+ },
+ {
+  "key": "closure-capture-raw-pointer-undefined",
+  "mechanism": "A closure capturing a raw pointer loses the capture ('undefined base').",
+  "members": [
+   "pairs-6#29"
+  ],
+  "representatives": [
+   "pairs-6#29"
+  ]
+ },
+ {
+  "key": "byvalue-trait-method-via-ref-copy-generic",
+  "mechanism": "A by-value trait method called through &T on a Copy generic passes a pointer.",
+  "members": [
+   "pairs-6#30"
+  ],
+  "representatives": [
+   "pairs-6#30"
+  ]
+ },
+ {
+  "key": "integer-placeholder-in-tuple-to-codegen",
+  "mechanism": "An unresolved {integer} in a tuple via break value or fold seed reaches codegen.",
+  "members": [
+   "pairs-6#27"
+  ],
+  "representatives": [
+   "pairs-6#27"
+  ]
+ },
+ {
+  "key": "const-expr-fmt-arg-uninit",
+  "mechanism": "A const expression used directly as a println! argument reads uninitialised memory.",
+  "members": [
+   "pairs-6#32"
+  ],
+  "representatives": [
+   "pairs-6#32"
+  ]
+ },
+ {
+  "key": "enum-second-default-method",
+  "mechanism": "An enum implementing a trait with >=2 default methods fails on the second.",
+  "members": [
+   "pairs-6#34"
+  ],
+  "representatives": [
+   "pairs-6#34"
+  ]
+ },
+ {
+  "key": "box-no-clone",
+  "mechanism": "Box<T> has no Clone; .clone() resolves to T::clone.",
+  "members": [
+   "pairs-6#38"
+  ],
+  "representatives": [
+   "pairs-6#38"
+  ]
+ },
+ {
+  "key": "ref-t-not-clone",
+  "mechanism": "&T does not implement Clone.",
+  "members": [
+   "pairs-9#36",
+   "pairs-10#28",
+   "pairs-14#45"
+  ],
+  "representatives": [
+   "pairs-9#36"
+  ]
+ },
+ {
+  "key": "index-clone-keeps-borrow",
+  "mechanism": "items[0].clone() on a user Clone type keeps items borrowed.",
+  "members": [
+   "pairs-6#39"
+  ],
+  "representatives": [
+   "pairs-6#39"
+  ]
+ },
+ {
+  "key": "box-rc-display-debug-missing",
+  "mechanism": "Box/Rc/Ref and std forwarding impls (Display/Debug etc.) are missing.",
+  "members": [
+   "pairs-12#54",
+   "pairs-13#34",
+   "pairs-3#48"
+  ],
+  "representatives": [
+   "pairs-12#54"
+  ]
+ },
+ {
+  "key": "slice-debug-missing",
+  "mechanism": "&[T] does not implement Debug.",
+  "members": [
+   "pairs-12#53",
+   "pairs-13#40"
+  ],
+  "representatives": [
+   "pairs-13#40"
+  ]
+ },
+ {
+  "key": "tuple-ord-missing",
+  "mechanism": "Tuples do not implement Ord.",
+  "members": [
+   "pairs-12#50",
+   "triples-types#38"
+  ],
+  "representatives": [
+   "pairs-12#50"
+  ]
+ },
+ {
+  "key": "core-impls-missing-char-sum",
+  "mechanism": "char Ord/Hash, Sum/Product for widths other than i32/i64 and similar core impls are missing.",
+  "members": [
+   "pairs-8#52",
+   "pairs-12#52",
+   "pairs-11#63"
+  ],
+  "representatives": [
+   "pairs-12#52"
+  ]
+ },
+ {
+  "key": "primitive-inherent-methods-missing",
+  "mechanism": "Inherent methods on narrow ints / through references to primitives are missing (receiver not a struct).",
+  "members": [
+   "pairs-12#51",
+   "triples-types#41"
+  ],
+  "representatives": [
+   "triples-types#41"
+  ]
+ },
+ {
+  "key": "rangefrom-iterator-empty",
+  "mechanism": "RangeFrom used as an iterator yields nothing.",
+  "members": [
+   "pairs-11#15",
+   "pairs-13#5"
+  ],
+  "representatives": [
+   "pairs-13#5"
+  ]
+ },
+ {
+  "key": "dyn-iterator-not-object-safe",
+  "mechanism": "stdlib Iterator is not object-safe (filter returns Self without Self: Sized).",
+  "members": [
+   "pairs-1#22"
+  ],
+  "representatives": [
+   "pairs-1#22"
+  ]
+ },
+ {
+  "key": "string-methods-not-via-autoderef",
+  "mechanism": "str methods are not reachable from a String receiver through autoderef.",
+  "members": [
+   "pairs-7#60"
+  ],
+  "representatives": [
+   "pairs-7#60"
+  ]
+ },
+ {
+  "key": "slice-array-as-ptr-typing",
+  "mechanism": "as_ptr on arrays/slices is refused or typed *const u8.",
+  "members": [
+   "pairs-13#41",
+   "pairs-4#43"
+  ],
+  "representatives": [
+   "pairs-4#43"
+  ]
+ },
+ {
+  "key": "option-combinators-take-fn-pointers",
+  "mechanism": "Option/Result combinators take fn pointers, refusing capturing closures.",
+  "members": [
+   "pairs-8#51"
+  ],
+  "representatives": [
+   "pairs-8#51"
+  ]
+ },
+ {
+  "key": "hashmap-iter-zippair",
+  "mechanism": "HashMap::iter yields ZipPair instead of tuples.",
+  "members": [
+   "pairs-8#53"
+  ],
+  "representatives": [
+   "pairs-8#53"
+  ]
+ },
+ {
+  "key": "refcell-replace-noncopy",
+  "mechanism": "RefCell::replace with non-Copy T fails to compile inside stdlib.",
+  "members": [
+   "pairs-7#52"
+  ],
+  "representatives": [
+   "pairs-7#52"
+  ]
+ },
+ {
+  "key": "custom-iterator-box-dyn-item-defaults",
+  "mechanism": "A custom Iterator with Item = Box<dyn> makes stdlib default methods fail borrow check.",
+  "members": [
+   "pairs-12#35"
+  ],
+  "representatives": [
+   "pairs-12#35"
+  ]
+ },
+ {
+  "key": "rangeinclusive-u8-contains",
+  "mechanism": "RangeInclusive<u8>::contains returns false for values in range.",
+  "members": [
+   "pairs-8#18"
+  ],
+  "representatives": [
+   "pairs-8#18"
+  ]
+ },
+ {
+  "key": "char-classification-ascii-only",
+  "mechanism": "char::is_alphabetic etc. are ASCII-only.",
+  "members": [
+   "pairs-12#12"
+  ],
+  "representatives": [
+   "pairs-12#12"
+  ]
+ },
+ {
+  "key": "u16-mul-overflow-unchecked",
+  "mechanism": "u16 multiplication overflow wraps silently.",
+  "members": [
+   "pairs-10#17"
+  ],
+  "representatives": [
+   "pairs-10#17"
+  ]
+ },
+ {
+  "key": "float-exp-format",
+  "mechanism": "{:e} float formatting differs from Rust.",
+  "members": [
+   "pairs-7#28"
+  ],
+  "representatives": [
+   "pairs-7#28"
+  ]
+ },
+ {
+  "key": "vec-iter-find-variance",
+  "mechanism": "VecIter::find on an iterator over a &Vec param reports a variance mismatch.",
+  "members": [
+   "pairs-12#41"
+  ],
+  "representatives": [
+   "pairs-12#41"
+  ]
+ },
+ {
+  "key": "blanket-impl-not-found-for-bound",
+  "mechanism": "Blanket impls (generic supertrait impl, impl<F: FnMut> for F, tuple impls) are not found when checking a bound.",
+  "members": [
+   "pairs-1#23",
+   "pairs-4#35",
+   "pairs-10#35"
+  ],
+  "representatives": [
+   "pairs-4#35"
+  ]
+ },
+ {
+  "key": "default-method-self-static-generic-impl",
+  "mechanism": "A default trait method calling Self::static_fn fails for a generic impl.",
+  "members": [
+   "pairs-1#24"
+  ],
+  "representatives": [
+   "pairs-1#24"
+  ]
+ },
+ {
+  "key": "box-dyn-fn-not-fn",
+  "mechanism": "Box<dyn Fn> does not satisfy an impl Fn / F: Fn bound.",
+  "members": [
+   "pairs-1#39"
+  ],
+  "representatives": [
+   "pairs-1#39"
+  ]
+ },
+ {
+  "key": "from-bound-ignored-by-question-into",
+  "mechanism": "? and .into() in a generic fn ignore an E: From<X> bound.",
+  "members": [
+   "pairs-2#38"
+  ],
+  "representatives": [
+   "pairs-2#38"
+  ]
+ },
+ {
+  "key": "method-generic-drops-impl-bound",
+  "mechanism": "A method-level generic param drops the impl's T: Copy bound.",
+  "members": [
+   "pairs-2#39"
+  ],
+  "representatives": [
+   "pairs-2#39"
+  ]
+ },
+ {
+  "key": "impl-trait-nested-in-type",
+  "mechanism": "impl Trait nested inside another type (Option<impl>, Box<impl> arg) is refused / not inferred.",
+  "members": [
+   "pairs-2#43",
+   "pairs-12#33"
+  ],
+  "representatives": [
+   "pairs-2#43"
+  ]
+ },
+ {
+  "key": "recursive-rpit-refused",
+  "mechanism": "A recursive -> impl Trait fn with a concrete base case is refused.",
+  "members": [
+   "pairs-5#19"
+  ],
+  "representatives": [
+   "pairs-5#19"
+  ]
+ },
+ {
+  "key": "operator-impl-for-ref-self",
+  "mechanism": "Operator impls for &T (impl Mul<i64> for &T, impl Neg for &P) are not dispatched.",
+  "members": [
+   "pairs-2#47",
+   "pairs-9#45"
+  ],
+  "representatives": [
+   "pairs-9#45"
+  ]
+ },
+ {
+  "key": "operator-via-generic-impl",
+  "mechanism": "Binary operators are not dispatched to a generic impl<T> Add for M<T> (the method call works).",
+  "members": [
+   "pairs-3#29",
+   "triples-types#20"
+  ],
+  "representatives": [
+   "triples-types#20"
+  ]
+ },
+ {
+  "key": "impl-elided-lifetime-vs-trait-signature",
+  "mechanism": "An impl method with an elided lifetime does not match the trait's &'a param.",
+  "members": [
+   "pairs-4#47",
+   "triples-types#21"
+  ],
+  "representatives": [
+   "triples-types#21"
+  ]
+ },
+ {
+  "key": "mul-default-rhs-duplicate-output",
+  "mechanism": "impl Mul for V next to impl Mul<i64> for V is refused as duplicate Output.",
+  "members": [
+   "pairs-9#46"
+  ],
+  "representatives": [
+   "pairs-9#46"
+  ]
+ },
+ {
+  "key": "compound-assign-uses-add",
+  "mechanism": "`+=` on a user type calls Add instead of AddAssign (and is accepted with only Add).",
+  "members": [
+   "pairs-3#10"
+  ],
+  "representatives": [
+   "pairs-3#10"
+  ]
+ },
+ {
+  "key": "copied-fold-closure-param-generic",
+  "mechanism": "The closure's second param in .copied().fold stays generic T / the operator operand is not inferred.",
+  "members": [
+   "pairs-1#52",
+   "pairs-13#24"
+  ],
+  "representatives": [
+   "pairs-13#24"
+  ]
+ },
+ {
+  "key": "assoc-const-typed-self",
+  "mechanism": "An associated const typed Self / Self::Val cannot be implemented.",
+  "members": [
+   "pairs-2#53",
+   "pairs-5#20",
+   "pairs-7#46"
+  ],
+  "representatives": [
+   "pairs-5#20"
+  ]
+ },
+ {
+  "key": "assoc-const-refers-const-param",
+  "mechanism": "An associated const referring to a const generic param is an undefined variable.",
+  "members": [
+   "pairs-14#51"
+  ],
+  "representatives": [
+   "pairs-14#51"
+  ]
+ },
+ {
+  "key": "nested-tuple-pattern-through-ref",
+  "mechanism": "A nested tuple pattern through a reference binds the pointer instead of the field.",
+  "members": [
+   "pairs-4#11"
+  ],
+  "representatives": [
+   "pairs-4#11"
+  ]
+ },
+ {
+  "key": "iter-mut-item-enum-method-receiver",
+  "mechanism": "A method call on an iter_mut() item of Vec<enum> fails 'receiver is not a struct'.",
+  "members": [
+   "pairs-4#38"
+  ],
+  "representatives": [
+   "pairs-4#38"
+  ]
+ },
+ {
+  "key": "collect-into-result-option",
+  "mechanism": "collect/sum into Result<Vec>/Option<Vec> is unsupported; Result::ok as a fn path fails.",
+  "members": [
+   "pairs-4#50"
+  ],
+  "representatives": [
+   "pairs-4#50"
+  ]
+ },
+ {
+  "key": "private-imported-name-shadows-local",
+  "mechanism": "A local item whose name matches a private/imported std item is refused or mixed up.",
+  "members": [
+   "pairs-7#55",
+   "pairs-13#37"
+  ],
+  "representatives": [
+   "pairs-13#37"
+  ]
+ },
+ {
+  "key": "match-arm-block-semicolon-ignored",
+  "mechanism": "A match arm `{ expr; }` is typed as expr's type, not ().",
+  "members": [
+   "pairs-8#43"
+  ],
+  "representatives": [
+   "pairs-8#43"
+  ]
+ },
+ {
+  "key": "closure-if-without-else-refused",
+  "mechanism": "A closure body that is an if without else is refused as an expression.",
+  "members": [
+   "pairs-9#41",
+   "pairs-12#58"
+  ],
+  "representatives": [
+   "pairs-9#41"
+  ]
+ },
+ {
+  "key": "nested-unit-variant-type-arg-inference",
+  "mechanism": "A unit variant nested inside Box::new in a generic enum ctor gets no T from the enclosing variant.",
+  "members": [
+   "pairs-9#32",
+   "pairs-11#36"
+  ],
+  "representatives": [
+   "pairs-11#36"
+  ]
+ },
+ {
+  "key": "question-in-closure-attributed-to-fn",
+  "mechanism": "? inside a closure without an annotated return type is attributed to the enclosing fn.",
+  "members": [
+   "pairs-9#49",
+   "pairs-13#25"
+  ],
+  "representatives": [
+   "pairs-13#25"
+  ]
+ },
+ {
+  "key": "trait-static-call-self-inferred",
+  "mechanism": "Trait static calls with Self inferred from context (Default::default(), Make::make) are refused.",
+  "members": [
+   "pairs-10#29",
+   "pairs-12#60",
+   "pairs-14#63",
+   "pairs-8#57"
+  ],
+  "representatives": [
+   "pairs-12#60"
+  ]
+ },
+ {
+  "key": "generic-struct-update-infers-nothing",
+  "mechanism": "Generic struct update syntax does not infer type args from the base (refused or Struct<error> ICE).",
+  "members": [
+   "pairs-10#30",
+   "pairs-14#27"
+  ],
+  "representatives": [
+   "pairs-14#27"
+  ]
+ },
+ {
+  "key": "empty-array-literal-turbofish-slice",
+  "mechanism": "An empty array literal with turbofish into a slice param produces invalid MLIR.",
+  "members": [
+   "pairs-11#22"
+  ],
+  "representatives": [
+   "pairs-11#22"
+  ]
+ },
+ {
+  "key": "primitive-method-path-as-fn",
+  "mechanism": "A primitive method path (i32::max) as a fold fn is an undefined symbol.",
+  "members": [
+   "pairs-11#29"
+  ],
+  "representatives": [
+   "pairs-11#29"
+  ]
+ },
+ {
+  "key": "generic-enum-method-duplicate-mangling",
+  "mechanism": "A recursive generic enum with two methods and two instantiations gets duplicate mangled bodies.",
+  "members": [
+   "pairs-11#30"
+  ],
+  "representatives": [
+   "pairs-11#30"
+  ]
+ },
+ {
+  "key": "generic-bst-compile-hang",
+  "mechanism": "The compiler hangs on a generic BST insert over Option<Box<Tree<K,V>>>.",
+  "members": [
+   "pairs-11#31"
+  ],
+  "representatives": [
+   "pairs-11#31"
+  ]
+ },
+ {
+  "key": "generic-enum-method-no-t-inference",
+  "mechanism": "A generic-enum method whose signature does not mention T cannot be inferred inside another generic fn.",
+  "members": [
+   "pairs-11#34"
+  ],
+  "representatives": [
+   "pairs-11#34"
+  ]
+ },
+ {
+  "key": "mut-slice-pattern-binds-shared",
+  "mechanism": "[first, ..] over a &mut slice binds first as & instead of &mut.",
+  "members": [
+   "pairs-11#49"
+  ],
+  "representatives": [
+   "pairs-11#49"
+  ]
+ },
+ {
+  "key": "null-mut-generic-field",
+  "mechanism": "null_mut() is not inferred for a generic struct field *mut T.",
+  "members": [
+   "pairs-12#38"
+  ],
+  "representatives": [
+   "pairs-12#38"
+  ]
+ },
+ {
+  "key": "break-value-operand-treated-as-move",
+  "mechanism": "A break-value expression reading a field/loop local (b.val, s.len(), format!) marks the operand moved.",
+  "members": [
+   "pairs-12#47",
+   "triples-types#35",
+   "pairs-13#39"
+  ],
+  "representatives": [
+   "pairs-13#39"
+  ]
+ },
+ {
+  "key": "guard-uses-nested-payload-binding-undefined",
+  "mechanism": "A match guard using a binding nested in a variant/tuple-struct subpattern refers to an undefined value and crashes logosc.",
+  "members": [
+   "pairs-13#10",
+   "pairs-2#25"
+  ],
+  "representatives": [
+   "pairs-13#10"
+  ]
+ },
+ {
+  "key": "as-mut-underscore-cast",
+  "mechanism": "An `as *mut _` placeholder is not inferred from later uses.",
+  "members": [
+   "pairs-13#43"
+  ],
+  "representatives": [
+   "pairs-13#43"
+  ]
+ },
+ {
+  "key": "reassign-ref-box-dyn-double-free",
+  "mechanism": "Reassigning a &Box<dyn> binding double-frees the Vec element.",
+  "members": [
+   "pairs-14#3"
+  ],
+  "representatives": [
+   "pairs-14#3"
+  ]
+ },
+ {
+  "key": "generic-struct-literal-field-inference",
+  "mechanism": "A generic struct literal field set from Vec::new() or an array needing unsizing does not infer T.",
+  "members": [
+   "pairs-14#37",
+   "pairs-6#51"
+  ],
+  "representatives": [
+   "pairs-14#37"
+  ]
+ },
+ {
+  "key": "generic-param-moved-into-ctor-double-drop",
+  "mechanism": "A generic T param moved into Box::new/Rc::new via let then returned is dropped twice.",
+  "members": [
+   "pairs-14#2"
+  ],
+  "representatives": [
+   "pairs-14#2"
+  ]
+ },
+ {
+  "key": "move-closure-self-field-through-ref",
+  "mechanism": "A move closure using self.field through &self tries to move self.",
+  "members": [
+   "triples-types#22"
+  ],
+  "representatives": [
+   "triples-types#22"
+  ]
+ },
+ {
+  "key": "returned-generic-impl-fn-call-void",
+  "mechanism": "Calling an impl Fn(T)->T returned by a generic struct method yields void.",
+  "members": [
+   "triples-types#23"
+  ],
+  "representatives": [
+   "triples-types#23"
+  ]
+ },
+ {
+  "key": "const-generic-array-default-method-trap",
+  "mechanism": "A default trait method on impl<const N> for [T; N] is demoted to a trap stub.",
+  "members": [
+   "pairs-10#36"
+  ],
+  "representatives": [
+   "pairs-10#36"
+  ]
+ }
+]

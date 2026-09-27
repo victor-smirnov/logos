@@ -1,0 +1,5 @@
+package z8;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn main() { let s = "a  b c"; let n = s.split(' ').filter(|x| x.len() > 0).count(); println!("{}", n); }

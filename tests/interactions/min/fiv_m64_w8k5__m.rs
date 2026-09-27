@@ -1,0 +1,2 @@
+fn d(x: &u8) -> u8 { x.wrapping_mul(2) }
+fn main() { println!("{}", d(&200)); }

@@ -1,0 +1,36 @@
+package m10b;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+struct R { id: i32 }
+impl Drop for R { fn drop(&mut self) { println!("d{}", self.id); } }
+fn make() -> impl Fn() -> i32 { let d = R { id: 7 }; return move || d.id; }
+fn main() {
+    let a = R { id: 1 };
+    let b = R { id: 2 };
+    let cl = move || a.id + b.id;
+    println!("s{}", cl());
+    let f = make();
+    println!("f{}", f());
+    drop(f);
+    println!("end");
+}

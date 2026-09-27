@@ -1,0 +1,6 @@
+
+
+fn ap<F: Fn(i64) -> i64>(x: i64, f: &F) -> i64 { return f(x); }
+fn main() {
+    println!("{}", ap(10, &|x: i64| -> i64 { return x / 3; }));
+}

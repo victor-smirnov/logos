@@ -1,0 +1,6 @@
+package m73b;
+use logos.std.fmt;
+use logos.std.compiler.metaprog;
+#[derive_clone] #[derive_copy] #[derive_partial_eq] #[derive_partial_ord]
+struct Q { n: i64, d: i64 }
+fn main() { let a = Q { n: 1, d: 2 }; let b = Q { n: 1, d: 3 }; println!("{} {}", a < b, b > a); }

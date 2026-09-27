@@ -1,0 +1,22 @@
+package f54_const_generic_mismatch_admitted;
+use logos.lang.mem;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+use logos.lang.cell;
+use logos.lang.ops;
+struct Mat<const N: usize> { d: [i64; N] }
+fn add<const N: usize>(a: &Mat<N>, b: &Mat<N>) -> i64 { return a.d[0] + b.d[0]; }
+fn main() { let a = Mat::<2> { d: [1, 2] }; let b = Mat::<3> { d: [1, 2, 3] }; println!("{}", add(&a, &b)); }

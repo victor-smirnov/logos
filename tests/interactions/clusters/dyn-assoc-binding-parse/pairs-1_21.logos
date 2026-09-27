@@ -1,0 +1,23 @@
+package i1;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+trait Producer { type Out; fn produce(&mut self) -> Self::Out; }
+struct Ctr { n: i64 }
+impl Producer for Ctr { type Out = i64; fn produce(&mut self) -> i64 { self.n += 2; self.n } }
+fn one(p: &mut dyn Producer<Out = i64>) -> i64 { p.produce() }
+fn main() { let mut c = Ctr { n: 0 }; let x = one(&mut c); println!("{}", x); }

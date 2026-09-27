@@ -1,0 +1,15 @@
+package p15j;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+fn main() { let a: Option<i32> = Some(3); let b: Option<i32> = match &a { Some(n) => Some(*n + 1), None => None }; println!("{:?}", b); }

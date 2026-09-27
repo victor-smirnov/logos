@@ -1,0 +1,6 @@
+trait Tag { fn tag(&self) -> i32; }
+struct A(i32);
+impl Tag for A { fn tag(&self) -> i32 { return self.0; } }
+fn main() {
+let a = A(1); let d: &dyn Tag = &a; let f = |x: &&dyn Tag| -> i32 { return x.tag(); }; println!("cl {}", f(&d));
+}

@@ -1,0 +1,7 @@
+struct Noisy { id: i64 }
+impl Drop for Noisy { fn drop(&mut self) { println!("drop {}", self.id); } }
+fn holder(n: Noisy) -> impl Fn() -> i64 { return move || n.id; }
+fn main() {
+    let h = holder(Noisy { id: 1 });
+    println!("h {}", h());
+}

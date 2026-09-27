@@ -1,0 +1,45 @@
+package u06b_bad;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+trait Named { fn name(&self) -> &str; }
+struct P { n: String }
+impl Named for P { fn name(&self) -> &str { self.n.as_str() } }
+fn longest<'a, A: Named, B: Named>(a: &'a A, b: &'a B) -> &'a str { if a.name().len() >= b.name().len() { a.name() } else { b.name() } }
+fn evens<'a>(v: &'a Vec<i64>) -> impl Iterator<&'a i64> { v.iter().filter(|x| **x % 2 == 0) }
+fn bump_all(v: &mut Vec<i64>) -> impl Fn(i64) -> i64 { let n = v.len() as i64; for x in v.iter_mut() { *x += n; } move |y: i64| y + n }
+fn first_word(s: &str) -> impl Named { W { s: s.split(' ').next().unwrap() } }
+struct W<'a> { s: &'a str }
+impl<'a> Named for W<'a> { fn name(&self) -> &str { self.s } }
+fn main() {
+    let a = P { n: String::from("alice") }; let b = P { n: String::from("bo") };
+    println!("{}", longest(&a, &b));
+    let mut v = vec![1i64, 2, 3, 4];
+    let f = bump_all(&mut v);
+    println!("{:?} {}", v, f(10));
+    let e: Vec<&i64> = evens(&v).collect();
+    println!("{}", e.len());
+    let text = String::from("hello big world");
+    let w = first_word(text.as_str());
+    println!("{}", w.name());
+}

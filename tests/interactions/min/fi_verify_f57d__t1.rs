@@ -1,0 +1,5 @@
+fn main() {
+    let x = 5;
+    let v = if x > 3 { { 7 } } else { 3 };
+    println!("{}", v);
+}

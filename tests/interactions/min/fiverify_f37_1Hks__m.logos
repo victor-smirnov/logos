@@ -1,0 +1,4 @@
+package m;
+use logos.std.fmt;
+enum Color { Red, Green }
+fn main() { println!("{}", Color::Green == Color::Red); }

@@ -1,0 +1,8 @@
+
+
+
+fn main() {
+    let v: Vec<i64> = vec![1, 2, 3];
+    let r = v.iter().fold(1, |acc, x| acc * *x + 1);
+    println!("{}", r);
+}

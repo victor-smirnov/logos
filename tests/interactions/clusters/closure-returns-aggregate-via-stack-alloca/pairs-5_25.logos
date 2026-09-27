@@ -1,0 +1,23 @@
+package f25_closure_returns_tuple;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+struct P { a: i64, b: i64 }
+fn main() {
+    let pair = |x: i64| -> (i64, i64) { return (x, x + 1); };
+    let t = pair(5);
+    println!("{} {}", t.0, t.1);
+    let mkp = |x: i64| -> P { return P { a: x, b: x * 2 }; };
+    let p = mkp(7);
+    println!("{} {}", p.a, p.b);
+}

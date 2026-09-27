@@ -1,0 +1,9 @@
+package z2;
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+#[derive_clone]
+struct V { c: i64 }
+#[derive_clone]
+#[derive_partial_eq]
+struct T(i64, i64);
+fn main() -> i32 { let a = V { c: 3 }; let b = a.clone(); let t = T(1, 2); let u = t.clone(); if t == u { return b.c as i32; } return 9; }

@@ -1,0 +1,16 @@
+package c1;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct Words<'a> { s: &'a str, done: bool }
+impl<'a> Iterator<&'a str> for Words<'a> {
+    fn next(self: &mut Words<'a>) -> Option<&'a str> {
+        if self.done { return None; }
+        self.done = true;
+        return Some(self.s);
+    }
+}
+fn main() {
+    let w = Words { s: "abc", done: false };
+    let v = w.map(|x| x.len() as i64).collect::<Vec<i64>>();
+    println!("{:?}", v);
+}

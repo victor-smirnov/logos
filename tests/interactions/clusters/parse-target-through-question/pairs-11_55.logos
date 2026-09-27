@@ -1,0 +1,12 @@
+package z72;
+use logos.std.fmt;
+use logos.lang.num.error;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.deque;
+fn f(s: &str) -> Result<i64, ParseIntError> { let v: i64 = s.parse()?; Ok(v * 2) }
+fn main() { println!("{:?}", f("21").ok()); }

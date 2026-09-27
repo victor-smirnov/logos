@@ -1,0 +1,1 @@
+fn main() { let v: Vec<i32> = vec![7, 8]; if let Some(&x) = v.last() { println!("{}", x); } match v.first() { Some(&y) => println!("{}", y), None => {} } }

@@ -1,0 +1,7 @@
+struct D(i64);
+enum E { One(D), Empty }
+fn main() {
+    let e = E::One(D(3));
+    let r = match e { E::One(D(a)) if a > 0 => a, _ => 0 };
+    println!("{}", r);
+}

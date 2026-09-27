@@ -1,0 +1,7 @@
+package f_panic_noargs;
+use logos.std.fmt;
+fn main() {
+ let x = 3;
+ if x > 5 { panic!() }
+ println!("{}", x);
+}

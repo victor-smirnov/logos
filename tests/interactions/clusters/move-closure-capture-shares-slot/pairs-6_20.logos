@@ -1,0 +1,24 @@
+package p08i;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+fn rd(p: *const i64) -> i64 { unsafe { *p } }
+fn reader(p: *const i64) -> impl Fn() -> i64 { move || unsafe { *p } }
+fn main() {
+    let mut x: i64 = 10;
+    let px: *mut i64 = &mut x;
+    let pc: *const i64 = px as *const i64;
+    let r = reader(pc);
+    unsafe { *px = 44; }
+    println!("{} {} {}", r(), rd(pc), x);
+}

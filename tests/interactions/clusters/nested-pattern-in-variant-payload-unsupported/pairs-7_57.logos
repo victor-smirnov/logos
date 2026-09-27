@@ -1,0 +1,28 @@
+package m49;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+#[derive_clone]
+#[derive_copy]
+struct Pos { x: i32, y: i32 }
+enum Sh { Line { from: Pos, to: Pos } }
+fn main() {
+    let s = Sh::Line { from: Pos { x: 1, y: 2 }, to: Pos { x: 3, y: 4 } };
+    let o = Some(&s);
+    if let Some(Sh::Line { from: Pos { x: fx, .. }, .. }) = o { println!("fx={}", fx); }
+    match s { Sh::Line { to: Pos { y: ty, .. }, .. } => println!("ty={}", ty) }
+}

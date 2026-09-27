@@ -1,0 +1,13 @@
+package f_closure_refref_dyn;
+use logos.std.fmt;
+trait Op { fn k(&self) -> i64; }
+struct MulN(i64);
+impl Op for MulN { fn k(&self) -> i64 { self.0 * 10 } }
+fn g(o: &&dyn Op) -> i64 { o.k() }
+fn main() {
+    let m = MulN(3);
+    let d: &dyn Op = &m;
+    println!("{}", g(&d));
+    let f = |o: &&dyn Op| o.k();
+    println!("{}", f(&d));
+}

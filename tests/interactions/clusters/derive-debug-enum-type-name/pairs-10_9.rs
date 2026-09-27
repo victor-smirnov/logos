@@ -1,0 +1,3 @@
+#[derive(Debug)]
+enum E { A(i64), B { x: i64 }, C }
+fn main() { println!("{:?} {:?} {:?}", E::A(1), E::B { x: 2 }, E::C); }

@@ -1,0 +1,1 @@
+fn main() { let x = 5i64; let p: *const i64 = &x; let r: &i64 = &*p; println!("{}", r); }

@@ -1,0 +1,32 @@
+package m11c;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+#[derive_debug]
+#[derive_partial_eq]
+#[derive_partial_ord]
+#[derive_ord]
+struct V { a: i32, b: i32 }
+fn main() {
+    let vs: Vec<V> = vec![V { a: 1, b: 5 }, V { a: 3, b: 0 }, V { a: 2, b: 9 }];
+    println!("[{:?}]", vs.iter().max().unwrap());
+}

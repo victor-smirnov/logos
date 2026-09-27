@@ -1,0 +1,29 @@
+package f49_temp_in_operator_dropped_early;
+use logos.lang.mem;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+use logos.lang.cell;
+use logos.lang.ops;
+struct D { v: i64 }
+impl PartialEq for D { fn eq(&self, o: &D) -> bool { return self.v == o.v; } }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.v); } }
+fn show(b: bool, n: i64) { println!("show {} {}", b, n); }
+fn main() {
+    let x = D { v: 1 };
+    println!("{}", x == D { v: 1 });
+    show(x == D { v: 2 }, 0);
+    println!("end");
+}

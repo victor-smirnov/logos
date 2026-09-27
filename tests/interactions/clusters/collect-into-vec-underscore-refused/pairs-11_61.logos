@@ -1,0 +1,5 @@
+package z34;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn main() { let v = [1, 2, 3]; let w: Vec<_> = v.iter().map(|x| x * 2).collect(); println!("{}", w[2]); }

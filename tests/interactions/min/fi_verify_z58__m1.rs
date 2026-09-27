@@ -1,0 +1,2 @@
+fn app<F: Fn(i64) -> i64>(v: Vec<i64>, f: F) -> Vec<i64> { let r: Vec<i64> = v.into_iter().map(f).collect(); return r; }
+fn main() { let v = vec![1i64, 2i64]; let w = app(v, |x| x * 3); println!("{:?}", w); }

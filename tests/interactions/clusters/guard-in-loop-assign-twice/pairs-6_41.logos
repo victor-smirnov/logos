@@ -1,0 +1,17 @@
+package p19e;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+enum A { P(String), R(i64) }
+fn f(i: i64) -> Result<i64, A> { if i == 0 { Ok(1) } else if i == 1 { Err(A::P(String::from("p"))) } else { Err(A::R(i)) } }
+fn main() { for i in 0..3 { match f(i) { Ok(t) => println!("ok {}", t), Err(A::P(m)) => println!("p {}", m), Err(A::R(v)) => println!("r {}", v) } } }

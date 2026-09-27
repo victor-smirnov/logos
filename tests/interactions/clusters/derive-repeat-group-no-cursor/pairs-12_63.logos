@@ -1,0 +1,5 @@
+package m04f;
+use logos.std.compiler.metaprog;
+#[derive_clone]
+struct Pt { x: i32 }
+fn main() -> i32 { let p = Pt { x: 1 }; let q = p.clone(); return q.x; }

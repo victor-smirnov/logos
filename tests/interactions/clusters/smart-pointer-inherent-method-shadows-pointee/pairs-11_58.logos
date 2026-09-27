@@ -1,0 +1,12 @@
+package z70;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.deque;
+struct C { n: i32 }
+impl C { fn get(&self) -> i32 { self.n } }
+fn main() { let b = Box::new(C { n: 10 }); let r = &b; println!("{} {}", b.get(), r.get()); }

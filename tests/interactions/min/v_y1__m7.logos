@@ -1,0 +1,3 @@
+package m7;
+fn cnt<T>(s: &[T]) -> i64 { s.len() }
+fn main() { cnt::<i32>(&[]); }

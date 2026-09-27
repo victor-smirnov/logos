@@ -1,0 +1,13 @@
+package a;
+use logos.std.fmt;
+use logos.std.io;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+trait Tag { fn tag(&self) -> i32; }
+struct A(i32);
+impl Tag for A { fn tag(&self) -> i32 { return self.0; } }
+fn g(x: &dyn Tag) -> i32 { return x.tag(); }
+fn main() {
+    let b: Box<dyn Tag> = Box::new(A(1));
+    println!("g {}", g(&*b));
+}

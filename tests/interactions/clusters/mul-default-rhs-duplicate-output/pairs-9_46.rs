@@ -1,0 +1,6 @@
+use std::ops::Mul;
+#[derive(Clone, Copy)]
+struct V { x: i64 }
+impl Mul<i64> for V { type Output = V; fn mul(self, k: i64) -> V { V { x: self.x * k } } }
+impl Mul for V { type Output = i64; fn mul(self, o: V) -> i64 { self.x * o.x } }
+fn main() { let a = V { x: 3 }; println!("{} {}", (a * 2).x, a * a); }

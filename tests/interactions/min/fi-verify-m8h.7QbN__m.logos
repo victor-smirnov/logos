@@ -1,0 +1,5 @@
+package m;
+use logos.mem.collections.vec;
+struct W<J> { inner: J }
+fn g<T>(x: T) {}
+fn main() -> i32 { g(W { inner: vec![1i64, 2i64, 3i64] }); return 0; }

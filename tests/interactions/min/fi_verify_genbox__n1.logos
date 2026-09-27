@@ -1,0 +1,3 @@
+package n1;
+fn mk() -> String { let s = String::from("de"); s }
+fn main() -> i32 { let b = mk(); return b.len() as i32; }

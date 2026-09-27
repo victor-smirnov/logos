@@ -1,0 +1,5 @@
+package e;
+use logos.lang.default;
+struct Cfg { w: i64, h: i64 }
+impl Default for Cfg { fn default() -> Cfg { Cfg { w: 1, h: 7 } } }
+fn main() -> i32 { let c = Cfg { w: 5, ..Default::default() }; return (c.w + c.h) as i32; }

@@ -1,0 +1,7 @@
+fn main() {
+    let mut out = 0i64;
+    for i in 0..4i64 { match i { x if x > 1 => { out += x; } _ => { out += 1; } } }
+    for i in 0..3i64 { match i { y => { out += y * 100; } } }
+    for i in 0..3i64 { if let Some(z) = Some(i) { out += z * 1000; } }
+    println!("{}", out);
+}

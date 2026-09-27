@@ -1,0 +1,5 @@
+package m88;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+fn h(c: bool) -> Option<i64> { let r = loop { if c { break None; } break Some(7); }; return r; }
+fn m(c: bool) -> Option<i64> { let r: Option<i64> = loop { if c { break None; } break Some(7); }; return r; }
+fn main() { println!("{:?} {:?} {:?} {:?}", h(true), h(false), m(true), m(false)); }

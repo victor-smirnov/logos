@@ -1,0 +1,19 @@
+package aj2;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+fn main() { let a = 1i64; let b = 2i64; let mut s = 0i64; for v in [a, b].iter() { s += *v; } println!("{}", s); }

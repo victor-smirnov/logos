@@ -1,0 +1,5 @@
+fn main() {
+    let mut v: Vec<(i64, i64)> = Vec::new(); v.push((1, 3)); v.push((1, 2));
+    v.sort();
+    println!("{} {}", v[0].1, v[1].1);
+}

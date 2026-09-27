@@ -1,0 +1,5 @@
+package m68;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+enum L { R, G(i64) }
+fn f(x: &L) -> i64 { match x { L::R => 1 } }
+fn main() { println!("{}", f(&L::G(-1))); }

@@ -1,0 +1,3 @@
+fn total(v: &[i64]) -> i64 { v.iter().sum() }
+fn doubled(v: &[i64]) -> Vec<i64> { v.iter().map(|x| x * 2).collect() }
+fn main() { let a = [1i64, 2, 3]; println!("{} {:?}", total(&a), doubled(&a)); }

@@ -1,0 +1,19 @@
+package u29r2;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.str;
+use logos.lang.mem;
+use logos.std.compiler.metaprog;
+#[derive_clone] #[derive_copy] #[derive_debug]
+struct P { x: i64, y: i64 }
+fn main() { let p = P { x: 1, y: 2 }; fn show() -> i64 { p.x } println!("{}", show()); }

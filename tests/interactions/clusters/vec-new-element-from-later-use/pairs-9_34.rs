@@ -1,0 +1,2 @@
+fn fill(out: &mut Vec<i32>) { out.push(4); }
+fn main() { let mut out = Vec::new(); fill(&mut out); println!("{}", out.len()); }

@@ -1,0 +1,2 @@
+fn total<const N: usize>(a: &[i32; N]) -> i64 { let mut s = 0i64; for x in a { s += *x as i64; } s }
+fn main() { let a = [5i32, 6, 7]; println!("{}", total(&a)); }

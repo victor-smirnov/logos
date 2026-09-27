@@ -1,0 +1,20 @@
+package p01j;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash;
+trait Named { fn name(&self) -> i64; }
+trait Shape: Named { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Named for Sq { fn name(&self) -> i64 { 100 } }
+impl Shape for Sq { fn area(&self) -> i64 { self.s * self.s } }
+fn nm(n: &dyn Named) -> i64 { n.name() }
+fn main() {
+    let sq = Sq { s: 2 };
+    let s: &dyn Shape = &sq;
+    let n1: &dyn Named = s;
+    println!("{}", n1.name());
+    let b: Box<dyn Shape> = Box::new(Sq { s: 3 });
+    println!("{}", nm(&*b));
+    let n2: &dyn Named = &*b;
+    println!("{}", n2.name());
+    let bn: Box<dyn Named> = b;
+    println!("{}", bn.name());
+}

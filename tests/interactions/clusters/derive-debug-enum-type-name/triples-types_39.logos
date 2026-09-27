@@ -1,0 +1,30 @@
+package u10a;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+#[derive_debug]
+enum AppErr { Parse(String), Neg(i64), Io(i64) }
+struct ParseErr { at: i64 }
+struct IoErr(i64);
+impl From<ParseErr> for AppErr { fn from(e: ParseErr) -> Self { AppErr::Parse(format!("at {}", e.at)) } }
+impl From<IoErr> for AppErr { fn from(e: IoErr) -> Self { AppErr::Io(e.0) } }
+type Res<T> = Result<T, AppErr>;
+fn parse(s: &str) -> Result<i64, ParseErr> {
+    let mut n = 0i64;
+    for (i, c) in s.chars().enumerate() { if c < '0' || c > '9' { return Err(ParseErr { at: i as i64 }); } n = n * 10 + (c as i64 - '0' as i64); }
+    Ok(n)
+}
+fn read(k: i64) -> Result<i64, IoErr> { if k == 13 { Err(IoErr(k)) } else { Ok(k * 2) } }
+fn step(s: &str) -> Res<i64> {
+    let a = parse(s)?;
+    let b = read(a)?;
+    if b > 100 { return Err(AppErr::Neg(b)); }
+    Ok(a + b)
+}
+fn all(xs: &[&str]) -> Res<Vec<i64>> { let mut out = Vec::new(); for x in xs { out.push(step(*x)?); } Ok(out) }
+fn show<T: Debug>(r: Res<T>) -> String { match r { Ok(v) => format!("ok {:?}", v), Err(AppErr::Parse(m)) => format!("parse {}", m), Err(AppErr::Neg(n)) => format!("neg {}", n), Err(AppErr::Io(c)) => format!("io {}", c) } }
+fn main() {
+    let arr = ["12", "1x", "13", "99", "7"]; for s in arr.iter() { println!("{}", show(step(*s))); }
+    println!("{}", show(all(&["1", "2", "3"])));
+    println!("{}", show(all(&["1", "a", "13"])));
+    let e: AppErr = IoErr(5).into();
+    println!("{:?}", e);
+}

@@ -1,0 +1,27 @@
+package u14c;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.str;
+use logos.lang.mem;
+use logos.std.compiler.metaprog;
+#[derive_clone] #[derive_copy] #[derive_partial_eq]
+enum Sg { Pos, Neg, Zero }
+impl Neg for Sg { type Output = Sg; fn neg(self) -> Sg { match self { Sg::Pos => Sg::Neg, Sg::Neg => Sg::Pos, Sg::Zero => Sg::Zero } } }
+fn show(s: Sg) -> i64 { match s { Sg::Pos => 1, Sg::Neg => -1, Sg::Zero => 0 } }
+fn main() {
+    let a = Sg::Neg;
+    let b = -a;
+    println!("{} {}", show(b), show(-Sg::Pos));
+    let arr = [Sg::Neg, Sg::Zero];
+    println!("{}", show(-arr[0]));
+}

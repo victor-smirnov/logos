@@ -1,0 +1,3 @@
+package m140d;
+struct V<const N: i64> { c: [i64; N] }
+fn main() { let a = V { c: [1i64, 2, 3] }; }

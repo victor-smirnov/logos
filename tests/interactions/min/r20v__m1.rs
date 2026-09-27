@@ -1,0 +1,4 @@
+trait Shape { fn area(&self) -> i64; }
+struct Ci { r: i64 }
+impl Shape for Ci { fn area(&self) -> i64 { self.r } }
+fn main() { let b: Box<dyn Shape> = Box::new(Ci { r: 7 }); let d = *b; println!("{}", d.area()); }

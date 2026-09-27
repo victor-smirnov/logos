@@ -1,0 +1,7 @@
+package m18;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+struct C { items: Vec<i64> }
+impl C {
+    fn counter(&self) -> impl Fn() -> i64 { move || self.items.len() as i64 }
+}
+fn main() { let c = C { items: vec![1, 2] }; let k = c.counter(); println!("{} {}", k(), c.items.len()); }

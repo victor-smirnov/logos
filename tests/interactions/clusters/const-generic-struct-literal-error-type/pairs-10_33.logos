@@ -1,0 +1,7 @@
+package m13e;
+use logos.std.fmt;
+struct Buf<const N: usize> { data: [i64; N], used: usize }
+impl<const N: usize> Buf<N> {
+    fn new() -> Self { let d: [i64; N] = [0; N]; Buf { data: d, used: 0 } }
+}
+fn main() { let b: Buf<4> = Buf::new(); println!("{} {:?}", b.used, b.data); }

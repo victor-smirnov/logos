@@ -1,0 +1,9 @@
+package u7_bad2;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+trait Area { fn area(&self) -> i64; }
+struct Rect { w: i64 }
+impl Area for Rect { fn area(&self) -> i64 { self.w } }
+fn mk() -> impl Area { Rect { w: 1 } }
+fn main() { let r = mk(); println!("{}", r.w); }

@@ -1,0 +1,9 @@
+package f_assocfn_value;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.fmt;
+fn mk<F: FnOnce() -> Vec<i32>>(f: F) -> Vec<i32> { f() }
+fn main() {
+    let v = mk(Vec::new);
+    println!("{}", v.len());
+}

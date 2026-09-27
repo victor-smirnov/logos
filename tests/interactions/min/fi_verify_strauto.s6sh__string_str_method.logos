@@ -1,0 +1,8 @@
+package string_str_method;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+fn main() {
+    let s = String::from("ab cd");
+    println!("{}", s.trim().len());
+}

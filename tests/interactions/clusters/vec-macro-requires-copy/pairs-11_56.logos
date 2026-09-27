@@ -1,0 +1,5 @@
+package z10;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn main() { let v = vec![String::from("a"), String::from("b")]; println!("{} {}", v.len(), v[1]); }

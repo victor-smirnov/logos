@@ -1,0 +1,5 @@
+fn main() {
+    fn k(s: &[i64]) -> i64 { return s[0]; }
+    let r = k(&[1, 2, 3]);
+    println!("{}", r);
+}

@@ -1,0 +1,4 @@
+#[derive(Clone, Copy)]
+struct P { x: i64, y: i64 }
+struct S { nm: i64, pts: [P; 2] }
+fn main() { let s = S { nm: 1, pts: [P { x: 1, y: 2 }, P { x: 3, y: 4 }] }; match &s { S { nm, pts: [a, P { y: by, .. }] } => println!("{} {} {}", nm, a.x, by) } }

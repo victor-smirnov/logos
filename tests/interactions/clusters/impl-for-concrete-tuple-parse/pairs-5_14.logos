@@ -1,0 +1,17 @@
+package f14_impl_for_concrete_tuple;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+trait Metric { fn m(&self) -> i64; }
+impl Metric for (i64, i64) { fn m(&self) -> i64 { return self.0 * 10 + self.1; } }
+fn main() { let p = (1i64, 2i64); println!("{}", p.m()); }

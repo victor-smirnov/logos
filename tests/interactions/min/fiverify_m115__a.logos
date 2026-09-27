@@ -1,0 +1,4 @@
+package a;
+use logos.std.fmt;
+fn len(s: &str) -> i64 { s.len() }
+fn main() { let x = "abc"; let r = &x; println!("{}", len(r)); }

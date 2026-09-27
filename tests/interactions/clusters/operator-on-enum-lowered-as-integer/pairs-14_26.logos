@@ -1,0 +1,29 @@
+package m_enum_ops3;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+enum Val { I(i64), Nil }
+impl Add for Val { type Output = Val; fn add(self, o: Val) -> Val { match (self, o) { (Val::I(a), Val::I(b)) => Val::I(a + b), (x, _) => x } } }
+impl Sub for Val { type Output = Val; fn sub(self, o: Val) -> Val { match o { Val::I(b) => self + Val::I(0 - b), Val::Nil => self } } }
+fn show(v: &Val) -> i64 { match v { Val::I(a) => *a, Val::Nil => 0 } }
+fn main() { let v = Val::I(10) - Val::I(4); println!("{}", show(&v)); let w = Val::I(1) + Val::I(2) + Val::Nil; println!("{}", show(&w)); }

@@ -1,0 +1,6 @@
+package f_derive_debug_enum;
+use logos.std.compiler.metaprog;
+use logos.std.fmt;
+#[derive_debug]
+enum Cmd { Push(i64), Pop, At { x: i64 } }
+fn main() { println!("{:?} {:?} {:?}", Cmd::Push(3), Cmd::Pop, Cmd::At { x: 1 }); }

@@ -1,0 +1,28 @@
+package f21;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.lang.ops;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.collections.btree;
+use logos.std.compiler.metaprog;
+use logos.lang.default;
+use logos.lang.hash;
+enum P<T> { E, F(T) }
+struct Bag { items: [P<i64>; 2] }
+fn main() {
+    let b = Bag { items: [P::F(4), P::E] };
+    let o: Option<i64> = Some(5);
+    let arr: [Option<i64>; 2] = [Some(1), None];
+    match &b.items[0] { P::F(v) => println!("{} {:?} {:?}", v, o, arr), P::E => println!("e") }
+}

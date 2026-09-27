@@ -1,0 +1,3 @@
+package a;
+fn f(o: Option<&i64>) -> i32 { match o { Some(7) => 1, _ => 2 } }
+fn main() -> i32 { let a = 7i64; f(Some(&a)) }

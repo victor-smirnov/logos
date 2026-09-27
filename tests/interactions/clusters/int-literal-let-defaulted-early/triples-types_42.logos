@@ -1,0 +1,5 @@
+package m5;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str;
+fn f() -> i64 { 3 }
+fn g(xs: &[i64]) -> i64 { let mut s = 0; for x in xs { s += *x; } s }
+fn main() { let mut s = 0; s += f(); println!("{} {}", s, g(&[1, 2])); }

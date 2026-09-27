@@ -1,0 +1,5 @@
+package m1;
+use logos.lang.cmp;
+struct W<T> { a: T }
+impl<T: PartialEq> W<T> { fn ok(&self) -> bool { true } }
+fn main() -> i32 { let p = W { a: 3i64 }; if p.ok() { return 5i32; } return 0i32; }

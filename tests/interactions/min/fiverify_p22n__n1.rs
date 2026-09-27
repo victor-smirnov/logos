@@ -1,0 +1,3 @@
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+fn main() { for i in 0..3 { let g = D { n: i }; if i == 5 { drop(g); break; } if i == 2 { drop(g); break; } } }

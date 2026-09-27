@@ -1,0 +1,27 @@
+package u13i;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.str;
+use logos.lang.mem;
+use logos.std.compiler.metaprog;
+struct Buf<const N: usize> { data: [i64; N], len: i64 }
+impl<const N: usize> Buf<N> {
+    fn new() -> Buf<N> { Buf::<N> { data: [0; N], len: 0 } }
+    fn view(&self) -> &[i64] { &self.data[0..self.len] }
+}
+fn main() {
+    let mut b: Buf<4> = Buf::new();
+    b.data[0] = 5; b.data[1] = 6; b.len = 2;
+    let v = b.view();
+    println!("{} {}", v.len(), v[1]);
+}

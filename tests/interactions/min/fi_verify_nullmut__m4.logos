@@ -1,0 +1,11 @@
+package m4;
+use logos.std.fmt;
+use logos.lang.option;
+struct G<T> { p: Option<T> }
+fn mk<T>() -> G<T> { return G { p: Option::None }; }
+fn none<T>() -> Option<T> { return Option::None; }
+fn mk2<T>() -> G<T> { return G { p: none() }; }
+fn main() {
+    let g: G<i64> = mk2();
+    println!("{}", g.p.is_none());
+}

@@ -1,0 +1,9 @@
+package min_tail_temp;
+use logos.std.fmt;
+struct N { id: i64 }
+impl Drop for N { fn drop(&mut self) { println!("drop {}", self.id); } }
+struct C { a: N, b: N }
+fn mk(x: i64) -> C { C { a: N { id: x }, b: N { id: x + 1 } } }
+fn g() -> C { C { a: N { id: 200 }, ..mk(5) } }
+fn h() -> i64 { mk(7).a.id }
+fn main() { let q = g(); println!("built {}", q.a.id); println!("h {}", h()); }

@@ -1,0 +1,25 @@
+package m52c;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+enum S { D(i32), G(Vec<S>) }
+fn main() {
+    let mut vv: Vec<S> = Vec::new(); vv.push(S::D(1)); vv.push(S::D(2));
+    let g = S::G(vv);
+    let r = &g;
+    match r { S::G(v) => { for x in v { match x { S::D(k) => println!("{}", k), _ => {} } } } _ => {} }
+}

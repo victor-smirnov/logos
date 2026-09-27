@@ -1,0 +1,4 @@
+package p01y;
+use logos.mem.string; use logos.std.fmt;
+fn c() -> String { let s = String::from("hi"); s }
+fn main() { println!("{}", c()); }

@@ -1,0 +1,32 @@
+package f42;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.lang.ops;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.collections.btree;
+use logos.std.compiler.metaprog;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.num.error;
+enum PErr { Bad(i64), Eof }
+fn run(x: i64) -> Result<i64, PErr> { if x > 2 { return Err(PErr::Bad(x)); } if x < 0 { return Err(PErr::Eof); } return Ok(x * 10); }
+fn main() {
+    for x in [1i64, 3, -1] {
+        match run(x) {
+            Ok(v) => println!("ok {}", v),
+            Err(PErr::Bad(c)) => println!("bad {}", c),
+            Err(PErr::Eof) => println!("eof"),
+        }
+    }
+}

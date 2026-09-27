@@ -1,0 +1,27 @@
+package m_cg_arr_iter;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+use logos.lang.mem;
+fn tot<const M: usize>(a: &[i32; M]) -> i32 { let mut t: i32 = 0; for x in a.iter() { t += *x; } return t; }
+fn main() { let a = [1i32, 2, 3]; println!("{}", tot(&a)); }

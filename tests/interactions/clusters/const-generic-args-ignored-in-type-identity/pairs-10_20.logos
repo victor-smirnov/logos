@@ -1,0 +1,5 @@
+package r02b;
+use logos.std.fmt;
+struct V<const N: usize> { v: [i32; N] }
+fn f(x: V<3>) -> i32 { x.v[0] }
+fn main() { let m: V<2> = V { v: [1, 2] }; println!("{}", f(m)); }

@@ -1,0 +1,6 @@
+package z33;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn c<T: Clone>(x: &T) -> T { x.clone() }
+fn main() { let s: &str = "ab"; let t = c(&s); println!("{}", t); }

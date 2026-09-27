@@ -1,0 +1,8 @@
+struct Tok { id: i32 }
+impl Drop for Tok { fn drop(&mut self) { println!("drop {}", self.id); } }
+fn main() {
+    let mut v: Vec<Tok> = Vec::new();
+    for i in 0..4 { v.push(Tok { id: i }); }
+    v.truncate(1);
+    println!("mid");
+}

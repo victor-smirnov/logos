@@ -1,0 +1,54 @@
+package f11_dyn_drop_in_collections;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+trait Animal { fn legs(&self) -> i64; }
+struct Dog { id: i64 }
+impl Animal for Dog { fn legs(&self) -> i64 { return 4; } }
+impl Drop for Dog { fn drop(&mut self) { println!("drop dog{}", self.id); } }
+fn main() {
+    {
+        let mut dq: VecDeque<Box<dyn Animal>> = VecDeque::new();
+    let pd: *mut VecDeque<Box<dyn Animal>> = &mut dq;
+    unsafe { pd.push_back(Box::new(Dog { id: 1 })); }
+
+    let x = unsafe { pd.pop_front() };
+
+        if let Some(a) = x { println!("popped {}", a.legs()); }
+    }
+    println!("--");
+    {
+        let mut dq: VecDeque<Box<dyn Animal>> = VecDeque::new();
+    let pd: *mut VecDeque<Box<dyn Animal>> = &mut dq;
+    unsafe { pd.push_back(Box::new(Dog { id: 2 })); }
+
+    }
+    println!("--");
+    {
+        let mut m: BTreeMap<i64, Rc<dyn Animal>> = BTreeMap::new();
+    let pm: *mut BTreeMap<i64, Rc<dyn Animal>> = &mut m;
+    unsafe { pm.insert(1, Rc::new(Dog { id: 3 })); }
+
+    }
+    println!("--");
+    {
+        let mut m: HashMap<i64, Box<dyn Animal>> = HashMap::new();
+    let pm: *mut HashMap<i64, Box<dyn Animal>> = &mut m;
+    unsafe { pm.insert(1, Box::new(Dog { id: 4 })); }
+    let old = unsafe { pm.insert(1, Box::new(Dog { id: 5 })) };
+
+
+        println!("old some {}", old.is_some());
+    }
+    println!("end");
+}

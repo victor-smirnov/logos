@@ -1,0 +1,4 @@
+fn count2<T, F>(xs: Vec<T>, f: F) -> i32 where F: Fn(T) -> bool {
+    let mut n = 0; for x in xs { if f(x) { n += 1; } } n
+}
+fn main() { let m = count2(vec![1, 2, 3], |x| x > 1); println!("{}", m); }

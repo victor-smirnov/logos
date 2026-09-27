@@ -1,0 +1,7 @@
+package z40;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+struct B<const N: i64> { d: [u8; N] }
+impl<const N: i64> B<N> { fn new() -> Self { B { d: [0; N] } } fn n(&self) -> i64 { N } }
+fn main() { let b: B<3> = B::new(); println!("{}", b.n()); }

@@ -1,0 +1,23 @@
+package f34_iflet_else_temp_drop_2024;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+struct D { id: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.id); } }
+fn mk(id: i64) -> Option<D> { return Some(D { id: id }); }
+fn main() {
+    if let None = mk(1) { println!("none"); } else { println!("else branch"); }
+    println!("end");
+}

@@ -1,0 +1,8 @@
+package z62;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.compiler.metaprog;
+fn rem(a: u64, m: u64) -> u64 { a % m }
+fn id(a: u64) -> u64 { a }
+fn main() { println!("{}", rem(1u64 << 62, u64::MAX)); println!("{}", id(1 << 40)); }

@@ -1,0 +1,5 @@
+package y14;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn main() { let xs = [1i64, 2, 3]; let r = xs.iter().fold(0, |acc, x| acc + x); println!("{}", r); }

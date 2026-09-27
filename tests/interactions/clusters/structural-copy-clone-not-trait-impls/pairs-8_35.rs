@@ -1,0 +1,7 @@
+fn dup<T: Copy>(x: T) -> (T, T) { (x, x) }
+fn main() {
+    let opts: [Option<i64>; 2] = [Some(1), None];
+    let v: Vec<Option<i64>> = opts.iter().copied().collect();
+    let (a, b) = dup(Some(3i64));
+    println!("{:?} {:?} {:?}", v, a, b);
+}

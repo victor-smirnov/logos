@@ -1,0 +1,3 @@
+fn f(xs: &[i64]) -> Vec<i64> { xs.iter().map(|x| *x + 1).collect() }
+fn g(xs: &[i64]) -> Result<Vec<i64>, i64> { xs.iter().map(|x| if *x < 0 { Err(*x) } else { Ok(*x) }).collect() }
+fn main() { println!("{} {}", f(&[1, 2]).len(), g(&[1, -2]).is_ok()); }

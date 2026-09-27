@@ -1,0 +1,15 @@
+package m114;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+struct D { v: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.v); } }
+fn main() {
+    let o = Some(D { v: 1 });
+    let x = o.map(|d| d.v * 10);
+    println!("{:?}", x);
+    let s = Some(String::from("abc")).map(|s| s.len());
+    println!("{:?}", s);
+    let f = |d: D| d.v;
+    println!("{}", f(D { v: 2 }));
+}

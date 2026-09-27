@@ -1,0 +1,29 @@
+package u6a;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+enum E { Leaf(i64), Pair(Box<E>, Box<E>), Many(Vec<i64>) }
+fn weight(e: &E) -> i64 {
+    match e {
+        E::Leaf(n) => *n,
+        E::Pair(a, b) => weight(a) * 10 + weight(b),
+        E::Many(v) => match v.as_slice() { [] => 0, [x] => *x, [first, .., last] => first + last },
+    }
+}
+fn summarize(es: &[E]) -> String {
+    match es {
+        [] => String::from("empty"),
+        [E::Leaf(a)] => format!("single leaf {}", a),
+        [E::Leaf(a), rest @ .., E::Leaf(z)] => format!("leaves {} {} with {} between (w {})", a, z, rest.len(), rest.iter().map(weight).sum::<i64>()),
+        [first, .., last] => format!("mixed {} {}", weight(first), weight(last)),
+        [only] => format!("only {}", weight(only)),
+    }
+}
+fn main() {
+    let v: Vec<E> = vec![E::Leaf(1), E::Many(vec![4, 5, 6]), E::Pair(Box::new(E::Leaf(2)), Box::new(E::Leaf(3))), E::Leaf(9)];
+    println!("{}", summarize(&v));
+    println!("{}", summarize(&v.as_slice()[1..]));
+    println!("{}", summarize(&v.as_slice()[..1]));
+    println!("{}", summarize(&v.as_slice()[1..2]));
+    println!("{}", summarize(&[]));
+    let w: Vec<E> = vec![E::Many(vec![]), E::Many(vec![7])];
+    println!("{}", summarize(&w));
+}

@@ -1,0 +1,9 @@
+package h7;
+use logos.std.compiler.metaprog;
+use logos.lang.clone;
+use logos.lang.cmp;
+use logos.std.fmt;
+#[derive_copy]
+struct Poly<const N: usize> { x: i32, id: i32 }
+static TRI: Poly<3> = Poly::<3> { x: 3, id: 1 };
+fn main() { println!("{}", TRI.x); }

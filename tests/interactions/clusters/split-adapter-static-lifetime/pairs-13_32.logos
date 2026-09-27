@@ -1,0 +1,27 @@
+package f52;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.lang.ops;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.collections.btree;
+use logos.std.compiler.metaprog;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.num.error;
+use logos.lang.ptr;
+fn main() {
+    let u = String::from("a bb c");
+    let parts: Vec<String> = u.as_str().split(' ').map(|p| p.to_string()).collect();
+    println!("{}", parts.len());
+}

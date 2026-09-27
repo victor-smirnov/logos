@@ -1,0 +1,5 @@
+fn main() {
+    fn h(n: i32) -> i32 { let mut acc = 0; let mut i = 0; while i < n { acc += i; i += 1; } return acc; }
+    fn k(s: &[i64]) -> i64 { let mut acc: i64 = 0; for v in s.iter() { acc += *v; } return acc; }
+    println!("{} {}", h(5), k(&[1, 2, 3]));
+}

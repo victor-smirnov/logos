@@ -1,0 +1,9 @@
+package z42;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+struct D(i32);
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.0); } }
+fn pick(f: u8, a: D, b: D) -> D { if f == 0 { a } else { b } }
+fn pick2(f: u8, a: D, b: D) -> D { if f == 0 { return a; } return b; }
+fn main() { let r = pick(1, D(1), D(2)); println!("got {}", r.0); let s = pick2(1, D(3), D(4)); println!("got {}", s.0); }

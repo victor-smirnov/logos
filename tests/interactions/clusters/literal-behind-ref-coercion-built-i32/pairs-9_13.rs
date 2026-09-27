@@ -1,0 +1,2 @@
+fn sum(xs: &[i64]) -> i64 { let mut s = 0i64; for x in xs { s += *x; } s }
+fn main() { let xs = [3, 9, 2, 7]; println!("{}", sum(&xs)); }

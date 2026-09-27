@@ -1,0 +1,1 @@
+fn main() { let mut r = (5..); println!("{:?}", r.next()); for (i, x) in (10..).zip([7, 8].iter()) { println!("{} {}", i, x); } }

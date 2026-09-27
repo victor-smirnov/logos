@@ -1,0 +1,10 @@
+package min;
+use logos.mem.collections.vec;
+use logos.mem.boxed;
+trait B { fn n(&self) -> i64; }
+struct X(i64);
+impl B for X { fn n(&self) -> i64 { self.0 } }
+fn main() -> i32 {
+    let v: Vec<Box<dyn B>> = vec![Box::new(X(7))];
+    return v[0].n() as i32;
+}

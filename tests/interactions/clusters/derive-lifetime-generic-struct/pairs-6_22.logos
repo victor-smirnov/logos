@@ -1,0 +1,17 @@
+package p13_Debug;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+#[derive_debug]
+struct Wrap<'a> { p: &'a i32, k: u8 }
+fn main() { let x = 5; let w = Wrap { p: &x, k: 1 }; println!("{} {}", *w.p, w.k); }

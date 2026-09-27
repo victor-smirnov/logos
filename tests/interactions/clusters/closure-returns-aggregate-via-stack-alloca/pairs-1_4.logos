@@ -1,0 +1,25 @@
+package w7;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+fn main() {
+    let v: Vec<i64> = vec![5, 6];
+    let a: Vec<(i64, i64)> = v.iter().map(|e| (*e, 1i64)).collect();
+    println!("{} {} {}", a[0].0, a[0].1, a[1].0);
+    let w: Vec<(i64, i64)> = vec![(1, 2), (3, 4)];
+    println!("{:?}", w);
+}

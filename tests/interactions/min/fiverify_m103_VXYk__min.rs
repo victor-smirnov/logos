@@ -1,0 +1,2 @@
+fn f(x: i64) -> i64 { unsafe { match x { 5 => 1, _ => 2 } } }
+fn main() { println!("{}", f(5)); }

@@ -1,0 +1,6 @@
+fn outer(k: i32) -> i32 {
+    let base = k * 10;
+    fn inner(x: i32) -> i32 { x + base }
+    return inner(1);
+}
+fn main() { println!("{}", outer(2)); }

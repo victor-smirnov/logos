@@ -1,0 +1,9 @@
+use std::collections::HashMap;
+fn main() {
+    let mut m: HashMap<i64, i64> = HashMap::new();
+    *m.entry(1).or_insert(0) += 5;
+    for (k, v) in m.iter_mut() { *v += *k; }
+    let mut s = 0;
+    for (k, v) in m.iter_mut() { s += *k + *v; }
+    println!("{}", s);
+}

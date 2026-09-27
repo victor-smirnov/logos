@@ -1,0 +1,6 @@
+fn main() {
+    let r = 97u8..=122u8;
+    let a: u8 = 101;
+    let x: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+    println!("{} {}", r.contains(&a), x);
+}

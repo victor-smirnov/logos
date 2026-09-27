@@ -1,0 +1,11 @@
+enum Tree<T> { Leaf, Node(Box<Tree<T>>, T) }
+fn ins<T: Copy>(t: Tree<T>, v: T, left: bool) -> Tree<T> {
+    match t {
+        Tree::Leaf => Tree::Node(Box::new(Tree::Leaf), v),
+        Tree::Node(l, x) => {
+            if left { Tree::Node(Box::new(ins(*l, v, left)), x) } else { Tree::Node(l, x) }
+        }
+    }
+}
+fn size<T>(t: &Tree<T>) -> i32 { match t { Tree::Leaf => 0, Tree::Node(l, _) => 1 + size(l) } }
+fn main() { let t: Tree<i32> = Tree::Leaf; let t = ins(ins(t, 1, true), 2, true); println!("{}", size(&t)); }

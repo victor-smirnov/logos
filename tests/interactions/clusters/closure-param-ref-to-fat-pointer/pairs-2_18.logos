@@ -1,0 +1,11 @@
+package p05c;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash; use logos.lang.convert;
+trait Op { fn apply(&self, x: i64) -> i64; fn name(&self) -> String; }
+struct AddN { n: i64 }
+impl Op for AddN { fn apply(&self, x: i64) -> i64 { x + self.n } fn name(&self) -> String { format!("+{}", self.n) } }
+fn main() {
+    let mut ops: Vec<Box<dyn Op>> = Vec::new();
+    ops.push(Box::new(AddN { n: 3 })); ops.push(Box::new(AddN { n: 4 }));
+    let names: Vec<String> = ops.iter().map(|o| o.name()).collect();
+    for n in names.iter() { print!("{},", n); } println!("");
+}

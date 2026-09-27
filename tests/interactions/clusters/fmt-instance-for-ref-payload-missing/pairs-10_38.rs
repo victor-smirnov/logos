@@ -1,0 +1,1 @@
+fn main() { let x = 5i64; let o: Option<&i64> = Some(&x); println!("{:?}", o); }

@@ -1,0 +1,14 @@
+package m7;
+use logos.lang.ops;
+use logos.std.fmt;
+struct N { v: i64 }
+impl N { fn inc(&mut self) { self.v += 1; } }
+struct S { n: N }
+struct W { inner: S }
+impl Deref<S> for W { fn deref(&self) -> &S { return &self.inner; } }
+impl DerefMut<S> for W { fn deref_mut(&mut self) -> &mut S { return &mut self.inner; } }
+fn main() {
+    let mut w = W { inner: S { n: N { v: 1 } } };
+    w.n.inc();
+    println!("{}", w.inner.n.v);
+}

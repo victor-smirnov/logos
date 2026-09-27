@@ -1,0 +1,2 @@
+fn pm(b: u64, e: u32, m: u64) -> u64 { if e == 0 { 1 % m } else { (b % m) * pm(b, e - 1, m) % m } }
+fn main() { println!("{} {} {}", pm(2, 3, u64::MAX), 1 % u64::MAX, 8u64 % u64::MAX); let m = u64::MAX; let one: u64 = 1 % m; println!("{}", one); }

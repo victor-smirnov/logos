@@ -1,0 +1,4 @@
+package m74;
+use logos.std.fmt;
+static TABLE: [i64; 4] = [1, 10, 100, 1000];
+fn main() { println!("{} {}", TABLE[1], TABLE[3]); let f = |i: i64| TABLE[i]; println!("{}", f(2)); }

@@ -1,0 +1,7 @@
+package m2;
+trait Item { fn weight(&self) -> i64; }
+struct N { w: i64 }
+fn main() {
+    let n = N { w: 5 };
+    let r: &dyn Item = &n;
+}

@@ -1,0 +1,11 @@
+
+
+trait C { fn get(&self) -> i64; }
+struct A { n: i64 }
+impl C for A { fn get(&self) -> i64 { self.n } }
+fn main() {
+    let mut a = A { n: 4 };
+    let p: *mut dyn C = &mut a as *mut dyn C;
+    let r: &dyn C = unsafe { &*p };
+    println!("{}", r.get());
+}

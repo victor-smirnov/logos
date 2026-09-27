@@ -1,0 +1,21 @@
+package o7;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+fn g(x: &i64) -> i64 { match x { 1..=5 => 1, _ => 2 } }
+fn h(t: &(i64, i64)) -> i64 { match t { (0..=9, y) => *y, _ => -1 } }
+fn main() { println!("{} {} {} {}", g(&3), g(&9), h(&(4, 8)), h(&(40, 8))); }

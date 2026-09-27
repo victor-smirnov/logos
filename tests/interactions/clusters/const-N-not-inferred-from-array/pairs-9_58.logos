@@ -1,0 +1,5 @@
+package m140;
+use logos.std.fmt;
+struct V<const N: i64> { c: [i64; N] }
+impl<const N: i64> V<N> { fn n(&self) -> i64 { N } }
+fn main() { let a = V { c: [1i64, 2, 3] }; println!("{}", a.n()); }

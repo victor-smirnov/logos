@@ -1,0 +1,7 @@
+trait C { type Item; fn put(&mut self, x: Self::Item); }
+struct R { v: i64 }
+impl C for R { type Item = i64; fn put(&mut self, x: i64) { self.v = x; } }
+struct S { s: bool }
+impl C for S { type Item = bool; fn put(&mut self, x: bool) { self.s = x; } }
+fn f<T: C>(c: &mut T, x: i64) { c.put(x); }
+fn main() { let mut s = S { s: false }; f(&mut s, 3); }

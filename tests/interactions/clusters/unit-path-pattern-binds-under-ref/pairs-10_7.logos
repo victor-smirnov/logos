@@ -1,0 +1,5 @@
+package m59b;
+use logos.std.fmt;
+const K: i32 = 5;
+fn f(o: Option<i32>) -> i32 { match o { Some(K) => 1, Some(_) => 2, None => 3 } }
+fn main() { println!("{} {}", f(Some(4)), f(Some(5))); }

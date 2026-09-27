@@ -1,0 +1,5 @@
+package bx;
+use logos.mem.boxed;
+use logos.std.io;
+use logos.std.fmt;
+fn main() { let b: Box<i64> = Box::new(5); println!("{}", b); }

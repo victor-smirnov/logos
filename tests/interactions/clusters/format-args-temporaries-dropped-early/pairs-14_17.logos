@@ -1,0 +1,29 @@
+package m_fmt_temp_drop;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+use logos.lang.mem;
+struct Tmp(i64);
+impl Drop for Tmp { fn drop(&mut self) { println!("drop {}", self.0); } }
+impl Tmp { fn v(&self) -> i64 { self.0 } }
+fn main() { println!("A {} {}", Tmp(1).v(), Tmp(2).v()); }

@@ -1,0 +1,31 @@
+package f48_iter_max_derived_ord_ice;
+use logos.lang.mem;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+use logos.lang.cell;
+
+#[derive_clone]
+#[derive_copy]
+#[derive_debug]
+#[derive_eq]
+#[derive_partial_ord]
+#[derive_ord]
+struct Pt { x: i64, y: i64 }
+fn main() {
+    let pts: Vec<Pt> = vec![Pt { x: 3, y: 1 }, Pt { x: 1, y: 5 }];
+    let mx = pts.iter().max().unwrap();
+    println!("{} {}", mx.x, mx.y);
+}

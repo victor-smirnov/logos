@@ -1,0 +1,28 @@
+package m_best8;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+trait Metric { fn v(&self) -> i64; }
+struct M { x: i64 }
+impl Metric for M { fn v(&self) -> i64 { self.x } }
+fn main() { let mut ms: Vec<Box<dyn Metric>> = Vec::new(); ms.push(Box::new(M { x: 1 })); ms.push(Box::new(M { x: 7 })); let mut b = &ms[0]; b = &ms[1]; println!("{}", b.v()); }

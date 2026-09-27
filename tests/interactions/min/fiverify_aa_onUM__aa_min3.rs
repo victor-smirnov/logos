@@ -1,0 +1,22 @@
+
+use std::ops::{Add, AddAssign, Index, IndexMut};
+#[derive(Clone, Copy)] struct M { v: i64, p: i64 }
+impl Add for M { type Output = M; fn add(self, o: M) -> M { M { v: self.v + o.v, p: 0 } } }
+impl AddAssign for M { fn add_assign(&mut self, o: M) { self.v += o.v * 10; } }
+struct G { c: Vec<M> }
+impl Index<usize> for G { type Output = M; fn index(&self, i: usize) -> &M { &self.c[i] } }
+impl IndexMut<usize> for G { fn index_mut(&mut self, i: usize) -> &mut M { &mut self.c[i] } }
+fn accum<T: AddAssign + Copy>(dst: &mut T, x: T) { *dst += x; }
+fn main() {
+    let mut e = M { v: 1, p: 0 };
+    accum(&mut e, M { v: 2, p: 0 });
+    let mut v: Vec<M> = Vec::new();
+    v.push(M { v: 1, p: 0 });
+    v[0] += M { v: 2, p: 0 };
+    let mut g = G { c: Vec::new() };
+    g.c.push(M { v: 1, p: 0 });
+    g.c.push(M { v: 1, p: 0 });
+    g.c[0] += M { v: 2, p: 0 };
+    g[1] += M { v: 2, p: 0 };
+    println!("{} {} {} {}", e.v, v[0].v, g.c[0].v, g.c[1].v);
+}

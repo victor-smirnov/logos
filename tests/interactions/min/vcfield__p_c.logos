@@ -1,0 +1,5 @@
+package p_c;
+use logos.std.fmt;
+#[derive_debug]
+struct A { c: i32 }
+fn main() { println!("{:?}", A { c: 1 }); }

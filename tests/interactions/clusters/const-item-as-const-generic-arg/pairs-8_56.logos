@@ -1,0 +1,6 @@
+package f_const_as_const_generic_arg;
+use logos.std.fmt;
+const N: i64 = 4;
+struct Buf<const C: i64> { data: [i64; C] }
+impl<const C: i64> Buf<C> { fn cap(&self) -> i64 { C } }
+fn main() { let b = Buf::<N> { data: [0; N] }; let c: Buf<N> = Buf { data: [1; N] }; println!("{} {}", b.cap(), c.cap()); }

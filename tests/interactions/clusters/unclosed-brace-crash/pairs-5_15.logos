@@ -1,0 +1,4 @@
+package f15_unclosed_brace_crash;
+fn a() -> i64 {
+fn main() {
+}

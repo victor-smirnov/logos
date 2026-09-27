@@ -1,0 +1,2 @@
+package n2;
+fn main() -> i32 { let b: i64 = 3; let x: i64 = loop { match b { 1 => break b, _ => break "c" } }; x as i32 }

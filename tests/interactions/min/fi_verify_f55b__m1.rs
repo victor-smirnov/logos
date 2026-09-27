@@ -1,0 +1,6 @@
+
+fn get(x: i64) -> Option<i64> { if x > 0 { return Some(x); } return None; }
+fn main() {
+    let f = |a: i64| { let v = get(a)?; Some(v * 2) };
+    println!("{:?} {:?}", f(3), f(-1));
+}

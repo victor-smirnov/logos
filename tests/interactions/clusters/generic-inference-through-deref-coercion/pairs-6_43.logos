@@ -1,0 +1,7 @@
+package p01h;
+use logos.mem.collections.vec;
+fn cnt<T>(xs: &[T]) -> i64 { return xs.len(); }
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1, 2, 3];
+    return cnt(&v) as i32;
+}

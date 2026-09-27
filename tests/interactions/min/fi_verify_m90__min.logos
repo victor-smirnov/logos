@@ -1,0 +1,3 @@
+package min;
+use logos.std.fmt;
+fn main() { let x = { fn f() -> i64 { 4 } f() }; println!("{}", x); }

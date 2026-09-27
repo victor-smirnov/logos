@@ -1,0 +1,7 @@
+package r68;
+use logos.std.fmt;
+use logos.lang.ops;
+use logos.mem.collections.vec;
+struct C { v: Vec<i64> }
+impl Index<i64, i64> for C { fn index(&self, k: i64) -> &i64 { &self.v[k] } }
+fn main() { let c = C { v: vec![1i64, 2] }; println!("{}", c["a"]); }

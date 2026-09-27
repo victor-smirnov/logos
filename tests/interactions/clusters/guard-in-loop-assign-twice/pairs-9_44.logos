@@ -1,0 +1,6 @@
+package m110;
+use logos.std.fmt;
+use logos.lang.result;
+enum H { Low(i64), Other(i64) }
+fn f(k: i64) -> Result<i64, H> { if k == 0 { Ok(1) } else if k == 1 { Err(H::Low(2)) } else { Err(H::Other(3)) } }
+fn main() { for k in 0..3i64 { match f(k) { Ok(v) => println!("ok {}", v), Err(H::Low(e)) => println!("low {}", e), Err(H::Other(x)) => println!("other {}", x) } } }

@@ -1,0 +1,22 @@
+package f21_sum_infer_from_return;
+use logos.lang.mem;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+use logos.lang.cell;
+use logos.lang.ops;
+fn f(v: &Vec<i64>) -> i64 { return v.iter().sum(); }
+fn g(v: &Vec<i64>) -> Vec<i64> { return v.iter().map(|x| x * 2).collect(); }
+fn main() { let v: Vec<i64> = vec![1, 2, 3]; println!("{} {:?}", f(&v), g(&v)); }

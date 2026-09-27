@@ -1,0 +1,6 @@
+
+
+struct D(Box<i32>);
+impl Drop for D { fn drop(&mut self) { println!("drop {}", *self.0); } }
+fn pick(f: bool, a: D, b: D) -> D { match f { true => a, false => b } }
+fn main() { let r = pick(false, D(Box::new(1)), D(Box::new(2))); println!("got {}", *r.0); }

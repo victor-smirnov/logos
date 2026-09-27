@@ -1,0 +1,4 @@
+package f_collect_vec_underscore_ice;
+use logos.mem.collections.vec;
+use logos.std.fmt;
+fn main() { let a: Vec<i64> = vec![1, 2]; let v = a.iter().map(|x| x * 2).collect::<Vec<_>>(); println!("{:?}", v); }

@@ -1,0 +1,4 @@
+package m66d;
+use logos.std.fmt;
+fn f(b: u16) -> u16 { b * 300 }
+fn main() { println!("{}", f(255)); }

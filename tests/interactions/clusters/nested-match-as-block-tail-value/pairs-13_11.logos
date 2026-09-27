@@ -1,0 +1,32 @@
+package f45;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.lang.ops;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.collections.btree;
+use logos.std.compiler.metaprog;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.num.error;
+fn f(t: Option<i64>, op: char) -> Result<i64, i32> {
+    return match t {
+        None => Ok(0),
+        Some(b) => { match op { '+' => Ok(b + 1), _ => if b == 0 { Err(1) } else { Ok(b - 1) } } }
+    };
+}
+fn main() {
+    match f(Some(5), '+') { Ok(v) => println!("{}", v), Err(e) => println!("err {}", e) }
+    match f(Some(0), '-') { Ok(v) => println!("{}", v), Err(e) => println!("err {}", e) }
+    match f(Some(9), '-') { Ok(v) => println!("{}", v), Err(e) => println!("err {}", e) }
+}

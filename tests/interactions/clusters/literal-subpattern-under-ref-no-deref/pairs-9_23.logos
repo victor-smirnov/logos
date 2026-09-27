@@ -1,0 +1,5 @@
+package m119;
+use logos.std.fmt;
+use logos.lang.option;
+fn f(o: Option<&i64>) -> i64 { match o { Some(7) => 1, Some(_) => 2, None => 3 } }
+fn main() { let a = 7i64; let b = 8i64; println!("{} {} {}", f(Some(&a)), f(Some(&b)), f(None)); }

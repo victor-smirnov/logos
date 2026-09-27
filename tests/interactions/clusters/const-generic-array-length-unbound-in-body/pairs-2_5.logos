@@ -1,0 +1,6 @@
+package p24c;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash; use logos.lang.convert;
+fn total<const N: i64>(a: [i64; N]) -> i64 { let mut t: i64 = 0; for x in a.iter() { t += *x; } return t; }
+fn n_of<const N: i64>(a: [i64; N]) -> i64 { return N; }
+fn len_of<const N: i64>(a: [i64; N]) -> i64 { return a.len(); }
+fn main() { let l = [2i64, 3, 5]; println!("{} {} {}", total(l), n_of(l), len_of(l)); }

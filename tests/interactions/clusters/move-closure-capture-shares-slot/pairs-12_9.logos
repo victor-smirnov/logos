@@ -1,0 +1,39 @@
+package m11e;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+#[derive_copy]
+struct P { w: i64 }
+fn main() {
+    let mut x = 2i64;
+    let s1 = move || x * 10;
+    x = 7;
+    println!("{} {}", s1(), x);
+    let mut p = P { w: 2 };
+    let s2 = move || p.w * 10;
+    p.w = 7;
+    println!("{} {}", s2(), p.w);
+    let mut q = P { w: 3 };
+    let s3 = move || q.w;
+    q = P { w: 9 };
+    println!("{} {}", s3(), q.w);
+}

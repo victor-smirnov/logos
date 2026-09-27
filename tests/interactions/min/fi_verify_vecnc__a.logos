@@ -1,0 +1,8 @@
+package a;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() {
+    let v = vec![String::from("a"), String::from("b")];
+    println!("{}", v.len());
+}

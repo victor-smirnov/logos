@@ -1,0 +1,29 @@
+package x1;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+struct P { a: i64 }
+struct T(i64, i64);
+fn main() {
+    let s = Rc::new(RefCell::new(P { a: 1 }));
+    s.borrow_mut().a += 5;
+    let t = Rc::new(RefCell::new(T(1, 2)));
+    t.borrow_mut().0 += 5;
+    let b = Box::new(T(3, 4));
+    let r = Rc::new(T(5, 6));
+    println!("{} {} {} {}", s.borrow().a, t.borrow().0, b.1, r.0);
+}

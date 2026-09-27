@@ -1,0 +1,5 @@
+package m141;
+use logos.std.fmt;
+struct V<const N: i64>;
+impl<const N: i64> V<N> { fn n(&self) -> i64 { N } }
+fn main() { let v = V::<4>; println!("{}", v.n()); }

@@ -1,0 +1,19 @@
+package p05za;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+trait N { fn e(&self) -> i64; }
+struct A; struct B;
+impl N for A { fn e(&self) -> i64 { 1 } }
+impl N for B { fn e(&self) -> i64 { 2 } }
+fn main() { let v: Vec<Box<dyn N>> = vec![Box::new(A), Box::new(B)]; let mut s = 0; for x in v.iter() { s += x.e(); } println!("{}", s); }

@@ -1,0 +1,9 @@
+package m1;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str;
+struct Bag { xs: Vec<i64> }
+struct Sq(i64);
+fn main() {
+    let v = vec![Sq(2), Sq(3)];
+    let bags = vec![Bag { xs: vec![2, 9] }, Bag { xs: vec![4] }];
+    println!("{} {}", v[1].0, bags[0].xs[1]);
+}

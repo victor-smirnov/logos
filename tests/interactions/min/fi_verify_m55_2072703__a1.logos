@@ -1,0 +1,10 @@
+package a1;
+use logos.std.fmt;
+trait Shape { fn area(&self) -> i64; }
+struct Ci { r: i64 }
+impl Shape for Ci { fn area(&self) -> i64 { 3 * self.r * self.r } }
+struct Scene { main: Box<dyn Shape> }
+fn main() {
+    let sc = Scene { main: Box::new(Ci { r: 2 }) };
+    println!("{}", sc.main.area());
+}

@@ -1,0 +1,22 @@
+package f17_array_literal_nested_elem_width;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+fn main() {
+    let ps = [(1i64, 2i64), (3, 4)];
+    println!("{:?}", ps);
+    let arrs = [[1i64, 2], [3, 4]];
+    println!("{:?}", arrs);
+    let s: i64 = arrs[1][0] + arrs[1][1] + ps[1].0 + ps[1].1;
+    println!("{}", s);
+}

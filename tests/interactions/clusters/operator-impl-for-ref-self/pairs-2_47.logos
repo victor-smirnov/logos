@@ -1,0 +1,10 @@
+package p04d;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash; use logos.lang.convert;
+
+struct Big { v: i64, s: String }
+impl Mul<i64> for &Big { type Output = Big; fn mul(self, k: i64) -> Big { Big { v: self.v * k, s: self.s.clone() } } }
+fn main() {
+    let a = Big { v: 2, s: String::from("x") };
+    let r = &a * 3;
+    println!("{} {} {}", r.v, r.s, a.v);
+}

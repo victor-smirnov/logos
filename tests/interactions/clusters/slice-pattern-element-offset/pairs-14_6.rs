@@ -1,0 +1,1 @@
+fn main() { let v: Vec<Option<i64>> = vec![Some(1), None, Some(3), Some(4)]; if let [_, .., end] = v.as_slice() { println!("{:?}", end); } if let [_, mid @ .., _] = v.as_slice() { println!("{}", mid.len()); } }

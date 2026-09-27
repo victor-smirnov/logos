@@ -1,0 +1,4 @@
+
+enum K { A, B, C }
+fn k(x: &K) -> i64 { match x { K::A => 1, K::B => 2 } }
+fn main() { let c = K::C; let v = k(&c); println!("{}", v); }

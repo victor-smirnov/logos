@@ -1,0 +1,6 @@
+package t6;
+use logos.std.fmt;
+use logos.lang.cmp;
+#[derive_partial_eq]
+struct M(i64, bool);
+fn main() -> i32 { let a = M(1, true); let b = M(1, false); println!("{} {}", a == b, a == a); return 0; }

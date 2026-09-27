@@ -1,0 +1,6 @@
+struct D { v: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.v); } }
+trait Mk { fn mk() -> Self; fn get(&self) -> i64; }
+impl Mk for D { fn mk() -> Self { D { v: 7 } } fn get(&self) -> i64 { self.v } }
+fn fresh<T: Mk>() -> i64 { T::mk().get() }
+fn main() { println!("{}", fresh::<D>()); println!("{}", D::mk().get()); println!("end"); }

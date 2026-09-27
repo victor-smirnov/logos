@@ -1,0 +1,10 @@
+package m35;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+use logos.std.compiler.metaprog;
+#[derive_debug]
+enum Kind { Round, Poly(i64) }
+#[derive_debug]
+struct P { a: i64, k: Kind }
+fn main() { println!("{:?} {:?}", Kind::Poly(3), P { a: 1, k: Kind::Round }); }

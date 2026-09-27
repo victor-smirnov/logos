@@ -1,0 +1,4 @@
+package min;
+use logos.mem.collections.vec;
+fn fe(v: &Vec<i64>) -> i64 { match v.iter().position(|x| *x == 4) { Some(i) => i, None => -1 } }
+fn main() -> i32 { let v: Vec<i64> = vec![1, 4]; return fe(&v) as i32; }

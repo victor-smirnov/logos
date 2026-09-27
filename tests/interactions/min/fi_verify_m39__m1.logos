@@ -1,0 +1,4 @@
+package m1;
+use logos.std.fmt;
+fn need<T: Clone>(x: T) -> T { x.clone() }
+fn main() { let a = 5; let r = &a; let b = need(r); println!("{}", b); }

@@ -1,0 +1,15 @@
+package p27i;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+fn main() { let mut k = 0u8; let found = loop { for j in 0..10u8 { if j * k > 20 { break; } } k += 1; if k > 5 { break (k, 1); } }; println!("{:?}", found); }

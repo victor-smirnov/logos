@@ -1,0 +1,27 @@
+package m_where_closure3;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+fn sum_by<T, F: Fn(&T) -> i64>(xs: &Vec<T>, f: F) -> i64 { let mut s = 0i64; for x in xs { s += f(x); } return s; }
+fn app<F: Fn(&String) -> i64>(f: F) -> i64 { f(&String::from("xyz")) }
+fn main() { let d: Vec<i64> = vec![3, 4]; println!("{}", sum_by(&d, |x| *x * 2)); println!("{}", app(|s| s.len() as i64)); }

@@ -1,0 +1,10 @@
+trait Shape { fn area(&self) -> i64; }
+struct Ci { r: i64 }
+impl Shape for Ci { fn area(&self) -> i64 { 3 * self.r * self.r } }
+fn main() {
+    let mut v: Vec<Box<dyn Shape>> = Vec::new(); v.push(Box::new(Ci { r: 1 })); v.push(Box::new(Ci { r: 2 }));
+    let mut t = 0i64; for s in v.iter() { t += s.area(); }
+    println!("{}", t);
+    let t2: Vec<i64> = v.iter().map(|s| s.area()).collect();
+    println!("{:?}", t2);
+}

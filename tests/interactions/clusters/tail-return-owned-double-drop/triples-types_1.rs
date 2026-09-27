@@ -1,0 +1,9 @@
+fn mk() -> String { let mut s = String::new(); s.push_str("hello"); s }
+fn mk2() -> String { let s = String::from("world"); s }
+fn mkv() -> Vec<i64> { let v: Vec<i64> = Vec::new(); v }
+fn main() {
+    let a = mk(); println!("{}", a);
+    let b = mk2(); println!("{}", b);
+    let c = mkv(); println!("{}", c.len());
+    let h: String = { let mut b = String::new(); b.push_str("blk"); b }; println!("{}", h);
+}

@@ -1,0 +1,4 @@
+package m;
+use logos.std.fmt;
+fn f() -> u32 { 300 }
+fn main() { let a: u8 = 3; let c = a + f(); let d: i64 = 5; let e: i32 = 6; println!("{} {}", c, d * e); }

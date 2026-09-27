@@ -1,0 +1,23 @@
+#[derive(Debug)]
+enum AppErr { Parse(String), Neg(i64), Empty }
+impl From<std::num::ParseIntError> for AppErr { fn from(_: std::num::ParseIntError) -> Self { AppErr::Parse(String::from("bad int")) } }
+fn parse_one(s: &str) -> Result<i64, AppErr> { let n: i64 = s.trim().parse()?; if n < 0 { return Err(AppErr::Neg(n)); } Ok(n) }
+fn parse_all(xs: &[&str]) -> Result<Vec<i64>, AppErr> { if xs.is_empty() { return Err(AppErr::Empty); } xs.iter().map(|s| parse_one(s)).collect() }
+fn first_even(xs: &[i64]) -> Option<i64> { let f = xs.iter().find(|&&x| x % 2 == 0)?; Some(*f * 100) }
+fn chain(s: &str) -> Option<usize> { let v = parse_one(s).ok()?; let idx = if v > 10 { Some(v as usize) } else { None }?; Some(idx + 1) }
+fn main() {
+    println!("{:?}", parse_all(&["1", " 22 ", "3"]));
+    println!("{:?}", parse_all(&["1", "x"]));
+    println!("{:?}", parse_all(&["1", "-5"]));
+    println!("{:?}", parse_all(&[]));
+    println!("{:?} {:?}", first_even(&[1, 3, 4]), first_even(&[1]));
+    println!("{:?} {:?} {:?}", chain("42"), chain("5"), chain("z"));
+    let total: Result<i64, AppErr> = ["4", "5"].iter().map(|s| parse_one(s)).sum();
+    println!("{:?}", total);
+    let opts = [Some(1), None, Some(3)];
+    let got: Option<Vec<i32>> = opts.iter().cloned().collect();
+    let flat: Vec<i32> = opts.iter().flatten().copied().collect();
+    println!("{:?} {:?}", got, flat);
+    let r = (|| -> Result<i64, AppErr> { let a = parse_one("7")?; let b = parse_one("8")?; Ok(a * b) })();
+    println!("{:?}", r.map(|v| v + 1).unwrap_or_default());
+}

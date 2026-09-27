@@ -1,0 +1,12 @@
+package m103;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+use logos.lang.cmp;
+use logos.std.compiler.metaprog;
+#[derive_partial_eq] #[derive_partial_ord]
+struct V2 { x: i64, y: i64 }
+fn main() {
+    let a = V2 { x: 1, y: 2 }; let b = V2 { x: 1, y: 10 };
+    println!("{} {} {}", a < b, a == b, a.partial_cmp(&b) == Some(Ordering::Less));
+}

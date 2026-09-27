@@ -1,0 +1,17 @@
+package u19c;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.str;
+use logos.lang.mem;
+use logos.std.compiler.metaprog;
+fn main() { let mut a: [i64; 3] = [1, 2, 3]; { let sl: &mut [i64] = &mut a[..2]; sl[0] += 10; } let v = &mut a[1..]; v[1] = 7; println!("{:?}", a); }

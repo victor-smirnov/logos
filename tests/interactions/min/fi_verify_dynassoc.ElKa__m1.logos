@@ -1,0 +1,6 @@
+package m1;
+trait P { type Out; fn get(&self) -> Self::Out; }
+struct C { n: i64 }
+impl P for C { type Out = i64; fn get(&self) -> i64 { self.n } }
+fn one(p: &dyn P<Out = i64>) -> i64 { p.get() }
+fn main() { let c = C { n: 2 }; println!("{}", one(&c)); }

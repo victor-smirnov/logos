@@ -1,0 +1,8 @@
+
+
+
+trait Dim { type Elem: Default; }
+struct D2;
+impl Dim for D2 { type Elem = i64; }
+fn z<D: Dim>() -> D::Elem { D::Elem::default() }
+fn main() { let x: i64 = z::<D2>(); println!("{}", x); }

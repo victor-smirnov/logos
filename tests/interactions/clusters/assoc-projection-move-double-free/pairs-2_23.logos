@@ -1,0 +1,11 @@
+package p09m;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash; use logos.lang.convert;
+trait Maker { type Out; }
+struct SM { pre: String }
+impl Maker for SM { type Out = String; }
+struct Pair<M: Maker> { m: M, a: M::Out, b: M::Out }
+fn split<M: Maker>(p: Pair<M>) -> M::Out { let a = p.a; return a; }
+fn main() {
+    let o = split(Pair { m: SM { pre: String::from("m") }, a: String::from("aa"), b: String::from("bb") });
+    println!("{}", o);
+}

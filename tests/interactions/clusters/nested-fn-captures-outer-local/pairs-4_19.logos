@@ -1,0 +1,5 @@
+package u29_bad1;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+fn main() { let k = 5i64; fn inner() -> i64 { k + 1 } println!("{}", inner()); }

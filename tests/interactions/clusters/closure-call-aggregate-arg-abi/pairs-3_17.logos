@@ -1,0 +1,12 @@
+package f_fnonce_call_self_field_arg;
+use logos.std.fmt; use logos.mem.fmt; use logos.std.io; use logos.std.compiler.metaprog; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.iter; use logos.lang.option; use logos.lang.result; use logos.lang.cmp; use logos.lang.ops; use logos.mem.boxed; use logos.lang.rc; use logos.lang.str; use logos.lang.clone;
+struct Acc { total: i64, log: Vec<i64> }
+impl Acc {
+    fn consume<F: FnOnce(Vec<i64>) -> i64>(self, f: F) -> i64 { f(self.log) }
+}
+fn main() {
+    let mut a = Acc { total: 0, log: Vec::new() };
+    a.log.push(3); a.log.push(4);
+    let n = a.consume(|v: Vec<i64>| { let mut s: i64 = 0; for x in v.iter() { s += *x; } s });
+    println!("{}", n);
+}

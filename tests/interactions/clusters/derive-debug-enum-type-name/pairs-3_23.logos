@@ -1,0 +1,28 @@
+package u14e;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.str;
+use logos.lang.mem;
+use logos.std.compiler.metaprog;
+#[derive_clone] #[derive_copy] #[derive_partial_eq] #[derive_debug]
+enum Sg { Pos, Neg, Zero }
+#[derive_debug]
+enum E { A(i64), B { x: i64, y: i64 }, C }
+impl Mul for Sg { type Output = Sg; fn mul(self, o: Sg) -> Sg { if self == Sg::Zero || o == Sg::Zero { Sg::Zero } else if self == o { Sg::Pos } else { Sg::Neg } } }
+impl Not for Sg { type Output = Sg; fn not(self) -> Sg { match self { Sg::Pos => Sg::Neg, Sg::Neg => Sg::Pos, Sg::Zero => Sg::Zero } } }
+fn main() {
+    println!("{}", Sg::Neg * Sg::Neg == Sg::Pos);
+    println!("{}", Sg::Pos * Sg::Neg == Sg::Neg);
+    println!("{}", !Sg::Pos == Sg::Neg);
+    println!("{:?} {:?} {:?}", E::A(1), E::B { x: 2, y: 3 }, E::C);
+}

@@ -1,0 +1,15 @@
+package p13h;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+fn main() { let a = [1, 2]; let r: Vec<&i32> = vec![&a[0], &a[1]]; println!("{:?}", r); }

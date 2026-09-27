@@ -1,0 +1,3 @@
+struct Rect<T> { w: T }
+impl<T> Rect<T> { fn tag() -> i64 { 9 } fn full(&self) -> i64 { Self::tag() + 1 } }
+fn main() { let r = Rect { w: 3i32 }; println!("{} {}", r.full(), r.w); }

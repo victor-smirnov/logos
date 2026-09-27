@@ -1,0 +1,7 @@
+fn main() {
+    let grid = [[1i64, 2, 3, 4], [5i64, 6, 7, 8]];
+    for row in grid.iter() { let c = 2; print!("{} {} {} | ", row[2], row[c], row[0]); }
+    println!();
+    let r: &[i64; 4] = &grid[1];
+    println!("{} {}", r[2], grid[1][2]);
+}

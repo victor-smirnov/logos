@@ -1,0 +1,9 @@
+package m2;
+use logos.lang.range;
+use logos.lang.iter;
+use logos.lang.option;
+fn main() -> i32 {
+    let mut r = 10..;
+    let v = r.next();
+    match v { Some(x) => return x, None => return 99 }
+}

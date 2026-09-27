@@ -1,0 +1,6 @@
+package c2;
+use logos.std.fmt;
+enum E<T> { A(T), B }
+impl<T> E<T> { fn tag(&self) -> i32 { 1 } }
+fn g<T>(w: &E<T>) -> i32 { w.tag() }
+fn main() -> i32 { 0 }

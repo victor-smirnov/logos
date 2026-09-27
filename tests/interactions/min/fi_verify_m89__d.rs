@@ -1,0 +1,4 @@
+struct V { x: i64 }
+trait T<R> { fn f(self, o: R) -> i64; }
+impl<'a> T<&'a V> for &'a V { fn f(self, o: &V) -> i64 { self.x + o.x } }
+fn main() { let a = V { x: 1 }; let b = V { x: 2 }; println!("{}", (&a).f(&b)); }

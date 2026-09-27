@@ -1,0 +1,23 @@
+package am3;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+use logos.std.fmt;
+#[derive_copy]
+struct M(i64);
+impl Mul for M { type Output = M; fn mul(self, o: M) -> M { return M(self.0 * o.0); } }
+fn main() { let ms: Vec<M> = vec![M(2), M(3), M(4)]; let p = ms.iter().copied().fold(M(1), |a, b| a * b); println!("{}", p.0); }

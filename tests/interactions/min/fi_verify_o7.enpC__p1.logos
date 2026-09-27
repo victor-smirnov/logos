@@ -1,0 +1,4 @@
+package p1;
+use logos.std.fmt;
+fn h(t: &(i64, i64)) { println!("{} {}", t.0, t.1); }
+fn main() { h(&(4, 8)); }

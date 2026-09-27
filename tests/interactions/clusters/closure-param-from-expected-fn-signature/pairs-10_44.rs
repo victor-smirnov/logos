@@ -1,0 +1,3 @@
+fn ap<F: Fn(i64) -> i64>(x: i64, f: F) -> i64 { f(x) }
+fn mk(n: i64) -> impl Fn(i64) -> i64 { move |x| x + n }
+fn main() { let k = 10i64; println!("{} {}", ap(3, |x| x * k), mk(4)(5)); }

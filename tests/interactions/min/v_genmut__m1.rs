@@ -1,0 +1,3 @@
+trait C { fn put(&mut self); }
+fn g<T: C>(c: &T) { c.put(); }
+fn main() {}

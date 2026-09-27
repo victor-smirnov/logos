@@ -1,0 +1,9 @@
+
+
+
+fn main() {
+    let v: Vec<i64> = vec![4, 5, 6, 7];
+    let a: &[i64] = &v[..];
+    let b: &[i64] = &v[1..3];
+    println!("{} {} {}", a.len(), b.len(), b[0]);
+}

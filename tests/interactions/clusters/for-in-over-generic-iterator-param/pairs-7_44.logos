@@ -1,0 +1,20 @@
+package m19b;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+fn total<I: Iterator<i64>>(it: I) -> i64 { let mut s = 0i64; for v in it { s += v; } return s; }
+fn main() { println!("{}", total(vec![1i64, 2, 3].into_iter())); }

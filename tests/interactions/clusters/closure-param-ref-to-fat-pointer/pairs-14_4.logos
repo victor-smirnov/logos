@@ -1,0 +1,28 @@
+package m_map_dyn;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+trait Op { fn apply(&self, x: i64) -> i64; }
+struct AddN(i64);
+impl Op for AddN { fn apply(&self, x: i64) -> i64 { x + self.0 } }
+fn main() { let a = AddN(2); let b = AddN(5); let refs: Vec<&dyn Op> = vec![&a, &b]; let outs: Vec<i64> = refs.iter().map(|o| o.apply(1)).collect(); println!("{:?}", outs); }

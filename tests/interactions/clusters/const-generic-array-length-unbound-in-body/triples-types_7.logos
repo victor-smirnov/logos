@@ -1,0 +1,11 @@
+package m34;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+fn s<const N: usize>(a: &[i64; N]) -> i64 { let r: i64 = a.iter().sum(); r }
+fn l<const N: usize>(a: &[i64; N]) -> i64 { a.iter().count() }
+fn main() {
+    let a = [1i64, 2, 3];
+    println!("{} {}", s(&a), l(&a));
+    let b = [[1u8, 2, 3], [4, 5, 6]];
+    let c = [[1i64, 2, 3], [4, 5, 6]];
+    println!("{} {} {}", b[1][2], c[1][2], b[0][1]);
+}

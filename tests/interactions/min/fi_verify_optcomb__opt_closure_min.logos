@@ -1,0 +1,8 @@
+package opt_closure_min;
+use logos.lang.option;
+fn main() -> i32 {
+    let k = 10i64;
+    let a: Option<i64> = None;
+    let v = a.unwrap_or_else(|| k + 1);
+    if v == 11 { return 0; } else { return 1; }
+}

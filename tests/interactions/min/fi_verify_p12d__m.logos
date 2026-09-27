@@ -1,0 +1,8 @@
+package m;
+use logos.std.fmt;
+struct D { id: i32 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.id); } }
+fn f(d: &D) -> i32 { d.id }
+fn main() {
+    println!("t {}", f(&D { id: 2 }));
+}

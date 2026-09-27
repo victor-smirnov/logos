@@ -1,0 +1,4 @@
+use std::ops::Mul;
+struct M { v: i64 }
+impl<'a> Mul<&'a M> for &'a M { type Output = i64; fn mul(self, o: &M) -> i64 { self.v * o.v } }
+fn main() { let a = M { v: 3 }; let b = M { v: 4 }; println!("{}", &a * &b); }

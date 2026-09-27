@@ -1,0 +1,5 @@
+fn second(s: &[i64]) -> i64 { let p = s.as_ptr(); unsafe { *p.add(1) as i64 } }
+fn main() {
+    let d = [5i64, 7];
+    println!("{}", second(&d));
+}

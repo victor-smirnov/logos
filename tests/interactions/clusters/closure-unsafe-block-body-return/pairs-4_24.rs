@@ -1,0 +1,7 @@
+fn main() {
+    let mut x = 1i64;
+    let p: *mut i64 = &mut x;
+    let f = |k: i64| unsafe { *p += k; };
+    f(5);
+    println!("{}", x);
+}

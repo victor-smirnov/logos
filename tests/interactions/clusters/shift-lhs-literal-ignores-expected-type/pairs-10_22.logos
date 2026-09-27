@@ -1,0 +1,3 @@
+package m80b;
+use logos.std.fmt;
+fn main() { let b: u64 = 1 << 40; println!("{} {}", b, b as u32); }

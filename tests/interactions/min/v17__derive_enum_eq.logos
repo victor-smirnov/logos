@@ -1,0 +1,6 @@
+package derive_enum_eq;
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+#[derive_partial_eq]
+enum Dir { N, E }
+fn main() -> i32 { if Dir::N == Dir::E { return 1i32; } return 0i32; }

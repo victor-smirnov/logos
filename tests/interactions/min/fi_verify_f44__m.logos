@@ -1,0 +1,8 @@
+package m;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let a: Vec<i64> = vec![1, 2];
+    let b: Vec<i64> = vec![1, 2];
+    if a == b { return 0; }
+    return 1;
+}

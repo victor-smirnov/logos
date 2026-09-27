@@ -1,0 +1,26 @@
+package m17;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+struct Noisy { id: i64 }
+impl Drop for Noisy { fn drop(&mut self) { println!("drop {}", self.id); } }
+fn main() {
+    let n = Noisy { id: 2 };
+    let o = move || n;
+    let m = o();
+    println!("got {}", m.id);
+}

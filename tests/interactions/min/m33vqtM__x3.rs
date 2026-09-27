@@ -1,0 +1,3 @@
+struct T { x: i64 }
+fn g() -> T { let l = Some(Box::new(T { x: 5 })); match l { None => T { x: 0 }, Some(n) => *n } }
+fn main() { println!("{}", g().x); }

@@ -1,0 +1,7 @@
+package m129;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct Acc { hist: Vec<i64> }
+impl Acc { fn consume(self) -> Vec<i64> { return self.hist; } }
+struct W { inner: Box<Acc> }
+fn main() { let b = Box::new(Acc { hist: vec![3i64] }); let w0 = b.consume(); println!("{:?}", w0); let w = W { inner: Box::new(Acc { hist: vec![4i64] }) }; let v = w.inner.consume(); println!("{:?}", v); }

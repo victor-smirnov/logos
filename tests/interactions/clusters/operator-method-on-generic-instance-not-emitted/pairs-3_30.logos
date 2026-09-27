@@ -1,0 +1,12 @@
+package f_generic_gt_partial_cmp;
+use logos.std.fmt; use logos.mem.fmt; use logos.std.io; use logos.std.compiler.metaprog; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.iter; use logos.lang.option; use logos.lang.result; use logos.lang.cmp; use logos.lang.ops; use logos.mem.boxed; use logos.lang.rc; use logos.lang.str; use logos.lang.clone;
+
+#[derive_clone] #[derive_copy]
+struct M { v: i64, p: i64 }
+impl PartialEq for M { fn eq(&self, o: &M) -> bool { self.v == o.v } }
+impl PartialOrd for M { fn partial_cmp(&self, o: &M) -> Option<Ordering> { if self.v < o.v { Some(Ordering::Less) } else if self.v > o.v { Some(Ordering::Greater) } else { Some(Ordering::Equal) } } }
+fn bigger<T: PartialOrd>(a: T, b: T) -> bool { a > b }
+fn main() {
+    println!("{}", bigger(M { v: 3, p: 0 }, M { v: 2, p: 0 }));
+    println!("{}", M { v: 3, p: 0 } > M { v: 2, p: 0 });
+}

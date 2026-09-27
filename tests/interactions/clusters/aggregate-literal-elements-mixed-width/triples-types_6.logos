@@ -1,0 +1,8 @@
+package m35;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+fn main() {
+    let c = [[1i64, 2, 3], [4i64, 5, 6]];
+    let d = [[1i64, 2, 3], [4, 5, 6]];
+    let e: [[i64; 3]; 2] = [[1, 2, 3], [4, 5, 6]];
+    println!("{} {} {}", c[1][2], d[1][2], e[1][2]);
+}

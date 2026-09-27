@@ -1,0 +1,29 @@
+package m_parse_q_infer;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+use logos.lang.mem;
+use logos.lang.num.error;
+use logos.lang.num.parse;
+fn f(s: &str) -> Result<i64, ParseIntError> { let n: i64 = s.parse()?; Ok(n + 1) }
+fn main() { println!("{:?}", f("41").is_ok()); }

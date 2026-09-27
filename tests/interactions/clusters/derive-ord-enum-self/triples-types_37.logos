@@ -1,0 +1,8 @@
+package m50;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+#[derive_partial_eq]
+#[derive_eq]
+#[derive_partial_ord]
+#[derive_ord]
+enum Pri { Low, Mid(i64) }
+fn main() { println!("{} {}", Pri::Low < Pri::Mid(1), Pri::Mid(2) > Pri::Mid(1)); }

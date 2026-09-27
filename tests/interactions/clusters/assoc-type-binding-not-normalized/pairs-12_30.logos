@@ -1,0 +1,30 @@
+package m06b;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+trait Shape { type Unit; fn unit(&self) -> Self::Unit; }
+struct Tri;
+impl Shape for Tri { type Unit = i64; fn unit(&self) -> i64 { return 7; } }
+fn doubled(s: impl Shape<Unit = i64>) -> i64 { return s.unit() * 2; }
+fn gn<S: Shape<Unit = i64>>(s: S) -> i64 { return s.unit() * 3; }
+fn ret() -> impl Shape<Unit = i64> { return Tri; }
+fn main() { println!("{} {} {}", doubled(Tri), gn(Tri), ret().unit() + 1); }

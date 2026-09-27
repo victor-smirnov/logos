@@ -1,0 +1,5 @@
+package f_const_generic_array_iter;
+use logos.std.fmt;
+fn total<const K: i64>(xs: [i64; K]) -> i64 { let mut s = 0i64; for x in xs.iter() { s += *x; } return s + xs.len() * 100; }
+fn total_idx<const K: i64>(xs: [i64; K]) -> i64 { let mut s = 0i64; let mut i = 0; while i < K { s += xs[i]; i += 1; } return s; }
+fn main() { let a: [i64; 3] = [1, 2, 3]; println!("{} {}", total(a), total_idx(a)); }

@@ -1,0 +1,5 @@
+package x5i;
+use logos.std.fmt;
+fn pw(a: &[i32], b: &[char]) -> Vec<(i32, char)> { let r: Vec<(i32, char)> = a.iter().zip(b.iter()).map(|(x, y)| (*x, *y)).collect(); return r; }
+fn pg<T: Copy, U: Copy>(a: &[T], b: &[U]) -> Vec<(T, U)> { let r: Vec<(T, U)> = a.iter().zip(b.iter()).map(|(x, y)| (*x, *y)).collect(); return r; }
+fn main() { let v = pw(&[1, 2], &['x', 'y']); println!("{} {}", v.len(), v[1].1); let w = pg(&[1, 2], &['x', 'y']); println!("{}", w[0].1); }

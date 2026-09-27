@@ -1,0 +1,5 @@
+package min;
+use logos.std.fmt;
+use logos.lang.result;
+use logos.lang.str;
+fn main() { let p: i32 = "42".parse().unwrap(); println!("{}", p + 1); }

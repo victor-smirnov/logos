@@ -1,0 +1,4 @@
+package x8a;
+use logos.std.fmt;
+fn pw(a: i32) -> Vec<i32> { let mut v: Vec<i32> = Vec::new(); v.push(a); v }
+fn main() { let v = pw(2); println!("{} {}", v.len(), v[0]); }

@@ -1,0 +1,11 @@
+package m;
+use logos.mem.collections.vec;
+use logos.lang.option;
+fn f(items: &Vec<u16>) -> Option<u16> {
+    let mx = items.iter().max()?;
+    return Some(*mx);
+}
+fn main() -> i32 {
+    let v: Vec<u16> = vec![4u16, 9, 2];
+    match f(&v) { Some(x) => return x as i32, None => return 1 }
+}

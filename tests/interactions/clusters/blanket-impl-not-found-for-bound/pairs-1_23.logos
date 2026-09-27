@@ -1,0 +1,24 @@
+package m3;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+trait Shape { fn area(&self) -> i64; }
+trait Named: Shape { fn tag(&self) -> i64 { self.area() + 1 } }
+struct Rect<T> { w: T }
+impl<T> Shape for Rect<T> { fn area(&self) -> i64 { 5 } }
+impl Named for Rect<i32> {}
+fn main() { let r = Rect { w: 1i32 }; println!("{} {}", r.tag(), r.w); }

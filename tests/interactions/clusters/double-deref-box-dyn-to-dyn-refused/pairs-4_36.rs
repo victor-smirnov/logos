@@ -1,0 +1,12 @@
+trait Shape { fn area(&self) -> i64; }
+struct Circle { r: i64 }
+impl Shape for Circle { fn area(&self) -> i64 { 3 * self.r * self.r } }
+fn f(s: &dyn Shape) -> i64 { s.area() }
+fn main() {
+    let b: Box<dyn Shape> = Box::new(Circle { r: 2 });
+    println!("{}", f(&*b));
+    let rb: &Box<dyn Shape> = &b;
+    let d: &dyn Shape = &**rb;
+    println!("{}", d.area());
+    println!("{}", f(&**rb));
+}

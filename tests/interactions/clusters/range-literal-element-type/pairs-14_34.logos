@@ -1,0 +1,27 @@
+package m_range_usize;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+fn f(i: usize) -> usize { i * 2 }
+fn g(i: u8) -> u8 { i + 1 }
+fn main() { let mut s: usize = 0; for i in 0usize..3 { s += f(i); } let n: usize = 4; for i in 0..n { s += f(i); } for j in 1u8..3 { s += g(j) as usize; } println!("{}", s); }

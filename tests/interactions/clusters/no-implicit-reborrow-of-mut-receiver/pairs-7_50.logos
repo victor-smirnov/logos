@@ -1,0 +1,28 @@
+package m8b;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+trait S { fn nx(&mut self) -> Option<i64>; }
+struct C { c: i64 }
+impl S for C { fn nx(&mut self) -> Option<i64> { if self.c > 0 { self.c -= 1; return Some(self.c); } return None; } }
+fn main() {
+    let mut bx: Box<dyn S> = Box::new(C { c: 2 });
+    let b: &mut Box<dyn S> = &mut bx;
+    let a = b.nx();
+    let c = b.nx();
+    println!("{:?} {:?}", a, c);
+}

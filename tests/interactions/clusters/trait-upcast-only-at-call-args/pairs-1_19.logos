@@ -1,0 +1,33 @@
+package e1;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+trait Base { fn v(&self) -> i64; }
+trait Ext: Base { fn w(&self) -> i64; }
+struct A { x: i64 }
+impl Base for A { fn v(&self) -> i64 { self.x } }
+impl Ext for A { fn w(&self) -> i64 { self.x + 1 } }
+fn up(p: &dyn Ext) -> &dyn Base { p }
+fn main() {
+    let a = A { x: 3 };
+    let e: &dyn Ext = &a;
+    let b: &dyn Base = e;
+    println!("{} {} {}", b.v(), up(e).v(), e.w());
+    let be: Box<dyn Ext> = Box::new(A { x: 5 });
+    let bb: Box<dyn Base> = be;
+    println!("{}", bb.v());
+}

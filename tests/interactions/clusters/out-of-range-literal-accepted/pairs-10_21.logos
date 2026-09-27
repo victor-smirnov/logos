@@ -1,0 +1,4 @@
+package r27;
+use logos.std.fmt;
+const K: u8 = 300;
+fn main() { println!("{}", K); }

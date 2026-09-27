@@ -1,0 +1,7 @@
+package z5;
+use logos.std.compiler.metaprog;
+#[derive_clone]
+struct V { c: i64, d: i64 }
+#[derive_clone]
+struct W { c: i64 }
+fn main() -> i32 { let a = V { c: 3, d: 1 }; let b = a.clone(); let w = W { c: 1 }; let x = w.clone(); return b.c as i32; }

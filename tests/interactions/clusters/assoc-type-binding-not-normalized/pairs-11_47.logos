@@ -1,0 +1,6 @@
+package z3;
+use logos.std.fmt;
+use logos.std.compiler.metaprog;
+#[derive_clone]
+struct V { c: i64 }
+fn main() -> i32 { let a = V { c: 3 }; let b = a.clone(); return b.c as i32; }

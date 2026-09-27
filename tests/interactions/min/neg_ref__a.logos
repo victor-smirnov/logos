@@ -1,0 +1,6 @@
+package a;
+use logos.std.fmt;
+use logos.lang.ops;
+struct P { x: i64 }
+impl Neg for &P { type Output = i64; fn neg(self: &P) -> i64 { 0 - self.x } }
+fn main() { let p = P { x: 4 }; let n = -&p; println!("{}", n); }

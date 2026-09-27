@@ -1,0 +1,46 @@
+package u27a;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+fn to_hex(mut n: u32) -> String { if n == 0 { return String::from("0"); } let mut s = String::new(); while n > 0 { let d = (n % 16) as u8; let c = if d < 10 { (48u8 + d) as char } else { (97u8 + d - 10) as char }; s.insert(0, c); n /= 16; } return s; }
+fn digit_sum(s: &str) -> u64 { let mut t = 0u64; for c in s.chars() { if let Some(d) = c.to_digit(10) { t += d as u64; } } return t; }
+fn main() {
+    println!("{} {} {}", to_hex(255), to_hex(0), to_hex(48879));
+    println!("{}", digit_sum("a1b2c39"));
+    let n: i64 = -12345;
+    let s = n.to_string();
+    println!("{} {}", s, s.len());
+    let parsed: i32 = "  42 ".trim().parse::<i32>().unwrap();
+    let bad = "4x".parse::<i64>();
+    let over = "3000000000".parse::<i32>();
+    println!("{} {} {}", parsed + 1, bad.is_err(), over.is_err());
+    println!("{:5}|{:<5}|{:05}|{:+}|{:x}|{:X}|{:o}|{:b}", 42, 42, 42, 42, 255, 255, 8, 5);
+    println!("{:?} {:?} {}", 'a', "q\"t", '\u{e9}');
+    let bytes = "héllo".as_bytes();
+    println!("{} {} {}", bytes.len(), "héllo".chars().count(), bytes[1]);
+    let c = 'A';
+    let shifted = ((c as u8) + 2) as char;
+    let mut word = String::new();
+    for i in 0..5u8 { word.push((97u8 + i * 2) as char); }
+    println!("{} {} {}", shifted, word, word.as_str().to_uppercase());
+    println!("{}", format!("{}-{}", u8::MAX, i16::MIN));
+    println!("{}", (-7i8) as u8 as char as u32);
+    let big = u64::MAX;
+    println!("{} {}", big, big.to_string().len());
+    println!("{}", i128::MAX);
+    println!("{:.3} {:e}", 1.0f64 / 3.0, 1234.5f64);
+}

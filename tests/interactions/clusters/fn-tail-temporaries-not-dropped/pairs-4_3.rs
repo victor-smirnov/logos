@@ -1,0 +1,7 @@
+struct G { d: i64 }
+impl Drop for G { fn drop(&mut self) { println!("drop {}", self.d); } }
+fn mk(d: i64) -> G { G { d } }
+fn d4(n: i64) -> Option<i64> { let _g = mk(n); Some(n + mk(10 + n).d) }
+fn d5(n: i64) -> i64 { let _g = mk(n); n + mk(10 + n).d }
+fn d6(n: i64) -> i64 { let _g = mk(n); return n + mk(10 + n).d; }
+fn main() { println!("{:?}", d4(1)); println!("{}", d5(2)); println!("{}", d6(3)); }

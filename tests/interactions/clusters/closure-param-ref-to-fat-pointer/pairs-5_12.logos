@@ -1,0 +1,24 @@
+package f12_closure_ref_box_dyn;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+trait Item { fn weight(&self) -> i64; }
+struct A { w: i64 }
+impl Item for A { fn weight(&self) -> i64 { return self.w; } }
+fn g(x: &Box<dyn Item>) -> i64 { return x.weight(); }
+fn main() {
+    let b: Box<dyn Item> = Box::new(A { w: 5 });
+    println!("{}", g(&b));
+    let c = |x: &Box<dyn Item>| -> i64 { return x.weight(); };
+    println!("{}", c(&b));
+}

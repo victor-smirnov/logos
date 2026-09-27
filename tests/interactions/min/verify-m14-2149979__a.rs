@@ -1,0 +1,3 @@
+trait T { fn f(&self) -> i64; }
+impl T for (i64, i64) { fn f(&self) -> i64 { 1 } }
+fn main() { }

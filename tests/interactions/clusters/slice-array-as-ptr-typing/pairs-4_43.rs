@@ -1,0 +1,8 @@
+fn first(s: &[i64]) -> i64 { let p: *const i64 = s.as_ptr(); unsafe { *p.add(1) } }
+fn main() {
+    let d = [5i64, 7];
+    println!("{}", first(&d));
+    let ptrs: Vec<*const i64> = d.iter().map(|x| x as *const i64).collect();
+    let s: i64 = ptrs.iter().map(|&p| unsafe { *p }).sum();
+    println!("{}", s);
+}

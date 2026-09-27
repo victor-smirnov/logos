@@ -1,0 +1,24 @@
+package u0f;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.str;
+use logos.lang.mem;
+use logos.std.compiler.metaprog;
+#[derive_clone] #[derive_copy]
+enum Op { Add(i64), Mul(i64) }
+fn main() {
+    let ops = [Op::Add(5), Op::Mul(3), Op::Add(1)];
+    for op in &ops { match op { Op::Add(k) => println!("add {}", k), Op::Mul(k) => println!("mul {}", k) } }
+    for i in 0..3 { match ops[i] { Op::Add(k) => println!("add {}", k), Op::Mul(k) => println!("mul {}", k) } }
+    for op in ops.iter() { match op { Op::Add(k) => println!("add {}", k), Op::Mul(k) => println!("mul {}", k) } }
+}

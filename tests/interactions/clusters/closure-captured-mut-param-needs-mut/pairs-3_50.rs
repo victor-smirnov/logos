@@ -1,0 +1,36 @@
+struct Tree { v: i64, kids: Vec<Tree> }
+fn leaf(v: i64) -> Tree { Tree { v, kids: Vec::new() } }
+fn sum(t: &Tree) -> i64 { t.v + t.kids.iter().map(|k| sum(k)).sum::<i64>() }
+fn depth(t: &Tree) -> i64 { 1 + t.kids.iter().map(|k| depth(k)).max().unwrap_or(0) }
+fn values(t: &Tree) -> Vec<i64> { let mut out = vec![t.v]; for k in t.kids.iter() { out.extend(values(k)); } out }
+fn evens_at_depth(t: &Tree, d: i64, out: &mut Vec<(i64, i64)>) { if t.v % 2 == 0 { out.push((d, t.v)); } for k in t.kids.iter() { evens_at_depth(k, d + 1, out); } }
+struct Countdown { n: i64 }
+impl Iterator for Countdown { type Item = i64; fn next(&mut self) -> Option<i64> { if self.n <= 0 { None } else { self.n -= 1; Some(self.n + 1) } } }
+fn fib(n: i64) -> i64 { if n < 2 { n } else { fib(n - 1) + fib(n - 2) } }
+fn perms(xs: &[i64]) -> Vec<Vec<i64>> {
+    if xs.len() <= 1 { let one: Vec<Vec<i64>> = vec![xs.to_vec()]; return one; }
+    let mut out: Vec<Vec<i64>> = Vec::new();
+    for i in 0..xs.len() {
+        let mut rest = xs.to_vec(); let h = rest.remove(i);
+        for mut p in perms(&rest) { p.insert(0, h); out.push(p); }
+    }
+    out
+}
+fn main() {
+    let t = Tree { v: 1, kids: vec![Tree { v: 2, kids: vec![leaf(4), leaf(5)] }, Tree { v: 3, kids: vec![Tree { v: 6, kids: vec![leaf(8)] }] }] };
+    println!("{} {}", sum(&t), depth(&t));
+    println!("{:?}", values(&t));
+    let mut ev: Vec<(i64, i64)> = Vec::new();
+    evens_at_depth(&t, 0, &mut ev);
+    println!("{:?}", ev);
+    let fs: Vec<i64> = Countdown { n: 10 }.filter(|n| n % 3 == 0).map(|n| fib(n)).collect();
+    println!("{:?}", fs);
+    let z: i64 = Countdown { n: 4 }.zip(Countdown { n: 6 }.skip(1)).map(|(a, b)| a * b).sum();
+    println!("{}", z);
+    let ps = perms(&[1, 2, 3]);
+    println!("{} {:?} {:?}", ps.len(), ps[0], ps[5]);
+    let rev: Vec<i64> = values(&t).into_iter().rev().take(3).collect();
+    println!("{:?}", rev);
+    for (i, v) in (Countdown { n: 3 }).enumerate() { print!("{}:{} ", i, fib(v + 5)); }
+    println!("");
+}

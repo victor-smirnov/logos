@@ -1,0 +1,4 @@
+package m115;
+use logos.std.fmt;
+fn len(s: &str) -> i64 { s.len() }
+fn main() { let items = ["ab", "cde"]; let mut t = 0i64; for s in items.iter() { t += len(s); } println!("{}", t); }

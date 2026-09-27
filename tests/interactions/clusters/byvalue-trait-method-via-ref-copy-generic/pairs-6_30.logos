@@ -1,0 +1,8 @@
+package p02e;
+trait Widen { fn widen(self) -> i64; }
+impl Widen for u8 { fn widen(self) -> i64 { return self as i64; } }
+fn one<T: Widen + Copy>(x: &T) -> i64 { return x.widen(); }
+fn main() -> i32 {
+    let b = 7u8;
+    return one(&b) as i32;
+}

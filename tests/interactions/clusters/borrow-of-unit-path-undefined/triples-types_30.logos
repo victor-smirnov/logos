@@ -1,0 +1,5 @@
+package m8;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+struct U;
+impl U { fn v(&self) -> i64 { 9 } }
+fn main() { let u = U; let r = &U; println!("{} {}", u.v(), r.v()); }

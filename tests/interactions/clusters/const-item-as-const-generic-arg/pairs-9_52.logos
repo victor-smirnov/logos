@@ -1,0 +1,5 @@
+package m135;
+use logos.std.fmt;
+const CAP: i64 = 3;
+struct R<const N: i64> { b: [i64; N] }
+fn main() { let r: R<CAP> = R { b: [7i64; CAP] }; println!("{}", r.b[2]); }

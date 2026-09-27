@@ -1,0 +1,12 @@
+package m55;
+use logos.std.fmt;
+trait Shape { fn area(&self) -> i64; }
+struct Ci { r: i64 }
+impl Shape for Ci { fn area(&self) -> i64 { 3 * self.r * self.r } }
+struct Scene { main: Box<dyn Shape>, n: i64 }
+fn main() {
+    let sc = Scene { main: Box::new(Ci { r: 2 }), n: 1 };
+    println!("{}", sc.main.area());
+    let m = sc.main;
+    println!("{}", m.area());
+}

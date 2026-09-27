@@ -1,0 +1,2 @@
+struct D(i64, i64);
+fn main() { let b = Box::new(D(3, 4)); let r = &b; println!("{} {}", b.0, r.1); }

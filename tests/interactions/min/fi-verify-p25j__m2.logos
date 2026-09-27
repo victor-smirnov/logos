@@ -1,0 +1,4 @@
+package m2;
+struct V { x: i32, y: i32 }
+fn mk(k: i32) -> V { V { x: k, y: k } }
+fn main() -> i32 { let n = loop { break mk(10); }; n.y }

@@ -1,0 +1,17 @@
+package p29i;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+struct B<const N: i64> { d: [i64; N], len: i64 }
+impl<const N: i64> B<N> { fn new() -> Self { B { d: [0; N], len: 0 } } }
+fn main() { let b: B<3> = B::new(); println!("{}", b.d[2] + b.len as i64); }

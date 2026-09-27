@@ -1,0 +1,30 @@
+package m19a;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+fn sum(s: &[i64]) -> i64 { let mut t = 0i64; for x in s { t += *x; } return t; }
+fn main() {
+    let v: Vec<i64> = vec![1, 2, 3, 4];
+    let a = &v[1..];
+    let b = &v[..2];
+    println!("{} {} {}", sum(a), sum(b), sum(&v[1..3]));
+}

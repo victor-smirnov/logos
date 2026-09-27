@@ -1,0 +1,40 @@
+package m21;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+#[derive_clone]
+#[derive_copy]
+#[derive_partial_eq]
+#[derive_partial_ord]
+enum Lvl { Low, Mid(i32), High { v: i32 } }
+#[derive_clone]
+#[derive_copy]
+#[derive_partial_eq]
+#[derive_partial_ord]
+enum C { A, B }
+#[derive_clone]
+#[derive_copy]
+#[derive_partial_eq]
+#[derive_partial_ord]
+struct S { a: i32, b: i32 }
+fn main() {
+    println!("{}", C::A < C::B);
+    println!("{}", S { a: 1, b: 5 } < S { a: 1, b: 7 });
+    println!("{}", Lvl::Low < Lvl::Mid(0));
+    println!("{}", Lvl::Mid(5) < Lvl::Mid(2));
+    println!("{}", Lvl::High { v: 1 } > Lvl::Mid(100));
+}

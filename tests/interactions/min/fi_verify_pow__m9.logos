@@ -1,0 +1,3 @@
+package m9;
+fn pow<T>(b: T, e: T) -> T { return b; }
+fn main() -> i32 { let x = unsafe { pow(2.0, 3.0) }; return x as i32; }

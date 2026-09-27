@@ -1,0 +1,6 @@
+package u19_bad3;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+
+fn main() { let mut r = Rc::new(vec![1i64, 2]); let r2 = Rc::clone(&r); r.push(3); println!("{} {}", r.len(), r2.len()); }

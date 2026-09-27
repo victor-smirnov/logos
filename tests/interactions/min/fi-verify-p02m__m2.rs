@@ -1,0 +1,5 @@
+struct S<T> { v: T }
+impl<T: Copy> S<T> {
+    fn get<E>(&self) -> T { self.v }
+}
+fn main() { let s = S { v: 3i64 }; println!("{}", s.get::<i64>()); }

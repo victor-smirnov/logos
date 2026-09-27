@@ -1,0 +1,7 @@
+package m114;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct V { x: i64 }
+impl Clone for V { fn clone(&self) -> V { *self } }
+impl Copy for V {}
+fn main() { let v = vec![V { x: 1 }, V { x: 5 }]; let b = v.iter().fold(V { x: 0 }, |best, &p| if p.x > best.x { p } else { best }); println!("{}", b.x); }

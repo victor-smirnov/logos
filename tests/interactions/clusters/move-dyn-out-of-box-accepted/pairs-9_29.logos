@@ -1,0 +1,6 @@
+package r20;
+use logos.std.fmt;
+trait Shape { fn area(&self) -> i64; }
+struct Ci { r: i64 }
+impl Shape for Ci { fn area(&self) -> i64 { self.r } }
+fn main() { let b: Box<dyn Shape> = Box::new(Ci { r: 2 }); let d = *b; println!("{}", 1); }

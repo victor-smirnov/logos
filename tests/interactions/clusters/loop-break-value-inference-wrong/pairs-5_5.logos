@@ -1,0 +1,33 @@
+package f5_loop_break_none_first;
+use logos.std.fmt;
+fn ffi(xs: &[i64], lim: i64) -> Option<i64> {
+    let mut i = 0;
+    let r = loop {
+        if i >= xs.len() { break None; }
+        if xs[i] > lim { break Some(xs[i]); }
+        i += 1;
+    };
+    return r;
+}
+fn ffa(xs: &[i64], lim: i64) -> Option<i64> {
+    let mut i = 0;
+    let r: Option<i64> = loop {
+        if i >= xs.len() { break None; }
+        if xs[i] > lim { break Some(xs[i]); }
+        i += 1;
+    };
+    return r;
+}
+fn ffg<T: PartialOrd + Copy>(xs: &[T], lim: T) -> Option<T> {
+    let mut i = 0;
+    let r: Option<T> = loop {
+        if i >= xs.len() { break None; }
+        if xs[i] > lim { break Some(xs[i]); }
+        i += 1;
+    };
+    return r;
+}
+fn main() {
+    let xs = [3i64, 9, 1, 12, 5];
+    println!("{:?} {:?} {:?}", ffi(&xs, 8), ffa(&xs, 8), ffg(&xs, 8));
+}

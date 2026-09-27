@@ -1,0 +1,3 @@
+struct S { x: i64 }
+impl S { fn new() -> S { S { x: 7 } } }
+fn main() { let g: fn() -> S = S::new; println!("{}", g().x); }

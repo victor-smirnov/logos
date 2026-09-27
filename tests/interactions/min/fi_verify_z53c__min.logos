@@ -1,0 +1,5 @@
+package min;
+fn main() -> i32 {
+    let g = |s: String, b: bool| -> i32 { if b { let t = s; } 7 };
+    return g(String::from("abc"), true);
+}

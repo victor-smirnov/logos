@@ -1,0 +1,18 @@
+package f20_assoc_const_self_type;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+trait HasZero { const ZERO: Self; }
+impl HasZero for i64 { const ZERO: i64 = 0; }
+fn z<T: HasZero>() -> T { return T::ZERO; }
+fn main() { let a: i64 = z(); println!("{} {}", a, i64::ZERO); }

@@ -1,0 +1,5 @@
+package z47;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn main() { let w = ["a", "b"]; let mut it = w.iter(); println!("{:?}", it.next()); }

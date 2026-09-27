@@ -1,0 +1,1 @@
+fn main() { let mut v: Vec<i64> = vec![11, 22]; let refs: Vec<&i64> = v.iter().collect(); v.push(5); println!("{}", *refs[0]); }

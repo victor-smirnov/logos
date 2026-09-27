@@ -1,0 +1,7 @@
+fn main() {
+    let g = |a: i64| (a, a + 1);
+    println!("{:?}", g(3));
+    let h = |a: i64| -> (i64, i64) { (a, a * 2) };
+    let r = h(4);
+    println!("{} {}", r.0, r.1);
+}

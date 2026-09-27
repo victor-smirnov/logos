@@ -1,0 +1,3 @@
+struct B { t: String }
+fn titles(bs: &Vec<B>) -> Vec<&str> { let v: Vec<&str> = bs.iter().map(|b| b.t.as_str()).collect(); return v; }
+fn main() { let bs: Vec<B> = vec![B { t: String::from("x") }, B { t: String::from("yz") }]; println!("{:?}", titles(&bs)); }

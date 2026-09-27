@@ -1,0 +1,9 @@
+package al4;
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+use logos.std.fmt;
+#[derive_partial_eq]
+struct M(i64, i64);
+#[derive_partial_eq]
+struct N { v: i64, w: i64 }
+fn main() { println!("{}", N { v: 1, w: 0 } == N { v: 2, w: 0 }); }

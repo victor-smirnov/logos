@@ -1,0 +1,6 @@
+package m132;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+fn n(s: &str) -> i64 { s.len() }
+fn main() { let w = ["ab", "cde"]; let mut t = 0; for x in w.iter() { t += n(x); } println!("{}", t); }

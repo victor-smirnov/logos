@@ -1,0 +1,5 @@
+package n;
+use logos.std.fmt;
+fn main() {
+    println!("{:e}", 1234.5f64);
+}

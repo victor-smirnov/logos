@@ -1,0 +1,5 @@
+package m19;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+struct M<T>(T);
+impl<T: Add<Output = T>> Add for M<T> { type Output = M<T>; fn add(self, o: Self) -> Self { M(self.0 + o.0) } }
+fn main() { let c = M(1i64) + M(2i64); println!("{}", c.0); }

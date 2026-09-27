@@ -1,0 +1,4 @@
+
+
+fn ap(v: i64, f: &dyn Fn(i64) -> i64) -> i64 { return f(v); }
+fn main() { println!("{}", ap(1, &|x: i64| x + 1)); }

@@ -1,0 +1,9 @@
+package min;
+use logos.lang.option;
+fn dup<T: Copy>(x: T) -> (T, T) { return (x, x); }
+fn main() -> i32 {
+    let a: Option<i64> = Some(1);
+    let p = a.clone();
+    let (c, d) = dup(a);
+    return (p.unwrap() + c.unwrap() + d.unwrap()) as i32;
+}

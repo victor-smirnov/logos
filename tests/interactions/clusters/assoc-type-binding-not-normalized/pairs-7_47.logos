@@ -1,0 +1,25 @@
+package m25;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+
+#[derive_clone]
+#[derive_copy]
+struct V { x: i64 }
+impl Mul for V { type Output = i64; fn mul(self, o: V) -> i64 { self.x * o.x } }
+fn dot_self<T: Mul<Output = R> + Copy, R>(t: T) -> R { return t * t; }
+fn main() { println!("{}", dot_self(V { x: 3 })); }

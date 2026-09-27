@@ -1,0 +1,13 @@
+trait Sh { fn area(&self) -> i64; }
+struct Sq(i64);
+impl Sh for Sq { fn area(&self) -> i64 { return self.0; } }
+struct Gen { i: i64 }
+impl Gen {
+    fn nx(&mut self) -> Box<dyn Sh> { self.i += 1; return Box::new(Sq(self.i)); }
+}
+fn main() {
+    let mut g = Gen { i: 0 };
+    let a = g.nx();
+    let b = g.nx();
+    println!("{} {}", a.area(), b.area());
+}

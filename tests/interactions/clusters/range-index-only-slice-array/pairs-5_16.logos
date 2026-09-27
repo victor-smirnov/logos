@@ -1,0 +1,22 @@
+package f16_mut_subslice;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+fn bump(xs: &mut [i64]) { for x in xs.iter_mut() { *x += 100; } }
+fn main() {
+    let mut a = [1i64, 2, 3, 4];
+    bump(&mut a[1..3]);
+    let s: &mut [i64] = &mut a[3..];
+    s[0] = 0;
+    println!("{:?}", a);
+}

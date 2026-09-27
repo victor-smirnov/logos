@@ -1,0 +1,9 @@
+package rc_min;
+use logos.std.fmt;
+use logos.lang.cell;
+use logos.mem.string;
+fn main() {
+    let c = RefCell::new(String::from("a"));
+    let old = c.replace(String::from("b"));
+    println!("{} {}", old, c.borrow().len());
+}

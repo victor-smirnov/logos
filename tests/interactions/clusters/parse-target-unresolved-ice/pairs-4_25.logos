@@ -1,0 +1,6 @@
+package m127;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+use logos.lang.num.error;
+fn main() { let s = "10"; let n: i64 = s.parse().unwrap(); println!("{}", n + 1); }

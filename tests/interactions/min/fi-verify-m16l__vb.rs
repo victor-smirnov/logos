@@ -1,0 +1,5 @@
+struct Noisy { name: i64 }
+impl Drop for Noisy { fn drop(&mut self) { println!("drop {}", self.name); } }
+struct W<T> { v: T }
+fn eat<U>(_u: U) { }
+fn main() { let a: W<Noisy> = W { v: Noisy { name: 2 } }; eat(a); println!("end"); }

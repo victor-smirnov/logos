@@ -1,0 +1,4 @@
+fn main() {
+    let c = |v: i32| { match v { 0 => 7, _ => 9 } };
+    println!("[{}]", c(1));
+}

@@ -1,0 +1,3 @@
+package f;
+fn fill(out: Vec<i32>) -> i64 { out.len() }
+fn main() { let out = Vec::new(); let n = fill(out); }

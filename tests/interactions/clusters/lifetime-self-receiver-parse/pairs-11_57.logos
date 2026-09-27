@@ -1,0 +1,12 @@
+package z67;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.deque;
+struct S { x: i32 }
+impl S { fn get<'a>(&'a self) -> &'a i32 { &self.x } }
+fn main() { let s = S { x: 4 }; println!("{}", s.get()); }

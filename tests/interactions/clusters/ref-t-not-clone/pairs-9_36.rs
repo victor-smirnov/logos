@@ -1,0 +1,2 @@
+fn dup<T: Clone>(x: &T) -> (T, T) { (x.clone(), x.clone()) }
+fn main() { let a = 5; let r = &a; let (p, q) = dup(&r); println!("{} {}", p, q); let s = "hi"; let (u, w) = dup(&s); println!("{} {}", u, w); }

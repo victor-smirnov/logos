@@ -1,0 +1,6 @@
+package f_tail_local_double_free;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.fmt;
+fn f() -> String { let s = String::from("abc"); s }
+fn main() { let v = f(); println!("{}", v.len()); }

@@ -1,0 +1,4 @@
+#[derive(Clone)]
+enum S { A(i64), B { w: i64 }, C }
+fn v(s: &S) -> i64 { match s { S::A(x) => *x, S::B { w } => *w, S::C => 0 } }
+fn main() { let a = S::B { w: 5 }; let b = a.clone(); println!("{}", v(&b)); }

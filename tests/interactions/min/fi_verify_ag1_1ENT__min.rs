@@ -1,0 +1,6 @@
+trait D { fn d(&self) -> i64; }
+struct A { v: i64 }
+impl D for A { fn d(&self) -> i64 { self.v } }
+fn g(b: i64) -> Option<i64> { match b { 0 => Some(40), _ => None } }
+fn mk(k: i64) -> impl D { match k { _ => A { v: k } } }
+fn main() { let x = match g(0) { Some(v) => v, None => 0 }; std::process::exit((x + mk(2).d()) as i32); }

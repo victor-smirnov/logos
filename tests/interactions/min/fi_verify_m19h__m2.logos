@@ -1,0 +1,9 @@
+package m2;
+use logos.mem.collections.set;
+use logos.lang.hash;
+use logos.std.fmt;
+fn main() {
+    let mut s: HashSet<char> = HashSet::new();
+    unsafe { s.insert('a'); }
+    println!("{}", s.len());
+}

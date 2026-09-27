@@ -1,0 +1,5 @@
+#[derive(Debug)]
+struct Rect { w: i64, h: i64 }
+trait Lab { fn label(&self) -> String; }
+impl Lab for Rect { fn label(&self) -> String { format!("{:?}", self) } }
+fn main() { let r = Rect { w: 2, h: 3 }; println!("{}", r.label()); }

@@ -1,0 +1,2 @@
+struct R<S> { s: S, tag: i64 }
+fn main() { let b = R { s: 5u8, tag: 1 }; let r2 = R { tag: 2, ..b }; println!("{}", r2.tag); }

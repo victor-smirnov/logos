@@ -1,0 +1,5 @@
+package f_unit_struct_value;
+use logos.std.fmt; use logos.mem.fmt; use logos.std.io; use logos.std.compiler.metaprog; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.iter; use logos.lang.option; use logos.lang.result; use logos.lang.cmp; use logos.lang.ops; use logos.mem.boxed; use logos.lang.rc; use logos.lang.str; use logos.lang.clone;
+struct NF;
+impl NF { fn k(&self) -> i64 { 3 } }
+fn main() { let x = NF; println!("{}", x.k()); println!("{}", (&NF).k()); }

@@ -1,0 +1,11 @@
+package m9b;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+trait T { fn f(&self) -> i64; fn g(&self, n: i64) -> i64 { self.f() * n } }
+struct A(i64);
+impl T for A { fn f(&self) -> i64 { self.0 } }
+fn main() {
+    let mut v: Vec<Box<dyn T>> = Vec::new();
+    v.push(Box::new(A(3))); v.push(Box::new(A(4)));
+    let s: i64 = v.iter().map(|a| a.f()).sum();
+    println!("{}", s);
+}

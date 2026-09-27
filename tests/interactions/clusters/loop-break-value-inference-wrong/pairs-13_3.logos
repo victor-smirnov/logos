@@ -1,0 +1,26 @@
+package f18;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.lang.ops;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.collections.btree;
+use logos.std.compiler.metaprog;
+use logos.lang.default;
+use logos.lang.hash;
+fn a(lim: i64) -> i64 { let f = loop { if lim > 5 { break lim; } break -1; }; return f; }
+fn b(lim: i64) -> i64 { let f = loop { if lim > 5 { break lim; } break 3; }; return f; }
+fn main() {
+    println!("{} {}", a(9), a(1));
+    println!("{} {}", b(9), b(1));
+}

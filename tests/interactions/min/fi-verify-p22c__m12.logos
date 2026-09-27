@@ -1,0 +1,3 @@
+package m12;
+use logos.std.fmt; use logos.lang.str; use logos.lang.iter;
+fn main() { let a = ["hello"]; for k in a { println!("{}", k.len()); } }

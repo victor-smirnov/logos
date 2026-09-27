@@ -1,0 +1,20 @@
+package q4;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+struct Pet { n: String }
+fn main() {
+    let v = vec![String::from("a"), String::from("b")];
+    let p = vec![Pet { n: String::from("rex") }];
+    println!("{} {}", v.len(), p[0].n);
+}

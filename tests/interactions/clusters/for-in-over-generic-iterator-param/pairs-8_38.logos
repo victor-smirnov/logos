@@ -1,0 +1,5 @@
+package f_generic_iter_sum;
+use logos.mem.collections.vec;
+use logos.std.fmt;
+fn total<I: Iterator<i64>>(it: I) -> i64 { let s: i64 = it.sum(); return s; }
+fn main() { let v: Vec<i64> = vec![1, 2, 3]; println!("{}", total(v.into_iter())); }

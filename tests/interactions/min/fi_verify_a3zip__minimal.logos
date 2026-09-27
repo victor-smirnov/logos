@@ -1,0 +1,5 @@
+package minimal;
+use logos.lang.iter;
+use logos.std.fmt;
+fn pairs<B: Copy>(a: &[i32], b: &[B]) -> i64 { a.iter().zip(b.iter()).count() }
+fn main() { println!("{}", pairs(&[1i32, 2, 3], &[10i64, 20])); }

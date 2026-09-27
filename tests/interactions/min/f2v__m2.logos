@@ -1,0 +1,8 @@
+package m2;
+use logos.std.fmt;
+use logos.mem.string;
+fn hs(t: String) -> String { t }
+fn main() {
+    let s = hs(String::from("yo"));
+    println!("s {}", s);
+}

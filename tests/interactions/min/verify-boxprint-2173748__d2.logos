@@ -1,0 +1,4 @@
+package d2;
+use logos.std.fmt;
+struct S { b: Box<i64> }
+fn main() { println!(); }

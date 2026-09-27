@@ -1,0 +1,10 @@
+package mc;
+use logos.mem.string;
+use logos.std.fmt;
+use logos.std.io;
+use logos.mem.collections.vec;
+fn main() {
+    let names: Vec<String> = vec![String::from("abc")];
+    let key = String::from("zzz");
+    println!("{}", names.contains(&key));
+}

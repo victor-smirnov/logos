@@ -1,0 +1,8 @@
+package m34;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+use logos.std.compiler.metaprog;
+#[derive_partial_eq]
+enum Kind { Round, Poly(i64) }
+fn main() { let k = Kind::Poly(3); println!("{} {} {}", k == Kind::Round, k == Kind::Poly(3), k == Kind::Poly(4)); }

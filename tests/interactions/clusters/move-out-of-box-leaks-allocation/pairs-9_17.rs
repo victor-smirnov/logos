@@ -1,0 +1,8 @@
+enum List { Nil, Cons(i64, Box<List>) }
+fn inc(l: List) -> List { match l { List::Nil => List::Nil, List::Cons(v, n) => List::Cons(v + 1, Box::new(inc(*n))) } }
+fn sum(l: &List) -> i64 { match l { List::Nil => 0, List::Cons(v, n) => *v + sum(&**n) } }
+fn main() {
+    let l = List::Cons(1, Box::new(List::Cons(2, Box::new(List::Nil))));
+    let l2 = inc(l);
+    println!("{}", sum(&l2));
+}

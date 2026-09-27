@@ -1,0 +1,4 @@
+package n1;
+use logos.std.fmt;
+const S: i64 = -1;
+fn main() { println!("{}", S); }

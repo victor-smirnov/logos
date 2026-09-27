@@ -1,0 +1,31 @@
+package m12b;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+fn main() {
+    let x = 5i64; let y = 7i64;
+    let rx = &x; let rrx = &rx;
+    let mut b: &i64 = &y;
+    b = if *b > 0 { rrx } else { b };
+    let c: &i64 = if true { rrx } else { &y };
+    println!("{} {}", b, c);
+}

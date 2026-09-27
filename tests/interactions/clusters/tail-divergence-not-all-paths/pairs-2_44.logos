@@ -1,0 +1,6 @@
+package p07b;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash; use logos.lang.convert;
+fn pairs(a: Option<i64>, b: Option<i64>) -> i64 {
+    if let Some(x) = a && let Some(y) = b && x < y { x + y } else { 0 }
+}
+fn main() { println!("{} {}", pairs(Some(1), Some(2)), pairs(Some(3), None)); }

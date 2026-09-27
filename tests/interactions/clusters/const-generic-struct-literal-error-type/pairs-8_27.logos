@@ -1,0 +1,8 @@
+package f_const_generic_self_literal;
+use logos.std.fmt;
+struct Buf<const C: i64> { data: [i64; C], len: i64 }
+impl<const C: i64> Buf<C> {
+    fn new() -> Self { Buf { data: [0; C], len: 0 } }
+    fn cap(&self) -> i64 { C }
+}
+fn main() { let b = Buf::<4>::new(); let s: Buf<2> = Buf::new(); println!("{} {}", b.cap(), s.cap()); }

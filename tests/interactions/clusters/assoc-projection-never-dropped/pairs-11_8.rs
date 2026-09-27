@@ -1,0 +1,7 @@
+trait P { type Out; fn mk() -> Self::Out; }
+struct W;
+struct D(i32);
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.0); } }
+impl P for W { type Out = D; fn mk() -> D { D(1) } }
+fn go<T: P>() -> i32 { let v = T::mk(); let _k = &v; 1 }
+fn main() { println!("{}", go::<W>()); }

@@ -1,0 +1,4 @@
+fn main() {
+    let v: Vec<i64> = vec![3, 1, 4];
+    let m = v.iter().copied().fold(0i64, |x, y| x + y); println!("{}", m);
+}

@@ -1,0 +1,2 @@
+fn inc(x: &Option<i64>) -> Option<i64> { match x { Some(v) => Some(*v + 1), None => None } }
+fn main() { println!("{:?} {:?}", inc(&Some(1i64)), inc(&None)); }

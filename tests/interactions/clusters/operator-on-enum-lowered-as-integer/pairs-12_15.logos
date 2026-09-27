@@ -1,0 +1,32 @@
+package m25f;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+use logos.lang.num.error;
+use logos.lang.num.parse;
+enum Expr { Num(i64), Plus(Box<Expr>, Box<Expr>) }
+impl Add for Expr { type Output = Expr; fn add(self, o: Expr) -> Expr { return Expr::Plus(Box::new(self), Box::new(o)); } }
+fn eval(e: &Expr) -> i64 { match e { Expr::Num(n) => *n, Expr::Plus(a, b) => eval(a) + eval(b) } }
+fn main() {
+    let e = Expr::Num(2) + Expr::Num(3);
+    println!("{}", eval(&e));
+}

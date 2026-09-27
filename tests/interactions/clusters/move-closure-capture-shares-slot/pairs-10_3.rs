@@ -1,0 +1,3 @@
+fn mk(k: i64) -> Box<dyn Fn(i64) -> i64> { Box::new(move |x: i64| x + k) }
+fn noise(a: i64) -> i64 { let arr = [a; 16]; arr[3] + arr[9] }
+fn main() { let f = mk(1000); let g = mk(20); let z = noise(77777); println!("{} {} {}", f(4), g(4), z); }

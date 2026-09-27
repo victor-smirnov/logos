@@ -1,0 +1,9 @@
+package f19;
+use logos.std.fmt;
+use logos.mem.collections.hashmap;
+enum Slot<T> { Empty, Full(T) }
+struct Bag { a: Slot<i64> }
+fn main() {
+    let b = Bag { a: Slot::Full(4) };
+    match b.a { Slot::Full(v) => println!("{}", v), Slot::Empty => println!("e") }
+}

@@ -1,0 +1,22 @@
+package f52_const_array_literal_width;
+use logos.lang.mem;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+use logos.lang.cell;
+use logos.lang.ops;
+const BASE: [i64; 3] = [1, 1, 2];
+static TABLE: [i64; 2] = [7, 9];
+fn main() { println!("{} {} {}", BASE[0], BASE[2], TABLE[1]); }

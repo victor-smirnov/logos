@@ -1,0 +1,2 @@
+fn id(x: i64) -> i64 { x }
+fn main() { let xs = [1i64, 2, 3]; let v: Vec<i64> = xs.iter().map(|&x| id(x)).collect(); println!("{}", v[2]); }

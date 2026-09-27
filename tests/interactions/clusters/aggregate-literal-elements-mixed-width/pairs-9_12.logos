@@ -1,0 +1,12 @@
+package m106;
+use logos.std.fmt;
+fn classify(t: (i64, i64, i64)) -> &'static str {
+    match t { (0, 0, 0) => "origin", (x, y, _) if x == y => "diag", (_, _, z) if z < 0 => "below", _ => if t.0 > t.1 { "gt" } else { "le" } }
+}
+fn main() {
+    let arr = [(1i64, 1i64, 5i64), (0, 0, 0), (4, 2, -1)];
+    for t in arr.iter() { print!("{} ", classify(*t)); }
+    println!();
+    for t in arr.iter() { print!("{:?} ", *t); }
+    println!();
+}

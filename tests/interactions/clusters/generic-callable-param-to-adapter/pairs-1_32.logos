@@ -1,0 +1,20 @@
+package a4;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+fn apply_all<T, F: Fn(T) -> T>(xs: Vec<T>, f: F) -> Vec<T> { xs.into_iter().map(f).collect() }
+fn main() { let v = apply_all(vec![1i32, 2, 3], |x| x * x + 1); println!("{:?}", v); }

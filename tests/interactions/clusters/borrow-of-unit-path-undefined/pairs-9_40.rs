@@ -1,0 +1,4 @@
+struct U;
+impl U { fn v(&self) -> i64 { 5 } }
+fn f(u: &U) -> i64 { u.v() }
+fn main() { let r = &U; let n = f(&U); println!("{} {}", r.v(), n); }

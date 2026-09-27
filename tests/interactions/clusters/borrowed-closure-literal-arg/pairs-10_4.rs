@@ -1,0 +1,2 @@
+fn call(visit: &dyn Fn(i64) -> i64) -> i64 { visit(3) }
+fn main() { let k = 2i64; println!("{}", call(&|v: i64| v * k)); }

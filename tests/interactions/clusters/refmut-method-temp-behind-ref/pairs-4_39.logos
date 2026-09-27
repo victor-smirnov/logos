@@ -1,0 +1,18 @@
+package m59;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+
+use logos.lang.cell;
+struct Ints { v: Vec<i64> }
+impl Ints { fn put(&mut self, x: i64) { self.v.push(x); } }
+trait P { fn put(&mut self, x: i64); }
+impl P for Ints { fn put(&mut self, x: i64) { self.v.push(x); } }
+fn f1(s: &Rc<RefCell<Ints>>) { s.borrow_mut().put(1); }
+fn f2<S: P>(s: &Rc<RefCell<S>>) { s.borrow_mut().put(2); }
+fn f3<S: P>(s: &RefCell<S>) { s.borrow_mut().put(3); }
+fn main() {
+    let r = Rc::new(RefCell::new(Ints { v: Vec::new() }));
+    f1(&r); f2(&r); f3(&*r);
+    println!("{:?}", r.borrow().v);
+}

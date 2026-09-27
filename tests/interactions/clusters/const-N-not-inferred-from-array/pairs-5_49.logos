@@ -1,0 +1,21 @@
+package f51_const_generic_recursive_infer;
+use logos.lang.mem;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+use logos.lang.cell;
+use logos.lang.ops;
+fn sum_arr<const N: usize>(a: [i64; N], i: usize) -> i64 { if i >= N { return 0; } return a[i] + sum_arr(a, i + 1); }
+fn main() { println!("{}", sum_arr([1i64, 2, 3, 4], 0)); }

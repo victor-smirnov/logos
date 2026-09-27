@@ -1,0 +1,6 @@
+package min;
+use logos.std.fmt;
+use logos.mem.string;
+struct S { name: String }
+impl Copy for S {}
+fn main() { let s = S { name: String::from("a") }; let t = s; println!("{} {}", s.name, t.name); }

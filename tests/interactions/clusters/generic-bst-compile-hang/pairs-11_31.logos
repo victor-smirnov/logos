@@ -1,0 +1,19 @@
+package y9f;
+use logos.std.fmt;
+struct Tree<K, V> { key: K, val: V, left: Option<Box<Tree<K, V>>>, right: Option<Box<Tree<K, V>>> }
+fn insert<K: PartialOrd, V>(t: Option<Box<Tree<K, V>>>, k: K, v: V) -> Option<Box<Tree<K, V>>> {
+    match t {
+        None => Some(Box::new(Tree { key: k, val: v, left: None, right: None })),
+        Some(mut n) => {
+            if k < n.key { n.left = insert(n.left.take(), k, v); }
+            else { n.right = insert(n.right.take(), k, v); }
+            Some(n)
+        }
+    }
+}
+fn main() {
+    let mut t: Option<Box<Tree<i32, i32>>> = None;
+    t = insert(t, 5, 1);
+    t = insert(t, 2, 2);
+    println!("{}", t.is_some());
+}

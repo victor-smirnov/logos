@@ -1,0 +1,21 @@
+package m76c;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+struct Poly<const N: usize> { v: [i64; N] }
+impl<const N: usize> Poly<N> { fn bump(&mut self) { for p in self.v.iter_mut() { *p += 100; } } fn bump2(&mut self) { self.v[0] += 5; } }
+fn main() { let mut u = Poly::<2> { v: [1, 2] }; u.bump(); u.bump2(); println!("{} {}", u.v[0], u.v[1]); }

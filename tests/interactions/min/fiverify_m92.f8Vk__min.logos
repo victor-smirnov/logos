@@ -1,0 +1,5 @@
+package min;
+enum E { A, B }
+impl E { fn f(&self, k: i64) -> i64 { k } }
+fn g(r: &E) -> i64 { r.f(1) }
+fn main() { let _ = g(&E::A); }

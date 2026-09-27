@@ -1,0 +1,20 @@
+package z12;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+fn cnt(t: &[(i64, i64)]) -> i64 { if let [first, rest @ ..] = t { let (k, _xs) = first; return *k + cnt(rest); } return 0; }
+fn main() { let t: [(i64, i64); 3] = [(7, 1), (8, 1), (9, 1)]; println!("{}", cnt(&t)); }

@@ -1,0 +1,3 @@
+package m2;
+use logos.std.fmt;
+fn main() { let c: u32 = 0xD800; let ch = c as char; println!("{}", ch as u32); let d: i64 = 1114112; println!("{}", (d as char) as u32); }

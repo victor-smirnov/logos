@@ -1,0 +1,28 @@
+package u5a;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+trait Counter { fn bump(&mut self) -> i32; fn peek(&self) -> i32; }
+struct ByOne { n: i32 }
+struct ByTen { n: i32 }
+impl Counter for ByOne { fn bump(&mut self) -> i32 { self.n += 1; self.n } fn peek(&self) -> i32 { self.n } }
+impl Counter for ByTen { fn bump(&mut self) -> i32 { self.n += 10; self.n } fn peek(&self) -> i32 { self.n } }
+fn main() {
+    let shared: Rc<RefCell<Box<dyn Counter>>> = Rc::new(RefCell::new(Box::new(ByOne { n: 0 })));
+    let alias = Rc::clone(&shared);
+    shared.borrow_mut().bump();
+    alias.borrow_mut().bump();
+    println!("{} rc={}", shared.borrow().peek(), Rc::strong_count(&shared));
+    *alias.borrow_mut() = Box::new(ByTen { n: 100 });
+    shared.borrow_mut().bump();
+    println!("{}", alias.borrow().peek());
+    let list: Vec<Rc<dyn Counter>> = vec![Rc::new(ByOne { n: 7 }), Rc::new(ByTen { n: 8 })];
+    let l2 = list.clone();
+    let s: i32 = l2.iter().map(|c| c.peek()).sum();
+    println!("{} {}", s, Rc::strong_count(&list[0]));
+    let mut boxes: Vec<Box<dyn Counter>> = Vec::new();
+    boxes.push(Box::new(ByOne { n: 1 }));
+    boxes.push(Box::new(ByTen { n: 2 }));
+    for b in boxes.iter_mut() { b.bump(); }
+    for b in &boxes { println!("{}", b.peek()); }
+}

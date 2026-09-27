@@ -1,0 +1,7 @@
+package m4c;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str;
+trait Container { type Item; fn first(&self) -> Self::Item; }
+struct Bag { x: i64 }
+impl<'a> Container for &'a Bag { type Item = &'a i64; fn first(&self) -> &'a i64 { &self.x } }
+fn get<C: Container>(c: C) -> C::Item { c.first() }
+fn main() { let b = Bag { x: 5 }; let r = get(&b); println!("{}", *r + 1); }

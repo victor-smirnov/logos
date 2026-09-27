@@ -1,0 +1,3 @@
+package m05b;
+use logos.std.fmt;
+fn main() { let v = vec![String::from("a"), String::from("b")]; println!("{}", v[1]); }

@@ -1,0 +1,12 @@
+package f_dyn_mut_reborrow;
+use logos.std.fmt; use logos.mem.fmt; use logos.std.io; use logos.std.compiler.metaprog; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.iter; use logos.lang.option; use logos.lang.result; use logos.lang.cmp; use logos.lang.ops; use logos.mem.boxed; use logos.lang.rc; use logos.lang.str; use logos.lang.clone;
+trait Animal { fn grow(&mut self); }
+struct Dog { age: i64 }
+impl Animal for Dog { fn grow(&mut self) { self.age += 1; } }
+fn main() {
+    let mut d = Dog { age: 0 };
+    let q: &mut dyn Animal = &mut d;
+    let q2 = &mut *q;
+    q2.grow();
+    println!("{}", d.age);
+}

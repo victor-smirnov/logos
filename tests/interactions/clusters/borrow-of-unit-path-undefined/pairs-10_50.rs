@@ -1,0 +1,4 @@
+struct W;
+impl W { fn f(&self) -> i64 { 3 } }
+fn g(w: &W) -> i64 { w.f() }
+fn main() { println!("{}", g(&W)); }

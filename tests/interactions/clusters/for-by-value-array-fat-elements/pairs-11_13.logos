@@ -1,0 +1,5 @@
+package z54;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+fn main() { for line in ["a,b", "c"] { println!("{}", line.len()); } }

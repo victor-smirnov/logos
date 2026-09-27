@@ -1,0 +1,12 @@
+package m120;
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.cmp;
+use logos.mem.collections.vec;
+struct Ver { major: i64 }
+impl Clone for Ver { fn clone(&self) -> Ver { *self } }
+impl Copy for Ver {}
+impl Eq for Ver { fn eq(&self, o: &Ver) -> bool { self.major == o.major } }
+impl PartialOrd for Ver {}
+impl Ord for Ver { fn cmp(&self, o: &Ver) -> Ordering { self.major.cmp(&o.major) } }
+fn main() { let vs = vec![Ver { major: 1 }, Ver { major: 5 }, Ver { major: 2 }]; let mx = vs.iter().max().unwrap(); println!("{}", mx.major); }

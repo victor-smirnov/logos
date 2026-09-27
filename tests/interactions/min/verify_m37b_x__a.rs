@@ -1,0 +1,2 @@
+fn total<I: Iterator<Item = i64>>(it: I) -> i64 { let mut s = 0i64; for x in it { s += x; } s }
+fn main() { let v: Vec<i64> = vec![1, 2, 3]; let r = total(v.into_iter()); if r != 6 { std::process::exit(1); } }

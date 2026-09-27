@@ -1,0 +1,28 @@
+package m22;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+#[derive_clone]
+#[derive_copy]
+#[derive_partial_eq]
+#[derive_debug]
+enum Lvl { Low, Mid(i32), High { v: i32 } }
+fn pick(flag: bool) -> impl Debug { if flag { return Lvl::Mid(3); } return Lvl::High { v: 9 }; }
+fn main() {
+    println!("{:?} {:?} {:?}", Lvl::Low, Lvl::Mid(3), Lvl::High { v: 9 });
+    println!("{:?}", pick(true));
+}

@@ -1,0 +1,7 @@
+package c;
+use logos.mem.boxed;
+use logos.std.fmt;
+trait Op { fn k(&self) -> i64; }
+struct M(i64);
+impl Op for M { fn k(&self) -> i64 { self.0 } }
+fn main() { let b: Box<dyn Op> = Box::new(M(4)); let r: &dyn Op = b.as_ref(); println!("{}", r.k()); }

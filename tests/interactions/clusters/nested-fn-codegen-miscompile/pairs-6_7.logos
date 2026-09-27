@@ -1,0 +1,22 @@
+package p06g;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+trait Speak { fn say(&self) -> i32; }
+struct A(i32);
+impl Speak for A { fn say(&self) -> i32 { self.0 } }
+fn main() {
+    let s = A(5);
+    fn helper(x: &dyn Speak) -> i32 { x.say() + 1000 }
+    println!("{}", helper(&s));
+}

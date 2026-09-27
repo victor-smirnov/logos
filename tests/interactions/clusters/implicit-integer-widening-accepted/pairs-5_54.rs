@@ -1,0 +1,5 @@
+
+
+fn f(x: u8) -> i64 { return x; }
+fn g(x: &u8) -> i64 { return *x; }
+fn main() { let a: u8 = 3; let b: i64 = a; println!("{} {} {}", f(3), g(&a), b); }

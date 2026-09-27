@@ -1,0 +1,2 @@
+package m4;
+fn main() -> i32 { let m: u64 = 18446744073709551615; if 3 < m { 0 } else { 1 } }

@@ -1,0 +1,4 @@
+struct M { v: i64 }
+impl Drop for M { fn drop(&mut self) { println!("drop {}", self.v); } }
+fn mk(v: i64) -> M { return M { v }; }
+fn main() { println!("val={}", mk(7).v); let x = mk(8).v + 1; println!("x={}", x); }

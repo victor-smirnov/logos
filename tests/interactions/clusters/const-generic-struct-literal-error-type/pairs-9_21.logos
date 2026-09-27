@@ -1,0 +1,5 @@
+package m48;
+use logos.std.fmt;
+struct V<const N: i64> { c: [i64; N] }
+impl<const N: i64> V<N> { fn unit() -> Self { V::<N> { c: [1; N] } } fn len(&self) -> i64 { N } }
+fn main() { let b: V<3> = V::unit(); println!("{} {}", b.len(), b.c[2]); }

@@ -1,0 +1,24 @@
+package m32;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+fn main() {
+    let r: Vec<bool> = vec![1i64, -2, 3].into_iter().map(|y| y > 0).collect();
+    println!("{:?}", r);
+    let s: Vec<String> = vec![1, 2].iter().map(|y| format!("<{}>", y)).collect();
+    println!("{:?}", s);
+}

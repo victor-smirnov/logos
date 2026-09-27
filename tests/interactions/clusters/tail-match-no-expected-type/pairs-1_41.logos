@@ -1,0 +1,23 @@
+package ag1;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+fn f() -> Result<i64, i64> { Ok(0) }
+fn g(b: bool) -> Result<i64, i64> { match b { true => Ok(1), false => Err(2) } }
+fn h(b: bool) -> Option<i64> { if b { Some(1) } else { None } }
+fn k(b: bool) -> Result<i64, i64> { match b { true => Ok(1), false => { let x: i64 = 5; Ok(x) } } }
+fn main() { println!("{:?} {:?} {:?} {:?}", f(), g(false), h(true), k(true)); }

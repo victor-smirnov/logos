@@ -1,0 +1,31 @@
+package m04o;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+#[derive_partial_eq]
+#[derive_debug]
+enum E { A(i32), B { x: i32 }, C }
+fn main() {
+    let a = E::A(1); let a2 = E::A(2); let b = E::B { x: 1 }; let c = E::C;
+    println!("{} {} {} {} {}", a == b, a == a2, a == E::A(1), b == c, c == E::C);
+    println!("{:?} {:?} {:?}", a, b, c);
+}

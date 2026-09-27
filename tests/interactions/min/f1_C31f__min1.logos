@@ -1,0 +1,8 @@
+package min1;
+struct Q { a: i64 }
+fn mq() -> Q { Q { a: 7 } }
+fn main() {
+    let f = |q: Q| q.a;
+    let r = f(mq());
+    if r != 7 { let v: Vec<i64> = Vec::new(); v.get(1); }
+}

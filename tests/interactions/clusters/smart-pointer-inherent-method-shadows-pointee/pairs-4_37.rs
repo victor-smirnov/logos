@@ -1,0 +1,8 @@
+enum E { A(i64), N(Box<E>) }
+impl E { fn bump(&mut self) { match self { E::A(x) => { *x += 1; } E::N(b) => b.bump() } } fn get(&self) -> i64 { match self { E::A(x) => *x, E::N(b) => b.get() * 10 } } }
+fn main() {
+    let mut v = Vec::new(); v.push(E::A(1)); v.push(E::N(Box::new(E::A(4))));
+    for e in v.iter_mut() { e.bump(); }
+    for e in v.iter() { print!("{} ", e.get()); }
+    println!();
+}

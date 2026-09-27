@@ -1,0 +1,13 @@
+use std::rc::Rc;
+trait Maker { type Out; fn make(&self) -> Box<Self::Out>; }
+struct StrMaker;
+impl Maker for StrMaker { type Out = String; fn make(&self) -> Box<String> { Box::new(String::from("p9")) } }
+fn a1(m: &StrMaker) -> Rc<String> { let b = m.make(); return Rc::new(*b); }
+fn a2<M: Maker>(m: &M) -> Rc<M::Out> { let b = m.make(); return Rc::new(*b); }
+fn a3<M: Maker>(m: &M) -> M::Out { let b = m.make(); return *b; }
+fn main() {
+    let s = StrMaker;
+    println!("{}", *a1(&s));
+    println!("{}", a3(&s));
+    println!("{}", *a2(&s));
+}

@@ -1,0 +1,1 @@
+fn main() { let mut x = 1i32; let mut set = |v: i32| unsafe { x = v; }; set(7); println!("{}", x); }

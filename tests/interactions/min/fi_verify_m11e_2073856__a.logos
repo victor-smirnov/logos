@@ -1,0 +1,10 @@
+package a;
+use logos.std.fmt;
+use logos.std.io;
+struct P { w: i64 }
+fn main() {
+    let mut p = P { w: 2 };
+    let s = move || p.w;
+    p.w = 7;
+    println!("{}", s());
+}

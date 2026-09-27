@@ -1,0 +1,27 @@
+package m_for_ref_vec_enum2;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+enum E { A(i64), B(i64, i64) }
+fn f(e: &E) -> i64 { match e { E::A(x) => *x, E::B(x, y) => x * 10 + y } }
+fn main() { let v: Vec<E> = vec![E::A(1), E::B(2, 3), E::A(4)]; for s in &v { println!("{}", f(s)); } }

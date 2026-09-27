@@ -1,0 +1,17 @@
+package p21f;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+struct Item { name: String, qty: u32 }
+impl Clone for Item { fn clone(&self) -> Item { Item { name: self.name.clone(), qty: self.qty } } }
+fn main() { let items: Vec<Item> = vec![Item { name: String::from("a"), qty: 1 }]; let first = items[0].clone(); let owned = items; println!("{} {}", first.qty, owned.len()); }

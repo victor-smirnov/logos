@@ -1,0 +1,5 @@
+package x2;
+use logos.std.fmt;
+struct G<T, const N: i64> { c: [T; N] }
+impl<T: Copy, const N: i64> G<T, N> { fn n(&self) -> i64 { N } }
+fn main() { let g = G { c: [1i32, 2, 3] }; println!("{}", g.n()); }

@@ -1,0 +1,14 @@
+package m3;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+struct Sq { s: i64 }
+struct Nm { n: String }
+fn main() {
+    let v = vec![String::from("a"), String::from("b")];
+    println!("{}", v[1]);
+    let w = vec![Nm { n: String::from("x") }];
+    println!("{}", w[0].n);
+    let a = Sq { s: 1 }; let b = a; println!("{} {}", a.s, b.s);
+    let mut u: Vec<Sq> = Vec::new(); u.push(Sq { s: 4 }); println!("{}", u[0].s);
+}

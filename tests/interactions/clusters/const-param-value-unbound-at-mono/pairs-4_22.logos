@@ -1,0 +1,10 @@
+package m58;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+trait T2 { fn total(&self) -> i64; }
+struct Buf<const N: i64> { data: [i64; N] }
+impl<const N: i64> T2 for Buf<N> { fn total(&self) -> i64 { self.data[0] + N as i64 } }
+fn make<const N: i64>(fill: i64) -> impl T2 { Buf::<N> { data: [fill; N] } }
+fn show(x: impl T2) -> i64 { x.total() * 10 }
+fn main() { println!("{}", show(make::<2>(5))); }

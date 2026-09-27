@@ -1,0 +1,8 @@
+package m09b;
+use logos.std.fmt;
+struct W<T> { a: T, n: i64 }
+fn main() {
+    let w = W { a: 5i32, n: 1 };
+    let w2: W<i32> = W { n: 9, ..w };
+    println!("{} {}", w2.a, w2.n);
+}

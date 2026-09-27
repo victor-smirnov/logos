@@ -1,0 +1,9 @@
+package g3;
+trait T {
+    fn a(self) -> Self { return self; }
+    fn b(self) -> i64 { return 1; }
+    fn c(&self, o: &Self) -> i64 { return 1; }
+}
+enum E { X, Y }
+impl T for E {}
+fn main() -> i32 { return 0; }

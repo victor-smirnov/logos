@@ -1,0 +1,5 @@
+trait Tr { fn v(&self) -> i64; }
+struct S { x: i64 }
+impl Tr for S { fn v(&self) -> i64 { return self.x; } }
+fn g(b: Box<dyn Tr>, x: &i64) -> &i64 { println!("{}", b.v()); return x; }
+fn main() { let n: i64 = 7; let r = g(Box::new(S { x: 1 }), &n); println!("{}", *r); }

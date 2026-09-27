@@ -1,0 +1,1 @@
+fn main() { let data = [4u8, 9, 2]; let mx = data.iter().fold(0u8, |m, &x| if x > m { x } else { m }); println!("{}", mx); }

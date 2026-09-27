@@ -1,0 +1,5 @@
+package f19min;
+trait T { fn m(&self) -> i64; }
+impl T for i64 { fn m(&self) -> i64 { return *self; } }
+fn f(n: i64) -> impl T { if n == 0 { return 5i64; } return f(n - 1); }
+fn main() -> i32 { return f(3).m() as i32; }

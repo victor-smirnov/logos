@@ -1,0 +1,7 @@
+package m2;
+use logos.mem.boxed;
+trait Act { fn act(&mut self) -> i64; }
+struct C { n: i64 }
+impl Act for C { fn act(&mut self) -> i64 { self.n += 1; return self.n; } }
+fn f(a: &mut Box<dyn Act>) -> i64 { a.act(); return a.act(); }
+fn main() -> i32 { let mut b: Box<dyn Act> = Box::new(C { n: 0 }); return f(&mut b) as i32; }

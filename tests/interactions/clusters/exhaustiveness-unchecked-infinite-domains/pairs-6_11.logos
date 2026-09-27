@@ -1,0 +1,16 @@
+package p14j;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+fn f(x: u8) -> i32 { match x { 0 => 1, 1 => 2 } }
+fn main() { println!("{}", f(3)); }

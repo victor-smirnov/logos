@@ -1,0 +1,9 @@
+package hm_min;
+use logos.mem.collections.hashmap;
+use logos.std.fmt;
+fn main() {
+    let mut m: HashMap<i64, i64> = HashMap::new();
+    *m.entry(1).or_insert(0) += 5;
+    for (k, v) in m.iter_mut() { *v += *k; }
+    let mut s = 0; for e in m.iter_mut() { s += *e.second; } println!("{}", s);
+}

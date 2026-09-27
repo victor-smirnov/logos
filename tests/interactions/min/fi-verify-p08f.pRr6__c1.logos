@@ -1,0 +1,6 @@
+package c1;
+fn main() -> i32 {
+    let v: i64 = 6;
+    let base: *const i64 = &v;
+    let f = || -> i64 { unsafe { *base.add(0) } }; return f() as i32;
+}

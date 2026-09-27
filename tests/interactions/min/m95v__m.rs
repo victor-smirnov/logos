@@ -1,0 +1,6 @@
+fn main() {
+    let p: (i64, i64) = (8, 2);
+    let e = (0i64, &p);
+    let (a, (b, c)) = e;
+    println!("{} {} {}", a, b, c);
+}

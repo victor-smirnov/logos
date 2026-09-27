@@ -1,0 +1,32 @@
+package m15b;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+fn main() {
+    let bytes: [u8; 3] = [1, 2, 3];
+    let v: Vec<i64> = vec![4, 5];
+    let o: Option<&i64> = v.iter().next();
+    if let Some(&x) = o { println!("if {}", x); }
+    match o { Some(&x) => println!("m {}", x), None => {} }
+    let mut i = 0i64;
+    while let Some(&b) = bytes.get(i) { println!("w {}", b); i += 1; }
+}

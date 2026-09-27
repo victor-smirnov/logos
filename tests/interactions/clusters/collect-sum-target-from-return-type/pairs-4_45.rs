@@ -1,0 +1,2 @@
+fn s(xs: &[i64]) -> i64 { xs.iter().map(|x| x * 2).sum() }
+fn main() { let t: i64 = [1i64, 2].iter().sum(); println!("{} {}", s(&[1, 2, 3]), t); }

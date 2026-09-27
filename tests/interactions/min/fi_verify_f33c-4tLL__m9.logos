@@ -1,0 +1,4 @@
+package m9;
+fn main() {
+    let f = |a: i64, b| a + b;
+}

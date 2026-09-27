@@ -1,0 +1,5 @@
+package m126;
+use logos.std.fmt;
+struct A { t: i64 }
+impl A { fn get(&self) -> i64 { self.t } }
+fn main() { let b = Box::new(A { t: 3 }); println!("{}", b.get()); }

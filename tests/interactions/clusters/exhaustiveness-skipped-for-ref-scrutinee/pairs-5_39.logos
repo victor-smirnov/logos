@@ -1,0 +1,19 @@
+package f41_match_ref_enum_nonexhaustive;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+enum Ev { Click(i64), Key(char), Scroll }
+fn f(e: &Ev) -> i64 { return match e { Ev::Click(n) => *n, Ev::Key(_) => 1 }; }
+fn main() { println!("{}", f(&Ev::Scroll)); }

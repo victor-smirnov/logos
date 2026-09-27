@@ -1,0 +1,7 @@
+package p08f;
+fn main() -> i32 {
+    let x = [5i64, 6i64];
+    let base: *const i64 = &x[0];
+    let f = |i: i64| -> i64 { unsafe { *base.add(i) } };
+    return f(1) as i32;
+}

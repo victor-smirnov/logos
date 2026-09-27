@@ -1,0 +1,22 @@
+package u12a;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+#[derive_clone]
+#[derive_copy]
+#[derive_partial_eq]
+#[derive_debug]
+enum Light { Red, Yellow { secs: i64 }, Green(i64) }
+impl Light {
+    fn next(self) -> Self { match self { Light::Red => Self::Green(30), Light::Green(t) if t > 10 => Self::Yellow { secs: t / 10 }, Light::Green(_) => Self::Yellow { secs: 1 }, Light::Yellow { .. } => Self::Red } }
+    fn default() -> Self { Light::Red }
+    fn wait(&self) -> i64 { match *self { Light::Red => 60, Light::Yellow { secs } => secs, Light::Green(t) => t } }
+    fn is_go(&self) -> bool { matches!(self, Light::Green(_)) }
+    fn cycle(self, n: usize) -> Vec<Self> { let mut out = vec![self]; let mut cur = self; for _ in 0..n { cur = cur.next(); out.push(cur); } return out; }
+}
+fn main() {
+    let c = Light::default().cycle(5);
+    for l in &c { print!("{} {} | ", l.wait(), l.is_go()); }
+    println!();
+    println!("{}", Light::Green(5).next() == Light::Yellow { secs: 1 });
+    let total: i64 = c.iter().map(|l| l.wait()).sum();
+    println!("{}", total);
+}

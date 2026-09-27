@@ -1,0 +1,8 @@
+struct D(i32);
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.0); } }
+fn ap<F: FnOnce(D) -> i32>(f: F, d: D) -> i32 { f(d) }
+fn main() {
+    let f = |d: D| d.0;
+    println!("{}", f(D(4)));
+    println!("{}", ap(|d| d.0 * 2, D(5)));
+}

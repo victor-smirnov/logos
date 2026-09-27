@@ -1,0 +1,4 @@
+package m_i32;
+trait Num { fn as_i64(&self) -> i64; }
+impl Num for i32 { fn as_i64(&self) -> i64 { *self as i64 } }
+fn main() -> i32 { let m: &dyn Num = &5; m.as_i64() as i32 }

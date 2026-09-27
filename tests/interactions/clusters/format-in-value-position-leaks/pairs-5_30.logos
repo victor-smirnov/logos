@@ -1,0 +1,23 @@
+package f31_format_in_branch_arm_leak;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+fn main() {
+    for q in 0..3i64 {
+        let p = match q { 0 => format!("zero{}", q), _ => format!("x{}", q) };
+        let r = if q == 1 { format!("one") } else { format!("n{}", q) };
+        println!("{} {}", p, r);
+    }
+}

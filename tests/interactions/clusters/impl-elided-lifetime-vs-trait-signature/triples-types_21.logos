@@ -1,0 +1,5 @@
+package m89;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+struct V { x: i64 }
+impl<'a> Add<&'a V> for &'a V { type Output = V; fn add(self, o: &V) -> V { V { x: self.x + o.x } } }
+fn main() { let a = V { x: 1 }; let b = V { x: 2 }; let c = &a + &b; println!("{}", c.x); }

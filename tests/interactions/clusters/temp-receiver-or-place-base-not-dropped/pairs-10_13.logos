@@ -1,0 +1,7 @@
+package m25b;
+use logos.std.fmt;
+struct B { id: i64 }
+impl Drop for B { fn drop(&mut self) { println!("drop B {}", self.id); } }
+impl B { fn hi(&self) -> i64 { self.id } }
+fn make(k: i64) -> Box<B> { Box::new(B { id: k }) }
+fn main() { println!("{}", make(7).hi()); println!("end"); }

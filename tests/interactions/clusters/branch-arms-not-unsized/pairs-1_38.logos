@@ -1,0 +1,20 @@
+package l4;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+fn pick(k: i64) -> Box<dyn Fn(i64) -> i64> { let b: Box<dyn Fn(i64) -> i64> = match k { 0 => Box::new(|x: i64| x + 1), n => Box::new(move |x: i64| x * n) }; return b; }
+fn main() { let a = pick(0); let b = pick(3); println!("{} {}", a(10), b(10)); }

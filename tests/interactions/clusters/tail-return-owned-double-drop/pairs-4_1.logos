@@ -1,0 +1,9 @@
+package m11;
+use logos.std.fmt;
+use logos.mem.string;
+fn b1() -> String { let s = String::from("hi"); s }
+fn main() -> i32 {
+    let t = b1();
+    println!("{}", t);
+    return 0;
+}

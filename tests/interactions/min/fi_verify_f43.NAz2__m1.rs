@@ -1,0 +1,8 @@
+struct D { id: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.id); } }
+fn main() {
+    let d = D { id: 1 };
+    let D { id, .. } = d;
+    println!("{}", id);
+    println!("end");
+}

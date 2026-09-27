@@ -1,0 +1,17 @@
+package p09f;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.boxed;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+#[derive_debug]
+enum E { Empty, Bad(u8), Big { v: i64 } }
+fn main() { println!("{:?} {:?} {:?}", E::Empty, E::Bad(3), E::Big { v: 9 }); let r: Result<i32, E> = Err(E::Bad(1)); println!("{:?}", r); }

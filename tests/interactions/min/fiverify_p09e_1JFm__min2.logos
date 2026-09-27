@@ -1,0 +1,3 @@
+package min2;
+struct D;
+fn main() { let r = &D; }

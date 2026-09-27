@@ -1,0 +1,20 @@
+package f45_derive_copy_on_string_field;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.rc;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.std.compiler.metaprog;
+use logos.lang.ptr;
+#[derive_clone]
+#[derive_copy]
+struct Rec { name: String, n: i64 }
+fn main() { let a = Rec { name: String::from("a"), n: 1 }; let b = a; println!("{} {}", a.n, b.n); }

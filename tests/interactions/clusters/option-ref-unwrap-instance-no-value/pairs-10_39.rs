@@ -1,0 +1,1 @@
+fn main() { let b: [u8; 3] = [4, 9, 2]; let m = b.iter().max().unwrap(); println!("{}", m); }

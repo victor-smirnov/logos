@@ -1,0 +1,7 @@
+trait Visitor { fn visit(&mut self, v: i64); }
+impl<F: FnMut(i64)> Visitor for F { fn visit(&mut self, v: i64) { self(v) } }
+fn walk<V: Visitor>(v: &mut V) { v.visit(1); }
+fn main() {
+    let mut vis = |_v: i64| { };
+    walk(&mut vis);
+}
