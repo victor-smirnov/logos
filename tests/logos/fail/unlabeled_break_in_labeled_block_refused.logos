@@ -1,0 +1,4 @@
+// An unlabeled break inside a labeled block is refused (rustc E0695): it would silently target the enclosing loop.
+package unlabeled_break_in_labeled_block_refused;
+fn t() -> i64 { let mut n = 0; loop { 'a: { n += 1; if n > 2 { break; } } } n }
+fn main() -> i32 { return 0; }

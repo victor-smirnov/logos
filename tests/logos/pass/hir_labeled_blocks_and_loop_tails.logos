@@ -1,0 +1,51 @@
+// Labeled blocks and loops resolved by the HIR pass (ADR 0030): `'a: { B }` is a
+// loop that runs once (its tail leaves through `break 'a`), a `loop` statement
+// ending a block whose breaks carry a value is the block's tail expression, and
+// an inner label shadowing an outer one names the inner loop.
+package hir_labeled_blocks_and_loop_tails;
+fn classify(k: i64) -> i64 {
+    let v = 'a: {
+        if k < 0 { break 'a -1; }
+        if k == 0 { break 'a 0; }
+        k * 10
+    };
+    v
+}
+fn first_over(xs: [i64; 5], lim: i64) -> i64 {
+    let mut i: usize = 0;
+    loop {
+        if xs[i] > lim { break xs[i]; }
+        i = i + 1;
+        if i == 5 { break -1; }
+    }
+}
+fn labeled_tail() -> i64 {
+    let mut n: i64 = 0;
+    'outer: loop {
+        n = n + 1;
+        if n < 4 { continue 'outer; }
+        break 'outer n * 2;
+    }
+}
+fn shadow() -> i64 {
+    let mut n: i64 = 0;
+    'a: while n < 10 {
+        'a: loop { n = n + 1; break 'a; }
+    }
+    n
+}
+fn nested_exit() -> i64 {
+    let mut n: i64 = 0;
+    'a: {
+        'b: loop {
+            n = n + 1;
+            if n > 3 { break 'a; }
+        }
+    }
+    n
+}
+fn main() -> i32 {
+    let r = classify(-5) + classify(0) + classify(3) + first_over([1, 5, 9, 2, 7], 6)
+          + labeled_tail() + shadow() + nested_exit();
+    return r as i32;
+}

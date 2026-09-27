@@ -38,6 +38,18 @@
 //   matches!(e, P [if g])                → match e { P [if g] => true, _ => false }
 //   dbg!(e)                              → { let t = e; eprintln!("[file:line] e = {:?}", t); t }
 //   unreachable!/todo!/unimplemented!(…) → panic!("<fixed message>[: <formatted>]", …)
+//   'a: { B }  (LABELED_BLOCK)           → 'a: loop { break 'a { B } }  (a loop that runs once)
+//   A `loop` statement ending a block whose breaks carry a value is the block's
+//   tail expression (Rust: a block-like expression statement at the end of a
+//   block is its value).
+//   Labels and loop exits are RESOLVED here, lexically: an unknown label
+//   (E0426), a label or loop outside the enclosing closure (E0767 / E0267), an
+//   exit outside any loop (E0268), `continue` to a labeled block (E0696) and an
+//   unlabeled exit inside a labeled block (E0695) are refused, and the exit
+//   keeps its node with ORIGIN = ExitRefused. In a FRAGMENT (text sema parses
+//   after the body walk: a user macro's arguments, include!, a spliced quote)
+//   the enclosing loops are not known; an exit that reaches the fragment's
+//   root is left to sema's own check.
 //   The macro's arguments are raw text in the AST (a macro call's operand is a
 //   token tree); the pass parses them where they stand, and a refused call
 //   keeps its node with ORIGIN = Macro after the diagnostic.
@@ -69,6 +81,8 @@ enum class Origin : int64_t {
     FieldShorthand  = 10,  // `S { x }` in a struct / variant literal
     Macro           = 11,  // a built-in macro's expansion (format family, matches!, dbg!,
                            // unreachable!); on a FN_MACRO_CALL: refused, diagnostic given
+    LabeledBlock    = 12,  // `'a: { B }`
+    ExitRefused     = 13,  // a break / continue whose target the pass refused (diagnostic given)
 };
 
 struct Diag {
@@ -82,7 +96,7 @@ public:
 
     // The core form of a body (a BLOCK, or an expression in a const / closure
     // position). `stmt` says whether `node` itself sits in statement position.
-    writ::AnyVal lower_body(writ::AnyVal node, bool stmt = false);
+    writ::AnyVal lower_body(writ::AnyVal node, bool stmt = false, bool fragment = false);
 
     // A node code (with its shape) that must not reach sema once its body went
     // through lower_body — the surface-code gate asks this.
@@ -124,6 +138,19 @@ private:
     writ::AnyVal list_map(const std::vector<writ::AnyVal>& items);   // `{ITEMS: [...]}`
     uint64_t fresh_ = 0;
 
+    // Loop scopes (every enclosing loop / labeled block, innermost last) and
+    // the closure / nested-fn barriers over them.
+    struct LoopScope { std::string label; bool is_block = false; bool valued = false; };
+    struct Barrier   { size_t depth = 0; bool closure = false; };
+    std::vector<LoopScope> loops_;
+    std::vector<Barrier>   barriers_;
+    bool                   labeled_body_ = false;   // the next loop node is a LABELED_LOOP's body
+    bool                   fragment_ = false;
+    std::vector<const void*> valued_loops_;         // loop nodes a break-with-value targets
+    // Resolve a break / continue (statement or expression form); returns the
+    // node, recoded with ORIGIN ExitRefused after a refusal.
+    writ::AnyVal resolve_exit(writ::AnyVal v);
+    writ::AnyVal loop_as_expr(writ::AnyVal v);
 
     // Built-in macros. `expand_macro` returns `v` for a macro it does not own.
     enum class ArgsEntry { Args, Matches };

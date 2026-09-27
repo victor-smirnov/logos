@@ -1,0 +1,39 @@
+// A labeled block's value is the break's or its tail (ADR 0030 HIR: a loop that runs once): locals of
+// the block drop when it is left by `break 'blk` and at its end, in reverse order; a labeled block works
+// as a closure body and feeds `?`. A `break 'b v` INSIDE a loop inside the block (the block's whole body is
+// the synthesized break's value) crashed sema and then codegen: the break-frame pointer (sema) and the
+// loop-stack pointer (mlir_gen) dangled once the inner loop pushed its frame. Matches rustc 1.98.1.
+package labeled_block_drops_closures_try;
+struct D { id: i64, log: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.log = *self.log * 10 + self.id; } } }
+fn f(k: i64, log: *mut i64) -> i64 {
+    let _a = D { id: 1, log: log };
+    let v = 'blk: {
+        let _b = D { id: 2, log: log };
+        if k > 0 { break 'blk k; }
+        let _c = D { id: 3, log: log };
+        7
+    };
+    unsafe { *log = *log * 10 + 9; }
+    v
+}
+fn g(xs: [i64; 3]) -> Option<i64> {
+    let s = 'b: {
+        for x in xs { if x < 0 { break 'b None; } }
+        Some(xs[0] + xs[1] + xs[2])
+    };
+    let t = s?;
+    Some(t * 2)
+}
+fn main() -> i32 {
+    let mut log: i64 = 0;
+    let r1 = f(1, &mut log as *mut i64);
+    let l1 = log; log = 0;
+    let r2 = f(0, &mut log as *mut i64);
+    let l2 = log;
+    let c = |n: i64| -> i64 { 'x: { if n > 5 { break 'x n; } n * 100 } };
+    let g1 = match g([1, 2, 3]) { Some(v) => v, None => -1 };
+    let g2 = match g([1, -2, 3]) { Some(v) => v, None => -1 };
+    if r1 == 1 && l1 == 291 && r2 == 7 && l2 == 3291 && c(9) == 9 && c(2) == 200 && g1 == 12 && g2 == -1 { return 0; }
+    return 1;
+}

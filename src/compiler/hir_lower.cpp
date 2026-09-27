@@ -41,6 +41,25 @@ bool same(AnyVal a, AnyVal b) noexcept {
     return a.is_pointer() ? a.resolve() == b.resolve() : a.raw() == b.raw();
 }
 
+uint32_t line_of(TinyMapView n) {
+    AnyVal v = n.is_null() ? AnyVal{} : n.get(la::SRC_LINE.code);
+    return v.is_null() || !v.is_value() ? 0 : v.as_value<uint32_t>();
+}
+std::string_view text_of(TinyMapView n, uint8_t key) {
+    AnyVal v = n.is_null() ? AnyVal{} : n.get(key);
+    if (v.is_null() || !v.is_pointer()) return {};
+    return writ::StringView(v, nullptr).view();
+}
+Origin origin_of(TinyMapView n) noexcept {
+    AnyVal o = n.is_null() ? AnyVal{} : n.get(la::ORIGIN.code);
+    return o.is_null() || !o.is_value() ? Origin::User : static_cast<Origin>(o.as_value<int64_t>());
+}
+bool ends_in_tail(TinyMapView blk) noexcept {
+    if (blk.is_null() || !blk.has_key(la::ITEMS)) return false;
+    writ::ArrayView items(blk.get(la::ITEMS.code), nullptr);
+    return items.size() > 0 && code_of(map_of(items.get(items.size() - 1))) == la::TAIL_EXPR.code;
+}
+
 // Subtrees the pass does not enter: quote bodies and meta blocks are TEMPLATES
 // (their antiquote placeholders are substituted before the result is lowered,
 // and the spliced result goes through this pass then), not code. A metacall
@@ -66,10 +85,13 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
         return true;
     if (c == la::DESTRUCTURE_ASSIGN.code) return true;
     if (c == la::FIELD_SHORTHAND.code) return true;
+    if (c == la::LABELED_BLOCK.code) return true;
     return false;
 }
 
-AnyVal Lowering::lower_body(AnyVal node, bool stmt) {
+AnyVal Lowering::lower_body(AnyVal node, bool stmt, bool fragment) {
+    fragment_ = fragment;
+    loops_.clear(); barriers_.clear(); labeled_body_ = false; valued_loops_.clear();
     return lower(node, stmt ? Ctx::Stmt : Ctx::Expr);
 }
 
@@ -97,6 +119,34 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
     // only for a statement match).
     auto arm_ctx = [&]() { return ctx; };
 
+    // Loop scopes. A LABELED_LOOP's scope covers its BODY (the loop it names,
+    // or a labeled block); a plain loop's covers every key but its iterated
+    // expression / range bounds. A closure or nested fn is a barrier.
+    const bool is_loop = c == la::LOOP.code || c == la::WHILE.code || c == la::FOR.code ||
+                         c == la::FOR_EACH.code;
+    const bool labeled_block = c == la::LABELED_BLOCK.code;
+    const bool labeled = c == la::LABELED_LOOP.code || labeled_block;
+    const bool barrier = c == la::CLOSURE_EXPR.code || c == la::NESTED_FN.code;
+    bool own_scope = false;
+    LoopScope mine;
+    if (labeled) {
+        loops_.push_back({std::string(text_of(n, la::LABEL.code)), labeled_block, false});
+        // The statement form's BODY is the loop node it names (the expression
+        // form's is the loop's block).
+        const int32_t bc = code_of(map_of(n.get(la::BODY.code)));
+        labeled_body_ = !labeled_block && (bc == la::LOOP.code || bc == la::WHILE.code ||
+                                           bc == la::FOR.code || bc == la::FOR_EACH.code);
+    } else if (is_loop) {
+        own_scope = !labeled_body_;
+        labeled_body_ = false;
+    }
+    if (barrier) barriers_.push_back({loops_.size(), c == la::CLOSURE_EXPR.code});
+    auto inside = [&](uint8_t k) {
+        if (c == la::FOR.code) return k != la::LHS.code && k != la::RHS.code;
+        if (c == la::FOR_EACH.code) return k != la::ITER.code;
+        return true;
+    };
+
     AnyVal vals[writ::TinyObjectMap::MAX_KEYS];
     bool changed = false;
     const uint64_t bits = n.bitmap();
@@ -104,6 +154,8 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
         if (!(bits & (1ull << k))) continue;
         AnyVal cv = n.get(k);
         AnyVal nv = cv;
+        const bool scoped = own_scope && inside(k) && (is_map(cv) || is_array(cv));
+        if (scoped) loops_.push_back(mine);
         if (is_map(cv)) {
             nv = lower_map(cv, child_ctx(k));
         } else if (is_array(cv)) {
@@ -120,8 +172,15 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
             }
             if (arr_changed) nv = array(items);
         }
+        if (scoped) { mine = loops_.back(); loops_.pop_back(); }
         if (!same(cv, nv)) changed = true;
         vals[k] = nv;
+    }
+    if (barrier) barriers_.pop_back();
+    bool valued = own_scope && mine.valued;
+    if (labeled) {
+        valued = loops_.back().valued;
+        loops_.pop_back();
     }
     AnyVal cur = v;
     if (changed) {
@@ -132,7 +191,31 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
         m->set_schema_type_code(n.schema_type_code());
         cur.set_ref(m);
     }
-    return is_surface(map_of(cur)) ? desugar(cur, ctx) : cur;
+    if (c == la::BREAK.code || c == la::CONTINUE.code || c == la::BREAK_EXPR.code ||
+        c == la::CONTINUE_EXPR.code)
+        cur = resolve_exit(cur);
+    // A block ending in a `loop` statement whose breaks carry a value: the
+    // loop is the block's tail expression.
+    if (c == la::BLOCK.code && n.has_key(la::ITEMS)) {
+        writ::ArrayView items(map_of(cur).get(la::ITEMS.code), nullptr);
+        if (items.size() > 0) {
+            AnyVal last = items.get(items.size() - 1);
+            if (last.is_pointer() && std::find(valued_loops_.begin(), valued_loops_.end(),
+                                               static_cast<const void*>(last.resolve())) != valued_loops_.end()) {
+                std::vector<AnyVal> all;
+                for (uint64_t i = 0; i + 1 < items.size(); ++i) all.push_back(items.get(i));
+                all.push_back(node(la::TAIL_EXPR.code, map_of(last), Origin::User,
+                                   {{la::VALUE.code, loop_as_expr(last)}}));
+                cur = recoded(map_of(cur), la::BLOCK.code, Origin::User);
+                cur = node(la::BLOCK.code, map_of(cur), Origin::User, {{la::ITEMS.code, array(all)}});
+            }
+        }
+    }
+    AnyVal out = is_surface(map_of(cur)) ? desugar(cur, ctx) : cur;
+    // A labeled block yields its tail through the break the desugaring adds.
+    if (labeled_block && ends_in_tail(map_of(n.get(la::BODY.code)))) valued = true;
+    if (valued && out.is_pointer()) valued_loops_.push_back(out.resolve());
+    return out;
 }
 
 AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
@@ -180,6 +263,23 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
             : let_chain(n, n.get(la::BODY.code), brk, o);
         return node(la::LOOP.code, n, o, {{la::BODY.code, block({m}, n, o)}});
     }
+    if (c == la::LABELED_BLOCK.code) {           // 'a: { B }
+        // A loop that runs once: its tail (if any) leaves through the break.
+        const AnyVal label = n.get(la::LABEL.code), blk = n.get(la::BODY.code);
+        std::vector<AnyVal> body;
+        if (ends_in_tail(map_of(blk))) {
+            body.push_back(node(la::BREAK.code, n, Origin::LabeledBlock,
+                                {{la::LABEL.code, label}, {la::VALUE.code, blk}}));
+        } else {
+            body.push_back(node(la::BLOCK_STMT.code, n, Origin::LabeledBlock, {{la::BODY.code, blk}}));
+            body.push_back(node(la::BREAK.code, n, Origin::LabeledBlock, {{la::LABEL.code, label}}));
+        }
+        // The statement form names a LOOP node, the expression form its block
+        // (the grammar's two shapes).
+        AnyVal lb = block(body, n, Origin::LabeledBlock);
+        if (ctx == Ctx::Stmt) lb = node(la::LOOP.code, n, Origin::LabeledBlock, {{la::BODY.code, lb}});
+        return node(la::LABELED_LOOP.code, n, Origin::LabeledBlock, {{la::LABEL.code, label}, {la::BODY.code, lb}});
+    }
     if (c == la::DESTRUCTURE_ASSIGN.code) return destructure(n);
     if (c == la::FIELD_SHORTHAND.code)
         return node(la::FIELD_INIT.code, n, Origin::FieldShorthand,
@@ -191,7 +291,8 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
         // the keys (VALUE, LABEL) are the same.
         const int32_t sc = c == la::RETURN_EXPR.code ? la::RETURN.code
                          : c == la::BREAK_EXPR.code  ? la::BREAK.code : la::CONTINUE.code;
-        return block({recoded(n, sc, Origin::ExprExit)}, n, Origin::ExprExit);
+        const Origin o = origin_of(n) == Origin::ExitRefused ? Origin::ExitRefused : Origin::ExprExit;
+        return block({recoded(n, sc, o)}, n, Origin::ExprExit);
     }
     return v;
 }
@@ -212,6 +313,23 @@ AnyVal Lowering::node(int32_t code, TinyMapView from, Origin o,
     for (const auto& kv : keys)
         if (!kv.second.is_null()) m->put(kv.first, kv.second, ar).get();
     AnyVal a; a.set_ref(m); return a;
+}
+
+// A loop statement as an expression: the statement form of a labeled loop
+// (`'a: loop { B }` → LABELED_LOOP { BODY: LOOP { BODY: B } }) becomes the
+// expression form (LABELED_LOOP { BODY: B }); every other loop is both.
+AnyVal Lowering::loop_as_expr(AnyVal v) {
+    TinyMapView n = map_of(v);
+    TinyMapView inner = map_of(n.get(la::BODY.code));
+    if (code_of(n) != la::LABELED_LOOP.code || code_of(inner) != la::LOOP.code) return v;
+    auto* m = doc_.make_tiny_map(n.size() + 1).get();
+    auto& ar = doc_.arena();
+    const uint64_t bits = n.bitmap();
+    for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
+        if (bits & (1ull << k))
+            m->put(k, k == la::BODY.code ? inner.get(la::BODY.code) : n.get(k), ar).get();
+    m->set_schema_type_code(n.schema_type_code());
+    AnyVal out; out.set_ref(m); return out;
 }
 
 AnyVal Lowering::recoded(TinyMapView from, int32_t code, Origin o) {
@@ -405,15 +523,6 @@ AnyVal Lowering::destructure(TinyMapView n) {
 // ── built-in macros ─────────────────────────────────────────────────────────
 
 namespace {
-uint32_t line_of(TinyMapView n) {
-    AnyVal v = n.is_null() ? AnyVal{} : n.get(la::SRC_LINE.code);
-    return v.is_null() || !v.is_value() ? 0 : v.as_value<uint32_t>();
-}
-std::string_view text_of(TinyMapView n, uint8_t key) {
-    AnyVal v = n.is_null() ? AnyVal{} : n.get(key);
-    if (v.is_null() || !v.is_pointer()) return {};
-    return writ::StringView(v, nullptr).view();
-}
 // Text the expansion puts INSIDE a format string literal: `"` and `\`
 // escaped, `{`/`}` doubled so the format parser reads them as literal braces.
 std::string fmt_lit_escape(std::string_view t) {
@@ -686,6 +795,48 @@ AnyVal Lowering::format_expansion(TinyMapView at, std::string_view callee, std::
     }
     stmts.push_back(node(la::TAIL_EXPR.code, at, o, {{la::VALUE.code, tail}}));
     return block(stmts, at, o);
+}
+
+// ── loop exits ──────────────────────────────────────────────────────────────
+
+AnyVal Lowering::resolve_exit(AnyVal v) {
+    TinyMapView n = map_of(v);
+    const int32_t c = code_of(n);
+    const bool is_break = c == la::BREAK.code || c == la::BREAK_EXPR.code;
+    const char* kw = is_break ? "break" : "continue";
+    const bool with_value = is_break && n.has_key(la::VALUE);
+    const std::string label(text_of(n, la::LABEL.code));
+    const size_t floor = barriers_.empty() ? 0 : barriers_.back().depth;
+    const bool in_closure = !barriers_.empty() && barriers_.back().closure;
+    // In a fragment, the loops around its root are sema's to know.
+    const bool open_root = fragment_ && barriers_.empty();
+    auto refuse_exit = [&](std::string msg) {
+        diags_.push_back({line_of(n), std::move(msg)});
+        return recoded(n, c, Origin::ExitRefused);
+    };
+    if (label.empty()) {
+        if (loops_.size() > floor) {
+            if (loops_.back().is_block)
+                return refuse_exit(std::format("unlabeled `{}` inside of a labeled block (E0695)", kw));
+            if (with_value) loops_.back().valued = true;
+            return v;
+        }
+        if (open_root) return v;
+        return refuse_exit(in_closure ? std::format("'{}' inside of a closure (E0267)", kw)
+                                      : std::format("'{}' outside loop (E0268)", kw));
+    }
+    for (size_t i = loops_.size(); i-- > floor; ) {
+        if (loops_[i].label != label) continue;
+        if (!is_break && loops_[i].is_block)
+            return refuse_exit(std::format("`continue {}` targets a labeled block, not a loop (E0696)", label));
+        if (with_value) loops_[i].valued = true;
+        return v;
+    }
+    for (size_t i = floor; i-- > 0; )
+        if (loops_[i].label == label)
+            return refuse_exit(std::format("'{} {}': the label is outside the enclosing closure (E0767)", kw, label));
+    if (open_root) return v;
+    return refuse_exit(std::format("'{} {}': label not in scope (E0426)", kw, label));
 }
 
 } // namespace logos::compiler::hir

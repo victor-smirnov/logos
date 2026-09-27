@@ -3420,18 +3420,17 @@ void MLIRGenImpl::gen_loop(lir_view::SLoopView v) {
 void MLIRGenImpl::gen_break(lir_view::SBreakView v) {
     if (loop_stack_.empty()) return;
     std::string label(v.label());
-    LoopBlocks* target = nullptr;
-    if (label.empty()) {
-        target = &loop_stack_.back();
-    } else {
-        for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
-            if (loop_stack_[i].label == label) { target = &loop_stack_[i]; break; }
-        }
-        if (!target) { target = &loop_stack_.back(); }
-    }
+    // An INDEX, not a pointer: generating the value can push loops (a labeled
+    // block's value is its whole body), and the stack's reallocation left a
+    // pointer dangling.
+    size_t ix = loop_stack_.size() - 1;
+    if (!label.empty())
+        for (size_t i = loop_stack_.size(); i-- > 0; )
+            if (loop_stack_[i].label == label) { ix = i; break; }
     auto val_er = v.value();
-    if (val_er && target->break_slot) {
+    if (val_er && loop_stack_[ix].break_slot) {
         mlir::Value val = gen_expr(val_er);
+        LoopBlocks* target = &loop_stack_[ix];
         // An aggregate break value (`break [a]`, a struct) arrives as a POINTER
         // to its storage while the slot holds the aggregate itself: copy the
         // VALUE. Storing the pointer made the loop's result read garbage.
@@ -3443,8 +3442,8 @@ void MLIRGenImpl::gen_break(lir_view::SBreakView v) {
         if (val)
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
     }
-    unwind_loops_above((size_t)(target - loop_stack_.data()) + 1);
-    builder_.create<mlir::cf::BranchOp>(loc_, target->exit);
+    unwind_loops_above(ix + 1);
+    builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_[ix].exit);
 }
 
 void MLIRGenImpl::gen_continue() {

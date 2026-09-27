@@ -357,8 +357,29 @@ diverging-call predicate were one rule written three times and are now
 `is_divergent_call_node`, which also reads a block ending in a diverging call.
 vec! stays in sema until S7 (its element type comes from the `let`
 annotation).
-Next: parameter patterns, labels → ids; tail → return stays sema's single
-judgment (a unit tail needs a type).
+Labels and loop exits are resolved in the pass, lexically, with closures and
+nested fns as barriers (`resolve_exit`): E0268 / E0426 / E0267 / E0767 /
+E0696 / E0695 are the pass's refusals, and a refused exit keeps its node with
+ORIGIN ExitRefused (sema's older checks stand only for a FRAGMENT — a user
+macro's arguments, include!, a spliced quote — whose enclosing loops the pass
+cannot see). Discovery found two holes this closes: a `break` inside a
+closure broke the enclosing fn's loop, and `break 'a` across a closure was
+accepted (it did nothing in a `for`, looped forever in a `loop`) — closed squeue
+break_through_closure_admitted. Labeled blocks `'a: { B }` parse (LABELED_BLOCK = 271) and lower to
+`'a: loop { break 'a { B } }` (ORIGIN LabeledBlock). A `loop` statement ending
+a block whose breaks carry a value is that block's tail expression (the pass
+knows which loops a valued break targets) — `fn f() -> i64 { loop { … break
+v; } }` was refused ("not all paths return a value"). Neighbours closed with it: a labeled
+block's whole body is its synthesized break's value, so a loop inside a break
+value became common — sema's break-frame pointer and mlir_gen's loop-stack
+pointer dangled when that inner loop pushed its frame (both now indices); and
+the breaks of one loop are one type — their open inference variables unify as
+an `if`'s arms do (`break None; … break Some(5)` read back `None`). Labels stay strings:
+after lexical resolution, sema's innermost-out search by name finds the same
+loop, so an id rewrite would change no target.
+Next: or-patterns / parameter patterns (sema already binds a parameter pattern
+through the `let` door), `..base`; tail → return stays sema's single judgment
+(a unit tail needs a type).
 
 ## R0 status (2026-09-27)
 

@@ -1,0 +1,26 @@
+// The breaks of one loop are ONE type: their open inference variables unify, as
+// the arms of an `if` / `match` do. `break None; … break Some(5)` typed the loop
+// by the first break (`Option<?>`), sized its slot wrong and read `None` back;
+// the other order refused `None` (E0282). Matches rustc 1.98.1.
+package loop_break_values_infer_as_one_type;
+fn first_none(k: i64) -> Option<i64> {
+    let s = loop { if k < 0 { break None; } break Some(k * 2); };
+    s
+}
+fn first_some(k: i64) -> Option<i64> {
+    let s = loop { if k > 0 { break Some(k + 1); } break None; };
+    s
+}
+fn labeled(xs: [i64; 3]) -> Option<i64> {
+    let s = 'b: loop {
+        for x in xs { if x < 0 { break 'b None; } }
+        break 'b Some(xs[0] + xs[1] + xs[2]);
+    };
+    s
+}
+fn val(o: Option<i64>) -> i64 { match o { Some(v) => v, None => 100 } }
+fn main() -> i32 {
+    let r = val(first_none(5)) + val(first_none(-1)) + val(first_some(3)) + val(first_some(0))
+          + val(labeled([1, 2, 3])) + val(labeled([1, -2, 3]));
+    return (r - 300) as i32;
+}

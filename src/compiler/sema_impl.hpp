@@ -8591,9 +8591,12 @@ private:
     // ADR 0030: the core layer. Every body sema lowers goes through
     // hir_body_ first; sema then never meets a surface form (hir_gate_).
     hir::Lowering hir_;
-    writ::TinyMapView hir_body_(writ::AnyVal body) {
+    // `fragment`: text parsed after the body walk (a macro's arguments, a
+    // reparsed tail, include!, a spliced quote) — the loops around it are not
+    // the pass's to see (hir_lower.hpp).
+    writ::TinyMapView hir_body_(writ::AnyVal body, bool fragment = true) {
         hir_.set_file(file_);
-        writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false);
+        writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false, fragment);
         hir_report_();
         return map_of(core);
     }

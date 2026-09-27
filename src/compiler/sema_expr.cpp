@@ -2380,6 +2380,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::MATCH:       return lower_match_expr(expr);
     case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
+    case la::LABELED_BLOCK:   // a loop by now (the HIR pass)
+        hir_gate_(expr);
+        return error_expr();
     case la::LABELED_LOOP:
     case la::LOOP: {
         // loop { ... } used as an expression — only valid when all break paths carry a value.
@@ -24566,7 +24569,7 @@ SemaChecker::MacroArgs SemaChecker::parse_macro_args_(TinyMapView call,
     {
         writ::AnyVal rav; rav.set_ref(out.root.ptr());
         hir_.set_file(file_);
-        out.root = map_of(hir_.lower_body(rav));
+        out.root = map_of(hir_.lower_body(rav, /*stmt=*/false, /*fragment=*/true));
         hir_report_();
     }
     if (entry == MacroArgsEntry::Args && out.root.has_key(la::ITEMS)) {

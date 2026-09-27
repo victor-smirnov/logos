@@ -832,6 +832,8 @@ Source: `tools/peg_gen_cpp/grammars/logos.peg#L1888-L1894; tools/peg_gen_cpp/gra
 
 `'label: for/while/loop { ... }` attaches a lifetime-syntax label to a loop (in statement or expression position), targetable by `break 'label` / `continue 'label` to disambiguate nested loops.
 
+A labeled block `'label: { ... }` (statement or expression) is a block that `break 'label [value]` leaves early; its value is the break's value or, when control reaches its end, the block's tail. The HIR pass lowers it to `'label: loop { break 'label { ... } }` (ADR 0030).
+
 Source: `tools/peg_gen_cpp/grammars/logos.peg#L1891-L1902; tools/peg_gen_cpp/grammars/logos.peg#L1951-L1952; tools/peg_gen_cpp/grammars/logos.peg#L1957-L1962`
 
 ### `stmt.loop.forms` — loop and labeled loop
@@ -896,6 +898,8 @@ Source: `tools/peg_gen_cpp/grammars/logos.peg#L1964-L1971`
 
 A `break` is an error outside any loop. A labeled `break 'l` is an error unless `'l` is an active in-scope loop label.
 
+Labels and exits are resolved lexically by the HIR pass (ADR 0030, `hir_lower.cpp` `resolve_exit`), as rustc resolves them: an exit outside any loop is E0268; a label naming no enclosing loop or labeled block is E0426; a closure (or nested fn) is a boundary — an unlabeled exit in a closure with no loop inside it is E0267, a label that names a loop outside the closure is E0767; `continue 'l` to a labeled block is E0696; an unlabeled `break` / `continue` whose innermost target is a labeled block is E0695. A `loop` statement ending a block whose breaks carry a value is the block's tail expression (the block's value).
+
 Source: `src/compiler/sema_stmt.cpp#L456-L465`
 
 ### `stmt.break.target-resolution` — break targets the matching labeled or innermost loop
@@ -942,7 +946,7 @@ Source: `src/compiler/mlir_gen_stmt.cpp#L2319-L2323; src/compiler/mlir_gen_stmt.
 
 ### `stmt.continue.labeled-target` — Labeled `continue` targets the matching enclosing loop
 
-A labeled `continue 'label` transfers control to the continuation block of the nearest enclosing loop (searching the loop stack from innermost to outermost) whose label equals `'label`. An unlabeled `continue`, or a label matching no enclosing loop on the stack, falls back to the innermost loop's continuation block.
+A labeled `continue 'label` transfers control to the continuation block of the nearest enclosing loop (searching the loop stack from innermost to outermost) whose label equals `'label`. An unlabeled `continue` targets the innermost loop's continuation block. (The emitter's fallback for a label matching no enclosing loop is unreachable: the HIR pass refuses such a label, E0426 / E0767.)
 
 Source: `src/compiler/mlir_gen_stmt.cpp#L403-L414`
 

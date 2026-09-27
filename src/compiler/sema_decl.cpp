@@ -1535,7 +1535,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // Body (extern fns have no body)
     lir_view::BlockRef body;
     if (!is_extern && !skip_body && node.has_key(la::BODY)) {
-        auto body_node = hir_body_(node.get(la::BODY.code));   // ADR 0030: the core form
+        auto body_node = hir_body_(node.get(la::BODY.code), /*fragment=*/false);   // ADR 0030: the core form
         auto saved_esc_lets = std::move(escaping_closure_lets_);
         auto saved_esc_names = std::move(escaping_closure_names_);
         struct EscGuard_ { SemaChecker& s; decltype(saved_esc_lets)& l; decltype(saved_esc_names)& n;

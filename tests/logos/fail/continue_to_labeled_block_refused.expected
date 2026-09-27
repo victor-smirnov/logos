@@ -1,0 +1,1 @@
+`continue 'a` targets a labeled block, not a loop (E0696)

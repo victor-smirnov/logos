@@ -1,0 +1,4 @@
+// continue cannot target a labeled block, only a loop (rustc E0696).
+package continue_to_labeled_block_refused;
+fn t() -> i64 { 'a: { continue 'a; } 0 }
+fn main() -> i32 { return 0; }

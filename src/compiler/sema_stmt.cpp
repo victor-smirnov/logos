@@ -670,6 +670,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         hir_gate_(stmt);
         return builder().stmt_expr(error_expr(), node_line_);
     }
+    if (c == la::LABELED_BLOCK) {   // a loop by now (the HIR pass)
+        hir_gate_(stmt);
+        return builder().stmt_expr(error_expr(), node_line_);
+    }
     if (c == la::LABELED_LOOP) {
         // 'label: for/while/loop { }
         // Extract label, set pending_loop_label_, lower the inner loop.
@@ -778,11 +782,14 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         return builder().stmt_expr(std::move(e), node_line_);
     }
     if (c == la::BREAK) {
-        if (loop_depth_ == 0) error("'break' outside loop");
+        // The HIR pass resolves exits (hir_lower.cpp resolve_exit); these
+        // checks stand for a fragment's exits, whose loops it cannot see.
+        const bool refused = hir_origin_(stmt) == hir::Origin::ExitRefused;
+        if (loop_depth_ == 0 && !refused) error("'break' outside loop");
         std::string break_label;
         if (stmt.has_key(la::LABEL))
             break_label = std::string(str_of(stmt.get(la::LABEL.code)));
-        if (!break_label.empty() &&
+        if (!break_label.empty() && !refused &&
             std::find(active_loop_labels_.begin(), active_loop_labels_.end(),
                       break_label) == active_loop_labels_.end()) {
             error(std::format("'break {}': label not in scope", break_label));
@@ -791,19 +798,23 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // or the innermost loop for an unlabeled break. The break value
         // attributes to the TARGET, so a value breaking to an outer labeled
         // `loop` isn't consumed by an inner `loop`.
-        LoopBreakFrame* target = nullptr;
+        // An INDEX, not a pointer: lowering the value can push frames (a loop
+        // inside it — a labeled block's value holds the block's whole body),
+        // and the vector's reallocation left a pointer dangling.
+        std::optional<size_t> target_ix;
         if (!loop_break_frames_.empty()) {
             if (break_label.empty()) {
-                target = &loop_break_frames_.back();
+                target_ix = loop_break_frames_.size() - 1;
             } else {
-                for (auto it = loop_break_frames_.rbegin();
-                     it != loop_break_frames_.rend(); ++it)
-                    if (it->label == break_label) { target = &*it; break; }
+                for (size_t k = loop_break_frames_.size(); k-- > 0; )
+                    if (loop_break_frames_[k].label == break_label) { target_ix = k; break; }
             }
         }
         lir::LExprPtr bval = nullptr;
-        if (stmt.has_key(la::VALUE)) {
+        if (stmt.has_key(la::VALUE))
             bval = lower_expr(map_of(stmt.get(la::VALUE.code)));
+        LoopBreakFrame* target = target_ix ? &loop_break_frames_[*target_ix] : nullptr;
+        if (stmt.has_key(la::VALUE)) {
             // The break value MOVES into the loop's result (`break s`), so the
             // source's own drop — on this path's unwind and at its scope end —
             // must not run a second time.
@@ -815,6 +826,16 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 error("loop break mixes value and no-value breaks");
             } else if (target && bval && expr_type(bval) &&
                        TypeRef(expr_type(bval)).kind() != LogosType::Kind::Error) {
+                // The breaks are ONE type: their open inference variables
+                // unify (`break None; … break Some(5)` — as the arms of an
+                // `if` / `match` do). Keeping the first break's open type
+                // sized the loop's slot wrong and the loop read `None` back.
+                if (target->value_type && !infer_solved_.empty() &&
+                    (has_infer_var_(target->value_type) || has_infer_var_(expr_type(bval)))) {
+                    infer_unify_(target->value_type, expr_type(bval));
+                    target->value_type = zonk_(target->value_type);
+                    builder().retype_expr(bval, zonk_(expr_type(bval)));
+                }
                 if (!target->value_type) {
                     target->value_type = expr_type(bval);
                 } else if (!types_compatible(expr_type(bval), target->value_type) &&
@@ -833,11 +854,12 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         return builder().stmt_break(std::move(bval), std::move(break_label), node_line_);
     }
     if (c == la::CONTINUE) {
-        if (loop_depth_ == 0) error("'continue' outside loop");
+        const bool refused = hir_origin_(stmt) == hir::Origin::ExitRefused;
+        if (loop_depth_ == 0 && !refused) error("'continue' outside loop");
         std::string cont_label;
         if (stmt.has_key(la::LABEL))
             cont_label = std::string(str_of(stmt.get(la::LABEL.code)));
-        if (!cont_label.empty() &&
+        if (!cont_label.empty() && !refused &&
             std::find(active_loop_labels_.begin(), active_loop_labels_.end(),
                       cont_label) == active_loop_labels_.end()) {
             error(std::format("'continue {}': label not in scope", cont_label));

@@ -1,0 +1,1 @@
+'break 'outer': the label is outside the enclosing closure (E0767)

@@ -216,8 +216,6 @@ array_nonconst_length_crash 2 tests/soundness/open/array_nonconst_length_crash r
 
 basic_assignment_eval_order_wrong 2 tests/soundness/open/basic_assignment_eval_order_wrong run 0
 
-break_through_closure_admitted 2 tests/soundness/open/break_through_closure_admitted admits
-
 closure_mixed_return_types_crash 2 tests/soundness/open/closure_mixed_return_types_crash refuses
 
 closure_move_capture_drop_delayed_wrong 2 tests/soundness/open/closure_move_capture_drop_delayed_wrong run 1
@@ -469,5 +467,5 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
-# TOTAL 146
-# SYNC-HASH 7be04de05d0c642ae8c296e88a4cc142
+# TOTAL 145
+# SYNC-HASH 9da5ca299071470a1d8d8e6a80b17685
