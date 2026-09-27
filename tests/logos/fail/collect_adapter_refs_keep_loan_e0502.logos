@@ -1,0 +1,9 @@
+package collect_adapter_refs_keep_loan_e0502;
+use logos.mem.string;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec![11, 22];
+    let big: Vec<&i64> = v.iter().filter(|x: &&i64| -> bool { return **x > 5; }).collect();
+    v.push(4);
+    return big.len() as i32;
+}

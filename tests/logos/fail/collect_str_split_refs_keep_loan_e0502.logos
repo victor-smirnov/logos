@@ -1,0 +1,9 @@
+package collect_str_split_refs_keep_loan_e0502;
+use logos.mem.string;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut t: String = String::from("a b");
+    let words: Vec<&str> = t.as_str().split(' ').collect();
+    t.push_str("c");
+    return words.len() as i32;
+}

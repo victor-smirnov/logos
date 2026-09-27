@@ -4204,6 +4204,25 @@ private:
         (void)have;
         out.insert(out.end(), n, "?");
     }
+    // Whether `t` names the type parameter `name` anywhere in its structure.
+    static bool mentions_type_var_(TypeRef t, std::string_view name, int d = 0) {
+        if (!t || d > 32) return false;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+            case K::TypeVar: return std::string_view(t.type_var_name()) == name;
+            case K::Ref: case K::MutRef: case K::Ptr: return mentions_type_var_(t.pointee(), name, d + 1);
+            case K::Array: case K::Slice: return mentions_type_var_(t.elem(), name, d + 1);
+            case K::Tuple:
+                for (auto e : t.tuple_elems()) if (mentions_type_var_(e, name, d + 1)) return true;
+                return false;
+            case K::FnPtr: case K::FnItem: case K::Closure:
+                for (auto q : t.closure_params()) if (mentions_type_var_(q, name, d + 1)) return true;
+                return mentions_type_var_(t.closure_ret(), name, d + 1);
+            default:
+                for (auto a : t.type_args()) if (mentions_type_var_(a, name, d + 1)) return true;
+                return false;
+        }
+    }
     // Loans in the arguments flow into the call's result where the callee's
     // declared signature says so (Rust: written lifetimes by name, elided
     // result lifetime from `&self` or the single input lifetime, type
@@ -4453,6 +4472,17 @@ private:
             bool hidden_identity = false;
             if (L == "~" && dst.inv[j])
                 for (auto& sr : srcs) if (sr.inv && sr.label == "~") { hidden_identity = true; break; }
+            // A result position of a type parameter no parameter mentions
+            // (`collect<C: FromIterator<Item>>(self) -> C`): Rust fixes C by
+            // trait selection on a bound relating it to the arguments
+            // (`Vec<&'a T>: FromIterator<&'a T>`), which labels cannot follow,
+            // so every argument region may flow into it.
+            bool unsourced_tp = false;
+            if (!indirect && L.starts_with("T:") && L.rfind(':') > 1) {
+                const std::string tp = L.substr(2, L.rfind(':') - 2);
+                unsourced_tp = tp != "Self" &&
+                    std::none_of(pdecl.begin(), pdecl.end(), [&](TypeRef pt) { return mentions_type_var_(pt, tp); });
+            }
             for (size_t si = 0; si < srcs.size(); ++si) {
                 const Src& sr = srcs[si];
                 bool from = false;
@@ -4508,6 +4538,8 @@ private:
                     // counter-based one. Rowed rather than patched: the repair
                     // is in the summary, which the OLD checker also consumes, so
                     // it moves verdicts on both sides and is priced on its own.
+                } else if (unsourced_tp) {
+                    from = sr.label != "'static";
                 } else {
                     from = sr.label == L;
                 }

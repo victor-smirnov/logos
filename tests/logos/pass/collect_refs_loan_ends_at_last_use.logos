@@ -1,0 +1,25 @@
+package collect_refs_loan_ends_at_last_use;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec![11, 22];
+    let refs: Vec<&i64> = v.iter().collect();
+    let a: i64 = *refs[0];
+    v.push(a);
+    let owned: Vec<i64> = v.iter().map(|x: &i64| -> i64 { return *x; }).collect();
+    v.push(1);
+    let cl: Vec<i64> = v.iter().copied().collect();
+    v.push(2);
+    let n: i64 = v.iter().sum();
+    v.push(3);
+    let s: String = String::from("abc");
+    let mut t: String = String::from("a b");
+    let words: Vec<&str> = t.as_str().split(' ').collect();
+    let wl: i64 = words.len() as i64;
+    t.push_str("c");
+    let big: Vec<&i64> = v.iter().filter(|x: &&i64| -> bool { return **x > 5; }).collect();
+    let bl: i64 = big.len() as i64;
+    v.push(4);
+    return (owned.len() as i64 + cl.len() as i64 + n + s.len() as i64 + wl + bl - 62) as i32;
+}

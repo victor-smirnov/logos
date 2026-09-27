@@ -1,0 +1,8 @@
+package collect_refs_keeps_loan_e0502;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec![11, 22];
+    let refs: Vec<&i64> = v.iter().collect();
+    v.push(5);
+    return *refs[0] as i32;
+}
