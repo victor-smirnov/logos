@@ -395,9 +395,6 @@ variadic_fn_pointer_type_refused 4 tests/soundness/open/variadic_fn_pointer_type
 vt_ff_whitespace_refused 4 tests/soundness/open/vt_ff_whitespace_refused refuses
 
 # ── 2026-09-27 FEATURE-INTERACTION AUDIT, clusters OUTSIDE ADR 0030 (docs/audit/2026-09-26-feature-interactions.md; the other 200 clusters are tracked by tests/interactions/clusters.json and close with the ADR 0030 steps) ──
-
-
-
 char_classification_ascii_only_wrong 2 tests/soundness/open/char_classification_ascii_only_wrong run 3
 
 recursive_type_via_option_payload_crash 2 tests/soundness/open/recursive_type_via_option_payload_crash refuses
@@ -477,4 +474,4 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
 # TOTAL 148
-# SYNC-HASH 42a25356235d8aff9c8c8b8bebfa58f0
+# SYNC-HASH 917fdbe0106035cadae157371ae857fb
