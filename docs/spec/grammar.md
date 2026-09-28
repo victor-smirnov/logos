@@ -2,6 +2,16 @@
 
 Concrete-syntax rules for Logos source, Writ data literals, and the Hest RPC (hrpc) IDL. Extracted from the PEG grammar (`tools/peg_gen_cpp/grammars/*.peg`) and the parser/renderer sources; each rule id is a permanent linkable address.
 
+## Rust syntax parity
+
+### `grammar.rust-superset` — the grammar is a syntactic superset of Rust
+
+Every construct of stable Rust parses, save the named exceptions below (user direction, 2026-09-28). A construct outside the list that fails to parse is a grammar defect. Parsed-but-meaningless qualifiers are read and dropped where Logos has no counterpart (`const` on `fn`: const evaluation is metacall's — DIVERGENCES A-row "replaced"). The census: `LOGOS_PARSE_ONLY=1 logosc F` stops after the input parses (a syntax error prints the furthest point reached), run over the top-level items of the Rust standard library sources.
+
+Known exceptions: `mod` and paths THROUGH modules (`crate::`, `super::`, `self::`, `a::b::Item`, `use a::b::c`) — Logos has packages (DIVERGENCES A9); `macro_rules!` and procedural macros / `#[derive(..)]` (A3, metaprog); `async` / `.await` (green fibres, design model); unstable syntax (`box` patterns, negative impls, `const impl`).
+
+*Source:* `tools/peg_gen_cpp/grammars/logos.peg`; `src/compiler/module_loader.cpp` (`LOGOS_PARSE_ONLY`)
+
 ## Blocks
 
 ### `grammar.block.brace` — Block

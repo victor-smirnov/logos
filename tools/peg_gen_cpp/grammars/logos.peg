@@ -934,59 +934,59 @@
     // GENOS_DEF AST code retained for the upcoming spec form.
     trait_kw <- KW_TRAIT
 
-    pub_trait_def <- pub_vis KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
-                  / pub_vis KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
-                  / pub_vis KW_AUTO trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
-                  / pub_vis KW_AUTO trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, ITEMS: $... }
-                  / pub_vis KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
-                  / pub_vis KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
-                  / pub_vis KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
-                  / pub_vis KW_UNSAFE trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, ITEMS: $... }
-                  / pub_vis trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
-                  / pub_vis trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
-                  / pub_vis trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, SUPERS: $4, ITEMS: $... }
+    pub_trait_def <- pub_vis KW_AUTO trait_kw IDENT type_param_list super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, WHERE: $7, ITEMS: $... }
+                  / pub_vis KW_AUTO trait_kw IDENT type_param_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, WHERE: $6, ITEMS: $... }
+                  / pub_vis KW_AUTO trait_kw IDENT super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, SUPERS: $5, WHERE: $6, ITEMS: $... }
+                  / pub_vis KW_AUTO trait_kw IDENT where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, WHERE: $5, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT type_param_list super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, WHERE: $7, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT type_param_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, WHERE: $6, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, SUPERS: $5, WHERE: $6, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, WHERE: $5, ITEMS: $... }
+                  / pub_vis trait_kw IDENT type_param_list super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, WHERE: $6, ITEMS: $... }
+                  / pub_vis trait_kw IDENT type_param_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, ITEMS: $... }
+                  / pub_vis trait_kw IDENT super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, SUPERS: $4, WHERE: $5, ITEMS: $... }
                   / pub_vis trait_kw HASH IDENT LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME_VAR: $4, ITEMS: $... }
-                  / pub_vis trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, ITEMS: $... }
+                  / pub_vis trait_kw IDENT where_clause? LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, WHERE: $4, ITEMS: $... }
 
-    trait_def <- KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
-              / KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
-              / KW_AUTO trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
-              / KW_AUTO trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
-              / KW_UNSAFE trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, ITEMS: $... }
-              / trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, SUPERS: $4, ITEMS: $... }
-              / trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
-              / trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, NAME: $2, SUPERS: $3, ITEMS: $... }
+    trait_def <- KW_AUTO trait_kw IDENT type_param_list super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, WHERE: $6, ITEMS: $... }
+              / KW_AUTO trait_kw IDENT type_param_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, ITEMS: $... }
+              / KW_AUTO trait_kw IDENT super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, SUPERS: $4, WHERE: $5, ITEMS: $... }
+              / KW_AUTO trait_kw IDENT where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, WHERE: $4, ITEMS: $... }
+              / KW_UNSAFE trait_kw IDENT type_param_list super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, WHERE: $6, ITEMS: $... }
+              / KW_UNSAFE trait_kw IDENT type_param_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, ITEMS: $... }
+              / KW_UNSAFE trait_kw IDENT super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, SUPERS: $4, WHERE: $5, ITEMS: $... }
+              / KW_UNSAFE trait_kw IDENT where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, WHERE: $4, ITEMS: $... }
+              / trait_kw IDENT type_param_list super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, SUPERS: $4, WHERE: $5, ITEMS: $... }
+              / trait_kw IDENT type_param_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, ITEMS: $... }
+              / trait_kw IDENT super_list where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, SUPERS: $3, WHERE: $4, ITEMS: $... }
               / trait_kw HASH IDENT LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME_VAR: $3, ITEMS: $... }
-              / trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-              => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
+              / trait_kw IDENT where_clause? LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, WHERE: $3, ITEMS: $... }
 
     // §8.5: trait-method default bodies accept an optional `where`
     // clause. `fn max(self) -> Option<Item> where Item: Ord { ... }` —
@@ -1072,6 +1072,8 @@
                  => { CODE: FN, NAME: $2, PARAMS: $4, WHERE: $6 }
                   / KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
+                  / KW_TYPE IDENT type_param_list where_clause SEMI
+                 => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE_PARAMS: $3, WHERE: $4 }
                   / KW_TYPE IDENT type_param_list (COLON trait_bound (PLUS trait_bound)*)? SEMI
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
                   / KW_TYPE IDENT ASSIGN type_ref SEMI
@@ -1207,6 +1209,8 @@
                / rel_op
                / method_def
                / KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
+              => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
+               / KW_TYPE IDENT type_param_list ASSIGN type_ref where_clause SEMI
               => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
                / KW_TYPE IDENT ASSIGN type_ref SEMI
               => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE: $4 }
@@ -1501,7 +1505,9 @@
     // B-ts-01: tuple-struct fields — types only, no field names.
     // Sema synthesises field names "0", "1", … so `foo.0` / pattern
     // `Foo(a, b)` work uniformly with named-field structs.
-    tuple_field <- KW_PUB type_ref
+    tuple_field <- KW_PUB LPAREN IDENT RPAREN type_ref
+                => { CODE: FIELD_DEF, IS_PUB: 1, TYPE: $5 }
+                 / KW_PUB type_ref
                 => { CODE: FIELD_DEF, IS_PUB: 1, TYPE: $2 }
                  / type_ref
                 => { CODE: FIELD_DEF, TYPE: $1 }
@@ -1516,6 +1522,9 @@
                / HASH IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, NAME_VAR: $2, TYPE: $4 }
                / KW_PUB IDENT COLON type_ref COMMA?
+              => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
+               // Rust's restricted visibilities on a field (`pub(crate) x: T`).
+               / pub_vis IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
                / KW_PUB KW_NEW COLON type_ref COMMA?
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
@@ -1582,7 +1591,7 @@
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5 }
 
     // where T: Trait, U: Trait2
-    where_clause <- KW_WHERE where_pred (COMMA where_pred)*
+    where_clause <- KW_WHERE where_pred (COMMA where_pred)* COMMA?
                  => { CODE: WHERE_CLAUSE, ITEMS: $... }
 
     // G158-6: a reference-typed where-clause subject `where &T: Trait` (incl.
@@ -1596,6 +1605,17 @@
                 / ref_type COLON trait_bound (PLUS trait_bound)*
                => { CODE: TYPE_PARAM, TYPE: $1, ITEMS: $... }
                 / type_param
+
+    // Rust's function qualifiers before `fn`: `const` (no meaning of its own
+    // here — const evaluation is metacall's, DIVERGENCES A-row "replaced") and
+    // an `extern "ABI"` on a DEFINED fn. `unsafe_kw` takes the `const` of
+    // `const unsafe fn`. A bare `extern "C" fn f();` declaration is
+    // extern_fn_def, tried first.
+    // (An action on each: a no-action alt returns its last value capture — the
+    // absent `KW_CONST?`, null — and a null result reads as a failed rule.)
+    fn_kw     <- KW_CONST? KW_EXTERN STRING? KW_FN => { }
+               / KW_CONST? KW_FN                   => { }
+    unsafe_kw <- KW_CONST? KW_UNSAFE               => { }
 
     // ── Public function ──────────────────────────────────────────
     // Antiquot alts (NAME_VAR holds an expr-TOM; only valid inside quote_*! body —
@@ -1614,81 +1634,83 @@
     // parameterizes visibility for EVERY item kind that uses pub_vis.
     pub_vis <- KW_PUB LPAREN HASH IDENT RPAREN => { NAME_VAR: $4 }
              / KW_PUB LPAREN IDENT RPAREN  => { NAME: $3 }
+             // `pub(in path)` — a module path (DIVERGENCES A9); read as `pub(crate)`.
+             / KW_PUB LPAREN KW_IN IDENT (COLONCOLON IDENT)* RPAREN => { NAME: "crate" }
              / KW_PUB                       => { }
 
-    pub_fn_def <- pub_vis KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+    pub_fn_def <- pub_vis unsafe_kw fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, RET_TYPE: $13, BODY: $14 }
-                / pub_vis KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+                / pub_vis unsafe_kw fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, BODY: $12 }
-                / pub_vis KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                / pub_vis fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, RET_TYPE: $12, BODY: $13 }
-                / pub_vis KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+                / pub_vis fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, BODY: $11 }
-                / pub_vis KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                / pub_vis unsafe_kw fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
-                / pub_vis KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
+                / pub_vis unsafe_kw fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
-                / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block_body
+                / pub_vis fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block_body
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
-                / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
+                / pub_vis fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
-                / pub_vis KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+                / pub_vis unsafe_kw fn_kw IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, WHERE: $11, BODY: $12 }
-                / pub_vis KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
+                / pub_vis unsafe_kw fn_kw IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, WHERE: $9, BODY: $10 }
-                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block_body
+                / pub_vis fn_kw IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block_body
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
+                / pub_vis fn_kw IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-                / pub_vis KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+                / pub_vis fn_kw KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-                / pub_vis KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
+                / pub_vis fn_kw KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-                / pub_vis KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+                / pub_vis fn_kw KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-                / pub_vis KW_FN KW_UNION type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+                / pub_vis fn_kw KW_UNION type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-                / pub_vis KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
+                / pub_vis fn_kw KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-                / pub_vis KW_FN KW_UNION type_param_list? LPAREN param_list? RPAREN where_clause? block
+                / pub_vis fn_kw KW_UNION type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
 
     // ── Private function ─────────────────────────────────────────
-    fn_def <- KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+    fn_def <- unsafe_kw fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, RET_TYPE: $12, BODY: $13 }
-            / KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+            / unsafe_kw fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, BODY: $11 }
-            / KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+            / fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
            => { CODE: FN, NAME_VAR: $4, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
-            / KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+            / fn_kw HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, NAME_VAR: $4, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
-            / KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+            / unsafe_kw fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
-            / KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
+            / unsafe_kw fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
-            / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block_body
+            / fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block_body
            => { CODE: FN, NAME_VAR: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
-            / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
+            / fn_kw HASH IDENT type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, NAME_VAR: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
-            / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+            / unsafe_kw fn_kw IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-            / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
+            / unsafe_kw fn_kw IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-            / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block_body
+            / fn_kw IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block_body
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
-            / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+            / fn_kw KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
-            / KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+            / fn_kw KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
-            / KW_FN KW_UNION type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+            / fn_kw KW_UNION type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
-            / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
+            / fn_kw IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
-            / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
+            / fn_kw KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
-            / KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
+            / fn_kw KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
-            / KW_FN KW_UNION type_param_list? LPAREN param_list? RPAREN where_clause? block
+            / fn_kw KW_UNION type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
 
     // Trailing comma allowed except when followed by `...` (variadic
@@ -1745,6 +1767,10 @@
           => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
            / AMP IDENT
           => { CODE: PARAM, NAME: $2, IS_REF: true }
+           // `&'a self` / `&'a mut self`: the written `self: &'a Self` (the
+           // lifetime is part of the signature — a return `&'a T` names it).
+           / lt_self_ref IDENT
+          => { CODE: PARAM, NAME: $2, TYPE: $1 }
            // By-value `self` / `mut self` (Rust's receiver shorthand): the
            // grammar supplies `TYPE: Self` so every consumer sees the written
            // `self: Self`; IMPLIED_SELF lets sema refuse it on any other name.
@@ -1752,6 +1778,12 @@
           => { CODE: PARAM, NAME: $2, TYPE: $3, IS_MUT: true, IMPLIED_SELF: true }
            / IDENT implied_self_type
           => { CODE: PARAM, NAME: $1, TYPE: $2, IMPLIED_SELF: true }
+
+    lt_self_ref <- AMP LIFETIME KW_MUT self_pointee
+                => { CODE: MUT_REF_TYPE, POINTEE: $4, LIFETIME: $2 }
+                 / AMP LIFETIME self_pointee
+                => { CODE: REF_TYPE, POINTEE: $3, LIFETIME: $2 }
+    self_pointee <- &IDENT => { CODE: TYPE_REF, NAME: "Self" }
 
     // Consumes nothing: the `Self` type of a bare receiver, when the
     // parameter ends right after its name.
@@ -2059,7 +2091,15 @@
     // VALUE carries the ABI string (mirrors the extern-fn DECL convention);
     // sema tags the FnPtr type with it and threads it to the MLIR calling
     // convention. Placed before the bare/unsafe forms.
-    fn_ptr_type <- KW_EXTERN STRING KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
+    fn_ptr_type <- KW_UNSAFE KW_EXTERN STRING KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, VALUE: $3, PARAMS: $6, RET_TYPE: $9 }
+                 / KW_UNSAFE KW_EXTERN STRING KW_FN LPAREN fn_ptr_type_args RPAREN
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, VALUE: $3, PARAMS: $6 }
+                 / KW_UNSAFE KW_EXTERN STRING KW_FN LPAREN RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, VALUE: $3, RET_TYPE: $8 }
+                 / KW_UNSAFE KW_EXTERN STRING KW_FN LPAREN RPAREN
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, VALUE: $3 }
+                 / KW_EXTERN STRING KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
                 => { CODE: FN_PTR_TYPE, VALUE: $2, PARAMS: $5, RET_TYPE: $8 }
                  / KW_EXTERN STRING KW_FN LPAREN fn_ptr_type_args RPAREN
                 => { CODE: FN_PTR_TYPE, VALUE: $2, PARAMS: $5 }
@@ -3839,6 +3879,9 @@
                     / LIFETIME
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
 
+    const_param_default <- block
+                         / INTEGER => { CODE: LIT_INT, VALUE: $1 }
+                         / IDENT   => { CODE: VAR_REF, NAME: $1 }
     type_param <- HASH LPAREN type_param RPAREN COMMA STAR
                => { CODE: REPEAT_GROUP, VALUE: $3, OP: 1 }
                 / lifetime_param
@@ -3848,6 +3891,9 @@
                => { CODE: CONST_PARAM, NAME: $2, IS_VARIADIC: true, TYPE: $5 }
                 / KW_CONST HASH IDENT COLON type_ref
                => { CODE: CONST_PARAM, NAME_VAR: $3, TYPE: $5 }
+                // `const N: usize = 3` — a default: a literal, a path or a `{ … }` block.
+                / KW_CONST IDENT COLON type_ref ASSIGN const_param_default
+               => { CODE: CONST_PARAM, NAME: $2, TYPE: $4, VALUE: $6 }
                 / KW_CONST IDENT COLON type_ref
                => { CODE: CONST_PARAM, NAME: $2, TYPE: $4 }
                 / IDENT DOTDOTDOT COLON tp_bound (PLUS tp_bound)*

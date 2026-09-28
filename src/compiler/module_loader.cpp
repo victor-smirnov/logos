@@ -1434,6 +1434,10 @@ std::vector<ParsedModule> load_modules(
                     break;
                 }
             }
+            if (std::getenv("LOGOS_PARSE_ONLY"))   // the census reads the furthest point reached
+                std::fprintf(stderr, "furthest: line %u col %u '%.*s'\n", parser.furthest_line(),
+                             parser.furthest_column(), static_cast<int>(parser.furthest_text().size()),
+                             parser.furthest_text().data());
             std::fprintf(stderr,
                 "error [%s]: syntax error near '%.*s' at line %u col %u%s\n",
                 canonical.c_str(),
@@ -1441,6 +1445,9 @@ std::vector<ParsedModule> load_modules(
                 err_line, err_col, hint);
             return {};
         }
+        // LOGOS_PARSE_ONLY: the first file parsed is the input; stop there —
+        // the Rust-superset grammar census asks only whether a SOURCE parses.
+        if (std::getenv("LOGOS_PARSE_ONLY")) std::exit(0);
         auto uses = extract_uses(ast, implicit_prelude);
         return {std::move(ast), std::move(uses)};
     };

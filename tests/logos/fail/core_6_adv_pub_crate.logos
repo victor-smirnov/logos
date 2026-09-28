@@ -1,3 +1,4 @@
 package f6_pub_crate;
-pub(crate) fn inner() -> i32 { return 5i32; }
+// Rust's `pub(crate)` is module-linkage now (grammar.rust-superset); an unknown word is still refused.
+pub(banana) fn inner() -> i32 { return 5i32; }
 fn main() -> i32 { return inner(); }

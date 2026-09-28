@@ -1,0 +1,29 @@
+// Rust item syntax the grammar refused: `const fn` / `const unsafe fn`, `extern "C" fn` DEFINITIONS, `pub(crate)` /
+// `pub(self)` / `pub(in path)` (on fields too), a const-generic default, a `where` clause on a trait and on a GAT,
+// a trailing comma in `where`, `&'a self` / `&'a mut self`, and `unsafe extern "C" fn(..)` pointer types.
+package rust_item_syntax;
+use logos.std.fmt;
+pub const fn sq(x: i64) -> i64 { x * x }
+const unsafe fn raw_add(a: i64, b: i64) -> i64 { a + b }
+pub(crate) extern "C" fn cb(x: i64) -> i64 { x + 1 }
+pub(crate) struct P { pub(crate) x: i64, pub(self) y: i64 }
+pub struct T2(pub(crate) i64, pub i64);
+pub(in crate) fn vis() -> i64 { 3 }
+struct Arr<const N: usize = 3> { a: [i64; N] }
+trait Shape where Self: Sized { fn area(&self) -> i64; fn twice(self) -> i64 { self.area() * 2 } }
+impl Shape for P { fn area(&self) -> i64 { self.x * self.y } }
+trait Lend { type It<'a> where Self: 'a; fn first<'a>(&'a self) -> Self::It<'a>; }
+impl Lend for T2 { type It<'a> = &'a i64 where Self: 'a; fn first<'a>(&'a self) -> &'a i64 { &self.0 } }
+impl P { fn get<'a>(&'a self) -> &'a i64 { &self.x } fn bump<'a>(&'a mut self) { self.y += 1; } }
+fn apply<F>(f: F, v: i64) -> i64 where F: Fn(i64) -> i64, { f(v) }
+fn call_c(f: unsafe extern "C" fn(i64) -> i64, v: i64) -> i64 { unsafe { f(v) } }
+extern "C" fn dbl(x: i64) -> i64 { x * 2 }
+fn main() {
+    let mut p = P { x: 3, y: 4 };
+    p.bump();
+    let t = T2(7, 8);
+    let a: Arr<3> = Arr { a: [1, 2, 3] };
+    println!("{} {} {} {}", sq(5), unsafe { raw_add(2, 3) }, cb(9), vis());
+    println!("{} {} {} {}", p.area(), *p.get(), *t.first(), a.a[2] + t.1);
+    println!("{} {} {}", apply(|v| v + 10, 5), call_c(dbl, 21), p.twice());
+}

@@ -1,1 +1,1 @@
-only `pub(module)` is recognised
+unsupported visibility `pub(banana)`

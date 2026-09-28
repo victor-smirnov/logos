@@ -282,8 +282,6 @@ extern_fn_param_pattern_admitted 3 tests/soundness/open/extern_fn_param_pattern_
 
 extern_safe_item_qualifier_refused 3 tests/soundness/open/extern_safe_item_qualifier_refused refuses
 
-gat_lifetime_projection_refused 3 tests/soundness/open/gat_lifetime_projection_refused refuses
-
 global_allocator_attr_ignored_admitted 3 tests/soundness/open/global_allocator_attr_ignored_admitted admits
 
 i128_literal_above_u64_refused 3 tests/soundness/open/i128_literal_above_u64_refused refuses
@@ -465,5 +463,5 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
-# TOTAL 144
-# SYNC-HASH 84a772a3e53240d1135689256358d321
+# TOTAL 143
+# SYNC-HASH 01a2f5df76748e1d0f34d9f6902e0c1b

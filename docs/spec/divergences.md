@@ -2272,10 +2272,10 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: In a USE_VARIANTS group `use pkg.X.{...};`, the bracketed target `X` is classified by its first character: lowercase-leading `X` is treated as a grouped sub-package import (each member becomes `pkg.X.<member>`); uppercase-leading `X` is treated as an enum-variant import, importing the enclosing package `pkg` as a wildcard so the type is in scope. This relies on the convention that enum/type names are capitalized.
 - **Source**: `src/compiler/module_loader.cpp#L167-L204`
 
-### `module.visibility.pub-marker-only-module` — Restricted-visibility marker accepts only pub(module)
-- **Divergence**: Logos has only `pub` and `pub(module)`; Rust's `pub(crate)`/`pub(super)`/`pub(in path)` are not recognised.
-- **Rule**: An item's restricted-visibility marker `pub(W)` is accepted only when W is the contextual word `module` (module-linkage). Plain `pub` and no marker are non-module. Any other word (e.g. `pub(crate)`, `pub(super)`, `pub(in path)`) is rejected with the diagnostic "unsupported visibility `pub(W)` — only `pub(module)` is recognised".
-- **Source**: `src/compiler/sema_impl.hpp#L1176-L1191`
+### `module.visibility.pub-marker-only-module` — Restricted-visibility markers: pub(module) and Rust's forms
+- **Divergence**: Logos has no module tree (A9): Rust's `pub(super)` / `pub(self)` / `pub(in path)` widen to the module; `pub(crate)` is the module's linkage.
+- **Rule**: `pub(W)` is accepted for W = `module`, `crate`, `super`, `self` or `in path`, all module-linkage; any other word is rejected ("unsupported visibility `pub(W)` — …").
+- **Source**: `SemaChecker::read_module_vis`
 
 ### `pat.bytes.scrutinee-must-be-u8-array` — Byte-string pattern requires `[u8; N]` scrutinee
 - **Divergence**: Rust permits byte-string patterns against `&[u8]`/`&[u8; N]`; Logos requires fixed `[u8; N]` and rejects dynamic slices.

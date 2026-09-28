@@ -128,22 +128,19 @@ An item not marked `pub` (and not `pub(module)`) is inaccessible from a differen
 _Source: `src/compiler/sema_collect.cpp#L760-L761`_
 
 
-### `module.visibility.pub-marker-only-module` — Restricted-visibility marker accepts only pub(module)
+### `module.visibility.pub-marker-only-module` — Restricted-visibility markers: pub(module) and Rust's forms
 
-An item's restricted-visibility marker `pub(W)` is accepted only when W is the contextual word `module` (module-linkage). Plain `pub` and no marker are non-module. Any other word (e.g. `pub(crate)`, `pub(super)`, `pub(in path)`) is rejected with the diagnostic "unsupported visibility `pub(W)` — only `pub(module)` is recognised".
+An item's restricted-visibility marker `pub(W)` is accepted when W is the contextual word `module` (module-linkage) or one of Rust's restricted visibilities `crate` / `super` / `self` / `in path`, which read as module-linkage: `pub(crate)` IS this module's linkage, and `pub(super)` / `pub(self)` / `pub(in path)` name modules, which Logos does not have (DIVERGENCES A9), so the nearest scope — the module — stands in. Plain `pub` and no marker are non-module. Any other word is rejected with the diagnostic "unsupported visibility `pub(W)` — …". A field takes the same markers (the grammar is a syntactic superset of Rust, `grammar.rust-superset`).
 
 
 ```logos
 pub(module) fn f() {}
-pub(crate) fn g() {} // error
+pub(crate) fn g() {}
+pub(banana) fn h() {} // error
 ```
 
 
-**Divergence from Rust:** Logos has only `pub` and `pub(module)`; Rust's `pub(crate)`/`pub(super)`/`pub(in path)` are not recognised.
-
-
-_Source: `src/compiler/sema_impl.hpp#L1176-L1191`_
-
+**Divergence from Rust:** `pub(super)` / `pub(self)` / `pub(in path)` widen to the module (no module tree).
 
 ### `module.visibility.pub-module-linkage` — pub(module) has module-linkage across packages
 

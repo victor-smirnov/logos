@@ -1,0 +1,12 @@
+// Closed squeue gat_lifetime_projection_refused (#587): a lifetime GAT projected in a return type, `fn next<'a>(&'a mut self)
+// -> Self::Item<'a>` — the `&'a mut self` receiver did not parse (now `self: &'a mut Self`).
+package gat_lifetime_projection_refused;
+
+trait LendingIterator {
+    type Item<'x>;
+    fn next<'a>(&'a mut self) -> Self::Item<'a>;
+}
+
+fn main() -> i32 {
+    return 0;
+}

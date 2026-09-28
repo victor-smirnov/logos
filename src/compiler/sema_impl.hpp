@@ -3439,9 +3439,13 @@ private:
         if (!vis.has_key(la::NAME)) return false;           // plain `pub`
         std::string w(str_of(vis.get(la::NAME.code)));
         if (w.empty()) return false;
-        if (w != "module") {
-            error(std::format("unsupported visibility `pub({})` — only "
-                              "`pub(module)` is recognised", w));
+        // Rust's restricted visibilities: `pub(crate)` is this module's linkage;
+        // `pub(super)` / `pub(self)` / `pub(in path)` name MODULES (DIVERGENCES
+        // A9: no module tree) and read as the nearest scope Logos has, the module.
+        if (w != "module" && w != "crate" && w != "super" && w != "self") {
+            error(std::format("unsupported visibility `pub({})` — `pub(module)` and "
+                              "Rust's `pub(crate)` / `pub(super)` / `pub(self)` are "
+                              "recognised", w));
             return false;
         }
         return true;
