@@ -294,7 +294,7 @@ inner_attr_in_item_body_refused 3 tests/soundness/open/inner_attr_in_item_body_r
 
 labeled_block_expr_refused 3 tests/soundness/open/labeled_block_expr_refused refuses
 
-let_ref_mut_binding_crash 3 tests/soundness/open/let_ref_mut_binding_crash refuses
+let_ref_mut_binding_crash 2 tests/soundness/open/let_ref_mut_binding_crash run 1
 
 main_signature_unchecked_admitted 3 tests/soundness/open/main_signature_unchecked_admitted admits
 
@@ -466,4 +466,4 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
 # TOTAL 144
-# SYNC-HASH 5bf2d7c500aaa779941f17a3a95c5766
+# SYNC-HASH 84a772a3e53240d1135689256358d321

@@ -6,6 +6,7 @@
 #include "mlir_gen.hpp"
 #include "llvm_compat.hpp"
 
+#include <mlir/Interfaces/FunctionInterfaces.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
@@ -88,6 +89,25 @@ std::string target_data_layout_string(const std::string& target_cpu)
     return tm->createDataLayout().getStringRepresentation();
 }
 
+bool lower_mlir_to_llvm_dialect(mlir::ModuleOp module) {
+    // A match whose early arm is irrefutable leaves the later arms' blocks with
+    // no predecessors — a surgical dead-block sweep, no folding of live code
+    // (unlike a full canonicalize).
+    // Every function: a closure body is an `llvm.func` already.
+    mlir::IRRewriter rewriter(module.getContext());
+    module.walk([&](mlir::FunctionOpInterface fn) {
+        if (!fn.getFunctionBody().empty())
+            (void)mlir::eraseUnreachableBlocks(rewriter, fn.getFunctionBody());
+    });
+    mlir::PassManager pm(module.getContext());
+    pm.addPass(logos::compat::create_scf_to_cf_pass());
+    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+    pm.addPass(mlir::createArithToLLVMConversionPass());
+    pm.addPass(mlir::createConvertFuncToLLVMPass());
+    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+    return mlir::succeeded(pm.run(module));
+}
+
 int lower_and_emit_object(lir::LProgram& prog,
                            const std::string& output_path,
                            const LowerEmitOpts& opts)
@@ -130,27 +150,7 @@ int lower_and_emit_object(lir::LProgram& prog,
 
     // ── MLIR → LLVM dialect ────────────────────────────────────
     if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
-    // Erase unreachable blocks before lowering. A match with an irrefutable
-    // early arm (e.g. `0 | _ => …` ahead of a `_ => …`) leaves the later arm's
-    // block with no predecessors; its `arith.constant`s never get converted by
-    // the arith→LLVM pass and then fail `translateModuleToLLVMIR` ("missing
-    // LLVMTranslationDialectInterface registration for arith.constant"). This is
-    // a surgical dead-block sweep (no folding of live code), unlike a full
-    // canonicalize.
-    {
-        mlir::IRRewriter rewriter(&mlir_ctx);
-        mlir_module->walk([&](mlir::func::FuncOp fn) {
-            if (!fn.getBody().empty())
-                (void)mlir::eraseUnreachableBlocks(rewriter, fn.getBody());
-        });
-    }
-    mlir::PassManager pm(&mlir_ctx);
-    pm.addPass(logos::compat::create_scf_to_cf_pass());
-    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-    pm.addPass(mlir::createArithToLLVMConversionPass());
-    pm.addPass(mlir::createConvertFuncToLLVMPass());
-    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-    if (mlir::failed(pm.run(*mlir_module))) {
+    if (!lower_mlir_to_llvm_dialect(*mlir_module)) {
         std::fprintf(stderr, "logosc: MLIR lowering failed\n");
         return 1;
     }

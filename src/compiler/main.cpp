@@ -4369,13 +4369,7 @@ int run_metaprog_dispatch(
                     m6_prev_emitted_fns.insert(std::move(ln));
             });
         }
-        mlir::PassManager meta_pm(&meta_mlir_ctx);
-        meta_pm.addPass(logos::compat::create_scf_to_cf_pass());
-        meta_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-        meta_pm.addPass(mlir::createArithToLLVMConversionPass());
-        meta_pm.addPass(mlir::createConvertFuncToLLVMPass());
-        meta_pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-        if (mlir::failed(meta_pm.run(*meta_mlir))) {
+        if (!lower_mlir_to_llvm_dialect(*meta_mlir)) {
             std::fprintf(stderr, "logosc: metaprog MLIR lowering failed\n"); return 1;
         }
         stat_step(_t3, "mlir->llvm", iter);
@@ -6419,13 +6413,7 @@ int main(int argc, char** argv) {
                                                      -1, 1, /*metaprog_round=*/true);  // #61
             if (!mc_mlir) { std::fprintf(stderr, "logosc: metacall MLIR gen failed\n"); return 1; }
             mc_stat_step(_mc_t, "mlir_gen", mi);
-            mlir::PassManager mc_pm(&mc_ctx);
-            mc_pm.addPass(logos::compat::create_scf_to_cf_pass());
-            mc_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-            mc_pm.addPass(mlir::createArithToLLVMConversionPass());
-            mc_pm.addPass(mlir::createConvertFuncToLLVMPass());
-            mc_pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-            if (mlir::failed(mc_pm.run(*mc_mlir))) {
+            if (!logos::compiler::lower_mlir_to_llvm_dialect(*mc_mlir)) {
                 std::fprintf(stderr, "logosc: metacall MLIR lowering failed\n"); return 1;
             }
             mc_stat_step(_mc_t, "mlir->llvm", mi);

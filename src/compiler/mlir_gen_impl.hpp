@@ -320,19 +320,6 @@ public:
     // the language has. A 64-bit parameter truncated every i128/u128 bound.
     mlir::Value emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
                                 __int128 lo, __int128 hi);
-    // RFC 2005, the SCALAR half, in the VALUE. Loads the scrutinee's scalar core
-    // out of its `&`/`&mut` chain and hands it back in `out_val`/`out_ty`;
-    // returns false (leaving both untouched) for every scrutinee that is not a
-    // reference chain over an integer/char/bool. The caller keeps `scrut` for
-    // the arms that BIND it — the question is per ARM, not per match.
-    // See PROBES.md 2026-09-06f.
-    bool scalar_core_scrut(mlir::Value scrut, TypeRef scrut_ty,
-                           mlir::Value& out_val, TypeRef& out_ty);
-    // The aggregate half at a `&`-pattern chain. PROBES.md 2026-09-15d-argrefland.
-    bool ref_pat_core_scrut(lir_view::PatRef pat, mlir::Value scrut, TypeRef scrut_ty,
-                            lir_view::PatRef& inner, mlir::Value& out_val, TypeRef& out_ty);
-    // Some arm binds the whole scrutinee or spells `&`: both match doors skip the collapse.
-    static bool arms_bind_whole_scrutinee(const std::vector<lir_view::EMatchArmRef>& arms);
 private:
 
     // ── DWARF debug info (-g) ─────────────────────────────────────────────
@@ -1771,12 +1758,6 @@ private:
     // fat handlers own the 16-byte layout. See mlir_gen_stmt.cpp.
     bool ref_bind_kind(TypeRef binding_type, TypeRef payload_type,
                        int& added_depth);
-    // `ref x` at a TOP-LEVEL MATCH DOOR — one implementation for the statement
-    // match and the expression match, which carried two textually identical
-    // copies that both decided by MLIR representation. Returns the bound name,
-    // or "" for `_`/anonymous. See mlir_gen_stmt.cpp.
-    std::string bind_match_ref_binder(lir_view::PatRef pat, mlir::Value scrut,
-                                      mlir::Value scrut_ptr, TypeRef scrut_ty);
     // Compute representation (the SSA value type). Today uniformly a thin pointer
     // (the fat pair lives in storage; the value is a pointer to it).
     mlir::Type  repr_value_type(RefReprKind k);
@@ -2199,6 +2180,14 @@ private:
     void gen_index_write(lir_view::SIndexWriteView v);
     void gen_field_index_write(lir_view::SFieldIndexWriteView v);
     void gen_match(lir_view::SMatchView v);
+    // ADR 0030 S3.4: THE match door — the statement match (`stmt`), the
+    // expression match and, through its one-arm spelling, let-else. See
+    // mlir_gen_stmt.cpp.
+    mlir::Value gen_match_door(lir_view::ExprRef scrut, const std::vector<lir_view::EMatchArmRef>& arms,
+                               TypeRef type, bool stmt);
+    mlir::Value match_scrut_place(lir_view::ExprRef e, mlir::Value v, TypeRef t);
+    bool        match_arms_cover(const std::vector<lir_view::EMatchArmRef>& arms, TypeRef t);
+    mlir::Value store_arm_result(mlir::Value val, mlir::Type rt);
 
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(lir_view::ExprRef er);
@@ -2319,18 +2308,6 @@ private:
     // a pointer's bytes as fields.
     void        peel_thin_ref_slots(mlir::Value& slot, TypeRef& ty);
     mlir::func::FuncOp memcmp_fn();
-    // A top-level pattern DOOR's place type. The VALUE of a thin `&T`
-    // scrutinee is T's address — the door hands pat_test / pat_bind that
-    // address at type T (never at `&T`, which would load it once more).
-    TypeRef     door_place_type(TypeRef scrut_ty);
-    // `n @ sub` at a top-level match door binds the WHOLE scrutinee — one
-    // implementation for the statement and the expression door (two textual
-    // copies). Through a thin `&T` the name holds the reference, which is a
-    // reference to the place: it binds with the reference binder's shapes
-    // (`n.0` / `n[i]` / `n.f` through it), as a `ref` binder does.
-    void        bind_whole_scrutinee_at(lir_view::PatAtView pa, mlir::Value scrut,
-                                        mlir::Value scrut_ptr, mlir::Value scrut_written,
-                                        TypeRef scrut_ty);
     void        bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty);
     std::string bind_array_rest(lir_view::PatRef rest, mlir::Type arr_mlir, mlir::Type elem_mlir,
                                 mlir::Value aptr, size_t pre, size_t len);

@@ -50,79 +50,6 @@ bool MLIRGenImpl::ref_bind_kind(TypeRef binding_type, TypeRef payload_type,
 }
 
 // ---------------------------------------------------------------------------
-// `ref x` AT A TOP-LEVEL MATCH DOOR — SINGLE IMPLEMENTATION (stmt + expr).
-// Both doors used to pick the bound value from the MLIR REPRESENTATION
-// (`scrut.getType() == ptr_type()`), which cannot separate the ADDRESS of a
-// by-value aggregate from the VALUE of a thin reference, and cannot see the
-// layers a `&`-pattern above already spent. Decide by LOGOS type instead:
-// PatRefBind's sema BIND_TYPE against the scrutinee's, through `ref_bind_kind`.
-// PROBES.md 2026-09-09g.
-// ---------------------------------------------------------------------------
-std::string MLIRGenImpl::bind_match_ref_binder(lir_view::PatRef pat,
-                                               mlir::Value scrut,
-                                               mlir::Value scrut_ptr,
-                                               TypeRef scrut_ty) {
-    std::string prbn(lir_view::PatRefBindView{pat}.name());
-    if (prbn.empty() || prbn == "_") return {};
-    TypeRef bind_ty = lir_view::PatRefBindView{pat}.bind_type(pool_impl());
-
-    mlir::Value bind_val;
-    if (scrut_ptr) {
-        bind_val = scrut_ptr;
-    } else if (scrut.getType() == ptr_type()) {
-        // `needed` = indirection layers the BINDING has over the scrutinee's own
-        // thin-ref layers; `have` = 1 when the pointer in hand is already the
-        // place's address (a by-value aggregate), 0 when it is the place's value.
-        int needed = 0;
-        ref_bind_kind(bind_ty, scrut_ty, needed);
-        int scrut_depth = 0;
-        for (TypeRef w = scrut_ty;
-             w && (w.kind() == LogosType::Kind::Ref ||
-                   w.kind() == LogosType::Kind::MutRef) && w.pointee() &&
-             ref_repr_of(w) == RefReprKind::ThinPtr;
-             w = w.pointee())
-            ++scrut_depth;
-        int diff = bind_ty ? needed - (scrut_depth == 0 ? 1 : 0) : 0;
-        bind_val = scrut;
-        for (int i = 0; i < diff; ++i) {          // owes an address: spill
-            auto tmp = create_entry_alloca(ptr_type());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, tmp);
-            bind_val = tmp;
-        }
-        for (int i = 0; i < -diff; ++i)           // one layer too many: load
-            bind_val = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), bind_val);
-    } else {
-        auto tmp = create_entry_alloca(scrut.getType());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
-        bind_val = tmp;
-    }
-
-    TypeRef place_ty;
-    if (bind_ty && (bind_ty.kind() == LogosType::Kind::Ref ||
-                    bind_ty.kind() == LogosType::Kind::MutRef))
-        place_ty = bind_ty.pointee();
-    evict_var_shapes(prbn);
-    if (place_ty && (place_ty.kind() == LogosType::Kind::Struct ||
-                     place_ty.kind() == LogosType::Kind::ZonedStruct)) {
-        scope_[prbn] = bind_val;
-        let_vars_.insert(prbn);
-        var_struct_[prbn] = mlir_struct_key(place_ty);
-    } else if (place_ty && place_ty.kind() == LogosType::Kind::Tuple) {
-        scope_[prbn] = bind_val;
-        let_vars_.insert(prbn);
-        var_tuple_.insert(prbn);
-    } else {
-        auto alloca = create_entry_alloca(ptr_type());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
-        scope_[prbn] = alloca;
-        let_vars_.insert(prbn);
-        var_elem_types_[prbn] = ptr_type();
-        ref_slot_vars_.insert(prbn);   // see bind_ref_name
-    }
-    return prbn;
-}
-
-// ---------------------------------------------------------------------------
 // Enum payload binding (shared by stmt + expr match, for tuple-element enums)
 // ---------------------------------------------------------------------------
 
@@ -4345,82 +4272,6 @@ void MLIRGenImpl::collect_pat_bindings(
     }
 }
 
-// See mlir_gen_impl.hpp. THE ONE PLACE a scrutinee's scalar core is loaded.
-bool MLIRGenImpl::scalar_core_scrut(mlir::Value scrut, TypeRef scrut_ty,
-                                    mlir::Value& out_val, TypeRef& out_ty) {
-    using K = LogosType::Kind;
-    if (!scrut || !scrut_ty) return false;
-    // An already-loaded scrutinee (a tagged enum's discriminant, a fieldless
-    // enum read through its ref) is not a chain and must never be loaded twice.
-    if (scrut.getType() != ptr_type()) return false;
-    int depth = 0;
-    TypeRef core = scrut_ty;
-    while (core && (TypeRef(core).kind() == K::Ref || TypeRef(core).kind() == K::MutRef) &&
-           TypeRef(core).pointee()) { core = TypeRef(core).pointee(); ++depth; }
-    if (depth == 0 || !core) return false;
-    switch (TypeRef(core).kind()) {
-    case K::Bool: case K::Char:
-    case K::I8: case K::I16: case K::I24: case K::I32: case K::I56:
-    case K::I64: case K::I128:
-    case K::U8: case K::U16: case K::U24: case K::U32: case K::U56:
-    case K::U64: case K::U128:
-        break;
-    default: return false;
-    }
-    auto cm = logos_to_mlir(core);
-    if (!cm || !mlir::isa<mlir::IntegerType>(cm)) return false;
-    mlir::Value v = scrut;
-    for (int i = 1; i < depth; ++i)
-        v = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), v);
-    v = builder_.create<mlir::LLVM::LoadOp>(loc_, cm, v);
-    out_val = v;
-    out_ty  = core;
-    return true;
-}
-
-// See mlir_gen_impl.hpp; the load arithmetic is in PROBES.md 2026-09-15d-argrefland.
-bool MLIRGenImpl::ref_pat_core_scrut(lir_view::PatRef pat, mlir::Value scrut, TypeRef scrut_ty,
-                                     lir_view::PatRef& inner, mlir::Value& out_val,
-                                     TypeRef& out_ty) {
-    namespace pc = lir_schema::pat;
-    using K = LogosType::Kind;
-    if (!pat || pat.kind() != pc::Code::RefPat || !scrut || !scrut_ty) return false;
-    if (scrut.getType() != ptr_type()) return false;
-    int k = 0;
-    lir_view::PatRef q = pat;
-    while (q && q.kind() == pc::Code::RefPat) { ++k; q = lir_view::PatRefPatView{q}.inner(); }
-    if (!q) return false;
-    std::vector<TypeRef> chain{scrut_ty};
-    while (TypeRef(chain.back()) &&
-           (TypeRef(chain.back()).kind() == K::Ref || TypeRef(chain.back()).kind() == K::MutRef) &&
-           TypeRef(chain.back()).pointee() && ref_repr_of(chain.back()) == RefReprKind::ThinPtr)
-        chain.push_back(TypeRef(chain.back()).pointee());
-    const int d = (int)chain.size() - 1;
-    if (d < 2 || k > d) return false;   // depth 1: the value already is the base
-    TypeRef core = chain.back();
-    if (!core || (core.kind() != K::Struct && core.kind() != K::ZonedStruct &&
-                  core.kind() != K::Tuple))
-        return false;
-    int loads = 0;
-    TypeRef ty;
-    if (q.kind() == pc::Code::Wild) {
-        loads = std::min(k, d - 1);
-        ty = chain[k];
-    } else if (q.kind() == pc::Code::Struct && core.kind() != K::Tuple) {
-        loads = d - 1;
-        ty = k < d ? chain[d - 1] : chain[d];
-    } else {
-        return false;
-    }
-    mlir::Value val = scrut;
-    for (int i = 0; i < loads; ++i)
-        val = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), val);
-    inner = q;
-    out_val = val;
-    out_ty = ty;
-    return true;
-}
-
 // See mlir_gen_impl.hpp: the single range-pattern test emitter.
 mlir::Value MLIRGenImpl::emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
                                          __int128 lo, __int128 hi) {
@@ -4465,57 +4316,6 @@ void MLIRGenImpl::peel_thin_ref_slots(mlir::Value& slot, TypeRef& ty) {
            TypeRef(ty).pointee() && ref_repr_of(TypeRef(ty)) == RefReprKind::ThinPtr) {
         slot = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
         ty = TypeRef(ty).pointee();
-    }
-}
-
-TypeRef MLIRGenImpl::door_place_type(TypeRef t) {
-    if (t && (TypeRef(t).kind() == LogosType::Kind::Ref || TypeRef(t).kind() == LogosType::Kind::MutRef) &&
-        TypeRef(t).pointee() && ref_repr_of(TypeRef(t)) == RefReprKind::ThinPtr)
-        return TypeRef(t).pointee();
-    return t;
-}
-
-void MLIRGenImpl::bind_whole_scrutinee_at(lir_view::PatAtView pa, mlir::Value scrut,
-                                          mlir::Value scrut_ptr, mlir::Value scrut_written,
-                                          TypeRef scrut_ty) {
-    std::string aname(pa.name());
-    if (aname.empty() || aname == "_") return;
-    mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-    // `n @ sub` NAMES THE PLACE `sub` MATCHES: bind it by the one convention
-    // every other binder uses. An alloca-of-a-pointer records NO SHAPE, so
-    // `n.field` / `n.N` GEP the alloca ADDRESS. PROBES.md 2026-09-16f.
-    TypeRef binder_bty(scrut_ty);
-    const bool binder_via_ref = binder_bty &&
-        (binder_bty.kind() == LogosType::Kind::Ref ||
-         binder_bty.kind() == LogosType::Kind::MutRef ||
-         binder_bty.kind() == LogosType::Kind::Ptr);
-    // (the reference value as written, not the fully peeled `scrut_ptr`)
-    if (binder_via_ref && scrut_written && !pa.ref_mode()) sv = scrut_written;
-    if (pa.ref_mode()) {
-        // `ref n @ sub`: n borrows the matched place. An owned scrutinee's
-        // address, or a spilled scalar value's.
-        mlir::Value addr = sv;
-        if (!(sv && sv.getType() == ptr_type() && !binder_via_ref)) {
-            addr = create_entry_alloca(sv.getType());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, sv, addr);
-        }
-        bind_ref_name(aname, addr, scrut_ty);
-    } else if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
-        bind_name_at_slot(aname, sv, scrut_ty, nullptr);
-    } else if (TypeRef pt = door_place_type(scrut_ty);
-               binder_via_ref && pt != scrut_ty && sv && sv.getType() == ptr_type() &&
-               TypeRef(pt).kind() != LogosType::Kind::Ref && TypeRef(pt).kind() != LogosType::Kind::MutRef) {
-        // Through a thin `&T`: the reference value IS the place's address. The
-        // untyped alloca below left `n[1]` over a `&[i64; 2]` reading the slot.
-        bind_ref_name(aname, sv, pt);
-    } else {
-        auto alloca = create_entry_alloca(sv.getType());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-        evict_var_shapes(aname);
-        scope_[aname] = alloca;
-        let_vars_.insert(aname);
-        var_elem_types_[aname] = sv.getType();
-        if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
     }
 }
 
@@ -5207,14 +5007,14 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         break;
     }
     case pc::Code::Tuple: {
-        auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
-        if (!ttype) return;
-        // A `&(T, U)` place: the tuple is one load away (the slot convention,
-        // as pat_test's Tuple case). Binding at the reference's slot bound the
-        // pointer's bytes as the elements.
+        // A `&(T, U)` place (`&&(T, U)`, …): the tuple is one load per layer
+        // away (the slot convention, as pat_test's Tuple case) — peeled BEFORE
+        // the layout is asked, which a reference type has none of.
         TypeRef tt = ty;
         auto tptr = slot_ptr;
         peel_thin_ref_slots(tptr, tt);
+        auto ttype = tt ? tuple_llvm_type(tt) : mlir::Type();
+        if (!ttype) return;
         auto elems = TypeRef(tt).tuple_elems();
         size_t i = 0;
         lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
@@ -5270,6 +5070,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         lir_view::PatRef first;
         lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a){ if (!first) first = a; });
         if (first) collect_pat_bindings(first, ty, binds);
+        if (binds.empty()) break;   // `1 | 2`: the test was the whole pattern
         std::unordered_map<std::string, mlir::Value> shared_map;
         for (auto& [nm, bty] : binds) {
             auto em = bty ? logos_to_mlir(bty) : ptr_type();
@@ -5413,1465 +5214,261 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
 }
 
 // ---------------------------------------------------------------------------
-// gen_match
+// THE match door (ADR 0030 S3.4)
 // ---------------------------------------------------------------------------
+//
+// The statement match, the expression match and let-else are one lowering:
+// the scrutinee is evaluated ONCE into its place, every arm is `pat_test` on
+// that place, then `pat_bind`, then the guard, then the body; a failed test or
+// guard falls to the next arm. The pattern kinds are the tester's and the
+// binder's business alone — the three doors each had a per-kind dispatch of
+// their own (value vs slot, a scalar core, an enum-disc fast path, a
+// first-alternative or-binder), and they drifted.
 
-// See mlir_gen_impl.hpp.
-bool MLIRGenImpl::arms_bind_whole_scrutinee(const std::vector<lir_view::EMatchArmRef>& arms) {
-    namespace pc = lir_schema::pat;
-    for (auto& a : arms) {
-        auto p = a.pat();
-        if (!p) continue;
-        if (p.kind() == pc::Code::RefBind || p.kind() == pc::Code::At ||
-            p.kind() == pc::Code::RefPat) return true;
-        if (p.kind() == pc::Code::Wild && lir_view::PatWildView{p}.name() != "_") return true;
+// The scrutinee's PLACE: the address of a place of the scrutinee's type — the
+// slot convention `pat_test` / `pat_bind` read. A by-pointer value (struct,
+// tuple, array, tagged enum, fat pair) is its storage's address already; a
+// place expression of any other type is addressed, so `ref mut r` over a
+// scalar local aliases it; anything else — a thin reference or a fn pointer
+// among them, whose VALUE is an address but not the scrutinee's — is spilled.
+mlir::Value MLIRGenImpl::match_scrut_place(lir_view::ExprRef e, mlir::Value v, TypeRef t) {
+    using K = LogosType::Kind;
+    if (!v) return v;
+    const bool thin_ref = t && (TypeRef(t).kind() == K::Ref || TypeRef(t).kind() == K::MutRef ||
+                                TypeRef(t).kind() == K::Ptr) &&
+                          ref_repr_of(TypeRef(t)) == RefReprKind::ThinPtr;
+    if (!thin_ref) {
+        bool by_ptr = false;
+        if (t) switch (TypeRef(t).kind()) {
+            case K::Struct: case K::ZonedStruct: case K::Tuple: case K::Array:
+            case K::Slice: case K::Closure: case K::TraitObject:
+            case K::Ref: case K::MutRef:                     // a fat reference
+                by_ptr = true; break;
+            case K::Enum:
+                by_ptr = resolve_tagged_enum(std::string(TypeRef(t).enum_name()), t) != nullptr;
+                break;
+            default: break;
+        }
+        if (by_ptr && v.getType() == ptr_type()) return v;
+        if (is_place_chain(e))
+            if (auto a = gen_lvalue_addr(e); a && a.getType() == ptr_type()) return a;
     }
+    auto a = create_entry_alloca(v.getType());
+    builder_.create<mlir::LLVM::StoreOp>(loc_, v, a);
+    return a;
+}
+
+// The arms provably cover the scrutinee — both `bool` values, or every variant
+// of its enum with an irrefutable payload, unguarded — so the fall-through
+// past the last arm is `unreachable`. (An unguarded irrefutable arm ends the
+// test chain by itself.)
+bool MLIRGenImpl::match_arms_cover(const std::vector<lir_view::EMatchArmRef>& arms, TypeRef t) {
+    namespace pc = lir_schema::pat;
+    using K = LogosType::Kind;
+    while (t && (TypeRef(t).kind() == K::Ref || TypeRef(t).kind() == K::MutRef ||
+                 TypeRef(t).kind() == K::Ptr) && TypeRef(t).pointee())
+        t = TypeRef(t).pointee();
+    if (!t) return false;
+    bool has_true = false, has_false = false;
+    std::set<int32_t> covered;
+    std::function<void(lir_view::PatRef)> cover = [&](lir_view::PatRef p) {
+        if (!p) return;
+        switch (p.kind()) {
+        case pc::Code::Bool: (lir_view::PatBoolView{p}.value() ? has_true : has_false) = true; break;
+        case pc::Code::Variant: covered.insert((int32_t)lir_view::PatVariantView{p}.disc()); break;
+        case pc::Code::VariantData: {
+            lir_view::PatVariantDataView pv{p};
+            for (auto s : pv.subs())
+                if (s && !lir_view::is_irrefutable_pattern(s)) return;
+            covered.insert((int32_t)pv.disc());
+            break;
+        }
+        case pc::Code::RefPat: cover(lir_view::PatRefPatView{p}.inner()); break;
+        case pc::Code::At:     cover(lir_view::PatAtView{p}.sub()); break;
+        case pc::Code::Or:     lir_view::PatOrView{p}.each_alt(cover); break;
+        default: break;
+        }
+    };
+    for (auto& a : arms)
+        if (!a.guard()) cover(a.pat());
+    if (TypeRef(t).kind() == K::Bool) return has_true && has_false;
+    if (TypeRef(t).kind() != K::Enum) return false;
+    std::string en(TypeRef(t).enum_name());
+    // QUALIFIED-FIRST via find_enum_decl: a bare lookup answers about another
+    // package's enum of the same name.
+    if (const lir_view::EnumView* ev = find_enum_decl(en, t)) {
+        bool all = true;
+        ev->each_variant([&](lir_view::EnumVariantView v) { if (!covered.count(v.disc())) all = false; });
+        return all;
+    }
+    if (auto* te = resolve_tagged_enum(en, t))
+        return std::all_of(te->variants.begin(), te->variants.end(),
+                           [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
     return false;
 }
 
-void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
-    // Pat/arm walking still goes through the C++ variant; scrut is routed
-    // through the view. Full PatRef migration is a separate slice.
-    if (!v.scrut()) return;
-    TypeRef scrut_ty = v.scrut().type(pool_impl());
-    namespace pc = lir_schema::pat;
-    std::vector<lir_view::EMatchArmRef> arm_refs;
-    v.each_arm([&](lir_view::EMatchArmRef a){ arm_refs.push_back(a); });
-    auto* region      = builder_.getBlock()->getParent();
-    auto* merge_block = new mlir::Block();
-
-    auto scrut = gen_expr(v.scrut());
-    // The scrutinee VALUE as written, before the collapse / enum peel below
-    // rewrite `scrut`: what a whole-scrutinee binder through a reference takes.
-    mlir::Value scrut_written = scrut;
-    if (!scrut) {
-        region->push_back(merge_block);
-        if (!is_terminated(builder_.getBlock()))
-            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
-        builder_.setInsertionPointToStart(merge_block);
-        return;
-    }
+mlir::Value MLIRGenImpl::gen_match_door(lir_view::ExprRef scrut_e,
+                                        const std::vector<lir_view::EMatchArmRef>& arms,
+                                        TypeRef type, bool stmt) {
+    // The expression form's result: a slot the arms store into, loaded at the
+    // merge; a void match (and the statement form) yields a synthetic unit.
+    mlir::Type result_type = stmt ? mlir::Type() : logos_to_mlir(type);
+    if (!stmt && !result_type && !(type && TypeRef(type).kind() == LogosType::Kind::Void))
+        return nullptr;
+    mlir::Value result_alloca;
+    if (result_type) result_alloca = create_entry_alloca(result_type);
+    auto result = [&]() -> mlir::Value {
+        if (stmt) return nullptr;
+        if (!result_type) return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
+    };
+    auto* region = builder_.getBlock()->getParent();
+    TypeRef scrut_ty = scrut_e.type(pool_impl());
+    mlir::Value scrut = gen_expr(scrut_e);
     // G160-10: a diverging scrutinee (`match return x { … }`) already emitted a
-    // terminator — the arms are dead, stop.
-    if (is_terminated(builder_.getBlock())) return;
+    // terminator — the arms are dead.
+    if (!scrut || is_terminated(builder_.getBlock())) {
+        if (stmt) return nullptr;
+        if (is_terminated(builder_.getBlock())) {
+            auto* dead = new mlir::Block();
+            region->push_back(dead);
+            builder_.setInsertionPointToStart(dead);
+        }
+        return result();
+    }
+    mlir::Value slot = match_scrut_place(scrut_e, scrut, scrut_ty);
 
-    // ── THE SECOND HALF OF RFC 2005'S PEEL, IN THE VALUE ──────────────────
-    // sema collapses the scrutinee's chain to ONE layer at every non-reference
-    // pattern door (SemaChecker::pat_scrut_one_layer); the VALUE must be
-    // collapsed with it or the arms below GEP a pointer-to-pointer. A depth-1
-    // reference is the form every arm here was written for — a `&Agg` IS the
-    // aggregate's base pointer — so each layer above the first is one load.
-    // Skipped when an arm binds the WHOLE scrutinee, which sema does not
-    // collapse either. `collapsed_scrut` is what the arms that RE-EVALUATE the
-    // scrutinee must use. PROBES.md 2026-09-05b.
-    mlir::Value collapsed_scrut = nullptr;
-    {
-        int chain = 0;
-        for (TypeRef t = scrut_ty;
-             t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
-                   TypeRef(t).kind() == LogosType::Kind::MutRef) && TypeRef(t).pointee();
-             t = TypeRef(t).pointee())
-            ++chain;
-        if (chain >= 2 && !arms_bind_whole_scrutinee(arm_refs)) {
-            for (int i = 1; i < chain; ++i) {
-                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
-                scrut_ty = TypeRef(scrut_ty).pointee();
-            }
-            collapsed_scrut = scrut;
-        }
+    auto* merge = new mlir::Block();
+    mlir::Block* fall = merge;
+    if (match_arms_cover(arms, scrut_ty)) {
+        fall = new mlir::Block();
+        region->push_back(fall);
+        mlir::OpBuilder::InsertionGuard ig(builder_);
+        builder_.setInsertionPointToStart(fall);
+        builder_.create<mlir::LLVM::UnreachableOp>(loc_);
     }
-
-    // Detect tagged enum: scrut is a pointer, load discriminant.
-    mlir::Value scrut_ptr = nullptr;  // non-null for tagged enums
-    const TaggedEnumInfo* te_info = nullptr;
-    if (TypeRef sct(scrut_ty); sct) {
-        // Auto-deref `&Enum` / `&mut Enum` / `*Enum` so `match &enum_val {...}`
-        // works the same as `match enum_val {...}`.
-        // Every layer, as the expression door peels. PROBES.md 2026-09-15d-argrefland.
-        TypeRef enum_t = sct;
-        int via_ref_depth = 0;
-        while (enum_t &&
-               (enum_t.kind() == LogosType::Kind::Ref ||
-                enum_t.kind() == LogosType::Kind::MutRef ||
-                enum_t.kind() == LogosType::Kind::Ptr) &&
-               enum_t.pointee()) {
-            ++via_ref_depth;
-            enum_t = enum_t.pointee();
-        }
-        if (enum_t.kind() != LogosType::Kind::Enum) { enum_t = sct; via_ref_depth = 0; }
-        bool via_ref = via_ref_depth > 0;
-        if (enum_t.kind() == LogosType::Kind::Enum) {
-            te_info = resolve_tagged_enum(std::string(enum_t.enum_name()), enum_t);
-            if (te_info) {
-                // Enum value-repr: an enum value IS a pointer to its inline
-                // {disc,payload} storage (one level, like a Struct). `&Enum` is
-                // therefore the SAME one-level pointer — no extra deref. A
-                // by-value aggregate (returned by value from a fn) is spilled.
-                if (via_ref) {
-                    // scrut IS the enum-storage pointer past `via_ref_depth - 1` loads.
-                    for (int li = 1; li < via_ref_depth; ++li)
-                        scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
-                } else if (scrut.getType() != ptr_type()) {
-                    auto alloca = create_entry_alloca(te_info->llvm_type);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, alloca);
-                    scrut = alloca;
-                }
-                scrut_ptr = scrut;  // pointer to enum struct
-                scrut = enum_load_disc(scrut_ptr, *te_info);  // Phase 3.5 chokepoint
-            } else if (via_ref) {
-                // G165-1: a FIELDLESS / C-like enum has no TaggedEnumInfo — its
-                // by-value form is a plain i32 discriminant (not a heap ptr), so
-                // `&Enum` is a one-level ptr-to-i32. Load the disc through the ref
-                // so the scalar arm tests below compare i32==disc instead of
-                // comparing the raw `&Enum` pointer (which crashed mlir-gen:
-                // `arith.cmpi operand must be integer, got !llvm.ptr`).
-                for (int li = 1; li < via_ref_depth; ++li)
-                    scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), scrut);
-                scrut = builder_.create<mlir::LLVM::LoadOp>(
-                    loc_, builder_.getI32Type(), scrut);
-            }
-        }
-    }
-    // Default binding modes: `match &(T,U) { (a,b) }`. A `&tuple` is a one-level
-    // pointer to the tuple-struct (like `&struct`, NOT the two-level `&Enum`),
-    // so use it directly as the tuple base ptr (feeds the tuple extract's
-    // `scrut_ptr ? scrut_ptr : …`). tuple_llvm_type derefs the ref for layout.
-    if (!scrut_ptr) {
-        TypeRef st(scrut_ty);
-        if (st && (st.kind() == LogosType::Kind::Ref ||
-                   st.kind() == LogosType::Kind::MutRef ||
-                   st.kind() == LogosType::Kind::Ptr) &&
-            st.pointee() &&
-            TypeRef(st.pointee()).kind() == LogosType::Kind::Tuple)
-            scrut_ptr = scrut;
-    }
-    // Keep scrut at its natural type; coerce disc constants to match it.
-    mlir::Type scrut_type = scrut.getType();
-
-    mlir::Block* else_block = merge_block;
-    bool exhaustive_discrete = false;
-    // Pattern irrefutability — single foundation in `lir_view`. See
-    // `is_irrefutable_pattern` for the full case list (Wild/RefBind/RefPat/
-    // At/Tuple/Struct/Slice/Or). Was a 50-line local lambda that drifted
-    // from a narrower copy in mlir_gen_expr.cpp; foundation closes the
-    // drift (logos-core 4.1).
-    auto is_irrefutable = [](lir_view::PatRef p) -> bool {
-        return lir_view::is_irrefutable_pattern(p);
-    };
-    bool scrut_is_tuple = scrut_ty &&
-        (TypeRef(scrut_ty).kind() == LogosType::Kind::Tuple ||
-         ((TypeRef(scrut_ty).kind() == LogosType::Kind::Ref ||
-           TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef ||
-           TypeRef(scrut_ty).kind() == LogosType::Kind::Ptr) &&
-          TypeRef(scrut_ty).pointee() &&
-          TypeRef(TypeRef(scrut_ty).pointee()).kind() == LogosType::Kind::Tuple));
-    if (scrut_is_tuple) {
-        // Tuple patterns are always irrefutable.
-        for (auto& a : arm_refs) {
-            if (a.guard()) continue;
-            if (is_irrefutable(a.pat())) { exhaustive_discrete = true; break; }
-        }
-    } else if (scrut_ty && TypeRef(scrut_ty).kind() == LogosType::Kind::Bool) {
-        bool has_true = false, has_false = false, has_wild = false;
-        for (auto& a : arm_refs) {
-            if (a.guard()) continue;
-            auto p = a.pat();
-            if (is_irrefutable(p)) { has_wild = true; break; }
-            auto check_bool = [&](lir_view::PatRef pp) {
-                if (pp && pp.kind() == pc::Code::Bool) {
-                    if (lir_view::PatBoolView{pp}.value()) has_true = true;
-                    else                                   has_false = true;
-                }
-            };
-            if (p && p.kind() == pc::Code::Or) {
-                lir_view::PatOrView{p}.each_alt(check_bool);
-            } else {
-                check_bool(p);
-            }
-        }
-        exhaustive_discrete = has_wild || (has_true && has_false);
-    } else if (TypeRef sct(scrut_ty); sct &&
-               (sct.kind() == LogosType::Kind::Enum ||
-                ((sct.kind() == LogosType::Kind::Ref ||
-                  sct.kind() == LogosType::Kind::MutRef ||
-                  sct.kind() == LogosType::Kind::Ptr) &&
-                 sct.pointee() &&
-                 TypeRef(sct.pointee()).kind() == LogosType::Kind::Enum))) {
-        // Resolve the underlying enum type (auto-deref &Enum / *Enum).
-        TypeRef enum_lt = sct.kind() == LogosType::Kind::Enum ? sct : TypeRef(sct.pointee());
-        std::set<int32_t> covered;
-        bool has_wild = false;
-        auto cover_enum = [&](lir_view::PatRef pp) {
-            if (!pp) return;
-            if (pp.kind() == pc::Code::Variant)
-                covered.insert(static_cast<int32_t>(lir_view::PatVariantView{pp}.disc()));
-            else if (pp.kind() == pc::Code::VariantData)
-                covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{pp}.disc()));
-        };
-        for (auto& a : arm_refs) {
-            if (a.guard()) continue;
-            auto p = a.pat();
-            if (is_irrefutable(p)) { has_wild = true; break; }
-            if (p && p.kind() == pc::Code::Or) {
-                lir_view::PatOrView{p}.each_alt(cover_enum);
-            } else {
-                cover_enum(p);
-            }
-        }
-        if (has_wild) {
-            exhaustive_discrete = true;
-        } else {
-            std::string en(enum_lt.enum_name());
-            // QUALIFIED-FIRST via find_enum_decl — a bare `enum_types_.find`
-            // here would count the variants of the OTHER package's enum of the
-            // same name and call a match exhaustive (or not) about a type this
-            // arm never scrutinised.
-            const lir_view::EnumView* ev = find_enum_decl(en, enum_lt);
-            if (ev) {
-                bool all_covered = true;
-                ev->each_variant([&](lir_view::EnumVariantView v) {
-                    if (covered.count(v.disc()) == 0) all_covered = false;
-                });
-                exhaustive_discrete = all_covered;
-            } else if (auto* te = resolve_tagged_enum(en, enum_lt)) {
-                exhaustive_discrete = std::all_of(
-                    te->variants.begin(), te->variants.end(),
-                    [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
-            }
-        }
-    }
-    if (exhaustive_discrete) {
-        auto* default_block = new mlir::Block();
-        region->push_back(default_block);
-        {
-            mlir::OpBuilder::InsertionGuard ig(builder_);
-            builder_.setInsertionPointToStart(default_block);
-            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
-        }
-        else_block = default_block;
-    }
-
-    // Helper: extract payload bindings into scope for the current arm.
-    std::function<void(lir_view::PatRef)> extract_payload = [&](lir_view::PatRef p) {
-        if (!p) return;
-        switch (p.kind()) {
-        // ── PatTuple ───────────────────────────────────────────────────────
-        case pc::Code::Tuple: {
-            // [UNIFY C-tuple] Route the whole tuple destructure through the
-            // single pat_bind foundation (was a duplicate per-binding loop +
-            // a second nested-variant/tuple pass). pat_bind's Tuple case
-            // recurses per element (Wild→struct/scalar bind, VariantData→
-            // bind_enum_payload, nested Tuple/Or). It loads the tuple ptr from
-            // its slot, so hand it a slot (alloca) holding the tuple base ptr.
-            mlir::Value tptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-            if (!tptr) return;
-            // A tuple value IS a pointer to its inline storage — pass it directly
-            // (pat_bind's Tuple case GEPs into it, no load); a `&(..)` value is
-            // the tuple's address too.
-            pat_bind(p, tptr, door_place_type(scrut_ty));
-            return;
-        }
-        // ── PatVariantData ────────────────────────────────────────────────
-        case pc::Code::VariantData: {
-            if (te_info && scrut_ptr) {
-                // Delegate to the canonical full-fidelity payload binder
-                // (bind_enum_payload): ref-bind depth-N, thin-&Struct,
-                // inline struct w/ droppable copy, nested enum, trait
-                // objects, inline aggregates, peer-set eviction. (Was an
-                // inline copy that drifted — it missed the thin-&Struct
-                // case: `E::S(&P)` then `q.x` mis-read, probe t01/a7.)
-                lir_view::PatVariantDataView pvd{p};
-                std::vector<std::string> added;
-                bind_enum_payload(scrut_ptr, te_info, pvd, added, nullptr);
-            }
-            return;
-        }
-        // ── PatStruct: GEP-extract each named field ───────────────────────
-        case pc::Code::Struct: {
-            lir_view::PatStructView ps{p};
-            std::string sname(ps.struct_name());
-            // #60: bare `sname` aliases a same-named imported struct (wrong
-            // field offsets / stride). Resolve through the scrutinee TypeRef
-            // first; bare stays the last resort (see pat_struct_ty).
-            TypeRef pst = pat_struct_ty(scrut_ty, ps.struct_name());
-            auto sit = pst ? find_struct_it(pst) : struct_types_.find(sname);
-            if (sit == struct_types_.end() && pst) sit = struct_types_.find(sname);
-            if (sit == struct_types_.end()) return;
-            const StructInfo& sinfo = sit->second;
-            mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-            if (!sptr) return;
-            // P4-pm-08: scrut may arrive as a by-value struct (e.g. when
-            // it came directly from a fn return); GEP needs a pointer, so
-            // spill to an alloca first.
-            if (sptr.getType() != ptr_type()) {
-                auto a = create_entry_alloca(sptr.getType());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
-                sptr = a;
-            }
-            lir_view::StructView sd;
-            {
-                auto di = pst ? find_struct_def_it(pst) : all_struct_defs_.find(sname);
-                if (di == all_struct_defs_.end()) di = all_struct_defs_.find(sname);
-                if (di != all_struct_defs_.end()) sd = di->second;
-            }
-            ps.each_field([&](lir_view::PatFieldBindingView pfb) {
-                std::string field_name(pfb.field_name());
-                auto bind_struct_field = [&](const std::string& bind_name) {
-                    auto fp = gep_field(sptr, sinfo, field_name);
-                    if (!fp) return;
-                    evict_var_shapes(bind_name);
-                    // A struct-typed field is stored INLINE; bind its GEP ADDRESS
-                    // (a place) + track shape — NOT a load/copy. The copy didn't
-                    // persist mutation through a `&mut` binding (the change hit a
-                    // local alloca, not the scrutinee) and only "worked" for
-                    // shared reads because the &-typed binding's Drop is skipped.
-                    // Mirrors the tuple-element / pat_bind aggregate bind.
-                    TypeRef fty;
-                    if (sd) for (auto& lf : sd.fields())
-                        if (lf.name() == field_name) { fty = lf.type(pool_impl()); break; }
-                    if (fty && (TypeRef(fty).kind() == LogosType::Kind::Struct ||
-                                TypeRef(fty).kind() == LogosType::Kind::ZonedStruct)) {
-                        // …but only under a REFERENCE scrutinee (the binding is a
-                        // reference, default binding mode). Over a VALUE the binding
-                        // is a by-value COPY: `match h { H { p, .. } => { h.p.v = 70;
-                        // p.v } }` reads the old 4 in Rust.
-                        const bool by_value = scrut_ty &&
-                            TypeRef(scrut_ty).kind() != LogosType::Kind::Ref &&
-                            TypeRef(scrut_ty).kind() != LogosType::Kind::MutRef;
-                        if (by_value) {
-                            auto fsit = find_struct_it(fty);
-                            if (fsit != struct_types_.end() && fsit->second.llvm_type) {
-                                auto fresh = create_entry_alloca(fsit->second.llvm_type);
-                                builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, fp, size_const(fty),
-                                                                      /*isVolatile=*/false);
-                                fp = fresh;
-                            }
-                        }
-                        scope_[bind_name] = fp;
-                        let_vars_.insert(bind_name);
-                        var_struct_[bind_name] = mlir_struct_key(fty);
-                        return;
-                    }
-                    // An array field keeps its shape (`v[0]` strides): the
-                    // canonical binder copies it and registers the element type.
-                    if (fty && TypeRef(fty).kind() == LogosType::Kind::Array) {
-                        bind_name_at_slot(bind_name, fp, fty, nullptr);
-                        return;
-                    }
-                    mlir::Type fmlir;
-                    for (auto& sf : sinfo.fields)
-                        if (sf.name == field_name) { fmlir = sf.type; break; }
-                    if (!fmlir) return;
-                    // A slice / closure / `&dyn` field is an inline fat PAIR whose
-                    // value convention is its address: copy the pair (the binder
-                    // owns its own copy of the reference) and bind that the way
-                    // every fat-pair binder is bound. Loading it as a scalar left
-                    // an `!llvm.struct<(ptr, i64)>` where `s[i]` wants the address.
-                    if (fty && (TypeRef(fty).kind() == LogosType::Kind::Slice ||
-                                TypeRef(fty).kind() == LogosType::Kind::Closure ||
-                                TypeRef(fty).kind() == LogosType::Kind::TraitObject) &&
-                        mlir::isa<mlir::LLVM::LLVMStructType>(fmlir)) {
-                        auto fresh = create_entry_alloca(fmlir);
-                        builder_.create<mlir::LLVM::StoreOp>(
-                            loc_, builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp), fresh);
-                        bind_name_at_slot(bind_name, fresh, fty, nullptr);
-                        return;
-                    }
-                    auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
-                    auto alloca = create_entry_alloca(fmlir);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                    scope_[bind_name] = alloca;
-                    let_vars_.insert(bind_name);
-                    var_elem_types_[bind_name] = fmlir;
-                    register_thin_ref_struct_binding(bind_name, fty);  // D3 (task #50)
-                };
-                auto sub = pfb.sub();
-                if (!sub) {
-                    // Shorthand: Point { x } → bind field_name.
-                    bind_struct_field(field_name);
-                } else if (sub.kind() == pc::Code::Wild) {
-                    // C1: Explicit rename: Point { x: a } → bind pw->name to x's value.
-                    std::string pwn(lir_view::PatWildView{sub}.name());
-                    if (!pwn.empty() && pwn != "_") bind_struct_field(pwn);
-                } else if (sub.kind() == pc::Code::RefBind) {
-                    // NC3: ref binding to struct field: Point { x: ref px } → px = &field.
-                    std::string prbn(lir_view::PatRefBindView{sub}.name());
-                    if (!prbn.empty() && prbn != "_") {
-                        auto fp = gep_field(sptr, sinfo, field_name);
-                        if (fp) {
-                            // A struct-typed field: bind `fp` directly + track
-                            // struct shape so `px.field` GEPs through it. The
-                            // alloca-wrap (ptr-of-ptr, no shape) made `px.field`
-                            // read GARBAGE — the silent miscompile, sibling of
-                            // the enum-payload G151-1 fix. Scalar fields keep
-                            // the alloca-wrap so `*px` derefs one level.
-                            TypeRef fty;
-                            if (sd) for (auto& lf : sd.fields())
-                                if (lf.name() == field_name) { fty = lf.type(pool_impl()); break; }
-                            bool ref_to_struct = fty &&
-                                (TypeRef(fty).kind() == LogosType::Kind::Struct ||
-                                 TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
-                            // Tuple shape — see pat_bind's RefBind case.
-                            bool ref_to_tuple = fty &&
-                                TypeRef(fty).kind() == LogosType::Kind::Tuple;
-                            evict_var_shapes(prbn);
-                            if (ref_to_struct) {
-                                scope_[prbn] = fp;
-                                let_vars_.insert(prbn);
-                                var_struct_[prbn] = mlir_struct_key(fty);
-                            } else if (ref_to_tuple) {
-                                scope_[prbn] = fp;
-                                let_vars_.insert(prbn);
-                                var_tuple_.insert(prbn);
-                            } else {
-                                auto alloca = create_entry_alloca(ptr_type());
-                                builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
-                                scope_[prbn] = alloca;
-                                let_vars_.insert(prbn);
-                                var_elem_types_[prbn] = ptr_type();
-                                ref_slot_vars_.insert(prbn);   // see bind_ref_name
-                            }
-                        }
-                    }
-                } else {
-                    // G148-1: refutable field sub-pattern (variant / tuple /
-                    // or / nested struct) — bind its inner names via the
-                    // recursive matcher. fp is a pointer to the field slot.
-                    auto fp = gep_field(sptr, sinfo, field_name);
-                    if (fp) {
-                        TypeRef fty;
-                        if (sd) for (auto& lf : sd.fields())
-                            if (lf.name() == field_name) { fty = lf.type(pool_impl()); break; }
-                        pat_bind(sub, fp, fty);
-                    }
-                }
-            });
-            return;
-        }
-        // ── PatSlice: GEP-extract indexed elements ────────────────────────
-        case pc::Code::Slice: {
-            auto atype = scrut_ty;
-            // The SAME predicate the PAT_SLICE door and pat_test ask. Only the
-            // TYPE is peeled — the reference VALUE already IS the array base (or
-            // the fat-slice slot). ⚠ Without it neither branch below is reached
-            // and every element binding is SILENTLY ABSENT. PROBES.md 2026-09-05b.
-            if (atype &&
-                (TypeRef(atype).kind() == LogosType::Kind::Ref ||
-                 TypeRef(atype).kind() == LogosType::Kind::MutRef) &&
-                TypeRef(atype).pointee() &&
-                (TypeRef(TypeRef(atype).pointee()).kind() == LogosType::Kind::Array ||
-                 TypeRef(TypeRef(atype).pointee()).kind() == LogosType::Kind::Slice))
-                atype = TypeRef(atype).pointee();
-            if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
-                auto elem_mlir = place_slot_type(TypeRef(atype).elem());
-                auto arr_mlir  = logos_to_mlir(atype);
-                mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                // An array-typed PLACE scrutinee (`match s.arr`, `match t.0`)
-                // arrives as the array VALUE and every GEP below needs a base
-                // POINTER — address the place, spill only an rvalue. See
-                // MLIRGenImpl::aggregate_scrut_base.
-                if (!scrut_ptr && !collapsed_scrut) aptr = aggregate_scrut_base(v.scrut(), aptr);
-                if (aptr && elem_mlir && arr_mlir) {
-                    // [UNIFY C-slice] Route the element bind through the single
-                    // pat_bind foundation, as the Tuple case already does; this
-                    // lambda was its own two-kind whitelist (Wild, RefBind) and
-                    // every other sub-pattern kind in element position bound
-                    // NOTHING. pat_bind's Wild case is a superset of the inline
-                    // logic it replaces. PROBES.md 2026-09-09d §2.
-                    auto bind_elem = [&](lir_view::PatRef sp, int32_t idx) {
-                        if (!sp) return;
-                        // GEP element pointer for this index.
-                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
-                        auto ep = builder_.create<mlir::LLVM::GEPOp>(
-                            loc_, ptr_type(), arr_mlir, aptr, gi);
-                        pat_bind(sp, ep, TypeRef(atype).elem());
-                    };
-                    lir_view::PatSliceView psl{p};
-                    int32_t idx = 0;
-                    psl.each_prefix([&](lir_view::PatRef sp){ bind_elem(sp, idx++); });
-                    size_t total  = (size_t)TypeRef(atype).arr_size();
-                    size_t suf_n  = psl.suffix_count();
-                    int32_t sidx  = (int32_t)(total - suf_n);
-                    psl.each_suffix([&](lir_view::PatRef sp){ bind_elem(sp, sidx++); });
-                    if (auto rest = psl.rest())
-                        bind_array_rest(rest, arr_mlir, elem_mlir, aptr, (size_t)idx,
-                                        total - (size_t)idx - suf_n);
-                }
-            } else if (atype && TypeRef(atype).kind() == LogosType::Kind::Slice &&
-                       TypeRef(atype).elem()) {
-                // G149-4: dynamic `&[T]` slice (a fat {data, len} pair): the
-                // one element binder (pat_bind's Slice case) — this door had its
-                // own two-kind whitelist (Wild, RefBind), so `[(a, _), ..]`'s `a`
-                // bound nothing.
-                mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                if (sptr) bind_dyn_slice_elems(p, sptr, atype, nullptr);
-            }
-            return;
-        }
-        // ── PatAt: bind outer name then recurse into sub-pattern ─────────
-        case pc::Code::At: {
-            lir_view::PatAtView pa{p};
-            bind_whole_scrutinee_at(pa, scrut, scrut_ptr, scrut_written, scrut_ty);
-            // C5: recurse into sub-pattern to bind nested fields.
-            if (auto sub = pa.sub()) extract_payload(sub);
-            return;
-        }
-        // ── PatRefBind: bind name as a reference (pointer to scrutinee) ──
-        case pc::Code::RefBind: {
-            // Single implementation, shared with the expression door — see
-            // MLIRGenImpl::bind_match_ref_binder.
-            bind_match_ref_binder(p, scrut, scrut_ptr, scrut_ty);
-            return;
-        }
-        // ── PatRefPat: &pat or &mut pat — recurse into inner pattern ─────
-        case pc::Code::RefPat: {
-            auto inner = lir_view::PatRefPatView{p}.inner();
-            if (!inner) return;
-            // A `&`-PATTERN IS THE DEREF, AND OVER A SCALAR THAT DEREF IS A
-            // LOAD. `match &v { &n => … }` over `v: i64` types `n` as `i64` in
-            // sema (the PAT_REF door peels its own layer) while the binder below
-            // aliased the un-loaded `&i64`, so `n` held an ADDRESS: at depth 1
-            // that failed the verifier ('llvm.icmp' operands differ), at depth 2
-            // it compiled and computed garbage. Peel exactly as many layers as
-            // the pattern spells `&`, and only when that lands on the scalar
-            // core. PROBES.md 2026-09-06f.
-            {
-                int k = 0;
-                lir_view::PatRef q = p;
-                while (q && q.kind() == pc::Code::RefPat) {
-                    ++k;
-                    q = lir_view::PatRefPatView{q}.inner();
-                }
-                std::string bn;
-                if (q && q.kind() == pc::Code::Wild) bn = std::string(lir_view::PatWildView{q}.name());
-                int d = 0;
-                TypeRef core = scrut_ty;
-                while (core && (TypeRef(core).kind() == LogosType::Kind::Ref ||
-                                TypeRef(core).kind() == LogosType::Kind::MutRef) &&
-                       TypeRef(core).pointee()) { core = TypeRef(core).pointee(); ++d; }
-                mlir::Value cv; TypeRef ct;
-                if (!bn.empty() && bn != "_" && k == d && !scrut_ptr && !te_info &&
-                    scalar_core_scrut(scrut, scrut_ty, cv, ct)) {
-                    auto alloca = create_entry_alloca(cv.getType());
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, cv, alloca);
-                    evict_var_shapes(bn);
-                    scope_[bn] = alloca;
-                    let_vars_.insert(bn);
-                    var_elem_types_[bn] = cv.getType();
-                    return;
-                }
-            }
-            {
-                lir_view::PatRef rq; mlir::Value rv; TypeRef rt;
-                if (!scrut_ptr && !te_info && ref_pat_core_scrut(p, scrut, scrut_ty, rq, rv, rt)) {
-                    auto saved_scrut = scrut; auto saved_coll = collapsed_scrut; TypeRef saved_ty = scrut_ty;
-                    auto saved_written = scrut_written;
-                    scrut = rv; collapsed_scrut = rv; scrut_ty = rt; scrut_written = rv;
-                    extract_payload(rq);
-                    scrut = saved_scrut; collapsed_scrut = saved_coll; scrut_ty = saved_ty;
-                    scrut_written = saved_written;
-                    return;
-                }
-            }
-            extract_payload(inner);
-            return;
-        }
-        // ── PatOr: extract bindings from first alternative ────────────────
-        case pc::Code::Or: {
-            lir_view::PatRef first;
-            lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef alt){
-                if (!first) first = alt;
-            });
-            if (first) extract_payload(first);
-            return;
-        }
-        // ── PatWild (named wildcard) ───────────────────────────────────────
-        case pc::Code::Wild: {
-            std::string pwn(lir_view::PatWildView{p}.name());
-            if (!pwn.empty() && pwn != "_") {
-                mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-                TypeRef st = TypeRef(scrut_ty);
-                // THE STRUCT TEST HERE WAS A SPELLING OF "AGGREGATE": a TUPLE
-                // scrutinee fell to the alloca-of-a-pointer path below and `y.1`
-                // GEP'd the alloca address (measured, hand program c06).
-                // bind_name_at_slot binds BOTH halves. PROBES.md 2026-09-16f.
-                // ⚠ OWNED SCRUTINEES ONLY — see the At case above (a10).
-                const bool wild_via_ref = st &&
-                    (st.kind() == LogosType::Kind::Ref ||
-                     st.kind() == LogosType::Kind::MutRef ||
-                     st.kind() == LogosType::Kind::Ptr);
-                // Through a reference the binder takes the REFERENCE VALUE as
-                // written (`other: &&Option<T>`), not `scrut_ptr`, which the
-                // tagged-enum detection peeled through EVERY layer: storing that
-                // made `other` one level short and `other.is_some()` read the
-                // discriminant as a pointer (SIGSEGV).
-                if (wild_via_ref && scrut_written) sv = scrut_written;
-                if (sv && sv.getType() == ptr_type() && !wild_via_ref) {
-                    bind_name_at_slot(pwn, sv, st, nullptr);
-                } else if (st && (st.kind() == LogosType::Kind::Struct ||
-                           st.kind() == LogosType::Kind::ZonedStruct)) {
-                    // Whole-value struct binding (`match v { x => … }` for an
-                    // owned struct): `sv` is already the POINTER to the
-                    // scrutinee's struct (structs are by-pointer). Alias that
-                    // storage directly + record the struct key, so `x` sees the
-                    // real fields and its drop glue frees the real buffer once.
-                    // The store-into-a-fresh-alloca path below would make `x`
-                    // hold a pointer-to-struct typed as the struct, so drop
-                    // would read the (stack) pointer value as the first field
-                    // and free a bogus address (SIGSEGV). The scrutinee var is
-                    // marked moved in sema (lower_match), so it isn't dropped
-                    // a second time.
-                    // A TEMPORARY scrutinee (`match mk() { mut s => … }`) arrives
-                    // as the struct VALUE, not a pointer: give it a slot first,
-                    // so `&mut s` / `s.v = …` have storage to address.
-                    if (sv && sv.getType() != ptr_type()) {
-                        auto slot = create_entry_alloca(sv.getType());
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, sv, slot);
-                        sv = slot;
-                    }
-                    evict_var_shapes(pwn);
-                    scope_[pwn] = sv;
-                    var_struct_[pwn] = mlir_struct_key(st);
-                    let_vars_.insert(pwn);
-                } else {
-                    auto alloca = create_entry_alloca(sv.getType());
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                    evict_var_shapes(pwn);
-                    scope_[pwn] = alloca;
-                    let_vars_.insert(pwn);
-                    var_elem_types_[pwn] = sv.getType();
-                    if (!scrut_ptr) register_thin_ref_struct_binding(pwn, st);
-                }
-            }
-            return;
-        }
-        default: return;
-        }
-    };
-
-    // Helper: scalar discriminant value for a leaf pattern (PatVariant /
-    // PatVariantData / PatInt / PatBool). Returns INT64_MIN if not scalar.
-    auto get_scalar_disc = [](lir_view::PatRef pp) -> int64_t {
-        if (!pp) return std::numeric_limits<int64_t>::min();
-        switch (pp.kind()) {
-            case pc::Code::Variant:     return lir_view::PatVariantView{pp}.disc();
-            case pc::Code::VariantData: return lir_view::PatVariantDataView{pp}.disc();
-            case pc::Code::Int:         return lir_view::PatIntView{pp}.value();
-            case pc::Code::Bool:        return lir_view::PatBoolView{pp}.value() ? 1 : 0;
-            default:                    return std::numeric_limits<int64_t>::min();
-        }
-    };
-    // ── THE SCALAR CORE, ALONGSIDE THE CHAIN — PER ARM ───────────────────
-    // The depth collapse above is per MATCH and stops at ONE layer, which is
-    // what an AGGREGATE arm wants. A SCALAR arm compares a VALUE and needs
-    // ZERO. Answering that by MUTATING `scrut` makes the question per-match and
-    // breaks any match that also has a binder arm (`match &v { 4 => …, x => … }`,
-    // legal Rust). So the core is a SECOND value: the scalar comparison sites
-    // below read `sc_scrut`, every binder arm still reads `scrut`. Emitted here,
-    // in the block that dominates every test block, and only when some arm
-    // actually asks a scalar question. PROBES.md 2026-09-06f.
-    mlir::Value sc_scrut      = scrut;
-    TypeRef     sc_scrut_ty   = scrut_ty;
-    mlir::Type  sc_scrut_type = scrut_type;
-    if (!scrut_ptr && !te_info) {
-        std::function<bool(lir_view::PatRef)> asks_scalar = [&](lir_view::PatRef p) -> bool {
-            if (!p) return false;
-            switch (p.kind()) {
-            case pc::Code::Int: case pc::Code::Bool: case pc::Code::Range: return true;
-            case pc::Code::At:  return asks_scalar(lir_view::PatAtView{p}.sub());
-            case pc::Code::Or: {
-                bool any = false;
-                lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef a){ if (asks_scalar(a)) any = true; });
-                return any;
-            }
-            default: return false;
-            }
-        };
-        bool asked = false;
-        for (auto& a : arm_refs) if (asks_scalar(a.pat())) { asked = true; break; }
-        mlir::Value cv; TypeRef ct;
-        if (asked && scalar_core_scrut(scrut, scrut_ty, cv, ct)) {
-            sc_scrut = cv; sc_scrut_ty = ct; sc_scrut_type = cv.getType();
-        }
-    }
-    // Build if-else chain from last arm down to first.
-    // gap C: each arm is its own lexical scope (like an if-branch) — its
-    // pattern bindings must not leak into sibling arms or past the match.
+    // gap C: each arm is its own lexical scope — its bindings neither leak into
+    // a sibling arm nor past the match.
     auto match_scope = snapshot_var_scope();
-    for (int i = (int)arm_refs.size() - 1; i >= 0; --i) {
-        auto arm_pat   = arm_refs[i].pat();
-        auto arm_kind  = arm_pat ? arm_pat.kind() : pc::Code(-1);
-        // G155-5(a): explicit `&E::Foo{..}` / `&E::Some(x)` ref-pattern over a
-        // `&Enum` scrutinee we already auto-deref'd to a TAGGED enum (te_info
-        // set ⇒ `scrut` is the disc, `scrut_ptr` the enum struct). Peel the
-        // redundant leading `&` so the inner variant/struct pattern flows
-        // through the normal payload-extracting paths. The C-like no-payload
-        // `&E::A` case (te_info null, `scrut` still a ptr-to-i32) keeps the
-        // dedicated RefPat handler below.
-        if (te_info && arm_kind == pc::Code::RefPat) {
-            lir_view::PatRef inner = arm_pat;   // every `&`, not one: `&&E::V(..)`
-            while (inner && inner.kind() == pc::Code::RefPat)
-                inner = lir_view::PatRefPatView{inner}.inner();
-            if (inner && (inner.kind() == pc::Code::VariantData ||
-                          inner.kind() == pc::Code::Variant ||
-                          inner.kind() == pc::Code::Struct)) {
-                arm_pat = inner;
-                arm_kind = arm_pat.kind();
-            }
+    for (size_t i = 0; i < arms.size(); ++i) {
+        auto pat = arms[i].pat();
+        mlir::Block* next = i + 1 < arms.size() ? new mlir::Block() : fall;
+        auto* bind = new mlir::Block();
+        region->push_back(bind);
+        if (next != fall) region->push_back(next);
+        if (lir_view::is_irrefutable_pattern(pat))
+            builder_.create<mlir::cf::BranchOp>(loc_, bind);
+        else
+            builder_.create<mlir::cf::CondBranchOp>(loc_, pat_test(pat, slot, scrut_ty), bind, next);
+        builder_.setInsertionPointToStart(bind);
+        pat_bind(pat, slot, scrut_ty);
+        shadow_register_pattern(pat);
+        if (auto g = arms[i].guard()) {
+            auto gv = coerce_int(gen_expr(g), builder_.getI1Type());
+            if (!gv) gv = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+            auto* body = new mlir::Block();
+            region->push_back(body);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, gv, body, next);
+            builder_.setInsertionPointToStart(body);
         }
-        auto arm_guard_ref = arm_refs[i].guard();
-        auto arm_body_ref  = arm_refs[i].body();
-        auto* body_block   = new mlir::Block();
-        region->push_back(body_block);
-
-        mlir::Block* arm_entry = body_block;
-
-        if (arm_guard_ref) {
-            // guard_block: extract bindings, evaluate guard, branch accordingly.
-            auto* guard_block = new mlir::Block();
-            region->push_back(guard_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(guard_block);
-                extract_payload(arm_pat);
-                shadow_register_pattern(arm_pat);
-                auto gval = arm_guard_ref ? gen_expr(arm_guard_ref) : nullptr;
-                gval = coerce_int(gval, builder_.getI1Type());
-                builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
-            }
-            arm_entry = guard_block;
-            // body_block: bindings already in scope from guard_block.
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(body_block);
-                if (arm_body_ref) gen_block(arm_body_ref);
-                if (!is_terminated(builder_.getBlock()))
-                    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
-            }
-        } else {
-            // No guard: extract bindings and run body in body_block.
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(body_block);
-                extract_payload(arm_pat);
-                shadow_register_pattern(arm_pat);
-                if (arm_body_ref) gen_block(arm_body_ref);
-                if (!is_terminated(builder_.getBlock()))
-                    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
-            }
+        if (stmt) {
+            if (auto b = arms[i].body()) gen_block(b);
+        } else if (auto ve = arms[i].value()) {
+            auto val = gen_expr(ve);
+            if (val && result_type && !is_terminated(builder_.getBlock()))
+                builder_.create<mlir::LLVM::StoreOp>(loc_, store_arm_result(val, result_type), result_alloca);
         }
         restore_var_scope(match_scope);
-
-        bool is_wild = is_irrefutable(arm_pat);
-        if (is_wild) {
-            else_block = arm_entry;
-        } else if (arm_kind == pc::Code::Range) {
-            // Range pattern: lo <= scrut && scrut <= hi
-            // C2: use unsigned predicates for unsigned scrutinee types.
-            lir_view::PatRangeView pr{arm_pat};
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                auto both = emit_range_test(sc_scrut, sc_scrut_ty, pr.lo(), pr.hi());
-                builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
-            }
-            else_block = test_block;
-        } else if (arm_kind == pc::Code::Or) {
-            // OR pattern: chain of comparisons — any match goes to arm_entry.
-            // Build right-to-left so each test falls through to the next.
-            // NC4: get_scalar_disc only handles scalar patterns; PatRange and
-            // structural patterns inside PatOr are not representable as a single
-            // discriminant. Callers must not pass PatOr with non-scalar alts.
-            std::vector<lir_view::PatRef> alts;
-            lir_view::PatOrView{arm_pat}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
-            mlir::Block* cur_else = else_block;
-            for (int64_t ai = static_cast<int64_t>(alts.size()) - 1; ai >= 0; --ai) {
-                auto alt = alts[static_cast<size_t>(ai)];
-                auto* test_block = new mlir::Block();
-                region->push_back(test_block);
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                // G144-2: a wildcard / binding alt (`0 | _`) is irrefutable —
-                // match unconditionally rather than emit a bogus
-                // `scrut == get_scalar_disc(Wild)` test (wrong match + a
-                // dead-block arith.constant that fails LLVM translation).
-                if (alt.kind() == pc::Code::Wild || alt.kind() == pc::Code::RefBind) {
-                    builder_.create<mlir::cf::BranchOp>(loc_, arm_entry);
-                    cur_else = test_block;
-                    continue;
-                }
-                int64_t disc = get_scalar_disc(alt);
-                if (disc == std::numeric_limits<int64_t>::min()) {
-                    // Unrepresentable alt (e.g. PatRange, structural): skip to next test.
-                    // Sema should have rejected this, but fall-through safely instead of
-                    // emitting a bogus cmp-eq-INT64_MIN that can spuriously match.
-                    builder_.create<mlir::cf::BranchOp>(loc_, cur_else);
-                } else {
-                    auto disc_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), sc_scrut_type);
-                    auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
-                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, cur_else);
-                }
-                cur_else = test_block;
-            }
-            else_block = cur_else;
-        } else if (arm_kind == pc::Code::At) {
-            // PatAt with refutable sub-pattern: dispatch on sub-pattern.
-            auto sub = lir_view::PatAtView{arm_pat}.sub();
-            if (sub) {
-                if (sub.kind() == pc::Code::Or) {
-                    // `n @ (1 | 2 | 3)` / `n @ (lo..=hi | …)` — bind the whole
-                    // value to `n` (handled by the PatAt binding path) and gate
-                    // the arm on the OR of each alternative's test. Mirrors the
-                    // tuple-element or-pattern OR-chain; supports int/bool/range
-                    // alternatives (the scalar pattern kinds an at-binding admits).
-                    auto* test_block = new mlir::Block();
-                    region->push_back(test_block);
-                    {
-                        mlir::OpBuilder::InsertionGuard ig(builder_);
-                        builder_.setInsertionPointToStart(test_block);
-                        mlir::Value alt_or =
-                            builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
-                        lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef alt) {
-                            if (alt.kind() == pc::Code::Range) {
-                                lir_view::PatRangeView pr{alt};
-                                auto both = emit_range_test(sc_scrut, sc_scrut_ty, pr.lo(), pr.hi());
-                                alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, both);
-                                return;
-                            }
-                            int64_t av = 0;
-                            if (alt.kind() == pc::Code::Int)       av = lir_view::PatIntView{alt}.value();
-                            else if (alt.kind() == pc::Code::Bool) av = lir_view::PatBoolView{alt}.value() ? 1 : 0;
-                            else {
-                                // A variant (or any structured) alternative —
-                                // `y @ (E::A(_) | E::B(_))`: the general test on
-                                // the scrutinee's place. Skipping it left the
-                                // OR false and the match fell to `unreachable`.
-                                mlir::Value sp = scrut_ptr ? scrut_ptr
-                                               : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                                if (!scrut_ptr && !collapsed_scrut) sp = aggregate_scrut_base(v.scrut(), sp);
-                                alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, pat_test(alt, sp, door_place_type(scrut_ty)));
-                                return;
-                            }
-                            auto cv = coerce_int(
-                                builder_.create<mlir::arith::ConstantIntOp>(loc_, av, 64), sc_scrut_type);
-                            auto eq = builder_.create<mlir::arith::CmpIOp>(
-                                loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, cv);
-                            alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, eq);
-                        });
-                        builder_.create<mlir::cf::CondBranchOp>(loc_, alt_or, arm_entry, else_block);
-                    }
-                    else_block = test_block;
-                } else if (sub.kind() == pc::Code::Range) {
-                    // C2: same unsigned predicate fix for PatAt + PatRange.
-                    lir_view::PatRangeView pr{sub};
-                    auto* test_block = new mlir::Block();
-                    region->push_back(test_block);
-                    {
-                        mlir::OpBuilder::InsertionGuard ig(builder_);
-                        builder_.setInsertionPointToStart(test_block);
-                        auto both = emit_range_test(sc_scrut, sc_scrut_ty, pr.lo(), pr.hi());
-                        builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
-                    }
-                    else_block = test_block;
-                } else if (sub.kind() != pc::Code::Int && sub.kind() != pc::Code::Bool &&
-                           sub.kind() != pc::Code::Variant) {
-                    // A STRUCTURED sub-pattern (`y @ [_]`, `t @ (1, _)`, `s @ S { .. }`):
-                    // the general test on the scrutinee's PLACE, as the or-alternative
-                    // path above does — the scalar compare below read the pointer.
-                    auto* test_block = new mlir::Block();
-                    region->push_back(test_block);
-                    {
-                        mlir::OpBuilder::InsertionGuard ig(builder_);
-                        builder_.setInsertionPointToStart(test_block);
-                        mlir::Value sp = scrut_ptr ? scrut_ptr
-                                       : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                        if (!scrut_ptr && !collapsed_scrut) sp = aggregate_scrut_base(v.scrut(), sp);
-                        auto cond = pat_test(sub, sp, door_place_type(scrut_ty));
-                        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
-                    }
-                    else_block = test_block;
-                } else {
-                    // C3: Scalar sub-pattern: int, bool, variant (disc=0 was wrong for variants).
-                    int64_t disc = get_scalar_disc(sub);
-                    if (disc == std::numeric_limits<int64_t>::min()) disc = 0;
-                    auto* test_block = new mlir::Block();
-                    region->push_back(test_block);
-                    {
-                        mlir::OpBuilder::InsertionGuard ig(builder_);
-                        builder_.setInsertionPointToStart(test_block);
-                        auto disc_val = coerce_int(
-                            builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), sc_scrut_type);
-                        auto eq = builder_.create<mlir::arith::CmpIOp>(
-                            loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
-                        builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
-                    }
-                    else_block = test_block;
-                }
-            } else {
-                // Irrefutable PatAt (no sub) — arm always runs.
-                else_block = arm_entry;
-            }
-        } else if (arm_kind == pc::Code::Tuple
-                   && lir_view::PatTupleView{arm_pat}.sub_count() > 0) {
-            // [UNIFY D-tuple] Route the whole refutable-tuple structural test
-            // through the single pat_test foundation. A tuple value IS a pointer
-            // to its inline storage (Rust by-value layout), so hand pat_test the
-            // tuple base pointer DIRECTLY — its Tuple case GEPs into it (no load).
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                mlir::Value tptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                // A `&(..)` scrutinee's VALUE is already the tuple's address.
-                mlir::Value cond = pat_test(arm_pat, tptr, door_place_type(scrut_ty));
-                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
-            }
-            else_block = test_block;
-        } else if (arm_kind == pc::Code::Slice &&
-                   scrut_ty &&
-                   (TypeRef(scrut_ty).kind() == LogosType::Kind::Array ||
-                    // G160-4: a `&[u8; N]` / `&mut [u8; N]` scrutinee (byte-string
-                    // pattern over a ref-to-array) — peel the ref below.
-                    ((TypeRef(scrut_ty).kind() == LogosType::Kind::Ref ||
-                      TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef) &&
-                     TypeRef(scrut_ty).pointee() &&
-                     TypeRef(TypeRef(scrut_ty).pointee()).kind() == LogosType::Kind::Array))) {
-            // A slice pattern over a fixed-size array (or `&[T; N]` — the ref
-            // value IS the array base): the one pattern tester. This arm had
-            // its own Int/Bool-only element check, so a range, a variant or a
-            // nested pattern in an element tested NOTHING and matched.
-            TypeRef atyp = scrut_ty;
-            if ((TypeRef(atyp).kind() == LogosType::Kind::Ref ||
-                 TypeRef(atyp).kind() == LogosType::Kind::MutRef) &&
-                TypeRef(atyp).pointee())
-                atyp = TypeRef(atyp).pointee();
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                if (!scrut_ptr && !collapsed_scrut) aptr = aggregate_scrut_base(v.scrut(), aptr);
-                mlir::Value cond = pat_test(arm_pat, aptr, atyp);
-                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
-            }
-            else_block = test_block;
-        } else if (arm_kind == pc::Code::Slice &&
-                   scrut_ty &&
-                   TypeRef(scrut_ty).kind() == LogosType::Kind::Slice &&
-                   TypeRef(scrut_ty).elem()) {
-            // G149-4: top-level dynamic-slice (`&[T]`) match arm: the one
-            // pattern tester (length gate, then prefix AND suffix elements,
-            // any sub-pattern kind). This arm checked literal prefix elements
-            // only — a suffix or a nested pattern tested nothing — and read
-            // them before the length gate.
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                mlir::Value cond = pat_test(arm_pat, sptr, scrut_ty);
-                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
-            }
-            else_block = test_block;
-        } else if (arm_kind == pc::Code::RefPat &&
-                   scrut_ty &&
-                   (TypeRef(scrut_ty).kind() == LogosType::Kind::Ref ||
-                    TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef) &&
-                   TypeRef(scrut_ty).pointee()) {
-            // `match &T { &P => … }`: the scrutinee is the reference (the
-            // address of the T), so P is tested against that address — by the
-            // one pattern tester (literal, range, nested `&`, or-pattern alike).
-            // A scalar-only special case sent every other inner pattern to the
-            // else arm: `&(1..=5)` never matched.
-            auto inner = lir_view::PatRefPatView{arm_pat}.inner();
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                mlir::Value cond = inner ? pat_test(inner, scrut, TypeRef(scrut_ty).pointee()) : mlir::Value(builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1));
-                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
-            }
-            else_block = test_block;
-        } else if (arm_kind == pc::Code::Str) {
-            // A string literal arm: the one pattern tester on the scrutinee's
-            // {data, len} pair (the value computed once above; a by-value pair
-            // is spilled). It was a wildcard + a synthesized `str_eq` guard over a
-            // hoisted temp — and admitted a `String` scrutinee (rustc: E0308).
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                mlir::Value sp = scrut;
-                if (sp.getType() != ptr_type()) {
-                    auto a = create_entry_alloca(sp.getType());
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, sp, a);
-                    sp = a;
-                }
-                auto cond = pat_test(arm_pat, sp, door_place_type(scrut_ty));
-                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
-            }
-            else_block = test_block;
-        } else if (arm_kind == pc::Code::Struct) {
-            // G148-1: struct arm with refutable field sub-patterns
-            // (`Wrap { x: Inner::A(v), y } => …`). is_irrefutable already
-            // routed fully-irrefutable struct patterns to is_wild; reaching
-            // here means at least one field sub is refutable. Hand pat_test
-            // the struct data ptr directly (same convention as Tuple); the
-            // old alloca-of-ptr wrapper was the asymmetry that miscompiled
-            // nested struct sub-patterns.
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                if (sptr && sptr.getType() != ptr_type()) {
-                    auto a = create_entry_alloca(sptr.getType());
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
-                    sptr = a;
-                }
-                auto cond = pat_test(arm_pat, sptr, door_place_type(scrut_ty));
-                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
-            }
-            else_block = test_block;
-        } else {
-            int64_t disc = get_scalar_disc(arm_pat);
-            bool have_disc = (disc != std::numeric_limits<int64_t>::min());
-
-            auto* test_block = new mlir::Block();
-            region->push_back(test_block);
-            {
-                mlir::OpBuilder::InsertionGuard ig(builder_);
-                builder_.setInsertionPointToStart(test_block);
-                if (!have_disc) {
-                    // Unhandled refutable pattern kind (e.g. PatRefPat with refutable
-                    // inner). Sema should have rejected or lowered this elsewhere; fall
-                    // through safely rather than comparing scrut to an arbitrary 0.
-                    builder_.create<mlir::cf::BranchOp>(loc_, else_block);
-                } else {
-                    auto disc_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
-                        sc_scrut_type);
-                    auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
-                    // A variant with payload sub-patterns (ADR 0030 S3): the
-                    // subs are tested once the disc matched.
-                    if (arm_kind == pc::Code::VariantData && te_info && scrut_ptr &&
-                        !lir_view::PatVariantDataView{arm_pat}.subs().empty()) {
-                        auto* sub_blk = new mlir::Block();
-                        region->push_back(sub_blk);
-                        builder_.create<mlir::cf::CondBranchOp>(loc_, eq, sub_blk, else_block);
-                        builder_.setInsertionPointToStart(sub_blk);
-                        mlir::Value sc = variant_subs_test(lir_view::PatVariantDataView{arm_pat},
-                                                           scrut_ptr, te_info);
-                        if (sc) builder_.create<mlir::cf::CondBranchOp>(loc_, sc, arm_entry, else_block);
-                        else    builder_.create<mlir::cf::BranchOp>(loc_, arm_entry);
-                    } else {
-                        builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
-                    }
-                }
-            }
-            else_block = test_block;
-        }
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::cf::BranchOp>(loc_, merge);
+        if (next != fall) builder_.setInsertionPointToStart(next);
     }
-
-    builder_.create<mlir::cf::BranchOp>(loc_, else_block);
-    region->push_back(merge_block);
-    if (merge_block->hasNoPredecessors()) {
-        merge_block->erase();
-        return;
+    if (arms.empty()) builder_.create<mlir::cf::BranchOp>(loc_, fall);
+    region->push_back(merge);
+    if (stmt && merge->hasNoPredecessors()) {
+        merge->erase();
+        return nullptr;
     }
-    builder_.setInsertionPointToStart(merge_block);
+    builder_.setInsertionPointToStart(merge);
+    return result();
+}
+
+// G161-4 / task #94: an arm's value in the result slot's representation. A
+// by-pointer aggregate slot fed the aggregate BY VALUE (a call returning a
+// struct) gets a spilled pointer — the wide value overflowed the 8-byte slot;
+// an aggregate-by-value slot fed a POINTER (every array literal lowers to a
+// pointer into an arm-local buffer) gets the loaded value — the address was
+// stored as the first element.
+mlir::Value MLIRGenImpl::store_arm_result(mlir::Value val, mlir::Type rt) {
+    if (rt == ptr_type() && val && val.getType() != ptr_type() &&
+        (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) ||
+         mlir::isa<mlir::LLVM::LLVMArrayType>(val.getType())))
+        return spill_to_alloca(val);
+    if (val && val.getType() == ptr_type() && rt != ptr_type() &&
+        (mlir::isa<mlir::LLVM::LLVMStructType>(rt) || mlir::isa<mlir::LLVM::LLVMArrayType>(rt)))
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, rt, val);
+    return coerce_numeric(val, rt);
+}
+
+void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
+    if (!v.scrut()) return;
+    std::vector<lir_view::EMatchArmRef> arms;
+    v.each_arm([&](lir_view::EMatchArmRef a){ arms.push_back(a); });
+    (void)gen_match_door(v.scrut(), arms, TypeRef{}, /*stmt=*/true);
 }
 
 // ---------------------------------------------------------------------------
 // let-else
 // ---------------------------------------------------------------------------
 //
-// Codegen for:   let Pat = expr else { block (must diverge) };
+//   let P = e else { diverges };
 //
-// Structure:
-//   %scrut_ptr = alloca (enum type)
-//   store %scrut_val, %scrut_ptr
-//   %disc = load discriminant from %scrut_ptr
-//   %cond = icmp eq %disc, expected_disc
-//   condbr %cond, bb_match, bb_else
-// bb_else:
-//   <else block — must terminate with ret/unreachable>
-// bb_match:
-//   <extract bindings into scope_>
-//   <fall through to continuation>
-//
-// For PatWild (named wildcard): just bind the scrutinee value directly.
-// For PatVariant (unit variant): test discriminant, no bindings.
-// For PatVariantData: test discriminant + extract payload bindings.
-
+// The match door's one arm whose bindings stay in the ENCLOSING scope: the
+// scrutinee's place (match_scrut_place), `pat_test`, the else block on a miss
+// (it must diverge), `pat_bind`, then the refutable-inner guards (G161-3,
+// `SLetElse.guards`) — a failed guard is a miss too.
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
-    namespace pc = lir_schema::pat;
     if (!v.scrut() || !v.else_block()) return;
-    TypeRef scrut_ty = v.scrut().type(pool_impl());
-    auto pat_ref = v.pat();
-    auto pat_kind = pat_ref ? pat_ref.kind() : pc::Code(-1);
-    auto* region = builder_.getBlock()->getParent();
+    auto pat = v.pat();
     struct ShadowLetElseReg {  // every exit: the pattern's bindings are in scope_ by then
         MLIRGenImpl* g; lir_view::PatRef p;
         ~ShadowLetElseReg() { g->shadow_register_pattern(p); }
-    } shadow_let_else_reg{this, v.pat()};
-
-    // G144-3a: or-pattern in let-else (`let A(x) | B(x) = v else …`). Collect
-    // each alt's discriminant for an OR'd tag test, and extract bindings using
-    // the FIRST alt's payload layout — all alts bind the same names+types at the
-    // same payload offset (sema enforces it), mirroring the match or-pattern
-    // path. Rebind pat_ref/pat_kind to the first alt for the extraction below.
-    std::vector<int32_t> or_discs;
-    if (pat_kind == pc::Code::Or) {
-        lir_view::PatRef first_alt;
-        lir_view::PatOrView{pat_ref}.each_alt([&](lir_view::PatRef a) {
-            if (!first_alt) first_alt = a;
-            if (a.kind() == pc::Code::Variant)
-                or_discs.push_back((int32_t)lir_view::PatVariantView{a}.disc());
-            else if (a.kind() == pc::Code::VariantData)
-                or_discs.push_back((int32_t)lir_view::PatVariantDataView{a}.disc());
-        });
-        if (first_alt) { pat_ref = first_alt; pat_kind = first_alt.kind(); }
-    }
-
-    // ── Evaluate scrutinee ────────────────────────────────────────────────
-    auto scrut_val = gen_expr(v.scrut());
-    if (!scrut_val) return;
-
-    // ── Handle PatWild: always matches, just bind name ────────────────────
-    if (pat_kind == pc::Code::Wild) {
-        std::string name(lir_view::PatWildView{pat_ref}.name());
-        if (!name.empty() && name != "_") {
-            auto alloca = create_entry_alloca(scrut_val.getType());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
-            evict_var_shapes(name);
-            scope_[name]          = alloca;
-            let_vars_.insert(name);
-            var_elem_types_[name] = scrut_val.getType();
-        }
-        // Else block is unreachable because pattern always matches.
-        // Still need to lower the else block in a dead block so stmts compile.
-        auto* dead = new mlir::Block();
-        region->push_back(dead);
-        {
-            mlir::OpBuilder::InsertionGuard ig(builder_);
-            builder_.setInsertionPointToStart(dead);
-            gen_block(v.else_block());
-            if (!is_terminated(builder_.getBlock()))
-                builder_.create<mlir::LLVM::UnreachableOp>(loc_);
-        }
-        return;
-    }
-
-    // ── A STRUCTURAL pattern (tuple / struct / array / `@` / `&`) — the
-    // irrefutable `let PAT = e` sema routes here, and a let-else over such a
-    // shape: the general matcher tests it on the place (refutable subs
-    // included) and binds every nested name; the refutable-inner guards run
-    // after the bindings, as below.
-    if (pat_kind == pc::Code::Tuple || pat_kind == pc::Code::Struct || pat_kind == pc::Code::Slice ||
-        pat_kind == pc::Code::At || pat_kind == pc::Code::RefPat || pat_kind == pc::Code::Str) {
-        mlir::Value place = scrut_val;
-        // Default binding mode at the top (RFC 2005): a tuple / struct / array
-        // pattern over `&Agg` (`&&Agg`, …) matches the AGGREGATE — the reference
-        // value is its address (one load per further layer). Test and bind then
-        // see the place's real type; sema carried the by-reference mode on the
-        // binders. Handing them the reference type broke the tester's slot
-        // convention (it loaded the first element as a pointer: SIGSEGV on
-        // `let (x, 3) = r else …` with `r: &(i64, i64)`). `n @ sub` and `&P`
-        // are binding / reference patterns: no implicit deref at them.
-        if (pat_kind != pc::Code::At && pat_kind != pc::Code::RefPat) {
-            while (scrut_ty && (TypeRef(scrut_ty).kind() == LogosType::Kind::Ref ||
-                                TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef) &&
-                   TypeRef(scrut_ty).pointee()) {
-                TypeRef pt = TypeRef(scrut_ty).pointee();
-                if (pt.kind() == LogosType::Kind::Ref || pt.kind() == LogosType::Kind::MutRef)
-                    place = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), place);
-                scrut_ty = pt;
-            }
-        }
-        // An `&P` pattern reads the reference out of a SLOT (pat_test / pat_bind
-        // RefPat load it), so the reference value is spilled into one; the
-        // other shapes take an aggregate's address, which a by-value tuple /
-        // struct / array value already is.
-        if (place.getType() != ptr_type() || pat_kind == pc::Code::RefPat) {
-            auto a = create_entry_alloca(place.getType());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, place, a);
-            place = a;
-        } else if (pat_kind == pc::Code::At) {
-            // `n @ sub` over `&T`: the reference value is the T's address — the
-            // place is at T (n, typed `&T`, then binds a reference to it).
-            scrut_ty = door_place_type(scrut_ty);
-        }
-        auto* bind_blk = new mlir::Block();
-        auto* else_blk = new mlir::Block();
-        auto* cont_blk = new mlir::Block();
-        region->push_back(bind_blk);
-        region->push_back(else_blk);
-        region->push_back(cont_blk);
-        auto cond = pat_test(pat_ref, place, scrut_ty);
-        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, bind_blk, else_blk);
-        {
-            mlir::OpBuilder::InsertionGuard ig(builder_);
-            builder_.setInsertionPointToStart(else_blk);
-            gen_block(v.else_block());
-            if (!is_terminated(builder_.getBlock()))
-                builder_.create<mlir::LLVM::UnreachableOp>(loc_);
-        }
-        builder_.setInsertionPointToStart(bind_blk);
-        pat_bind(pat_ref, place, scrut_ty);
-        mlir::Value guard_cond;
-        v.each_guard([&](lir_view::ExprRef g) {
-            if (!g) return;
-            auto gv = gen_expr(g);
-            if (!gv) return;
-            if (gv.getType() != builder_.getI1Type()) gv = coerce_int(gv, builder_.getI1Type());
-            guard_cond = guard_cond ? builder_.create<mlir::arith::AndIOp>(loc_, guard_cond, gv).getResult() : gv;
-        });
-        if (guard_cond) builder_.create<mlir::cf::CondBranchOp>(loc_, guard_cond, cont_blk, else_blk);
-        else            builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
-        builder_.setInsertionPointToStart(cont_blk);
-        return;
-    }
-
-    // ── Enum patterns: need discriminant test ─────────────────────────────
-    const TaggedEnumInfo* te_info = nullptr;
-    mlir::Value scrut_ptr;
-    mlir::Value disc_val;
-    int32_t expected_disc = 0;
-
-    // Auto-deref `&Enum` / `&mut Enum` / `*Enum` (match ergonomics + nested
-    // by-ref synths) so `let Some(v) = &opt else …` works like the match path.
-    // Enum value-repr: a `&Enum` is a one-level pointer to the inline storage
-    // (like `&Struct`), so no extra deref is needed.
-    TypeRef sct(scrut_ty);
-    TypeRef enum_ct = sct;
-    bool sle_via_ref = false;
-    if (sct && (sct.kind() == LogosType::Kind::Ref ||
-                sct.kind() == LogosType::Kind::MutRef ||
-                sct.kind() == LogosType::Kind::Ptr) &&
-        sct.pointee() && TypeRef(sct.pointee()).kind() == LogosType::Kind::Enum) {
-        enum_ct = sct.pointee();
-        sle_via_ref = true;
-    }
-    if (enum_ct && enum_ct.kind() == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(std::string(enum_ct.enum_name()), enum_ct);
-        if (te_info) {
-            if (sle_via_ref) {
-                // Enum value-repr: scrut_val (the `&Enum`) IS the inline storage
-                // address (one level) — use it directly, no extra load.
-                scrut_ptr = scrut_val;
-            } else if (scrut_val.getType() != ptr_type()) {
-                // Spill a by-value enum to an alloca.
-                auto alloca = create_entry_alloca(te_info->llvm_type);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
-                scrut_ptr = alloca;
-            } else {
-                scrut_ptr = scrut_val;
-            }
-            // Load discriminant (Phase 3.5 chokepoint).
-            disc_val = enum_load_disc(scrut_ptr, *te_info);
-        }
-        // A C-like (all-nullary) enum has no TaggedEnumInfo and is passed as a
-        // bare i32 — the value IS the discriminant. Without this, disc_val
-        // stayed null and the let-else matched UNCONDITIONALLY (the else block
-        // became dead — a silent wrong result, even for a single pattern).
-        // Mirrors the match path, which uses the i32 scrutinee directly.
-        if (!disc_val && scrut_val &&
-            mlir::isa<mlir::IntegerType>(scrut_val.getType()))
-            disc_val = coerce_int(scrut_val, builder_.getI32Type());
-    }
-
-    // Determine expected discriminant
-    if (pat_kind == pc::Code::Variant) {
-        expected_disc = static_cast<int32_t>(lir_view::PatVariantView{pat_ref}.disc());
-    } else if (pat_kind == pc::Code::VariantData) {
-        expected_disc = static_cast<int32_t>(lir_view::PatVariantDataView{pat_ref}.disc());
-    }
-
-    // ── Build blocks ──────────────────────────────────────────────────────
-    auto* else_block  = new mlir::Block();
-    auto* match_block = new mlir::Block();
-    auto* cont_block  = new mlir::Block();
-    region->push_back(else_block);
-    region->push_back(match_block);
-    region->push_back(cont_block);
-
-    if (disc_val) {
-        // Conditional branch on discriminant match. For an or-pattern, the
-        // condition is the OR of each alt's discriminant test.
-        mlir::Value cond;
-        if (!or_discs.empty()) {
-            for (int32_t d : or_discs) {
-                auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, d, 32);
-                auto eq = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::eq, disc_val, dc);
-                cond = cond ? builder_.create<mlir::arith::OrIOp>(loc_, cond, eq).getResult()
-                            : eq.getResult();
-            }
-        } else {
-            auto expected = builder_.create<mlir::arith::ConstantIntOp>(
-                loc_, expected_disc, 32);
-            cond = builder_.create<mlir::arith::CmpIOp>(
-                loc_, mlir::arith::CmpIPredicate::eq, disc_val, expected);
-        }
-        // Payload sub-patterns (ADR 0030 S3): tested once the disc matched.
-        if (or_discs.empty() && pat_kind == pc::Code::VariantData && te_info && scrut_ptr &&
-            !lir_view::PatVariantDataView{pat_ref}.subs().empty()) {
-            auto* sub_blk = new mlir::Block();
-            region->push_back(sub_blk);
-            builder_.create<mlir::cf::CondBranchOp>(loc_, cond, sub_blk, else_block);
-            builder_.setInsertionPointToStart(sub_blk);
-            cond = variant_subs_test(lir_view::PatVariantDataView{pat_ref}, scrut_ptr, te_info);
-            if (!cond) cond = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
-        }
-        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, match_block, else_block);
-    } else {
-        // Non-enum scrutinee. A LITERAL / range pattern is REFUTABLE — test the
-        // value and branch to else on mismatch (G154-5: previously this always
-        // fell into match_block, so the else was dead and a non-matching literal
-        // like `let 4 = x else {…}` was silently accepted). Irrefutable
-        // non-enum patterns (tuple / plain binding) keep the unconditional jump.
-        mlir::Value lit_cond;
-        // The SAME scalar core the match doors ask for: `let 4i64 = &v else {…}`
-        // hands this site a `&i64`, whose mlir type is a pointer — the test
-        // below then produced NO condition at all and the else branch became
-        // dead, so every value matched. PROBES.md 2026-09-06f.
-        mlir::Value sc_val = scrut_val;
-        TypeRef     sc_ty  = scrut_ty;
-        if (pat_kind == pc::Code::Int || pat_kind == pc::Code::Bool ||
-            pat_kind == pc::Code::Range) {
-            mlir::Value cv2; TypeRef ct2;
-            if (scalar_core_scrut(scrut_val, scrut_ty, cv2, ct2)) { sc_val = cv2; sc_ty = ct2; }
-        }
-        if (mlir::isa<mlir::IntegerType>(sc_val.getType())) {
-            auto styp = sc_val.getType();
-            auto alt_test = [&](lir_view::PatRef a) -> mlir::Value {
-                auto k = a.kind();
-                if (k == pc::Code::Int) {
-                    auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
-                        loc_, lir_view::PatIntView{a}.value(), 64), styp);
-                    return builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
-                }
-                if (k == pc::Code::Bool) {
-                    auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
-                        loc_, lir_view::PatBoolView{a}.value() ? 1 : 0, 64), styp);
-                    return builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, sc_val, cv);
-                }
-                if (k == pc::Code::Range) {
-                    lir_view::PatRangeView pr{a};
-                    return emit_range_test(sc_val, sc_ty, pr.lo(), pr.hi());
-                }
-                return {};
-            };
-            // An OR-pattern of scalar literals (`let (3 | 7) = v else`) matches
-            // when ANY alternative does; `pat_ref` above is only its first alt.
-            if (v.pat() && v.pat().kind() == pc::Code::Or) {
-                bool all = true;
-                lir_view::PatOrView{v.pat()}.each_alt([&](lir_view::PatRef a) {
-                    if (!all) return;
-                    mlir::Value t = alt_test(a);
-                    if (!t) { all = false; return; }
-                    lit_cond = lit_cond ? builder_.create<mlir::arith::OrIOp>(loc_, lit_cond, t).getResult() : t;
-                });
-                if (!all) lit_cond = {};
-            } else {
-                lit_cond = alt_test(pat_ref);
-            }
-        }
-        if (lit_cond)
-            builder_.create<mlir::cf::CondBranchOp>(loc_, lit_cond, match_block, else_block);
-        else
-            builder_.create<mlir::cf::BranchOp>(loc_, match_block);
-    }
-
-    // ── else_block: diverging else body ──────────────────────────────────
+    } shadow_let_else_reg{this, pat};
+    TypeRef scrut_ty = v.scrut().type(pool_impl());
+    auto scrut = gen_expr(v.scrut());
+    if (!scrut || is_terminated(builder_.getBlock())) return;
+    mlir::Value slot = match_scrut_place(v.scrut(), scrut, scrut_ty);
+    auto* region = builder_.getBlock()->getParent();
+    auto* bind_blk = new mlir::Block();
+    auto* else_blk = new mlir::Block();
+    auto* cont_blk = new mlir::Block();
+    region->push_back(bind_blk);
+    region->push_back(else_blk);
+    region->push_back(cont_blk);
+    if (lir_view::is_irrefutable_pattern(pat))
+        builder_.create<mlir::cf::BranchOp>(loc_, bind_blk);
+    else
+        builder_.create<mlir::cf::CondBranchOp>(loc_, pat_test(pat, slot, scrut_ty), bind_blk, else_blk);
     {
         mlir::OpBuilder::InsertionGuard ig(builder_);
-        builder_.setInsertionPointToStart(else_block);
+        builder_.setInsertionPointToStart(else_blk);
         gen_block(v.else_block());
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::LLVM::UnreachableOp>(loc_);
     }
-
-    // ── match_block: extract bindings, jump to continuation ──────────────
-    {
-        mlir::OpBuilder::InsertionGuard ig(builder_);
-        builder_.setInsertionPointToStart(match_block);
-
-        if (pat_kind == pc::Code::Tuple) {
-            // Tuple pattern in let-else: always irrefutable, extract fields.
-            auto ttype = tuple_llvm_type(scrut_ty);
-            if (ttype) {
-                lir_view::PatTupleView tv{pat_ref};
-                std::vector<std::string> bindings;
-                tv.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
-                std::vector<TypeRef> btypes;
-                tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
-                for (size_t bi = 0; bi < bindings.size() && bi < btypes.size(); ++bi) {
-                    if (bindings[bi] == "_") continue;
-                    auto elem_mlir = logos_to_mlir(btypes[bi]);
-                    if (!elem_mlir) continue;
-                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
-                    auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, scrut_val, fi);
-                    auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
-                    auto alloca = create_entry_alloca(elem_mlir);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                    evict_var_shapes(bindings[bi]);
-                    scope_[bindings[bi]]          = alloca;
-                    let_vars_.insert(bindings[bi]);
-                    var_elem_types_[bindings[bi]] = elem_mlir;
-                }
-            }
-        } else if (pat_kind == pc::Code::VariantData) {
-            if (te_info && scrut_ptr) {
-                // Canonical payload binder (see bind_enum_payload). The old
-                // inline copy here lacked thin-&Struct, trait-object, the
-                // droppable-struct copy, AND peer-set eviction (a stale
-                // var_struct_ shape survived a scalar re-bind).
-                lir_view::PatVariantDataView pvd{pat_ref};
-                std::vector<std::string> added;
-                bind_enum_payload(scrut_ptr, te_info, pvd, added, nullptr);
-            }
-        }
-        // PatVariant (no payload) — discriminant test was enough, no bindings
-
-        // G161-3: refutable-inner guards (`__refut_N == value` for
-        // `let Some(1) = … else`). The payload bindings (incl. the synth
-        // `__refut_N`) are now in scope_; evaluate each guard and branch to the
-        // else block if any fails — otherwise the inner literal/sub-pattern test
-        // would be silently dropped (only the variant disc was checked).
-        mlir::Value guard_cond;
-        v.each_guard([&](lir_view::ExprRef g){
-            if (!g) return;
-            auto gv = gen_expr(g);
-            if (!gv) return;
-            if (gv.getType() != builder_.getI1Type())
-                gv = coerce_int(gv, builder_.getI1Type());
-            guard_cond = guard_cond
-                ? builder_.create<mlir::arith::AndIOp>(loc_, guard_cond, gv).getResult()
-                : gv;
-        });
-        if (guard_cond)
-            builder_.create<mlir::cf::CondBranchOp>(loc_, guard_cond, cont_block, else_block);
-        else
-            builder_.create<mlir::cf::BranchOp>(loc_, cont_block);
-    }
-
-    // Continue in cont_block (bindings from match_block are now in scope_)
-    builder_.setInsertionPointToStart(cont_block);
+    builder_.setInsertionPointToStart(bind_blk);
+    pat_bind(pat, slot, scrut_ty);
+    mlir::Value guard_cond;
+    v.each_guard([&](lir_view::ExprRef g) {
+        if (!g) return;
+        auto gv = gen_expr(g);
+        if (!gv) return;
+        if (gv.getType() != builder_.getI1Type()) gv = coerce_int(gv, builder_.getI1Type());
+        guard_cond = guard_cond ? builder_.create<mlir::arith::AndIOp>(loc_, guard_cond, gv).getResult() : gv;
+    });
+    if (guard_cond) builder_.create<mlir::cf::CondBranchOp>(loc_, guard_cond, cont_blk, else_blk);
+    else            builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+    builder_.setInsertionPointToStart(cont_blk);
 }
 
 } // namespace logos::compiler

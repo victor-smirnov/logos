@@ -482,12 +482,30 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   still reaches the synthesized route is an or-pattern of binding
   alternatives in a multi-argument payload — refused today ("undefined
   variable"), rustc accepts.
-Next: S3.4 — ONE match door: the statement match as the void expression match
-(one `lower_match_core` in sema, the expression door in mlir), let-else as a
-one-arm match. Then S3.3b — or-patterns of binding alternatives in the tester
-(guarded arms retry the next alternative, alternative-dependent moves), which
-retires the fan-out, the synthesized route, the guard channel and the K4
-prologue.
+- S3.4a (2026-09-28): ONE mlir match door (`gen_match_door`). The statement
+  match, the expression match and let-else evaluate the scrutinee once into
+  its PLACE (`match_scrut_place`: a by-pointer value is its storage; a place
+  expression of any other type is addressed; a thin reference or fn pointer
+  is spilled) and run `pat_test` / `pat_bind` per arm — the per-kind dispatch
+  of the three doors (value vs slot, scalar core, enum-disc fast path,
+  first-alternative or-binder, `ref` / `@` / `&` special cases) is gone, with
+  the helpers only they used (`bind_match_ref_binder`, `scalar_core_scrut`,
+  `ref_pat_core_scrut`, `door_place_type`, `bind_whole_scrutinee_at`).
+  Budget ≤ −1800 net; landed −2361 (+237). Defects the three doors had, now
+  fixture `match_one_door`: let-else tested an or-pattern's first alternative
+  only (and bound variant alternatives from its payload layout — garbage),
+  peeled one `&` of `&&Option`; the expression door tested `n @ Some(1)` by
+  the discriminant alone; `ref mut r` over a scalar local bound a copy; a
+  whole binder over a fn pointer loaded from the function's address
+  (SIGSEGV). The door emits no dead-code special cases, so the metaprog and
+  metacall JIT pipelines met unreachable blocks the object pipeline swept:
+  the three MLIR → LLVM-dialect lowerings are one (`lower_mlir_to_llvm_dialect`).
+Next: S3.4b — ONE `lower_match_core` in sema: the statement match as the
+expression match (arm types unify, a block arm ending in a statement is `()`,
+as rustc), a tail match as `return <match>`, let-else on the core's arm phase.
+Then S3.3b — or-patterns of binding alternatives in the tester (guarded arms
+retry the next alternative, alternative-dependent moves), which retires the
+fan-out, the synthesized route, the guard channel and the K4 prologue.
 
 ## L0 status (2026-09-27)
 

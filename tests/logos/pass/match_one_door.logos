@@ -1,0 +1,28 @@
+// ADR 0030 S3.4: the statement match, the expression match and let-else are ONE mlir door — the
+// scrutinee's place, then pat_test / pat_bind per arm. Each line was wrong in one of the three
+// private doors: let-else tested an or-pattern's first alternative only (and bound variant
+// alternatives from the first one's payload layout), peeled one `&` of `&&Option`, the expression
+// door tested `n @ Some(1)` by the discriminant alone, `ref mut r` over a scalar local bound a copy,
+// and a whole binder over a fn pointer loaded from the function's address.
+package match_one_door;
+use logos.std.fmt; use logos.lang.option;
+enum E { A(i64, i64), B(i64), C }
+fn g(x: i64) -> i64 { x + 1 }
+fn l1(t: (i64, i64)) -> i64 { let ((0, x) | (x, 0)) = t else { return -1; }; x }
+fn l2(e: E) -> i64 { let (E::A(1, x) | E::B(x)) = e else { return -1; }; x }
+fn l3(o: &&Option<i64>) -> i64 { let Some(v) = o else { return -1; }; *v }
+fn x1(o: Option<i64>) -> i64 { match o { n @ Some(1) => { if let Some(k) = n { k * 10 } else { 0 } } Some(k) => k, None => -1 } }
+fn main() {
+    println!("{} {} {}", l1((0, 5)), l1((6, 0)), l1((1, 1)));
+    println!("{} {} {} {}", l2(E::A(1, 5)), l2(E::A(2, 5)), l2(E::B(7)), l2(E::C));
+    let a = Some(3i64); let b: Option<i64> = None;
+    println!("{} {}", l3(&&a), l3(&&b));
+    println!("{} {} {}", x1(Some(1)), x1(Some(2)), x1(None));
+    let mut x = 5i64;
+    match x { ref mut r => { *r += 1; } }
+    let y = match x { ref mut r => { *r += 10; *r } };
+    println!("{} {}", x, y);
+    let f: fn(i64) -> i64 = g;
+    let w = match f { h => h(4) };
+    match f { h => { println!("{} {}", h(9), w); } }
+}

@@ -248,7 +248,9 @@
 #SCAN main.cpp 4 04f2bc11
 #SCAN mlir_gen_debug.cpp 2 c5f7c386
 #SCAN mlir_gen_dyn.cpp 1 fad58de7
-#SCAN mlir_gen_expr.cpp 3 86ae8aa2
+# 2026-09-28, ADR 0030 S3.4a: 3 -> 2, roster 86ae8aa2 -> 077ff06b — the expression match door is gone
+# (one mlir door, gen_match_door); a wildcard-name test of its private binders left with it.
+#SCAN mlir_gen_expr.cpp 2 077ff06b
 # 2026-09-18, ADR 0028 S4 (#423): borrow_bir.inc enters the roster at 1 and
 # the literal is `_` (b14a7b80, the same roster as mlir_gen_stmt.cpp's), the
 # wildcard token: BirBuilder::bind_to does not create a binding for a pattern
@@ -298,7 +300,9 @@
 # qualify `_` because no package owns it.
 # 2026-09-24: mlir_gen_stmt.cpp 3 -> 4, REGEX ONLY (wildcard test, no entity key): pat_bind's At case skips a
 #   `_` name before binding `ref n @ sub` by reference (`av.name() != "_"`).
-#SCAN mlir_gen_stmt.cpp 4 a8faf251
+# 2026-09-28, ADR 0030 S3.4a: 4 -> 2, roster a8faf251 -> 190f27aa — the statement match door and
+# bind_match_ref_binder / bind_whole_scrutinee_at are gone (one door); two `== "_"` wildcard tests left with them.
+#SCAN mlir_gen_stmt.cpp 2 190f27aa
 # 2026-09-27, ADR 0030 L0 slice 2a: RETIRED — its one bare-name test (UnsafeCell freezability) is a lang identity now.
 #SCAN module_loader.cpp 1 dfda2a6a
 #SCAN mono_clone.cpp 104 410af9da

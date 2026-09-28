@@ -15,6 +15,7 @@
 #include <string>
 
 namespace llvm { class Module; }
+namespace mlir { class ModuleOp; }
 
 namespace logos::compiler {
 
@@ -67,6 +68,14 @@ std::string resolve_target_cpu(const std::string& target_cpu);
 // "generic" (the default x86-64 SSE2 baseline) → false. Feeds mlir_gen's
 // pdep_u64/pext_u64 lowering choice: inline llvm.x86.bmi.* vs rt-fallback call.
 bool target_cpu_has_bmi2(const std::string& target_cpu);
+
+// MLIR (func/arith/scf/cf/llvm) → the LLVM dialect: the ONE lowering every
+// pipeline runs — the object build, the metaprog round and the metacall JIT.
+// Unreachable blocks are erased first: the dialect conversion visits a
+// region's blocks in dominance order, so a block with no predecessors keeps
+// its `cf.br` / `arith.constant` unconverted and LLVM-IR translation refuses
+// it. False on a failed pass.
+bool lower_mlir_to_llvm_dialect(mlir::ModuleOp module);
 
 // The BACKEND's data layout for the resolved target, as an LLVM datalayout
 // string. SINGLE SOURCE for "how many bytes does a value occupy": mlir-gen
