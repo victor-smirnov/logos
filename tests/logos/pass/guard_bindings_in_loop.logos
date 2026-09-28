@@ -1,0 +1,29 @@
+// ADR 0030 S3: a match guard's by-reference bindings are dead on both of the guard's edges before
+// the arm binds by value (BIR). On the false edge they stayed live, so in a loop the next
+// iteration's guard bound them again: a bogus E0384 "cannot assign twice to immutable" refused
+// these legal programs (cluster guard-in-loop-assign-twice).
+package guard_bindings_in_loop;
+use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option; use logos.lang.result;
+enum Tok { Num(i64), Word(String), End }
+fn main() -> i32 {
+    let v = vec![Some(1i64), None, Some(5i64), Some(2i64)];
+    let mut acc = 0i64;
+    for o in v { match o { Some(d) if d > 1 => { acc += d * 10; } Some(d) => { acc += d; } None => { acc += 100; } } }
+    let toks = vec![Tok::Num(3), Tok::Word(String::from("ab")), Tok::Word(String::from("xyz")), Tok::End];
+    let mut i = 0i64;
+    let nt = toks.len() as i64;
+    let mut words = 0i64;
+    while i < nt {
+        match &toks[i as usize] {
+            Tok::Word(w) if w.len() > 2 => { words += 1000; }
+            Tok::Word(w) => { words += w.len() as i64; }
+            Tok::Num(n) if *n > 2 => { words += *n * 100; }
+            _ => {}
+        }
+        i += 1;
+    }
+    let pairs: Vec<Result<(String, i64), i64>> = vec![Ok((String::from("a"), 1i64)), Ok((String::from("bbb"), 0)), Err(0)];
+    let mut s = 0i64;
+    for p in pairs { match p { Ok((w, k)) if k > 0 => { s += w.len() as i64; } Ok((w, _)) => { s += 10 * w.len() as i64; } Err(_) => { s += 7; } } }
+    return (acc + words + s - 1300) as i32;
+}

@@ -3029,6 +3029,12 @@ private:
                 // `match` inside the guard, repeated in the body — moved the
                 // same payload twice.
                 ++in_guard_;
+                // The guard's by-reference bindings live in a scope of their
+                // own, dead on BOTH edges before the arm binds by value: on the
+                // false edge they were still live when the next arm — or, in a
+                // loop, the next iteration's guard — bound them again (E0384
+                // "cannot assign twice to immutable", a legal program).
+                push_scope();
                 bind_pattern(sp, stype, arms[i].pat(), 0);
                 // E0510: the guard may not change what is being matched. MIR
                 // holds a FAKE shared borrow of the scrutinee across the guard;
@@ -3056,9 +3062,23 @@ private:
                     emit(std::move(rd));
                 }
                 --in_guard_;
+                // Only StorageDead: a guard binding borrows, it owns nothing.
+                auto guard_bindings_dead = [&] {
+                    for (auto it = scopes_.back().locals.rbegin(); it != scopes_.back().locals.rend(); ++it) {
+                        bir::Stmt sd(bir::Stmt::K::StorageDead);
+                        sd.local = *it;
+                        emit(std::move(sd));
+                    }
+                };
                 bir::BlockId yes = new_block();
-                branch(std::move(c), {yes, i + 1 < arms.size() ? arm_blocks[i + 1] : nomatch});
+                bir::BlockId no = new_block();
+                branch(std::move(c), {yes, no});
+                cur_ = no;
+                guard_bindings_dead();
+                goto_(i + 1 < arms.size() ? arm_blocks[i + 1] : nomatch);
                 cur_ = yes;
+                guard_bindings_dead();
+                scopes_.pop_back();
             }
             bind_pattern(sp, stype, arms[i].pat(), 0);
             if (dest && arms[i].value()) {
