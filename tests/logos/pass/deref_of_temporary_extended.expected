@@ -1,0 +1,19 @@
+exit: 0
+stdout:
+x 1
+y 2
+z 3
+f 4
+block end
+drop 4
+drop 3
+drop 2
+drop 1
+arg 5
+drop 5
+fmt 6
+drop 7
+s 7-8
+drop 9
+n 9
+end

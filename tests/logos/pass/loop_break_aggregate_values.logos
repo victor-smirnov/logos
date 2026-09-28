@@ -1,0 +1,24 @@
+// `loop { break <value> }` with an aggregate value (a String, a struct, a tuple, an enum, an array, a
+// Vec, a `Box<dyn Trait>`), also through a labeled `break 'o` and a labeled block. The break slot was
+// sized as the 8-byte pointer handle and read through it: SIGSEGV.
+package loop_break_aggregate_values;
+use logos.std.fmt; use logos.mem.string; use logos.mem.collections.vec; use logos.mem.boxed;
+struct V { x: i32, y: i32 }
+enum E { A(String), B(i64) }
+trait Tr { fn t(&self) -> i64; }
+impl Tr for V { fn t(&self) -> i64 { (self.x + self.y) as i64 } }
+fn mk(k: i32) -> V { V { x: k, y: k + 1 } }
+fn main() {
+    let s = loop { break String::from("done"); }; println!("[{}]", s);
+    let n = loop { break mk(10); }; println!("{} {}", n.x, n.y);
+    let t = loop { break (String::from("a"), 7i64); }; println!("{} {}", t.0, t.1);
+    let e = loop { break E::A(String::from("e")); }; match e { E::A(s) => println!("A {}", s), E::B(v) => println!("B {}", v) }
+    let a = loop { break [1i64, 2, 3]; }; println!("{}", a[0] + a[1] + a[2]);
+    let v = loop { break vec![4i64, 5]; }; println!("{}", v.len());
+    let st: &str = loop { break "slice"; }; println!("{}", st);
+    let d: Box<dyn Tr> = loop { break Box::new(mk(20)); }; println!("{}", d.t());
+    let mut i = 0;
+    let found = loop { i += 1; if i == 3 { break mk(i); } }; println!("found {}", found.x);
+    let outer = 'o: loop { loop { break 'o String::from("outer"); } }; println!("{}", outer);
+    let lb = 'b: { if i > 1 { break 'b mk(30); } mk(40) }; println!("lb {}", lb.x);
+}

@@ -1,0 +1,29 @@
+// `a[i] = v` through `IndexMut` (a `Vec`, a user impl, a nested or borrowed container) drops the old
+// element before the write, as `*r = v` through any `&mut` does and as a built-in array write already
+// did. The old value leaked.
+package index_mut_write_drops_old;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.mem.boxed;
+struct N { id: i64 }
+impl Drop for N { fn drop(&mut self) { println!("drop {}", self.id); } }
+struct S { items: Vec<N> }
+impl Index<usize> for S { type Output = N; fn index(&self, i: usize) -> &N { &self.items[i] } }
+impl IndexMut<usize> for S { fn index_mut(&mut self, i: usize) -> &mut N { &mut self.items[i] } }
+struct W { v: Vec<N> }
+struct P { d: N }
+fn vec_local() { let mut v: Vec<N> = Vec::new(); v.push(N { id: 1 }); v[0] = N { id: 2 }; println!("vec end"); }
+fn array_local() { let mut a = [N { id: 10 }, N { id: 11 }]; a[1] = N { id: 12 }; println!("array end"); }
+fn user_index_mut() { let mut s = S { items: Vec::new() }; s.items.push(N { id: 20 }); s[0] = N { id: 21 }; println!("user end"); }
+fn field_vec() { let mut w = W { v: Vec::new() }; w.v.push(N { id: 30 }); w.v[0] = N { id: 31 }; println!("field end"); }
+fn through_ref(v: &mut Vec<N>) { v[0] = N { id: 41 }; println!("ref end"); }
+fn nested() { let mut v: Vec<Vec<N>> = Vec::new(); v.push(Vec::new()); v[0].push(N { id: 50 }); v[0][0] = N { id: 51 }; println!("nested end"); }
+fn boxed() { let mut v: Vec<Box<N>> = Vec::new(); v.push(Box::new(N { id: 60 })); v[0] = Box::new(N { id: 61 }); println!("boxed end"); }
+fn field_of_element() { let mut v: Vec<N> = Vec::new(); v.push(N { id: 70 }); v[0].id = 71; println!("elem field end"); }
+fn slice_elem(s: &mut [N]) { s[1] = N { id: 92 }; println!("slice end"); }
+fn elem_field() { let mut vp: Vec<P> = Vec::new(); vp.push(P { d: N { id: 95 } }); vp[0].d = N { id: 96 }; println!("elem field2 end"); }
+fn in_loop() { let mut v: Vec<N> = Vec::new(); v.push(N { id: 80 }); for k in 0..3 { v[0] = N { id: 81 + k }; } println!("loop end"); }
+fn main() {
+    vec_local(); array_local(); user_index_mut(); field_vec();
+    let mut v: Vec<N> = Vec::new(); v.push(N { id: 40 }); through_ref(&mut v);
+    nested(); boxed(); field_of_element(); in_loop();
+    let mut arr = [N { id: 90 }, N { id: 91 }]; slice_elem(&mut arr); elem_field();
+}

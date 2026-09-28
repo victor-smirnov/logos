@@ -1,0 +1,29 @@
+// An associated-function call deferred to mono inside a generic body (`Box::new(x)`, `W::mk(x)`,
+// `T::build(d)`) moves its by-value arguments, as the concrete call does: `let b = Box::new(x);`
+// dropped `x` again at scope end, and `Rc::new(*b)` ran Box::drop on the box it moved out of.
+package generic_static_calls_move_args;
+use logos.std.fmt; use logos.lang.rc; use logos.mem.boxed;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+struct W<T> { t: T }
+impl<T> W<T> { fn mk(t: T) -> W<T> { W { t: t } } }
+trait Mk { fn build(d: D) -> Self; fn id(&self) -> i64; }
+struct K { d: D }
+impl Mk for K { fn build(d: D) -> K { K { d: d } } fn id(&self) -> i64 { self.d.n } }
+fn wrap<T>(t: T) -> W<T> { W { t: t } }
+fn g1<T>(b: Box<T>) -> Rc<T> { Rc::new(*b) }
+fn g2<T>(b: Box<T>) -> W<T> { W::mk(*b) }
+fn g3<T>(b: Box<T>) -> W<T> { wrap(*b) }
+fn g4<T>(x: T) -> Box<T> { let b = Box::new(x); b }
+fn g5<T>(x: T) -> W<T> { let w = W::mk(x); w }
+fn g6<T: Mk>(d: D) -> T { let t = T::build(d); t }
+fn g7<T: Mk>(d: D) -> T { let t = <T as Mk>::build(d); t }
+fn main() {
+    let a = g1(Box::new(D { n: 1 })); println!("g1 {}", a.n);
+    let b = g2(Box::new(D { n: 2 })); println!("g2 {}", b.t.n);
+    let c = g3(Box::new(D { n: 3 })); println!("g3 {}", c.t.n);
+    let d = g4(D { n: 4 }); println!("g4 {}", d.n);
+    let e = g5(D { n: 5 }); println!("g5 {}", e.t.n);
+    let f: K = g6(D { n: 6 }); println!("g6 {}", f.id());
+    let g: K = g7(D { n: 7 }); println!("g7 {}", g.id());
+}

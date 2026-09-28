@@ -1,0 +1,17 @@
+// A `let mut` reference to a `Box<dyn Trait>` is RE-SEATED by `r = &other`. It was an alias of the
+// referent's {data, vtable} pair, so the assignment copied the new referent's pair over the old one:
+// both boxes then owned one allocation, which was freed twice.
+package ref_to_fat_reseat;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.mem.boxed;
+trait Metric { fn v(&self) -> i64; }
+struct M { x: i64 }
+impl Metric for M { fn v(&self) -> i64 { self.x } }
+impl Drop for M { fn drop(&mut self) { println!("drop {}", self.x); } }
+fn locals() { let a: Box<dyn Metric> = Box::new(M { x: 1 }); let c: Box<dyn Metric> = Box::new(M { x: 2 }); let mut r = &a; println!("r {}", r.v()); r = &c; println!("locals {} {} {}", r.v(), a.v(), c.v()); }
+fn elements() { let v: Vec<Box<dyn Metric>> = vec![Box::new(M { x: 3 }), Box::new(M { x: 4 })]; let mut r = &v[0]; println!("r0 {}", r.v()); r = &v[1]; println!("elements {} {} {}", r.v(), v[0].v(), v[1].v()); }
+fn best() { let v: Vec<Box<dyn Metric>> = vec![Box::new(M { x: 8 }), Box::new(M { x: 9 }), Box::new(M { x: 5 })]; let mut r: &Box<dyn Metric> = &v[0]; for i in 0..3 { if v[i].v() > r.v() { r = &v[i]; } } println!("best {} {}", r.v(), v[0].v()); }
+fn thin() { let a = Box::new(M { x: 20 }); let c = Box::new(M { x: 21 }); let mut r = &a; println!("t0 {}", r.x); r = &c; println!("thin {} {} {}", r.x, a.x, c.x); }
+fn main() {
+    locals(); elements(); best();
+    thin();
+}

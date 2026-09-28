@@ -3573,6 +3573,22 @@ bool SemaChecker::is_move_type(TypeRef t) const {
         // T resolves to a move-type, the suppression avoids double-free across
         // slots that bitwise-share the value (Vec.push/remove, `let v: T = *ptr`).
         // Cross-arm move pollution is handled by lower_match/lower_if save/restore.
+        // A projection over a type parameter (`M::Out`) is as opaque as the
+        // parameter: move unless an equality bound names the type or a Copy
+        // bound (`type Out: Copy`, `where M::Out: Copy`) says otherwise. It was
+        // a Copy-like leaf, so `let a = p.a;` never moved `p.a` (dropped twice)
+        // and no local of the type was dropped at all.
+        if (is_generic_projection(x)) {
+            if (TypeRef n = normalize_assoc_eq(x); n != x) return is_move_type(n);
+            // KEY-IDENTITY: the projection's own type spelling in the signature
+            // being checked, the key resolve_type_assoc_ref stores its bounds
+            // under — the type-parameter namespace of current_type_bounds_.
+            if (auto it = current_type_bounds_.find(type_str(x)); it != current_type_bounds_.end())
+                for (auto& b : it->second)
+                    if (bound_is_copy_lang_item(b.trait_name, b.canonical_trait))
+                        return std::optional<bool>(false);
+            return std::optional<bool>(true);
+        }
         if (TypeRef(x).kind() == LogosType::Kind::TypeVar) {
             // §B1: a `T: Copy` bound makes T provably Copy (Copy and Drop are
             // mutually exclusive), so `x: T` used by-value is NOT moved. Only an
@@ -3630,6 +3646,12 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     // Drop impl is unknown at sema; emit a deferred drop stmt with a sentinel
     // drop_fn that mono's SDrop case rewrites (or removes) after substitution.
     if (TypeRef(t).kind() == LogosType::Kind::TypeVar) return "__typevar_pending__drop";
+    // A projection over a type parameter: the same deferred drop — mono
+    // substitutes the concrete type and resolves (or removes) it.
+    if (is_generic_projection(t)) {
+        if (TypeRef n = normalize_assoc_eq(t); n != t) return drop_fn_for(n);
+        return "__typevar_pending__drop";
+    }
     std::string type_name;
     if (TypeRef(t).kind() == LogosType::Kind::Struct) type_name = std::string(TypeRef(t).struct_name());
     // Enums can carry a user `Drop` impl too (`impl Drop for E`). Keyed by the

@@ -1,0 +1,27 @@
+// A temporary under a dereference in an extending borrow lives to the end of the block
+// (r[destructors.scope.lifetime-extension.exprs]): `let x = &*rc(1);`, `&**bb(3)`, `&(*bh(4)).d`, and
+// the `&*<temp>` a format macro binds for `println!("{}", *rc(5))`. They were refused ("temporary
+// value dropped while borrowed"); a non-extending one still drops at the end of its statement.
+package deref_of_temporary_extended;
+use logos.std.fmt; use logos.lang.rc; use logos.mem.boxed; use logos.mem.string;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+struct H { d: D }
+fn rc(n: i64) -> Rc<D> { Rc::new(D { n: n }) }
+fn bx(n: i64) -> Box<D> { Box::new(D { n: n }) }
+fn bh(n: i64) -> Box<H> { Box::new(H { d: D { n: n } }) }
+fn bb(n: i64) -> Box<Box<D>> { Box::new(Box::new(D { n: n })) }
+fn main() {
+    {
+        let x = &*rc(1); println!("x {}", x.n);
+        let y = &(*bx(2)); println!("y {}", y.n);
+        let z = &**bb(3); println!("z {}", z.n);
+        let f = &(*bh(4)).d; println!("f {}", f.n);
+        println!("block end");
+    }
+    println!("arg {}", (*rc(5)).n);
+    println!("fmt {}", *Rc::new(6i64));
+    let s = format!("{}-{}", (*bx(7)).n, *Box::new(8i64)); println!("s {}", s);
+    let n = (*rc(9)).n; println!("n {}", n);
+    println!("end");
+}

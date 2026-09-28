@@ -4342,74 +4342,91 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // `&*ptr` — preserve the `AddrOfTemp(Deref(operand))` shape so borrow-
         // check can see the reborrow; mlir-gen peepholes it back at codegen.
         if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
-            auto operand = lower_expr(map_of(child.get(la::VALUE.code)));
-            auto op_t = expr_type(operand);
-            const bool operand_unsized =
-                code_of(unwrap_paren_node(map_of(child.get(la::VALUE.code)))) == la::DEREF &&
-                deref_yielded_unsized_;
-            deref_yielded_unsized_ = false;
-            if (operand_unsized && (TypeRef(op_t).kind() == LogosType::Kind::TraitObject ||
-                                    TypeRef(op_t).kind() == LogosType::Kind::Slice)) {
-                error(std::format("type `{}` cannot be dereferenced (E0614)", unsized_place_name_(op_t)));
-                return error_expr();
-            }
-            // `&*b` where `b: Box<dyn Trait>` — THE legal spelling (owner ruling
-            // 2026-09-15), and it was BROKEN in every shape: an owning trait
-            // object is not Ptr/Ref/MutRef and has no user `Deref` impl, so the
-            // operand fell through to `addr_of_temp` and was typed `&&dyn Trait`
-            // — mlir-gen then died with "no vtable for '&dyn Sp' as '&dyn Sp'".
-            // The owning fat pair IS the pointee's {data,vtable}; borrowing the
-            // pointee is that same value re-typed non-owning.
-            //
-            // ⚠ ONE `*` ONLY, AND THE GUARD IS SYNTACTIC BY NECESSITY. `&**b` is
-            // E0614 in rustc (`dyn Sp` cannot be dereferenced) and was a refusal
-            // here too; without this guard the arm below ADMITTED it (MEASURED
-            // 2026-09-15h, counter-example ce12: base rc 1 -> armed rc 0), which
-            // is a regression in the illegal direction bought by a legal-program
-            // repair. It cannot be guarded on the TYPE: Logos represents both
-            // `&dyn Tr` and `dyn Tr` as Kind::TraitObject/Borrow, so `&**b` is
-            // type-indistinguishable from the LEGAL reborrow `&*r` where
-            // `r: &dyn Tr`. Skipping the arm leaves `&**b` at exactly its base
-            // behaviour (mlir-gen internal error — right verdict, wrong sentence,
-            // queue row wrapper_unsize_missing_impl_backend_diag's class).
-            // ⚠ SUPERSEDED 2026-09-25: the unsized-place signal
-            // (deref_yielded_unsized_, above) now tells `&**b` (E0614) from the
-            // legal `&*r` / `&**rr`, so the arm keys on it instead of the syntax.
-            // A BORROWED trait object's reborrow `&*r` is `r` itself; it used to
-            // fall to the address-of below and be typed `&&dyn` ("no vtable").
-            if (!operand_unsized &&
-                TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
-                !TypeRef(op_t).owning_trait_object())
-                return operand;
-            if (!operand_unsized &&
-                TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
-                TypeRef(op_t).owning_trait_object()) {
-                auto a = TypeRef(op_t).type_args();
-                builder().retype_expr(operand,
-                    make_trait_object(TypeRef(op_t).trait_name(),
-                                      std::vector<TypeRef>(a.begin(), a.end()),
-                                      TraitOwningKind::Borrow,
-                                      TypeRef(op_t).trait_requires_send(),
-                                      TypeRef(op_t).trait_requires_sync(), {},
-                                      TypeRef(op_t).pkg_name()));
-                return operand;
-            }
-            if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
-                TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
-                TypeRef(op_t).kind() == LogosType::Kind::Ref) {
-                TypeRef pointee_t = TypeRef(op_t).pointee();
-                auto deref = builder().deref(std::move(operand), pointee_t);
-                if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/false))
-                    return builder().addr_of_temp(std::move(deref), false, rdt, BorrowOrigin::Explicit);
-                // LANDED 2026-09-02p (was PROBE stwhole/stfacts F): a reborrow is
-                // not a fresh borrow — `&*p` carries p's region.
-                return builder().addr_of_temp(std::move(deref), false,
-                    make_ref(false, pointee_t, std::string(TypeRef(op_t).lifetime())), BorrowOrigin::Explicit);
-            }
-            // `&*rc` for a struct with a Deref impl: the reborrow IS `rc.deref()`.
-            if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/false))
-                return std::move(*dc);
-            return builder().addr_of_temp(std::move(operand), false, make_ref(false, op_t), BorrowOrigin::Explicit);
+            // An extending `&*<temp>` extends the temporary under the `*`
+            // (r[destructors.scope.lifetime-extension.exprs]): `let x = &*rc(1);`,
+            // and the `&*<arg>` a format macro binds for `println!("{}", *rc(1))`.
+            const bool ext_here = extending_borrow_nodes_.count(node.ptr()) != 0;
+            auto saved_pei = std::move(pending_ext_init_);
+            pending_ext_init_.clear();
+            auto op_node = map_of(child.get(la::VALUE.code));
+            ext_borrow_place_ctx_ = ext_here && is_place_node(op_node);
+            auto operand = lower_expr(op_node);
+            ext_borrow_place_ctx_ = false;
+            if (ext_here && cur_stmt_temp_hoist_ && operand && expr_type(operand) &&
+                is_move_type(expr_type(operand)) && is_hoistable_temp_rvalue(operand))
+                operand = hoist_block_temp(std::move(operand), false);
+            auto ext_init = std::move(pending_ext_init_);
+            pending_ext_init_ = std::move(saved_pei);
+            auto reborrow = [&]() -> lir::LExprPtr {
+                auto op_t = expr_type(operand);
+                const bool operand_unsized =
+                    code_of(unwrap_paren_node(map_of(child.get(la::VALUE.code)))) == la::DEREF &&
+                    deref_yielded_unsized_;
+                deref_yielded_unsized_ = false;
+                if (operand_unsized && (TypeRef(op_t).kind() == LogosType::Kind::TraitObject ||
+                                        TypeRef(op_t).kind() == LogosType::Kind::Slice)) {
+                    error(std::format("type `{}` cannot be dereferenced (E0614)", unsized_place_name_(op_t)));
+                    return error_expr();
+                }
+                // `&*b` where `b: Box<dyn Trait>` — THE legal spelling (owner ruling
+                // 2026-09-15), and it was BROKEN in every shape: an owning trait
+                // object is not Ptr/Ref/MutRef and has no user `Deref` impl, so the
+                // operand fell through to `addr_of_temp` and was typed `&&dyn Trait`
+                // — mlir-gen then died with "no vtable for '&dyn Sp' as '&dyn Sp'".
+                // The owning fat pair IS the pointee's {data,vtable}; borrowing the
+                // pointee is that same value re-typed non-owning.
+                //
+                // ⚠ ONE `*` ONLY, AND THE GUARD IS SYNTACTIC BY NECESSITY. `&**b` is
+                // E0614 in rustc (`dyn Sp` cannot be dereferenced) and was a refusal
+                // here too; without this guard the arm below ADMITTED it (MEASURED
+                // 2026-09-15h, counter-example ce12: base rc 1 -> armed rc 0), which
+                // is a regression in the illegal direction bought by a legal-program
+                // repair. It cannot be guarded on the TYPE: Logos represents both
+                // `&dyn Tr` and `dyn Tr` as Kind::TraitObject/Borrow, so `&**b` is
+                // type-indistinguishable from the LEGAL reborrow `&*r` where
+                // `r: &dyn Tr`. Skipping the arm leaves `&**b` at exactly its base
+                // behaviour (mlir-gen internal error — right verdict, wrong sentence,
+                // queue row wrapper_unsize_missing_impl_backend_diag's class).
+                // ⚠ SUPERSEDED 2026-09-25: the unsized-place signal
+                // (deref_yielded_unsized_, above) now tells `&**b` (E0614) from the
+                // legal `&*r` / `&**rr`, so the arm keys on it instead of the syntax.
+                // A BORROWED trait object's reborrow `&*r` is `r` itself; it used to
+                // fall to the address-of below and be typed `&&dyn` ("no vtable").
+                if (!operand_unsized &&
+                    TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
+                    !TypeRef(op_t).owning_trait_object())
+                    return operand;
+                if (!operand_unsized &&
+                    TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
+                    TypeRef(op_t).owning_trait_object()) {
+                    auto a = TypeRef(op_t).type_args();
+                    builder().retype_expr(operand,
+                        make_trait_object(TypeRef(op_t).trait_name(),
+                                          std::vector<TypeRef>(a.begin(), a.end()),
+                                          TraitOwningKind::Borrow,
+                                          TypeRef(op_t).trait_requires_send(),
+                                          TypeRef(op_t).trait_requires_sync(), {},
+                                          TypeRef(op_t).pkg_name()));
+                    return operand;
+                }
+                if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
+                    TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
+                    TypeRef(op_t).kind() == LogosType::Kind::Ref) {
+                    TypeRef pointee_t = TypeRef(op_t).pointee();
+                    auto deref = builder().deref(std::move(operand), pointee_t);
+                    if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/false))
+                        return builder().addr_of_temp(std::move(deref), false, rdt, BorrowOrigin::Explicit);
+                    // LANDED 2026-09-02p (was PROBE stwhole/stfacts F): a reborrow is
+                    // not a fresh borrow — `&*p` carries p's region.
+                    return builder().addr_of_temp(std::move(deref), false,
+                        make_ref(false, pointee_t, std::string(TypeRef(op_t).lifetime())), BorrowOrigin::Explicit);
+                }
+                // `&*rc` for a struct with a Deref impl: the reborrow IS `rc.deref()`.
+                if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/false))
+                    return std::move(*dc);
+                return builder().addr_of_temp(std::move(operand), false, make_ref(false, op_t), BorrowOrigin::Explicit);
+            }();
+            return wrap_ext_init_(std::move(ext_init), std::move(reborrow));
         }
         // &f[i] over a user Index struct → index() place ref (no deref/temp).
         if (code_of(child) == la::INDEX_READ) {
@@ -4573,9 +4590,19 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     // THIS deref, not to whatever the operand contains.
     bool mut_ctx = mut_place_ctx_;
     auto operand_node = map_of(node.get(la::VALUE.code));
+    // An extending borrow's place chain extends the operand of a dereference
+    // too (r[destructors.scope.lifetime-extension.exprs]): `let x = &*mk();`
+    // keeps `mk()` to the end of the block, like the base of `&mk().f`. It
+    // died at the end of the `let` (refused: temporary dropped while borrowed).
+    const bool ext_here = ext_borrow_place_ctx_;
+    ext_borrow_place_ctx_ = ext_here && is_place_node(operand_node);
     // The position carries down to a base that is itself a place (`**bb`).
     auto operand = mut_ctx ? lower_mut_place(operand_node) : lower_expr(operand_node);
+    ext_borrow_place_ctx_ = false;
     mut_place_ctx_ = false;
+    if (ext_here && cur_stmt_temp_hoist_ && operand && expr_type(operand) &&
+        is_move_type(expr_type(operand)) && is_hoistable_temp_rvalue(operand))
+        operand = hoist_block_temp(std::move(operand), mut_ctx);
     // The operand is itself `*x` over a `&dyn` / `Box<dyn>` / `&[T]`: it is the
     // UNSIZED place, which has no `*` (E0614). The type cannot say so — `dyn Tr`
     // and `&dyn Tr` are one Kind — so the inner deref reports it.
@@ -17788,6 +17815,37 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     return CFLAG_NONE;
 }
 
+// A branch arm under an expected `dyn` type (`let r: &dyn Tr = if c { &a } else
+// { &b }`, `let b: Box<dyn Tr> = match k { .. }`) reaches the merge UNSIZED, by a
+// cast in the arm — as `return` does. The merge slot is one value with no
+// coercion of its own: the consumer unsized the FIRST arm's concrete type, so
+// every arm dispatched through that arm's vtable (`Ci` data, `Sq::area`), and
+// a `match` refused the second arm outright. True when a cast was inserted or
+// the arm already has the expected type.
+bool SemaChecker::cast_to_expected_dyn(lir::LExprPtr& v, TypeRef expected) {
+    using K = LogosType::Kind;
+    if (!v || !expected) return false;
+    TypeRef vt = expr_type(v);
+    if (!vt) return false;
+    if (vt.kind() == K::Never) return true;
+    if (types_equal(vt, expected)) return true;
+    if (TypeRef(expected).owning_trait_object()) {
+        if (!is_stdlib_box(vt)) return false;
+        mark_moved_expr(expr_ref_of(v));
+        v = builder().cast(std::move(v), expected);
+        return true;
+    }
+    TypeRef want = expected;
+    if ((want.kind() == K::Ref || want.kind() == K::MutRef) && want.pointee())
+        want = want.pointee();
+    if (want.kind() != K::TraitObject || want.owning_trait_object()) return false;
+    if ((vt.kind() != K::Ref && vt.kind() != K::MutRef) || !vt.pointee()) return false;
+    const auto pk = TypeRef(vt.pointee()).kind();
+    if (pk != K::Struct && pk != K::Enum && pk != K::ZonedStruct) return false;
+    v = builder().cast(std::move(v), expected);
+    return true;
+}
+
 bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
                               std::string_view ctx, TypeRef shown) {
     // Local type inference: a use that fixes an open `?iN` solves it here —
@@ -19420,6 +19478,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     if (arg_exprs.size() != m.param_types.size())
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, m.param_types.size(), arg_exprs.size()));
+                    track_args_moved(arg_exprs, &m.param_types);
                     return builder().call(mfi && !mfi->symbol_name.empty()
                                 ? mfi->symbol_name
                                 : cname_str + "__" + mname_str, {}, std::move(arg_exprs), ret_t);
@@ -19506,6 +19565,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                                         *gfi, std::move(targs), std::move(arg_exprs));
                             }
                         }
+                        track_args_moved(arg_exprs, &tm->param_types);
                         return builder().call(hn + "__" + mname_str, {},
                                               std::move(arg_exprs), ret_t);
                     }
@@ -19536,6 +19596,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     if (arg_exprs.size() != tm->param_types.size())
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, tm->param_types.size(), arg_exprs.size()));
+                    track_args_moved(arg_exprs, &tm->param_types);
                     return builder().call(tp + "__" + mname_str, {},
                                           std::move(arg_exprs), ret_t);
                 }
@@ -19663,6 +19724,10 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
                 subst[fi.type_params[i].name] = type_var_args[i];
             TypeRef ret = subst_type_sema(fi.ret_type, subst);
+            // The deferred call moves its by-value arguments as the concrete one
+            // below does: `let b = Box::new(x);` in a generic body dropped `x`
+            // at scope end as well (and `Rc::new(*b)` ran Box::drop on `b`).
+            track_args_moved(arg_exprs, &fi.param_types);
             return builder().call(fi.symbol_name.empty() ? mangled : fi.symbol_name, std::move(type_var_args), std::move(arg_exprs), ret);
         }
     }
@@ -20181,19 +20246,27 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             // coercible to what the surrounding position expects — the merge
             // used to compare them ONLY against one another, so an expected
             // type that both could reach was never consulted.
-            if (hint_expected_type_ &&
+            bool took_expected = false;
+            if (hint_expected_type_ && !types_equal(expr_type(then_val), expr_type(else_val))) {
+                const bool t_ok = cast_to_expected_dyn(then_val, hint_expected_type_);
+                const bool e_ok = cast_to_expected_dyn(else_val, hint_expected_type_);
+                if (t_ok && e_ok) { result_type = hint_expected_type_; took_expected = true; }
+            }
+            if (!took_expected && hint_expected_type_ &&
                 !types_compatible(expr_type(then_val), expr_type(else_val)) &&
                 !types_compatible(expr_type(else_val), expr_type(then_val))) {
                 apply_place_coercions(then_val, hint_expected_type_);
                 apply_place_coercions(else_val, hint_expected_type_);
                 if (types_compatible(expr_type(then_val), hint_expected_type_) &&
-                    types_compatible(expr_type(else_val), hint_expected_type_))
+                    types_compatible(expr_type(else_val), hint_expected_type_)) {
                     result_type = hint_expected_type_;
+                    took_expected = true;
+                }
             }
-            if (!types_compatible(expr_type(then_val), expr_type(else_val)) &&
-                !types_compatible(expr_type(else_val), expr_type(then_val)) &&
-                !(result_type && types_compatible(expr_type(then_val), result_type) &&
-                  types_compatible(expr_type(else_val), result_type))) {
+            if (took_expected) {
+                // the arms were coerced to the expected type above
+            } else if (!types_compatible(expr_type(then_val), expr_type(else_val)) &&
+                       !types_compatible(expr_type(else_val), expr_type(then_val))) {
                 // source form: two closure literals print one string otherwise
                 error(std::format("if-expression branches have incompatible types: {} vs {}",
                       type_str(expr_type(then_val), true), type_str(expr_type(else_val), true)));

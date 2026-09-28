@@ -2676,6 +2676,21 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
             const bool is_ref_to_fat =
                 TypeRef(s.type) && (TypeRef(s.type).kind() == LogosType::Kind::Ref ||
                                     TypeRef(s.type).kind() == LogosType::Kind::MutRef);
+            // A `let mut` reference to a fat value can be RE-SEATED
+            // (`r = &other`): it needs a slot holding the pointer. As an alias
+            // of the referent's pair, the assignment's 16-byte pair copy wrote
+            // the new referent's {data, vtable} over the OLD referent — two
+            // owners of one box, freed twice.
+            if (is_ref_to_fat && s.is_mut && data_ptr.getType() == ptr_type()) {
+                auto slot = create_entry_alloca(ptr_type());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, slot);
+                evict_var_shapes(s.name);
+                scope_[s.name] = slot;
+                let_vars_.insert(s.name);
+                var_elem_types_[s.name] = ptr_type();
+                ref_slot_vars_.insert(s.name);   // rule expr.place.ref-local-slot-load
+                return;
+            }
             if (!is_raw_ptr_dyn && !is_ref_to_fat && data_ptr.getType() == ptr_type()) {
                 auto fat_sz = builder_.create<mlir::LLVM::ConstantOp>(
                     loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
@@ -2861,8 +2876,14 @@ mlir::Value MLIRGenImpl::coerce_concrete_source_to_dyn(
     bool src_is_owning_box =
         is_stdlib_box(src_logos_type) &&
         TypeRef(src_logos_type).type_args().size() == 1;
-    if (src_is_owning_box)
+    if (src_is_owning_box) {
         src_logos_type = TypeRef(src_logos_type).type_args()[0];
+        // The Box VALUE arrives as `{ptr}` from a call, but as the ADDRESS of
+        // its storage from a place (a variable, a block or `if` value): the data
+        // half is the heap pointer either way. Storing the storage address made
+        // `let x = mk(); let b: Box<dyn Sh> = x;` dispatch on the stack slot.
+        data_ptr = box_heap_ptr(data_ptr);
+    }
     // Use the mono-mangled concrete name (`Foo$G1$i64`) — the vtable
     // registry keys generic-impl entries on this form. `type_str`
     // yields the angle-bracket form (`Foo<i64>`) which never matches
@@ -3401,17 +3422,14 @@ void MLIRGenImpl::gen_loop(lir_view::SLoopView v) {
     region->push_back(loop_block);
     region->push_back(exit_block);
 
-    // Allocate break-value slot before the loop block, if needed.
+    // Allocate break-value slot before the loop block, if needed. The slot is
+    // a local declared without an initialiser, so it is decided exactly like
+    // `let v: T;` — `logos_to_mlir` is the by-pointer HANDLE type and gave an
+    // aggregate an 8-byte `ptr` slot, which the read then loaded through
+    // (`loop { break mk(10); }` dereferenced the struct's bits: SIGSEGV).
     mlir::Value break_slot;
-    if (!break_slot_name.empty() && result_type) {
-        mlir::Type slot_ty = logos_to_mlir(result_type);
-        if (slot_ty) {
-            break_slot  = create_entry_alloca(slot_ty);
-            scope_[break_slot_name]          = break_slot;
-            let_vars_.insert(break_slot_name);
-            var_elem_types_[break_slot_name] = slot_ty;
-        }
-    }
+    if (!break_slot_name.empty() && result_type)
+        break_slot = declare_local_place(break_slot_name, result_type);
 
     builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 

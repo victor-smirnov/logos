@@ -1,0 +1,20 @@
+exit: 0
+stdout:
+drop 2
+o 1
+made
+drop 10
+param
+drop 40
+r true
+kept
+drop 20
+r2 false
+first
+drop 30
+reassigned
+drop 31
+i 5
+copy 7 7
+drop 20
+drop 1

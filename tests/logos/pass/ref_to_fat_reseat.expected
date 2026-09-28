@@ -1,0 +1,18 @@
+exit: 0
+stdout:
+r 1
+locals 2 1 2
+drop 2
+drop 1
+r0 3
+elements 4 3 4
+drop 3
+drop 4
+best 9 8
+drop 8
+drop 9
+drop 5
+t0 20
+thin 21 20 21
+drop 21
+drop 20

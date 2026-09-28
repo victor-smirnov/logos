@@ -576,6 +576,7 @@ sema_collect.cpp	closure_kind_	D	1	type_str(cv)
 sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(base).type_var_name())
 sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(x).type_var_name())
 sema.cpp	current_type_bounds_	D	1	type_str(result)
+sema.cpp	current_type_bounds_	D	1	type_str(x)
 sema_expr.cpp	closure_capture_env_	D	1	type_str(ctype)
 sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
 sema_expr.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(t).type_var_name())
@@ -669,8 +670,12 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # answers nothing). A spelled argument here is the POINT: this is where a
 # spelling stops being one. The counts are pinned so a fourth entry point, or a
 # site that goes around them back to a raw key, shows up as a diff.
-#ARGSCAN has_impl 17 a2e2eb9a
-#ARGSCAN impl_key 5 cbc0ca3c
+# 2026-09-28: has_impl 17 -> 19, roster a2e2eb9a -> 26a90fb6; impl_key 5 -> 7, roster cbc0ca3c -> 37c1f856.
+# lower_place_assign asks whether an indexed receiver is an `IndexMut` struct (the written element is
+# then a live `&mut` referent), and index_output_type_ reads `Index`'s Output off the impl — the same
+# trait spellings over the same concrete/base struct names try_index_mut_assign already passes.
+#ARGSCAN has_impl 19 26a90fb6
+#ARGSCAN impl_key 7 37c1f856
 # 2026-09-19, steps 6 + 8: impl_trait_id 2 -> 6, roster ec08d4b9 -> 052a7a0c.
 # The four new arguments are the lang-item spellings the auto-trait engine
 # resolves ("Send", "Sync", "Unpin", "Fst") — the one place each is turned into

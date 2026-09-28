@@ -2030,6 +2030,10 @@ private:
     // call_param_shown_); the check always uses `expected`.
     bool expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
                      std::string_view ctx, TypeRef shown = {});
+    // A value unsized to an expected `dyn` type by a cast (if/match arms, break
+    // values, assignments). See the definition.
+    bool cast_to_expected_dyn(lir::LExprPtr& v, TypeRef expected);
+    TypeRef index_output_type_(TypeRef st);
 
     void coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                               uint32_t flags = CFLAG_STANDARD);
@@ -4770,6 +4774,15 @@ private:
     }
 
     bool is_move_type(TypeRef t) const;
+    // `M::Out`, `<M::It as Tr>::X`: an associated-type projection whose base
+    // is (through projections) a type parameter — opaque until mono.
+    static bool is_generic_projection(TypeRef t) {
+        for (int d = 0; t && d < 8; ++d) {
+            if (TypeRef(t).kind() != LogosType::Kind::AssocType) return d > 0 && TypeRef(t).kind() == LogosType::Kind::TypeVar;
+            t = TypeRef(t).assoc_base();
+        }
+        return false;
+    }
     // Gap-4: normalize an associated-type projection `T::A` to a concrete type
     // when T carries an equality bound `Trait<A = V>` in scope. Returns t
     // unchanged if it isn't a normalizable projection. Non-recursive (one hop).
@@ -4878,9 +4891,15 @@ private:
         // both every clear and the guarded drop. That is the nearest block
         // frame at or below the declaring frame — or, for the params frame
         // (which has none below it), the function's body block just above.
+        // A `for` item binding's frame is a loop boundary with no statement
+        // list of its own and is re-entered every iteration: its flag is
+        // declared in the body block, so each iteration re-arms it (declared
+        // below the loop it was armed once, and the first move leaked every
+        // later item).
         size_t target = SIZE_MAX;
-        for (size_t j = fi + 1; j-- > 0; )
-            if (scope_[j].block_frame) { target = j; break; }
+        if (!(scope_[fi].loop_boundary && !scope_[fi].block_frame))
+            for (size_t j = fi + 1; j-- > 0; )
+                if (scope_[j].block_frame) { target = j; break; }
         if (target == SIZE_MAX)
             for (size_t j = fi + 1; j < scope_.size(); ++j)
                 if (scope_[j].block_frame) { target = j; break; }
@@ -5052,10 +5071,32 @@ private:
         return make_stmt_emit(node_line_, std::move(sa));
     }
 
+    // Scope-exit drop glue: a drop, a compiler-glue `let` (the move-and-drop
+    // temp of a path drop), or an `if <flag> { glue }` guarding either.
+    static bool is_exit_drop_glue(lir_view::StmtRef st) {
+        using C = lir_schema::stmt::Code;
+        if (!st) return false;
+        switch (st.kind()) {
+        case C::Drop: return true;
+        case C::Let:  return lir_view::SLetView{st}.compiler_glue();
+        case C::If: {
+            lir_view::SIfView v{st};
+            bool any = false, all = true;
+            if (auto e = v.else_block()) e.each_stmt([&](lir_view::StmtRef) { all = false; });
+            if (auto b = v.then_block())
+                b.each_stmt([&](lir_view::StmtRef s) { any = true; all = all && is_exit_drop_glue(s); });
+            return any && all;
+        }
+        default: return false;
+        }
+    }
     // Splice a flag clear into a branch's statement list, BEFORE a trailing
-    // `return`/`break`/`continue` (and before the drop glue lower_block
-    // already inserted ahead of it) — appending after a terminator would be
-    // dead code, and the loop-exit path is exactly the one that needs it.
+    // `return`/`break`/`continue` and the drop glue lower_block already
+    // inserted ahead of it — appending after a terminator would be dead code,
+    // and the loop-exit path is exactly the one that needs it. The glue
+    // includes GUARDED drops: stopping at `if <flag> { drop g }` left this
+    // branch's clear after it, so `if i == 2 { eat(g); break; }` (g flagged by
+    // an earlier `continue` arm) destroyed g a second time on its way out.
     void splice_flag_clear(std::vector<lir_view::StmtRef>& blk,
                            lir_view::StmtRef clear) const {
         using C = lir_schema::stmt::Code;
@@ -5065,7 +5106,7 @@ private:
             if (!br) break;
             auto k = br.kind();
             if (k == C::Return || k == C::Break || k == C::Continue ||
-                k == C::Drop) { --at; continue; }
+                is_exit_drop_glue(br)) { --at; continue; }
             break;
         }
         blk.insert(blk.begin() + (ptrdiff_t)at, std::move(clear));
@@ -8617,6 +8658,9 @@ private:
         // "for" / "while": a loop that yields `()` — `break` with a value is
         // E0571 (only `loop` carries one). Null for `loop`.
         const char* no_value_kind = nullptr;
+        // The `loop` expression's expected type: every `break` value is a
+        // coercion site to it (`let b: Box<dyn Tr> = loop { break Box::new(s) }`).
+        TypeRef expected = nullptr;
     };
     std::vector<LoopBreakFrame> loop_break_frames_;
     std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop

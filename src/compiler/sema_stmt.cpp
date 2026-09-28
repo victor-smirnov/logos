@@ -831,6 +831,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             // source's own drop — on this path's unwind and at its scope end —
             // must not run a second time.
             if (bval) mark_moved_expr(expr_ref_of(bval));
+            if (target && target->expected && bval) cast_to_expected_dyn(bval, target->expected);
             if (target && target->no_value_kind) {
                 error(std::format("`break` with value from a `{}` loop (E0571): only `loop` "
                                   "yields a value", target->no_value_kind));
@@ -1330,6 +1331,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     auto saved_ret = hint_call_return_type_;
     auto saved_struct = hint_struct_type_;
     auto saved_enum = hint_enum_type_;
+    if (!ann_hint) hint_expected_type_ = nullptr;   // see lower_let
     if (ann_hint) {
         hint_expected_type_ = ann;
         hint_call_return_type_ = ann;
@@ -2783,6 +2785,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     if (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error) {
         hint_call_return_type_ = ann;
         hint_expected_type_    = ann;
+    } else {
+        // An unannotated `let` has no expected type: the enclosing position's
+        // must not reach its initializer (`let r: &dyn Tr = { let q = ..; q }`).
+        hint_expected_type_ = nullptr;
     }
     // G151-3: a fn-ptr/closure-annotated let hints the closure formal so an
     // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
@@ -4159,6 +4165,10 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
     // drop_old hint at every reassignment); only currently_uninit_vars_ tracks
     // the CURRENT init state and is what var-read uses.
     currently_uninit_vars_.erase(std::string(name));
+    // `x = Box::new(Ci)` / `x = z` into `x: Box<dyn Tr>`: unsized HERE, so the
+    // value carries its own vtable and the old value drops as the `dyn` it is
+    // (it dropped through the NEW value's concrete destructor).
+    cast_to_expected_dyn(rhs, var_type);
     // RHS source consumed: `dst = src` for a move-type src moves src's bytes
     // into dst; src's scope-exit drop must be suppressed, else we double-free.
     track_write_move(rhs);
@@ -9362,8 +9372,9 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
-        loop_break_frames_.push_back({my_label, nullptr, false,
-                                      hir_origin_(node) == hir::Origin::While ? "while" : nullptr});
+        const bool is_while = hir_origin_(node) == hir::Origin::While;
+        loop_break_frames_.push_back({my_label, nullptr, false, is_while ? "while" : nullptr,
+                                      is_while ? TypeRef(nullptr) : hint_expected_type_});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
         frame_value_type    = loop_break_frames_.back().value_type;
@@ -9619,6 +9630,25 @@ TypeRef SemaChecker::resolve_place_type(writ::TinyMapView place) {
     return nullptr;
 }
 
+// `<S as Index<I>>::Output` for a struct receiver with an `Index` impl (`Vec<T>`
+// → `T`), from the impl's trait arguments; null when there is none.
+TypeRef SemaChecker::index_output_type_(TypeRef st) {
+    if (!st || TypeRef(st).kind() != LogosType::Kind::Struct) return nullptr;
+    const SemaImplInfo* ii = nullptr;
+    if (auto it = impls_.find(impl_key("Index", concrete_struct_name(st))); it != impls_.end()) ii = &it->second;
+    else if (auto it2 = impls_.find(impl_key("Index", std::string(TypeRef(st).struct_name()))); it2 != impls_.end()) ii = &it2->second;
+    if (!ii || ii->trait_type_args.size() < 2) return nullptr;
+    SemaSubst subst;
+    if (ii->target_typeref) {
+        auto pat = TypeRef(ii->target_typeref).type_args();
+        auto cur = TypeRef(st).type_args();
+        for (size_t k = 0; k < pat.size() && k < cur.size(); ++k)
+            if (pat[k] && TypeRef(pat[k]).kind() == LogosType::Kind::TypeVar)
+                subst[std::string(TypeRef(pat[k]).type_var_name())] = cur[k];
+    }
+    return subst_type_sema(ii->trait_type_args[1], subst);
+}
+
 std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     const std::string& arr_name, TypeRef arr_type,
     writ::TinyMapView idx_node, writ::TinyMapView val_node) {
@@ -9634,6 +9664,12 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     auto mangled = type_name + "__index_mut";
     lir::LExprPtr idx_e = lower_expr(idx_node);
     lir::LExprPtr val_e = lower_expr(val_node);
+    // `index_mut` hands back `&mut Output` to a LIVE element: the write drops
+    // the old value first, as `*r = v` through any `&mut` does (it leaked).
+    const TypeRef out_ty = expr_type(val_e);
+    const bool drop_old = out_ty && (TypeRef(out_ty).owning_trait_object() ||
+                                     !drop_fn_for(out_ty).empty() ||
+                                     has_droppable_fields(out_ty));
     const SemaFuncInfo* fit = nullptr;
     for (auto* c : find_func_candidates(mangled))
         if (c->param_types.size() == 2) { fit = c; break; }
@@ -9647,7 +9683,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
             fit->symbol_name.empty() ? mangled : fit->symbol_name,
             {}, std::move(args), fit->ret_type);
         track_write_move(val_e);
-        return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_);
+        return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_, drop_old);
     }
     const SemaImplInfo* ii = nullptr;
     if (auto it = impls_.find(impl_key("IndexMut", type_name)); it != impls_.end()) ii = &it->second;
@@ -9673,7 +9709,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         mc.resolved_type = "";
         auto call_e = builder().method_call_v(std::move(mc), make_ref(true, out_t));
         track_write_move(val_e);
-        return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_);
+        return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_, drop_old);
     }
     return std::nullopt;
 }
@@ -9857,6 +9893,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
         std::vector<std::string> segs;
         auto cur = place_node;
         bool through_index = false;
+        bool via_index_mut = false;   // reached through `IndexMut` / `&mut [T]`
         for (;;) {
             if (cur.is_null()) break;
             const int32_t cc = code_of(cur);
@@ -9884,11 +9921,33 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                 // path, so the array case falls back to the CONTAINER and lets
                 // the overlap check answer for the whole root.
                 auto recv_n = unwrap_paren_node(map_of(cur.get(la::RECEIVER.code)));
-                TypeRef recv_t = resolve_place_type(recv_n);
+                // An element of an element (`v[0][0]`): the inner `Index`
+                // output is the outer receiver's type.
+                auto place_ty = [&](auto&& self, TinyMapView n) -> TypeRef {
+                    TypeRef t = resolve_place_type(n);
+                    if (t || code_of(n) != la::INDEX_READ) return t;
+                    TypeRef rt = self(self, unwrap_paren_node(map_of(n.get(la::RECEIVER.code))));
+                    if (rt && is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee())
+                        rt = TypeRef(rt).pointee();
+                    return index_output_type_(rt);
+                };
+                TypeRef recv_t = place_ty(place_ty, recv_n);
                 // `q[i]` with `q: &mut [T; N]` indexes the referent array.
                 if (recv_t && TypeRef(recv_t).kind() == LogosType::Kind::MutRef &&
                     TypeRef(recv_t).pointee())
                     recv_t = TypeRef(recv_t).pointee();
+                // A `Vec` / user `IndexMut` element or a `&mut [T]` element is a
+                // `&mut` referent: fully initialised and never moved out of, so
+                // the written place's old value is LIVE (`v[i] = x` is
+                // `*index_mut(&mut v, i) = x` and drops it; it leaked). A raw
+                // pointer buffer stays manual.
+                if (recv_t && (TypeRef(recv_t).kind() == LogosType::Kind::Slice ||
+                               (TypeRef(recv_t).kind() == LogosType::Kind::Struct &&
+                                (has_impl("IndexMut", concrete_struct_name(recv_t)) ||
+                                 has_impl("IndexMut", std::string(TypeRef(recv_t).struct_name())))))) {
+                    via_index_mut = true;
+                    break;
+                }
                 if (!recv_t || TypeRef(recv_t).kind() != LogosType::Kind::Array)
                     break;
                 through_index = true;
@@ -9913,7 +9972,9 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
             break;
         }
         cur = unwrap_paren_node(cur);
-        if (!cur.is_null() && code_of(cur) == la::VAR_REF) {
+        if (via_index_mut) {
+            field_old_live = true;
+        } else if (!cur.is_null() && code_of(cur) == la::VAR_REF) {
             std::string root(str_of(cur.get(la::NAME.code)));
             std::string path(root);
             for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
@@ -13155,8 +13216,12 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // every arm shape, not only pattern-binding ones.
             if (hint_expected_type_ && val &&
                 TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(val)).kind() != LogosType::Kind::Never)
+                TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
                 apply_place_coercions(val, hint_expected_type_);
+                // An expected `dyn`: every arm is unsized by a cast in the arm
+                // (see cast_to_expected_dyn).
+                cast_to_expected_dyn(val, hint_expected_type_);
+            }
             // A diverging arm (Never = `!`) contributes no type — the match's
             // type is that of the non-diverging arms (Never is a subtype of
             // every type). Treat Never like Error in the accumulator.

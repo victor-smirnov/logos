@@ -1,0 +1,32 @@
+// An `if` / `match` arm or a `break` value under an expected `dyn` type (`let b: Box<dyn Sh> = if c {
+// Box::new(Sq) } else { Box::new(Ci) }`, `let r: &dyn Sh = match k { .. }`, `loop { break Box::new(..)
+// }`) is unsized IN THE ARM, as a `return` already was. The merge unsized only the first arm's type,
+// so every arm dispatched through that arm's vtable (`Ci` data, `Sq::area`; a Box arm crashed), and a
+// `match` refused the second arm ("arm type 'Box<Ci>' is incompatible with 'Box<Sq>'").
+// A `Box<Concrete>` PLACE (a variable, a block value) unsized into a `Box<dyn>` let or assignment stored
+// the address of the box's storage as the data pointer (it dispatched on the stack slot).
+package branch_arms_unsize_to_expected_dyn;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.mem.boxed;
+trait Sh { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+struct Ci { r: i64 }
+impl Sh for Sq { fn area(&self) -> i64 { self.s * self.s } }
+impl Sh for Ci { fn area(&self) -> i64 { 3 * self.r * self.r } }
+impl Drop for Sq { fn drop(&mut self) { println!("drop sq {}", self.s); } }
+impl Drop for Ci { fn drop(&mut self) { println!("drop ci {}", self.r); } }
+fn pick(n: i64) -> Box<dyn Sh> { if n % 2 == 0 { Box::new(Sq { s: n }) } else { Box::new(Ci { r: n }) } }
+fn main() {
+    for n in 0..2 { let b: Box<dyn Sh> = if n % 2 == 0 { Box::new(Sq { s: n + 2 }) } else { Box::new(Ci { r: n }) }; println!("if {}", b.area()); }
+    for n in 0..3 { let b: Box<dyn Sh> = match n { 0 => Box::new(Sq { s: 4 }), 1 => Box::new(Ci { r: 2 }), _ => pick(n) }; println!("match {}", b.area()); }
+    let q = Sq { s: 6 }; let c = Ci { r: 1 };
+    for k in 0..2 { let r: &dyn Sh = if k == 0 { &q } else { &c }; println!("ref {}", r.area()); }
+    for k in 0..2 { let r: &dyn Sh = match k { 0 => &c, _ => &q }; println!("mref {}", r.area()); }
+    let mut i = 0;
+    let lb: Box<dyn Sh> = loop { i += 1; if i == 2 { break Box::new(Ci { r: 5 }); } if i > 5 { break Box::new(Sq { s: 9 }); } };
+    println!("loop {}", lb.area());
+    let same: Box<dyn Sh> = if i > 0 { Box::new(Sq { s: 7 }) } else { Box::new(Sq { s: 8 }) }; println!("same {}", same.area());
+    let x = Box::new(Sq { s: 10 }); let v: Box<dyn Sh> = x; println!("var {}", v.area());
+    let bl: Box<dyn Sh> = { let y = Box::new(Ci { r: 11 }); y }; println!("block {}", bl.area());
+    let mut asg: Box<dyn Sh> = Box::new(Sq { s: 12 }); let z = Box::new(Ci { r: 13 }); asg = z; println!("assign {}", asg.area());
+    println!("end");
+}

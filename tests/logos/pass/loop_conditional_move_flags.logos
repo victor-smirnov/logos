@@ -1,0 +1,25 @@
+// Conditional moves inside loops drop exactly once:
+// - a `for` item binding moved on some iterations re-arms its drop flag every iteration (the flag was
+//   declared below the loop, armed once: after the first move every later item leaked);
+// - a branch that moves a value flagged by an EARLIER branch and then leaves by `break` / `continue` /
+//   `return` clears the flag before its exit glue (the clear landed after the guarded drop, which then
+//   destroyed the moved value a second time).
+package loop_conditional_move_flags;
+use logos.std.fmt; use logos.mem.collections.vec;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+fn eat(d: D) { println!("eat {}", d.n); }
+fn while_let_body() { let mut i = 0; while i < 3 { let x = D { n: i }; if i == 1 { eat(x); } i += 1; } println!("while end"); }
+fn for_let_body() { for i in 0..3 { let x = D { n: 10 + i }; if i == 1 { eat(x); } } println!("for end"); }
+fn for_binding() { let v = vec![D { n: 20 }, D { n: 21 }, D { n: 22 }, D { n: 23 }]; for x in v { if x.n == 21 { eat(x); } } println!("binding end"); }
+fn for_binding_else() { let v = vec![D { n: 30 }, D { n: 31 }]; for x in v { if x.n == 31 { eat(x); } else { println!("keep {}", x.n); } } println!("else end"); }
+fn continue_then_break() { for i in 0..3 { let g = D { n: 40 + i }; if i == 1 { eat(g); continue; } if i == 2 { eat(g); break; } } println!("cb end"); }
+fn continue_only() { for i in 0..3 { let g = D { n: 50 + i }; if i == 1 { let m = g; println!("m {}", m.n); continue; } } println!("co end"); }
+fn binding_break() { let v = vec![D { n: 60 }, D { n: 61 }, D { n: 62 }]; for x in v { if x.n == 61 { eat(x); break; } } println!("bb end"); }
+fn binding_continue() { let v = vec![D { n: 70 }, D { n: 71 }, D { n: 72 }]; for x in v { if x.n == 71 { eat(x); continue; } println!("saw {}", x.n); } println!("bc end"); }
+fn keep_evens() { let v = vec![D { n: 80 }, D { n: 81 }, D { n: 82 }, D { n: 83 }]; let mut out = Vec::new(); for x in v { if x.n % 2 == 0 { out.push(x); } } println!("kept {}", out.len()); }
+fn return_from_loop(k: i64) -> i64 { for i in 0..3 { let g = D { n: 90 + i }; if i == 0 { eat(g); continue; } if i == k { return g.n; } } -1 }
+fn main() {
+    while_let_body(); for_let_body(); for_binding(); for_binding_else(); continue_then_break(); continue_only();
+    binding_break(); binding_continue(); keep_evens(); println!("r {}", return_from_loop(1)); println!("r {}", return_from_loop(7));
+}

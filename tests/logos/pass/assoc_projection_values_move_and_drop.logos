@@ -1,0 +1,34 @@
+// A value whose type is an associated-type projection over a type parameter (`M::Out`) is owned like a
+// value of the parameter's own type: moving `p.a` out of `Pair<M>` moves it (it was dropped with `p`
+// AND by the receiver), and a local / parameter / reassigned variable of the type is dropped (none was).
+// A projection with a `Copy` bound (`type Out: Copy`) stays Copy.
+package assoc_projection_values_move_and_drop;
+use logos.std.fmt; use logos.lang.option;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+trait Maker { type Out; fn make(&self, n: i64) -> Self::Out; }
+struct SM { k: i64 }
+impl Maker for SM { type Out = D; fn make(&self, n: i64) -> D { D { n: n + self.k } } }
+struct IM;
+impl Maker for IM { type Out = i64; fn make(&self, n: i64) -> i64 { n } }
+trait CopyMaker { type Out: Copy; fn make(&self) -> Self::Out; }
+impl CopyMaker for IM { type Out = i64; fn make(&self) -> i64 { 7 } }
+struct Pair<M: Maker> { m: M, a: M::Out, b: M::Out }
+fn split<M: Maker>(p: Pair<M>) -> M::Out { let a = p.a; return a; }
+fn local_drop<M: Maker>(m: &M) { let _x = m.make(10); println!("made"); }
+fn param_drop<M: Maker>(_x: M::Out) { println!("param"); }
+fn cond_move<M: Maker>(m: &M, c: bool) -> Option<M::Out> { let x = m.make(20); if c { return Some(x); } println!("kept"); None }
+fn reassign<M: Maker>(m: &M) { let mut x = m.make(30); println!("first"); x = m.make(31); let _ = &x; println!("reassigned"); }
+fn copy_twice<C: CopyMaker>(c: &C) -> (C::Out, C::Out) { let x = c.make(); (x, x) }
+fn main() {
+    let o = split(Pair { m: SM { k: 0 }, a: D { n: 1 }, b: D { n: 2 } });
+    println!("o {}", o.n);
+    let s = SM { k: 0 };
+    local_drop(&s);
+    param_drop::<SM>(D { n: 40 });
+    let r = cond_move(&s, true); println!("r {}", r.is_some());
+    let r2 = cond_move(&s, false); println!("r2 {}", r2.is_some());
+    reassign(&s);
+    let i = split(Pair { m: IM, a: 5, b: 6 }); println!("i {}", i);
+    let (p, q) = copy_twice(&IM); println!("copy {} {}", p, q);
+}

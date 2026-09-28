@@ -1,0 +1,38 @@
+exit: 0
+stdout:
+drop 1
+vec end
+drop 2
+drop 11
+array end
+drop 10
+drop 12
+drop 20
+user end
+drop 21
+drop 30
+field end
+drop 31
+drop 40
+ref end
+drop 50
+nested end
+drop 51
+drop 60
+boxed end
+drop 61
+elem field end
+drop 71
+drop 80
+drop 81
+drop 82
+loop end
+drop 83
+drop 91
+slice end
+drop 95
+elem field2 end
+drop 96
+drop 90
+drop 92
+drop 41
