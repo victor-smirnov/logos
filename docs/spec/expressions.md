@@ -2927,9 +2927,9 @@ An arm with a guard (`if`) does not contribute to exhaustiveness coverage; only 
 
 ### `expr.match.arm-block-tail-is-value` — block arm yields its tail expression, not an implicit return
 
-A block-form arm (`pat => { stmts }`) yields its trailing expression as the arm value (tail-as-return disabled inside match arms). A non-diverging block arm whose last statement is not an expression is a diagnostic ('block arm must end with an expression or always return'). A block arm all of whose paths diverge contributes Error and is skipped in unification.
+A block-form arm (`pat => { stmts }`) yields its trailing expression as the arm value (tail-as-return disabled inside match arms). A non-diverging block arm whose last statement is not an expression (`{}`, `{ a = 1; }`) has type `()`, as rustc types it; an arm of another type is then the arm-type mismatch ('arm type … is incompatible with …', rustc E0308). A block arm all of whose paths diverge contributes Error and is skipped in unification.
 
-*Source:* `src/compiler/sema_stmt.cpp#L9414-L9467`
+*Source:* `SemaChecker::lower_match_core` (ADR 0030 S3.4b)
 
 ### `expr.match.arm-requires-body` — every arm must have an expr or block body
 

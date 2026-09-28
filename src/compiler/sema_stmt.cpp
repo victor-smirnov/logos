@@ -10298,8 +10298,8 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                                       drop_old_place);
 }
 
-void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type,
-                                             bool ast_proven_exhaustive) {
+void SemaChecker::check_match_exhaustiveness(const std::vector<lir_view::PatRef>& unguarded,
+                                             TypeRef scrut_type, bool ast_proven_exhaustive) {
     // K4: a desugared nested-enum match is exhaustive at the AST level but its
     // arms carry synth guards (skipped below), so suppress the variant check.
     if (ast_proven_exhaustive) return;
@@ -10314,12 +10314,8 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
         if (esi_e && esi_e->variants.empty()) return;
     }
     bool has_wild = false;
-    for (auto& arm : smatch.arms) {
-        if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
-            has_wild = true;
-            break;
-        }
-    }
+    for (auto pr : unguarded)
+        if (pr.kind() == lir_schema::pat::Code::Wild) { has_wild = true; break; }
     if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
         auto [epkg_match, esi_match] = enum_of(TypeRef(scrut_type));
         auto eit = esi_match ? enums_.find(type_id(epkg_match, TypeRef(scrut_type).enum_name())) : enums_.end();
@@ -10335,9 +10331,7 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
                 else if (k == ps::Code::VariantData)
                     covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{pr}.disc()));
             };
-            for (auto& arm : smatch.arms) {
-                if (arm.guard) continue;
-                auto apr = pat_ref_of(arm.pat);
+            for (auto apr : unguarded) {
                 if (apr.kind() == ps::Code::Or) {
                     lir_view::PatOrView{apr}.each_alt(
                         [&](lir_view::PatRef alt) { add_pat_ref(alt); });
@@ -10402,9 +10396,7 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
     }
     if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false;
-        for (auto& arm : smatch.arms) {
-            if (arm.guard) continue;
-            auto apr = pat_ref_of(arm.pat);
+        for (auto apr : unguarded) {
             if (apr.kind() == lir_schema::pat::Code::Bool) {
                 if (lir_view::PatBoolView{apr}.value()) has_true = true;
                 else has_false = true;
@@ -11693,8 +11685,30 @@ bool SemaChecker::bare_name_is_value_pattern_(std::string_view nm, TypeRef ty) {
     return static_cast<bool>(resolve_const_value(std::string(nm)));
 }
 
-lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
-    const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
+// ADR 0030 S3.4b: THE match lowering. One implementation for every place a
+// `match` stands (`form`): a statement (arm bodies, values discarded), the tail
+// of a fn body (an expression arm IS the return), a value (arm values unify
+// into the match's type). The scrutinee, the temporary-scrutinee hoist, the Writ
+// hoist, the arm expansion, the pattern / binding / guard phase, the per-arm
+// move and definite-assignment discipline, the drop flags and exhaustiveness
+// are one code; only an arm's body and the merge of arm values differ by form.
+// The statement and the expression spelling were two ~900-line copies and had
+// drifted (E0507 at the arm, the Writ root helper and the exhaustiveness
+// backstop in one; the guard-move union and Never-aware divergence in the other).
+SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm form) {
+    MatchCore mc;
+    const bool value_form = form == MatchForm::Value;
+    // An `if let` / let-chain in EXPRESSION position without `else` (the HIR
+    // pass records it in ORIGIN): every branch of a value must yield it.
+    if (value_form && node.has_key(la::ORIGIN)) {
+        AnyVal ov = node.get(la::ORIGIN.code);
+        const auto o = ov.is_value() ? static_cast<hir::Origin>(ov.as_value<int64_t>()) : hir::Origin::User;
+        if (o == hir::Origin::IfLetNoElse || o == hir::Origin::LetChainNoElse) {
+            error("if-let-as-expression requires an else branch");
+            mc.refused = true;
+            return mc;
+        }
+    }
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {
@@ -11722,90 +11736,50 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                               ? scrut_type : TypeRef(nullptr);
     struct SpdRestore { TypeRef& r; TypeRef v; ~SpdRestore() { r = v; } } spd_restore_{place_deref_scrut_type_, saved_spd_};
 
-    // ADR 0011 — a `match` over a `schema enum` desugars to an if-chain on the
-    // pointee's schema_type_code (the variant discriminant is NOT stored; it is
-    // read from the matched node itself). Intercept before the enum machinery.
-    {
+    // ADR 0011 — a statement `match` over a `schema enum` desugars to an
+    // if-chain on the pointee's schema_type_code (the variant discriminant is
+    // NOT stored; it is read from the matched node itself).
+    if (!value_form) {
         TypeRef se_base = scrut_type;
         while (se_base && is_ref_like(TypeRef(se_base).kind()) && TypeRef(se_base).pointee())
             se_base = TypeRef(se_base).pointee();
         if (se_base && TypeRef(se_base).kind() == LogosType::Kind::Struct) {
             auto [se_pkg, se_si] = struct_of(TypeRef(se_base));
-            if (se_si && se_si->is_schema_enum)
-                return lower_schema_enum_match(node, std::move(scrut), se_base);
+            if (se_si && se_si->is_schema_enum) {
+                mc.schema_stmt = lower_schema_enum_match(node, std::move(scrut), se_base);
+                return mc;
+            }
         }
     }
 
     // Drop a droppable match scrutinee that is a TEMPORARY (an rvalue — a call
-    // result / constructor / `?`, NOT a place like a var / field / index). Rust
-    // drops the matched temporary at the end of the match; Logos otherwise
-    // evaluates it, binds patterns, and never frees it → leak (`match parse(s)
-    // { Ok(_) => … }` leaked the Json). Hoist it into a synth local so it has an
-    // owner: `{ let __ms = <scrut>; match __ms { … }; <drop __ms unless moved> }`.
-    // mark_match_scrutinee_moved (below, now seeing a VarRef) marks __ms moved
-    // when an arm consumes the payload, so the manual drop is suppressed → no
-    // double-free. A PLACE scrutinee is owned elsewhere (its binding drops it),
-    // so it is left alone. Mirrors the existing Writ / str-pattern scrut hoist.
-    bool temp_scrut_hoisted = false;
-    std::string temp_scrut_var;
-    lir_view::StmtRef temp_scrut_let;
-    if (scrut && scrut_type && is_move_type(scrut_type)) {
-        namespace ec = lir_schema::expr;
-        // ⚠ WAS A FIVE-TERM LIST, WRITTEN OUT TWICE IN THIS FILE, BOTH MISSING
-        // SliceIndex — so `match slice[0]` over a Drop-bearing element was
-        // treated as a TEMPORARY, hoisted into a synth local, and destructured
-        // out of a value the backing array still owns. Two destructor calls for
-        // one value; the `&[W; 1]` twin refuses E0508. The property is "is a
-        // place", so say that and let one foundation answer.
-        bool is_place = lir_view::is_place_expr(expr_ref_of(scrut));
-        if (!is_place) {
-            temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
-            // Push a scope and DEFINE the synth var so it is a real tracked
-            // local: every exit path then drops it via the standard machinery —
-            // a fall-through (collect_drops on this frame, in finalize) AND an
-            // arm body's early `return`/`break` (collect_all_drops / _to_loop
-            // walk this frame). A manual drop-after-the-match alone would be
-            // unreachable when an arm diverges (e.g. `match it.next() { None =>
-            // return … }`), leaking the temporary. mark_match_scrutinee_moved
-            // (below) marks it moved when an arm consumes the payload, so the
-            // drop is suppressed there → no double-free. Works for both concrete
-            // and generic (TypeVar) scrutinees; an uninhabited instantiation's
-            // never-field aggregate is handled in gen_struct_lit.
-            push_scope();
-            define(temp_scrut_var, scrut_type);
-            lir::SLet sl;
-            sl.name = temp_scrut_var; sl.type = scrut_type; sl.is_mut = false;
-            sl.value = std::move(scrut);
-            temp_scrut_let = make_stmt_emit(node_line_, std::move(sl));
-            scrut = builder().var_ref(temp_scrut_var, scrut_type);
-            temp_scrut_hoisted = true;
-        }
+    // result / constructor / `?`, NOT a place). Rust drops the matched
+    // temporary at the end of the match; it is hoisted into a synth local so it
+    // has an owner — `{ let __ms = <scrut>; match __ms { … }; <drop __ms unless
+    // moved> }` (the caller closes the scope: MatchCore::temp_scrut_*). A
+    // scope-tracked local, so EVERY exit path drops it: the fall-through (the
+    // caller's collect_drops) and an arm's early `return` / `break`
+    // (collect_all_drops). mark_match_scrutinee_moved marks it moved when an arm
+    // consumes the payload, so the drop is suppressed there.
+    // ⚠ WAS A FIVE-TERM LIST, WRITTEN OUT TWICE, BOTH MISSING SliceIndex — so
+    // `match slice[0]` over a Drop-bearing element was hoisted and destructured
+    // out of a value the backing array still owns. The property is "is a place".
+    if (scrut && scrut_type && is_move_type(scrut_type) &&
+        !lir_view::is_place_expr(expr_ref_of(scrut))) {
+        mc.temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
+        push_scope();
+        define(mc.temp_scrut_var, scrut_type);
+        lir::SLet sl;
+        sl.name = mc.temp_scrut_var; sl.type = scrut_type; sl.is_mut = false;
+        sl.value = std::move(scrut);
+        mc.temp_scrut_let = make_stmt_emit(node_line_, std::move(sl));
+        scrut = builder().var_ref(mc.temp_scrut_var, scrut_type);
+        mc.temp_scrut_hoisted = true;
     }
-    // Wrap the lowered match in `{ let __ms = <scrut>; <match>; <fall-through
-    // drops> }` when the scrutinee was a hoisted temporary. collect_drops()
-    // yields the fall-through drop of __ms (skipped if an arm moved it);
-    // pop_scope() balances the push above. Called at every return path.
-    auto finalize = [&](lir_view::StmtRef stmt) -> lir_view::StmtRef {
-        if (!temp_scrut_hoisted) return stmt;
-        auto ft_drops = collect_drops();
-        pop_scope();
-        std::vector<lir_view::StmtRef> blk;
-        blk.push_back(std::move(temp_scrut_let));
-        blk.push_back(std::move(stmt));
-        for (auto& d : ft_drops) blk.push_back(std::move(d));
-        return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
-    };
 
-    // A binding arm (`x => …`, `Some(r) => …`, `(a, b) => …`) moves an owned
-    // move-type scrutinee (or its payload) into the binding: Rust's by-value
-    // match move. The scrutinee is marked moved INSIDE each such arm (see the
-    // arm loop) so the binding's own arm-end drop is the only one on that path
-    // and an arm that binds nothing leaves a flagged scope-exit drop.
-
-    // Sprint 5.2: arm-after-catchall lint (closes B-pt-07).  The first
-    // unguarded `_` arm makes every subsequent arm unreachable. Not for a
-    // desugared `if let` / `while let` (the node carries its PAT): its `_`
-    // arm is the else branch, and `if let _ = e {}` is legal (Rust warns).
+    // Sprint 5.2: arm-after-catchall lint (closes B-pt-07). The first unguarded
+    // `_` arm makes every later arm unreachable. Not for a desugared `if let` /
+    // `while let` (the node carries its PAT): its `_` arm is the else branch.
     if (node.has_key(la::ITEMS) && !node.has_key(la::PAT)) {
         auto arms_l = arr_of(node.get(la::ITEMS.code));
         bool seen_catchall = false;
@@ -11821,18 +11795,17 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         }
     }
 
-    // Detect Writ scalar patterns; they require scrut to be an AnyVal
-    // addressable in a variable.  We hoist scrut into a synthetic let so the
-    // synthesized guards can take `&__hmatch_av` without re-evaluating scrut.
+    // Writ scalar patterns require the scrutinee addressable in a variable: it
+    // is hoisted so the synthesized guards take the root without re-evaluating
+    // it. A pattern tree "contains" a Writ scalar if it IS one, or a PAT_OR alt
+    // is one (a nested PAT_AT / PAT_REF over one is diagnosed by build_pattern
+    // via in_match_writ_ctx_).
     auto is_writ_pat_code = [](int32_t pc) {
         return pc == la::PAT_WRIT_NULL || pc == la::PAT_WRIT_BOOL ||
                pc == la::PAT_WRIT_INT  || pc == la::PAT_WRIT_STR  ||
                pc == la::PAT_WRIT_MAP  || pc == la::PAT_WRIT_ARR  ||
                pc == la::PAT_WRIT_TYPED_ARR || pc == la::PAT_WRIT_TYPED_MAP;
     };
-    // A pattern tree "contains" a Writ scalar if it IS one, or a PAT_OR
-    // alt is one.  We only unwrap PAT_OR here — nested PAT_AT/PAT_REF wrapping
-    // Writ patterns is diagnosed by build_pattern via in_match_writ_ctx_.
     auto pat_contains_writ = [&](TinyMapView p) -> bool {
         if (is_writ_pat_code(code_of(p))) return true;
         if (code_of(p) == la::PAT_OR && p.has_key(la::ITEMS)) {
@@ -11847,23 +11820,14 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         auto arms = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < arms.size(); ++i) {
             auto arm = map_of(arms.get(i));
-            if (code_of(arm) != la::MATCH_ARM) continue;
-            if (!arm.has_key(la::LHS)) continue;
-            if (pat_contains_writ(map_of(arm.get(la::LHS.code)))) {
-                has_writ_pat = true; break;
-            }
+            if (code_of(arm) != la::MATCH_ARM || !arm.has_key(la::LHS)) continue;
+            if (pat_contains_writ(map_of(arm.get(la::LHS.code)))) { has_writ_pat = true; break; }
         }
     }
-
-    // For Writ patterns we hoist two locals:
-    //   let __hmatch_view = <scrut>;            // the view (Writ/View/Static or &)
-    //   let __hmatch_root: AnyVal = view.root(); // root AnyVal, used by guard helpers
+    //   let __hmatch_view = <scrut>;               // the view (Writ/View/Static or &)
+    //   let __hmatch_root = writ_pat_root(view);   // the root node, used by the guard helpers
     std::string root_var;
     std::string base_var;
-    lir_view::StmtRef hoist_let_view;
-    lir_view::StmtRef hoist_let_root;
-    lir_view::StmtRef hoist_let_base;
-    bool has_hoist_let = false;
     TypeRef anyval_t = nullptr;
     if (has_writ_pat) {
         if (!writ_view_inner(scrut_type)) {
@@ -11877,7 +11841,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             lir::SLet sl;
             sl.name = view_var; sl.type = scrut_type; sl.is_mut = false;
             sl.value = std::move(scrut);
-            hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
+            mc.hoists.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         // writ: the node type is WAny (the helper's return type); the root is
         // writ_pat_root(view) (static blob) or writ_pat_root_rc(&Rc<Writ>)
@@ -11896,14 +11860,12 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         }
         root_var = "__hmatch_root_" + std::to_string(tmp_var_count_++);
         {
-            auto view_ref = builder().var_ref(view_var, scrut_type);
             std::vector<lir::LExprPtr> ra;
-            ra.push_back(std::move(view_ref));
-            auto root_call = builder().call(root_helper, {}, std::move(ra), anyval_t);
+            ra.push_back(builder().var_ref(view_var, scrut_type));
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
-            sl.value = std::move(root_call);
-            hoist_let_root = make_stmt_emit(node_line_, std::move(sl));
+            sl.value = builder().call(root_helper, {}, std::move(ra), anyval_t);
+            mc.hoists.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);
         {
@@ -11912,98 +11874,41 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             lir::SLet sl;
             sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;
             sl.value = builder().lit_int(0, prim(LogosType::Kind::I64));
-            hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
+            mc.hoists.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
-        has_hoist_let = true;
         scrut = builder().var_ref(view_var, scrut_type);
     }
 
-
-    lir::SMatch smatch;
-    smatch.scrut = std::move(scrut);
-
+    mc.result_type = error_t();
     if (node.has_key(la::ITEMS)) {
         auto arms = arr_of(node.get(la::ITEMS.code));
-        // Per-arm move tracking: each arm starts from `pre_moves` (state
-        // before the match), and its contribution to post-match moves is
-        // collected only if the arm doesn't diverge (return/break/continue).
-        // Without this, moves in arm 1 would leak into arm 2's processing,
-        // producing spurious "use of moved variable" errors for code like
-        //   match it.next() {
-        //       Option::None => return acc;     // marks acc moved
-        //       Option::Some(v) => acc = f(acc, v);  // saw acc as moved
-        //   }
-        // After the match, moved_vars_ is the union of moves from
-        // non-diverging arms (conservative: a var moved on any falling-
-        // through path is considered moved post-match).
-        auto pre_moves = moved_vars_;
-        const auto owned_pre_m = closure_owned_drop_;   // move-closure releases, merged per arm
-        // Variants an EARLIER arm could match (for variant-exact payload moves).
-        std::set<int64_t> earlier_discs; bool earlier_any = false;
-        const size_t exact_mark = exact_variant_moves_.size();
-        std::set<std::string> post_moves;
-        // #118 — per-arm bookkeeping for conditional-move drop flags: the
-        // arm's own statement vector (kept so a flag clear can be spliced in
-        // after the merge, then re-mirrored), its move set, whether it
-        // REACHES the enclosing frame's drops, and its window in
-        // flag_clear_log_.
-        std::vector<std::vector<lir_view::StmtRef>> arm_bodies;
-        std::vector<CondMoveBranch> arm_branches;
-        std::vector<size_t> arm_slot;   // index into smatch.arms per entry
-        // logos-core 2.7: definite-assignment merge across match arms — same
-        // shape as if/else (union over non-diverging arms; diverging arms
-        // contribute nothing). All arms see the same pre-state.
-        auto pre_uninit = currently_uninit_vars_;
-        std::set<std::string> post_uninit;
-        bool post_uninit_initialized = false;
-        bool any_non_diverging = false;
-        // P4-pm-25: fan out or-pattern arms whose alternatives have
-        // differing variant discriminants. The existing PatOr mlir-gen
-        // extracts payload from alt[0] only, which is wrong for
-        // mixed-shape alts (e.g. `Pass::Opaque {with: true, ..} |
-        // Pass::Transparent`). Fan-out lets each alt go through the
-        // normal single-arm path with its own refutable-inner guard
-        // and payload extraction. Scalar-only or-patterns (`1 | 2 | 3`)
-        // and same-variant-with-bindings or-patterns stay merged.
+        // P4-pm-25: fan out or-pattern arms whose alternatives are not pure
+        // scalar literals that bind nothing (PAT_INT / PAT_BOOL / PAT_CHAR):
+        // each alternative goes through the single-arm path with its own
+        // payload extraction and refutable-inner guard. B170-E: a variant whose
+        // SINGLE payload arg is a multi-alt PAT_OR (`Some((a,_) | (_,a))`) fans
+        // out one arm per alternative (`Some(P|Q)` → `Some(P) | Some(Q)`); each
+        // fanned arm re-evaluates the guard with its own bindings. (S3.3b
+        // retires the fan-out: the tester binds or-pattern alternatives.)
         struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; int32_t at_alt = -1; };
-        // An or-pattern alternative is "merge-safe" only if it is a pure
-        // scalar literal that binds nothing (PAT_INT / PAT_BOOL / PAT_CHAR).
-        // The merged PatOr codegen treats each alt as a scalar discriminant
-        // and extracts payload from alt[0] only — so anything that binds a
-        // variable (tuple `(1,a)|(2,a)`, struct, variant payload, named
-        // wildcard) or has a non-scalar/refutable shape (range, slice) must
-        // be fanned out into one arm per alternative so each alt goes through
-        // the normal single-arm path with its own payload extraction and
-        // refutable-inner guard.
         auto alt_is_merge_safe = [](int32_t c) -> bool {
             return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
         };
         auto or_needs_fanout = [&](writ::TinyMapView lhs) -> bool {
-            if (code_of(lhs) != la::PAT_OR) return false;
-            if (!lhs.has_key(la::ITEMS)) return false;
+            if (code_of(lhs) != la::PAT_OR || !lhs.has_key(la::ITEMS)) return false;
             auto a = arr_of(lhs.get(la::ITEMS.code));
             if (a.size() < 2) return false;
             for (uint64_t k = 0; k < a.size(); ++k)
                 if (!alt_is_merge_safe(code_of(map_of(a.get(k))))) return true;
             return false;
         };
-        // B170-E: a variant whose SINGLE payload arg is a multi-alt PAT_OR
-        // (`Some((a,_) | (_,a))`) fans out one arm per alternative — i.e.
-        // or-distribution `Some(P|Q)` → `Some(P) | Some(Q)`. Each fanned arm
-        // re-evaluates the guard with its own bindings (Rust backtracks alts
-        // under a failing guard). Returns the alt count (≥2) or 0. Restricted to
-        // a single payload arg (the realistic class); a multi-arg variant with
-        // ors in several positions would need a cartesian product — out of
-        // scope, left to the merged path / a clean reject downstream.
         auto variant_payload_or_alts = [&](writ::TinyMapView lhs) -> int {
-            // The grammar wraps a whole arm pattern in a single-alt PAT_OR
-            // (`pat_single (PIPE …)*`); unwrap it to reach the variant.
+            // The grammar wraps a whole arm pattern in a single-alt PAT_OR.
             if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
                 auto a = arr_of(lhs.get(la::ITEMS.code));
                 if (a.size() == 1) lhs = map_of(a.get(0));
             }
-            if (code_of(lhs) != la::PAT_VARIANT_DATA) return 0;
-            if (!lhs.has_key(la::ARGS)) return 0;
+            if (code_of(lhs) != la::PAT_VARIANT_DATA || !lhs.has_key(la::ARGS)) return 0;
             AnyVal aav = lhs.get(la::ARGS.code);
             if (aav.is_null() || !aav.is_pointer()) return 0;
             auto blist = map_of(aav);
@@ -12013,872 +11918,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             auto arg = map_of(items.get(0));
             if (code_of(arg) != la::PAT_OR || !arg.has_key(la::ITEMS)) return 0;
             auto alts = arr_of(arg.get(la::ITEMS.code));
-            // Only fan out when an alternative binds / is non-scalar — a pure
-            // scalar or (`Some(1|2)`) is handled by the refutable-inner guard.
-            bool needs = false;
-            for (uint64_t k = 0; k < alts.size(); ++k)
-                if (!alt_is_merge_safe(code_of(map_of(alts.get(k))))) { needs = true; break; }
-            return (alts.size() >= 2 && needs) ? (int)alts.size() : 0;
-        };
-        std::vector<EffArm> eff_arms;
-        for (uint64_t i = 0; i < arms.size(); ++i) {
-            auto arm = map_of(arms.get(i));
-            if (code_of(arm) != la::MATCH_ARM) {
-                eff_arms.push_back({arm, -1});
-                continue;
-            }
-            if (arm.has_key(la::LHS)) {
-                auto lhs = map_of(arm.get(la::LHS.code));
-                // T1-8 (E0408): top-level `A | B =>` arm alternations must
-                // bind the same names in every alternative.
-                if (code_of(lhs) == la::PAT_OR)
-                    check_or_alt_binding_consistency(lhs);
-                if (or_needs_fanout(lhs)) {
-                    logos::probe::census("s3.fanout.top");
-                    auto a = arr_of(lhs.get(la::ITEMS.code));
-                    for (uint64_t k = 0; k < a.size(); ++k)
-                        eff_arms.push_back({arm, (int32_t)k});
-                    continue;
-                }
-                if (int n = variant_payload_or_alts(lhs); n > 0) {
-                    logos::probe::census("s3.fanout.payload");
-                    for (int k = 0; k < n; ++k)
-                        eff_arms.push_back({arm, -1, k});
-                    continue;
-                }
-                if (int n = at_or_fanout_alts(lhs); n > 0) {
-                    logos::probe::census("s3.fanout.at");
-                    for (int k = 0; k < n; ++k)
-                        eff_arms.push_back({arm, -1, -1, k});
-                    continue;
-                }
-            }
-            eff_arms.push_back({arm, -1});
-        }
-        auto effective_lhs = [&](writ::TinyMapView arm, int32_t alt_idx) {
-            if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
-            auto lhs = map_of(arm.get(la::LHS.code));
-            return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
-        };
-        (void)effective_lhs;
-        for (uint64_t i = 0; i < eff_arms.size(); ++i) {
-            auto arm = eff_arms[i].arm;
-            int32_t alt_idx = eff_arms[i].alt_idx;
-            if (code_of(arm) != la::MATCH_ARM) continue;
-
-            // Reset moves to pre-match state at each arm boundary.
-            moved_vars_ = pre_moves;
-            closure_owned_drop_ = owned_pre_m;
-            size_t arm_clear_mark = flag_clear_log_.size();   // #118
-            // logos-core 2.7: reset definite-assignment state too — each arm
-            // sees the same scrutinee-side pre-state.
-            currently_uninit_vars_ = pre_uninit;
-
-            // Synthesize guard for Writ patterns (scalar + structural).
-            lir::LExprPtr synth_guard = nullptr;
-            std::vector<lir_view::StmtRef> body_prologue;
-            std::vector<WritPatBinding> body_binds;
-            if (has_writ_pat && arm.has_key(la::LHS)) {
-                std::vector<lir_view::StmtRef> g_stmts;
-                std::vector<WritPatBinding> g_binds;
-                auto raw = build_writ_pat_guard(
-                    effective_lhs(arm, alt_idx), root_var, anyval_t, base_var,
-                    g_stmts, g_binds);
-                if (!g_stmts.empty() && raw) {
-                    std::vector<lir_view::StmtRef> blk;
-                    blk = std::move(g_stmts);
-                    synth_guard = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(raw), bool_t());
-                } else {
-                    synth_guard = std::move(raw);
-                }
-                // Re-run pattern lowering to produce parallel stmts/bindings
-                // for body scope. Locals get fresh tmp_var_count_ names; the
-                // bindings' av_var refers to those new names, consistent with
-                // body_prologue.
-                if (!g_binds.empty()) {
-                    (void)build_writ_pat_guard(
-                        effective_lhs(arm, alt_idx), root_var, anyval_t,
-                        base_var, body_prologue, body_binds);
-                }
-            }
-
-            // Build pattern. P4-pm-02: wire side channel so that
-            // nested struct/tuple sub-patterns inside variant payload
-            // register synth payload bindings + body-prologue lets.
-            // Spec rule pat.writ.match-only: a Writ scalar pattern is legal in
-            // a WRITTEN `match` arm only (the let forms carry PAT on the node),
-            // so build_pattern refuses it there with the rule's own sentence.
-            // The mechanism no longer needs the rule — the let form IS this
-            // match — lifting it is a spec decision (tests/spec pat_diag_2).
-            in_match_writ_ctx_ = has_writ_pat && !node.has_key(la::PAT);
-            std::vector<NestedPatSub> nested_subs;
-            auto* saved_pat_subs = current_pat_nested_subs_;
-            current_pat_nested_subs_ = &nested_subs;
-            logos::compiler::StrSet mut_names;
-            auto* saved_pat_muts = current_pat_mut_names_;
-            current_pat_mut_names_ = &mut_names;
-            // P4-pm-01: capture refutable inner-pattern guards (variant
-            // payload like `E::V { f: 1 }` or `Option::Some(1)`).
-            std::vector<lir::LExprPtr> refut_guards;
-            auto* saved_pat_refut = current_pat_refutable_guards_;
-            current_pat_refutable_guards_ = &refut_guards;
-            // B170-E: select this fanned arm's payload-or alternative.
-            int32_t saved_payload_or_alt = payload_or_alt_;
-            payload_or_alt_ = eff_arms[i].payload_alt;
-            int32_t saved_at_or_alt = at_or_alt_;
-            at_or_alt_ = eff_arms[i].at_alt;
-            lir::Pattern pat = arm.has_key(la::LHS)
-                ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
-                : make_pat_wild("_");
-            payload_or_alt_ = saved_payload_or_alt;
-            at_or_alt_ = saved_at_or_alt;
-            current_pat_nested_subs_ = saved_pat_subs;
-            current_pat_refutable_guards_ = saved_pat_refut;
-            in_match_writ_ctx_ = false;
-
-            // Build body block — push pattern bindings into scope
-            push_scope();
-            // ── E0507 AT THE MATCH ARM ──────────────────────────────────
-            // `is_unowned_move_source` is the one predicate for "this place
-            // does not own what it yields". It was consulted at four VALUE
-            // positions and at NONE of the four `bind_pattern` sites, because
-            // `bind_pattern` receives the scrutinee's TYPE and never its
-            // EXPRESSION — so `match *r { E::A(d) => … }` moved a payload out
-            // from behind a reference and nothing asked.
-            //
-            // THE SCRUTINEE HALF ALONE OVER-REFUSES. Asking only "is the
-            // scrutinee an unowned move source" refuses `E::A(ref d)` and
-            // `E::A(ref mut y)`, which move nothing; measured, that half costs
-            // two legal programs for the same three rows. The discriminator is
-            // the ARM'S BINDING MODE, a fact the LIR already carries
-            // (`pat_keys::BINDING_REF_MODES`, minted where the `ref` keyword
-            // and the default-binding-mode decision both live), so the question
-            // is answered by reading rather than by recomputing.
-            //
-            // ⚠ DELIBERATELY SILENT ON FOUR PATTERN KINDS — see the `default:`
-            // arm below. Modes 3/4 (default binding mode) cannot co-occur here
-            // by construction: such a binding exists only under a REFERENCE
-            // scrutinee, and the outer gate requires `is_move_type(scrut_type)`,
-            // which a reference is not.
-            // ⚠ AN INDEX SCRUTINEE IS SOMEBODY ELSE'S QUESTION ALREADY.
-            // `is_unowned_move_source` answers "deref OR index"; for the index
-            // half a reader already emits "cannot move out of type `[W; 1]`, a
-            // non-copy array" / "… `&[W]`, a non-copy slice" AT THE SAME LINE,
-            // so claiming it here adds a SECOND diagnostic for one defect and no
-            // verdict. MEASURED over the whole 2195-program borrow corpus: with
-            // the index half in, exactly one already-red program
-            // (`bc_match_slice_elem_moved`) gained a duplicate line and nothing
-            // else moved. None of the rows this closes is an index scrutinee —
-            // they are `match *f {…}` and `match a.a {…}` — so the exclusion
-            // costs nothing and removes the only overlap.
-            auto scrut_is_index = [&]() {
-                auto r = expr_ref_of(smatch.scrut);
-                if (!r) return false;
-                using SC = lir_schema::expr::Code;
-                return r.kind() == SC::IndexRead || r.kind() == SC::SliceIndex;
-            };
-            if (is_move_type(scrut_type) &&
-                is_unowned_move_source(smatch.scrut) && !scrut_is_index()) {
-                namespace ps2 = lir_schema::pat;
-                const auto* tpool = cur_prog_->type_pool.impl();
-                // Returns TRUE and fills `out` with the BINDING'S OWN NAME —
-                // a diagnostic that says '?' where a name belongs is not
-                // finished, and the name is the only part of this the reader
-                // can act on.
-                // `wild_trusted` — MAY a named Wild at this position be read as
-                // a by-value binding? At the arm's ROOT, yes: `match a.a { ref n
-                // => … }` lowers to PatRefBind, so a Wild there really did carry
-                // no `ref`. UNDER A TUPLE, no: build_pattern's PAT_WILD
-                // tuple-element arm rebuilds `ref a` as a bare named Wild and
-                // the keyword is gone (MEASURED: `(ref a, b)` walks Tuple → Wild
-                // name='a', with nothing to distinguish it from `(a, b)`).
-                auto byval_name = [&](auto&& self, lir_view::PatRef pr,
-                                      std::string& out,
-                                      bool wild_trusted) -> bool {
-                    if (!pr) return false;
-                    switch (pr.kind()) {
-                        case ps2::Code::Wild: {
-                            if (!wild_trusted) return false;
-                            auto n = lir_view::PatWildView{pr}.name();
-                            if (n.empty() || n == "_") return false;
-                            out = std::string(n);
-                            return true;
-                        }
-                        case ps2::Code::VariantData: {
-                            lir_view::PatVariantDataView v{pr};
-                            std::vector<std::string> ns;
-                            std::vector<TypeRef> tys;
-                            v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
-                            v.each_binding_type(tpool, [&](TypeRef ty){ tys.push_back(ty); });
-                            // Mode 0 = by value; 1/2 = `ref` / `ref mut`, which
-                            // move nothing and are the two legal casualties the
-                            // scrutinee-only form refused.
-                            // ⚠ AN EMPTY MODE VECTOR MEANS "ALL BY VALUE", NOT
-                            // "UNKNOWN", and that is MEASURED rather than
-                            // assumed: `E::A(d)` walks here with modes=0 and
-                            // `E::A(ref d)` with modes=1, so the vector is
-                            // minted only where a mode is actually spelled.
-                            // Reading absence as no-claim silenced all three
-                            // rows; reading it as mode 0 is what the minting
-                            // site means.
-                            auto ms = v.bind_ref_modes();
-                            for (size_t i = 0; i < ns.size(); ++i) {
-                                uint32_t m = i < ms.size() ? ms[i] : 0u;
-                                TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
-                                if (m == 0 && ns[i] != "_" && bt && is_move_type(bt)) {
-                                    out = ns[i];
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }
-                        case ps2::Code::Tuple: {
-                            // ⚠ NO CLAIM ABOUT THIS NODE'S OWN BINDINGS, and it
-                            // is the tree that forbids it rather than caution:
-                            // build_pattern's PAT_WILD tuple-element arm pushes
-                            // the bare NAME and a `make_pat_wild`, DROPPING
-                            // IS_REF — so `(ref a, b)` arrives here spelled
-                            // exactly like `(a, b)` and no mode survives to
-                            // read. Claiming by-value from the name alone
-                            // refuses `match *r { (ref a, b) => … }`, a legal
-                            // program, MEASURED as rc=1 before this arm went
-                            // silent. `each_pat_binding_place`'s tuple arm
-                            // records the identical silence for the same reason.
-                            // Recovering it is a sema repair one door over (the
-                            // dropped keyword), with a row of its own.
-                            bool any = false;
-                            lir_view::PatTupleView{pr}.each_sub(
-                                [&](lir_view::PatRef sp){
-                                    if (!any && self(self, sp, out, false))
-                                        any = true; });
-                            return any;
-                        }
-                        case ps2::Code::Or: {
-                            bool any = false;
-                            lir_view::PatOrView{pr}.each_alt([&](lir_view::PatRef a){
-                                if (!any && self(self, a, out, wild_trusted))
-                                    any = true; });
-                            return any;
-                        }
-                        case ps2::Code::At: {
-                            // ⚠ SAME SILENCE, SAME REASON. `PatAt` carries
-                            // {name, sub, type, bind_slot} and NO mode field at
-                            // all, so `ref b @ E::B` and `b @ E::B` are the same
-                            // node here. Claiming by-value refuses the first,
-                            // which is legal — MEASURED as rc=1 before this arm
-                            // went silent. Only the SUB-pattern, whose own node
-                            // may carry a mode, is walked.
-                            return self(self, lir_view::PatAtView{pr}.sub(), out,
-                                        wild_trusted);
-                        }
-                        default:
-                            // RefBind / RefPat / Struct / Slice: NO by-value
-                            // move claim is made here. RefBind/RefPat are
-                            // by-reference by construction (`match a.a { ref n
-                            // => … }` lowers to RefBind, not to a named Wild,
-                            // and is admitted). Struct and Slice are silent
-                            // because their binding TYPES are not reachable at
-                            // this position at all — that is the null-type hole
-                            // `each_pat_binding_place`'s struct arm repairs one
-                            // door over, and its array arm still has open (B-5).
-                            // Each is a row of its own; claiming them from here
-                            // would be inventing a fact.
-                            //
-                            // ⚠ ONLY TWO NODE KINDS MAKE A CLAIM AT ALL —
-                            // VariantData (which carries BINDING_REF_MODES) and
-                            // a named Wild (by value by construction). That is
-                            // strictly narrower than the probe this landed from,
-                            // and the narrowing was bought with two legal
-                            // programs the corpus does not contain.
-                            return false;
-                    }
-                };
-                if (std::string bn;
-                    byval_name(byval_name, pat_ref_of(pat), bn, /*wild_trusted=*/true))
-                    error(std::format(
-                        "cannot move out of a value behind a reference / out of "
-                        "an index (E0507): the match arm binds '{}' by value",
-                        bn));
-            }
-            bind_pattern(pat, scrut_type);
-            current_pat_mut_names_ = saved_pat_muts;
-            // Register Writ @-pattern bindings in scope (visible in body + guard).
-            for (const auto& b : body_binds) {
-                define(b.name, anyval_t, /*is_mut=*/false);
-            }
-            // P4-pm-02: for each nested struct sub-pat, emit field-by-
-            // field SLet stmts that destructure the synth payload slot.
-            // Factored into a lambda so a GUARDED arm can get a SECOND,
-            // independent copy for the guard (B170-D/E): the body keeps its
-            // own copy and a guard block-expr gets a fresh one — a single
-            // shared/leaked copy is unreliable because the block-expr's
-            // shadow-restore reverts a binding already in scope from a sibling
-            // fanned or-arm.
-            auto build_nested_destructure =
-                [&](std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
-                emit_nested_pat_destructure(nested_subs, nested_destructure_stmts, for_guard);
-            };
-            std::vector<lir_view::StmtRef> nested_destructure_stmts;
-            build_nested_destructure(nested_destructure_stmts, /*for_guard=*/false);
-            bool arm_has_user_guard = arm.has_key(la::GUARD);
-
-            // Optional guard: `pattern if expr =>`
-            std::optional<lir::LExprPtr> guard;
-            if (arm.has_key(la::GUARD)) {
-                // A MATCH GUARD IS A CONDITIONALLY EVALUATED EXPRESSION, and a
-                // move inside it had no merge at all. `x if eatF(a) => …` with
-                // a FAILING guard destroyed `a` inside the callee and then the
-                // frame destroyed it again at scope exit: 1 value, 2 destructor
-                // calls, `free(): double free detected in tcache 2`, rc 134 —
-                // the only ABORTING direction in this whole sweep, and nothing
-                // in the corpus could see it (every in-tree guard is Copy).
-                // The union merge cannot help: the arm was not taken, so the
-                // next arm restarts from `pre_moves` and the guard's move is
-                // forgotten. The two paths are "the guard RAN (and moved)" and
-                // "the guard never ran", which is exactly a conditional move —
-                // give it the #118 flag, cleared inside the guard's own value.
-                auto guard_pre = moved_vars_;
-                auto g = lower_expr(map_of(arm.get(la::GUARD.code)));
-                if (TypeRef(expr_type(g)).kind() != LogosType::Kind::Bool &&
-                    TypeRef(expr_type(g)).kind() != LogosType::Kind::Error)
-                    error("match guard must be bool");
-                guard = std::move(g);
-                if (moved_vars_ != guard_pre) {
-                    size_t gm = flag_clear_log_.size();
-                    std::vector<CondMoveBranch> gb;
-                    gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
-                    gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
-                    elaborate_cond_moves(guard_pre, gb);
-                }
-                // ⚠ THE STATEMENT `match` DOES NOT GET THE GUARD-MOVE UNION
-                // THE EXPRESSION SPELLING GETS, AND THAT IS RULE 14, MEASURED.
-                // Unioning the guard's moves into `pre_moves` here makes SEMA
-                // answer a question the BORROW CHECKER already answers at
-                // every statement-`match` spelling in the corpus, and answers
-                // BETTER: borrow_check.cpp reports "use of moved value 'x'
-                // (moved on line 11)" where sema_expr.cpp:824 reports only
-                // "use of moved variable 'x'". Armed, sema fires first and the
-                // move line is lost. Priced 2026-08-30: ZERO ledger rows
-                // bought (the probe fired once over 324 and closed nothing),
-                // FIVE diagnostics regressed — borrowck-drop-from-guard,
-                // move-guard-same-consts, move-in-guard-1, move-in-guard-2,
-                // match-cfg-fake-edges--d-guard-may-be-taken. The expression
-                // spelling lands because there the borrow checker answers
-                // NOTHING (use-moved-value-in-match-guard-drop).
-                // ⚠ `-L bc -L pass` COULD NOT SEE THIS COST: fail fixtures are
-                // not in the legal selection, so ceiling-probe priced it 0.
-            }
-            // Merge synthesized Writ guard with user guard.  Put the
-            // synth guard FIRST so `&&` short-circuits on type-mismatch
-            // (matches Rust semantics: guard only runs when the pattern
-            // matches, preventing stray side effects from user guards).
-            if (synth_guard) {
-                if (guard) {
-                    auto merged = builder().bin_op("&&", std::move(synth_guard), std::move(*guard), bool_t());
-                    guard = std::move(merged);
-                } else {
-                    guard = std::move(synth_guard);
-                }
-            }
-            // P4-pm-01: AND in refutable-inner guards (variant payload
-            // literal predicates collected during build_pattern). Order
-            // doesn't matter for correctness — they read fresh
-            // pattern-bound names, never side-effect.
-            for (auto& rg : refut_guards) {
-                if (!rg) continue;
-                if (guard) {
-                    auto merged = builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t());
-                    guard = std::move(merged);
-                } else {
-                    guard = std::move(rg);
-                }
-            }
-            // B170-D/E guards: a guarded arm with nested-payload destructure
-            // lets (`Some((a, b)) if a > 0`, or-distributed `Some((a,_)|(_,a))
-            // if a > 10`) must compute those bindings BEFORE the guard runs —
-            // gen_match evaluates the guard in a block that precedes the body,
-            // so a guard reading `a` would otherwise hit an undefined value
-            // (compiler crash). Wrap the guard in a block-expr that runs the
-            // destructure first; the bindings are fresh names, so the block-expr
-            // leaks them into scope for the body too (the body prologue prepend
-            // below then sees an empty list).
-            if (guard && arm_has_user_guard) {
-                // Build the SAFE (unconditional field/element) destructure for
-                // the guard — never the refutable nested-variant let-else.
-                std::vector<lir_view::StmtRef> guard_destructure;
-                build_nested_destructure(guard_destructure, /*for_guard=*/true);
-                if (!guard_destructure.empty()) {
-                    std::vector<lir_view::StmtRef> gblk;
-                    gblk = std::move(guard_destructure);
-                    TypeRef gt = expr_type(*guard);
-                    guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk), std::move(*guard), gt);
-                }
-            }
-
-            // This arm OWNS what its pattern binds by value — on THIS arm's
-            // path only (the arm is one CondMoveBranch; an arm that binds
-            // nothing leaves the scrutinee a flagged drop). After the guard,
-            // which may still read the scrutinee.
-            {
-                namespace ps_ = lir_schema::pat;
-                auto pr_ = pat_ref_of(pat);
-                bool exact_ = false;
-                if (pr_ && pr_.kind() == ps_::Code::VariantData) {
-                    int64_t d_ = lir_view::PatVariantDataView{pr_}.disc();
-                    // Exact = every value of this variant takes this arm. A
-                    // refutable payload sub-pattern (`Some((a, 1))`), or ANY guard
-                    // — the user's or a synthesized refutable-inner one (`Some(w
-                    // @ (_, 1))`) — lets some of them fall through: its moves are
-                    // this path's only. (The user guard alone was asked: the
-                    // synthesized ones made the payload moved for every `Some`.)
-                    bool subs_irrefutable_ = true;
-                    for (auto sp_ : lir_view::PatVariantDataView{pr_}.subs())
-                        if (sp_ && !lir_view::is_irrefutable_pattern(sp_)) subs_irrefutable_ = false;
-                    exact_ = !arm_has_user_guard && !guard.has_value() && !earlier_any &&
-                             !earlier_discs.count(d_) && subs_irrefutable_;
-                }
-                if (arm.has_key(la::LHS))
-                    mark_match_scrutinee_moved(smatch.scrut, scrut_type, pr_, exact_);
-                if (pr_ && pr_.kind() == ps_::Code::VariantData)
-                    earlier_discs.insert(lir_view::PatVariantDataView{pr_}.disc());
-                else if (pr_ && pr_.kind() == ps_::Code::Variant)
-                    earlier_discs.insert(lir_view::PatVariantView{pr_}.disc());
-                else earlier_any = true;
-            }
-
-            std::vector<lir_view::StmtRef> body;
-            if (arm.has_key(la::BODY)) {
-                auto body_node = map_of(arm.get(la::BODY.code));
-                if (code_of(body_node) == la::BLOCK) {
-                    lower_block(body_node).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
-                } else {
-                    push_stmt_with_unwind(body, lower_stmt(body_node));  // #122
-                }
-            } else if (arm.has_key(la::EXPR)) {
-                auto val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)));
-                if (tail_match_nodes_.count(node.ptr())) {
-                    // Tail-position match: an EXPR arm IS the function's return
-                    // value — the one return judgment (ADR 0030 S2), moves
-                    // included (a bare SReturn left the moved binding to be
-                    // dropped at the arm's scope exit as well), with the one
-                    // return unwind: every live local of every frame drops
-                    // before it. Pushed bare, the arm's bindings and the
-                    // function's locals and parameters were never dropped.
-                    push_stmt_with_unwind(body, finish_return_(std::move(val), map_of(arm.get(la::EXPR.code)),
-                                                               /*bind_temps=*/false));
-                } else {
-                    // Statement-position match: EXPR arms are evaluated for side effects.
-                    lir::SExprStmt es; es.expr = std::move(val);
-                    body.push_back(make_stmt_emit(node_line_, std::move(es)));
-                }
-            }
-            // P4-pm-02: prepend nested-pat destructure stmts so user
-            // body sees the sub-pat bindings.
-            if (!nested_destructure_stmts.empty()) {
-                std::vector<lir_view::StmtRef> merged = std::move(nested_destructure_stmts);
-                merged.insert(merged.end(),
-                              std::make_move_iterator(body.begin()),
-                              std::make_move_iterator(body.end()));
-                body = std::move(merged);
-            }
-            // Prepend Writ @-pattern prologue (helper __hp_N lets + user
-            // binding lets) to body so bindings are live inside the arm body.
-            if (!body_prologue.empty() || !body_binds.empty()) {
-                std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
-                for (const auto& b : body_binds) {
-                    lir::SLet sl;
-                    sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
-                    sl.value = builder().var_ref(b.av_var, anyval_t);
-                    prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                }
-                body.insert(body.begin(),
-                    std::make_move_iterator(prologue.begin()),
-                    std::make_move_iterator(prologue.end()));
-            }
-            // [[baghunt-match-arm-binding-no-drop]]: arm-scope
-            // pattern bindings (e.g. `Ok(g)` where g is a Drop-typed
-            // guard) need their Drop emitted before the arm exits.
-            // lower_block handles inner-scope vars and (via
-            // collect_all_drops) also drops arm-scope bindings before
-            // Return — but for natural fall-through, the arm scope is
-            // popped without emitting anything for the pattern
-            // bindings. Append drops here, but only when the body
-            // doesn't already end with Return (which already handled
-            // all-frame drops). Break/Continue paths are buggy in
-            // their own way (collect_drops vs collect_all_drops in
-            // lower_block) — not in scope here.
-            //
-            // For stmt-form match arms with a TAIL_EXPR (`{ s }`),
-            // the binding is being moved out as the body's last
-            // value — mark it moved first so collect_drops skips it.
-            // For tail-position match (tail_match_nodes_), the
-            // last stmt is already an SReturn whose unwind
-            // (push_stmt_with_unwind / lower_block) emitted
-            // collect_all_drops. So the mark-moved walk applies only
-            // to the non-return tail.
-            {
-                bool body_returns = false;
-                lir_view::StmtRef last_stmt_ref;
-                if (!body.empty()) {
-                    last_stmt_ref = stmt_ref_of(body.back());
-                    if (last_stmt_ref && last_stmt_ref.kind() == lir_schema::stmt::Code::Return)
-                        body_returns = true;
-                }
-                if (!body_returns) {
-                    // Walk the body's last stmt: if it's an ExprStmt
-                    // whose value moves a pattern binding, mark it.
-                    if (last_stmt_ref &&
-                        last_stmt_ref.kind() == lir_schema::stmt::Code::ExprStmt) {
-                        auto er = lir_view::SExprStmtView{last_stmt_ref}.expr();
-                        mark_moved_in_expr_recursive(er);
-                    }
-                    for (auto& d : collect_drops())
-                        body.push_back(std::move(d));
-                }
-            }
-            pop_scope();
-
-            // Detect divergence: arm body's last stmt is a terminator.
-            bool arm_diverges = false;
-            if (!body.empty()) {
-                auto br = stmt_ref_of(body.back());
-                if (br) {
-                    auto k = br.kind();
-                    arm_diverges = (k == lir_schema::stmt::Code::Return ||
-                                    k == lir_schema::stmt::Code::Break ||
-                                    k == lir_schema::stmt::Code::Continue);
-                }
-            }
-            if (!arm_diverges) {
-                any_non_diverging = true;
-                for (auto& m : moved_vars_) post_moves.insert(m);
-                // logos-core 2.7: union the arm's currently_uninit_vars_ into
-                // post_uninit so the post-match state is uninit-if-uninit-on-ANY-arm.
-                for (auto& v : currently_uninit_vars_) post_uninit.insert(v);
-                post_uninit_initialized = true;
-            }
-            // #118 — an arm that ends in `return` never reaches the enclosing
-            // frame's drops; one that ends in `break`/`continue` does, via the
-            // loop edge, so its moves still need a flag clear.
-            bool arm_returns = false;
-            if (!body.empty()) {
-                auto br2 = stmt_ref_of(body.back());
-                if (br2 && br2.kind() == lir_schema::stmt::Code::Return)
-                    arm_returns = true;
-            }
-            if (!arm_returns) {
-                arm_bodies.push_back(body);
-                arm_branches.push_back({nullptr, nullptr, moved_vars_,
-                                        arm_clear_mark, flag_clear_log_.size(), closure_owned_drop_});
-                arm_slot.push_back(smatch.arms.size());
-            }
-
-            smatch.arms.push_back({std::move(pat), lir_mirror_block(*cur_prog_, body), std::move(guard)});
-        }
-        // Merge per-arm contributions back into moved_vars_.
-        auto pre_moves_kept = pre_moves;   // #118: the ternary below moves from pre_moves
-        moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
-        currently_uninit_vars_ = (any_non_diverging && post_uninit_initialized)
-            ? std::move(post_uninit) : std::move(pre_uninit);
-        // #118 — arm the flags, then re-mirror only the arms that changed.
-        for (size_t i = 0; i < arm_branches.size(); ++i)
-            arm_branches[i].blk = &arm_bodies[i];
-        {
-            std::vector<size_t> sizes;
-            for (auto& b : arm_bodies) sizes.push_back(b.size());
-            // Variant-exact payload moves are moved on EVERY path (static).
-            for (size_t xi = exact_mark; xi < exact_variant_moves_.size(); ++xi) {
-                const std::string& xp = exact_variant_moves_[xi];
-                // Still moved at the end of the arm that moved it (an arm may re-initialise it).
-                bool live = false;
-                for (auto& b : arm_branches) if (b.moves.count(xp)) { live = true; break; }
-                if (!live) continue;
-                moved_vars_.insert(xp);
-                for (auto& b : arm_branches) b.moves.insert(xp);
-            }
-            exact_variant_moves_.resize(exact_mark);
-            elaborate_cond_moves(pre_moves_kept, arm_branches, &owned_pre_m);
-            for (size_t i = 0; i < arm_bodies.size(); ++i)
-                if (arm_bodies[i].size() != sizes[i])
-                    smatch.arms[arm_slot[i]].body =
-                        lir_mirror_block(*cur_prog_, arm_bodies[i]);
-        }
-    }
-    // Exhaustiveness: enum/bool scrutinee must cover all cases. K4: prove
-    // nested-enum-pattern exhaustiveness at the AST level (unguarded arms),
-    // since the desugar's synth guards defeat the LIR-level variant check.
-    bool ast_exh = false;
-    if (node.has_key(la::ITEMS)) {
-        std::vector<writ::TinyMapView> lhs_pats;
-        auto arms_l = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < arms_l.size(); ++i) {
-            auto arm = map_of(arms_l.get(i));
-            if (code_of(arm) != la::MATCH_ARM) continue;
-            if (arm.has_key(la::GUARD)) continue;      // user-guarded ≠ guaranteed
-            if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
-        }
-        bool decided = false;
-        ast_exh = check_exhaustive_(std::move(lhs_pats), scrut_type, decided);
-        // The LIR-level variant check is a backstop for a shape the matrix
-        // could not decide, never a second verdict.
-        check_match_exhaustiveness(smatch, scrut_type, ast_exh || decided);
-    } else {
-        check_match_exhaustiveness(smatch, scrut_type, ast_exh);
-    }
-
-    if (has_hoist_let) {
-        std::vector<lir_view::StmtRef> blk;
-        blk.push_back(std::move(hoist_let_view));
-        blk.push_back(std::move(hoist_let_root));
-        blk.push_back(std::move(hoist_let_base));
-        blk.push_back(make_stmt_emit(match_line, std::move(smatch)));
-        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true}));
-    }
-    return finalize(make_stmt_emit(match_line, std::move(smatch)));
-}
-
-lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
-    // An `if let` / let-chain in EXPRESSION position without `else` (the HIR
-    // pass records it in ORIGIN): every branch of a value must yield it.
-    if (node.has_key(la::ORIGIN)) {
-        AnyVal ov = node.get(la::ORIGIN.code);
-        const auto o = ov.is_value() ? static_cast<hir::Origin>(ov.as_value<int64_t>()) : hir::Origin::User;
-        if (o == hir::Origin::IfLetNoElse || o == hir::Origin::LetChainNoElse) {
-            error("if-let-as-expression requires an else branch");
-            return error_expr();
-        }
-    }
-    lir::LExprPtr scrut = nullptr;
-    TypeRef scrut_type = error_t();
-    if (node.has_key(la::VALUE)) {
-        // The EXPRESSION form of the same scrutinee — the statement form is in
-        // lower_match. Same question, same names.
-        auto _snode = map_of(node.get(la::VALUE.code));
-        if (code_of(_snode) == la::DEREF && _snode.has_key(la::VALUE)) {
-            (void)logos::probe::on("matchderefsite");
-            if (arms_bind_ref_mut(node) || logos::probe::on("matchderefmut"))
-                mut_place_ctx_ = true;
-        }
-        scrut = lower_expr(_snode);
-        mut_place_ctx_ = false;
-        scrut_type = expr_type(scrut);
-    } else { scrut = error_expr(); }
-    // `match *s { [ref a, ..] => … }` over `s: &[T]`: the scrutinee is the
-    // slice PLACE, not a reference to it, though `*s` keeps the fat type.
-    // The slice door's default binding mode reads this.
-    const TypeRef saved_spd_ = place_deref_scrut_type_;
-    place_deref_scrut_type_ = (node.has_key(la::VALUE) &&
-                               code_of(map_of(node.get(la::VALUE.code))) == la::DEREF)
-                              ? scrut_type : TypeRef(nullptr);
-    struct SpdRestore { TypeRef& r; TypeRef v; ~SpdRestore() { r = v; } } spd_restore_{place_deref_scrut_type_, saved_spd_};
-    // Drop a droppable TEMPORARY scrutinee (rvalue, not a place) of a match
-    // EXPRESSION — `let n = match make() { E::Txt(_) => 1 … }` otherwise leaks
-    // the temporary's payload. Mirror of lower_match's stmt hoist: bind the temp
-    // to a synth local, then (at the return) wrap in a block-expr that binds the
-    // match value, drops the temp unless an arm moved its payload, and yields
-    // the value. Concrete-only (see lower_match for the generic/Option<!> crash).
-    bool temp_scrut_hoisted = false;
-    std::string temp_scrut_var;
-    lir_view::StmtRef temp_scrut_let;
-    if (scrut && scrut_type && is_move_type(scrut_type)) {
-        namespace ec = lir_schema::expr;
-        // ⚠ WAS A FIVE-TERM LIST, WRITTEN OUT TWICE IN THIS FILE, BOTH MISSING
-        // SliceIndex — so `match slice[0]` over a Drop-bearing element was
-        // treated as a TEMPORARY, hoisted into a synth local, and destructured
-        // out of a value the backing array still owns. Two destructor calls for
-        // one value; the `&[W; 1]` twin refuses E0508. The property is "is a
-        // place", so say that and let one foundation answer.
-        bool is_place = lir_view::is_place_expr(expr_ref_of(scrut));
-        if (!is_place) {
-            // Scope-track the synth var so EVERY exit path drops it (fall-through
-            // via collect_drops in finalize_expr; an arm body's early return via
-            // collect_all_drops). See lower_match for the full rationale.
-            temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
-            push_scope();
-            define(temp_scrut_var, scrut_type);
-            lir::SLet sl;
-            sl.name = temp_scrut_var; sl.type = scrut_type; sl.is_mut = false;
-            sl.value = std::move(scrut);
-            temp_scrut_let = make_stmt_emit(node_line_, std::move(sl));
-            scrut = builder().var_ref(temp_scrut_var, scrut_type);
-            temp_scrut_hoisted = true;
-        }
-    }
-    // Wrap a match-expr whose scrutinee was a hoisted temporary in a block-expr.
-    // Value result: `{ let __ms; let __mr = <match __ms{…}>; <fall-through drop
-    // __ms>; __mr }` — the value is bound first so __ms drops AFTER it is read,
-    // and a returning arm dropped __ms already (collect_all_drops), so it never
-    // reaches the fall-through drop. void/never/error result (rare — a match-expr
-    // whose arms all diverge): `{ let __ms; <match> }`, the arm-return drop is the
-    // only live path. collect_drops yields the fall-through __ms drop (empty if an
-    // arm moved it); pop_scope balances the push.
-    auto finalize_expr = [&](lir::LExprPtr me, TypeRef rty) -> lir::LExprPtr {
-        if (!temp_scrut_hoisted) return me;
-        auto ft_drops = collect_drops();
-        pop_scope();
-        std::vector<lir_view::StmtRef> blk;
-        blk.push_back(std::move(temp_scrut_let));
-        bool valueful = rty && TypeRef(rty).kind() != LogosType::Kind::Void &&
-                        TypeRef(rty).kind() != LogosType::Kind::Never &&
-                        TypeRef(rty).kind() != LogosType::Kind::Error;
-        if (!valueful) {
-            // No value to thread; the match is the block result (diverges if
-            // never). __ms is dropped by the returning arm's collect_all_drops.
-            return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me), rty);
-        }
-        std::string res_var = "__match_res_" + std::to_string(tmp_var_count_++);
-        {
-            lir::SLet sl;
-            sl.name = res_var; sl.type = rty; sl.is_mut = false;
-            sl.value = std::move(me);
-            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-        for (auto& d : ft_drops) blk.push_back(std::move(d));
-        return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
-                                    builder().var_ref(res_var, rty), rty);
-    };
-    // G156-2: a match-EXPRESSION that binds+moves a payload out of a by-value
-    // move-type enum/struct/tuple scrutinee (`let x = match body { Ok(s) => s }`)
-    // marks the scrutinee moved inside each binding arm (see the arm loop) so
-    // its scope-exit Drop doesn't double-free a value the result already owns.
-    // (Was: lforge read_manifest / graph_cas double-free.)
-
-    // Sprint 5.2: arm-after-catchall lint (closes B-pt-07, expr position).
-    // Not for a desugared `if let` (PAT on the node) — see lower_match.
-    if (node.has_key(la::ITEMS) && !node.has_key(la::PAT)) {
-        auto arms_l = arr_of(node.get(la::ITEMS.code));
-        bool seen_catchall = false;
-        for (uint64_t i = 0; i < arms_l.size(); ++i) {
-            auto arm = map_of(arms_l.get(i));
-            if (code_of(arm) != la::MATCH_ARM) continue;
-            if (seen_catchall) {
-                // rustc: a warning (`unreachable pattern`), not an error.
-                warn("unreachable pattern: a previous '_' arm matches all values");
-                break;
-            }
-            if (is_catchall_pat(arm)) seen_catchall = true;
-        }
-    }
-
-    // Writ scalar pattern hoisting (symmetric to lower_match).
-    auto is_writ_pc = [](int32_t pc) {
-        return pc == la::PAT_WRIT_NULL || pc == la::PAT_WRIT_BOOL ||
-               pc == la::PAT_WRIT_INT  || pc == la::PAT_WRIT_STR  ||
-               pc == la::PAT_WRIT_MAP  || pc == la::PAT_WRIT_ARR  ||
-               pc == la::PAT_WRIT_TYPED_ARR || pc == la::PAT_WRIT_TYPED_MAP;
-    };
-    auto pat_has_writ = [&](TinyMapView p) -> bool {
-        if (is_writ_pc(code_of(p))) return true;
-        if (code_of(p) == la::PAT_OR && p.has_key(la::ITEMS)) {
-            auto arr = arr_of(p.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < arr.size(); ++i)
-                if (is_writ_pc(code_of(map_of(arr.get(i))))) return true;
-        }
-        return false;
-    };
-    bool has_writ_pat = false;
-    if (node.has_key(la::ITEMS)) {
-        auto arms = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < arms.size(); ++i) {
-            auto arm = map_of(arms.get(i));
-            if (code_of(arm) != la::MATCH_ARM) continue;
-            if (!arm.has_key(la::LHS)) continue;
-            if (pat_has_writ(map_of(arm.get(la::LHS.code)))) {
-                has_writ_pat = true; break;
-            }
-        }
-    }
-    // Symmetric to lower_match: hoist view + root AnyVal + base ptr.
-    std::string root_var;
-    std::string base_var;
-    lir_view::StmtRef hoist_let_view;
-    lir_view::StmtRef hoist_let_root;
-    lir_view::StmtRef hoist_let_base;
-    bool has_hoist_let = false;
-    TypeRef anyval_t = nullptr;
-    if (has_writ_pat) {
-        if (!writ_view_inner(scrut_type)) {
-            error(std::format(
-                "match with Writ patterns requires a view scrutinee "
-                "(Writ, WritView, or WritStatic; use & to borrow); "
-                "got {}", type_str(scrut_type)));
-        }
-        std::string view_var = "__hmatche_view_" + std::to_string(tmp_var_count_++);
-        {
-            lir::SLet sl;
-            sl.name = view_var; sl.type = scrut_type; sl.is_mut = false;
-            sl.value = std::move(scrut);
-            hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
-        }
-        anyval_t = make_synth_datatype("AnyVal");
-        root_var = "__hmatche_root_" + std::to_string(tmp_var_count_++);
-        {
-            auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto root_call = builder().method_call(std::move(view_ref), "root", "", {}, {}, -1, anyval_t);
-            lir::SLet sl;
-            sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
-            sl.value = std::move(root_call);
-            hoist_let_root = make_stmt_emit(node_line_, std::move(sl));
-        }
-        base_var = "__hmatche_base_" + std::to_string(tmp_var_count_++);
-        {
-            // writ: no base is threaded (WAny is self-relative); keep a dead
-            // zero anchor so the hoist block shape is unchanged.
-            lir::SLet sl;
-            sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;
-            sl.value = builder().lit_int(0, prim(LogosType::Kind::I64));
-            hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
-        }
-        has_hoist_let = true;
-        scrut = builder().var_ref(view_var, scrut_type);
-    }
-
-
-    lir::EMatchExpr me;
-    me.scrut = std::move(scrut);
-    TypeRef result_type = error_t();
-
-    if (node.has_key(la::ITEMS)) {
-        auto arms = arr_of(node.get(la::ITEMS.code));
-        // Or-pattern fan-out (symmetric to lower_match). An or-pattern arm
-        // whose alternatives bind variables or have non-scalar/refutable
-        // shapes (`(1,a)|(2,a)`, variant payloads, etc.) is expanded into one
-        // synthetic arm per alternative so each goes through the normal
-        // single-arm path with its own payload extraction. Pure scalar-literal
-        // or-patterns (`1|2|3`) stay merged. Without this, the merged tuple/
-        // variant codegen mishandled bindings — e.g. dispatched on the
-        // scrutinee pointer (`arith.cmpi ptr, 0`).
-        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; int32_t at_alt = -1; };
-        auto alt_is_merge_safe = [](int32_t c) -> bool {
-            return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
-        };
-        auto or_needs_fanout = [&](writ::TinyMapView lhs) -> bool {
-            if (code_of(lhs) != la::PAT_OR) return false;
-            if (!lhs.has_key(la::ITEMS)) return false;
-            auto a = arr_of(lhs.get(la::ITEMS.code));
-            if (a.size() < 2) return false;
-            for (uint64_t k = 0; k < a.size(); ++k)
-                if (!alt_is_merge_safe(code_of(map_of(a.get(k))))) return true;
-            return false;
-        };
-        // B170-E: variant whose single payload arg is a multi-alt PAT_OR — see
-        // the lower_match twin for the rationale (or-distribution fan-out).
-        auto variant_payload_or_alts = [&](writ::TinyMapView lhs) -> int {
-            if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
-                auto a = arr_of(lhs.get(la::ITEMS.code));
-                if (a.size() == 1) lhs = map_of(a.get(0));
-            }
-            if (code_of(lhs) != la::PAT_VARIANT_DATA) return 0;
-            if (!lhs.has_key(la::ARGS)) return 0;
-            AnyVal aav = lhs.get(la::ARGS.code);
-            if (aav.is_null() || !aav.is_pointer()) return 0;
-            auto blist = map_of(aav);
-            if (!blist.has_key(la::ITEMS)) return 0;
-            auto items = arr_of(blist.get(la::ITEMS.code));
-            if (items.size() != 1) return 0;
-            auto arg = map_of(items.get(0));
-            if (code_of(arg) != la::PAT_OR || !arg.has_key(la::ITEMS)) return 0;
-            auto alts = arr_of(arg.get(la::ITEMS.code));
+            // A pure scalar or (`Some(1|2)`) is a carried sub-pattern.
             bool needs = false;
             for (uint64_t k = 0; k < alts.size(); ++k)
                 if (!alt_is_merge_safe(code_of(map_of(alts.get(k))))) { needs = true; break; }
@@ -12917,17 +11957,16 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             eff_arms.push_back({arm, -1});
         }
         auto effective_lhs = [&](writ::TinyMapView arm, int32_t alt_idx) {
-            if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
             auto lhs = map_of(arm.get(la::LHS.code));
+            if (alt_idx < 0) return lhs;
             return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
         };
-        // Same per-arm move / definite-assignment discipline as the
-        // STATEMENT-form lower_match (see the rationale there): every arm
-        // sees the pre-match state, and a DIVERGING arm's moves must not
-        // leak into sibling arms or past the match —
-        //   let v = match f() { Ok(v) => v, Err(_) => { return d; } };
-        //   d.use();   // d is NOT moved on this path
-        // Post-match state = union over non-diverging arms.
+        // Every arm starts from the pre-match move / definite-assignment state;
+        // a DIVERGING arm's moves do not leak into its siblings or past the
+        // match —
+        //   match it.next() { None => return acc, Some(v) => acc = f(acc, v) }
+        // — and the post-match state is the union over the arms that fall
+        // through (a variable moved on any falling-through path is moved).
         auto pre_moves = moved_vars_;
         const auto owned_pre_m = closure_owned_drop_;   // move-closure releases, merged per arm
         // Variants an EARLIER arm could match (for variant-exact payload moves).
@@ -12938,7 +11977,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         std::set<std::string> post_uninit;
         bool post_uninit_initialized = false;
         bool any_non_diverging = false;
-        // #118 — per-arm conditional-move bookkeeping (see lower_match).
+        // #118 — per-arm conditional-move bookkeeping: each arm that REACHES the
+        // enclosing frame's drops is one branch, its body (or value) the place a
+        // flag clear is spliced into.
         std::vector<CondMoveBranch> arm_branches;
         std::vector<size_t> arm_slot;
         for (uint64_t i = 0; i < eff_arms.size(); ++i) {
@@ -12946,43 +11987,36 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             int32_t alt_idx = eff_arms[i].alt_idx;
             if (code_of(arm) != la::MATCH_ARM) continue;
 
-            // Reset moves / definite-assignment to the pre-match state at
-            // each arm boundary (stmt-form parity).
             moved_vars_ = pre_moves;
             closure_owned_drop_ = owned_pre_m;
             currently_uninit_vars_ = pre_uninit;
             size_t arm_clear_mark = flag_clear_log_.size();   // #118
 
+            // Synthesized guard for Writ patterns (scalar + structural).
             lir::LExprPtr synth_guard = nullptr;
             std::vector<lir_view::StmtRef> body_prologue;
             std::vector<WritPatBinding> body_binds;
             if (has_writ_pat && arm.has_key(la::LHS)) {
                 std::vector<lir_view::StmtRef> g_stmts;
                 std::vector<WritPatBinding> g_binds;
-                auto raw = build_writ_pat_guard(
-                    effective_lhs(arm, alt_idx), root_var, anyval_t,
-                    base_var, g_stmts, g_binds);
-                if (!g_stmts.empty() && raw) {
-                    std::vector<lir_view::StmtRef> blk;
-                    blk = std::move(g_stmts);
-                    synth_guard = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(raw), bool_t());
-                } else {
+                auto raw = build_writ_pat_guard(effective_lhs(arm, alt_idx), root_var, anyval_t,
+                                                base_var, g_stmts, g_binds);
+                if (!g_stmts.empty() && raw)
+                    synth_guard = builder().block_expr(lir_mirror_block(*cur_prog_, g_stmts), std::move(raw), bool_t());
+                else
                     synth_guard = std::move(raw);
-                }
-                if (!g_binds.empty()) {
-                    (void)build_writ_pat_guard(
-                        effective_lhs(arm, alt_idx), root_var, anyval_t,
-                        base_var, body_prologue, body_binds);
-                }
+                // Re-run the pattern lowering for parallel body-scope stmts /
+                // bindings (fresh tmp names, consistent with body_prologue).
+                if (!g_binds.empty())
+                    (void)build_writ_pat_guard(effective_lhs(arm, alt_idx), root_var, anyval_t,
+                                               base_var, body_prologue, body_binds);
             }
 
-            // P4-pm-02: wire nested-pat side channel (same as stmt-form
-            // lower_match above).
-            // Spec rule pat.writ.match-only: a Writ scalar pattern is legal in
-            // a WRITTEN `match` arm only (the let forms carry PAT on the node),
-            // so build_pattern refuses it there with the rule's own sentence.
-            // The mechanism no longer needs the rule — the let form IS this
-            // match — lifting it is a spec decision (tests/spec pat_diag_2).
+            // Build the pattern. P4-pm-02: the side channels register the
+            // synthesized payload bindings of nested sub-patterns; P4-pm-01:
+            // the refutable inner-pattern guards. Spec rule
+            // pat.writ.match-only: a Writ scalar pattern is legal in a WRITTEN
+            // `match` arm only (the let forms carry PAT on the node).
             in_match_writ_ctx_ = has_writ_pat && !node.has_key(la::PAT);
             std::vector<NestedPatSub> nested_subs;
             auto* saved_pat_subs = current_pat_nested_subs_;
@@ -12990,8 +12024,6 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             logos::compiler::StrSet mut_names;
             auto* saved_pat_muts = current_pat_mut_names_;
             current_pat_mut_names_ = &mut_names;
-            // P4-pm-01: capture refutable inner-pattern guards (variant
-            // payload like `E::V { f: 1 }` or `Option::Some(1)`).
             std::vector<lir::LExprPtr> refut_guards;
             auto* saved_pat_refut = current_pat_refutable_guards_;
             current_pat_refutable_guards_ = &refut_guards;
@@ -13010,36 +12042,103 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             in_match_writ_ctx_ = false;
 
             push_scope();
+            // ── E0507 AT THE MATCH ARM ──────────────────────────────────────
+            // `is_unowned_move_source` is the one predicate for "this place
+            // does not own what it yields"; `bind_pattern` receives the
+            // scrutinee's TYPE and never its EXPRESSION, so `match *r { E::A(d)
+            // => … }` moved a payload out from behind a reference and nothing
+            // asked. The discriminator is the ARM'S BINDING MODE, which the LIR
+            // carries (`pat_keys::BINDING_REF_MODES`): `E::A(ref d)` moves
+            // nothing. An INDEX scrutinee is another reader's question already
+            // ("cannot move out of type `[W; 1]`" at the same line).
+            auto scrut_is_index = [&]() {
+                auto r = expr_ref_of(scrut);
+                if (!r) return false;
+                using SC = lir_schema::expr::Code;
+                return r.kind() == SC::IndexRead || r.kind() == SC::SliceIndex;
+            };
+            if (is_move_type(scrut_type) && is_unowned_move_source(scrut) && !scrut_is_index()) {
+                namespace ps2 = lir_schema::pat;
+                const auto* tpool = cur_prog_->type_pool.impl();
+                // TRUE and the BINDING'S OWN NAME in `out`. `wild_trusted`: a
+                // named Wild at the arm's ROOT is by value (`ref n` lowers to
+                // PatRefBind); UNDER A TUPLE it may be a rebuilt `ref a`, so no
+                // claim. Only VariantData (which carries the modes) and a root
+                // named Wild make a claim; RefBind / RefPat are by reference,
+                // Struct / Slice carry no binding types here, PatAt no mode.
+                auto byval_name = [&](auto&& self, lir_view::PatRef pr,
+                                      std::string& out, bool wild_trusted) -> bool {
+                    if (!pr) return false;
+                    switch (pr.kind()) {
+                        case ps2::Code::Wild: {
+                            if (!wild_trusted) return false;
+                            auto n = lir_view::PatWildView{pr}.name();
+                            if (n.empty() || n == "_") return false;
+                            out = std::string(n);
+                            return true;
+                        }
+                        case ps2::Code::VariantData: {
+                            lir_view::PatVariantDataView v{pr};
+                            std::vector<std::string> ns;
+                            std::vector<TypeRef> tys;
+                            v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
+                            v.each_binding_type(tpool, [&](TypeRef ty){ tys.push_back(ty); });
+                            // Mode 0 = by value; an EMPTY mode vector means "all
+                            // by value" (minted only where a mode is spelled).
+                            auto ms = v.bind_ref_modes();
+                            for (size_t k = 0; k < ns.size(); ++k) {
+                                uint32_t m = k < ms.size() ? ms[k] : 0u;
+                                TypeRef bt = k < tys.size() ? tys[k] : TypeRef(nullptr);
+                                if (m == 0 && ns[k] != "_" && bt && is_move_type(bt)) {
+                                    out = ns[k];
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+                        case ps2::Code::Tuple: {
+                            bool any = false;
+                            lir_view::PatTupleView{pr}.each_sub([&](lir_view::PatRef sp){
+                                if (!any && self(self, sp, out, false)) any = true; });
+                            return any;
+                        }
+                        case ps2::Code::Or: {
+                            bool any = false;
+                            lir_view::PatOrView{pr}.each_alt([&](lir_view::PatRef a){
+                                if (!any && self(self, a, out, wild_trusted)) any = true; });
+                            return any;
+                        }
+                        case ps2::Code::At:
+                            return self(self, lir_view::PatAtView{pr}.sub(), out, wild_trusted);
+                        default:
+                            return false;
+                    }
+                };
+                if (std::string bn; byval_name(byval_name, pat_ref_of(pat), bn, /*wild_trusted=*/true))
+                    error(std::format(
+                        "cannot move out of a value behind a reference / out of "
+                        "an index (E0507): the match arm binds '{}' by value", bn));
+            }
             bind_pattern(pat, scrut_type);
             current_pat_mut_names_ = saved_pat_muts;
-            for (const auto& b : body_binds) {
-                define(b.name, anyval_t, /*is_mut=*/false);
-            }
-            // P4-pm-02: nested struct sub-pat destructure stmts. Factored into
-            // a lambda so a guarded arm can get an independent copy for its
-            // guard (B170-D/E) — see the lower_match twin.
-            auto build_nested_destructure =
-                [&](std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
-                emit_nested_pat_destructure(nested_subs, nested_destructure_stmts, for_guard);
-            };
+            // Writ @-pattern bindings are in scope for the body and the guard.
+            for (const auto& b : body_binds) define(b.name, anyval_t, /*is_mut=*/false);
+            // P4-pm-02: field-by-field lets destructuring the synthesized
+            // payload slots. A GUARDED arm gets a SECOND, independent copy for
+            // the guard (B170-D/E): the block-expr's shadow-restore reverts a
+            // binding already in scope from a sibling fanned or-arm.
             std::vector<lir_view::StmtRef> nested_destructure_stmts;
-            build_nested_destructure(nested_destructure_stmts, /*for_guard=*/false);
-            bool arm_has_user_guard = arm.has_key(la::GUARD);
+            emit_nested_pat_destructure(nested_subs, nested_destructure_stmts, /*for_guard=*/false);
+            const bool arm_has_user_guard = arm.has_key(la::GUARD);
 
             std::optional<lir::LExprPtr> guard;
-            if (arm.has_key(la::GUARD)) {
-                // A MATCH GUARD IS A CONDITIONALLY EVALUATED EXPRESSION, and a
-                // move inside it had no merge at all. `x if eatF(a) => …` with
-                // a FAILING guard destroyed `a` inside the callee and then the
-                // frame destroyed it again at scope exit: 1 value, 2 destructor
-                // calls, `free(): double free detected in tcache 2`, rc 134 —
-                // the only ABORTING direction in this whole sweep, and nothing
-                // in the corpus could see it (every in-tree guard is Copy).
-                // The union merge cannot help: the arm was not taken, so the
-                // next arm restarts from `pre_moves` and the guard's move is
-                // forgotten. The two paths are "the guard RAN (and moved)" and
-                // "the guard never ran", which is exactly a conditional move —
-                // give it the #118 flag, cleared inside the guard's own value.
+            if (arm_has_user_guard) {
+                // A MATCH GUARD IS A CONDITIONALLY EVALUATED EXPRESSION: "the
+                // guard RAN (and moved)" and "the guard never ran" are a
+                // conditional move — the #118 flag, cleared inside the guard's
+                // own value (`x if eatF(a) => …` with a failing guard destroyed
+                // `a` twice). And A GUARD THAT RAN AND FAILED STILL MOVED: its
+                // moves are the next arms' starting state.
                 auto guard_pre = moved_vars_;
                 auto g = lower_expr(map_of(arm.get(la::GUARD.code)));
                 if (TypeRef(expr_type(g)).kind() != LogosType::Kind::Bool &&
@@ -13052,76 +12151,46 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
                     gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
                     elaborate_cond_moves(guard_pre, gb);
-                    // A GUARD THAT RAN AND FAILED STILL MOVED — the same
-                    // rule as the statement `match` spelling above; a rule at
-                    // one match spelling is a rule at half of them.
                     for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
                 }
             }
-            if (synth_guard) {
-                if (guard) {
-                    // synth first: short-circuits user guard on pattern miss
-                    auto merged = builder().bin_op("&&", std::move(synth_guard), std::move(*guard), bool_t());
-                    guard = std::move(merged);
-                } else {
-                    guard = std::move(synth_guard);
-                }
-            }
-            // G145-2 (soundness): AND in the refutable-inner guards collected
-            // during build_pattern (a literal/variant sub-pattern in a variant
-            // payload, e.g. `Foo::FooUint(1)`). The statement-form lower_match
-            // already does this; without it the match-EXPRESSION form silently
-            // dropped the payload test and mis-dispatched (matched the variant
-            // tag regardless of the inner literal).
+            // The synthesized Writ guard goes FIRST, so `&&` short-circuits the
+            // user guard on a type mismatch (a guard runs only when the pattern
+            // matched).
+            if (synth_guard)
+                guard = guard ? builder().bin_op("&&", std::move(synth_guard), std::move(*guard), bool_t())
+                              : std::move(synth_guard);
+            // P4-pm-01 / G145-2: AND in the refutable inner-pattern guards
+            // (they read fresh pattern-bound names, never side-effect).
             for (auto& rg : refut_guards) {
                 if (!rg) continue;
-                if (guard) {
-                    auto merged = builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t());
-                    guard = std::move(merged);
-                } else {
-                    guard = std::move(rg);
-                }
+                guard = guard ? builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t())
+                              : std::move(rg);
             }
-            // B170-D/E guards: a guarded arm with nested-payload destructure
-            // lets (`Some((a, b)) if a > 0`, or-distributed `Some((a,_)|(_,a))
-            // if a > 10`) must compute those bindings BEFORE the guard runs —
-            // gen_match evaluates the guard in a block that precedes the body,
-            // so a guard reading `a` would otherwise hit an undefined value
-            // (compiler crash). Wrap the guard in a block-expr that runs the
-            // destructure first; the bindings are fresh names, so the block-expr
-            // leaks them into scope for the body too (the body prologue prepend
-            // below then sees an empty list).
+            // B170-D/E: a guarded arm with nested-payload destructure lets must
+            // compute those bindings BEFORE the guard runs — the guard block
+            // precedes the body. The SAFE (unconditional) destructure only.
             if (guard && arm_has_user_guard) {
-                // Build the SAFE (unconditional field/element) destructure for
-                // the guard — never the refutable nested-variant let-else.
                 std::vector<lir_view::StmtRef> guard_destructure;
-                build_nested_destructure(guard_destructure, /*for_guard=*/true);
+                emit_nested_pat_destructure(nested_subs, guard_destructure, /*for_guard=*/true);
                 if (!guard_destructure.empty()) {
-                    std::vector<lir_view::StmtRef> gblk;
-                    gblk = std::move(guard_destructure);
                     TypeRef gt = expr_type(*guard);
-                    guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk), std::move(*guard), gt);
+                    guard = builder().block_expr(lir_mirror_block(*cur_prog_, guard_destructure), std::move(*guard), gt);
                 }
             }
 
-            // Lower the arm value: either an EXPR arm (pattern => expr,) or a
-            // BODY block arm (pattern => { stmts }).  Block arms that always
-            // diverge (every path returns) contribute error_t so they are
-            // skipped during type unification; non-diverging block arms use
-            // their last expression as the value.
-            // The arm owns what its pattern binds by value — see lower_match.
+            // This arm OWNS what its pattern binds by value — on THIS arm's
+            // path only (an arm that binds nothing leaves the scrutinee a
+            // flagged drop). After the guard, which may still read it.
             {
                 namespace ps_ = lir_schema::pat;
                 auto pr_ = pat_ref_of(pat);
                 bool exact_ = false;
                 if (pr_ && pr_.kind() == ps_::Code::VariantData) {
                     int64_t d_ = lir_view::PatVariantDataView{pr_}.disc();
-                    // Exact = every value of this variant takes this arm. A
-                    // refutable payload sub-pattern (`Some((a, 1))`), or ANY guard
-                    // — the user's or a synthesized refutable-inner one (`Some(w
-                    // @ (_, 1))`) — lets some of them fall through: its moves are
-                    // this path's only. (The user guard alone was asked: the
-                    // synthesized ones made the payload moved for every `Some`.)
+                    // Exact = every value of this variant takes this arm: no
+                    // refutable payload sub-pattern, no guard (user or
+                    // synthesized), no earlier arm that could take it.
                     bool subs_irrefutable_ = true;
                     for (auto sp_ : lir_view::PatVariantDataView{pr_}.subs())
                         if (sp_ && !lir_view::is_irrefutable_pattern(sp_)) subs_irrefutable_ = false;
@@ -13129,7 +12198,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                              !earlier_discs.count(d_) && subs_irrefutable_;
                 }
                 if (arm.has_key(la::LHS))
-                    mark_match_scrutinee_moved(me.scrut, scrut_type, pr_, exact_);
+                    mark_match_scrutinee_moved(scrut, scrut_type, pr_, exact_);
                 if (pr_ && pr_.kind() == ps_::Code::VariantData)
                     earlier_discs.insert(lir_view::PatVariantDataView{pr_}.disc());
                 else if (pr_ && pr_.kind() == ps_::Code::Variant)
@@ -13137,167 +12206,202 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 else earlier_any = true;
             }
 
-            lir::LExprPtr val = nullptr;
-            bool arm_diverges = false;   // move/uninit merge below
-            if (arm.has_key(la::EXPR)) {
-                // Arm values are CONDITIONALLY evaluated — own temporary scope
-                // (a statement-level hoist of a droppable temp receiver would
-                // evaluate EVERY arm eagerly; see lower_expr_temp_scoped).
-                val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)), /*temp_scoped=*/true);
-            } else if (arm.has_key(la::BODY)) {
-                auto body_node = map_of(arm.get(la::BODY.code));
-                // B-fn-06: this is a match expression's arm body block; a
-                // trailing TAIL_EXPR is the arm value, not an implicit return.
-                bool saved_tail = tail_as_return_;
-                tail_as_return_ = false;
-                bool diverges = (code_of(body_node) == la::BLOCK)
-                                ? block_always_diverts(body_node)
-                                : stmt_always_diverts(body_node);
-                arm_diverges = diverges;
-                if (diverges) {
-                    // Block always returns — lower it as a block of stmts;
-                    // the tail expression is unreachable so we use error_expr()
-                    // (skipped by type unification).
-                    lir_view::BlockRef blk_ref;
-                    if (code_of(body_node) == la::BLOCK) {
-                        blk_ref = lower_block(body_node);
+            MatchCoreArm out;
+            // 0: falls through; 1: never reaches the enclosing frame's drops
+            // (`return`, a `!` value); 2: `break` / `continue` — unwinds to the
+            // loop body and reaches the frame's drops by the loop edge (#122).
+            int div = 0;
+            if (!value_form) {
+                std::vector<lir_view::StmtRef>& body = out.body;
+                TypeRef expr_arm_t = nullptr;
+                if (arm.has_key(la::BODY)) {
+                    auto body_node = map_of(arm.get(la::BODY.code));
+                    if (code_of(body_node) == la::BLOCK)
+                        lower_block(body_node).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
+                    else
+                        push_stmt_with_unwind(body, lower_stmt(body_node));  // #122
+                } else if (arm.has_key(la::EXPR)) {
+                    auto val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)));
+                    expr_arm_t = expr_type(val);
+                    if (form == MatchForm::Tail) {
+                        // The tail match's expression arm IS the function's
+                        // return value — the one return judgment (ADR 0030 S2),
+                        // moves and the return unwind included.
+                        push_stmt_with_unwind(body, finish_return_(std::move(val), map_of(arm.get(la::EXPR.code)),
+                                                                   /*bind_temps=*/false));
                     } else {
-                        std::vector<lir_view::StmtRef> blk;
-                        push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
-                        blk_ref = lir_mirror_block(*cur_prog_, blk);
+                        lir::SExprStmt es; es.expr = std::move(val);
+                        body.push_back(make_stmt_emit(node_line_, std::move(es)));
                     }
-                    val = builder().block_expr(blk_ref, error_expr(), error_t());
-                } else if (code_of(body_node) == la::BLOCK &&
-                           body_node.has_key(la::ITEMS)) {
-                    // Non-diverging block: last item must be an expression.
-                    auto stmts = arr_of(body_node.get(la::ITEMS.code));
-                    std::vector<lir_view::StmtRef> blk;
-                    lir::LExprPtr last_expr = nullptr;
-                    for (uint64_t si = 0; si < stmts.size(); ++si) {
-                        auto s = map_of(stmts.get(si));
-                        if (si == stmts.size() - 1) {
-                            int32_t sc = code_of(s);
-                            // Conditionally evaluated arm tail — own temporary
-                            // scope (above).
-                            if ((sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
-                                last_expr = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
-                            else if (sc != la::EXPR_STMT && sc != la::TAIL_EXPR && sc != la::LET &&
-                                     sc != la::LET_PAT && sc != la::RETURN &&
-                                     !is_stmt_only_code(sc))
-                                last_expr = lower_expr_temp_scoped(s);
-                            else
-                                push_stmt_with_unwind(blk, lower_stmt(s));  // #122
+                }
+                // The nested-pattern destructure, then the Writ @-pattern
+                // prologue, run before the user body.
+                if (!nested_destructure_stmts.empty())
+                    body.insert(body.begin(), std::make_move_iterator(nested_destructure_stmts.begin()),
+                                std::make_move_iterator(nested_destructure_stmts.end()));
+                if (!body_prologue.empty() || !body_binds.empty()) {
+                    std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
+                    for (const auto& b : body_binds) {
+                        lir::SLet sl;
+                        sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
+                        sl.value = builder().var_ref(b.av_var, anyval_t);
+                        prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                    }
+                    body.insert(body.begin(), std::make_move_iterator(prologue.begin()),
+                                std::make_move_iterator(prologue.end()));
+                }
+                // [[baghunt-match-arm-binding-no-drop]]: the arm-scope pattern
+                // bindings drop before a falling-through arm exits (a body
+                // ending in `return` unwound every frame already); a binding
+                // moved out as the body's last value is marked first.
+                lir_view::StmtRef last = body.empty() ? lir_view::StmtRef{} : stmt_ref_of(body.back());
+                if (!(last && last.kind() == lir_schema::stmt::Code::Return)) {
+                    if (last && last.kind() == lir_schema::stmt::Code::ExprStmt)
+                        mark_moved_in_expr_recursive(lir_view::SExprStmtView{last}.expr());
+                    for (auto& d : collect_drops()) body.push_back(std::move(d));
+                }
+                pop_scope();
+                if (last && last.kind() == lir_schema::stmt::Code::Return) div = 1;
+                else if (last && (last.kind() == lir_schema::stmt::Code::Break ||
+                                  last.kind() == lir_schema::stmt::Code::Continue)) div = 2;
+                else if (expr_arm_t && TypeRef(expr_arm_t).kind() == LogosType::Kind::Never) div = 1;
+            } else {
+                lir::LExprPtr val = nullptr;
+                bool arm_diverges = false;
+                if (arm.has_key(la::EXPR)) {
+                    // Arm values are CONDITIONALLY evaluated — own temporary
+                    // scope (a statement-level hoist of a droppable temp
+                    // receiver would evaluate EVERY arm eagerly).
+                    val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)), /*temp_scoped=*/true);
+                } else if (arm.has_key(la::BODY)) {
+                    auto body_node = map_of(arm.get(la::BODY.code));
+                    // B-fn-06: a trailing TAIL_EXPR is the arm value, not an
+                    // implicit return.
+                    bool saved_tail = tail_as_return_;
+                    tail_as_return_ = false;
+                    arm_diverges = (code_of(body_node) == la::BLOCK) ? block_always_diverts(body_node)
+                                                                     : stmt_always_diverts(body_node);
+                    if (arm_diverges) {
+                        // The tail is unreachable: error_expr (skipped by the
+                        // type merge).
+                        lir_view::BlockRef blk_ref;
+                        if (code_of(body_node) == la::BLOCK) {
+                            blk_ref = lower_block(body_node);
                         } else {
-                            push_stmt_with_unwind(blk, lower_stmt(s));  // #122
+                            std::vector<lir_view::StmtRef> blk;
+                            push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
+                            blk_ref = lir_mirror_block(*cur_prog_, blk);
+                        }
+                        val = builder().block_expr(blk_ref, error_expr(), error_t());
+                    } else {
+                        // The block's last item, when it is an expression, is
+                        // the arm value; a block ending in a statement (`{}`,
+                        // `{ a = 1; }`) is `()`, as rustc types it.
+                        std::vector<lir_view::StmtRef> blk;
+                        lir::LExprPtr last_expr = nullptr;
+                        if (code_of(body_node) == la::BLOCK && body_node.has_key(la::ITEMS)) {
+                            auto stmts = arr_of(body_node.get(la::ITEMS.code));
+                            for (uint64_t si = 0; si < stmts.size(); ++si) {
+                                auto s = map_of(stmts.get(si));
+                                int32_t sc = code_of(s);
+                                if (si + 1 == stmts.size() &&
+                                    (sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
+                                    last_expr = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
+                                else if (si + 1 == stmts.size() && sc != la::EXPR_STMT && sc != la::TAIL_EXPR &&
+                                         sc != la::LET && sc != la::LET_PAT && sc != la::RETURN &&
+                                         !is_stmt_only_code(sc))
+                                    last_expr = lower_expr_temp_scoped(s);
+                                else
+                                    push_stmt_with_unwind(blk, lower_stmt(s));  // #122
+                            }
+                        } else if (code_of(body_node) != la::BLOCK) {
+                            push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
+                        }
+                        if (last_expr) {
+                            TypeRef vt = expr_type(last_expr);
+                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(last_expr), vt);
+                        } else {
+                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), void_t());
                         }
                     }
-                    if (!last_expr) {
-                        error("match expression: block arm must end with an expression or always return");
-                        last_expr = error_expr();
-                    }
-                    TypeRef vt = expr_type(last_expr);
-                    val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(last_expr), vt);
+                    tail_as_return_ = saved_tail;
                 } else {
-                    error("match expression: block arm must end with an expression or always return");
+                    error("match expression: arm has no body");
                     val = error_expr();
                 }
-                tail_as_return_ = saved_tail;
-            } else {
-                error("match expression: arm has no body");
-                val = error_expr();
-            }
-            // P4-pm-02: wrap arm value with nested-pat destructure stmts.
-            if (!nested_destructure_stmts.empty()) {
-                std::vector<lir_view::StmtRef> blk;
-                blk = std::move(nested_destructure_stmts);
-                TypeRef vt = val ? expr_type(val) : error_t();
-                val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(val), vt);
-            }
-            // Wrap arm value with Writ @-pattern prologue so bindings are
-            // live during evaluation.
-            if (!body_prologue.empty() || !body_binds.empty()) {
-                std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
-                for (const auto& b : body_binds) {
-                    lir::SLet sl;
-                    sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
-                    sl.value = builder().var_ref(b.av_var, anyval_t);
-                    prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                // The nested-pattern destructure, then the Writ @-pattern
+                // prologue, wrap the arm value.
+                if (!nested_destructure_stmts.empty()) {
+                    TypeRef vt = val ? expr_type(val) : error_t();
+                    val = builder().block_expr(lir_mirror_block(*cur_prog_, nested_destructure_stmts), std::move(val), vt);
                 }
-                std::vector<lir_view::StmtRef> blk;
-                blk = std::move(prologue);
-                TypeRef vt = expr_type(val);
-                val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(val), vt);
-            }
-            // Coerce EVERY arm to the expected type before the merge, not
-            // just one that disagrees with the arms seen so far. Selective
-            // coercion splits TYPE from REPRESENTATION: the merged type becomes
-            // the slice while an already-lowered arm is still a thin
-            // ref-to-array, so the match compiles and then reads a garbage
-            // length. This sits AFTER all arm-body wrapping, so it applies to
-            // every arm shape, not only pattern-binding ones.
-            if (hint_expected_type_ && val &&
-                TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
-                apply_place_coercions(val, hint_expected_type_);
-                // An expected `dyn`: every arm is unsized by a cast in the arm
-                // (see cast_to_expected_dyn).
-                cast_to_expected_dyn(val, hint_expected_type_);
-            }
-            // A diverging arm (Never = `!`) contributes no type — the match's
-            // type is that of the non-diverging arms (Never is a subtype of
-            // every type). Treat Never like Error in the accumulator.
-            if (TypeRef(result_type).kind() == LogosType::Kind::Error ||
-                TypeRef(result_type).kind() == LogosType::Kind::Never) {
-                result_type = expr_type(val);
-            } else if (TypeRef(expr_type(val)).kind() == LogosType::Kind::Never) {
-                // keep result_type — this arm yields no value.
-            } else if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error) {
-                // logos-core 1.4: when arms produce distinct FnItems (e.g.
-                // one arm `a_f` and another `b_f` with the same `fn(i64)`
-                // signature), neither types_compatible direction is true
-                // (FnItem→FnItem is intentionally rejected). LUB to the
-                // matching FnPtr so all arms unify under the common ptr —
-                // exactly what Rust's LUB does for fn-item arms.
-                // The arms are ONE type: open inference variables unify.
-                if (!infer_solved_.empty() &&
-                    (has_infer_var_(result_type) || has_infer_var_(expr_type(val)))) {
-                    infer_unify_(result_type, expr_type(val));
-                    result_type = zonk_(result_type);
-                    builder().retype_expr(val, zonk_(expr_type(val)));
+                if (!body_prologue.empty() || !body_binds.empty()) {
+                    std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
+                    for (const auto& b : body_binds) {
+                        lir::SLet sl;
+                        sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
+                        sl.value = builder().var_ref(b.av_var, anyval_t);
+                        prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                    }
+                    TypeRef vt = expr_type(val);
+                    val = builder().block_expr(lir_mirror_block(*cur_prog_, prologue), std::move(val), vt);
                 }
-                bool lubbed_to_fnptr = false;
-                if (TypeRef(result_type).kind() == LogosType::Kind::FnItem &&
-                    TypeRef(expr_type(val)).kind() == LogosType::Kind::FnItem) {
-                    LogosTypeBuilder fpt;
-                    fpt.kind = LogosType::Kind::FnPtr;
-                    for (auto p : TypeRef(expr_type(val)).closure_params())
-                        fpt.closure_params.push_back(p);
-                    fpt.closure_ret = TypeRef(expr_type(val)).closure_ret();
-                    TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
-                    if (types_compatible(result_type, fp) &&
-                        types_compatible(expr_type(val), fp)) {
-                        result_type = fp;
-                        lubbed_to_fnptr = true;
+                // Coerce EVERY arm to the expected type before the merge: a
+                // selective coercion splits TYPE from REPRESENTATION (the merged
+                // type the slice, an arm still a thin ref-to-array).
+                if (hint_expected_type_ && val &&
+                    TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
+                    TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
+                    apply_place_coercions(val, hint_expected_type_);
+                    // An expected `dyn`: every arm is unsized by a cast in the
+                    // arm (see cast_to_expected_dyn).
+                    cast_to_expected_dyn(val, hint_expected_type_);
+                }
+                // A diverging arm (`!`) contributes no type.
+                TypeRef& result_type = mc.result_type;
+                if (TypeRef(result_type).kind() == LogosType::Kind::Error ||
+                    TypeRef(result_type).kind() == LogosType::Kind::Never) {
+                    result_type = expr_type(val);
+                } else if (TypeRef(expr_type(val)).kind() == LogosType::Kind::Never) {
+                    // keep result_type — this arm yields no value.
+                } else if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error) {
+                    // The arms are ONE type: open inference variables unify.
+                    if (!infer_solved_.empty() &&
+                        (has_infer_var_(result_type) || has_infer_var_(expr_type(val)))) {
+                        infer_unify_(result_type, expr_type(val));
+                        result_type = zonk_(result_type);
+                        builder().retype_expr(val, zonk_(expr_type(val)));
+                    }
+                    // logos-core 1.4: distinct FnItems of one signature LUB to
+                    // the matching FnPtr, as Rust's LUB does for fn-item arms.
+                    bool lubbed_to_fnptr = false;
+                    if (TypeRef(result_type).kind() == LogosType::Kind::FnItem &&
+                        TypeRef(expr_type(val)).kind() == LogosType::Kind::FnItem) {
+                        LogosTypeBuilder fpt;
+                        fpt.kind = LogosType::Kind::FnPtr;
+                        for (auto p : TypeRef(expr_type(val)).closure_params())
+                            fpt.closure_params.push_back(p);
+                        fpt.closure_ret = TypeRef(expr_type(val)).closure_ret();
+                        TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
+                        if (types_compatible(result_type, fp) && types_compatible(expr_type(val), fp)) {
+                            result_type = fp;
+                            lubbed_to_fnptr = true;
+                        }
+                    }
+                    if (!lubbed_to_fnptr) {
+                        if (!types_compatible(expr_type(val), result_type) &&
+                            !types_compatible(result_type, expr_type(val)))
+                            error(std::format(
+                                "match expression: arm type '{}' is incompatible with '{}'",
+                                type_str(expr_type(val)), type_str(result_type)));
+                        else
+                            result_type = unify_numeric(result_type, expr_type(val));
                     }
                 }
-                if (!lubbed_to_fnptr) {
-                    if (!types_compatible(expr_type(val), result_type) &&
-                        !types_compatible(result_type, expr_type(val))) {
-                        error(std::format(
-                            "match expression: arm type '{}' is incompatible with '{}'",
-                            type_str(expr_type(val)), type_str(result_type)));
-                    } else {
-                        result_type = unify_numeric(result_type, expr_type(val));
-                    }
-                }
-            }
-            // Upgrade IntLit result to i64 if any arm literal overflows i32.
-            if (TypeRef(result_type).kind() == LogosType::Kind::IntLit) {
-                if (val) {
+                // Upgrade an IntLit result to i64 if an arm literal overflows i32.
+                if (TypeRef(result_type).kind() == LogosType::Kind::IntLit && val) {
                     auto er = expr_ref_of(val);
-                    // A divergent arm lowers to a BlockExpr with NO result
-                    // (Never-typed `panic!`/`unreachable!` expansion, or a
-                    // tail-`return` block) — `.result()` is null there.
+                    // A divergent arm's BlockExpr has NO result.
                     if (er.kind() == lir_schema::expr::Code::BlockExpr)
                         er = lir_view::EBlockExprView{er}.result();
                     if (er && er.kind() == lir_schema::expr::Code::LitInt) {
@@ -13306,96 +12410,72 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                             result_type = prim(LogosType::Kind::I64);
                     }
                 }
-            }
-
-            // [[baghunt-match-arm-binding-no-drop]] — see lower_match
-            // (stmt form) above for the rationale. Arm-scope pattern
-            // bindings need their Drop emitted before the arm value
-            // escapes. For value-form arms the arm value is an
-            // expression we must preserve, so hoist it into a temp,
-            // emit drops, then yield the temp. Skip when the arm
-            // value is error-typed (divergent block arms already
-            // emitted drops via lower_block::collect_all_drops on the
-            // inner Returns) or Never-typed (the arm diverges — control
-            // never reaches the drops, and a Never temp has no value to
-            // hoist).
-            if (val && TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
-                // Mark bindings consumed by val as moved before
-                // computing drops (matches lower_return semantics).
-                mark_moved_in_expr_recursive(expr_ref_of(val));
-                auto arm_drops = collect_drops();
-                if (!arm_drops.empty()) {
-                    TypeRef vt = expr_type(val);
-                    std::vector<lir_view::StmtRef> blk;
-                    if (TypeRef(vt).kind() == LogosType::Kind::Void) {
-                        // Void: evaluate val for effect, then drops.
-                        lir::SExprStmt es; es.expr = std::move(val);
-                        blk.push_back(make_stmt_emit(node_line_, std::move(es)));
-                        for (auto& d : arm_drops)
-                            blk.push_back(std::move(d));
-                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), vt);
-                    } else {
-                        std::string tmp = "__match_arm_tmp_" +
-                                          std::to_string(tmp_var_count_++);
-                        lir::SLet sl;
-                        sl.name = tmp; sl.type = vt; sl.is_mut = false;
-                        sl.value = std::move(val);
-                        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                        for (auto& d : arm_drops)
-                            blk.push_back(std::move(d));
-                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk),
-                            builder().var_ref(tmp, vt), vt);
+                // [[baghunt-match-arm-binding-no-drop]]: the arm-scope bindings
+                // drop before the arm value escapes — the value is hoisted into
+                // a temp, the drops run, the temp is yielded. Not for an Error
+                // (a divergent block unwound already) or Never value.
+                if (val && TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
+                    TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
+                    mark_moved_in_expr_recursive(expr_ref_of(val));
+                    auto arm_drops = collect_drops();
+                    if (!arm_drops.empty()) {
+                        TypeRef vt = expr_type(val);
+                        std::vector<lir_view::StmtRef> blk;
+                        if (TypeRef(vt).kind() == LogosType::Kind::Void) {
+                            lir::SExprStmt es; es.expr = std::move(val);
+                            blk.push_back(make_stmt_emit(node_line_, std::move(es)));
+                            for (auto& d : arm_drops) blk.push_back(std::move(d));
+                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), vt);
+                        } else {
+                            std::string tmp = "__match_arm_tmp_" + std::to_string(tmp_var_count_++);
+                            lir::SLet sl;
+                            sl.name = tmp; sl.type = vt; sl.is_mut = false;
+                            sl.value = std::move(val);
+                            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                            for (auto& d : arm_drops) blk.push_back(std::move(d));
+                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                                       builder().var_ref(tmp, vt), vt);
+                        }
                     }
                 }
+                pop_scope();
+                // A Never-typed arm value (`panic!`, `=> return x`) diverges
+                // even without a block body.
+                if (!arm_diverges && val && TypeRef(expr_type(val)).kind() == LogosType::Kind::Never)
+                    arm_diverges = true;
+                if (arm_diverges) div = expr_arm_div_kind(val) == 2 ? 2 : 1;
+                out.value = std::move(val);
             }
-
-            pop_scope();
-            lir::EMatchArm ema;
-            ema.pat   = std::move(pat);
-            ema.guard = std::move(guard);
-            ema.value = std::move(val);
-            me.arms.push_back(std::move(ema));
-
-            // A Never-typed arm value (`panic!`, a `=> return x` expr arm)
-            // diverges even without a block body.
-            if (!arm_diverges && me.arms.back().value &&
-                TypeRef(expr_type(me.arms.back().value)).kind() ==
-                    LogosType::Kind::Never)
-                arm_diverges = true;
-            if (!arm_diverges) {
+            out.pat = std::move(pat);
+            out.guard = std::move(guard);
+            if (div == 0) {
                 any_non_diverging = true;
                 for (auto& m : moved_vars_) post_moves.insert(m);
                 for (auto& v : currently_uninit_vars_) post_uninit.insert(v);
                 post_uninit_initialized = true;
             }
-            // #118 — only a value-yielding arm reaches the enclosing frame's
-            // drops; a diverging one already unwound. #122 — EXCEPT a
-            // `break`/`continue` arm, which unwinds only to the loop body and
-            // then DOES arrive at the enclosing frame's drops via the loop
-            // edge. The statement form (lower_match's `arm_returns`) already
-            // drew the line there; the expression form excluded both kinds and
-            // leaked (`loop { let k = match c { true => x, false => { break; } }; … }`).
-            if (!arm_diverges ||
-                expr_arm_div_kind(me.arms.back().value) == 2) {
+            if (div != 1) {
                 arm_branches.push_back({nullptr, nullptr, moved_vars_,
                                         arm_clear_mark, flag_clear_log_.size(), closure_owned_drop_});
-                arm_slot.push_back(me.arms.size() - 1);
+                arm_slot.push_back(mc.arms.size());
             }
+            mc.arms.push_back(std::move(out));
         }
-        // Merge per-arm contributions back (stmt-form parity).
+        // Merge the per-arm contributions.
         auto pre_moves_kept = pre_moves;   // #118: the ternary moves from pre_moves
         moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
         currently_uninit_vars_ = (any_non_diverging && post_uninit_initialized)
             ? std::move(post_uninit) : std::move(pre_uninit);
-        // #118 — arm the flags. `me.arms` is now stable, so the arm VALUES can
-        // be addressed and rebuilt in place.
-        for (size_t i = 0; i < arm_branches.size(); ++i)
-            arm_branches[i].val = &me.arms[arm_slot[i]].value;
-        // Variant-exact payload moves are moved on EVERY path (static).
+        // #118 — arm the flags; `mc.arms` is stable now, so an arm's body (or
+        // value) is addressed and rebuilt in place.
+        for (size_t k = 0; k < arm_branches.size(); ++k) {
+            if (value_form) arm_branches[k].val = &mc.arms[arm_slot[k]].value;
+            else            arm_branches[k].blk = &mc.arms[arm_slot[k]].body;
+        }
+        // Variant-exact payload moves are moved on EVERY path (static) — if
+        // still moved at the end of an arm that moved them.
         for (size_t xi = exact_mark; xi < exact_variant_moves_.size(); ++xi) {
             const std::string& xp = exact_variant_moves_[xi];
-            // Still moved at the end of the arm that moved it (an arm may re-initialise it).
             bool live = false;
             for (auto& b : arm_branches) if (b.moves.count(xp)) { live = true; break; }
             if (!live) continue;
@@ -13406,111 +12486,95 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         elaborate_cond_moves(pre_moves_kept, arm_branches, &owned_pre_m);
     }
 
+    // Exhaustiveness: ONE verdict, the usefulness matrix (S3.1); the LIR-level
+    // variant check is a backstop for a shape the matrix could not decide.
     {
-        // K4: prove nested-enum-pattern exhaustiveness at the AST level.
-        bool ast_exh = false, expr_decided = false;
+        bool ast_exh = false, decided = false;
         if (node.has_key(la::ITEMS)) {
             std::vector<writ::TinyMapView> lhs_pats;
             auto arms_l = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < arms_l.size(); ++i) {
                 auto arm = map_of(arms_l.get(i));
                 if (code_of(arm) != la::MATCH_ARM) continue;
-                if (arm.has_key(la::GUARD)) continue;
+                if (arm.has_key(la::GUARD)) continue;      // user-guarded ≠ guaranteed
                 if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
             }
-            ast_exh = check_exhaustive_(std::move(lhs_pats), scrut_type, expr_decided);
+            ast_exh = check_exhaustive_(std::move(lhs_pats), scrut_type, decided);
         }
-        // The LIR-level checks below are a backstop for a shape the matrix
-        // could not decide, never a second verdict.
-        bool has_wild = ast_exh || expr_decided;
-        for (auto& arm : me.arms) {
-            if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
-                has_wild = true;
-                break;
-            }
-        }
-        if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
-            auto [epkg_match2, esi_match2] = enum_of(TypeRef(scrut_type));
-            auto eit = esi_match2 ? enums_.find(type_id(epkg_match2, TypeRef(scrut_type).enum_name())) : enums_.end();
-            if (eit == enums_.end()) eit = enums_.find(type_id({}, TypeRef(scrut_type).enum_name()));
-            if (eit != enums_.end()) {
-                std::set<int32_t> covered;
-                namespace ps = lir_schema::pat;
-                auto add_pat2_ref = [&](lir_view::PatRef pr) {
-                    if (!pr) return;
-                    auto k = pr.kind();
-                    if (k == ps::Code::Variant)
-                        covered.insert(static_cast<int32_t>(lir_view::PatVariantView{pr}.disc()));
-                    else if (k == ps::Code::VariantData)
-                        covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{pr}.disc()));
-                };
-                for (auto& arm : me.arms) {
-                    if (arm.guard) continue;
-                    auto apr = pat_ref_of(arm.pat);
-                    if (apr.kind() == ps::Code::Or) {
-                        lir_view::PatOrView{apr}.each_alt(
-                            [&](lir_view::PatRef alt) { add_pat2_ref(alt); });
-                    } else {
-                        add_pat2_ref(apr);
-                    }
-                }
-                std::string missing;
-                for (auto& v : eit->second.variants) {
-                    if (covered.find(v.value) == covered.end()) {
-                        // T2-29: a variant with an UNINHABITED payload can
-                        // never be constructed (`Result<i32, Void>` with an
-                        // empty `Void`), so omitting its arm is exhaustive.
-                        // Variant payload types are the enum DEFINITION's
-                        // (generic `E`); substitute the scrutinee's type-args
-                        // before the uninhabited check.
-                        SemaSubst evsub;
-                        {
-                            auto ta = TypeRef(scrut_type).type_args();
-                            for (size_t pi = 0; pi < eit->second.type_params.size()
-                                                && pi < ta.size(); ++pi)
-                                evsub[eit->second.type_params[pi].name] = ta[pi];
-                        }
-                        bool unconstructable = false;
-                        for (auto pt : v.payload_types) {
-                            TypeRef spt = evsub.empty() ? TypeRef(pt)
-                                        : subst_type_sema(pt, evsub);
-                            if (is_type_uninhabited(spt)) { unconstructable = true; break; }
-                        }
-                        if (unconstructable) continue;
-                        if (!missing.empty()) missing += ", ";
-                        missing += std::string(v.name);
-                    }
-                }
-                if (!missing.empty())
-                    error(std::format("match is not exhaustive — missing variant(s): {}",
-                          missing));
-            }
-        }
-        if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Bool) {
-            bool has_true = false, has_false = false;
-            for (auto& arm : me.arms) {
-                if (arm.guard) continue;
-                auto apr = pat_ref_of(arm.pat);
-                if (apr.kind() == lir_schema::pat::Code::Bool) {
-                    if (lir_view::PatBoolView{apr}.value()) has_true = true;
-                    else has_false = true;
-                }
-            }
-            if (!has_true || !has_false)
-                error("match on bool is not exhaustive — missing "
-                      + std::string(!has_true ? "true" : "false"));
-        }
+        std::vector<lir_view::PatRef> unguarded;
+        for (auto& a : mc.arms)
+            if (!a.guard) unguarded.push_back(pat_ref_of(a.pat));
+        check_match_exhaustiveness(unguarded, scrut_type, ast_exh || decided);
     }
+    mc.scrut = std::move(scrut);
+    return mc;
+}
 
-    auto me_expr = builder().match_expr_v(std::move(me), result_type);
-    if (has_hoist_let) {
-        std::vector<lir_view::StmtRef> blk;
-        blk.push_back(std::move(hoist_let_view));
-        blk.push_back(std::move(hoist_let_root));
-        blk.push_back(std::move(hoist_let_base));
-        return finalize_expr(builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me_expr), result_type), result_type);
+lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
+    const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
+    MatchCore mc = lower_match_core(node, tail_match_nodes_.count(node.ptr()) ? MatchForm::Tail
+                                                                              : MatchForm::Stmt);
+    if (mc.schema_stmt) return mc.schema_stmt;
+    lir::SMatch smatch;
+    smatch.scrut = mc.scrut;
+    for (auto& a : mc.arms)
+        smatch.arms.push_back({std::move(a.pat), lir_mirror_block(*cur_prog_, a.body), std::move(a.guard)});
+    lir_view::StmtRef st = make_stmt_emit(match_line, std::move(smatch));
+    if (!mc.hoists.empty()) {
+        mc.hoists.push_back(st);
+        st = make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, mc.hoists), /*transparent=*/true});
     }
-    return finalize_expr(std::move(me_expr), result_type);
+    if (!mc.temp_scrut_hoisted) return st;
+    // `{ let __ms = <scrut>; <match>; <fall-through drops> }`: collect_drops
+    // yields the fall-through drop of __ms (none when an arm moved it).
+    auto ft_drops = collect_drops();
+    pop_scope();
+    std::vector<lir_view::StmtRef> blk;
+    blk.push_back(std::move(mc.temp_scrut_let));
+    blk.push_back(std::move(st));
+    for (auto& d : ft_drops) blk.push_back(std::move(d));
+    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
+}
+
+lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
+    MatchCore mc = lower_match_core(node, MatchForm::Value);
+    if (mc.refused) return error_expr();
+    lir::EMatchExpr me;
+    me.scrut = mc.scrut;
+    for (auto& a : mc.arms) {
+        lir::EMatchArm ema;
+        ema.pat   = std::move(a.pat);
+        ema.guard = std::move(a.guard);
+        ema.value = std::move(a.value);
+        me.arms.push_back(std::move(ema));
+    }
+    const TypeRef rty = mc.result_type;
+    auto me_expr = builder().match_expr_v(std::move(me), rty);
+    if (!mc.hoists.empty())
+        me_expr = builder().block_expr(lir_mirror_block(*cur_prog_, mc.hoists), std::move(me_expr), rty);
+    if (!mc.temp_scrut_hoisted) return me_expr;
+    // A hoisted temporary scrutinee: `{ let __ms; let __mr = <match>; <drop
+    // __ms>; __mr }` — the value is bound first so __ms drops AFTER it is read
+    // (a returning arm dropped __ms already). A void / never / error match:
+    // `{ let __ms; <match> }`.
+    auto ft_drops = collect_drops();
+    pop_scope();
+    std::vector<lir_view::StmtRef> blk;
+    blk.push_back(std::move(mc.temp_scrut_let));
+    const bool valueful = rty && TypeRef(rty).kind() != LogosType::Kind::Void &&
+                          TypeRef(rty).kind() != LogosType::Kind::Never &&
+                          TypeRef(rty).kind() != LogosType::Kind::Error;
+    if (!valueful)
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me_expr), rty);
+    std::string res_var = "__match_res_" + std::to_string(tmp_var_count_++);
+    {
+        lir::SLet sl;
+        sl.name = res_var; sl.type = rty; sl.is_mut = false;
+        sl.value = std::move(me_expr);
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+    }
+    for (auto& d : ft_drops) blk.push_back(std::move(d));
+    return builder().block_expr(lir_mirror_block(*cur_prog_, blk), builder().var_ref(res_var, rty), rty);
 }
 
 

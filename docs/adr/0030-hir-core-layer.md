@@ -500,12 +500,29 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   (SIGSEGV). The door emits no dead-code special cases, so the metaprog and
   metacall JIT pipelines met unreachable blocks the object pipeline swept:
   the three MLIR → LLVM-dialect lowerings are one (`lower_mlir_to_llvm_dialect`).
-Next: S3.4b — ONE `lower_match_core` in sema: the statement match as the
-expression match (arm types unify, a block arm ending in a statement is `()`,
-as rustc), a tail match as `return <match>`, let-else on the core's arm phase.
-Then S3.3b — or-patterns of binding alternatives in the tester (guarded arms
-retry the next alternative, alternative-dependent moves), which retires the
-fan-out, the synthesized route, the guard channel and the K4 prologue.
+- S3.4b (2026-09-28): ONE sema match lowering, `lower_match_core(node,
+  form)` — form Stmt (arm bodies, values discarded), Tail (an expression arm
+  IS the return), Value (arm values unify into the match's type);
+  `lower_match` / `lower_match_expr` are its two carriers (SMatch /
+  EMatchExpr). The scrutinee, the temporary-scrutinee hoist, the Writ hoist
+  (one root helper: the expression copy still spelled the pre-Writ
+  `.root()`), the arm expansion, the pattern / binding / guard phase, E0507
+  at the arm, the guard-move union, the per-arm move / definite-assignment
+  merge, the drop flags and exhaustiveness (one backstop over the unguarded
+  arm patterns) are one code; divergence is one rule (a `!` expression arm
+  diverges in both forms). A value-position block arm ending in a statement
+  is `()`, as rustc types it (spec expr.match.arm-block-tail-is-value: the
+  mismatch is the arm-type error; it was "block arm must end with an
+  expression"). Budget ≤ −900 net; landed −916 (+563 / −1479).
+Next: the grammar takes `;` after a block-like statement (a lone `;` is the
+empty statement; `match … {};` is an expression statement) — the user's
+direction (the grammar is a syntactic superset of Rust). Then S3.4c: the
+statement match as `ExprStmt(match)` with rustc's typing (no `;`: `()`),
+SMatch retired; let / let-else on the core's arm phase (temporary hoist —
+squeue let_ref_mut_binding_crash); then S3.3b — or-patterns of binding
+alternatives in the tester (guarded arms retry the next alternative,
+alternative-dependent moves), retiring the fan-out, the synthesized route,
+the guard channel and the K4 prologue.
 
 ## L0 status (2026-09-27)
 

@@ -1,0 +1,18 @@
+// ADR 0030 S3.4b: ONE sema match lowering. A value-position block arm that ends in a statement (`{}`,
+// `{ a = 10; }`) has type `()`, as rustc types it — the expression spelling refused it ("block arm must end
+// with an expression"), the statement spelling admitted it.
+package match_core_unit_arms;
+use logos.std.fmt;
+enum E { A(String), B }
+fn f(k: i64) -> i64 {
+    let mut a = 0i64;
+    let u = match k { 1 => { a = 10; } 2 => println!("two"), _ => {} };
+    let () = u;
+    let v = match k { 1 => { a += 1; a } _ => { let w = k * 3; w } };
+    v
+}
+fn g(e: &E) -> i64 { match e { E::A(s) => s.len() as i64, E::B => 0 } }
+fn main() {
+    println!("{} {} {}", f(1), f(2), f(3));
+    println!("{} {}", g(&E::A(String::from("abc"))), g(&E::B));
+}

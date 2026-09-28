@@ -10202,6 +10202,27 @@ private:
     bool place_field_base_ok(writ::TinyMapView recv);
     writ::TinyMapView unwrap_paren_node(writ::TinyMapView n);
     void modifier_under_ref_scrutinee(std::string_view name, TypeRef scrut_type, bool known_ref = false);  // Rust 2024 sentence
+    // ADR 0030 S3.4b: THE match lowering (see sema_stmt.cpp). `form` is where
+    // the match stands; lower_match / lower_match_expr are its two carriers.
+    enum class MatchForm : uint8_t { Stmt, Tail, Value };
+    struct MatchCoreArm {
+        lir::Pattern                   pat;
+        std::optional<lir::LExprPtr>   guard;
+        std::vector<lir_view::StmtRef> body;    // Stmt / Tail
+        lir::LExprPtr                  value = {};  // Value
+    };
+    struct MatchCore {
+        lir::LExprPtr                  scrut = {};
+        std::vector<MatchCoreArm>      arms;
+        TypeRef                        result_type = nullptr;
+        std::vector<lir_view::StmtRef> hoists;         // the Writ view / root / base lets
+        bool                           temp_scrut_hoisted = false;  // scope left open for the carrier
+        std::string                    temp_scrut_var;
+        lir_view::StmtRef              temp_scrut_let;
+        lir_view::StmtRef              schema_stmt;    // ADR 0011 desugar took the match
+        bool                           refused = false;
+    };
+    MatchCore lower_match_core(writ::TinyMapView node, MatchForm form);
     lir_view::StmtRef lower_match(writ::TinyMapView node);
     // ADR 0011 — desugar a `match` over a `schema enum` into an if-chain on the
     // pointee's schema_type_code. Assumes scrut_type is a schema-enum view.
@@ -10253,10 +10274,9 @@ private:
                                                 const std::string& aname) const;
     // Exhaustiveness analysis for a lowered match (enum / bool scrutinee):
     // emits a diagnostic if a non-guarded wildcard is absent and some
-    // variant / bool value is uncovered. Read-only over `smatch`; factored
-    // out of lower_match.
-    void check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type,
-                                    bool ast_proven_exhaustive = false);
+    // variant / bool value is uncovered. Over the unguarded arms' patterns.
+    void check_match_exhaustiveness(const std::vector<lir_view::PatRef>& unguarded,
+                                    TypeRef scrut_type, bool ast_proven_exhaustive = false);
 
     // ── lower_fn and declaration lowering ───────────────────────
 

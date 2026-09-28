@@ -653,7 +653,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #ARGSCAN has_any_ 3 87d658f1
 #ARGSCAN make_generic_enum 3 d49e815d
 #ARGSCAN make_generic_struct 1 063a5bc4
-#ARGSCAN make_synth_datatype 2 63094128
+# 2026-09-28, ADR 0030 S3.4b: 2 -> 1, roster 63094128 -> f40e89e1 — the match EXPRESSION's copy of the Writ
+# hoist (`.root()` typed `make_synth_datatype("AnyVal")`) is gone: one lowering (lower_match_core) keeps the
+# statement copy, the root helper's return type with that fallback.
+#ARGSCAN make_synth_datatype 1 f40e89e1
 #ARGSCAN make_synth_enum 10 c24a7b9e
 #ARGSCAN make_synth_generic_struct 15 ef92b993
 #ARGSCAN make_synth_struct 42 06543857

@@ -1,1 +1,1 @@
-block arm must end with an expression or always return
+match expression: arm type 'i32' is incompatible with 'void'
