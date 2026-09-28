@@ -282,7 +282,7 @@ Evidence: `src/compiler/sema_decl.cpp (SemaChecker::bind_param_pattern, SemaChec
 
 ### `item.fn-param.tuple-pattern` — Tuple-destructure function parameter
 
-`(a, b, ...): (T1, T2, ...)` is the tuple spelling of a pattern parameter (`item.fn-param.struct-pattern`); nested tuples, arrays and struct sub-patterns are allowed at any depth. A closure parameter takes the same patterns, typed (`|(a, b): (T, U)|`) or untyped (`|(a, b)|`, `|&(a, b)|`, typed from the expected closure type); a refutable one is `refutable pattern in closure argument`.
+`(a, b, ...): (T1, T2, ...)` is the tuple spelling of a pattern parameter (`item.fn-param.struct-pattern`); nested tuples, arrays and struct sub-patterns are allowed at any depth. A closure parameter takes the same patterns, typed (`|(a, b): (T, U)|`) or untyped (`|(a, b)|`, `|&(a, b)|`, typed from the expected closure type); `|&x|` / `|&mut x|` are reference patterns, x binding the referent (`|m, &x|` over `&u8` elements gives `x: u8`); a refutable one is `refutable pattern in closure argument`.
 
 ```logos
 fn f((a, b): (i32, i32)) -> i32 { a + b }

@@ -1,0 +1,22 @@
+// ADR 0030 S3: `|&x|` / `|&mut x|` closure parameters are reference PATTERNS — x binds the referent,
+// as in `|m, &x| if x > m { x } else { m }` over `&u8` elements and `|&x| x % 2 == 0`. A dedicated
+// grammar form made them a by-reference NAME, so x bound the whole `&T` (refused: "left must be
+// numeric, got &&i64", "if-expression branches have incompatible types: &u8 vs u8").
+package closure_ref_pattern_params;
+use logos.mem.collections.vec; use logos.lang.iter;
+fn sq(x: i64) -> i64 { x * x }
+fn main() -> i32 {
+    let data = [4u8, 9, 2];
+    let mx = data.iter().fold(0u8, |m, &x| if x > m { x } else { m });
+    let v: Vec<i64> = vec![1i64, 2i64, 3i64];
+    let evens: i64 = v.iter().filter(|&x| x % 2 == 0).sum();
+    let sqs: Vec<i64> = v.iter().map(|&x| sq(x)).collect();
+    let refs: Vec<&i64> = v.iter().collect();
+    let tens: i64 = refs.iter().map(|&&x| x * 10).sum();
+    let pairs = vec![(1i64, 2i64), (3i64, 4i64)];
+    let prod: i64 = pairs.iter().map(|&(a, b)| a * b).sum();
+    let k = 3i64;
+    let f = move |&x: &i64| x + k;
+    let a = 4i64;
+    return (mx as i64 + evens + sqs[2] + tens + prod + f(&a)) as i32;
+}

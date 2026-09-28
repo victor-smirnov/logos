@@ -3626,10 +3626,11 @@
                    // Any other irrefutable pattern with its type, as at `param`.
                    / pat_single COLON type_ref
                   => { CODE: PARAM, PAT: $1, TYPE: $3 }
-                   / AMP KW_MUT IDENT
-                  => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
-                   / AMP IDENT
-                  => { CODE: PARAM, NAME: $2, IS_REF: true }
+                   // `|&x|` / `|&mut x|` are reference PATTERNS (x binds the
+                   // referent), parsed by `pat_single` below. A dedicated
+                   // `AMP IDENT` form made them a by-reference NAME: x bound the
+                   // whole `&T` (`|&x| x % 2` refused, `|m, &x| if x > m { x }`
+                   // mistyped).
                    / IDENT
                   => { CODE: PARAM, NAME: $1 }
                    // `|(a, b)|`, `|&(a, b)|`: an untyped pattern, typed from the
