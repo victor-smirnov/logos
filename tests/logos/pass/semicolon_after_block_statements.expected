@@ -1,0 +1,10 @@
+exit: 0
+stdout:
+mk 1
+drop 1
+after match 1
+1112
+mk 2
+drop 2
+after match 0
+1111

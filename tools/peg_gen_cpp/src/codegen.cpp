@@ -876,6 +876,9 @@ private:
             "add_expr", "mul_expr", "cast_expr", "unary_expr",
             "atom", "primary_expr",
             "type_ref", "simple_type",
+            // `block_stmt` tries `match_stmt SEMI` before `stmt`, which
+            // reaches `match_stmt` again at the same position.
+            "match_stmt",
         };
         for (auto r : kMemo) if (r == rule) return true;
         return false;

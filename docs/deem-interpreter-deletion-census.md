@@ -6707,8 +6707,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                (compiles now, leaks the borrowed temporary).
 #                ALL 11727 -> 11728 (+1), NOIMPORTED 7164 -> 7165 (+1), TIERCOMMIT 206 -> 206 — 2026-09-28: ADR 0030
 #                S3.4b (one sema match lowering): + 1 pass (match_core_unit_arms).
-REGISTRY-ALL         11728
-REGISTRY-NOIMPORTED  7165
+#                ALL 11728 -> 11730 (+2), NOIMPORTED 7165 -> 7167 (+2), TIERCOMMIT 206 -> 206 — 2026-09-28: grammar
+#                `;` after block-like statements: + 1 pass (semicolon_after_block_statements), + 1 fail
+#                (match_semicolon_arms_unify).
+REGISTRY-ALL         11730
+REGISTRY-NOIMPORTED  7167
 REGISTRY-TIERCOMMIT  206
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

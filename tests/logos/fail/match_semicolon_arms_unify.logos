@@ -1,0 +1,7 @@
+// `match … {};` is an expression statement: its value is discarded, but the match is still ONE
+// value — its arms unify (rustc E0308 "`match` arms have incompatible types").
+package match_semicolon_arms_unify;
+fn main() {
+    let x = 1i64;
+    match x { 1 => 5i64, _ => true };
+}

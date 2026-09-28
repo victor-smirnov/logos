@@ -1,0 +1,24 @@
+// A `;` after a block-like statement, and a lone `;`, as Rust's grammar has them: the empty statement
+// takes it after `if` / `loop` / `while` / `for` / a block / `unsafe` / `let … ;;`, and `match … {};` is an
+// EXPRESSION statement whose value (here a droppable `D`) is discarded and dropped at the end of the
+// statement. Every form below was a syntax error.
+package semicolon_after_block_statements;
+use logos.std.fmt;
+struct D { v: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.v); } }
+fn mk(v: i64) -> D { println!("mk {}", v); D { v } }
+fn f(k: i64) -> i64 {
+    let mut n = 0i64;
+    match k { 1 => mk(1), _ => mk(2) };
+    println!("after match {}", k);
+    if k > 0 { n += 1; };
+    loop { n += 10; break; };
+    while n < 0 { };
+    for i in 0..2 { n += i; };
+    { n += 100; };
+    unsafe { n += 1000; };
+    let m = n;;
+    ;
+    m
+}
+fn main() { println!("{}", f(1)); println!("{}", f(0)); }

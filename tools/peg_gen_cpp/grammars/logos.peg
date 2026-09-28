@@ -2289,8 +2289,19 @@
                => { CODE: VAR_REF, NAME_VAR: $3 }
                 / block
 
-    block <- LBRACE stmt* RBRACE
+    block <- LBRACE block_stmt* RBRACE
           => { CODE: BLOCK, ITEMS: $... }
+
+    // A statement of a block, as Rust's grammar has it: `match … {};` is an
+    // EXPRESSION statement (the value is discarded, so its arms need not be
+    // `()`), and a lone `;` is the empty statement — which is also what takes
+    // the `;` after any other block-like statement (`if … {};`, `loop {};`,
+    // `{};`, `let x = 1;;`). Both were syntax errors.
+    block_stmt <- match_stmt SEMI
+               => { CODE: EXPR_STMT, VALUE: $1 }
+                / stmt
+                / SEMI
+               => { CODE: BLOCK_STMT }
 
     // ── Unsafe block ─────────────────────────────────────────────
     unsafe_block <- KW_UNSAFE block_body

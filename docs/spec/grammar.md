@@ -6,9 +6,15 @@ Concrete-syntax rules for Logos source, Writ data literals, and the Hest RPC (hr
 
 ### `grammar.block.brace` — Block
 
-A block is `{ stmt* }`: a brace-delimited sequence of zero or more statements.
+A block is `{ block_stmt* }`: a brace-delimited sequence of zero or more statements.
 
-*Source:* `tools/peg_gen_cpp/grammars/logos.peg#L1821-L1823`, `tools/peg_gen_cpp/grammars/logos.peg#L1882-L1883`
+*Source:* `tools/peg_gen_cpp/grammars/logos.peg` rules `block`, `block_stmt`
+
+### `grammar.block.empty-statement` — `;` is a statement
+
+As in Rust, a lone `;` is the empty statement, which is also what takes the `;` after a block-like statement (`if … {};`, `loop {};`, `while … {};`, `for … {};`, `{};`, `unsafe {};`, `let x = 1;;`). `match … {};` is an expression statement: the match is typed as a value (its arms unify) and the value is discarded — dropped at the end of the statement.
+
+*Source:* `tools/peg_gen_cpp/grammars/logos.peg` rule `block_stmt`
 
 ## Expressions and calls
 
