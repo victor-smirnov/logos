@@ -12263,9 +12263,12 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                     // Tail-position match: an EXPR arm IS the function's return
                     // value — the one return judgment (ADR 0030 S2), moves
                     // included (a bare SReturn left the moved binding to be
-                    // dropped at the arm's scope exit as well).
-                    body.push_back(finish_return_(std::move(val), map_of(arm.get(la::EXPR.code)),
-                                                  /*bind_temps=*/false));
+                    // dropped at the arm's scope exit as well), with the one
+                    // return unwind: every live local of every frame drops
+                    // before it. Pushed bare, the arm's bindings and the
+                    // function's locals and parameters were never dropped.
+                    push_stmt_with_unwind(body, finish_return_(std::move(val), map_of(arm.get(la::EXPR.code)),
+                                                               /*bind_temps=*/false));
                 } else {
                     // Statement-position match: EXPR arms are evaluated for side effects.
                     lir::SExprStmt es; es.expr = std::move(val);
@@ -12312,9 +12315,10 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             // the binding is being moved out as the body's last
             // value — mark it moved first so collect_drops skips it.
             // For tail-position match (tail_match_nodes_), the
-            // last stmt is already an SReturn handled by lower_block
-            // via collect_all_drops (which scans all frames). So the
-            // mark-moved walk applies only to the non-return tail.
+            // last stmt is already an SReturn whose unwind
+            // (push_stmt_with_unwind / lower_block) emitted
+            // collect_all_drops. So the mark-moved walk applies only
+            // to the non-return tail.
             {
                 bool body_returns = false;
                 lir_view::StmtRef last_stmt_ref;

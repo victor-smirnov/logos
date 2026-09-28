@@ -20589,8 +20589,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // CREATES the closure (eager one-shot evaluation — a miscompile).
         auto vnode = map_of(node.get(la::VALUE.code));
         auto val = lower_expr_temp_scoped(vnode);
-        // The one return judgment (ADR 0030 S2): `|t| t` moves `t` out.
-        body.push_back(finish_return_(std::move(val), vnode, /*bind_temps=*/false));
+        // The one return judgment (ADR 0030 S2): `|t| t` moves `t` out; the
+        // one return unwind drops the by-value parameters it did not move.
+        push_stmt_with_unwind(body, finish_return_(std::move(val), vnode, /*bind_temps=*/false));
     }
     // C5-cl-03: prepend `let user = &synth;` for each ref-bound param.
     // C5-cl-07: prepend `let user_k = __tup_param_*.k;` for each

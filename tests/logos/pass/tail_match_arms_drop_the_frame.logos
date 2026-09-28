@@ -1,0 +1,28 @@
+// ADR 0030 S2: a tail-position `match` whose arm is an expression returns through the one
+// return unwind — the arm's bindings, the function's locals and its by-value parameters drop
+// before it, as after an explicit `return`; an expression-body closure `|d: D| 1` drops its
+// by-value parameter the same way. Both pushed a bare return: every one of them leaked (the
+// control binary's drop sum is 384 of 1111).
+package tail_match_arms_drop_the_frame;
+use logos.lang.option;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+fn frame(k: i64, p: D) -> i64 { let d = D { v: 2, c: p.c }; match k { 1 => 10, _ => 20 } }
+fn moved_binder(o: Option<D>) -> i64 { match o { Some(d) => d.v, None => 0 } }
+fn rest(t: (D, D), k: i64) -> D { let keep = D { v: 64, c: t.0.c }; match k { 0 => t.0, _ => t.1 } }
+fn block_arm(k: i64, c: *mut i64) -> i64 { let d = D { v: 128, c: c }; match k { 1 => { let e = D { v: 256, c: c }; e.v } _ => 0 } }
+fn main() -> i32 {
+    let mut n: i64 = 0;
+    let c: *mut i64 = &mut n;
+    let mut r = frame(1, D { v: 1, c: c });
+    r += moved_binder(Some(D { v: 4, c: c }));
+    r += moved_binder(None);
+    let kept = rest((D { v: 8, c: c }, D { v: 16, c: c }), 0);
+    r += kept.v;
+    r += block_arm(1, c) + block_arm(2, c);
+    let g = |d: D| 1i64;
+    r += g(D { v: 512, c: c });
+    let got = unsafe { *c };
+    if got != 1111 { return (got % 200) as i32; }
+    return (r - 200) as i32;
+}
