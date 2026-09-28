@@ -537,7 +537,10 @@
 # 2026-09-27, ADR 0030 S3: 25 -> 24, roster f78f48ba -> a6283da9 — that carried_payload_sub question is gone:
 # a structural payload sub is carried whatever its binders do (moving binders included), so the
 # wildcard-keyword test it added is deleted with it.
-#SCAN sema_stmt.cpp 24 a6283da9
+# 2026-09-28, ADR 0030 S3.3a: 24 -> 22, roster a6283da9 -> 09e2decf — build_pattern's PAT_AT asks
+# "does the binder bind a name" once (`at_named`) where its slot, mut-name and modifier sites each
+# spelled `pa.name != "_"`; carried_sub's `n @ _` asks the wildcard by node code, not by name.
+#SCAN sema_stmt.cpp 22 09e2decf
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)

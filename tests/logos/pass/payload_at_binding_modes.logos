@@ -1,0 +1,25 @@
+// ADR 0030 S3: an `@` binder in a payload / tuple / struct-field position is a carried sub-pattern with any
+// binding mode — `mut n @ 1..=5` copies into a mutable binding, `ref n @ …` / `ref mut n @ …` bind the payload
+// place, `n @ _` binds without a test — tested and bound by the one pattern tester (it took the synthesized
+// binding + arm guard route).
+package payload_at_binding_modes;
+use logos.std.fmt; use logos.lang.option;
+enum E { N(i64), P(i64, i64), S { a: i64, b: i64 } }
+fn f1(e: E) -> i64 { match e { E::N(mut n @ 1..=5) => { n += 10; n } E::N(n) => n, _ => -1 } }
+fn f2(mut e: E) -> i64 { match e { E::N(ref mut n @ (1 | 2 | 3)) => { *n += 100; *n } _ => -1 } }
+fn f3(e: &E) -> i64 { match e { E::N(n @ 1..=5) => *n * 2, E::P(a @ 0..=9, b) => a + b, _ => -1 } }
+fn f4(e: E) -> i64 { match e { E::P(ref a @ 1..=3, mut b @ 4..=6) => { b += *a; b } _ => -1 } }
+fn f5(e: E) -> i64 { match e { E::S { a: ref x @ 7, b } => *x + b, E::S { a, b: mut y @ 0..=9 } => { y *= 2; y + a } _ => -1 } }
+fn f6(o: Option<(i64, i64)>) -> i64 { match o { Some((mut p @ 1..=2, q)) => { p += 20; p + q } Some(_) => 0, None => -1 } }
+fn main() {
+    println!("{} {} {}", f1(E::N(3)), f1(E::N(9)), f2(E::N(2)));
+    println!("{} {} {}", f3(&E::N(4)), f3(&E::P(5, 6)), f3(&E::N(40)));
+    println!("{} {}", f4(E::P(2, 5)), f4(E::P(9, 5)));
+    println!("{} {} {}", f5(E::S { a: 7, b: 1 }), f5(E::S { a: 3, b: 4 }), f5(E::S { a: 3, b: 40 }));
+    println!("{} {}", f6(Some((1, 5))), f6(Some((7, 5))));
+    let mut o = Some(4i64);
+    if let Some(ref mut n @ 0..=9) = o { *n += 1; }
+    while let Some(mut k @ 1..=9) = o { k += 1; o = if k > 8 { None } else { Some(k) }; }
+    println!("{:?} {}", o, g(E::N(7)));
+}
+fn g(e: E) -> i64 { match e { E::N(mut n @ _) => { n *= 3; n } _ => -1 } }

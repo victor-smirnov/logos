@@ -6700,8 +6700,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                #527 constant_promotion_refused CLOSED (landed as pass literal_reference_is_const_promoted), #518
 #                vec_literal_elem_type_ignores_call_site_wrong tier 1 -> 3 (now refused), + 1 pass
 #                (array_literal_elements_take_element_type).
-REGISTRY-ALL         11725
-REGISTRY-NOIMPORTED  7162
+#                ALL 11725 -> 11726 (+1), NOIMPORTED 7162 -> 7163 (+1), TIERCOMMIT 206 -> 206 — 2026-09-28: ADR 0030
+#                S3.3a (binding-mode `@` subs carried): + 1 pass (payload_at_binding_modes).
+REGISTRY-ALL         11726
+REGISTRY-NOIMPORTED  7163
 REGISTRY-TIERCOMMIT  206
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

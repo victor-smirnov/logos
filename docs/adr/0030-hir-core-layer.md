@@ -473,9 +473,21 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
 - 2026-09-28: every S3 audit cluster agrees with rustc on stdout and exit
   code (unit-path, closure `|&x|`, mutable slice patterns, partial moves,
   guard-in-loop, array-of-arrays, const-generic lengths among them).
-Next: the remaining synthesized route (or-patterns with binders), then the
-moving binders' K4 prologue retirement (retire the guard channel and the K4 prologue lets),
-then the statement match as the void expression match (one `lower_match_core`).
+- S3.3a (2026-09-28): an `@` binder carried as a payload sub-pattern with any
+  binding mode (`mut n @ 1..=5`, `ref [mut] n @ …`, `n @ _`). Census of the
+  pass corpora (8907 programs, LOGOS_CENSUS buckets `s3.*`): the synthesized
+  binding + guard route went from 11 entries to 0; the K4 body re-extraction
+  (`emit_nested_pat_destructure`) has 0; arm fan-out still 99 (83 top-level
+  or-patterns with non-scalar alternatives, 8 payload ors, 8 `@` ors). What
+  still reaches the synthesized route is an or-pattern of binding
+  alternatives in a multi-argument payload — refused today ("undefined
+  variable"), rustc accepts.
+Next: S3.4 — ONE match door: the statement match as the void expression match
+(one `lower_match_core` in sema, the expression door in mlir), let-else as a
+one-arm match. Then S3.3b — or-patterns of binding alternatives in the tester
+(guarded arms retry the next alternative, alternative-dependent moves), which
+retires the fan-out, the synthesized route, the guard channel and the K4
+prologue.
 
 ## L0 status (2026-09-27)
 

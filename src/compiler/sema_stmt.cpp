@@ -4842,12 +4842,14 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         if (c == la::PAT_INT || c == la::PAT_NEG_INT || c == la::PAT_BOOL ||
             c == la::PAT_CHAR || c == la::PAT_CHAR_RANGE || c == la::PAT_RANGE || c == la::PAT_STR)
             return true;
-        auto flag = [&](const la::Key& k) {
-            return n.has_key(k) && n.get(k.code).is_value() && n.get(k.code).as_value<uint8_t>() != 0;
-        };
-        if (c == la::PAT_AT && n.has_key(la::VALUE) && n.has_key(la::NAME) &&
-            !flag(la::IS_REF) && !flag(la::IS_MUT))
-            return carried_sub(map_of(n.get(la::VALUE.code)));
+        // Any binding mode: `mut n @ 1..=5` copies into a mutable binding,
+        // `ref [mut] n @ …` binds the payload place (PatAt ref_mode).
+        if (c == la::PAT_AT && n.has_key(la::VALUE) && n.has_key(la::NAME)) {
+            TinyMapView in = map_of(n.get(la::VALUE.code));
+            // `n @ _` (`n @ m`): the name binds the payload, nothing is tested.
+            if (code_of(in) == la::PAT_WILD) return true;
+            return carried_sub(in);
+        }
         if (c == la::PAT_REF && n.has_key(la::VALUE) && !pat_scrut_by_ref) {
             // `&x` over an `&T` payload (`Some(&m)` of `iter().max()`): x copies
             // the referent — a move out of the reference is rustc's E0507,
@@ -4948,6 +4950,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field,
             std::string_view explicit_name = {}) -> std::string {
         synth_wants_ref = false;
+        logos::probe::census("s3.synth." + std::to_string(code_of(sub)));
         std::string synth = explicit_name.empty()
             ? std::format("__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++)
             : std::string(explicit_name);
@@ -7037,24 +7040,25 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // `n @ sub` binds the WHOLE scrutinee — the un-collapsed chain.
         pa.type = scrut_orig ? scrut_orig : error_t();
         pa.sub.push_back(std::move(sub_pat));
-        uint32_t _at_slot = (pa.name == "_" || pa.name.empty())  // Phase-1
-                          ? 0xFFFFFFFFu : reserve_pat_slot(pa.name);
+        const bool at_named = !(pa.name == "_" || pa.name.empty());
+        uint32_t _at_slot = at_named ? reserve_pat_slot(pa.name) : 0xFFFFFFFFu;  // Phase-1
         // `mut n @ sub`: carried BOTH ways — the name side-set sema's binder
         // family reads, and pat_keys::IS_MUT on the mirror, which is the only
         // thing borrow_check can see (it never has the AST).
         pa.is_mut = pat_byval_mut(pnode);
-        if (current_pat_mut_names_ && pa.name != "_" && pa.is_mut)
+        if (current_pat_mut_names_ && at_named && pa.is_mut)
             current_pat_mut_names_->insert(pa.name);
         // `ref n @ sub` / `ref mut n @ sub`: n is a REFERENCE to the matched
         // place (`&T`), as a `ref n` binder is. Under a by-reference default
-        // mode the modifier is an error (Rust 2024).
+        // mode EITHER modifier is an error (Rust 2024) — `mut n @ 1..=5` too.
         {
             auto af = [&](const la::Key& k) {
                 return pnode.has_key(k) && pnode.get(k.code).is_value() &&
                        pnode.get(k.code).as_value<uint8_t>() != 0;
             };
-            if (af(la::IS_REF) && pa.name != "_" && !pa.name.empty()) {
-                if (dbm_ref) modifier_under_ref_scrutinee(pa.name, scrut_orig, /*known_ref=*/true);
+            if (dbm_ref && (af(la::IS_REF) || pa.is_mut) && at_named)
+                modifier_under_ref_scrutinee(pa.name, scrut_orig, /*known_ref=*/true);
+            if (af(la::IS_REF) && at_named) {
                 pa.ref_mode = af(la::IS_MUT) ? 2 : 1;
                 pa.type = make_ref(pa.ref_mode == 2, pa.type);
                 pa.is_mut = false;
@@ -11323,6 +11327,7 @@ void SemaChecker::emit_nested_pat_destructure(
         const std::vector<NestedPatSub>& nested_subs,
         std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
     for (auto& nsub : nested_subs) {
+        logos::probe::census("s3.nested_destructure");
         TypeRef synth_t = lookup(nsub.synth_name);
         if (!synth_t) continue;
         const int32_t nsc = code_of(nsub.sub_pat_node);
@@ -12029,17 +12034,20 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 if (code_of(lhs) == la::PAT_OR)
                     check_or_alt_binding_consistency(lhs);
                 if (or_needs_fanout(lhs)) {
+                    logos::probe::census("s3.fanout.top");
                     auto a = arr_of(lhs.get(la::ITEMS.code));
                     for (uint64_t k = 0; k < a.size(); ++k)
                         eff_arms.push_back({arm, (int32_t)k});
                     continue;
                 }
                 if (int n = variant_payload_or_alts(lhs); n > 0) {
+                    logos::probe::census("s3.fanout.payload");
                     for (int k = 0; k < n; ++k)
                         eff_arms.push_back({arm, -1, k});
                     continue;
                 }
                 if (int n = at_or_fanout_alts(lhs); n > 0) {
+                    logos::probe::census("s3.fanout.at");
                     for (int k = 0; k < n; ++k)
                         eff_arms.push_back({arm, -1, -1, k});
                     continue;
@@ -12887,17 +12895,20 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (code_of(lhs) == la::PAT_OR)
                     check_or_alt_binding_consistency(lhs);
                 if (or_needs_fanout(lhs)) {
+                    logos::probe::census("s3.fanout.top");
                     auto a = arr_of(lhs.get(la::ITEMS.code));
                     for (uint64_t k = 0; k < a.size(); ++k)
                         eff_arms.push_back({arm, (int32_t)k});
                     continue;
                 }
                 if (int n = variant_payload_or_alts(lhs); n > 0) {
+                    logos::probe::census("s3.fanout.payload");
                     for (int k = 0; k < n; ++k)
                         eff_arms.push_back({arm, -1, k});
                     continue;
                 }
                 if (int n = at_or_fanout_alts(lhs); n > 0) {
+                    logos::probe::census("s3.fanout.at");
                     for (int k = 0; k < n; ++k)
                         eff_arms.push_back({arm, -1, -1, k});
                     continue;
