@@ -1,4 +1,4 @@
-pub fn slice_scan_run(__pl: &SliceScanPlan, rows: &[Row], lo: u64) -> Result<Vec<u64>, ElError> {
+pub fn slice_scan_run<'a>(__pl: &SliceScanPlan, rows: &'a [Row], lo: u64) -> Result<Vec<u64>, ElError> {
     let mut __out: Buffer<u64> = Buffer::<u64>::new();
     let mut __ss0: SliceStream<Row> = SliceStream::<Row>::new(rows);
     loop {

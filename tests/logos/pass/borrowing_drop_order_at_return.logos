@@ -1,0 +1,23 @@
+// A value whose destructor reads a borrow (`W<'a>` with `impl Drop`) drops BEFORE what it borrows, at an
+// early `return` and at the tail alike — reverse declaration order. BIR ran such a drop at the scope exit while
+// sema's earlier-declared drops stayed where sema put them (ahead of it), refusing the program: "'d' does
+// not live long enough". Found by the Deem suite (wql_writ_walk_cursor).
+package borrowing_drop_order_at_return;
+use logos.std.fmt;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop D{}", self.n); } }
+struct W<'a> { d: &'a D, v: Vec<i64> }
+impl<'a> Drop for W<'a> { fn drop(&mut self) { println!("drop W over D{} ({})", self.d.n, self.v.len()); } }
+struct V<'a> { d: &'a D, v: Vec<i64> }
+fn mk(d: &D) -> W { W { d: d, v: vec![1] } }
+fn early(c: bool) -> i32 {
+    let d = D { n: 1 };
+    let w = mk(&d);
+    let x = V { d: &d, v: vec![2, 3] };
+    if c { return 1; }
+    let d2 = D { n: 2 };
+    let w2 = W { d: &d2, v: Vec::new() };
+    println!("{} {} {}", w.v.len(), x.v.len() as i64 + x.d.n, w2.v.len());
+    0
+}
+fn main() { println!("{}", early(true)); println!("{}", early(false)); }

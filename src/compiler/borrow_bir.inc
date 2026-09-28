@@ -651,6 +651,39 @@ private:
     // ── scopes ──
     struct Scope { std::vector<bir::LocalId> locals; };
     std::vector<Scope> scopes_;
+    // Deferred (borrow-observing) drops already run on THIS block's path by
+    // catch_up_deferred_drops — exit_scopes in the same block must not repeat
+    // them. Valid only while `caught_block_ == cur_` (no terminator between).
+    std::set<bir::LocalId> caught_;
+    bir::BlockId caught_block_ = ~0u;
+    bool deferred_drop(bir::LocalId l) const {
+        return body_.locals[l].kind != bir::LocalKind::Temp &&
+               bir_drop_observes_borrow(body_.locals[l].type, prog_, ts_);
+    }
+    // Sema reaches `drop d` with the drop of a LATER-declared, borrow-observing
+    // `w` deferred to the scope exit (below): in Rust `w` drops first — reverse
+    // declaration order — and `d`'s drop invalidates what `w`'s destructor
+    // reads. Run the deferred drops of every local declared after `d` that is
+    // still in scope, here, in reverse declaration order.
+    void catch_up_deferred_drops(bir::LocalId d) {
+        size_t si = scopes_.size(), pos = 0;
+        for (size_t i = scopes_.size(); i-- > 0 && si == scopes_.size();)
+            for (size_t k = 0; k < scopes_[i].locals.size(); ++k)
+                if (scopes_[i].locals[k] == d) { si = i; pos = k; break; }
+        if (si == scopes_.size()) return;
+        if (caught_block_ != cur_) { caught_.clear(); caught_block_ = cur_; }
+        for (size_t i = scopes_.size(); i-- > si;) {
+            const auto& ls = scopes_[i].locals;
+            for (size_t k = ls.size(); k-- > (i == si ? pos + 1 : 0);) {
+                const bir::LocalId l = ls[k];
+                if (!deferred_drop(l) || caught_.count(l)) continue;
+                bir::Stmt dr(bir::Stmt::K::Drop);
+                dr.dest = {l, {}};
+                emit(std::move(dr));
+                caught_.insert(l);
+            }
+        }
+    }
     void push_scope() { scopes_.emplace_back(); }
     void declare(bir::LocalId l) { if (!scopes_.empty()) scopes_.back().locals.push_back(l); }
     // StorageDead for every local of scopes [depth, top), innermost first.
@@ -665,8 +698,7 @@ private:
                 // };` had `drop h` run while `x` was still alive. The drop is
                 // put where Rust has it: `x` is dead by the time `h`'s
                 // destructor reads `*self.r` (E0597, dropck).
-                if (body_.locals[*it].kind != bir::LocalKind::Temp &&
-                    bir_drop_observes_borrow(body_.locals[*it].type, prog_, ts_)) {
+                if (deferred_drop(*it) && !(caught_block_ == cur_ && caught_.count(*it))) {
                     bir::Stmt d(bir::Stmt::K::Drop);
                     d.dest = {*it, {}};
                     emit(std::move(d));
@@ -2435,9 +2467,8 @@ private:
                 // A local whose destructor can read a borrow is dropped where
                 // Rust drops it, at its scope's exit in reverse declaration
                 // order (exit_scopes); sema's placement is its own glue order.
-                if (body_.locals[l].kind != bir::LocalKind::Temp &&
-                    bir_drop_observes_borrow(body_.locals[l].type, prog_, ts_))
-                    return;
+                if (deferred_drop(l)) return;
+                if (body_.locals[l].kind != bir::LocalKind::Temp) catch_up_deferred_drops(l);
                 bir::Stmt d(bir::Stmt::K::Drop);
                 d.dest = {l, {}};
                 emit(std::move(d));

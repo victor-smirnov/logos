@@ -146,7 +146,12 @@ impl Template {
     }
 
     /// Returns the same underlying node viewed as an `Item` (for field/variant inspection).
-    pub fn body(self: &Template) -> Item {
+    ///
+    /// By value: the `Item` borrows what the `Template` borrows (the AST arena,
+    /// through `raw`), not the `Template` itself — `fn f(t: Template) -> Item {
+    /// t.body() }` returns no borrow of the local `t`. (`&self` tied the result to
+    /// the receiver by elision.)
+    pub fn body(self: Template) -> Item {
         return Item { raw: self.raw };
     }
 }

@@ -1,0 +1,11 @@
+exit: 0
+stdout:
+drop W over D1 (1)
+drop D1
+1
+1 3 0
+drop W over D2 (0)
+drop D2
+drop W over D1 (1)
+drop D1
+0

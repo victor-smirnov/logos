@@ -14379,7 +14379,7 @@ sym	logos_mem..logos.std.compiler.metaprog.OView__module_package_append__f__ref_
 sym	logos_mem..logos.std.compiler.metaprog.OView__node_at__f__ref_OView__u32
 sym	logos_mem..logos.std.compiler.metaprog.OView__root__f__ref_OView
 sym	logos_mem..logos.std.compiler.metaprog.OView__tiny_map_get__f__ref_OView__WAny__u8
-sym	logos_mem..logos.std.compiler.metaprog.Template__body__f__ref_Template
+sym	logos_mem..logos.std.compiler.metaprog.Template__body__f__Template
 sym	logos_mem..logos.std.compiler.metaprog.Template__name__f__ref_Template__ref_OView
 sym	logos_mem..logos.std.compiler.metaprog.Template__type_param_count__f__ref_Template__ref_OView
 sym	logos_mem..logos.std.compiler.metaprog.Template__type_param_name__f__ref_Template__ref_OView__u64

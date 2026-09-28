@@ -222,7 +222,8 @@ if [ "$DEFS" != 1 ]; then
     echo "         dumps: ${DUMPS[*]}"
     exit 1
 fi
-awk -v fn="^pub fn ${FN}\\\\(" '$0 ~ fn {f=1} f {print} f && /^}$/ {exit}' \
+# (the definition may carry generic params: `pub fn slice_scan_run<'a>(`)
+awk -v fn="^pub fn ${FN}(<[^>]*>)?\\\\(" '$0 ~ fn {f=1} f {print} f && /^}$/ {exit}' \
     "$TMPD/all.txt" > "$TMPD/actual"
 
 # ── the golden is an assertion, not a placeholder ───────────────────────────

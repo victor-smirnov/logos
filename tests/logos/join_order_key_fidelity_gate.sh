@@ -149,7 +149,7 @@ done
 n_art=0
 for f in "${DUMPS[@]}"; do
     for r in 'qf_run' 'qn_run'; do
-        grep -Eq "^pub fn ${r}\(" "$f" || continue
+        grep -Eq "^pub fn ${r}(<[^>]*>)?\(" "$f" || continue
         n_art=$((n_art + 1))
         n_disc=$(grep -Ec '\(__pl\.order_ix == [0-9]+i64\)' "$f" || true)
         if [ "$n_disc" -ne 0 ]; then
@@ -163,7 +163,7 @@ for f in "${DUMPS[@]}"; do
         fi
     done
     for r in 'qi_run' 'qs_run' 'qu_run'; do
-        grep -Eq "^pub fn ${r}\(" "$f" || continue
+        grep -Eq "^pub fn ${r}(<[^>]*>)?\(" "$f" || continue
         n_art=$((n_art + 1))
         n_disc=$(grep -Ec '\(__pl\.order_ix == [0-9]+i64\)' "$f" || true)
         if [ "$n_disc" -ne 3 ]; then

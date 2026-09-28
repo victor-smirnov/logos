@@ -50,6 +50,10 @@ use logos.lang.option;             // Option — the cursor's pull answers with 
 
 // One graph edge row (the shared vocabulary; see the module doc).
 pub type WritEdgeRow = (i64, str, i64, i64, str, i64, i64, str);
+// The same row with its `str` cells' lifetime named: the cells are views into
+// the DOCUMENT (`'a`), not into whatever handed the row out — a cursor's batch
+// (`WritWalk::next_batch`) borrows the cursor, the rows in it do not.
+pub type WritEdgeRowIn<'a> = (i64, &'a str, i64, i64, &'a str, i64, i64, &'a str);
 
 // ── THE VIRTUAL ROOT EDGE'S COORDINATES — one convention, four sites ────────
 // A document's root has no incoming edge, so the relation gives it a VIRTUAL
@@ -385,7 +389,7 @@ pub struct WritWalk<'a> {
     /// binds the batch inside its own block (`rexpr_walk::batch_scan_frag`):
     /// the next `next_batch()` takes `&mut self` and the batch's borrow must
     /// have ended.
-    buf: Vec<WritEdgeRow>,
+    buf: Vec<WritEdgeRowIn<'a>>,
     /// False until the virtual root edge has been emitted and the root frame
     /// armed. `rewind` clears it.
     armed: bool,
@@ -399,7 +403,7 @@ impl<'a> WritWalk<'a> {
             doc: root,
             stack: vec_new::<WgFrame>(),
             seen: vec_new::<u64>(),
-            buf: vec_new::<WritEdgeRow>(),
+            buf: vec_new::<WritEdgeRowIn<'a>>(),
             armed: false,
         };
     }
@@ -510,7 +514,7 @@ impl<'a> WritWalk<'a> {
     /// document including the empty one, and every later pull either fills or
     /// the walk is over. `Some(empty)` remains legal in the vocabulary — this
     /// producer simply never needs it.
-    pub fn next_batch(&mut self) -> Option<RowsBatch<WritEdgeRow>> {
+    pub fn next_batch(&mut self) -> Option<&[WritEdgeRowIn<'a>]> {
         self.buf.clear();
         if !self.armed { self.arm(); }
         while self.buf.len() < WG_BATCH_CAP {
@@ -523,8 +527,8 @@ impl<'a> WritWalk<'a> {
 
 // The walk IS a batch stream, and the batch is row-major (`WritEdgeRow` tuples
 // in a slice), which is what makes the emitter spell the row `bb[j]`.
-impl<'a> BatchStream<RowsBatch<WritEdgeRow>> for WritWalk<'a> {
-    fn next(&mut self) -> Option<RowsBatch<WritEdgeRow>> { return self.next_batch(); }
+impl<'a> BatchStream<&[WritEdgeRowIn<'a>]> for WritWalk<'a> {
+    fn next(&mut self) -> Option<&[WritEdgeRowIn<'a>]> { return self.next_batch(); }
 }
 impl<'a> RowMajor for WritWalk<'a> {}
 

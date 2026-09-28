@@ -310,7 +310,7 @@ pub struct SliceStream<'a, R> {
 
 impl<'a, R> SliceStream<'a, R> {
     /// Wraps a borrowed slice as a one-packet stream. Copies nothing.
-    pub fn new(rows: &[R]) -> SliceStream<R> {
+    pub fn new(rows: &'a [R]) -> SliceStream<'a, R> {
         return SliceStream { rows: rows, sent: false };
     }
 
@@ -321,7 +321,9 @@ impl<'a, R> SliceStream<'a, R> {
     /// receiver shape with `Iterator::next`, which is why `logos.lang.stream` is out of
     /// the prelude, and a generated chunk's import list must not have to carry the
     /// trait to scan. Same reasoning as `Buffer::next_batch` and `Epoch::next_batch`.
-    pub fn next_batch(&mut self) -> Option<RowsBatch<R>> {
+    // The packet is the CALLER'S slice (`'a`), not a borrow of the stream: a row
+    // taken from it outlives the stream (`return Some(p)` from a scan loop).
+    pub fn next_batch(&mut self) -> Option<&'a [R]> {
         if self.sent { return Option::None; }
         self.sent = true;
         return Option::Some(self.rows);
@@ -334,14 +336,14 @@ impl<'a, R> SliceStream<'a, R> {
     /// (`rows[perm[o]]`), which is not a pull at all. Inherent rather than
     /// `RandomAccess<B>`: `seek_nth` positions a stream, and phase 3 does not have a
     /// position, it has a list of ordinals.
-    pub fn as_slice(&self) -> &[R] {
+    pub fn as_slice(&self) -> &'a [R] {
         return self.rows;
     }
 }
 
 // One packet, then exhaustion — including the EMPTY slice, which still ticks once.
-impl<'a, R> BatchStream<RowsBatch<R>> for SliceStream<'a, R> {
-    fn next(&mut self) -> Option<RowsBatch<R>> { return self.next_batch(); }
+impl<'a, R> BatchStream<&'a [R]> for SliceStream<'a, R> {
+    fn next(&mut self) -> Option<&'a [R]> { return self.next_batch(); }
 }
 
 // Row-major: the batch is `&[R]`, the caller's own slice (§2). This is what makes
@@ -485,17 +487,17 @@ pub struct Epoch<'a, R> {
 
 impl<'a, R> Epoch<'a, R> {
     /// An epoch of `rows` at an explicit weight — the general `<q>_apply` form.
-    pub fn at(rows: &[R], w: i64) -> Epoch<R> {
+    pub fn at(rows: &'a [R], w: i64) -> Epoch<'a, R> {
         return Epoch { rows: rows, w: w, sent: false };
     }
 
     /// An INSERT epoch: every row at +1 (`<q>_epoch`).
-    pub fn insert(rows: &[R]) -> Epoch<R> {
+    pub fn insert(rows: &'a [R]) -> Epoch<'a, R> {
         return Epoch { rows: rows, w: 1i64, sent: false };
     }
 
     /// A RETRACT epoch: every row at −1 (`<q>_retract`).
-    pub fn retract(rows: &[R]) -> Epoch<R> {
+    pub fn retract(rows: &'a [R]) -> Epoch<'a, R> {
         return Epoch { rows: rows, w: -1i64, sent: false };
     }
 
@@ -507,7 +509,9 @@ impl<'a, R> Epoch<'a, R> {
     /// Pulls the single packet — THE INHERENT DOOR, the one a generated scan calls
     /// (`batch_scan_frag` spells the outer pull `next_batch()`; see `Buffer::next_batch`
     /// for why the inherent door exists beside the trait method).
-    pub fn next_batch(&mut self) -> Option<RowsBatch<R>> {
+    // The packet is the CALLER'S slice (`'a`), not a borrow of the stream: a row
+    // taken from it outlives the stream (`return Some(p)` from a scan loop).
+    pub fn next_batch(&mut self) -> Option<&'a [R]> {
         if self.sent { return Option::None; }
         self.sent = true;
         return Option::Some(self.rows);
@@ -515,8 +519,8 @@ impl<'a, R> Epoch<'a, R> {
 }
 
 // One packet, then exhaustion — including the EMPTY delta, which still ticks once.
-impl<'a, R> BatchStream<RowsBatch<R>> for Epoch<'a, R> {
-    fn next(&mut self) -> Option<RowsBatch<R>> { return self.next_batch(); }
+impl<'a, R> BatchStream<&'a [R]> for Epoch<'a, R> {
+    fn next(&mut self) -> Option<&'a [R]> { return self.next_batch(); }
 }
 
 // Row-major: the batch is `&[R]`, the caller's own slice (§2).

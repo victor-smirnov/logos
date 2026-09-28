@@ -182,7 +182,7 @@ def judge(path):
             c["defer_ix_pick"] += 1
         if ln == "    if ((__defer_ix == 1i64)) {":
             c["defer_ix_test4"] += 1
-    if re.search(r"^pub fn via_rel3_run\(", "\n".join(lines), re.M):
+    if re.search(r"^pub fn via_rel3_run(<[^>]*>)?\(", "\n".join(lines), re.M):
         c["via_rel3"] = 1
         # FOUR nests, so THREE tests, and at least one of them past indent 4 —
         # the artifact the loop-nesting rule had to be rewritten for (S4m): a
@@ -200,7 +200,7 @@ def judge(path):
         if not nested:
             v.append(f"{base}: via_rel3_run has no branch past indent 4 — the "
                      f"artifact the loop-nesting rule exists for is gone")
-    if re.search(r"^pub fn via_rel_run\(", "\n".join(lines), re.M):
+    if re.search(r"^pub fn via_rel_run(<[^>]*>)?\(", "\n".join(lines), re.M):
         c["via_rel"] = 1
         # `ls` is 9 rows in both data sets while the rel is 2 and 7, so the wrong
         # read is invisible on the mirror case: pinned on the text instead.
@@ -208,7 +208,7 @@ def judge(path):
             if re.match(r"^    let __defer_n[01]: i64 = \(ls\)\.len\(\);", ln):
                 v.append(f"{base}:{lineno}: via_rel's deferred size reads the input "
                          f"parameter instead of the materialized rel")
-    if re.search(r"^pub fn (via_rel|via_rel3|iter_step)_prepare\(",
+    if re.search(r"^pub fn (via_rel|via_rel3|iter_step)_prepare(<[^>]*>)?\(",
                  "\n".join(lines), re.M):
         c["deferred_prepare"] = 1
         if any(LOOP_RE.match(ln) for ln in lines):
