@@ -1,0 +1,7 @@
+// Closed squeue cfg_all_any_empty_refused (#617): empty cfg combinators `all()` (true) / `any()` (false) parse and evaluate.
+package cfg_all_any_empty_refused;
+
+#[cfg(all())]
+fn a() -> i32 { 1 }
+
+fn main() -> i32 { a() }

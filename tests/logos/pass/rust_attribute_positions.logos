@@ -1,0 +1,27 @@
+// Outer attributes on statements, blocks, match arms, fields, variants and parameters, inner attributes at a
+// block's start, tool-path attributes (`#[rustfmt::skip]`). A false `#[cfg(..)]` drops the construct it
+// precedes (statement, arm, field, variant); every other attribute there is inert.
+package rust_attribute_positions;
+use logos.std.fmt;
+#![allow(dead_code)]
+
+struct S { a: i64, #[cfg(any())] gone: i64, #[allow(unused)] b: i64 }
+enum E { A, #[cfg(any())] Gone, #[allow(dead_code)] B }
+fn k(e: E) -> i64 { match e { E::A => 1, #[cfg(any())] E::Gone => 9, #[allow(unreachable_patterns)] E::B => 2 } }
+fn f(#[allow(unused)] x: i64) -> i64 {
+    #![allow(unused_mut)]
+    let mut t = x;
+    #[cfg(any())]
+    { t += 1000; }
+    #[cfg(all())]
+    { t += 1; }
+    #[allow(unused)]
+    let y = 5;
+    #[rustfmt::skip]
+    let z = 7;
+    t + y + z
+}
+fn main() {
+    let s = S { a: 1, b: 2 };
+    println!("{} {} {} {}", f(10), s.a + s.b, k(E::A), k(E::B));
+}

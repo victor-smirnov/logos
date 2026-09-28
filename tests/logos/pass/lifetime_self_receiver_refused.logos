@@ -1,0 +1,15 @@
+// Closed squeue lifetime_self_receiver_refused (#679): the grammar round parses `&'a self` / `&'a mut self` as `self: &'a Self` (2f0bf0774).
+package lifetime_self_receiver_refused;
+
+struct S { x: i64 }
+impl S {
+    fn get<'a>(&'a self) -> &'a i64 { &self.x }
+    fn bump<'a>(&'a mut self) -> &'a mut i64 { &mut self.x }
+}
+
+fn main() -> i32 {
+    let mut s = S { x: 7 };
+    *s.bump() += 1;
+    if *s.get() == 8 { return 0; }
+    return 1;
+}

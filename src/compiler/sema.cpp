@@ -5530,6 +5530,22 @@ bool SemaChecker::cfg_attrs_drop_item(std::vector<writ::TinyMapView>& pending_an
     return false;
 }
 
+std::vector<writ::TinyMapView> SemaChecker::cfg_live_entries_(writ::ArrayView items) {
+    std::vector<writ::TinyMapView> out, pending;
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto av = items.get(i);
+        if (av.is_null() || !av.is_pointer()) { out.push_back(writ::TinyMapView{}); continue; }
+        auto n = map_of(av);
+        const int32_t c = code_of(n);
+        if (c == la::ANNOTATION) { pending.push_back(n); continue; }
+        if (c == la::INNER_ANNOTATION) continue;
+        const bool drop = !pending.empty() && cfg_attrs_drop_item(pending);
+        pending.clear();
+        if (!drop) out.push_back(n);
+    }
+    return out;
+}
+
 bool SemaChecker::evaluate_cfg_annotation(writ::TinyMapView ann) {
     // §6.8: cfg combinators in attribute position via ANNOT_CALL.
     // `#[cfg(all(unix, target_arch = "x86_64"))]` parses with the
@@ -5556,11 +5572,11 @@ bool SemaChecker::evaluate_cfg_annotation(writ::TinyMapView ann) {
 // bare-NAME flag form. Recurses through nested combinators.
 bool SemaChecker::evaluate_cfg_arg(writ::TinyMapView arg) {
     int32_t code = code_of(arg);
-    if (code == la::ANNOT_CALL && arg.has_key(la::NAME) && arg.has_key(la::ARGS)) {
+    if (code == la::ANNOT_CALL && arg.has_key(la::NAME)) {
         std::string head(str_of(arg.get(la::NAME.code)));
-        auto inner_list = map_of(arg.get(la::ARGS.code));
-        std::vector<bool> child_results;
-        if (inner_list.has_key(la::ITEMS)) {
+        std::vector<bool> child_results;   // `any()` / `all()`: none
+        if (auto inner_list = arg.has_key(la::ARGS) ? map_of(arg.get(la::ARGS.code)) : writ::TinyMapView{};
+            !inner_list.is_null() && inner_list.has_key(la::ITEMS)) {
             auto items = arr_of(inner_list.get(la::ITEMS.code));
             child_results.reserve(items.size());
             for (uint64_t i = 0; i < items.size(); ++i) {

@@ -6715,9 +6715,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                gat_lifetime_projection_refused CLOSED (-1 tier-3 row).
 #                ALL 11731 -> 11732 (+1), NOIMPORTED 7168 -> 7169 (+1), TIERCOMMIT 205 -> 203 (-2) — 2026-09-28: grammar, Rust literal syntax: + 3 pass (rust_literal_syntax; byte_char_literal_refused #577 and raw_byte_string_literal_refused #636 closed, 2 tier-3 squeue rows).
 #                ALL 11732 -> 11732 (+0), NOIMPORTED 7169 -> 7169 (+0), TIERCOMMIT 203 -> 202 (-1) — 2026-09-28: squeue empty_statement_refused #621 closed (a lone `;`, 05ac2f82b), landed as pass.
-REGISTRY-ALL         11732
-REGISTRY-NOIMPORTED  7169
-REGISTRY-TIERCOMMIT  202
+#                ALL 11732 -> 11733 (+1), NOIMPORTED 7169 -> 7170 (+1), TIERCOMMIT 202 -> 202 (+0) — 2026-09-28: grammar, attributes in every position: + 1 pass (rust_attribute_positions).
+#                ALL 11733 -> 11733 (+0), NOIMPORTED 7170 -> 7170 (+0), TIERCOMMIT 202 -> 201 (-1) — 2026-09-28: squeue cfg_all_any_empty_refused #617 closed, landed as pass.
+#                ALL 11733 -> 11733 (+0), NOIMPORTED 7170 -> 7170 (+0), TIERCOMMIT 201 -> 200 (-1) — 2026-09-28: squeue lifetime_self_receiver_refused #679 closed (2f0bf0774), landed as pass.
+REGISTRY-ALL         11733
+REGISTRY-NOIMPORTED  7170
+REGISTRY-TIERCOMMIT  200
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

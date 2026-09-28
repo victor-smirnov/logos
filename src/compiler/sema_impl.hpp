@@ -2319,6 +2319,12 @@ private:
     // followed by cfg evaluation. Returns true when the item must be
     // dropped. Shared by the collection AND lowering walks.
     bool cfg_attrs_drop_item(std::vector<writ::TinyMapView>& pending_annots);
+    // A LIST other than the item stream — a block's statements, a match's
+    // arms, a struct's fields, an enum's variants — with its outer attributes
+    // applied: an ANNOTATION entry attaches to the next entry, a false
+    // `#[cfg(..)]` drops it (cfg_attrs_drop_item), every other attribute there
+    // is inert; inner attributes are dropped. See sema.cpp.
+    std::vector<writ::TinyMapView> cfg_live_entries_(writ::ArrayView items);
     // logos-core 1.3: fill `_` holes in a let-annotation from the RHS type.
     TypeRef fill_inferred_from_rhs(TypeRef ann, TypeRef rhs);
     // WF of a struct type in a SIGNATURE whose type argument is a type

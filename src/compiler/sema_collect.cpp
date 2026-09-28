@@ -2658,10 +2658,10 @@ void SemaChecker::collect_enum(TinyMapView node) {
         if (av.is_pointer()) {
             auto list = map_of(av);
             if (list.has_key(la::ITEMS)) {
-                auto variants = arr_of(list.get(la::ITEMS.code));
+                auto variants = cfg_live_entries_(arr_of(list.get(la::ITEMS.code)));
                 std::string variant_sweep_doc;
                 for (uint64_t i = 0; i < variants.size(); ++i) {
-                    auto v = map_of(variants.get(i));
+                    auto v = variants[i];
                     if (try_append_doc(variant_sweep_doc, v)) continue;
                     auto vname = str_of(v.get(la::NAME.code));
                     int64_t vval = next_val;
@@ -5775,12 +5775,12 @@ void SemaChecker::collect_struct_spec(TinyMapView node,
     }
     std::string spec_field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
-        auto fields = arr_of(node.get(la::FIELDS.code));
+        auto fields = cfg_live_entries_(arr_of(node.get(la::FIELDS.code)));
         uint64_t last_fdef = 0;
         for (uint64_t i = 0; i < fields.size(); ++i)
-            if (code_of(map_of(fields.get(i))) == la::FIELD_DEF) last_fdef = i;
+            if (code_of(fields[i]) == la::FIELD_DEF) last_fdef = i;
         for (uint64_t i = 0; i < fields.size(); ++i) {
-            auto fnode = map_of(fields.get(i));
+            auto fnode = fields[i];
             if (try_append_doc(spec_field_sweep_doc, fnode)) continue;
             if (code_of(fnode) != la::FIELD_DEF) continue;
             auto fname = str_of(fnode.get(la::NAME.code));
@@ -5827,9 +5827,9 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
     push_type_params(info.type_params);
     std::string dt_field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
-        auto fields = arr_of(node.get(la::FIELDS.code));
+        auto fields = cfg_live_entries_(arr_of(node.get(la::FIELDS.code)));
         for (uint64_t i = 0; i < fields.size(); ++i) {
-            auto fnode = map_of(fields.get(i));
+            auto fnode = fields[i];
             if (try_append_doc(dt_field_sweep_doc, fnode)) continue;
             if (code_of(fnode) != la::FIELD_DEF) continue;
             auto fname = str_of(fnode.get(la::NAME.code));
@@ -5990,10 +5990,10 @@ void SemaChecker::collect_schema(TinyMapView node) {
 
     // Declared sugar fields → schema_fields + parallel schema_keys (TOM keys 0..51).
     if (node.has_key(la::FIELDS)) {
-        auto fields = arr_of(node.get(la::FIELDS.code));
+        auto fields = cfg_live_entries_(arr_of(node.get(la::FIELDS.code)));
         int64_t positional = 0;
         for (uint64_t i = 0; i < fields.size(); ++i) {
-            auto fnode = map_of(fields.get(i));
+            auto fnode = fields[i];
             if (code_of(fnode) != la::SCHEMA_FIELD_DEF) continue;
             std::string_view fname =
                 fnode.has_key(la::NAME) ? str_of(fnode.get(la::NAME.code)) : std::string_view{};
@@ -6151,17 +6151,17 @@ void SemaChecker::collect_struct(TinyMapView node) {
     // a doc that visually preceded the first method).
     std::string field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
-        auto fields = arr_of(node.get(la::FIELDS.code));
+        auto fields = cfg_live_entries_(arr_of(node.get(la::FIELDS.code)));
         // Phase 1B-13: identify the LAST real FIELD_DEF (custom-DST support
         // permits an unsized type only at this position).
         uint64_t last_field_idx = UINT64_MAX;
         for (uint64_t i = 0; i < fields.size(); ++i) {
-            auto fnode = map_of(fields.get(i));
+            auto fnode = fields[i];
             if (is_field_def(fnode)) last_field_idx = i;
         }
         uint64_t synth_idx = 0;
         for (uint64_t i = 0; i < fields.size(); ++i) {
-            auto fnode = map_of(fields.get(i));
+            auto fnode = fields[i];
             if (try_append_doc(field_sweep_doc, fnode)) continue;
             if (!is_field_def(fnode)) continue;
             const uint64_t i_for_synth = synth_idx++;
@@ -6583,15 +6583,15 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
     // field `///` reaches resolve_type as a null TYPE → "unexpected type node
     // code -1" during specialization lowering.
     if (node.has_key(la::FIELDS)) {
-        auto fields = arr_of(node.get(la::FIELDS.code));
+        auto fields = cfg_live_entries_(arr_of(node.get(la::FIELDS.code)));
         if (fields.size() > 0) {
             auto fa = sd.array(stk::FIELDS);
             std::string field_doc;
             uint64_t last_fdef = 0;
             for (uint64_t i = 0; i < fields.size(); ++i)
-                if (code_of(map_of(fields.get(i))) == la::FIELD_DEF) last_fdef = i;
+                if (code_of(fields[i]) == la::FIELD_DEF) last_fdef = i;
             for (uint64_t i = 0; i < fields.size(); ++i) {
-                auto fnode = map_of(fields.get(i));
+                auto fnode = fields[i];
                 if (try_append_doc(field_doc, fnode)) continue;
                 if (code_of(fnode) != la::FIELD_DEF) continue;
                 auto fname = str_of(fnode.get(la::NAME.code));

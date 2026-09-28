@@ -322,8 +322,6 @@ assoc_type_unsized_binding_admitted 4 tests/soundness/open/assoc_type_unsized_bi
 
 bare_tuple_variant_name_pattern_admitted 4 tests/soundness/open/bare_tuple_variant_name_pattern_admitted admits
 
-cfg_all_any_empty_refused 4 tests/soundness/open/cfg_all_any_empty_refused refuses
-
 closure_param_duplicate_binding_admitted 4 tests/soundness/open/closure_param_duplicate_binding_admitted admits
 
 cyclic_supertrait_admitted 4 tests/soundness/open/cyclic_supertrait_admitted admits
@@ -415,8 +413,6 @@ hashmap_iter_tuple_refused 3 tests/soundness/open/hashmap_iter_tuple_refused ref
 
 impl_for_concrete_tuple_refused 3 tests/soundness/open/impl_for_concrete_tuple_refused refuses
 
-lifetime_self_receiver_refused 3 tests/soundness/open/lifetime_self_receiver_refused refuses
-
 option_combinators_take_fn_pointers_refused 3 tests/soundness/open/option_combinators_take_fn_pointers_refused refuses
 
 owned_return_from_ref_param_keeps_loan_refused 3 tests/soundness/open/owned_return_from_ref_param_keeps_loan_refused refuses
@@ -457,5 +453,5 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
-# TOTAL 140
-# SYNC-HASH 08e47a98b868d60ad11c02d628bb9896
+# TOTAL 138
+# SYNC-HASH 56ce9b7c336c0c9804bccf08ee5d8ede

@@ -1138,9 +1138,9 @@ lir_view::BlockRef SemaChecker::lower_block(TinyMapView block) {
     }
     bool warned_dead = false;  // Sprint 5.2: B-st-08 dead-code-after-terminator lint
     if (block.has_key(la::ITEMS)) {
-        auto stmts = arr_of(block.get(la::ITEMS.code));
+        auto stmts = cfg_live_entries_(arr_of(block.get(la::ITEMS.code)));
         for (uint64_t i = 0; i < stmts.size(); ++i) {
-            auto s = map_of(stmts.get(i));
+            auto s = stmts[i];
             if (s.is_null()) continue;
             // Skip already-lowered drops/markers; the AST-level dead-code check
             // looks at the pre-lowering AST shape.
@@ -11798,10 +11798,10 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
     // `_` arm makes every later arm unreachable. Not for a desugared `if let` /
     // `while let` (the node carries its PAT): its `_` arm is the else branch.
     if (node.has_key(la::ITEMS) && !node.has_key(la::PAT)) {
-        auto arms_l = arr_of(node.get(la::ITEMS.code));
+        auto arms_l = cfg_live_entries_(arr_of(node.get(la::ITEMS.code)));
         bool seen_catchall = false;
         for (uint64_t i = 0; i < arms_l.size(); ++i) {
-            auto arm = map_of(arms_l.get(i));
+            auto arm = arms_l[i];
             if (code_of(arm) != la::MATCH_ARM) continue;
             if (seen_catchall) {
                 // rustc: a warning (`unreachable pattern`), not an error.
@@ -11834,9 +11834,9 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
     };
     bool has_writ_pat = false;
     if (node.has_key(la::ITEMS)) {
-        auto arms = arr_of(node.get(la::ITEMS.code));
+        auto arms = cfg_live_entries_(arr_of(node.get(la::ITEMS.code)));
         for (uint64_t i = 0; i < arms.size(); ++i) {
-            auto arm = map_of(arms.get(i));
+            auto arm = arms[i];
             if (code_of(arm) != la::MATCH_ARM || !arm.has_key(la::LHS)) continue;
             if (pat_contains_writ(map_of(arm.get(la::LHS.code)))) { has_writ_pat = true; break; }
         }
@@ -11898,7 +11898,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
 
     mc.result_type = error_t();
     if (node.has_key(la::ITEMS)) {
-        auto arms = arr_of(node.get(la::ITEMS.code));
+        auto arms = cfg_live_entries_(arr_of(node.get(la::ITEMS.code)));
         // P4-pm-25: fan out or-pattern arms whose alternatives are not pure
         // scalar literals that bind nothing (PAT_INT / PAT_BOOL / PAT_CHAR):
         // each alternative goes through the single-arm path with its own
@@ -11943,7 +11943,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
         };
         std::vector<EffArm> eff_arms;
         for (uint64_t i = 0; i < arms.size(); ++i) {
-            auto arm = map_of(arms.get(i));
+            auto arm = arms[i];
             if (code_of(arm) != la::MATCH_ARM) { eff_arms.push_back({arm, -1}); continue; }
             if (arm.has_key(la::LHS)) {
                 auto lhs = map_of(arm.get(la::LHS.code));
@@ -12317,9 +12317,9 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                         std::vector<lir_view::StmtRef> blk;
                         lir::LExprPtr last_expr = nullptr;
                         if (code_of(body_node) == la::BLOCK && body_node.has_key(la::ITEMS)) {
-                            auto stmts = arr_of(body_node.get(la::ITEMS.code));
+                            auto stmts = cfg_live_entries_(arr_of(body_node.get(la::ITEMS.code)));
                             for (uint64_t si = 0; si < stmts.size(); ++si) {
-                                auto s = map_of(stmts.get(si));
+                                auto s = stmts[si];
                                 int32_t sc = code_of(s);
                                 if (si + 1 == stmts.size() &&
                                     (sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
@@ -12509,9 +12509,9 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
         bool ast_exh = false, decided = false;
         if (node.has_key(la::ITEMS)) {
             std::vector<writ::TinyMapView> lhs_pats;
-            auto arms_l = arr_of(node.get(la::ITEMS.code));
+            auto arms_l = cfg_live_entries_(arr_of(node.get(la::ITEMS.code)));
             for (uint64_t i = 0; i < arms_l.size(); ++i) {
-                auto arm = map_of(arms_l.get(i));
+                auto arm = arms_l[i];
                 if (code_of(arm) != la::MATCH_ARM) continue;
                 if (arm.has_key(la::GUARD)) continue;      // user-guarded ≠ guaranteed
                 if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
