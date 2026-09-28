@@ -37,9 +37,8 @@ fn main() -> i32 {
     let m: &WMap<WString, WAny> = unsafe { &*(comp.resolve() as *const WMap<WString, WAny>) };
     if m.get("n").as_i56() != (0i64 - 42i64) { return 3; }
     let inner: &WMap<WString, WAny> = unsafe { &*(m.get("b").resolve() as *const WMap<WString, WAny>) };
-    if !str_eq(h3.wstring_of(inner.get("c")).as_str(), "deep") {
-        // note: inner is in `big`, resolve via any arena (wstring_of ignores self)
-        if !str_eq(big.wstring_of(inner.get("c")).as_str(), "deep") { return 4; }
-    }
+    // `inner` lives in `big` (the compaction target): resolved through the container
+    // that owns it — through another one it is refused (#437).
+    if !str_eq(big.wstring_of(inner.get("c")).as_str(), "deep") { return 4; }
     return 0;
 }

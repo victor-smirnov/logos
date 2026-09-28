@@ -11415,6 +11415,7 @@ sym	logos_lang..logos.lang.writ.container.HeldAny__val__f__ref_HeldAny
 sym	logos_lang..logos.lang.writ.container.Writ__float__f__ref_Writ__f64
 sym	logos_lang..logos.lang.writ.container.Writ__int__f__ref_Writ__i64
 sym	logos_lang..logos.lang.writ.container.Writ__link_ptr__f__ref_Writ__pcst_u8
+sym	logos_lang..logos.lang.writ.container.Writ__owns__f__ref_Writ__pcst_u8
 sym	logos_lang..logos.lang.writ.container.Writ__root__f__ref_Writ
 sym	logos_lang..logos.lang.writ.container.Writ__set_root__f__ref_Writ__WAny
 sym	logos_lang..logos.lang.writ.decimal.WAny__as_decimal__f__WAny

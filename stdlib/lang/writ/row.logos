@@ -290,6 +290,7 @@ impl Writ {
     /// see the note at the top of `writ/array.logos`).
     pub fn row_of<'a>(self: &'a Writ, e: WAny) -> &'a WRow {
         if !e.is_row() { panic("Writ::row_of: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
+        if !self.owns(e.resolve()) { panic("Writ::row_of: the WAny is a Ref into another container (#437)"); }
         return unsafe { &*(e.resolve() as *const WRow) };
     }
 
@@ -299,6 +300,7 @@ impl Writ {
     /// hands back the view that SAYS it borrows.
     pub fn row_ref<'a>(self: &'a Writ, e: WAny) -> RowRef {
         if !e.is_row() { panic("Writ::row_ref: the WAny is not a Ref to a W_ROW object — check is_row() first"); }
+        if !self.owns(e.resolve()) { panic("Writ::row_ref: the WAny is a Ref into another container (#437)"); }
         return RowRef { r: unsafe { &*(e.resolve() as *const WRow) } };
     }
 }

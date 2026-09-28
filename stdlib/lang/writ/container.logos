@@ -63,8 +63,21 @@ impl Writ {
     // references into the container. `root()` reconstructs the WAny from the stored
     // word (branchless: a Pod word reads back Pod, a Ref word reads back Ref).
     /// Sets the document root to `v` (interior-mutable: `&self`; stores the raw word).
+    /// PANICS when `v` is a Ref into ANOTHER container (#437): `root()` hands the word
+    /// back with this container's region, and `hold`'s projection `w.array_of(w.root())`
+    /// must stay inside the held arena.
     pub fn set_root(self: &Writ, v: WAny) {
+        if v.is_ref() && !self.owns(v.resolve()) {
+            panic("Writ::set_root: the WAny is a Ref into another container (#437)");
+        }
         unsafe { *(self.root.get()) = v.raw(); }
+    }
+    /// Whether the address `p` lies inside one of THIS container's segments — the
+    /// check every handle -> reference resolver makes (#437): a `Slot` / `WAny` does
+    /// not record its container, and resolved through the wrong one it would read
+    /// the other arena with this one's lifetime (use after free in safe code).
+    pub fn owns(self: &Writ, p: *const u8) -> bool {
+        return unsafe { allocator_owns(self.allocator.get() as *const Allocator, p) };
     }
     /// Returns the document root `WAny` reconstructed from the stored word.
     pub fn root(self: &Writ) -> WAny { return unsafe { WAny::ref_to((unsafe { *self.root.get() }) as *const u8) }; }
@@ -235,14 +248,18 @@ impl Writ {
     // Borrow the slot's value, tied to the container's lifetime: the returned
     // `&'a T` may not outlive `&'a self`. Many shared views may coexist.
     /// Borrows the slot's value; the `&'a T` is tied to `&'a self`, shared views may coexist.
+    /// PANICS when `s` belongs to another container (#437).
     pub fn get<'a, T>(self: &'a Writ, s: Slot<T>) -> &'a T {
+        if !self.owns(s.p as *const u8) { panic("Writ::get: the slot belongs to another container (#437)"); }
         unsafe { return &*(s.p as *const T); }
     }
 
     // Exclusive borrow: `&'a mut self` → `&'a mut T`. While it lives, no other
     // view (shared or mutable) of the container is allowed.
     /// Exclusively borrows the slot's value; excludes every other view of the container.
+    /// PANICS when `s` belongs to another container (#437).
     pub fn get_mut<'a, T>(self: &'a mut Writ, s: Slot<T>) -> &'a mut T {
+        if !self.owns(s.p as *const u8) { panic("Writ::get_mut: the slot belongs to another container (#437)"); }
         unsafe { return &mut *(s.p); }
     }
 }

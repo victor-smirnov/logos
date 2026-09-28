@@ -1,0 +1,15 @@
+// #437: a `Slot` / `WAny` does not record its container. Resolved through ANOTHER one it read that
+// arena with the wrong lifetime — here `other` is dropped while `r` (a view into it, with `keep`'s
+// lifetime) is still read: a use after free in safe code, accepted and silent. Every handle ->
+// reference resolver now checks the address against its own container's segments and panics.
+package writ_foreign_slot_get_refused;
+use logos.lang.writ.container;
+fn main() -> i32 {
+    let keep: Writ = writ_new(64i64);
+    let r: &i64 = {
+        let mut other: Writ = writ_new(64i64);
+        let s: Slot<i64> = other.put(41i64);
+        keep.get(s)
+    };
+    return (*r + 1i64) as i32;
+}

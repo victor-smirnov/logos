@@ -184,6 +184,7 @@ impl Writ {
     /// PANICS if `e` is not a Ref to a `W_ARRAY` object (see the resolver-guard note above).
     pub fn array_of<'a>(self: &'a Writ, e: WAny) -> &'a WArray<WAny> {
         if !e.is_array() { panic("Writ::array_of: the WAny is not a Ref to a W_ARRAY object — check is_array() first"); }
+        if !self.owns(e.resolve()) { panic("Writ::array_of: the WAny is a Ref into another container (#437)"); }
         return unsafe { &*(e.resolve() as *const WArray<WAny>) };
     }
 }
