@@ -1,0 +1,28 @@
+// ADR 0030 S3: a bare pattern name that is a VALUE — a no-payload variant of the component's enum
+// (through `&` layers), or a module const — is a test in every container position: the top of a
+// match over `&Option<T>`, a struct field matched through `&S`, a tuple element, a variant payload.
+// Each door minted a binder for it first, which matched every value: `match n { None => 0, .. }`
+// over `&Option<i64>` returned 0 for `Some(7)`, `Some(K)` took every `Some` (control binary: 70).
+package value_patterns_in_containers;
+use logos.lang.option;
+const K: i32 = 5;
+struct S { v: i32, tag: Option<i32> }
+fn top_ref(n: &Option<i64>) -> i64 { match n { None => 0, Some(b) => *b } }
+fn field_unit(o: &S) -> i32 { match o { S { tag: None, v } => *v, S { tag: Some(t), .. } => 1000 + *t } }
+fn tuple_const(t: (i32, i32)) -> i32 { match t { (K, _) => 1, _ => 2 } }
+fn payload_const(o: Option<i32>) -> i32 { match o { Some(K) => 1, Some(x) => x * 10, None => 3 } }
+fn field_const(s: &S) -> i32 { match s { S { v: K, .. } => 1, _ => 2 } }
+fn nested_unit(o: Option<Option<i64>>) -> i64 { match o { Some(None) => 1, Some(Some(x)) => x, None => 0 } }
+fn nested_const_ref(o: &Option<(i32, i32)>) -> i32 { match o { Some((K, y)) => *y, Some((x, _)) => -x, None => 0 } }
+fn main() -> i32 {
+    let c = Some(7i64);
+    let nn: Option<i64> = None;
+    let a = top_ref(&c) + top_ref(&nn);                                                   // 7
+    let b = field_unit(&S { v: 5, tag: Some(7) }) + field_unit(&S { v: 3, tag: None });  // 1010
+    let t = tuple_const((4, 0)) + tuple_const((5, 0)) * 10;                              // 12
+    let p = payload_const(Some(4)) + payload_const(Some(5)) + payload_const(None);       // 44
+    let f = field_const(&S { v: 4, tag: None }) + field_const(&S { v: 5, tag: None });   // 3
+    let n = nested_unit(Some(None)) + nested_unit(Some(Some(7))) + nested_unit(None);    // 8
+    let r = nested_const_ref(&Some((5, 9))) + nested_const_ref(&Some((4, 9)));           // 5
+    return (a + n) as i32 + b + t + p + f + r - 1000;
+}

@@ -4854,6 +4854,13 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // SECOND time for a guard, and both copies were dropped: `Some((a, k))
         // if k > 0` over `Option<(String, i64)>` freed the String twice.
         if (structural(c)) return true;
+        // A bare name that is a VALUE (`Some(K)` for a const, `Some(None)`) is
+        // a test carried like a literal; as a binder it matched everything.
+        if (c == la::PAT_WILD && m.has_key(la::NAME) && !pat_byval_mut(m) &&
+            !(m.has_key(la::IS_REF) && m.get(la::IS_REF.code).is_value() &&
+              m.get(la::IS_REF.code).as_value<uint8_t>() != 0) &&
+            bare_name_is_value_pattern_(str_of(m.get(la::NAME.code)), ftype))
+            return true;
         // `n @ <structural>` (and `ref n @ …`): the name binds the place the
         // structural sub matches, both carried the same way.
         if (c == la::PAT_AT && m.has_key(la::VALUE)) {
@@ -6442,6 +6449,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (!dbm_ref || nm.empty()) return false;  // `_` is filtered by dbm_named_bind
         if (!bt || TypeRef(bt).kind() == LogosType::Kind::Error ||
             TypeRef(bt).kind() == LogosType::Kind::TypeVar) return false;
+        // A bare name that is a VALUE — a no-payload variant of the component's
+        // enum (`S { tag: None, .. }` through `&S`), a module const (`S { v: K }`)
+        // — is a test, not a binder: build_pattern decides it. Minted here, it
+        // bound the field and caught every value.
+        if (bare_name_is_value_pattern_(nm, bt)) return false;
         out.mirror_ptr_ = lir_mirror_emit_pat_ref_bind(
             *cur_prog_, nm, dbm_mut, make_ref(dbm_mut, bt), reserve_pat_slot(nm));
         return true;
@@ -6706,17 +6718,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 while (et && (TypeRef(et).kind() == LogosType::Kind::Ref ||
                               TypeRef(et).kind() == LogosType::Kind::MutRef) && TypeRef(et).pointee())
                     et = TypeRef(et).pointee();
-                if (code_of(nn) == la::PAT_WILD && nn.has_key(la::NAME) && et &&
-                    TypeRef(et).kind() == LogosType::Kind::Enum && !pat_byval_mut(nn) &&
+                if (code_of(nn) == la::PAT_WILD && nn.has_key(la::NAME) && !pat_byval_mut(nn) &&
                     !(nn.has_key(la::IS_REF) && nn.get(la::IS_REF.code).is_value() &&
                       nn.get(la::IS_REF.code).as_value<uint8_t>() != 0)) {
                     std::string nm(str_of(nn.get(la::NAME.code)));
-                    auto [epkg_u, esi_u] = find_enum_by_name(std::string(TypeRef(et).enum_name()));
-                    bool unit = false;
-                    if (esi_u && nm != "_")
-                        for (auto& v : esi_u->variants)
-                            if (v.name == nm && v.payload_types.empty()) { unit = true; break; }
-                    if (unit) {
+                    // …and a module const (`(K, _)`): a value test as well.
+                    if (bare_name_is_value_pattern_(nm, et)) {
                         pt.bindings.push_back("_");
                         pt.subs.push_back(build_pattern(nn, et));
                         continue;
@@ -7078,11 +7085,21 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // bare name was lowered as an irrefutable wildcard binding, so
         // `match opt { None => …, Some(_) => … }` / `if let None = opt`
         // mis-dispatched (the `None` arm caught everything) and mis-codegened.
-        if (pnode.has_key(la::NAME) && scrut_type &&
-            TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
+        // Through every `&` layer: the unit-variant path is a non-reference
+        // pattern, matched under the default binding mode (`None` over
+        // `&Option<T>`, a struct field matched through `&S`). Asked of the
+        // unpeeled type, it bound the name and caught every value.
+        TypeRef unit_et = scrut_type;
+        while (unit_et && (TypeRef(unit_et).kind() == LogosType::Kind::Ref ||
+                           TypeRef(unit_et).kind() == LogosType::Kind::MutRef) && TypeRef(unit_et).pointee())
+            unit_et = TypeRef(unit_et).pointee();
+        if (pnode.has_key(la::NAME) && unit_et &&
+            TypeRef(unit_et).kind() == LogosType::Kind::Enum && !pat_byval_mut(pnode) &&
+            !(pnode.has_key(la::IS_REF) && pnode.get(la::IS_REF.code).is_value() &&
+              pnode.get(la::IS_REF.code).as_value<uint8_t>() != 0)) {
             std::string nm(str_of(pnode.get(la::NAME.code)));
             if (!nm.empty() && nm != "_") {
-                std::string en(TypeRef(scrut_type).enum_name());
+                std::string en(TypeRef(unit_et).enum_name());
                 auto [epkg_v, esi_v] = find_enum_by_name(en);
                 if (esi_v) {
                     for (auto& v : esi_v->variants) {
@@ -11556,6 +11573,23 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
     }
     if (else_blk) for (auto s : *else_blk) outer.push_back(s);
     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer), /*transparent=*/true});
+}
+
+bool SemaChecker::bare_name_is_value_pattern_(std::string_view nm, TypeRef ty) {
+    if (nm.empty() || nm == "_") return false;
+    TypeRef et = ty;
+    while (et && (TypeRef(et).kind() == LogosType::Kind::Ref ||
+                  TypeRef(et).kind() == LogosType::Kind::MutRef) && TypeRef(et).pointee())
+        et = TypeRef(et).pointee();
+    if (et && TypeRef(et).kind() == LogosType::Kind::Enum)
+        if (auto esi = find_enum_by_name(std::string(TypeRef(et).enum_name())).second)
+            for (auto& v : esi->variants)
+                if (v.name == nm && v.payload_types.empty()) return true;
+    if (auto vit = cur_imports_.variant_aliases.find(std::string(nm)); vit != cur_imports_.variant_aliases.end())
+        if (auto vesi = find_enum_by_name(vit->second).second)
+            for (auto& v : vesi->variants)
+                if (v.name == nm && v.payload_types.empty()) return true;
+    return static_cast<bool>(resolve_const_value(std::string(nm)));
 }
 
 lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {

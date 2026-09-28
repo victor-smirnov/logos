@@ -2423,6 +2423,10 @@ private:
     // variant (incl. a bare name naming a unit variant or const), or a
     // multi-alt or-pattern is refutable; an unknown form counts as refutable.
     bool ast_pat_irrefutable(writ::TinyMapView pat);
+    // A bare pattern name that is a VALUE, not a binder: a no-payload variant of
+    // `ty`'s enum (through `&` layers), a `use`-imported unit variant, or a
+    // module const. Every container door asks it before minting a binder.
+    bool bare_name_is_value_pattern_(std::string_view nm, TypeRef ty);
     // `fn f(x)` (no type): the grammar's implied `Self` is for a first `self` only.
     void refuse_misplaced_implied_self_(writ::TinyMapView p, uint64_t index);
     void collect_ast_pat_bindings(writ::TinyMapView pat,

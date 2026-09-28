@@ -464,6 +464,12 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   refutable sub or any guard (user or synthesized) is not exact. Double free
   closed: the synthesized payload's guard copy was dropped with the body's.
   The synthesized route remains for or-patterns of binding alternatives.
+- A bare pattern name that is a VALUE (a no-payload variant of the
+  component's enum through `&` layers, a `use`-imported unit variant, a module
+  const) is a test at every door — `bare_name_is_value_pattern_`, asked by the
+  tuple door, `mint_dbm_ref` and `carried_payload_sub`; build_pattern's own
+  unit-variant rule now peels `&`. Clusters unit-path-pattern-binds-under-ref
+  (4) and none-arm-typed-as-scrutinee (2) agree with rustc.
 Next: the remaining synthesized route (or-patterns with binders), then the
 moving binders' K4 prologue retirement (retire the guard channel and the K4 prologue lets),
 then the statement match as the void expression match (one `lower_match_core`).
