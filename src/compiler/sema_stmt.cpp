@@ -5867,7 +5867,8 @@ lir::Pattern SemaChecker::build_pattern_bytes(TinyMapView pnode, TypeRef scrut_t
     // (length check + memcmp).
     auto sv = str_of(pnode.get(la::VALUE.code));
     std::vector<uint8_t> bytes;
-    if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
+    if (raw_byte_string_bytes_(sv, bytes)) {
+    } else if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
         std::string_view body = sv.substr(2, sv.size() - 3);
         for (size_t i = 0; i < body.size(); ) {
             unsigned char c = (unsigned char)body[i];
@@ -6310,7 +6311,23 @@ TypeRef SemaChecker::pat_scrut_scalar_core(TypeRef scrut_type) {
 // A CHAR_LIT's spelling (`'x'`, `'\n'`, `'\u{1F600}'`, a multi-byte UTF-8
 // scalar) to its Unicode scalar value. One decoder for every pattern site: the
 // payload guards took the spelling's first BYTE — the quote — and never matched.
+// A raw byte string `br"…"` / `br#"…"#`: its bytes are the body verbatim (no
+// escapes, like `r"…"`). False for any other spelling.
+bool SemaChecker::raw_byte_string_bytes_(std::string_view sv, std::vector<uint8_t>& out) {
+    if (sv.size() < 4 || sv[0] != 'b' || sv[1] != 'r') return false;
+    size_t h = 2;
+    while (h < sv.size() && sv[h] == '#') ++h;
+    const size_t hashes = h - 2;
+    if (h >= sv.size() || sv[h] != '"' || sv.size() < h + 2 + hashes) return false;
+    std::string_view body = sv.substr(h + 1, sv.size() - (h + 1) - 1 - hashes);
+    out.assign(body.begin(), body.end());
+    return true;
+}
+
 int64_t SemaChecker::decode_char_lit_(std::string_view sv) {
+    // A byte literal `b'…'` decodes as the char literal it spells (the lexer
+    // admits only ASCII and `\xNN`, so the value is a byte).
+    if (!sv.empty() && sv.front() == 'b') sv.remove_prefix(1);
     if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
         error(std::format("malformed char literal '{}'", sv));
         return 0;

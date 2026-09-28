@@ -493,6 +493,12 @@
     // with the prefix kept in VALUE; sema lowers them to `&'static CStr`.
     C_STRING    = /c"([^"\\]|\\.)*"/
     CR_STRING   = /cr"[^"]*"/
+    // Raw byte strings `br"…"` / `br#"…"#` (Rust): LIT_BYTES / PAT_BYTES with
+    // the prefix kept in VALUE; the bytes are the body verbatim (no escapes).
+    BR_STRING   = /br"[^"]*"/
+    // Byte literal `b'a'` / `b'\n'` / `b'\xFF'` (Rust): a `u8`. Carried as
+    // LIT_CHAR / PAT_CHAR with the prefix kept; sema decodes it to the byte.
+    BYTE_CHAR   = /b'(\\.|[^'\\])'/
     STRING      = /"([^"\\]|\\.)*"/
     FLOAT       = /[-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?(f32|f64)?/
     INTEGER     = /[-]?(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*)(i8|i16|i24|i32|i56|i64|i128|u8|u16|u24|u32|u56|u64|u128|usize|isize)?/
@@ -2788,6 +2794,10 @@
         => { CODE: PAT_CHAR_RANGE, LHS: $1, RHS: $3 }
         / CHAR_LIT
         => { CODE: PAT_CHAR, VALUE: $1 }
+        / BYTE_CHAR DOTDOTEQ BYTE_CHAR
+        => { CODE: PAT_CHAR_RANGE, LHS: $1, RHS: $3 }
+        / BYTE_CHAR
+        => { CODE: PAT_CHAR, VALUE: $1 }
         // Float literal pattern (closes B-pt-06).  Sema rejects with a
         // diagnostic — IEEE equality semantics are deliberately not committed
         // to until the language has a defined story (Rust deprecated this).
@@ -2796,6 +2806,8 @@
         // Byte-string literal pattern (closes B-pt-03 — parses; sema
         // rejects until codegen for &[u8] equality matching lands).
         / BYTE_STRING
+        => { CODE: PAT_BYTES, VALUE: $1 }
+        / BR_STRING
         => { CODE: PAT_BYTES, VALUE: $1 }
         // String-literal pattern: `match s { "foo" => … }`. Sema lowers it to a
         // refutable `str_eq(scrut, "foo")` guard over a wildcard binding.
@@ -3221,6 +3233,8 @@
                      / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
                      / STRING   => { CODE: LIT_STR,  VALUE: $1 }
                      / BYTE_STRING => { CODE: LIT_BYTES, VALUE: $1 }
+                     / BR_STRING => { CODE: LIT_BYTES, VALUE: $1 }
+                     / BYTE_CHAR => { CODE: LIT_CHAR, VALUE: $1 }
                      / C_STRING => { CODE: LIT_STR, VALUE: $1 }
                      / CR_STRING => { CODE: LIT_STR, VALUE: $1 }
                      / CHAR_LIT => { CODE: LIT_CHAR, VALUE: $1 }
@@ -3435,6 +3449,8 @@
                   // bytes (escapes \n/\t/\r/\0/\\/\"/\x.. supported,
                   // matching the PAT_BYTES decoder).
                   / BYTE_STRING => { CODE: LIT_BYTES, VALUE: $1 }
+                  / BR_STRING => { CODE: LIT_BYTES, VALUE: $1 }
+                  / BYTE_CHAR => { CODE: LIT_CHAR, VALUE: $1 }
                   / C_STRING => { CODE: LIT_STR, VALUE: $1 }
                   / CR_STRING => { CODE: LIT_STR, VALUE: $1 }
                   / CHAR_LIT => { CODE: LIT_CHAR, VALUE: $1 }

@@ -705,6 +705,9 @@ lir::LExprPtr SemaChecker::lower_char_lit(TinyMapView expr) {
     // `'<single non-`'`/`\` char>'` or `'<\esc>'`; we need to map the
     // contents to a Unicode scalar value.
     auto sv = str_of(expr.get(la::VALUE.code));
+    // A BYTE literal `b'a'` / `b'\n'` / `b'\xFF'` is a `u8` (Rust).
+    if (!sv.empty() && sv.front() == 'b')
+        return builder().lit_int(decode_char_lit_(sv), prim(LogosType::Kind::U8));
     // sv is e.g. `'A'` or `'\n'`; strip the outer apostrophes.
     if (sv.size() < 3 || sv.front() != '\'' || sv.back() != '\'') {
         error(std::format("malformed char literal '{}'", sv));
@@ -853,7 +856,8 @@ lir::LExprPtr SemaChecker::lower_bytes_lit(TinyMapView expr) {
     // match-pattern code (PAT_BYTES on [u8; N]) consumes.
     auto sv = str_of(expr.get(la::VALUE.code));
     std::vector<uint8_t> bytes;
-    if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
+    if (raw_byte_string_bytes_(sv, bytes)) {
+    } else if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
         std::string_view body = sv.substr(2, sv.size() - 3);
         for (size_t i = 0; i < body.size(); ) {
             unsigned char c = (unsigned char)body[i];

@@ -1,0 +1,7 @@
+// Closed squeue empty_statement_refused (#621): a lone `;` is the empty statement (grammar block_stmt, commit 05ac2f82b).
+package empty_statement_refused;
+
+fn main() -> i32 {
+    ;
+    return 0;
+}

@@ -2046,6 +2046,19 @@ private:
                     w.line("}");
                 }
 
+                // A decimal integer with a FLOAT suffix (`2f32`, `1_000f64`) is a
+                // float literal, as in Rust.
+                if (flt_sfx) {
+                    if (hex || bin || oct)
+                        w.line("if (base == 10 && pos_ + 3 <= source_.size() &&");
+                    else
+                        w.line("if (pos_ + 3 <= source_.size() &&");
+                    w.line("    (source_.substr(pos_, 3) == \"f32\" || source_.substr(pos_, 3) == \"f64\") &&");
+                    w.line("    !(pos_ + 3 < source_.size() && (std::isalnum((unsigned char)source_[pos_ + 3]) || source_[pos_ + 3] == '_'))) {");
+                    w.line("    pos_ += 3;");
+                    w.fmt("    return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", float_tok);
+                    w.line("}");
+                }
                 if (int_sfx) {
                     // Integer type suffixes — try longest match.
                     emit_int_suffix_matching(w);
@@ -2156,6 +2169,29 @@ private:
                 w.line("}");
                 w.line(R"(if (pos_ < source_.size() && source_[pos_] == '"') ++pos_;)");
                 w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+                w.dedent();
+                w.line("}");
+            }
+            // BYTE_CHAR-like: `b'...'` (e.g. `/b'(\\.|[^'\\])'/`) — Rust's byte
+            // literal: one ASCII byte, or an escape (`\xNN`, `\n`, `\'`, …).
+            // Non-consuming when it does not close, so `b` falls to IDENT.
+            else if (pat.size() >= 3 && pat[0] == 'b' && pat[1] == '\'' && pat[2] == '(') {
+                w.fmt("// {} = /{}/", t.name, pat);
+                w.line("if (c == 'b' && pos_ + 3 < source_.size() && source_[pos_ + 1] == '\\'') {");
+                w.indent();
+                w.line("size_t p = pos_ + 2;");
+                w.line("size_t end = 0;");
+                w.line("if (source_[p] == '\\\\') {");
+                w.line("    if (p + 4 < source_.size() && source_[p + 1] == 'x' && std::isxdigit((unsigned char)source_[p + 2]) &&");
+                w.line("        std::isxdigit((unsigned char)source_[p + 3]) && source_[p + 4] == '\\'') end = p + 5;");
+                w.line("    else if (p + 2 < source_.size() && source_[p + 2] == '\\'') end = p + 3;");
+                w.line("} else if (source_[p] != '\\'' && (unsigned char)source_[p] < 0x80 && p + 1 < source_.size() && source_[p + 1] == '\\'') {");
+                w.line("    end = p + 2;");
+                w.line("}");
+                w.line("if (end) {");
+                w.line("    pos_ = end;");
+                w.fmt("    return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+                w.line("}");
                 w.dedent();
                 w.line("}");
             }

@@ -1,0 +1,6 @@
+// Closed squeue byte_char_literal_refused (#577): the grammar round (Rust-superset literals) lexes it; semantics in rust_literal_syntax.
+package byte_char_literal_refused;
+fn main() -> i32 {
+    let b = b'h';
+    return 0;
+}

@@ -268,8 +268,6 @@ attr_on_extern_block_item_refused 3 tests/soundness/open/attr_on_extern_block_it
 
 attr_unsafe_wrapper_refused 3 tests/soundness/open/attr_unsafe_wrapper_refused refuses
 
-byte_char_literal_refused 3 tests/soundness/open/byte_char_literal_refused refuses
-
 closure_to_fn_pointer_coercion_refused 3 tests/soundness/open/closure_to_fn_pointer_coercion_refused refuses
 
 const_generic_default_refused 3 tests/soundness/open/const_generic_default_refused refuses
@@ -332,8 +330,6 @@ cyclic_supertrait_admitted 4 tests/soundness/open/cyclic_supertrait_admitted adm
 
 duplicate_field_in_pattern_admitted 4 tests/soundness/open/duplicate_field_in_pattern_admitted admits
 
-empty_statement_refused 4 tests/soundness/open/empty_statement_refused refuses
-
 enum_variant_field_pub_admitted 4 tests/soundness/open/enum_variant_field_pub_admitted admits
 
 extern_system_unwind_abi_refused 4 tests/soundness/open/extern_system_unwind_abi_refused refuses
@@ -355,8 +351,6 @@ no_main_attr_ignored_admitted 4 tests/soundness/open/no_main_attr_ignored_admitt
 no_std_attr_ignored_admitted 4 tests/soundness/open/no_std_attr_ignored_admitted admits
 
 numeric_literal_underscore_placement_refused 4 tests/soundness/open/numeric_literal_underscore_placement_refused refuses
-
-raw_byte_string_literal_refused 4 tests/soundness/open/raw_byte_string_literal_refused refuses
 
 source_bom_shebang_refused 4 tests/soundness/open/source_bom_shebang_refused refuses
 
@@ -463,5 +457,5 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
-# TOTAL 143
-# SYNC-HASH 01a2f5df76748e1d0f34d9f6902e0c1b
+# TOTAL 140
+# SYNC-HASH 08e47a98b868d60ad11c02d628bb9896

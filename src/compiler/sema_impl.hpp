@@ -4342,6 +4342,7 @@ private:
     // Is `name` (the binding it denotes NOW) a declared-uninitialised `let x: T;`?
     // Per binding: a shadow's initialisation must not answer for the outer one.
     int64_t decode_char_lit_(std::string_view sv);
+    bool raw_byte_string_bytes_(std::string_view sv, std::vector<uint8_t>& out);
     bool ast_has_break_or_continue(writ::TinyMapView root);
     bool ast_has_exit(writ::TinyMapView root);
     // Any call (fn / method / static / generic) in the subtree, closures excluded.
@@ -10909,7 +10910,8 @@ inline bool valid_float_literal_format(std::string_view sv) noexcept {
         // Bare-mantissa exponent (`5e9`, `5e-11`): no decimal point, so an
         // exponent is REQUIRED (a plain integer is not a float literal).
         size_t exp0 = main.find_first_of("eE");
-        if (exp0 == std::string_view::npos) return false;
+        // …or a suffix: `2f32` is a float (Rust); a bare `2` is not.
+        if (exp0 == std::string_view::npos) return suffix_len && valid_digit_groups(main, is_dec);
         if (!valid_digit_groups(main.substr(0, exp0), is_dec)) return false;
         size_t es = exp0 + 1;
         if (es < main.size() && (main[es] == '+' || main[es] == '-')) ++es;

@@ -1,0 +1,20 @@
+// Rust literal syntax the lexer refused: byte literals `b'a'` / `b'\\n'` / `b'\\xFF'` (a `u8`, also in patterns and
+// byte ranges), raw byte strings `br"…"` / `br#"…"#` (no escapes; also a pattern), and float-suffixed integers `2f32`.
+package rust_literal_syntax;
+use logos.std.fmt;
+fn class(b: u8) -> i64 { match b { b'a'..=b'z' => 1, b'0' => 2, b'\n' => 3, b'\xFF' => 4, _ => 0 } }
+fn main() {
+    let a = b'a';
+    let n = b'\n';
+    let x = b'\x7f';
+    let q = b'\'';
+    let raw = br"a\nb";
+    let rh = br#"q"x"#;
+    let f = 2f32;
+    let g = 1_000f64;
+    let e = 1e3;
+    println!("{} {} {} {} {} {}", a, n, x, q, raw.len(), rh.len());
+    println!("{} {} {} {}", class(b'q'), class(b'0'), class(10), class(255));
+    println!("{} {} {}", f + 0.5, g, e);
+    match raw { br"a\nb" => println!("raw pat"), _ => println!("no") }
+}
