@@ -1,0 +1,10 @@
+// An owned `Box<dyn Tr>` parameter is no lifetime-elision input: its object lifetime defaults to 'static, so the
+// lone `&i64` input elides the return (rustc: exits 8). Was squeue row dyn_default_object_lifetime_refused (#674):
+// refused E0106, the owning `dyn` counted as a second elided input lifetime.
+package owning_dyn_param_is_no_elision_input;
+use logos.mem.boxed;
+trait Tr { fn v(&self) -> i64; }
+struct S { x: i64 }
+impl Tr for S { fn v(&self) -> i64 { return self.x; } }
+fn g(b: Box<dyn Tr>, x: &i64) -> &i64 { if b.v() != 1 { return x; } return x; }
+fn main() -> i32 { let n: i64 = 7; let r = g(Box::new(S { x: 1 }), &n); return (*r + 1) as i32; }

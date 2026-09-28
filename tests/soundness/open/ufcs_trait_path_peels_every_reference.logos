@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row ufcs_trait_path_peels_every_reference (tier 1, `run 1`). Found 2026-09-28 while landing
+// `impl<T: Ord> Ord for &T`. `Mo::m(&self, &o)` in a trait DEFAULT body instantiated for Self = &u8 dispatches on
+// the first argument's type with EVERY reference layer peeled (`&&u8` -> `u8`), so it calls `<u8 as Mo>::m` with
+// `&&u8` arguments read as `&u8` — rustc calls `<&u8 as Mo>::m` (156). Logos prints a pointer-derived garbage value.
+// The receiver form (`&self` = exactly one layer) is on the trait method; the dispatch (lower_static_call's
+// trait-UFCS block) peels by a loop. Rowed: doors in series (reason 2) — with one layer peeled, Self = &u8 needs the
+// generic `$ref_$T` impl resolved through a trait path, which that dispatch has no route to yet.
+package ufcs_trait_path_peels_every_reference;
+trait Mo { fn m(&self, o: &Self) -> i64; fn big(self: Self, o: Self) -> i64 where Self: Sized { Mo::m(&self, &o) } }
+impl Mo for u8 { fn m(&self, o: &u8) -> i64 { (*self as i64) * 10 + (*o as i64) } }
+impl<T: Mo> Mo for &T { fn m(&self, o: &&T) -> i64 { (**self).m(*o) + 100 } }
+fn main() -> i32 { let a: u8 = 5; let b: u8 = 6; if (&a).big(&b) != 156 { return 1i32; } return 0i32; }

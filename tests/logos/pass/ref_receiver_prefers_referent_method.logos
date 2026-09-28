@@ -1,0 +1,21 @@
+// Method probe, by value before autoref (Rust): on a receiver `r: &X`, the referent's `fn m(&self)`
+// takes `&X` — the receiver as is — so it wins over a blanket `impl<T: Tr> Tr for &T`, whose method
+// takes `&&X` (an autoref). `r.m()` answered through the blanket (105 for 5), and `a.cmp(b)` over
+// `a, b: &u8` was refused once `impl<T: Ord> Ord for &T` existed (it wanted `b: &&u8`).
+package ref_receiver_prefers_referent_method;
+use logos.std.fmt; use logos.lang.cmp;
+trait Mo { fn m(&self) -> i64; }
+impl Mo for u8 { fn m(&self) -> i64 { *self as i64 } }
+struct P { v: i64 }
+impl Mo for P { fn m(&self) -> i64 { self.v } }
+impl<T: Mo> Mo for &T { fn m(&self) -> i64 { (**self).m() + 100 } }
+fn use_mo<X: Mo>(x: X) -> i64 { x.m() }
+fn main() {
+    let a: u8 = 5; let r = &a;
+    println!("u8 {} {} {}", use_mo(a), use_mo(&a), r.m());
+    let p = P { v: 7 }; let rp = &p;
+    println!("p {} {}", use_mo(&p), rp.m());
+    let x: u8 = 3; let y: u8 = 9; let (ra, rb) = (&x, &y);
+    match ra.cmp(rb) { Ordering::Less => println!("cmp less"), _ => println!("cmp other") }
+    println!("max {}", ra.max(rb));
+}

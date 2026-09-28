@@ -1,0 +1,18 @@
+exit: 0
+stdout:
+drop 2
+drop 1
+x 2
+drop 5
+drop 4
+drop 3
+y 9
+drop 7
+drop 6
+z 7
+drop 9
+drop 8
+w 9
+drop 11
+drop 10
+f 11

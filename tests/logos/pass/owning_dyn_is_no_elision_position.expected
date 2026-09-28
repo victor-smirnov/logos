@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+pick 11 10
+only 10
+first 12

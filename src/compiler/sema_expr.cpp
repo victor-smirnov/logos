@@ -11572,7 +11572,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // Phase 1B-8: generic ref-blanket dispatch. `impl<T> Trait for
             // &T` registers under sentinel `$ref$T__method`. Bind T to
             // recv's pointee, autoref recv, route through finish_generic_call.
-            if (!fi_ptr && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind())) {
+            // ⚠ BY-VALUE BEFORE AUTOREF (Rust's probe): the blanket's method
+            // takes `&&T` — an autoref of this receiver — while the referent's
+            // own `fn m(&self)` takes `&T`, this receiver AS IS. When the referent
+            // has one, the auto-deref lookup below answers: `a.cmp(b)` over
+            // `a, b: &u8` is `u8::cmp` (the blanket wanted `b: &&u8`).
+            const bool referent_by_value =
+                !fi_ptr && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind()) &&
+                TypeRef(expr_type(recv)).pointee() &&
+                find_func_by_base_and_signature(
+                    type_str_regions_erased(TypeRef(expr_type(recv)).pointee()) + "__" +
+                        std::string(method_name),
+                    types, false) != nullptr;
+            if (!fi_ptr && !referent_by_value && expr_type(recv) &&
+                is_ref_like(TypeRef(expr_type(recv)).kind())) {
                 std::string blanket_key =
                     rprefix + "$T__" + std::string(method_name);
                 if (auto git = find_generic_func(blanket_key)) {
@@ -19846,7 +19859,9 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                     divergent_ret_t = never_t();
                     continue;
                 }
-                result = lower_moved_operand_(val_node);
+                // Rust 2024: a block's tail expression is a temporary scope —
+                // its temporaries drop BEFORE the block's locals.
+                result = lower_moved_operand_(val_node, /*temp_scoped=*/true);
                 continue;
             }
             if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR

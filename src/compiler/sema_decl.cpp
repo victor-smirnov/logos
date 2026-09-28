@@ -1239,7 +1239,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             // only `Ref`/`MutRef` here is why `fn f(a: &Writ, s: str) -> str`
             // never reached the ambiguity test below.
             if ((k == LogosType::Kind::Slice || k == LogosType::Kind::UnsizedSlice ||
-                 k == LogosType::Kind::TraitObject) &&
+                 (k == LogosType::Kind::TraitObject && !TypeRef(t).owning_trait_object())) &&
                 TypeRef(t).lifetime().empty())
                 return true;
             // A lifetime-carrying ADT with an elided argument (`-> B` for

@@ -1,0 +1,19 @@
+// An owning trait object (`Box<dyn Tr>`) is not a borrow: its object lifetime defaults to 'static and
+// it is no lifetime-elision position. `fn only(a: &Box<dyn Metric>) -> &Box<dyn Metric>` has ONE input
+// lifetime and `-> &'a Box<dyn Metric>` names its region; both were refused E0106 because the owning
+// `dyn` counted as a second, elided lifetime.
+package owning_dyn_is_no_elision_position;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.mem.boxed;
+trait Metric { fn v(&self) -> i64; }
+struct M { x: i64 }
+impl Metric for M { fn v(&self) -> i64 { self.x } }
+fn pick<'a>(a: &'a Box<dyn Metric>, b: &'a Box<dyn Metric>, c: bool) -> &'a Box<dyn Metric> { if c { b } else { a } }
+fn only(a: &Box<dyn Metric>) -> &Box<dyn Metric> { a }
+fn first(v: &Vec<Box<dyn Metric>>) -> &Box<dyn Metric> { &v[0] }
+fn main() {
+    let a: Box<dyn Metric> = Box::new(M { x: 10 }); let b: Box<dyn Metric> = Box::new(M { x: 11 });
+    println!("pick {} {}", pick(&a, &b, true).v(), pick(&a, &b, false).v());
+    println!("only {}", only(&a).v());
+    let v: Vec<Box<dyn Metric>> = vec![Box::new(M { x: 12 })];
+    println!("first {}", first(&v).v());
+}

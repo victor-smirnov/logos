@@ -1,0 +1,17 @@
+// SOUNDNESS QUEUE row if_let_scrutinee_temporary_dropped_after_else (tier 1, `run 1`). Cluster rust2024-temporary-scopes
+// (pairs-5_33). Rust 2024: the scrutinee temporary of `if let` drops BEFORE the `else` block runs; Logos drops it at
+// the end of the whole statement (the 2021 order), after `else`. HIR lowers `if let P = e { A } else { B }` to
+// `match e { P => A, _ => B }`, whose scrutinee temporaries live for the whole match. Rowed: own cost unpriced
+// (reason 3) — the faithful desugaring moves the scrutinee's drop into the `else` arm (or restructures if-let as a
+// labeled block), a change to the core HIR form every pattern door reads.
+package if_let_scrutinee_temporary_dropped_after_else;
+struct D { id: i64, c: *mut i64 }
+impl Drop for D { fn drop(self: &mut D) { unsafe { *self.c = *self.c * 10 + self.id; } } }
+fn mk(id: i64, c: *mut i64) -> Option<D> { return Some(D { id: id, c: c }); }
+fn main() -> i32 {
+    let mut seq: i64 = 0i64;
+    let p: *mut i64 = &mut seq;
+    if let None = mk(1i64, p) { unsafe { *p = *p * 10 + 7; } } else { unsafe { *p = *p * 10 + 2; } }
+    if unsafe { seq } != 12i64 { return 1i32; }
+    return 0i32;
+}

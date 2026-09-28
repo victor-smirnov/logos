@@ -417,8 +417,6 @@ derived_impl_invisible_in_impl_block_refused 3 tests/soundness/open/derived_impl
 
 dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refuses
 
-dyn_default_object_lifetime_refused 3 tests/soundness/open/dyn_default_object_lifetime_refused refuses
-
 field_slice_region_projection_refused 3 tests/soundness/open/field_slice_region_projection_refused refuses
 
 float_exp_format_c_style_wrong 3 tests/soundness/open/float_exp_format_c_style_wrong run 3
@@ -461,5 +459,11 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 
 receiver_chain_temp_dropped_after_borrowed_local_refused 3 tests/soundness/open/receiver_chain_temp_dropped_after_borrowed_local_refused refuses
 
-# TOTAL 142
-# SYNC-HASH f89ad4f66582169c3f2169edfc83815c
+ufcs_trait_path_peels_every_reference 1 tests/soundness/open/ufcs_trait_path_peels_every_reference run 1
+
+double_ref_receiver_collapsed_before_dispatch 1 tests/soundness/open/double_ref_receiver_collapsed_before_dispatch run 1
+
+if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scrutinee_temporary_dropped_after_else run 1
+
+# TOTAL 144
+# SYNC-HASH 34d53be7a73598121ae2ec5d23c82b6e

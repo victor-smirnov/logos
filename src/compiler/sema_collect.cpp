@@ -967,6 +967,22 @@ bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
         std::string mpfx = (pfx == "&mut ") ? "$mut_ref_" : "$ref_";
         if (impls_.count(ImplKey{tid, mpfx + concrete})) return true;
         if (impls_.count(ImplKey{tid, mpfx + concrete.substr(pfx.size())})) return true;
+        // `impl<T: B…> Trait for &T` (keyed `$ref_$T`): the reference satisfies
+        // the trait when its REFERENT satisfies the impl's bounds on T (`&u8:
+        // Ord` through `impl<T: Ord> Ord for &T`).
+        if (auto git = impls_.find(ImplKey{tid, mpfx + "$T"}); git != impls_.end()) {
+            const std::string referent = concrete.substr(pfx.size());
+            logos::compiler::StrSet attempt = seen;
+            bool ok = true;
+            for (auto& tp : git->second.impl_type_params)
+                for (auto& b : tp.bounds)
+                    if (ok && !sema_has_impl_recursive(
+                                  !b.identity_trait.empty() ? b.identity_trait
+                                  : !b.canonical_trait.empty() ? b.canonical_trait : b.trait_name,
+                                  referent, "", attempt))
+                        ok = false;
+            if (ok) return true;
+        }
         break;
     }
     for (auto& bi : blanket_impls_) {

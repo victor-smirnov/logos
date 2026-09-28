@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+u8 5 105 5
+p 107 7
+cmp less
+max 9

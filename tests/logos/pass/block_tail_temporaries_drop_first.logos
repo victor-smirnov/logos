@@ -1,0 +1,16 @@
+// Rust 2024: a block's tail expression is a temporary scope — its temporaries drop BEFORE the block's
+// locals (`{ let _a = mk(1); mk(2).d }` drops 2, then 1). They lived to the end of the enclosing
+// statement, the 2021 order.
+package block_tail_temporaries_drop_first;
+use logos.std.fmt;
+struct G { d: i64 }
+impl Drop for G { fn drop(&mut self) { println!("drop {}", self.d); } }
+fn mk(d: i64) -> G { G { d: d } }
+fn f() -> i64 { let _a = mk(10); mk(11).d }
+fn main() {
+    let x = { let _a = mk(1); mk(2).d }; println!("x {}", x);
+    let y = { let _b = mk(3); let s = mk(4); s.d + mk(5).d }; println!("y {}", y);
+    let z = if x > 0 { let _c = mk(6); mk(7).d } else { 0 }; println!("z {}", z);
+    let w = match x { 2 => { let _e = mk(8); mk(9).d } _ => 0 }; println!("w {}", w);
+    println!("f {}", f());
+}

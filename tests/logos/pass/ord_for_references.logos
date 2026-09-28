@@ -1,0 +1,21 @@
+// `&T: Ord` for every `T: Ord` (Rust's blanket impl): `v.iter().max()` / `.min()` over a `Vec<u8>`,
+// `Vec<u16>`, a user `Ord` type or `Vec<String>`. Only `&i32` / `&i64` had a hand-written impl, so the
+// `max` default method was never materialised for any other element (a call to an undefined
+// instance; the backend refused the compile).
+package ord_for_references;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.cmp; use logos.lang.option; use logos.lang.iter; use logos.lang.clone;
+struct Ver { major: i64 }
+impl Clone for Ver { fn clone(&self) -> Ver { Ver { major: self.major } } }
+impl Eq for Ver { fn eq(&self, o: &Ver) -> bool { self.major == o.major } }
+impl PartialOrd for Ver {}
+impl Ord for Ver { fn cmp(&self, o: &Ver) -> Ordering { self.major.cmp(&o.major) } }
+fn main() {
+    let b: Vec<u8> = vec![4, 9, 2]; println!("u8 {} {}", b.iter().max().unwrap(), b.iter().min().unwrap());
+    let w: Vec<u16> = vec![4, 9, 2]; match w.iter().max() { Some(x) => println!("u16 {}", *x), None => println!("none") }
+    let s: Vec<u32> = vec![7, 3]; println!("u32 {}", s.iter().max().unwrap());
+    let i: Vec<i8> = vec![-7, 3]; println!("i8 {}", i.iter().min().unwrap());
+    let vs = vec![Ver { major: 1 }, Ver { major: 5 }, Ver { major: 2 }]; println!("ver {}", vs.iter().max().unwrap().major);
+    let x: u8 = 3; let y: u8 = 5; let (rx, ry) = (&x, &y);
+    match rx.cmp(&ry) { Ordering::Less => println!("less"), Ordering::Equal => println!("eq"), Ordering::Greater => println!("gt") }
+    let strs = vec![String::from("b"), String::from("c"), String::from("a")]; println!("str {}", strs.iter().max().unwrap());
+}

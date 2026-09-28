@@ -1,0 +1,7 @@
+// The owning `dyn` is no elision position, but two borrowed inputs still are: the output lifetime of
+// `fn both(a: &Box<dyn Metric>, b: &Box<dyn Metric>) -> &Box<dyn Metric>` cannot be elided (E0106).
+package owning_dyn_two_elided_inputs_refused;
+use logos.mem.boxed;
+trait Metric { fn v(&self) -> i64; }
+fn both(a: &Box<dyn Metric>, b: &Box<dyn Metric>) -> &Box<dyn Metric> { a }
+fn main() {}

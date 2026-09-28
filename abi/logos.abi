@@ -763,14 +763,7 @@ sym	logos_lang..logos.lang.clone.u32__clone__f__ref_u32
 sym	logos_lang..logos.lang.clone.u64__clone__f__ref_u64
 sym	logos_lang..logos.lang.clone.u8__clone__f__ref_u8
 sym	logos_lang..logos.lang.clone.usize__clone__f__ref_usize
-sym	logos_lang..logos.lang.cmp.$ref_&i32__clamp__f__ref_i32__ref_i32__ref_i32
-sym	logos_lang..logos.lang.cmp.$ref_&i32__cmp__f__ref_ref_i32__ref_ref_i32
-sym	logos_lang..logos.lang.cmp.$ref_&i32__max__f__ref_i32__ref_i32
-sym	logos_lang..logos.lang.cmp.$ref_&i32__min__f__ref_i32__ref_i32
-sym	logos_lang..logos.lang.cmp.$ref_&i64__clamp__f__ref_i64__ref_i64__ref_i64
-sym	logos_lang..logos.lang.cmp.$ref_&i64__cmp__f__ref_ref_i64__ref_ref_i64
-sym	logos_lang..logos.lang.cmp.$ref_&i64__max__f__ref_i64__ref_i64
-sym	logos_lang..logos.lang.cmp.$ref_&i64__min__f__ref_i64__ref_i64
+sym	logos_lang..logos.lang.cmp.$ref_$T__cmp__g__ref_ref_T__ref_ref_T__i32
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]__&[u8]
@@ -13735,6 +13728,8 @@ sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_null__f__refmut_JsonWri
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_raw__f__refmut_JsonWriter__slice_u8
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_str__f__refmut_JsonWriter__slice_u8
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_u64__f__refmut_JsonWriter__u64
+sym	logos_mem..logos.mem.fmt.$mut_ref_$T__Debug__fmt__g__ref_refmut_T__refmut_Formatter__i32
+sym	logos_mem..logos.mem.fmt.$ref_$T__Debug__fmt__g__ref_ref_T__refmut_Formatter__i32
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]__&[u8]
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]__&[u8]__&[u8]
@@ -13798,6 +13793,8 @@ sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i16
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i32
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i64
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__i8
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__ref_i32
+sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__refmut_i32
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__u16
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__u32
 sym	logos_mem..logos.mem.fmt.DebugTuple__field__g__refmut_DebugTuple__ref_T__u64
@@ -13870,6 +13867,8 @@ sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__i32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__i64
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__i8
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__ref_i32
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__refmut_i32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__u16
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__u32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$G1$T__refmut_Formatter__u64
@@ -13878,6 +13877,8 @@ sym	logos_mem..logos.mem.fmt.Option__i16__fmt__g__ref_Option$G1$T__refmut_Format
 sym	logos_mem..logos.mem.fmt.Option__i32__fmt__g__ref_Option$G1$T__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__i64__fmt__g__ref_Option$G1$T__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__i8__fmt__g__ref_Option$G1$T__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Option__ref_i32__fmt__g__ref_Option$G1$T__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Option__refmut_i32__fmt__g__ref_Option$G1$T__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__u16__fmt__g__ref_Option$G1$T__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__u32__fmt__g__ref_Option$G1$T__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__u64__fmt__g__ref_Option$G1$T__refmut_Formatter

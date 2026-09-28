@@ -6284,6 +6284,19 @@ bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
             }
         }
     }
+    // A reference through the generic `impl<T: Tr> Tr for &T` (keyed `$ref_$T` /
+    // `$mut_ref_$T`) when no impl names the reference type itself: the referent
+    // answers (every such impl in the tree bounds T by the trait it implements).
+    // Mirror of sema_has_impl_recursive's `$ref_$T` step.
+    if (TypeRef rct{concrete}; (rct.kind() == LogosType::Kind::Ref ||
+                                rct.kind() == LogosType::Kind::MutRef) && rct.pointee()) {
+        const std::string blk = rct.kind() == LogosType::Kind::MutRef ? "$mut_ref_$T" : "$ref_$T";
+        const std::string own = ref_target_key(rct);
+        for (auto& id : (q.has_identity ? std::vector<std::string>{q.identity}
+                                        : bare_trait_identities_(q.spelling)))
+            if (!has_concrete_impl_(id, own) && has_concrete_impl_(id, blk))
+                return mono_concrete_satisfies_bound(q, rct.pointee(), seen);
+    }
     // Array concretes the same way, through the `$array$` keys.
     if (TypeRef(concrete).kind() == LogosType::Kind::Array)
         for (auto& id : (q.has_identity ? std::vector<std::string>{q.identity}

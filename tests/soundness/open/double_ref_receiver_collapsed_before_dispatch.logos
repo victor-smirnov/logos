@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row double_ref_receiver_collapsed_before_dispatch (tier 1, `run 1`). Found 2026-09-28 beside
+// ref_receiver_prefers_referent_method. `(&rp).m()` with `rp: &P`: the receiver `&&P` IS `&self` of
+// `<&P as Mo>::m` (the blanket `impl<T: Mo> Mo for &T` at T = P) — the by-value candidate, rustc answers 107.
+// lower_method_call collapses every extra reference layer first (`r.m()` for r: &&T == `(*r).m()`), so dispatch
+// sees `&P` and calls `<P as Mo>::m` (7). Right whenever a reference impl delegates to its referent (all of the
+// stdlib's do), wrong for one that does not. Rowed: the fact has no carrier there (reason 1) — after the collapse
+// the dispatch no longer knows the receiver had two layers.
+package double_ref_receiver_collapsed_before_dispatch;
+trait Mo { fn m(&self) -> i64; }
+struct P { v: i64 }
+impl Mo for P { fn m(&self) -> i64 { self.v } }
+impl<T: Mo> Mo for &T { fn m(&self) -> i64 { (**self).m() + 100 } }
+fn main() -> i32 { let p = P { v: 7 }; let rp = &p; if (&rp).m() != 107 { return 1i32; } return 0i32; }

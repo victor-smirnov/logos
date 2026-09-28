@@ -550,7 +550,10 @@ private:
         // `Ref`/`MutRef` let `fn f(arena: &Writ, s: str) -> str` look like it
         // had ONE input region, so rule 2 fired and silently picked the wrong
         // source instead of asking for an annotation.
-        else if (k == K::Slice || k == K::UnsizedSlice || k == K::TraitObject)
+        // An OWNING trait object (`Box<dyn Tr>`) is no borrow: its object
+        // lifetime defaults to 'static and it is no elision position.
+        else if (k == K::Slice || k == K::UnsizedSlice ||
+                 (k == K::TraitObject && !t.owning_trait_object()))
             slot(t.lifetime());
         else if (k == K::Struct || k == K::ZonedStruct || k == K::Enum) {
             auto wr = t.lifetime_args();
