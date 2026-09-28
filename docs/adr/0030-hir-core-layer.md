@@ -470,6 +470,9 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   tuple door, `mint_dbm_ref` and `carried_payload_sub`; build_pattern's own
   unit-variant rule now peels `&`. Clusters unit-path-pattern-binds-under-ref
   (4) and none-arm-typed-as-scrutinee (2) agree with rustc.
+- 2026-09-28: every S3 audit cluster agrees with rustc on stdout and exit
+  code (unit-path, closure `|&x|`, mutable slice patterns, partial moves,
+  guard-in-loop, array-of-arrays, const-generic lengths among them).
 Next: the remaining synthesized route (or-patterns with binders), then the
 moving binders' K4 prologue retirement (retire the guard channel and the K4 prologue lets),
 then the statement match as the void expression match (one `lower_match_core`).
