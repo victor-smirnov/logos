@@ -1,0 +1,23 @@
+// Structural sub-patterns in a variant's payload whose binders move nothing — by-reference default mode,
+// a Copy payload, or `&<structural>` over a `&Copy` payload — are carried on the variant pattern
+// (ADR 0030 S3). `Some(&(k, v))` and `let Some(Pair { a, b }) = p else` were refused, and a struct
+// pattern nested in a struct-shaped variant under `Option<&E>` lost its binding (undefined variable).
+package variant_payload_structural_subpatterns;
+#[derive_clone]
+#[derive_copy]
+struct Pos { x: i32, y: i32 }
+enum Sh { Line { from: Pos, to: Pos } }
+struct Pair { a: i32, b: i32 }
+fn pairs(xs: &[(i64, i64); 2]) -> i64 { if let Some(&(k, v)) = xs.iter().next() { k * 100 + v } else { 0 } }
+fn via_ref(o: Option<&Sh>) -> i32 { if let Some(Sh::Line { from: Pos { x: fx, .. }, .. }) = o { *fx } else { -1 } }
+fn by_value(s: Sh) -> i32 { match s { Sh::Line { to: Pos { y: ty, .. }, .. } => ty } }
+fn let_else_struct(p: Option<Pair>) -> i32 { let Some(Pair { a, b }) = p else { return -1; }; a * 10 + b }
+fn let_else_tuple(q: Option<(i32, i32)>) -> i32 { let Some((x, y)) = q else { return -1; }; x * 10 + y }
+fn nested_refutable(o: Option<(i32, bool)>) -> i32 { match o { Some((n, true)) => n, Some((_, false)) => -5, None => 0 } }
+fn main() -> i32 {
+    let xs: [(i64, i64); 2] = [(1, 10), (2, 20)];
+    let s = Sh::Line { from: Pos { x: 1, y: 2 }, to: Pos { x: 3, y: 4 } };
+    let r = pairs(&xs) as i32 + via_ref(Some(&s)) + by_value(s) + let_else_struct(Some(Pair { a: 5, b: 9 }))
+          + let_else_tuple(Some((1, 2))) + nested_refutable(Some((7, true))) + nested_refutable(Some((7, false)));
+    return r - 100;   // 110 + 1 + 4 + 59 + 12 + 7 - 5 = 188 → 88
+}

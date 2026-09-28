@@ -1,1 +1,1 @@
-nested patterns inside enum-variant payloads are not yet supported
+a raw pointer is not dereferenced by a pattern; write `match *p` (E0308)

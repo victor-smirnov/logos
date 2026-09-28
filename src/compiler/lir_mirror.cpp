@@ -1226,7 +1226,8 @@ public:
                                                          const std::vector<std::string>& bindings,
                                                          const std::vector<TypeRef>& binding_types,
                                                          const std::vector<uint32_t>& bind_slots = {},
-                                                         const std::vector<uint32_t>& bind_ref_modes = {}) {
+                                                         const std::vector<uint32_t>& bind_ref_modes = {},
+                                                         const std::vector<const uint8_t*>& subs = {}) {
         auto enum_av     = put_string(enum_name);
         auto variant_av  = put_string(variant);
         auto bindings_av = string_array(bindings);
@@ -1245,6 +1246,15 @@ public:
         put(map_off, pk::BINDING_TYPES,  btypes_av);
         if (!slots_av.is_null()) put(map_off, pk::BIND_SLOTS, slots_av);
         if (!modes_av.is_null()) put(map_off, pk::BINDING_REF_MODES, modes_av);
+        // Payload sub-patterns (ADR 0030 S3), positional with null holes;
+        // written only when some position has one (byte-identical otherwise).
+        bool any_sub = false;
+        for (auto* p : subs) if (p) { any_sub = true; break; }
+        if (any_sub) {
+            auto arr_off = make_array(subs.size());
+            for (auto* p : subs) array_push(arr_off, mref_addr(p));
+            put(map_off, pk::SUBS, mref_addr(arr_off));
+        }
         return map_off;
     }
     const uint8_t* emit_pat_or_direct(const std::vector<lir::Pattern>& alts) {
@@ -2500,10 +2510,10 @@ const uint8_t* lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view na
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_wild_direct(name, slot, is_mut);
 }
-const uint8_t* lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<uint32_t>& bind_slots, const std::vector<uint32_t>& bind_ref_modes) {
+const uint8_t* lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<uint32_t>& bind_slots, const std::vector<uint32_t>& bind_ref_modes, const std::vector<const uint8_t*>& subs) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_variant_data_direct(enum_name, variant, disc, bindings, binding_types, bind_slots, bind_ref_modes);
+    return em.emit_pat_variant_data_direct(enum_name, variant, disc, bindings, binding_types, bind_slots, bind_ref_modes, subs);
 }
 const uint8_t* lir_mirror_emit_pat_or(lir::LProgram& prog, const std::vector<lir::Pattern>& alts) {
     auto& ctr = prog.type_pool.ctr_or_init();

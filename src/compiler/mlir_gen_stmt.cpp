@@ -163,7 +163,15 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
     // evict_var_shapes in mlir_gen_impl.hpp).
     auto evict_shapes = [&](const std::string& n) { evict_var_shapes(n); };
 
+    const auto subs = pvd.subs();   // ADR 0030 S3: payload sub-patterns
     for (size_t bi = 0; bi < bindings.size() && bi < vp->field_types.size(); ++bi) {
+        if (bi < subs.size() && subs[bi]) {
+            // A position with a sub-pattern binds its names from the field's place.
+            llvm::SmallVector<mlir::LLVM::GEPArg> sfi{int32_t(0), int32_t(bi)};
+            auto sfp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), pay_struct, pay_ptr, sfi);
+            pat_bind(subs[bi], sfp, bi < vp->logos_types.size() ? vp->logos_types[bi] : TypeRef{}, shared);
+            continue;
+        }
         if (bindings[bi] == "_") continue;
         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
         auto fp = builder_.create<mlir::LLVM::GEPOp>(
@@ -4432,10 +4440,44 @@ mlir::Value MLIRGenImpl::tuple_elem_struct_slot(lir_view::PatRef sp, mlir::Value
     return fp;
 }
 
+// ADR 0030 S3: the payload sub-patterns of a variant whose disc is known to
+// match, each tested on its payload field's place. Null when there are none.
+mlir::Value MLIRGenImpl::variant_subs_test(lir_view::PatVariantDataView pvd, mlir::Value enum_ptr,
+                                           const TaggedEnumInfo* te) {
+    auto subs = pvd.subs();
+    if (subs.empty() || !te || !enum_ptr) return {};
+    const TaggedEnumInfo::VariantPayload* vp = nullptr;
+    for (auto& v : te->variants)
+        if (v.disc == pvd.disc()) { vp = &v; break; }
+    if (!vp) return {};
+    auto pay_ptr = enum_payload_ptr(enum_ptr, *te);
+    auto pay_struct = variant_payload_struct(*vp);
+    mlir::Value cond = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
+    for (size_t i = 0; i < subs.size() && i < vp->field_types.size(); ++i) {
+        if (!subs[i]) continue;
+        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(i)};
+        mlir::Value fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), pay_struct, pay_ptr, fi);
+        TypeRef lt = i < vp->logos_types.size() ? vp->logos_types[i] : TypeRef{};
+        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, pat_test(subs[i], fp, lt));
+    }
+    return cond;
+}
+
 mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty) {
     namespace pc = lir_schema::pat;
     auto true_c = [&]{ return builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1).getResult(); };
     if (!pat || !slot_ptr) return true_c();
+    // A literal / range over a place of REFERENCE type tests the referent
+    // (RFC 2005: a non-reference pattern against `&T` derefs) — `Some(7)` over
+    // `Option<&i64>`. The slot holds the reference: load once per layer.
+    if (pat.kind() == pc::Code::Int || pat.kind() == pc::Code::Bool || pat.kind() == pc::Code::Range) {
+        while (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                      TypeRef(ty).kind() == LogosType::Kind::MutRef) && TypeRef(ty).pointee() &&
+               ref_repr_of(TypeRef(ty)) == RefReprKind::ThinPtr) {
+            slot_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+            ty = TypeRef(ty).pointee();
+        }
+    }
     auto elem_mlir = ty ? logos_to_mlir(ty) : mlir::Type();
     switch (pat.kind()) {
     case pc::Code::Wild:
@@ -4537,10 +4579,27 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
             enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
         auto dv = enum_load_disc(enum_ptr, *te);
         auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
-        // Payload sub-patterns are stored as bindings (names) only; refutable
-        // inners (Some(1)) are handled by the sema guard channel, so the disc
-        // test alone is the constraint here.
-        return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq, dv, dc);
+        mlir::Value eq = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq, dv, dc);
+        // Payload sub-patterns (ADR 0030 S3) are tested only once the disc
+        // matched: another variant's payload bytes are not this one's fields.
+        if (pat.kind() == pc::Code::VariantData && !lir_view::PatVariantDataView{pat}.subs().empty()) {
+            auto* region = builder_.getBlock()->getParent();
+            auto* sub_blk = new mlir::Block();
+            auto* join = new mlir::Block();
+            join->addArgument(builder_.getI1Type(), loc_);
+            region->push_back(sub_blk);
+            region->push_back(join);
+            mlir::Value no = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, eq, sub_blk, mlir::ValueRange{},
+                                                    join, mlir::ValueRange{no});
+            builder_.setInsertionPointToStart(sub_blk);
+            mlir::Value sv = variant_subs_test(lir_view::PatVariantDataView{pat}, enum_ptr, te);
+            if (!sv) sv = true_c();
+            builder_.create<mlir::cf::BranchOp>(loc_, join, mlir::ValueRange{sv});
+            builder_.setInsertionPointToStart(join);
+            return join->getArgument(0);
+        }
+        return eq;
     }
     case pc::Code::Or: {
         mlir::Value cond = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
@@ -4913,8 +4972,17 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
     // SAME slot. Spec pat.at.binds-at-every-position.
     case pc::Code::At: {
         lir_view::PatAtView av{pat};
-        // `ref n @ sub`: n borrows the place (RefBind's convention).
-        if (av.ref_mode() && !av.name().empty() && av.name() != "_")
+        // `ref n @ sub`: n borrows the place (RefBind's convention). So does an
+        // `n @ sub` under a by-reference DEFAULT binding mode — inside a
+        // container matched through `&` (`(x @ 1..=9, _)` over `&(i64, i64)`):
+        // sema types n `&T` over a place whose type is T, one layer the place
+        // does not have. Binding it by value stored the i64 where a `&i64` was
+        // read back. (At a top-level `&T` place the name copies the reference:
+        // the types are equal there and nothing is added.)
+        int added_ref = 0;
+        const bool default_ref = !av.ref_mode() &&
+            ref_bind_kind(av.type(pool_impl()), ty, added_ref) && added_ref == 1;
+        if ((av.ref_mode() || default_ref) && !av.name().empty() && av.name() != "_")
             bind_ref_name(std::string(av.name()), slot_ptr, ty);
         else
             bind_name_at_slot(std::string(av.name()), slot_ptr, ty, shared);
@@ -6358,7 +6426,21 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         sc_scrut_type);
                     auto eq = builder_.create<mlir::arith::CmpIOp>(
                         loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
-                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                    // A variant with payload sub-patterns (ADR 0030 S3): the
+                    // subs are tested once the disc matched.
+                    if (arm_kind == pc::Code::VariantData && te_info && scrut_ptr &&
+                        !lir_view::PatVariantDataView{arm_pat}.subs().empty()) {
+                        auto* sub_blk = new mlir::Block();
+                        region->push_back(sub_blk);
+                        builder_.create<mlir::cf::CondBranchOp>(loc_, eq, sub_blk, else_block);
+                        builder_.setInsertionPointToStart(sub_blk);
+                        mlir::Value sc = variant_subs_test(lir_view::PatVariantDataView{arm_pat},
+                                                           scrut_ptr, te_info);
+                        if (sc) builder_.create<mlir::cf::CondBranchOp>(loc_, sc, arm_entry, else_block);
+                        else    builder_.create<mlir::cf::BranchOp>(loc_, arm_entry);
+                    } else {
+                        builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                    }
                 }
             }
             else_block = test_block;
@@ -6463,6 +6545,24 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     if (pat_kind == pc::Code::Tuple || pat_kind == pc::Code::Struct || pat_kind == pc::Code::Slice ||
         pat_kind == pc::Code::At || pat_kind == pc::Code::RefPat) {
         mlir::Value place = scrut_val;
+        // Default binding mode at the top (RFC 2005): a tuple / struct / array
+        // pattern over `&Agg` (`&&Agg`, …) matches the AGGREGATE — the reference
+        // value is its address (one load per further layer). Test and bind then
+        // see the place's real type; sema carried the by-reference mode on the
+        // binders. Handing them the reference type broke the tester's slot
+        // convention (it loaded the first element as a pointer: SIGSEGV on
+        // `let (x, 3) = r else …` with `r: &(i64, i64)`). `n @ sub` and `&P`
+        // are binding / reference patterns: no implicit deref at them.
+        if (pat_kind != pc::Code::At && pat_kind != pc::Code::RefPat) {
+            while (scrut_ty && (TypeRef(scrut_ty).kind() == LogosType::Kind::Ref ||
+                                TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef) &&
+                   TypeRef(scrut_ty).pointee()) {
+                TypeRef pt = TypeRef(scrut_ty).pointee();
+                if (pt.kind() == LogosType::Kind::Ref || pt.kind() == LogosType::Kind::MutRef)
+                    place = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), place);
+                scrut_ty = pt;
+            }
+        }
         // An `&P` pattern reads the reference out of a SLOT (pat_test / pat_bind
         // RefPat load it), so the reference value is spilled into one; the
         // other shapes take an aggregate's address, which a by-value tuple /
@@ -6583,6 +6683,16 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
                 loc_, expected_disc, 32);
             cond = builder_.create<mlir::arith::CmpIOp>(
                 loc_, mlir::arith::CmpIPredicate::eq, disc_val, expected);
+        }
+        // Payload sub-patterns (ADR 0030 S3): tested once the disc matched.
+        if (or_discs.empty() && pat_kind == pc::Code::VariantData && te_info && scrut_ptr &&
+            !lir_view::PatVariantDataView{pat_ref}.subs().empty()) {
+            auto* sub_blk = new mlir::Block();
+            region->push_back(sub_blk);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, cond, sub_blk, else_block);
+            builder_.setInsertionPointToStart(sub_blk);
+            cond = variant_subs_test(lir_view::PatVariantDataView{pat_ref}, scrut_ptr, te_info);
+            if (!cond) cond = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
         }
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, match_block, else_block);
     } else {

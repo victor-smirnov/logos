@@ -404,9 +404,33 @@ range_pattern_const_bound_refused); 30 catches became fixtures (`exh_*`);
 squeue range_pattern_full_span_refused and let_single_variant_enum_refused
 closed. Five pass fixtures asserted a non-exhaustive slice / array match
 (rustc: E0004) and carry the missing arm now.
-Next: S3.2 `lower_match_core` (the statement match as the void expression
-match; tier-1 squeue reference_range_pattern_wrong — `&(1..=5)` never
-matches — and the pattern-lowering clusters).
+S3.2 (in progress) — one pattern tester, carried sub-patterns.
+- A `&P` arm is tested by `pat_test` in both match codegen doors (they had a
+  scalar-only copy; `&(1..=5)` never matched — squeue #517 closed).
+- `n @ P` under a by-reference default binding mode binds the place's address
+  (mlir `pat_bind`: the binding type `&T` over a place of type T adds the one
+  layer; equal types copy the reference). let-else over `&Agg` matches the
+  aggregate: test and bind see its real type (the tester was handed the
+  reference type and loaded the first element as a pointer — SIGSEGV).
+- `PatVariantData` carries payload SUB-PATTERNS (`SUBS`, positional, parallel to
+  `BINDINGS`; a sub position binds `_` and its BINDING_TYPES entry is the real
+  field type). `pat_test` tests them once the discriminant matched (a join
+  block — another variant's payload bytes are never read as this one's
+  fields); both `gen_match` doors and let-else test them after the disc;
+  `bind_enum_payload` (the one payload binder) binds them with `pat_bind`; BIR,
+  the old checker and mono's clone recurse into them. sema routes the
+  sub-patterns that MOVE nothing: scalar tests (literal, range, char, bool,
+  or-patterns of those, `n @ <those>`), `&x` / `&<those>` over `&T` (a by-value
+  scrutinee; a move out of the reference is E0507), and structural subs under
+  a by-reference scrutinee, over a Copy payload, or without binders.
+  A literal / range over a place of reference type tests the referent
+  (`Some(7)` over `Option<&i64>`). let-else's private variant-binding copy is
+  gone (it saw BINDINGS only). The synthesized binding + arm guard remains
+  only for subs whose binders move a non-Copy payload out.
+  Interaction clusters literal-subpattern-under-ref-no-deref (7) and
+  nested-pattern-in-variant-payload-unsupported (9) agree with rustc.
+Next: the moving binders (retire the guard channel and the K4 prologue lets),
+then the statement match as the void expression match (one `lower_match_core`).
 
 ## L0 status (2026-09-27)
 

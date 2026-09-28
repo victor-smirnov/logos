@@ -1,0 +1,18 @@
+// `Some(&x)` over an `Option<&T>` payload — the idiom of `iter().max()`, `last()`, `iter().next()` —
+// binds x to a copy of the referent (ADR 0030 S3: the `&x` sub-pattern is carried on the variant
+// pattern). It was refused: "nested patterns inside enum-variant payloads are not yet supported".
+package variant_payload_ref_binder;
+use logos.mem.collections.vec;
+fn biggest(v: &Vec<i64>) -> i64 { match v.iter().max() { Some(&m) if m > 5 => m, Some(_) => 1, None => 0 } }
+fn last_of(v: &Vec<i64>) -> i64 { if let Some(&x) = v.last() { x } else { -1 } }
+fn first_via_let_else(a: &[i64; 3]) -> i64 { let mut it = a.iter(); let Some(&x) = it.next() else { return -2; }; x }
+fn lit_or_bind(o: Option<&i64>) -> i64 { match o { Some(&7) => 70, Some(&y) => y, None => 0 } }
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::new();
+    v.push(3); v.push(8);
+    let a = [4i64, 5, 6];
+    let seven = 7i64;
+    let nine = 9i64;
+    let r = biggest(&v) + last_of(&v) + first_via_let_else(&a) + lit_or_bind(Some(&seven)) + lit_or_bind(Some(&nine));
+    return r as i32;   // 8 + 8 + 4 + 70 + 9 = 99
+}

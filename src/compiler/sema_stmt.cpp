@@ -2580,18 +2580,11 @@ lir_view::StmtRef SemaChecker::lower_let_else_core(lir::LExprPtr scrut, TinyMapV
         std::function<void(lir_view::PatRef)> define_bindings =
             [&](lir_view::PatRef pr) {
             if (pr.kind() == ps::Code::VariantData) {
-                lir_view::PatVariantDataView v{pr};
-                std::vector<std::string_view> names;
-                std::vector<TypeRef> types;
-                v.each_binding([&](std::string_view n) { names.push_back(n); });
-                v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
-                auto _vd_slots = v.bind_slots();  // Phase-1: reuse reserved slots
-                auto _vd_muts  = v.bind_byval_muts();  // the carried by-value `mut`
-                for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                    if (names[i] != "_")
-                        define(std::string(names[i]), types[i],
-                               i < _vd_muts.size() && _vd_muts[i] != 0u,
-                               i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
+                // The match arms' definer: it also reaches the payload
+                // SUB-PATTERNS' names (ADR 0030 S3) — this door kept a private
+                // copy that saw BINDINGS only (`let Some(&x) = … else` left x
+                // undefined).
+                bind_pattern_ref(pr, scrut_type);
             } else if (pr.kind() == ps::Code::Tuple) {
                 lir_view::PatTupleView v{pr};
                 std::vector<std::string_view> names;
@@ -4789,6 +4782,98 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         auto pt = vinfo->payload_types[idx];
         return pat_subst.empty() && pat_lt_subst.empty() ? pt : subst_type_sema(pt, pat_subst, pat_lt_subst);
     };
+    // ADR 0030 S3 (C-PAT): payload SUB-PATTERNS carried on the pattern itself
+    // (PatVariantData SUBS, tested and bound by the one pattern tester), not a
+    // synthesized binding + arm guard. This step carries the sub-patterns that
+    // TEST a scalar and bind at most an `@` name over it — a literal, a range, a
+    // char / bool, an or-pattern of those, `n @ <those>` — and, over a by-value
+    // scrutinee, `&<those>` and `&x` (x copies the referent). None of them moves
+    // or drops a payload.
+    // The synthesized guard typed its binding by the default binding mode and
+    // compared `&char` to a char literal under a `&Enum` scrutinee.
+    std::unordered_map<size_t, const uint8_t*> payload_subs;   // binding index → sub
+    std::function<bool(TinyMapView)> carried_sub = [&](TinyMapView n) -> bool {
+        const int32_t c = code_of(n);
+        if (c == la::PAT_OR && n.has_key(la::ITEMS)) {
+            auto alts = arr_of(n.get(la::ITEMS.code));
+            if (alts.size() == 0) return false;
+            for (uint64_t k = 0; k < alts.size(); ++k)
+                if (!carried_sub(map_of(alts.get(k)))) return false;
+            return true;
+        }
+        if (c == la::PAT_INT || c == la::PAT_NEG_INT || c == la::PAT_BOOL ||
+            c == la::PAT_CHAR || c == la::PAT_CHAR_RANGE || c == la::PAT_RANGE)
+            return true;
+        auto flag = [&](const la::Key& k) {
+            return n.has_key(k) && n.get(k.code).is_value() && n.get(k.code).as_value<uint8_t>() != 0;
+        };
+        if (c == la::PAT_AT && n.has_key(la::VALUE) && n.has_key(la::NAME) &&
+            !flag(la::IS_REF) && !flag(la::IS_MUT))
+            return carried_sub(map_of(n.get(la::VALUE.code)));
+        if (c == la::PAT_REF && n.has_key(la::VALUE) && !pat_scrut_by_ref) {
+            // `&x` over an `&T` payload (`Some(&m)` of `iter().max()`): x copies
+            // the referent — a move out of the reference is rustc's E0507,
+            // which bind_pattern_ref's RefPat door reports.
+            TinyMapView in = map_of(n.get(la::VALUE.code));
+            if (code_of(in) == la::PAT_OR && in.has_key(la::ITEMS) && arr_of(in.get(la::ITEMS.code)).size() == 1)
+                in = map_of(arr_of(in.get(la::ITEMS.code)).get(0));
+            if (code_of(in) == la::PAT_WILD) {
+                auto iflag = [&](const la::Key& k) {
+                    return in.has_key(k) && in.get(k.code).is_value() && in.get(k.code).as_value<uint8_t>() != 0;
+                };
+                return !iflag(la::IS_REF);
+            }
+            return carried_sub(in);
+        }
+        return false;
+    };
+    // …and a STRUCTURAL sub-pattern (a tuple, a struct, a nested variant) whose
+    // binders MOVE nothing: under a by-reference scrutinee they bind references,
+    // over a Copy payload they copy, and a sub without binders binds nothing.
+    // `&<structural>` over a `&T` payload copies out of T — only a Copy T.
+    // (A binder that moves a non-Copy payload out keeps the older path: the
+    // scrutinee's partial move is that path's bookkeeping.)
+    auto carried_payload_sub = [&](TinyMapView n, TypeRef ftype) -> bool {
+        if (carried_sub(n)) return true;
+        TinyMapView m = n;
+        if (code_of(m) == la::PAT_OR && m.has_key(la::ITEMS) && arr_of(m.get(la::ITEMS.code)).size() == 1)
+            m = map_of(arr_of(m.get(la::ITEMS.code)).get(0));
+        const int32_t c = code_of(m);
+        auto structural = [](int32_t k) {
+            return k == la::PAT_TUPLE || k == la::PAT_STRUCT || k == la::PAT_VARIANT_DATA || k == la::PAT_VARIANT;
+        };
+        if (!ftype || TypeRef(ftype).kind() == LogosType::Kind::Error ||
+            TypeRef(ftype).kind() == LogosType::Kind::TypeVar)
+            return false;
+        if (structural(c)) {
+            if (pat_scrut_by_ref || !is_move_type(ftype)) return true;
+            std::vector<std::string> names;
+            collect_ast_pat_bindings(m, names);
+            for (auto& nm : names) if (!nm.empty() && nm != "_") return false;
+            return true;
+        }
+        if (c == la::PAT_REF && m.has_key(la::VALUE) && !pat_scrut_by_ref &&
+            (TypeRef(ftype).kind() == LogosType::Kind::Ref || TypeRef(ftype).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(ftype).pointee() && !is_move_type(TypeRef(ftype).pointee())) {
+            TinyMapView in = map_of(m.get(la::VALUE.code));
+            if (code_of(in) == la::PAT_OR && in.has_key(la::ITEMS) && arr_of(in.get(la::ITEMS.code)).size() == 1)
+                in = map_of(arr_of(in.get(la::ITEMS.code)).get(0));
+            return structural(code_of(in));
+        }
+        return false;
+    };
+    // The sub sees the container's default binding mode through its type
+    // (`&T` under a by-reference scrutinee), as the tuple-struct door hands it.
+    auto build_payload_sub = [&](TinyMapView sub, TypeRef ftype) -> const uint8_t* {
+        const bool eligible = ftype && TypeRef(ftype).kind() != LogosType::Kind::Error &&
+                              TypeRef(ftype).kind() != LogosType::Kind::TypeVar;
+        TypeRef st = (pat_scrut_by_ref && eligible) ? make_ref(pat_scrut_by_mut, ftype) : ftype;
+        const auto saved = variant_data_dbm_;
+        variant_data_dbm_ = {};
+        lir::Pattern sp = build_pattern(sub, st);
+        variant_data_dbm_ = saved;
+        return sp.mirror_ptr_;
+    };
     // Synthesize a binding + guard for a refutable inner sub-pat. Returns
     // the synth binding name (caller stores it at the correct position
     // in `bindings`). Caller must also have `current_pat_refutable_guards_`
@@ -5194,6 +5279,14 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     }
                     auto sub = map_of(fnode.get(la::VALUE.code));
                     int32_t sc = code_of(sub);
+                    if (carried_payload_sub(sub, pat_field_type(idx))) {   // ADR 0030 S3: carried as a sub-pattern
+                        payload_subs[idx] = build_payload_sub(sub, pat_field_type(idx));
+                        by_pos[idx] = "_";
+                        bp_is_ref[idx] = false;
+                        bp_is_mut[idx] = false;
+                        bp_from_wild[idx] = false;
+                        continue;
+                    }
                     if (sc == la::PAT_WILD) {
                         std::string bn = sub.has_key(la::NAME)
                             ? std::string(str_of(sub.get(la::NAME.code)))
@@ -5337,6 +5430,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             binding_is_mut.push_back(false);
                             binding_from_wild.push_back(false);
                         }
+                        continue;
+                    }
+                    if (carried_payload_sub(bnode, pat_field_type(bindings.size()))) {   // ADR 0030 S3: carried as a sub-pattern
+                        const size_t pos = bindings.size();
+                        payload_subs[pos] = build_payload_sub(bnode, pat_field_type(pos));
+                        bindings.push_back("_");
+                        binding_is_ref.push_back(false);
+                        binding_is_mut.push_back(false);
+                        binding_from_wild.push_back(false);
                         continue;
                     }
                     if (bc == la::PAT_WILD) {
@@ -5569,6 +5671,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     //                     to type-check + be in scope. (rustc issue-41888:
     //                     `Err(err) => return Err(err)` over Result<(),()>.)
     if (binding_types.empty() && !bindings.empty()) {
+        payload_subs.clear();   // an all-unit payload has no field to test
         std::vector<std::string> kb;
         std::vector<bool> kr, km, kw;
         for (size_t i = 0; i < bindings.size(); ++i) {
@@ -5699,9 +5802,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         bind_slots.push_back(b == "_" ? 0xFFFFFFFFu : reserve_pat_slot(b));
     if (bind_ref_modes.size() < bindings.size())
         bind_ref_modes.resize(bindings.size(), 0u);
+    std::vector<const uint8_t*> subs_vec;
+    if (!payload_subs.empty()) {
+        subs_vec.assign(bindings.size(), nullptr);
+        for (auto& [bi, sp] : payload_subs)
+            if (bi < subs_vec.size()) subs_vec[bi] = sp;
+    }
     auto mo = lir_mirror_emit_pat_variant_data(
         *cur_prog_, pename, pvname, disc, bindings, binding_types, bind_slots,
-        bind_ref_modes);
+        bind_ref_modes, subs_vec);
     lir::Pattern p_;
     p_.mirror_ptr_ = mo;
     return p_;
@@ -6362,6 +6471,15 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (!st || en.empty()) return;
         using K = LogosType::Kind;
         auto k = st.kind();
+        // Match ergonomics derefs `&` / `&mut` only: a RAW pointer is a value of
+        // its own type, and a variant pattern does not match it (rustc E0308) —
+        // `match *p` does. It was peeled as if it were a reference.
+        if (k == K::Ptr) {
+            error(std::format("mismatched types: this pattern matches enum `{}`, but the scrutinee has type `{}` — "
+                              "a raw pointer is not dereferenced by a pattern; write `match *p` (E0308)",
+                              en, type_str(scrut_type)));
+            return;
+        }
         const bool scalar = (is_integer_kind(k) && k != K::Enum) || k == K::F32 || k == K::F64 ||
                             k == K::Bool || k == K::Char;
         // (another ENUM is refused where the variant is resolved against it)
@@ -7975,8 +8093,11 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // even though the user wrote a wildcard. Mirrors the Tuple
         // branch's filter below.
         auto _vd_muts = v.bind_byval_muts();  // the carried by-value `mut`
+        const auto _vd_subs = v.subs();       // ADR 0030 S3: payload sub-patterns, in position order
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-            if (names[i] != "_") {
+            if (i < _vd_subs.size() && _vd_subs[i]) {
+                bind_pattern_ref(_vd_subs[i], types[i]);
+            } else if (names[i] != "_") {
                 bool m = i < _vd_muts.size() && _vd_muts[i] != 0u;
                 if (m) modifier_under_ref_scrutinee(names[i], scrut_type);  // Rust 2024, nested door
                 define(std::string(names[i]), types[i], m,

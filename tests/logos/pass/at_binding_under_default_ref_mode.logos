@@ -1,0 +1,13 @@
+// `n @ P` inside a container matched through `&` (RFC 2005 default binding mode): n borrows the
+// element's place (`&T`), P tests it. The binder was bound BY VALUE over a place sema typed `&T`
+// (an i64 stored where a `&i64` was read back: an MLIR verifier failure). At a top-level `&T`
+// place `n @ P` copies the reference and P tests through it (ADR 0030 S3).
+package at_binding_under_default_ref_mode;
+fn d(r: &(i64, i64)) -> i64 { match r { (x @ 1..=9, y) => *x + *y, _ => 0 } }
+fn e(r: &(i64, i64)) -> i64 { match r { (x @ 1..=9, _) => *x, (_, z @ 20..=29) => *z, _ => 1 } }
+fn top(r: &i64) -> i64 { match r { x @ 1..=9 => *x, _ => 0 } }
+fn main() -> i32 {
+    let a = (7i64, 3i64);
+    let b = (70i64, 25i64);
+    return (d(&a) + e(&a) + e(&b) + top(&a.0) * 2) as i32;
+}

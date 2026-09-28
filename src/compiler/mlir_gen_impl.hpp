@@ -2299,6 +2299,8 @@ private:
     // scope_; for an or-pattern it dispatches per-alt and binds into the
     // pre-created `shared` allocas (name→alloca) so the join sees one slot.
     mlir::Value pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty);
+    mlir::Value variant_subs_test(lir_view::PatVariantDataView pvd, mlir::Value enum_ptr,
+                                  const TaggedEnumInfo* te);
     mlir::Value tuple_elem_struct_slot(lir_view::PatRef sp, mlir::Value fp, TypeRef ety);
     void        bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty);
     std::string bind_array_rest(lir_view::PatRef rest, mlir::Type arr_mlir, mlir::Type elem_mlir,

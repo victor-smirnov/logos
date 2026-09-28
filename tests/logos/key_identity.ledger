@@ -529,7 +529,9 @@
 # tests left with it (destructuring assignment is a let + assignments from the HIR pass).
 # 2026-09-27, ADR 0030 HIR macros: 26 -> 24, roster 942188f9 -> a6283da9 — the two private
 # copies of the diverging-call predicate (`callee == "panic"`) became is_divergent_call_node.
-#SCAN sema_stmt.cpp 24 a6283da9
+# 2026-09-27, ADR 0030 S3: 24 -> 25, roster a6283da9 -> f78f48ba — carried_payload_sub asks whether a
+# structural payload sub-pattern binds any NAME: `nm != "_"` is the wildcard keyword, not an entity.
+#SCAN sema_stmt.cpp 25 f78f48ba
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)

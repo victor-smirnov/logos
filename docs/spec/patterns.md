@@ -1538,7 +1538,7 @@ A range inner pattern `V(lo..=hi)` (or `V(n @ lo..hi)`) binds the payload to `sy
 
 ### `pat.refutable.raw-pointer-rejected` — Match ergonomics excludes raw pointers
 
-Binding-carrying nested-variant patterns over a raw-pointer (`*const`/`*mut`) scrutinee are rejected; match ergonomics (by-ref binding) applies only to `&`/`&mut`.
+A variant pattern over a raw-pointer (`*const`/`*mut`) scrutinee is rejected, as rustc does (E0308, mismatched types): match ergonomics (the implicit deref, by-reference binding) applies only to `&`/`&mut`; the program writes `match *p`. (Until 2026-09-27 only a binding-carrying NESTED variant pattern was refused — an accident of the payload restriction — and a top-level `Outer::S(v)` over `*const Outer` was accepted.)
 
 *Source: src/compiler/sema_stmt.cpp#L3334-L3336*
 

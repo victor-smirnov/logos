@@ -2736,7 +2736,16 @@ private:
                 v.each_binding_type(pool_, [&](TypeRef bt) { types.push_back(bt); });
                 uint32_t i = 0;
                 std::string variant(v.variant());
+                const auto subs = v.subs();   // ADR 0030 S3: payload sub-patterns
                 v.each_binding([&](std::string_view name) {
+                    if (i < subs.size() && subs[i]) {
+                        // A position with a sub-pattern: the sub binds from the
+                        // payload field's place (its real type is in `types`).
+                        bind_pattern(p.with(bir::Proj(bir::Proj::K::Field, variant + "#" + std::to_string(i))),
+                                     i < types.size() ? types[i] : TypeRef{}, subs[i], default_ref);
+                        ++i;
+                        return;
+                    }
                     int mode = i < modes.size() ? int(modes[i]) : 0;
                     // 3 / 4 are sema's DEFAULT-MODE shared / mut bindings (RFC
                     // 2005); the place already sits under the scrutinee's

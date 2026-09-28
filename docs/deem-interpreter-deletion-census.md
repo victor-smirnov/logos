@@ -6644,8 +6644,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11678 -> 11680 (+2), NOIMPORTED 7115 -> 7117 (+2), TIERCOMMIT 205 -> 204 (-1) — 2026-09-27: ADR 0030
 #                S3: the `&P` arm test is the one pattern tester — squeue reference_range_pattern_wrong (#517) closed
 #                into a pass fixture, + 2 pass (ref_pattern_inner_shapes, ref_pattern_expr_match_inner_shapes).
-REGISTRY-ALL         11680
-REGISTRY-NOIMPORTED  7117
+#                ALL 11680 -> 11682 (+2), NOIMPORTED 7117 -> 7119 (+2), TIERCOMMIT 204 -> 204 — 2026-09-27: ADR 0030 S3
+#                (default binding mode): + 2 pass (at_binding_under_default_ref_mode, let_else_ref_aggregate_refutable).
+#                ALL 11682 -> 11685 (+3), NOIMPORTED 7119 -> 7122 (+3), TIERCOMMIT 204 -> 204 — 2026-09-27: ADR 0030 S3
+#                (variant payload sub-patterns): + 3 pass (variant_payload_scalar_subpatterns, variant_payload_ref_binder,
+#                variant_payload_structural_subpatterns).
+REGISTRY-ALL         11685
+REGISTRY-NOIMPORTED  7122
 REGISTRY-TIERCOMMIT  204
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

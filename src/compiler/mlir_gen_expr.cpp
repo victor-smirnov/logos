@@ -5958,7 +5958,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     sc_scrut_type);
                 auto eq = builder_.create<mlir::arith::CmpIOp>(
                     loc_, mlir::arith::CmpIPredicate::eq, sc_scrut, disc_val);
-                builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                // A variant with payload sub-patterns (ADR 0030 S3): the subs
+                // are tested once the disc matched (the statement door's twin).
+                if (arm_pat_ref.kind() == pc::Code::VariantData && te_info && scrut_ptr &&
+                    !lir_view::PatVariantDataView{arm_pat_ref}.subs().empty()) {
+                    auto* sub_blk = new mlir::Block();
+                    region->push_back(sub_blk);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, sub_blk, else_block);
+                    builder_.setInsertionPointToStart(sub_blk);
+                    mlir::Value sc = variant_subs_test(lir_view::PatVariantDataView{arm_pat_ref},
+                                                       scrut_ptr, te_info);
+                    if (sc) builder_.create<mlir::cf::CondBranchOp>(loc_, sc, arm_entry, else_block);
+                    else    builder_.create<mlir::cf::BranchOp>(loc_, arm_entry);
+                } else {
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                }
             }
             else_block = test_block;
         }

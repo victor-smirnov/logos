@@ -2573,9 +2573,26 @@ struct PatWildView {
     }
 };
 
-// PatVariantData { enum_name, variant, disc, bindings: Array<Varchar>, binding_types }
+// PatVariantData { enum_name, variant, disc, bindings: Array<Varchar>, binding_types,
+//                  subs?: Array<Pattern|null> parallel to bindings }
 struct PatVariantDataView {
     PatRef self;
+    // ADR 0030 S3: the payload SUB-PATTERNS, parallel to each_binding — a null
+    // entry is a position bound (or skipped) by its name alone. Empty when the
+    // key is absent (no position carries a sub-pattern). A position with a sub
+    // has the binding name `_` and its BINDING_TYPES entry is the payload
+    // field's real type.
+    std::vector<PatRef> subs() const noexcept {
+        std::vector<PatRef> out;
+        auto av = self.mirror()->get(pk::SUBS.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            out.push_back(el.is_null() ? PatRef{} : detail::make_sub_ref<PatRef>(self, el));
+        }
+        return out;
+    }
     int64_t          disc()      const noexcept { return detail::read_i64(self, pk::DISC.code); }
     std::string_view enum_name() const noexcept { return detail::read_string(self, pk::ENUM_NAME.code); }
     std::string_view variant()   const noexcept { return detail::read_string(self, pk::VARIANT.code); }

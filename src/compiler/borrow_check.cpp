@@ -6065,7 +6065,9 @@ private:
                 auto slots = v.bind_slots();  // Phase-1
                 auto muts  = v.bind_byval_muts();  // the carried by-value `mut`
                 size_t i = 0;
+                const auto subs = v.subs();   // ADR 0030 S3: payload sub-patterns
                 v.each_binding([&](std::string_view b) {
+                    if (i < subs.size() && subs[i]) { declare_pat_bindings(subs[i]); ++i; return; }
                     const uint32_t sl_ = i < slots.size() ? slots[i] : NO_SLOT;
                     declare_var(std::string(b), sl_);
                     if (i < muts.size() && muts[i] != 0u)
@@ -6179,6 +6181,7 @@ private:
                 PatVariantDataView v{pr};
                 zip([&](auto&& g){ v.each_binding(g); },
                     [&](auto&& g){ v.each_binding_type(pool, g); });
+                for (auto sub : v.subs()) if (sub) each_pat_binding(sub, f);   // ADR 0030 S3
                 return;
             }
             case PC::Tuple: {

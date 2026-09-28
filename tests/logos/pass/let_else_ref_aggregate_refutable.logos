@@ -1,0 +1,17 @@
+// let-else over a `&Tuple` / `&Struct` / `&&Tuple` with a REFUTABLE sub-pattern: the pattern matches
+// the aggregate (default binding mode), so test and bind see its real type. The tester was handed
+// the reference type and loaded the first element as a pointer: SIGSEGV (ADR 0030 S3).
+package let_else_ref_aggregate_refutable;
+struct S { a: i64, b: i64 }
+fn t1(r: &(i64, i64)) -> i64 { let (x, 3) = r else { return 100; }; *x }
+fn t2(r: &(i64, i64)) -> i64 { let (x, 4) = r else { return 1; }; *x }
+fn t3(r: &(i64, i64)) -> i64 { let (1..=9, y) = r else { return 100; }; *y }
+fn t4(r: &(i64, i64)) -> i64 { let (x @ 1..=9, _) = r else { return 100; }; *x }
+fn t5(r: &S) -> i64 { let S { a: 1..=9, b } = r else { return 100; }; *b }
+fn t6(rr: &&(i64, i64)) -> i64 { let (x, 3) = rr else { return 100; }; *x }
+fn main() -> i32 {
+    let p = (7i64, 3i64);
+    let s = S { a: 5, b: 11 };
+    let r = &p;
+    return (t1(&p) + t2(&p) + t3(&p) + t4(&p) + t5(&s) + t6(&r)) as i32;
+}

@@ -1,0 +1,37 @@
+// A scalar-testing sub-pattern inside an enum variant's payload — a literal, a range, a char or-pattern,
+// `n @ <those>`, `&<literal>` — is carried on the variant pattern and tested by the one pattern
+// tester once the discriminant matched (ADR 0030 S3). It was a synthesized binding + arm guard: under
+// a `&Enum` scrutinee the guard compared a `&char` with a char literal (an MLIR verifier failure), a
+// literal against an `Option<&i64>` payload loaded the reference as the value, and `Some(&7)` was
+// refused outright. Matches rustc 1.98.1.
+package variant_payload_scalar_subpatterns;
+enum E { B(i32, char, i32) }
+enum S { R { w: i64, h: i64 } }
+enum Tok { Num(i64), Op(char), End }
+fn by_ref_at_or(e: &E) -> i32 {
+    match e { E::B(a, op @ ('+' | '*'), b) => match op { '+' => a + b, _ => a * b }, E::B(_, _, _) => 0 }
+}
+fn by_ref_struct_range(s: &S) -> i64 { match s { S::R { w: 1..=100, h } => *h, S::R { w, .. } => *w } }
+fn expr_match(t: &Tok) -> i64 {
+    let v = match t { Tok::Op(c @ ('+' | '-')) => { if *c == '+' { 1 } else { 2 } } Tok::Op(_) => 3, Tok::Num(1..=9) => 4, _ => 0 };
+    v
+}
+fn opt_ref_lit(o: Option<&i64>) -> i64 { match o { Some(7) => 1, Some(_) => 2, None => 3 } }
+fn opt_ref_pat(o: Option<&i64>) -> i64 { match o { Some(&7) => 10, Some(_) => 20, None => 30 } }
+fn by_value(t: Tok) -> i64 { match t { Tok::Num(0) => 100, Tok::Num(n @ 1..=5) => n, Tok::Op('x') => 50, _ => 7 } }
+fn let_else(t: &Tok) -> i64 { let Tok::Num(1..=9) = t else { return 60; }; 61 }
+fn main() -> i32 {
+    let a = 7i64;
+    let b = 8i64;
+    let r1 = by_ref_at_or(&E::B(2, '+', 3)) + by_ref_at_or(&E::B(2, '*', 3)) + by_ref_at_or(&E::B(1, '/', 1));
+    let r2 = by_ref_struct_range(&S::R { w: 5, h: 7 }) + by_ref_struct_range(&S::R { w: 500, h: 7 });
+    let r3 = expr_match(&Tok::Op('+')) + expr_match(&Tok::Op('-')) + expr_match(&Tok::Op('/'))
+           + expr_match(&Tok::Num(3)) + expr_match(&Tok::End);
+    let r4 = opt_ref_lit(Some(&a)) + opt_ref_lit(Some(&b)) + opt_ref_lit(None)
+           + opt_ref_pat(Some(&a)) + opt_ref_pat(Some(&b));
+    let r5 = by_value(Tok::Num(0)) + by_value(Tok::Num(4)) + by_value(Tok::Op('x')) + by_value(Tok::End);
+    let r6 = let_else(&Tok::Num(5)) + let_else(&Tok::End);
+    // 11 + 507 + 10 + 36 + 161 + 121 = 846
+    if r1 == 11 && r2 == 507 && r3 == 10 && r4 == 36 && r5 == 161 && r6 == 121 { return 0; }
+    return 1;
+}

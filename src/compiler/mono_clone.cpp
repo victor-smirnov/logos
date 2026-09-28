@@ -5156,10 +5156,14 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         n.disc      = v.disc();
         v.each_binding([&](std::string_view s) { n.bindings.emplace_back(s); });
         v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
+        // The payload sub-patterns (ADR 0030 S3), cloned positionally.
+        std::vector<const uint8_t*> subs;
+        for (auto sp : v.subs()) subs.push_back(sp ? walk(sp).mirror_ptr_ : nullptr);
         auto off = lir_mirror_emit_pat_variant_data(
             *prog_, n.enum_name, n.variant, n.disc, n.bindings, n.binding_types,
             v.bind_slots(),        // Phase-1: carry slots
-            v.bind_ref_modes_raw());   // and the binding modes, `mut` bit included
+            v.bind_ref_modes_raw(),    // and the binding modes, `mut` bit included
+            subs);
         lir::Pattern p_;
         p_.mirror_ptr_ = off;
         return p_;
