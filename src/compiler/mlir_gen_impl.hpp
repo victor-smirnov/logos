@@ -2312,6 +2312,7 @@ private:
     // `(&(i64, i64), i64)` and `Some(S { x: 1, y })` over `Option<&S>` bound
     // a pointer's bytes as fields.
     void        peel_thin_ref_slots(mlir::Value& slot, TypeRef& ty);
+    mlir::func::FuncOp memcmp_fn();
     // A top-level pattern DOOR's place type. The VALUE of a thin `&T`
     // scrutinee is T's address — the door hands pat_test / pat_bind that
     // address at type T (never at `&T`, which would load it once more).

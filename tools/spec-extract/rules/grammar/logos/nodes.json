@@ -166,10 +166,10 @@
       "testability": "diagnostic"
     },
     {
-      "id": "pat.str.lowers-to-eq-guard",
+      "id": "pat.str.any-position",
       "domain": "pat",
-      "title": "String-literal pattern lowers to an str_eq guard",
-      "statement": "A string literal in match-arm pattern position (PAT_STR) is sema-lowered to a `str_eq` guard against the scrutinee rather than a structural pattern match.",
+      "title": "String-literal patterns in every pattern position",
+      "statement": "A string-literal pattern may stand wherever a pattern may: a whole arm, an or-pattern alternative, under `n @`, a tuple element, a variant payload, an array / slice element, a struct field, under `&`, in `if let` / `let … else`.",
       "evidence": [
         "tools/peg_gen_cpp/grammars/logos.peg#L313"
       ],

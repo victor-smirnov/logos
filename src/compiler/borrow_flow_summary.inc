@@ -1341,8 +1341,8 @@ private:
     // underneath was already wrong. The isolating shape manufactures the
     // `Wrap` INSIDE the callee.
     //
-    // ENUMERATED FROM THE SCHEMA (pat::Code::Count == 13), not guessed, and
-    // written as an exhaustive switch WITHOUT a default: the four kinds that
+    // ENUMERATED FROM THE SCHEMA (pat::Code::Count == 14), not guessed, and
+    // written as an exhaustive switch WITHOUT a default: the five kinds that
     // legitimately bind nothing are explicit no-op arms, so a future 14th kind
     // is a compile-time hole rather than another silent permissive default.
     // Three carrier mechanisms: a BINDINGS string array (VariantData, Tuple),
@@ -1358,15 +1358,20 @@ private:
             if (!n.empty() && n != "_") add_taint(std::string(n), bits);
         };
         switch (pr.kind()) {
-            // Bind nothing — the only four, stated rather than defaulted.
-            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
+            // Bind nothing — the only five, stated rather than defaulted.
+            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range: case PC::Str:
                 return;
             case PC::Wild:
                 bind_name(PatWildView{pr}.name());
                 return;
-            case PC::VariantData:
-                PatVariantDataView{pr}.each_binding(bind_name);
+            case PC::VariantData: {
+                // A payload SUB-PATTERN (ADR 0030 S3) carries its names in the
+                // sub, not in BINDINGS (its position there is `_`).
+                PatVariantDataView pv{pr};
+                pv.each_binding(bind_name);
+                for (auto sub : pv.subs()) if (sub) bind_pat(sub, bits);
                 return;
+            }
             case PC::Tuple: {
                 PatTupleView pv{pr};
                 pv.each_binding(bind_name);

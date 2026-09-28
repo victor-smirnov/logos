@@ -1210,6 +1210,12 @@ public:
         put(map_off, pk::BOOL_VALUE, put_bool(value));
         return map_off;
     }
+    const uint8_t* emit_pat_str_direct(std::string_view value) {
+        auto value_av = put_string(value);
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Str));
+        put(map_off, pk::STR_VALUE, value_av);
+        return map_off;
+    }
     const uint8_t* emit_pat_wild_direct(std::string_view name,
                                                 uint32_t slot = 0xFFFFFFFFu,
                                                 bool is_mut = false) {
@@ -2504,6 +2510,11 @@ const uint8_t* lir_mirror_emit_pat_bool(lir::LProgram& prog, bool value) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_bool_direct(value);
+}
+const uint8_t* lir_mirror_emit_pat_str(lir::LProgram& prog, std::string_view value) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    return em.emit_pat_str_direct(value);
 }
 const uint8_t* lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name, uint32_t slot, bool is_mut) {
     auto& ctr = prog.type_pool.ctr_or_init();

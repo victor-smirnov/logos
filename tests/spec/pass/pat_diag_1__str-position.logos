@@ -1,10 +1,10 @@
-// @rule pat.str.position-restricted
+// @rule pat.str.any-position
 package pat_diag_1_str_position;
 
 fn main() -> i32 {
     let a: [&str; 1] = ["foo"];
     match a {
-        ["foo"] => { return 1i32; }
-        _ => { return 0i32; }
+        ["foo"] => { return 0i32; }
+        _ => { return 1i32; }
     }
 }

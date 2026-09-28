@@ -257,12 +257,12 @@ fn main() -> i64 {
         if got != 13i64 { return 24; }
     }
 
-    // @rule pat.str.lowers-to-eq-guard
-    // A string-literal pattern matches via a str_eq comparison.
+    // @rule pat.literal.string-content-compare
+    // A string-literal pattern matches by content.
     {
         let s: str = "foo";
         let got: i64 = match s {
-            "foo" => 1i64,   // str_eq("foo") holds
+            "foo" => 1i64,   // the contents are equal
             "bar" => 2i64,
             _ => 0i64,
         };

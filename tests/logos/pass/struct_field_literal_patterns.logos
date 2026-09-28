@@ -1,0 +1,18 @@
+// ADR 0030 S3: a literal in a struct-pattern field (`S { v: 1, .. }`, `S { c: 'x', .. }`, a negative
+// integer, over `&S` and by value, in let-else) is tested by the one pattern tester at the field's place.
+// It was a synthesized binding + `==` guard of its own.
+package struct_field_literal_patterns;
+use logos.lang.option;
+struct S { v: i64, c: char, ok: bool }
+struct T { v: i64, c: char }
+fn by_ref(s: &S) -> i64 { match s { S { v: 1, .. } => 10, S { c: 'x', .. } => 20, S { ok: true, v, .. } => *v, _ => 0 } }
+fn by_value(s: T) -> i64 { match s { T { v: -1, .. } => 10, T { c: 'x', v } => v, _ => 0 } }
+fn let_else(s: &T) -> i64 { let T { v: 3, .. } = s else { return 0; }; 1 }
+fn main() -> i32 {
+    let a = S { v: 1, c: 'a', ok: false }; let b = S { v: 2, c: 'x', ok: false };
+    let c = S { v: 7, c: 'q', ok: true }; let d = S { v: 7, c: 'q', ok: false };
+    let r = by_ref(&a) + by_ref(&b) + by_ref(&c) + by_ref(&d)
+        + by_value(T { v: -1, c: 'a' }) + by_value(T { v: 5, c: 'x' }) + by_value(T { v: 5, c: 'y' })
+        + let_else(&T { v: 3, c: 'a' }) + let_else(&T { v: 4, c: 'a' });
+    return r as i32;
+}

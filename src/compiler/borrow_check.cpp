@@ -6052,11 +6052,11 @@ private:
         // CENSUS (2026-09-01j): arrival by pattern kind at the DECLARATION
         // channel. See PROBES.md `patdecl*`.
         {
-            static const char* kn[13] = {"Variant","Int","Bool","Wild",
+            static const char* kn[14] = {"Variant","Int","Bool","Wild",
                 "VariantData","Or","Tuple","Range","Struct","Slice","At",
-                "RefBind","RefPat"};
+                "RefBind","RefPat","Str"};
             const int k = (int)pr.kind();
-            if (k >= 0 && k < 13)
+            if (k >= 0 && k < 14)
                 logos::probe::census(std::string("patdecl.arrive.") + kn[k]);
         }
         switch (pr.kind()) {
@@ -6172,7 +6172,7 @@ private:
                 f(std::string_view(ns[i]), i < ts.size() ? ts[i] : TypeRef(nullptr));
         };
         switch (pr.kind()) {
-            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
+            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range: case PC::Str:
                 return;
             case PC::Wild:
                 f(PatWildView{pr}.name(), TypeRef(nullptr));
@@ -6292,7 +6292,7 @@ private:
                 return;
             // A discriminant / literal / range comparison READS `base`.
             case PC::Variant: case PC::VariantData: case PC::Int:
-            case PC::Bool:    case PC::Range:
+            case PC::Bool:    case PC::Range:       case PC::Str:
                 add_tested_path_(out, base);
                 return;
             case PC::Slice:   // see the note above — length test, not recorded
@@ -6483,7 +6483,7 @@ private:
                   i < modes.size() ? static_cast<uint8_t>(modes[i]) : uint8_t(0));
         };
         switch (pr.kind()) {
-            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
+            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range: case PC::Str:
                 return;
             case PC::Wild:
                 f(PatWildView{pr}.name(), wty, base, uint8_t(0));

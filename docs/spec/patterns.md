@@ -128,7 +128,7 @@ A float-literal pattern parses but is rejected by sema with a diagnostic: float 
 
 ### `pat.lit.string` — String-literal pattern
 
-A string-literal pattern `"foo"` matches by string equality; sema lowers it to a refutable `str_eq(scrutinee, "foo")` guard over a wildcard binding.
+A string-literal pattern `"foo"` matches a `&str` place by string equality: a pattern of its own (PatStr), tested by content by the pattern tester. Its scrutinee must be a `&str` (reference layers above it are the default binding mode's); any other type — `String` included — is E0308.
 
 *Source: tools/peg_gen_cpp/grammars/logos.peg#L2204-L2207; tools/peg_gen_cpp/grammars/logos.peg#L2264-L2267*
 
@@ -146,7 +146,7 @@ Patterns may be integer literals (optionally negated with leading `-`), boolean 
 
 ### `pat.literal.string-content-compare` — String-literal pattern matches by content
 
-Matching a value against a string-literal pattern compares string contents (via `str_eq`), not the two slice pointers. A raw `==` on string slices would pointer-compare; pattern matching uses content equality.
+Matching a value against a string-literal pattern compares string contents (equal length, then the bytes), not the two slice pointers.
 
 *Source: src/compiler/sema_impl.hpp#L489-L492*
 
@@ -212,17 +212,12 @@ A leaf pattern that reduces to a scalar discriminant — an int literal (its val
 
 *Source: src/compiler/mlir_gen_stmt.cpp#L4297-L4308; src/compiler/mlir_gen_stmt.cpp#L4727-L4748*
 
-### `pat.str.lowers-to-eq-guard` — String-literal pattern lowers to an str_eq guard
+### `pat.str.any-position` — String-literal patterns in every pattern position
 
-A string literal in match-arm pattern position (PAT_STR) is sema-lowered to a `str_eq` guard against the scrutinee rather than a structural pattern match.
+A string-literal pattern may stand wherever a pattern may: a whole arm, an or-pattern alternative, under `n @`, a tuple element, a variant payload, an array / slice element, a struct field, under `&`, in `if let` / `let … else`.
 
 *Source: tools/peg_gen_cpp/grammars/logos.peg#L313*
 
-### `pat.str.position-restricted` — String-literal patterns allowed only in specific positions
-
-String-literal patterns are supported only as a whole match arm (`match s { "foo" => .. }`), inside an enum-variant payload (`Some("foo")`), or as a tuple element (`("foo", _)`). In any other position (e.g. inside an array/slice pattern) a string-literal pattern is an error.
-
-**Divergence from Rust:** Rust permits string patterns in all pattern positions; Logos restricts them.
 
 *Source: src/compiler/sema_stmt.cpp#L4296-L4312*
 

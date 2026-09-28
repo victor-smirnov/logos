@@ -4785,7 +4785,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // ADR 0030 S3 (C-PAT): payload SUB-PATTERNS carried on the pattern itself
     // (PatVariantData SUBS, tested and bound by the one pattern tester), not a
     // synthesized binding + arm guard. This step carries the sub-patterns that
-    // TEST a scalar and bind at most an `@` name over it — a literal, a range, a
+    // TEST a scalar and bind at most an `@` name over it — a literal (a string
+    // literal too), a range, a
     // char / bool, an or-pattern of those, `n @ <those>` — and, over a by-value
     // scrutinee, `&<those>` and `&x` (x copies the referent). None of them moves
     // or drops a payload.
@@ -4802,7 +4803,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             return true;
         }
         if (c == la::PAT_INT || c == la::PAT_NEG_INT || c == la::PAT_BOOL ||
-            c == la::PAT_CHAR || c == la::PAT_CHAR_RANGE || c == la::PAT_RANGE)
+            c == la::PAT_CHAR || c == la::PAT_CHAR_RANGE || c == la::PAT_RANGE || c == la::PAT_STR)
             return true;
         auto flag = [&](const la::Key& k) {
             return n.has_key(k) && n.get(k.code).is_value() && n.get(k.code).as_value<uint8_t>() != 0;
@@ -5141,22 +5142,6 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             (!sub.has_key(la::NAME) || str_of(sub.get(la::NAME.code)) == "_"))
             return synth;
         lir::LExprPtr value = nullptr;
-        // G172-1: nested string-literal pattern (`Some("foo")`, `("foo", _)`).
-        // Bind the element to `synth`, gate with `str_eq(synth, "foo")` (a raw
-        // `==` would pointer-compare the slices).
-        if (sc == la::PAT_STR && sub.has_key(la::VALUE)) {
-            if (current_pat_refutable_guards_) {
-                TypeRef str_t = make_slice_type(u8_t());
-                auto strlit = builder().lit_str(
-                    std::string(str_of(sub.get(la::VALUE.code))), str_t);
-                auto g = make_str_eq_guard(
-                    builder().var_ref(synth,
-                        (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error) ? ftype : str_t),
-                    std::move(strlit));
-                if (g) current_pat_refutable_guards_->push_back(std::move(g));
-            }
-            return synth;
-        }
         if (sc == la::PAT_INT && sub.has_key(la::VALUE)) {
             auto sv = str_of(sub.get(la::VALUE.code));
             int64_t v = parse_int_literal(sv);
@@ -5309,7 +5294,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         current_pat_nested_subs_->push_back({synth, sub});
                     } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
                                sc == la::PAT_BOOL || sc == la::PAT_CHAR ||
-                               sc == la::PAT_RANGE || sc == la::PAT_STR ||
+                               sc == la::PAT_RANGE ||
                                sc == la::PAT_VARIANT ||
                                sc == la::PAT_VARIANT_DATA ||
                                sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) {
@@ -5548,7 +5533,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // `>= && <=`) as an arm guard.
                     if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
                         bc == la::PAT_BOOL || bc == la::PAT_CHAR ||
-                        bc == la::PAT_RANGE || bc == la::PAT_STR ||
+                        bc == la::PAT_RANGE ||
                         bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA ||
                         bc == la::PAT_OR || bc == la::PAT_STRUCT || bc == la::PAT_TUPLE) {
                         std::string synth = synth_refutable_inner(
@@ -6513,20 +6498,24 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     }
     if (pc == la::PAT_BYTES) return build_pattern_bytes(pnode, scrut_type);
     if (pc == la::PAT_STR) {
-        // G172-1: string-literal patterns are handled WITHOUT a PatStr LIR node
-        // — top-level arms via the lower_match/lower_match_expr str_eq-guard
-        // intercept, and variant-payload nesting (`Some("foo")`) via
-        // synth_refutable_inner. A PAT_STR reaching build_pattern is therefore
-        // an UNSUPPORTED nesting (e.g. a tuple element `("foo", _)`): reject
-        // cleanly rather than fall through to a wildcard (which would silently
-        // match any string). Tracked as G172-1b.
-        error("string-literal patterns are supported as a whole match arm "
-              "(`match s { \"foo\" => … }`), inside an enum-variant payload "
-              "(`Some(\"foo\")`), and as a tuple element (`(\"foo\", _)`), but "
-              "not in this position (e.g. an array/slice pattern); bind a name "
-              "and compare in the body (`x if x == \"foo\"`)");
+        // A string literal (ADR 0030 S3): a PatStr, tested by content by the
+        // one pattern tester wherever it stands. It matches a `str` place (a
+        // reference layer above it is the default binding mode's); any other
+        // type is rustc's E0308 — a `String` scrutinee was accepted through a
+        // synthesized `str_eq` guard and double-freed.
+        TypeRef st = scrut_type;
+        while (st && (TypeRef(st).kind() == LogosType::Kind::Ref ||
+                      TypeRef(st).kind() == LogosType::Kind::MutRef) && TypeRef(st).pointee())
+            st = TypeRef(st).pointee();
+        const bool unknown = !st || TypeRef(st).kind() == LogosType::Kind::Error ||
+                             TypeRef(st).kind() == LogosType::Kind::TypeVar;
+        const bool is_str = st && TypeRef(st).kind() == LogosType::Kind::Slice && TypeRef(st).elem() &&
+                            TypeRef(TypeRef(st).elem()).kind() == LogosType::Kind::U8;
+        if (!unknown && !is_str)
+            error(std::format("mismatched types: a string literal pattern matches a `&str`, "
+                              "found `{}` (E0308)", type_str(scrut_type)));
         lir::Pattern p_;
-        p_.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
+        p_.mirror_ptr_ = lir_mirror_emit_pat_str(*cur_prog_, str_of(pnode.get(la::VALUE.code)));
         return p_;
     }
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {
@@ -6757,22 +6746,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 // case below.
                 pt.bindings.push_back("_");
                 pt.subs.push_back(build_pattern(sub, dbm_sub_ty(sub, elem_ty)));
-            } else if (sc == la::PAT_STR.code && current_pat_refutable_guards_) {
-                // G172-1b: string-literal tuple element (`("foo", _)`). The
-                // tuple-arm codegen has no str_eq dispatch, so instead bind the
-                // element to a synth name and gate the arm with
-                // `str_eq(synth, "foo")` (a raw `==` would pointer-compare).
-                std::string synth = std::format("__tstr_{}_{}", i, tmp_var_count_++);
-                pt.bindings.push_back(synth);
-                pt.subs.push_back(make_pat_wild(synth));
-                TypeRef str_t = make_slice_type(u8_t());
-                auto strlit = builder().lit_str(
-                    std::string(str_of(sub.get(la::VALUE.code))), str_t);
-                auto g = make_str_eq_guard(
-                    builder().var_ref(synth,
-                        (elem_ty && TypeRef(elem_ty).kind() != LogosType::Kind::Error) ? elem_ty : str_t),
-                    std::move(strlit));
-                if (g) current_pat_refutable_guards_->push_back(std::move(g));
+            } else if (sc == la::PAT_STR.code) {
+                pt.bindings.push_back("_");
+                pt.subs.push_back(build_pattern(sub, dbm_sub_ty(sub, elem_ty)));
             } else if (sc == la::PAT_OR.code) {
                 // P4-pm-03: or-pattern as tuple element. Grammar always
                 // emits PAT_OR (even for a single sub-pattern with no
@@ -6814,22 +6790,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             pt.bindings.push_back("_");
                             pt.subs.push_back(build_pattern(inner, dbm_sub_ty(inner, elem_ty)));
                             single = true;
-                        } else if (isc == la::PAT_STR.code &&
-                                   current_pat_refutable_guards_) {
-                            // G172-1b: string-literal tuple element (wrapped in
-                            // the grammar's single-alt PAT_OR). Bind + str_eq
-                            // guard (the tuple-arm codegen has no str_eq path).
-                            std::string synth = std::format("__tstr_{}_{}", i, tmp_var_count_++);
-                            pt.bindings.push_back(synth);
-                            pt.subs.push_back(make_pat_wild(synth));
-                            TypeRef str_t = make_slice_type(u8_t());
-                            auto strlit = builder().lit_str(
-                                std::string(str_of(inner.get(la::VALUE.code))), str_t);
-                            auto g = make_str_eq_guard(
-                                builder().var_ref(synth,
-                                    (elem_ty && TypeRef(elem_ty).kind() != LogosType::Kind::Error) ? elem_ty : str_t),
-                                std::move(strlit));
-                            if (g) current_pat_refutable_guards_->push_back(std::move(g));
+                        } else if (isc == la::PAT_STR.code) {
+                            pt.bindings.push_back("_");
+                            pt.subs.push_back(build_pattern(inner, dbm_sub_ty(inner, elem_ty)));
                             single = true;
                         }
                     }
@@ -7277,7 +7240,6 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         }
                         if (fnode.has_key(la::VALUE)) {
                             auto sub_node = map_of(fnode.get(la::VALUE.code));
-                            int32_t sknode = code_of(sub_node);
                             {   // default binding mode, STRUCT door (rename `{ x: nx }`)
                                 lir::Pattern rp;
                                 if (mint_dbm_ref(dbm_named_bind(sub_node), ftype, rp)) {
@@ -7286,57 +7248,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                     continue;
                                 }
                             }
-                            // Refutable LITERAL field sub-pattern (`A { v: 1 }`,
-                            // `S { ok: true }`): bind the field to a synth name +
-                            // gate the arm with a `synth == <literal>` guard
-                            // (mirrors the tuple-element / variant-payload idiom).
-                            bool is_lit = sknode == la::PAT_INT || sknode == la::PAT_NEG_INT ||
-                                          sknode == la::PAT_BOOL || sknode == la::PAT_CHAR;
-                            if (is_lit && current_pat_refutable_guards_) {
-                                std::string syn = std::format("__sfld_{}_{}", fname, tmp_var_count_++);
-                                TypeRef ft = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                                    ? ftype : prim(LogosType::Kind::I64);
-                                define(syn, ft);
-                                lir::LExprPtr value = nullptr;
-                                if (sknode == la::PAT_INT && sub_node.has_key(la::VALUE))
-                                    value = builder().lit_int(parse_int_literal(str_of(sub_node.get(la::VALUE.code))), ft);
-                                else if (sknode == la::PAT_NEG_INT && sub_node.has_key(la::VALUE))
-                                    value = builder().lit_int(-parse_int_literal(str_of(sub_node.get(la::VALUE.code))), ft);
-                                else if (sknode == la::PAT_BOOL && sub_node.has_key(la::VALUE))
-                                    value = builder().lit_bool(sub_node.get(la::VALUE.code).as_value<int32_t>() != 0, bool_t());
-                                else if (sknode == la::PAT_CHAR && sub_node.has_key(la::VALUE)) {
-                                    value = builder().lit_int(decode_char_lit_(str_of(sub_node.get(la::VALUE.code))), prim(LogosType::Kind::Char));
-                                }
-                                if (value) {
-                                    auto guard = builder().bin_op("==",
-                                        builder().var_ref(syn, ft), std::move(value), bool_t());
-                                    current_pat_refutable_guards_->push_back(std::move(guard));
-                                }
-                                pfb.sub.push_back(make_pat_wild(syn));
-                                ps.fields.push_back(std::move(pfb));
-                                continue;
-                            }
                             auto sub = build_pattern(sub_node, dbm_sub_ty(sub_node, ftype));
-                            // G148-1: refutable field sub-patterns (variant /
-                            // tuple / range / or) are tested+bound by the
-                            // recursive matcher (pat_test/pat_bind) in struct-arm
-                            // codegen. Exotic kinds (slice, writ) still aren't.
-                            namespace ps2 = lir_schema::pat;
-                            auto sk = pat_ref_of(sub).kind();
-                            bool sub_ok =
-                                sk == ps2::Code::Wild || sk == ps2::Code::RefBind ||
-                                sk == ps2::Code::RefPat || sk == ps2::Code::At ||
-                                sk == ps2::Code::Variant || sk == ps2::Code::VariantData ||
-                                sk == ps2::Code::Tuple || sk == ps2::Code::Or ||
-                                sk == ps2::Code::Range || sk == ps2::Code::Int ||
-                                sk == ps2::Code::Bool || sk == ps2::Code::Struct ||
-                                // an ARRAY pattern over a by-value array field: the
-                                // matcher's Slice cases (pat_test / pat_bind) reach it
-                                (sk == ps2::Code::Slice && ftype &&
-                                 TypeRef(ftype).kind() == LogosType::Kind::Array && !dbm_ref);
-                            if (!sub_ok)
-                                error("struct pattern: refutable field sub-pattern "
-                                      "not yet supported");
+                            // A refutable field sub-pattern of any kind (a literal,
+                            // a string, a variant, a tuple, a slice, …) is tested
+                            // and bound by the one matcher (pat_test / pat_bind)
+                            // at the field's place.
                             pfb.sub.push_back(std::move(sub));
                         }
                         // Phase-1: a plain shorthand field `{ a }` (no sub) binds
@@ -11593,30 +11509,6 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer), /*transparent=*/true});
 }
 
-// `n @ "lit"` / `n @ ("a" | "b")` as a whole arm (the grammar's single-alt
-// PAT_OR already unwrapped): a string test like a bare `"lit"` arm, plus a
-// binder for the scrutinee. Fills the binder name and the literals.
-bool SemaChecker::str_at_arm(writ::TinyMapView p, std::string& binder, std::vector<std::string>& lits) {
-    if (code_of(p) != la::PAT_AT || !p.has_key(la::NAME) || !p.has_key(la::VALUE)) return false;
-    auto v = map_of(p.get(la::VALUE.code));
-    std::vector<writ::TinyMapView> alts;
-    if (code_of(v) == la::PAT_OR && v.has_key(la::ITEMS)) {
-        auto a = arr_of(v.get(la::ITEMS.code));
-        for (uint64_t k = 0; k < a.size(); ++k) alts.push_back(map_of(a.get(k)));
-    } else {
-        alts.push_back(v);
-    }
-    std::vector<std::string> out;
-    for (auto a : alts) {
-        if (code_of(a) != la::PAT_STR || !a.has_key(la::VALUE)) return false;
-        out.emplace_back(str_of(a.get(la::VALUE.code)));
-    }
-    if (out.empty()) return false;
-    binder = std::string(str_of(p.get(la::NAME.code)));
-    lits = std::move(out);
-    return true;
-}
-
 lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
     lir::LExprPtr scrut = nullptr;
@@ -11842,49 +11734,6 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         scrut = builder().var_ref(view_var, scrut_type);
     }
 
-    // G172-1: top-level string-literal patterns (`match s { "foo" => … }`).
-    // Detect any arm whose top-level LHS is a `PAT_STR` (directly or as a
-    // PAT_OR alternative — `"a" | "b"` fans out per alt). Hoist the scrutinee
-    // into a temp so each such arm becomes a wildcard guarded by
-    // `str_eq(__smatch, "foo")` (str `==` content-compares via the stdlib).
-    bool has_str_pat = false;
-    if (!has_writ_pat && node.has_key(la::ITEMS)) {
-        auto arms_l = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < arms_l.size() && !has_str_pat; ++i) {
-            auto arm = map_of(arms_l.get(i));
-            if (code_of(arm) != la::MATCH_ARM || !arm.has_key(la::LHS)) continue;
-            auto lhs = map_of(arm.get(la::LHS.code));
-            if (code_of(lhs) == la::PAT_STR) { has_str_pat = true; break; }
-            {
-                auto u = lhs;
-                if (code_of(u) == la::PAT_OR && u.has_key(la::ITEMS) &&
-                    arr_of(u.get(la::ITEMS.code)).size() == 1)
-                    u = map_of(arr_of(u.get(la::ITEMS.code)).get(0));
-                std::string bn; std::vector<std::string> ls;
-                if (str_at_arm(u, bn, ls)) { has_str_pat = true; break; }
-            }
-            if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
-                auto alts = arr_of(lhs.get(la::ITEMS.code));
-                for (uint64_t k = 0; k < alts.size(); ++k)
-                    if (code_of(map_of(alts.get(k))) == la::PAT_STR) { has_str_pat = true; break; }
-            }
-        }
-    }
-    std::string str_scrut_var;
-    TypeRef str_scrut_type;
-    lir_view::StmtRef str_hoist_let;
-    bool has_str_hoist = false;
-    if (has_str_pat) {
-        str_scrut_var = "__smatch_" + std::to_string(tmp_var_count_++);
-        str_scrut_type = scrut_type;
-        define(str_scrut_var, scrut_type);
-        lir::SLet sl;
-        sl.name = str_scrut_var; sl.type = scrut_type; sl.is_mut = false;
-        sl.value = std::move(scrut);
-        str_hoist_let = make_stmt_emit(node_line_, std::move(sl));
-        scrut = builder().var_ref(str_scrut_var, scrut_type);
-        has_str_hoist = true;
-    }
 
     lir::SMatch smatch;
     smatch.scrut = std::move(scrut);
@@ -12091,45 +11940,9 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             payload_or_alt_ = eff_arms[i].payload_alt;
             int32_t saved_at_or_alt = at_or_alt_;
             at_or_alt_ = eff_arms[i].at_alt;
-            // G172-1: a top-level string-literal arm lowers to a wildcard +
-            // `str_eq(__smatch, "lit")` guard (no PatStr LIR / codegen needed).
-            lir::LExprPtr str_arm_guard = nullptr;
-            lir::Pattern pat;
-            // Unwrap a single-alt PAT_OR (the grammar wraps each arm pattern).
-            writ::TinyMapView str_eff;
-            bool is_str_arm = false;
-            if (has_str_hoist && arm.has_key(la::LHS)) {
-                str_eff = effective_lhs(arm, alt_idx);
-                if (code_of(str_eff) == la::PAT_OR && str_eff.has_key(la::ITEMS)) {
-                    auto alts = arr_of(str_eff.get(la::ITEMS.code));
-                    if (alts.size() == 1) str_eff = map_of(alts.get(0));
-                }
-                is_str_arm = (code_of(str_eff) == la::PAT_STR);
-            }
-            std::string str_at_name;
-            std::vector<std::string> str_at_lits;
-            if (has_str_hoist && !is_str_arm && arm.has_key(la::LHS) &&
-                str_at_arm(str_eff, str_at_name, str_at_lits)) {
-                pat = make_pat_wild(str_at_name);
-                for (auto& lit : str_at_lits) {
-                    auto g = make_str_eq_guard(
-                        builder().var_ref(str_scrut_var, str_scrut_type),
-                        builder().lit_str(lit, make_slice_type(u8_t())));
-                    str_arm_guard = str_arm_guard
-                        ? builder().bin_op("||", std::move(str_arm_guard), std::move(g), bool_t())
-                        : std::move(g);
-                }
-            } else if (is_str_arm) {
-                pat = make_pat_wild("_");
-                auto strlit = builder().lit_str(
-                    std::string(str_of(str_eff.get(la::VALUE.code))), make_slice_type(u8_t()));
-                str_arm_guard = make_str_eq_guard(
-                    builder().var_ref(str_scrut_var, str_scrut_type), std::move(strlit));
-            } else {
-                pat = arm.has_key(la::LHS)
-                    ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
-                    : make_pat_wild("_");
-            }
+            lir::Pattern pat = arm.has_key(la::LHS)
+                ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
+                : make_pat_wild("_");
             payload_or_alt_ = saved_payload_or_alt;
             at_or_alt_ = saved_at_or_alt;
             current_pat_nested_subs_ = saved_pat_subs;
@@ -12367,16 +12180,6 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 // NOTHING (use-moved-value-in-match-guard-drop).
                 // ⚠ `-L bc -L pass` COULD NOT SEE THIS COST: fail fixtures are
                 // not in the legal selection, so ceiling-probe priced it 0.
-            }
-            // G172-1: the string-literal arm's `str_eq(__smatch, "lit")` test
-            // is its dispatch — AND it ahead of any user guard.
-            if (str_arm_guard) {
-                if (guard) {
-                    auto merged = builder().bin_op("&&", std::move(str_arm_guard), std::move(*guard), bool_t());
-                    guard = std::move(merged);
-                } else {
-                    guard = std::move(str_arm_guard);
-                }
             }
             // Merge synthesized Writ guard with user guard.  Put the
             // synth guard FIRST so `&&` short-circuits on type-mismatch
@@ -12630,15 +12433,6 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         blk.push_back(make_stmt_emit(match_line, std::move(smatch)));
         return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true}));
     }
-    // G172-1: wrap the str-pattern match in a block that first hoists the
-    // scrutinee into `__smatch`, which each arm's `str_eq(__smatch, …)` guard
-    // references (so the scrutinee is evaluated exactly once).
-    if (has_str_hoist) {
-        std::vector<lir_view::StmtRef> blk;
-        blk.push_back(std::move(str_hoist_let));
-        blk.push_back(make_stmt_emit(match_line, std::move(smatch)));
-        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true}));
-    }
     return finalize(make_stmt_emit(match_line, std::move(smatch)));
 }
 
@@ -12838,48 +12632,6 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         scrut = builder().var_ref(view_var, scrut_type);
     }
 
-    // G172-1: top-level string-literal patterns in an EXPRESSION-position match
-    // (`let x = match s { "foo" => 1, _ => 0 }`). Mirror the lower_match path:
-    // hoist the scrutinee into `__smatch` and lower each `"lit"` arm to a
-    // wildcard + `str_eq(__smatch, "lit")` guard.
-    bool has_str_pat = false;
-    if (!has_writ_pat && node.has_key(la::ITEMS)) {
-        auto arms_l = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < arms_l.size() && !has_str_pat; ++i) {
-            auto arm = map_of(arms_l.get(i));
-            if (code_of(arm) != la::MATCH_ARM || !arm.has_key(la::LHS)) continue;
-            auto lhs = map_of(arm.get(la::LHS.code));
-            if (code_of(lhs) == la::PAT_STR) { has_str_pat = true; break; }
-            {
-                auto u = lhs;
-                if (code_of(u) == la::PAT_OR && u.has_key(la::ITEMS) &&
-                    arr_of(u.get(la::ITEMS.code)).size() == 1)
-                    u = map_of(arr_of(u.get(la::ITEMS.code)).get(0));
-                std::string bn; std::vector<std::string> ls;
-                if (str_at_arm(u, bn, ls)) { has_str_pat = true; break; }
-            }
-            if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
-                auto alts = arr_of(lhs.get(la::ITEMS.code));
-                for (uint64_t k = 0; k < alts.size(); ++k)
-                    if (code_of(map_of(alts.get(k))) == la::PAT_STR) { has_str_pat = true; break; }
-            }
-        }
-    }
-    std::string str_scrut_var;
-    TypeRef str_scrut_type;
-    lir_view::StmtRef str_hoist_let;
-    bool has_str_hoist = false;
-    if (has_str_pat) {
-        str_scrut_var = "__smatch_" + std::to_string(tmp_var_count_++);
-        str_scrut_type = scrut_type;
-        define(str_scrut_var, scrut_type);
-        lir::SLet sl;
-        sl.name = str_scrut_var; sl.type = scrut_type; sl.is_mut = false;
-        sl.value = std::move(scrut);
-        str_hoist_let = make_stmt_emit(node_line_, std::move(sl));
-        scrut = builder().var_ref(str_scrut_var, scrut_type);
-        has_str_hoist = true;
-    }
 
     lir::EMatchExpr me;
     me.scrut = std::move(scrut);
@@ -13044,43 +12796,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             payload_or_alt_ = eff_arms[i].payload_alt;
             int32_t saved_at_or_alt = at_or_alt_;
             at_or_alt_ = eff_arms[i].at_alt;
-            // G172-1: top-level string-literal arm → wildcard + str_eq guard.
-            lir::LExprPtr str_arm_guard = nullptr;
-            lir::Pattern pat;
-            writ::TinyMapView str_eff;
-            bool is_str_arm = false;
-            if (has_str_hoist && arm.has_key(la::LHS)) {
-                str_eff = effective_lhs(arm, alt_idx);
-                if (code_of(str_eff) == la::PAT_OR && str_eff.has_key(la::ITEMS)) {
-                    auto alts = arr_of(str_eff.get(la::ITEMS.code));
-                    if (alts.size() == 1) str_eff = map_of(alts.get(0));
-                }
-                is_str_arm = (code_of(str_eff) == la::PAT_STR);
-            }
-            std::string str_at_name;
-            std::vector<std::string> str_at_lits;
-            if (has_str_hoist && !is_str_arm && arm.has_key(la::LHS) &&
-                str_at_arm(str_eff, str_at_name, str_at_lits)) {
-                pat = make_pat_wild(str_at_name);
-                for (auto& lit : str_at_lits) {
-                    auto g = make_str_eq_guard(
-                        builder().var_ref(str_scrut_var, str_scrut_type),
-                        builder().lit_str(lit, make_slice_type(u8_t())));
-                    str_arm_guard = str_arm_guard
-                        ? builder().bin_op("||", std::move(str_arm_guard), std::move(g), bool_t())
-                        : std::move(g);
-                }
-            } else if (is_str_arm) {
-                pat = make_pat_wild("_");
-                auto strlit = builder().lit_str(
-                    std::string(str_of(str_eff.get(la::VALUE.code))), make_slice_type(u8_t()));
-                str_arm_guard = make_str_eq_guard(
-                    builder().var_ref(str_scrut_var, str_scrut_type), std::move(strlit));
-            } else {
-                pat = arm.has_key(la::LHS)
-                    ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
-                    : make_pat_wild("_");
-            }
+            lir::Pattern pat = arm.has_key(la::LHS)
+                ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
+                : make_pat_wild("_");
             payload_or_alt_ = saved_payload_or_alt;
             at_or_alt_ = saved_at_or_alt;
             current_pat_nested_subs_ = saved_pat_subs;
@@ -13134,16 +12852,6 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     // rule as the statement `match` spelling above; a rule at
                     // one match spelling is a rule at half of them.
                     for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
-                }
-            }
-            // G172-1: AND the string-literal arm's str_eq dispatch ahead of any
-            // user guard.
-            if (str_arm_guard) {
-                if (guard) {
-                    auto merged = builder().bin_op("&&", std::move(str_arm_guard), std::move(*guard), bool_t());
-                    guard = std::move(merged);
-                } else {
-                    guard = std::move(str_arm_guard);
                 }
             }
             if (synth_guard) {
@@ -13582,12 +13290,6 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         blk.push_back(std::move(hoist_let_view));
         blk.push_back(std::move(hoist_let_root));
         blk.push_back(std::move(hoist_let_base));
-        return finalize_expr(builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me_expr), result_type), result_type);
-    }
-    // G172-1: hoist the str-match scrutinee into `__smatch` before the match.
-    if (has_str_hoist) {
-        std::vector<lir_view::StmtRef> blk;
-        blk.push_back(std::move(str_hoist_let));
         return finalize_expr(builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me_expr), result_type), result_type);
     }
     return finalize_expr(std::move(me_expr), result_type);

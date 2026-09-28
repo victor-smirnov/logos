@@ -5134,6 +5134,12 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         p.mirror_ptr_ = lir_mirror_emit_pat_bool(*prog_, v);
         return p;
     }
+    case pc::Code::Str: {
+        std::string v(lir_view::PatStrView{pref}.value());
+        lir::Pattern p;
+        p.mirror_ptr_ = lir_mirror_emit_pat_str(*prog_, v);
+        return p;
+    }
     case pc::Code::Wild: {
         lir_view::PatWildView wv{pref};
         std::string name(wv.name());

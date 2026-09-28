@@ -2562,6 +2562,12 @@ struct PatBoolView {
     bool value() const noexcept { return detail::read_bool(self, pk::BOOL_VALUE.code); }
 };
 
+// PatStr { value: the literal as written — escapes undecoded }
+struct PatStrView {
+    PatRef self;
+    std::string_view value() const noexcept { return detail::read_string(self, pk::STR_VALUE.code); }
+};
+
 // PatWild { name: Varchar (optional) }
 struct PatWildView {
     PatRef self;

@@ -5539,6 +5539,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
+        } else if (arm_pat_ref.kind() == pc::Code::Str) {
+            // A string literal arm: the one pattern tester on the scrutinee's
+            // {data, len} pair (the value computed once above; a by-value pair
+            // is spilled). It was a wildcard + a synthesized `str_eq` guard over a
+            // hoisted temp — and admitted a `String` scrutinee (rustc: E0308).
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                mlir::Value sp = scrut;
+                if (sp.getType() != ptr_type()) {
+                    auto a = create_entry_alloca(sp.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sp, a);
+                    sp = a;
+                }
+                auto cond = pat_test(arm_pat_ref, sp, door_place_type(scrut_ty));
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else if (arm_pat_ref.kind() == pc::Code::Struct) {
             // G148-1: struct arm with refutable field sub-patterns in
             // match-expression position (`Wrap { x: Inner::A(v), y } => …`).

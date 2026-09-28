@@ -2297,11 +2297,6 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: A range pattern requires an integer scrutinee type; a non-integer, non-error scrutinee is an error. A `never` scrutinee is exempted from this check.
 - **Source**: `src/compiler/sema_stmt.cpp#L4685-L4689`
 
-### `pat.str.position-restricted` — String-literal patterns allowed only in specific positions
-- **Divergence**: Rust permits string patterns in all pattern positions; Logos restricts them.
-- **Rule**: String-literal patterns are supported only as a whole match arm (`match s { "foo" => .. }`), inside an enum-variant payload (`Some("foo")`), or as a tuple element (`("foo", _)`). In any other position (e.g. inside an array/slice pattern) a string-literal pattern is an error.
-- **Source**: `src/compiler/sema_stmt.cpp#L4296-L4312`
-
 ### `region.impl.trait-arg-lifetime-erased` — Lifetime arguments at trait-argument position are not tracked for trait dispatch
 - **Divergence**: Logos does not use regions in trait selection/coherence; Rust's HRTB/lifetime args participate in trait-ref identity even though they are erased at codegen.
 - **Rule**: A LIFETIME_PARAM occurring among an impl's trait type-arguments (`impl SomeTrait<'a, T> for X`) is skipped when positionally resolving trait type arguments: regions are not tracked structurally for trait selection/dispatch.

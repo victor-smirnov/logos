@@ -2024,11 +2024,6 @@ private:
     void coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                               uint32_t flags = CFLAG_STANDARD);
 
-    // Build a `str_eq(a, b)` bool guard for a string-literal pattern. A raw
-    // `a == b` LBinOp would pointer-compare two str slices; the stdlib `str_eq`
-    // does a content compare. Returns null if `str_eq` isn't in scope.
-    lir::LExprPtr make_str_eq_guard(lir::LExprPtr a, lir::LExprPtr b);
-
     // Synthesize a default value for `t` (the body of `<t>::default()`). For an
     // array `[E; N]` this builds `[E::default(); N]` (recursing on E); for a
     // primitive/struct it emits a call to `<t>::default()`'s resolved symbol.
@@ -2430,8 +2425,6 @@ private:
     bool ast_pat_irrefutable(writ::TinyMapView pat);
     // `fn f(x)` (no type): the grammar's implied `Self` is for a first `self` only.
     void refuse_misplaced_implied_self_(writ::TinyMapView p, uint64_t index);
-    // `n @ "lit"` / `n @ ("a" | "b")` as a whole match arm: binder + literals.
-    bool str_at_arm(writ::TinyMapView p, std::string& binder, std::vector<std::string>& lits);
     void collect_ast_pat_bindings(writ::TinyMapView pat,
                                   std::vector<std::string>& out);
 

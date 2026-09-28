@@ -1,0 +1,10 @@
+// A string literal pattern matches a `&str` place; over a `String` it is rustc's E0308 (write
+// `match s.as_str()`). It was accepted through a synthesized `str_eq` guard — and the hoisted
+// scrutinee temp double-freed the String (abort in free()).
+package string_literal_pattern_on_string_refused;
+use logos.mem.string;
+fn main() -> i32 {
+    let s = String::from("ab");
+    let r = match s { "ab" => 1, _ => 0 };
+    return r;
+}

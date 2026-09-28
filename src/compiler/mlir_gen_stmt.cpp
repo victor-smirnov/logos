@@ -4801,9 +4801,61 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         }
         return true_c();
     }
+    case pc::Code::Str: {
+        // A string literal against a `str` place: `slot_ptr` addresses its
+        // {data, len} pair. Equal length first; the bytes are compared only
+        // when the lengths agree (a join block).
+        peel_thin_ref_slots(slot_ptr, ty);
+        const std::string text = decode_str_lit_(std::string(lir_view::PatStrView{pat}.value()));
+        auto sdtype = slice_llvm_type();
+        auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, slot_ptr,
+                                                     llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
+        mlir::Value slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+        mlir::Value len_ok = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::eq, slen,
+            builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)text.size(), 64));
+        if (text.empty()) return len_ok;
+        auto* region = builder_.getBlock()->getParent();
+        auto* cmp_blk = new mlir::Block();
+        auto* join = new mlir::Block();
+        join->addArgument(builder_.getI1Type(), loc_);
+        region->push_back(cmp_blk);
+        region->push_back(join);
+        mlir::Value no = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, len_ok, cmp_blk, mlir::ValueRange{},
+                                                join, mlir::ValueRange{no});
+        builder_.setInsertionPointToStart(cmp_blk);
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, slot_ptr,
+                                                     llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
+        mlir::Value data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+        mlir::Value lit = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), str_global_(text));
+        auto mc = builder_.create<mlir::func::CallOp>(
+            loc_, memcmp_fn(), mlir::ValueRange{data, lit,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)text.size(), 64)});
+        mlir::Value eq = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::eq, mc.getResult(0),
+            builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32));
+        builder_.create<mlir::cf::BranchOp>(loc_, join, mlir::ValueRange{eq});
+        builder_.setInsertionPointToStart(join);
+        return join->getArgument(0);
+    }
     default:
         return true_c();
     }
+}
+
+// libc `memcmp(a, b, n) -> i32`, declared on first use.
+mlir::func::FuncOp MLIRGenImpl::memcmp_fn() {
+    auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>("memcmp")) return fn;
+    mlir::OpBuilder::InsertionGuard ig(builder_);
+    builder_.setInsertionPointToEnd(mod.getBody());
+    auto fn = builder_.create<mlir::func::FuncOp>(
+        loc_, "memcmp", builder_.getFunctionType({ptr_type(), ptr_type(), builder_.getI64Type()},
+                                                 {builder_.getI32Type()}));
+    fn.setPrivate();
+    mark_funcs_dirty();
+    return fn;
 }
 
 // D3 (task #50): a pattern binding whose type is a THIN reference/pointer to a
@@ -6310,6 +6362,26 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
+        } else if (arm_kind == pc::Code::Str) {
+            // A string literal arm: the one pattern tester on the scrutinee's
+            // {data, len} pair (the value computed once above; a by-value pair
+            // is spilled). It was a wildcard + a synthesized `str_eq` guard over a
+            // hoisted temp — and admitted a `String` scrutinee (rustc: E0308).
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                mlir::Value sp = scrut;
+                if (sp.getType() != ptr_type()) {
+                    auto a = create_entry_alloca(sp.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sp, a);
+                    sp = a;
+                }
+                auto cond = pat_test(arm_pat, sp, door_place_type(scrut_ty));
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else if (arm_kind == pc::Code::Struct) {
             // G148-1: struct arm with refutable field sub-patterns
             // (`Wrap { x: Inner::A(v), y } => …`). is_irrefutable already
@@ -6470,7 +6542,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     // included) and binds every nested name; the refutable-inner guards run
     // after the bindings, as below.
     if (pat_kind == pc::Code::Tuple || pat_kind == pc::Code::Struct || pat_kind == pc::Code::Slice ||
-        pat_kind == pc::Code::At || pat_kind == pc::Code::RefPat) {
+        pat_kind == pc::Code::At || pat_kind == pc::Code::RefPat || pat_kind == pc::Code::Str) {
         mlir::Value place = scrut_val;
         // Default binding mode at the top (RFC 2005): a tuple / struct / array
         // pattern over `&Agg` (`&&Agg`, …) matches the AGGREGATE — the reference

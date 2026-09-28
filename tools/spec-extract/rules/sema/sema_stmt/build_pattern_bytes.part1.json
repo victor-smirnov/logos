@@ -102,16 +102,6 @@
       "divergence": "Rust deprecated-but-still-accepts float patterns; Logos hard-rejects them."
     },
     {
-      "id": "pat.str.position-restricted",
-      "domain": "pat",
-      "title": "String-literal patterns allowed only in specific positions",
-      "statement": "String-literal patterns are supported only as a whole match arm (`match s { \"foo\" => .. }`), inside an enum-variant payload (`Some(\"foo\")`), or as a tuple element (`(\"foo\", _)`). In any other position (e.g. inside an array/slice pattern) a string-literal pattern is an error.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L4296-L4312"
-      ],
-      "divergence": "Rust permits string patterns in all pattern positions; Logos restricts them."
-    },
-    {
       "id": "pat.int.scrutinee-must-be-integer",
       "domain": "pat",
       "title": "Integer pattern requires an integer scrutinee",

@@ -1,0 +1,34 @@
+// ADR 0030 S3: a string literal is a pattern of its own (PatStr), tested by content by the one pattern
+// tester in every position — a whole arm, `n @ ("a" | "b")`, a tuple element, a variant payload, a slice
+// element, a struct field, under `&`, in if-let / let-else, with a guard. Arms were a wildcard plus a
+// synthesized `str_eq` guard over a hoisted `__smatch` temp; a slice element, a struct field, `&"a"` and
+// let-else were refused.
+package string_literal_patterns_everywhere;
+use logos.lang.option;
+struct P<'a> { n: &'a str, k: i64 }
+enum Cmd<'a> { Say(&'a str), Go(i64) }
+fn top(s: &str) -> i64 { match s { "a" | "b" => 1, x @ ("cc" | "dd") => x.len() as i64 * 10, "" => 7, _ => 0 } }
+fn top_expr(s: &str) -> i64 { let r = match s { "hello" => 1, "hell" => 2, "hello!" => 3, _ => 0 }; r }
+fn in_tuple(t: (&str, Option<&str>)) -> i64 { match t { ("a" | "b", Some("x")) => 1, (_, Some("y" | "z")) => 2, ("q", None) => 3, _ => 0 } }
+fn in_variant(c: &Cmd) -> i64 { match c { Cmd::Say("hi") => 1, Cmd::Say(s) => s.len() as i64 + 10, Cmd::Go(n) => *n } }
+fn in_slice(w: &[&str]) -> i64 { match w { [.., "zzz", last] => last.len() as i64, ["x", ..] => 1, _ => 0 } }
+fn in_field(p: &P) -> i64 { match p { P { n: "a", k } => *k, P { n, .. } => n.len() as i64 } }
+fn through_ref(s: &&str) -> i64 { match s { &"a" => 1, _ => 0 } }
+fn guarded(s: &str, k: i64) -> i64 { match s { "a" if k > 0 => 1, "a" => 2, x if x.len() > 3 => 3, _ => 0 } }
+fn if_let(s: &str) -> i64 { if let "yes" = s { 1 } else { 0 } }
+fn let_else(s: &str) -> i64 { let "yes" = s else { return 0; }; 1 }
+fn escapes(s: &str) -> i64 { match s { "a\tb" => 1, "\"" => 2, "\u{e9}" => 3, _ => 0 } }
+fn main() -> i32 {
+    let w1 = ["x", "yy", "zzz", "w"]; let w2 = ["x"]; let w3 = ["q"];
+    let a = "a"; let b = "b";
+    let n1 = top("a") + top("b") + top("dd") + top("") + top("zz");
+    let n2 = top_expr("hello") + top_expr("hell") + top_expr("hello!") + top_expr("h");
+    let n3 = in_tuple(("a", Some("x"))) + in_tuple(("b", Some("z"))) + in_tuple(("q", None)) + in_tuple(("q", Some("x")));
+    let n4 = in_variant(&Cmd::Say("hi")) + in_variant(&Cmd::Say("yo")) + in_variant(&Cmd::Go(5));
+    let n5 = in_slice(&w1) + in_slice(&w2) + in_slice(&w3);
+    let n6 = in_field(&P { n: "a", k: 5 }) + in_field(&P { n: "abc", k: 5 }) + through_ref(&a) + through_ref(&b);
+    let n7 = guarded("a", 1) + guarded("a", 0) + guarded("abcd", 0) + guarded("ab", 0);
+    let n8 = if_let("yes") + if_let("no") + let_else("yes") + let_else("no");
+    let n9 = escapes("a\tb") + escapes("\"") + escapes("é") + escapes("x");
+    return (n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8 + n9) as i32;
+}

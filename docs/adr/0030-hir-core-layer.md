@@ -444,9 +444,17 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   sub tests and binds like a top-level one.
   Clusters slice-pattern-subpattern-bindings-lost (6) and
   slice-pattern-element-offset (5) agree with rustc.
-Next: a `PatStr` carrier (string literals tested by `pat_test` in every
-position; retires the `__smatch` hoist and the synthesized `str_eq` guards),
-the moving binders (retire the guard channel and the K4 prologue lets),
+- A string literal is a pattern of its own (`PatStr`, LIR pattern code 13,
+  key STR_VALUE): `pat_test` compares length, then the bytes (`memcmp`, only
+  when the lengths agree), in every position — a whole arm, `n @ ("a" | "b")`,
+  a tuple element, a variant payload (a carried sub), a slice element, a
+  struct field, under `&`, if-let / let-else. The `__smatch` hoist, `str_at_arm`,
+  the tuple / variant / struct-field synthesized guards (`str_eq`, and `==` for
+  literal struct fields) and `make_str_eq_guard` are gone. A string literal
+  over a non-`str` scrutinee is E0308 (a `String` was accepted and its hoisted
+  temp double-freed). Spec: pat.str.position-restricted retired (divergence
+  closed), pat.str.any-position.
+Next: the moving binders (retire the guard channel and the K4 prologue lets),
 then the statement match as the void expression match (one `lower_match_core`).
 
 ## L0 status (2026-09-27)

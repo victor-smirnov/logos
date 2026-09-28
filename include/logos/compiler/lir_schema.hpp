@@ -163,8 +163,9 @@ enum class Code : int32_t {
     At          = 10,
     RefBind     = 11,
     RefPat      = 12,
+    Str         = 13,   // a string literal (ADR 0030 S3): tested by content
 };
-inline constexpr int32_t Count = 13;
+inline constexpr int32_t Count = 14;
 } // namespace pat
 
 // ── Sparse keys ───────────────────────────────────────────────────────────
@@ -926,6 +927,8 @@ inline constexpr Key BINDING_REF_MODES {"BINDING_REF_MODES",27};   // Array<u32>
 // PatAt's binding mode: absent / 0 by value, 1 `ref n @ sub`, 2 `ref mut n @ sub`
 // (the name binds the ADDRESS of the matched place; TYPE is then `&T` / `&mut T`).
 inline constexpr Key AT_REF_MODE       {"AT_REF_MODE",      28};   // i64 (PatAt)
+// PatStr: the literal as written (escapes undecoded, as a LitStr's value).
+inline constexpr Key STR_VALUE         {"STR_VALUE",        29};   // Varchar (PatStr)
 } // namespace pat_keys
 
 } // namespace logos::compiler::lir_schema
