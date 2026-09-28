@@ -114,6 +114,8 @@ struct Rvalue {
     // A FAKE borrow (Ref): MIR's shallow borrow that exists only to forbid a
     // change — 1 of an indexed place while its index is computed, 2 of what a
     // match tests while a guard runs. It decides the SENTENCE (E0510).
+    // On a Read statement: 3 is a SHALLOW fake read of a matched place (MIR's
+    // FakeRead(ForMatchedPlace)) — the path itself, not its descendants.
     uint8_t              fake = 0;
     std::string          what;            // for dumps
     std::vector<std::string> field_names; // Aggregate of a struct literal: ops[i] initialises field_names[i]
@@ -3007,6 +3009,26 @@ private:
                 auto k = a2.pat() ? a2.pat().kind() : PCode::Wild;
                 if (k != PCode::Slice && k != PCode::Wild) { shape_only = false; break; }
             }
+        // …AND A STRUCT / TUPLE SCRUTINEE READS ONLY WHAT ITS PATTERNS TEST. It
+        // has no discriminant: `if let Cfg { depth: 1, .. } = c` examines
+        // `c.depth`, so after `let n = c.name;` it is legal (rustc's fake read
+        // of the matched place is shallow). Reading the whole place refused it
+        // as a use of the partially moved `c.name`.
+        if (!shape_only && stype && (stype.kind() == LogosType::Kind::Struct ||
+                                     stype.kind() == LogosType::Kind::ZonedStruct ||
+                                     stype.kind() == LogosType::Kind::Tuple)) {
+            {   // the matched place itself, shallowly: a moved `c` is still E0382
+                bir::Stmt r(bir::Stmt::K::Read);
+                r.rv.fake = 3;
+                bir::Operand o; o.k = bir::Operand::K::Copy; o.place = sp;
+                r.rv.ops.push_back(std::move(o));
+                emit(std::move(r));
+            }
+            std::vector<bir::Place> tested;
+            for (auto& a2 : arms) tested_places(sp, stype, a2.pat(), tested);
+            for (auto& tp : tested) pattern_test(tp, {}, {});
+            shape_only = true;
+        }
         if (!shape_only) pattern_test(sp, stype, {});
         std::vector<bir::BlockId> arm_blocks;
         for (size_t i = 0; i < arms.size(); ++i) arm_blocks.push_back(new_block());
@@ -3185,6 +3207,7 @@ public:
             case Access::WriteDeep:     return 5;
             case Access::DropNoGlue:    return 5;
             case Access::Read:          return 6;
+            case Access::ReadShallow:   return 6;
         }
         return 0;
     }
@@ -4669,7 +4692,7 @@ private:
     }
 
     // ── accesses ──
-    enum class Access : uint8_t { Read, WriteShallow, WriteDeep, StorageDead, DropNoGlue };
+    enum class Access : uint8_t { Read, WriteShallow, WriteDeep, StorageDead, DropNoGlue, ReadShallow };
     struct Acc { uint32_t point; bir::Place place; Access kind; int32_t self_loan; };
     std::vector<Acc> accesses_;
     // (loan, point) -> the access that invalidated it; see invalidations().
@@ -4871,6 +4894,12 @@ private:
                 if (!overlap(a.place, L.place)) continue;
                 bool hit = false;
                 switch (a.kind) {
+                    case Access::ReadShallow:
+                        // Only a loan of the place itself or of something it is
+                        // inside of: `let r = &mut y.b; match y { .. }` reads y
+                        // shallowly, and y.b's loan is not in its way.
+                        if (L.place.proj.size() > a.place.proj.size()) break;
+                        [[fallthrough]];
                     case Access::Read:
                         if (!L.mut_) break;
                         // Reads between a two-phase reservation and its
@@ -5107,7 +5136,7 @@ private:
         const uint32_t npath = uint32_t(paths_.size());
         uint32_t npt = 0;
         std::vector<std::pair<uint32_t, uint32_t>> edges;
-        std::vector<std::pair<uint32_t, uint32_t>> assigned, moved, accessed;
+        std::vector<std::pair<uint32_t, uint32_t>> assigned, moved, accessed, accessed_shallow;
         std::vector<std::pair<uint32_t, uint32_t>> dead_var;   // (var, point)
         std::set<uint32_t> drop_vars;
         std::vector<uint32_t> var_of_root;                      // root path -> var
@@ -5120,6 +5149,7 @@ private:
             } else if (rel == "path_assigned_at_base") assigned.emplace_back(num(vs[0]), num(vs[1]));
             else if (rel == "path_moved_at_base") moved.emplace_back(num(vs[0]), num(vs[1]));
             else if (rel == "path_accessed_at_base") accessed.emplace_back(num(vs[0]), num(vs[1]));
+            else if (rel == "path_accessed_shallow_at_base") accessed_shallow.emplace_back(num(vs[0]), num(vs[1]));
             else if (rel == "var_dead_at") dead_var.emplace_back(num(vs[0]), num(vs[1]));
             else if (rel == "drop_of_var_derefs_origin") drop_vars.insert(num(vs[0]));
             else if (rel == "path_is_var") var_of_root[num(vs[0])] = num(vs[1]);
@@ -5200,6 +5230,11 @@ private:
                     if (on_entry(moved_exit, q, y)) maybe_moved_.insert({y, q});
                 }
             });
+        for (auto& [x, q] : accessed_shallow)   // the path itself, no subtree
+            if (on_entry(uninit_exit, q, x) && seen.emplace(x, q).second) {
+                row("path_maybe_uninitialized_on_entry", {pa(x), pt(q)});
+                if (on_entry(moved_exit, q, x)) maybe_moved_.insert({x, q});
+            }
         for (auto& [x, q] : assigned)
             if (paths_[x].second == ~0u && on_entry(init_exit, q, x))
                 row("path_maybe_initialized_on_entry", {pa(x), pt(q)});
@@ -5901,7 +5936,15 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                     break;
                 }
                 case bir::Stmt::K::Read:
-                    for (auto& op : s.rv.ops) read_operand(op, p);
+                    for (auto& op : s.rv.ops) {
+                        if (s.rv.fake == 3 && op.k != bir::Operand::K::Const && op.place.valid()) {
+                            use_place(op.place, p);
+                            row("path_accessed_shallow_at_base", {pa(path_of(op.place)), pt(p)});
+                            access(p, op.place, Access::ReadShallow);
+                            continue;
+                        }
+                        read_operand(op, p);
+                    }
                     break;
                 case bir::Stmt::K::StorageDead:
                     access(p, {s.local, {}}, Access::StorageDead);

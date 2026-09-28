@@ -241,7 +241,10 @@
 # lower_builtin_macro / lower_fn_macro_call did (sema_expr.cpp -10 and sema_stmt.cpp -2
 # below are the same comparisons leaving); the format family still asks that its
 # logos.std.fmt declaration is in scope (macro_in_scope_ at the expansion's CALLEE).
-#SCAN hir_lower.cpp 21 a27cbce6
+# 2026-09-28: 21 -> 25, roster a27cbce6 -> c98f1afc — a format-family call with NO format string is
+# expanded by the pass too: `println` / `eprintln` / `writeln` (a newline) and `panic` ("explicit
+# panic") are the built-in macros' own names, the same vocabulary as the comparisons above.
+#SCAN hir_lower.cpp 25 c98f1afc
 #SCAN main.cpp 4 04f2bc11
 #SCAN mlir_gen_debug.cpp 2 c5f7c386
 #SCAN mlir_gen_dyn.cpp 1 fad58de7

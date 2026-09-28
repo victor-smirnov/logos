@@ -19819,13 +19819,20 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
         // "moved value 'x' (moved on line N)" that two imported fail fixtures
         // pin. Both spellings refuse; only one is the recorded sentence.
         std::set<std::string> moved_before;
+        bool tail_marked = false;
         if (result && TypeRef(expr_type(result)).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(result)).kind() != LogosType::Kind::Never) {
             moved_before = moved_vars_;
             mark_moved_in_expr_recursive(expr_ref_of(result));
+            tail_marked = true;
         }
         tail_drops = collect_drops();
-        if (!moved_before.empty() || !moved_vars_.empty()) {
+        // Revert ONLY what the tail's mark added. A tail that marked nothing (a
+        // `!` block — an expanded `panic!` / `unreachable!` — or an error) has
+        // an empty `moved_before`, and reverting against it erased every move
+        // an OUTER local had made: `let a = t.0;` then a let-else whose else is
+        // `unreachable!()` dropped `t.0` twice.
+        if (tail_marked) {
             for (auto it = moved_vars_.begin(); it != moved_vars_.end(); ) {
                 std::string root = *it;
                 if (auto dot = root.find('.'); dot != std::string::npos)

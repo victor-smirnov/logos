@@ -1,0 +1,8 @@
+// `format!()`, `print!()`, `eprint!()` and `write!(sink)` need a format string (rustc: "requires at
+// least a format string argument"). Unexpanded, such a call reached the old metacall route.
+package format_macro_without_format_string_refused;
+use logos.std.fmt; use logos.mem.string;
+fn main() -> i32 {
+    let s = format!();
+    return 0;
+}

@@ -2406,6 +2406,11 @@ lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
         // fn keeps the blanket mark: a partial receiver Drop would call that
         // destructor on a half-moved value. PROBES.md 2026-09-04land root 2.
         if (!is_move_type(recv_type)) return;
+        // A pattern that takes NOTHING by value (`let D { id, .. } = d` binding a
+        // Copy field) moves nothing: the receiver keeps all of itself, its own
+        // Drop included. The blanket mark below leaked a Drop type so matched.
+        // (Moving a field out of a Drop type is E0509 — BIR's.)
+        if (!unowned && byval_taken_.empty()) return;
         if (unowned || !left_behind_ || !drop_fn_for(recv_type).empty()) {
             mark_moved(recv_var);
             return;

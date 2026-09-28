@@ -1,0 +1,49 @@
+// Partial moves are kept, not forgotten or widened:
+// - a block-expression tail that marks nothing (a `!` block: an expanded `unreachable!()` / `panic!`)
+//   no longer reverts every OUTER move: `let a = t.0;` then a let-else whose else is `unreachable!()`
+//   dropped `t.0` twice;
+// - `let E { id, .. } = e` binding only a Copy field of a Drop type moves nothing (e's own Drop runs;
+//   it leaked);
+// - a struct / tuple scrutinee is read only where its patterns test (BIR): `if let Cfg { depth: 1, .. }
+//   = cfg` after `let n = cfg.name;` is legal, as in rustc (it was refused as a use of `cfg.name`).
+// - the matched place's own read is SHALLOW (MIR's FakeRead): a loan of `y.b` does not stop `match y`.
+package partial_moves_kept;
+use logos.std.fmt; use logos.lang.option;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+struct Cfg { name: D, depth: i64 }
+struct E { id: i64, c: *mut i64 }
+impl Drop for E { fn drop(&mut self) { unsafe { *self.c = *self.c + self.id; } } }
+fn diverging_else(c: *mut i64) -> i64 {
+    let t = (D { v: 1, c: c }, D { v: 2, c: c });
+    let a = t.0;
+    let o = Some(10i64);
+    let Some(k) = o else { unreachable!() };
+    a.v + k
+}
+fn copy_field_of_drop_type(c: *mut i64) -> i64 { let e = E { id: 4, c: c }; let E { id, .. } = e; id }
+fn match_partially_moved(c: *mut i64) -> i64 {
+    let cfg = Cfg { name: D { v: 8, c: c }, depth: 1 };
+    let n = cfg.name;
+    let mut r = 0i64;
+    if let Cfg { depth: 1, .. } = cfg { r += 100; }
+    match cfg { Cfg { depth, .. } => { r += depth; } }
+    r + n.v
+}
+struct P { a: bool, b: bool }
+fn set(r: &mut bool) -> i64 { *r = true; 1 }
+fn subpath_loan_match() -> i64 {
+    let mut y = P { a: true, b: false };
+    let r: &mut bool = &mut y.b;
+    let mut k = 0i64;
+    match y { P { a: true, b: _ } => { k = set(r); } _ => { k = 2; } }
+    k
+}
+fn main() -> i32 {
+    let mut n: i64 = 0;
+    let c: *mut i64 = &mut n;
+    let r = diverging_else(c) + copy_field_of_drop_type(c) + match_partially_moved(c) + subpath_loan_match();
+    let got = unsafe { *c };
+    if got != 15 { return (100 + got) as i32; }
+    return (r - 100) as i32;
+}

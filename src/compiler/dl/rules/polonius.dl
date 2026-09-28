@@ -29,6 +29,10 @@
 .decl path_assigned_at_base(x: Path, p: Point)
 .decl path_moved_at_base(x: Path, p: Point)
 .decl path_accessed_at_base(x: Path, p: Point)
+// A SHALLOW access (MIR's FakeRead of a matched place): the path itself, not
+// its descendants — a move of `c.name` does not make `match c` a use of it.
+.decl path_accessed_shallow_at_base(x: Path, p: Point)
+.input path_accessed_shallow_at_base
 .input cfg_edge, loan_issued_at, loan_killed_at, loan_invalidated_at, subset_base
 .input universal_region, placeholder, known_placeholder_subset
 .input var_used_at, var_defined_at, var_dropped_at
@@ -59,6 +63,7 @@ path_accessed_at(C, P) :- path_accessed_at(X, P), ancestor_path(X, C).
 .decl move_errors(x: Path, p: Point)
 .output move_errors
 move_errors(X, Q) :- path_accessed_at(X, Q), path_maybe_uninitialized_on_entry(X, Q).
+move_errors(X, Q) :- path_accessed_shallow_at_base(X, Q), path_maybe_uninitialized_on_entry(X, Q).
 
 // ── liveness ────────────────────────────────────────────────────────────
 .decl cfg_node(p: Point)

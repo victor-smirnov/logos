@@ -1,0 +1,17 @@
+// A format-family macro with NO arguments expands in the HIR pass, as rustc defines it: `println!()`
+// and `eprintln!()` write a newline, `panic!()` panics with "explicit panic" (here: in a let-else and
+// in a diverging branch, never reached). Unexpanded, the call reached the old metacall route, which
+// crashed the driver on `panic!()` ("metacall splice: CODE put failed").
+package zero_arg_format_macros;
+use logos.std.fmt; use logos.lang.option;
+fn f(x: i64) -> i64 { if x > 0 { x } else { panic!() } }
+fn main() -> i32 {
+    println!("a");
+    println!();
+    println!("b");
+    eprintln!();
+    let o = Some(f(3));
+    let Some(k) = o else { panic!() };
+    println!("{}", k);
+    return 0;
+}

@@ -657,6 +657,23 @@ AnyVal Lowering::expand_macro(AnyVal v) {
     // The format family: expanded when the format string is a literal; any
     // other first argument is left to the macro call's own resolution.
     const size_t fmt_pos = write_family ? 1 : 0;
+    // NO format string (rustc): `println!()` / `eprintln!()` / `writeln!(f)`
+    // write a newline, `panic!()` panics with "explicit panic"; `format!()`,
+    // `print!()`, `eprint!()`, `write!(f)` need one. Left unexpanded, the call
+    // reached the old metacall route, which crashed the driver ("metacall
+    // splice: CODE put failed") on `panic!()`.
+    if (ok && args.size() == fmt_pos) {
+        std::string_view body;
+        if (callee == "println" || callee == "eprintln" || callee == "writeln") body = "";
+        else if (callee == "panic") body = "explicit panic";
+        else return refuse(n, std::format("{}!: requires at least a format string argument", callee));
+        args.push_back(AnyVal{});   // the format string's slot
+        AnyVal blk = format_expansion(n, callee, body, args, fmt_pos, write_family);
+        if (blk.is_null()) return recoded(n, la::FN_MACRO_CALL.code, Origin::Macro);
+        TinyMapView b = map_of(blk);
+        return node(la::BLOCK.code, n, Origin::Macro,
+                    {{la::ITEMS.code, b.get(la::ITEMS.code)}, {la::CALLEE.code, str(callee)}});
+    }
     if (!ok || args.size() <= fmt_pos) return v;
     TinyMapView f = map_of(args[fmt_pos]);
     if (code_of(f) != la::LIT_STR.code || !f.has_key(la::VALUE)) return v;

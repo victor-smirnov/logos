@@ -1,6 +1,8 @@
 // rustc nll/match-cfg-fake-edges2.rs — upstream E0503
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// The first arm (upstream `(false, true)`) is restored: it is what tests `y.b`. The port without it
+// was legal (rustc accepts it — a match reads its place shallowly) and pinned a refusal rustc does not make.
 package match_cfg_fake_edges2;
 struct P { a: bool, b: bool }
 fn drop_r(r: &mut bool) -> i64 { *r = true; return 1i64; }
@@ -9,6 +11,7 @@ fn main() -> i32 {
     let r: &mut bool = &mut y.b;
     let mut k: i64 = 0i64;
     match y {
+        P { a: false, b: true } => { k = 5i64; }
         P { a: true, b: _ } => { k = drop_r(r); }
         _ => { k = 2i64; }
     }
