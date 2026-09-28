@@ -43,7 +43,7 @@ use logos.lang.mem;
 unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> WAny {
     let root: WAny = view.root();
     let items: WAny = view.tiny_map_get(root, 2 as u8);
-    if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+    if items.is_null() { return WAny::null(); }
     let n: u64 = view.array_len(items);
 
     // Find target index.
@@ -57,7 +57,7 @@ unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> 
         }
         i = i + (1 as u64);
     }
-    if tgt_idx < 0 { return WAny::Ref(0i64 as *const u8); }
+    if tgt_idx < 0 { return WAny::null(); }
 
     // Walk back collecting ANNOTATION nodes; return one whose NAME
     // matches `trigger`. Bail at the first non-ANNOTATION item.
@@ -85,16 +85,16 @@ unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> 
         }
         k = k - (1 as i64);
     }
-    return WAny::Ref(0i64 as *const u8);
+    return WAny::null();
 }
 
 // In an ANNOTATION's ARGS list, find the ANNOT_KV with NAME=`key`
 // and return its VALUE AnyVal. Null if no such entry.
 unsafe fn annot_kv_value(view: &OView, ann: WAny, key: str) -> WAny {
     let args: WAny = view.tiny_map_get(ann, 15 as u8);          // ARGS
-    if args.is_null() { return WAny::Ref(0i64 as *const u8); }
+    if args.is_null() { return WAny::null(); }
     let items: WAny = view.tiny_map_get(args, 2 as u8);         // ITEMS
-    if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+    if items.is_null() { return WAny::null(); }
     let n: u64 = view.array_len(items);
     let klen: u64 = key.len() as u64;
     let mut i: u64 = 0u64;
@@ -120,7 +120,7 @@ unsafe fn annot_kv_value(view: &OView, ann: WAny, key: str) -> WAny {
         }
         i = i + (1 as u64);
     }
-    return WAny::Ref(0i64 as *const u8);
+    return WAny::null();
 }
 
 // In a WRIT_MAP node (AST shape: { CODE: WRIT_MAP, ITEMS: [WRIT_ENTRY{KEY,VALUE},...] }),
@@ -128,7 +128,7 @@ unsafe fn annot_kv_value(view: &OView, ann: WAny, key: str) -> WAny {
 // VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
 fn writ_map_get(view: &OView, wmap: WAny, key: str) -> WAny {
     let items: WAny = view.tiny_map_get(wmap, 2 as u8);          // ITEMS
-    if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+    if items.is_null() { return WAny::null(); }
     let n: u64 = view.array_len(items);
     let klen: u64 = key.len() as u64;
     let mut i: u64 = 0u64;
@@ -156,7 +156,7 @@ fn writ_map_get(view: &OView, wmap: WAny, key: str) -> WAny {
         }
         i = i + (1 as u64);
     }
-    return WAny::Ref(0i64 as *const u8);
+    return WAny::null();
 }
 
 #[metaprog_handler("derive_branch_node")]

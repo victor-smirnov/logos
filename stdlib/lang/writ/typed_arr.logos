@@ -133,7 +133,7 @@ unsafe fn w_build_typed_map_raw(keys: *const u8, vals: *const i64, len: i64,
             let w: i64 = *((vals as i64 + i * 8) as *const i64);
             let src: WAny = if w == 0i64 { WAny::ref_to(0i64 as *const u8) }
                             else if (w & 1i64) == 1i64 { WAny::Pod(w as u64) }
-                            else { WAny::Ref(w as *const u8) };
+                            else { unsafe { WAny::ref_to(w as *const u8) } };
             let c: WAny = clone(h, src);          // Refs re-anchor in this zone
             let slot: i64 = vbuf + i * 8;
             let cw: i64 = c.raw();

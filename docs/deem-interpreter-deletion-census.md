@@ -6728,9 +6728,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11733 -> 11734 (+1), NOIMPORTED 7170 -> 7171 (+1), TIERCOMMIT 200 -> 200 (+0) — 2026-09-28: grammar, assignment as an expression: + 1 pass (assignment_expressions).
 #                ALL 11734 -> 11734 (+0), NOIMPORTED 7171 -> 7171 (+0), TIERCOMMIT 200 -> 199 (-1) — 2026-09-28: squeue assignment_as_expression_refused #614 closed, landed as pass.
 #                ALL 11734 -> 11735 (+1), NOIMPORTED 7171 -> 7172 (+1), TIERCOMMIT 199 -> 199 (+0) — 2026-09-28: Deem reds: + 1 pass (borrowing_drop_order_at_return).
-REGISTRY-ALL         11735
-REGISTRY-NOIMPORTED  7172
-REGISTRY-TIERCOMMIT  199
+#                ALL 11735 -> 11737 (+2), NOIMPORTED 7172 -> 7174 (+2), TIERCOMMIT 199 -> 200 (+1) — 2026-09-28: #16 closed (+1 pass localvec_homonym_listcomp_drops), #327 lint (+1 tier-commit test logos_00_wany_ref_ctor_lint).
+REGISTRY-ALL         11737
+REGISTRY-NOIMPORTED  7174
+REGISTRY-TIERCOMMIT  200
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

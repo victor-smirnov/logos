@@ -12,7 +12,7 @@ unsafe fn main() -> i32 {
     let w: i64 = *(s.ptr as *const i64);
     if w == 0i64 { return 1; }                  // non-null root
     if (w & 1i64) != 0i64 { return 2; }         // a map root is a Ref (even delta)
-    let root: WAny = WAny::Ref((s.ptr as i64 + w) as *const u8);
+    let root: WAny = unsafe { WAny::ref_to((s.ptr as i64 + w) as *const u8) };
     if !root.is_map() { return 3; }
 
     // Pod root blob: the word is the Pod itself.

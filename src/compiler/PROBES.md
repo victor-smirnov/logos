@@ -33443,8 +33443,10 @@ short of a run.
 
 ## 2026-09-09g-tlrefbind-landing — FOUR TIER-1 ROWS CLOSED BY ONE FUNCTION, AND THE CLASS ENUMERATED BY PROPERTY TURNED OUT TO HAVE FOUR MEMBERS THE PRICING ROUND'S TWO PROBES COULD NOT HAVE MOVED — INCLUDING A `&&ref a` THAT BOUND ONE LAYER TOO MANY, WHICH BOTH PRICED ARMS LEFT WRONG BECAUSE BOTH GATED ON `&`-DEPTH 0
 
-site: src/compiler/mlir_gen_stmt.cpp::bind_match_ref_binder (the new single
-implementation), src/compiler/mlir_gen_stmt.cpp::ref_bind_kind (the depth
+site: src/compiler/mlir_gen_stmt.cpp::pat_bind (since ADR 0030 S3.4a the one match
+door binds `ref x` through pat_bind's RefBind case; bind_match_ref_binder, the
+single implementation this record landed, is gone with the two doors),
+src/compiler/mlir_gen_stmt.cpp::ref_bind_kind (the depth
 arithmetic it routes through), src/compiler/mlir_gen_expr.cpp::gen_expr_kind
 (the expression door, whose copy is gone)
 fires: no probe was installed this round — the arm LANDED. The measurements are
@@ -45974,7 +45976,9 @@ cost: see COLUMNS (the union is priced once)
 verdict: LANDED
 
 ## refpatcore
-site: src/compiler/mlir_gen_stmt.cpp::ref_pat_core_scrut
+site: src/compiler/mlir_gen_stmt.cpp::pat_test (ADR 0030 S3.4a: the one match door tests and
+binds a `&`-chain through pat_test / pat_bind's RefPat case on the scrutinee's place;
+ref_pat_core_scrut, this record's value-side peel, is gone with the two doors)
 build: 72c2afc955f79321 43
 measured: 2026-09-15
 fires: battery p01 p02 p04 p06 q02 q06 q08 q10 q11 q12 q13 q15 q16 q18 q21 -> Rust's answer; pattern_parse_batch_full stays 0 (the cancellation's

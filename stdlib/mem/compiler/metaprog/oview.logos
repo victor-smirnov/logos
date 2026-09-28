@@ -96,7 +96,7 @@ impl OView {
     ///
     /// The only `base + offset` step; all further navigation is `WAny::resolve()`.
     pub fn node_at(self: &OView, offset: u32) -> WAny {
-        return WAny::Ref((self.base as i64 + offset as i64) as *const u8);
+        return unsafe { WAny::ref_to((self.base as i64 + offset as i64) as *const u8) };
     }
 
     /// Returns the document root `WAny`.
@@ -106,20 +106,20 @@ impl OView {
     /// Pod → verbatim, 0 → null Ref.
     pub fn root(self: &OView) -> WAny {
         let w: i64 = unsafe { *(self.base as *const i64) };
-        if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+        if w == 0i64 { return WAny::null(); }
         if (w & 1i64) == 1i64 {
             return WAny::Pod(w as u64);
         }
-        return WAny::Ref((self.base as i64 + w) as *const u8);
+        return unsafe { WAny::ref_to((self.base as i64 + w) as *const u8) };
     }
 
     /// Reads field `key` of a TinyObjectMap node (`node` = Ref to a `WMap<Wu6, WAny>`).
     ///
     /// Null/non-ref `node`, or an absent key, yields a null `WAny`.
     pub fn tiny_map_get(self: &OView, node: WAny, key: u8) -> WAny {
-        if !node.is_ref() { return WAny::Ref(0i64 as *const u8); }
+        if !node.is_ref() { return WAny::null(); }
         let p: *const u8 = node.resolve();
-        if p == (0 as *const u8) { return WAny::Ref(0i64 as *const u8); }
+        if p == (0 as *const u8) { return WAny::null(); }
         return unsafe { (&*(p as *const WMap<Wu6, WAny>)).get(key) };
     }
 
@@ -146,9 +146,9 @@ impl OView {
     ///
     /// No bounds check — `idx` must be less than `array_len(v)`.
     pub fn array_get(self: &OView, v: WAny, idx: u64) -> WAny {
-        if !v.is_ref() { return WAny::Ref(0i64 as *const u8); }
+        if !v.is_ref() { return WAny::null(); }
         let p: *const u8 = v.resolve();
-        if p == (0 as *const u8) { return WAny::Ref(0i64 as *const u8); }
+        if p == (0 as *const u8) { return WAny::null(); }
         return unsafe { (&*(p as *const WArray<WAny>)).get(idx as i64) };
     }
 

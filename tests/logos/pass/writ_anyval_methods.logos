@@ -9,7 +9,7 @@ use logos.lang.cell;
 
 unsafe fn main() -> i32 {
     // --- is_null ---
-    let nul: WAny = WAny::Ref(0 as *const u8);
+    let nul: WAny = WAny::null();
     if !nul.is_null()  { return 1; }
 
     // --- is_int / as_i64 (inline i56) ---

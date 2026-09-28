@@ -20,7 +20,7 @@ use logos.lang.writ.wstatic;     // WritStatic (the scrutinee handle)
 use logos.lang.rc;                    // Rc — runtime container scrutinee
 use logos.lang.str;                  // str, str_eq
 
-fn null_wany() -> WAny { return WAny::Ref(0i64 as *const u8); }
+fn null_wany() -> WAny { return WAny::null(); }
 
 /// Returns root `WAny` of a `WritStatic` @-literal scrutinee — the matcher's entry point.
 /// Reads inline (the `DocumentHeader`'s self-relative word at `ptr+0`) so the result
@@ -28,9 +28,9 @@ fn null_wany() -> WAny { return WAny::Ref(0i64 as *const u8); }
 pub fn writ_pat_root(view: &WritStatic) -> WAny {
     let base: *const u8 = view.ptr;
     let w: i64 = unsafe { *(base as *const i64) };
-    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if w == 0i64 { return WAny::null(); }
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
-    return WAny::Ref((base as i64 + w) as *const u8);
+    return unsafe { WAny::ref_to((base as i64 + w) as *const u8) };
 }
 
 /// Returns root `WAny` of a runtime `Rc<Writ>` scrutinee (capture/comprehension results).

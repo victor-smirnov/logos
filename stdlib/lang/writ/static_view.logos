@@ -52,7 +52,7 @@ pub fn wview2_from_ptr(ptr: *const u8) -> WView2 {
 /// A value-form Ref's word IS its absolute ptr (low bit 0); Pod has low bit 1; word 0 = null.
 pub fn wany_from_word(w: i64) -> WAny {
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
-    return WAny::Ref(w as *const u8);
+    return unsafe { WAny::ref_to(w as *const u8) };
 }
 
 impl WView2 {
@@ -60,26 +60,26 @@ impl WView2 {
     /// The at-rest root word at `base+0` is self-relative; this materializes it to value form.
     pub fn root(self: WView2) -> WAny {
         let w: i64 = unsafe { *(self.base as *const i64) };
-        if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+        if w == 0i64 { return WAny::null(); }
         if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
-        return WAny::Ref((self.base as i64 + w) as *const u8);
+        return unsafe { WAny::ref_to((self.base as i64 + w) as *const u8) };
     }
 
     /// Reads a string-keyed ObjectMap field: `node` (Ref to `WMap<WString,WAny>`) by `key`.
     /// A null/non-ref `node`, or an absent key, yields a null `WAny`.
     pub fn map_get(self: WView2, node: WAny, key: str) -> WAny {
-        if !node.is_ref() { return WAny::Ref(0i64 as *const u8); }
+        if !node.is_ref() { return WAny::null(); }
         let p: *const u8 = node.resolve();
-        if p == (0 as *const u8) { return WAny::Ref(0i64 as *const u8); }
+        if p == (0 as *const u8) { return WAny::null(); }
         return unsafe { (&*(p as *const WMap<WString, WAny>)).get(key) };
     }
 
     /// Reads a u8-keyed TinyObjectMap field (the AST/schema flavour: `WMap<Wu6,WAny>`).
     /// A null/non-ref `node`, or an absent key, yields a null `WAny`.
     pub fn tiny_map_get(self: WView2, node: WAny, key: u8) -> WAny {
-        if !node.is_ref() { return WAny::Ref(0i64 as *const u8); }
+        if !node.is_ref() { return WAny::null(); }
         let p: *const u8 = node.resolve();
-        if p == (0 as *const u8) { return WAny::Ref(0i64 as *const u8); }
+        if p == (0 as *const u8) { return WAny::null(); }
         return unsafe { (&*(p as *const WMap<Wu6, WAny>)).get(key) };
     }
 
@@ -121,9 +121,9 @@ impl WView2 {
 
     /// Returns element `idx` of an array node; null/non-ref → null `WAny`.
     pub fn array_get(self: WView2, v: WAny, idx: u64) -> WAny {
-        if !v.is_ref() { return WAny::Ref(0i64 as *const u8); }
+        if !v.is_ref() { return WAny::null(); }
         let p: *const u8 = v.resolve();
-        if p == (0 as *const u8) { return WAny::Ref(0i64 as *const u8); }
+        if p == (0 as *const u8) { return WAny::null(); }
         return unsafe { (&*(p as *const WArray<WAny>)).get(idx as i64) };
     }
 }

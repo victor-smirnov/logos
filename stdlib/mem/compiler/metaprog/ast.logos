@@ -123,7 +123,7 @@ pub fn template_of_at(off: u32) -> Template {
     // Raw-pointer anchor (the AST arena outlives the hook) — a borrow-typed
     // WAny here would dangle-flag against the local `view`.
     let p: *const u8 = view.base_ptr();
-    return Template { raw: WAny::Ref((p as i64 + off as i64) as *const u8) };
+    return Template { raw: unsafe { WAny::ref_to((p as i64 + off as i64) as *const u8) } };
 }
 
 impl Template {
@@ -429,7 +429,7 @@ impl OView {
     pub fn find_template_decl(self: &OView, name: &[u8]) -> WAny {
         let root: WAny = self.root();
         let items: WAny = self.tiny_map_get(root, 2 as u8);  // ITEMS
-        if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+        if items.is_null() { return WAny::null(); }
         let n: u64 = self.array_len(items);
         let nlen: i64 = name.len();
         let mut i: u64 = 0 as u64;
@@ -450,7 +450,7 @@ impl OView {
             }
             i = i + (1 as u64);
         }
-        return WAny::Ref(0i64 as *const u8);
+        return WAny::null();
     }
 
     /// Returns a STRING-token literal's byte view minus the surrounding quotes; empty if absent.

@@ -177,7 +177,7 @@ fn writ_equal_d(a: WAny, b: WAny, depth: i64) -> bool {
 // Materialize the at-rest WAny word at `slot_addr` (self-relative there).
 unsafe fn wa_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
-    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if w == 0i64 { return WAny::null(); }
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
-    return WAny::Ref((slot_addr + w) as *const u8);
+    return unsafe { WAny::ref_to((slot_addr + w) as *const u8) };
 }

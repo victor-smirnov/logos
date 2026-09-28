@@ -13,7 +13,7 @@ fn main() -> i32 {
     unsafe {
         let slot: *zoned mut WAny = &mut buf[0] as *mut i64 as *zoned mut WAny;
         // Ref at-rest → stored as a DELTA, materialises back to the absolute ptr.
-        *slot = WAny::Ref(&obj as *const i64 as *const u8);
+        *slot = unsafe { WAny::ref_to(&obj as *const i64 as *const u8) };
         if buf[0] == absobj { return 60i32; }              // stored absolute → zoned off
         if buf[0] == 0i64 { return 61i32; }
         let back: WAny = *slot;

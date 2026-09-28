@@ -13,14 +13,14 @@ use logos.lang.rc;
 unsafe fn root_of(hs: &WritStatic) -> WAny {
     let base: *const u8 = hs.ptr;
     let w: i64 = *(base as *const i64);
-    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if w == 0i64 { return WAny::null(); }
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
-    return WAny::Ref((base as i64 + w) as *const u8);
+    return unsafe { WAny::ref_to((base as i64 + w) as *const u8) };
 }
 
 unsafe fn main() -> i32 {
     // 1. Null root validates.
-    if !writ_check(WAny::Ref(0 as *const u8)) { return 1; }
+    if !writ_check(WAny::null()) { return 1; }
 
     // 2. Scalar roots.
     if !writ_check(WAny::from(42 as i56)) { return 2; }

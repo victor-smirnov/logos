@@ -13,7 +13,7 @@ unsafe fn main() -> i32 {
     if av.resolve() != p                  { return 3; }
 
     // --- Null sentinel (zero word) ---
-    let nul: WAny = WAny::Ref(0 as *const u8);
+    let nul: WAny = WAny::null();
     if !nul.is_null()                     { return 4; }
     if nul.is_pod()                       { return 5; }
 

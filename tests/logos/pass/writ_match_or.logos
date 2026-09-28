@@ -23,7 +23,7 @@ unsafe fn check(d: &Rc<Writ>) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: Rc<Writ> = mk(WAny::Ref(0 as *const u8));        // 1
+    let a: Rc<Writ> = mk(WAny::null());        // 1
     let b: Rc<Writ> = mk(WAny::from(42 as i56));     // 1
     let c: Rc<Writ> = mk(WAny::from(true));  // 2
     let d: Rc<Writ> = mk(WAny::from(-7 as i56));     // 2

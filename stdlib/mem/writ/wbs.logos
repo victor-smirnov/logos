@@ -108,9 +108,9 @@ unsafe fn write_typed_map(out: &mut Vec<u8>, p: *const u8, tc: u64, depth: i64) 
         let vslot: i64 = vals + i * 8i64;
         let w: i64 = *(vslot as *const i64);
         let vh: WAny =
-            if w == 0i64 { WAny::Ref(0i64 as *const u8) }
+            if w == 0i64 { WAny::null() }
             else if (w & 1i64) == 1i64 { WAny::Pod(w as u64) }
-            else { WAny::Ref((vslot + w) as *const u8) };
+            else { unsafe { WAny::ref_to((vslot + w) as *const u8) } };
         write_val(out, vh, depth + 1i64);
         i = i + 1i64;
     }

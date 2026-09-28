@@ -37,9 +37,9 @@ use logos.std.wql.wql_surface_parser;   // parse_program — the GENERATED surfa
 // samples, exercising `has_rels` on the envelope).
 fn parse_entry(src: str, h: &Writ) -> WAny {
     let root: WAny = parse_program(src, h);
-    if root.is_null() { return WAny::Ref(0i64 as *const u8); }
+    if root.is_null() { return WAny::null(); }
     let prog: RQProgram = root.view::<RQProgram>();
-    if prog.has_rels() { return WAny::Ref(0i64 as *const u8); }
+    if prog.has_rels() { return WAny::null(); }
     // Launder through the raw arena word (the ref_to(raw) idiom): the WAny
     // targets the entry's TOM in the arena (outlives this frame), not the
     // local view — keeps the borrow checker off the local `prog`.

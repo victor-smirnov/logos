@@ -987,7 +987,7 @@ fn rt_node(v: RtVal) -> WAny {
     match v {
         RtVal::Node(w) => { return w; }
         RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_) | RtVal::Null
-          | RtVal::Error => { return WAny::Ref(0i64 as *const u8); }
+          | RtVal::Error => { return WAny::null(); }
     }
 }
 

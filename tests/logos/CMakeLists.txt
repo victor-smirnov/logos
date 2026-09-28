@@ -1958,6 +1958,17 @@ set_tests_properties(logos_00_stdlib_raw_dup_lint PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# #327: `WAny::Ref(p)` takes any pointer — a construction outside anyval.logos
+# goes through `unsafe { WAny::ref_to(p) }` or `WAny::null()`.
+add_test(
+    NAME logos_00_wany_ref_ctor_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/wany_ref_ctor_lint.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_wany_ref_ctor_lint PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 add_test(
     NAME logos_00_shared_ref_ub_lint
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub_lint.sh

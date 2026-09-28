@@ -379,7 +379,7 @@ unsafe fn tv_build(h: &Writ, name: str, params_arr: [i64; 32], n_params: i64,
             let w: i64 = params_arr[i];
             let hv: WAny = if w == 0i64 { WAny::ref_to(0i64 as *const u8) }
                            else if (w & 1i64) == 1i64 { WAny::Pod(w as u64) }
-                           else { WAny::Ref(w as *const u8) };
+                           else { unsafe { WAny::ref_to(w as *const u8) } };
             pa.push(hv);
             i = i + 1i64;
         }

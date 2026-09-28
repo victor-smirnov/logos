@@ -60,7 +60,7 @@ fn sview_str(sv: SView) -> str {
 pub fn find_decl_by_name(view: &OView, struct_name: str) -> WAny {
     let root: WAny = view.root();
     let items: WAny = view.tiny_map_get(root, 2 as u8);   // ITEMS = 2
-    if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+    if items.is_null() { return WAny::null(); }
     let n: u64 = view.array_len(items);
     let mut i: u64 = 0 as u64;
     while i < n {
@@ -69,7 +69,7 @@ pub fn find_decl_by_name(view: &OView, struct_name: str) -> WAny {
         if sview_eq_str(nm, struct_name) { return item; }
         i = i + (1 as u64);
     }
-    return WAny::Ref(0i64 as *const u8);
+    return WAny::null();
 }
 
 // ── A SPELLING IS NOT A TYPE ────────────────────────────────────────────────
@@ -129,7 +129,7 @@ fn LA_SCHEMA_DEF() -> u64 { return 256 as u64; }
 /// must be an item that HAS fields, and anything else (an enum, a fn, an unresolvable
 /// alias to `[i64; 4]`) is "no schema" rather than "a schema with no fields".
 pub fn find_struct_decl(view: &OView, name: str) -> WAny {
-    let none: WAny = WAny::Ref(0i64 as *const u8);
+    let none: WAny = WAny::null();
     if view.holder == (0 as *mut u8) { return none; }
     let decl: WAny = find_decl_by_name(view, resolve_alias_name(view, name));
     if decl.is_null() { return none; }
@@ -612,7 +612,7 @@ fn LA_FN() -> u64 { return 10 as u64; }
 pub fn find_fn_decl(view: &OView, fn_name: str) -> WAny {
     let root: WAny = view.root();
     let items: WAny = view.tiny_map_get(root, 2 as u8);   // ITEMS = 2
-    if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+    if items.is_null() { return WAny::null(); }
     let n: u64 = view.array_len(items);
     let mut i: u64 = 0 as u64;
     while i < n {
@@ -623,7 +623,7 @@ pub fn find_fn_decl(view: &OView, fn_name: str) -> WAny {
         }
         i = i + (1 as u64);
     }
-    return WAny::Ref(0i64 as *const u8);
+    return WAny::null();
 }
 
 // Declared parameter COUNT of fn item `decl` (0 for a null/param-less decl).

@@ -299,7 +299,7 @@ pub struct MacroParams {
 }
 
 pub fn macro_params_new() -> MacroParams {
-    let nul: WAny = WAny::Ref(0i64 as *const u8);
+    let nul: WAny = WAny::null();
     return MacroParams {
         names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",

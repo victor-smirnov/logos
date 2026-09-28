@@ -34,11 +34,11 @@ fn lw_str(s: &String) -> str {
 
 // A null SExpr / RExpr edge (the "absent" edge — e.g. no `where` predicate).
 pub fn null_sref() -> WRef<SExpr> {
-    let z: WAny = WAny::Ref(0i64 as *const u8);
+    let z: WAny = WAny::null();
     return WRef::<SExpr>::from_any(z);
 }
 pub fn null_rref() -> WRef<RExpr> {
-    let z: WAny = WAny::Ref(0i64 as *const u8);
+    let z: WAny = WAny::null();
     return WRef::<RExpr>::from_any(z);
 }
 
